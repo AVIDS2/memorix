@@ -37,7 +37,7 @@ export async function compactSearch(options: SearchOptions): Promise<{
  */
 export async function compactTimeline(
   anchorId: number,
-  projectId: string,
+  projectId?: string,
   depthBefore = 3,
   depthAfter = 3,
 ): Promise<{

@@ -206,18 +206,21 @@ export async function getObservationsByIds(
  */
 export async function getTimeline(
   anchorId: number,
-  projectId: string,
+  projectId?: string,
   depthBefore = 3,
   depthAfter = 3,
 ): Promise<{ before: IndexEntry[]; anchor: IndexEntry | null; after: IndexEntry[] }> {
   const database = await getDb();
 
-  // Get all observations for this project, sorted by time
-  const allResults = await search(database, {
+  // Get all observations sorted by time (no projectId filter — shared across agents)
+  const searchParams: { term: string; where?: Record<string, unknown>; limit: number } = {
     term: '',
-    where: { projectId },
     limit: 1000,
-  });
+  };
+  if (projectId) {
+    searchParams.where = { projectId };
+  }
+  const allResults = await search(database, searchParams);
 
   const docs = allResults.hits
     .map((h) => h.document as unknown as MemorixDocument)

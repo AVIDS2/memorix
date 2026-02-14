@@ -258,7 +258,7 @@ export async function createMemorixServer(cwd?: string): Promise<{
     async ({ anchorId, depthBefore, depthAfter }) => {
       const result = await compactTimeline(
         anchorId,
-        undefined as unknown as string,
+        undefined,
         depthBefore,
         depthAfter,
       );

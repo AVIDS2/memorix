@@ -1,6 +1,6 @@
 {
   "name": "memorix",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Cross-Agent Memory Bridge — Universal memory layer for AI coding agents via MCP",
   "type": "module",
   "bin": {

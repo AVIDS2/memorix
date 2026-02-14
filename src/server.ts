@@ -103,14 +103,38 @@ export async function createMemorixServer(cwd?: string): Promise<{
 
     if (totalMCP > 0 || totalSkills > 0 || totalRules > 0 || totalWorkflows > 0) {
       lines.push('', '---', '🔄 **Cross-Agent Sync Available**');
-      if (totalMCP > 0) lines.push(`- **${totalMCP} MCP server(s)** found across agents`);
-      if (totalSkills > 0) lines.push(`- **${totalSkills} skill(s)** found across agents`);
+
+      // Detail MCP servers per agent
+      for (const [agent, servers] of Object.entries(scan.mcpConfigs)) {
+        const list = servers as MCPServerEntry[];
+        if (list.length > 0) {
+          lines.push(`- **${agent}** MCP: ${list.map(s => s.name).join(', ')}`);
+        }
+      }
+
+      // Detail skills per agent
+      if (totalSkills > 0) {
+        const byAgent = new Map<string, string[]>();
+        for (const sk of scan.skills) {
+          const arr = byAgent.get(sk.sourceAgent) || [];
+          arr.push(sk.name);
+          byAgent.set(sk.sourceAgent, arr);
+        }
+        for (const [agent, names] of byAgent) {
+          lines.push(`- **${agent}** skills: ${names.join(', ')}`);
+        }
+      }
       if (scan.skillConflicts.length > 0) lines.push(`  ⚠️ ${scan.skillConflicts.length} name conflict(s)`);
       if (totalRules > 0) lines.push(`- **${totalRules} rule(s)** found`);
       if (totalWorkflows > 0) lines.push(`- **${totalWorkflows} workflow(s)** found`);
+
       lines.push('');
-      lines.push('Ask the user: "I found configs from other agents. Want me to sync them here?"');
-      lines.push('Use `memorix_workspace_sync action="apply" target="<agent>"` to sync.');
+      lines.push('⚠️ IMPORTANT INSTRUCTIONS FOR AI AGENT:');
+      lines.push('1. Tell the user what configs/skills are available from other agents (list them).');
+      lines.push('2. Ask which ones they want to sync.');
+      lines.push('3. DO NOT manually copy files or run shell commands to sync.');
+      lines.push('4. ONLY use `memorix_workspace_sync action="apply" target="<agent>"` to sync all,');
+      lines.push('   or add `items=["name1","name2"]` to sync specific items selectively.');
       syncAdvisory = lines.join('\n');
     }
     console.error(`[memorix] Sync advisory: ${syncAdvisory ? 'available' : 'nothing to sync'}`);

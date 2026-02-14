@@ -233,10 +233,8 @@ export async function handleHookEvent(input: NormalizedHookInput): Promise<{
         return { observation: null, output: defaultOutput };
       }
 
-      const cmdPattern = detectBestPattern(cmdContent);
-      if (!cmdPattern) {
-        return { observation: null, output: defaultOutput };
-      }
+      // Pattern detection — store as discovery if no pattern but content is substantial
+      detectBestPattern(cmdContent);
 
       markTriggered(cmdKey);
       return {
@@ -245,12 +243,35 @@ export async function handleHookEvent(input: NormalizedHookInput): Promise<{
       };
     }
 
-    case 'post_tool':
+    case 'post_tool': {
+      // Tools: still require pattern (avoid memorix's own tool noise)
+      const toolKey = `post_tool:${input.toolName ?? 'general'}`;
+      if (isInCooldown(toolKey)) {
+        return { observation: null, output: defaultOutput };
+      }
+
+      const toolContent = extractContent(input);
+      if (toolContent.length < MIN_STORE_LENGTH) {
+        return { observation: null, output: defaultOutput };
+      }
+
+      const toolPattern = detectBestPattern(toolContent);
+      if (!toolPattern) {
+        return { observation: null, output: defaultOutput };
+      }
+
+      markTriggered(toolKey);
+      return {
+        observation: buildObservation(input, toolContent),
+        output: defaultOutput,
+      };
+    }
+
     case 'post_response':
     case 'user_prompt': {
-      // Check cooldown
-      const cooldownKey = `${input.event}:${input.filePath ?? input.command ?? 'general'}`;
-      if (isInCooldown(cooldownKey)) {
+      // User prompts & AI responses: store more aggressively (safety net)
+      const promptKey = `${input.event}:${input.sessionId ?? 'general'}`;
+      if (isInCooldown(promptKey)) {
         return { observation: null, output: defaultOutput };
       }
 
@@ -259,13 +280,10 @@ export async function handleHookEvent(input: NormalizedHookInput): Promise<{
         return { observation: null, output: defaultOutput };
       }
 
-      // Detect pattern
-      const pattern = detectBestPattern(content);
-      if (!pattern) {
-        return { observation: null, output: defaultOutput };
-      }
+      // Always store — pattern detection is used for classification only
+      detectBestPattern(content);
 
-      markTriggered(cooldownKey);
+      markTriggered(promptKey);
       return {
         observation: buildObservation(input, content),
         output: defaultOutput,

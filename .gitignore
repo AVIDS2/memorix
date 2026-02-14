@@ -3,3 +3,7 @@ dist/
 *.tgz
 .memorix-data/
 *.backup-*
+image/
+*.log
+.DS_Store
+Thumbs.db

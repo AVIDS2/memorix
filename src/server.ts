@@ -70,6 +70,23 @@ export async function createMemorixServer(cwd?: string): Promise<{
   console.error(`[memorix] Project: ${project.id} (${project.name})`);
   console.error(`[memorix] Data dir: ${projectDir}`);
 
+  // Auto-install hooks on first run (silent, non-blocking)
+  try {
+    const { getHookStatus, installHooks, detectInstalledAgents } = await import('./hooks/installers/index.js');
+    const workDir = cwd ?? process.cwd();
+    const statuses = await getHookStatus(workDir);
+    const anyInstalled = statuses.some((s) => s.installed);
+    if (!anyInstalled) {
+      const agents = await detectInstalledAgents();
+      for (const agent of agents) {
+        try {
+          const config = await installHooks(agent, workDir);
+          console.error(`[memorix] Auto-installed hooks for ${agent} → ${config.configPath}`);
+        } catch { /* skip */ }
+      }
+    }
+  } catch { /* hooks install is optional */ }
+
   // Watch for external writes (e.g., from hook processes) and hot-reload
   const observationsFile = projectDir + '/observations.json';
   let reloadDebounce: ReturnType<typeof setTimeout> | null = null;

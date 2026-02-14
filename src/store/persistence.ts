@@ -4,28 +4,28 @@
  * Saves and restores the Orama database to/from disk.
  * Source: @orama/plugin-data-persistence (official Orama plugin)
  *
- * Data is stored per-project in the data directory:
- *   ~/.memorix/data/<projectId>/memorix.msp (binary format)
+ * Data is stored in a single global directory shared across all agents:
+ *   ~/.memorix/data/ (all files: observations.json, graph.jsonl, counter.json)
  */
 
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 
-/** Default base data directory */
+/** Default base data directory — single global store shared across all agents */
 const DEFAULT_DATA_DIR = path.join(os.homedir(), '.memorix', 'data');
 
 /**
- * Get the data directory for a specific project.
- * Creates the directory if it doesn't exist.
+ * Get the global data directory for Memorix storage.
+ * All agents share the same directory — projectId is stored as metadata only.
+ * This follows the mcp-memory-service pattern for reliable cross-agent sharing.
+ *
+ * @param projectId - kept for API compat, ignored for directory resolution
  */
 export async function getProjectDataDir(projectId: string, baseDir?: string): Promise<string> {
   const dataDir = baseDir ?? DEFAULT_DATA_DIR;
-  // Sanitize projectId for filesystem (replace / with --)
-  const safeId = projectId.replace(/\//g, '--');
-  const projectDir = path.join(dataDir, safeId);
-  await fs.mkdir(projectDir, { recursive: true });
-  return projectDir;
+  await fs.mkdir(dataDir, { recursive: true });
+  return dataDir;
 }
 
 /**

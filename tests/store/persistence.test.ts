@@ -33,9 +33,10 @@ afterEach(async () => {
 
 describe('Persistence Layer', () => {
   describe('getProjectDataDir', () => {
-    it('should create project directory with sanitized ID', async () => {
+    it('should create global data directory (projectId is metadata only)', async () => {
       const dir = await getProjectDataDir('user/repo', testDir);
-      expect(dir).toContain('user--repo');
+      // Global storage: all projects share the same base directory
+      expect(dir).toBe(testDir);
       const stat = await fs.stat(dir);
       expect(stat.isDirectory()).toBe(true);
     });

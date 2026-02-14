@@ -711,9 +711,10 @@ export async function createMemorixServer(cwd?: string): Promise<{
       inputSchema: {
         action: z.enum(['scan', 'migrate', 'apply']).describe('Action: "scan" to detect configs, "migrate" to preview, "apply" to write to disk'),
         target: z.enum(AGENT_TARGETS).optional().describe('Target agent for migration (required for migrate)'),
+        items: z.array(z.string()).optional().describe('Selective sync: list specific MCP server or skill names to sync (e.g. ["figma-remote-mcp-server", "create-subagent"]). Omit to sync all.'),
       },
     },
-    async ({ action, target }) => {
+    async ({ action, target, items }) => {
       const engine = new WorkspaceSyncEngine(project.rootPath);
 
       if (action === 'scan') {
@@ -772,7 +773,7 @@ export async function createMemorixServer(cwd?: string): Promise<{
       }
 
       if (action === 'apply') {
-        const applyResult = await engine.apply(target as AgentTarget);
+        const applyResult = await engine.apply(target as AgentTarget, items);
         return {
           content: [{ type: 'text' as const, text: applyResult.migrationSummary }],
           ...(applyResult.success ? {} : { isError: true }),
@@ -780,7 +781,7 @@ export async function createMemorixServer(cwd?: string): Promise<{
       }
 
       // action === 'migrate' (preview only)
-      const result = await engine.migrate(target as AgentTarget);
+      const result = await engine.migrate(target as AgentTarget, items);
       const lines = [
         `## Workspace Migration → ${target}`,
         '',

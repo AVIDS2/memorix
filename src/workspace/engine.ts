@@ -106,8 +106,10 @@ export class WorkspaceSyncEngine {
 
   /**
    * Migrate workspace configs to a target agent format.
+   * @param items — optional list of specific item names (MCP servers / skills) to sync.
+   *               When provided, only matching items are included. Omit to sync all.
    */
-  async migrate(target: AgentTarget): Promise<WorkspaceSyncResult> {
+  async migrate(target: AgentTarget, items?: string[]): Promise<WorkspaceSyncResult> {
     const scan = await this.scan();
     const result: WorkspaceSyncResult = {
       mcpServers: { scanned: [], generated: [] },
@@ -116,12 +118,18 @@ export class WorkspaceSyncEngine {
       skills: { scanned: [], conflicts: [], copied: [], skipped: [] },
     };
 
+    const itemFilter = items && items.length > 0
+      ? new Set(items.map(i => i.toLowerCase()))
+      : null;
+
     // 1. Merge all MCP servers from all sources (dedup by name)
     const allServers = new Map<string, MCPServerEntry>();
     for (const servers of Object.values(scan.mcpConfigs)) {
       for (const s of servers) {
         if (!allServers.has(s.name)) {
-          allServers.set(s.name, s);
+          if (!itemFilter || itemFilter.has(s.name.toLowerCase())) {
+            allServers.set(s.name, s);
+          }
         }
       }
     }
@@ -161,7 +169,9 @@ export class WorkspaceSyncEngine {
     }
 
     // 4. Skills sync (no format conversion, just copy folders)
-    result.skills.scanned = scan.skills;
+    result.skills.scanned = itemFilter
+      ? scan.skills.filter(sk => itemFilter.has(sk.name.toLowerCase()))
+      : scan.skills;
     result.skills.conflicts = scan.skillConflicts;
 
     return result;
@@ -311,8 +321,8 @@ export class WorkspaceSyncEngine {
    *   - Auto-rollback on any failure
    *   - Returns backup paths for manual rollback if needed
    */
-  async apply(target: AgentTarget): Promise<ApplyResult & { migrationSummary: string }> {
-    const syncResult = await this.migrate(target);
+  async apply(target: AgentTarget, items?: string[]): Promise<ApplyResult & { migrationSummary: string }> {
+    const syncResult = await this.migrate(target, items);
     const applier = new WorkspaceSyncApplier();
 
     // Collect all files to write

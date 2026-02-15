@@ -1,5 +1,6 @@
 <p align="center">
-  <h1 align="center">🧠 Memorix</h1>
+  <img src="assets/logo.png" alt="Memorix Logo" width="120">
+  <h1 align="center">Memorix</h1>
   <p align="center"><strong>Cross-Agent Memory Bridge — Universal memory layer for AI coding agents via MCP</strong></p>
   <p align="center">
     <a href="https://www.npmjs.com/package/memorix"><img src="https://img.shields.io/npm/v/memorix.svg?style=flat-square&color=cb3837" alt="npm version"></a>

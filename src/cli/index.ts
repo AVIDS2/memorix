@@ -11,6 +11,10 @@
  */
 
 import { defineCommand, runMain } from 'citty';
+import { createRequire } from 'node:module';
+
+const require = createRequire(import.meta.url);
+const pkg = require('../../package.json') as { version: string };
 
 // ============================================================
 // Main command
@@ -19,7 +23,7 @@ import { defineCommand, runMain } from 'citty';
 const main = defineCommand({
   meta: {
     name: 'memorix',
-    version: '0.3.9',
+    version: pkg.version,
     description: 'Cross-Agent Memory Bridge — Universal memory layer for AI coding agents via MCP',
   },
   subCommands: {

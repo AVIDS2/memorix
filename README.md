@@ -19,9 +19,9 @@
 
 ---
 
-> **Your AI forgot what you discussed yesterday? Not anymore.**
+> **One project, six agents, zero context loss.**
 >
-> Memorix stores and indexes project knowledge — architecture decisions, bug fixes, gotchas, code patterns — and exposes it via [MCP](https://modelcontextprotocol.io/) so **any AI coding agent** can access it. It also **syncs MCP configs, rules, skills, and workflows** across all your agents automatically.
+> Memorix is a **cross-agent memory bridge** — it lets Cursor, Windsurf, Claude Code, Codex, Copilot, and Antigravity **share the same project knowledge** in real-time. Architecture decisions made in one IDE are instantly available in another. Switch tools, open new windows, start fresh sessions — your context follows you everywhere via [MCP](https://modelcontextprotocol.io/). It also **syncs MCP configs, rules, skills, and workflows** across all your agents automatically.
 
 ---
 
@@ -199,7 +199,8 @@ args = ["-y", "memorix@latest", "serve"]
 | `memorix_search` | L1: Compact index search | ~50-100/result |
 | `memorix_timeline` | L2: Chronological context | ~100-200/group |
 | `memorix_detail` | L3: Full observation details | ~500-1000/result |
-| `memorix_retention` | Memory decay & retention dashboard | — |
+| `memorix_retention` | Memory decay & retention status | — |
+| `memorix_dashboard` | Launch visual web dashboard in browser | — |
 | `memorix_rules_sync` | Scan/deduplicate/generate rules across agents | — |
 | `memorix_workspace_sync` | Migrate MCP configs, workflows, skills | — |
 
@@ -266,7 +267,7 @@ Files: ["src/auth/jwt.ts", "src/config.ts"]
 └────────────────────────┬─────────────────────────────────────┘
                          │ MCP Protocol (stdio)
 ┌────────────────────────▼─────────────────────────────────────┐
-│                 Memorix MCP Server (16 tools)                │
+│                 Memorix MCP Server (17 tools)                │
 │                                                              │
 │  ┌─────────────┐  ┌──────────────┐  ┌──────────────────┐   │
 │  │   Memory     │  │   Compact    │  │  Workspace Sync  │   │
@@ -340,7 +341,7 @@ npm run build        # Production build
 
 ```
 src/
-├── server.ts              # MCP Server entry (16 tools)
+├── server.ts              # MCP Server entry (17 tools)
 ├── types.ts               # All type definitions
 ├── memory/                # Graph, observations, retention, entity extraction
 ├── store/                 # Orama search engine + disk persistence
@@ -349,8 +350,9 @@ src/
 ├── hooks/                 # Auto-memory hooks (normalizer + pattern detector)
 ├── workspace/             # Cross-agent MCP/workflow/skills sync
 ├── rules/                 # Cross-agent rules sync (6 adapters)
+├── dashboard/             # Visual web dashboard (knowledge graph, stats)
 ├── project/               # Git-based project detection
-└── cli/                   # CLI commands (serve, hook, sync, status)
+└── cli/                   # CLI commands (serve, hook, sync, dashboard)
 ```
 
 > 📚 Full documentation available in [`docs/`](./docs/) — architecture, modules, API reference, design decisions, and more.

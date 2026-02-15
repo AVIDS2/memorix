@@ -28,6 +28,7 @@ const main = defineCommand({
     sync: () => import('./commands/sync.js').then(m => m.default),
     hook: () => import('./commands/hook.js').then(m => m.default),
     hooks: () => import('./commands/hooks.js').then(m => m.default),
+    dashboard: () => import('./commands/dashboard.js').then(m => m.default),
   },
   run() {
     // Default: show help (citty handles this automatically)

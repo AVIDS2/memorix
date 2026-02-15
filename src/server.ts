@@ -844,5 +844,108 @@ export async function createMemorixServer(cwd?: string): Promise<{
     },
   );
 
+  // ============================================================
+  // memorix_dashboard — Launch the web dashboard
+  // ============================================================
+
+  let dashboardRunning = false;
+
+  server.registerTool(
+    'memorix_dashboard',
+    {
+      title: 'Launch Dashboard',
+      description:
+        'Launch the Memorix Web Dashboard in the browser. ' +
+        'Shows knowledge graph, observations, retention scores, and project stats in a visual interface.',
+      inputSchema: {
+        port: z.number().optional().describe('Port to run the dashboard on (default: 3210)'),
+      },
+    },
+    async ({ port: dashboardPort }) => {
+      const portNum = (dashboardPort as number) || 3210;
+      const url = `http://localhost:${portNum}`;
+
+      if (dashboardRunning) {
+        const { exec } = await import('node:child_process');
+        const cmd =
+          process.platform === 'win32' ? `start "" "${url}"` :
+            process.platform === 'darwin' ? `open "${url}"` :
+              `xdg-open "${url}"`;
+        exec(cmd, () => { });
+        return {
+          content: [{ type: 'text' as const, text: `Dashboard is already running at ${url}. Opened in browser.` }],
+        };
+      }
+
+      try {
+        const pathMod = await import('node:path');
+        const fsMod = await import('node:fs');
+        const { fileURLToPath } = await import('node:url');
+        const { startDashboard } = await import('./dashboard/server.js');
+
+        // Try multiple strategies to find the static files directory
+        // When running from CLI (dist/cli/index.js), __dirname = dist/cli/, need to go up
+        const candidates = [
+          pathMod.default.join(__dirname, '..', 'dashboard', 'static'),
+          pathMod.default.join(__dirname, 'dashboard', 'static'),
+          pathMod.default.join(pathMod.default.dirname(fileURLToPath(import.meta.url)), '..', 'dashboard', 'static'),
+          pathMod.default.join(pathMod.default.dirname(fileURLToPath(import.meta.url)), 'dashboard', 'static'),
+        ];
+
+        // Log all candidates for debugging
+        for (const [i, c] of candidates.entries()) {
+          const hasIndex = fsMod.existsSync(pathMod.default.join(c, 'index.html'));
+          console.error(`[memorix] candidate[${i}]: ${c} (has index.html: ${hasIndex})`);
+        }
+
+        let staticDir = candidates[0];
+        for (const c of candidates) {
+          if (fsMod.existsSync(pathMod.default.join(c, 'index.html'))) {
+            staticDir = c;
+            break;
+          }
+        }
+        console.error(`[memorix] Dashboard staticDir: ${staticDir}`);
+
+        // Start in background (non-blocking), disable auto-open (we'll open it ourselves)
+        startDashboard(projectDir, portNum, staticDir, project.id, project.name, false)
+          .then(() => { dashboardRunning = true; })
+          .catch((err) => { console.error('[memorix] Dashboard error:', err); dashboardRunning = false; });
+
+        // Wait for the server to start, then open browser
+        await new Promise(resolve => setTimeout(resolve, 800));
+        dashboardRunning = true;
+
+        // Open browser from MCP side
+        const { exec: execCmd } = await import('node:child_process');
+        const openCmd =
+          process.platform === 'win32' ? `start "" "${url}"` :
+            process.platform === 'darwin' ? `open "${url}"` :
+              `xdg-open "${url}"`;
+        execCmd(openCmd, () => { });
+
+        return {
+          content: [{
+            type: 'text' as const,
+            text: [
+              `Memorix Dashboard started!`,
+              ``,
+              `URL: ${url}`,
+              `Project: ${project.name} (${project.id})`,
+              `Static: ${staticDir}`,
+              ``,
+              `The dashboard has been opened in your default browser.`,
+              `It shows your knowledge graph, observations, retention scores, and project stats.`,
+            ].join('\n'),
+          }],
+        };
+      } catch (err) {
+        return {
+          content: [{ type: 'text' as const, text: `Failed to start dashboard: ${err instanceof Error ? err.message : String(err)}` }],
+        };
+      }
+    },
+  );
+
   return { server, graphManager, projectId: project.id };
 }

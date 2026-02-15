@@ -22,5 +22,8 @@ export default defineConfig([
     shims: true,
     banner: { js: '#!/usr/bin/env node' },
     external: ['fastembed'],
+    // Copy dashboard static files after CLI build
+    onSuccess: 'node scripts/copy-static.cjs',
   },
 ]);
+

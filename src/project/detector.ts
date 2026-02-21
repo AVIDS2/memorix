@@ -29,9 +29,12 @@ export function detectProject(cwd?: string): ProjectInfo {
     return { id, name, gitRemote, rootPath };
   }
 
-  // Fallback: use directory name
+  // Fallback: use "local/<dirname>" to distinguish non-git projects
+  // This avoids creating garbage directories named after IDEs or system paths
   const name = path.basename(rootPath);
-  return { id: name, name, rootPath };
+  const id = `local/${name}`;
+  console.error(`[memorix] Warning: no git remote found at ${rootPath}, using fallback projectId: ${id}`);
+  return { id, name, rootPath };
 }
 
 /**

@@ -42,6 +42,15 @@ const i18n = {
     noObsTitle: 'No Observations',
     noObsDesc: 'Use memorix_store to create observations',
     untitled: 'Untitled',
+    exportData: 'Export',
+    deleteObs: 'Delete',
+    deleteConfirm: 'Delete observation #%id%?',
+    deleted: 'Deleted',
+    narrative: 'Narrative',
+    facts: 'Facts',
+    concepts: 'Concepts',
+    files: 'Files Modified',
+    clickToExpand: 'Click to expand',
 
     // Retention
     memoryRetention: 'Memory Retention',
@@ -102,6 +111,15 @@ const i18n = {
     noObsTitle: '暂无观察记录',
     noObsDesc: '使用 memorix_store 创建观察记录',
     untitled: '无标题',
+    exportData: '导出',
+    deleteObs: '删除',
+    deleteConfirm: '确认删除观察 #%id%？',
+    deleted: '已删除',
+    narrative: '叙述',
+    facts: '事实',
+    concepts: '概念',
+    files: '相关文件',
+    clickToExpand: '点击展开',
 
     // Retention
     memoryRetention: '记忆衰减',
@@ -760,9 +778,15 @@ async function loadObservations() {
   const types = [...new Set(allObservations.map(o => o.type).filter(Boolean))];
 
   container.innerHTML = `
-    <div class="page-header">
-      <h1 class="page-title">${t('observations')}</h1>
-      <p class="page-subtitle">${allObservations.length} ${t('observationsStored')}</p>
+    <div class="page-header" style="display:flex;align-items:center;justify-content:space-between;">
+      <div>
+        <h1 class="page-title">${t('observations')}</h1>
+        <p class="page-subtitle">${allObservations.length} ${t('observationsStored')}</p>
+      </div>
+      <button class="export-btn" id="btn-export" title="${t('exportData')}">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 2v8M4 7l4 4 4-4M2 12v2h12v-2"/></svg>
+        ${t('exportData')}
+      </button>
     </div>
 
     <div class="search-bar">
@@ -773,6 +797,12 @@ async function loadObservations() {
 
     <div class="obs-grid" id="obs-list"></div>
   `;
+
+  // Export handler
+  document.getElementById('btn-export').addEventListener('click', () => {
+    const sep = selectedProject ? `?project=${encodeURIComponent(selectedProject)}` : '';
+    window.open(`/api/export${sep}`, '_blank');
+  });
 
   document.getElementById('obs-search').addEventListener('input', (e) => {
     obsFilter = e.target.value.toLowerCase();
@@ -822,25 +852,32 @@ function renderObsList() {
   }
 
   list.innerHTML = filtered.map(obs => `
-    <div class="obs-card">
-      <div class="obs-card-header">
+    <div class="obs-card" data-obs-id="${obs.id}">
+      <div class="obs-card-header" onclick="toggleObsDetail(${obs.id})">
         <span class="obs-card-id">#${obs.id}</span>
         <span class="type-badge" data-type="${obs.type || 'unknown'}">
           ${typeIcons[obs.type] || '❓'} ${obs.type || 'unknown'}
         </span>
         <span class="obs-card-title">${escapeHtml(obs.title || t('untitled'))}</span>
+        <span class="obs-expand-icon">▼</span>
       </div>
       <div class="obs-card-meta">
         <span>📁 ${escapeHtml(obs.entityName || 'unknown')}</span>
         ${obs.createdAt ? `<span>🕐 ${formatTime(obs.createdAt)}</span>` : ''}
         ${obs.accessCount ? `<span>👁 ${obs.accessCount}</span>` : ''}
       </div>
-      ${obs.narrative ? `<div class="obs-card-narrative">${escapeHtml(obs.narrative)}</div>` : ''}
-      ${obs.facts && obs.facts.length > 0 ? `
-        <div class="obs-card-facts">
-          ${obs.facts.map(f => `<span class="fact-tag">${escapeHtml(f)}</span>`).join('')}
+      <div class="obs-detail" id="obs-detail-${obs.id}" style="display:none;">
+        ${obs.narrative ? `<div class="obs-detail-section"><label>${t('narrative')}</label><div class="obs-card-narrative">${escapeHtml(obs.narrative)}</div></div>` : ''}
+        ${obs.facts && obs.facts.length > 0 ? `<div class="obs-detail-section"><label>${t('facts')}</label><div class="obs-card-facts">${obs.facts.map(f => `<span class="fact-tag">${escapeHtml(f)}</span>`).join('')}</div></div>` : ''}
+        ${obs.concepts && obs.concepts.length > 0 ? `<div class="obs-detail-section"><label>${t('concepts')}</label><div class="obs-card-facts">${obs.concepts.map(c => `<span class="fact-tag concept-tag">${escapeHtml(c)}</span>`).join('')}</div></div>` : ''}
+        ${obs.filesModified && obs.filesModified.length > 0 ? `<div class="obs-detail-section"><label>${t('files')}</label><div class="obs-card-facts">${obs.filesModified.map(f => `<span class="fact-tag file-tag">${escapeHtml(f)}</span>`).join('')}</div></div>` : ''}
+        <div class="obs-detail-actions">
+          <button class="delete-btn" onclick="deleteObs(${obs.id}, event)">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4h12M5 4V3a1 1 0 011-1h4a1 1 0 011 1v1M6 7v5M10 7v5M3 4l1 9a1 1 0 001 1h6a1 1 0 001-1l1-9"/></svg>
+            ${t('deleteObs')}
+          </button>
         </div>
-      ` : ''}
+      </div>
     </div>
   `).join('');
 }
@@ -930,6 +967,52 @@ async function loadRetention() {
     </div>
   `;
 }
+
+// ============================================================
+// Observation Interactions
+// ============================================================
+
+function toggleObsDetail(id) {
+  const detail = document.getElementById(`obs-detail-${id}`);
+  const card = detail?.closest('.obs-card');
+  if (!detail || !card) return;
+
+  const isOpen = detail.style.display !== 'none';
+  detail.style.display = isOpen ? 'none' : 'block';
+  card.classList.toggle('expanded', !isOpen);
+
+  // Rotate expand icon
+  const icon = card.querySelector('.obs-expand-icon');
+  if (icon) icon.style.transform = isOpen ? '' : 'rotate(180deg)';
+}
+
+async function deleteObs(id, event) {
+  event?.stopPropagation();
+  const msg = t('deleteConfirm').replace('%id%', id);
+  if (!confirm(msg)) return;
+
+  try {
+    const sep = selectedProject ? `?project=${encodeURIComponent(selectedProject)}` : '';
+    const res = await fetch(`/api/observations/${id}${sep}`, { method: 'DELETE' });
+    const data = await res.json();
+    if (data.ok) {
+      // Remove from local array and re-render
+      allObservations = allObservations.filter(o => o.id !== id);
+      renderObsList();
+      // Update counter in header
+      const subtitle = document.querySelector('#page-observations .page-subtitle');
+      if (subtitle) subtitle.textContent = `${allObservations.length} ${t('observationsStored')}`;
+    } else {
+      alert(data.error || 'Delete failed');
+    }
+  } catch (err) {
+    alert('Delete failed: ' + err.message);
+  }
+}
+
+// Make functions globally accessible for onclick handlers
+window.toggleObsDetail = toggleObsDetail;
+window.deleteObs = deleteObs;
 
 // ============================================================
 // Utilities

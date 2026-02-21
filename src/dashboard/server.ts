@@ -13,7 +13,7 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { exec } from 'node:child_process';
 
-import { loadGraphJsonl, loadObservationsJson, loadIdCounter, getBaseDataDir } from '../store/persistence.js';
+import { loadGraphJsonl, loadObservationsJson, saveObservationsJson, loadIdCounter, getBaseDataDir } from '../store/persistence.js';
 
 // MIME types for static file serving
 const MIME_TYPES: Record<string, string> = {
@@ -213,8 +213,45 @@ async function handleApi(
                 break;
             }
 
-            default:
+            default: {
+                // Handle dynamic routes
+                const deleteMatch = apiPath.match(/^\/observations\/(\d+)$/);
+                if (deleteMatch && req.method === 'DELETE') {
+                    const obsId = parseInt(deleteMatch[1], 10);
+                    const allObs = await loadObservationsJson(effectiveDataDir) as Array<{ id?: number;[k: string]: unknown }>;
+                    const idx = allObs.findIndex(o => o.id === obsId);
+                    if (idx === -1) {
+                        sendError(res, 'Observation not found', 404);
+                    } else {
+                        allObs.splice(idx, 1);
+                        await saveObservationsJson(effectiveDataDir, allObs);
+                        sendJson(res, { ok: true, deleted: obsId });
+                    }
+                    break;
+                }
+
+                if (apiPath === '/export') {
+                    const graph = await loadGraphJsonl(effectiveDataDir);
+                    const allObs = await loadObservationsJson(effectiveDataDir);
+                    const observations = filterByProject(allObs as Array<{ projectId?: string }>, effectiveProjectId);
+                    const nextId = await loadIdCounter(effectiveDataDir);
+                    const exportData = {
+                        project: { id: effectiveProjectId, name: effectiveProjectName },
+                        exportedAt: new Date().toISOString(),
+                        graph,
+                        observations,
+                        nextId,
+                    };
+                    res.writeHead(200, {
+                        'Content-Type': 'application/json',
+                        'Content-Disposition': `attachment; filename="memorix-${effectiveProjectId.replace(/\//g, '-')}-export.json"`,
+                    });
+                    res.end(JSON.stringify(exportData, null, 2));
+                    break;
+                }
+
                 sendError(res, 'Not found', 404);
+            }
         }
     } catch (err) {
         const message = err instanceof Error ? err.message : 'Unknown error';

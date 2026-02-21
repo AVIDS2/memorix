@@ -1093,3 +1093,153 @@ body {
   font-size: 12px;
   padding: 4px 8px;
 }
+
+/* ============================================================
+ * Export Button
+ * ============================================================ */
+
+.export-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-family: var(--font-sans);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.export-btn:hover {
+  background: var(--bg-card-hover);
+  border-color: var(--accent-cyan);
+  color: var(--accent-cyan);
+  box-shadow: var(--glow-cyan);
+}
+
+/* ============================================================
+ * Observation Card Enhancements
+ * ============================================================ */
+
+.obs-card {
+  cursor: pointer;
+  transition: all 0.25s ease;
+}
+
+.obs-card:hover {
+  border-color: var(--border-medium);
+  transform: translateY(-1px);
+}
+
+.obs-card.expanded {
+  border-color: var(--accent-cyan);
+  box-shadow: var(--glow-cyan);
+}
+
+.obs-card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  position: relative;
+}
+
+.obs-expand-icon {
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--text-muted);
+  transition: transform 0.25s ease;
+  flex-shrink: 0;
+}
+
+.obs-card:hover .obs-expand-icon {
+  color: var(--text-secondary);
+}
+
+/* Observation Detail Section */
+.obs-detail {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-subtle);
+  animation: slideDown 0.2s ease;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.obs-detail-section {
+  margin-bottom: 12px;
+}
+
+.obs-detail-section label {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 6px;
+}
+
+.obs-detail-section .obs-card-narrative {
+  -webkit-line-clamp: unset;
+  white-space: pre-wrap;
+  max-height: none;
+}
+
+/* Tag variants */
+.concept-tag {
+  background: rgba(168, 85, 247, 0.1) !important;
+  border-color: rgba(168, 85, 247, 0.2) !important;
+  color: var(--accent-purple) !important;
+}
+
+.file-tag {
+  background: rgba(59, 130, 246, 0.1) !important;
+  border-color: rgba(59, 130, 246, 0.2) !important;
+  color: var(--accent-blue) !important;
+  font-family: var(--font-mono);
+  font-size: 11px !important;
+}
+
+/* Delete Button */
+.obs-detail-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 12px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.delete-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 12px;
+  background: transparent;
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  border-radius: 6px;
+  color: var(--accent-red);
+  font-size: 12px;
+  font-family: var(--font-sans);
+  cursor: pointer;
+  transition: all 0.2s;
+  opacity: 0.7;
+}
+
+.delete-btn:hover {
+  background: rgba(239, 68, 68, 0.1);
+  border-color: var(--accent-red);
+  opacity: 1;
+}

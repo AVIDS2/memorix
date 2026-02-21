@@ -6,13 +6,24 @@
  * - AGENTS.md (always included, pure Markdown)
  *
  * Source: Kiro official documentation on Steering Rules.
+ * https://kiro.dev/docs/steering/
+ *
  * Kiro uses ".kiro/steering/" for project-level rules
  * and "~/.kiro/steering/" for user-level (global) rules.
+ *
+ * Frontmatter inclusion modes:
+ *   - always (default): loaded into every interaction
+ *   - fileMatch + fileMatchPattern: conditional on file globs
+ *   - manual: on-demand via #name in chat
+ *   - auto + name + description: auto-included when relevant
  */
 
 import matter from 'gray-matter';
 import type { RuleFormatAdapter, UnifiedRule, RuleSource } from '../../types.js';
 import { hashContent, generateRuleId } from '../utils.js';
+
+/** Kiro inclusion mode values */
+type KiroInclusion = 'always' | 'fileMatch' | 'manual' | 'auto';
 
 export class KiroAdapter implements RuleFormatAdapter {
     readonly source: RuleSource = 'kiro';
@@ -37,6 +48,16 @@ export class KiroAdapter implements RuleFormatAdapter {
             const fm: Record<string, unknown> = {};
             if (rule.description) fm.description = rule.description;
 
+            // Map unified scope → Kiro inclusion mode
+            if (rule.paths && rule.paths.length > 0) {
+                fm.inclusion = 'fileMatch';
+                fm.fileMatchPattern = rule.paths.length === 1
+                    ? rule.paths[0]
+                    : rule.paths;
+            } else if (rule.alwaysApply) {
+                fm.inclusion = 'always';
+            }
+
             const fileName = rule.id
                 .replace(/^kiro:/, '')
                 .replace(/[^a-zA-Z0-9-_]/g, '-')
@@ -58,17 +79,29 @@ export class KiroAdapter implements RuleFormatAdapter {
         const trimmed = body.trim();
         if (!trimmed) return [];
 
-        // Kiro steering rules can be "always", "conditional", or "manual"
-        const trigger = data.trigger as string | undefined;
-        const alwaysApply = !trigger || trigger === 'always';
+        // Kiro uses "inclusion" field: always | fileMatch | manual | auto
+        const inclusion = (data.inclusion as KiroInclusion | undefined) ?? 'always';
+        const alwaysApply = inclusion === 'always' || inclusion === 'auto';
+
+        // fileMatchPattern can be a string or string[]
+        let paths: string[] | undefined;
+        if (inclusion === 'fileMatch' && data.fileMatchPattern) {
+            paths = Array.isArray(data.fileMatchPattern)
+                ? data.fileMatchPattern
+                : [data.fileMatchPattern];
+        }
+
+        let scope: UnifiedRule['scope'] = 'project';
+        if (alwaysApply) scope = 'global';
+        else if (paths && paths.length > 0) scope = 'path-specific';
 
         return [{
             id: generateRuleId('kiro', filePath),
             content: trimmed,
             description: data.description as string | undefined,
             source: 'kiro',
-            scope: alwaysApply ? 'global' : 'path-specific',
-            paths: data.globs as string[] | undefined,
+            scope,
+            paths,
             alwaysApply,
             priority: alwaysApply ? 10 : 5,
             hash: hashContent(trimmed),
@@ -90,3 +123,4 @@ export class KiroAdapter implements RuleFormatAdapter {
         }];
     }
 }
+

@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.7.3] — 2026-02-22
+
+### Fixed
+- **Windows: git remote detection fails due to "dubious ownership"** — Added `safe.directory=*` flag to all git commands so MCP subprocess can read git info regardless of directory ownership settings. If git CLI still fails, falls back to directly parsing `.git/config` file. This fixes projects incorrectly getting `local/<dirname>` instead of `owner/repo` as their project ID.
+
 ## [0.7.2] — 2026-02-22
 
 ### Fixed

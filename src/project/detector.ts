@@ -9,7 +9,7 @@
  */
 
 import { execSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { ProjectInfo } from '../types.js';
@@ -114,13 +114,20 @@ function findPackageRoot(cwd: string): string | null {
  */
 function getGitRoot(cwd: string): string | null {
   try {
-    const root = execSync('git rev-parse --show-toplevel', {
+    const root = execSync('git -c safe.directory=* rev-parse --show-toplevel', {
       cwd,
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
     }).trim();
     return root || null;
   } catch {
+    // Fallback: walk up to find .git directory
+    let dir = path.resolve(cwd);
+    const fsRoot = path.parse(dir).root;
+    while (dir !== fsRoot) {
+      if (existsSync(path.join(dir, '.git'))) return dir;
+      dir = path.dirname(dir);
+    }
     return null;
   }
 }
@@ -131,12 +138,32 @@ function getGitRoot(cwd: string): string | null {
  */
 function getGitRemote(cwd: string): string | null {
   try {
-    const remote = execSync('git remote get-url origin', {
+    const remote = execSync('git -c safe.directory=* remote get-url origin', {
       cwd,
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
     }).trim();
     return remote || null;
+  } catch {
+    // Fallback: read .git/config directly (handles dubious ownership on Windows)
+    return readGitConfigRemote(cwd);
+  }
+}
+
+/**
+ * Fallback: parse remote.origin.url from .git/config when git CLI fails.
+ * Handles Windows "dubious ownership" and other permission issues.
+ */
+function readGitConfigRemote(cwd: string): string | null {
+  try {
+    const configPath = path.join(cwd, '.git', 'config');
+    if (!existsSync(configPath)) return null;
+    const content = readFileSync(configPath, 'utf-8');
+    // Parse INI-style: [remote "origin"] section, url = ...
+    const remoteMatch = content.match(/\[remote\s+"origin"\]([\s\S]*?)(?=\n\[|$)/);
+    if (!remoteMatch) return null;
+    const urlMatch = remoteMatch[1].match(/^\s*url\s*=\s*(.+)$/m);
+    return urlMatch ? urlMatch[1].trim() : null;
   } catch {
     return null;
   }

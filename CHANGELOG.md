@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.7.4] — 2026-02-22
+
+### Fixed
+- **Hyphenated concepts not searchable** — Concepts like `project-detection` and `bug-fix` are now normalized to `project detection` and `bug fix` in the search index so Orama's tokenizer can split them into individual searchable terms. Original observation data is preserved unchanged.
+
 ## [0.7.3] — 2026-02-22
 
 ### Fixed

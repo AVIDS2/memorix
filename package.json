@@ -1,6 +1,6 @@
 {
   "name": "memorix",
-  "version": "0.7.3",
+  "version": "0.7.4",
   "description": "Cross-Agent Memory Bridge — Universal memory layer for AI coding agents via MCP. Knowledge graph, progressive disclosure search, workspace sync, and auto-memory hooks across Windsurf, Cursor, Claude Code, Codex, Copilot, Antigravity, and Kiro.",
   "type": "module",
   "sideEffects": false,

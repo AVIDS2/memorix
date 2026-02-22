@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.7.5] — 2026-02-22
+
+### Changed
+- **README rewrite** — Completely restructured to focus on real-world scenarios, use cases, and features. Added 5 walkthrough scenarios, comparison table with alternatives, "Works with" badges for all 7 agents. Moved detailed config to sub-README.
+- **New `docs/SETUP.md`** — Dedicated setup guide with agent-specific config, vector search setup, data storage, and troubleshooting
+
 ## [0.7.4] — 2026-02-22
 
 ### Fixed

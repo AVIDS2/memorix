@@ -1,7 +1,7 @@
 <p align="center">
   <img src="assets/logo.png" alt="Memorix Logo" width="120">
   <h1 align="center">Memorix</h1>
-  <p align="center"><strong>Cross-Agent Memory Bridge — Universal memory layer for AI coding agents via MCP</strong></p>
+  <p align="center"><strong>Cross-Agent Memory Bridge — Your AI never forgets again</strong></p>
   <p align="center">
     <a href="https://www.npmjs.com/package/memorix"><img src="https://img.shields.io/npm/v/memorix.svg?style=flat-square&color=cb3837" alt="npm version"></a>
     <a href="https://www.npmjs.com/package/memorix"><img src="https://img.shields.io/npm/dm/memorix.svg?style=flat-square&color=blue" alt="npm downloads"></a>
@@ -10,25 +10,45 @@
     <img src="https://img.shields.io/badge/tests-422%20passed-brightgreen?style=flat-square" alt="Tests">
   </p>
   <p align="center">
-    <a href="#-quick-start">Quick Start</a> •
-    <a href="#-features">Features</a> •
-    <a href="#-agent-configuration">Agent Config</a> •
-    <a href="#-how-it-works">How It Works</a> •
-    <a href="#-development">Development</a>
+    <img src="https://img.shields.io/badge/Works%20with-Cursor-orange?style=flat-square" alt="Cursor">
+    <img src="https://img.shields.io/badge/Works%20with-Windsurf-blue?style=flat-square" alt="Windsurf">
+    <img src="https://img.shields.io/badge/Works%20with-Claude%20Code-purple?style=flat-square" alt="Claude Code">
+    <img src="https://img.shields.io/badge/Works%20with-Codex-green?style=flat-square" alt="Codex">
+    <img src="https://img.shields.io/badge/Works%20with-Copilot-lightblue?style=flat-square" alt="Copilot">
+    <img src="https://img.shields.io/badge/Works%20with-Kiro-red?style=flat-square" alt="Kiro">
+    <img src="https://img.shields.io/badge/Works%20with-Antigravity-grey?style=flat-square" alt="Antigravity">
+  </p>
+  <p align="center">
+    <a href="#-stop-re-explaining-your-project">Why</a> •
+    <a href="#-get-started-in-30-seconds">Quick Start</a> •
+    <a href="#-real-world-scenarios">Scenarios</a> •
+    <a href="#-what-memorix-can-do">Features</a> •
+    <a href="#-comparison-with-alternatives">Compare</a> •
+    <a href="docs/SETUP.md">Full Setup Guide</a>
   </p>
 </p>
 
 ---
 
-> **One project, seven agents, zero context loss.**
->
-> Memorix is a **cross-agent memory bridge** — it lets Cursor, Windsurf, Claude Code, Codex, Copilot, Antigravity, and **Kiro** **share the same project knowledge** in real-time. Architecture decisions made in one IDE are instantly available in another. Switch tools, open new windows, start fresh sessions — your context follows you everywhere via [MCP](https://modelcontextprotocol.io/). It also **syncs MCP configs, rules, skills, and workflows** across all your agents automatically.
+## 😤 Stop Re-Explaining Your Project
+
+Your AI assistant forgets everything when you start a new chat. You spend 10 minutes re-explaining your architecture. **Again.** And if you switch from Cursor to Claude Code? Everything is gone. **Again.**
+
+| Without Memorix | With Memorix |
+|-----------------|--------------|
+| **Session 2:** "What's our tech stack?" | **Session 2:** "I remember — Next.js with Prisma and tRPC. What should we build next?" |
+| **Switch IDE:** All context lost | **Switch IDE:** Context follows you instantly |
+| **New team member's AI:** Starts from zero | **New team member's AI:** Already knows the codebase |
+| **After 50 tool calls:** Context explodes, restart needed | **After restart:** Picks up right where you left off |
+| **MCP configs:** Copy-paste between 7 IDEs manually | **MCP configs:** One command syncs everything |
+
+**Memorix solves all of this.** One MCP server. Seven agents. Zero context loss.
 
 ---
 
-## ⚡ Quick Start
+## ⚡ Get Started in 30 Seconds
 
-One config line. Seven agents. Zero context loss.
+Add this to your agent's MCP config file, restart — done:
 
 ```json
 {
@@ -41,361 +61,207 @@ One config line. Seven agents. Zero context loss.
 }
 ```
 
-Add this to your agent's MCP config, restart — done. 🎉
+> 📖 **Where is my config file?** → [Full setup guide for all 7 agents](docs/SETUP.md)
+> Windsurf • Cursor • Claude Code • Codex • VS Code Copilot • Antigravity • Kiro
 
-> 💡 Agent-specific config paths: [Windsurf](#windsurf) • [Cursor](#cursor) • [Claude Code](#claude-code) • [Codex](#codex) • [VS Code Copilot](#vs-code-copilot) • [Antigravity](#antigravity) • [Kiro](#kiro)
-
----
-
-## 🤔 The Problem
-
-| Situation | Pain |
-|-----------|------|
-| Architecture decisions in Cursor | Invisible to Claude Code |
-| Bug fix knowledge in Windsurf | Doesn't transfer to Codex |
-| MCP server configs | Manually copy-paste between agents |
-| Agent rules & skills | Stuck in one IDE |
-| Start a new session | Re-explain everything from scratch |
-
-**No one bridges memory AND workspace configs across agents — until now.**
+That's it. No API keys. No cloud accounts. No dependencies. Just works.
 
 ---
 
-## ✨ Features
+## 🎬 Real-World Scenarios
 
-### 🧠 Smart Memory
+### Scenario 1: Cross-Session Memory
 
-- **Knowledge Graph** — Entity-Relation model, [MCP Official Memory Server](https://github.com/modelcontextprotocol/servers/tree/main/src/memory) compatible
-- **9 Observation Types** — 🎯 session-request 🔴 gotcha 🟡 problem-solution 🔵 how-it-works 🟢 what-changed 🟣 discovery 🟠 why-it-exists 🟤 decision ⚖️ trade-off
-- **Auto-Enrichment** — Automatically extracts file paths, module names, CamelCase identifiers from your narratives
-- **Auto-Relations** — Detects causal language ("because", "due to", "fixed by") and auto-creates typed graph relations
-- **Memory Decay** — Exponential decay scoring with immunity rules, so old memories fade while critical ones persist forever
+```
+Monday morning — You and Cursor discuss auth architecture:
+  You: "Let's use JWT with refresh tokens, 15-minute expiry"
+  → Memorix auto-stores this as a 🟤 decision
 
-### 🔍 Token-Efficient Search
+Tuesday — New Cursor session:
+  You: "Add the login endpoint"
+  → AI calls memorix_search("auth") → finds Monday's decision
+  → "Got it, I'll implement JWT with 15-min refresh tokens as we decided"
+  → Zero re-explaining!
+```
 
-- **3-Layer Progressive Disclosure** — Based on [claude-mem](https://github.com/anthropics/claude-code) (~10x token savings)
-  - **L1** `memorix_search` → Compact index (~50-100 tokens/result)
-  - **L2** `memorix_timeline` → Chronological context
-  - **L3** `memorix_detail` → Full details on demand (~500-1000 tokens/result)
-- **Hybrid Search** — Full-text (BM25) + Vector (semantic) via [Orama](https://github.com/orama/orama)
-- **Token Budget** — `maxTokens` parameter auto-trims results to fit context windows
+### Scenario 2: Cross-Agent Collaboration
 
-### 🔄 Cross-Agent Workspace Sync
+```
+You use Windsurf for backend, Claude Code for reviews:
 
-- **7 Agent Adapters** — Windsurf, Cursor, Claude Code, Codex, VS Code Copilot, Antigravity, **Kiro**
-- **MCP Config Migration** — Detect and migrate MCP server configs (merges — never overwrites)
-- **Rules Sync** — Scan → Deduplicate → Conflict detection → Cross-format generation
-- **Skills & Workflows** — Copy skill folders and workflow files across agents
-- **Memory-Driven Skills** — `memorix_skills` auto-generates project-specific `SKILL.md` from observation patterns (gotchas, decisions, how-it-works)
-- **Apply with Safety** — Backup `.bak` → Atomic write → Auto-rollback on failure
+  Windsurf: You fix a tricky race condition in the payment module
+  → Memorix stores it as a 🟡 problem-solution with the fix details
 
-### 🔒 Project Isolation
+  Claude Code: "Review the payment module"
+  → AI calls memorix_search("payment") → finds the race condition fix
+  → "I see there was a recent race condition fix. Let me verify it's correct..."
+  → Knowledge transfers seamlessly between agents!
+```
 
-- **Per-Project Data** — Each project stores data in its own directory (`~/.memorix/data/<owner--repo>/`)
-- **Git-Based Detection** — Project identity derived from `git remote`, no manual config needed
-- **Scoped Search** — `memorix_search` defaults to current project; set `scope: "global"` to search all
-- **Auto Migration** — Legacy global data automatically migrates to project directories on first run
-- **Zero Cross-Contamination** — Architecture decisions from project A never leak into project B
+### Scenario 3: Gotcha Prevention
 
-### 📊 Visual Dashboard
+```
+Week 1: You hit a painful Windows path separator bug
+  → Memorix stores it as a 🔴 gotcha: "Use path.join(), never string concat"
 
-- **Web Dashboard** — `memorix_dashboard` opens a beautiful web UI at `http://localhost:3210`
-- **Project Switcher** — Dropdown to view any project's data without switching IDEs
-- **Knowledge Graph** — Interactive visualization of entities and relations
-- **Type Distribution Chart** — Canvas donut chart showing observation type breakdown
-- **Embedding Status** — Real-time display of vector search provider status (enabled/provider/dimensions)
-- **Retention Scores** — Exponential decay scoring with immunity status
-- **Observation Management** — Expand/collapse details, **search with text highlighting**, delete with confirmation, data export
+Week 3: AI is about to write `baseDir + '/' + filename`
+  → Session-start hook injected the gotcha into context
+  → AI writes `path.join(baseDir, filename)` instead
+  → Bug prevented before it happened!
+```
+
+### Scenario 4: Workspace Sync Across IDEs
+
+```
+You have 12 MCP servers configured in Cursor.
+Now you want to try Kiro.
+
+  You: "Sync my workspace to Kiro"
+  → memorix_workspace_sync scans Cursor's MCP configs
+  → Generates Kiro-compatible .kiro/settings/mcp.json
+  → Also syncs your rules, skills, and workflows
+  → Kiro is ready in seconds, not hours!
+```
+
+### Scenario 5: Auto-Generated Project Skills
+
+```
+After 2 weeks of development, you have 50+ observations:
+  - 8 gotchas about Windows path issues
+  - 5 decisions about the auth module
+  - 3 problem-solutions for database migrations
+
+  You: "Generate project skills"
+  → memorix_skills clusters observations by entity
+  → Auto-generates SKILL.md files:
+    - "auth-module-guide.md" — JWT setup, refresh flow, common pitfalls
+    - "database-migrations.md" — Prisma patterns, rollback strategies
+  → Syncs skills to any agent: Cursor, Claude Code, Kiro...
+  → New team members' AI instantly knows your project's patterns!
+```
+
+---
+
+## 🧠 What Memorix Can Do
+
+### Smart Memory (17 MCP Tools)
+
+| What You Say | What Memorix Does |
+|-------------|-------------------|
+| "Remember this architecture decision" | `memorix_store` — Classifies as 🟤 decision, extracts entities, creates graph relations |
+| "What did we decide about auth?" | `memorix_search` → `memorix_detail` — 3-layer progressive disclosure, ~10x token savings |
+| "What happened around that bug fix?" | `memorix_timeline` — Shows chronological context before/after |
+| "Show me the knowledge graph" | `memorix_dashboard` — Opens interactive web UI with D3.js graph |
+| "Which memories are getting stale?" | `memorix_retention` — Exponential decay scores, identifies archive candidates |
+
+### Cross-Agent Workspace Sync
+
+| What You Say | What Memorix Does |
+|-------------|-------------------|
+| "Sync my MCP servers to Kiro" | `memorix_workspace_sync` — Migrates configs, merges (never overwrites) |
+| "Check my agent rules" | `memorix_rules_sync` — Scans 7 agents, deduplicates, detects conflicts |
+| "Generate rules for Cursor" | `memorix_rules_sync` — Cross-format conversion (`.mdc` ↔ `CLAUDE.md` ↔ `.kiro/steering/`) |
+| "Generate project skills" | `memorix_skills` — Creates SKILL.md from observation patterns |
+| "Inject the auth skill" | `memorix_skills` — Returns skill content directly into agent context |
+
+### Knowledge Graph (MCP Official Compatible)
+
+| Tool | What It Does |
+|------|-------------|
+| `create_entities` | Build your project's knowledge graph |
+| `create_relations` | Connect entities with typed edges (causes, fixes, depends_on) |
+| `add_observations` | Attach observations to entities |
+| `search_nodes` / `open_nodes` | Query the graph |
+| `read_graph` | Export full graph for visualization |
+
+> **Drop-in compatible** with [MCP Official Memory Server](https://github.com/modelcontextprotocol/servers/tree/main/src/memory) — same API, more features.
+
+### 9 Observation Types
+
+Every memory is classified for intelligent retrieval:
+
+| Icon | Type | When To Use |
+|------|------|-------------|
+| 🎯 | `session-request` | Original task/goal for this session |
+| 🔴 | `gotcha` | Critical pitfall — "Never do X because Y" |
+| 🟡 | `problem-solution` | Bug fix with root cause and solution |
+| 🔵 | `how-it-works` | Technical explanation of a system |
+| 🟢 | `what-changed` | Code/config change record |
+| 🟣 | `discovery` | New insight or finding |
+| 🟠 | `why-it-exists` | Rationale behind a design choice |
+| 🟤 | `decision` | Architecture/design decision |
+| ⚖️ | `trade-off` | Compromise with pros/cons |
+
+### Visual Dashboard
+
+Run `memorix_dashboard` to open a web UI at `http://localhost:3210`:
+
+- **Interactive Knowledge Graph** — D3.js force-directed visualization of entities and relations
+- **Observation Browser** — Filter by type, search with highlighting, expand/collapse details
+- **Retention Panel** — See which memories are active, stale, or candidates for archival
+- **Project Switcher** — View any project's data without switching IDEs
 - **Batch Cleanup** — Auto-detect and bulk-delete low-quality observations
 - **Light/Dark Theme** — Premium glassmorphism design, bilingual (EN/中文)
 
-### 🪝 Auto-Memory Hooks
+### Auto-Memory Hooks
 
-- **Implicit Memory** — Auto-captures decisions, errors, gotchas from agent activity
-- **Session Start Injection** — Intelligently loads recent high-value memories (gotchas, decisions, problem-solutions) and injects a concise summary into the agent's system prompt at session start
-- **Multi-Language Pattern Detection** — English + Chinese keyword matching
-- **Cooldown & Noise Filtering** — 30s cooldown, skips trivial commands (ls, cat, pwd)
-- **One-Command Install** — `memorix hooks install` sets up hooks + rules for your agent
+Memorix can **automatically capture** decisions, errors, and gotchas from your coding sessions:
 
-### 🔁 Context Continuity
-
+```bash
+memorix hooks install    # One-command setup
 ```
-Session 1: You and AI discuss auth architecture
-  → Memorix auto-stores the decision
 
-Session 2: New chat, same project
-  → AI searches Memorix → "Ah, we decided on JWT with refresh tokens"
-  → No re-explaining needed!
-```
+- **Implicit Memory** — Detects patterns like "I decided to...", "The bug was caused by...", "Never use X"
+- **Session Start Injection** — Loads recent high-value memories into agent context automatically
+- **Multi-Language** — English + Chinese keyword matching
+- **Smart Filtering** — 30s cooldown, skips trivial commands (ls, cat, pwd)
 
 ---
 
-## 🔧 Agent Configuration
+## 📊 Comparison with Alternatives
 
-### Windsurf
+| | [Mem0](https://github.com/mem0ai/mem0) | [mcp-memory-service](https://github.com/doobidoo/mcp-memory-service) | [claude-mem](https://github.com/anthropics/claude-code) | **Memorix** |
+|---|---|---|---|---|
+| **Agents supported** | SDK-based | 13+ (MCP) | Claude Code only | **7 IDEs (MCP)** |
+| **Cross-agent sync** | No | No | No | **Yes (configs, rules, skills, workflows)** |
+| **Rules sync** | No | No | No | **Yes (7 formats)** |
+| **Skills engine** | No | No | No | **Yes (auto-generated from memory)** |
+| **Knowledge graph** | No | Yes | No | **Yes (MCP Official compatible)** |
+| **Hybrid search** | No | Yes | No | **Yes (BM25 + vector)** |
+| **Token-efficient** | No | No | Yes (3-layer) | **Yes (3-layer progressive disclosure)** |
+| **Auto-memory hooks** | No | No | Yes | **Yes (multi-language)** |
+| **Memory decay** | No | Yes | No | **Yes (exponential + immunity)** |
+| **Visual dashboard** | Cloud UI | Yes | No | **Yes (web UI + D3.js graph)** |
+| **Privacy** | Cloud | Local | Local | **100% Local** |
+| **Cost** | Per-call API | $0 | $0 | **$0** |
+| **Install** | `pip install` | `pip install` | Built into Claude | **`npx memorix serve`** |
 
-`~/.codeium/windsurf/mcp_config.json`:
-```json
-{
-  "mcpServers": {
-    "memorix": {
-      "command": "npx",
-      "args": ["-y", "memorix@latest", "serve"]
-    }
-  }
-}
-```
-
-> **Timeout troubleshooting** — If you see `MCP server initialization timed out after 60 seconds`, add `--cwd` to force the project root:
-> ```json
-> {
->   "mcpServers": {
->     "memorix": {
->       "command": "npx",
->       "args": ["-y", "memorix@latest", "serve", "--cwd", "<your-project-path>"]
->     }
->   }
-> }
-> ```
-
-### Cursor
-
-`.cursor/mcp.json`:
-```json
-{
-  "mcpServers": {
-    "memorix": {
-      "command": "npx",
-      "args": ["-y", "memorix@latest", "serve"]
-    }
-  }
-}
-```
-
-### Claude Code
-
-`~/.claude.json`:
-```json
-{
-  "mcpServers": {
-    "memorix": {
-      "command": "npx",
-      "args": ["-y", "memorix@latest", "serve"]
-    }
-  }
-}
-```
-
-### Codex
-
-`~/.codex/config.toml`:
-```toml
-[mcp_servers.memorix]
-command = "npx"
-args = ["-y", "memorix@latest", "serve"]
-```
-
-### VS Code Copilot
-
-**Option A** — `.vscode/mcp.json` (workspace-scoped):
-```json
-{
-  "servers": {
-    "memorix": {
-      "command": "npx",
-      "args": ["-y", "memorix@latest", "serve"]
-    }
-  }
-}
-```
-
-**Option B** — VS Code `settings.json` (global):
-```json
-{
-  "mcp": {
-    "servers": {
-      "memorix": {
-        "command": "npx",
-        "args": ["-y", "memorix@latest", "serve"]
-      }
-    }
-  }
-}
-```
-
-### Antigravity
-
-`~/.gemini/antigravity/settings/mcp_config.json`:
-```json
-{
-  "mcpServers": {
-    "memorix": {
-      "command": "npx",
-      "args": ["-y", "memorix@latest", "serve"]
-    }
-  }
-}
-```
-
-### Kiro
-
-`.kiro/settings/mcp.json`:
-```json
-{
-  "mcpServers": {
-    "memorix": {
-      "command": "npx",
-      "args": ["-y", "memorix@latest", "serve"]
-    }
-  }
-}
-```
-
----
-
-## 🛠 Available MCP Tools
-
-### Memorix Extensions
-
-| Tool | Purpose | Token Cost |
-|------|---------|------------|
-| `memorix_store` | Store observation with auto-enrichment | — |
-| `memorix_search` | L1: Compact index search | ~50-100/result |
-| `memorix_timeline` | L2: Chronological context | ~100-200/group |
-| `memorix_detail` | L3: Full observation details | ~500-1000/result |
-| `memorix_retention` | Memory decay & retention status | — |
-| `memorix_dashboard` | Launch visual web dashboard in browser | — |
-| `memorix_rules_sync` | Scan/deduplicate/generate rules across agents | — |
-| `memorix_workspace_sync` | Migrate MCP configs, workflows, skills | — |
-
-### MCP Official Compatible (Drop-in Replacement)
-
-| Tool | Purpose |
-|------|---------|
-| `create_entities` | Create knowledge graph entities |
-| `create_relations` | Create relations between entities |
-| `add_observations` | Add observations to entities |
-| `delete_entities` | Delete entities (cascades relations) |
-| `delete_observations` | Delete specific observations |
-| `delete_relations` | Delete relations |
-| `search_nodes` | Search knowledge graph |
-| `open_nodes` | Get entities by name |
-| `read_graph` | Read entire graph |
-
----
-
-## 🧩 How It Works
-
-### Data Flow
-
-```
-Agent ──memorix_store──▶ Entity Extractor ──▶ Auto-Relations ──▶ Knowledge Graph
-                         │                                        │
-                         ▼                                        │
-                     Orama Index ◀───────── Persistence Layer ◀───┘
-                     (BM25 + Vector)        (~/.memorix/data/<project>/)
-                         │
-Agent ◀──memorix_search──┘  L1: Compact Index (~50-100 tokens)
-Agent ◀──memorix_timeline─  L2: Timeline Context
-Agent ◀──memorix_detail───  L3: Full Details (~500-1000 tokens)
-```
-
-### Progressive Disclosure Example
-
-```
-🔍 Agent calls memorix_search("auth bug")
-
-📋 L1 Response (compact — agent scans IDs):
-| ID  | Time    | T  | Title                    | Tokens |
-|-----|---------|-----|--------------------------|--------|
-| #42 | 2:14 PM | 🟡 | Fixed JWT refresh timeout | ~155   |
-| #38 | 1:30 PM | 🔵 | How JWT refresh works     | ~220   |
-
-🔎 Agent calls memorix_detail([42])
-
-📄 L3 Response (full content):
-# Observation #42 — Fixed JWT refresh timeout
-Type: 🟡 problem-solution | Entity: auth-module
-Narrative: The JWT refresh token was timing out after 15 minutes
-because the expiry was hardcoded. Fixed by reading from env...
-Facts: ["Default timeout: 60s", "Fix: use REFRESH_TTL env var"]
-Files: ["src/auth/jwt.ts", "src/config.ts"]
-```
-
-### Architecture
-
-```
-┌───────────────────────────────────────────────────────────────────┐
-│                      AI Coding Agents                              │
-│  Windsurf │ Cursor │ Claude Code │ Codex │ Copilot │ Antigravity │ Kiro
-└───────────────────────────┬───────────────────────────────────────┘
-                            │ MCP Protocol (stdio)
-┌───────────────────────────▼───────────────────────────────────────┐
-│                  Memorix MCP Server (17 tools)                    │
-│                                                                    │
-│  ┌─────────────┐  ┌──────────────┐  ┌──────────────────┐         │
-│  │   Memory     │  │   Compact    │  │  Workspace Sync  │         │
-│  │   Layer      │  │   Engine     │  │  (7 adapters)    │         │
-│  │             │  │  (3-layer)   │  │                  │         │
-│  │ • Graph     │  │              │  │ • MCP Configs    │         │
-│  │ • Retention │  │              │  │ • Rules          │         │
-│  │ • Entities  │  │              │  │ • Skills         │         │
-│  │ • Relations │  │              │  │ • Workflows      │         │
-│  └──────┬──────┘  └──────┬───────┘  └──────────────────┘         │
-│         │                │                                         │
-│  ┌──────▼────────────────▼───────────────────────────────┐        │
-│  │  Orama Store (BM25 + Vector) │ Persistence (JSONL)    │        │
-│  └───────────────────────────────────────────────────────┘        │
-│                                                                    │
-│  ┌───────────────────────────────────────────────────────┐        │
-│  │  Hooks System: Normalizer → Pattern Detector → Store  │        │
-│  │  (Auto-captures decisions, bugs, gotchas from agents) │        │
-│  └───────────────────────────────────────────────────────┘        │
-└───────────────────────────────────────────────────────────────────┘
-```
+**Memorix is the only tool that bridges memory AND workspace across agents.**
 
 ---
 
 ## 🔮 Optional: Vector Search
 
-Memorix supports **hybrid search** (BM25 + semantic vectors) with a provider priority chain:
-
-| Priority | Provider | How to Enable | Notes |
-|----------|----------|---------------|-------|
-| 1st | `fastembed` | `npm install -g fastembed` | Fastest, native ONNX bindings |
-| 2nd | `transformers.js` | `npm install -g @huggingface/transformers` | Pure JS/WASM, cross-platform |
-| Fallback | Full-text (BM25) | Always available | Already very effective for code |
+Out of the box, Memorix uses BM25 full-text search (already great for code). Add semantic search with one command:
 
 ```bash
-# Option A: Native speed (recommended if it installs cleanly)
+# Option A: Native speed (recommended)
 npm install -g fastembed
 
-# Option B: Universal compatibility (works everywhere, no native deps)
+# Option B: Universal compatibility
 npm install -g @huggingface/transformers
 ```
 
-- **Without either** — BM25 full-text search works great out of the box
-- **With any provider** — Queries like "authentication" also match "login flow" via semantic similarity
-- Both run **locally** — zero API calls, zero privacy risk, zero cost
-- The dashboard shows which provider is active in real-time
+With vector search, queries like "authentication" also match memories about "login flow" via semantic similarity. Both run **100% locally** — zero API calls, zero cost.
 
 ---
 
-## 💾 Data Storage
+## 🔒 Project Isolation
 
-All data is stored locally per project:
-
-```
-~/.memorix/data/<projectId>/
-├── observations.json      # Structured observations
-├── id-counter.txt         # Next observation ID
-├── entities.jsonl         # Knowledge graph nodes (MCP compatible)
-└── relations.jsonl        # Knowledge graph edges (MCP compatible)
-```
-
-- `projectId` is auto-detected from Git remote URL (e.g., `user/repo`)
-- Data is shared across all agents (same directory)
-- No cloud, no API keys, no external services
+- **Auto-detected** — Project identity from `git remote` URL, zero config needed
+- **Per-project storage** — `~/.memorix/data/<owner--repo>/` per project
+- **Scoped search** — Defaults to current project; `scope: "global"` to search all
+- **Zero cross-contamination** — Project A's decisions never leak into project B
 
 ---
 
@@ -407,31 +273,12 @@ cd memorix
 npm install
 
 npm run dev          # tsup watch mode
-npm test             # vitest (405 tests)
+npm test             # vitest (422 tests)
 npm run lint         # TypeScript type check
 npm run build        # Production build
 ```
 
-### Project Structure
-
-```
-src/
-├── server.ts              # MCP Server entry (17 tools)
-├── types.ts               # All type definitions
-├── memory/                # Graph, observations, retention, entity extraction
-├── store/                 # Orama search engine + disk persistence
-├── compact/               # 3-layer Progressive Disclosure engine
-├── embedding/             # Vector providers (fastembed → transformers.js → fallback)
-├── skills/                # Memory-driven project skills engine (list → generate → inject)
-├── hooks/                 # Auto-memory hooks (normalizer + pattern detector)
-├── workspace/             # Cross-agent MCP/workflow/skills sync
-├── rules/                 # Cross-agent rules sync (7 adapters)
-├── dashboard/             # Visual web dashboard (knowledge graph, stats)
-├── project/               # Git-based project detection
-└── cli/                   # CLI commands (serve, hook, sync, dashboard)
-```
-
-> 📚 Full documentation available in [`docs/`](./docs/) — architecture, modules, API reference, design decisions, and more.
+> 📚 **Documentation:** [Architecture](docs/ARCHITECTURE.md) • [API Reference](docs/API_REFERENCE.md) • [Modules](docs/MODULES.md) • [Design Decisions](docs/DESIGN_DECISIONS.md) • [Setup Guide](docs/SETUP.md) • [Known Issues](docs/KNOWN_ISSUES_AND_ROADMAP.md)
 
 ---
 

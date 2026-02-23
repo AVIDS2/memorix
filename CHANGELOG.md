@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.7.8] — 2026-02-24
+
+### Fixed
+- **Graceful error on invalid project detection** — When `detectProject()` returns `__invalid__` (e.g., IDE sets cwd to its own install directory like `G:\Antigravity`), the server now prints a clear, actionable error message with fix instructions (`--cwd` or `MEMORIX_PROJECT_ROOT`) instead of crashing with an opaque stack trace.
+- **Dashboard process liveness check** — `memorix_dashboard` now verifies the port is actually listening before returning "already running". If the dashboard process was killed externally (e.g., `taskkill`), it automatically restarts instead of opening a browser to a dead server.
+
+### Added
+- **`MEMORIX_PROJECT_ROOT` environment variable** — New way to specify the project directory for IDEs that don't set `cwd` to the project path (e.g., Antigravity uses `G:\Antigravity` as cwd). Priority: `--cwd` > `MEMORIX_PROJECT_ROOT` > `INIT_CWD` > `process.cwd()`. Example MCP config: `"env": { "MEMORIX_PROJECT_ROOT": "e:/your/project" }`.
+
 ## [0.7.7] — 2026-02-24
 
 ### Fixed

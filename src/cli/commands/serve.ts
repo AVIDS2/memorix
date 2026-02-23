@@ -22,8 +22,8 @@ export default defineCommand({
     );
     const { createMemorixServer } = await import('../../server.js');
 
-    // Priority: explicit --cwd arg > INIT_CWD (npm lifecycle) > process.cwd()
-    const projectRoot = args.cwd || process.env.INIT_CWD || process.cwd();
+    // Priority: explicit --cwd arg > MEMORIX_PROJECT_ROOT env > INIT_CWD (npm lifecycle) > process.cwd()
+    const projectRoot = args.cwd || process.env.MEMORIX_PROJECT_ROOT || process.env.INIT_CWD || process.cwd();
 
     // NOTE: We intentionally do NOT fall back to the script's own directory.
     // That fallback caused wrong project detection (e.g., detecting memorix's

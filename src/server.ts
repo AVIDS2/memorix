@@ -55,6 +55,19 @@ export async function createMemorixServer(cwd?: string): Promise<{
   // Detect current project
   const project = detectProject(cwd);
 
+  if (project.id === '__invalid__') {
+    const resolvedCwd = cwd ?? process.cwd();
+    console.error(`[memorix] ERROR: Could not detect a valid project at: ${resolvedCwd}`);
+    console.error(`[memorix] The directory is not a git repository and has no project indicator files.`);
+    console.error(`[memorix] Fix: set --cwd to your project directory, or set MEMORIX_PROJECT_ROOT env var.`);
+    console.error(`[memorix] Example: memorix serve --cwd /path/to/your/project`);
+    console.error(`[memorix] Example: "env": { "MEMORIX_PROJECT_ROOT": "/path/to/your/project" }`);
+    throw new Error(
+      `Cannot start Memorix: no valid project detected at "${resolvedCwd}". ` +
+      `Set --cwd or MEMORIX_PROJECT_ROOT to your project directory.`
+    );
+  }
+
   // Migrate legacy global data to project-specific directory (one-time, silent)
   try {
     const { migrateGlobalData } = await import('./store/persistence.js');
@@ -1018,17 +1031,32 @@ export async function createMemorixServer(cwd?: string): Promise<{
       const url = `http://localhost:${portNum}`;
 
       if (dashboardRunning) {
-        // Pass current project as URL parameter so dashboard shows the right project
-        const projectUrl = `${url}?project=${encodeURIComponent(project.id)}`;
-        const { exec } = await import('node:child_process');
-        const cmd =
-          process.platform === 'win32' ? `start "" "${projectUrl}"` :
-            process.platform === 'darwin' ? `open "${projectUrl}"` :
-              `xdg-open "${projectUrl}"`;
-        exec(cmd, () => { });
-        return {
-          content: [{ type: 'text' as const, text: `Dashboard is already running at ${url}. Opened in browser for project: ${project.name} (${project.id}).` }],
-        };
+        // Verify the dashboard is actually still listening (process may have been killed externally)
+        const { createConnection } = await import('node:net');
+        const isAlive = await new Promise<boolean>(resolve => {
+          const sock = createConnection(portNum, '127.0.0.1');
+          sock.once('connect', () => { sock.destroy(); resolve(true); });
+          sock.once('error', () => { sock.destroy(); resolve(false); });
+          setTimeout(() => { sock.destroy(); resolve(false); }, 1000);
+        });
+
+        if (isAlive) {
+          // Dashboard is truly running — just open browser with current project
+          const projectUrl = `${url}?project=${encodeURIComponent(project.id)}`;
+          const { exec } = await import('node:child_process');
+          const cmd =
+            process.platform === 'win32' ? `start "" "${projectUrl}"` :
+              process.platform === 'darwin' ? `open "${projectUrl}"` :
+                `xdg-open "${projectUrl}"`;
+          exec(cmd, () => { });
+          return {
+            content: [{ type: 'text' as const, text: `Dashboard is already running at ${url}. Opened in browser for project: ${project.name} (${project.id}).` }],
+          };
+        }
+
+        // Dashboard process was killed externally — reset flag and fall through to restart
+        console.error('[memorix] Dashboard process no longer running, restarting...');
+        dashboardRunning = false;
       }
 
       try {

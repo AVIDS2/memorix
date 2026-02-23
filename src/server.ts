@@ -47,7 +47,7 @@ const OBSERVATION_TYPES: [string, ...string[]] = [
 /**
  * Create and configure the Memorix MCP Server.
  */
-export async function createMemorixServer(cwd?: string): Promise<{
+export async function createMemorixServer(cwd?: string, existingServer?: McpServer): Promise<{
   server: McpServer;
   graphManager: KnowledgeGraphManager;
   projectId: string;
@@ -191,8 +191,8 @@ export async function createMemorixServer(cwd?: string): Promise<{
     console.error(`[memorix] Warning: could not watch observations file for hot-reload`);
   }
 
-  // Create MCP server
-  const server = new McpServer({
+  // Create MCP server (or use existing one from roots-aware flow)
+  const server = existingServer ?? new McpServer({
     name: 'memorix',
     version: '0.1.0',
   });
@@ -1041,7 +1041,21 @@ export async function createMemorixServer(cwd?: string): Promise<{
         });
 
         if (isAlive) {
-          // Dashboard is truly running — just open browser with current project
+          // Update the dashboard server's current project via API
+          const http = await import('node:http');
+          const postData = JSON.stringify({ projectId: project.id, projectName: project.name });
+          await new Promise<void>(resolve => {
+            const req = http.request({
+              hostname: '127.0.0.1', port: portNum,
+              path: '/api/set-current-project', method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(postData) },
+            }, () => resolve());
+            req.on('error', () => resolve()); // ignore errors
+            req.write(postData);
+            req.end();
+          });
+
+          // Open browser — the dashboard now serves this project as current
           const projectUrl = `${url}?project=${encodeURIComponent(project.id)}`;
           const { exec } = await import('node:child_process');
           const cmd =
@@ -1050,7 +1064,7 @@ export async function createMemorixServer(cwd?: string): Promise<{
                 `xdg-open "${projectUrl}"`;
           exec(cmd, () => { });
           return {
-            content: [{ type: 'text' as const, text: `Dashboard is already running at ${url}. Opened in browser for project: ${project.name} (${project.id}).` }],
+            content: [{ type: 'text' as const, text: `Dashboard is already running at ${url}. Switched to project: ${project.name} (${project.id}).` }],
           };
         }
 

@@ -324,6 +324,23 @@ function openBrowser(url: string) {
     exec(cmd, () => { /* ignore errors */ });
 }
 
+/** Mutable dashboard state — updated at runtime when project changes */
+interface DashboardState {
+    projectId: string;
+    projectName: string;
+    dataDir: string;
+}
+
+/** Read full POST body as string */
+function readBody(req: IncomingMessage): Promise<string> {
+    return new Promise((resolve, reject) => {
+        const chunks: Buffer[] = [];
+        req.on('data', (c: Buffer) => chunks.push(c));
+        req.on('end', () => resolve(Buffer.concat(chunks).toString('utf-8')));
+        req.on('error', reject);
+    });
+}
+
 export async function startDashboard(
     dataDir: string,
     port: number,
@@ -336,11 +353,39 @@ export async function startDashboard(
     // Derive baseDir from dataDir (parent directory of project-specific dir)
     const baseDir = getBaseDataDir();
 
+    // Mutable state — can be updated via /api/set-current-project
+    const state: DashboardState = { projectId, projectName, dataDir };
+
     const server = createServer(async (req, res) => {
         const url = req.url || '/';
 
+        // POST /api/set-current-project — update the dashboard's current project
+        if (url.startsWith('/api/set-current-project') && req.method === 'POST') {
+            try {
+                const body = JSON.parse(await readBody(req));
+                if (body.projectId) {
+                    const sanitized = body.projectId.replace(/\//g, '--').replace(/[<>:"|?*\\]/g, '_');
+                    const candidateDir = path.join(baseDir, sanitized);
+                    try { await fs.access(candidateDir); } catch {
+                        sendError(res, `Project data directory not found: ${candidateDir}`, 404);
+                        return;
+                    }
+                    state.projectId = body.projectId;
+                    state.projectName = body.projectName || body.projectId.split('/').pop() || body.projectId;
+                    state.dataDir = candidateDir;
+                    console.error(`[dashboard] Switched current project to: ${state.projectId}`);
+                    sendJson(res, { ok: true, projectId: state.projectId, projectName: state.projectName });
+                } else {
+                    sendError(res, 'Missing projectId in body', 400);
+                }
+            } catch {
+                sendError(res, 'Invalid JSON body', 400);
+            }
+            return;
+        }
+
         if (url.startsWith('/api/')) {
-            await handleApi(req, res, dataDir, projectId, projectName, baseDir);
+            await handleApi(req, res, state.dataDir, state.projectId, state.projectName, baseDir);
         } else {
             await serveStatic(req, res, resolvedStaticDir);
         }

@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.7.9] — 2026-02-24
+
+### Fixed
+- **Dashboard auto-switch when project changes** — When the dashboard is already running (started from project A) and `memorix_dashboard` is called from project B, the dashboard server's current project is now updated via a `/api/set-current-project` POST request before opening the browser. Previously, the dashboard always showed the project it was initially started with; now it correctly switches to the calling project. Existing browser tabs will also show the correct project on the next page load/refresh.
+
+### Added
+- **MCP roots protocol support** — When the IDE's `cwd` is not a valid project (e.g., Antigravity sets cwd to `G:\Antigravity`), Memorix now automatically tries the MCP `roots/list` protocol to get the IDE's actual workspace path. This means standard MCP configs (`npx memorix@latest serve`) can work without `--cwd` in IDEs that support MCP roots. Falls back gracefully if the client doesn't support roots. Priority chain: `--cwd` > `MEMORIX_PROJECT_ROOT` > `INIT_CWD` > `process.cwd()` > **MCP roots** > error.
+
 ## [0.7.8] — 2026-02-24
 
 ### Fixed

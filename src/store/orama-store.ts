@@ -113,18 +113,32 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
   }
 
   // Determine search mode: hybrid (with vector) or fulltext (default)
+  const hasQuery = options.query && options.query.trim().length > 0;
   let searchParams: Record<string, unknown> = {
     term: options.query,
     limit: options.limit ?? 20,
     ...(Object.keys(filters).length > 0 ? { where: filters } : {}),
+    // Search specific fields (not tokens, accessCount, etc.)
+    properties: ['title', 'entityName', 'narrative', 'facts', 'concepts', 'filesModified'],
+    // Field boosting: title and entity matches rank higher
+    boost: {
+      title: 3,
+      entityName: 2,
+      concepts: 1.5,
+      narrative: 1,
+      facts: 1,
+      filesModified: 0.5,
+    },
+    // Fuzzy tolerance: allow 1-char typos for short queries, 2 for longer
+    ...(hasQuery ? { tolerance: options.query!.length > 6 ? 2 : 1 } : {}),
   };
 
   // If embedding provider is available and we have a query, use hybrid search
-  if (embeddingEnabled && options.query && options.query.trim().length > 0) {
+  if (embeddingEnabled && hasQuery) {
     try {
       const provider = await getEmbeddingProvider();
       if (provider) {
-        const queryVector = await provider.embed(options.query);
+        const queryVector = await provider.embed(options.query!);
         searchParams = {
           ...searchParams,
           mode: 'hybrid',
@@ -132,7 +146,11 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
             value: queryVector,
             property: 'embedding',
           },
-          similarity: 0.7,
+          similarity: 0.5,
+          hybridWeights: {
+            text: 0.6,
+            vector: 0.4,
+          },
         };
       }
     } catch {

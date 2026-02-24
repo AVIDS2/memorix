@@ -2,6 +2,7 @@
   <img src="assets/logo.png" alt="Memorix Logo" width="120">
   <h1 align="center">Memorix</h1>
   <p align="center"><strong>Cross-Agent Memory Bridge — Your AI never forgets again</strong></p>
+  <p align="center"><a href="README.zh-CN.md">中文文档</a> | English</p>
   <p align="center">
     <a href="https://www.npmjs.com/package/memorix"><img src="https://img.shields.io/npm/v/memorix.svg?style=flat-square&color=cb3837" alt="npm version"></a>
     <a href="https://www.npmjs.com/package/memorix"><img src="https://img.shields.io/npm/dm/memorix.svg?style=flat-square&color=blue" alt="npm downloads"></a>
@@ -62,9 +63,32 @@ Add this to your agent's MCP config file, restart — done:
 ```
 
 > 📖 **Where is my config file?** → [Full setup guide for all 7 agents](docs/SETUP.md)
-> Windsurf • Cursor • Claude Code • Codex • VS Code Copilot • Antigravity • Kiro
+> Windsurf • Cursor • Claude Code • Codex • VS Code Copilot • Kiro • Antigravity
 
 That's it. No API keys. No cloud accounts. No dependencies. Just works.
+
+<details>
+<summary>⚠️ <strong>Antigravity users: extra config required</strong></summary>
+
+Antigravity sets its working directory to its own install path (e.g., `G:\Antigravity`) instead of your project directory, and does not support the MCP roots protocol. You **must** add `MEMORIX_PROJECT_ROOT`:
+
+```json
+{
+  "mcpServers": {
+    "memorix": {
+      "command": "npx",
+      "args": ["-y", "memorix@latest", "serve"],
+      "env": {
+        "MEMORIX_PROJECT_ROOT": "E:/your/project/path"
+      }
+    }
+  }
+}
+```
+
+You'll need to update `MEMORIX_PROJECT_ROOT` when switching projects. All other IDEs work without this.
+
+</details>
 
 ---
 
@@ -259,9 +283,12 @@ With vector search, queries like "authentication" also match memories about "log
 ## 🔒 Project Isolation
 
 - **Auto-detected** — Project identity from `git remote` URL, zero config needed
+- **MCP roots fallback** — If `cwd` is not a project (e.g., Antigravity), Memorix tries the [MCP roots protocol](https://modelcontextprotocol.io/docs/concepts/roots) to get your workspace path from the IDE
 - **Per-project storage** — `~/.memorix/data/<owner--repo>/` per project
 - **Scoped search** — Defaults to current project; `scope: "global"` to search all
 - **Zero cross-contamination** — Project A's decisions never leak into project B
+
+**Detection priority:** `--cwd` → `MEMORIX_PROJECT_ROOT` → `INIT_CWD` → `process.cwd()` → MCP roots → error
 
 ---
 

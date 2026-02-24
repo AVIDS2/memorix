@@ -5,7 +5,10 @@
  * Patterns from mcp-memory-service + MemCP.
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { promises as fs } from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
 import {
   calculateRelevance,
   rankByRelevance,
@@ -14,6 +17,7 @@ import {
   getArchiveCandidates,
   getRetentionSummary,
   getImportanceLevel,
+  archiveExpired,
 } from '../../src/memory/retention.js';
 import type { MemorixDocument } from '../../src/types.js';
 
@@ -209,6 +213,78 @@ describe('Retention & Decay', () => {
       expect(summary.active).toBe(2);
       expect(summary.archiveCandidates).toBe(1);
       expect(summary.immune).toBeGreaterThanOrEqual(1);
+    });
+  });
+
+  describe('archiveExpired', () => {
+    let tmpDir: string;
+
+    beforeEach(async () => {
+      tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'memorix-archive-test-'));
+    });
+
+    afterEach(async () => {
+      await fs.rm(tmpDir, { recursive: true, force: true });
+    });
+
+    it('should archive expired observations and keep active ones', async () => {
+      const now = new Date();
+      const expiredDate = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000).toISOString(); // 60 days ago
+      const recentDate = now.toISOString();
+
+      const observations = [
+        { id: 1, entityName: 'a', type: 'session-request', title: 'Old', narrative: '', facts: [], filesModified: [], concepts: [], tokens: 10, createdAt: expiredDate, projectId: 'test' },
+        { id: 2, entityName: 'b', type: 'decision', title: 'Recent', narrative: '', facts: [], filesModified: [], concepts: [], tokens: 20, createdAt: recentDate, projectId: 'test' },
+      ];
+
+      await fs.writeFile(path.join(tmpDir, 'observations.json'), JSON.stringify(observations));
+
+      const result = await archiveExpired(tmpDir, now);
+      expect(result.archived).toBe(1);
+      expect(result.remaining).toBe(1);
+
+      // Active observations should remain
+      const remaining = JSON.parse(await fs.readFile(path.join(tmpDir, 'observations.json'), 'utf-8'));
+      expect(remaining).toHaveLength(1);
+      expect(remaining[0].id).toBe(2);
+
+      // Archived observations should be in archive file
+      const archived = JSON.parse(await fs.readFile(path.join(tmpDir, 'observations.archived.json'), 'utf-8'));
+      expect(archived).toHaveLength(1);
+      expect(archived[0].id).toBe(1);
+    });
+
+    it('should return 0 archived when nothing is expired', async () => {
+      const now = new Date();
+      const observations = [
+        { id: 1, entityName: 'a', type: 'decision', title: 'Recent', narrative: '', facts: [], filesModified: [], concepts: [], tokens: 10, createdAt: now.toISOString(), projectId: 'test' },
+      ];
+
+      await fs.writeFile(path.join(tmpDir, 'observations.json'), JSON.stringify(observations));
+
+      const result = await archiveExpired(tmpDir, now);
+      expect(result.archived).toBe(0);
+      expect(result.remaining).toBe(1);
+    });
+
+    it('should append to existing archive file', async () => {
+      const now = new Date();
+      const expiredDate = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000).toISOString();
+
+      // Pre-existing archive
+      await fs.writeFile(path.join(tmpDir, 'observations.archived.json'), JSON.stringify([{ id: 0, title: 'Previously archived' }]));
+
+      const observations = [
+        { id: 1, entityName: 'a', type: 'session-request', title: 'Expired', narrative: '', facts: [], filesModified: [], concepts: [], tokens: 10, createdAt: expiredDate, projectId: 'test' },
+      ];
+      await fs.writeFile(path.join(tmpDir, 'observations.json'), JSON.stringify(observations));
+
+      await archiveExpired(tmpDir, now);
+
+      const archived = JSON.parse(await fs.readFile(path.join(tmpDir, 'observations.archived.json'), 'utf-8'));
+      expect(archived).toHaveLength(2);
+      expect(archived[0].id).toBe(0); // previously archived
+      expect(archived[1].id).toBe(1); // newly archived
     });
   });
 });

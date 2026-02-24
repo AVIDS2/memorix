@@ -302,6 +302,39 @@ export async function saveIdCounter(projectDir: string, nextId: number): Promise
 }
 
 /**
+ * Append archived observations to the archive file.
+ * Archived observations are moved here by the retention engine.
+ */
+export async function appendArchivedObservations(
+  projectDir: string,
+  observations: unknown[],
+): Promise<void> {
+  const filePath = path.join(projectDir, 'observations.archived.json');
+  let existing: unknown[] = [];
+  try {
+    const data = await fs.readFile(filePath, 'utf-8');
+    existing = JSON.parse(data);
+    if (!Array.isArray(existing)) existing = [];
+  } catch { /* no archive yet */ }
+  existing.push(...observations);
+  await atomicWriteFile(filePath, JSON.stringify(existing, null, 2));
+}
+
+/**
+ * Load archived observations.
+ */
+export async function loadArchivedObservations(projectDir: string): Promise<unknown[]> {
+  const filePath = path.join(projectDir, 'observations.archived.json');
+  try {
+    const data = await fs.readFile(filePath, 'utf-8');
+    const parsed = JSON.parse(data);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
  * Load the next observation ID counter.
  */
 export async function loadIdCounter(projectDir: string): Promise<number> {

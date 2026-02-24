@@ -414,18 +414,35 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
   server.registerTool(
     'memorix_retention',
     {
-      title: 'Memory Retention Status',
+      title: 'Memory Retention Status & Archive',
       description:
-        'Show memory retention status: active/stale/archive-candidate counts, ' +
-        'immune observations, and top stale candidates. ' +
+        'Show memory retention status or archive expired memories. ' +
+        'action="report" (default): show active/stale/archive-candidate counts. ' +
+        'action="archive": move expired observations to archive file (reversible). ' +
         'Uses exponential decay scoring based on importance, age, and access patterns.',
-      inputSchema: {},
+      inputSchema: {
+        action: z.enum(['report', 'archive']).optional().describe('Action: "report" (show status, default) or "archive" (move expired to archive)'),
+      },
     },
-    async () => {
-      const { getRetentionSummary, getArchiveCandidates, rankByRelevance } = await import('./memory/retention.js');
+    async (args: { action?: string }) => {
+      const action = args.action ?? 'report';
+      const { getRetentionSummary, getArchiveCandidates, rankByRelevance, archiveExpired } = await import('./memory/retention.js');
       const { search } = await import('@orama/orama');
 
-      // Get all observations for this project
+      // Handle archive action
+      if (action === 'archive') {
+        const result = await archiveExpired(projectDir);
+        if (result.archived === 0) {
+          return {
+            content: [{ type: 'text' as const, text: '✅ No expired observations to archive. All memories are within their retention period.' }],
+          };
+        }
+        return {
+          content: [{ type: 'text' as const, text: `🗄️ Archived ${result.archived} expired observations → observations.archived.json\n${result.remaining} active observations remaining.\n\nArchived memories can be restored manually if needed.` }],
+        };
+      }
+
+      // Report action (default)
       const database = await (await import('./store/orama-store.js')).getDb();
       const allResults = await search(database, {
         term: '',
@@ -468,6 +485,8 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
           );
           lines.push(`| ${c.observationId} | ${c.title} | ${ageDays}d | ${c.accessCount ?? 0}× |`);
         }
+        lines.push('');
+        lines.push(`> 💡 Use \`memorix_retention\` with \`action: "archive"\` to move these to archive.`);
         lines.push('');
       }
 

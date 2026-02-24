@@ -13,7 +13,9 @@
  * are never auto-archived.
  */
 
-import type { MemorixDocument } from '../types.js';
+import type { MemorixDocument, Observation } from '../types.js';
+import { loadObservationsJson, saveObservationsJson, appendArchivedObservations } from '../store/persistence.js';
+import { withFileLock } from '../store/file-lock.js';
 
 // ── Importance → Retention Period mapping ────────────────────────────
 
@@ -210,4 +212,63 @@ export function getRetentionSummary(
   }
 
   return { active, stale, archiveCandidates, immune };
+}
+
+// ── Auto-Archive ────────────────────────────────────────────────────
+
+/**
+ * Archive expired observations: move archive-candidates from active
+ * storage to observations.archived.json.
+ *
+ * Returns the count of archived observations.
+ * Uses file locking for cross-process safety.
+ */
+export async function archiveExpired(
+  projectDir: string,
+  referenceTime?: Date,
+): Promise<{ archived: number; remaining: number }> {
+  return await withFileLock(projectDir, async () => {
+    const allObs = await loadObservationsJson(projectDir) as Observation[];
+
+    // Convert to MemorixDocument-like shape for zone calculation
+    const toDoc = (obs: Observation): MemorixDocument => ({
+      id: `obs-${obs.id}`,
+      observationId: obs.id,
+      entityName: obs.entityName,
+      type: obs.type,
+      title: obs.title,
+      narrative: obs.narrative,
+      facts: obs.facts.join('\n'),
+      filesModified: obs.filesModified.join('\n'),
+      concepts: obs.concepts.join(', '),
+      tokens: obs.tokens,
+      createdAt: obs.createdAt,
+      projectId: obs.projectId,
+      accessCount: 0,
+      lastAccessedAt: '',
+    });
+
+    const toArchive: Observation[] = [];
+    const toKeep: Observation[] = [];
+
+    for (const obs of allObs) {
+      const doc = toDoc(obs);
+      const zone = getRetentionZone(doc, referenceTime);
+      if (zone === 'archive-candidate') {
+        toArchive.push(obs);
+      } else {
+        toKeep.push(obs);
+      }
+    }
+
+    if (toArchive.length === 0) {
+      return { archived: 0, remaining: allObs.length };
+    }
+
+    // Move to archive file, then update active file
+    await appendArchivedObservations(projectDir, toArchive);
+    await saveObservationsJson(projectDir, toKeep);
+
+    return { archived: toArchive.length, remaining: toKeep.length };
+  });
 }

@@ -14,6 +14,7 @@ import path from 'node:path';
 import { exec } from 'node:child_process';
 
 import { loadGraphJsonl, loadObservationsJson, saveObservationsJson, loadIdCounter, getBaseDataDir } from '../store/persistence.js';
+import { withFileLock } from '../store/file-lock.js';
 
 // MIME types for static file serving
 const MIME_TYPES: Record<string, string> = {
@@ -231,15 +232,17 @@ async function handleApi(
                 const deleteMatch = apiPath.match(/^\/observations\/(\d+)$/);
                 if (deleteMatch && req.method === 'DELETE') {
                     const obsId = parseInt(deleteMatch[1], 10);
-                    const allObs = await loadObservationsJson(effectiveDataDir) as Array<{ id?: number;[k: string]: unknown }>;
-                    const idx = allObs.findIndex(o => o.id === obsId);
-                    if (idx === -1) {
-                        sendError(res, 'Observation not found', 404);
-                    } else {
-                        allObs.splice(idx, 1);
-                        await saveObservationsJson(effectiveDataDir, allObs);
-                        sendJson(res, { ok: true, deleted: obsId });
-                    }
+                    await withFileLock(effectiveDataDir, async () => {
+                        const allObs = await loadObservationsJson(effectiveDataDir) as Array<{ id?: number;[k: string]: unknown }>;
+                        const idx = allObs.findIndex(o => o.id === obsId);
+                        if (idx === -1) {
+                            sendError(res, 'Observation not found', 404);
+                        } else {
+                            allObs.splice(idx, 1);
+                            await saveObservationsJson(effectiveDataDir, allObs);
+                            sendJson(res, { ok: true, deleted: obsId });
+                        }
+                    });
                     break;
                 }
 

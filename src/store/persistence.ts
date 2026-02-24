@@ -11,6 +11,7 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { atomicWriteFile } from './file-lock.js';
 
 /** Default base data directory */
 const DEFAULT_DATA_DIR = path.join(os.homedir(), '.memorix', 'data');
@@ -217,7 +218,7 @@ export async function saveGraphJsonl(
       JSON.stringify({ type: 'relation', from: r.from, to: r.to, relationType: r.relationType }),
     ),
   ];
-  await fs.writeFile(getGraphFilePath(projectDir), lines.join('\n'), 'utf-8');
+  await atomicWriteFile(getGraphFilePath(projectDir), lines.join('\n'));
 }
 
 /**
@@ -273,7 +274,7 @@ export async function saveObservationsJson(
   observations: unknown[],
 ): Promise<void> {
   const filePath = path.join(projectDir, 'observations.json');
-  await fs.writeFile(filePath, JSON.stringify(observations, null, 2), 'utf-8');
+  await atomicWriteFile(filePath, JSON.stringify(observations, null, 2));
 }
 
 /**
@@ -297,7 +298,7 @@ export async function loadObservationsJson(projectDir: string): Promise<unknown[
  */
 export async function saveIdCounter(projectDir: string, nextId: number): Promise<void> {
   const filePath = path.join(projectDir, 'counter.json');
-  await fs.writeFile(filePath, JSON.stringify({ nextId }), 'utf-8');
+  await atomicWriteFile(filePath, JSON.stringify({ nextId }));
 }
 
 /**

@@ -12,6 +12,7 @@
 
 import type { Entity, Relation, KnowledgeGraph } from '../types.js';
 import { saveGraphJsonl, loadGraphJsonl } from '../store/persistence.js';
+import { withFileLock } from '../store/file-lock.js';
 
 export class KnowledgeGraphManager {
   private entities: Entity[] = [];
@@ -32,9 +33,11 @@ export class KnowledgeGraphManager {
     this.initialized = true;
   }
 
-  /** Persist current state to disk */
+  /** Persist current state to disk with file lock (cross-process safe) */
   private async save(): Promise<void> {
-    await saveGraphJsonl(this.projectDir, this.entities, this.relations);
+    await withFileLock(this.projectDir, async () => {
+      await saveGraphJsonl(this.projectDir, this.entities, this.relations);
+    });
   }
 
   /** Create new entities (skip duplicates by name) */

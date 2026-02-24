@@ -11,6 +11,7 @@
 import type { Observation, ObservationType, MemorixDocument } from '../types.js';
 import { insertObservation, generateEmbedding, isEmbeddingEnabled } from '../store/orama-store.js';
 import { saveObservationsJson, loadObservationsJson, saveIdCounter, loadIdCounter } from '../store/persistence.js';
+import { withFileLock } from '../store/file-lock.js';
 import { countTextTokens } from '../compact/token-budget.js';
 import { extractEntities, enrichConcepts } from './entity-extractor.js';
 
@@ -120,10 +121,29 @@ export async function storeObservation(input: {
 
   await insertObservation(doc);
 
-  // Persist to disk
+  // Persist to disk with file lock (cross-process safe)
   if (projectDir) {
-    await saveObservationsJson(projectDir, observations);
-    await saveIdCounter(projectDir, nextId);
+    await withFileLock(projectDir, async () => {
+      // Re-read from disk to merge changes from other processes
+      const diskObs = await loadObservationsJson(projectDir!) as Observation[];
+      const diskNextId = await loadIdCounter(projectDir!);
+
+      // Merge: add our new observation if not already present
+      const existingIds = new Set(diskObs.map(o => o.id));
+      if (!existingIds.has(observation.id)) {
+        diskObs.push(observation);
+      }
+
+      // Use the higher nextId (ours or disk's)
+      const mergedNextId = Math.max(nextId, diskNextId);
+
+      // Update in-memory state with merged data
+      observations = diskObs;
+      nextId = mergedNextId;
+
+      await saveObservationsJson(projectDir!, observations);
+      await saveIdCounter(projectDir!, nextId);
+    });
   }
 
   return observation;

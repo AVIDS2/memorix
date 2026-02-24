@@ -19,9 +19,19 @@ export class KnowledgeGraphManager {
   private relations: Relation[] = [];
   private projectDir: string;
   private initialized = false;
+  /** Index: lowercase entity name → Entity for O(1) lookups */
+  private entityIndex = new Map<string, Entity>();
 
   constructor(projectDir: string) {
     this.projectDir = projectDir;
+  }
+
+  /** Rebuild the entity name index */
+  private rebuildIndex(): void {
+    this.entityIndex.clear();
+    for (const e of this.entities) {
+      this.entityIndex.set(e.name.toLowerCase(), e);
+    }
   }
 
   /** Load graph from disk on first access */
@@ -30,7 +40,18 @@ export class KnowledgeGraphManager {
     const data = await loadGraphJsonl(this.projectDir);
     this.entities = data.entities;
     this.relations = data.relations;
+    this.rebuildIndex();
     this.initialized = true;
+  }
+
+  /** Find entity by name (case-insensitive, O(1)) */
+  findEntityByName(name: string): Entity | undefined {
+    return this.entityIndex.get(name.toLowerCase());
+  }
+
+  /** Get all entity names as a Set (lowercase, for fast membership checks) */
+  getEntityNameSet(): Set<string> {
+    return new Set(this.entityIndex.keys());
   }
 
   /** Persist current state to disk with file lock (cross-process safe) */
@@ -44,9 +65,10 @@ export class KnowledgeGraphManager {
   async createEntities(entities: Entity[]): Promise<Entity[]> {
     await this.init();
     const newEntities = entities.filter(
-      (e) => !this.entities.some((existing) => existing.name === e.name),
+      (e) => !this.entityIndex.has(e.name.toLowerCase()),
     );
     this.entities.push(...newEntities);
+    if (newEntities.length > 0) this.rebuildIndex();
     await this.save();
     return newEntities;
   }
@@ -93,6 +115,7 @@ export class KnowledgeGraphManager {
     this.relations = this.relations.filter(
       (r) => !entityNames.includes(r.from) && !entityNames.includes(r.to),
     );
+    this.rebuildIndex();
     await this.save();
   }
 

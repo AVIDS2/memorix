@@ -53,14 +53,10 @@ export async function createAutoRelations(
   const relationType = inferRelationType(obs);
   const relations: Relation[] = [];
 
-  // Get all existing entity names from the graph
-  const graph = await graphManager.readGraph();
-  const existingNames = new Set(graph.entities.map((e) => e.name.toLowerCase()));
-
   // Skip self-references
   const selfName = obs.entityName.toLowerCase();
 
-  // Check extracted identifiers against existing entities
+  // Check extracted identifiers against existing entities (O(1) lookups via index)
   const candidates = [
     ...extracted.identifiers,
     ...extracted.files.map((f) => f.split('/').pop()?.replace(/\.\w+$/, '') ?? ''),
@@ -71,11 +67,7 @@ export async function createAutoRelations(
     const lower = candidate.toLowerCase();
     if (lower === selfName) continue;
 
-    // Find matching entity (case-insensitive)
-    const matchedEntity = graph.entities.find(
-      (e) => e.name.toLowerCase() === lower,
-    );
-
+    const matchedEntity = graphManager.findEntityByName(candidate);
     if (matchedEntity) {
       relations.push({
         from: obs.entityName,
@@ -90,10 +82,7 @@ export async function createAutoRelations(
     const basename = file.split('/').pop()?.replace(/\.\w+$/, '') ?? '';
     if (basename.length < 3 || basename.toLowerCase() === selfName) continue;
 
-    const matchedEntity = graph.entities.find(
-      (e) => e.name.toLowerCase() === basename.toLowerCase(),
-    );
-
+    const matchedEntity = graphManager.findEntityByName(basename);
     if (matchedEntity) {
       relations.push({
         from: obs.entityName,

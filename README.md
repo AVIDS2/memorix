@@ -164,11 +164,43 @@ After 2 weeks of development, you have 50+ observations:
   → New team members' AI instantly knows your project's patterns!
 ```
 
+### Scenario 6: Session Lifecycle (v0.8.0)
+
+```
+Morning — Start a new session in Windsurf:
+  → memorix_session_start auto-injects:
+    📋 Previous Session: "Implemented JWT auth middleware"
+    🔴 JWT tokens expire silently (gotcha)
+    🟤 Use Docker for deployment (decision)
+  → AI instantly knows what you did yesterday!
+
+Evening — End the session:
+  → memorix_session_end saves structured summary
+  → Next session (any agent!) gets this context automatically
+```
+
+### Scenario 7: Topic Key Upsert — No More Duplicates (v0.8.0)
+
+```
+You update your architecture decision 3 times over a week:
+
+  Day 1: memorix_store(topicKey="architecture/auth-model", ...)
+  → Creates observation #42 (rev 1)
+
+  Day 3: memorix_store(topicKey="architecture/auth-model", ...)
+  → Updates #42 in-place (rev 2) — NOT a new #43!
+
+  Day 5: memorix_store(topicKey="architecture/auth-model", ...)
+  → Updates #42 again (rev 3)
+
+  Result: 1 observation with latest content, not 3 duplicates!
+```
+
 ---
 
 ## 🧠 What Memorix Can Do
 
-### Smart Memory (17 MCP Tools)
+### Smart Memory (20 MCP Tools)
 
 | What You Say | What Memorix Does |
 |-------------|-------------------|
@@ -177,6 +209,10 @@ After 2 weeks of development, you have 50+ observations:
 | "What happened around that bug fix?" | `memorix_timeline` — Shows chronological context before/after |
 | "Show me the knowledge graph" | `memorix_dashboard` — Opens interactive web UI with D3.js graph |
 | "Which memories are getting stale?" | `memorix_retention` — Exponential decay scores, identifies archive candidates |
+| "Start a new session" | `memorix_session_start` — Tracks session lifecycle, auto-injects previous session summaries + key memories |
+| "End this session" | `memorix_session_end` — Saves structured summary (Goal/Discoveries/Accomplished/Files) for next session |
+| "What did we do last session?" | `memorix_session_context` — Retrieves session history and key observations |
+| "Suggest a topic key for this" | `memorix_suggest_topic_key` — Generates stable keys for deduplication (e.g. `architecture/auth-model`) |
 
 ### Cross-Agent Workspace Sync
 
@@ -298,7 +334,7 @@ With vector search, queries like "authentication" also match memories about "log
 Install Memorix in both IDEs. They share the same local memory directory — architecture decisions made in Cursor are instantly searchable in Claude Code. No cloud sync needed.
 
 **How do I prevent my AI from forgetting previous sessions?**
-Memorix stores observations persistently on disk. Next session, the AI calls `memorix_search` and retrieves prior decisions, gotchas, and knowledge. With auto-memory hooks, it even captures context automatically.
+Use `memorix_session_start` at the beginning of each session — it automatically injects previous session summaries and key observations (gotchas, decisions, discoveries). Use `memorix_session_end` to save a structured summary before leaving. All observations persist on disk and are searchable via `memorix_search` anytime.
 
 **How do I sync MCP server configs between IDEs?**
 Run `memorix_workspace_sync` with action `"migrate"` and your target IDE. It scans source configs and generates compatible configs for the target — merges, never overwrites.

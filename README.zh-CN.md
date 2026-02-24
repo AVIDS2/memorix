@@ -164,11 +164,43 @@ Antigravity 会将工作目录设为自身安装路径（如 `G:\Antigravity`）
   → 新同事的 AI 立即掌握你项目的最佳实践！
 ```
 
+### 场景 6：会话生命周期（v0.8.0）
+
+```
+早上 — 在 Windsurf 中开始新会话：
+  → memorix_session_start 自动注入：
+    📋 上次会话: "实现了 JWT 认证中间件"
+    🔴 JWT token 静默过期（踩坑）
+    🟤 使用 Docker 部署（决策）
+  → AI 立即知道你昨天做了什么！
+
+晚上 — 结束会话：
+  → memorix_session_end 保存结构化摘要
+  → 下次会话（任何 Agent！）自动获取这些上下文
+```
+
+### 场景 7：Topic Key 去重 — 不再有重复记忆（v0.8.0）
+
+```
+你在一周内更新了 3 次架构决策：
+
+  第 1 天: memorix_store(topicKey="architecture/auth-model", ...)
+  → 创建观察记录 #42（rev 1）
+
+  第 3 天: memorix_store(topicKey="architecture/auth-model", ...)
+  → 原地更新 #42（rev 2）— 不是新建 #43！
+
+  第 5 天: memorix_store(topicKey="architecture/auth-model", ...)
+  → 再次更新 #42（rev 3）
+
+  结果：1 条记录包含最新内容，而不是 3 条重复！
+```
+
 ---
 
 ## 🧠 Memorix 能做什么
 
-### 智能记忆（17 个 MCP 工具）
+### 智能记忆（20 个 MCP 工具）
 
 | 你说的 | Memorix 做的 |
 |--------|-------------|
@@ -177,6 +209,10 @@ Antigravity 会将工作目录设为自身安装路径（如 `G:\Antigravity`）
 | "那个 bug 修复前后发生了什么？" | `memorix_timeline` — 按时间显示前后上下文 |
 | "显示知识图谱" | `memorix_dashboard` — 打开交互式 Web UI，含 D3.js 图谱 |
 | "哪些记忆快过期了？" | `memorix_retention` — 指数衰减评分，识别归档候选 |
+| "开始新会话" | `memorix_session_start` — 跟踪会话生命周期，自动注入上次会话摘要 + 关键记忆 |
+| "结束这次会话" | `memorix_session_end` — 保存结构化摘要（目标/发现/完成/文件），供下次会话使用 |
+| "上次我们做了什么？" | `memorix_session_context` — 检索会话历史和关键观察记录 |
+| "给这个建议一个 topic key" | `memorix_suggest_topic_key` — 生成稳定的去重键（如 `architecture/auth-model`） |
 
 ### 跨 Agent 工作区同步
 
@@ -298,7 +334,7 @@ npm install -g @huggingface/transformers
 在两个 IDE 都安装 Memorix。它们共享相同的本地记忆目录 — 在 Cursor 中做的架构决策在 Claude Code 中立即可搜索，无需云同步。
 
 **如何防止 AI 忘记之前的会话？**
-Memorix 将观察记录持久存储在磁盘上。下次会话，AI 调用 `memorix_search` 即可检索之前的决策、踩坑和知识。配合自动记忆 Hook，甚至可以自动捕获上下文。
+在每次会话开始时调用 `memorix_session_start` — 它会自动注入上次会话的摘要和关键观察记录（踩坑、决策、发现）。会话结束时调用 `memorix_session_end` 保存结构化摘要。所有观察记录持久存储在磁盘上，随时可通过 `memorix_search` 搜索。
 
 **如何在 IDE 之间同步 MCP 服务器配置？**
 运行 `memorix_workspace_sync`，设置 action 为 `"migrate"`，指定目标 IDE。它会扫描源配置并生成兼容的目标配置 — 合并，永不覆盖。

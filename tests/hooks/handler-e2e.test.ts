@@ -326,6 +326,21 @@ export function sleep(ms: number) {
     expect(observation).toBeNull();
   });
 
+  it('should skip self-referential commands (inspecting memorix data)', async () => {
+    const payload = {
+      hook_event_name: 'PostToolUse',
+      session_id: 'sess-claude-16',
+      cwd: '/home/user/project',
+      tool_name: 'Bash',
+      tool_input: { command: 'node -e "const fs=require(\'fs\');const d=JSON.parse(fs.readFileSync(os.homedir()+\'/.memorix/data/observations.json\'))"' },
+      tool_response: 'Total: 235',
+    };
+
+    const input = normalizeHookInput(payload);
+    const { observation } = await handleHookEvent(input);
+    expect(observation).toBeNull();
+  });
+
   // ─── Noise: Read tool with trivial content ───
   it('should skip Read tool with very short file content', async () => {
     const payload = {

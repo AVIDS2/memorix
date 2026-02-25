@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.9.18] — 2026-02-26
+
+### Fixed
+- **Self-referential command noise** — Bash commands that inspect memorix's own data (e.g. `node -e "...observations.json..."`, `cat ~/.memorix/...`) were being stored as observations, creating a feedback loop. Now filtered alongside `memorix_internal` tools.
+
 ## [0.9.17] — 2026-02-26
 
 ### Fixed

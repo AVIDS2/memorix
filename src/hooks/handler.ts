@@ -105,7 +105,10 @@ function extractRealCommand(command: string): string {
  */
 function isNoiseCommand(command: string): boolean {
   const real = extractRealCommand(command);
-  return NOISE_COMMANDS.some(r => r.test(real));
+  if (NOISE_COMMANDS.some(r => r.test(real))) return true;
+  // Filter self-referential commands (inspecting memorix's own data)
+  if (/\.memorix[/\\]|observations\.json|memorix.*data/i.test(command)) return true;
+  return false;
 }
 
 /**

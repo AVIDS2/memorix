@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.9.8] — 2026-02-25
+
+### Fixed
+- **Claude Code hooks installed to wrong file** — Hooks were written to `.github/hooks/memorix.json` but Claude Code reads from `.claude/settings.local.json` (project-level) or `~/.claude/settings.json` (global). Now correctly writes to `.claude/settings.local.json` for project-level installation.
+- **Hooks merge overwrites existing settings** — Shallow spread `{...existing, ...generated}` would overwrite the entire `hooks` key, destroying user's other hook configurations. Now deep-merges the `hooks` object so existing hooks from other tools are preserved.
+
 ## [0.9.7] — 2026-02-25
 
 ### Fixed

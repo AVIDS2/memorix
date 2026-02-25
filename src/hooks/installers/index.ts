@@ -141,6 +141,8 @@ ${resolveHookCommand()} hook
 function getProjectConfigPath(agent: AgentName, projectRoot: string): string {
   switch (agent) {
     case 'claude':
+      // Claude Code reads hooks from .claude/settings.local.json (project-level, gitignored)
+      return path.join(projectRoot, '.claude', 'settings.local.json');
     case 'copilot':
       return path.join(projectRoot, '.github', 'hooks', 'memorix.json');
     case 'windsurf':
@@ -281,10 +283,15 @@ export async function installHooks(
       existing = JSON.parse(content);
     } catch { /* file doesn't exist yet */ }
 
-    const merged = {
-      ...existing,
-      ...(generated as Record<string, unknown>),
-    };
+    // Deep-merge the 'hooks' key so we don't overwrite user's existing hooks
+    const gen = generated as Record<string, unknown>;
+    const merged = { ...existing };
+    if (gen.hooks && typeof gen.hooks === 'object') {
+      const existingHooks = (existing.hooks && typeof existing.hooks === 'object')
+        ? existing.hooks as Record<string, unknown>
+        : {};
+      merged.hooks = { ...existingHooks, ...(gen.hooks as Record<string, unknown>) };
+    }
 
     await fs.writeFile(configPath, JSON.stringify(merged, null, 2), 'utf-8');
   }

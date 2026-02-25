@@ -1,6 +1,6 @@
 {
   "name": "memorix",
-  "version": "0.9.6",
+  "version": "0.9.7",
   "description": "Cross-Agent Memory Bridge — Persistent memory for AI coding agents across Cursor, Windsurf, Claude Code, Codex, Copilot, Kiro via MCP.",
   "type": "module",
   "sideEffects": false,

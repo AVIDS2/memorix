@@ -55,15 +55,15 @@ function detectAgent(payload: Record<string, unknown>): AgentName {
   // Windsurf uses agent_action_name
   if ('agent_action_name' in payload) return 'windsurf';
 
-  // Cursor uses hook_event_name (lowercase) + conversation_id
+  // Cursor uses hook_event_name (snake_case) + conversation_id
   if ('hook_event_name' in payload && 'conversation_id' in payload) return 'cursor';
 
-  // Claude Code / VS Code Copilot use hookEventName (camelCase)
-  if ('hookEventName' in payload) {
-    // VS Code Copilot has transcript_path; Claude Code also has it
-    // They use the same format, so we distinguish by sessionId pattern if needed
-    return 'copilot'; // treat as copilot (same format as claude)
-  }
+  // Claude Code uses hook_event_name (snake_case) WITHOUT conversation_id
+  // Official payload: { hook_event_name: "PostToolUse", session_id: "...", ... }
+  if ('hook_event_name' in payload) return 'claude';
+
+  // VS Code Copilot uses hookEventName (camelCase)
+  if ('hookEventName' in payload) return 'copilot';
 
   // Kiro uses event_type
   if ('event_type' in payload) return 'kiro';
@@ -83,8 +83,10 @@ function extractEventName(payload: Record<string, unknown>, agent: AgentName): s
       return (payload.agent_action_name as string) ?? '';
     case 'cursor':
       return (payload.hook_event_name as string) ?? '';
-    case 'copilot':
     case 'claude':
+      // Claude Code uses hook_event_name (snake_case)
+      return (payload.hook_event_name as string) ?? (payload.hookEventName as string) ?? '';
+    case 'copilot':
       return (payload.hookEventName as string) ?? '';
     case 'kiro':
       return (payload.event_type as string) ?? '';
@@ -99,23 +101,36 @@ function extractEventName(payload: Record<string, unknown>, agent: AgentName): s
  * Normalize a Claude Code / VS Code Copilot payload.
  */
 function normalizeClaude(payload: Record<string, unknown>, event: HookEvent): Partial<NormalizedHookInput> {
+  // Claude Code uses snake_case fields: session_id, hook_event_name, tool_response
   const result: Partial<NormalizedHookInput> = {
-    sessionId: (payload.sessionId as string) ?? '',
+    sessionId: (payload.session_id as string) ?? (payload.sessionId as string) ?? '',
     cwd: (payload.cwd as string) ?? '',
     transcriptPath: payload.transcript_path as string | undefined,
   };
 
-  // PostToolUse with write tool → post_edit
+  // PostToolUse / PreToolUse with tool info
   const toolName = (payload.tool_name as string) ?? '';
   if (toolName) {
     result.toolName = toolName;
     result.toolInput = payload.tool_input as Record<string, unknown> | undefined;
-    result.toolResult = payload.tool_result as string | undefined;
 
-    // Detect file edits
-    if (toolName === 'write' || toolName === 'edit' || toolName === 'multi_edit') {
-      const input = payload.tool_input as Record<string, unknown> | undefined;
-      result.filePath = (input?.file_path as string) ?? (input?.filePath as string);
+    // Claude Code sends tool_response (object), not tool_result (string)
+    const toolResponse = payload.tool_response ?? payload.tool_result;
+    if (typeof toolResponse === 'string') {
+      result.toolResult = toolResponse;
+    } else if (toolResponse && typeof toolResponse === 'object') {
+      result.toolResult = JSON.stringify(toolResponse);
+    }
+
+    // Extract command from Bash tool input
+    const toolInput = payload.tool_input as Record<string, unknown> | undefined;
+    if (/^bash$/i.test(toolName) && toolInput?.command) {
+      result.command = toolInput.command as string;
+    }
+
+    // Detect file edits (Write, Edit, MultiEditTool, etc.)
+    if (/^(write|edit|multi_edit|multiedittool)$/i.test(toolName)) {
+      result.filePath = (toolInput?.file_path as string) ?? (toolInput?.filePath as string);
     }
   }
 

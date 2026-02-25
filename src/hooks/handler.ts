@@ -20,6 +20,9 @@ const COOLDOWN_MS = 30_000;
 /** Minimum content length for auto-store */
 const MIN_STORE_LENGTH = 100;
 
+/** Lower threshold for user prompts (short prompts are still valuable) */
+const MIN_PROMPT_LENGTH = 20;
+
 /** Lower threshold for code edits (file context adds value) */
 const MIN_EDIT_LENGTH = 30;
 
@@ -66,6 +69,24 @@ function extractContent(input: NormalizedHookInput): string {
   if (input.edits) {
     for (const edit of input.edits) {
       parts.push(`Edit: ${edit.oldString} → ${edit.newString}`);
+    }
+  }
+
+  // Extract useful content from toolInput if nothing else was extracted
+  if (parts.length === 0 && input.toolInput && typeof input.toolInput === 'object') {
+    if (input.toolName) parts.push(`Tool: ${input.toolName}`);
+    // Bash: command
+    if (input.toolInput.command) parts.push(`Command: ${input.toolInput.command as string}`);
+    // Write/Edit: file_path + content snippet
+    if (input.toolInput.file_path) parts.push(`File: ${input.toolInput.file_path as string}`);
+    if (input.toolInput.content) {
+      const content = input.toolInput.content as string;
+      parts.push(content.slice(0, 1000));
+    }
+    // Generic: serialize remaining keys if still empty
+    if (parts.length <= 1) {
+      const summary = JSON.stringify(input.toolInput).slice(0, 500);
+      parts.push(summary);
     }
   }
 
@@ -329,7 +350,7 @@ export async function handleHookEvent(input: NormalizedHookInput): Promise<{
     }
 
     case 'post_tool': {
-      // Tools: still require pattern (avoid memorix's own tool noise)
+      // Tools: require pattern OR substantial content
       const toolKey = `post_tool:${input.toolName ?? 'general'}`;
       if (isInCooldown(toolKey)) {
         return { observation: null, output: defaultOutput };
@@ -341,7 +362,8 @@ export async function handleHookEvent(input: NormalizedHookInput): Promise<{
       }
 
       const toolPattern = detectBestPattern(toolContent);
-      if (!toolPattern) {
+      // Store if pattern detected OR content is substantial (>200 chars)
+      if (!toolPattern && toolContent.length < 200) {
         return { observation: null, output: defaultOutput };
       }
 
@@ -361,7 +383,8 @@ export async function handleHookEvent(input: NormalizedHookInput): Promise<{
       }
 
       const content = extractContent(input);
-      if (content.length < MIN_STORE_LENGTH) {
+      const minLen = input.event === 'user_prompt' ? MIN_PROMPT_LENGTH : MIN_STORE_LENGTH;
+      if (content.length < minLen) {
         return { observation: null, output: defaultOutput };
       }
 

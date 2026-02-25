@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.9.7] — 2026-02-25
+
+### Fixed
+- **Claude Code hooks never triggering auto-memory** — Claude Code sends `hook_event_name` (snake_case) but the normalizer expected `hookEventName` (camelCase). This caused **every event** (SessionStart, UserPromptSubmit, PostToolUse, PreCompact, Stop) to be misidentified as `post_tool`, breaking event routing, prompt extraction, memory injection, and session tracking. Also fixed `session_id` → `sessionId` and `tool_response` → `toolResult` field mappings.
+- **Empty content extraction from Claude Code tool events** — `extractContent()` now unpacks `toolInput` fields (Bash commands, Write file content, etc.) when no other content is available. Previously tool events produced empty or near-empty content strings.
+- **User prompts silently dropped** — `MIN_STORE_LENGTH=100` was too high for typical user prompts. Added `MIN_PROMPT_LENGTH=20` specifically for `user_prompt` events.
+- **Post-tool events too aggressively filtered** — Tool events with substantial content (>200 chars) are now stored even without keyword pattern matches.
+
 ## [0.9.6] — 2026-02-25
 
 ### Fixed

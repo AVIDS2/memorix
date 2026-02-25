@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.9.10] — 2026-02-25
+
+### Fixed
+- **CLI crashes with `ERR_MODULE_NOT_FOUND` on global install** — `@orama/orama`, `gpt-tokenizer`, `gray-matter` and other dependencies were not bundled into the CLI output. tsup treated `dependencies` as external by default. Added `noExternal` to force-bundle all deps into CLI (275KB → 2.59MB), making `memorix hook` work reliably when installed globally via `npm install -g`.
+- **Cursor agent detection corrected** — Real Cursor payload confirmed to include `hook_event_name` + `conversation_id` (not just `workspace_roots`). Detection now uses `conversation_id` or `cursor_version` as primary discriminator vs Claude Code (which sends `session_id` without `conversation_id`). `extractEventName` reads `hook_event_name` first, falls back to payload inference.
+
 ## [0.9.9] — 2026-02-25
 
 ### Fixed

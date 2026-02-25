@@ -60,12 +60,11 @@ function detectAgent(payload: Record<string, unknown>): AgentName {
   // Windsurf uses agent_action_name
   if ('agent_action_name' in payload) return 'windsurf';
 
-  // Cursor sends workspace_roots or is_background_agent (unique to Cursor)
-  // It does NOT send hook_event_name — each hook event fires separately
-  if ('workspace_roots' in payload || 'is_background_agent' in payload || 'composer_mode' in payload) return 'cursor';
+  // Cursor sends hook_event_name + conversation_id + workspace_roots
+  // Claude Code sends hook_event_name + session_id (no conversation_id)
+  if ('conversation_id' in payload || 'cursor_version' in payload) return 'cursor';
 
   // Claude Code uses hook_event_name (snake_case) WITHOUT conversation_id
-  // Official payload: { hook_event_name: "PostToolUse", session_id: "...", ... }
   if ('hook_event_name' in payload) return 'claude';
 
   // VS Code Copilot uses hookEventName (camelCase)
@@ -88,8 +87,8 @@ function extractEventName(payload: Record<string, unknown>, agent: AgentName): s
     case 'windsurf':
       return (payload.agent_action_name as string) ?? '';
     case 'cursor':
-      // Cursor doesn't send event name — infer from payload fields
-      return inferCursorEvent(payload);
+      // Cursor sends hook_event_name; fall back to inference if missing
+      return (payload.hook_event_name as string) ?? inferCursorEvent(payload);
     case 'claude':
       // Claude Code uses hook_event_name (snake_case)
       return (payload.hook_event_name as string) ?? (payload.hookEventName as string) ?? '';

@@ -21,6 +21,8 @@ export default defineConfig([
     splitting: false,
     shims: true,
     banner: { js: '#!/usr/bin/env node' },
+    // Bundle all dependencies into CLI for portable global install
+    noExternal: [/^(?!(fastembed|@huggingface\/transformers))/],
     external: ['fastembed', '@huggingface/transformers'],
     // Copy dashboard static files after CLI build
     onSuccess: 'node scripts/copy-static.cjs',

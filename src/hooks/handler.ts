@@ -62,7 +62,6 @@ function extractContent(input: NormalizedHookInput): string {
 
   if (input.userPrompt) parts.push(input.userPrompt);
   if (input.aiResponse) parts.push(input.aiResponse);
-  if (input.toolResult) parts.push(input.toolResult);
   if (input.commandOutput) parts.push(input.commandOutput);
   if (input.command) parts.push(`Command: ${input.command}`);
   if (input.filePath) parts.push(`File: ${input.filePath}`);
@@ -72,23 +71,35 @@ function extractContent(input: NormalizedHookInput): string {
     }
   }
 
-  // Extract useful content from toolInput if nothing else was extracted
-  if (parts.length === 0 && input.toolInput && typeof input.toolInput === 'object') {
+  // ALWAYS extract from toolInput — toolResult is often just "File written successfully"
+  // which is too short for meaningful pattern detection
+  if (input.toolInput && typeof input.toolInput === 'object') {
     if (input.toolName) parts.push(`Tool: ${input.toolName}`);
     // Bash: command
-    if (input.toolInput.command) parts.push(`Command: ${input.toolInput.command as string}`);
+    if (input.toolInput.command && !input.command) {
+      parts.push(`Command: ${input.toolInput.command as string}`);
+    }
     // Write/Edit: file_path + content snippet
-    if (input.toolInput.file_path) parts.push(`File: ${input.toolInput.file_path as string}`);
+    if (input.toolInput.file_path && !input.filePath) {
+      parts.push(`File: ${input.toolInput.file_path as string}`);
+    }
     if (input.toolInput.content) {
       const content = input.toolInput.content as string;
       parts.push(content.slice(0, 1000));
     }
-    // Generic: serialize remaining keys if still empty
-    if (parts.length <= 1) {
-      const summary = JSON.stringify(input.toolInput).slice(0, 500);
-      parts.push(summary);
+    // old_string/new_string from Edit tool
+    if (input.toolInput.old_string || input.toolInput.new_string) {
+      const oldStr = (input.toolInput.old_string as string) ?? '';
+      const newStr = (input.toolInput.new_string as string) ?? '';
+      parts.push(`Edit: ${oldStr.slice(0, 300)} → ${newStr.slice(0, 300)}`);
     }
+    // Search/grep: query
+    if (input.toolInput.query) parts.push(`Query: ${input.toolInput.query as string}`);
+    if (input.toolInput.regex) parts.push(`Search: ${input.toolInput.regex as string}`);
   }
+
+  // Add toolResult last (often short like "File written successfully")
+  if (input.toolResult) parts.push(input.toolResult);
 
   return parts.join('\n').slice(0, MAX_CONTENT_LENGTH);
 }

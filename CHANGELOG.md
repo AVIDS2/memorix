@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.9.13] — 2026-02-26
+
+### Fixed
+- **🔴 Critical: Hooks never auto-store during development** — `extractContent()` had a fatal `parts.length === 0` guard that skipped rich `toolInput` data (file content, edit diffs, commands) whenever `toolResult` was present. Since Claude Code/Copilot/Cursor always send a short `toolResult` like `"File written successfully"` (28 chars), the extracted content was always < 100 chars and got rejected by the `MIN_STORE_LENGTH` threshold. Now always extracts `toolInput` fields (file_path, content, old_string/new_string, command, query) alongside `toolResult`, ensuring tool events produce enough content for pattern detection and auto-storage.
+
 ## [0.9.12] — 2026-02-25
 
 ### Fixed

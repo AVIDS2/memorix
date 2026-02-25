@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.9.16] — 2026-02-26
+
+### Architecture
+- **Classify → Policy → Store pipeline** — Replaced the monolithic `switch/case` handler (527 lines) with a clean declarative pipeline (432 lines). Inspired by claude-mem's store-first philosophy and mcp-memory-service's configurable scoring.
+- **Tool Taxonomy** — `classifyTool()` categorizes tools into `file_modify | file_read | command | search | memorix_internal | unknown`. Each category has a declarative `StoragePolicy` (store mode, minLength, defaultType).
+- **Pattern detection = classification only** — Pattern detection now only determines observation *type* (decision, error, etc.), not whether to store. Storage decisions are made by policy.
+- **Unified `TYPE_EMOJI`** — Single exported constant, eliminating 3 duplicated copies across handler and session_start.
+
+### Fixed
+- **🔴 Critical: Bash commands with `cd` prefix silently dropped** — Claude Code sends Bash commands as `cd /project && npm test 2>&1`. The noise filter `/^cd\b/` matched the `cd` prefix and silently discarded the entire command. This caused `npm test`, `npm install express`, `node -e "..."`, and all other project-scoped commands to never be stored. Fix: `extractRealCommand()` strips `cd path && ` prefix before noise checking, so `cd /path && npm test` is correctly evaluated as `npm test`.
+- **Cooldown key too broad** — Old key `post_tool:Bash` meant ALL Bash commands shared one 30-second cooldown. New key uses `event:filePath|command|toolName`, so `npm test` and `npm install` have independent cooldowns.
+- **Store-first for commands** — Command-category tools now use `store: 'always'` policy with minLength 30 (down from 50-200), capturing more meaningful development activity.
+
 ## [0.9.15] — 2026-02-26
 
 ### Fixed

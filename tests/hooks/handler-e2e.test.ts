@@ -279,6 +279,40 @@ export function sleep(ms: number) {
     expect(observation!.type).toBe('what-changed');
   });
 
+  // ─── Critical fix: cd prefix should NOT cause filtering ───
+  it('should store Bash with cd prefix (not filtered as noise)', async () => {
+    const payload = {
+      hook_event_name: 'PostToolUse',
+      session_id: 'sess-claude-14',
+      cwd: '/home/user/project',
+      tool_name: 'Bash',
+      tool_input: { command: 'cd /home/user/project && npm test 2>&1' },
+      tool_response: { stdout: '> my-app@1.0.0 test\n> node test.js\n\nTest 1: passed\nTest 2: passed\nAll tests passed!' },
+    };
+
+    const input = normalizeHookInput(payload);
+    const { observation } = await handleHookEvent(input);
+    // cd prefix is stripped → real command is "npm test 2>&1" → not noise → stored
+    expect(observation).not.toBeNull();
+    expect(observation!.title).toContain('npm test');
+  });
+
+  it('should skip standalone cd command (still noise)', async () => {
+    const payload = {
+      hook_event_name: 'PostToolUse',
+      session_id: 'sess-claude-15',
+      cwd: '/home/user/project',
+      tool_name: 'Bash',
+      tool_input: { command: 'cd /home/user/project' },
+      tool_response: '',
+    };
+
+    const input = normalizeHookInput(payload);
+    const { observation } = await handleHookEvent(input);
+    // Standalone cd with no output → too short (< 30 chars minLength for command) → null
+    expect(observation).toBeNull();
+  });
+
   // ─── Noise: Read tool with trivial content ───
   it('should skip Read tool with very short file content', async () => {
     const payload = {

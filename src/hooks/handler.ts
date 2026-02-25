@@ -2,8 +2,12 @@
  * Hook Handler
  *
  * Unified entry point for all agent hooks.
- * Reads stdin JSON, normalizes it, detects patterns, and auto-stores memories.
- * Outputs JSON to stdout to control agent behavior (e.g., inject context).
+ * Architecture: Normalize → Classify → Policy → Store → Respond
+ *
+ * Design principles (inspired by claude-mem + mcp-memory-service):
+ * - Store-first: capture generously, filter at read time
+ * - Tool Taxonomy: declarative policies per tool category
+ * - Pattern = classification only: determines observation type, not storage
  */
 
 import type { ObservationType } from '../types.js';
@@ -11,32 +15,98 @@ import { normalizeHookInput } from './normalizer.js';
 import { detectBestPattern, patternToObservationType } from './pattern-detector.js';
 import type { HookEvent, HookOutput, NormalizedHookInput } from './types.js';
 
-/** Cooldown tracker: eventType → lastTimestamp */
-const cooldowns = new Map<string, number>();
+// ─── Constants ───
 
-/** Cooldown duration in ms (30 seconds) */
+/** Observation type → emoji mapping (single source of truth) */
+export const TYPE_EMOJI: Record<string, string> = {
+  'gotcha': '🔴', 'decision': '🟤', 'problem-solution': '🟡',
+  'trade-off': '⚖️', 'discovery': '🟣', 'how-it-works': '🔵',
+  'what-changed': '🟢', 'why-it-exists': '🟠', 'session-request': '🎯',
+};
+
+/** Cooldown tracker: eventKey → lastTimestamp */
+const cooldowns = new Map<string, number>();
 const COOLDOWN_MS = 30_000;
 
-/** Minimum content length for auto-store */
-const MIN_STORE_LENGTH = 100;
-
-/** Lower threshold for user prompts (short prompts are still valuable) */
+/** Minimum content length for user prompts (short prompts are still valuable) */
 const MIN_PROMPT_LENGTH = 20;
-
-/** Lower threshold for code edits (file context adds value) */
-const MIN_EDIT_LENGTH = 30;
-
-/** Trivial commands to skip (diagnostics, navigation, etc.) */
-const NOISE_COMMANDS = [
-  /^(ls|dir|cd|pwd|echo|cat|type|head|tail|wc|find|which|where|whoami)\b/i,
-  /^(Get-Content|Test-Path|Get-Item|Get-ChildItem|Set-Location|Write-Host)\b/i,
-  /^(Start-Sleep|Select-String|Select-Object|Format-Table|Measure-Object)\b/i,
-  /^(mkdir|rm|cp|mv|touch|chmod|chown)\b/i,
-  /^(node -[ep]|python -c)\b/i,
-];
 
 /** Max content length (truncate beyond this) */
 const MAX_CONTENT_LENGTH = 4000;
+
+/** Truly trivial commands — standalone navigation/inspection only */
+const NOISE_COMMANDS = [
+  /^(ls|dir|cd|pwd|echo|cat|type|head|tail|wc|which|where|whoami)(\s|$)/i,
+  /^(Get-Content|Test-Path|Get-Item|Get-ChildItem|Set-Location|Write-Host)(\s|$)/i,
+  /^(Start-Sleep|Select-String|Select-Object|Format-Table|Measure-Object)(\s|$)/i,
+];
+
+// ─── Tool Taxonomy ───
+
+/** Tool categories for storage policy */
+type ToolCategory = 'file_modify' | 'file_read' | 'command' | 'search' | 'memorix_internal' | 'unknown';
+
+/** Storage policy per tool category */
+interface StoragePolicy {
+  /** always: store if content passes minLength; if_substantial: also require pattern or >200 chars; never: skip */
+  store: 'always' | 'if_substantial' | 'never';
+  minLength: number;
+  defaultType: string;
+}
+
+const STORAGE_POLICY: Record<ToolCategory, StoragePolicy> = {
+  file_modify:      { store: 'always',         minLength: 50,  defaultType: 'what-changed' },
+  command:          { store: 'always',         minLength: 30,  defaultType: 'discovery' },
+  file_read:        { store: 'if_substantial', minLength: 200, defaultType: 'discovery' },
+  search:           { store: 'if_substantial', minLength: 200, defaultType: 'discovery' },
+  memorix_internal: { store: 'never',          minLength: 0,   defaultType: 'discovery' },
+  unknown:          { store: 'if_substantial', minLength: 100, defaultType: 'discovery' },
+};
+
+/**
+ * Classify a tool by its event type, tool name, and input characteristics.
+ */
+function classifyTool(input: NormalizedHookInput): ToolCategory {
+  // Event-based classification (Windsurf/Cursor send specific events)
+  if (input.event === 'post_edit') return 'file_modify';
+  if (input.event === 'post_command') return 'command';
+
+  // Tool name-based classification (Claude Code sends PostToolUse for everything)
+  const name = (input.toolName ?? '').toLowerCase();
+
+  if (name.startsWith('memorix_')) return 'memorix_internal';
+
+  if (/^(write|edit|multi_?edit|multiedittool|create|patch|insert|notebook_?edit)$/i.test(name)) {
+    return 'file_modify';
+  }
+  if (/^(read|read_?file|view|list_?dir)$/i.test(name)) {
+    return 'file_read';
+  }
+  if (/^(bash|shell|terminal|command|run)$/i.test(name) || input.command) {
+    return 'command';
+  }
+  if (/^(search|grep|ripgrep|find_?by_?name|glob)$/i.test(name)) {
+    return 'search';
+  }
+
+  return 'unknown';
+}
+
+/**
+ * Strip `cd /path && ` prefix from compound commands.
+ * Claude Code often sends `cd /project/dir && npm test 2>&1`.
+ */
+function extractRealCommand(command: string): string {
+  return command.replace(/^cd\s+\S+\s*&&\s*/i, '').trim();
+}
+
+/**
+ * Check if a command is trivial noise (standalone navigation/inspection).
+ */
+function isNoiseCommand(command: string): boolean {
+  const real = extractRealCommand(command);
+  return NOISE_COMMANDS.some(r => r.test(real));
+}
 
 /**
  * Check if an event is in cooldown.
@@ -61,8 +131,10 @@ export function resetCooldowns(): void {
   cooldowns.clear();
 }
 
+// ─── Content Extraction ───
+
 /**
- * Build content string from the normalized input for pattern detection.
+ * Build content string from normalized input for pattern detection and storage.
  */
 function extractContent(input: NormalizedHookInput): string {
   const parts: string[] = [];
@@ -70,7 +142,7 @@ function extractContent(input: NormalizedHookInput): string {
   if (input.userPrompt) parts.push(input.userPrompt);
   if (input.aiResponse) parts.push(input.aiResponse);
   if (input.commandOutput) parts.push(input.commandOutput);
-  if (input.command) parts.push(`Command: ${input.command}`);
+  if (input.command) parts.push(`Command: ${extractRealCommand(input.command)}`);
   if (input.filePath) parts.push(`File: ${input.filePath}`);
   if (input.edits) {
     for (const edit of input.edits) {
@@ -78,68 +150,50 @@ function extractContent(input: NormalizedHookInput): string {
     }
   }
 
-  // ALWAYS extract from toolInput — toolResult is often just "File written successfully"
-  // which is too short for meaningful pattern detection
+  // Always extract from toolInput — toolResult is often just "File written successfully"
   if (input.toolInput && typeof input.toolInput === 'object') {
     if (input.toolName) parts.push(`Tool: ${input.toolName}`);
-    // Bash: command
     if (input.toolInput.command && !input.command) {
       parts.push(`Command: ${input.toolInput.command as string}`);
     }
-    // Write/Edit: file_path + content snippet
     if (input.toolInput.file_path && !input.filePath) {
       parts.push(`File: ${input.toolInput.file_path as string}`);
     }
     if (input.toolInput.content) {
-      const content = input.toolInput.content as string;
-      parts.push(content.slice(0, 1000));
+      parts.push((input.toolInput.content as string).slice(0, 1000));
     }
-    // old_string/new_string from Edit tool
     if (input.toolInput.old_string || input.toolInput.new_string) {
       const oldStr = (input.toolInput.old_string as string) ?? '';
       const newStr = (input.toolInput.new_string as string) ?? '';
       parts.push(`Edit: ${oldStr.slice(0, 300)} → ${newStr.slice(0, 300)}`);
     }
-    // Search/grep: query
     if (input.toolInput.query) parts.push(`Query: ${input.toolInput.query as string}`);
     if (input.toolInput.regex) parts.push(`Search: ${input.toolInput.regex as string}`);
   }
 
-  // Add toolResult last (often short like "File written successfully")
   if (input.toolResult) parts.push(input.toolResult);
 
   return parts.join('\n').slice(0, MAX_CONTENT_LENGTH);
 }
 
-/**
- * Derive an entity name from the hook input.
- */
+// ─── Observation Building ───
+
 function deriveEntityName(input: NormalizedHookInput): string {
-  // From file path: extract filename without extension
   if (input.filePath) {
     const parts = input.filePath.replace(/\\/g, '/').split('/');
     const filename = parts[parts.length - 1];
     return filename.replace(/\.[^.]+$/, '');
   }
-
-  // From tool name
   if (input.toolName) return input.toolName;
-
-  // From command: extract first word
   if (input.command) {
-    const firstWord = input.command.split(/\s+/)[0];
+    const firstWord = extractRealCommand(input.command).split(/\s+/)[0];
     return firstWord.replace(/[^a-zA-Z0-9-_]/g, '');
   }
-
   return 'session';
 }
 
-/**
- * Generate a concise title from the content and pattern.
- */
 function generateTitle(input: NormalizedHookInput, patternType: string): string {
   const maxLen = 60;
-
   if (input.filePath) {
     const filename = input.filePath.replace(/\\/g, '/').split('/').pop() ?? '';
     const verb =
@@ -150,25 +204,19 @@ function generateTitle(input: NormalizedHookInput, patternType: string): string 
           : 'Updated';
     return `${verb} ${filename}`.slice(0, maxLen);
   }
-
   if (input.command) {
-    return `Ran: ${input.command}`.slice(0, maxLen);
+    return `Ran: ${extractRealCommand(input.command)}`.slice(0, maxLen);
   }
-
   if (input.userPrompt) {
     return input.userPrompt.slice(0, maxLen);
   }
-
   return `Session activity (${patternType})`;
 }
 
-/**
- * Build a memorix_store-compatible observation payload.
- */
-function buildObservation(input: NormalizedHookInput, content: string) {
+function buildObservation(input: NormalizedHookInput, content: string, category: ToolCategory) {
   const pattern = detectBestPattern(content);
-  // Default: file modifications → 'what-changed', others → 'discovery'
-  const fallbackType = input.filePath ? 'what-changed' : 'discovery';
+  const policy = STORAGE_POLICY[category] ?? STORAGE_POLICY.unknown;
+  const fallbackType = input.filePath ? 'what-changed' : policy.defaultType;
   const obsType = (pattern ? patternToObservationType(pattern.type) : fallbackType) as ObservationType;
 
   return {
@@ -180,20 +228,92 @@ function buildObservation(input: NormalizedHookInput, content: string) {
       `Agent: ${input.agent}`,
       `Session: ${input.sessionId}`,
       ...(input.filePath ? [`File: ${input.filePath}`] : []),
-      ...(input.command ? [`Command: ${input.command}`] : []),
+      ...(input.command ? [`Command: ${extractRealCommand(input.command)}`] : []),
     ],
     concepts: pattern?.matchedKeywords ?? [],
     filesModified: input.filePath ? [input.filePath] : [],
   };
 }
 
+// ─── Session Start Handler ───
+
+async function handleSessionStart(input: NormalizedHookInput): Promise<{
+  observation: ReturnType<typeof buildObservation> | null;
+  output: HookOutput;
+}> {
+  let contextSummary = '';
+  try {
+    const { detectProject } = await import('../project/detector.js');
+    const { getProjectDataDir, loadObservationsJson } = await import('../store/persistence.js');
+
+    const project = await detectProject(input.cwd || process.cwd());
+    const dataDir = await getProjectDataDir(project.id);
+    const allObs = await loadObservationsJson(dataDir) as Array<{
+      type?: string; title?: string; narrative?: string;
+      facts?: string[]; timestamp?: string;
+    }>;
+
+    if (allObs.length > 0) {
+      const PRIORITY_ORDER: Record<string, number> = {
+        'gotcha': 6, 'decision': 5, 'problem-solution': 4,
+        'trade-off': 3, 'discovery': 2, 'how-it-works': 1,
+      };
+      const LOW_QUALITY_PATTERNS = [
+        /^Session activity/i,
+        /^Updated \S+\.\w+$/i,
+        /^Created \S+\.\w+$/i,
+        /^Deleted \S+\.\w+$/i,
+        /^Modified \S+\.\w+$/i,
+      ];
+      const isLowQuality = (title: string) =>
+        LOW_QUALITY_PATTERNS.some(p => p.test(title));
+
+      const scored = allObs
+        .map((obs, i) => {
+          const title = obs.title ?? '';
+          const hasFacts = (obs.facts?.length ?? 0) > 0;
+          const hasSubstance = title.length > 20 || hasFacts;
+          const quality = isLowQuality(title) ? 0.1 : hasSubstance ? 1.0 : 0.5;
+          return { obs, priority: PRIORITY_ORDER[obs.type ?? ''] ?? 0, quality, recency: i };
+        })
+        .sort((a, b) => {
+          const scoreA = a.priority * a.quality;
+          const scoreB = b.priority * b.quality;
+          if (scoreB !== scoreA) return scoreB - scoreA;
+          return b.recency - a.recency;
+        });
+
+      const top = scored.slice(0, 5);
+      const lines = top.map(({ obs }) => {
+        const emoji = TYPE_EMOJI[obs.type ?? ''] ?? '📌';
+        const title = obs.title ?? '(untitled)';
+        const fact = obs.facts?.[0] ? ` — ${obs.facts[0]}` : '';
+        return `${emoji} ${title}${fact}`;
+      });
+
+      contextSummary = `\n\nRecent project memories (${project.name}):\n${lines.join('\n')}`;
+    }
+  } catch {
+    // Silent fail — hooks must never break the agent
+  }
+
+  return {
+    observation: null,
+    output: {
+      continue: true,
+      systemMessage:
+        `Memorix is active. Your memories from previous sessions are available via memorix_search.${contextSummary}`,
+    },
+  };
+}
+
+// ─── Main Handler: Classify → Policy → Store ───
+
 /**
- * Handle a hook event.
+ * Handle a hook event using the Store-first pipeline.
  *
- * Returns:
- * - observation payload if content should be stored (caller persists it)
- * - null if nothing to store
- * - HookOutput for stdout response to agent
+ * Pipeline: Classify → Policy check → Store → Respond
+ * Pattern detection is used for classification only, not storage gating.
  */
 export async function handleHookEvent(input: NormalizedHookInput): Promise<{
   observation: ReturnType<typeof buildObservation> | null;
@@ -201,270 +321,71 @@ export async function handleHookEvent(input: NormalizedHookInput): Promise<{
 }> {
   const defaultOutput: HookOutput = { continue: true };
 
-  // Skip memorix's own MCP calls to avoid recursion
-  if (input.toolName === 'memorix_store' || input.toolName === 'memorix_search') {
+  // ─── Session lifecycle (special handling) ───
+  if (input.event === 'session_start') {
+    return handleSessionStart(input);
+  }
+  if (input.event === 'session_end') {
+    return {
+      observation: buildObservation(input, extractContent(input), 'unknown'),
+      output: defaultOutput,
+    };
+  }
+
+  // ─── Classify & extract ───
+  const category = classifyTool(input);
+  const policy = STORAGE_POLICY[category] ?? STORAGE_POLICY.unknown;
+  const content = extractContent(input);
+
+  // Never-store category (memorix's own tools)
+  if (policy.store === 'never') {
     return { observation: null, output: defaultOutput };
   }
 
-  // Event-specific handling
-  switch (input.event) {
-    case 'session_start': {
-      // Search relevant memories and inject via systemMessage
-      let contextSummary = '';
-      try {
-        const { detectProject } = await import('../project/detector.js');
-        const { getProjectDataDir, loadObservationsJson } = await import('../store/persistence.js');
-
-        const project = await detectProject(input.cwd || process.cwd());
-        const dataDir = await getProjectDataDir(project.id);
-        const allObs = await loadObservationsJson(dataDir) as Array<{
-          type?: string;
-          title?: string;
-          narrative?: string;
-          facts?: string[];
-          timestamp?: string;
-          importance?: number;
-        }>;
-
-        if (allObs.length > 0) {
-          // Priority types: gotcha > decision > problem-solution > trade-off > discovery > others
-          const PRIORITY_ORDER: Record<string, number> = {
-            'gotcha': 6,
-            'decision': 5,
-            'problem-solution': 4,
-            'trade-off': 3,
-            'discovery': 2,
-            'how-it-works': 1,
-          };
-
-          // Filter out low-quality auto-generated observations
-          // These are hook-generated template titles that don't carry specific knowledge
-          const LOW_QUALITY_PATTERNS = [
-            /^Session activity/i,
-            /^Updated \S+\.\w+$/i,      // "Updated foo.ts" — too generic
-            /^Created \S+\.\w+$/i,       // "Created bar.js"
-            /^Deleted \S+\.\w+$/i,
-            /^Modified \S+\.\w+$/i,
-          ];
-          const isLowQuality = (title: string) =>
-            LOW_QUALITY_PATTERNS.some(p => p.test(title));
-
-          // Score: priority × quality × recency
-          const scored = allObs
-            .map((obs, i) => {
-              const title = obs.title ?? '';
-              const hasFacts = (obs.facts?.length ?? 0) > 0;
-              const hasSubstance = title.length > 20 || hasFacts;
-              const quality = isLowQuality(title) ? 0.1 : hasSubstance ? 1.0 : 0.5;
-
-              return {
-                obs,
-                priority: PRIORITY_ORDER[obs.type ?? ''] ?? 0,
-                quality,
-                recency: i, // higher index = more recent
-              };
-            })
-            .sort((a, b) => {
-              // Weighted score: priority × quality first, then recency
-              const scoreA = a.priority * a.quality;
-              const scoreB = b.priority * b.quality;
-              if (scoreB !== scoreA) return scoreB - scoreA;
-              return b.recency - a.recency;
-            });
-
-          // Take top 5 most valuable items, budget ~600 tokens
-          const top = scored.slice(0, 5);
-          const TYPE_EMOJI: Record<string, string> = {
-            'gotcha': '🔴', 'decision': '🟤', 'problem-solution': '🟡',
-            'trade-off': '⚖️', 'discovery': '🟣', 'how-it-works': '🔵',
-            'what-changed': '🟢', 'why-it-exists': '🟠', 'session-request': '🎯',
-          };
-
-          const lines = top.map(({ obs }) => {
-            const emoji = TYPE_EMOJI[obs.type ?? ''] ?? '📌';
-            const title = obs.title ?? '(untitled)';
-            // Include first fact if available for extra context
-            const fact = obs.facts?.[0] ? ` — ${obs.facts[0]}` : '';
-            return `${emoji} ${title}${fact}`;
-          });
-
-          contextSummary = `\n\nRecent project memories (${project.name}):\n${lines.join('\n')}`;
-        }
-      } catch {
-        // Silent fail — hooks must never break the agent
-      }
-
-      return {
-        observation: null,
-        output: {
-          continue: true,
-          systemMessage:
-            `Memorix is active. Your memories from previous sessions are available via memorix_search.${contextSummary}`,
-        },
-      };
-    }
-
-    case 'pre_compact': {
-      // Context is about to be compressed — save what we can, but filter empty/noise
-      const compactContent = extractContent(input);
-      if (compactContent.length < MIN_STORE_LENGTH) {
-        return { observation: null, output: defaultOutput };
-      }
-      return {
-        observation: buildObservation(input, compactContent),
-        output: defaultOutput,
-      };
-    }
-
-    case 'session_end':
-      // Always record session end (no cooldown)
-      return {
-        observation: buildObservation(input, extractContent(input)),
-        output: defaultOutput,
-      };
-
-    case 'post_edit': {
-      // Code edits: lower threshold, always worth recording if pattern matches
-      const editKey = `post_edit:${input.filePath ?? 'general'}`;
-      if (isInCooldown(editKey)) {
-        return { observation: null, output: defaultOutput };
-      }
-
-      const editContent = extractContent(input);
-      if (editContent.length < MIN_EDIT_LENGTH) {
-        return { observation: null, output: defaultOutput };
-      }
-
-      const editPattern = detectBestPattern(editContent, 0.6);
-      if (!editPattern) {
-        return { observation: null, output: defaultOutput };
-      }
-
-      markTriggered(editKey);
-      return {
-        observation: buildObservation(input, editContent),
-        output: defaultOutput,
-      };
-    }
-
-    case 'post_command': {
-      // Filter noise commands
-      if (input.command && NOISE_COMMANDS.some((r) => r.test(input.command!))) {
-        return { observation: null, output: defaultOutput };
-      }
-
-      const cmdKey = `post_command:${input.command ?? 'general'}`;
-      if (isInCooldown(cmdKey)) {
-        return { observation: null, output: defaultOutput };
-      }
-
-      // Use commandOutput for pattern detection if available, else command
-      const cmdContent = input.commandOutput || extractContent(input);
-      if (cmdContent.length < MIN_STORE_LENGTH) {
-        return { observation: null, output: defaultOutput };
-      }
-
-      // Pattern detection — store as discovery if no pattern but content is substantial
-      detectBestPattern(cmdContent);
-
-      markTriggered(cmdKey);
-      return {
-        observation: buildObservation(input, cmdContent),
-        output: defaultOutput,
-      };
-    }
-
-    case 'post_tool': {
-      // Tools: require pattern OR substantial content
-      const toolKey = `post_tool:${input.toolName ?? 'general'}`;
-      if (isInCooldown(toolKey)) {
-        return { observation: null, output: defaultOutput };
-      }
-
-      const toolContent = extractContent(input);
-
-      // Bash/shell tools (input.command is set): lower threshold, skip noise
-      if (input.command) {
-        if (NOISE_COMMANDS.some((r) => r.test(input.command!))) {
-          return { observation: null, output: defaultOutput };
-        }
-        // Commands are inherently meaningful — lower threshold (50 chars)
-        if (toolContent.length < 50) {
-          return { observation: null, output: defaultOutput };
-        }
-        markTriggered(toolKey);
-        return {
-          observation: buildObservation(input, toolContent),
-          output: defaultOutput,
-        };
-      }
-
-      // Non-command tools (Write, Edit, Read, etc.)
-      if (toolContent.length < MIN_STORE_LENGTH) {
-        return { observation: null, output: defaultOutput };
-      }
-
-      // File-modifying tools (Write, Edit, MultiEdit) — always store
-      // These are code changes, inherently worth recording
-      const isFileModifyingTool = /^(write|edit|multi_?edit|multiedittool|create|patch|insert)/i.test(
-        input.toolName ?? '',
-      );
-      if (isFileModifyingTool) {
-        markTriggered(toolKey);
-        return {
-          observation: buildObservation(input, toolContent),
-          output: defaultOutput,
-        };
-      }
-
-      // Other tools (Read, Search, etc.) — require pattern OR substantial content
-      const toolPattern = detectBestPattern(toolContent);
-      if (!toolPattern && toolContent.length < 200) {
-        return { observation: null, output: defaultOutput };
-      }
-
-      markTriggered(toolKey);
-      return {
-        observation: buildObservation(input, toolContent),
-        output: defaultOutput,
-      };
-    }
-
-    case 'post_response':
-    case 'user_prompt': {
-      // User prompts & AI responses: store more aggressively (safety net)
-      const promptKey = `${input.event}:${input.sessionId ?? 'general'}`;
-      if (isInCooldown(promptKey)) {
-        return { observation: null, output: defaultOutput };
-      }
-
-      const content = extractContent(input);
-      const minLen = input.event === 'user_prompt' ? MIN_PROMPT_LENGTH : MIN_STORE_LENGTH;
-      if (content.length < minLen) {
-        return { observation: null, output: defaultOutput };
-      }
-
-      // Always store — pattern detection is used for classification only
-      detectBestPattern(content);
-
-      markTriggered(promptKey);
-      return {
-        observation: buildObservation(input, content),
-        output: defaultOutput,
-      };
-    }
-
-    default:
-      return { observation: null, output: defaultOutput };
+  // Noise command filter (with cd-prefix stripping)
+  if (category === 'command' && input.command && isNoiseCommand(input.command)) {
+    return { observation: null, output: defaultOutput };
   }
+
+  // Minimum length gate
+  const minLen = input.event === 'user_prompt' ? MIN_PROMPT_LENGTH : policy.minLength;
+  if (content.length < minLen) {
+    return { observation: null, output: defaultOutput };
+  }
+
+  // User prompts & AI responses are direct interaction — always store
+  const effectiveStore = (input.event === 'user_prompt' || input.event === 'post_response')
+    ? 'always' as const
+    : policy.store;
+
+  // For 'if_substantial': require pattern OR content > 200 chars
+  if (effectiveStore === 'if_substantial') {
+    const pattern = detectBestPattern(content);
+    if (!pattern && content.length < 200) {
+      return { observation: null, output: defaultOutput };
+    }
+  }
+
+  // Cooldown (per-file or per-command, not per-tool-category)
+  const cooldownKey = `${input.event}:${input.filePath ?? input.command ?? input.toolName ?? 'general'}`;
+  if (isInCooldown(cooldownKey)) {
+    return { observation: null, output: defaultOutput };
+  }
+  markTriggered(cooldownKey);
+
+  return {
+    observation: buildObservation(input, content, category),
+    output: defaultOutput,
+  };
 }
+
+// ─── Entry Point ───
 
 /**
  * Main entry point: read stdin, process, write stdout.
  * Called by the CLI: `memorix hook`
  */
 export async function runHook(): Promise<void> {
-  // Read stdin
   const chunks: Buffer[] = [];
   for await (const chunk of process.stdin) {
     chunks.push(chunk as Buffer);
@@ -472,7 +393,6 @@ export async function runHook(): Promise<void> {
   const rawInput = Buffer.concat(chunks).toString('utf-8').trim();
 
   if (!rawInput) {
-    // No input — output default continue
     process.stdout.write(JSON.stringify({ continue: true }));
     return;
   }
@@ -485,34 +405,21 @@ export async function runHook(): Promise<void> {
     return;
   }
 
-  // Normalize
   const input = normalizeHookInput(payload);
-
-  // Handle
   const { observation, output } = await handleHookEvent(input);
 
-  // Store observation if any
   if (observation) {
     try {
-      // Dynamic import to avoid circular deps and keep hook handler lightweight
       const { storeObservation, initObservations } = await import('../memory/observations.js');
       const { detectProject } = await import('../project/detector.js');
       const { getProjectDataDir } = await import('../store/persistence.js');
 
       const project = await detectProject(input.cwd || process.cwd());
       const dataDir = await getProjectDataDir(project.id);
-
-      // Initialize observations manager (idempotent if already initialized)
       await initObservations(dataDir);
-
       await storeObservation({ ...observation, projectId: project.id });
 
-      // Feedback: tell the agent what was saved (Codex-like visibility)
-      const TYPE_EMOJI: Record<string, string> = {
-        'gotcha': '🔴', 'decision': '🟤', 'problem-solution': '🟡',
-        'trade-off': '⚖️', 'discovery': '🟣', 'how-it-works': '🔵',
-        'what-changed': '🟢', 'why-it-exists': '🟠', 'session-request': '🎯',
-      };
+      // Feedback: tell the agent what was saved
       const emoji = TYPE_EMOJI[observation.type] ?? '📝';
       output.systemMessage = (output.systemMessage ?? '') +
         `\n${emoji} Memorix saved: ${observation.title} [${observation.type}]`;
@@ -521,6 +428,5 @@ export async function runHook(): Promise<void> {
     }
   }
 
-  // Output response to agent
   process.stdout.write(JSON.stringify(output));
 }

@@ -8,7 +8,7 @@
     <a href="https://www.npmjs.com/package/memorix"><img src="https://img.shields.io/npm/dm/memorix.svg?style=flat-square&color=blue" alt="npm downloads"></a>
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-green.svg?style=flat-square" alt="License"></a>
     <a href="https://github.com/AVIDS2/memorix"><img src="https://img.shields.io/github/stars/AVIDS2/memorix?style=flat-square&color=yellow" alt="GitHub stars"></a>
-    <img src="https://img.shields.io/badge/tests-505%20passed-brightgreen?style=flat-square" alt="Tests">
+    <img src="https://img.shields.io/badge/tests-507%20passed-brightgreen?style=flat-square" alt="Tests">
   </p>
   <p align="center">
     <img src="https://img.shields.io/badge/Works%20with-Cursor-orange?style=flat-square" alt="Cursor">

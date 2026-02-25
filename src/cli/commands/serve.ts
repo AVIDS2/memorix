@@ -34,8 +34,12 @@ export default defineCommand({
     console.error(`[memorix] Starting with cwd: ${projectRoot}`);
 
     // Check if cwd-based detection would fail (e.g., IDE sets cwd to its install dir)
+    // Only truly invalid projects need MCP roots resolution.
+    // local/<dirname> projects are perfectly valid — they must NOT enter the roots flow,
+    // because that flow connects the server before registering tools, causing
+    // tools/list -> "Method not found" (capabilities declared without tools).
     const earlyDetect = detectProject(projectRoot);
-    const needsRoots = earlyDetect.id === '__invalid__' || earlyDetect.id.startsWith('local/');
+    const needsRoots = earlyDetect.id === '__invalid__';
 
     if (needsRoots) {
       // cwd is not a valid project — try MCP roots protocol to get IDE workspace path

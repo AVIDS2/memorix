@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.9.4] — 2026-02-25
+
+### Fixed
+- **Codex/all-IDE `tools/list -> Method not found`** — Critical bug where `local/<dirname>` projects (any directory without a git remote) wrongly entered the MCP roots resolution flow. This flow connects the server *before* registering tools, so the MCP `initialize` handshake declared no `tools` capability, causing all subsequent `tools/list` calls to fail with "Method not found". Now only truly invalid projects (home dir, system dirs) enter the roots flow; `local/` projects go through the normal path (register tools first, then connect).
+
 ## [0.9.3] — 2026-02-25
 
 ### Fixed

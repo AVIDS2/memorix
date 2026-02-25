@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.9.1] — 2026-02-25
+
+### Fixed
+- **Defensive parameter coercion** — All 24 MCP tools now gracefully handle string-encoded arrays and numbers (e.g., `"[16]"` → `[16]`, `"20"` → `20`). Fixes compatibility with Claude Code CLI's known serialization bug ([#5504](https://github.com/anthropics/claude-code/issues/5504), [#26027](https://github.com/anthropics/claude-code/issues/26027)) and non-Anthropic models (GLM, etc.) that may produce incorrectly typed tool call arguments. Codex, Windsurf, and Cursor were already unaffected.
+
 ## [0.9.0] — 2026-02-24
 
 ### Added

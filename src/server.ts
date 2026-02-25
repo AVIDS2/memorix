@@ -45,6 +45,72 @@ const OBSERVATION_TYPES: [string, ...string[]] = [
 ];
 
 /**
+ * Defensive parameter coercion for Claude Code CLI + non-Anthropic models (e.g. GLM).
+ * Claude Code CLI has a known bug (#5504, #26027) where JSON objects/arrays
+ * get serialized as strings. GLM models amplify this by producing string-encoded
+ * arrays/numbers in tool calls. These helpers ensure Memorix works regardless.
+ */
+function coerceNumberArray(val: unknown): number[] {
+  if (Array.isArray(val)) return val.map(Number);
+  if (typeof val === 'string') {
+    try {
+      const parsed = JSON.parse(val);
+      if (Array.isArray(parsed)) return parsed.map(Number);
+    } catch { /* not valid JSON */ }
+  }
+  return [];
+}
+
+function coerceNumber(val: unknown, fallback: number): number {
+  if (typeof val === 'number') return val;
+  if (typeof val === 'string') {
+    const n = Number(val);
+    if (!Number.isNaN(n)) return n;
+  }
+  return fallback;
+}
+
+function coerceStringArray(val: unknown): string[] {
+  if (Array.isArray(val)) return val.map(String);
+  if (typeof val === 'string') {
+    try {
+      const parsed = JSON.parse(val);
+      if (Array.isArray(parsed)) return parsed.map(String);
+    } catch { /* not valid JSON */ }
+  }
+  return [];
+}
+
+function coerceObject<T>(val: unknown): T | null {
+  if (typeof val === 'object' && val !== null && !Array.isArray(val)) return val as T;
+  if (typeof val === 'string') {
+    try {
+      const parsed = JSON.parse(val);
+      if (typeof parsed === 'object' && parsed !== null) return parsed as T;
+    } catch { /* not valid JSON */ }
+  }
+  return null;
+}
+
+function coerceObjectArray<T>(val: unknown): T[] {
+  if (Array.isArray(val)) {
+    return val.map(item => {
+      if (typeof item === 'string') {
+        try { return JSON.parse(item); } catch { return item; }
+      }
+      return item;
+    });
+  }
+  if (typeof val === 'string') {
+    try {
+      const parsed = JSON.parse(val);
+      if (Array.isArray(parsed)) return parsed;
+    } catch { /* not valid JSON */ }
+  }
+  return [];
+}
+
+/**
  * Create and configure the Memorix MCP Server.
  */
 export async function createMemorixServer(cwd?: string, existingServer?: McpServer): Promise<{
@@ -234,6 +300,11 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
       },
     },
     async ({ entityName, type, title, narrative, facts, filesModified, concepts, topicKey }) => {
+      // Defensive coercion: Claude Code CLI + GLM may send string-encoded arrays
+      const safeFacts = facts ? coerceStringArray(facts) : undefined;
+      const safeFiles = filesModified ? coerceStringArray(filesModified) : undefined;
+      const safeConcepts = concepts ? coerceStringArray(concepts) : undefined;
+
       // Ensure entity exists in knowledge graph
       await graphManager.createEntities([
         { name: entityName, entityType: 'auto', observations: [] },
@@ -253,9 +324,9 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
         type: type as ObservationType,
         title,
         narrative,
-        facts,
-        filesModified,
-        concepts,
+        facts: safeFacts,
+        filesModified: safeFiles,
+        concepts: safeConcepts,
         projectId: project.id,
         topicKey,
         sessionId,
@@ -267,13 +338,13 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
       ]);
 
       // Implicit memory: auto-create relations from entity extraction
-      const extracted = extractEntities([title, narrative, ...(facts ?? [])].join(' '));
+      const extracted = extractEntities([title, narrative, ...(safeFacts ?? [])].join(' '));
       const autoRelCount = await createAutoRelations(obs, extracted, graphManager);
 
       // Build enrichment summary
       const enrichmentParts: string[] = [];
-      const autoFiles = obs.filesModified.filter((f: string) => !(filesModified ?? []).includes(f));
-      const autoConcepts = obs.concepts.filter((c: string) => !(concepts ?? []).includes(c));
+      const autoFiles = obs.filesModified.filter((f: string) => !(safeFiles ?? []).includes(f));
+      const autoConcepts = obs.concepts.filter((c: string) => !(safeConcepts ?? []).includes(c));
       if (autoFiles.length > 0) enrichmentParts.push(`+${autoFiles.length} files extracted`);
       if (autoConcepts.length > 0) enrichmentParts.push(`+${autoConcepts.length} concepts enriched`);
       if (autoRelCount > 0) enrichmentParts.push(`+${autoRelCount} relations auto-created`);
@@ -358,11 +429,13 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
       },
     },
     async ({ query, limit, type, maxTokens, scope, since, until }) => {
+      const safeLimit = limit != null ? coerceNumber(limit, 20) : undefined;
+      const safeMaxTokens = maxTokens != null ? coerceNumber(maxTokens, 0) : undefined;
       const result = await compactSearch({
         query,
-        limit,
+        limit: safeLimit,
         type: type as ObservationType | undefined,
-        maxTokens,
+        maxTokens: safeMaxTokens,
         since,
         until,
         // Default to current project scope; 'global' removes the project filter
@@ -407,11 +480,14 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
       },
     },
     async ({ anchorId, depthBefore, depthAfter }) => {
+      const safeAnchor = coerceNumber(anchorId, 0);
+      const safeBefore = depthBefore != null ? coerceNumber(depthBefore, 3) : undefined;
+      const safeAfter = depthAfter != null ? coerceNumber(depthAfter, 3) : undefined;
       const result = await compactTimeline(
-        anchorId,
+        safeAnchor,
         undefined,
-        depthBefore,
-        depthAfter,
+        safeBefore,
+        safeAfter,
       );
 
       return {
@@ -444,7 +520,9 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
       },
     },
     async ({ ids }) => {
-      const result = await compactDetail(ids);
+      // Defensive coercion: Claude Code CLI + GLM may send "[16]" instead of [16]
+      const safeIds = coerceNumberArray(ids);
+      const result = await compactDetail(safeIds);
 
       return {
         content: [
@@ -452,7 +530,7 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
             type: 'text' as const,
             text: result.documents.length > 0
               ? result.formatted
-              : `No observations found for IDs: ${ids.join(', ')}`,
+              : `No observations found for IDs: ${safeIds.join(', ')}`,
           },
         ],
       };
@@ -584,7 +662,8 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
       },
     },
     async ({ entities }) => {
-      const result = await graphManager.createEntities(entities);
+      const safeEntities = coerceObjectArray<{ name: string; entityType: string; observations: string[] }>(entities);
+      const result = await graphManager.createEntities(safeEntities);
       return {
         content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }],
       };
@@ -609,7 +688,8 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
       },
     },
     async ({ relations }) => {
-      const result = await graphManager.createRelations(relations);
+      const safeRelations = coerceObjectArray<{ from: string; to: string; relationType: string }>(relations);
+      const result = await graphManager.createRelations(safeRelations);
       return {
         content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }],
       };
@@ -630,7 +710,8 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
       },
     },
     async ({ observations }) => {
-      const result = await graphManager.addObservations(observations);
+      const safeObs = coerceObjectArray<{ entityName: string; contents: string[] }>(observations);
+      const result = await graphManager.addObservations(safeObs);
       return {
         content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }],
       };
@@ -648,7 +729,8 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
       },
     },
     async ({ entityNames }) => {
-      await graphManager.deleteEntities(entityNames);
+      const safeNames = coerceStringArray(entityNames);
+      await graphManager.deleteEntities(safeNames);
       return {
         content: [{ type: 'text' as const, text: 'Entities deleted successfully' }],
       };
@@ -669,7 +751,8 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
       },
     },
     async ({ deletions }) => {
-      await graphManager.deleteObservations(deletions);
+      const safeDeletions = coerceObjectArray<{ entityName: string; observations: string[] }>(deletions);
+      await graphManager.deleteObservations(safeDeletions);
       return {
         content: [{ type: 'text' as const, text: 'Observations deleted successfully' }],
       };
@@ -691,7 +774,8 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
       },
     },
     async ({ relations }) => {
-      await graphManager.deleteRelations(relations);
+      const safeRelations = coerceObjectArray<{ from: string; to: string; relationType: string }>(relations);
+      await graphManager.deleteRelations(safeRelations);
       return {
         content: [{ type: 'text' as const, text: 'Relations deleted successfully' }],
       };
@@ -743,7 +827,8 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
       },
     },
     async ({ names }) => {
-      const graph = await graphManager.openNodes(names);
+      const safeNames = coerceStringArray(names);
+      const graph = await graphManager.openNodes(safeNames);
       return {
         content: [{ type: 'text' as const, text: JSON.stringify(graph, null, 2) }],
       };
@@ -1108,10 +1193,11 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
       },
     },
     async ({ action, threshold }) => {
+      const safeThreshold = threshold != null ? coerceNumber(threshold, 0.45) : undefined;
       const { findConsolidationCandidates, executeConsolidation } = await import('./memory/consolidation.js');
 
       if (action === 'preview') {
-        const clusters = await findConsolidationCandidates(projectDir, project.id, { threshold });
+        const clusters = await findConsolidationCandidates(projectDir, project.id, { threshold: safeThreshold });
 
         if (clusters.length === 0) {
           return { content: [{ type: 'text' as const, text: '✅ No consolidation candidates found. Your memories are already clean!' }] };
@@ -1132,7 +1218,7 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
       }
 
       // Execute
-      const result = await executeConsolidation(projectDir, project.id, { threshold });
+      const result = await executeConsolidation(projectDir, project.id, { threshold: safeThreshold });
 
       if (result.clustersFound === 0) {
         return { content: [{ type: 'text' as const, text: '✅ No consolidation needed. Memories are already clean!' }] };
@@ -1258,8 +1344,9 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
       },
     },
     async ({ limit }) => {
+      const safeLimit = limit != null ? coerceNumber(limit, 3) : 3;
       const { getSessionContext, listSessions } = await import('./memory/session.js');
-      const context = await getSessionContext(projectDir, project.id, limit ?? 3);
+      const context = await getSessionContext(projectDir, project.id, safeLimit);
       const sessions = await listSessions(projectDir, project.id);
 
       const activeSessions = sessions.filter(s => s.status === 'active');
@@ -1379,7 +1466,7 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
       },
     },
     async ({ port: dashboardPort }) => {
-      const portNum = (dashboardPort as number) || 3210;
+      const portNum = dashboardPort != null ? coerceNumber(dashboardPort, 3210) : 3210;
       const url = `http://localhost:${portNum}`;
 
       if (dashboardRunning) {

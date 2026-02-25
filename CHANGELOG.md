@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.9.5] — 2026-02-25
+
+### Fixed
+- **Claude Code hooks `matcher` format** — `matcher` must be a **string** (tool name pattern like `"Bash"`, `"Edit|Write"`), not an object. For hooks that should fire on ALL events, `matcher` is now omitted entirely instead of using `{}`. Fixes `matcher: Expected string, but received object` validation error on Claude Code startup.
+
 ## [0.9.4] — 2026-02-25
 
 ### Fixed

@@ -13,7 +13,9 @@ export default defineCommand({
   },
   run: async () => {
     const { getHookStatus } = await import('../../hooks/installers/index.js');
-    const cwd = process.cwd();
+    const os = await import('node:os');
+    let cwd: string;
+    try { cwd = process.cwd(); } catch { cwd = os.homedir(); }
 
     const statuses = await getHookStatus(cwd);
 

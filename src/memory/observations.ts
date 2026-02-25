@@ -274,6 +274,14 @@ export function getProjectObservations(projectId: string): Observation[] {
 }
 
 /**
+ * Get all observations (in-memory copy).
+ * Used by timeline and retention to avoid unreliable Orama empty-term queries.
+ */
+export function getAllObservations(): Observation[] {
+  return [...observations];
+}
+
+/**
  * Get the total number of stored observations.
  */
 export function getObservationCount(): number {

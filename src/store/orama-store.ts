@@ -272,54 +272,46 @@ export async function getObservationsByIds(
  */
 export async function getTimeline(
   anchorId: number,
-  projectId?: string,
+  _projectId?: string,
   depthBefore = 3,
   depthAfter = 3,
 ): Promise<{ before: IndexEntry[]; anchor: IndexEntry | null; after: IndexEntry[] }> {
-  const database = await getDb();
+  // Use in-memory observations for reliable lookup
+  // (Orama search with empty term is unreliable — same fix as compactDetail)
+  const { getAllObservations } = await import('../memory/observations.js');
+  const allObs = getAllObservations();
 
-  // Get all observations sorted by time (no projectId filter — shared across agents)
-  const searchParams: { term: string; where?: Record<string, unknown>; limit: number } = {
-    term: '',
-    limit: 1000,
-  };
-  if (projectId) {
-    searchParams.where = { projectId };
-  }
-  const allResults = await search(database, searchParams);
+  // Sort by creation time
+  const sorted = allObs.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 
-  const docs = allResults.hits
-    .map((h) => h.document as unknown as MemorixDocument)
-    .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-
-  const anchorIndex = docs.findIndex((d) => d.observationId === anchorId);
+  const anchorIndex = sorted.findIndex((o) => o.id === anchorId);
   if (anchorIndex === -1) {
     return { before: [], anchor: null, after: [] };
   }
 
-  const toIndexEntry = (doc: MemorixDocument): IndexEntry => {
-    const obsType = doc.type as ObservationType;
+  const toIndexEntry = (obs: { id: number; type: string; title: string; tokens: number; createdAt: string }): IndexEntry => {
+    const obsType = obs.type as ObservationType;
     return {
-      id: doc.observationId,
-      time: formatTime(doc.createdAt),
+      id: obs.id,
+      time: formatTime(obs.createdAt),
       type: obsType,
       icon: OBSERVATION_ICONS[obsType] ?? '❓',
-      title: doc.title,
-      tokens: doc.tokens,
+      title: obs.title,
+      tokens: obs.tokens,
     };
   };
 
-  const before = docs
+  const before = sorted
     .slice(Math.max(0, anchorIndex - depthBefore), anchorIndex)
     .map(toIndexEntry);
 
-  const after = docs
+  const after = sorted
     .slice(anchorIndex + 1, anchorIndex + 1 + depthAfter)
     .map(toIndexEntry);
 
   return {
     before,
-    anchor: toIndexEntry(docs[anchorIndex]),
+    anchor: toIndexEntry(sorted[anchorIndex]),
     after,
   };
 }

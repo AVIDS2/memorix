@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.9.3] — 2026-02-25
+
+### Fixed
+- **`memorix_timeline` "not found" bug** — Timeline was using unreliable Orama empty-term search. Now uses in-memory observations (same fix pattern as `memorix_detail`).
+- **`memorix_retention` "no observations found" bug** — Same root cause as timeline. Now uses in-memory observations for reliable document retrieval.
+- **`memorix_search` cross-IDE projectId mismatch** — Removed redundant projectId filter from search. Data isolation is already handled at the directory level. Different IDEs resolving different projectIds for the same directory no longer causes empty search results.
+- **Claude Code hooks format** — Updated `generateClaudeConfig` to use the new `{matcher: {}, hooks: [...]}` structure required by Claude Code 2025+. Fixes "Expected array, but received undefined" error on `memorix hooks install --agent claude --global`.
+- **EPERM `process.cwd()` crash** — All CLI commands (`serve`, `hooks install/uninstall/status`) now safely handle `process.cwd()` failures (e.g., deleted CWD on macOS) with fallback to home directory.
+
 ## [0.9.2] — 2026-02-25
 
 ### Fixed

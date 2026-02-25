@@ -438,8 +438,10 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
         maxTokens: safeMaxTokens,
         since,
         until,
-        // Default to current project scope; 'global' removes the project filter
-        projectId: scope === 'global' ? undefined : project.id,
+        // Data isolation is handled at the directory level (each project has its own data dir).
+        // No projectId filter needed — avoids cross-IDE search failures when different IDEs
+        // resolve different projectIds for the same directory.
+        projectId: undefined,
       });
 
       // Append sync advisory on first search of the session
@@ -578,14 +580,26 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
         };
       }
 
-      // Report action (default)
-      const database = await (await import('./store/orama-store.js')).getDb();
-      const allResults = await search(database, {
-        term: '',
-        where: {},
-        limit: 10000,
-      });
-      const docs = allResults.hits.map((h) => h.document as unknown as import('./types.js').MemorixDocument);
+      // Report action (default) — use in-memory observations for reliable lookup
+      // (Orama search with empty term is unreliable)
+      const { getAllObservations } = await import('./memory/observations.js');
+      const allObs = getAllObservations();
+      const docs: import('./types.js').MemorixDocument[] = allObs.map(obs => ({
+        id: `obs-${obs.id}`,
+        observationId: obs.id,
+        entityName: obs.entityName,
+        type: obs.type,
+        title: obs.title,
+        narrative: obs.narrative,
+        facts: obs.facts.join('\n'),
+        filesModified: obs.filesModified.join('\n'),
+        concepts: obs.concepts.join(', '),
+        tokens: obs.tokens,
+        createdAt: obs.createdAt,
+        projectId: obs.projectId,
+        accessCount: 0,
+        lastAccessedAt: '',
+      }));
 
       if (docs.length === 0) {
         return {

@@ -25,7 +25,9 @@ export default defineCommand({
   },
   run: async ({ args }) => {
     const { detectInstalledAgents, uninstallHooks } = await import('../../hooks/installers/index.js');
-    const cwd = process.cwd();
+    const os = await import('node:os');
+    let cwd: string;
+    try { cwd = process.cwd(); } catch { cwd = os.homedir(); }
 
     let agents: string[];
     if (args.agent) {

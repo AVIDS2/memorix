@@ -53,19 +53,27 @@ function resolveHookCommand(): string {
  */
 function generateClaudeConfig(): Record<string, unknown> {
   const cmd = `${resolveHookCommand()} hook`;
-  const hookEntry = {
-    type: 'command',
-    command: cmd,
-    timeout: 10,
+  // Claude Code new hooks format (2025+): each event takes an array of
+  // { matcher, hooks } objects where hooks is itself an array.
+  // See: https://code.claude.com/docs/en/hooks
+  const hookGroup = {
+    matcher: {},
+    hooks: [
+      {
+        type: 'command',
+        command: cmd,
+        timeout: 10,
+      },
+    ],
   };
 
   return {
     hooks: {
-      SessionStart: [hookEntry],
-      PostToolUse: [hookEntry],
-      UserPromptSubmit: [hookEntry],
-      PreCompact: [hookEntry],
-      Stop: [hookEntry],
+      SessionStart: [hookGroup],
+      PostToolUse: [hookGroup],
+      UserPromptSubmit: [hookGroup],
+      PreCompact: [hookGroup],
+      Stop: [hookGroup],
     },
   };
 }

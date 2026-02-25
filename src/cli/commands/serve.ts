@@ -27,7 +27,9 @@ export default defineCommand({
     const { detectProject } = await import('../../project/detector.js');
 
     // Priority: explicit --cwd arg > MEMORIX_PROJECT_ROOT env > INIT_CWD (npm lifecycle) > process.cwd()
-    let projectRoot = args.cwd || process.env.MEMORIX_PROJECT_ROOT || process.env.INIT_CWD || process.cwd();
+    let safeCwd: string;
+    try { safeCwd = process.cwd(); } catch { safeCwd = (await import('node:os')).homedir(); }
+    let projectRoot = args.cwd || process.env.MEMORIX_PROJECT_ROOT || process.env.INIT_CWD || safeCwd;
 
     console.error(`[memorix] Starting with cwd: ${projectRoot}`);
 

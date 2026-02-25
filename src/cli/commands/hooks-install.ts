@@ -25,7 +25,15 @@ export default defineCommand({
   },
   run: async ({ args }) => {
     const { detectInstalledAgents, installHooks } = await import('../../hooks/installers/index.js');
-    const cwd = process.cwd();
+    const os = await import('node:os');
+    // process.cwd() can fail with EPERM on macOS if CWD was deleted or is inaccessible
+    let cwd: string;
+    try {
+      cwd = process.cwd();
+    } catch {
+      cwd = os.homedir();
+      console.log(`⚠️ Could not access current directory, using home: ${cwd}`);
+    }
 
     let agents: string[];
     if (args.agent) {

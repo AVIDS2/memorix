@@ -33,19 +33,19 @@ afterEach(async () => {
 
 describe('Persistence Layer', () => {
   describe('getProjectDataDir', () => {
-    it('should create project-specific data directory', async () => {
+    it('should return flat base directory (projectId is metadata only)', async () => {
       const dir = await getProjectDataDir('user/repo', testDir);
-      // Project isolation: each project gets its own subdirectory
-      expect(dir).toBe(path.join(testDir, 'user--repo'));
+      // Flat storage: all projects share the same base directory
+      expect(dir).toBe(testDir);
       const stat = await fs.stat(dir);
       expect(stat.isDirectory()).toBe(true);
     });
 
-    it('should be idempotent', async () => {
+    it('should be idempotent and return same dir for different projectIds', async () => {
       const dir1 = await getProjectDataDir('my/project', testDir);
-      const dir2 = await getProjectDataDir('my/project', testDir);
+      const dir2 = await getProjectDataDir('other/project', testDir);
       expect(dir1).toBe(dir2);
-      expect(dir1).toBe(path.join(testDir, 'my--project'));
+      expect(dir1).toBe(testDir);
     });
   });
 

@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.9.6] — 2026-02-25
+
+### Fixed
+- **Cross-IDE project identity fragmentation** — Data was stored in per-project subdirectories (`~/.memorix/data/<projectId>/`), but different IDEs often detected different projectIds for the same repo (e.g. `placeholder/repo` vs `local/repo` vs `local/Kiro`). This caused observations to silently split across directories, making cross-IDE relay unreliable. Now **all data is stored in a single flat directory** (`~/.memorix/data/`). projectId is metadata only, not used for directory partitioning. Existing per-project subdirectories are automatically merged on first startup (IDs remapped, graphs deduplicated, subdirs backed up to `.migrated-subdirs/`).
+- **`scope: 'project'` parameter now works** — Previously accepted but ignored. Now properly filters search results by the current project's ID via Orama where-clause.
+
 ## [0.9.5] — 2026-02-25
 
 ### Fixed

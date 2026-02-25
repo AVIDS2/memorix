@@ -134,12 +134,12 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
     );
   }
 
-  // Migrate legacy global data to project-specific directory (one-time, silent)
+  // Migrate legacy per-project subdirectories into flat base directory (one-time, silent)
   try {
-    const { migrateGlobalData } = await import('./store/persistence.js');
-    const migrated = await migrateGlobalData(project.id);
+    const { migrateSubdirsToFlat } = await import('./store/persistence.js');
+    const migrated = await migrateSubdirsToFlat();
     if (migrated) {
-      console.error(`[memorix] Migrated legacy data to project directory: ${project.id}`);
+      console.error(`[memorix] Migrated per-project subdirectories into flat storage`);
     }
   } catch { /* migration is optional */ }
 
@@ -438,10 +438,10 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
         maxTokens: safeMaxTokens,
         since,
         until,
-        // Data isolation is handled at the directory level (each project has its own data dir).
-        // No projectId filter needed — avoids cross-IDE search failures when different IDEs
-        // resolve different projectIds for the same directory.
-        projectId: undefined,
+        // All data is in a single flat directory. projectId is metadata only.
+        // scope: 'project' → filter by current projectId in Orama
+        // scope: 'global' or omitted → search all observations (default)
+        projectId: scope === 'project' ? project.id : undefined,
       });
 
       // Append sync advisory on first search of the session

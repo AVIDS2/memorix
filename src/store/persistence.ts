@@ -4,8 +4,12 @@
  * Saves and restores the Orama database to/from disk.
  * Source: @orama/plugin-data-persistence (official Orama plugin)
  *
- * Data is stored in a single global directory shared across all agents:
- *   ~/.memorix/data/ (all files: observations.json, graph.jsonl, counter.json)
+ * Data is stored in a single FLAT global directory shared across ALL agents and projects:
+ *   ~/.memorix/data/ (observations.json, graph.jsonl, counter.json, sessions.json)
+ *
+ * projectId is metadata only — stored inside each observation record,
+ * NOT used for directory partitioning. This ensures cross-IDE relay works
+ * even when different IDEs detect different projectIds for the same repo.
  */
 
 import { promises as fs } from 'node:fs';
@@ -18,30 +22,29 @@ const DEFAULT_DATA_DIR = path.join(os.homedir(), '.memorix', 'data');
 
 /**
  * Sanitize a projectId for use as a directory name.
- * Replaces `/` with `--`, removes other unsafe chars.
+ * Used only during migration to locate legacy per-project subdirectories.
  */
 function sanitizeProjectId(projectId: string): string {
   return projectId.replace(/\//g, '--').replace(/[<>:"|?*\\]/g, '_');
 }
 
 /**
- * Get the project-specific data directory for Memorix storage.
- * Each project gets its own subdirectory under ~/.memorix/data/
+ * Get the data directory for Memorix storage.
  *
- * Example: projectId "AVIDS2/memorix" → ~/.memorix/data/AVIDS2--memorix/
+ * Returns the FLAT global directory (~/.memorix/data/) regardless of projectId.
+ * projectId is stored as metadata inside observations, not used for directory partitioning.
+ * This ensures all IDEs share the same data directory even if they detect different projectIds.
  *
- * @param projectId - Git-based project identifier (e.g. "user/repo")
+ * @param _projectId - Ignored for directory purposes (kept for API compat)
  */
-export async function getProjectDataDir(projectId: string, baseDir?: string): Promise<string> {
-  // Reject sentinel IDs to prevent garbage directories
-  if (projectId === '__invalid__') {
+export async function getProjectDataDir(_projectId: string, baseDir?: string): Promise<string> {
+  // Reject sentinel IDs to prevent garbage writes
+  if (_projectId === '__invalid__') {
     throw new Error('Cannot create data directory for invalid project');
   }
   const base = baseDir ?? DEFAULT_DATA_DIR;
-  const dirName = sanitizeProjectId(projectId);
-  const dataDir = path.join(base, dirName);
-  await fs.mkdir(dataDir, { recursive: true });
-  return dataDir;
+  await fs.mkdir(base, { recursive: true });
+  return base;
 }
 
 /**
@@ -68,105 +71,185 @@ export async function listProjectDirs(baseDir?: string): Promise<string[]> {
 }
 
 /**
- * Migrate legacy global data to project-specific directory.
- * If observations.json exists directly in the base data dir (old format),
- * move it into the correct project subdirectory.
+ * Migrate legacy per-project subdirectories into the flat base directory.
+ *
+ * Before v0.9.6, data was stored in per-project subdirectories:
+ *   ~/.memorix/data/AVIDS2--memorix/observations.json
+ *   ~/.memorix/data/local--myproject/observations.json
+ *
+ * This caused data fragmentation when different IDEs detected different projectIds.
+ * Now all data lives in ~/.memorix/data/ directly.
+ *
+ * Migration:
+ *   1. Scan all subdirectories under base dir
+ *   2. Merge observations from all subdirs into base dir (remap IDs to avoid collision)
+ *   3. Merge graph.jsonl (deduplicate entities by name)
+ *   4. Move subdirectories to .migrated-subdirs/ backup
  */
-export async function migrateGlobalData(projectId: string, baseDir?: string): Promise<boolean> {
+export async function migrateSubdirsToFlat(baseDir?: string): Promise<boolean> {
   const base = baseDir ?? DEFAULT_DATA_DIR;
-  const globalObsPath = path.join(base, 'observations.json');
-  const migratedObsPath = path.join(base, 'observations.json.migrated');
+  await fs.mkdir(base, { recursive: true });
 
-  // Check if global data exists (either live or already-migrated backup)
-  let sourceObsPath: string | null = null;
+  // Find all subdirectories that contain observations.json
+  let entries: import('node:fs').Dirent[];
   try {
-    await fs.access(globalObsPath);
-    sourceObsPath = globalObsPath;
+    entries = await fs.readdir(base, { withFileTypes: true });
   } catch {
-    // Check for .migrated backup that wasn't fully merged
+    return false;
+  }
+
+  const dataDirs = entries
+    .filter((e) => e.isDirectory() && !e.name.startsWith('.'))
+    .map((e) => path.join(base, e.name));
+
+  if (dataDirs.length === 0) return false;
+
+  // Check which subdirs actually have observation data
+  const subdirData: Array<{ dir: string; obs: any[]; graph: { entities: any[]; relations: any[] } }> = [];
+  for (const dir of dataDirs) {
+    const obsPath = path.join(dir, 'observations.json');
     try {
-      await fs.access(migratedObsPath);
-      sourceObsPath = migratedObsPath;
-    } catch {
-      return false; // No global data to migrate
-    }
+      const data = await fs.readFile(obsPath, 'utf-8');
+      const obs = JSON.parse(data);
+      if (Array.isArray(obs) && obs.length > 0) {
+        // Also try to load graph
+        let graph = { entities: [] as any[], relations: [] as any[] };
+        try {
+          const graphData = await fs.readFile(path.join(dir, 'graph.jsonl'), 'utf-8');
+          const lines = graphData.split('\n').filter((l: string) => l.trim());
+          for (const line of lines) {
+            const item = JSON.parse(line);
+            if (item.type === 'entity') graph.entities.push(item);
+            if (item.type === 'relation') graph.relations.push(item);
+          }
+        } catch { /* no graph */ }
+        subdirData.push({ dir, obs, graph });
+      }
+    } catch { /* no observations */ }
   }
 
-  // Read the source (global) observations
-  let globalObs: unknown[] = [];
+  if (subdirData.length === 0) return false;
+
+  // Load existing base-level data (if any)
+  let baseObs: any[] = [];
   try {
-    const data = await fs.readFile(sourceObsPath, 'utf-8');
-    globalObs = JSON.parse(data);
-    if (!Array.isArray(globalObs) || globalObs.length === 0) return false;
-  } catch {
-    return false;
-  }
+    const data = await fs.readFile(path.join(base, 'observations.json'), 'utf-8');
+    baseObs = JSON.parse(data);
+    if (!Array.isArray(baseObs)) baseObs = [];
+  } catch { /* no existing base data */ }
 
-  // Read existing project observations (may have been partially written)
-  const projectDir = await getProjectDataDir(projectId, baseDir);
-  const projectObsPath = path.join(projectDir, 'observations.json');
-  let projectObs: unknown[] = [];
+  let baseGraph = { entities: [] as any[], relations: [] as any[] };
   try {
-    const data = await fs.readFile(projectObsPath, 'utf-8');
-    projectObs = JSON.parse(data);
-    if (!Array.isArray(projectObs)) projectObs = [];
-  } catch { /* no existing data */ }
+    const graphData = await fs.readFile(path.join(base, 'graph.jsonl'), 'utf-8');
+    const lines = graphData.split('\n').filter((l: string) => l.trim());
+    for (const line of lines) {
+      const item = JSON.parse(line);
+      if (item.type === 'entity') baseGraph.entities.push(item);
+      if (item.type === 'relation') baseGraph.relations.push(item);
+    }
+  } catch { /* no graph */ }
 
-  // If project already has >= global data, skip (already migrated properly)
-  if (projectObs.length >= globalObs.length) {
-    return false;
-  }
-
-  // Merge: global data + project data, deduplicate by ID
-  const existingIds = new Set(projectObs.map((o: any) => o.id));
-  const merged = [...projectObs];
-  for (const obs of globalObs) {
-    if (!existingIds.has((obs as any).id)) {
-      merged.push(obs);
+  // Merge all observations: collect, sort by createdAt, remap IDs
+  const allObs: any[] = [...baseObs];
+  for (const { obs } of subdirData) {
+    for (const o of obs) {
+      // Deduplicate by title+createdAt+projectId (same observation from migration overlap)
+      const isDuplicate = allObs.some(
+        (existing) => existing.title === o.title && existing.createdAt === o.createdAt,
+      );
+      if (!isDuplicate) {
+        allObs.push(o);
+      }
     }
   }
 
-  // Sort by ID
-  merged.sort((a: any, b: any) => (a.id ?? 0) - (b.id ?? 0));
-
-  // Normalize projectId for all migrated records to the current project
-  for (const obs of merged) {
-    (obs as any).projectId = projectId;
+  // Sort by createdAt then remap IDs sequentially
+  allObs.sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''));
+  for (let i = 0; i < allObs.length; i++) {
+    allObs[i].id = i + 1;
   }
 
-  // Write merged observations
-  await fs.writeFile(projectObsPath, JSON.stringify(merged, null, 2), 'utf-8');
-
-  // Copy graph and counter if they exist
-  for (const file of ['graph.jsonl', 'counter.json']) {
-    const src = path.join(base, file);
-    const srcMigrated = path.join(base, file + '.migrated');
-    const dst = path.join(projectDir, file);
-    // Try live file first, then .migrated backup
-    for (const source of [src, srcMigrated]) {
-      try {
-        await fs.access(source);
-        await fs.copyFile(source, dst);
-        break;
-      } catch { /* try next */ }
+  // Merge graphs (deduplicate entities by name)
+  const entityMap = new Map<string, any>();
+  for (const e of baseGraph.entities) entityMap.set(e.name, e);
+  for (const { graph } of subdirData) {
+    for (const e of graph.entities) {
+      if (!entityMap.has(e.name)) {
+        entityMap.set(e.name, e);
+      } else {
+        // Merge observations lists
+        const existing = entityMap.get(e.name);
+        const obsSet = new Set([...(existing.observations || []), ...(e.observations || [])]);
+        existing.observations = [...obsSet];
+      }
     }
   }
 
-  // Find max ID for counter
-  const maxId = merged.reduce((max: number, o: any) => Math.max(max, o.id ?? 0), 0);
+  const relationSet = new Set<string>();
+  const mergedRelations: any[] = [];
+  for (const rel of [...baseGraph.relations, ...subdirData.flatMap((d) => d.graph.relations)]) {
+    const key = `${rel.from}|${rel.to}|${rel.relationType}`;
+    if (!relationSet.has(key)) {
+      relationSet.add(key);
+      mergedRelations.push(rel);
+    }
+  }
+
+  // Write merged data to base directory
+  await fs.writeFile(path.join(base, 'observations.json'), JSON.stringify(allObs, null, 2), 'utf-8');
   await fs.writeFile(
-    path.join(projectDir, 'counter.json'),
-    JSON.stringify({ nextId: maxId + 1 }),
+    path.join(base, 'counter.json'),
+    JSON.stringify({ nextId: allObs.length + 1 }),
     'utf-8',
   );
 
-  // Rename source files to .migrated (if not already)
-  for (const file of ['observations.json', 'graph.jsonl', 'counter.json']) {
-    const src = path.join(base, file);
+  // Write merged graph
+  const graphLines = [
+    ...[...entityMap.values()].map((e) => JSON.stringify({ type: 'entity', name: e.name, entityType: e.entityType, observations: e.observations })),
+    ...mergedRelations.map((r) => JSON.stringify({ type: 'relation', from: r.from, to: r.to, relationType: r.relationType })),
+  ];
+  if (graphLines.length > 0) {
+    await fs.writeFile(path.join(base, 'graph.jsonl'), graphLines.join('\n'), 'utf-8');
+  }
+
+  // Also merge sessions if present
+  let allSessions: any[] = [];
+  try {
+    const data = await fs.readFile(path.join(base, 'sessions.json'), 'utf-8');
+    allSessions = JSON.parse(data);
+    if (!Array.isArray(allSessions)) allSessions = [];
+  } catch { /* no sessions */ }
+  for (const { dir } of subdirData) {
     try {
-      await fs.access(src);
-      await fs.rename(src, src + '.migrated');
-    } catch { /* already migrated or doesn't exist */ }
+      const data = await fs.readFile(path.join(dir, 'sessions.json'), 'utf-8');
+      const sessions = JSON.parse(data);
+      if (Array.isArray(sessions)) allSessions.push(...sessions);
+    } catch { /* no sessions */ }
+  }
+  if (allSessions.length > 0) {
+    await fs.writeFile(path.join(base, 'sessions.json'), JSON.stringify(allSessions, null, 2), 'utf-8');
+  }
+
+  // Move subdirectories to backup
+  const backupDir = path.join(base, '.migrated-subdirs');
+  await fs.mkdir(backupDir, { recursive: true });
+  for (const { dir } of subdirData) {
+    const dirName = path.basename(dir);
+    try {
+      await fs.rename(dir, path.join(backupDir, dirName));
+    } catch {
+      // If rename fails (cross-device), try to just leave it
+      // The important thing is the merged data is written
+    }
+  }
+
+  // Also move remaining empty subdirectories
+  for (const dir of dataDirs) {
+    const dirName = path.basename(dir);
+    try {
+      await fs.access(dir);
+      await fs.rename(dir, path.join(backupDir, dirName));
+    } catch { /* already moved or doesn't exist */ }
   }
 
   return true;

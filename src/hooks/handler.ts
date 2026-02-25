@@ -55,6 +55,13 @@ function markTriggered(eventKey: string): void {
 }
 
 /**
+ * Reset all cooldowns (for testing only — in production each hook call is a separate process).
+ */
+export function resetCooldowns(): void {
+  cooldowns.clear();
+}
+
+/**
  * Build content string from the normalized input for pattern detection.
  */
 function extractContent(input: NormalizedHookInput): string {
@@ -368,6 +375,24 @@ export async function handleHookEvent(input: NormalizedHookInput): Promise<{
       }
 
       const toolContent = extractContent(input);
+
+      // Bash/shell tools (input.command is set): lower threshold, skip noise
+      if (input.command) {
+        if (NOISE_COMMANDS.some((r) => r.test(input.command!))) {
+          return { observation: null, output: defaultOutput };
+        }
+        // Commands are inherently meaningful — lower threshold (50 chars)
+        if (toolContent.length < 50) {
+          return { observation: null, output: defaultOutput };
+        }
+        markTriggered(toolKey);
+        return {
+          observation: buildObservation(input, toolContent),
+          output: defaultOutput,
+        };
+      }
+
+      // Non-command tools (Write, Edit, Read, etc.)
       if (toolContent.length < MIN_STORE_LENGTH) {
         return { observation: null, output: defaultOutput };
       }

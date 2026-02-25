@@ -2,10 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
-## [0.9.13] — 2026-02-26
+## [0.9.14] — 2026-02-26
 
 ### Fixed
-- **🔴 Critical: Hooks never auto-store during development** — `extractContent()` had a fatal `parts.length === 0` guard that skipped rich `toolInput` data (file content, edit diffs, commands) whenever `toolResult` was present. Since Claude Code/Copilot/Cursor always send a short `toolResult` like `"File written successfully"` (28 chars), the extracted content was always < 100 chars and got rejected by the `MIN_STORE_LENGTH` threshold. Now always extracts `toolInput` fields (file_path, content, old_string/new_string, command, query) alongside `toolResult`, ensuring tool events produce enough content for pattern detection and auto-storage.
+- **🔴 Critical: Hooks never auto-store during development** — Two root causes:
+  1. `extractContent()` had a fatal `parts.length === 0` guard that skipped rich `toolInput` data (file content, edit diffs, commands) whenever `toolResult` was present. Since all agents send short `toolResult` like `"File written successfully"` (28 chars), the content was always < 100 chars and got rejected by `MIN_STORE_LENGTH`.
+  2. Bash/shell tool events (npm install, npm test, git commands) also got rejected because their content (~90 chars) fell below the generic `post_tool` threshold of 200 chars, even though commands are inherently meaningful.
+- **Fix**: Always extract `toolInput` fields alongside `toolResult`. Bash tools now use a dedicated low-threshold path (50 chars) with noise command filtering, matching the `post_command` logic.
+
+### Added
+- **12 Claude Code E2E tests** — Validates the full hook pipeline (stdin JSON → normalize → handleHookEvent → observation) for Write, Edit, Bash, UserPromptSubmit, SessionStart, Stop, PreCompact, and edge cases (noise filtering, memorix recursion skip, short prompts).
 
 ## [0.9.12] — 2026-02-25
 

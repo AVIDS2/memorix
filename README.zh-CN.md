@@ -8,7 +8,7 @@
     <a href="https://www.npmjs.com/package/memorix"><img src="https://img.shields.io/npm/dm/memorix.svg?style=flat-square&color=blue" alt="npm downloads"></a>
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-green.svg?style=flat-square" alt="License"></a>
     <a href="https://github.com/AVIDS2/memorix"><img src="https://img.shields.io/github/stars/AVIDS2/memorix?style=flat-square&color=yellow" alt="GitHub stars"></a>
-    <img src="https://img.shields.io/badge/tests-422%20passed-brightgreen?style=flat-square" alt="Tests">
+    <img src="https://img.shields.io/badge/tests-491%20passed-brightgreen?style=flat-square" alt="Tests">
   </p>
   <p align="center">
     <img src="https://img.shields.io/badge/Works%20with-Cursor-orange?style=flat-square" alt="Cursor">
@@ -18,6 +18,7 @@
     <img src="https://img.shields.io/badge/Works%20with-Copilot-lightblue?style=flat-square" alt="Copilot">
     <img src="https://img.shields.io/badge/Works%20with-Kiro-red?style=flat-square" alt="Kiro">
     <img src="https://img.shields.io/badge/Works%20with-Antigravity-grey?style=flat-square" alt="Antigravity">
+    <img src="https://img.shields.io/badge/Works%20with-Gemini%20CLI-4285F4?style=flat-square" alt="Gemini CLI">
   </p>
   <p align="center">
     <a href="#-别再反复解释你的项目了">痛点</a> •
@@ -41,9 +42,9 @@
 | **切换 IDE：** 全部上下文丢失 | **切换 IDE：** 上下文立即跟随 |
 | **新同事的 AI：** 从零开始 | **新同事的 AI：** 已了解整个代码库 |
 | **50 次工具调用后：** 上下文爆炸，需要重开 | **重开后：** 无缝恢复到上次状态 |
-| **MCP 配置：** 在 7 个 IDE 之间手动复制粘贴 | **MCP 配置：** 一条命令全部同步 |
+| **MCP 配置：** 在 8 个 IDE 之间手动复制粘贴 | **MCP 配置：** 一条命令全部同步 |
 
-**Memorix 解决所有这些问题。** 一个 MCP 服务器。七个 Agent。零上下文丢失。
+**Memorix 解决所有这些问题。** 一个 MCP 服务器。八个 Agent。零上下文丢失。
 
 ---
 
@@ -112,7 +113,7 @@ claude mcp add memorix -- memorix serve
 </details>
 
 <details>
-<summary><strong>VS Code Copilot / Codex / Kiro / Antigravity</strong></summary>
+<summary><strong>VS Code Copilot / Codex / Kiro</strong></summary>
 
 同样的格式 — 添加到对应 Agent 的 MCP 配置文件：
 ```json
@@ -125,8 +126,24 @@ claude mcp add memorix -- memorix serve
   }
 }
 ```
+</details>
 
-**仅 Antigravity：** Antigravity 使用自身安装路径作为工作目录，**必须**添加：
+<details>
+<summary><strong>Antigravity / Gemini CLI</strong></summary>
+
+添加到 `.gemini/settings.json`（项目级）或 `~/.gemini/settings.json`（全局）：
+```json
+{
+  "mcpServers": {
+    "memorix": {
+      "command": "memorix",
+      "args": ["serve"]
+    }
+  }
+}
+```
+
+**仅 Antigravity IDE：** Antigravity 使用自身安装路径作为工作目录，**必须**添加：
 ```json
 {
   "mcpServers": {
@@ -140,13 +157,15 @@ claude mcp add memorix -- memorix serve
   }
 }
 ```
+
+**Gemini CLI** 读取相同路径的 MCP 配置。Hooks 会自动安装到 `.gemini/settings.json`。
 </details>
 
 ### 第三步：重启你的 Agent — 完成！
 
 不需要 API Key，不需要云账号，不需要额外依赖。**任何目录都能用**（有没有 git 都行）。
 
-> 📖 **7 个 Agent 的完整配置指南** → [docs/SETUP.md](docs/SETUP.md)
+> 📖 **8 个 Agent 的完整配置指南** → [docs/SETUP.md](docs/SETUP.md)
 
 <details>
 <summary><strong>🔧 常见问题</strong></summary>

@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.9.12] — 2026-02-25
+
+### Fixed
+- **Copilot hooks format completely wrong** — Was reusing Claude Code's `generateClaudeConfig()` (PascalCase events, `command` field). Copilot requires `version: 1`, `bash`/`powershell` fields, `timeoutSec`, and camelCase event names (`sessionStart`, `userPromptSubmitted`, `preToolUse`, `postToolUse`, `sessionEnd`, `errorOccurred`). Now uses dedicated `generateCopilotConfig()`. Source: [GitHub Docs](https://docs.github.com/en/copilot/reference/hooks-configuration).
+- **Codex fake hooks.json removed** — Codex has no hooks system (only `notify` in config.toml for `agent-turn-complete`). Was generating a non-existent `.codex/hooks.json`. Now only installs rules (AGENTS.md). Source: [OpenAI Codex Config Reference](https://developers.openai.com/codex/config-reference/).
+- **Kiro hook file extension wrong** — Was `.hook.md`, should be `.kiro.hook`. Now generates 3 hook files: `memorix-agent-stop.kiro.hook` (session memory), `memorix-prompt-submit.kiro.hook` (context loading), `memorix-file-save.kiro.hook` (file change tracking). Source: [Kiro Docs](https://kiro.dev/docs/hooks/).
+- **Kiro only had 1 event** — Was only `file_saved`. Now covers `agent_stop`, `prompt_submit`, and `file_save` events.
+
+### Added
+- **Antigravity/Gemini CLI hook installer** — New `generateGeminiConfig()` for `.gemini/settings.json`. PascalCase events (`SessionStart`, `AfterTool`, `AfterAgent`, `PreCompress`), timeout in milliseconds (10000ms). Source: [Gemini CLI Docs](https://geminicli.com/docs/hooks/).
+- **Copilot normalizer** — Dedicated `normalizeCopilot()` function with `inferCopilotEvent()` for payload-based event detection (Copilot sends typed payloads without explicit event names).
+- **Gemini CLI normalizer** — Dedicated `normalizeGemini()` function with event mapping for all 11 Gemini CLI events (`BeforeAgent`, `AfterAgent`, `BeforeTool`, `AfterTool`, `PreCompress`, etc.).
+- **Gemini CLI event mappings** — Full EVENT_MAP entries for Gemini CLI PascalCase events → normalized events.
+- **Copilot event mappings** — EVENT_MAP entries for Copilot-specific camelCase events (`userPromptSubmitted`, `preToolUse`, `postToolUse`, `errorOccurred`).
+
 ## [0.9.11] — 2026-02-25
 
 ### Fixed

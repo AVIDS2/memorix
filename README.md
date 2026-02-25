@@ -8,7 +8,7 @@
     <a href="https://www.npmjs.com/package/memorix"><img src="https://img.shields.io/npm/dm/memorix.svg?style=flat-square&color=blue" alt="npm downloads"></a>
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-green.svg?style=flat-square" alt="License"></a>
     <a href="https://github.com/AVIDS2/memorix"><img src="https://img.shields.io/github/stars/AVIDS2/memorix?style=flat-square&color=yellow" alt="GitHub stars"></a>
-    <img src="https://img.shields.io/badge/tests-422%20passed-brightgreen?style=flat-square" alt="Tests">
+    <img src="https://img.shields.io/badge/tests-491%20passed-brightgreen?style=flat-square" alt="Tests">
   </p>
   <p align="center">
     <img src="https://img.shields.io/badge/Works%20with-Cursor-orange?style=flat-square" alt="Cursor">
@@ -18,6 +18,7 @@
     <img src="https://img.shields.io/badge/Works%20with-Copilot-lightblue?style=flat-square" alt="Copilot">
     <img src="https://img.shields.io/badge/Works%20with-Kiro-red?style=flat-square" alt="Kiro">
     <img src="https://img.shields.io/badge/Works%20with-Antigravity-grey?style=flat-square" alt="Antigravity">
+    <img src="https://img.shields.io/badge/Works%20with-Gemini%20CLI-4285F4?style=flat-square" alt="Gemini CLI">
   </p>
   <p align="center">
     <a href="#-stop-re-explaining-your-project">Why</a> •
@@ -43,7 +44,7 @@ Your AI assistant forgets everything when you start a new chat. You spend 10 min
 | **After 50 tool calls:** Context explodes, restart needed | **After restart:** Picks up right where you left off |
 | **MCP configs:** Copy-paste between 7 IDEs manually | **MCP configs:** One command syncs everything |
 
-**Memorix solves all of this.** One MCP server. Seven agents. Zero context loss.
+**Memorix solves all of this.** One MCP server. Eight agents. Zero context loss.
 
 ---
 
@@ -112,7 +113,7 @@ Add to Windsurf MCP settings (`~/.codeium/windsurf/mcp_config.json`):
 </details>
 
 <details>
-<summary><strong>VS Code Copilot / Codex / Kiro / Antigravity</strong></summary>
+<summary><strong>VS Code Copilot / Codex / Kiro</strong></summary>
 
 Same format — add to the agent's MCP config file:
 ```json
@@ -125,8 +126,24 @@ Same format — add to the agent's MCP config file:
   }
 }
 ```
+</details>
 
-**Antigravity only:** Antigravity uses its own install path as CWD. You **must** add:
+<details>
+<summary><strong>Antigravity / Gemini CLI</strong></summary>
+
+Add to `.gemini/settings.json` (project) or `~/.gemini/settings.json` (global):
+```json
+{
+  "mcpServers": {
+    "memorix": {
+      "command": "memorix",
+      "args": ["serve"]
+    }
+  }
+}
+```
+
+**Antigravity IDE only:** Antigravity uses its own install path as CWD. You **must** add:
 ```json
 {
   "mcpServers": {
@@ -140,13 +157,15 @@ Same format — add to the agent's MCP config file:
   }
 }
 ```
+
+**Gemini CLI** reads MCP config from the same path. Hooks are automatically installed to `.gemini/settings.json`.
 </details>
 
 ### Step 3: Restart your agent — done!
 
 No API keys. No cloud accounts. No dependencies. Works with any directory (git repo or not).
 
-> 📖 **Full setup guide for all 7 agents** → [docs/SETUP.md](docs/SETUP.md)
+> 📖 **Full setup guide for all 8 agents** → [docs/SETUP.md](docs/SETUP.md)
 
 <details>
 <summary><strong>🔧 Troubleshooting</strong></summary>
@@ -293,7 +312,7 @@ You update your architecture decision 3 times over a week:
 | What You Say | What Memorix Does |
 |-------------|-------------------|
 | "Sync my MCP servers to Kiro" | `memorix_workspace_sync` — Migrates configs, merges (never overwrites) |
-| "Check my agent rules" | `memorix_rules_sync` — Scans 7 agents, deduplicates, detects conflicts |
+| "Check my agent rules" | `memorix_rules_sync` — Scans 8 agents, deduplicates, detects conflicts |
 | "Generate rules for Cursor" | `memorix_rules_sync` — Cross-format conversion (`.mdc` ↔ `CLAUDE.md` ↔ `.kiro/steering/`) |
 | "Generate project skills" | `memorix_skills` — Creates SKILL.md from observation patterns |
 | "Inject the auth skill" | `memorix_skills` — Returns skill content directly into agent context |

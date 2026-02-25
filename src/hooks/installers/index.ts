@@ -48,16 +48,12 @@ function resolveHookCommand(): string {
 }
 
 /**
- * Generate Claude Code / VS Code Copilot hook config.
- * Both use the same format: .claude/settings.json or .github/hooks/*.json
+ * Generate Claude Code hook config.
+ * Format: .claude/settings.json
+ * See: https://docs.anthropic.com/en/docs/claude-code/hooks
  */
 function generateClaudeConfig(): Record<string, unknown> {
   const cmd = `${resolveHookCommand()} hook`;
-  // Claude Code hooks format: each event takes an array of
-  // { matcher?: string, hooks: [...] } objects.
-  // matcher is a STRING tool name pattern (e.g. "Bash", "Edit|Write").
-  // Omit matcher entirely to fire on ALL events (no filtering).
-  // See: https://docs.anthropic.com/en/docs/claude-code/hooks
   const hookEntry = {
     type: 'command',
     command: cmd,
@@ -71,6 +67,56 @@ function generateClaudeConfig(): Record<string, unknown> {
       UserPromptSubmit: [{ hooks: [hookEntry] }],
       PreCompact: [{ hooks: [hookEntry] }],
       Stop: [{ hooks: [hookEntry] }],
+    },
+  };
+}
+
+/**
+ * Generate GitHub Copilot hook config.
+ * Format: .github/hooks/memorix.json — version:1 + bash/powershell fields
+ * See: https://docs.github.com/en/copilot/reference/hooks-configuration
+ */
+function generateCopilotConfig(): Record<string, unknown> {
+  const cmd = `${resolveHookCommand()} hook`;
+  const hookEntry = {
+    type: 'command',
+    bash: cmd,
+    powershell: cmd,
+    timeoutSec: 10,
+  };
+
+  return {
+    version: 1,
+    hooks: {
+      sessionStart: [hookEntry],
+      sessionEnd: [hookEntry],
+      userPromptSubmitted: [hookEntry],
+      preToolUse: [hookEntry],
+      postToolUse: [hookEntry],
+      errorOccurred: [hookEntry],
+    },
+  };
+}
+
+/**
+ * Generate Gemini CLI / Antigravity hook config.
+ * Format: .gemini/settings.json — PascalCase events, timeout in milliseconds
+ * See: https://geminicli.com/docs/hooks/
+ */
+function generateGeminiConfig(): Record<string, unknown> {
+  const cmd = `${resolveHookCommand()} hook`;
+  const hookEntry = {
+    type: 'command',
+    command: cmd,
+    timeout: 10000,
+  };
+
+  return {
+    hooks: {
+      SessionStart: [{ hooks: [hookEntry] }],
+      AfterTool: [{ hooks: [hookEntry] }],
+      AfterAgent: [{ hooks: [hookEntry] }],
+      PreCompress: [{ hooks: [hookEntry] }],
     },
   };
 }
@@ -119,22 +165,55 @@ function generateCursorConfig(): Record<string, unknown> {
 }
 
 /**
- * Generate Kiro hooks config (Markdown + YAML format).
+ * Generate Kiro hook files.
+ * Format: .kiro/hooks/*.kiro.hook — structured YAML-like config
+ * See: https://kiro.dev/docs/hooks/
  */
-function generateKiroHookFile(): string {
-  return `---
-title: Memorix Auto-Memory
-description: Automatically record development context for cross-agent memory sharing
-event: file_saved
-filePattern: "**/*"
+function generateKiroHookFiles(): Array<{ filename: string; content: string }> {
+  const cmd = `${resolveHookCommand()} hook`;
+  return [
+    {
+      filename: 'memorix-agent-stop.kiro.hook',
+      content: `---
+title: Memorix Session Memory
+description: Record session context when agent completes a turn
+event: agent_stop
 ---
 
-Run the memorix hook command to analyze changes and store relevant memories:
+Call memorix MCP tools to store important context from this conversation:
+1. Use memorix_store to record any decisions, bug fixes, gotchas, or configuration changes
+2. Include relevant file paths and concepts for searchability
+`,
+    },
+    {
+      filename: 'memorix-prompt-submit.kiro.hook',
+      content: `---
+title: Memorix Context Loader
+description: Load relevant memories when user submits a prompt
+event: prompt_submit
+---
+
+Before responding, search for relevant context:
+1. Call memorix_search with a query related to the user's prompt
+2. If results are found, use memorix_detail to fetch the most relevant ones
+3. Reference relevant memories naturally in your response
+`,
+    },
+    {
+      filename: 'memorix-file-save.kiro.hook',
+      content: `---
+title: Memorix File Change Tracker
+description: Track significant file changes for cross-session memory
+event: file_save
+filePattern: "**/*.{ts,js,tsx,jsx,py,rs,go,java,md}"
+---
 
 \`\`\`bash
-${resolveHookCommand()} hook
+${cmd}
 \`\`\`
-`;
+`,
+    },
+  ];
 }
 
 /**
@@ -152,9 +231,12 @@ function getProjectConfigPath(agent: AgentName, projectRoot: string): string {
     case 'cursor':
       return path.join(projectRoot, '.cursor', 'hooks.json');
     case 'kiro':
-      return path.join(projectRoot, '.kiro', 'hooks', 'memorix.hook.md');
+      return path.join(projectRoot, '.kiro', 'hooks', 'memorix-agent-stop.kiro.hook');
     case 'codex':
-      return path.join(projectRoot, '.codex', 'hooks.json');
+      // Codex has no hooks system — only rules (AGENTS.md)
+      return path.join(projectRoot, 'AGENTS.md');
+    case 'antigravity':
+      return path.join(projectRoot, '.gemini', 'settings.json');
     default:
       return path.join(projectRoot, '.memorix', 'hooks.json');
   }
@@ -173,6 +255,8 @@ function getGlobalConfigPath(agent: AgentName): string {
       return path.join(home, '.codeium', 'windsurf', 'hooks.json');
     case 'cursor':
       return path.join(home, '.cursor', 'hooks.json');
+    case 'antigravity':
+      return path.join(home, '.gemini', 'settings.json');
     default:
       return path.join(home, '.memorix', 'hooks.json');
   }
@@ -229,10 +313,10 @@ export async function detectInstalledAgents(): Promise<AgentName[]> {
     agents.push('codex');
   } catch { /* not installed */ }
 
-  // Check for Antigravity (Google Gemini CLI)
-  const antigravityDir = path.join(home, '.gemini', 'antigravity');
+  // Check for Antigravity / Gemini CLI (both share ~/.gemini/)
+  const geminiDir = path.join(home, '.gemini');
   try {
-    await fs.access(antigravityDir);
+    await fs.access(geminiDir);
     agents.push('antigravity');
   } catch { /* not installed */ }
 
@@ -255,8 +339,10 @@ export async function installHooks(
 
   switch (agent) {
     case 'claude':
-    case 'copilot':
       generated = generateClaudeConfig();
+      break;
+    case 'copilot':
+      generated = generateCopilotConfig();
       break;
     case 'windsurf':
       generated = generateWindsurfConfig();
@@ -264,9 +350,21 @@ export async function installHooks(
     case 'cursor':
       generated = generateCursorConfig();
       break;
-    case 'kiro':
-      generated = generateKiroHookFile();
+    case 'antigravity':
+      generated = generateGeminiConfig();
       break;
+    case 'kiro':
+      generated = 'kiro-multi'; // handled separately below
+      break;
+    case 'codex':
+      // Codex has no hooks — only install rules
+      await installAgentRules(agent, projectRoot);
+      return {
+        agent,
+        configPath: getProjectConfigPath(agent, projectRoot),
+        events: [],
+        generated: { note: 'Codex has no hooks system, only rules (AGENTS.md) installed' },
+      };
     default:
       generated = generateClaudeConfig(); // fallback
   }
@@ -275,8 +373,13 @@ export async function installHooks(
   await fs.mkdir(path.dirname(configPath), { recursive: true });
 
   if (agent === 'kiro') {
-    // Kiro uses markdown files
-    await fs.writeFile(configPath, generated as string, 'utf-8');
+    // Kiro uses multiple .kiro.hook files
+    const hookFiles = generateKiroHookFiles();
+    const hooksDir = path.join(path.dirname(configPath));
+    await fs.mkdir(hooksDir, { recursive: true });
+    for (const hf of hookFiles) {
+      await fs.writeFile(path.join(hooksDir, hf.filename), hf.content, 'utf-8');
+    }
   } else {
     // JSON-based configs: merge with existing if present
     let existing: Record<string, unknown> = {};
@@ -301,17 +404,22 @@ export async function installHooks(
   const events: Array<import('../types.js').HookEvent> = [];
   switch (agent) {
     case 'claude':
-    case 'copilot':
       events.push('session_start', 'post_tool', 'user_prompt', 'pre_compact', 'session_end');
+      break;
+    case 'copilot':
+      events.push('session_start', 'session_end', 'user_prompt', 'post_tool');
       break;
     case 'windsurf':
       events.push('post_edit', 'post_command', 'post_tool', 'user_prompt', 'post_response');
       break;
     case 'cursor':
-      events.push('user_prompt', 'post_edit', 'session_end');
+      events.push('session_start', 'user_prompt', 'post_edit', 'post_tool', 'pre_compact', 'session_end');
+      break;
+    case 'antigravity':
+      events.push('session_start', 'post_tool', 'post_response', 'pre_compact');
       break;
     case 'kiro':
-      events.push('post_edit');
+      events.push('session_end', 'user_prompt', 'post_edit');
       break;
   }
 

@@ -23,13 +23,31 @@ const EVENT_MAP: Record<string, HookEvent> = {
   session_end: 'session_end',
   post_response: 'post_response',
 
-  // Claude Code / VS Code Copilot
+  // Claude Code
   SessionStart: 'session_start',
   UserPromptSubmit: 'user_prompt',
   PreToolUse: 'post_tool', // we handle pre as post for memory purposes
   PostToolUse: 'post_tool',
   PreCompact: 'pre_compact',
   Stop: 'session_end',
+  SessionEnd: 'session_end',
+
+  // GitHub Copilot (camelCase, different names from Cursor)
+  userPromptSubmitted: 'user_prompt',
+  preToolUse: 'post_tool',
+  postToolUse: 'post_tool',
+  errorOccurred: 'session_end',
+
+  // Gemini CLI / Antigravity (PascalCase, different events from Claude Code)
+  BeforeAgent: 'user_prompt',
+  AfterAgent: 'post_response',
+  BeforeModel: 'user_prompt',
+  AfterModel: 'post_response',
+  BeforeToolSelection: 'post_tool',
+  BeforeTool: 'post_tool',
+  AfterTool: 'post_tool',
+  PreCompress: 'pre_compact',
+  Notification: 'post_response',
 
   // Windsurf
   pre_user_prompt: 'user_prompt',
@@ -40,7 +58,7 @@ const EVENT_MAP: Record<string, HookEvent> = {
   post_mcp_tool_use: 'post_tool',
   post_cascade_response: 'post_response',
 
-  // Cursor (camelCase event names)
+  // Cursor (camelCase event names — distinct from Copilot by hook_event_name field)
   sessionStart: 'session_start',
   sessionEnd: 'session_end',
   beforeSubmitPrompt: 'user_prompt',
@@ -64,17 +82,24 @@ function detectAgent(payload: Record<string, unknown>): AgentName {
   // Claude Code sends hook_event_name + session_id (no conversation_id)
   if ('conversation_id' in payload || 'cursor_version' in payload) return 'cursor';
 
-  // Claude Code uses hook_event_name (snake_case) WITHOUT conversation_id
-  if ('hook_event_name' in payload) return 'claude';
+  // Gemini CLI / Antigravity: uses hook_event_name but has GEMINI env vars or gemini-specific fields
+  if ('gemini_session_id' in payload || 'gemini_project_dir' in payload) return 'antigravity';
 
-  // VS Code Copilot uses hookEventName (camelCase)
-  if ('hookEventName' in payload) return 'copilot';
+  // Claude Code uses hook_event_name + session_id
+  if ('hook_event_name' in payload && 'session_id' in payload) return 'claude';
+
+  // Gemini CLI also uses hook_event_name but without session_id (check after claude)
+  if ('hook_event_name' in payload) {
+    // Distinguish: Claude Code has session_id, Gemini CLI might not
+    // Default to claude for compatibility
+    return 'claude';
+  }
+
+  // GitHub Copilot: uses toolName (camelCase) + timestamp (number ms)
+  if ('toolName' in payload || 'initialPrompt' in payload || 'reason' in payload) return 'copilot';
 
   // Kiro uses event_type
   if ('event_type' in payload) return 'kiro';
-
-  // Codex
-  if ('hook_type' in payload) return 'codex';
 
   return 'claude'; // default fallback
 }
@@ -90,14 +115,15 @@ function extractEventName(payload: Record<string, unknown>, agent: AgentName): s
       // Cursor sends hook_event_name; fall back to inference if missing
       return (payload.hook_event_name as string) ?? inferCursorEvent(payload);
     case 'claude':
-      // Claude Code uses hook_event_name (snake_case)
-      return (payload.hook_event_name as string) ?? (payload.hookEventName as string) ?? '';
+      return (payload.hook_event_name as string) ?? '';
+    case 'antigravity':
+      // Gemini CLI uses hook_event_name (PascalCase)
+      return (payload.hook_event_name as string) ?? '';
     case 'copilot':
-      return (payload.hookEventName as string) ?? '';
+      // Copilot: infer event from payload structure
+      return inferCopilotEvent(payload);
     case 'kiro':
       return (payload.event_type as string) ?? '';
-    case 'codex':
-      return (payload.hook_type as string) ?? '';
     default:
       return '';
   }
@@ -189,6 +215,21 @@ function normalizeWindsurf(payload: Record<string, unknown>, event: HookEvent): 
 }
 
 /**
+ * Infer Copilot event from payload structure.
+ * Copilot sends typed payloads without a single event name field.
+ * See: https://docs.github.com/en/copilot/reference/hooks-configuration
+ */
+function inferCopilotEvent(payload: Record<string, unknown>): string {
+  if ('source' in payload && 'initialPrompt' in payload) return 'sessionStart';
+  if ('reason' in payload && !('toolName' in payload)) return 'sessionEnd';
+  if ('prompt' in payload) return 'userPromptSubmitted';
+  if ('toolName' in payload && 'toolResult' in payload) return 'postToolUse';
+  if ('toolName' in payload) return 'preToolUse';
+  if ('error' in payload) return 'errorOccurred';
+  return '';
+}
+
+/**
  * Infer Cursor event type from payload fields.
  * Cursor doesn't send an event name — each hook fires a separate command.
  */
@@ -239,6 +280,73 @@ function normalizeCursor(payload: Record<string, unknown>, event: HookEvent): Pa
 }
 
 /**
+ * Normalize a GitHub Copilot payload.
+ * See: https://docs.github.com/en/copilot/reference/hooks-configuration
+ */
+function normalizeCopilot(payload: Record<string, unknown>, event: HookEvent): Partial<NormalizedHookInput> {
+  const result: Partial<NormalizedHookInput> = {
+    sessionId: '',
+    cwd: (payload.cwd as string) ?? '',
+  };
+
+  switch (event) {
+    case 'session_start':
+      result.userPrompt = (payload.initialPrompt as string) ?? '';
+      break;
+    case 'user_prompt':
+      result.userPrompt = (payload.prompt as string) ?? '';
+      break;
+    case 'post_tool': {
+      result.toolName = (payload.toolName as string) ?? '';
+      const toolArgs = payload.toolArgs as string | undefined;
+      if (toolArgs) {
+        try { result.toolInput = JSON.parse(toolArgs); } catch { /* ignore */ }
+      }
+      const toolResult = payload.toolResult as Record<string, unknown> | undefined;
+      if (toolResult) {
+        result.toolResult = (toolResult.textResultForLlm as string) ?? JSON.stringify(toolResult);
+      }
+      break;
+    }
+    case 'session_end':
+      // reason: "complete" | "error" | "abort" | "timeout" | "user_exit"
+      break;
+  }
+
+  return result;
+}
+
+/**
+ * Normalize a Gemini CLI / Antigravity payload.
+ * See: https://geminicli.com/docs/hooks/
+ */
+function normalizeGemini(payload: Record<string, unknown>, event: HookEvent): Partial<NormalizedHookInput> {
+  const result: Partial<NormalizedHookInput> = {
+    sessionId: (payload.gemini_session_id as string) ?? (payload.session_id as string) ?? '',
+    cwd: (payload.cwd as string) ?? (payload.gemini_project_dir as string) ?? '',
+  };
+
+  // Gemini CLI payload structure is similar to Claude Code
+  const toolName = (payload.tool_name as string) ?? '';
+  if (toolName) {
+    result.toolName = toolName;
+    result.toolInput = payload.tool_input as Record<string, unknown> | undefined;
+    const toolResponse = payload.tool_response ?? payload.tool_result;
+    if (typeof toolResponse === 'string') {
+      result.toolResult = toolResponse;
+    } else if (toolResponse && typeof toolResponse === 'object') {
+      result.toolResult = JSON.stringify(toolResponse);
+    }
+  }
+
+  if (event === 'user_prompt') {
+    result.userPrompt = (payload.prompt as string) ?? '';
+  }
+
+  return result;
+}
+
+/**
  * Main normalizer: convert any agent's stdin payload → NormalizedHookInput.
  */
 export function normalizeHookInput(payload: Record<string, unknown>): NormalizedHookInput {
@@ -254,14 +362,19 @@ export function normalizeHookInput(payload: Record<string, unknown>): Normalized
   let agentSpecific: Partial<NormalizedHookInput> = {};
   switch (agent) {
     case 'claude':
-    case 'copilot':
       agentSpecific = normalizeClaude(payload, event);
+      break;
+    case 'copilot':
+      agentSpecific = normalizeCopilot(payload, event);
       break;
     case 'windsurf':
       agentSpecific = normalizeWindsurf(payload, event);
       break;
     case 'cursor':
       agentSpecific = normalizeCursor(payload, event);
+      break;
+    case 'antigravity':
+      agentSpecific = normalizeGemini(payload, event);
       break;
     default:
       agentSpecific = { sessionId: '', cwd: '' };

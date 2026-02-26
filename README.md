@@ -265,138 +265,33 @@ Now you want to try Kiro.
   → Kiro is ready in seconds, not hours!
 ```
 
-### Scenario 5: Auto-Generated Project Skills
-
-```
-After 2 weeks of development, you have 50+ observations:
-  - 8 gotchas about Windows path issues
-  - 5 decisions about the auth module
-  - 3 problem-solutions for database migrations
-
-  You: "Generate project skills"
-  → memorix_skills clusters observations by entity
-  → Auto-generates SKILL.md files:
-    - "auth-module-guide.md" — JWT setup, refresh flow, common pitfalls
-    - "database-migrations.md" — Prisma patterns, rollback strategies
-  → Syncs skills to any agent: Cursor, Claude Code, Kiro...
-  → New team members' AI instantly knows your project's patterns!
-```
-
-### Scenario 6: Session Lifecycle (v0.8.0)
-
-```
-Morning — Start a new session in Windsurf:
-  → memorix_session_start auto-injects:
-    📋 Previous Session: "Implemented JWT auth middleware"
-    🔴 JWT tokens expire silently (gotcha)
-    🟤 Use Docker for deployment (decision)
-  → AI instantly knows what you did yesterday!
-
-Evening — End the session:
-  → memorix_session_end saves structured summary
-  → Next session (any agent!) gets this context automatically
-```
-
-### Scenario 7: Topic Key Upsert — No More Duplicates (v0.8.0)
-
-```
-You update your architecture decision 3 times over a week:
-
-  Day 1: memorix_store(topicKey="architecture/auth-model", ...)
-  → Creates observation #42 (rev 1)
-
-  Day 3: memorix_store(topicKey="architecture/auth-model", ...)
-  → Updates #42 in-place (rev 2) — NOT a new #43!
-
-  Day 5: memorix_store(topicKey="architecture/auth-model", ...)
-  → Updates #42 again (rev 3)
-
-  Result: 1 observation with latest content, not 3 duplicates!
-```
-
 ---
 
 ## 🧠 What Memorix Can Do
 
-### Smart Memory (24 MCP Tools)
+### 24 MCP Tools
 
-| What You Say | What Memorix Does |
-|-------------|-------------------|
-| "Remember this architecture decision" | `memorix_store` — Classifies as 🟤 decision, extracts entities, creates graph relations, auto-associates session |
-| "What did we decide about auth?" | `memorix_search` → `memorix_detail` — 3-layer progressive disclosure, ~10x token savings |
-| "What auth decisions last week?" | `memorix_search` with `since`/`until` — Temporal queries with date range filtering |
-| "What happened around that bug fix?" | `memorix_timeline` — Shows chronological context before/after |
-| "Show me the knowledge graph" | `memorix_dashboard` — Opens interactive web UI with D3.js graph + sessions panel |
-| "Which memories are getting stale?" | `memorix_retention` — Exponential decay scores, identifies archive candidates |
-| "Start a new session" | `memorix_session_start` — Tracks session lifecycle, auto-injects previous session summaries + key memories |
-| "End this session" | `memorix_session_end` — Saves structured summary (Goal/Discoveries/Accomplished/Files) for next session |
-| "What did we do last session?" | `memorix_session_context` — Retrieves session history and key observations |
-| "Suggest a topic key for this" | `memorix_suggest_topic_key` — Generates stable keys for deduplication (e.g. `architecture/auth-model`) |
-| "Clean up duplicate memories" | `memorix_consolidate` — Find & merge similar observations by text similarity, preserving all facts |
-| "Export this project's memories" | `memorix_export` — JSON (importable) or Markdown (human-readable for PRs/docs) |
-| "Import memories from teammate" | `memorix_import` — Restore from JSON export, re-assigns IDs, deduplicates by topicKey |
-
-### Cross-Agent Workspace Sync
-
-| What You Say | What Memorix Does |
-|-------------|-------------------|
-| "Sync my MCP servers to Kiro" | `memorix_workspace_sync` — Migrates configs, merges (never overwrites) |
-| "Check my agent rules" | `memorix_rules_sync` — Scans 8 agents, deduplicates, detects conflicts |
-| "Generate rules for Cursor" | `memorix_rules_sync` — Cross-format conversion (`.mdc` ↔ `CLAUDE.md` ↔ `.kiro/steering/`) |
-| "Generate project skills" | `memorix_skills` — Creates SKILL.md from observation patterns |
-| "Inject the auth skill" | `memorix_skills` — Returns skill content directly into agent context |
-
-### Knowledge Graph (MCP Official Compatible)
-
-| Tool | What It Does |
-|------|-------------|
-| `create_entities` | Build your project's knowledge graph |
-| `create_relations` | Connect entities with typed edges (causes, fixes, depends_on) |
-| `add_observations` | Attach observations to entities |
-| `search_nodes` / `open_nodes` | Query the graph |
-| `read_graph` | Export full graph for visualization |
-
-> **Drop-in compatible** with [MCP Official Memory Server](https://github.com/modelcontextprotocol/servers/tree/main/src/memory) — same API, more features.
+| Category | Tools | What They Do |
+|----------|-------|-------------|
+| **Store & Classify** | `memorix_store`, `memorix_suggest_topic_key` | Store memories with 9 types (🔴gotcha 🟤decision 🟡fix ...), dedup via topic keys |
+| **Search & Retrieve** | `memorix_search`, `memorix_detail`, `memorix_timeline` | 3-layer progressive disclosure (~10x token savings), temporal queries, chronological context |
+| **Sessions** | `memorix_session_start/end/context` | Auto-inject previous session context, save structured summaries |
+| **Maintenance** | `memorix_retention`, `memorix_consolidate`, `memorix_export/import` | Decay scoring, merge duplicates, backup & share |
+| **Dashboard** | `memorix_dashboard` | Interactive web UI — D3.js knowledge graph, observation browser, retention panel |
+| **Workspace Sync** | `memorix_workspace_sync`, `memorix_rules_sync`, `memorix_skills` | Migrate MCP configs across 8 agents, sync rules (`.mdc` ↔ `CLAUDE.md` ↔ `.kiro/steering/`), auto-generate project skills |
+| **Knowledge Graph** | `create_entities`, `create_relations`, `add_observations`, `search_nodes`, `read_graph` | [MCP Official Memory Server](https://github.com/modelcontextprotocol/servers/tree/main/src/memory) compatible — same API, more features |
 
 ### 9 Observation Types
 
-Every memory is classified for intelligent retrieval:
-
-| Icon | Type | When To Use |
-|------|------|-------------|
-| 🎯 | `session-request` | Original task/goal for this session |
-| 🔴 | `gotcha` | Critical pitfall — "Never do X because Y" |
-| 🟡 | `problem-solution` | Bug fix with root cause and solution |
-| 🔵 | `how-it-works` | Technical explanation of a system |
-| 🟢 | `what-changed` | Code/config change record |
-| 🟣 | `discovery` | New insight or finding |
-| 🟠 | `why-it-exists` | Rationale behind a design choice |
-| 🟤 | `decision` | Architecture/design decision |
-| ⚖️ | `trade-off` | Compromise with pros/cons |
-
-### Visual Dashboard
-
-Run `memorix_dashboard` to open a web UI at `http://localhost:3210`:
-
-- **Interactive Knowledge Graph** — D3.js force-directed visualization of entities and relations
-- **Observation Browser** — Filter by type, search with highlighting, expand/collapse details
-- **Retention Panel** — See which memories are active, stale, or candidates for archival
-- **Project Switcher** — View any project's data without switching IDEs
-- **Batch Cleanup** — Auto-detect and bulk-delete low-quality observations
-- **Light/Dark Theme** — Premium glassmorphism design, bilingual (EN/中文)
+Every memory is classified: 🎯 session-request · 🔴 gotcha · 🟡 problem-solution · 🔵 how-it-works · 🟢 what-changed · 🟣 discovery · 🟠 why-it-exists · 🟤 decision · ⚖️ trade-off
 
 ### Auto-Memory Hooks
-
-Memorix can **automatically capture** decisions, errors, and gotchas from your coding sessions:
 
 ```bash
 memorix hooks install    # One-command setup
 ```
 
-- **Implicit Memory** — Detects patterns like "I decided to...", "The bug was caused by...", "Never use X"
-- **Session Start Injection** — Loads recent high-value memories into agent context automatically
-- **Multi-Language** — English + Chinese keyword matching
-- **Smart Filtering** — 30s cooldown, skips trivial commands (ls, cat, pwd)
+Automatically captures decisions, errors, and gotchas from your coding sessions. Detects patterns in English + Chinese, injects high-value memories at session start, with smart filtering (30s cooldown, skips trivial commands).
 
 ---
 
@@ -416,7 +311,7 @@ memorix hooks install    # One-command setup
 | **Visual dashboard** | Cloud UI | Yes | No | **Yes (web UI + D3.js graph)** |
 | **Privacy** | Cloud | Local | Local | **100% Local** |
 | **Cost** | Per-call API | $0 | $0 | **$0** |
-| **Install** | `pip install` | `pip install` | Built into Claude | **`npx memorix serve`** |
+| **Install** | `pip install` | `pip install` | Built into Claude | **`npm i -g memorix`** |
 
 **Memorix is the only tool that bridges memory AND workspace across agents.**
 
@@ -485,7 +380,7 @@ cd memorix
 npm install
 
 npm run dev          # tsup watch mode
-npm test             # vitest (422 tests)
+npm test             # vitest (509 tests)
 npm run lint         # TypeScript type check
 npm run build        # Production build
 ```

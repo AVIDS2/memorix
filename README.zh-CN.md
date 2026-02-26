@@ -265,138 +265,33 @@ memorix serve --cwd .   # 应该显示 "[memorix] MCP Server running on stdio"
   → Kiro 几秒内就绑定好了，不用花几个小时！
 ```
 
-### 场景 5：自动生成项目技能
-
-```
-开发两周后，你有了 50+ 条观察记录：
-  - 8 个关于 Windows 路径问题的 gotcha
-  - 5 个关于认证模块的决策
-  - 3 个数据库迁移的问题-解决方案
-
-  你: "生成项目技能"
-  → memorix_skills 按实体聚类观察记录
-  → 自动生成 SKILL.md 文件：
-    - "auth-module-guide.md" — JWT 设置、刷新流程、常见陷阱
-    - "database-migrations.md" — Prisma 模式、回滚策略
-  → 同步技能到任何 Agent：Cursor、Claude Code、Kiro...
-  → 新同事的 AI 立即掌握你项目的最佳实践！
-```
-
-### 场景 6：会话生命周期（v0.8.0）
-
-```
-早上 — 在 Windsurf 中开始新会话：
-  → memorix_session_start 自动注入：
-    📋 上次会话: "实现了 JWT 认证中间件"
-    🔴 JWT token 静默过期（踩坑）
-    🟤 使用 Docker 部署（决策）
-  → AI 立即知道你昨天做了什么！
-
-晚上 — 结束会话：
-  → memorix_session_end 保存结构化摘要
-  → 下次会话（任何 Agent！）自动获取这些上下文
-```
-
-### 场景 7：Topic Key 去重 — 不再有重复记忆（v0.8.0）
-
-```
-你在一周内更新了 3 次架构决策：
-
-  第 1 天: memorix_store(topicKey="architecture/auth-model", ...)
-  → 创建观察记录 #42（rev 1）
-
-  第 3 天: memorix_store(topicKey="architecture/auth-model", ...)
-  → 原地更新 #42（rev 2）— 不是新建 #43！
-
-  第 5 天: memorix_store(topicKey="architecture/auth-model", ...)
-  → 再次更新 #42（rev 3）
-
-  结果：1 条记录包含最新内容，而不是 3 条重复！
-```
-
 ---
 
 ## 🧠 Memorix 能做什么
 
-### 智能记忆（24 个 MCP 工具）
+### 24 个 MCP 工具
 
-| 你说的 | Memorix 做的 |
-|--------|-------------|
-| "记住这个架构决策" | `memorix_store` — 分类为 🟤 决策，提取实体，创建图关系，自动关联会话 |
-| "我们之前关于认证决定了什么？" | `memorix_search` → `memorix_detail` — 3 层渐进式展示，节省约 10 倍 token |
-| "上周关于认证的决策？" | `memorix_search` + `since`/`until` — 时序查询，按日期范围过滤 |
-| "那个 bug 修复前后发生了什么？" | `memorix_timeline` — 按时间显示前后上下文 |
-| "显示知识图谱" | `memorix_dashboard` — 打开交互式 Web UI，含 D3.js 图谱 + 会话面板 |
-| "哪些记忆快过期了？" | `memorix_retention` — 指数衰减评分，识别归档候选 |
-| "开始新会话" | `memorix_session_start` — 跟踪会话生命周期，自动注入上次会话摘要 + 关键记忆 |
-| "结束这次会话" | `memorix_session_end` — 保存结构化摘要（目标/发现/完成/文件），供下次会话使用 |
-| "上次我们做了什么？" | `memorix_session_context` — 检索会话历史和关键观察记录 |
-| "给这个建议一个 topic key" | `memorix_suggest_topic_key` — 生成稳定的去重键（如 `architecture/auth-model`） |
-| "清理重复记忆" | `memorix_consolidate` — 按文本相似度查找并合并相似观察记录，保留所有事实 |
-| "导出这个项目的记忆" | `memorix_export` — JSON（可导入）或 Markdown（人类可读，适合 PR/文档） |
-| "导入队友的记忆" | `memorix_import` — 从 JSON 导出恢复，重新分配 ID，按 topicKey 去重 |
-
-### 跨 Agent 工作区同步
-
-| 你说的 | Memorix 做的 |
-|--------|-------------|
-| "把 MCP 服务器同步到 Kiro" | `memorix_workspace_sync` — 迁移配置，合并（永不覆盖） |
-| "检查我的 Agent 规则" | `memorix_rules_sync` — 扫描 7 个 Agent，去重，检测冲突 |
-| "为 Cursor 生成规则" | `memorix_rules_sync` — 跨格式转换（`.mdc` ↔ `CLAUDE.md` ↔ `.kiro/steering/`） |
-| "生成项目技能" | `memorix_skills` — 从观察模式创建 SKILL.md |
-| "注入认证技能" | `memorix_skills` — 将技能内容直接返回到 Agent 上下文 |
-
-### 知识图谱（兼容 MCP 官方接口）
-
-| 工具 | 功能 |
-|------|-----|
-| `create_entities` | 构建项目知识图谱 |
-| `create_relations` | 用类型化边连接实体（causes、fixes、depends_on） |
-| `add_observations` | 将观察附加到实体 |
-| `search_nodes` / `open_nodes` | 查询图谱 |
-| `read_graph` | 导出完整图谱用于可视化 |
-
-> **即插即用**，兼容 [MCP 官方 Memory Server](https://github.com/modelcontextprotocol/servers/tree/main/src/memory) — 相同 API，更多功能。
+| 类别 | 工具 | 功能 |
+|------|------|------|
+| **存储与分类** | `memorix_store`, `memorix_suggest_topic_key` | 存储记忆，9 种类型（🔴踩坑 🟤决策 🟡修复 ...），通过 topic key 去重 |
+| **搜索与检索** | `memorix_search`, `memorix_detail`, `memorix_timeline` | 3 层渐进式展示（节省约 10 倍 token），时序查询，时间线上下文 |
+| **会话管理** | `memorix_session_start/end/context` | 自动注入上次会话上下文，保存结构化摘要 |
+| **维护** | `memorix_retention`, `memorix_consolidate`, `memorix_export/import` | 衰减评分，合并重复，备份与共享 |
+| **可视化** | `memorix_dashboard` | 交互式 Web UI — D3.js 知识图谱、观察浏览器、衰减面板 |
+| **工作区同步** | `memorix_workspace_sync`, `memorix_rules_sync`, `memorix_skills` | 跨 8 个 Agent 迁移 MCP 配置，同步规则（`.mdc` ↔ `CLAUDE.md` ↔ `.kiro/steering/`），自动生成项目技能 |
+| **知识图谱** | `create_entities`, `create_relations`, `add_observations`, `search_nodes`, `read_graph` | 兼容 [MCP 官方 Memory Server](https://github.com/modelcontextprotocol/servers/tree/main/src/memory) — 相同 API，更多功能 |
 
 ### 9 种观察类型
 
-每条记忆都有分类标签，用于智能检索：
-
-| 图标 | 类型 | 使用场景 |
-|------|------|---------|
-| 🎯 | `session-request` | 本次会话的原始任务/目标 |
-| 🔴 | `gotcha` | 关键陷阱 — "永远不要做 X，因为 Y" |
-| 🟡 | `problem-solution` | bug 修复，含根因和解决方案 |
-| 🔵 | `how-it-works` | 系统的技术解释 |
-| 🟢 | `what-changed` | 代码/配置变更记录 |
-| 🟣 | `discovery` | 新的洞见或发现 |
-| 🟠 | `why-it-exists` | 设计选择背后的原因 |
-| 🟤 | `decision` | 架构/设计决策 |
-| ⚖️ | `trade-off` | 取舍权衡，含利弊分析 |
-
-### 可视化 Dashboard
-
-运行 `memorix_dashboard` 在 `http://localhost:3210` 打开 Web UI：
-
-- **交互式知识图谱** — D3.js 力导向图，可视化实体和关系
-- **观察浏览器** — 按类型筛选，高亮搜索，展开/折叠详情
-- **记忆衰减面板** — 查看哪些记忆活跃、过期或待归档
-- **项目切换器** — 无需切换 IDE 即可查看任何项目的数据
-- **批量清理** — 自动检测并批量删除低质量观察
-- **明暗主题** — 玻璃拟态设计，中英双语界面
+每条记忆都有分类标签：🎯 session-request · 🔴 gotcha · 🟡 problem-solution · 🔵 how-it-works · 🟢 what-changed · 🟣 discovery · 🟠 why-it-exists · 🟤 decision · ⚖️ trade-off
 
 ### 自动记忆 Hook
-
-Memorix 可以**自动捕获**编码会话中的决策、错误和踩坑经验：
 
 ```bash
 memorix hooks install    # 一条命令安装
 ```
 
-- **隐式记忆** — 检测 "I decided to..."、"bug 是因为..."、"永远不要用 X" 等模式
-- **会话启动注入** — 自动将近期高价值记忆加载到 Agent 上下文
-- **多语言** — 支持英文 + 中文关键词匹配
-- **智能过滤** — 30 秒冷却，跳过无关命令（ls、cat、pwd）
+自动捕获编码会话中的决策、错误和踩坑经验。支持中英文模式检测，会话启动时自动注入高价值记忆，智能过滤（30 秒冷却，跳过无关命令）。
 
 ---
 
@@ -416,7 +311,7 @@ memorix hooks install    # 一条命令安装
 | **可视化面板** | 云端 UI | 是 | 否 | **是（Web UI + D3.js 图谱）** |
 | **隐私** | 云端 | 本地 | 本地 | **100% 本地** |
 | **费用** | 按量付费 | $0 | $0 | **$0** |
-| **安装** | `pip install` | `pip install` | 内置于 Claude | **`npx memorix serve`** |
+| **安装** | `pip install` | `pip install` | 内置于 Claude | **`npm i -g memorix`** |
 
 **Memorix 是唯一同时桥接记忆和工作区跨 Agent 共享的工具。**
 
@@ -485,7 +380,7 @@ cd memorix
 npm install
 
 npm run dev          # tsup 监听模式
-npm test             # vitest（422 个测试）
+npm test             # vitest（509 个测试）
 npm run lint         # TypeScript 类型检查
 npm run build        # 生产构建
 ```

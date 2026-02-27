@@ -234,6 +234,27 @@ memorix serve --cwd .   # 应该显示 "[memorix] MCP Server running on stdio"
 
 ---
 
+## 🔍 混合搜索（BM25 + 向量）
+
+Memorix 默认使用 **BM25 全文搜索**（基于 [Orama](https://orama.com/)）。安装可选的 embedding 提供者即可启用**混合搜索**（60% BM25 + 40% 向量相似度），大幅提升语义召回率：
+
+```bash
+# 方式 1：纯 JS/WASM — 全平台兼容，无需编译（模型约 22MB）
+npm install -g @huggingface/transformers
+
+# 方式 2：原生 ONNX — 推理更快，需要 C++ 编译工具
+npm install -g fastembed
+```
+
+查看搜索引擎状态：
+```bash
+memorix status   # 显示 embedding 提供者和观测数量
+```
+
+当 embedding 提供者可用时，`memorix_search` 会自动切换到混合模式——无需额外配置。对"认证怎么工作的"这类语义查询，搜索质量会显著提升。
+
+---
+
 ## 🎬 真实使用场景
 
 ### 场景 1：跨会话记忆

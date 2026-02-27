@@ -14,24 +14,59 @@ export default defineCommand({
     const { detectProject } = await import('../../project/detector.js');
     const { RulesSyncer } = await import('../../rules/syncer.js');
     const { getProjectDataDir } = await import('../../store/persistence.js');
+    const { getEmbeddingProvider } = await import('../../embedding/provider.js');
+    const { existsSync, readFileSync } = await import('node:fs');
+    const { join } = await import('node:path');
 
     p.intro('memorix status');
 
     const project = detectProject();
     const dataDir = await getProjectDataDir(project.id);
-    const syncer = new RulesSyncer(project.rootPath);
-    const status = await syncer.syncStatus();
+
+    // Count observations
+    let obsCount = 0;
+    try {
+      const obsFile = join(dataDir, 'observations.json');
+      if (existsSync(obsFile)) {
+        const data = JSON.parse(readFileSync(obsFile, 'utf-8'));
+        obsCount = Array.isArray(data) ? data.length : 0;
+      }
+    } catch { /* ignore */ }
 
     p.note(
       [
-        `Name:       ${project.name}`,
-        `ID:         ${project.id}`,
-        `Root:       ${project.rootPath}`,
-        `Git remote: ${project.gitRemote || 'none'}`,
-        `Data dir:   ${dataDir}`,
+        `Name:         ${project.name}`,
+        `ID:           ${project.id}`,
+        `Root:         ${project.rootPath}`,
+        `Git remote:   ${project.gitRemote || 'none'}`,
+        `Data dir:     ${dataDir}`,
+        `Observations: ${obsCount}`,
       ].join('\n'),
       'Project',
     );
+
+    // Embedding / vector search status
+    let embeddingStatus = '❌ None (fulltext/BM25 only)';
+    let embeddingHint = '';
+    try {
+      const provider = await getEmbeddingProvider();
+      if (provider) {
+        embeddingStatus = `✅ ${provider.name} (${provider.dimensions}d)`;
+      } else {
+        embeddingHint = '\n  💡 Install fastembed or @huggingface/transformers for hybrid search';
+      }
+    } catch {
+      embeddingHint = '\n  💡 Install fastembed or @huggingface/transformers for hybrid search';
+    }
+
+    p.note(
+      `Search:    BM25 fulltext (Orama)\n` +
+      `Embedding: ${embeddingStatus}${embeddingHint}`,
+      'Search Engine',
+    );
+
+    const syncer = new RulesSyncer(project.rootPath);
+    const status = await syncer.syncStatus();
 
     p.note(
       [

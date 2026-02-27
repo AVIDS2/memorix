@@ -234,6 +234,27 @@ If either fails, follow the table below:
 
 ---
 
+## 🔍 Hybrid Search (BM25 + Vector)
+
+Memorix uses **BM25 fulltext search** by default (powered by [Orama](https://orama.com/)). For better semantic recall, install an optional embedding provider to enable **hybrid search** (60% BM25 + 40% vector similarity):
+
+```bash
+# Option 1: Pure JS/WASM — works everywhere, no native deps (~22MB model)
+npm install -g @huggingface/transformers
+
+# Option 2: Native ONNX — faster inference, requires C++ build tools
+npm install -g fastembed
+```
+
+Check your search engine status:
+```bash
+memorix status   # Shows embedding provider and observation count
+```
+
+When an embedding provider is available, `memorix_search` automatically switches to hybrid mode — no configuration needed. Search quality improves significantly for semantic queries like "how does auth work" vs exact keyword matches.
+
+---
+
 ## 🎬 Real-World Scenarios
 
 ### Scenario 1: Cross-Session Memory

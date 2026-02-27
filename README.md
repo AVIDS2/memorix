@@ -67,7 +67,7 @@ Run in terminal:
 ```bash
 claude mcp add memorix -- memorix serve
 ```
-Or manually add to `~/.claude.json`:
+Or manually add to `~/.claude.json` (global) or `.claude/settings.json` (project):
 ```json
 {
   "mcpServers": {
@@ -78,6 +78,7 @@ Or manually add to `~/.claude.json`:
   }
 }
 ```
+> **Windows:** `~/.claude.json` is at `C:\Users\<YourUsername>\.claude.json`
 </details>
 
 <details>
@@ -113,9 +114,36 @@ Add to Windsurf MCP settings (`~/.codeium/windsurf/mcp_config.json`):
 </details>
 
 <details>
-<summary><strong>VS Code Copilot / Codex / Kiro</strong></summary>
+<summary><strong>VS Code Copilot</strong></summary>
 
-Same format — add to the agent's MCP config file:
+Add to `.vscode/mcp.json` in your project:
+```json
+{
+  "servers": {
+    "memorix": {
+      "command": "memorix",
+      "args": ["serve"]
+    }
+  }
+}
+```
+</details>
+
+<details>
+<summary><strong>Codex</strong></summary>
+
+Add to `~/.codex/config.toml`:
+```toml
+[mcp_servers.memorix]
+command = "memorix"
+args = ["serve"]
+```
+</details>
+
+<details>
+<summary><strong>Kiro</strong></summary>
+
+Add to `.kiro/settings/mcp.json` (project) or `~/.kiro/settings/mcp.json` (global):
 ```json
 {
   "mcpServers": {
@@ -129,21 +157,9 @@ Same format — add to the agent's MCP config file:
 </details>
 
 <details>
-<summary><strong>Antigravity / Gemini CLI</strong></summary>
+<summary><strong>Antigravity</strong></summary>
 
-Add to `.gemini/settings.json` (project) or `~/.gemini/settings.json` (global):
-```json
-{
-  "mcpServers": {
-    "memorix": {
-      "command": "memorix",
-      "args": ["serve"]
-    }
-  }
-}
-```
-
-**Antigravity IDE only:** Antigravity uses its own install path as CWD. You **must** add:
+Add to `~/.gemini/antigravity/mcp_config.json`. Antigravity requires `MEMORIX_PROJECT_ROOT`:
 ```json
 {
   "mcpServers": {
@@ -157,8 +173,22 @@ Add to `.gemini/settings.json` (project) or `~/.gemini/settings.json` (global):
   }
 }
 ```
+</details>
 
-**Gemini CLI** reads MCP config from the same path. Hooks are automatically installed to `.gemini/settings.json`.
+<details>
+<summary><strong>Gemini CLI</strong></summary>
+
+Add to `.gemini/settings.json` (project) or `~/.gemini/settings.json` (global):
+```json
+{
+  "mcpServers": {
+    "memorix": {
+      "command": "memorix",
+      "args": ["serve"]
+    }
+  }
+}
+```
 </details>
 
 ### Step 3: Restart your agent — done!
@@ -189,19 +219,12 @@ If either fails, follow the table below:
 | Works in terminal but not in IDE | IDE uses a different PATH than your shell | **Windows:** restart IDE after `npm install -g`. **macOS/Linux:** ensure `~/.bashrc` or `~/.zshrc` exports the npm global bin path |
 | Parameter type errors | Old version or non-Anthropic model quirks | Update: `npm install -g memorix@latest` |
 
-**Correct `.claude.json` config:**
+**Correct config:**
 ```json
-{
-  "mcpServers": {
-    "memorix": {
-      "command": "memorix",
-      "args": ["serve"]
-    }
-  }
-}
+"command": "memorix", "args": ["serve"]
 ```
 
-**❌ Wrong** — do NOT use any of these:
+**❌ Wrong:**
 ```
 "command": "npx"                    ← will timeout
 "command": "npx -y memorix serve"   ← wrong format

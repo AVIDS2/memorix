@@ -67,7 +67,7 @@ npm install -g memorix
 ```bash
 claude mcp add memorix -- memorix serve
 ```
-或手动添加到 `~/.claude.json`：
+或手动添加到 `~/.claude.json`（全局）或 `.claude/settings.json`（项目级）：
 ```json
 {
   "mcpServers": {
@@ -78,6 +78,7 @@ claude mcp add memorix -- memorix serve
   }
 }
 ```
+> **Windows 用户：** `~/.claude.json` 位于 `C:\Users\你的用户名\.claude.json`
 </details>
 
 <details>
@@ -113,9 +114,36 @@ claude mcp add memorix -- memorix serve
 </details>
 
 <details>
-<summary><strong>VS Code Copilot / Codex / Kiro</strong></summary>
+<summary><strong>VS Code Copilot</strong></summary>
 
-同样的格式 — 添加到对应 Agent 的 MCP 配置文件：
+添加到项目目录的 `.vscode/mcp.json`：
+```json
+{
+  "servers": {
+    "memorix": {
+      "command": "memorix",
+      "args": ["serve"]
+    }
+  }
+}
+```
+</details>
+
+<details>
+<summary><strong>Codex</strong></summary>
+
+添加到 `~/.codex/config.toml`：
+```toml
+[mcp_servers.memorix]
+command = "memorix"
+args = ["serve"]
+```
+</details>
+
+<details>
+<summary><strong>Kiro</strong></summary>
+
+添加到 `.kiro/settings/mcp.json`（项目级）或 `~/.kiro/settings/mcp.json`（全局）：
 ```json
 {
   "mcpServers": {
@@ -129,21 +157,9 @@ claude mcp add memorix -- memorix serve
 </details>
 
 <details>
-<summary><strong>Antigravity / Gemini CLI</strong></summary>
+<summary><strong>Antigravity</strong></summary>
 
-添加到 `.gemini/settings.json`（项目级）或 `~/.gemini/settings.json`（全局）：
-```json
-{
-  "mcpServers": {
-    "memorix": {
-      "command": "memorix",
-      "args": ["serve"]
-    }
-  }
-}
-```
-
-**仅 Antigravity IDE：** Antigravity 使用自身安装路径作为工作目录，**必须**添加：
+添加到 `~/.gemini/antigravity/mcp_config.json`。Antigravity 必须设置 `MEMORIX_PROJECT_ROOT`：
 ```json
 {
   "mcpServers": {
@@ -157,8 +173,22 @@ claude mcp add memorix -- memorix serve
   }
 }
 ```
+</details>
 
-**Gemini CLI** 读取相同路径的 MCP 配置。Hooks 会自动安装到 `.gemini/settings.json`。
+<details>
+<summary><strong>Gemini CLI</strong></summary>
+
+添加到 `.gemini/settings.json`（项目级）或 `~/.gemini/settings.json`（全局）：
+```json
+{
+  "mcpServers": {
+    "memorix": {
+      "command": "memorix",
+      "args": ["serve"]
+    }
+  }
+}
+```
 </details>
 
 ### 第三步：重启你的 Agent — 完成！
@@ -189,19 +219,12 @@ memorix serve --cwd .   # 应该显示 "[memorix] MCP Server running on stdio"
 | 终端里能用但 IDE 里不行 | IDE 使用的 PATH 和终端不同 | **Windows：** 安装后重启 IDE。**macOS/Linux：** 确保 `~/.bashrc` 或 `~/.zshrc` 导出了 npm 全局 bin 路径 |
 | 参数类型错误 | 版本过旧或非 Anthropic 模型的兼容问题 | 更新：`npm install -g memorix@latest` |
 
-**正确的 `.claude.json` 配置：**
+**正确配置：**
 ```json
-{
-  "mcpServers": {
-    "memorix": {
-      "command": "memorix",
-      "args": ["serve"]
-    }
-  }
-}
+"command": "memorix", "args": ["serve"]
 ```
 
-**❌ 错误写法** — 不要用这些：
+**❌ 错误写法：**
 ```
 "command": "npx"                    ← 会超时
 "command": "npx -y memorix serve"   ← 格式错误

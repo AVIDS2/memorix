@@ -2,11 +2,53 @@
 
 Detailed MCP configuration for every supported AI coding agent.
 
-> **Quick version:** Add the JSON below to your agent's MCP config file, restart — done.
->
-> ```json
-> { "mcpServers": { "memorix": { "command": "npx", "args": ["-y", "memorix@latest", "serve"] } } }
-> ```
+**Prerequisites:** Install memorix globally (one-time):
+
+```bash
+npm install -g memorix
+```
+
+> Do NOT use `npx` — it re-downloads on every launch and causes MCP initialization timeout.
+
+---
+
+## Claude Code
+
+**Recommended** — run in terminal:
+```bash
+claude mcp add memorix -- memorix serve
+```
+
+**Manual** — add to `~/.claude.json` (global) or `.claude/settings.json` (project):
+```json
+{
+  "mcpServers": {
+    "memorix": {
+      "command": "memorix",
+      "args": ["serve"]
+    }
+  }
+}
+```
+
+> **Windows:** `~/.claude.json` is located at `C:\Users\<YourUsername>\.claude.json`
+
+---
+
+## Cursor
+
+**Config file:** `.cursor/mcp.json` (project) or `~/.cursor/mcp.json` (global)
+
+```json
+{
+  "mcpServers": {
+    "memorix": {
+      "command": "memorix",
+      "args": ["serve"]
+    }
+  }
+}
+```
 
 ---
 
@@ -18,37 +60,8 @@ Detailed MCP configuration for every supported AI coding agent.
 {
   "mcpServers": {
     "memorix": {
-      "command": "npx",
-      "args": ["-y", "memorix@latest", "serve"]
-    }
-  }
-}
-```
-
-> **Timeout troubleshooting** — If you see `MCP server initialization timed out after 60 seconds`, add `--cwd` to force the project root:
-> ```json
-> {
->   "mcpServers": {
->     "memorix": {
->       "command": "npx",
->       "args": ["-y", "memorix@latest", "serve", "--cwd", "<your-project-path>"]
->     }
->   }
-> }
-> ```
-
----
-
-## Cursor
-
-**Config file:** `.cursor/mcp.json` (per-project) or `~/.cursor/mcp.json` (global)
-
-```json
-{
-  "mcpServers": {
-    "memorix": {
-      "command": "npx",
-      "args": ["-y", "memorix@latest", "serve"]
+      "command": "memorix",
+      "args": ["serve"]
     }
   }
 }
@@ -56,20 +69,23 @@ Detailed MCP configuration for every supported AI coding agent.
 
 ---
 
-## Claude Code
+## VS Code Copilot
 
-**Config file:** `~/.claude.json`
+**Config file:** `.vscode/mcp.json` (project) or VS Code `settings.json` (global)
 
+`.vscode/mcp.json`:
 ```json
 {
-  "mcpServers": {
+  "servers": {
     "memorix": {
-      "command": "npx",
-      "args": ["-y", "memorix@latest", "serve"]
+      "command": "memorix",
+      "args": ["serve"]
     }
   }
 }
 ```
+
+> Note: `.vscode/mcp.json` uses `"servers"` as the top-level key. VS Code `settings.json` wraps it under `"mcp": { "servers": { ... } }`.
 
 ---
 
@@ -79,56 +95,41 @@ Detailed MCP configuration for every supported AI coding agent.
 
 ```toml
 [mcp_servers.memorix]
-command = "npx"
-args = ["-y", "memorix@latest", "serve"]
+command = "memorix"
+args = ["serve"]
 ```
 
 ---
 
-## VS Code Copilot
+## Kiro
 
-**Option A** — `.vscode/mcp.json` (workspace-scoped):
-```json
-{
-  "servers": {
-    "memorix": {
-      "command": "npx",
-      "args": ["-y", "memorix@latest", "serve"]
-    }
-  }
-}
-```
-
-**Option B** — VS Code `settings.json` (global):
-```json
-{
-  "mcp": {
-    "servers": {
-      "memorix": {
-        "command": "npx",
-        "args": ["-y", "memorix@latest", "serve"]
-      }
-    }
-  }
-}
-```
-
-> Note: `.vscode/mcp.json` uses `"servers"` at the top level. `settings.json` wraps it under `"mcp"`.
-
----
-
-## Antigravity
-
-**Config file:** `~/.gemini/antigravity/settings/mcp_config.json`
-
-> **⚠️ Important:** Antigravity sets its working directory to its own install path (e.g., `G:\Antigravity`) and does not support the MCP roots protocol. You **must** set `MEMORIX_PROJECT_ROOT` to your project path. Update it when switching projects.
+**Config file:** `.kiro/settings/mcp.json` (project) or `~/.kiro/settings/mcp.json` (global)
 
 ```json
 {
   "mcpServers": {
     "memorix": {
-      "command": "npx",
-      "args": ["-y", "memorix@latest", "serve"],
+      "command": "memorix",
+      "args": ["serve"]
+    }
+  }
+}
+```
+
+---
+
+## Antigravity
+
+**Config file:** `~/.gemini/antigravity/mcp_config.json`
+
+> **Important:** Antigravity uses its own install path as CWD, not your project directory. You **must** set `MEMORIX_PROJECT_ROOT`.
+
+```json
+{
+  "mcpServers": {
+    "memorix": {
+      "command": "memorix",
+      "args": ["serve"],
       "env": {
         "MEMORIX_PROJECT_ROOT": "E:/your/project/path"
       }
@@ -137,20 +138,18 @@ args = ["-y", "memorix@latest", "serve"]
 }
 ```
 
-All other IDEs (Windsurf, Cursor, Claude Code, Codex, Copilot, Kiro) correctly set `process.cwd()` to the project directory and work without `MEMORIX_PROJECT_ROOT`.
-
 ---
 
-## Kiro
+## Gemini CLI
 
-**Config file:** `.kiro/settings/mcp.json`
+**Config file:** `.gemini/settings.json` (project) or `~/.gemini/settings.json` (global)
 
 ```json
 {
   "mcpServers": {
     "memorix": {
-      "command": "npx",
-      "args": ["-y", "memorix@latest", "serve"]
+      "command": "memorix",
+      "args": ["serve"]
     }
   }
 }

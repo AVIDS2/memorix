@@ -137,6 +137,7 @@ Add to `~/.codex/config.toml`:
 [mcp_servers.memorix]
 command = "memorix"
 args = ["serve"]
+startup_timeout_sec = 30  # default is 10s, increase if you see handshake timeouts
 ```
 </details>
 

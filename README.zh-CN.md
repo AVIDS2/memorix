@@ -137,6 +137,7 @@ claude mcp add memorix -- memorix serve
 [mcp_servers.memorix]
 command = "memorix"
 args = ["serve"]
+startup_timeout_sec = 30  # 默认 10 秒，如遇握手超时请增大此值
 ```
 </details>
 

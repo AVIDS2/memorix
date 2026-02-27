@@ -97,7 +97,10 @@ claude mcp add memorix -- memorix serve
 [mcp_servers.memorix]
 command = "memorix"
 args = ["serve"]
+startup_timeout_sec = 30  # default is 10s, increase if you see handshake timeouts
 ```
+
+> **Tip:** Codex defaults to a 10-second MCP startup timeout. On slower machines (Windows with antivirus, large repos), the first launch may take longer. Set `startup_timeout_sec = 30` (or higher) to avoid `timed out handshaking with MCP server` errors.
 
 ---
 

@@ -197,6 +197,7 @@ function normalizeWindsurf(payload: Record<string, unknown>, event: HookEvent): 
     case 'post_command':
       result.command = toolInfo.command_line as string | undefined;
       result.cwd = (toolInfo.cwd as string) ?? '';
+      result.commandOutput = (toolInfo.output as string) ?? (toolInfo.stdout as string) ?? undefined;
       break;
     case 'post_tool':
       result.toolName = toolInfo.mcp_tool_name as string | undefined;

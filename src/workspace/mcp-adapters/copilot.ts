@@ -1,19 +1,23 @@
 import type { MCPConfigAdapter, MCPServerEntry } from '../../types.js';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { existsSync, readFileSync } from 'node:fs';
 
 /**
  * VS Code Copilot MCP config adapter.
  *
- * Config location: %APPDATA%/Code/User/settings.json (global)
- *                  or .vscode/mcp.json (workspace-level)
+ * Supports two config locations / formats:
  *
- * Format inside settings.json:
- *   { "mcp": { "servers": { [name]: { command, args, env? } } } }
+ * 1. Workspace-level (preferred, new):
+ *    Path: .vscode/mcp.json
+ *    Format: { "servers": { [name]: { command, args, env?, url? } } }
  *
- * IMPORTANT: settings.json contains many non-MCP settings.
- * generate() merges MCP servers into the existing file instead of overwriting.
+ * 2. Global (legacy, still scanned):
+ *    Path: %APPDATA%/Code/User/settings.json
+ *    Format: { "mcp": { "servers": { [name]: { command, args, env? } } } }
+ *
+ * parse() auto-detects which format is provided.
+ * generate() always outputs the new .vscode/mcp.json format.
+ * getConfigPath(projectRoot) returns workspace path; getConfigPath() returns global path.
  */
 export class CopilotMCPAdapter implements MCPConfigAdapter {
   readonly source = 'copilot' as const;
@@ -22,8 +26,10 @@ export class CopilotMCPAdapter implements MCPConfigAdapter {
     try {
       const config = JSON.parse(content);
 
-      // settings.json format: { "mcp": { "servers": { ... } } }
-      const servers = config?.mcp?.servers ?? {};
+      // Auto-detect format:
+      // 1. mcp.json format: { "servers": { ... } }
+      // 2. settings.json format: { "mcp": { "servers": { ... } } }
+      const servers = config?.servers ?? config?.mcp?.servers ?? {};
 
       return Object.entries(servers).map(([name, entry]: [string, any]) => {
         const result: MCPServerEntry = {
@@ -32,12 +38,22 @@ export class CopilotMCPAdapter implements MCPConfigAdapter {
           args: entry.args ?? [],
         };
 
-        if (entry.url) {
+        if (entry.type) {
+          // VS Code mcp.json supports "type" field (e.g., "http", "stdio")
+          // Map to url for HTTP types
+          if ((entry.type === 'http' || entry.type === 'sse') && entry.url) {
+            result.url = entry.url;
+          }
+        } else if (entry.url) {
           result.url = entry.url;
         }
 
         if (entry.env && typeof entry.env === 'object' && Object.keys(entry.env).length > 0) {
           result.env = entry.env;
+        }
+
+        if (entry.headers && typeof entry.headers === 'object' && Object.keys(entry.headers).length > 0) {
+          result.headers = entry.headers;
         }
 
         return result;
@@ -52,7 +68,11 @@ export class CopilotMCPAdapter implements MCPConfigAdapter {
     for (const s of servers) {
       const entry: Record<string, any> = {};
       if (s.url) {
+        entry.type = 'http';
         entry.url = s.url;
+        if (s.headers && Object.keys(s.headers).length > 0) {
+          entry.headers = s.headers;
+        }
       } else {
         entry.command = s.command;
         entry.args = s.args;
@@ -63,30 +83,16 @@ export class CopilotMCPAdapter implements MCPConfigAdapter {
       mcpServers[s.name] = entry;
     }
 
-    // Merge into existing settings.json if it exists
-    const configPath = this.getConfigPath();
-    let existing: Record<string, any> = {};
-    if (existsSync(configPath)) {
-      try {
-        existing = JSON.parse(readFileSync(configPath, 'utf-8'));
-      } catch {
-        // If parse fails, start fresh
-      }
-    }
-
-    // Merge MCP servers into existing mcp.servers (preserve other servers)
-    const existingMcp = existing.mcp ?? {};
-    const existingServers = existingMcp.servers ?? {};
-    existing.mcp = {
-      ...existingMcp,
-      servers: { ...existingServers, ...mcpServers },
-    };
-
-    return JSON.stringify(existing, null, 4);
+    // Output the new .vscode/mcp.json format: { "servers": { ... } }
+    return JSON.stringify({ servers: mcpServers }, null, 2);
   }
 
-  getConfigPath(_projectRoot?: string): string {
-    // VS Code user settings path varies by OS
+  getConfigPath(projectRoot?: string): string {
+    if (projectRoot) {
+      // Workspace-level: .vscode/mcp.json (new official format)
+      return join(projectRoot, '.vscode', 'mcp.json');
+    }
+    // Global: VS Code user settings path (legacy, for scan fallback)
     const home = homedir();
     if (process.platform === 'win32') {
       return join(home, 'AppData', 'Roaming', 'Code', 'User', 'settings.json');

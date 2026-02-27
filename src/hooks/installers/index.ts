@@ -439,7 +439,7 @@ export async function installHooks(
  * Rules instruct the agent to proactively use memorix for context continuity.
  */
 async function installAgentRules(agent: AgentName, projectRoot: string): Promise<void> {
-  const rulesContent = getAgentRulesContent();
+  const rulesContent = getAgentRulesContent(agent);
   let rulesPath: string;
 
   switch (agent) {
@@ -495,9 +495,26 @@ async function installAgentRules(agent: AgentName, projectRoot: string): Promise
 
 /**
  * Get the memorix agent rules content.
+ * Windsurf requires YAML frontmatter with trigger mode.
+ * Cursor .mdc files use a similar frontmatter format.
  */
-function getAgentRulesContent(): string {
-  return `# Memorix — Automatic Memory Rules
+function getAgentRulesContent(agent?: AgentName): string {
+  let frontmatter = '';
+  if (agent === 'windsurf') {
+    frontmatter = `---
+trigger: always_on
+---
+
+`;
+  } else if (agent === 'cursor') {
+    frontmatter = `---
+description: Memorix automatic memory recording rules
+alwaysApply: true
+---
+
+`;
+  }
+  return `${frontmatter}# Memorix — Automatic Memory Rules
 
 You have access to Memorix memory tools. Follow these rules to maintain persistent context across sessions.
 

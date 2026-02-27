@@ -16,7 +16,7 @@
  * - New agent format adapters plug in without changing this file
  */
 
-import { watch } from 'node:fs';
+import { watchFile } from 'node:fs';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { KnowledgeGraphManager } from './memory/graph.js';
@@ -1582,11 +1582,14 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
       console.error(`[memorix] Sync advisory: ${syncAdvisory ? 'available' : 'nothing to sync'}`);
     } catch { /* sync scan is optional */ }
 
-    // Watch for external writes (e.g., from hook processes) and hot-reload
+    // Watch for external writes (e.g., from hook processes) and hot-reload.
+    // Uses watchFile (polling) instead of watch because atomicWriteFile uses
+    // rename(), which changes the file inode — fs.watch loses track on Windows.
     const observationsFile = projectDir + '/observations.json';
     let reloadDebounce: ReturnType<typeof setTimeout> | null = null;
     try {
-      watch(observationsFile, () => {
+      watchFile(observationsFile, { interval: 2000 }, (curr, prev) => {
+        if (curr.mtimeMs === prev.mtimeMs) return; // no actual change
         if (reloadDebounce) clearTimeout(reloadDebounce);
         reloadDebounce = setTimeout(async () => {
           try {

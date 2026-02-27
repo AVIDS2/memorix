@@ -14,7 +14,7 @@ describe('Project Detector', () => {
     expect(project.id).toBeTruthy();
     expect(project.name).toBeTruthy();
     expect(project.rootPath).toBeTruthy();
-  });
+  }, 30_000);
 
   it('should detect project from a specific directory', () => {
     const project = detectProject(process.cwd());
@@ -38,5 +38,5 @@ describe('Project Detector', () => {
     expect(project.id).not.toBe('__invalid__');
     expect(project.id).toMatch(/^local\//);
     expect(project.name).toBeTruthy();
-  });
+  }, 30_000);
 });

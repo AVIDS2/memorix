@@ -25,6 +25,8 @@ export default defineCommand({
     );
     const { createMemorixServer } = await import('../../server.js');
     const { detectProject } = await import('../../project/detector.js');
+    const { existsSync } = await import('node:fs');
+    const { join } = await import('node:path');
 
     // Priority: explicit --cwd arg > MEMORIX_PROJECT_ROOT env > INIT_CWD (npm lifecycle) > process.cwd()
     let safeCwd: string;
@@ -33,20 +35,25 @@ export default defineCommand({
 
     console.error(`[memorix] Starting with cwd: ${projectRoot}`);
 
-    // Check if cwd-based detection would fail (e.g., IDE sets cwd to its install dir)
-    // Only truly invalid projects need MCP roots resolution.
-    // local/<dirname> projects are perfectly valid — they must NOT enter the roots flow,
-    // because that flow connects the server before registering tools, causing
-    // tools/list -> "Method not found" (capabilities declared without tools).
-    const earlyDetect = detectProject(projectRoot);
-    const needsRoots = earlyDetect.id === '__invalid__';
+    // ALWAYS connect transport first — MCP handshake must complete within the client's
+    // startup timeout (Codex default: 10s). All heavy work (git, data loading, reindex)
+    // happens AFTER the connection is established.
+    const mcpServer = new McpServer({ name: 'memorix', version: '0.1.0' });
+    const transport = new StdioServerTransport();
+    await mcpServer.connect(transport);
+    console.error(`[memorix] Transport connected, initializing...`);
 
-    if (needsRoots) {
-      // cwd is not a valid project — try MCP roots protocol to get IDE workspace path
-      console.error(`[memorix] cwd is not a valid project, trying MCP roots protocol...`);
-      const mcpServer = new McpServer({ name: 'memorix', version: '0.1.0' });
-      const transport = new StdioServerTransport();
-      await mcpServer.connect(transport);
+    // Lightweight check: does this look like a valid project directory?
+    // Avoids calling detectProject (which runs slow git commands) for the fast path.
+    const looksValid = existsSync(join(projectRoot, '.git'))
+      || existsSync(join(projectRoot, 'package.json'))
+      || existsSync(join(projectRoot, 'Cargo.toml'))
+      || existsSync(join(projectRoot, 'go.mod'))
+      || existsSync(join(projectRoot, 'pyproject.toml'));
+
+    if (!looksValid) {
+      // cwd might not be a project — try MCP roots protocol to get IDE workspace path
+      console.error(`[memorix] cwd may not be a valid project, trying MCP roots protocol...`);
 
       let rootResolved = false;
       try {
@@ -70,29 +77,22 @@ export default defineCommand({
         console.error(`[memorix] MCP roots not available (client may not support it)`);
       }
 
-      if (!rootResolved && earlyDetect.id === '__invalid__') {
-        // No roots and cwd is invalid — cannot proceed
-        console.error(`[memorix] ERROR: Could not detect a valid project.`);
-        console.error(`[memorix] Fix: set --cwd or MEMORIX_PROJECT_ROOT, or use an IDE that supports MCP roots.`);
-        process.exit(1);
+      // Full validation with detectProject (may call git — but transport already connected)
+      if (!rootResolved) {
+        const earlyDetect = detectProject(projectRoot);
+        if (earlyDetect.id === '__invalid__') {
+          console.error(`[memorix] ERROR: Could not detect a valid project.`);
+          console.error(`[memorix] Fix: set --cwd or MEMORIX_PROJECT_ROOT, or use an IDE that supports MCP roots.`);
+          process.exit(1);
+        }
       }
-
-      // Initialize tools on the already-connected server
-      const { projectId, deferredInit } = await createMemorixServer(projectRoot, mcpServer);
-      console.error(`[memorix] MCP Server running on stdio (project: ${projectId})`);
-      console.error(`[memorix] Project root: ${projectRoot}`);
-      // Background: hooks, sync scan, file watcher (non-blocking)
-      deferredInit().catch(e => console.error(`[memorix] Deferred init error:`, e));
-    } else {
-      // Normal flow: cwd is a valid project
-      const { server, projectId, deferredInit } = await createMemorixServer(projectRoot);
-      const transport = new StdioServerTransport();
-      await server.connect(transport);
-
-      console.error(`[memorix] MCP Server running on stdio (project: ${projectId})`);
-      console.error(`[memorix] Project root: ${projectRoot}`);
-      // Background: hooks, sync scan, file watcher (non-blocking)
-      deferredInit().catch(e => console.error(`[memorix] Deferred init error:`, e));
     }
+
+    // Initialize: register tools on the already-connected server
+    const { projectId, deferredInit } = await createMemorixServer(projectRoot, mcpServer);
+    console.error(`[memorix] MCP Server running on stdio (project: ${projectId})`);
+    console.error(`[memorix] Project root: ${projectRoot}`);
+    // Background: hooks, sync scan, file watcher (non-blocking)
+    deferredInit().catch(e => console.error(`[memorix] Deferred init error:`, e));
   },
 });

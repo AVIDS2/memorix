@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.9.25] — 2026-02-28
+
+### Fixed
+- **Windsurf "no tools returned"** — Transport-first architecture caused Windsurf to query `tools/list` before tools were registered. Normal path now registers tools first, then connects transport. Roots path (invalid cwd) still connects first to query `listRoots`.
+- **Windsurf rules not activated** — Generated `.windsurf/rules/memorix.md` lacked YAML frontmatter (`trigger: always_on`). Windsurf ignored the file without it. Also added `alwaysApply: true` frontmatter for Cursor `.mdc` files.
+- **Windsurf hook `post_command` content too short** — Normalizer didn't extract `commandOutput` from Windsurf `post_command` events, causing content to be <30 chars and filtered out.
+- **Hook hot-reload broken on Windows** — `fs.watch()` lost track of `observations.json` after `atomicWriteFile` (which uses `rename()`). Switched to `fs.watchFile` with 2s polling for reliable cross-platform hot-reload. Hook-written memories are now searchable within ~4 seconds.
+
 ## [0.9.18] — 2026-02-26
 
 ### Fixed

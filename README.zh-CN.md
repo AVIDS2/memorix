@@ -337,9 +337,9 @@ npm install -g @huggingface/transformers
 
 - **自动检测** — 通过 `git remote` URL 识别项目，零配置
 - **MCP roots 回退** — 如果 `cwd` 不是项目目录（如 Antigravity），Memorix 会尝试 [MCP roots 协议](https://modelcontextprotocol.io/docs/concepts/roots) 从 IDE 获取工作区路径
-- **按项目存储** — `~/.memorix/data/<owner--repo>/` 每个项目独立
+- **统一存储，元数据隔离** — 所有数据存储在 `~/.memorix/data/`，每条观察记录内嵌 `projectId`。这样即使不同 IDE 对同一仓库检测出不同的项目 ID，跨 IDE 共享也能正常工作
 - **作用域搜索** — 默认搜索当前项目；`scope: "global"` 搜索所有项目
-- **零交叉污染** — 项目 A 的决策永远不会泄漏到项目 B
+- **零交叉污染** — 搜索结果按项目 ID 过滤，项目 A 的决策不会出现在项目 B 的搜索结果中
 
 **检测优先级：** `--cwd` → `MEMORIX_PROJECT_ROOT` → `INIT_CWD` → `process.cwd()` → MCP roots → 报错
 

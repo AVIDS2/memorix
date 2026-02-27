@@ -337,9 +337,9 @@ With vector search, queries like "authentication" also match memories about "log
 
 - **Auto-detected** — Project identity from `git remote` URL, zero config needed
 - **MCP roots fallback** — If `cwd` is not a project (e.g., Antigravity), Memorix tries the [MCP roots protocol](https://modelcontextprotocol.io/docs/concepts/roots) to get your workspace path from the IDE
-- **Per-project storage** — `~/.memorix/data/<owner--repo>/` per project
+- **Shared storage, metadata isolation** — All data lives in `~/.memorix/data/`, with `projectId` embedded in each observation. This ensures cross-IDE sharing works even when different IDEs detect different project IDs for the same repo
 - **Scoped search** — Defaults to current project; `scope: "global"` to search all
-- **Zero cross-contamination** — Project A's decisions never leak into project B
+- **Zero cross-contamination** — Search results are filtered by project ID; project A's decisions never appear in project B's searches
 
 **Detection priority:** `--cwd` → `MEMORIX_PROJECT_ROOT` → `INIT_CWD` → `process.cwd()` → MCP roots → error
 

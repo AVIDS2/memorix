@@ -19,14 +19,17 @@ image/
 .DS_Store
 Thumbs.db
 
-# Agent configs (installed during testing)
+# Agent configs (auto-installed by memorix hooks)
 .agent/
+.claude/
 .gemini/
 .shared/
 .codex/
 .cursor/
 .kiro/
 .memorix/
+.windsurf/hooks.json
+.windsurf/rules/memorix.md
 
 # Test scripts
 test-*.mjs

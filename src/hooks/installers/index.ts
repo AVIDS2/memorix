@@ -106,12 +106,10 @@ function generateCopilotConfig(): Record<string, unknown> {
 function generateGeminiConfig(): Record<string, unknown> {
   const cmd = `${resolveHookCommand()} hook`;
 
-  // Gemini CLI hooks are EXPERIMENTAL — require explicit opt-in:
-  //   tools.enableHooks = true  AND  hooks.enabled = true
-  // See: https://github.com/google-gemini/gemini-cli/blob/main/docs/hooks/index.md
-  //
-  // Each hook entry requires: matcher (glob), name, type, command, description
-  // See: https://github.com/google-gemini/gemini-cli/blob/main/docs/hooks/writing-hooks.md
+  // Gemini CLI hooks: defined in settings.json under "hooks" object.
+  // Each event key (SessionStart, AfterTool, etc.) maps to an array of hook definitions.
+  // No "enabled" flag needed — hooks are active simply by being defined.
+  // See: https://geminicli.com/docs/hooks/reference/
   function entry(name: string, desc: string) {
     return {
       matcher: '*',
@@ -120,9 +118,7 @@ function generateGeminiConfig(): Record<string, unknown> {
   }
 
   return {
-    tools: { enableHooks: true },
     hooks: {
-      enabled: true,
       SessionStart: [entry('memorix-session-start', 'Load memorix context at session start')],
       AfterTool: [entry('memorix-after-tool', 'Record tool usage in memorix')],
       AfterAgent: [entry('memorix-after-agent', 'Record agent response in memorix')],
@@ -413,7 +409,7 @@ export async function installHooks(
       merged.hooks = { ...existingHooks, ...(gen.hooks as Record<string, unknown>) };
     }
 
-    // Merge 'tools' key (Gemini CLI needs tools.enableHooks = true)
+    // Merge 'tools' key (preserve any user-defined tools config)
     if (gen.tools && typeof gen.tools === 'object') {
       const existingTools = (existing.tools && typeof existing.tools === 'object')
         ? existing.tools as Record<string, unknown>

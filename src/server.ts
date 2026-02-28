@@ -32,6 +32,10 @@ import type { ObservationType, RuleSource, AgentTarget, MCPServerEntry } from '.
 import { RulesSyncer } from './rules/syncer.js';
 import { WorkspaceSyncEngine } from './workspace/engine.js';
 
+/** Timestamp of last MCP-initiated write — hot-reload skips changes within 10s */
+let lastInternalWriteMs = 0;
+const markInternalWrite = () => { lastInternalWriteMs = Date.now(); };
+
 /** Valid observation types for input validation */
 const OBSERVATION_TYPES: [string, ...string[]] = [
   'session-request',
@@ -256,6 +260,7 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
       } catch { /* session module not critical */ }
 
       // Store the observation (may upsert if topicKey matches existing)
+      markInternalWrite();
       const { observation: obs, upserted } = await storeObservation({
         entityName,
         type: type as ObservationType,
@@ -1635,9 +1640,12 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
     const observationsFile = projectDir + '/observations.json';
     let reloadDebounce: ReturnType<typeof setTimeout> | null = null;
     let reloading = false; // guard: skip if a reload is already in progress
+    // lastInternalWriteMs + markInternalWrite are module-level (see top of file)
     try {
       watchFile(observationsFile, { interval: 5000 }, (curr, prev) => {
         if (curr.mtimeMs === prev.mtimeMs) return; // no actual change
+        // Skip reload if a MCP tool wrote recently — data is already in memory
+        if (Date.now() - lastInternalWriteMs < 10_000) return;
         if (reloading) return; // skip — previous reload still running
         if (reloadDebounce) clearTimeout(reloadDebounce);
         reloadDebounce = setTimeout(async () => {

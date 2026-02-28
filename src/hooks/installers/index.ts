@@ -417,6 +417,17 @@ export async function installHooks(
       merged.tools = { ...existingTools, ...(gen.tools as Record<string, unknown>) };
     }
 
+    // Clean up stale keys from older memorix versions (Gemini CLI)
+    if (agent === 'antigravity') {
+      const h = merged.hooks as Record<string, unknown> | undefined;
+      if (h && typeof h.enabled === 'boolean') delete h.enabled;
+      const t = merged.tools as Record<string, unknown> | undefined;
+      if (t) {
+        delete t.enableHooks;
+        if (Object.keys(t).length === 0) delete merged.tools;
+      }
+    }
+
     await fs.writeFile(configPath, JSON.stringify(merged, null, 2), 'utf-8');
   }
 

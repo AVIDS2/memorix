@@ -235,8 +235,9 @@ export const MemorixPlugin = async ({ project, client, $, directory, worktree })
   async function runHook(payload) {
     try {
       const data = JSON.stringify(payload);
-      // Use $\`...\`.stdin() — avoids echo escaping issues on Windows
-      await $\`memorix hook\`.stdin(data).quiet().nothrow();
+      const input = new Response(data);
+      // Bun shell stdin redirect: $\`cmd < \${Response}\`
+      await $\`memorix hook < \${input}\`.quiet().nothrow();
       console.log('[memorix] hook fired:', payload.hook_event_name);
     } catch (err) {
       console.log('[memorix] hook error:', err?.message ?? err);

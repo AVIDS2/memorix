@@ -28,6 +28,12 @@ export default defineCommand({
     const { existsSync } = await import('node:fs');
     const { join } = await import('node:path');
 
+    // Auto-exit when stdio pipe breaks (IDE closed) to prevent orphaned processes
+    process.stdin.on('end', () => {
+      console.error('[memorix] stdin closed — exiting');
+      process.exit(0);
+    });
+
     // Priority: explicit --cwd arg > MEMORIX_PROJECT_ROOT env > INIT_CWD (npm lifecycle) > process.cwd()
     let safeCwd: string;
     try { safeCwd = process.cwd(); } catch { safeCwd = (await import('node:os')).homedir(); }

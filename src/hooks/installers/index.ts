@@ -229,24 +229,22 @@ function generateOpenCodePlugin(): string {
  * Docs: https://github.com/AVIDS2/memorix
  */
 export const MemorixPlugin = async ({ project, client, $, directory, worktree }) => {
-  /** Pipe event JSON to memorix hook via stdin */
+  console.log('[memorix] plugin loaded, directory:', directory);
+
+  /** Pipe event JSON to memorix hook via stdin using Bun shell ($) */
   async function runHook(payload) {
     try {
       const data = JSON.stringify(payload);
-      const cmd = process.platform === 'win32'
-        ? ['cmd', '/c', 'memorix', 'hook']
-        : ['memorix', 'hook'];
-      const proc = Bun.spawn(cmd, {
-        stdin: new Blob([data]),
-        stdout: 'ignore',
-        stderr: 'ignore',
-      });
-      await proc.exited;
-    } catch { /* memorix hook is best-effort — never break the agent */ }
+      // Use Bun's $ shell API — cross-platform, resolves .cmd on Windows
+      await $\`echo \${data} | memorix hook\`.quiet().nothrow();
+      console.log('[memorix] hook fired:', payload.hook_event_name);
+    } catch (err) {
+      console.log('[memorix] hook error:', err?.message ?? err);
+    }
   }
 
   return {
-    /** Catch-all event handler for session lifecycle */
+    /** Catch-all event handler for session lifecycle + file events */
     event: async ({ event }) => {
       if (event.type === 'session.created') {
         await runHook({
@@ -260,26 +258,30 @@ export const MemorixPlugin = async ({ project, client, $, directory, worktree })
           hook_event_name: 'session.idle',
           cwd: directory,
         });
+      } else if (event.type === 'file.edited') {
+        await runHook({
+          agent: 'opencode',
+          hook_event_name: 'file.edited',
+          file_path: event.properties?.path ?? '',
+          cwd: directory,
+        });
+      } else if (event.type === 'command.executed') {
+        await runHook({
+          agent: 'opencode',
+          hook_event_name: 'command.executed',
+          command: event.properties?.command ?? '',
+          cwd: directory,
+        });
       }
     },
 
-    /** Record tool usage after execution */
+    /** Record tool usage after execution (hook, not event) */
     'tool.execute.after': async (input, output) => {
       await runHook({
         agent: 'opencode',
         hook_event_name: 'tool.execute.after',
         tool_name: input.tool,
         tool_input: input.args,
-        cwd: directory,
-      });
-    },
-
-    /** Record file edits */
-    'file.edited': async (input, output) => {
-      await runHook({
-        agent: 'opencode',
-        hook_event_name: 'file.edited',
-        file_path: input.path,
         cwd: directory,
       });
     },

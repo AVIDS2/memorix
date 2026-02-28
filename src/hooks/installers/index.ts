@@ -238,7 +238,8 @@ export const MemorixPlugin = async ({ project, client, $, directory, worktree })
     try {
       const data = JSON.stringify(payload);
       await Bun.write(tmpPath, data);
-      await $\`memorix hook < \${Bun.file(tmpPath)}\`.quiet().nothrow();
+      // cat | pipe works through .cmd wrappers; < redirect does NOT
+      await $\`cat \${tmpPath} | memorix hook\`.quiet().nothrow();
       console.log('[memorix] hook fired:', payload.hook_event_name);
     } catch (err) {
       console.log('[memorix] hook error:', err?.message ?? err);

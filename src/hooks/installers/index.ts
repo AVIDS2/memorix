@@ -105,18 +105,22 @@ function generateCopilotConfig(): Record<string, unknown> {
  */
 function generateGeminiConfig(): Record<string, unknown> {
   const cmd = `${resolveHookCommand()} hook`;
-  const hookEntry = {
-    type: 'command',
-    command: cmd,
-    timeout: 10000,
-  };
+
+  // Gemini CLI requires: matcher (glob), name, type, command, description
+  // See: https://github.com/google-gemini/gemini-cli/blob/main/docs/hooks/writing-hooks.md
+  function entry(name: string, desc: string) {
+    return {
+      matcher: '*',
+      hooks: [{ name, type: 'command', command: cmd, description: desc }],
+    };
+  }
 
   return {
     hooks: {
-      SessionStart: [{ hooks: [hookEntry] }],
-      AfterTool: [{ hooks: [hookEntry] }],
-      AfterAgent: [{ hooks: [hookEntry] }],
-      PreCompress: [{ hooks: [hookEntry] }],
+      SessionStart: [entry('memorix-session-start', 'Load memorix context at session start')],
+      AfterTool: [entry('memorix-after-tool', 'Record tool usage in memorix')],
+      AfterAgent: [entry('memorix-after-agent', 'Record agent response in memorix')],
+      PreCompress: [entry('memorix-pre-compress', 'Save context before compression')],
     },
   };
 }
@@ -462,8 +466,10 @@ async function installAgentRules(agent: AgentName, projectRoot: string): Promise
     case 'kiro':
       rulesPath = path.join(projectRoot, '.kiro', 'steering', 'memorix.md');
       break;
+    case 'antigravity':
+      rulesPath = path.join(projectRoot, '.gemini', 'rules', 'memorix.md');
+      break;
     default:
-      // Antigravity and others
       rulesPath = path.join(projectRoot, '.agent', 'rules', 'memorix.md');
       break;
   }

@@ -295,14 +295,12 @@ export async function detectInstalledAgents(): Promise<AgentName[]> {
     agents.push('cursor');
   } catch { /* not installed */ }
 
-  // Check for VS Code Copilot (if Claude Code is not detected)
-  if (!agents.includes('claude')) {
-    const vscodeDir = path.join(home, '.vscode');
-    try {
-      await fs.access(vscodeDir);
-      agents.push('copilot');
-    } catch { /* not installed */ }
-  }
+  // Check for VS Code Copilot (independent of Claude Code — different hook paths)
+  const vscodeDir = path.join(home, '.vscode');
+  try {
+    await fs.access(vscodeDir);
+    agents.push('copilot');
+  } catch { /* not installed */ }
 
   // Check for Kiro
   const kiroConfig = path.join(home, '.kiro');

@@ -94,6 +94,9 @@ function detectAgent(payload: Record<string, unknown>): AgentName {
   // Gemini CLI / Antigravity: uses hook_event_name but has GEMINI env vars or gemini-specific fields
   if ('gemini_session_id' in payload || 'gemini_project_dir' in payload) return 'antigravity';
 
+  // OpenCode plugin sends agent: 'opencode' (must check BEFORE hook_event_name catch-all)
+  if (payload.agent === 'opencode') return 'opencode';
+
   // Claude Code uses hook_event_name + session_id
   if ('hook_event_name' in payload && 'session_id' in payload) return 'claude';
 
@@ -106,9 +109,6 @@ function detectAgent(payload: Record<string, unknown>): AgentName {
 
   // GitHub Copilot: uses toolName (camelCase) + timestamp (number ms)
   if ('toolName' in payload || 'initialPrompt' in payload || 'reason' in payload) return 'copilot';
-
-  // OpenCode plugin sends agent: 'opencode'
-  if (payload.agent === 'opencode') return 'opencode';
 
   // Kiro uses event_type
   if ('event_type' in payload) return 'kiro';

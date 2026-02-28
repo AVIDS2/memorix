@@ -106,7 +106,11 @@ function generateCopilotConfig(): Record<string, unknown> {
 function generateGeminiConfig(): Record<string, unknown> {
   const cmd = `${resolveHookCommand()} hook`;
 
-  // Gemini CLI requires: matcher (glob), name, type, command, description
+  // Gemini CLI hooks are EXPERIMENTAL — require explicit opt-in:
+  //   tools.enableHooks = true  AND  hooks.enabled = true
+  // See: https://github.com/google-gemini/gemini-cli/blob/main/docs/hooks/index.md
+  //
+  // Each hook entry requires: matcher (glob), name, type, command, description
   // See: https://github.com/google-gemini/gemini-cli/blob/main/docs/hooks/writing-hooks.md
   function entry(name: string, desc: string) {
     return {
@@ -116,7 +120,9 @@ function generateGeminiConfig(): Record<string, unknown> {
   }
 
   return {
+    tools: { enableHooks: true },
     hooks: {
+      enabled: true,
       SessionStart: [entry('memorix-session-start', 'Load memorix context at session start')],
       AfterTool: [entry('memorix-after-tool', 'Record tool usage in memorix')],
       AfterAgent: [entry('memorix-after-agent', 'Record agent response in memorix')],
@@ -395,14 +401,24 @@ export async function installHooks(
       existing = JSON.parse(content);
     } catch { /* file doesn't exist yet */ }
 
-    // Deep-merge the 'hooks' key so we don't overwrite user's existing hooks
+    // Deep-merge generated keys so we don't overwrite user's existing config
     const gen = generated as Record<string, unknown>;
     const merged = { ...existing };
+
+    // Merge 'hooks' key (all agents)
     if (gen.hooks && typeof gen.hooks === 'object') {
       const existingHooks = (existing.hooks && typeof existing.hooks === 'object')
         ? existing.hooks as Record<string, unknown>
         : {};
       merged.hooks = { ...existingHooks, ...(gen.hooks as Record<string, unknown>) };
+    }
+
+    // Merge 'tools' key (Gemini CLI needs tools.enableHooks = true)
+    if (gen.tools && typeof gen.tools === 'object') {
+      const existingTools = (existing.tools && typeof existing.tools === 'object')
+        ? existing.tools as Record<string, unknown>
+        : {};
+      merged.tools = { ...existingTools, ...(gen.tools as Record<string, unknown>) };
     }
 
     await fs.writeFile(configPath, JSON.stringify(merged, null, 2), 'utf-8');
@@ -467,7 +483,9 @@ async function installAgentRules(agent: AgentName, projectRoot: string): Promise
       rulesPath = path.join(projectRoot, '.kiro', 'steering', 'memorix.md');
       break;
     case 'antigravity':
-      rulesPath = path.join(projectRoot, '.gemini', 'rules', 'memorix.md');
+      // Gemini CLI reads context from GEMINI.md by default (like Codex reads AGENTS.md)
+      // See: context.fileName defaults to ["GEMINI.md", "CONTEXT.md"]
+      rulesPath = path.join(projectRoot, 'GEMINI.md');
       break;
     default:
       rulesPath = path.join(projectRoot, '.agent', 'rules', 'memorix.md');
@@ -477,14 +495,14 @@ async function installAgentRules(agent: AgentName, projectRoot: string): Promise
   try {
     await fs.mkdir(path.dirname(rulesPath), { recursive: true });
 
-    if (agent === 'codex') {
-      // For Codex AGENTS.md, append rather than overwrite
+    if (agent === 'codex' || agent === 'antigravity') {
+      // For shared context files (AGENTS.md / GEMINI.md), append rather than overwrite
       try {
         const existing = await fs.readFile(rulesPath, 'utf-8');
         if (existing.includes('Memorix')) {
           return; // Already contains memorix rules
         }
-        // Append to existing AGENTS.md
+        // Append to existing file
         await fs.writeFile(rulesPath, existing + '\n\n' + rulesContent, 'utf-8');
       } catch {
         // File doesn't exist, create it
@@ -525,58 +543,42 @@ alwaysApply: true
   }
   return `${frontmatter}# Memorix — Automatic Memory Rules
 
-You have access to Memorix memory tools. Follow these rules to maintain persistent context across sessions.
+You have access to Memorix memory tools. You MUST follow these rules to maintain persistent context across sessions.
+These rules are NOT optional — they are critical for cross-session memory continuity.
 
-## Session Start — Load Context
+## RULE 1: Session Start — Load Context (MUST)
 
-At the **beginning of every conversation**, before responding to the user:
+At the **beginning of every conversation**, BEFORE responding to the user:
 
 1. Call \`memorix_search\` with a query related to the user's first message or the current project
 2. If results are found, use \`memorix_detail\` to fetch the most relevant ones
-3. Reference relevant memories naturally in your response — the user should feel you "remember" them
+3. Reference relevant memories naturally in your response
 
-This ensures you already know the project context without the user re-explaining.
+> **CRITICAL**: Do NOT skip this step. The user expects you to "remember" previous sessions.
 
-## During Session — Capture Important Context
+## RULE 2: After Every Action — Check & Record (MUST)
 
-**Proactively** call \`memorix_store\` whenever any of the following happen:
+After EVERY tool call that modifies state (file create/edit, shell command, config change), run this checklist:
 
-### Architecture & Decisions
-- Technology choice, framework selection, or design pattern adopted
-- Trade-off discussion with a clear conclusion
-- API design, database schema, or project structure decisions
+**Ask yourself: "Would a different AI agent need to know about this?"**
+- If YES → call \`memorix_store\` IMMEDIATELY, BEFORE replying to the user
+- If NO → skip (e.g., simple file reads, ls/dir, greetings)
 
-### Bug Fixes & Problem Solving
-- A bug is identified and resolved — store root cause + fix
-- Workaround applied for a known issue
-- Performance issue diagnosed and optimized
+### What MUST be recorded:
+- ✅ File created or significantly modified → type: \`what-changed\`
+- ✅ Bug identified and fixed → type: \`problem-solution\`
+- ✅ Architecture or design decision made → type: \`decision\`
+- ✅ Unexpected behavior or gotcha discovered → type: \`gotcha\`
+- ✅ Configuration changed (env vars, ports, deps) → type: \`what-changed\`
+- ✅ Feature completed or milestone reached → type: \`what-changed\`
+- ✅ Trade-off discussed with conclusion → type: \`trade-off\`
 
-### Gotchas & Pitfalls
-- Something unexpected or tricky is discovered
-- A common mistake is identified and corrected
-- Platform-specific behavior that caused issues
+### What should NOT be recorded:
+- ❌ Simple file reads without findings
+- ❌ Greetings, acknowledgments
+- ❌ Trivial commands (ls, pwd, git status with no issues)
 
-### Configuration & Environment
-- Environment variables, port numbers, paths changed
-- Docker, nginx, Caddy, or reverse proxy config modified
-- Package dependencies added, removed, or version-pinned
-
-### Deployment & Operations
-- Server deployment steps (Docker, VPS, cloud)
-- DNS, SSL/TLS certificate, domain configuration
-- CI/CD pipeline setup or changes
-- Database migration or data transfer procedures
-- Server topology (ports, services, reverse proxy chain)
-- SSH keys, access credentials setup (store pattern, NOT secrets)
-
-### Project Milestones
-- Feature completed or shipped
-- Version released or published to npm/PyPI/etc.
-- Repository made public, README updated, PR submitted
-
-Use appropriate types: \`decision\`, \`problem-solution\`, \`gotcha\`, \`what-changed\`, \`discovery\`, \`how-it-works\`.
-
-## Session End — Store Summary
+## RULE 3: Session End — Store Summary (MUST)
 
 When the conversation is ending or the user says goodbye:
 
@@ -590,13 +592,12 @@ This creates a "handoff note" for the next session (or for another AI agent).
 
 ## Guidelines
 
-- **Don't store trivial information** (greetings, acknowledgments, simple file reads, ls/dir output)
-- **Do store anything you'd want to know if you lost all context**
-- **Do store anything a different AI agent would need to continue this work**
 - **Use concise titles** (~5-10 words) and structured facts
 - **Include file paths** in filesModified when relevant
 - **Include related concepts** for better searchability
 - **Prefer storing too much over too little** — the retention system will auto-decay stale memories
+
+Use types: \`decision\`, \`problem-solution\`, \`gotcha\`, \`what-changed\`, \`discovery\`, \`how-it-works\`, \`trade-off\`.
 `;
 }
 

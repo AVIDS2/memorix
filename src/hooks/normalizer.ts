@@ -387,6 +387,11 @@ function normalizeOpenCode(payload: Record<string, unknown>, event: HookEvent): 
   if (event === 'post_edit') {
     result.filePath = (payload.file_path as string) ?? '';
   }
+  // For post_tool file operations, extract filePath from toolInput
+  if (event === 'post_tool' && result.toolInput) {
+    const fp = (result.toolInput.path ?? result.toolInput.file_path) as string | undefined;
+    if (fp) result.filePath = fp;
+  }
   if (event === 'post_command') {
     result.command = (payload.command as string) ?? '';
   }

@@ -69,6 +69,15 @@ const EVENT_MAP: Record<string, HookEvent> = {
   afterFileEdit: 'post_edit',
   preCompact: 'pre_compact',
   stop: 'session_end',
+
+  // OpenCode (plugin events piped via Bun.spawn → memorix hook)
+  'session.created': 'session_start',
+  'session.idle': 'session_end',
+  'session.compacted': 'pre_compact',
+  'tool.execute.after': 'post_tool',
+  'file.edited': 'post_edit',
+  'command.executed': 'post_command',
+  'message.updated': 'post_response',
 };
 
 /**
@@ -98,6 +107,9 @@ function detectAgent(payload: Record<string, unknown>): AgentName {
   // GitHub Copilot: uses toolName (camelCase) + timestamp (number ms)
   if ('toolName' in payload || 'initialPrompt' in payload || 'reason' in payload) return 'copilot';
 
+  // OpenCode plugin sends agent: 'opencode'
+  if (payload.agent === 'opencode') return 'opencode';
+
   // Kiro uses event_type
   if ('event_type' in payload) return 'kiro';
 
@@ -122,6 +134,9 @@ function extractEventName(payload: Record<string, unknown>, agent: AgentName): s
     case 'copilot':
       // Copilot: infer event from payload structure
       return inferCopilotEvent(payload);
+    case 'opencode':
+      // OpenCode plugin sends hook_event_name (e.g. 'session.created', 'tool.execute.after')
+      return (payload.hook_event_name as string) ?? '';
     case 'kiro':
       return (payload.event_type as string) ?? '';
     default:
@@ -348,6 +363,38 @@ function normalizeGemini(payload: Record<string, unknown>, event: HookEvent): Pa
 }
 
 /**
+ * Normalize an OpenCode plugin payload.
+ * OpenCode plugin pipes JSON with { agent: 'opencode', hook_event_name, tool_name, ... }
+ */
+function normalizeOpenCode(payload: Record<string, unknown>, event: HookEvent): Partial<NormalizedHookInput> {
+  const result: Partial<NormalizedHookInput> = {
+    sessionId: '',
+    cwd: (payload.cwd as string) ?? '',
+  };
+
+  const toolName = (payload.tool_name as string) ?? '';
+  if (toolName) {
+    result.toolName = toolName;
+    result.toolInput = payload.tool_input as Record<string, unknown> | undefined;
+    const toolResult = payload.tool_result;
+    if (typeof toolResult === 'string') {
+      result.toolResult = toolResult;
+    } else if (toolResult && typeof toolResult === 'object') {
+      result.toolResult = JSON.stringify(toolResult);
+    }
+  }
+
+  if (event === 'post_edit') {
+    result.filePath = (payload.file_path as string) ?? '';
+  }
+  if (event === 'post_command') {
+    result.command = (payload.command as string) ?? '';
+  }
+
+  return result;
+}
+
+/**
  * Main normalizer: convert any agent's stdin payload → NormalizedHookInput.
  */
 export function normalizeHookInput(payload: Record<string, unknown>): NormalizedHookInput {
@@ -376,6 +423,9 @@ export function normalizeHookInput(payload: Record<string, unknown>): Normalized
       break;
     case 'antigravity':
       agentSpecific = normalizeGemini(payload, event);
+      break;
+    case 'opencode':
+      agentSpecific = normalizeOpenCode(payload, event);
       break;
     default:
       agentSpecific = { sessionId: '', cwd: '' };

@@ -70,6 +70,7 @@ const SKILLS_DIRS: Record<AgentTarget, string[]> = {
     copilot: ['.github/skills', '.copilot/skills'],
     antigravity: ['.agent/skills', '.gemini/skills', '.gemini/antigravity/skills'],
     kiro: ['.kiro/skills'],
+    opencode: ['.opencode/skills'],
 };
 
 /** Types with high signal for skill generation */

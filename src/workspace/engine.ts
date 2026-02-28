@@ -18,6 +18,7 @@ import { ClaudeCodeMCPAdapter } from './mcp-adapters/claude-code.js';
 import { CopilotMCPAdapter } from './mcp-adapters/copilot.js';
 import { AntigravityMCPAdapter } from './mcp-adapters/antigravity.js';
 import { KiroMCPAdapter } from './mcp-adapters/kiro.js';
+import { OpenCodeMCPAdapter } from './mcp-adapters/opencode.js';
 import { WorkflowSyncer } from './workflow-sync.js';
 import { RulesSyncer } from '../rules/syncer.js';
 import { sanitize } from './sanitizer.js';
@@ -54,6 +55,7 @@ export class WorkspaceSyncEngine {
       ['copilot', new CopilotMCPAdapter()],
       ['antigravity', new AntigravityMCPAdapter()],
       ['kiro', new KiroMCPAdapter()],
+      ['opencode', new OpenCodeMCPAdapter()],
     ]);
     this.workflowSyncer = new WorkflowSyncer();
     this.rulesSyncer = new RulesSyncer(projectRoot);
@@ -71,6 +73,7 @@ export class WorkspaceSyncEngine {
       copilot: [],
       antigravity: [],
       kiro: [],
+      opencode: [],
     };
 
     // Scan MCP configs from each agent
@@ -213,6 +216,7 @@ export class WorkspaceSyncEngine {
     copilot: ['.github/skills', '.copilot/skills'],
     antigravity: ['.agent/skills', '.gemini/skills', '.gemini/antigravity/skills'],
     kiro: ['.kiro/skills'],
+    opencode: ['.opencode/skills'],
   };
 
   /** Get the target skills directory for an agent (null if agent has no skills support) */
@@ -433,6 +437,7 @@ export class WorkspaceSyncEngine {
       copilot: 'copilot',
       antigravity: 'antigravity',
       kiro: 'kiro',
+      opencode: 'codex',
     };
     return map[target] ?? null;
   }

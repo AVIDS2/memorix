@@ -229,6 +229,9 @@ function getProjectConfigPath(agent: AgentName, projectRoot: string): string {
     case 'codex':
       // Codex has no hooks system — only rules (AGENTS.md)
       return path.join(projectRoot, 'AGENTS.md');
+    case 'opencode':
+      // OpenCode has no hooks system — only rules (AGENTS.md) + MCP config (opencode.json)
+      return path.join(projectRoot, 'AGENTS.md');
     case 'antigravity':
       return path.join(projectRoot, '.gemini', 'settings.json');
     default:
@@ -251,6 +254,8 @@ function getGlobalConfigPath(agent: AgentName): string {
       return path.join(home, '.cursor', 'hooks.json');
     case 'antigravity':
       return path.join(home, '.gemini', 'settings.json');
+    case 'opencode':
+      return path.join(home, '.config', 'opencode', 'AGENTS.md');
     default:
       return path.join(home, '.memorix', 'hooks.json');
   }
@@ -312,6 +317,13 @@ export async function detectInstalledAgents(): Promise<AgentName[]> {
     agents.push('antigravity');
   } catch { /* not installed */ }
 
+  // Check for OpenCode
+  const opencodeDir = path.join(home, '.config', 'opencode');
+  try {
+    await fs.access(opencodeDir);
+    agents.push('opencode');
+  } catch { /* not installed */ }
+
   return agents;
 }
 
@@ -356,6 +368,15 @@ export async function installHooks(
         configPath: getProjectConfigPath(agent, projectRoot),
         events: [],
         generated: { note: 'Codex has no hooks system, only rules (AGENTS.md) installed' },
+      };
+    case 'opencode':
+      // OpenCode has no hooks — uses plugin system; install rules only
+      await installAgentRules(agent, projectRoot);
+      return {
+        agent,
+        configPath: getProjectConfigPath(agent, projectRoot),
+        events: [],
+        generated: { note: 'OpenCode has no hooks system, only rules (AGENTS.md) installed' },
       };
     default:
       generated = generateClaudeConfig(); // fallback
@@ -478,6 +499,10 @@ async function installAgentRules(agent: AgentName, projectRoot: string): Promise
     case 'kiro':
       rulesPath = path.join(projectRoot, '.kiro', 'steering', 'memorix.md');
       break;
+    case 'opencode':
+      // OpenCode reads AGENTS.md (same as Codex), also supports CLAUDE.md as fallback
+      rulesPath = path.join(projectRoot, 'AGENTS.md');
+      break;
     case 'antigravity':
       // Gemini CLI reads context from GEMINI.md by default (like Codex reads AGENTS.md)
       // See: context.fileName defaults to ["GEMINI.md", "CONTEXT.md"]
@@ -491,7 +516,7 @@ async function installAgentRules(agent: AgentName, projectRoot: string): Promise
   try {
     await fs.mkdir(path.dirname(rulesPath), { recursive: true });
 
-    if (agent === 'codex' || agent === 'antigravity') {
+    if (agent === 'codex' || agent === 'opencode' || agent === 'antigravity') {
       // For shared context files (AGENTS.md / GEMINI.md), append rather than overwrite
       try {
         const existing = await fs.readFile(rulesPath, 'utf-8');
@@ -637,7 +662,7 @@ export async function getHookStatus(
   projectRoot: string,
 ): Promise<Array<{ agent: AgentName; installed: boolean; configPath: string }>> {
   const results: Array<{ agent: AgentName; installed: boolean; configPath: string }> = [];
-  const agents: AgentName[] = ['claude', 'copilot', 'windsurf', 'cursor', 'kiro', 'codex', 'antigravity'];
+  const agents: AgentName[] = ['claude', 'copilot', 'windsurf', 'cursor', 'kiro', 'codex', 'antigravity', 'opencode'];
 
   for (const agent of agents) {
     const projectPath = getProjectConfigPath(agent, projectRoot);

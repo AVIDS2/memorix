@@ -231,16 +231,19 @@ function generateOpenCodePlugin(): string {
 export const MemorixPlugin = async ({ project, client, $, directory, worktree }) => {
   console.log('[memorix] plugin loaded, directory:', directory);
 
-  /** Pipe event JSON to memorix hook via stdin using Bun shell ($) */
+  /** Pipe event JSON to memorix hook via temp file (Windows .cmd stdin workaround) */
   async function runHook(payload) {
+    const tmpDir = Bun.env.TEMP || Bun.env.TMP || '/tmp';
+    const tmpPath = \`\${tmpDir}/memorix-hook-\${Date.now()}.json\`;
     try {
       const data = JSON.stringify(payload);
-      const input = new Response(data);
-      // Bun shell stdin redirect: $\`cmd < \${Response}\`
-      await $\`memorix hook < \${input}\`.quiet().nothrow();
+      await Bun.write(tmpPath, data);
+      await $\`memorix hook < \${Bun.file(tmpPath)}\`.quiet().nothrow();
       console.log('[memorix] hook fired:', payload.hook_event_name);
     } catch (err) {
       console.log('[memorix] hook error:', err?.message ?? err);
+    } finally {
+      try { const { unlinkSync } = await import('node:fs'); unlinkSync(tmpPath); } catch {}
     }
   }
 

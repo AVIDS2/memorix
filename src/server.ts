@@ -1634,11 +1634,15 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
     // rename(), which changes the file inode — fs.watch loses track on Windows.
     const observationsFile = projectDir + '/observations.json';
     let reloadDebounce: ReturnType<typeof setTimeout> | null = null;
+    let reloading = false; // guard: skip if a reload is already in progress
     try {
-      watchFile(observationsFile, { interval: 2000 }, (curr, prev) => {
+      watchFile(observationsFile, { interval: 5000 }, (curr, prev) => {
         if (curr.mtimeMs === prev.mtimeMs) return; // no actual change
+        if (reloading) return; // skip — previous reload still running
         if (reloadDebounce) clearTimeout(reloadDebounce);
         reloadDebounce = setTimeout(async () => {
+          if (reloading) return;
+          reloading = true;
           try {
             await resetDb();
             await initObservations(projectDir);
@@ -1647,7 +1651,8 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
               console.error(`[memorix] Hot-reloaded ${count} observations (external write detected)`);
             }
           } catch { /* silent */ }
-        }, 500);
+          reloading = false;
+        }, 3000);
       });
       console.error(`[memorix] Watching for external writes (hooks hot-reload enabled)`);
     } catch {

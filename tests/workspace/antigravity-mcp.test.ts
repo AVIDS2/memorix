@@ -247,11 +247,18 @@ describe('AntigravityMCPAdapter', () => {
     // ============================================================
 
     describe('getConfigPath()', () => {
-        it('should return path under .gemini/antigravity/', () => {
+        it('should return global ~/.gemini/settings.json when no projectRoot', () => {
             const configPath = adapter.getConfigPath();
             expect(configPath).toContain('.gemini');
-            expect(configPath).toContain('antigravity');
-            expect(configPath).toContain('mcp_config.json');
+            expect(configPath.endsWith('settings.json')).toBe(true);
+        });
+
+        it('should return project-level .gemini/settings.json when projectRoot given', () => {
+            const configPath = adapter.getConfigPath('/my/project');
+            expect(configPath).toContain('.gemini');
+            expect(configPath.endsWith('settings.json')).toBe(true);
+            expect(configPath).toContain('my');
+            expect(configPath).toContain('project');
         });
     });
 

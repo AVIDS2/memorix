@@ -91,8 +91,12 @@ export class AntigravityMCPAdapter implements MCPConfigAdapter {
         return JSON.stringify({ mcpServers }, null, 2);
     }
 
-    getConfigPath(_projectRoot?: string): string {
-        // Antigravity primary MCP config location
-        return join(homedir(), '.gemini', 'antigravity', 'mcp_config.json');
+    getConfigPath(projectRoot?: string): string {
+        if (projectRoot) {
+            // Project-level: .gemini/settings.json (shared with hooks)
+            return join(projectRoot, '.gemini', 'settings.json');
+        }
+        // Global: ~/.gemini/settings.json
+        return join(homedir(), '.gemini', 'settings.json');
     }
 }

@@ -147,8 +147,24 @@ export class WorkspaceSyncEngine {
     // Generate target MCP config (sanitize sensitive values in output)
     if (result.mcpServers.scanned.length > 0) {
       const adapter = this.adapters.get(target)!;
-      const configContent = adapter.generate(result.mcpServers.scanned);
       const configPath = adapter.getConfigPath(this.projectRoot);
+      let configContent: string;
+
+      // For agents whose config file is shared (e.g. .gemini/settings.json
+      // contains both hooks and mcpServers), merge instead of overwrite.
+      if (target === 'antigravity' && existsSync(configPath)) {
+        try {
+          const existing = JSON.parse(readFileSync(configPath, 'utf-8'));
+          const generated = JSON.parse(adapter.generate(result.mcpServers.scanned));
+          existing.mcpServers = { ...(existing.mcpServers ?? {}), ...generated.mcpServers };
+          configContent = JSON.stringify(existing, null, 2);
+        } catch {
+          configContent = adapter.generate(result.mcpServers.scanned);
+        }
+      } else {
+        configContent = adapter.generate(result.mcpServers.scanned);
+      }
+
       result.mcpServers.generated.push({
         filePath: configPath,
         content: sanitize(configContent),

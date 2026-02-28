@@ -43,48 +43,65 @@ export default defineCommand({
       || existsSync(join(projectRoot, 'pyproject.toml'));
 
     if (!looksValid) {
-      // cwd might not be a project — need MCP roots protocol to get IDE workspace path.
-      // Must connect transport first to send listRoots request.
-      console.error(`[memorix] cwd may not be a valid project, trying MCP roots protocol...`);
-      const mcpServer = new McpServer({ name: 'memorix', version: '0.1.0' });
-      const transport = new StdioServerTransport();
-      await mcpServer.connect(transport);
+      // cwd doesn't have standard project indicators (.git, package.json, etc.)
+      // detectProject may still find a valid project via git-root walk-up or fallback.
+      // If cwd is a dangerous dir (home, system), it returns placeholder/<name> (degraded mode).
+      const earlyDetect = detectProject(projectRoot);
+      const isDegraded = earlyDetect.id.startsWith('placeholder/');
 
-      let rootResolved = false;
-      try {
-        const rootsResult = await Promise.race([
-          mcpServer.server.listRoots(),
-          new Promise<null>((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000)),
-        ]);
-        if (rootsResult && 'roots' in rootsResult && Array.isArray(rootsResult.roots) && rootsResult.roots.length > 0) {
-          const rootUri = rootsResult.roots[0].uri;
-          if (rootUri.startsWith('file://')) {
-            const urlPath = decodeURIComponent(new URL(rootUri).pathname);
-            const normalizedPath = process.platform === 'win32' && urlPath.match(/^\/[A-Za-z]:/)
-              ? urlPath.slice(1) : urlPath;
-            console.error(`[memorix] MCP client root: ${normalizedPath}`);
-            projectRoot = normalizedPath;
-            rootResolved = true;
+      if (!isDegraded) {
+        // detectProject found a real project — use normal path (register tools before transport)
+        console.error(`[memorix] detectProject succeeded without standard indicators`);
+        const { server, projectId, deferredInit } = await createMemorixServer(projectRoot);
+        const transport = new StdioServerTransport();
+        await server.connect(transport);
+
+        console.error(`[memorix] MCP Server running on stdio (project: ${projectId})`);
+        console.error(`[memorix] Project root: ${projectRoot}`);
+        deferredInit().catch(e => console.error(`[memorix] Deferred init error:`, e));
+      } else {
+        // Degraded cwd — try MCP roots protocol to discover the real project path.
+        // Must connect transport first to send listRoots request.
+        // Register a placeholder tool so tools/list returns 200 instead of -32601.
+        console.error(`[memorix] cwd may not be a valid project, trying MCP roots protocol...`);
+        const mcpServer = new McpServer({ name: 'memorix', version: '0.1.0' });
+
+        mcpServer.registerTool('_memorix_loading', {
+          description: 'Memorix is initializing, detecting project root...',
+          inputSchema: {},
+        }, async () => ({
+          content: [{ type: 'text' as const, text: 'Memorix is still loading. Please retry shortly.' }],
+        }));
+
+        const transport = new StdioServerTransport();
+        await mcpServer.connect(transport);
+
+        try {
+          const rootsResult = await Promise.race([
+            mcpServer.server.listRoots(),
+            new Promise<null>((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000)),
+          ]);
+          if (rootsResult && 'roots' in rootsResult && Array.isArray(rootsResult.roots) && rootsResult.roots.length > 0) {
+            const rootUri = rootsResult.roots[0].uri;
+            if (rootUri.startsWith('file://')) {
+              const urlPath = decodeURIComponent(new URL(rootUri).pathname);
+              const normalizedPath = process.platform === 'win32' && urlPath.match(/^\/[A-Za-z]:/)
+                ? urlPath.slice(1) : urlPath;
+              console.error(`[memorix] MCP client root: ${normalizedPath}`);
+              projectRoot = normalizedPath;
+            }
           }
+        } catch {
+          console.error(`[memorix] MCP roots not available (client may not support it)`);
         }
-      } catch {
-        console.error(`[memorix] MCP roots not available (client may not support it)`);
-      }
 
-      if (!rootResolved) {
-        const earlyDetect = detectProject(projectRoot);
-        if (earlyDetect.id === '__invalid__') {
-          console.error(`[memorix] ERROR: Could not detect a valid project.`);
-          console.error(`[memorix] Fix: set --cwd or MEMORIX_PROJECT_ROOT, or use an IDE that supports MCP roots.`);
-          process.exit(1);
-        }
+        // Register real tools — even if project detection is degraded,
+        // the server starts and tools are usable. Never exit.
+        const { projectId, deferredInit } = await createMemorixServer(projectRoot, mcpServer);
+        console.error(`[memorix] MCP Server running on stdio (project: ${projectId})`);
+        console.error(`[memorix] Project root: ${projectRoot}`);
+        deferredInit().catch(e => console.error(`[memorix] Deferred init error:`, e));
       }
-
-      // Register tools on the already-connected server
-      const { projectId, deferredInit } = await createMemorixServer(projectRoot, mcpServer);
-      console.error(`[memorix] MCP Server running on stdio (project: ${projectId})`);
-      console.error(`[memorix] Project root: ${projectRoot}`);
-      deferredInit().catch(e => console.error(`[memorix] Deferred init error:`, e));
     } else {
       // Normal path: register tools FIRST, then connect transport.
       // This ensures tools/list returns all tools immediately on connect.

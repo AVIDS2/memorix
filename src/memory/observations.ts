@@ -10,7 +10,7 @@
 
 import type { Observation, ObservationType, MemorixDocument } from '../types.js';
 import { TOPIC_KEY_FAMILIES } from '../types.js';
-import { insertObservation, generateEmbedding, isEmbeddingEnabled } from '../store/orama-store.js';
+import { insertObservation, generateEmbedding, batchGenerateEmbeddings, isEmbeddingEnabled } from '../store/orama-store.js';
 import { saveObservationsJson, loadObservationsJson, saveIdCounter, loadIdCounter } from '../store/persistence.js';
 import { withFileLock } from '../store/file-lock.js';
 import { countTextTokens } from '../compact/token-budget.js';
@@ -268,9 +268,48 @@ export function getObservation(id: number): Observation | undefined {
 
 /**
  * Get all observations for a project.
+ * Supports alias expansion: if projectIds is an array, matches any of them.
  */
-export function getProjectObservations(projectId: string): Observation[] {
+export function getProjectObservations(projectId: string | string[]): Observation[] {
+  if (Array.isArray(projectId)) {
+    const idSet = new Set(projectId);
+    return observations.filter((o) => idSet.has(o.projectId));
+  }
   return observations.filter((o) => o.projectId === projectId);
+}
+
+/**
+ * Migrate observations from non-canonical project IDs to the canonical ID.
+ *
+ * Called once during server startup after alias registration.
+ * Rewrites in-memory observations and persists changes to disk.
+ *
+ * @param aliasIds - All known alias IDs for this project (including canonical)
+ * @param canonicalId - The canonical project ID to normalize to
+ * @returns Number of observations migrated
+ */
+export async function migrateProjectIds(
+  aliasIds: string[],
+  canonicalId: string,
+): Promise<number> {
+  const nonCanonical = new Set(aliasIds.filter(id => id !== canonicalId));
+  if (nonCanonical.size === 0) return 0;
+
+  let migrated = 0;
+  for (const obs of observations) {
+    if (nonCanonical.has(obs.projectId)) {
+      obs.projectId = canonicalId;
+      migrated++;
+    }
+  }
+
+  if (migrated > 0 && projectDir) {
+    await withFileLock(projectDir, async () => {
+      await saveObservationsJson(projectDir!, observations);
+    });
+  }
+
+  return migrated;
 }
 
 /**
@@ -319,22 +358,32 @@ export function suggestTopicKey(type: string, title: string): string {
 /**
  * Reload observations into the Orama index.
  * Called during server startup to restore the search index.
+ *
+ * Optimization: uses batch embedding (ONNX processes 64 texts at a time)
+ * instead of individual embed calls. This reduces startup CPU from minutes
+ * to seconds for large observation sets (500+).
  */
 export async function reindexObservations(): Promise<number> {
-  let count = 0;
-  for (const obs of observations) {
-    try {
-      // Generate embedding during reindex if provider is available
-      let embedding: number[] | null = null;
-      if (isEmbeddingEnabled()) {
-        try {
-          const searchableText = [obs.title, obs.narrative, ...obs.facts].join(' ');
-          embedding = await generateEmbedding(searchableText);
-        } catch {
-          // Embedding generation failed for this observation — skip vector, use fulltext
-        }
-      }
+  if (observations.length === 0) return 0;
 
+  // Batch-generate all embeddings at once (much faster than individual calls)
+  let embeddings: (number[] | null)[] = [];
+  if (isEmbeddingEnabled()) {
+    try {
+      const texts = observations.map(obs =>
+        [obs.title, obs.narrative, ...obs.facts].join(' '),
+      );
+      embeddings = await batchGenerateEmbeddings(texts);
+    } catch {
+      // Batch embedding failed — fall back to no embeddings
+    }
+  }
+
+  let count = 0;
+  for (let i = 0; i < observations.length; i++) {
+    const obs = observations[i];
+    try {
+      const embedding = embeddings[i] ?? null;
       const doc: MemorixDocument = {
         id: `obs-${obs.id}`,
         observationId: obs.id,

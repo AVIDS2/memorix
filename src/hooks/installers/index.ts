@@ -11,39 +11,20 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { createRequire } from 'node:module';
+
 import type { AgentName, AgentHookConfig } from '../types.js';
 
 /**
  * Resolve the hook command for the current platform.
- * On Windows, 'memorix' resolves to a .ps1 script that non-PowerShell
+ * On Windows, bare 'memorix' resolves to a .ps1 script that non-PowerShell
  * environments (like Windsurf hooks) can't execute.
- * Solution: use 'node /path/to/cli/index.js hook' instead.
+ * Solution: use 'cmd /c memorix' which invokes the .cmd shim npm creates.
+ * This avoids embedding machine-specific absolute paths in hook configs.
  */
 function resolveHookCommand(): string {
   if (process.platform === 'win32') {
-    // Try to find the CLI script path
-    try {
-      // 1. Check if running from source (development)
-      const devPath = path.resolve(import.meta.dirname ?? __dirname, '../../cli/index.js');
-      try {
-        const fsStat = require('node:fs');
-        if (fsStat.existsSync(devPath)) {
-          return `node ${devPath.replace(/\\/g, '/')}`;
-        }
-      } catch { /* ignore */ }
-
-      // 2. Find globally installed memorix
-      const require_ = createRequire(import.meta.url);
-      const pkgPath = require_.resolve('memorix/package.json');
-      const cliPath = path.join(path.dirname(pkgPath), 'dist', 'cli', 'index.js');
-      return `node ${cliPath.replace(/\\/g, '/')}`;
-    } catch {
-      // 3. Fallback: assume memorix is in PATH via cmd (not .ps1)
-      return 'memorix';
-    }
+    return 'cmd /c memorix';
   }
-  // On Unix, 'memorix' works directly
   return 'memorix';
 }
 
@@ -91,7 +72,9 @@ function generateCopilotConfig(): Record<string, unknown> {
       sessionStart: [hookEntry],
       sessionEnd: [hookEntry],
       userPromptSubmitted: [hookEntry],
-      preToolUse: [hookEntry],
+      // NOTE: preToolUse intentionally omitted — VS Code Copilot requires
+      // hookSpecificOutput.permissionDecision in the response; memorix is
+      // an observer, not a gatekeeper, so we only use postToolUse.
       postToolUse: [hookEntry],
       errorOccurred: [hookEntry],
     },
@@ -417,7 +400,7 @@ export async function installHooks(
       merged.tools = { ...existingTools, ...(gen.tools as Record<string, unknown>) };
     }
 
-    // Clean up stale keys from older memorix versions (Gemini CLI)
+    // Clean up stale keys from older memorix versions
     if (agent === 'antigravity') {
       const h = merged.hooks as Record<string, unknown> | undefined;
       if (h && typeof h.enabled === 'boolean') delete h.enabled;
@@ -426,6 +409,12 @@ export async function installHooks(
         delete t.enableHooks;
         if (Object.keys(t).length === 0) delete merged.tools;
       }
+    }
+    if (agent === 'copilot') {
+      // Remove preToolUse — VS Code Copilot requires hookSpecificOutput
+      // in response which memorix doesn't provide (observer, not gatekeeper)
+      const h = merged.hooks as Record<string, unknown> | undefined;
+      if (h) delete h.preToolUse;
     }
 
     await fs.writeFile(configPath, JSON.stringify(merged, null, 2), 'utf-8');

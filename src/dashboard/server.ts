@@ -67,42 +67,50 @@ async function handleApi(
     const apiPath = url.pathname.replace('/api', '');
 
     // Support ?project=xxx to switch view to another project
+    // In flat storage, all projects share the same dataDir — only the projectId filter changes
     const requestedProject = url.searchParams.get('project');
     let effectiveDataDir = dataDir;
     let effectiveProjectId = projectId;
     let effectiveProjectName = projectName;
     if (requestedProject && requestedProject !== projectId) {
-        const sanitized = requestedProject.replace(/\//g, '--').replace(/[<>:"|?*\\]/g, '_');
-        const candidateDir = path.join(baseDir, sanitized);
-        try {
-            await fs.access(candidateDir);
-            effectiveDataDir = candidateDir;
-            effectiveProjectId = requestedProject;
-            effectiveProjectName = requestedProject.split('/').pop() || requestedProject;
-        } catch {
-            // requested project dir doesn't exist, fall through to default
-        }
+        effectiveDataDir = baseDir;  // flat storage: all data in one dir
+        effectiveProjectId = requestedProject;
+        effectiveProjectName = requestedProject.split('/').pop() || requestedProject;
     }
 
     try {
         switch (apiPath) {
             case '/projects': {
-                // List all project directories
+                // List all unique project IDs from observations data (flat storage)
+                // Deduplicate using alias registry — aliased IDs are merged under canonical
                 try {
-                    const entries = await fs.readdir(baseDir, { withFileTypes: true });
-                    const projects = entries
-                        .filter((e: { isDirectory: () => boolean; name: string }) =>
-                            e.isDirectory() && e.name.includes('--') && !e.name.startsWith('local--'))  // Only git-based projects, skip local fallback dirs
-                        .map((e: { name: string }) => {
-                            const dirName = e.name;
-                            const id = dirName.replace(/--/g, '/');
-                            return {
-                                id,
-                                name: id.split('/').pop() || id,
-                                dirName,
-                                isCurrent: id === projectId,
-                            };
-                        });
+                    const allObs = await loadObservationsJson(baseDir) as Array<{ projectId?: string }>;
+                    const projectSet = new Map<string, number>();
+                    for (const obs of allObs) {
+                        if (obs.projectId) {
+                            projectSet.set(obs.projectId, (projectSet.get(obs.projectId) || 0) + 1);
+                        }
+                    }
+
+                    // Merge aliased project IDs into their canonical form
+                    let mergedSet = projectSet;
+                    try {
+                        const { getCanonicalId } = await import('../project/aliases.js');
+                        mergedSet = new Map<string, number>();
+                        for (const [id, count] of projectSet) {
+                            const canonical = await getCanonicalId(id);
+                            mergedSet.set(canonical, (mergedSet.get(canonical) || 0) + count);
+                        }
+                    } catch { /* alias module not available, use raw IDs */ }
+
+                    const projects = Array.from(mergedSet.entries())
+                        .sort((a, b) => b[1] - a[1])  // Most observations first
+                        .map(([id, count]) => ({
+                            id,
+                            name: id.split('/').pop() || id,
+                            count,
+                            isCurrent: id === projectId,
+                        }));
                     sendJson(res, projects);
                 } catch {
                     sendJson(res, []);
@@ -386,19 +394,14 @@ export async function startDashboard(
         const url = req.url || '/';
 
         // POST /api/set-current-project — update the dashboard's current project
+        // In flat storage, switching project only changes the projectId filter, not the data dir
         if (url.startsWith('/api/set-current-project') && req.method === 'POST') {
             try {
                 const body = JSON.parse(await readBody(req));
                 if (body.projectId) {
-                    const sanitized = body.projectId.replace(/\//g, '--').replace(/[<>:"|?*\\]/g, '_');
-                    const candidateDir = path.join(baseDir, sanitized);
-                    try { await fs.access(candidateDir); } catch {
-                        sendError(res, `Project data directory not found: ${candidateDir}`, 404);
-                        return;
-                    }
                     state.projectId = body.projectId;
                     state.projectName = body.projectName || body.projectId.split('/').pop() || body.projectId;
-                    state.dataDir = candidateDir;
+                    state.dataDir = baseDir;  // flat storage: always use base dir
                     console.error(`[dashboard] Switched current project to: ${state.projectId}`);
                     sendJson(res, { ok: true, projectId: state.projectId, projectName: state.projectName });
                 } else {

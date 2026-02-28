@@ -8,7 +8,7 @@
  * Vector search (embeddings) will be added in P1 phase.
  */
 
-import { create, insert, search, remove, count, type AnyOrama } from '@orama/orama';
+import { create, insert, search, remove, update, count, type AnyOrama } from '@orama/orama';
 import type { MemorixDocument, SearchOptions, IndexEntry } from '../types.js';
 import { OBSERVATION_ICONS, type ObservationType } from '../types.js';
 import { getEmbeddingProvider, type EmbeddingProvider } from '../embedding/provider.js';
@@ -80,6 +80,22 @@ export async function generateEmbedding(text: string): Promise<number[] | null> 
 }
 
 /**
+ * Batch-generate embeddings for multiple texts.
+ * Much faster than individual calls — ONNX processes batches of 64 in parallel.
+ * Returns null entries for texts that fail.
+ */
+export async function batchGenerateEmbeddings(texts: string[]): Promise<(number[] | null)[]> {
+  const provider = await getEmbeddingProvider();
+  if (!provider || texts.length === 0) return texts.map(() => null);
+  try {
+    const results = await provider.embedBatch(texts);
+    return results;
+  } catch {
+    return texts.map(() => null);
+  }
+}
+
+/**
  * Insert an observation document into the store.
  */
 export async function insertObservation(doc: MemorixDocument): Promise<void> {
@@ -104,19 +120,36 @@ export async function removeObservation(oramaId: string): Promise<void> {
 export async function searchObservations(options: SearchOptions): Promise<IndexEntry[]> {
   const database = await getDb();
 
-  const filters: Record<string, unknown> = {};
+  // Resolve project aliases — safety net for observations not yet migrated to canonical ID.
+  // After migration, this is typically a single-element array matching options.projectId.
+  let projectIds: string[] | null = null;
   if (options.projectId) {
-    filters['projectId'] = options.projectId;
+    try {
+      const { resolveAliases } = await import('../project/aliases.js');
+      projectIds = await resolveAliases(options.projectId);
+    } catch {
+      projectIds = [options.projectId];
+    }
   }
+
+  const filters: Record<string, unknown> = {};
+  if (projectIds && projectIds.length === 1) {
+    filters['projectId'] = projectIds[0];
+  }
+  // If multiple aliases exist, we skip the Orama projectId filter and post-filter instead
   if (options.type) {
     filters['type'] = options.type;
   }
 
   // Determine search mode: hybrid (with vector) or fulltext (default)
   const hasQuery = options.query && options.query.trim().length > 0;
+  // When post-filtering by multiple project aliases, request extra results to compensate
+  const requestLimit = (projectIds && projectIds.length > 1)
+    ? (options.limit ?? 20) * 3
+    : (options.limit ?? 20);
   let searchParams: Record<string, unknown> = {
     term: options.query,
-    limit: options.limit ?? 20,
+    limit: requestLimit,
     ...(Object.keys(filters).length > 0 ? { where: filters } : {}),
     // Search specific fields (not tokens, accessCount, etc.)
     properties: ['title', 'entityName', 'narrative', 'facts', 'concepts', 'filesModified'],
@@ -161,19 +194,26 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
   const results = await search(database, searchParams);
 
   // Build intermediate results with rawTime for temporal filtering
-  let intermediate = results.hits.map((hit) => {
-    const doc = hit.document as unknown as MemorixDocument;
-    const obsType = doc.type as ObservationType;
-    return {
-      id: doc.observationId,
-      time: formatTime(doc.createdAt),
-      rawTime: doc.createdAt,
-      type: obsType,
-      icon: OBSERVATION_ICONS[obsType] ?? '❓',
-      title: doc.title,
-      tokens: doc.tokens,
-    };
-  });
+  let intermediate = results.hits
+    // Post-filter by project aliases when multiple aliases exist (Orama doesn't support `in` for strings)
+    .filter((hit) => {
+      if (!projectIds || projectIds.length <= 1) return true;
+      const doc = hit.document as unknown as MemorixDocument;
+      return projectIds.includes(doc.projectId);
+    })
+    .map((hit) => {
+      const doc = hit.document as unknown as MemorixDocument;
+      const obsType = doc.type as ObservationType;
+      return {
+        id: doc.observationId,
+        time: formatTime(doc.createdAt),
+        rawTime: doc.createdAt,
+        type: obsType,
+        icon: OBSERVATION_ICONS[obsType] ?? '❓',
+        title: doc.title,
+        tokens: doc.tokens,
+      };
+    });
 
   // Temporal filtering: since/until date range
   if (options.since) {
@@ -185,36 +225,32 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
     intermediate = intermediate.filter(e => new Date(e.rawTime).getTime() <= untilDate);
   }
 
+  // Apply original limit after post-filtering (we requested extra when multi-alias post-filter is active)
+  if (projectIds && projectIds.length > 1) {
+    intermediate = intermediate.slice(0, options.limit ?? 20);
+  }
+
   // Build IndexEntry with optional match explanation
   let entries: IndexEntry[] = intermediate.map(({ rawTime: _, ...rest }) => rest);
 
-  // Explainable recall: annotate entries with match reasons
+  // Explainable recall: annotate entries with match reasons (O(1) lookup via Map)
   if (hasQuery && options.query) {
     const queryLower = options.query.toLowerCase();
     const queryTokens = queryLower.split(/\s+/).filter(t => t.length > 1);
+    const entryMap = new Map(entries.map(e => [e.id, e]));
     for (const hit of results.hits) {
       const doc = hit.document as unknown as MemorixDocument;
-      const entry = entries.find(e => e.id === doc.observationId);
+      const entry = entryMap.get(doc.observationId);
       if (!entry) continue;
 
       const reasons: string[] = [];
-      for (const token of queryTokens) {
-        if (doc.title.toLowerCase().includes(token)) { reasons.push('title'); break; }
-      }
-      for (const token of queryTokens) {
-        if (doc.entityName.toLowerCase().includes(token)) { reasons.push('entity'); break; }
-      }
-      for (const token of queryTokens) {
-        if (doc.concepts.toLowerCase().includes(token)) { reasons.push('concept'); break; }
-      }
-      for (const token of queryTokens) {
-        if (doc.narrative.toLowerCase().includes(token)) { reasons.push('narrative'); break; }
-      }
-      for (const token of queryTokens) {
-        if (doc.facts.toLowerCase().includes(token)) { reasons.push('fact'); break; }
-      }
-      for (const token of queryTokens) {
-        if (doc.filesModified.toLowerCase().includes(token)) { reasons.push('file'); break; }
+      const fields: [string, string][] = [
+        ['title', doc.title], ['entity', doc.entityName], ['concept', doc.concepts],
+        ['narrative', doc.narrative], ['fact', doc.facts], ['file', doc.filesModified],
+      ];
+      for (const [name, value] of fields) {
+        const valueLower = value.toLowerCase();
+        if (queryTokens.some(t => valueLower.includes(t))) reasons.push(name);
       }
       if (reasons.length === 0) reasons.push('fuzzy');
       (entry as unknown as Record<string, unknown>)['matchedFields'] = reasons;
@@ -226,9 +262,9 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
     entries = applyTokenBudget(entries, options.maxTokens);
   }
 
-  // Record access for returned results (inspired by mcp-memory-service)
-  const hitIds = results.hits.map((h) => (h.document as unknown as MemorixDocument).id);
-  recordAccessBatch(hitIds).catch(() => {});
+  // Record access for returned results (fire-and-forget, non-blocking)
+  const hitDocs = results.hits.map((h) => ({ id: h.id, doc: h.document as unknown as MemorixDocument }));
+  recordAccessBatch(hitDocs).catch(() => {});
 
   return entries;
 }
@@ -321,24 +357,14 @@ export async function getTimeline(
  * Increments accessCount and updates lastAccessedAt.
  * Inspired by mcp-memory-service's record_access() pattern.
  */
-async function recordAccessBatch(oramaIds: string[]): Promise<void> {
+async function recordAccessBatch(hitDocs: { id: string; doc: MemorixDocument }[]): Promise<void> {
   const database = await getDb();
   const now = new Date().toISOString();
 
-  for (const id of oramaIds) {
+  for (const { id, doc } of hitDocs) {
     try {
-      // Fetch current doc
-      const result = await search(database, {
-        term: '',
-        where: { id },
-        limit: 1,
-      });
-      if (result.hits.length === 0) continue;
-      const doc = result.hits[0].document as unknown as MemorixDocument;
-
-      // Remove and re-insert with updated access metadata
-      await remove(database, id);
-      await insert(database, {
+      // Use update() directly — no need to re-search since we already have the doc
+      await update(database, id, {
         ...doc,
         accessCount: (doc.accessCount ?? 0) + 1,
         lastAccessedAt: now,

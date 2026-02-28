@@ -20,12 +20,13 @@ import { watchFile } from 'node:fs';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { KnowledgeGraphManager } from './memory/graph.js';
-import { storeObservation, initObservations, reindexObservations } from './memory/observations.js';
+import { storeObservation, initObservations, reindexObservations, migrateProjectIds } from './memory/observations.js';
 import { resetDb } from './store/orama-store.js';
 import { createAutoRelations } from './memory/auto-relations.js';
 import { extractEntities } from './memory/entity-extractor.js';
 import { compactSearch, compactTimeline, compactDetail } from './compact/engine.js';
 import { detectProject } from './project/detector.js';
+import { registerAlias, initAliasRegistry, resolveAliases, autoMergeByBaseName } from './project/aliases.js';
 import { getProjectDataDir } from './store/persistence.js';
 import type { ObservationType, RuleSource, AgentTarget, MCPServerEntry } from './types.js';
 import { RulesSyncer } from './rules/syncer.js';
@@ -119,21 +120,8 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
   projectId: string;
   deferredInit: () => Promise<void>;
 }> {
-  // Detect current project
-  const project = detectProject(cwd);
-
-  if (project.id === '__invalid__') {
-    const resolvedCwd = cwd ?? process.cwd();
-    console.error(`[memorix] ERROR: Could not detect a valid project at: ${resolvedCwd}`);
-    console.error(`[memorix] The directory is not a git repository and has no project indicator files.`);
-    console.error(`[memorix] Fix: set --cwd to your project directory, or set MEMORIX_PROJECT_ROOT env var.`);
-    console.error(`[memorix] Example: memorix serve --cwd /path/to/your/project`);
-    console.error(`[memorix] Example: "env": { "MEMORIX_PROJECT_ROOT": "/path/to/your/project" }`);
-    throw new Error(
-      `Cannot start Memorix: no valid project detected at "${resolvedCwd}". ` +
-      `Set --cwd or MEMORIX_PROJECT_ROOT to your project directory.`
-    );
-  }
+  // Detect current project (never returns __invalid__ — degraded mode uses placeholder/)
+  const rawProject = detectProject(cwd);
 
   // Migrate legacy per-project subdirectories into flat base directory (one-time, silent)
   try {
@@ -144,12 +132,54 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
     }
   } catch { /* migration is optional */ }
 
-  const projectDir = await getProjectDataDir(project.id);
+  const projectDir = await getProjectDataDir(rawProject.id);
+
+  // Register alias and resolve to canonical project ID.
+  // This ensures the same physical project always uses the same ID
+  // regardless of which IDE or detection method discovered it.
+  initAliasRegistry(projectDir);
+  const canonicalId = await registerAlias(rawProject);
+  const project = { ...rawProject, id: canonicalId };
+  if (canonicalId !== rawProject.id) {
+    console.error(`[memorix] Alias resolved: ${rawProject.id} → ${canonicalId}`);
+  }
 
   // Initialize components
   const graphManager = new KnowledgeGraphManager(projectDir);
   await graphManager.init();
   await initObservations(projectDir);
+
+  // Auto-merge obvious alias groups by scanning observed projectIds in data.
+  // This detects splits like placeholder/foo + local/foo + user/foo
+  try {
+    const { getAllObservations } = await import('./memory/observations.js');
+    const allObs = getAllObservations();
+    const observedIds = [...new Set(allObs.map(o => o.projectId))];
+    const merged = await autoMergeByBaseName(observedIds);
+    if (merged > 0) {
+      console.error(`[memorix] Auto-merged ${merged} alias group(s) by base name`);
+    }
+  } catch { /* auto-merge is optional */ }
+
+  // Migrate existing observations to canonical project ID for ALL alias groups.
+  // This normalizes split projectIds like placeholder/foo + local/foo → canonical.
+  try {
+    const { getAllAliasGroups } = await import('./project/aliases.js');
+    const groups = await getAllAliasGroups();
+    let totalMigrated = 0;
+    for (const group of groups) {
+      if (group.aliases.length > 1) {
+        const migrated = await migrateProjectIds(group.aliases, group.canonical);
+        if (migrated > 0) {
+          console.error(`[memorix] Migrated ${migrated} observations → ${group.canonical}`);
+          totalMigrated += migrated;
+        }
+      }
+    }
+    if (totalMigrated > 0) {
+      console.error(`[memorix] Total migrated: ${totalMigrated} observations across ${groups.filter(g => g.aliases.length > 1).length} project(s)`);
+    }
+  } catch { /* migration is optional */ }
 
   // Reindex existing observations into Orama
   const reindexed = await reindexObservations();

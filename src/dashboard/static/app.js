@@ -204,9 +204,9 @@ function setLang(lang) {
   currentLang = lang;
   localStorage.setItem('memorix-lang', lang);
 
-  // Update button text
-  const btn = document.getElementById('lang-toggle');
-  if (btn) btn.textContent = lang === 'en' ? '中' : 'EN';
+  // Update label text
+  const label = document.getElementById('lang-label');
+  if (label) label.textContent = lang === 'en' ? '中文' : 'EN';
 
   // Update nav tooltips
   const tooltipMap = { dashboard: 'navDashboard', graph: 'navGraph', observations: 'navObservations', retention: 'navRetention', sessions: 'navSessions' };
@@ -223,8 +223,9 @@ function setLang(lang) {
 // Init lang toggle button
 document.addEventListener('DOMContentLoaded', () => {
   const btn = document.getElementById('lang-toggle');
+  const label = document.getElementById('lang-label');
+  if (label) label.textContent = currentLang === 'en' ? '中文' : 'EN';
   if (btn) {
-    btn.textContent = currentLang === 'en' ? '中' : 'EN';
     btn.addEventListener('click', () => {
       setLang(currentLang === 'en' ? 'zh' : 'en');
     });
@@ -244,11 +245,12 @@ function applyTheme(theme) {
 
   const sunIcon = document.getElementById('theme-icon-sun');
   const moonIcon = document.getElementById('theme-icon-moon');
+  const themeLabel = document.getElementById('theme-label');
   if (sunIcon && moonIcon) {
-    // Show sun icon in dark mode (click to go light), moon in light mode (click to go dark)
     sunIcon.style.display = theme === 'dark' ? 'none' : 'block';
     moonIcon.style.display = theme === 'dark' ? 'block' : 'none';
   }
+  if (themeLabel) themeLabel.textContent = theme === 'dark' ? 'Dark' : 'Light';
 
   // Force reload current page so Canvas graph redraws with new colors
   try {
@@ -323,63 +325,123 @@ async function api(endpoint) {
 }
 
 // ============================================================
-// Project Switcher
+// Project Switcher — Custom Dropdown
 // ============================================================
 
-async function initProjectSwitcher() {
-  const select = document.getElementById('project-select');
-  if (!select) return;
+let allProjects = [];
 
-  // Check URL parameter for project override (e.g., ?project=AVIDS2/my_status)
+async function initProjectSwitcher() {
+  const switcher = document.getElementById('project-switcher');
+  const trigger = document.getElementById('project-trigger');
+  const dropdown = document.getElementById('project-dropdown');
+  const nameEl = document.getElementById('project-name');
+  const countEl = document.getElementById('project-count');
+  const listEl = document.getElementById('project-list');
+  const searchEl = document.getElementById('project-search');
+  if (!trigger || !dropdown) return;
+
+  // Check URL parameter for project override
   const urlParams = new URLSearchParams(window.location.search);
   const urlProject = urlParams.get('project');
 
   // Fetch project list
   try {
     const res = await fetch('/api/projects');
-    const projects = await res.json();
-    if (!Array.isArray(projects) || projects.length === 0) {
-      select.innerHTML = '<option value="">No projects</option>';
+    allProjects = await res.json();
+    if (!Array.isArray(allProjects) || allProjects.length === 0) {
+      nameEl.textContent = 'No projects';
       return;
     }
 
-    select.innerHTML = '';
-    let urlProjectFound = false;
-    for (const p of projects) {
-      const opt = document.createElement('option');
-      // If URL specifies a project, use that as the selected one
-      if (urlProject && p.id === urlProject) {
-        opt.value = p.id;
-        opt.textContent = p.name + ' ●';
-        opt.title = p.id;
-        opt.selected = true;
-        selectedProject = p.id;
-        urlProjectFound = true;
-      } else {
-        opt.value = p.isCurrent && !urlProject ? '' : p.id;
-        opt.textContent = p.name + (p.isCurrent && !urlProject ? ' ●' : '');
-        opt.title = p.id;
-        if (p.isCurrent && !urlProject) opt.selected = true;
+    // Determine active project
+    let active = allProjects.find(p => p.isCurrent);
+    if (urlProject) {
+      const urlMatch = allProjects.find(p => p.id === urlProject);
+      if (urlMatch) {
+        active = urlMatch;
+        selectedProject = urlMatch.id;
+        Object.keys(loaded).forEach(k => delete loaded[k]);
+        loadPage(currentPage);
       }
-      select.appendChild(opt);
     }
+    if (!active) active = allProjects[0];
 
-    // If URL project was set, clear caches and reload
-    if (urlProjectFound) {
-      Object.keys(loaded).forEach(k => delete loaded[k]);
-      loadPage(currentPage);
-    }
+    updateTrigger(active);
+    renderProjectList(allProjects, active);
   } catch {
-    select.innerHTML = '<option value="">Error</option>';
+    nameEl.textContent = 'Error';
   }
 
-  // Switch handler
-  select.addEventListener('change', () => {
-    selectedProject = select.value;
-    // Clear all cached pages and reload current
-    Object.keys(loaded).forEach(k => delete loaded[k]);
-    loadPage(currentPage);
+  // Toggle dropdown
+  trigger.addEventListener('click', (e) => {
+    e.stopPropagation();
+    switcher.classList.toggle('open');
+    if (switcher.classList.contains('open')) {
+      searchEl.value = '';
+      searchEl.focus();
+      renderProjectList(allProjects);
+    }
   });
+
+  // Close on outside click
+  document.addEventListener('click', (e) => {
+    if (!switcher.contains(e.target)) {
+      switcher.classList.remove('open');
+    }
+  });
+
+  // Search filter
+  searchEl.addEventListener('input', () => {
+    const q = searchEl.value.toLowerCase();
+    const filtered = allProjects.filter(p =>
+      p.name.toLowerCase().includes(q) || p.id.toLowerCase().includes(q)
+    );
+    renderProjectList(filtered);
+  });
+
+  // Keyboard: Escape closes
+  searchEl.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') switcher.classList.remove('open');
+  });
+
+  function updateTrigger(project) {
+    nameEl.textContent = project.name;
+    nameEl.title = project.id;
+    countEl.textContent = project.count || '';
+  }
+
+  function renderProjectList(projects, activeOverride) {
+    const activeId = activeOverride ? activeOverride.id : (selectedProject || allProjects.find(p => p.isCurrent)?.id || '');
+    listEl.innerHTML = projects.map(p => `
+      <button class="project-item${p.id === activeId || (p.isCurrent && !activeId) ? ' active' : ''}"
+              data-id="${escapeHtml(p.id)}" title="${escapeHtml(p.id)}">
+        <span class="project-item-dot"></span>
+        <span class="project-item-name">${escapeHtml(p.name)}</span>
+        <span class="project-item-count">${p.count}</span>
+      </button>
+    `).join('');
+
+    // Click handlers
+    listEl.querySelectorAll('.project-item').forEach(item => {
+      item.addEventListener('click', () => {
+        const id = item.dataset.id;
+        const project = allProjects.find(p => p.id === id);
+        if (!project) return;
+
+        selectedProject = project.isCurrent ? '' : project.id;
+        updateTrigger(project);
+        switcher.classList.remove('open');
+
+        // Mark active
+        listEl.querySelectorAll('.project-item').forEach(el => el.classList.remove('active'));
+        item.classList.add('active');
+
+        // Reload pages
+        Object.keys(loaded).forEach(k => delete loaded[k]);
+        loadPage(currentPage);
+      });
+    });
+  }
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -598,7 +660,8 @@ async function loadGraph() {
 }
 
 // ============================================================
-// Canvas-based Force-Directed Graph (Enhanced)
+// Canvas-based Force-Directed Graph — InfraNodus Style
+// Solid glowing nodes, colored gradient edges, labels on nodes
 // ============================================================
 
 function renderGraph(graph) {
@@ -617,218 +680,293 @@ function renderGraph(graph) {
   const W = rect.width;
   const H = rect.height;
 
+  // --- InfraNodus-inspired vibrant palette ---
+  const palette = [
+    '#22c55e', '#f97316', '#a855f7', '#06b6d4',
+    '#eab308', '#ec4899', '#3b82f6', '#ef4444',
+  ];
   const typeColors = {};
-  const palette = ['#00d4ff', '#a855f7', '#ec4899', '#10b981', '#f59e0b', '#3b82f6', '#ef4444', '#f97316'];
   let colorIdx = 0;
   function getTypeColor(type) {
     if (!typeColors[type]) { typeColors[type] = palette[colorIdx % palette.length]; colorIdx++; }
     return typeColors[type];
   }
 
-  // Bigger nodes, wider spread
-  const nodes = graph.entities.map((e) => ({
-    id: e.name, type: e.entityType, observations: e.observations,
-    x: W / 2 + (Math.random() - 0.5) * W * 0.7,
-    y: H / 2 + (Math.random() - 0.5) * H * 0.7,
-    vx: 0, vy: 0,
-    radius: Math.min(10 + e.observations.length * 3, 32),
-    color: getTypeColor(e.entityType),
-  }));
+  // Detect if one type dominates — if so, use name-hash for color variety
+  const typeCounts = {};
+  graph.entities.forEach(e => { typeCounts[e.entityType] = (typeCounts[e.entityType] || 0) + 1; });
+  const maxTypeCount = Math.max(...Object.values(typeCounts));
+  const useNameHash = maxTypeCount > graph.entities.length * 0.6;
+
+  function hashColor(name) {
+    let h = 0;
+    for (let i = 0; i < name.length; i++) h = ((h << 5) - h + name.charCodeAt(i)) | 0;
+    return palette[((h % palette.length) + palette.length) % palette.length];
+  }
+
+  // --- Build nodes & edges ---
+  const nodes = graph.entities.map((e) => {
+    const obsCount = e.observations.length;
+    return {
+      id: e.name, type: e.entityType, observations: e.observations,
+      x: (Math.random() - 0.5) * W * 0.5,
+      y: (Math.random() - 0.5) * H * 0.5,
+      vx: 0, vy: 0,
+      baseRadius: Math.max(5, Math.min(4 + Math.sqrt(obsCount) * 3, 20)),
+      radius: 0,
+      color: useNameHash ? hashColor(e.name) : getTypeColor(e.entityType),
+      degree: 0,
+    };
+  });
   const nodeMap = {};
   nodes.forEach(n => nodeMap[n.id] = n);
 
   const edges = graph.relations
     .filter(r => nodeMap[r.from] && nodeMap[r.to])
-    .map(r => ({ source: nodeMap[r.from], target: nodeMap[r.to], type: r.relationType }));
+    .map(r => {
+      nodeMap[r.from].degree++;
+      nodeMap[r.to].degree++;
+      return { source: nodeMap[r.from], target: nodeMap[r.to], type: r.relationType };
+    });
 
-  // Stronger repulsion to fill the canvas
-  const REPULSION = 8000;
-  const ATTRACTION = 0.003;
+  // Ensure typeColors populated for legend
+  Object.keys(typeCounts).forEach(t => getTypeColor(t));
+
+  // Node sizing: smaller circles (labels are the visual identity in InfraNodus)
+  const maxDegree = Math.max(1, ...nodes.map(n => n.degree));
+  nodes.forEach(n => {
+    const degreeBoost = (n.degree / maxDegree) * 12;
+    n.radius = Math.min(n.baseRadius * 0.7 + degreeBoost, 24);
+  });
+
+  // --- Camera (zoom & pan) ---
+  let cam = { x: 0, y: 0, zoom: 1 };
+  function worldToScreen(wx, wy) {
+    return { x: (wx - cam.x) * cam.zoom + W / 2, y: (wy - cam.y) * cam.zoom + H / 2 };
+  }
+  function screenToWorld(sx, sy) {
+    return { x: (sx - W / 2) / cam.zoom + cam.x, y: (sy - H / 2) / cam.zoom + cam.y };
+  }
+
+  // --- Physics (organic layout, not circular) ---
+  const REPULSION = 3000;
+  const ATTRACTION = 0.008;
   const DAMPING = 0.82;
-  const CENTER_GRAVITY = 0.008;
+  const IDEAL_DIST = 70;
 
   let animating = true;
   let hoveredNode = null;
   let selectedNode = null;
   let dragNode = null;
-  let pulsePhase = 0;
+  let panStart = null;
+  let simTick = 0;
+
+  // Group nodes by color for clustered initial placement
+  const colorGroups = {};
+  nodes.forEach(n => { (colorGroups[n.color] = colorGroups[n.color] || []).push(n); });
+  const groupKeys = Object.keys(colorGroups);
+  groupKeys.forEach((color, gi) => {
+    const angle = (gi / groupKeys.length) * Math.PI * 2;
+    const groupR = Math.min(W, H) * 0.15;
+    const cx = Math.cos(angle) * groupR;
+    const cy = Math.sin(angle) * groupR;
+    colorGroups[color].forEach(n => {
+      n.x = cx + (Math.random() - 0.5) * groupR * 0.8;
+      n.y = cy + (Math.random() - 0.5) * groupR * 0.8;
+    });
+  });
 
   function simulate() {
+    simTick++;
+    // Repulsion
     for (let i = 0; i < nodes.length; i++) {
       for (let j = i + 1; j < nodes.length; j++) {
         const a = nodes[i], b = nodes[j];
         let dx = b.x - a.x, dy = b.y - a.y;
         let dist = Math.sqrt(dx * dx + dy * dy) || 1;
         let force = REPULSION / (dist * dist);
+        // Same-color nodes repel less (stay closer → clusters)
+        if (a.color === b.color) force *= 0.5;
         let fx = (dx / dist) * force, fy = (dy / dist) * force;
         a.vx -= fx; a.vy -= fy;
         b.vx += fx; b.vy += fy;
       }
     }
+    // Attraction (edges)
     for (const edge of edges) {
       let dx = edge.target.x - edge.source.x, dy = edge.target.y - edge.source.y;
       let dist = Math.sqrt(dx * dx + dy * dy) || 1;
-      let force = (dist - 150) * ATTRACTION;
+      let force = (dist - IDEAL_DIST) * ATTRACTION;
       let fx = (dx / dist) * force, fy = (dy / dist) * force;
       edge.source.vx += fx; edge.source.vy += fy;
       edge.target.vx -= fx; edge.target.vy -= fy;
     }
+    // Weak center gravity (connected nodes stronger, isolated weaker)
     for (const node of nodes) {
-      node.vx += (W / 2 - node.x) * CENTER_GRAVITY;
-      node.vy += (H / 2 - node.y) * CENTER_GRAVITY;
+      const grav = node.degree > 0 ? 0.006 : 0.002;
+      node.vx += (0 - node.x) * grav;
+      node.vy += (0 - node.y) * grav;
     }
+    // Random jitter in early frames to break symmetry
+    const jitter = simTick < 100 ? 0.3 : 0;
     let totalMovement = 0;
     for (const node of nodes) {
       if (node === dragNode) continue;
       node.vx *= DAMPING; node.vy *= DAMPING;
+      if (jitter > 0) {
+        node.vx += (Math.random() - 0.5) * jitter;
+        node.vy += (Math.random() - 0.5) * jitter;
+      }
       node.x += node.vx; node.y += node.vy;
-      node.x = Math.max(node.radius + 20, Math.min(W - node.radius - 20, node.x));
-      node.y = Math.max(node.radius + 20, Math.min(H - node.radius - 20, node.y));
       totalMovement += Math.abs(node.vx) + Math.abs(node.vy);
     }
     return totalMovement;
   }
 
-  function getGraphColors() {
-    const isLight = document.documentElement.getAttribute('data-theme') === 'light';
-    return {
-      edgeNormal: isLight ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.06)',
-      edgeHighlight: isLight ? 'rgba(0,0,0,0.25)' : 'rgba(255,255,255,0.25)',
-      edgeLabel: isLight ? 'rgba(0,0,0,0.45)' : 'rgba(255,255,255,0.45)',
-      labelNormal: isLight ? 'rgba(0,0,0,0.55)' : 'rgba(255,255,255,0.6)',
-      labelHover: isLight ? '#1a1a2e' : '#ffffff',
-    };
+  function isLight() { return document.documentElement.getAttribute('data-theme') === 'light'; }
+
+  function hexRGBA(hex, alpha) {
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    return `rgba(${r},${g},${b},${alpha})`;
   }
 
+  // --- Draw (InfraNodus style) ---
   function draw() {
     ctx.clearRect(0, 0, W, H);
-    const colors = getGraphColors();
-    pulsePhase += 0.02;
+    const light = isLight();
 
-    // Edges with curve + arrow
+    // --- Edges: ALL colored with gradient (InfraNodus signature) ---
     for (const edge of edges) {
       const isActive = (hoveredNode && (edge.source === hoveredNode || edge.target === hoveredNode))
         || (selectedNode && (edge.source === selectedNode || edge.target === selectedNode));
-      const mx = (edge.source.x + edge.target.x) / 2;
-      const my = (edge.source.y + edge.target.y) / 2;
-      const dx = edge.target.x - edge.source.x;
-      const dy = edge.target.y - edge.source.y;
-      const ox = -dy * 0.08, oy = dx * 0.08;
+      const s = worldToScreen(edge.source.x, edge.source.y);
+      const t2 = worldToScreen(edge.target.x, edge.target.y);
+      const mx = (s.x + t2.x) / 2, my = (s.y + t2.y) / 2;
+      const dx = t2.x - s.x, dy = t2.y - s.y;
+      const edgeLen = Math.sqrt(dx * dx + dy * dy);
+      const ox = -dy * 0.05, oy = dx * 0.05;
+
+      if (edge.source._dimmed || edge.target._dimmed) { ctx.globalAlpha = 0.03; }
 
       ctx.beginPath();
-      ctx.moveTo(edge.source.x, edge.source.y);
-      ctx.quadraticCurveTo(mx + ox, my + oy, edge.target.x, edge.target.y);
-      ctx.strokeStyle = isActive ? colors.edgeHighlight : colors.edgeNormal;
-      ctx.lineWidth = isActive ? 2 : 1;
+      ctx.moveTo(s.x, s.y);
+      ctx.quadraticCurveTo(mx + ox, my + oy, t2.x, t2.y);
+
+      // Fix: avoid degenerate gradient when endpoints overlap
+      let edgeStyle;
+      if (edgeLen < 2) {
+        edgeStyle = hexRGBA(edge.source.color, isActive ? 0.8 : 0.3);
+      } else {
+        const grad = ctx.createLinearGradient(s.x, s.y, t2.x, t2.y);
+        if (isActive) {
+          grad.addColorStop(0, hexRGBA(edge.source.color, 0.8));
+          grad.addColorStop(1, hexRGBA(edge.target.color, 0.8));
+        } else {
+          grad.addColorStop(0, hexRGBA(edge.source.color, light ? 0.2 : 0.35));
+          grad.addColorStop(1, hexRGBA(edge.target.color, light ? 0.2 : 0.35));
+        }
+        edgeStyle = grad;
+      }
+      ctx.strokeStyle = edgeStyle;
+      ctx.lineWidth = isActive ? 2.5 * cam.zoom : Math.max(0.8, 1.2 * cam.zoom);
       ctx.stroke();
 
-      // Arrow
-      const as = isActive ? 8 : 5;
-      const angle = Math.atan2(edge.target.y - (my + oy), edge.target.x - (mx + ox));
-      const tx = edge.target.x - Math.cos(angle) * edge.target.radius;
-      const ty = edge.target.y - Math.sin(angle) * edge.target.radius;
-      ctx.beginPath();
-      ctx.moveTo(tx, ty);
-      ctx.lineTo(tx - as * Math.cos(angle - 0.3), ty - as * Math.sin(angle - 0.3));
-      ctx.lineTo(tx - as * Math.cos(angle + 0.3), ty - as * Math.sin(angle + 0.3));
-      ctx.closePath();
-      ctx.fillStyle = isActive ? colors.edgeHighlight : colors.edgeNormal;
-      ctx.fill();
-
+      // Active edge: label
       if (isActive) {
-        ctx.font = '10px Inter, sans-serif';
-        ctx.fillStyle = colors.edgeLabel;
+        ctx.font = `500 ${Math.max(9, 10 * cam.zoom)}px Inter, sans-serif`;
+        ctx.fillStyle = light ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.6)';
         ctx.textAlign = 'center';
-        ctx.fillText(edge.type, mx + ox, my + oy - 6);
-
-        // Flowing particle animation along active edges
-        const particleCount = 2;
-        for (let p = 0; p < particleCount; p++) {
-          const t = ((pulsePhase * 0.5 + p / particleCount) % 1);
-          // Quadratic bezier interpolation: source → control → target
-          const cx = mx + ox, cy = my + oy;
-          const px = (1 - t) * (1 - t) * edge.source.x + 2 * (1 - t) * t * cx + t * t * edge.target.x;
-          const py = (1 - t) * (1 - t) * edge.source.y + 2 * (1 - t) * t * cy + t * t * edge.target.y;
-          ctx.beginPath();
-          ctx.arc(px, py, 3, 0, Math.PI * 2);
-          ctx.fillStyle = (edge.source.color || '#00d4ff') + 'cc';
-          ctx.fill();
-        }
+        ctx.fillText(edge.type, mx + ox, my + oy - 6 * cam.zoom);
       }
-    }
-
-    // Nodes
-    for (const node of nodes) {
-      const active = node === hoveredNode || node === selectedNode;
-
-      // Legend hover dimming
-      if (node._dimmed) {
-        ctx.globalAlpha = 0.15;
-      }
-
-      // Glow + dashed ring
-      if (active) {
-        const pr = node.radius + 12 + Math.sin(pulsePhase * 3) * 3;
-        ctx.beginPath();
-        ctx.arc(node.x, node.y, pr, 0, Math.PI * 2);
-        const g = ctx.createRadialGradient(node.x, node.y, node.radius, node.x, node.y, pr);
-        g.addColorStop(0, node.color + '30');
-        g.addColorStop(1, node.color + '00');
-        ctx.fillStyle = g;
-        ctx.fill();
-        ctx.beginPath();
-        ctx.arc(node.x, node.y, node.radius + 6, 0, Math.PI * 2);
-        ctx.setLineDash([3, 3]);
-        ctx.strokeStyle = node.color + '50';
-        ctx.lineWidth = 1;
-        ctx.stroke();
-        ctx.setLineDash([]);
-      }
-
-      // Main sphere with gradient
-      ctx.beginPath();
-      ctx.arc(node.x, node.y, node.radius, 0, Math.PI * 2);
-      const ng = ctx.createRadialGradient(node.x - node.radius * 0.3, node.y - node.radius * 0.3, 0, node.x, node.y, node.radius);
-      ng.addColorStop(0, node.color);
-      ng.addColorStop(1, node.color + (active ? 'cc' : '99'));
-      ctx.fillStyle = ng;
-      ctx.fill();
-
-      // Inner highlight
-      ctx.beginPath();
-      ctx.arc(node.x - node.radius * 0.2, node.y - node.radius * 0.2, node.radius * 0.3, 0, Math.PI * 2);
-      ctx.fillStyle = 'rgba(255,255,255,0.15)';
-      ctx.fill();
-
-      // Label
-      ctx.font = `${active ? '600' : '400'} ${active ? 13 : 11}px Inter, sans-serif`;
-      ctx.fillStyle = active ? colors.labelHover : colors.labelNormal;
-      ctx.textAlign = 'center';
-      ctx.fillText(node.id, node.x, node.y + node.radius + 18);
-
-      // Obs count badge
-      if (node.observations.length > 0) {
-        const bx = node.x + node.radius * 0.6, by = node.y - node.radius * 0.6;
-        ctx.beginPath();
-        ctx.arc(bx, by, 8, 0, Math.PI * 2);
-        ctx.fillStyle = node.color;
-        ctx.fill();
-        ctx.font = 'bold 8px Inter, sans-serif';
-        ctx.fillStyle = '#fff';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(String(node.observations.length), bx, by);
-        ctx.textBaseline = 'alphabetic';
-      }
-
-      // Reset alpha after dimming
       ctx.globalAlpha = 1;
     }
 
-    if (selectedNode && !animating) requestAnimationFrame(draw);
+    // --- Nodes: solid filled with subtle glow (InfraNodus style) ---
+    for (const node of nodes) {
+      const active = node === hoveredNode || node === selectedNode;
+      const p = worldToScreen(node.x, node.y);
+      const r = node.radius * cam.zoom;
+
+      if (p.x + r * 4 < 0 || p.x - r * 4 > W || p.y + r * 4 < 0 || p.y - r * 4 > H) continue;
+      if (node._dimmed) { ctx.globalAlpha = 0.08; }
+
+      // --- Subtle outer glow (reduced in light mode) ---
+      const glowAlpha = light ? (active ? 0.15 : 0.06) : (active ? 0.35 : 0.12);
+      const glowR = r * (active ? 3.5 : 2.2);
+      const glow = ctx.createRadialGradient(p.x, p.y, r * 0.3, p.x, p.y, glowR);
+      glow.addColorStop(0, hexRGBA(node.color, glowAlpha));
+      glow.addColorStop(1, hexRGBA(node.color, 0));
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, glowR, 0, Math.PI * 2);
+      ctx.fillStyle = glow;
+      ctx.fill();
+
+      // --- Solid filled node ---
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+      ctx.fillStyle = node.color;
+      ctx.fill();
+
+      // Specular highlight
+      if (r > 4) {
+        const spec = ctx.createRadialGradient(
+          p.x - r * 0.3, p.y - r * 0.3, 0,
+          p.x, p.y, r * 0.9
+        );
+        spec.addColorStop(0, 'rgba(255,255,255,0.3)');
+        spec.addColorStop(0.5, 'rgba(255,255,255,0.05)');
+        spec.addColorStop(1, 'rgba(255,255,255,0)');
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+        ctx.fillStyle = spec;
+        ctx.fill();
+      }
+
+      // --- Labels: InfraNodus style — NODE COLOR text, size ~ importance ---
+      const isImportant = node.degree >= maxDegree * 0.2 || node.radius >= 14;
+      const showLabel = active || isImportant || cam.zoom > 0.6;
+
+      if (showLabel) {
+        // InfraNodus: important labels are HUGE (up to 28px), small ones ~9px
+        const baseFontSize = active ? 18 : (isImportant ? Math.min(12 + node.radius * 0.6, 28) : 9);
+        const fontSize = Math.max(7, baseFontSize * cam.zoom);
+        ctx.font = `${active || isImportant ? '700' : '400'} ${fontSize}px Inter, sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+
+        const labelText = node.id.length > 24 && !active ? node.id.slice(0, 22) + '…' : node.id;
+
+        // Text shadow for readability
+        ctx.strokeStyle = light ? 'rgba(255,255,255,0.85)' : 'rgba(0,0,0,0.75)';
+        ctx.lineWidth = light ? 3 : 2.5;
+        ctx.lineJoin = 'round';
+        ctx.strokeText(labelText, p.x, p.y);
+
+        // Main text in NODE COLOR (InfraNodus signature)
+        ctx.fillStyle = active ? (light ? '#000' : '#fff') : node.color;
+        ctx.fillText(labelText, p.x, p.y);
+        ctx.textBaseline = 'alphabetic';
+      }
+
+      ctx.globalAlpha = 1;
+    }
+
+    // --- Zoom indicator ---
+    const zoomPct = Math.round(cam.zoom * 100);
+    if (zoomPct !== 100) {
+      ctx.font = '500 11px Inter, sans-serif';
+      ctx.fillStyle = light ? 'rgba(0,0,0,0.3)' : 'rgba(255,255,255,0.25)';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'alphabetic';
+      ctx.fillText(`${zoomPct}%`, 12, H - 12);
+    }
+
+    if ((selectedNode || hoveredNode) && !animating) requestAnimationFrame(draw);
   }
 
-  // --- Knowledge Graph Legend ---
+  // --- Legend ---
   function buildLegend() {
     let existing = container.querySelector('.graph-legend');
     if (existing) existing.remove();
@@ -844,45 +982,41 @@ function renderGraph(graph) {
       font-family: 'Inter', sans-serif; font-size: 11px;
       color: var(--text-secondary);
       box-shadow: 0 4px 24px rgba(0,0,0,0.12);
-      transition: opacity 0.3s;
     `;
 
-    // Type stats
     const typeCount = {};
     nodes.forEach(n => { typeCount[n.type] = (typeCount[n.type] || 0) + 1; });
 
-    // Title
     const title = document.createElement('div');
-    title.style.cssText = 'font-weight: 600; font-size: 11px; margin-bottom: 8px; color: var(--text-primary); letter-spacing: 0.5px; text-transform: uppercase;';
+    title.style.cssText = 'font-weight: 600; font-size: 10px; margin-bottom: 8px; color: var(--text-muted); letter-spacing: 0.8px; text-transform: uppercase;';
     title.textContent = t('legend') || 'Legend';
     legend.appendChild(title);
 
-    // Type entries
     Object.entries(typeCount)
       .sort((a, b) => b[1] - a[1])
       .forEach(([type, count]) => {
         const row = document.createElement('div');
-        row.style.cssText = 'display: flex; align-items: center; gap: 8px; padding: 3px 4px; border-radius: 6px; cursor: pointer; transition: background 0.2s;';
+        row.style.cssText = 'display: flex; align-items: center; gap: 8px; padding: 4px 6px; border-radius: 6px; cursor: pointer; transition: background 0.15s;';
 
         const dot = document.createElement('span');
-        dot.style.cssText = `width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; background: ${typeColors[type] || '#666'}; box-shadow: 0 0 6px ${typeColors[type] || '#666'}44;`;
+        dot.style.cssText = `width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; background: ${typeColors[type] || '#666'}; box-shadow: 0 0 8px ${typeColors[type] || '#666'}40;`;
 
         const label = document.createElement('span');
-        label.style.cssText = 'flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;';
+        label.style.cssText = 'flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 11px;';
         label.textContent = type;
 
         const badge = document.createElement('span');
-        badge.style.cssText = 'font-size: 10px; opacity: 0.6;';
+        badge.style.cssText = 'font-size: 10px; opacity: 0.5; font-family: var(--font-mono);';
         badge.textContent = count;
 
         row.appendChild(dot);
         row.appendChild(label);
         row.appendChild(badge);
 
-        // Hover to highlight same-type nodes
         row.addEventListener('mouseenter', () => {
           row.style.background = 'var(--bg-card-hover)';
           nodes.forEach(n => { n._dimmed = n.type !== type; });
+          edges.forEach(e => {}); // edges handled via source/target._dimmed
           draw();
         });
         row.addEventListener('mouseleave', () => {
@@ -894,11 +1028,30 @@ function renderGraph(graph) {
         legend.appendChild(row);
       });
 
-    // Stats footer
     const stats = document.createElement('div');
-    stats.style.cssText = 'margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border-subtle); font-size: 10px; opacity: 0.5;';
+    stats.style.cssText = 'margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border-subtle); font-size: 10px; opacity: 0.4; font-family: var(--font-mono);';
     stats.textContent = `${nodes.length} nodes · ${edges.length} edges`;
     legend.appendChild(stats);
+
+    // Zoom controls
+    const controls = document.createElement('div');
+    controls.style.cssText = 'display: flex; gap: 4px; margin-top: 8px;';
+    const zoomIn = document.createElement('button');
+    zoomIn.textContent = '+';
+    zoomIn.style.cssText = 'flex:1; padding: 4px; border: 1px solid var(--border-subtle); background: transparent; color: var(--text-secondary); border-radius: 4px; cursor: pointer; font-size: 13px; font-weight: 600;';
+    zoomIn.onclick = () => { cam.zoom = Math.min(cam.zoom * 1.3, 4); draw(); };
+    const zoomOut = document.createElement('button');
+    zoomOut.textContent = '−';
+    zoomOut.style.cssText = zoomIn.style.cssText;
+    zoomOut.onclick = () => { cam.zoom = Math.max(cam.zoom / 1.3, 0.2); draw(); };
+    const zoomReset = document.createElement('button');
+    zoomReset.textContent = '⟳';
+    zoomReset.style.cssText = zoomIn.style.cssText;
+    zoomReset.onclick = () => { cam = { x: 0, y: 0, zoom: 1 }; draw(); };
+    controls.appendChild(zoomOut);
+    controls.appendChild(zoomReset);
+    controls.appendChild(zoomIn);
+    legend.appendChild(controls);
 
     container.style.position = 'relative';
     container.appendChild(legend);
@@ -925,7 +1078,7 @@ function renderGraph(graph) {
 
     panel.innerHTML = `
       <div class="graph-detail-header">
-        <div class="graph-detail-dot" style="background:${node.color}"></div>
+        <div class="graph-detail-dot" style="background:${node.color};box-shadow:0 0 10px ${hexRGBA(node.color, 0.5)}"></div>
         <div>
           <div class="graph-detail-name">${escapeHtml(node.id)}</div>
           <div class="graph-detail-type">${escapeHtml(node.type)}</div>
@@ -942,30 +1095,72 @@ function renderGraph(graph) {
     `;
   }
 
+  // --- Animation loop ---
   function tick() {
     const movement = simulate();
     draw();
-    if (animating && movement > 0.1) requestAnimationFrame(tick);
+    if (movement > 0.1) {
+      requestAnimationFrame(tick);
+    } else {
+      animating = false;
+    }
+  }
+
+  function wakeUp() {
+    if (!animating) {
+      animating = true;
+      // Give nodes a tiny nudge so simulation doesn't immediately stop
+      nodes.forEach(n => {
+        n.vx += (Math.random() - 0.5) * 0.5;
+        n.vy += (Math.random() - 0.5) * 0.5;
+      });
+      tick();
+    }
+  }
+
+  // --- Mouse interaction ---
+  function getMouseWorld(e) {
+    const r = canvas.getBoundingClientRect();
+    return screenToWorld(e.clientX - r.left, e.clientY - r.top);
   }
 
   canvas.addEventListener('mousemove', (e) => {
     const r = canvas.getBoundingClientRect();
-    const mx = e.clientX - r.left, my = e.clientY - r.top;
-    if (dragNode) { dragNode.x = mx; dragNode.y = my; dragNode.vx = 0; dragNode.vy = 0; draw(); return; }
+    const sx = e.clientX - r.left, sy = e.clientY - r.top;
+
+    // Panning
+    if (panStart) {
+      cam.x -= (e.movementX) / cam.zoom;
+      cam.y -= (e.movementY) / cam.zoom;
+      draw();
+      return;
+    }
+
+    // Dragging node
+    if (dragNode) {
+      const w = screenToWorld(sx, sy);
+      dragNode.x = w.x; dragNode.y = w.y;
+      dragNode.vx = 0; dragNode.vy = 0;
+      draw();
+      return;
+    }
+
+    // Hit test
+    const w = screenToWorld(sx, sy);
     let found = null;
     for (const node of nodes) {
-      const dx = mx - node.x, dy = my - node.y;
-      if (dx * dx + dy * dy < (node.radius + 6) * (node.radius + 6)) { found = node; break; }
+      const dx = w.x - node.x, dy = w.y - node.y;
+      if (dx * dx + dy * dy < (node.radius + 4) * (node.radius + 4)) { found = node; break; }
     }
     if (found !== hoveredNode) {
       hoveredNode = found;
-      canvas.style.cursor = found ? 'pointer' : 'default';
+      canvas.style.cursor = found ? 'pointer' : 'grab';
       if (found) {
         const tt = document.getElementById('graph-tooltip');
         tt.querySelector('.graph-tooltip-name').textContent = found.id;
         tt.querySelector('.graph-tooltip-type').textContent = `${found.type} · ${found.observations.length} ${t('observation_s')}`;
-        tt.style.left = (mx + 16) + 'px';
-        tt.style.top = (my - 20) + 'px';
+        tt.style.left = (sx + 16) + 'px';
+        tt.style.top = (sy - 20) + 'px';
         tt.classList.add('visible');
       } else {
         document.getElementById('graph-tooltip').classList.remove('visible');
@@ -973,13 +1168,55 @@ function renderGraph(graph) {
       draw();
     }
   });
-  canvas.addEventListener('mousedown', () => { if (hoveredNode) { dragNode = hoveredNode; canvas.style.cursor = 'grabbing'; } });
-  canvas.addEventListener('mouseup', () => { if (dragNode) { dragNode = null; canvas.style.cursor = hoveredNode ? 'pointer' : 'default'; animating = true; tick(); } });
-  canvas.addEventListener('click', () => { if (hoveredNode) { selectedNode = hoveredNode; showDetail(selectedNode); draw(); } });
-  canvas.addEventListener('mouseleave', () => { hoveredNode = null; dragNode = null; document.getElementById('graph-tooltip').classList.remove('visible'); draw(); });
 
+  canvas.addEventListener('mousedown', (e) => {
+    if (hoveredNode) {
+      dragNode = hoveredNode;
+      canvas.style.cursor = 'grabbing';
+    } else {
+      panStart = { x: e.clientX, y: e.clientY };
+      canvas.style.cursor = 'grabbing';
+    }
+  });
+
+  canvas.addEventListener('mouseup', () => {
+    if (dragNode) { dragNode = null; canvas.style.cursor = hoveredNode ? 'pointer' : 'grab'; wakeUp(); }
+    if (panStart) { panStart = null; canvas.style.cursor = hoveredNode ? 'pointer' : 'grab'; }
+  });
+
+  canvas.addEventListener('click', () => {
+    if (hoveredNode) { selectedNode = hoveredNode; showDetail(selectedNode); wakeUp(); }
+  });
+
+  canvas.addEventListener('mouseleave', () => {
+    hoveredNode = null; dragNode = null; panStart = null;
+    document.getElementById('graph-tooltip').classList.remove('visible');
+    draw();
+  });
+
+  // Zoom with mouse wheel
+  canvas.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const factor = e.deltaY > 0 ? 0.9 : 1.1;
+    const newZoom = Math.max(0.15, Math.min(cam.zoom * factor, 5));
+    // Zoom toward mouse position
+    const r = canvas.getBoundingClientRect();
+    const mx = e.clientX - r.left, my = e.clientY - r.top;
+    const wx = (mx - W / 2) / cam.zoom + cam.x;
+    const wy = (my - H / 2) / cam.zoom + cam.y;
+    cam.zoom = newZoom;
+    cam.x = wx - (mx - W / 2) / cam.zoom;
+    cam.y = wy - (my - H / 2) / cam.zoom;
+    draw();
+  }, { passive: false });
+
+  // Start with a slight zoom-out for large graphs
+  if (nodes.length > 60) cam.zoom = 0.55;
+  else if (nodes.length > 30) cam.zoom = 0.7;
+
+  canvas.style.cursor = 'grab';
   tick();
-  setTimeout(() => { animating = false; }, 8000);
+  setTimeout(() => { animating = false; }, 6000);
 }
 
 // ============================================================
@@ -1187,8 +1424,8 @@ function renderObsList() {
     const isSelected = selectedIds.has(obs.id);
     const hl = (text) => obsFilter ? escapeHtml(text).replace(new RegExp(`(${escapeHtml(obsFilter).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi'), '<mark>$1</mark>') : escapeHtml(text);
     return `
-    <div class="obs-card${isLow ? ' low-quality' : ''}" data-obs-id="${obs.id}">
-      <div class="obs-card-header" onclick="toggleObsDetail(${obs.id})">
+    <div class="obs-card${isLow ? ' low-quality' : ''}" data-obs-id="${obs.id}" onclick="toggleObsDetail(${obs.id})" style="cursor:pointer;">
+      <div class="obs-card-header">
         ${batchMode ? `<input type="checkbox" class="obs-checkbox" ${isSelected ? 'checked' : ''} onclick="event.stopPropagation(); toggleObsSelect(${obs.id});" />` : ''}
         <span class="obs-card-id">#${obs.id}</span>
         <span class="type-badge" data-type="${obs.type || 'unknown'}">
@@ -1204,6 +1441,7 @@ function renderObsList() {
         ${obs.accessCount ? `<span>👁 ${obs.accessCount}</span>` : ''}
       </div>
       <div class="obs-detail" id="obs-detail-${obs.id}" style="display:none;">
+       <div class="obs-detail-inner">
         ${obs.narrative ? `<div class="obs-detail-section"><label>${t('narrative')}</label><div class="obs-card-narrative">${hl(obs.narrative)}</div></div>` : ''}
         ${obs.facts && obs.facts.length > 0 ? `<div class="obs-detail-section"><label>${t('facts')}</label><div class="obs-card-facts">${obs.facts.map(f => `<span class="fact-tag">${hl(f)}</span>`).join('')}</div></div>` : ''}
         ${obs.concepts && obs.concepts.length > 0 ? `<div class="obs-detail-section"><label>${t('concepts')}</label><div class="obs-card-facts">${obs.concepts.map(c => `<span class="fact-tag concept-tag">${hl(c)}</span>`).join('')}</div></div>` : ''}
@@ -1214,6 +1452,7 @@ function renderObsList() {
             ${t('deleteObs')}
           </button>
         </div>
+       </div>
       </div>
     </div>
   `;
@@ -1318,25 +1557,40 @@ function toggleObsDetail(id) {
   const isOpen = card.classList.contains('expanded');
 
   if (isOpen) {
-    // Collapse with animation
+    // Collapse: only animate max-height + opacity (inner div has padding/border)
+    detail.style.transition = 'none';
     detail.style.maxHeight = detail.scrollHeight + 'px';
+    detail.offsetHeight;
+    detail.style.transition = '';
     requestAnimationFrame(() => {
       detail.style.maxHeight = '0';
       detail.style.opacity = '0';
     });
-    setTimeout(() => { detail.style.display = 'none'; }, 300);
+    const onEnd = (e) => {
+      if (e.propertyName !== 'max-height') return;
+      detail.removeEventListener('transitionend', onEnd);
+      detail.style.display = 'none';
+    };
+    detail.addEventListener('transitionend', onEnd);
     card.classList.remove('expanded');
   } else {
-    // Expand with animation
+    // Expand: only animate max-height + opacity
+    detail.style.transition = 'none';
     detail.style.display = 'block';
     detail.style.maxHeight = '0';
     detail.style.opacity = '0';
+    detail.offsetHeight;
+    detail.style.transition = '';
     requestAnimationFrame(() => {
       detail.style.maxHeight = detail.scrollHeight + 'px';
       detail.style.opacity = '1';
     });
-    // Remove max-height constraint after animation
-    setTimeout(() => { detail.style.maxHeight = 'none'; }, 300);
+    const onEnd = (e) => {
+      if (e.propertyName !== 'max-height') return;
+      detail.removeEventListener('transitionend', onEnd);
+      detail.style.maxHeight = 'none';
+    };
+    detail.addEventListener('transitionend', onEnd);
     card.classList.add('expanded');
   }
 

@@ -50,9 +50,9 @@ export default defineCommand({
     async run({ args }) {
         const project = detectProject();
 
-        if (project.id === '__invalid__') {
-            console.error('❌ Not in a valid project directory.');
-            process.exit(1);
+        if (project.id.startsWith('placeholder/')) {
+            console.error('⚠️ Not in a valid project directory — using degraded mode.');
+            console.error('Set MEMORIX_PROJECT_ROOT or --cwd for best results.');
         }
 
         console.log(`\n📦 Project: ${project.name} (${project.id})\n`);

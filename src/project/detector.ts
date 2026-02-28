@@ -31,12 +31,14 @@ export function detectProject(cwd?: string): ProjectInfo {
   }
 
   // Validate the root before creating a fallback project.
-  // This prevents home dirs, system dirs, and IDE config dirs from
-  // becoming phantom projects with garbage data directories.
+  // Home dirs, system dirs, etc. get a "placeholder" prefix so data is still
+  // persisted and tools are usable, but the user gets a warning to set a proper root.
   if (isDangerousRoot(rootPath)) {
-    // Use a generic sentinel ID — data will NOT be persisted
-    console.error(`[memorix] Skipped invalid project root: ${rootPath}`);
-    return { id: '__invalid__', name: 'unknown', rootPath };
+    const name = path.basename(rootPath) || 'unknown';
+    const id = `placeholder/${name}`;
+    console.error(`[memorix] WARNING: cwd "${rootPath}" is not a project directory — using degraded mode (${id})`);
+    console.error(`[memorix] For best results, set MEMORIX_PROJECT_ROOT or --cwd to your project path.`);
+    return { id, name, rootPath };
   }
 
   // Fallback: use "local/<dirname>" — works for non-git and empty directories

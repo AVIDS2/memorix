@@ -393,14 +393,26 @@ export async function handleHookEvent(input: NormalizedHookInput): Promise<{
  * Called by the CLI: `memorix hook`
  */
 export async function runHook(): Promise<void> {
-  const chunks: Buffer[] = [];
-  for await (const chunk of process.stdin) {
-    chunks.push(chunk as Buffer);
-  }
-  const rawInput = Buffer.concat(chunks).toString('utf-8').trim();
+  // Read stdin with a timeout — some hosts (e.g. Gemini CLI) may not close
+  // stdin promptly, causing `for await` to hang until the process is killed.
+  const rawInput = await new Promise<string>((resolve) => {
+    const chunks: Buffer[] = [];
+    const finish = () => resolve(Buffer.concat(chunks).toString('utf-8').trim());
+
+    // Hard timeout: resolve with whatever we have after 3 s
+    const timer = setTimeout(() => {
+      process.stdin.removeAllListeners('data');
+      process.stdin.removeAllListeners('end');
+      finish();
+    }, 3_000);
+
+    process.stdin.on('data', (chunk: Buffer) => { chunks.push(chunk); });
+    process.stdin.on('end', () => { clearTimeout(timer); finish(); });
+    process.stdin.on('error', () => { clearTimeout(timer); finish(); });
+  });
 
   if (!rawInput) {
-    process.stdout.write(JSON.stringify({ continue: true }));
+    process.stdout.write(JSON.stringify({ continue: true, hookSpecificOutput: {} }));
     return;
   }
 
@@ -408,7 +420,7 @@ export async function runHook(): Promise<void> {
   try {
     payload = JSON.parse(rawInput);
   } catch {
-    process.stdout.write(JSON.stringify({ continue: true }));
+    process.stdout.write(JSON.stringify({ continue: true, hookSpecificOutput: {} }));
     return;
   }
 
@@ -435,5 +447,12 @@ export async function runHook(): Promise<void> {
     }
   }
 
-  process.stdout.write(JSON.stringify(output));
+  // Include hookSpecificOutput for VS Code Copilot compatibility
+  const hookEventName = (payload.hookEventName as string) ?? '';
+  const finalOutput: Record<string, unknown> = { ...output };
+  finalOutput.hookSpecificOutput = {
+    ...(hookEventName ? { hookEventName } : {}),
+    ...(output.systemMessage ? { additionalContext: output.systemMessage } : {}),
+  };
+  process.stdout.write(JSON.stringify(finalOutput));
 }

@@ -38,10 +38,8 @@ function sanitizeProjectId(projectId: string): string {
  * @param _projectId - Ignored for directory purposes (kept for API compat)
  */
 export async function getProjectDataDir(_projectId: string, baseDir?: string): Promise<string> {
-  // Reject sentinel IDs to prevent garbage writes
-  if (_projectId === '__invalid__') {
-    throw new Error('Cannot create data directory for invalid project');
-  }
+  // Legacy guard — detectProject no longer returns __invalid__ (uses placeholder/ instead)
+  // Keep check for safety but should never trigger in normal operation
   const base = baseDir ?? DEFAULT_DATA_DIR;
   await fs.mkdir(base, { recursive: true });
   return base;

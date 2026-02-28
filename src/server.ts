@@ -1551,19 +1551,36 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
   // functionality and can take 30-60s on machines with many IDEs/projects.
   const deferredInit = async () => {
     // Auto-install hooks for newly detected agents
+    // Respects ~/.memorix/settings.json { "autoInstallHooks": false } to skip
     try {
-      const { getHookStatus, installHooks, detectInstalledAgents } = await import('./hooks/installers/index.js');
-      const workDir = cwd ?? process.cwd();
-      const statuses = await getHookStatus(workDir);
-      const installedAgents = new Set(statuses.filter((s) => s.installed).map((s) => s.agent));
-      const detectedAgents = await detectInstalledAgents();
+      let autoInstall = true;
+      try {
+        const { homedir } = await import('node:os');
+        const { join } = await import('node:path');
+        const { readFile } = await import('node:fs/promises');
+        const settingsPath = join(homedir(), '.memorix', 'settings.json');
+        const raw = await readFile(settingsPath, 'utf-8');
+        const settings = JSON.parse(raw);
+        if (settings.autoInstallHooks === false) {
+          autoInstall = false;
+          console.error('[memorix] autoInstallHooks disabled in ~/.memorix/settings.json — skipping hook auto-install');
+        }
+      } catch { /* no settings file or parse error — default to auto-install */ }
 
-      for (const agent of detectedAgents) {
-        if (installedAgents.has(agent)) continue;
-        try {
-          const config = await installHooks(agent, workDir);
-          console.error(`[memorix] Auto-installed hooks for ${agent} → ${config.configPath}`);
-        } catch { /* skip */ }
+      if (autoInstall) {
+        const { getHookStatus, installHooks, detectInstalledAgents } = await import('./hooks/installers/index.js');
+        const workDir = cwd ?? process.cwd();
+        const statuses = await getHookStatus(workDir);
+        const installedAgents = new Set(statuses.filter((s) => s.installed).map((s) => s.agent));
+        const detectedAgents = await detectInstalledAgents();
+
+        for (const agent of detectedAgents) {
+          if (installedAgents.has(agent)) continue;
+          try {
+            const config = await installHooks(agent, workDir);
+            console.error(`[memorix] Auto-installed hooks for ${agent} → ${config.configPath}`);
+          } catch { /* skip */ }
+        }
       }
     } catch { /* hooks install is optional */ }
 

@@ -868,7 +868,7 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
   // Workspace Sync Tool (P3 — Cross-Agent Workspace Bridge)
   // ============================================================
 
-  const AGENT_TARGETS: [string, ...string[]] = ['windsurf', 'cursor', 'claude-code', 'codex', 'copilot', 'antigravity', 'kiro'];
+  const AGENT_TARGETS: [string, ...string[]] = ['windsurf', 'cursor', 'claude-code', 'codex', 'copilot', 'antigravity', 'kiro', 'opencode'];
 
   /** memorix_workspace_sync — migrate entire workspace config across agents */
   server.registerTool(
@@ -876,7 +876,7 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
     {
       title: 'Workspace Sync',
       description:
-        'Migrate your entire workspace environment between AI coding agents (Cursor, Windsurf, Claude Code, Codex, Copilot, Kiro, Antigravity). ' +
+        'Migrate your entire workspace environment between AI coding agents (Cursor, Windsurf, Claude Code, Codex, Copilot, Kiro, Antigravity, OpenCode). ' +
         'Syncs MCP server configs, workflows, rules, and skills across IDEs. ' +
         'Action "scan": detect all workspace configs. ' +
         'Action "migrate": generate configs for target agent (preview only). ' +

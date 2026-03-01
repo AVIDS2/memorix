@@ -6,7 +6,7 @@
 
 <p align="center">
   <strong>AI 编码 Agent 的持久化记忆层</strong><br>
-  一个 MCP 服务器，八个 Agent，零上下文丢失。
+  一个 MCP 服务器，九个 Agent，零上下文丢失。
 </p>
 
 <p align="center">
@@ -24,6 +24,7 @@
   <img src="https://img.shields.io/badge/-Codex-green?style=flat-square" alt="Codex">
   <img src="https://img.shields.io/badge/-Copilot-lightblue?style=flat-square" alt="Copilot">
   <img src="https://img.shields.io/badge/-Kiro-red?style=flat-square" alt="Kiro">
+  <img src="https://img.shields.io/badge/-Antigravity-grey?style=flat-square" alt="Antigravity">
   <img src="https://img.shields.io/badge/-OpenCode-teal?style=flat-square" alt="OpenCode">
   <img src="https://img.shields.io/badge/-Gemini%20CLI-4285F4?style=flat-square" alt="Gemini CLI">
 </p>
@@ -110,6 +111,14 @@ args = ["serve"]
 </details>
 
 <details>
+<summary><strong>Antigravity</strong> · <code>~/.gemini/antigravity/mcp_config.json</code></summary>
+
+```json
+{ "mcpServers": { "memorix": { "command": "memorix", "args": ["serve"], "env": { "MEMORIX_PROJECT_ROOT": "/your/project/path" } } } }
+```
+</details>
+
+<details>
 <summary><strong>OpenCode</strong> · <code>~/.config/opencode/config.json</code></summary>
 
 ```json
@@ -142,7 +151,7 @@ args = ["serve"]
 | **记忆** | `memorix_store` · `memorix_search` · `memorix_detail` · `memorix_timeline` — 3 层渐进式展示，节省约 10 倍 token |
 | **会话** | `memorix_session_start` · `memorix_session_end` · `memorix_session_context` — 新会话自动注入上次上下文 |
 | **知识图谱** | `create_entities` · `create_relations` · `add_observations` · `search_nodes` · `open_nodes` · `read_graph` — 兼容 [MCP 官方 Memory Server](https://github.com/modelcontextprotocol/servers/tree/main/src/memory) |
-| **工作区同步** | `memorix_workspace_sync` · `memorix_rules_sync` · `memorix_skills` — 跨 8 个 Agent 迁移 MCP 配置、规则和技能 |
+| **工作区同步** | `memorix_workspace_sync` · `memorix_rules_sync` · `memorix_skills` — 跨 9 个 Agent 迁移 MCP 配置、规则和技能 |
 | **维护** | `memorix_retention` · `memorix_consolidate` · `memorix_export` · `memorix_import` — 衰减评分、去重、备份 |
 | **仪表盘** | `memorix_dashboard` — Web UI，D3.js 知识图谱、观察浏览器、衰减面板 |
 
@@ -207,7 +216,7 @@ npm install -g @huggingface/transformers   # 或: npm install -g fastembed
 
 | | [Mem0](https://github.com/mem0ai/mem0) | [mcp-memory-service](https://github.com/doobidoo/mcp-memory-service) | **Memorix** |
 |---|---|---|---|
-| **Agent 支持** | SDK 集成 | 13+（MCP） | **8 个 Agent（MCP）** |
+| **Agent 支持** | SDK 集成 | 13+（MCP） | **9 个 Agent（MCP）** |
 | **跨 Agent 工作区同步** | — | — | **MCP 配置、规则、技能、工作流** |
 | **知识图谱** | — | 是 | **是（兼容 MCP 官方）** |
 | **混合搜索** | — | 是 | **是（BM25 + 向量）** |

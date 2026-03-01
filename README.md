@@ -6,7 +6,7 @@
 
 <p align="center">
   <strong>Persistent memory layer for AI coding agents.</strong><br>
-  One MCP server. Eight agents. Zero context loss.
+  One MCP server. Nine agents. Zero context loss.
 </p>
 
 <p align="center">
@@ -24,6 +24,7 @@
   <img src="https://img.shields.io/badge/-Codex-green?style=flat-square" alt="Codex">
   <img src="https://img.shields.io/badge/-Copilot-lightblue?style=flat-square" alt="Copilot">
   <img src="https://img.shields.io/badge/-Kiro-red?style=flat-square" alt="Kiro">
+  <img src="https://img.shields.io/badge/-Antigravity-grey?style=flat-square" alt="Antigravity">
   <img src="https://img.shields.io/badge/-OpenCode-teal?style=flat-square" alt="OpenCode">
   <img src="https://img.shields.io/badge/-Gemini%20CLI-4285F4?style=flat-square" alt="Gemini CLI">
 </p>
@@ -110,6 +111,14 @@ args = ["serve"]
 </details>
 
 <details>
+<summary><strong>Antigravity</strong> · <code>~/.gemini/antigravity/mcp_config.json</code></summary>
+
+```json
+{ "mcpServers": { "memorix": { "command": "memorix", "args": ["serve"], "env": { "MEMORIX_PROJECT_ROOT": "/your/project/path" } } } }
+```
+</details>
+
+<details>
 <summary><strong>OpenCode</strong> · <code>~/.config/opencode/config.json</code></summary>
 
 ```json
@@ -142,7 +151,7 @@ Restart your agent. Done. No API keys, no cloud, no dependencies.
 | **Memory** | `memorix_store` · `memorix_search` · `memorix_detail` · `memorix_timeline` — 3-layer progressive disclosure with ~10x token savings |
 | **Sessions** | `memorix_session_start` · `memorix_session_end` · `memorix_session_context` — auto-inject previous context on new sessions |
 | **Knowledge Graph** | `create_entities` · `create_relations` · `add_observations` · `search_nodes` · `open_nodes` · `read_graph` — [MCP Official Memory Server](https://github.com/modelcontextprotocol/servers/tree/main/src/memory) compatible |
-| **Workspace Sync** | `memorix_workspace_sync` · `memorix_rules_sync` · `memorix_skills` — migrate MCP configs, rules, and skills across 8 agents |
+| **Workspace Sync** | `memorix_workspace_sync` · `memorix_rules_sync` · `memorix_skills` — migrate MCP configs, rules, and skills across 9 agents |
 | **Maintenance** | `memorix_retention` · `memorix_consolidate` · `memorix_export` · `memorix_import` — decay scoring, dedup, backup |
 | **Dashboard** | `memorix_dashboard` — web UI with D3.js knowledge graph, observation browser, retention panel |
 
@@ -207,7 +216,7 @@ Both run 100% locally. Zero API calls.
 
 | | [Mem0](https://github.com/mem0ai/mem0) | [mcp-memory-service](https://github.com/doobidoo/mcp-memory-service) | **Memorix** |
 |---|---|---|---|
-| **Agents** | SDK-based | 13+ (MCP) | **8 agents (MCP)** |
+| **Agents** | SDK-based | 13+ (MCP) | **9 agents (MCP)** |
 | **Cross-agent workspace sync** | — | — | **MCP configs, rules, skills, workflows** |
 | **Knowledge graph** | — | Yes | **Yes (MCP Official compatible)** |
 | **Hybrid search** | — | Yes | **Yes (BM25 + vector)** |

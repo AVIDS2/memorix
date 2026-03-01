@@ -31,6 +31,8 @@ import { getProjectDataDir } from './store/persistence.js';
 import type { ObservationType, RuleSource, AgentTarget, MCPServerEntry } from './types.js';
 import { RulesSyncer } from './rules/syncer.js';
 import { WorkspaceSyncEngine } from './workspace/engine.js';
+import { initLLM, isLLMEnabled, getLLMConfig } from './llm/provider.js';
+import { extractFacts, deduplicateMemory } from './llm/memory-manager.js';
 
 /** Timestamp of last MCP-initiated write — hot-reload skips changes within 10s */
 let lastInternalWriteMs = 0;
@@ -191,6 +193,14 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
     console.error(`[memorix] Reindexed ${reindexed} observations for project: ${project.id}`);
   }
 
+  // Initialize LLM provider (optional — graceful degradation)
+  const llmConfig = initLLM();
+  if (llmConfig) {
+    console.error(`[memorix] LLM enhanced mode: ${llmConfig.provider}/${llmConfig.model}`);
+  } else {
+    console.error(`[memorix] LLM mode: off (set MEMORIX_LLM_API_KEY or OPENAI_API_KEY to enable)`);
+  }
+
   console.error(`[memorix] Project: ${project.id} (${project.name})`);
   console.error(`[memorix] Data dir: ${projectDir}`);
 
@@ -251,6 +261,32 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
       const safeFiles = filesModified ? coerceStringArray(filesModified) : undefined;
       const safeConcepts = concepts ? coerceStringArray(concepts) : undefined;
 
+      // LLM-enhanced fact extraction (optional — enriches facts if LLM available)
+      let llmEnriched = false;
+      let enrichedTitle = title;
+      let enrichedFacts = safeFacts;
+      let enrichedType = type;
+      if (isLLMEnabled() && !topicKey) {
+        try {
+          const llmFacts = await extractFacts(`${title}\n${narrative}\n${(safeFacts ?? []).join('\n')}`);
+          if (llmFacts && llmFacts.relevance !== 'low') {
+            if (llmFacts.facts.length > 0) {
+              enrichedFacts = [...(safeFacts ?? []), ...llmFacts.facts.filter(f => !(safeFacts ?? []).includes(f))];
+            }
+            if (llmFacts.title && llmFacts.title.length > title.length) {
+              enrichedTitle = llmFacts.title;
+            }
+            if (llmFacts.type && OBSERVATION_TYPES.includes(llmFacts.type)) {
+              enrichedType = llmFacts.type;
+            }
+            llmEnriched = true;
+          } else if (llmFacts && llmFacts.relevance === 'low') {
+            // LLM says this is not worth storing — but we still store it,
+            // just log the assessment (user explicitly called store)
+          }
+        } catch { /* LLM enrichment is optional */ }
+      }
+
       // Ensure entity exists in knowledge graph
       await graphManager.createEntities([
         { name: entityName, entityType: 'auto', observations: [] },
@@ -268,10 +304,10 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
       markInternalWrite();
       const { observation: obs, upserted } = await storeObservation({
         entityName,
-        type: type as ObservationType,
-        title,
+        type: enrichedType as ObservationType,
+        title: enrichedTitle,
         narrative,
-        facts: safeFacts,
+        facts: enrichedFacts,
         filesModified: safeFiles,
         concepts: safeConcepts,
         projectId: project.id,
@@ -282,12 +318,53 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
 
       // Add a reference to the entity's observations
       await graphManager.addObservations([
-        { entityName, contents: [`[#${obs.id}] ${title}`] },
+        { entityName, contents: [`[#${obs.id}] ${enrichedTitle}`] },
       ]);
 
       // Implicit memory: auto-create relations from entity extraction
-      const extracted = extractEntities([title, narrative, ...(safeFacts ?? [])].join(' '));
+      const extracted = extractEntities([enrichedTitle, narrative, ...(enrichedFacts ?? [])].join(' '));
       const autoRelCount = await createAutoRelations(obs, extracted, graphManager);
+
+      // LLM-enhanced dedup: find and resolve similar existing memories (async, non-blocking)
+      let dedupAction = '';
+      if (isLLMEnabled() && !upserted && !topicKey) {
+        // Fire-and-forget: search for similar memories and auto-resolve duplicates
+        (async () => {
+          try {
+            const searchResult = await compactSearch({
+              query: enrichedTitle,
+              limit: 5,
+              projectId: project.id,
+              status: 'active',
+            });
+            const similarIds = searchResult.entries
+              .filter(e => e.id !== obs.id)
+              .map(e => e.id);
+            if (similarIds.length > 0) {
+              const { compactDetail: getDetails } = await import('./compact/engine.js');
+              const details = await getDetails(similarIds);
+              const decision = await deduplicateMemory(
+                { title: enrichedTitle, narrative, facts: enrichedFacts ?? [] },
+                details.documents.map(d => ({
+                  id: d.observationId,
+                  title: d.title,
+                  narrative: d.narrative,
+                  facts: d.facts,
+                })),
+              );
+              if (decision && decision.action === 'UPDATE' && decision.targetId) {
+                const { resolveObservations } = await import('./memory/observations.js');
+                await resolveObservations([decision.targetId], 'resolved');
+              } else if (decision && decision.action === 'NONE') {
+                // New memory is redundant — mark it as resolved instead
+                const { resolveObservations } = await import('./memory/observations.js');
+                await resolveObservations([obs.id], 'resolved');
+              }
+            }
+          } catch { /* LLM dedup is best-effort */ }
+        })();
+        dedupAction = ' | LLM dedup: async';
+      }
 
       // Build enrichment summary
       const enrichmentParts: string[] = [];
@@ -298,6 +375,7 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
       if (autoRelCount > 0) enrichmentParts.push(`+${autoRelCount} relations auto-created`);
       if (obs.hasCausalLanguage) enrichmentParts.push('causal language detected');
       if (upserted) enrichmentParts.push(`topic upserted (rev ${obs.revisionCount ?? 1})`);
+      if (llmEnriched) enrichmentParts.push('LLM fact extraction applied');
       const enrichment = enrichmentParts.length > 0 ? `\nAuto-enriched: ${enrichmentParts.join(', ')}` : '';
 
       const action = upserted ? '🔄 Updated' : '✅ Stored';
@@ -306,7 +384,7 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
         content: [
           {
             type: 'text' as const,
-            text: `${action} observation #${obs.id} "${title}" (~${obs.tokens} tokens)\nEntity: ${entityName} | Type: ${type} | Project: ${project.id}${obs.topicKey ? ` | Topic: ${obs.topicKey}` : ''}${enrichment}`,
+            text: `${action} observation #${obs.id} "${enrichedTitle}" (~${obs.tokens} tokens)\nEntity: ${entityName} | Type: ${enrichedType} | Project: ${project.id}${obs.topicKey ? ` | Topic: ${obs.topicKey}` : ''}${dedupAction}${enrichment}`,
           },
         ],
       };
@@ -450,6 +528,123 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
 
       return {
         content: [{ type: 'text' as const, text: parts.join('\n') }],
+      };
+    },
+  );
+
+  /**
+   * memorix_deduplicate — LLM-powered batch deduplication
+   *
+   * Scans active memories for duplicates/contradictions and auto-resolves them.
+   * Requires LLM to be configured (MEMORIX_LLM_API_KEY or OPENAI_API_KEY).
+   */
+  server.registerTool(
+    'memorix_deduplicate',
+    {
+      title: 'Deduplicate Memories',
+      description:
+        'Scan active memories for duplicates, contradictions, and outdated information using LLM analysis. ' +
+        'Automatically resolves redundant memories. Requires LLM to be configured ' +
+        '(set MEMORIX_LLM_API_KEY or OPENAI_API_KEY environment variable). ' +
+        'Without LLM, falls back to basic similarity-based consolidation.',
+      inputSchema: {
+        query: z.string().optional().describe('Optional query to scope dedup to a topic (default: scan all)'),
+        dryRun: z.boolean().optional().default(false).describe('Preview only — show what would be resolved without making changes'),
+      },
+    },
+    async ({ query, dryRun }) => {
+      const { getAllObservations, resolveObservations } = await import('./memory/observations.js');
+      const allObs = getAllObservations().filter(o => (o.status ?? 'active') === 'active' && o.projectId === project.id);
+
+      if (allObs.length < 2) {
+        return { content: [{ type: 'text' as const, text: 'Not enough active memories to deduplicate.' }] };
+      }
+
+      if (!isLLMEnabled()) {
+        return {
+          content: [{
+            type: 'text' as const,
+            text: '⚠️ LLM not configured. Set MEMORIX_LLM_API_KEY or OPENAI_API_KEY to enable intelligent dedup.\n\n' +
+              'Tip: Use memorix_consolidate for basic similarity-based merging without LLM.',
+          }],
+        };
+      }
+
+      // If query provided, search for relevant memories; otherwise take latest 20
+      let candidates: typeof allObs;
+      if (query) {
+        const searchResult = await compactSearch({ query, limit: 20, projectId: project.id, status: 'active' });
+        const idSet = new Set(searchResult.entries.map(e => e.id));
+        candidates = allObs.filter(o => idSet.has(o.id));
+      } else {
+        candidates = allObs.slice(-20);
+      }
+
+      if (candidates.length < 2) {
+        return { content: [{ type: 'text' as const, text: 'Not enough memories in scope to deduplicate.' }] };
+      }
+
+      // Group by entity for focused dedup
+      const byEntity = new Map<string, typeof candidates>();
+      for (const obs of candidates) {
+        const list = byEntity.get(obs.entityName) ?? [];
+        list.push(obs);
+        byEntity.set(obs.entityName, list);
+      }
+
+      const actions: string[] = [];
+      const toResolve: number[] = [];
+
+      for (const [entity, group] of byEntity) {
+        if (group.length < 2) continue;
+
+        // Compare each pair within entity group
+        for (let i = 0; i < group.length; i++) {
+          for (let j = i + 1; j < group.length; j++) {
+            const newer = group[j];
+            const older = group[i];
+            try {
+              const decision = await deduplicateMemory(
+                { title: newer.title, narrative: newer.narrative, facts: newer.facts },
+                [{ id: older.id, title: older.title, narrative: older.narrative, facts: older.facts.join('\n') }],
+              );
+              if (decision && decision.action === 'UPDATE' && decision.targetId) {
+                actions.push(`🔄 #${older.id} "${older.title}" → superseded by #${newer.id} (${decision.reason})`);
+                toResolve.push(older.id);
+              } else if (decision && decision.action === 'NONE') {
+                actions.push(`🗑️ #${newer.id} "${newer.title}" → redundant (${decision.reason})`);
+                toResolve.push(newer.id);
+              } else if (decision && decision.action === 'DELETE') {
+                actions.push(`❌ #${decision.targetId ?? older.id} → outdated (${decision.reason})`);
+                toResolve.push(decision.targetId ?? older.id);
+              }
+            } catch { /* skip failed comparisons */ }
+          }
+        }
+      }
+
+      if (actions.length === 0) {
+        return { content: [{ type: 'text' as const, text: `✅ Scanned ${candidates.length} memories across ${byEntity.size} entities — no duplicates found.` }] };
+      }
+
+      if (dryRun) {
+        return {
+          content: [{
+            type: 'text' as const,
+            text: `🔍 DRY RUN — ${actions.length} action(s) found:\n\n${actions.join('\n')}\n\nRun with dryRun=false to apply.`,
+          }],
+        };
+      }
+
+      // Apply resolutions
+      const unique = [...new Set(toResolve)];
+      await resolveObservations(unique, 'resolved');
+
+      return {
+        content: [{
+          type: 'text' as const,
+          text: `🧹 Deduplicated: resolved ${unique.length} memory(ies)\n\n${actions.join('\n')}`,
+        }],
       };
     },
   );

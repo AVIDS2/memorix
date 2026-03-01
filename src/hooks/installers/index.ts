@@ -665,61 +665,79 @@ alwaysApply: true
   }
   return `${frontmatter}# Memorix — Automatic Memory Rules
 
-You have access to Memorix memory tools. You MUST follow these rules to maintain persistent context across sessions.
-These rules are NOT optional — they are critical for cross-session memory continuity.
+You have access to Memorix memory tools. Follow these rules to maintain persistent context across sessions.
 
-## RULE 1: Session Start — Load Context (MUST)
+## RULE 1: Session Start — Load Context
 
 At the **beginning of every conversation**, BEFORE responding to the user:
 
-1. Call \`memorix_search\` with a query related to the user's first message or the current project
+1. Call \`memorix_search\` with a query related to the user's first message
 2. If results are found, use \`memorix_detail\` to fetch the most relevant ones
-3. Reference relevant memories naturally in your response
+3. Reference relevant memories naturally — the user should feel you "remember" them
 
-> **CRITICAL**: Do NOT skip this step. The user expects you to "remember" previous sessions.
+## RULE 2: Store Important Context
 
-## RULE 2: After Every Action — Check & Record (MUST)
-
-After EVERY tool call that modifies state (file create/edit, shell command, config change), run this checklist:
-
-**Ask yourself: "Would a different AI agent need to know about this?"**
-- If YES → call \`memorix_store\` IMMEDIATELY, BEFORE replying to the user
-- If NO → skip (e.g., simple file reads, ls/dir, greetings)
+**Proactively** call \`memorix_store\` when any of the following happen:
 
 ### What MUST be recorded:
-- ✅ File created or significantly modified → type: \`what-changed\`
-- ✅ Bug identified and fixed → type: \`problem-solution\`
-- ✅ Architecture or design decision made → type: \`decision\`
-- ✅ Unexpected behavior or gotcha discovered → type: \`gotcha\`
-- ✅ Configuration changed (env vars, ports, deps) → type: \`what-changed\`
-- ✅ Feature completed or milestone reached → type: \`what-changed\`
-- ✅ Trade-off discussed with conclusion → type: \`trade-off\`
+- Architecture/design decisions → type: \`decision\`
+- Bug identified and fixed → type: \`problem-solution\`
+- Unexpected behavior or gotcha → type: \`gotcha\`
+- Config changed (env vars, ports, deps) → type: \`what-changed\`
+- Feature completed or milestone → type: \`what-changed\`
+- Trade-off discussed with conclusion → type: \`trade-off\`
 
 ### What should NOT be recorded:
-- ❌ Simple file reads without findings
-- ❌ Greetings, acknowledgments
-- ❌ Trivial commands (ls, pwd, git status with no issues)
+- Simple file reads, greetings, trivial commands (ls, pwd, git status)
 
-## RULE 3: Session End — Store Summary (MUST)
+### Use topicKey for evolving topics:
+For decisions, architecture docs, or any topic that evolves over time, ALWAYS use \`topicKey\` parameter.
+This ensures the memory is UPDATED instead of creating duplicates.
+Use \`memorix_suggest_topic_key\` to generate a stable key.
 
-When the conversation is ending or the user says goodbye:
+Example: \`topicKey: "architecture/auth-model"\` — subsequent stores with the same key update the existing memory.
 
-1. Call \`memorix_store\` with type \`session-request\` to record:
-   - What was accomplished in this session
-   - Current project state and any blockers
+### Track progress with the progress parameter:
+When working on features or tasks, include the \`progress\` parameter:
+\`\`\`json
+{
+  "progress": {
+    "feature": "user authentication",
+    "status": "in-progress",
+    "completion": 60
+  }
+}
+\`\`\`
+Status values: \`in-progress\`, \`completed\`, \`blocked\`
+
+## RULE 3: Resolve Completed Memories
+
+When a task is completed, a bug is fixed, or information becomes outdated:
+
+1. Call \`memorix_resolve\` with the observation IDs to mark them as resolved
+2. Resolved memories are hidden from default search, preventing context pollution
+
+This is critical — without resolving, old bug reports and completed tasks will keep appearing in future searches.
+
+## RULE 4: Session End — Store Summary
+
+When the conversation is ending:
+
+1. Call \`memorix_store\` with type \`session-request\` and a \`topicKey\` like \`"session/latest-summary"\` to record:
+   - What was accomplished
+   - Current project state and blockers
    - Pending tasks or next steps
    - Key files modified
-
-This creates a "handoff note" for the next session (or for another AI agent).
+2. Call \`memorix_resolve\` on any memories for tasks completed in this session
 
 ## Guidelines
 
 - **Use concise titles** (~5-10 words) and structured facts
 - **Include file paths** in filesModified when relevant
 - **Include related concepts** for better searchability
-- **Prefer storing too much over too little** — the retention system will auto-decay stale memories
-
-Use types: \`decision\`, \`problem-solution\`, \`gotcha\`, \`what-changed\`, \`discovery\`, \`how-it-works\`, \`trade-off\`.
+- **Always use topicKey** for recurring topics to prevent duplicates
+- **Always resolve** completed tasks and fixed bugs
+- Search defaults to \`status="active"\` — use \`status="all"\` to include resolved memories
 `;
 }
 

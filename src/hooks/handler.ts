@@ -39,6 +39,10 @@ const NOISE_COMMANDS = [
   /^(ls|dir|cd|pwd|echo|cat|type|head|tail|wc|which|where|whoami)(\s|$)/i,
   /^(Get-Content|Test-Path|Get-Item|Get-ChildItem|Set-Location|Write-Host)(\s|$)/i,
   /^(Start-Sleep|Select-String|Select-Object|Format-Table|Measure-Object)(\s|$)/i,
+  /^(git\s+(status|log|diff|show|branch|remote|stash\s+list))(\s|$)/i,
+  /^(npm\s+(list|ls|view|info|outdated|doctor))(\s|$)/i,
+  /^(pip\s+(list|show|freeze)|python\s+--?version|node\s+--?version)(\s|$)/i,
+  /^(env|printenv|set|export)(\s|$)/i,
 ];
 
 // ─── Tool Taxonomy ───
@@ -56,9 +60,9 @@ interface StoragePolicy {
 
 const STORAGE_POLICY: Record<ToolCategory, StoragePolicy> = {
   file_modify:      { store: 'always',         minLength: 50,  defaultType: 'what-changed' },
-  command:          { store: 'always',         minLength: 30,  defaultType: 'discovery' },
-  file_read:        { store: 'if_substantial', minLength: 200, defaultType: 'discovery' },
-  search:           { store: 'if_substantial', minLength: 200, defaultType: 'discovery' },
+  command:          { store: 'always',         minLength: 50,  defaultType: 'discovery' },
+  file_read:        { store: 'never',          minLength: 0,   defaultType: 'discovery' },
+  search:           { store: 'if_substantial', minLength: 500, defaultType: 'discovery' },
   memorix_internal: { store: 'never',          minLength: 0,   defaultType: 'discovery' },
   unknown:          { store: 'if_substantial', minLength: 100, defaultType: 'discovery' },
 };
@@ -213,7 +217,12 @@ function generateTitle(input: NormalizedHookInput, patternType: string): string 
   if (input.userPrompt) {
     return input.userPrompt.slice(0, maxLen);
   }
-  return `Session activity (${patternType})`;
+  if (input.toolName) {
+    const query = (input.toolInput as any)?.query ?? (input.toolInput as any)?.regex ?? '';
+    if (query) return `${input.toolName}: ${query}`.slice(0, maxLen);
+    return `Used ${input.toolName}`.slice(0, maxLen);
+  }
+  return `Activity (${patternType})`;
 }
 
 function buildObservation(input: NormalizedHookInput, content: string, category: ToolCategory) {

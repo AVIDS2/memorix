@@ -363,7 +363,7 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
         limit: z.number().optional().describe('Max results (default: 20)'),
         type: z.enum(OBSERVATION_TYPES).optional().describe('Filter by observation type'),
         maxTokens: z.number().optional().describe('Token budget — trim results to fit (0 = unlimited)'),
-        scope: z.enum(['project', 'global']).optional().describe(
+        scope: z.enum(['project', 'global']).optional().default('project').describe(
           'Search scope: "project" (default) only searches current project, "global" searches all projects',
         ),
         since: z.string().optional().describe('Only return observations created after this date (ISO 8601 or natural like "2025-01-15")'),
@@ -380,10 +380,9 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
         maxTokens: safeMaxTokens,
         since,
         until,
-        // All data is in a single flat directory. projectId is metadata only.
-        // scope: 'project' → filter by current projectId in Orama
-        // scope: 'global' or omitted → search all observations (default)
-        projectId: scope === 'project' ? project.id : undefined,
+        // Default to project-scoped search to prevent cross-project pollution.
+        // Use scope: 'global' to explicitly search all projects.
+        projectId: scope === 'global' ? undefined : project.id,
       });
 
       // Append sync advisory on first search of the session

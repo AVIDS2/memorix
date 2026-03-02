@@ -307,8 +307,8 @@ async function runCommand(cmd: string, _args: string[] = []): Promise<void> {
       break;
     }
     case 'hooks': {
-      const m = await import('./commands/hooks.js');
-      await m.default.run?.({ args: { _: ['install'] }, rawArgs: ['install'], cmd: m.default } as any);
+      const m = await import('./commands/hooks-install.js');
+      await m.default.run?.({ args: { _: [] }, rawArgs: [], cmd: m.default } as any);
       break;
     }
     case 'status': {

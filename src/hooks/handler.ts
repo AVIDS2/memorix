@@ -259,16 +259,18 @@ async function handleSessionStart(input: NormalizedHookInput): Promise<{
     const { detectProject } = await import('../project/detector.js');
     const { getProjectDataDir, loadObservationsJson } = await import('../store/persistence.js');
     const { initAliasRegistry, registerAlias } = await import('../project/aliases.js');
+    const { calculateProjectAffinity, extractProjectKeywords } = await import('../store/project-affinity.js');
 
     const rawProject = await detectProject(input.cwd || process.cwd());
     const dataDir = await getProjectDataDir(rawProject.id);
     
     // Resolve to canonical project ID (same as server.ts does)
     initAliasRegistry(dataDir);
-    await registerAlias(rawProject);
+    const canonicalId = await registerAlias(rawProject);
     const allObs = await loadObservationsJson(dataDir) as Array<{
       type?: string; title?: string; narrative?: string;
-      facts?: string[]; timestamp?: string;
+      facts?: string[]; timestamp?: string; entityName?: string;
+      concepts?: string[]; filesModified?: string[];
     }>;
 
     if (allObs.length > 0) {
@@ -286,17 +288,37 @@ async function handleSessionStart(input: NormalizedHookInput): Promise<{
       const isLowQuality = (title: string) =>
         LOW_QUALITY_PATTERNS.some(p => p.test(title));
 
+      // Project Affinity context for filtering cross-project pollution
+      const affinityContext = {
+        projectName: rawProject.name,
+        projectId: canonicalId,
+        projectKeywords: extractProjectKeywords(rawProject.name, canonicalId),
+      };
+
       const scored = allObs
         .map((obs, i) => {
           const title = obs.title ?? '';
           const hasFacts = (obs.facts?.length ?? 0) > 0;
           const hasSubstance = title.length > 20 || hasFacts;
           const quality = isLowQuality(title) ? 0.1 : hasSubstance ? 1.0 : 0.5;
-          return { obs, priority: PRIORITY_ORDER[obs.type ?? ''] ?? 0, quality, recency: i };
+          
+          // Apply Project Affinity scoring to filter cross-project memories
+          const { score: affinity } = calculateProjectAffinity({
+            title,
+            narrative: obs.narrative,
+            facts: obs.facts,
+            concepts: obs.concepts,
+            entityName: obs.entityName,
+            filesModified: obs.filesModified,
+          }, affinityContext);
+          
+          return { obs, priority: PRIORITY_ORDER[obs.type ?? ''] ?? 0, quality, affinity, recency: i };
         })
+        // Filter out low-affinity memories (likely cross-project pollution)
+        .filter(item => item.affinity >= 0.5)
         .sort((a, b) => {
-          const scoreA = a.priority * a.quality;
-          const scoreB = b.priority * b.quality;
+          const scoreA = a.priority * a.quality * a.affinity;
+          const scoreB = b.priority * b.quality * b.affinity;
           if (scoreB !== scoreA) return scoreB - scoreA;
           return b.recency - a.recency;
         });

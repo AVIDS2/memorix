@@ -506,6 +506,15 @@ export async function installHooks(
     const gen = generated as Record<string, unknown>;
     const merged = { ...existing };
 
+    // CRITICAL: version must be a number (Cursor requires this)
+    // Always use generated version to fix corrupted configs
+    if (typeof gen.version === 'number') {
+      merged.version = gen.version;
+    } else if (typeof merged.version !== 'number') {
+      // Fallback: ensure version is always a number
+      merged.version = 1;
+    }
+
     // Merge 'hooks' key (all agents)
     if (gen.hooks && typeof gen.hooks === 'object') {
       const existingHooks = (existing.hooks && typeof existing.hooks === 'object')

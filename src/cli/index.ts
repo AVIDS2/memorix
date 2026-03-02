@@ -24,19 +24,19 @@ const pkg = require('../../package.json') as { version: string };
 // ============================================================
 
 async function interactiveMenu(): Promise<void> {
-  p.intro(`🧠 Memorix v${pkg.version} — Cross-Agent Memory Bridge`);
+  p.intro(`Memorix v${pkg.version}`);
 
   const action = await p.select({
     message: 'What would you like to do?',
     options: [
-      { value: 'search', label: '🔍 Search memories', hint: 'Find memories by keyword' },
-      { value: 'list', label: '📋 View recent memories', hint: 'Show latest observations' },
-      { value: 'dashboard', label: '📊 Open Dashboard', hint: 'Web UI at localhost:3210' },
-      { value: 'hooks', label: '🔗 Install hooks', hint: 'Set up auto-capture for IDEs' },
-      { value: 'status', label: '📈 Project status', hint: 'Show project info + stats' },
-      { value: 'cleanup', label: '🧹 Clean up', hint: 'Remove old/resolved memories' },
-      { value: 'sync', label: '🔄 Sync rules', hint: 'Cross-agent rule synchronization' },
-      { value: 'serve', label: '🚀 Start MCP server', hint: 'For IDE integration' },
+      { value: 'search', label: 'Search memories', hint: 'find by keyword' },
+      { value: 'list', label: 'View recent', hint: 'latest observations' },
+      { value: 'dashboard', label: 'Open Dashboard', hint: 'localhost:3210' },
+      { value: 'hooks', label: 'Install hooks', hint: 'auto-capture for IDEs' },
+      { value: 'status', label: 'Project status', hint: 'info + stats' },
+      { value: 'cleanup', label: 'Clean up', hint: 'remove old memories' },
+      { value: 'sync', label: 'Sync rules', hint: 'cross-agent sync' },
+      { value: 'serve', label: 'Start MCP server', hint: 'for IDE integration' },
     ],
   });
 
@@ -145,8 +145,8 @@ async function runList(): Promise<void> {
     
     console.log('');
     for (const o of recent) {
-      const icon = { gotcha: '🔴', decision: '🟤', 'problem-solution': '🟡', discovery: '🟣', 'how-it-works': '🔵', 'what-changed': '🟢' }[o.type] ?? '📝';
-      console.log(`  ${icon} #${o.id} ${o.title?.slice(0, 60) ?? '(untitled)'}`);
+      const typeLabel = { gotcha: '[!]', decision: '[D]', 'problem-solution': '[S]', discovery: '[?]', 'how-it-works': '[H]', 'what-changed': '[C]' }[o.type] ?? '[·]';
+      console.log(`  ${typeLabel} #${o.id} ${o.title?.slice(0, 60) ?? '(untitled)'}`);
     }
     console.log('');
   } catch (err) {
@@ -155,10 +155,40 @@ async function runList(): Promise<void> {
   }
 }
 
-async function runCommand(cmd: string, args: string[] = []): Promise<void> {
-  const module = await import(`./commands/${cmd}.js`);
-  if (module.default?.run) {
-    await module.default.run({ args });
+async function runCommand(cmd: string, _args: string[] = []): Promise<void> {
+  // Direct imports to ensure bundler includes them
+  // Using 'as any' to bypass citty's strict type checking for manual invocation
+  switch (cmd) {
+    case 'dashboard': {
+      const m = await import('./commands/dashboard.js');
+      await m.default.run?.({ args: { _: [] }, rawArgs: [], cmd: m.default } as any);
+      break;
+    }
+    case 'hooks': {
+      const m = await import('./commands/hooks.js');
+      await m.default.run?.({ args: { _: ['install'] }, rawArgs: ['install'], cmd: m.default } as any);
+      break;
+    }
+    case 'status': {
+      const m = await import('./commands/status.js');
+      await m.default.run?.({ args: { _: [] }, rawArgs: [], cmd: m.default } as any);
+      break;
+    }
+    case 'cleanup': {
+      const m = await import('./commands/cleanup.js');
+      await m.default.run?.({ args: { _: [], dry: false, force: false }, rawArgs: [], cmd: m.default } as any);
+      break;
+    }
+    case 'sync': {
+      const m = await import('./commands/sync.js');
+      await m.default.run?.({ args: { _: [], dry: false }, rawArgs: [], cmd: m.default } as any);
+      break;
+    }
+    case 'serve': {
+      const m = await import('./commands/serve.js');
+      await m.default.run?.({ args: { _: [] }, rawArgs: [], cmd: m.default } as any);
+      break;
+    }
   }
 }
 
@@ -182,8 +212,22 @@ const main = defineCommand({
     cleanup: () => import('./commands/cleanup.js').then(m => m.default),
   },
   async run() {
-    // No subcommand provided — show interactive TUI menu
-    await interactiveMenu();
+    // No subcommand provided — show interactive TUI menu if in TTY, otherwise show help
+    if (process.stdout.isTTY && process.stdin.isTTY) {
+      await interactiveMenu();
+    } else {
+      // Non-interactive mode: show usage hint
+      console.log(`🧠 Memorix v${pkg.version} — Cross-Agent Memory Bridge\n`);
+      console.log('Usage: memorix <command>\n');
+      console.log('Commands:');
+      console.log('  serve      Start MCP Server on stdio');
+      console.log('  status     Show project info + stats');
+      console.log('  dashboard  Open Web Dashboard');
+      console.log('  hooks      Install hooks for IDEs');
+      console.log('  cleanup    Remove old memories');
+      console.log('  sync       Cross-agent rule sync');
+      console.log('\nRun `memorix` in an interactive terminal for guided menu.');
+    }
   },
 });
 

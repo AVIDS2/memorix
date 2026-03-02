@@ -14,7 +14,7 @@
   <a href="https://www.npmjs.com/package/memorix"><img src="https://img.shields.io/npm/dm/memorix.svg?style=flat-square&color=blue" alt="downloads"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-green.svg?style=flat-square" alt="license"></a>
   <a href="https://github.com/AVIDS2/memorix"><img src="https://img.shields.io/github/stars/AVIDS2/memorix?style=flat-square&color=yellow" alt="stars"></a>
-  <img src="https://img.shields.io/badge/tests-534%20passed-brightgreen?style=flat-square" alt="tests">
+  <img src="https://img.shields.io/badge/tests-576%20passed-brightgreen?style=flat-square" alt="tests">
 </p>
 
 <p align="center">
@@ -186,6 +186,35 @@ npm install -g @huggingface/transformers  # for MEMORIX_EMBEDDING=transformers
 ```
 
 Both run 100% locally. Zero API calls.
+
+### LLM Enhanced Mode (Optional)
+
+Enable intelligent memory deduplication and fact extraction with your own API key:
+
+```bash
+# Set in your MCP config env, or export before starting:
+MEMORIX_LLM_API_KEY=sk-xxx          # OpenAI-compatible API key
+MEMORIX_LLM_PROVIDER=openai         # openai | anthropic | openrouter
+MEMORIX_LLM_MODEL=gpt-4o-mini       # model name
+MEMORIX_LLM_BASE_URL=https://...    # custom endpoint (optional)
+```
+
+Or use existing env vars — Memorix auto-detects:
+- `OPENAI_API_KEY` → OpenAI
+- `ANTHROPIC_API_KEY` → Anthropic  
+- `OPENROUTER_API_KEY` → OpenRouter
+
+**Without LLM**: Free heuristic deduplication (similarity-based)  
+**With LLM**: Smart merge, fact extraction, contradiction detection
+
+### Interactive CLI
+
+```bash
+memorix              # Interactive menu (no args)
+memorix status       # Project info + stats
+memorix dashboard    # Web UI at localhost:3210
+memorix hooks install # Auto-capture for IDEs
+```
 
 ---
 

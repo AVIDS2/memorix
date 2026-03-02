@@ -12,6 +12,7 @@ import { create, insert, search, remove, update, count, type AnyOrama } from '@o
 import type { MemorixDocument, SearchOptions, IndexEntry } from '../types.js';
 import { OBSERVATION_ICONS, type ObservationType } from '../types.js';
 import { getEmbeddingProvider, type EmbeddingProvider } from '../embedding/provider.js';
+import { calculateProjectAffinity, extractProjectKeywords, type AffinityContext, type MemoryContent } from './project-affinity.js';
 
 let db: AnyOrama | null = null;
 let embeddingEnabled = false;
@@ -237,6 +238,47 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
 
   // Re-sort by time-decayed score
   intermediate.sort((a, b) => b.score - a.score);
+
+  // ─── Project Affinity Scoring (mcp-memory-service style) ───
+  // Penalize memories that don't reference the current project to prevent
+  // cross-project pollution (e.g., discussing Memorix in a test project workspace)
+  if (options.projectId && intermediate.length > 0) {
+    const projectName = options.projectId.split('/').pop() ?? options.projectId;
+    const affinityContext: AffinityContext = {
+      projectName,
+      projectId: options.projectId,
+      projectKeywords: extractProjectKeywords(projectName, options.projectId),
+    };
+
+    // Build a map of memory content for affinity calculation
+    const memoryContentMap = new Map<number, MemoryContent>();
+    for (const hit of results.hits) {
+      const doc = hit.document as unknown as MemorixDocument;
+      memoryContentMap.set(doc.observationId, {
+        title: doc.title,
+        narrative: doc.narrative,
+        facts: doc.facts?.split?.('\n') ?? (Array.isArray(doc.facts) ? doc.facts : []),
+        concepts: doc.concepts?.split?.('\n') ?? (Array.isArray(doc.concepts) ? doc.concepts : []),
+        entityName: doc.entityName,
+        filesModified: doc.filesModified?.split?.('\n') ?? (Array.isArray(doc.filesModified) ? doc.filesModified : []),
+      });
+    }
+
+    // Apply affinity scoring to each result
+    intermediate = intermediate.map(entry => {
+      const memory = memoryContentMap.get(entry.id);
+      if (!memory) return entry;
+
+      const { score: affinityScore } = calculateProjectAffinity(memory, affinityContext);
+      return {
+        ...entry,
+        score: entry.score * affinityScore, // Apply affinity as multiplier
+      };
+    });
+
+    // Re-sort after affinity adjustment
+    intermediate.sort((a, b) => b.score - a.score);
+  }
 
   // Temporal filtering: since/until date range
   if (options.since) {

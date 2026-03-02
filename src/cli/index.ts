@@ -68,7 +68,7 @@ async function interactiveMenu(): Promise<void> {
         await runCommand('dashboard');
         return; // Dashboard is blocking, exit after
       case 'hooks':
-        await runCommand('hooks', ['install']);
+        await runHooksMenu();
         break;
       case 'status':
         await runCommand('status');
@@ -89,6 +89,37 @@ async function interactiveMenu(): Promise<void> {
     }
     
     console.log(''); // Add spacing before next menu
+  }
+}
+
+async function runHooksMenu(): Promise<void> {
+  const action = await p.select({
+    message: 'Hooks management:',
+    options: [
+      { value: 'install', label: 'Install hooks', hint: 'set up auto-capture' },
+      { value: 'uninstall', label: 'Uninstall hooks', hint: 'remove from all agents' },
+      { value: 'status', label: 'Status', hint: 'show installed hooks' },
+    ],
+  });
+
+  if (p.isCancel(action)) return;
+
+  switch (action) {
+    case 'install': {
+      const m = await import('./commands/hooks-install.js');
+      await m.default.run?.({ args: { _: [] }, rawArgs: [], cmd: m.default } as any);
+      break;
+    }
+    case 'uninstall': {
+      const m = await import('./commands/hooks-uninstall.js');
+      await m.default.run?.({ args: { _: [] }, rawArgs: [], cmd: m.default } as any);
+      break;
+    }
+    case 'status': {
+      const m = await import('./commands/hooks-status.js');
+      await m.default.run?.({ args: { _: [] }, rawArgs: [], cmd: m.default } as any);
+      break;
+    }
   }
 }
 
@@ -303,11 +334,6 @@ async function runCommand(cmd: string, _args: string[] = []): Promise<void> {
   switch (cmd) {
     case 'dashboard': {
       const m = await import('./commands/dashboard.js');
-      await m.default.run?.({ args: { _: [] }, rawArgs: [], cmd: m.default } as any);
-      break;
-    }
-    case 'hooks': {
-      const m = await import('./commands/hooks-install.js');
       await m.default.run?.({ args: { _: [] }, rawArgs: [], cmd: m.default } as any);
       break;
     }

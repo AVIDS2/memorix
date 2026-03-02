@@ -1,0 +1,45 @@
+{
+  "version": 1,
+  "hooks": {
+    "sessionStart": [
+      {
+        "type": "command",
+        "bash": "cmd /c memorix hook",
+        "powershell": "cmd /c memorix hook",
+        "timeoutSec": 10
+      }
+    ],
+    "sessionEnd": [
+      {
+        "type": "command",
+        "bash": "cmd /c memorix hook",
+        "powershell": "cmd /c memorix hook",
+        "timeoutSec": 10
+      }
+    ],
+    "userPromptSubmitted": [
+      {
+        "type": "command",
+        "bash": "cmd /c memorix hook",
+        "powershell": "cmd /c memorix hook",
+        "timeoutSec": 10
+      }
+    ],
+    "postToolUse": [
+      {
+        "type": "command",
+        "bash": "cmd /c memorix hook",
+        "powershell": "cmd /c memorix hook",
+        "timeoutSec": 10
+      }
+    ],
+    "errorOccurred": [
+      {
+        "type": "command",
+        "bash": "cmd /c memorix hook",
+        "powershell": "cmd /c memorix hook",
+        "timeoutSec": 10
+      }
+    ]
+  }
+}

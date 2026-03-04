@@ -186,7 +186,7 @@ function generateKiroHookFiles(): Array<{ filename: string; content: string }> {
         when: { type: 'promptSubmit' },
         then: {
           type: 'askAgent',
-          prompt: 'Before responding, search for relevant context:\n1. Call memorix_search with a query related to the user\'s prompt\n2. If results are found, use memorix_detail to fetch the most relevant ones\n3. Reference relevant memories naturally in your response',
+          prompt: 'Before responding, load context:\n1. Call memorix_session_start to get previous session summary and key memories\n2. Call memorix_search with a query related to the user\'s prompt for additional context\n3. If search results are found, use memorix_detail to fetch the most relevant ones\n4. Reference relevant memories naturally in your response',
         },
       }, null, 2),
     },
@@ -296,7 +296,7 @@ export const MemorixPlugin = async ({ project, client, $, directory, worktree })
       output.context.push(
         '## Memorix Cross-Agent Memory\\n' +
         'Before compacting, use memorix_store to save important discoveries, decisions, and gotchas.\\n' +
-        'After compacting, use memorix_search to reload relevant context.'
+        'After compacting, use memorix_session_start to reload session context, then memorix_search for specific topics.'
       );
     },
   };
@@ -680,9 +680,10 @@ You have access to Memorix memory tools. Follow these rules to maintain persiste
 
 At the **beginning of every conversation**, BEFORE responding to the user:
 
-1. Call \`memorix_search\` with a query related to the user's first message
-2. If results are found, use \`memorix_detail\` to fetch the most relevant ones
-3. Reference relevant memories naturally — the user should feel you "remember" them
+1. Call \`memorix_session_start\` to get the previous session summary and key memories (this is a direct read, not a search — no fragmentation risk)
+2. Then call \`memorix_search\` with a query related to the user's first message for additional context
+3. If search results are found, use \`memorix_detail\` to fetch the most relevant ones
+4. Reference relevant memories naturally — the user should feel you "remember" them
 
 ## RULE 2: Store Important Context
 

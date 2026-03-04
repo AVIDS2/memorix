@@ -14,7 +14,7 @@
   <a href="https://www.npmjs.com/package/memorix"><img src="https://img.shields.io/npm/dm/memorix.svg?style=flat-square&color=blue" alt="downloads"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-green.svg?style=flat-square" alt="license"></a>
   <a href="https://github.com/AVIDS2/memorix"><img src="https://img.shields.io/github/stars/AVIDS2/memorix?style=flat-square&color=yellow" alt="stars"></a>
-  <img src="https://img.shields.io/badge/tests-593%20passed-brightgreen?style=flat-square" alt="tests">
+  <img src="https://img.shields.io/badge/tests-606%20passed-brightgreen?style=flat-square" alt="tests">
 </p>
 
 <p align="center">
@@ -136,6 +136,8 @@ args = ["serve"]
 
 Restart your agent. Done. No API keys, no cloud, no dependencies.
 
+> **Auto-update:** Memorix silently checks for updates on startup (once per 24h) and self-updates in the background. No manual `npm update` needed.
+
 > **Note:** Do NOT use `npx` — it re-downloads each time and causes MCP timeout. Use global install.
 >
 > 📖 [Full setup guide](docs/SETUP.md) · [Troubleshooting](docs/SETUP.md#troubleshooting)
@@ -144,13 +146,13 @@ Restart your agent. Done. No API keys, no cloud, no dependencies.
 
 ## Features
 
-### 25 MCP Tools
+### 27 MCP Tools
 
 | | |
 |---|---|
-| **Memory** | `memorix_store` · `memorix_search` · `memorix_detail` · `memorix_timeline` — 3-layer progressive disclosure with ~10x token savings |
+| **Memory** | `memorix_store` · `memorix_search` · `memorix_detail` · `memorix_timeline` · `memorix_resolve` · `memorix_deduplicate` · `memorix_suggest_topic_key` — 3-layer progressive disclosure with ~10x token savings |
 | **Sessions** | `memorix_session_start` · `memorix_session_end` · `memorix_session_context` — auto-inject previous context on new sessions |
-| **Knowledge Graph** | `create_entities` · `create_relations` · `add_observations` · `search_nodes` · `open_nodes` · `read_graph` — [MCP Official Memory Server](https://github.com/modelcontextprotocol/servers/tree/main/src/memory) compatible |
+| **Knowledge Graph** | `create_entities` · `create_relations` · `add_observations` · `delete_entities` · `delete_observations` · `delete_relations` · `search_nodes` · `open_nodes` · `read_graph` — [MCP Official Memory Server](https://github.com/modelcontextprotocol/servers/tree/main/src/memory) compatible |
 | **Workspace Sync** | `memorix_workspace_sync` · `memorix_rules_sync` · `memorix_skills` — migrate MCP configs, rules, and skills across 9 agents |
 | **Maintenance** | `memorix_retention` · `memorix_consolidate` · `memorix_export` · `memorix_import` — decay scoring, dedup, backup |
 | **Dashboard** | `memorix_dashboard` — web UI with D3.js knowledge graph, observation browser, retention panel |
@@ -181,7 +183,7 @@ MEMORIX_EMBEDDING=off           # Default — BM25 only, minimal resources
 
 #### API Embedding (Recommended)
 
-Works with any OpenAI-compatible endpoint — OpenAI, Qwen, Cohere, 中转站/反代, Ollama:
+Works with any OpenAI-compatible API — OpenAI, Qwen, Cohere, Ollama, or any API proxy:
 
 ```bash
 MEMORIX_EMBEDDING=api
@@ -281,7 +283,7 @@ git clone https://github.com/AVIDS2/memorix.git
 cd memorix && npm install
 
 npm run dev       # watch mode
-npm test          # 593 tests
+npm test          # 606 tests
 npm run build     # production build
 ```
 

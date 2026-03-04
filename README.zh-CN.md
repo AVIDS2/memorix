@@ -14,7 +14,7 @@
   <a href="https://www.npmjs.com/package/memorix"><img src="https://img.shields.io/npm/dm/memorix.svg?style=flat-square&color=blue" alt="downloads"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-green.svg?style=flat-square" alt="license"></a>
   <a href="https://github.com/AVIDS2/memorix"><img src="https://img.shields.io/github/stars/AVIDS2/memorix?style=flat-square&color=yellow" alt="stars"></a>
-  <img src="https://img.shields.io/badge/tests-593%20passed-brightgreen?style=flat-square" alt="tests">
+  <img src="https://img.shields.io/badge/tests-606%20passed-brightgreen?style=flat-square" alt="tests">
 </p>
 
 <p align="center">
@@ -136,6 +136,8 @@ args = ["serve"]
 
 重启 Agent 即可。无需 API Key，无需云服务，无需额外依赖。
 
+> **自动更新：** Memorix 启动时静默检查更新（每 24 小时一次），有新版本自动后台安装，无需手动 `npm update`。
+
 > **注意：** 不要用 `npx`——它每次都会重新下载，导致 MCP 超时。请用全局安装。
 >
 > 📖 [完整配置指南](docs/SETUP.md) · [常见问题排查](docs/SETUP.md#troubleshooting)
@@ -144,13 +146,13 @@ args = ["serve"]
 
 ## 功能
 
-### 25 个 MCP 工具
+### 27 个 MCP 工具
 
 | | |
 |---|---|
-| **记忆** | `memorix_store` · `memorix_search` · `memorix_detail` · `memorix_timeline` — 3 层渐进式展示，节省约 10 倍 token |
+| **记忆** | `memorix_store` · `memorix_search` · `memorix_detail` · `memorix_timeline` · `memorix_resolve` · `memorix_deduplicate` · `memorix_suggest_topic_key` — 3 层渐进式展示，节省约 10 倍 token |
 | **会话** | `memorix_session_start` · `memorix_session_end` · `memorix_session_context` — 新会话自动注入上次上下文 |
-| **知识图谱** | `create_entities` · `create_relations` · `add_observations` · `search_nodes` · `open_nodes` · `read_graph` — 兼容 [MCP 官方 Memory Server](https://github.com/modelcontextprotocol/servers/tree/main/src/memory) |
+| **知识图谱** | `create_entities` · `create_relations` · `add_observations` · `delete_entities` · `delete_observations` · `delete_relations` · `search_nodes` · `open_nodes` · `read_graph` — 兼容 [MCP 官方 Memory Server](https://github.com/modelcontextprotocol/servers/tree/main/src/memory) |
 | **工作区同步** | `memorix_workspace_sync` · `memorix_rules_sync` · `memorix_skills` — 跨 9 个 Agent 迁移 MCP 配置、规则和技能 |
 | **维护** | `memorix_retention` · `memorix_consolidate` · `memorix_export` · `memorix_import` — 衰减评分、去重、备份 |
 | **仪表盘** | `memorix_dashboard` — Web UI，D3.js 知识图谱、观察浏览器、衰减面板 |
@@ -169,10 +171,34 @@ memorix hooks install
 
 ### 混合搜索
 
-开箱即用 BM25 全文搜索。一条命令添加语义搜索：
+BM25 全文搜索开箱即用（~50MB RAM）。语义搜索**可选**——3 种方式：
 
 ```bash
-npm install -g @huggingface/transformers   # 或: npm install -g fastembed
+# 在 MCP 配置的 env 中设置：
+MEMORIX_EMBEDDING=api           # ⭐ 推荐 — 零本地 RAM，最佳质量
+MEMORIX_EMBEDDING=fastembed     # 本地 ONNX（~300MB RAM）
+MEMORIX_EMBEDDING=transformers  # 本地 JS/WASM（~500MB RAM）
+MEMORIX_EMBEDDING=off           # 默认 — 仅 BM25
+```
+
+#### API Embedding（推荐）
+
+兼容任何 OpenAI 格式的 API——OpenAI、Qwen、Cohere、Ollama 或任何 API 代理：
+
+```bash
+MEMORIX_EMBEDDING=api
+MEMORIX_EMBEDDING_API_KEY=sk-xxx              # 或复用 OPENAI_API_KEY
+MEMORIX_EMBEDDING_MODEL=text-embedding-3-small # 默认
+MEMORIX_EMBEDDING_BASE_URL=https://api.openai.com/v1  # 可选
+```
+
+内置 10K LRU 缓存 + 磁盘持久化，重复查询零开销。
+
+#### 本地 Embedding
+
+```bash
+npm install -g fastembed              # MEMORIX_EMBEDDING=fastembed
+npm install -g @huggingface/transformers  # MEMORIX_EMBEDDING=transformers
 ```
 
 100% 本地运行，零 API 调用。
@@ -219,7 +245,7 @@ git clone https://github.com/AVIDS2/memorix.git
 cd memorix && npm install
 
 npm run dev       # 监听模式
-npm test          # 593 个测试
+npm test          # 606 个测试
 npm run build     # 生产构建
 ```
 

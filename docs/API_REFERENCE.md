@@ -7,16 +7,15 @@
 
 ## 概览
 
-Memorix 注册了 **25 个 MCP 工具**，分为 6 类:
+Memorix 注册了 **27 个 MCP 工具**，分为 5 类:
 
 | 类别 | 工具 | 用途 |
 |------|------|------|
-| **记忆管理** | memorix_store, memorix_search, memorix_detail, memorix_timeline, memorix_suggest_topic_key | 结构化记忆的存储、搜索、检索 |
-| **会话管理** | memorix_session_start, memorix_session_end, memorix_session_context | 跨会话上下文注入 |
-| **维护工具** | memorix_retention, memorix_consolidate, memorix_deduplicate, memorix_resolve, memorix_export, memorix_import, memorix_dashboard | 衰减/去重/备份/可视化 |
-| **MCP 官方兼容** | create_entities, create_relations, add_observations, delete_entities, delete_observations, delete_relations, search_nodes, open_nodes, read_graph | 知识图谱操作 |
-| **工作空间同步** | memorix_workspace_sync, memorix_rules_sync, memorix_skills | 跨 9 Agent 环境迁移 |
-| **智能增强** | memorix_deduplicate (LLM) | LLM 驱动的记忆去重 + 事实提取 |
+| **记忆管理** (7) | memorix_store, memorix_search, memorix_detail, memorix_timeline, memorix_resolve, memorix_deduplicate, memorix_suggest_topic_key | 结构化记忆的存储、搜索、检索、去重 |
+| **会话管理** (3) | memorix_session_start, memorix_session_end, memorix_session_context | 跨会话上下文注入 |
+| **维护与可视化** (5) | memorix_retention, memorix_consolidate, memorix_export, memorix_import, memorix_dashboard | 衰减/合并/备份/可视化 |
+| **知识图谱** (9) | create_entities, create_relations, add_observations, delete_entities, delete_observations, delete_relations, search_nodes, open_nodes, read_graph | MCP 官方 Memory Server 兼容 |
+| **工作空间同步** (3) | memorix_workspace_sync, memorix_rules_sync, memorix_skills | 跨 9 Agent 环境迁移 |
 
 ---
 

@@ -35,7 +35,7 @@ Memorix 是一个 **跨 AI Agent 的持久化记忆层**，以 MCP (Model Contex
 │  │                    Memorix MCP Server                      │   │
 │  │  ┌──────────────────────────────────────────────────────┐ │   │
 │  │  │              server.ts (849行)                        │ │   │
-│  │  │  25个 MCP Tools + 热重载 + 自动Hook安装 + 同步建议    │ │   │
+│  │  │  27个 MCP Tools + 热重载 + 自动Hook安装 + 同步建议    │ │   │
 │  │  └──────┬──────┬──────────┬──────────┬──────────────────┘ │   │
 │  │         │      │          │          │                     │   │
 │  │  ┌──────▼──┐ ┌─▼────────┐│  ┌───────▼──────┐             │   │
@@ -161,7 +161,7 @@ Agent --memorix_detail--> server.ts
 - `rules/adapters/` — 8个规则格式适配器
 
 ### Layer 6: 基础设施
-- `server.ts` — MCP Server 主入口 (25个工具注册)
+- `server.ts` — MCP Server 主入口 (27个工具注册)
 - `cli/index.ts` — Citty CLI 框架 + TUI 配置向导
 - `config.ts` — 统一配置读取 (env > config.json > 默认值)
 - `project/detector.ts` — Git-based 项目检测
@@ -195,7 +195,7 @@ pnpm test   # vitest 运行测试
 
 - **语言**: TypeScript (strict mode)
 - **打包**: tsup (ESM output)
-- **测试**: Vitest (593 tests, 44 files)
+- **测试**: Vitest (606 tests, 45 files)
 - **CLI**: Citty (命令定义) + Clack (交互提示)
 - **代码风格**: 每个文件顶部有 JSDoc 注释块说明来源和设计意图
 - **错误处理**: Hooks 系统永远不抛错 (silent fail), MCP 工具返回 `isError: true`

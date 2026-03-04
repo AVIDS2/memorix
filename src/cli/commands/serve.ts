@@ -65,6 +65,7 @@ export default defineCommand({
         console.error(`[memorix] MCP Server running on stdio (project: ${projectId})`);
         console.error(`[memorix] Project root: ${projectRoot}`);
         deferredInit().catch(e => console.error(`[memorix] Deferred init error:`, e));
+        import('../update-checker.js').then(m => m.checkForUpdates()).catch(() => {});
       } else {
         // Degraded cwd — try MCP roots protocol to discover the real project path.
         // Must connect transport first to send listRoots request.
@@ -107,6 +108,7 @@ export default defineCommand({
         console.error(`[memorix] MCP Server running on stdio (project: ${projectId})`);
         console.error(`[memorix] Project root: ${projectRoot}`);
         deferredInit().catch(e => console.error(`[memorix] Deferred init error:`, e));
+        import('../update-checker.js').then(m => m.checkForUpdates()).catch(() => {});
       }
     } else {
       // Normal path: register tools FIRST, then connect transport.
@@ -120,6 +122,7 @@ export default defineCommand({
       console.error(`[memorix] MCP Server running on stdio (project: ${projectId})`);
       console.error(`[memorix] Project root: ${projectRoot}`);
       deferredInit().catch(e => console.error(`[memorix] Deferred init error:`, e));
+      import('../update-checker.js').then(m => m.checkForUpdates()).catch(() => {});
     }
   },
 });

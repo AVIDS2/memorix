@@ -20,6 +20,7 @@ import { WindsurfAdapter } from './adapters/windsurf.js';
 import { AntigravityAdapter } from './adapters/antigravity.js';
 import { CopilotAdapter } from './adapters/copilot.js';
 import { KiroAdapter } from './adapters/kiro.js';
+import { TraeAdapter } from './adapters/trae.js';
 
 /** A detected conflict between two rules */
 export interface RuleConflict {
@@ -58,6 +59,7 @@ export class RulesSyncer {
       new AntigravityAdapter(),
       new CopilotAdapter(),
       new KiroAdapter(),
+      new TraeAdapter(),
     ];
     for (const a of all) {
       this.adapters.set(a.source, a);

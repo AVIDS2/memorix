@@ -204,4 +204,77 @@ describe('Session Lifecycle', () => {
       expect(active).toBeNull();
     });
   });
+
+  describe('cross-agent alias resolution', () => {
+    const ALIAS_A = 'local/my-project';
+    const ALIAS_B = 'github.com/user/my-project';
+
+    async function registerTestAliases() {
+      const { initAliasRegistry, registerAlias } = await import('../../src/project/aliases.js');
+      initAliasRegistry(testDir);
+      await registerAlias({ id: ALIAS_A, name: 'my-project', rootPath: '/tmp/a' });
+      await registerAlias({ id: ALIAS_B, name: 'my-project', rootPath: '/tmp/a', gitRemote: 'https://github.com/user/my-project.git' });
+    }
+
+    it('should find sessions stored under a different alias', async () => {
+      await registerTestAliases();
+
+      // Agent A stores session under ALIAS_A
+      await startSession(testDir, ALIAS_A, { sessionId: 'alias-sess', agent: 'windsurf' });
+      await endSession(testDir, 'alias-sess', '## Goal\nCross-agent test');
+
+      // Agent B queries under ALIAS_B — should still find it
+      const sessions = await listSessions(testDir, ALIAS_B);
+      expect(sessions.length).toBeGreaterThanOrEqual(1);
+      expect(sessions.some(s => s.id === 'alias-sess')).toBe(true);
+    });
+
+    it('should inject context from aliased sessions', async () => {
+      await registerTestAliases();
+
+      // Store session + observation under ALIAS_A
+      await startSession(testDir, ALIAS_A, { sessionId: 'ctx-alias', agent: 'cursor' });
+      await endSession(testDir, 'ctx-alias', '## Goal\nAlias context test');
+
+      await storeObservation({
+        entityName: 'auth',
+        type: 'gotcha',
+        title: 'Cross-agent gotcha',
+        narrative: 'Found via alias',
+        projectId: ALIAS_A,
+      });
+
+      // Query context under ALIAS_B
+      const context = await getSessionContext(testDir, ALIAS_B);
+      expect(context).toContain('Alias context test');
+      expect(context).toContain('Cross-agent gotcha');
+    });
+
+    it('should auto-close aliased active sessions on new start', async () => {
+      await registerTestAliases();
+
+      // Agent A starts session under ALIAS_A
+      await startSession(testDir, ALIAS_A, { sessionId: 'old-active' });
+
+      // Agent B starts new session under ALIAS_B — should close old one
+      await startSession(testDir, ALIAS_B, { sessionId: 'new-active' });
+
+      const sessions = await listSessions(testDir);
+      const old = sessions.find(s => s.id === 'old-active');
+      const fresh = sessions.find(s => s.id === 'new-active');
+
+      expect(old?.status).toBe('completed');
+      expect(fresh?.status).toBe('active');
+    });
+
+    it('should find active session via alias', async () => {
+      await registerTestAliases();
+
+      await startSession(testDir, ALIAS_A, { sessionId: 'active-alias' });
+
+      const active = await getActiveSession(testDir, ALIAS_B);
+      expect(active).not.toBeNull();
+      expect(active!.id).toBe('active-alias');
+    });
+  });
 });

@@ -71,6 +71,7 @@ const SKILLS_DIRS: Record<AgentTarget, string[]> = {
     antigravity: ['.agent/skills', '.gemini/skills', '.gemini/antigravity/skills'],
     kiro: ['.kiro/skills'],
     opencode: ['.opencode/skills'],
+    trae: ['.trae/skills'],
 };
 
 /** Types with high signal for skill generation */

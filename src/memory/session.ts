@@ -14,6 +14,20 @@
 import type { Session, Observation } from '../types.js';
 import { loadSessionsJson, saveSessionsJson, loadObservationsJson } from '../store/persistence.js';
 import { withFileLock } from '../store/file-lock.js';
+import { resolveAliases } from '../project/aliases.js';
+
+/**
+ * Resolve a projectId into a Set of all known aliases.
+ * Ensures sessions stored under any alias are found regardless of which IDE stored them.
+ */
+async function resolveProjectIds(projectId: string): Promise<Set<string>> {
+  try {
+    const aliases = await resolveAliases(projectId);
+    return new Set(aliases);
+  } catch {
+    return new Set([projectId]);
+  }
+}
 
 /**
  * Generate a unique session ID.
@@ -54,8 +68,9 @@ export async function startSession(
     const sessions = await loadSessionsJson(projectDir) as Session[];
 
     // Mark any existing active sessions as completed (stale)
+    const aliasSet = await resolveProjectIds(projectId);
     for (const s of sessions) {
-      if (s.projectId === projectId && s.status === 'active') {
+      if (aliasSet.has(s.projectId) && s.status === 'active') {
         s.status = 'completed';
         s.endedAt = now;
         if (!s.summary) {
@@ -123,8 +138,9 @@ export async function getSessionContext(
   const allObs = await loadObservationsJson(projectDir) as Observation[];
 
   // Get recent completed sessions for this project (newest first)
+  const aliasSet = await resolveProjectIds(projectId);
   const projectSessions = sessions
-    .filter(s => s.projectId === projectId && s.status === 'completed')
+    .filter(s => aliasSet.has(s.projectId) && s.status === 'completed')
     .sort((a, b) => new Date(b.endedAt || b.startedAt).getTime() - new Date(a.endedAt || a.startedAt).getTime())
     .slice(0, limit);
 
@@ -158,7 +174,7 @@ export async function getSessionContext(
   };
 
   const priorityObs = allObs
-    .filter(o => o.projectId === projectId && PRIORITY_TYPES.has(o.type))
+    .filter(o => aliasSet.has(o.projectId) && PRIORITY_TYPES.has(o.type))
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
     .slice(0, 5);
 
@@ -198,7 +214,8 @@ export async function listSessions(
 ): Promise<Session[]> {
   const sessions = await loadSessionsJson(projectDir) as Session[];
   if (projectId) {
-    return sessions.filter(s => s.projectId === projectId);
+    const aliasSet = await resolveProjectIds(projectId);
+    return sessions.filter(s => aliasSet.has(s.projectId));
   }
   return sessions;
 }
@@ -211,5 +228,6 @@ export async function getActiveSession(
   projectId: string,
 ): Promise<Session | null> {
   const sessions = await loadSessionsJson(projectDir) as Session[];
-  return sessions.find(s => s.projectId === projectId && s.status === 'active') || null;
+  const aliasSet = await resolveProjectIds(projectId);
+  return sessions.find(s => aliasSet.has(s.projectId) && s.status === 'active') || null;
 }

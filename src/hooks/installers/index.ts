@@ -323,6 +323,9 @@ function getProjectConfigPath(agent: AgentName, projectRoot: string): string {
     case 'codex':
       // Codex has no hooks system — only rules (AGENTS.md)
       return path.join(projectRoot, 'AGENTS.md');
+    case 'trae':
+      // Trae has no hooks system — only rules (.trae/rules/project_rules.md)
+      return path.join(projectRoot, '.trae', 'rules', 'project_rules.md');
     case 'opencode':
       // OpenCode uses plugin files for hooks
       return path.join(projectRoot, '.opencode', 'plugins', 'memorix.js');
@@ -350,6 +353,8 @@ function getGlobalConfigPath(agent: AgentName): string {
       return path.join(home, '.gemini', 'settings.json');
     case 'opencode':
       return path.join(home, '.config', 'opencode', 'plugins', 'memorix.js');
+    case 'trae':
+      return path.join(home, '.trae', 'rules', 'project_rules.md');
     default:
       return path.join(home, '.memorix', 'hooks.json');
   }
@@ -418,6 +423,13 @@ export async function detectInstalledAgents(): Promise<AgentName[]> {
     agents.push('opencode');
   } catch { /* not installed */ }
 
+  // Check for Trae
+  const traeDir = path.join(home, '.trae');
+  try {
+    await fs.access(traeDir);
+    agents.push('trae');
+  } catch { /* not installed */ }
+
   return agents;
 }
 
@@ -462,6 +474,15 @@ export async function installHooks(
         configPath: getProjectConfigPath(agent, projectRoot),
         events: [],
         generated: { note: 'Codex has no hooks system, only rules (AGENTS.md) installed' },
+      };
+    case 'trae':
+      // Trae has no hooks system — only install rules
+      await installAgentRules(agent, projectRoot);
+      return {
+        agent,
+        configPath: getProjectConfigPath(agent, projectRoot),
+        events: [],
+        generated: { note: 'Trae has no hooks system, only rules (.trae/rules/project_rules.md) installed' },
       };
     case 'opencode': {
       // OpenCode uses JS plugin files for hooks
@@ -617,6 +638,9 @@ async function installAgentRules(agent: AgentName, projectRoot: string): Promise
       // Gemini CLI reads context from GEMINI.md by default (like Codex reads AGENTS.md)
       // See: context.fileName defaults to ["GEMINI.md", "CONTEXT.md"]
       rulesPath = path.join(projectRoot, 'GEMINI.md');
+      break;
+    case 'trae':
+      rulesPath = path.join(projectRoot, '.trae', 'rules', 'project_rules.md');
       break;
     default:
       rulesPath = path.join(projectRoot, '.agent', 'rules', 'memorix.md');
@@ -819,7 +843,7 @@ export async function getHookStatus(
   projectRoot: string,
 ): Promise<Array<{ agent: AgentName; installed: boolean; configPath: string }>> {
   const results: Array<{ agent: AgentName; installed: boolean; configPath: string }> = [];
-  const agents: AgentName[] = ['claude', 'copilot', 'windsurf', 'cursor', 'kiro', 'codex', 'antigravity', 'opencode'];
+  const agents: AgentName[] = ['claude', 'copilot', 'windsurf', 'cursor', 'kiro', 'codex', 'antigravity', 'opencode', 'trae'];
 
   for (const agent of agents) {
     const projectPath = getProjectConfigPath(agent, projectRoot);

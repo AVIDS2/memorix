@@ -49,8 +49,10 @@ describe('Retention & Decay', () => {
       expect(getImportanceLevel(makeDoc({ type: 'trade-off' }))).toBe('high');
     });
 
-    it('should map session-request to low', () => {
+    it('should map session-request/what-changed/discovery to low', () => {
       expect(getImportanceLevel(makeDoc({ type: 'session-request' }))).toBe('low');
+      expect(getImportanceLevel(makeDoc({ type: 'what-changed' }))).toBe('low');
+      expect(getImportanceLevel(makeDoc({ type: 'discovery' }))).toBe('low');
     });
 
     it('should default to medium for unknown types', () => {

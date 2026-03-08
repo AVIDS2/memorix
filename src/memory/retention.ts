@@ -43,9 +43,9 @@ const TYPE_IMPORTANCE: Record<string, ImportanceLevel> = {
   'trade-off': 'high',
   'problem-solution': 'medium',
   'how-it-works': 'medium',
-  'what-changed': 'medium',
+  'what-changed': 'low',
   'why-it-exists': 'medium',
-  discovery: 'medium',
+  discovery: 'low',
   'session-request': 'low',
 };
 

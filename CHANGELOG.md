@@ -2,6 +2,71 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.0] — 2026-03-09
+
+### 🎉 First Stable Release
+
+Memorix reaches v1.0.0 — all major features complete. Future versions will iterate based on AI/agent ecosystem evolution.
+
+### Added
+- **Multi-Agent Team Collaboration** — 4 team tools (`team_manage`, `team_file_lock`, `team_task`, `team_message`) for cross-IDE agent coordination. File-based persistence via `team-state.json`. Verified: Windsurf ↔ Antigravity bidirectional communication.
+- **Auto-Cleanup on Startup** — Background retention archiving and intelligent deduplication run automatically in `deferredInit`. With LLM configured: semantic dedup via any OpenAI-compatible model. Without LLM: Jaccard similarity consolidation. Zero manual maintenance required.
+- **`memorix_transfer` tool** — Merged `memorix_export` + `memorix_import` into a single tool with `action: "export" | "import"`.
+- **TEAM.md** — Multi-agent coordination protocol documentation.
+
+### Changed
+- **Tool consolidation: 41 → 22 default tools (-46%)**
+  - Team tools: 13 individual → 4 merged (action parameter pattern)
+  - Knowledge Graph tools: 9 → conditional via `~/.memorix/settings.json` (`{ "knowledgeGraph": true }`)
+  - Export+Import: 2 → 1 (`memorix_transfer`)
+- **Dashboard Team Panel** — Redesigned with Iconify icons, Material Design 3 style. Agent cards, task lists, message panel, file lock panel.
+- **README updated** for v1.0.0 stable (EN + 中文).
+
+### Fixed
+- **Windows EPERM file lock race condition** — Treat EPERM same as EEXIST in file-lock.ts.
+- **PowerShell BOM in config.json** — `Set-Content -Encoding UTF8` adds BOM in PS 5.x, breaking `JSON.parse`. Always use Node.js for config file writes.
+
+### Production Hardening
+- Cross-session shared team state
+- Inbox capped at 200 messages with auto-eviction
+- Session timeout GC (30min idle → auto-close)
+- Send to inactive agent rejected
+- Agent leave releases file locks + clears inbox
+- Orphaned task rescue when assignee inactive
+- Input validation: agent name max 100, message max 10KB
+
+### Stats
+- **Default MCP Tools:** 22 (+9 optional KG)
+- **Tests:** 753/753 passing across 56 files
+- **IDE Support:** 10 agents (Cursor, Windsurf, Claude Code, Codex, Copilot, Kiro, Antigravity, OpenCode, Trae, Gemini CLI)
+
+## [0.12.0] — 2026-03-08
+
+### Added
+- **Intent-Aware Recall** — Search understands query intent ("why X?" prioritizes decisions/trade-offs, "how to X?" prioritizes how-it-works).
+- **MCP Deadlock Fix** — Resolved stdio transport deadlock under high concurrency.
+- **Dashboard Dark Theme Fix** — Proper dark mode support across all panels.
+- **Build Race Condition Fix** — Fixed tsup parallel build race condition.
+
+## [0.11.0] — 2026-03-07
+
+### Added
+- **Mini-Skills** (`memorix_promote`) — Promote observations to permanent skills that auto-inject at session start. Never decay, project-scoped.
+- **LLM Quality Engine** — Compact-on-write (duplicate detection at write time), narrative compression (~27% token reduction), search reranking (60% queries improved).
+- **`memorix_deduplicate` tool** — LLM-powered semantic deduplication with dry-run support.
+- **`memorix_resolve` tool** — Mark completed tasks and fixed bugs as resolved to prevent context pollution.
+
+### Fixed
+- **Retention decay fix** — Reclassified `what-changed`/`discovery` to low retention (30d instead of 90d).
+
+### Stats
+- **Tests:** 641 → 674 passing
+
+## [0.10.6] — 2026-03-06
+
+### Fixed
+- Minor stability improvements.
+
 ## [0.10.5] — 2026-03-05
 
 ### Fixed

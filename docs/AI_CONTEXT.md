@@ -15,26 +15,31 @@
 
 ---
 
-## 项目状态 (截至 2026-02-15)
+## 项目状态 (截至 2026-03-09, v1.0.0)
 
 ### 功能完成度
 - ✅ 核心记忆存储/搜索/检索
-- ✅ 知识图谱 (MCP Official 兼容)
+- ✅ 知识图谱 (MCP Official 兼容, 可选启用)
 - ✅ 3层渐进式披露 (10x token 节省)
-- ✅ 记忆衰减 & 保留
+- ✅ 记忆衰减 & 保留 + 自动归档
 - ✅ 实体自动抽取 & 关系自动创建
-- ✅ Embedding 向量搜索 (可选)
-- ✅ Hooks 隐式记忆系统
-- ✅ 跨 Agent 规则同步 (6 个 Agent)
+- ✅ Embedding 向量搜索 (API/FastEmbed/Transformers)
+- ✅ Hooks 隐式记忆系统 (5 个生命周期 Hook)
+- ✅ 跨 Agent 规则同步 (10 个 Agent)
 - ✅ 跨 Agent 工作空间迁移
-- ✅ 274 测试通过, 零回归
-- 🚧 Web Dashboard (未开始)
-- 🚧 自动归档 (只有评估没有执行)
+- ✅ Web Dashboard (localhost:3210, 知识图谱/观察/搜索/团队)
+- ✅ 会话管理 (自动上下文注入)
+- ✅ Mini-Skills (永久技能, 自动注入)
+- ✅ LLM 增强模式 (压缩/重排序/去重)
+- ✅ 团队协作 (Agent注册/文件锁/任务板/消息)
+- ✅ 自动清理 (启动时归档+去重)
+- ✅ 导入导出 (JSON + Markdown)
+- ✅ 753 测试通过, 56 个测试文件, 零回归
 
 ### 代码规模
-- ~22 个源文件
-- ~4000+ 行 TypeScript
-- ~22 个测试文件, 274 个测试用例
+- 22 个默认 MCP 工具 + 9 个可选知识图谱工具
+- 56 个测试文件, 753 个测试用例
+- 10 个 IDE 支持
 
 ---
 
@@ -71,8 +76,9 @@
 4. `workspace/mcp-adapters/<agent>.ts` — 实现 `MCPConfigAdapter`
 5. `workspace/engine.ts` — 注册适配器 + 配置 SKILLS_DIRS
 6. `hooks/normalizer.ts` — 添加事件映射和格式解析
-7. `server.ts` — 更新 RULE_SOURCES 和 AGENT_TARGETS 数组及工具描述
-8. `tests/rules/<agent>-adapter.test.ts` — 编写测试
+7. `hooks/installers/index.ts` — 添加 Hook 安装器
+8. `server.ts` — 更新 RULE_SOURCES 和 AGENT_TARGETS 数组及工具描述
+9. `tests/rules/<agent>-adapter.test.ts` — 编写测试
 
 ### 6. 项目识别
 - 基于 Git remote URL → 规范化为 `user/repo` 格式
@@ -129,7 +135,7 @@ rm -rf ~/.memorix/data/<projectId>/
 | [MODULES.md](./MODULES.md) | 每个模块的详细实现、算法、注意事项 |
 | [DEVELOPMENT.md](./DEVELOPMENT.md) | 开发环境、命令、项目结构、如何添加新 Agent |
 | [DESIGN_DECISIONS.md](./DESIGN_DECISIONS.md) | 12 个关键设计决策 (ADR) |
-| [API_REFERENCE.md](./API_REFERENCE.md) | 16 个 MCP 工具的完整 API 参考 |
+| [API_REFERENCE.md](./API_REFERENCE.md) | 22+9 个 MCP 工具的完整 API 参考 |
 | [KNOWN_ISSUES_AND_ROADMAP.md](./KNOWN_ISSUES_AND_ROADMAP.md) | 已知问题、路线图、技术债务 |
 
 ---
@@ -139,3 +145,4 @@ rm -rf ~/.memorix/data/<projectId>/
 | 日期 | 作者 | 变更 |
 |------|------|------|
 | 2026-02-15 | AI (Antigravity) + 项目创建者 | 初始文档创建，覆盖所有核心模块 |
+| 2026-03-09 | AI (Windsurf) + 项目创建者 | v1.0.0 更新: Team协作/自动清理/工具合并/LLM增强 |

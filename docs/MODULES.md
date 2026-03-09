@@ -1,6 +1,6 @@
 # Memorix 模块详解
 
-> 最后更新: 2026-02-15
+> 最后更新: 2026-03-09 (v1.0.0)
 > 本文档详细记录每个模块的实现细节、关键算法和注意事项
 
 ---
@@ -56,11 +56,14 @@ const schema = {
 
 ### 存储目录
 ```
-~/.memorix/data/<projectId>/
+~/.memorix/data/
 ├── observations.json      # 所有 observation 的 JSON 数组
 ├── id-counter.txt         # 下一个 observation ID (纯文本数字)
 ├── entities.jsonl         # 知识图谱节点 (每行一个 JSON)
-└── relations.jsonl        # 知识图谱边 (每行一个 JSON)
+├── relations.jsonl        # 知识图谱边 (每行一个 JSON)
+├── sessions.json          # 会话历史
+├── mini-skills.json       # 永久技能
+└── team-state.json        # 团队协作状态
 ```
 
 ### JSONL 格式 (MCP 兼容)
@@ -76,9 +79,9 @@ const schema = {
 - **ID 计数器单独文件**: 避免扫描所有 observation 来确定下一个 ID
 
 ### ⚠️ 注意事项
-- `projectId` 做目录名时，特殊字符 (如 `/`) 会被 path.join 处理
-- 没有文件锁机制 — 多进程同时写入可能导致数据丢失
-- 热重载依赖 `fs.watch` 监听 `observations.json` 变化
+- v0.9.6 后所有数据存储在单一平坦目录 `~/.memorix/data/`，projectId 仅作为元数据
+- 有文件锁机制 (`store/file-lock.ts`) — 使用 `.memorix.lock` 目录锁 + 10s 超时检测
+- 热重载使用 `fs.watchFile` (polling) 监听 `observations.json` 变化
 
 ---
 
@@ -141,7 +144,7 @@ Archive-candidate: age > 100% retention & !immune
 ### ⚠️ 注意事项
 - 免疫的 observation 最低 relevance 为 0.5
 - `high` 重要性的 observation 也被视为免疫 — 这意味着 `gotcha`, `decision`, `trade-off` 永远不会被自动归档
-- 目前没有实际的自动归档/删除逻辑 — retention 只提供状态报告
+- `archiveExpired()` 可自动归档过期记忆，`deferredInit` 启动时自动执行
 
 ---
 
@@ -172,7 +175,7 @@ fixed by | resolved by
 ### ⚠️ 注意事项
 - 最小实体长度: 通用3字符, 文件路径5字符
 - 全局正则需要在每次使用前重置 `lastIndex`
-- 不支持中文标识符抽取
+- 支持中文括号标识符 (「」、【】) 和中文因果语言模式 (因为/所以/由于/导致/决定/采用)
 
 ---
 

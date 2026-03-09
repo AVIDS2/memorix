@@ -1,6 +1,6 @@
 # Memorix 架构文档
 
-> 最后更新: 2026-03-04
+> 最后更新: 2026-03-09 (v1.0.0)
 > 维护者: 项目创建者 + AI 协作开发
 
 ## 项目定位
@@ -34,8 +34,8 @@ Memorix 是一个 **跨 AI Agent 的持久化记忆层**，以 MCP (Model Contex
 │  ┌───────────────────────────▼───────────────────────────────┐   │
 │  │                    Memorix MCP Server                      │   │
 │  │  ┌──────────────────────────────────────────────────────┐ │   │
-│  │  │              server.ts (849行)                        │ │   │
-│  │  │  27个 MCP Tools + 热重载 + 自动Hook安装 + 同步建议    │ │   │
+│  │  │              server.ts                                │ │   │
+│  │  │  22个默认 MCP Tools + 热重载 + 自动Hook + 自动清理    │ │   │
 │  │  └──────┬──────┬──────────┬──────────┬──────────────────┘ │   │
 │  │         │      │          │          │                     │   │
 │  │  ┌──────▼──┐ ┌─▼────────┐│  ┌───────▼──────┐             │   │
@@ -45,7 +45,7 @@ Memorix 是一个 **跨 AI Agent 的持久化记忆层**，以 MCP (Model Contex
 │  │         │      │         │          │                     │   │
 │  │  ┌──────▼──────▼─────┐   │  ┌───────▼──────┐             │   │
 │  │  │   Store Layer     │   │  │ Rules Syncer │             │   │
-│  │  │  Orama + Persist  │   │  │ 6 Adapters   │             │   │
+│  │  │  Orama + Persist  │   │  │ 10 Adapters  │             │   │
 │  │  └──────────┬────────┘   │  └──────────────┘             │   │
 │  │             │            │                                │   │
 │  │  ┌──────────▼────────┐   │                                │   │
@@ -53,19 +53,28 @@ Memorix 是一个 **跨 AI Agent 的持久化记忆层**，以 MCP (Model Contex
 │  │  │ API/FastEmbed/TF │   │                                │   │
 │  │  └───────────────────┘   │                                │   │
 │  │                          │                                │   │
+│  │  ┌───────────────────────┤  ┌──────────────────────────┐  │   │
+│  │  │  Hooks System         │  │  Team Collaboration      │  │   │
+│  │  │  Normalizer→Detect→   │  │  Registry/Locks/Tasks/   │  │   │
+│  │  │  Handler→Store        │  │  Messages (team-state)   │  │   │
+│  │  └───────────────────────┘  └──────────────────────────┘  │   │
+│  │                          │                                │   │
 │  │  ┌───────────────────────▼─────────────────────────────┐  │   │
-│  │  │              Hooks System (隐式记忆)                  │  │   │
-│  │  │  Normalizer → Pattern Detector → Handler → Store     │  │   │
+│  │  │  LLM Layer (optional)                                │  │   │
+│  │  │  Compact-on-Write · Reranking · Dedup · Compression  │  │   │
 │  │  └─────────────────────────────────────────────────────┘  │   │
 │  └───────────────────────────────────────────────────────────┘   │
 │                              │                                    │
 │  ┌───────────────────────────▼───────────────────────────────┐   │
 │  │              Persistence Layer (Disk)                      │   │
-│  │  ~/.memorix/data/<projectId>/                             │   │
+│  │  ~/.memorix/data/                                         │   │
 │  │    ├── observations.json     观察记录                      │   │
 │  │    ├── id-counter.txt        ID 计数器                     │   │
 │  │    ├── entities.jsonl        知识图谱节点 (MCP 兼容)       │   │
-│  │    └── relations.jsonl       知识图谱边 (MCP 兼容)         │   │
+│  │    ├── relations.jsonl       知识图谱边 (MCP 兼容)         │   │
+│  │    ├── sessions.json         会话历史                      │   │
+│  │    ├── mini-skills.json      永久技能                      │   │
+│  │    └── team-state.json       团队协作状态                  │   │
 │  └───────────────────────────────────────────────────────────┘   │
 └──────────────────────────────────────────────────────────────────┘
 ```
@@ -154,21 +163,31 @@ Agent --memorix_detail--> server.ts
 
 ### Layer 5: 工作空间同步 (`workspace/` + `rules/`)
 - `workspace/engine.ts` — 跨 Agent 工作空间迁移
-- `workspace/mcp-adapters/` — 9个 MCP 配置适配器
+- `workspace/mcp-adapters/` — 10个 MCP 配置适配器
 - `workspace/workflow-sync.ts` — Workflow 同步
 - `workspace/applier.ts` — 配置写入 + 备份/回滚
 - `rules/syncer.ts` — 规则扫描/去重/冲突检测
-- `rules/adapters/` — 8个规则格式适配器
+- `rules/adapters/` — 10个规则格式适配器
 
-### Layer 6: 基础设施
-- `server.ts` — MCP Server 主入口 (27个工具注册)
+### Layer 6: 团队协作 (`team/`)
+- `team/registry.ts` — Agent 注册/注销/状态
+- `team/file-locks.ts` — 协商式文件锁 (10min TTL)
+- `team/tasks.ts` — 任务板 + 依赖管理
+- `team/messages.ts` — 直接消息 + 广播
+- `team/persistence.ts` — team-state.json 读写
+- `team/index.ts` — 统一导出
+
+### Layer 7: 基础设施
+- `server.ts` — MCP Server 主入口 (22个默认工具 + 9个可选KG工具)
 - `cli/index.ts` — Citty CLI 框架 + TUI 配置向导
 - `config.ts` — 统一配置读取 (env > config.json > 默认值)
 - `project/detector.ts` — Git-based 项目检测
 - `embedding/provider.ts` — Embedding 抽象层 (API/FastEmbed/Transformers)
 - `embedding/api-provider.ts` — OpenAI-compatible API Embedding (10K LRU 缓存)
 - `llm/provider.ts` — LLM 提供者 (OpenAI/Anthropic/OpenRouter)
-- `llm/memory-manager.ts` — Compact-on-Write + 启发式去重
+- `llm/memory-manager.ts` — Compact-on-Write + 语义去重
+- `dashboard/server.ts` — Web Dashboard (localhost:3210)
+- `skills/engine.ts` — Skills 引擎 (发现/生成/注入)
 
 ---
 
@@ -195,7 +214,7 @@ pnpm test   # vitest 运行测试
 
 - **语言**: TypeScript (strict mode)
 - **打包**: tsup (ESM output)
-- **测试**: Vitest (606 tests, 45 files)
+- **测试**: Vitest (753 tests, 56 files)
 - **CLI**: Citty (命令定义) + Clack (交互提示)
 - **代码风格**: 每个文件顶部有 JSDoc 注释块说明来源和设计意图
 - **错误处理**: Hooks 系统永远不抛错 (silent fail), MCP 工具返回 `isError: true`

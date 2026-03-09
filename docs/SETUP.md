@@ -160,6 +160,40 @@ startup_timeout_sec = 30  # default is 10s, increase if you see handshake timeou
 
 ---
 
+## OpenCode
+
+**Config file:** `opencode.json` (project root)
+
+```json
+{
+  "mcpServers": {
+    "memorix": {
+      "command": "memorix",
+      "args": ["serve"]
+    }
+  }
+}
+```
+
+---
+
+## Trae
+
+**Config file:** `.trae/mcp.json` (project)
+
+```json
+{
+  "mcpServers": {
+    "memorix": {
+      "command": "memorix",
+      "args": ["serve"]
+    }
+  }
+}
+```
+
+---
+
 ## Optional: Vector Search
 
 Memorix supports **hybrid search** (BM25 + semantic vectors) with automatic provider detection:

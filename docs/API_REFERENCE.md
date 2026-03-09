@@ -1,21 +1,24 @@
 # Memorix MCP 工具 API 参考
 
-> 最后更新: 2026-03-04
+> 最后更新: 2026-03-09 (v1.0.0)
 > 所有 MCP 工具的完整参数说明和使用示例
 
 ---
 
 ## 概览
 
-Memorix 注册了 **27 个 MCP 工具**，分为 5 类:
+Memorix 默认注册 **22 个 MCP 工具**，分为 7 类（+9 个可选知识图谱工具）:
 
 | 类别 | 工具 | 用途 |
 |------|------|------|
 | **记忆管理** (7) | memorix_store, memorix_search, memorix_detail, memorix_timeline, memorix_resolve, memorix_deduplicate, memorix_suggest_topic_key | 结构化记忆的存储、搜索、检索、去重 |
 | **会话管理** (3) | memorix_session_start, memorix_session_end, memorix_session_context | 跨会话上下文注入 |
-| **维护与可视化** (5) | memorix_retention, memorix_consolidate, memorix_export, memorix_import, memorix_dashboard | 衰减/合并/备份/可视化 |
-| **知识图谱** (9) | create_entities, create_relations, add_observations, delete_entities, delete_observations, delete_relations, search_nodes, open_nodes, read_graph | MCP 官方 Memory Server 兼容 |
-| **工作空间同步** (3) | memorix_workspace_sync, memorix_rules_sync, memorix_skills | 跨 9 Agent 环境迁移 |
+| **技能** (2) | memorix_skills, memorix_promote | 技能发现/生成/注入，Mini-Skills 提升 |
+| **工作空间同步** (2) | memorix_workspace_sync, memorix_rules_sync | 跨 10 Agent 环境迁移 |
+| **维护** (3) | memorix_retention, memorix_consolidate, memorix_transfer | 衰减/合并/导入导出 |
+| **团队协作** (4) | team_manage, team_file_lock, team_task, team_message | 多 Agent 协调 |
+| **可视化** (1) | memorix_dashboard | Web 仪表盘 |
+| **知识图谱** (+9 可选) | create_entities, create_relations, add_observations, delete_entities, delete_observations, delete_relations, search_nodes, open_nodes, read_graph | MCP 官方兼容，通过 `~/.memorix/settings.json` 启用 |
 
 ---
 
@@ -35,6 +38,8 @@ Memorix 注册了 **27 个 MCP 工具**，分为 5 类:
 | `facts` | string[] | ❌ | 结构化事实 |
 | `filesModified` | string[] | ❌ | 涉及的文件列表 |
 | `concepts` | string[] | ❌ | 相关概念/关键词 |
+| `topicKey` | string | ❌ | 主题键，用于 upsert（同 topicKey 更新而非新建） |
+| `progress` | object | ❌ | 进度追踪 `{ feature, status, completion }` |
 
 **Observation 类型:**
 | 类型 | 图标 | 说明 |
@@ -75,6 +80,10 @@ Auto-enriched: +2 files extracted, +3 concepts enriched, +1 relations auto-creat
 | `limit` | number | ❌ | 最大结果数 (默认 20) |
 | `type` | enum | ❌ | 按类型过滤 |
 | `maxTokens` | number | ❌ | Token 预算 (0=无限) |
+| `scope` | "project" \| "global" | ❌ | 搜索范围 (默认 project) |
+| `status` | "active" \| "resolved" \| "archived" \| "all" | ❌ | 状态过滤 (默认 active) |
+| `since` | string | ❌ | 只返回此日期之后的记忆 (ISO 8601) |
+| `until` | string | ❌ | 只返回此日期之前的记忆 (ISO 8601) |
 
 **返回示例:**
 ```
@@ -123,9 +132,12 @@ Found 3 observation(s) matching "auth":
 
 ### `memorix_retention`
 
-显示记忆保留状态面板。
+显示记忆保留状态或归档过期记忆。
 
-**参数:** 无
+**参数:**
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `action` | "report" \| "archive" | ✖ | 默认 report； archive 将过期记忆移入归档 |
 
 **返回内容:**
 - Active / Stale / Archive Candidates / Immune 计数
@@ -231,7 +243,7 @@ Found 3 observation(s) matching "auth":
 | `action` | "status" \| "generate" | ✅ | 操作类型 |
 | `target` | enum | ❌ | 目标 Agent (generate 时必填) |
 
-**支持的目标:** cursor, claude-code, codex, windsurf, antigravity, copilot
+**支持的目标:** cursor, claude-code, codex, windsurf, antigravity, copilot, kiro, opencode, trae
 
 **示例 - 查看同步状态:**
 ```json
@@ -274,6 +286,89 @@ Found 3 observation(s) matching "auth":
   "items": ["figma-remote-mcp-server", "create-subagent"]
 }
 ```
+
+---
+
+## 团队协作工具
+
+### `team_manage`
+
+Agent 注册与状态管理。
+
+**参数:**
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `action` | "join" \| "leave" \| "status" | ✅ | 操作类型 |
+| `name` | string | ✖ | Agent 名称 (join 时) |
+| `role` | string | ✖ | Agent 角色 (join 时) |
+| `agentId` | string | ✖ | Agent ID (leave 时) |
+
+### `team_file_lock`
+
+协商式文件锁。
+
+**参数:**
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `action` | "lock" \| "unlock" \| "status" | ✅ | 操作类型 |
+| `file` | string | ✖ | 文件路径 (lock/unlock 时必填) |
+| `agentId` | string | ✖ | Agent ID (lock/unlock 时必填) |
+
+### `team_task`
+
+共享任务板。
+
+**参数:**
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `action` | "create" \| "claim" \| "complete" \| "list" | ✅ | 操作类型 |
+| `description` | string | ✖ | 任务描述 (create 时) |
+| `taskId` | string | ✖ | 任务 ID (claim/complete 时) |
+| `agentId` | string | ✖ | Agent ID (claim/complete 时) |
+| `deps` | string[] | ✖ | 依赖任务 ID (create 时) |
+
+### `team_message`
+
+跨 IDE 消息传递。
+
+**参数:**
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `action` | "send" \| "broadcast" \| "inbox" | ✅ | 操作类型 |
+| `content` | string | ✖ | 消息内容 (send/broadcast 时) |
+| `from` | string | ✖ | 发送者 Agent ID |
+| `to` | string | ✖ | 接收者 Agent ID (send 时) |
+| `agentId` | string | ✖ | Agent ID (inbox 时) |
+
+---
+
+## 导入导出工具
+
+### `memorix_transfer`
+
+导出或导入项目记忆。
+
+**参数:**
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `action` | "export" \| "import" | ✅ | 操作类型 |
+| `format` | "json" \| "markdown" | ✖ | 导出格式 (默认 json) |
+| `data` | string | ✖ | JSON 导入数据 (import 时) |
+
+---
+
+## 技能工具
+
+### `memorix_promote`
+
+将观察提升为永久 Mini-Skills。
+
+**参数:**
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `action` | "promote" \| "list" \| "delete" | ✅ | 操作类型 |
+| `observationIds` | number[] | ✖ | 要提升的 ID (promote 时) |
+| `skillId` | number | ✖ | 要删除的技能 ID (delete 时) |
 
 ---
 

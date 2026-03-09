@@ -1,6 +1,6 @@
 # Memorix 开发指南
 
-> 最后更新: 2026-02-15
+> 最后更新: 2026-03-09 (v1.0.0)
 
 ---
 
@@ -64,7 +64,7 @@ pnpm typecheck    # TypeScript 类型检查
 ```
 memorix/
 ├── src/
-│   ├── server.ts              # MCP Server 主入口 (16个工具)
+│   ├── server.ts              # MCP Server 主入口 (22个默认+9可选工具)
 │   ├── types.ts               # 所有核心类型定义
 │   │
 │   ├── cli/                   # CLI 入口 (Citty)
@@ -94,7 +94,28 @@ memorix/
 │   │
 │   ├── embedding/             # Embedding 层
 │   │   ├── provider.ts        # 抽象接口
-│   │   └── fastembed-provider.ts # FastEmbed 实现
+│   │   ├── api-provider.ts    # OpenAI-compatible API Embedding
+│   │   ├── fastembed-provider.ts # FastEmbed 实现
+│   │   └── transformers-provider.ts # HuggingFace Transformers.js
+│   │
+│   ├── llm/                   # LLM 增强模式
+│   │   ├── provider.ts        # LLM 提供者 (OpenAI/Anthropic/OpenRouter)
+│   │   └── memory-manager.ts  # Compact-on-Write + 语义去重
+│   │
+│   ├── team/                  # 团队协作
+│   │   ├── index.ts           # 统一导出
+│   │   ├── registry.ts        # Agent 注册/注销/状态
+│   │   ├── file-locks.ts      # 协商式文件锁
+│   │   ├── tasks.ts           # 任务板 + 依赖管理
+│   │   ├── messages.ts        # 直接消息 + 广播
+│   │   └── persistence.ts     # team-state.json 读写
+│   │
+│   ├── dashboard/             # Web Dashboard
+│   │   ├── server.ts          # HTTP 服务器
+│   │   └── static/            # 前端资源
+│   │
+│   ├── skills/                # Skills 引擎
+│   │   └── engine.ts          # 发现/生成/注入
 │   │
 │   ├── hooks/                 # Hooks 系统
 │   │   ├── types.ts           # Hook 类型定义
@@ -125,8 +146,12 @@ memorix/
 │   │       ├── codex.ts
 │   │       ├── windsurf.ts
 │   │       ├── copilot.ts
-│   │       └── antigravity.ts
+│   │       ├── antigravity.ts
+│   │       ├── kiro.ts
+│   │       ├── opencode.ts
+│   │       └── trae.ts
 │   │
+│   ├── config.ts              # 统一配置 (env > config.json > 默认值)
 │   └── project/               # 项目检测
 │       └── detector.ts
 │
@@ -247,7 +272,7 @@ describe('ModuleName', () => {
 ```
 
 ### 当前测试覆盖
-- **274 个测试** 跨 **22 个文件**
+- **753 个测试** 跨 **56 个文件**
 - 所有测试通过, 零回归
 - 关键模块都有边界情况测试
 

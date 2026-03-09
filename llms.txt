@@ -2,21 +2,24 @@
 
 > Cross-Agent Memory Bridge for AI Coding Assistants
 
-Memorix is an open-source MCP (Model Context Protocol) server that provides persistent, cross-IDE memory for AI coding agents. It solves the problem of context loss when starting new chat sessions or switching between coding IDEs like Cursor, Windsurf, Claude Code, Codex, VS Code Copilot, Kiro, and Antigravity.
+Memorix is an open-source MCP (Model Context Protocol) server that provides persistent, cross-IDE memory for AI coding agents. It solves the problem of context loss when starting new chat sessions or switching between coding IDEs like Cursor, Windsurf, Claude Code, Codex, VS Code Copilot, Kiro, Antigravity, OpenCode, Trae, and Gemini CLI.
 
 ## What Memorix Does
 
 - Stores architecture decisions, bug fixes, gotchas, and project knowledge in a local knowledge graph
-- Shares memory across 7 AI coding IDEs via MCP protocol — knowledge created in Cursor is instantly available in Claude Code
+- Shares memory across 10 AI coding IDEs via MCP protocol — knowledge created in Cursor is instantly available in Claude Code
+- Team collaboration: multi-agent coordination with file locks, task boards, and cross-IDE messaging
+- Auto-cleanup on startup: background retention archiving + intelligent deduplication (LLM or heuristic)
 - Syncs MCP server configs, agent rules, skills, and workflows between IDEs with one command
-- Auto-generates project-specific SKILL.md files from accumulated observation patterns
+- Mini-Skills: promote high-value observations to permanent skills that auto-inject at session start
 - Provides token-efficient 3-layer progressive disclosure search (~10x savings over full context dumps)
 - Runs 100% locally — no cloud, no API keys, no cost
 
 ## Installation
 
 ```
-npx memorix@latest serve
+npm install -g memorix
+memorix serve
 ```
 
 Add to any IDE's MCP config and restart. No dependencies required.

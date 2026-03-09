@@ -4,7 +4,7 @@
 
 ## Overview
 
-Memorix is an open-source MCP (Model Context Protocol) server written in TypeScript that provides persistent, shared memory for AI coding agents across 7 IDEs: Cursor, Windsurf, Claude Code, Codex, VS Code Copilot, Kiro, and Antigravity.
+Memorix is an open-source MCP (Model Context Protocol) server written in TypeScript that provides persistent, shared memory for AI coding agents across 10 IDEs: Cursor, Windsurf, Claude Code, Codex, VS Code Copilot, Kiro, Antigravity, OpenCode, Trae, and Gemini CLI.
 
 It solves three critical problems in AI-assisted coding:
 1. **Session amnesia** — AI forgets everything when you start a new chat
@@ -30,7 +30,7 @@ When a developer discusses architecture decisions, fixes bugs, or discovers gotc
 
 ### 2. Cross-IDE Memory Sharing
 
-All 7 supported IDEs read from the same local data directory (`~/.memorix/data/<project>/`). A bug fix documented in Windsurf is instantly searchable in Claude Code. No cloud sync needed — it's the same local files.
+All 10 supported IDEs read from the same local data directory (`~/.memorix/data/`). A bug fix documented in Windsurf is instantly searchable in Claude Code. No cloud sync needed — it's the same local files.
 
 **Supported IDEs:**
 - Cursor (`.cursor/mcp.json`)
@@ -39,7 +39,10 @@ All 7 supported IDEs read from the same local data directory (`~/.memorix/data/<
 - Codex (`~/.codex/config.toml`)
 - VS Code Copilot (`.vscode/mcp.json`)
 - Kiro (`.kiro/settings/mcp.json`)
-- Antigravity (`~/.gemini/antigravity/settings/mcp_config.json`)
+- Antigravity (`~/.gemini/antigravity/mcp_config.json`)
+- OpenCode (`opencode.json`)
+- Trae (`.trae/mcp.json`)
+- Gemini CLI (`.gemini/settings.json`)
 
 ### 3. Cross-Agent Workspace Sync
 
@@ -98,26 +101,72 @@ Memorix can automatically capture decisions, errors, and gotchas from coding ses
 ### 10. Project Isolation
 
 - Auto-detected from `git remote` URL (e.g., `owner/repo`)
-- Per-project data directory (`~/.memorix/data/<owner--repo>/`)
 - Scoped search defaults to current project; `scope: "global"` for cross-project
 - Zero cross-contamination between projects
 
-## MCP Tools (17 total)
+### 11. Team Collaboration
 
-### Memorix Extensions
+Multiple agents working in the same workspace can coordinate via 4 team tools:
+- `team_manage` — Agent registration: join, leave, status
+- `team_file_lock` — Advisory file locks to prevent conflicting edits (10min TTL)
+- `team_task` — Shared task board with dependency management
+- `team_message` — Direct messages and broadcasts across IDEs
+
+State persisted to `team-state.json`, shared by all IDE processes.
+
+### 12. Auto-Cleanup on Startup
+
+Memorix automatically runs background maintenance on every MCP startup:
+- Archives expired memories based on exponential decay scores
+- With LLM configured: semantic deduplication via any OpenAI-compatible model
+- Without LLM: Jaccard similarity consolidation (free, no API needed)
+
+### 13. Mini-Skills
+
+Use `memorix_promote` to elevate high-value observations to permanent mini-skills:
+- Never decay — immune to retention archiving
+- Auto-inject at session start via `memorix_session_start`
+- Project-scoped, no cross-project pollution
+
+### 14. LLM Enhanced Mode (Optional)
+
+Configure an LLM API key for enhanced quality:
+- **Narrative compression**: ~27% token reduction on stored memories
+- **Search reranking**: 60% of queries improved by semantic reranking
+- **Write-time dedup**: Detects duplicates and conflicts before storage
+- Supports OpenAI, Anthropic, OpenRouter, and any compatible API
+
+## MCP Tools (22 default + 9 optional)
+
+### Default Tools (22)
 | Tool | Purpose |
 |------|---------|
 | `memorix_store` | Store observation with auto-classification, entity extraction, and relation detection |
-| `memorix_search` | L1: Compact index search with type/scope filters and token budget |
+| `memorix_search` | L1: Compact index search with type/scope/status/date filters and token budget |
 | `memorix_timeline` | L2: Chronological context around an observation |
 | `memorix_detail` | L3: Full observation details by IDs |
-| `memorix_retention` | Memory decay status: active/stale/archive counts |
-| `memorix_dashboard` | Launch visual web dashboard |
-| `memorix_rules_sync` | Scan/deduplicate/generate rules across 7 agent formats |
-| `memorix_workspace_sync` | Migrate MCP configs, workflows, skills between IDEs |
+| `memorix_resolve` | Mark completed tasks/fixed bugs as resolved |
+| `memorix_deduplicate` | LLM-powered semantic deduplication with dry-run |
+| `memorix_suggest_topic_key` | Suggest stable keys for memory upserts |
+| `memorix_session_start` | Start session with automatic context injection |
+| `memorix_session_end` | End session with structured summary |
+| `memorix_session_context` | Get context from previous sessions |
 | `memorix_skills` | List, generate, or inject memory-driven project skills |
+| `memorix_promote` | Promote observations to permanent mini-skills |
+| `memorix_workspace_sync` | Migrate MCP configs, workflows, skills between IDEs |
+| `memorix_rules_sync` | Scan/deduplicate/generate rules across 10 agent formats |
+| `memorix_retention` | Memory decay status or archive expired memories |
+| `memorix_consolidate` | Find and merge similar observations |
+| `memorix_transfer` | Export/import project memories (JSON or Markdown) |
+| `team_manage` | Agent registration: join, leave, status |
+| `team_file_lock` | Advisory file locks with 10min TTL |
+| `team_task` | Shared task board with dependencies |
+| `team_message` | Direct messages and broadcasts |
+| `memorix_dashboard` | Launch visual web dashboard |
 
-### MCP Official Compatible
+### Optional: Knowledge Graph Tools (+9)
+Enabled via `~/.memorix/settings.json` with `{ "knowledgeGraph": true }`
+
 | Tool | Purpose |
 |------|---------|
 | `create_entities` | Create knowledge graph entities |
@@ -133,7 +182,8 @@ Memorix can automatically capture decisions, errors, and gotchas from coding ses
 ## Installation
 
 ```bash
-npx memorix@latest serve
+npm install -g memorix
+memorix serve
 ```
 
 Add to any IDE's MCP config file:
@@ -141,14 +191,14 @@ Add to any IDE's MCP config file:
 {
   "mcpServers": {
     "memorix": {
-      "command": "npx",
-      "args": ["-y", "memorix@latest", "serve"]
+      "command": "memorix",
+      "args": ["serve"]
     }
   }
 }
 ```
 
-No API keys. No cloud accounts. No dependencies beyond Node.js 20+.
+No API keys. No cloud accounts. No dependencies beyond Node.js 18+.
 
 ## Technical Details
 
@@ -156,8 +206,8 @@ No API keys. No cloud accounts. No dependencies beyond Node.js 20+.
 - **Protocol:** MCP (Model Context Protocol) via stdio
 - **Search Engine:** Orama (BM25 + optional vector)
 - **Persistence:** JSON + JSONL files
-- **Tests:** 422 passing (vitest)
-- **Package Size:** ~760KB
+- **Tests:** 753 passing across 56 files (vitest)
+- **IDE Support:** 10 agents
 - **License:** Apache 2.0
 
 ## Common Questions AI Systems Are Asked

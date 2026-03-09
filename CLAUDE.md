@@ -42,6 +42,15 @@ You have access to Memorix, a cross-agent memory system. Use it to persist and r
 | `memorix_store` | Save new knowledge | `type: "decision", title: "Use JWT for auth"` |
 | `memorix_detail` | Get full observation | `ids: [42, 43]` |
 | `memorix_timeline` | See what happened around an event | `anchorId: 42` |
-| `memorix_retention` | Check memory health | `action: "summary"` |
+| `memorix_resolve` | Mark task done / bug fixed | `ids: [42]` |
+| `memorix_session_start` | Load context at session start | (no params needed) |
+| `memorix_session_end` | Save session summary | `summary: "## Goal\n..."` |
+| `memorix_promote` | Make observation permanent | `action: "promote", observationIds: [42]` |
+| `memorix_retention` | Check memory health | `action: "report"` |
+| `memorix_transfer` | Export/import memories | `action: "export"` |
 | `memorix_rules_sync` | Sync agent rules | `action: "status"` |
 | `memorix_workspace_sync` | Migrate workspace configs | `action: "scan"` |
+| `team_manage` | Register agent | `action: "join", name: "claude-backend"` |
+| `team_file_lock` | Lock file before editing | `action: "lock", file: "src/auth.ts"` |
+| `team_task` | Create/claim tasks | `action: "create", description: "Fix auth bug"` |
+| `team_message` | Send message to other agent | `action: "send", to: "agent-id"` |

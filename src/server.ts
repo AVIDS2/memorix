@@ -34,6 +34,8 @@ import { WorkspaceSyncEngine } from './workspace/engine.js';
 import { initLLM, isLLMEnabled, getLLMConfig } from './llm/provider.js';
 import { compactOnWrite, deduplicateMemory } from './llm/memory-manager.js';
 import type { ExistingMemory } from './llm/memory-manager.js';
+import { runFormation, getMetricsSummary } from './memory/formation/index.js';
+import type { FormationConfig, SearchHit } from './memory/formation/types.js';
 
 /** Timestamp of last MCP-initiated write — hot-reload skips changes within 10s */
 let lastInternalWriteMs = 0;
@@ -423,11 +425,72 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
 
       const action = upserted ? '🔄 Updated' : '✅ Stored';
 
+      // ── Shadow Mode: Formation Pipeline (observability only) ──────
+      // Runs the new Formation Pipeline in parallel to collect metrics
+      // without affecting storage decisions. This enables before/after
+      // comparison with the existing compact-on-write behavior.
+      let formationNote = '';
+      try {
+        const formationConfig: FormationConfig = {
+          shadow: true,
+          useLLM: false,
+          minValueScore: 0.3,
+          searchMemories: async (q: string, limit: number, pid: string): Promise<SearchHit[]> => {
+            const result = await compactSearch({ query: q, limit, projectId: pid, status: 'active' });
+            if (result.entries.length === 0) return [];
+            const details = await compactDetail(result.entries.map(e => e.id));
+            return details.documents.map((d, i) => ({
+              id: Number(d.id.replace('obs-', '')),
+              observationId: d.observationId,
+              title: d.title,
+              narrative: d.narrative,
+              facts: d.facts,
+              entityName: d.entityName,
+              type: d.type,
+              score: result.entries[i]?.score ?? 0,
+            }));
+          },
+          getObservation: (id: number) => {
+            const o = getObservation(id);
+            if (!o) return null;
+            return {
+              id: o.id,
+              entityName: o.entityName,
+              type: o.type,
+              title: o.title,
+              narrative: o.narrative,
+              facts: o.facts,
+              topicKey: o.topicKey,
+            };
+          },
+          getEntityNames: () => graphManager.getEntityNames(),
+        };
+
+        const formed = await runFormation({
+          entityName,
+          type: type as ObservationType,
+          title,
+          narrative,
+          facts: safeFacts,
+          projectId: project.id,
+          source: 'explicit',
+          topicKey,
+        }, formationConfig);
+
+        formationNote = `\n🔬 Formation[shadow]: ${formed.evaluation.category} (${formed.evaluation.score.toFixed(2)}) | ${formed.resolution.action} | ${formed.pipeline.durationMs}ms`;
+        if (formed.extraction.extractedFacts.length > 0) {
+          formationNote += ` | +${formed.extraction.extractedFacts.length} facts`;
+        }
+        if (formed.extraction.titleImproved) formationNote += ' | title↑';
+        if (formed.extraction.entityResolved) formationNote += ` | entity→${formed.entityName}`;
+        if (formed.extraction.typeCorrected) formationNote += ` | type→${formed.type}`;
+      } catch { /* formation is best-effort in shadow mode */ }
+
       return {
         content: [
           {
             type: 'text' as const,
-            text: `${action} observation #${obs.id} "${title}" (~${obs.tokens} tokens)\nEntity: ${entityName} | Type: ${type} | Project: ${project.id}${obs.topicKey ? ` | Topic: ${obs.topicKey}` : ''}${compactAction}${compressionNote}${enrichment}`,
+            text: `${action} observation #${obs.id} "${title}" (~${obs.tokens} tokens)\nEntity: ${entityName} | Type: ${type} | Project: ${project.id}${obs.topicKey ? ` | Topic: ${obs.topicKey}` : ''}${compactAction}${compressionNote}${enrichment}${formationNote}`,
           },
         ],
       };
@@ -880,6 +943,68 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
         lines.push(
           `| ${r.observationId} | ${doc?.title ?? '?'} | ${r.totalScore.toFixed(3)} | ${r.decayFactor.toFixed(3)} | ${r.accessBoost.toFixed(1)}× |`,
         );
+      }
+
+      return {
+        content: [{ type: 'text' as const, text: lines.join('\n') }],
+      };
+    },
+  );
+
+  /**
+   * memorix_formation_metrics — Formation Pipeline shadow mode metrics
+   *
+   * Shows aggregated metrics from the Memory Formation Pipeline running
+   * in shadow mode. Useful for evaluating pipeline quality before
+   * switching from shadow to active mode.
+   */
+  server.registerTool(
+    'memorix_formation_metrics',
+    {
+      title: 'Formation Pipeline Metrics',
+      description:
+        'Show aggregated metrics from the Memory Formation Pipeline running in shadow mode. ' +
+        'Reports value scores, resolution actions, fact extraction rates, and processing times.',
+      inputSchema: {},
+    },
+    async () => {
+      const summary = getMetricsSummary();
+
+      if (summary.total === 0) {
+        return {
+          content: [{
+            type: 'text' as const,
+            text: '📊 Formation Pipeline: No metrics collected yet.\nStore some observations to start collecting shadow mode data.',
+          }],
+        };
+      }
+
+      const lines: string[] = [
+        '📊 **Formation Pipeline Metrics** (shadow mode)',
+        '',
+        `**Total observations processed:** ${summary.total}`,
+        `**Average value score:** ${summary.avgValueScore.toFixed(3)}`,
+        `**Average processing time:** ${summary.avgDurationMs.toFixed(1)}ms`,
+        '',
+        '### Quality Indicators',
+        `- **Avg system-extracted facts:** ${summary.avgExtractedFacts.toFixed(1)} per observation`,
+        `- **Title improved rate:** ${(summary.titleImprovedRate * 100).toFixed(1)}%`,
+        `- **Entity resolved rate:** ${(summary.entityResolvedRate * 100).toFixed(1)}%`,
+        `- **Type corrected rate:** ${(summary.typeCorectedRate * 100).toFixed(1)}%`,
+        '',
+        '### Value Categories',
+      ];
+
+      for (const [cat, count] of Object.entries(summary.categoryBreakdown)) {
+        const pct = ((count / summary.total) * 100).toFixed(1);
+        const icon = cat === 'core' ? '🟢' : cat === 'contextual' ? '🟡' : '🔴';
+        lines.push(`- ${icon} **${cat}:** ${count} (${pct}%)`);
+      }
+
+      lines.push('', '### Resolution Actions');
+      for (const [action, count] of Object.entries(summary.resolutionBreakdown)) {
+        const pct = ((count / summary.total) * 100).toFixed(1);
+        lines.push(`- **${action}:** ${count} (${pct}%)`);
       }
 
       return {

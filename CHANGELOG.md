@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.3] — 2026-03-14
+
+### Added
+- **Memory Formation Pipeline** — Three-stage pipeline (Extract → Resolve → Evaluate) runs in shadow mode on every `memorix_store` call and hooks trigger. Collects quality metrics without affecting storage decisions.
+  - **Extract**: Automatic fact extraction from narratives, title normalization, entity resolution against Knowledge Graph, observation type verification.
+  - **Resolve**: 4 resolution actions (new/merge/evolve/discard) based on similarity scoring, word overlap, and contradiction detection.
+  - **Evaluate**: Multi-factor knowledge value assessment (type weight, fact density, specificity, causal reasoning, noise detection). Categorizes memories as core/contextual/ephemeral.
+- **`memorix_formation_metrics` tool** — New MCP tool to query aggregated Formation Pipeline metrics (value scores, resolution actions, extraction rates, processing times).
+- **`getEntityNames()` method** on `KnowledgeGraphManager` for Formation Pipeline entity resolution.
+
+### Stats
+- **Default MCP Tools:** 23 (+1: `memorix_formation_metrics`)
+- **Tests:** 803/803 passing across 60 files (+50 new Formation Pipeline tests)
+- **Hooks safety:** handler.ts +21 lines (shadow call only), zero modification to existing hook logic
+
+---
+
 ## [1.0.2] — 2026-03-14
 
 ### Fixed

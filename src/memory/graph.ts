@@ -150,6 +150,11 @@ export class KnowledgeGraphManager {
     await this.save();
   }
 
+  /** Get all entity names (for Formation Pipeline entity resolution) */
+  getEntityNames(): string[] {
+    return this.entities.map(e => e.name);
+  }
+
   /** Read the entire graph */
   async readGraph(): Promise<KnowledgeGraph> {
     await this.init();

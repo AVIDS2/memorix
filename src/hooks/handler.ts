@@ -501,6 +501,27 @@ export async function runHook(): Promise<void> {
       await initObservations(dataDir);
       await storeObservation({ ...observation, projectId });
 
+      // Shadow mode: Formation Pipeline metrics (fire-and-forget, never blocks)
+      try {
+        const { runFormation } = await import('../memory/formation/index.js');
+        runFormation({
+          entityName: observation.entityName,
+          type: observation.type,
+          title: observation.title,
+          narrative: observation.narrative,
+          facts: observation.facts,
+          projectId,
+          source: 'hook' as const,
+        }, {
+          shadow: true,
+          useLLM: false,
+          minValueScore: 0.3,
+          searchMemories: async () => [],  // Skip search in hooks for speed
+          getObservation: () => null,
+          getEntityNames: () => [],
+        }).catch(() => {});
+      } catch { /* Formation is optional — never break hooks */ }
+
       // Feedback: tell the agent what was saved
       const emoji = TYPE_EMOJI[observation.type] ?? '📝';
       output.systemMessage = (output.systemMessage ?? '') +

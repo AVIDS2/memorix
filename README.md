@@ -14,12 +14,12 @@
   <a href="https://www.npmjs.com/package/memorix"><img src="https://img.shields.io/npm/dm/memorix.svg?style=flat-square&color=blue" alt="downloads"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-green.svg?style=flat-square" alt="license"></a>
   <a href="https://github.com/AVIDS2/memorix"><img src="https://img.shields.io/github/stars/AVIDS2/memorix?style=flat-square&color=yellow" alt="stars"></a>
-  <img src="https://img.shields.io/badge/tests-753%20passed-brightgreen?style=flat-square" alt="tests">
+  <img src="https://img.shields.io/badge/tests-803%20passed-brightgreen?style=flat-square" alt="tests">
   <a href="https://github.com/AVIDS2/memorix/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/AVIDS2/memorix/ci.yml?style=flat-square&label=CI" alt="CI"></a>
 </p>
 
 <p align="center">
-  <strong>v1.0 Stable | 22 MCP tools | Auto-cleanup | Multi-agent collaboration | 10 IDEs supported</strong>
+  <strong>v1.0 Stable | 23 MCP tools | Auto-cleanup | Multi-agent collaboration | 10 IDEs supported</strong>
 </p>
 
 <p align="center">
@@ -64,6 +64,7 @@ No re-explaining. No copy-pasting. No vendor lock-in.
 - **Dual-Mode Quality**: Free heuristic engine for basic dedup; optional LLM mode for intelligent compression, reranking, and conflict resolution.
 - **3-Layer Progressive Disclosure**: Search returns compact indices (~50 tokens/result), timeline shows chronological context, detail provides full content. ~10x token savings over full-text retrieval.
 - **Mini-Skills**: Promote high-value observations to permanent skills that auto-inject at every session start. Critical knowledge never decays.
+- **Memory Formation Pipeline**: Automatic fact extraction, entity resolution, and knowledge value assessment on every store. Shadow mode collects quality metrics without affecting storage.
 - **Auto-Memory Hooks**: Automatically capture decisions, errors, and gotchas from IDE tool calls. Pattern detection in English and Chinese.
 - **Knowledge Graph**: Entity-relation model compatible with [MCP Official Memory Server](https://github.com/modelcontextprotocol/servers/tree/main/src/memory). Auto-creates relations from entity extraction.
 
@@ -171,7 +172,7 @@ Restart your agent. No API keys required. No cloud. No external dependencies.
 
 ## Features
 
-### 22 MCP Tools (Default)
+### 23 MCP Tools (Default)
 
 | Category | Tools |
 |----------|-------|
@@ -179,7 +180,7 @@ Restart your agent. No API keys required. No cloud. No external dependencies.
 | **Sessions** | `memorix_session_start` · `memorix_session_end` · `memorix_session_context` |
 | **Skills** | `memorix_skills` · `memorix_promote` |
 | **Workspace** | `memorix_workspace_sync` · `memorix_rules_sync` |
-| **Maintenance** | `memorix_retention` · `memorix_consolidate` · `memorix_transfer` |
+| **Maintenance** | `memorix_retention` · `memorix_consolidate` · `memorix_transfer` · `memorix_formation_metrics` |
 | **Team** | `team_manage` · `team_file_lock` · `team_task` · `team_message` |
 | **Dashboard** | `memorix_dashboard` |
 
@@ -329,7 +330,7 @@ Stage 3:  Recency + Project Affinity    →  Final scored results
 ### Write Pipeline
 
 ```
-Input  →  LLM Compression (optional)  →  Compact on Write (dedup/merge)  →  Store + Index
+Input  →  Formation Pipeline (extract/resolve/evaluate)  →  LLM Compression (optional)  →  Compact on Write (dedup/merge)  →  Store + Index
 ```
 
 ### Key Design Decisions
@@ -348,7 +349,7 @@ git clone https://github.com/AVIDS2/memorix.git
 cd memorix && npm install
 
 npm run dev       # watch mode
-npm test          # 753 tests
+npm test          # 803 tests
 npm run build     # production build
 ```
 

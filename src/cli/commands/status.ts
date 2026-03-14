@@ -21,6 +21,10 @@ export default defineCommand({
     p.intro('memorix status');
 
     const project = detectProject();
+    if (!project) {
+      p.log.error('No .git found — not a project directory. Run "git init" first.');
+      return;
+    }
     const dataDir = await getProjectDataDir(project.id);
 
     // Count observations

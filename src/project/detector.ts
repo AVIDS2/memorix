@@ -1,108 +1,45 @@
 /**
  * Project Detector
  *
- * Identifies the current project using Git remote URL.
- * Source: shared-agent-memory's Git-based project isolation pattern.
+ * Strict .git-based project detection.
+ * No .git = not a project. No fallbacks, no accommodations.
  *
- * Extensible: fallback strategies can be added for non-git projects
- * (e.g., package.json name, directory name, etc.)
+ * ID strategy:
+ *   - .git + remote → normalizeGitRemote(remote)  (globally unique, e.g. "user/repo")
+ *   - .git + no remote → "local/<dirname>"         (local git repo, no remote yet)
+ *   - no .git → null                               (not a project)
  */
 
 import { execSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import type { ProjectInfo } from '../types.js';
 
 /**
- * Detect the current project identity from Git remote or fallback.
+ * Detect the current project identity from Git.
+ * Returns null if no .git directory is found — caller must handle this.
  * @param cwd - Working directory to detect from (defaults to process.cwd())
  */
-export function detectProject(cwd?: string): ProjectInfo {
+export function detectProject(cwd?: string): ProjectInfo | null {
   const basePath = cwd ?? process.cwd();
-  // Priority: git root > package.json dir > CWD
-  const rootPath = getGitRoot(basePath) ?? findPackageRoot(basePath) ?? basePath;
-  const gitRemote = getGitRemote(rootPath);
+  const gitRoot = getGitRoot(basePath);
+
+  if (!gitRoot) {
+    return null;
+  }
+
+  const gitRemote = getGitRemote(gitRoot);
 
   if (gitRemote) {
     const id = normalizeGitRemote(gitRemote);
-    const name = id.split('/').pop() ?? path.basename(rootPath);
-    return { id, name, gitRemote, rootPath };
+    const name = id.split('/').pop() ?? path.basename(gitRoot);
+    return { id, name, gitRemote, rootPath: gitRoot };
   }
 
-  // Validate the root before creating a fallback project.
-  // Home dirs, system dirs, etc. get a "placeholder" prefix so data is still
-  // persisted and tools are usable, but the user gets a warning to set a proper root.
-  if (isDangerousRoot(rootPath)) {
-    const name = path.basename(rootPath) || 'unknown';
-    const id = `placeholder/${name}`;
-    console.error(`[memorix] WARNING: cwd "${rootPath}" is not a project directory — using degraded mode (${id})`);
-    console.error(`[memorix] For best results, set MEMORIX_PROJECT_ROOT or --cwd to your project path.`);
-    return { id, name, rootPath };
-  }
-
-  // Fallback: use "local/<dirname>" — works for non-git and empty directories
-  const name = path.basename(rootPath);
+  // Git repo without remote — local-only project
+  const name = path.basename(gitRoot);
   const id = `local/${name}`;
-  return { id, name, rootPath };
-}
-
-/**
- * Check whether a directory is a dangerous/invalid project root.
- * Returns TRUE for home directories, OS system directories,
- * drive roots, and IDE/tool configuration directories.
- * Returns FALSE for normal directories (including empty ones).
- */
-function isDangerousRoot(dirPath: string): boolean {
-  const resolved = path.resolve(dirPath);
-  const home = path.resolve(os.homedir());
-
-  // Reject the home directory itself (e.g., C:\Users\Lenovo, /home/user)
-  if (resolved === home) return true;
-
-  // Reject drive roots (C:\, D:\, /)
-  if (resolved === path.parse(resolved).root) return true;
-
-  // Reject immediate children of home that are IDE/tool config dirs
-  const basename = path.basename(resolved).toLowerCase();
-  const knownNonProjectDirs = new Set([
-    // IDE / editor config dirs
-    '.vscode', '.cursor', '.windsurf', '.kiro', '.codex',
-    '.gemini', '.claude', '.github', '.git',
-    // OS / system dirs
-    'desktop', 'documents', 'downloads', 'pictures', 'videos', 'music',
-    'appdata', 'application data', 'library',
-    // Package manager / tool dirs
-    'node_modules', '.npm', '.yarn', '.pnpm-store',
-    '.config', '.local', '.cache', '.ssh', '.memorix',
-  ]);
-  if (knownNonProjectDirs.has(basename)) {
-    const parent = path.resolve(path.dirname(resolved));
-    // Only block if it's directly under home or a drive root
-    if (parent === home || parent === path.parse(parent).root) {
-      return true;
-    }
-  }
-
-  return false;
-}
-
-/**
- * Walk up from cwd to find the nearest directory containing package.json.
- * Useful for non-git projects where the MCP server CWD may differ from project root.
- */
-function findPackageRoot(cwd: string): string | null {
-  let dir = path.resolve(cwd);
-  const root = path.parse(dir).root;
-  while (dir !== root) {
-    // Stop walking if we hit a dangerous directory (home dir, system dir)
-    if (isDangerousRoot(dir)) return null;
-    if (existsSync(path.join(dir, 'package.json'))) {
-      return dir;
-    }
-    dir = path.dirname(dir);
-  }
-  return null;
+  return { id, name, rootPath: gitRoot };
 }
 
 /**

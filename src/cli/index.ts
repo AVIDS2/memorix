@@ -483,7 +483,8 @@ async function runSearch(query: string): Promise<void> {
     const { detectProject } = await import('../project/detector.js');
     const { initObservations } = await import('../memory/observations.js');
     
-    const project = await detectProject(process.cwd());
+    const project = detectProject(process.cwd());
+    if (!project) { s.stop('No .git found'); p.log.error('Not a project directory. Run "git init" first.'); return; }
     const dataDir = await getProjectDataDir(project.id);
     await initObservations(dataDir);
     await getDb(); // Ensure Orama is initialized
@@ -517,7 +518,8 @@ async function runList(): Promise<void> {
     const { getProjectDataDir, loadObservationsJson } = await import('../store/persistence.js');
     const { detectProject } = await import('../project/detector.js');
     
-    const project = await detectProject(process.cwd());
+    const project = detectProject(process.cwd());
+    if (!project) { s.stop('No .git found'); p.log.error('Not a project directory. Run "git init" first.'); return; }
     const dataDir = await getProjectDataDir(project.id);
     const observations = await loadObservationsJson(dataDir) as Array<{
       id: number; title: string; type: string; timestamp: string; status?: string;

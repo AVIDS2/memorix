@@ -24,6 +24,10 @@ export default defineCommand({
         const { startDashboard } = await import('../../dashboard/server.js');
 
         const project = detectProject();
+        if (!project) {
+            console.error('No .git found — not a project directory. Run "git init" first.');
+            process.exit(1);
+        }
         const dataDir = await getProjectDataDir(project.id);
         const port = parseInt(args.port as string, 10) || 3210;
 

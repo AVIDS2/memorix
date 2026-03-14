@@ -55,11 +55,16 @@ export async function saveAudit(data: AuditData): Promise<void> {
 }
 
 /**
- * Get project ID from project root.
+ * Get project ID from project root via .git detection.
  */
 export function getProjectId(projectRoot: string): string {
+  try {
+    const { detectProject } = require('../project/detector.js');
+    const project = detectProject(projectRoot);
+    if (project) return project.id;
+  } catch { /* fallback below */ }
   const normalized = projectRoot.replace(/\\/g, '/');
-  return `local/${normalized}`;
+  return `untracked/${normalized}`;
 }
 
 /**

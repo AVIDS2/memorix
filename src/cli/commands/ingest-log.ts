@@ -63,7 +63,11 @@ export default defineCommand({
       const { getProjectDataDir } = await import('../../store/persistence.js');
       const { detectProject } = await import('../../project/detector.js');
 
-      const project = await detectProject(cwd);
+      const project = detectProject(cwd);
+      if (!project) {
+        p.log.error('No .git found — not a project directory.');
+        return;
+      }
       const dataDir = await getProjectDataDir(project.id);
       await initObservations(dataDir);
 

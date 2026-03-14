@@ -50,9 +50,10 @@ export default defineCommand({
     async run({ args }) {
         const project = detectProject();
 
-        if (project.id.startsWith('placeholder/')) {
-            console.error('[WARN] Not in a valid project directory - using degraded mode.');
-            console.error('Set MEMORIX_PROJECT_ROOT or --cwd for best results.');
+        if (!project) {
+            console.error('[ERROR] No .git found — not a project directory.');
+            console.error('Run "git init" in your project for proper isolation.');
+            process.exit(1);
         }
 
         console.log(`\nProject: ${project.name} (${project.id})\n`);

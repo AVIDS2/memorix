@@ -189,7 +189,7 @@ export default defineCommand({
     const pathModule = await import('node:path');
     const { fileURLToPath } = await import('node:url');
 
-    const project = detectProject();
+    const project = detectProject() ?? { id: `untracked/${pathModule.default.basename(projectRoot)}`, name: pathModule.default.basename(projectRoot), rootPath: projectRoot };
     const dashDataDir = await getProjectDataDir(project.id);
     const baseDir = getBaseDataDir();
 

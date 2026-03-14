@@ -137,8 +137,19 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
   projectId: string;
   deferredInit: () => Promise<void>;
 }> {
-  // Detect current project (never returns __invalid__ — degraded mode uses placeholder/)
-  const rawProject = detectProject(cwd);
+  // Detect current project — strict .git-based detection
+  const detectedProject = detectProject(cwd);
+  let rawProject: import('./types.js').ProjectInfo;
+  if (detectedProject) {
+    rawProject = detectedProject;
+  } else {
+    // No .git found — warn but don't crash. Use path-based fallback.
+    const basePath = cwd ?? process.cwd();
+    const name = (await import('node:path')).basename(basePath) || 'unknown';
+    rawProject = { id: `untracked/${name}`, name, rootPath: basePath };
+    console.error(`[memorix] WARNING: No .git found in "${basePath}" — project isolation degraded`);
+    console.error(`[memorix] Run "git init" in your project for proper isolation.`);
+  }
 
   // Migrate legacy per-project subdirectories into flat base directory (one-time, silent)
   try {
@@ -167,7 +178,7 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
   await initObservations(projectDir);
 
   // Auto-merge obvious alias groups by scanning observed projectIds in data.
-  // This detects splits like placeholder/foo + local/foo + user/foo
+  // This detects splits like local/foo + user/foo (legacy data migration)
   try {
     const { getAllObservations } = await import('./memory/observations.js');
     const allObs = getAllObservations();
@@ -179,7 +190,7 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
   } catch { /* auto-merge is optional */ }
 
   // Migrate existing observations to canonical project ID for ALL alias groups.
-  // This normalizes split projectIds like placeholder/foo + local/foo → canonical.
+  // This normalizes split projectIds like local/foo + user/foo → canonical.
   try {
     const { getAllAliasGroups } = await import('./project/aliases.js');
     const groups = await getAllAliasGroups();

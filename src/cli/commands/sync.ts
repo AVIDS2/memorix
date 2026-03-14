@@ -44,6 +44,10 @@ export default defineCommand({
 
     // Detect project
     const project = detectProject();
+    if (!project) {
+      p.log.error('No .git found — not a project directory. Run "git init" first.');
+      return;
+    }
     p.log.info(`Project: ${project.name} (${project.id})`);
 
     // Scan rules

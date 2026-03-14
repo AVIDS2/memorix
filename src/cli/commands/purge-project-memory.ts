@@ -69,7 +69,11 @@ export default defineCommand({
 });
 
 function getProjectId(projectRoot: string): string {
-  // Normalize project path to a consistent ID
+  try {
+    const { detectProject } = require('../project/detector.js');
+    const project = detectProject(projectRoot);
+    if (project) return project.id;
+  } catch { /* fallback below */ }
   const normalized = projectRoot.replace(/\\/g, '/');
-  return `local/${normalized}`;
+  return `untracked/${normalized}`;
 }

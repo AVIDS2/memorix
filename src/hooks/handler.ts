@@ -272,7 +272,8 @@ async function handleSessionStart(input: NormalizedHookInput): Promise<{
     const { initAliasRegistry, registerAlias } = await import('../project/aliases.js');
     const { calculateProjectAffinity, extractProjectKeywords } = await import('../store/project-affinity.js');
 
-    const rawProject = await detectProject(input.cwd || process.cwd());
+    const rawProject = detectProject(input.cwd || process.cwd());
+    if (!rawProject) throw new Error('No .git found');
     const dataDir = await getProjectDataDir(rawProject.id);
     
     // Resolve to canonical project ID (same as server.ts does)
@@ -506,7 +507,8 @@ export async function runHook(): Promise<void> {
       const { getProjectDataDir } = await import('../store/persistence.js');
       const { initAliasRegistry, registerAlias } = await import('../project/aliases.js');
 
-      const rawProject = await detectProject(input.cwd || process.cwd());
+      const rawProject = detectProject(input.cwd || process.cwd());
+      if (!rawProject) throw new Error('No .git found');
       const dataDir = await getProjectDataDir(rawProject.id);
       
       // Resolve to canonical project ID (same as server.ts does)

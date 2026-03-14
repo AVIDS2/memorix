@@ -62,7 +62,7 @@ function normalizePath(p: string): string {
  * Higher = better canonical candidate.
  */
 function idPriority(id: string): number {
-  if (id.startsWith('placeholder/')) return 0;
+  if (id.startsWith('untracked/')) return 0;
   if (id.startsWith('local/')) return 1;
   // Git remote-based IDs (e.g., "user/repo") have no prefix → highest priority
   return 2;

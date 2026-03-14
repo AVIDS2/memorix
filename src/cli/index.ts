@@ -202,6 +202,7 @@ async function runConfigure(): Promise<void> {
       options: [
         { value: 'llm', label: 'LLM Enhanced Mode', hint: 'smart dedup + fact extraction' },
         { value: 'embedding', label: 'Embedding Provider', hint: 'semantic search' },
+        { value: 'behavior', label: 'Behavior Settings', hint: 'session inject, auto-cleanup, sync advisory' },
         { value: 'show', label: 'Show current config', hint: 'view settings' },
         { value: 'back', label: '\u2190 Back', hint: 'return to main menu' },
       ],
@@ -388,6 +389,43 @@ async function runConfigure(): Promise<void> {
         p.log.success(`Embedding set to: ${embedding}`);
         p.log.info(`Install with: npm install -g ${embedding === 'fastembed' ? 'fastembed' : '@huggingface/transformers'}`);
       }
+      p.log.info('Saved to config.json. Restart MCP server to apply.');
+      continue;
+    }
+
+    if (section === 'behavior') {
+      const current = config.behavior ?? {};
+
+      const sessionInject = await p.select({
+        message: `Session start injection (current: ${current.sessionInject ?? 'minimal'})`,
+        options: [
+          { value: 'full', label: 'Full', hint: 'inject top 5 memories on session start' },
+          { value: 'minimal', label: 'Minimal (default)', hint: 'one-line hint only' },
+          { value: 'silent', label: 'Silent', hint: 'no injection, rely on rules/AGENTS.md' },
+        ],
+      });
+      if (p.isCancel(sessionInject)) continue;
+
+      const syncAdvisory = await p.confirm({
+        message: `Show sync advisory on first search? (current: ${current.syncAdvisory !== false ? 'yes' : 'no'})`,
+        initialValue: current.syncAdvisory !== false,
+      });
+      if (p.isCancel(syncAdvisory)) continue;
+
+      const autoCleanup = await p.confirm({
+        message: `Auto-archive expired memories on startup? (current: ${current.autoCleanup !== false ? 'yes' : 'no'})`,
+        initialValue: current.autoCleanup !== false,
+      });
+      if (p.isCancel(autoCleanup)) continue;
+
+      config.behavior = {
+        sessionInject,
+        syncAdvisory,
+        autoCleanup,
+      };
+
+      await saveConfig(config);
+      p.log.success('Behavior settings updated.');
       p.log.info('Saved to config.json. Restart MCP server to apply.');
       continue;
     }

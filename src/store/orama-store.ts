@@ -190,7 +190,13 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
     try {
       const provider = await getEmbeddingProvider();
       if (provider) {
-        queryVector = await provider.embed(options.query!);
+        // Embedding timeout: 15 seconds
+        const EMBEDDING_TIMEOUT_MS = 15000;
+        const embedPromise = provider.embed(options.query!);
+        const timeoutPromise = new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error(`Embedding timeout after ${EMBEDDING_TIMEOUT_MS}ms`)), EMBEDDING_TIMEOUT_MS)
+        );
+        queryVector = await Promise.race([embedPromise, timeoutPromise]);
         // Detect CJK-heavy queries: BM25 can't tokenize Chinese/Japanese/Korean well
         const cjkRatio = (options.query!.match(/[\u4e00-\u9fff\u3040-\u309f\u30a0-\u30ff\uac00-\ud7af]/g) || []).length / options.query!.length;
         const isCJKHeavy = cjkRatio > 0.3;
@@ -207,8 +213,9 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
             : { text: 0.6, vector: 0.4 },
         };
       }
-    } catch {
-      // Fallback to fulltext if embedding fails
+    } catch (error) {
+      // Fallback to fulltext if embedding fails or times out
+      console.error('[memorix] Embedding failed or timed out, falling back to fulltext search');
     }
   }
 
@@ -367,7 +374,15 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
         score: e.score,
         narrative: narrativeMap.get(e.id),
       }));
-      const { reranked, usedLLM } = await rerankResults(options.query!, candidates);
+      
+      // LLM rerank timeout: 10 seconds
+      const RERANK_TIMEOUT_MS = 10000;
+      const rerankPromise = rerankResults(options.query!, candidates);
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error(`LLM rerank timeout after ${RERANK_TIMEOUT_MS}ms`)), RERANK_TIMEOUT_MS)
+      );
+      const { reranked, usedLLM } = await Promise.race([rerankPromise, timeoutPromise]);
+      
       if (usedLLM) {
         // Rebuild intermediate with reranked order, preserving all original fields
         const intermediateMap = new Map(intermediate.map(e => [e.id, e]));
@@ -378,7 +393,10 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
           intermediate = rerankedIntermediate;
         }
       }
-    } catch { /* reranking is best-effort */ }
+    } catch (error) {
+      // Reranking is best-effort: fall back to original order on timeout or error
+      console.error('[memorix] LLM rerank failed or timed out, using original order');
+    }
   }
 
   // Build IndexEntry with optional match explanation

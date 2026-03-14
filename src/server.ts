@@ -758,7 +758,10 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
     async ({ query, limit, type, maxTokens, scope, since, until, status }) => {
       const safeLimit = limit != null ? coerceNumber(limit, 20) : undefined;
       const safeMaxTokens = maxTokens != null ? coerceNumber(maxTokens, 0) : undefined;
-      const result = await compactSearch({
+
+      // Tool-level timeout: abort if search takes longer than 30 seconds
+      const TIMEOUT_MS = 30000;
+      const searchPromise = compactSearch({
         query,
         limit: safeLimit,
         type: type as ObservationType | undefined,
@@ -770,6 +773,29 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
         projectId: scope === 'global' ? undefined : project.id,
         status: (status as 'active' | 'resolved' | 'archived' | 'all') ?? 'active',
       });
+
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error(`Search timeout after ${TIMEOUT_MS}ms`)), TIMEOUT_MS)
+      );
+
+      let result;
+      try {
+        result = await Promise.race([searchPromise, timeoutPromise]);
+      } catch (error) {
+        if (error instanceof Error && error.message.includes('timeout')) {
+          // Timeout: return empty result with error message
+          return {
+            content: [
+              {
+                type: 'text' as const,
+                text: `Error: Search timeout after ${TIMEOUT_MS}ms. Try a simpler query or check if the service is responsive.`,
+              },
+            ],
+            isError: true,
+          };
+        }
+        throw error;
+      }
 
       // Append sync advisory on first search of the session
       let text = result.formatted;

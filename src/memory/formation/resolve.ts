@@ -115,6 +115,99 @@ function mergeFacts(oldFacts: string[], newFacts: string[]): string[] {
   return merged;
 }
 
+// ── LLM Resolution (Mem0-style) ───────────────────────────────
+
+const LLM_RESOLVE_PROMPT = `You are a Memory Consolidation Manager for a software engineering knowledge base.
+
+You must decide what to do with a NEW memory given EXISTING memories that are similar.
+
+Operations:
+- ADD: The new memory contains genuinely new information not present in existing memories.
+- UPDATE: The new memory adds to or refines an existing memory. Specify which existing memory ID to update.
+- DELETE: The new memory contradicts an existing memory. Specify which existing memory ID to delete.
+- NOOP: The new memory is redundant (already covered by existing memories). Skip storage.
+
+Rules:
+- Return ONLY a JSON object
+- If UPDATE: merge the best information from both old and new
+- If DELETE: the new memory supersedes the old (contradiction detected)
+- Prefer UPDATE over ADD when the topic is the same but information differs
+- Prefer NOOP over ADD when the information is essentially the same
+
+Response format:
+{"action": "ADD|UPDATE|DELETE|NOOP", "targetId": <number or null>, "reason": "<brief explanation>", "mergedText": "<merged content for UPDATE, or null>"}`;
+
+async function resolveWithLLM(
+  extracted: ExtractResult,
+  hits: SearchHit[],
+  getObservation: (id: number) => ExistingMemoryRef | null,
+): Promise<ResolveResult | null> {
+  try {
+    const { callLLM } = await import('../../llm/provider.js');
+
+    // Build context for LLM
+    const existingMemories = hits.slice(0, 5).map((h, i) => ({
+      id: h.observationId,
+      index: i,
+      title: h.title,
+      content: h.narrative.substring(0, 300),
+      facts: h.facts.substring(0, 200),
+    }));
+
+    const input = `NEW MEMORY:
+Title: ${extracted.title}
+Content: ${extracted.narrative.substring(0, 500)}
+Facts: ${extracted.facts.join('; ')}
+
+EXISTING MEMORIES:
+${existingMemories.map(m => `[ID:${m.id}] ${m.title} | ${m.content} | Facts: ${m.facts}`).join('\n')}`;
+
+    const response = await callLLM(LLM_RESOLVE_PROMPT, input);
+    const text = response.content.trim();
+
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) return null;
+    const parsed = JSON.parse(jsonMatch[0]);
+
+    const action = parsed.action?.toUpperCase();
+    const targetId = parsed.targetId ? Number(parsed.targetId) : undefined;
+    const reason = parsed.reason || 'LLM decision';
+
+    if (action === 'NOOP') {
+      return { action: 'discard', targetId, reason: `LLM: ${reason}` };
+    }
+    if (action === 'ADD') {
+      return { action: 'new', reason: `LLM: ${reason}` };
+    }
+    if (action === 'UPDATE' && targetId) {
+      const existing = getObservation(targetId);
+      const oldFacts = existing?.facts ?? [];
+      return {
+        action: 'merge',
+        targetId,
+        reason: `LLM: ${reason}`,
+        mergedNarrative: parsed.mergedText || mergeNarratives(existing?.narrative ?? '', extracted.narrative),
+        mergedFacts: mergeFacts(oldFacts, extracted.facts),
+      };
+    }
+    if (action === 'DELETE' && targetId) {
+      const existing = getObservation(targetId);
+      const oldFacts = existing?.facts ?? [];
+      return {
+        action: 'evolve',
+        targetId,
+        reason: `LLM: ${reason}`,
+        mergedNarrative: extracted.narrative,
+        mergedFacts: mergeFacts(oldFacts, extracted.facts),
+      };
+    }
+
+    return null; // Unrecognized action
+  } catch {
+    return null; // LLM failure → fall back to rules
+  }
+}
+
 // ── Resolve Implementation ───────────────────────────────────────
 
 /**
@@ -157,6 +250,7 @@ export async function runResolve(
   projectId: string,
   searchMemories: (query: string, limit: number, projectId: string) => Promise<SearchHit[]>,
   getObservation: (id: number) => ExistingMemoryRef | null,
+  useLLM = false,
 ): Promise<ResolveResult> {
   // Search for similar existing memories
   const query = `${extracted.title} ${extracted.narrative.substring(0, 200)}`;
@@ -172,7 +266,14 @@ export async function runResolve(
     return { action: 'new', reason: 'No similar existing memories found' };
   }
 
-  // Score each candidate
+  // LLM-powered resolution (Mem0-style, quality-first)
+  if (useLLM) {
+    const llmResult = await resolveWithLLM(extracted, hits, getObservation);
+    if (llmResult) return llmResult;
+    // LLM failed → fall through to rules-based resolution
+  }
+
+  // Rules-based resolution (free mode fallback)
   const scored = hits.map(hit => ({
     hit,
     ...scoreCandidate(extracted, hit),

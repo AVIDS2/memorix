@@ -290,6 +290,7 @@ export async function runFormation(
       input.projectId,
       config.searchMemories,
       config.getObservation,
+      config.useLLM,
     );
   }
   stagesCompleted = 2;

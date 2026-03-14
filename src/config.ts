@@ -65,9 +65,10 @@ export function resetConfigCache(): void {
 
 // ─── Resolved Getters (env > config.json > default) ──────────────────
 
-/** LLM API key: MEMORIX-specific env > config.json > generic env fallback */
+/** LLM API key: MEMORIX_API_KEY (unified) > MEMORIX-specific env > config.json > generic env fallbacks */
 export function getLLMApiKey(): string | undefined {
   return (
+    process.env.MEMORIX_API_KEY ||  // Unified API key (方案1)
     process.env.MEMORIX_LLM_API_KEY ||
     loadFileConfig().llm?.apiKey ||
     process.env.OPENAI_API_KEY ||
@@ -109,9 +110,10 @@ export function getEmbeddingMode(): 'off' | 'fastembed' | 'transformers' | 'api'
   return 'off';
 }
 
-/** Embedding API key: env > config.json > LLM key fallback */
+/** Embedding API key: MEMORIX_API_KEY (unified) > MEMORIX-specific env > config.json > LLM key fallback */
 export function getEmbeddingApiKey(): string | undefined {
   return (
+    process.env.MEMORIX_API_KEY ||  // Unified API key (方案1)
     process.env.MEMORIX_EMBEDDING_API_KEY ||
     loadFileConfig().embeddingApi?.apiKey ||
     process.env.MEMORIX_LLM_API_KEY ||

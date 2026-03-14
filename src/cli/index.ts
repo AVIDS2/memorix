@@ -37,6 +37,7 @@ async function interactiveMenu(): Promise<void> {
         { value: 'hooks', label: 'Install hooks', hint: 'auto-capture for IDEs' },
         { value: 'status', label: 'Project status', hint: 'info + stats' },
         { value: 'cleanup', label: 'Clean up', hint: 'remove old memories' },
+        { value: 'audit', label: 'Audit trail', hint: 'Memorix-written files' },
         { value: 'sync', label: 'Sync rules', hint: 'cross-agent sync' },
         { value: 'configure', label: 'Configure', hint: 'LLM + embedding settings' },
         { value: 'serve', label: 'Start MCP server', hint: 'for IDE integration' },
@@ -75,6 +76,9 @@ async function interactiveMenu(): Promise<void> {
         break;
       case 'cleanup':
         await runCleanupMenu();
+        break;
+      case 'audit':
+        await runAuditList();
         break;
       case 'sync':
         await runCommand('sync');
@@ -160,6 +164,11 @@ async function runCleanupMenu(): Promise<void> {
       break;
     }
   }
+}
+
+async function runAuditList(): Promise<void> {
+  const m = await import('./commands/audit-list.js');
+  await m.default.run?.({ args: { _: [] }, rawArgs: [], cmd: m.default } as any);
 }
 
 async function runConfigure(): Promise<void> {

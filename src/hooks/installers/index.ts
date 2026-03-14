@@ -493,6 +493,11 @@ export async function installHooks(
         : getProjectConfigPath(agent, projectRoot);
       await fs.mkdir(path.dirname(pluginPath), { recursive: true });
       await fs.writeFile(pluginPath, pluginContent, 'utf-8');
+      
+      // Record audit entry
+      const { recordFile } = await import('../../audit/index.js');
+      await recordFile(projectRoot, 'hook', pluginPath, agent);
+      
       await installAgentRules(agent, projectRoot);
       return {
         agent,
@@ -514,7 +519,12 @@ export async function installHooks(
     const hooksDir = path.join(path.dirname(configPath));
     await fs.mkdir(hooksDir, { recursive: true });
     for (const hf of hookFiles) {
-      await fs.writeFile(path.join(hooksDir, hf.filename), hf.content, 'utf-8');
+      const hookPath = path.join(hooksDir, hf.filename);
+      await fs.writeFile(hookPath, hf.content, 'utf-8');
+      
+      // Record audit entry
+      const { recordFile } = await import('../../audit/index.js');
+      await recordFile(projectRoot, 'hook', hookPath, agent);
     }
   } else {
     // JSON-based configs: merge with existing if present
@@ -571,6 +581,10 @@ export async function installHooks(
     }
 
     await fs.writeFile(configPath, JSON.stringify(merged, null, 2), 'utf-8');
+    
+    // Record audit entry
+    const { recordFile } = await import('../../audit/index.js');
+    await recordFile(projectRoot, 'hook', configPath, agent);
   }
 
   const events: Array<import('../types.js').HookEvent> = [];
@@ -660,6 +674,10 @@ async function installAgentRules(agent: AgentName, projectRoot: string): Promise
         }
         // Append to existing file
         await fs.writeFile(rulesPath, existing + '\n\n' + rulesContent, 'utf-8');
+        
+        // Record audit entry
+        const { recordFile } = await import('../../audit/index.js');
+        await recordFile(projectRoot, 'rule', rulesPath, agent);
       } catch {
         // File doesn't exist, create it
         await fs.writeFile(rulesPath, rulesContent, 'utf-8');
@@ -671,6 +689,10 @@ async function installAgentRules(agent: AgentName, projectRoot: string): Promise
         // File exists — don't overwrite user customizations
       } catch {
         await fs.writeFile(rulesPath, rulesContent, 'utf-8');
+        
+        // Record audit entry for new file
+        const { recordFile } = await import('../../audit/index.js');
+        await recordFile(projectRoot, 'rule', rulesPath, agent);
       }
     }
   } catch { /* silent */ }

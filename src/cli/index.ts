@@ -583,6 +583,7 @@ const main = defineCommand({
     sync: () => import('./commands/sync.js').then(m => m.default),
     hook: () => import('./commands/hook.js').then(m => m.default),
     hooks: () => import('./commands/hooks.js').then(m => m.default),
+    ingest: () => import('./commands/ingest.js').then(m => m.default),
     dashboard: () => import('./commands/dashboard.js').then(m => m.default),
     cleanup: () => import('./commands/cleanup.js').then(m => m.default),
   },

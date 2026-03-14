@@ -11,7 +11,7 @@
  */
 
 import { execSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 import type { ProjectInfo } from '../types.js';
 
@@ -118,7 +118,6 @@ function readGitConfigRemote(cwd: string): string | null {
  */
 export function findGitInSubdirs(dir: string): string | null {
   try {
-    const { readdirSync, statSync } = require('node:fs') as typeof import('node:fs');
     const resolved = path.resolve(dir);
     const entries = readdirSync(resolved);
     for (const entry of entries) {

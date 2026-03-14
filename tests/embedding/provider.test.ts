@@ -18,9 +18,30 @@ vi.mock('../../src/embedding/transformers-provider.js', () => {
 import { getEmbeddingProvider, isVectorSearchAvailable, resetProvider } from '../../src/embedding/provider.js';
 import { resetDb, isEmbeddingEnabled, generateEmbedding, getDb } from '../../src/store/orama-store.js';
 
+// Save and clear embedding-related env vars to prevent real API provider initialization
+const savedEnv: Record<string, string | undefined> = {};
+const EMBEDDING_ENV_KEYS = [
+  'MEMORIX_API_KEY', 'MEMORIX_EMBEDDING', 'MEMORIX_EMBEDDING_API_KEY',
+  'MEMORIX_EMBEDDING_BASE_URL', 'MEMORIX_EMBEDDING_MODEL',
+  'MEMORIX_LLM_API_KEY', 'OPENAI_API_KEY',
+];
+
 beforeEach(() => {
+  for (const key of EMBEDDING_ENV_KEYS) {
+    savedEnv[key] = process.env[key];
+    delete process.env[key];
+  }
   resetProvider();
   resetDb();
+});
+
+import { afterEach } from 'vitest';
+afterEach(() => {
+  for (const key of EMBEDDING_ENV_KEYS) {
+    if (savedEnv[key] !== undefined) {
+      process.env[key] = savedEnv[key];
+    }
+  }
 });
 
 describe('Embedding Provider', () => {

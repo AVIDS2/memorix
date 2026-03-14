@@ -19,13 +19,12 @@ import { callLLM, isLLMEnabled } from './provider.js';
 
 const COMPRESS_PROMPT = `You are a memory compression engine for a coding assistant.
 
-Compress the given narrative into the shortest possible form that preserves ALL technical facts.
+Compress the given narrative while preserving ALL technical facts and reasoning.
 
 Rules:
-- Aggressively remove: filler words, background context, debugging journey, repeated info
-- Compress to MINIMUM viable length — aim for 50% or less of original
-- Keep ONLY: specific values, file paths, error messages, version numbers, config keys, causal relationships
-- Merge related points into single dense sentences
+- Remove: filler words, debugging journey, repeated info already in facts
+- Keep: specific values, file paths, error messages, version numbers, config keys, causal relationships, design reasoning
+- Merge related points into dense sentences
 - If facts are provided separately, do NOT repeat them in the compressed narrative
 - Output the compressed text ONLY, no explanation or wrapper
 
@@ -35,6 +34,18 @@ Output: "JWT refresh无自动续签→24h后静默认证失败（非网络问题
 
 Input: "Final deployment model for shadcn-blog is stable: GitHub Actions build locally, SCP artifacts to VPS, systemd manages the process. Docker was considered but rejected due to complexity overhead for a simple blog. The whole pipeline takes about 2 minutes from push to live."
 Output: "shadcn-blog部署: GH Actions构建→SCP到VPS→systemd管理, 弃Docker(复杂度过高), push到上线~2min"`;
+
+/** Gentler prompt for high-value types where reasoning context matters */
+const COMPRESS_PROMPT_GENTLE = `You are a memory compression engine for a coding assistant.
+
+Lightly compress the given narrative — preserve reasoning, trade-offs, and "why" context.
+
+Rules:
+- Only remove: obvious filler, debugging detours, info already in the separate facts list
+- PRESERVE: design reasoning, rejected alternatives, trade-off analysis, causal chains
+- Aim for ~70-80% of original length, NOT aggressive compression
+- If facts are provided separately, do NOT repeat them in the compressed narrative
+- Output the compressed text ONLY, no explanation or wrapper`;
 
 /**
  * Compress a narrative to its essential core using LLM.
@@ -52,8 +63,8 @@ export async function compressNarrative(
 ): Promise<{ compressed: string; saved: number; usedLLM: boolean }> {
   const originalTokens = estimateTokens(narrative);
 
-  // Skip compression for short narratives
-  if (!isLLMEnabled() || narrative.length <= 80) {
+  // Skip compression for short narratives (≤150 chars is already concise)
+  if (!isLLMEnabled() || narrative.length <= 150) {
     return { compressed: narrative, saved: 0, usedLLM: false };
   }
 
@@ -67,7 +78,10 @@ export async function compressNarrative(
       ? `\n\nSeparate facts (already stored, don't repeat): ${facts.join('; ')}`
       : '';
 
-    const response = await callLLM(COMPRESS_PROMPT, narrative + factsContext);
+    // Use gentler compression for high-value types where reasoning matters
+    const HIGH_VALUE_TYPES = new Set(['decision', 'trade-off', 'why-it-exists', 'how-it-works']);
+    const prompt = (type && HIGH_VALUE_TYPES.has(type)) ? COMPRESS_PROMPT_GENTLE : COMPRESS_PROMPT;
+    const response = await callLLM(prompt, narrative + factsContext);
     const compressed = response.content.trim();
 
     // Sanity check: compressed should be shorter and non-empty

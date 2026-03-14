@@ -37,7 +37,7 @@ describe('compressNarrative', () => {
   });
 
   it('should compress long narratives with LLM', async () => {
-    const longNarrative = '我在调试过程中发现JWT token的refresh机制存在问题，具体来说是因为服务端没有实现自动续签，导致用户在24小时后会遇到静默的认证失败，之前我一直以为是网络问题但后来排查发现是token过期了，所以我们需要修复这个问题';
+    const longNarrative = '我在调试过程中发现JWT token的refresh机制存在问题，具体来说是因为服务端没有实现自动续签，导致用户在24小时后会遇到静默的认证失败，之前我一直以为是网络问题但后来排查发现是token过期了，所以我们需要修复这个问题。这个bug影响了所有使用JWT认证的用户，需要在下一个版本中优先修复，否则会导致大量用户投诉。';
     setLLM(true, 'JWT refresh无自动续签→24h后静默认证失败');
 
     const { compressed, saved, usedLLM } = await compressNarrative(longNarrative);
@@ -56,7 +56,7 @@ describe('compressNarrative', () => {
 
   it('should include facts context in prompt', async () => {
     setLLM(true, 'compressed version');
-    const narrative = 'A long narrative about database migration from MySQL to PostgreSQL with various considerations and tradeoffs';
+    const narrative = 'A long narrative about database migration from MySQL to PostgreSQL with various considerations and tradeoffs that we discussed at length during the architecture review meeting last week and need to document properly for future reference';
 
     await compressNarrative(narrative, ['Fact 1', 'Fact 2']);
 

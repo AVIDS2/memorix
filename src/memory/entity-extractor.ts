@@ -69,7 +69,11 @@ export function extractEntities(content: string): ExtractedEntities {
 
       switch (kind) {
         case 'file':
-          result.files.push(entity);
+          // Filter out property chains (e.g. config.llm.apiKey, process.env.FOO)
+          // Real files have path separators or known extensions
+          if (isLikelyFilePath(entity)) {
+            result.files.push(entity);
+          }
           break;
         case 'module':
           result.modules.push(entity);
@@ -90,6 +94,50 @@ export function extractEntities(content: string): ExtractedEntities {
   result.hasCausalLanguage = CAUSAL_PATTERN.test(content);
 
   return result;
+}
+
+/** Known file extensions that indicate a real file path */
+const FILE_EXTENSIONS = new Set([
+  'ts', 'js', 'tsx', 'jsx', 'mts', 'mjs', 'cjs',
+  'json', 'yaml', 'yml', 'toml', 'xml', 'csv',
+  'py', 'rb', 'go', 'rs', 'java', 'kt', 'swift', 'c', 'cpp', 'h',
+  'html', 'css', 'scss', 'less', 'vue', 'svelte',
+  'sh', 'bash', 'zsh', 'ps1', 'cmd', 'bat',
+  'md', 'txt', 'rst', 'log',
+  'sql', 'graphql', 'prisma',
+  'env', 'gitignore', 'dockerignore', 'dockerfile',
+  'lock', 'config',
+]);
+
+/** Property-chain patterns that are NOT file paths */
+const PROPERTY_CHAIN_BLOCKLIST = /^(?:process\.env|config\.|options\.|params\.|props\.|this\.|self\.|module\.|exports\.|require\.|import\.)/i;
+
+/**
+ * Determine if a matched string is likely a real file path vs a property chain.
+ * 
+ * Examples:
+ *   "src/config.ts" → true (has path separator + known extension)
+ *   "config.llm.apiKey" → false (property chain, no path separator)
+ *   "./package.json" → true (relative path)
+ *   "process.env.FOO" → false (property chain)
+ */
+function isLikelyFilePath(candidate: string): boolean {
+  // Has path separator → likely a file path
+  if (candidate.includes('/') || candidate.includes('\\')) return true;
+
+  // Starts with ./ or ../ → relative path
+  if (candidate.startsWith('./') || candidate.startsWith('../')) return true;
+
+  // Blocked property chains
+  if (PROPERTY_CHAIN_BLOCKLIST.test(candidate)) return false;
+
+  // Multiple dots without path separator → likely property chain (e.g. config.llm.apiKey)
+  const dotCount = (candidate.match(/\./g) || []).length;
+  if (dotCount >= 2) return false;
+
+  // Single dot: check if extension is a known file extension
+  const ext = candidate.split('.').pop()?.toLowerCase() ?? '';
+  return FILE_EXTENSIONS.has(ext);
 }
 
 /**

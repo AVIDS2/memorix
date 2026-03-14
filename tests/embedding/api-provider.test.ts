@@ -66,8 +66,9 @@ describe('API Embedding Provider', () => {
       MEMORIX_EMBEDDING_BASE_URL: 'https://api.test.com/v1',
       MEMORIX_EMBEDDING_MODEL: 'text-embedding-3-small',
     };
-    // Remove dimension override by default
+    // Remove dimension override and unified key by default
     delete process.env.MEMORIX_EMBEDDING_DIMENSIONS;
+    delete process.env.MEMORIX_API_KEY;
   });
 
   afterEach(() => {

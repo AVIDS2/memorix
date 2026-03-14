@@ -74,7 +74,7 @@ async function interactiveMenu(): Promise<void> {
         await runCommand('status');
         break;
       case 'cleanup':
-        await runCommand('cleanup');
+        await runCleanupMenu();
         break;
       case 'sync':
         await runCommand('sync');
@@ -97,6 +97,7 @@ async function runHooksMenu(): Promise<void> {
     message: 'Hooks management:',
     options: [
       { value: 'install', label: 'Install hooks', hint: 'set up auto-capture' },
+      { value: 'preview', label: 'Preview installation', hint: 'show files to be created' },
       { value: 'uninstall', label: 'Uninstall hooks', hint: 'remove from all agents' },
       { value: 'status', label: 'Status', hint: 'show installed hooks' },
       { value: 'back', label: '← Back', hint: 'return to main menu' },
@@ -111,6 +112,11 @@ async function runHooksMenu(): Promise<void> {
       await m.default.run?.({ args: { _: [] }, rawArgs: [], cmd: m.default } as any);
       break;
     }
+    case 'preview': {
+      const m = await import('./commands/hooks-preview.js');
+      await m.default.run?.({ args: { _: [] }, rawArgs: [], cmd: m.default } as any);
+      break;
+    }
     case 'uninstall': {
       const m = await import('./commands/hooks-uninstall.js');
       await m.default.run?.({ args: { _: [] }, rawArgs: [], cmd: m.default } as any);
@@ -118,6 +124,38 @@ async function runHooksMenu(): Promise<void> {
     }
     case 'status': {
       const m = await import('./commands/hooks-status.js');
+      await m.default.run?.({ args: { _: [] }, rawArgs: [], cmd: m.default } as any);
+      break;
+    }
+  }
+}
+
+async function runCleanupMenu(): Promise<void> {
+  const action = await p.select({
+    message: 'Cleanup options:',
+    options: [
+      { value: 'project-artifacts', label: 'Uninstall project artifacts', hint: 'remove hook files only' },
+      { value: 'project-memory', label: 'Purge project memory', hint: 'delete current project memories' },
+      { value: 'all-memory', label: 'Purge all memory', hint: '⚠️ delete ALL memories' },
+      { value: 'back', label: '← Back', hint: 'return to main menu' },
+    ],
+  });
+
+  if (p.isCancel(action) || action === 'back') return;
+
+  switch (action) {
+    case 'project-artifacts': {
+      const m = await import('./commands/uninstall-project-artifacts.js');
+      await m.default.run?.({ args: { _: [] }, rawArgs: [], cmd: m.default } as any);
+      break;
+    }
+    case 'project-memory': {
+      const m = await import('./commands/purge-project-memory.js');
+      await m.default.run?.({ args: { _: [] }, rawArgs: [], cmd: m.default } as any);
+      break;
+    }
+    case 'all-memory': {
+      const m = await import('./commands/purge-all-memory.js');
       await m.default.run?.({ args: { _: [] }, rawArgs: [], cmd: m.default } as any);
       break;
     }

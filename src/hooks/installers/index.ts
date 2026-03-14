@@ -308,7 +308,7 @@ export const MemorixPlugin = async ({ project, client, $, directory, worktree })
 /**
  * Get the config file path for an agent (project-level).
  */
-function getProjectConfigPath(agent: AgentName, projectRoot: string): string {
+export function getProjectConfigPath(agent: AgentName, projectRoot: string): string {
   switch (agent) {
     case 'claude':
       // Claude Code reads hooks from .claude/settings.local.json (project-level, gitignored)
@@ -340,7 +340,7 @@ function getProjectConfigPath(agent: AgentName, projectRoot: string): string {
 /**
  * Get the global config file path for an agent.
  */
-function getGlobalConfigPath(agent: AgentName): string {
+export function getGlobalConfigPath(agent: AgentName): string {
   const home = os.homedir();
   switch (agent) {
     case 'claude':

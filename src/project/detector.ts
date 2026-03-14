@@ -112,6 +112,29 @@ function readGitConfigRemote(cwd: string): string | null {
 }
 
 /**
+ * Scan immediate subdirectories for a .git directory.
+ * Used when the workspace root itself isn't a git repo (multi-project workspace).
+ * Returns the first subdirectory containing .git, or null.
+ */
+export function findGitInSubdirs(dir: string): string | null {
+  try {
+    const { readdirSync, statSync } = require('node:fs') as typeof import('node:fs');
+    const resolved = path.resolve(dir);
+    const entries = readdirSync(resolved);
+    for (const entry of entries) {
+      if (entry.startsWith('.')) continue; // skip hidden dirs
+      const fullPath = path.join(resolved, entry);
+      try {
+        if (statSync(fullPath).isDirectory() && existsSync(path.join(fullPath, '.git'))) {
+          return fullPath;
+        }
+      } catch { /* permission error, skip */ }
+    }
+  } catch { /* readdir failed */ }
+  return null;
+}
+
+/**
  * Normalize a Git remote URL to a consistent project ID.
  *
  * Examples:

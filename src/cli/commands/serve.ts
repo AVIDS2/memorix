@@ -24,7 +24,7 @@ export default defineCommand({
       '@modelcontextprotocol/sdk/server/mcp.js'
     );
     const { createMemorixServer } = await import('../../server.js');
-    const { detectProject } = await import('../../project/detector.js');
+    const { detectProject, findGitInSubdirs } = await import('../../project/detector.js');
 
     // Auto-exit when stdio pipe breaks (IDE closed) to prevent orphaned processes
     process.stdin.on('end', () => {
@@ -40,7 +40,17 @@ export default defineCommand({
     console.error(`[memorix] Starting with cwd: ${projectRoot}`);
 
     // Strict .git detection — no .git = not a project
-    const detected = detectProject(projectRoot);
+    let detected = detectProject(projectRoot);
+
+    // Multi-project workspace: cwd has no .git, scan immediate subdirs
+    if (!detected) {
+      const subGit = findGitInSubdirs(projectRoot);
+      if (subGit) {
+        console.error(`[memorix] Found .git in subdirectory: ${subGit}`);
+        projectRoot = subGit;
+        detected = detectProject(subGit);
+      }
+    }
 
     if (detected) {
       // .git found — fast path: register tools FIRST, then connect transport.

@@ -35,7 +35,7 @@ import { initLLM, isLLMEnabled, getLLMConfig } from './llm/provider.js';
 import { compactOnWrite, deduplicateMemory } from './llm/memory-manager.js';
 import type { ExistingMemory } from './llm/memory-manager.js';
 import { runFormation, getMetricsSummary } from './memory/formation/index.js';
-import type { FormationConfig, SearchHit } from './memory/formation/types.js';
+import type { FormationConfig, SearchHit, FormedMemory } from './memory/formation/types.js';
 
 /** Timestamp of last MCP-initiated write — hot-reload skips changes within 10s */
 let lastInternalWriteMs = 0;
@@ -272,13 +272,145 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
       const safeFiles = filesModified ? coerceStringArray(filesModified) : undefined;
       const safeConcepts = concepts ? coerceStringArray(concepts) : undefined;
 
-      // ── Compact on Write (dual-mode: LLM or heuristic) ──────────────
+      // ── Determine decision maker based on Formation mode ─────────────
+      // Reads MEMORIX_FORMATION_MODE env var: shadow|active|fallback
+      // - shadow: Formation observes only, old compact decides (default, safe)
+      // - active: Formation decides storage behavior (new/merge/evolve/discard)
+      // - fallback: old compact decides (safe rollback)
+      const formationMode = (process.env.MEMORIX_FORMATION_MODE as 'shadow' | 'active' | 'fallback') || 'shadow';
+      const useFormation = formationMode === 'active';
+
+      // ── Formation Pipeline (active mode: decides storage) ─────────────
+      let formationResult: FormedMemory | null = null;
+      let formationNote = '';
+      if (useFormation && !topicKey && !progress) {
+        try {
+          const formationConfig: FormationConfig = {
+            mode: 'active',
+            useLLM: false,
+            minValueScore: 0.3,
+            searchMemories: async (q: string, limit: number, pid: string): Promise<SearchHit[]> => {
+              const result = await compactSearch({ query: q, limit, projectId: pid, status: 'active' });
+              if (result.entries.length === 0) return [];
+              const details = await compactDetail(result.entries.map(e => e.id));
+              return details.documents.map((d, i) => ({
+                id: Number(d.id.replace('obs-', '')),
+                observationId: d.observationId,
+                title: d.title,
+                narrative: d.narrative,
+                facts: d.facts,
+                entityName: d.entityName,
+                type: d.type,
+                score: result.entries[i]?.score ?? 0,
+              }));
+            },
+            getObservation: (id: number) => {
+              const o = getObservation(id);
+              if (!o) return null;
+              return {
+                id: o.id,
+                entityName: o.entityName,
+                type: o.type,
+                title: o.title,
+                narrative: o.narrative,
+                facts: o.facts,
+                topicKey: o.topicKey,
+              };
+            },
+            getEntityNames: () => graphManager.getEntityNames(),
+          };
+
+          formationResult = await runFormation({
+            entityName,
+            type: type as ObservationType,
+            title,
+            narrative,
+            facts: safeFacts,
+            projectId: project.id,
+            source: 'explicit',
+          }, formationConfig);
+
+          const modeIcon = '⚡';
+          formationNote = `\n${modeIcon} Formation[active]: ${formationResult.evaluation.category} (${formationResult.evaluation.score.toFixed(2)}) | ${formationResult.resolution.action} | ${formationResult.pipeline.durationMs}ms`;
+          if (formationResult.extraction.extractedFacts.length > 0) {
+            formationNote += ` | +${formationResult.extraction.extractedFacts.length} facts`;
+          }
+          if (formationResult.extraction.titleImproved) formationNote += ' | title↑';
+          if (formationResult.extraction.entityResolved) formationNote += ` | entity→${formationResult.entityName}`;
+          if (formationResult.extraction.typeCorrected) formationNote += ` | type→${formationResult.type}`;
+        } catch { /* formation failure → fallback to old compact */ }
+      }
+
+      // ── Apply Formation decision (active mode only) ───────────────────
+      if (useFormation && formationResult && formationResult.resolution.action !== 'new') {
+        const { action, targetId, reason } = formationResult.resolution;
+
+        if (action === 'merge' && targetId) {
+          // Merge into existing observation
+          const targetObs = getObservation(targetId);
+          if (targetObs) {
+            markInternalWrite();
+            await storeObservation({
+              entityName: targetObs.entityName,
+              type: targetObs.type,
+              title: formationResult.title,
+              narrative: formationResult.narrative,
+              facts: formationResult.facts,
+              filesModified: safeFiles,
+              concepts: safeConcepts,
+              projectId: project.id,
+              topicKey: targetObs.topicKey,
+              progress: progress as import('./types.js').ProgressInfo | undefined,
+            });
+            return {
+              content: [{
+                type: 'text' as const,
+                text: `🔄 Formation MERGE: merged into #${targetId} (${reason})${formationNote}`,
+              }],
+            };
+          }
+        } else if (action === 'evolve' && targetId) {
+          // Evolve existing observation
+          const targetObs = getObservation(targetId);
+          if (targetObs) {
+            markInternalWrite();
+            await storeObservation({
+              entityName: targetObs.entityName,
+              type: targetObs.type,
+              title: formationResult.title,
+              narrative: formationResult.narrative,
+              facts: formationResult.facts,
+              filesModified: safeFiles,
+              concepts: safeConcepts,
+              projectId: project.id,
+              topicKey: targetObs.topicKey,
+              progress: progress as import('./types.js').ProgressInfo | undefined,
+            });
+            return {
+              content: [{
+                type: 'text' as const,
+                text: `🔄 Formation EVOLVE: evolved #${targetId} (${reason})${formationNote}`,
+              }],
+            };
+          }
+        } else if (action === 'discard') {
+          // Skip storing entirely
+          return {
+            content: [{
+              type: 'text' as const,
+              text: `⏭️ Formation DISCARD: ${reason}${formationNote}`,
+            }],
+          };
+        }
+      }
+
+      // ── Compact on Write (fallback mode or Formation said 'new') ───────
       // Search for similar existing memories BEFORE storing.
       // If compact says UPDATE → merge into existing; NONE → skip storing.
       // This keeps memory count low and prevents duplication (Mem0-style).
       let compactAction = '';
       let compactMerged = false;
-      if (!topicKey && !progress) {
+      if (!useFormation && !topicKey && !progress) {
         try {
           const searchResult = await compactSearch({
             query: `${title} ${narrative.substring(0, 200)}`,
@@ -425,66 +557,67 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
 
       const action = upserted ? '🔄 Updated' : '✅ Stored';
 
-      // ── Shadow Mode: Formation Pipeline (observability only) ──────
-      // Runs the new Formation Pipeline in parallel to collect metrics
-      // without affecting storage decisions. This enables before/after
-      // comparison with the existing compact-on-write behavior.
-      let formationNote = '';
-      try {
-        const formationConfig: FormationConfig = {
-          shadow: true,
-          useLLM: false,
-          minValueScore: 0.3,
-          searchMemories: async (q: string, limit: number, pid: string): Promise<SearchHit[]> => {
-            const result = await compactSearch({ query: q, limit, projectId: pid, status: 'active' });
-            if (result.entries.length === 0) return [];
-            const details = await compactDetail(result.entries.map(e => e.id));
-            return details.documents.map((d, i) => ({
-              id: Number(d.id.replace('obs-', '')),
-              observationId: d.observationId,
-              title: d.title,
-              narrative: d.narrative,
-              facts: d.facts,
-              entityName: d.entityName,
-              type: d.type,
-              score: result.entries[i]?.score ?? 0,
-            }));
-          },
-          getObservation: (id: number) => {
-            const o = getObservation(id);
-            if (!o) return null;
-            return {
-              id: o.id,
-              entityName: o.entityName,
-              type: o.type,
-              title: o.title,
-              narrative: o.narrative,
-              facts: o.facts,
-              topicKey: o.topicKey,
-            };
-          },
-          getEntityNames: () => graphManager.getEntityNames(),
-        };
+      // ── Formation Pipeline (shadow/fallback mode: observe only) ─────
+      // In shadow mode, Formation runs after storage to collect metrics.
+      // In fallback mode, Formation runs after old compact to collect metrics.
+      if (!useFormation) {
+        try {
+          const formationConfig: FormationConfig = {
+            mode: formationMode,
+            useLLM: false,
+            minValueScore: 0.3,
+            searchMemories: async (q: string, limit: number, pid: string): Promise<SearchHit[]> => {
+              const result = await compactSearch({ query: q, limit, projectId: pid, status: 'active' });
+              if (result.entries.length === 0) return [];
+              const details = await compactDetail(result.entries.map(e => e.id));
+              return details.documents.map((d, i) => ({
+                id: Number(d.id.replace('obs-', '')),
+                observationId: d.observationId,
+                title: d.title,
+                narrative: d.narrative,
+                facts: d.facts,
+                entityName: d.entityName,
+                type: d.type,
+                score: result.entries[i]?.score ?? 0,
+              }));
+            },
+            getObservation: (id: number) => {
+              const o = getObservation(id);
+              if (!o) return null;
+              return {
+                id: o.id,
+                entityName: o.entityName,
+                type: o.type,
+                title: o.title,
+                narrative: o.narrative,
+                facts: o.facts,
+                topicKey: o.topicKey,
+              };
+            },
+            getEntityNames: () => graphManager.getEntityNames(),
+          };
 
-        const formed = await runFormation({
-          entityName,
-          type: type as ObservationType,
-          title,
-          narrative,
-          facts: safeFacts,
-          projectId: project.id,
-          source: 'explicit',
-          topicKey,
-        }, formationConfig);
+          const formed = await runFormation({
+            entityName,
+            type: type as ObservationType,
+            title,
+            narrative,
+            facts: safeFacts,
+            projectId: project.id,
+            source: 'explicit',
+            topicKey,
+          }, formationConfig);
 
-        formationNote = `\n🔬 Formation[shadow]: ${formed.evaluation.category} (${formed.evaluation.score.toFixed(2)}) | ${formed.resolution.action} | ${formed.pipeline.durationMs}ms`;
-        if (formed.extraction.extractedFacts.length > 0) {
-          formationNote += ` | +${formed.extraction.extractedFacts.length} facts`;
-        }
-        if (formed.extraction.titleImproved) formationNote += ' | title↑';
-        if (formed.extraction.entityResolved) formationNote += ` | entity→${formed.entityName}`;
-        if (formed.extraction.typeCorrected) formationNote += ` | type→${formed.type}`;
-      } catch { /* formation is best-effort in shadow mode */ }
+          const modeIcon = formationMode === 'shadow' ? '🔬' : '🛡️';
+          formationNote = `\n${modeIcon} Formation[${formationMode}]: ${formed.evaluation.category} (${formed.evaluation.score.toFixed(2)}) | ${formed.resolution.action} | ${formed.pipeline.durationMs}ms`;
+          if (formed.extraction.extractedFacts.length > 0) {
+            formationNote += ` | +${formed.extraction.extractedFacts.length} facts`;
+          }
+          if (formed.extraction.titleImproved) formationNote += ' | title↑';
+          if (formed.extraction.entityResolved) formationNote += ` | entity→${formed.entityName}`;
+          if (formed.extraction.typeCorrected) formationNote += ` | type→${formed.type}`;
+        } catch { /* formation is best-effort in shadow/fallback mode */ }
+      }
 
       return {
         content: [

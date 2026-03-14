@@ -504,6 +504,55 @@ export async function runHook(): Promise<void> {
       // Shadow mode: Formation Pipeline metrics (fire-and-forget, never blocks)
       try {
         const { runFormation } = await import('../memory/formation/index.js');
+        const formationMode = (process.env.MEMORIX_FORMATION_MODE as 'shadow' | 'active' | 'fallback') || 'shadow';
+        const samplingRate = parseFloat(process.env.MEMORIX_FORMATION_HOOKS_SAMPLING_RATE || '0.1');
+        const shouldSample = Math.random() < samplingRate;
+
+        // In hooks, shadow mode by default for performance
+        // Sampling rate controls how often we run full resolve (expensive)
+        const searchFn = shouldSample
+          ? async (q: string, limit: number, pid: string) => {
+              const { compactSearch, compactDetail } = await import('../compact/engine.js');
+              const result = await compactSearch({ query: q, limit, projectId: pid, status: 'active' });
+              if (result.entries.length === 0) return [];
+              const details = await compactDetail(result.entries.map(e => e.id));
+              return details.documents.map((d, i) => ({
+                id: Number(d.id.replace('obs-', '')),
+                observationId: d.observationId,
+                title: d.title,
+                narrative: d.narrative,
+                facts: d.facts,
+                entityName: d.entityName,
+                type: d.type,
+                score: result.entries[i]?.score ?? 0,
+              }));
+            }
+          : async () => []; // Skip search for speed (shadow mode)
+
+        const getObsFn = shouldSample
+          ? (id: number) => {
+              const { getObservation } = require('../store/observations.js');
+              const o = getObservation(id);
+              if (!o) return null;
+              return {
+                id: o.id,
+                entityName: o.entityName,
+                type: o.type,
+                title: o.title,
+                narrative: o.narrative,
+                facts: o.facts,
+                topicKey: o.topicKey,
+              };
+            }
+          : () => null;
+
+        const getEntityNamesFn = shouldSample
+          ? () => {
+              const { graphManager } = require('../memory/graph.js');
+              return graphManager.getEntityNames();
+            }
+          : () => [];
+
         runFormation({
           entityName: observation.entityName,
           type: observation.type,
@@ -513,12 +562,13 @@ export async function runHook(): Promise<void> {
           projectId,
           source: 'hook' as const,
         }, {
-          shadow: true,
+          mode: formationMode,
           useLLM: false,
           minValueScore: 0.3,
-          searchMemories: async () => [],  // Skip search in hooks for speed
-          getObservation: () => null,
-          getEntityNames: () => [],
+          hooksSamplingRate: samplingRate,
+          searchMemories: searchFn,
+          getObservation: getObsFn,
+          getEntityNames: getEntityNamesFn,
         }).catch(() => {});
       } catch { /* Formation is optional — never break hooks */ }
 

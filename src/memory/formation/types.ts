@@ -136,14 +136,21 @@ export interface FormedMemory {
 // Pipeline Configuration
 // ============================================================
 
+/** Formation Pipeline operating mode */
+export type FormationMode = 'shadow' | 'active' | 'fallback';
+
 /** Configuration for the Formation Pipeline */
 export interface FormationConfig {
-  /** Run in shadow mode: compute FormedMemory but don't affect storage */
-  shadow: boolean;
+  /** Operating mode: shadow (observe only), active (affects storage), fallback (old compact primary) */
+  mode: FormationMode;
+  /** Run in shadow mode: compute FormedMemory but don't affect storage (deprecated, use mode instead) */
+  shadow?: boolean;
   /** Enable LLM-powered stages (requires LLM API key) */
   useLLM: boolean;
   /** Minimum value score to proceed with storage (default: 0.3) */
   minValueScore: number;
+  /** Sampling rate for hooks path (0-1). 0 = always shadow, 1 = always full resolve */
+  hooksSamplingRate?: number;
   /** Function to search existing memories (injected dependency) */
   searchMemories: (query: string, limit: number, projectId: string) => Promise<SearchHit[]>;
   /** Function to get observation by ID (injected dependency) */

@@ -157,10 +157,10 @@ export async function runFormation(
 
     // Pipeline metadata
     pipeline: {
-      mode: 'rules',
+      mode: config.useLLM ? 'llm' : 'rules',
       durationMs,
       stagesCompleted,
-      shadow: config.shadow,
+      shadow: config.mode === 'shadow',
     },
   };
 

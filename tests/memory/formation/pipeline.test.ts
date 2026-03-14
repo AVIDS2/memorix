@@ -22,7 +22,7 @@ function makeInput(overrides: Partial<FormationInput> = {}): FormationInput {
 
 function makeConfig(overrides: Partial<FormationConfig> = {}): FormationConfig {
   return {
-    shadow: true,
+    mode: 'shadow',
     useLLM: false,
     minValueScore: 0.3,
     searchMemories: async () => [],
@@ -169,12 +169,12 @@ describe('Formation Pipeline', () => {
 
   describe('Shadow mode', () => {
     it('should mark output as shadow mode', async () => {
-      const result = await runFormation(makeInput(), makeConfig({ shadow: true }));
+      const result = await runFormation(makeInput(), makeConfig({ mode: 'shadow' }));
       expect(result.pipeline.shadow).toBe(true);
     });
 
     it('should mark output as active mode', async () => {
-      const result = await runFormation(makeInput(), makeConfig({ shadow: false }));
+      const result = await runFormation(makeInput(), makeConfig({ mode: 'active' }));
       expect(result.pipeline.shadow).toBe(false);
     });
   });

@@ -21,7 +21,8 @@ export default defineCommand({
       '@modelcontextprotocol/sdk/server/stdio.js'
     );
     const { createMemorixServer } = await import('../../server.js');
-    const { detectProject, findGitInSubdirs } = await import('../../project/detector.js');
+    const { detectProject, findGitInSubdirs, isSystemDirectory } = await import('../../project/detector.js');
+    const { homedir } = await import('node:os');
 
     // Auto-exit when stdio pipe breaks (IDE closed) to prevent orphaned processes
     process.stdin.on('end', () => {
@@ -31,7 +32,7 @@ export default defineCommand({
 
     // Priority: explicit --cwd arg > MEMORIX_PROJECT_ROOT env > INIT_CWD (npm lifecycle) > process.cwd()
     let safeCwd: string;
-    try { safeCwd = process.cwd(); } catch { safeCwd = (await import('node:os')).homedir(); }
+    try { safeCwd = process.cwd(); } catch { safeCwd = homedir(); }
     let projectRoot = args.cwd || process.env.MEMORIX_PROJECT_ROOT || process.env.INIT_CWD || safeCwd;
 
     console.error(`[memorix] Starting with cwd: ${projectRoot}`);
@@ -46,6 +47,24 @@ export default defineCommand({
         console.error(`[memorix] Found .git in subdirectory: ${subGit}`);
         projectRoot = subGit;
         detected = detectProject(subGit);
+      }
+    }
+
+    // System directory fallback: IDEs often set cwd to their install dir or System32.
+    // Try user home directory and its immediate subdirectories.
+    if (!detected && isSystemDirectory(projectRoot)) {
+      console.error(`[memorix] System directory detected (${projectRoot}), scanning home...`);
+      const home = homedir();
+      detected = detectProject(home);
+      if (detected) {
+        projectRoot = home;
+      } else {
+        const homeSubGit = findGitInSubdirs(home);
+        if (homeSubGit) {
+          console.error(`[memorix] Found .git in home subdirectory: ${homeSubGit}`);
+          projectRoot = homeSubGit;
+          detected = detectProject(homeSubGit);
+        }
       }
     }
 

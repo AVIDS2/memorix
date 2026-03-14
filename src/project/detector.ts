@@ -112,6 +112,27 @@ function readGitConfigRemote(cwd: string): string | null {
 }
 
 /**
+ * Detect if a directory is a "system directory" that's clearly not a user workspace.
+ * These include Windows system dirs, IDE installation dirs, and temp dirs.
+ */
+export function isSystemDirectory(dir: string): boolean {
+  const lower = dir.toLowerCase().replace(/\\/g, '/');
+  return (
+    lower.includes('/windows/') || lower.endsWith('/windows') ||
+    lower.includes('/program files') ||
+    lower.includes('/appdata/') ||
+    // IDE installation directories
+    /\/(windsurf|cursor|code|vscode)\/\1/i.test(lower) ||
+    /\/windsurf\b/i.test(lower) && !lower.includes('.windsurf') ||
+    // Node / npm internal paths
+    lower.includes('/node_modules/') ||
+    lower.includes('/nvm') ||
+    // System root
+    /^[a-z]:\/$/i.test(lower)
+  );
+}
+
+/**
  * Scan immediate subdirectories for a .git directory.
  * Used when the workspace root itself isn't a git repo (multi-project workspace).
  * Returns the first subdirectory containing .git, or null.

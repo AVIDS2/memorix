@@ -531,7 +531,7 @@ export async function runHook(): Promise<void> {
 
         const getObsFn = shouldSample
           ? (id: number) => {
-              const { getObservation } = require('../store/observations.js');
+              const { getObservation } = require('../memory/observations.js');
               const o = getObservation(id);
               if (!o) return null;
               return {

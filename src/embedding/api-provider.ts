@@ -208,6 +208,7 @@ export class APIEmbeddingProvider implements EmbeddingProvider {
       // Fallback: direct env var reading
       apiKey =
         process.env.MEMORIX_EMBEDDING_API_KEY ||
+        process.env.MEMORIX_API_KEY ||  // Unified API key
         process.env.MEMORIX_LLM_API_KEY ||
         process.env.OPENAI_API_KEY;
       baseUrl =

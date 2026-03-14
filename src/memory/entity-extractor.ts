@@ -71,7 +71,23 @@ export function extractEntities(content: string): ExtractedEntities {
         case 'file':
           // Filter out property chains (e.g. config.llm.apiKey, process.env.FOO)
           // Real files have path separators or known extensions
-          if (isLikelyFilePath(entity)) {
+          // Inline logic to prevent tree-shaking
+          const isLikelyFilePath = (() => {
+            // Has path separator → likely a file path
+            if (entity.includes('/') || entity.includes('\\')) return true;
+            // Starts with ./ or ../ → relative path
+            if (entity.startsWith('./') || entity.startsWith('../')) return true;
+            // Blocked property chains
+            if (/^(?:process\.env|config\.|options\.|params\.|props\.|this\.|self\.|module\.|exports\.|require\.|import\.)/i.test(entity)) return false;
+            // Multiple dots without path separator → likely property chain
+            const dotCount = (entity.match(/\./g) || []).length;
+            if (dotCount >= 2) return false;
+            // Single dot: check if extension is a known file extension
+            const ext = entity.split('.').pop()?.toLowerCase() ?? '';
+            const FILE_EXTENSIONS = new Set(['ts', 'js', 'tsx', 'jsx', 'mts', 'mjs', 'cjs', 'json', 'yaml', 'yml', 'toml', 'xml', 'csv', 'py', 'rb', 'go', 'rs', 'java', 'kt', 'swift', 'c', 'cpp', 'h', 'html', 'css', 'scss', 'less', 'vue', 'svelte', 'sh', 'bash', 'zsh', 'ps1', 'cmd', 'bat', 'md', 'txt', 'rst', 'log', 'sql', 'graphql', 'prisma', 'env', 'gitignore', 'dockerignore', 'dockerfile', 'lock', 'config']);
+            return FILE_EXTENSIONS.has(ext);
+          })();
+          if (isLikelyFilePath) {
             result.files.push(entity);
           }
           break;

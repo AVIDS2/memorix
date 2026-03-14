@@ -564,9 +564,10 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
       if (!useFormation) {
         try {
           // First, run old compact to get its decision (for comparison)
-          let oldCompactDecision: { action: string, targetId?: number, reason?: string } | null = null;
+          let oldCompactDecision: { action: string, targetId?: number, reason?: string, durationMs?: number } | null = null;
           if (!topicKey && !progress) {
             try {
+              const compactStart = Date.now();
               const searchResult = await compactSearch({
                 query: `${title} ${narrative.substring(0, 200)}`,
                 limit: 5,
@@ -589,10 +590,12 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
                   { title, narrative, facts: safeFacts ?? [] },
                   existingMemories,
                 );
+                const compactDuration = Date.now() - compactStart;
                 oldCompactDecision = {
                   action: decision.action,
                   targetId: decision.targetId,
                   reason: decision.reason,
+                  durationMs: compactDuration,
                 };
               }
             } catch { /* old compact decision collection is best-effort */ }
@@ -657,13 +660,14 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
               formationValueScore: formed.evaluation.score,
               formationValueCategory: formed.evaluation.category,
               formationDurationMs: formed.pipeline.durationMs,
+              compactDurationMs: oldCompactDecision.durationMs,
             });
           }
 
           const modeIcon = formationMode === 'shadow' ? '🔬' : '🛡️';
           formationNote = `\n${modeIcon} Formation[${formationMode}]: ${formed.evaluation.category} (${formed.evaluation.score.toFixed(2)}) | ${formed.resolution.action} | ${formed.pipeline.durationMs}ms`;
           if (oldCompactDecision) {
-            formationNote += ` | Compact: ${oldCompactDecision.action}${oldCompactDecision.targetId ? ` #${oldCompactDecision.targetId}` : ''}`;
+            formationNote += ` | Compact: ${oldCompactDecision.action}${oldCompactDecision.targetId ? ` #${oldCompactDecision.targetId}` : ''}${oldCompactDecision.durationMs ? ` (${oldCompactDecision.durationMs}ms)` : ''}`;
           }
           if (formed.extraction.extractedFacts.length > 0) {
             formationNote += ` | +${formed.extraction.extractedFacts.length} facts`;

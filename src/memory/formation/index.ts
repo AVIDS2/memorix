@@ -39,6 +39,7 @@ const beforeAfterBuffer: Array<{
   formationValueScore: number;
   formationValueCategory: string;
   formationDurationMs: number;
+  compactDurationMs?: number;
 }> = [];
 const MAX_BEFORE_AFTER_BUFFER = 500;
 
@@ -68,6 +69,7 @@ export function recordBeforeAfterMetrics(data: {
   formationValueScore: number;
   formationValueCategory: string;
   formationDurationMs: number;
+  compactDurationMs?: number;
 }): void {
   if (beforeAfterBuffer.length >= MAX_BEFORE_AFTER_BUFFER) {
     beforeAfterBuffer.shift();
@@ -126,9 +128,15 @@ export function getBeforeAfterMetrics(): BeforeAfterMetrics {
     compactKeptLowValue: 0,
   };
   let formationTotalDuration = 0;
+  let compactTotalDuration = 0;
+  let compactDurationCount = 0;
   
   for (const data of beforeAfterBuffer) {
     formationTotalDuration += data.formationDurationMs;
+    if (data.compactDurationMs !== undefined) {
+      compactTotalDuration += data.compactDurationMs;
+      compactDurationCount++;
+    }
 
     // Determine if decisions agree
     const formationAction = data.formationAction;
@@ -175,6 +183,9 @@ export function getBeforeAfterMetrics(): BeforeAfterMetrics {
     }
   }
 
+  const compactAvgMs = compactDurationCount > 0 ? compactTotalDuration / compactDurationCount : 0;
+  const formationAvgMs = totalProcessed > 0 ? formationTotalDuration / totalProcessed : 0;
+
   return {
     totalProcessed,
     agreements,
@@ -182,9 +193,9 @@ export function getBeforeAfterMetrics(): BeforeAfterMetrics {
     disagreementBreakdown,
     quality,
     duration: {
-      formationAvgMs: formationTotalDuration / totalProcessed,
-      compactAvgMs: 0, // Old compact duration not tracked yet
-      diffMs: 0,
+      formationAvgMs,
+      compactAvgMs,
+      diffMs: compactAvgMs - formationAvgMs,
     },
   };
 }

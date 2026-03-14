@@ -105,8 +105,24 @@ export function getRecentCommits(cwd: string, count = 10): CommitInfo[] {
  * Infer observation type from commit message.
  */
 function inferType(subject: string, body: string): string {
-  const text = `${subject} ${body}`.toLowerCase();
+  // Priority 1: conventional commit prefix (e.g., "fix:", "feat:", "test:")
+  const prefix = subject.match(/^(\w+)[\s(:]/)?.[1]?.toLowerCase() ?? '';
+  const prefixMap: Record<string, string> = {
+    fix: 'problem-solution', bugfix: 'problem-solution', hotfix: 'problem-solution',
+    feat: 'what-changed', feature: 'what-changed',
+    refactor: 'what-changed', chore: 'what-changed',
+    docs: 'how-it-works', doc: 'how-it-works',
+    test: 'discovery', spec: 'discovery',
+    ci: 'what-changed', cd: 'what-changed',
+    security: 'gotcha',
+    revert: 'problem-solution',
+    deprecate: 'decision',
+    perf: 'trade-off',
+  };
+  if (prefixMap[prefix]) return prefixMap[prefix];
 
+  // Priority 2: keyword scan in full text
+  const text = `${subject} ${body}`.toLowerCase();
   if (/\b(fix|bug|crash|error|issue|hotfix|patch)\b/.test(text)) return 'problem-solution';
   if (/\b(feat|feature|add|implement|new)\b/.test(text)) return 'what-changed';
   if (/\b(refactor|clean|restructure|reorganize)\b/.test(text)) return 'what-changed';

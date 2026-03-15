@@ -40,6 +40,7 @@ async function interactiveMenu(): Promise<void> {
         { value: 'ingest', label: 'Ingest from Git', hint: 'commit → memory' },
         { value: 'audit', label: 'Audit trail', hint: 'Memorix-written files' },
         { value: 'sync', label: 'Sync rules', hint: 'cross-agent sync' },
+        { value: 'init', label: 'Init memorix.yml', hint: 'generate config file' },
         { value: 'configure', label: 'Configure', hint: 'LLM + embedding settings' },
         { value: 'serve', label: 'Start MCP server', hint: 'for IDE integration' },
         { value: 'exit', label: 'Exit', hint: 'quit memorix' },
@@ -87,6 +88,11 @@ async function interactiveMenu(): Promise<void> {
       case 'sync':
         await runCommand('sync');
         break;
+      case 'init': {
+        const m = await import('./commands/init.js');
+        await m.default.run?.({ args: { _: [] }, rawArgs: [], cmd: m.default } as any);
+        break;
+      }
       case 'configure':
         await runConfigure();
         break;
@@ -602,6 +608,7 @@ const main = defineCommand({
     description: 'Cross-Agent Memory Bridge — Universal memory layer for AI coding agents via MCP',
   },
   subCommands: {
+    init: () => import('./commands/init.js').then(m => m.default),
     serve: () => import('./commands/serve.js').then(m => m.default),
     'serve-http': () => import('./commands/serve-http.js').then(m => m.default),
     status: () => import('./commands/status.js').then(m => m.default),

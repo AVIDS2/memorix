@@ -46,6 +46,7 @@ const OBSERVATION_TYPES: [string, ...string[]] = [
   'session-request',
   'gotcha',
   'problem-solution',
+  'reasoning',
   'how-it-works',
   'what-changed',
   'discovery',
@@ -800,9 +801,12 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
         status: z.enum(['active', 'resolved', 'archived', 'all']).optional().default('active').describe(
           'Filter by memory status. "active" (default) shows current memories, "all" includes resolved/archived.',
         ),
+        source: z.enum(['agent', 'git', 'manual']).optional().describe(
+          'Filter by memory source. "git" returns only commit-derived ground truth memories. Omit for all sources.',
+        ),
       },
     },
-    async ({ query, limit, type, maxTokens, scope, since, until, status }) => {
+    async ({ query, limit, type, maxTokens, scope, since, until, status, source }) => {
       const safeLimit = limit != null ? coerceNumber(limit, 20) : undefined;
       const safeMaxTokens = maxTokens != null ? coerceNumber(maxTokens, 0) : undefined;
 
@@ -819,6 +823,7 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
         // Use scope: 'global' to explicitly search all projects.
         projectId: scope === 'global' ? undefined : project.id,
         status: (status as 'active' | 'resolved' | 'archived' | 'all') ?? 'active',
+        source: source as 'agent' | 'git' | 'manual' | undefined,
       });
 
       const timeoutPromise = new Promise<never>((_, reject) =>
@@ -899,6 +904,132 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
 
       return {
         content: [{ type: 'text' as const, text: parts.join('\n') }],
+      };
+    },
+  );
+
+  /**
+   * memorix_store_reasoning — System 2 Reasoning Memory
+   *
+   * Store WHY a decision was made, what alternatives were considered,
+   * and what the expected outcome is. This is the "reasoning trace" —
+   * not just what changed, but the thought process behind it.
+   *
+   * Inspired by Cipher's dual-memory (Knowledge + Reflection).
+   */
+  server.registerTool(
+    'memorix_store_reasoning',
+    {
+      title: 'Store Reasoning Trace',
+      description:
+        'Store a reasoning trace — WHY you chose this approach, what alternatives you considered, ' +
+        'and what outcome you expect. This creates a searchable record of your decision-making process. ' +
+        'Use this when making non-trivial technical decisions, choosing between approaches, or ' +
+        'solving complex problems. Unlike regular memories that record WHAT happened, reasoning ' +
+        'memories record HOW you thought about it.',
+      inputSchema: {
+        entityName: z.string().describe('The entity this reasoning applies to (e.g., "auth-module", "database-schema")'),
+        decision: z.string().describe('What was decided or chosen'),
+        alternatives: z.array(z.string()).optional().describe('Other options that were considered'),
+        rationale: z.string().describe('Why this approach was chosen over alternatives'),
+        constraints: z.array(z.string()).optional().describe('Constraints that influenced the decision (time, perf, compat, etc.)'),
+        expectedOutcome: z.string().optional().describe('What outcome is expected from this decision'),
+        risks: z.array(z.string()).optional().describe('Known risks or potential downsides'),
+        concepts: z.array(z.string()).optional().describe('Related technical concepts'),
+        filesModified: z.array(z.string()).optional().describe('Files related to this reasoning'),
+      },
+    },
+    async ({ entityName, decision, alternatives, rationale, constraints, expectedOutcome, risks, concepts, filesModified }) => {
+      // Build structured narrative from reasoning fields
+      const narrativeParts: string[] = [rationale];
+      if (alternatives && alternatives.length > 0) {
+        narrativeParts.push(`Alternatives considered: ${alternatives.join('; ')}`);
+      }
+      if (constraints && constraints.length > 0) {
+        narrativeParts.push(`Constraints: ${constraints.join('; ')}`);
+      }
+      if (expectedOutcome) {
+        narrativeParts.push(`Expected outcome: ${expectedOutcome}`);
+      }
+      const narrative = narrativeParts.join('. ');
+
+      // Build facts from structured fields
+      const facts: string[] = [`Decision: ${decision}`];
+      if (alternatives) alternatives.forEach(a => facts.push(`Alternative considered: ${a}`));
+      if (constraints) constraints.forEach(c => facts.push(`Constraint: ${c}`));
+      if (risks) risks.forEach(r => facts.push(`Risk: ${r}`));
+      if (expectedOutcome) facts.push(`Expected outcome: ${expectedOutcome}`);
+
+      await graphManager.createEntities([
+        { name: entityName, entityType: 'auto', observations: [] },
+      ]);
+
+      markInternalWrite();
+      const { observation: obs } = await storeObservation({
+        entityName,
+        type: 'reasoning' as ObservationType,
+        title: decision.length > 80 ? decision.substring(0, 77) + '...' : decision,
+        narrative,
+        facts,
+        concepts: concepts ?? [],
+        filesModified: filesModified ?? [],
+        projectId: project.id,
+        source: 'agent',
+      });
+
+      await graphManager.addObservations([
+        { entityName, contents: [`[#${obs.id}] 🧠 ${decision}`] },
+      ]);
+
+      return {
+        content: [{
+          type: 'text' as const,
+          text: `🧠 Reasoning trace stored #${obs.id}: "${decision}"\nEntity: ${entityName} | ${facts.length} facts | ${obs.tokens} tokens`,
+        }],
+      };
+    },
+  );
+
+  /**
+   * memorix_search_reasoning — Search reasoning patterns
+   *
+   * Find past reasoning traces to understand WHY decisions were made.
+   * Useful when revisiting code and needing to understand the thought
+   * process behind the current implementation.
+   */
+  server.registerTool(
+    'memorix_search_reasoning',
+    {
+      title: 'Search Reasoning Patterns',
+      description:
+        'Search past reasoning traces to understand WHY decisions were made. ' +
+        'Returns reasoning memories that explain the thought process behind technical choices. ' +
+        'Use this when revisiting code, questioning a design decision, or looking for precedent ' +
+        'on how similar problems were solved before.',
+      inputSchema: {
+        query: z.string().describe('Search query — describe what reasoning you want to find (e.g., "why did we choose PostgreSQL", "auth approach rationale")'),
+        limit: z.number().optional().describe('Max results (default: 10)'),
+        scope: z.enum(['project', 'global']).optional().default('project').describe('Search scope'),
+      },
+    },
+    async ({ query, limit, scope }) => {
+      const safeLimit = limit != null ? coerceNumber(limit, 10) : 10;
+      const result = await compactSearch({
+        query,
+        limit: safeLimit,
+        type: 'reasoning' as ObservationType,
+        projectId: scope === 'global' ? undefined : project.id,
+        status: 'active',
+      });
+
+      if (result.entries.length === 0) {
+        return {
+          content: [{ type: 'text' as const, text: 'No reasoning traces found. Use memorix_store_reasoning to record decision rationale.' }],
+        };
+      }
+
+      return {
+        content: [{ type: 'text' as const, text: `🧠 Reasoning Traces:\n${result.formatted}` }],
       };
     },
   );
@@ -1158,6 +1289,7 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
         accessCount: 0,
         lastAccessedAt: '',
         status: obs.status ?? 'active',
+        source: obs.source ?? 'agent',
       }));
 
       if (docs.length === 0) {
@@ -2681,6 +2813,33 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
         console.error(`[memorix] Hooks active: ${installedAgents.join(', ')}`);
       }
     } catch { /* skip */ }
+
+    // Git auto-hook: install post-commit hook if memorix.yml has git.autoHook: true
+    try {
+      const { getGitConfig } = await import('./config.js');
+      const gitCfg = getGitConfig();
+      if (gitCfg.autoHook && project.rootPath) {
+        const { existsSync, readFileSync } = await import('node:fs');
+        const path = await import('node:path');
+        const hookPath = path.join(project.rootPath, '.git', 'hooks', 'post-commit');
+        const HOOK_MARKER = '# [memorix-git-hook]';
+        const needsInstall = !existsSync(hookPath) || !readFileSync(hookPath, 'utf-8').includes(HOOK_MARKER);
+        if (needsInstall) {
+          const { writeFileSync, mkdirSync, chmodSync } = await import('node:fs');
+          const hooksDir = path.join(project.rootPath, '.git', 'hooks');
+          mkdirSync(hooksDir, { recursive: true });
+          const hookScript = `#!/bin/sh\n${HOOK_MARKER}\n# Memorix: Auto-ingest git commits as memories\nif command -v memorix >/dev/null 2>&1; then\n  memorix ingest commit --auto >/dev/null 2>&1 &\nfi\n`;
+          if (existsSync(hookPath)) {
+            const existing = readFileSync(hookPath, 'utf-8');
+            writeFileSync(hookPath, existing.trimEnd() + '\n\n' + `${HOOK_MARKER}\nif command -v memorix >/dev/null 2>&1; then\n  memorix ingest commit --auto >/dev/null 2>&1 &\nfi\n`, 'utf-8');
+          } else {
+            writeFileSync(hookPath, hookScript, 'utf-8');
+          }
+          try { chmodSync(hookPath, 0o755); } catch { /* Windows */ }
+          console.error('[memorix] Auto-installed git post-commit hook (git.autoHook: true)');
+        }
+      }
+    } catch { /* git auto-hook is best-effort */ }
 
     // Read behavior config
     let behaviorConfig: { syncAdvisory: boolean; autoCleanup: boolean } = { syncAdvisory: true, autoCleanup: true };

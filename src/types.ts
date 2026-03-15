@@ -51,6 +51,7 @@ export interface KnowledgeGraph {
  * 🟠 why-it-exists     — Design rationale
  * 🟤 decision          — Architecture decision
  * ⚖️ trade-off         — Deliberate compromise
+ * 🧠 reasoning         — Why this approach was chosen (System 2 reasoning trace)
  */
 export type ObservationType =
   | 'session-request'
@@ -61,7 +62,8 @@ export type ObservationType =
   | 'discovery'
   | 'why-it-exists'
   | 'decision'
-  | 'trade-off';
+  | 'trade-off'
+  | 'reasoning';
 
 /** Map from ObservationType to display icon */
 export const OBSERVATION_ICONS: Record<ObservationType, string> = {
@@ -74,6 +76,7 @@ export const OBSERVATION_ICONS: Record<ObservationType, string> = {
   'why-it-exists': '🟠',
   'decision': '🟤',
   'trade-off': '⚖️',
+  'reasoning': '🧠',
 };
 
 /** Observation lifecycle status */
@@ -172,6 +175,8 @@ export interface SearchOptions {
   maxTokens?: number;
   /** Filter by observation status. Default: 'active' (only show active memories) */
   status?: ObservationStatus | 'all';
+  /** Filter by observation source: 'agent', 'git', 'manual', or undefined for all */
+  source?: 'agent' | 'git' | 'manual';
 }
 
 /** Topic key family heuristics for suggesting stable topic keys */

@@ -146,6 +146,9 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
   if (options.type) {
     filters['type'] = options.type;
   }
+  if (options.source) {
+    filters['source'] = options.source;
+  }
 
   // Determine search mode: hybrid (with vector) or fulltext (default)
   const hasQuery = options.query && options.query.trim().length > 0;

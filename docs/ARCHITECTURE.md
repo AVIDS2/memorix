@@ -1,188 +1,364 @@
-# Memorix 架构文档
+# Memorix Architecture
 
-> 最后更新: 2026-03-09 (v1.0.0)
-> 维护者: 项目创建者 + AI 协作开发
+Memorix is a local-first memory platform for AI coding agents.
 
-## 项目定位
+It combines three core memory layers:
 
-Memorix 是一个 **跨 AI Agent 的持久化记忆层**，以 MCP (Model Context Protocol) Server 的形式运行。它让 AI Agent 能够在会话之间记住上下文、决策和经验，并在不同 Agent/IDE 之间同步工作环境。
+- **Observation Memory** for what changed and how things work
+- **Reasoning Memory** for why choices were made
+- **Git Memory** for engineering truth derived from commits
 
-### 核心差异化
-
-| 特性 | MCP Official Memory | Memorix |
-|------|---------------------|---------|
-| 存储模型 | 纯知识图谱 | 知识图谱 + 结构化 Observations |
-| 搜索 | 字符串匹配 | 全文 BM25 + 向量搜索 |
-| Token 效率 | 直接返回全量 | 3层渐进式披露 (~10x 节省) |
-| 记忆衰减 | 无 | 指数衰减 + 免疫机制 |
-| 跨 Agent | 不支持 | Rules/MCP/Workflow/Skills 全同步 |
-| 隐式记忆 | 不支持 | Hooks 自动抓取 + 实体自动抽取 |
+These layers are exposed through MCP tools, CLI workflows, and an HTTP control plane.
 
 ---
 
-## 系统架构总览
+## 1. System Shape
+
+Memorix is best understood as a four-layer system:
 
 ```mermaid
 graph TB
-    A["Cursor · Windsurf · Claude Code · Antigravity · +6 more"]
-    A -->|MCP Protocol stdio| Entry
+    A["Agents / IDEs / CLI"] --> B["Access and Runtime Layer"]
+    B --> C["Memory Core"]
+    C --> D["Intelligence and Quality Layer"]
+    D --> E["Platform and Ecosystem Layer"]
+    E --> F["Local Data and Search Index"]
+```
 
-    Entry["server.ts\n22 默认工具 + 热重载 + 自动Hook + 自动清理"]
-    Entry --> Compact["Compact Engine"]
-    Entry --> Memory["Memory Layer"]
-    Entry --> WS["Workspace Sync"]
-    Entry --> Hooks["Hooks System\nNormalizer → Detect → Handler → Store"]
-    Entry --> TeamC["Team Collaboration\nRegistry / Locks / Tasks / Messages"]
+### Access and Runtime Layer
 
-    Compact --> Store["Store Layer\nOrama + Persist"]
-    Memory --> Store
-    WS --> Rules["Rules Syncer\n10 Adapters"]
-    Store --> Embed["Embedding Layer\nAPI / FastEmbed / Transformers.js"]
-    Store --> LLM["LLM Layer 可选\nCompact-on-Write · Reranking · Dedup"]
+This layer provides the entry points that agents and users actually talk to.
 
-    Store --> Disk
-    TeamC --> Disk
-    LLM --> Disk
+Main pieces:
 
-    Disk["~/.memorix/data/\nobservations.json · id-counter.txt\nentities.jsonl · relations.jsonl\nsessions.json · mini-skills.json · team-state.json"]
+- `src/server.ts`
+- `src/index.ts`
+- `src/cli/index.ts`
+- `src/cli/commands/serve.ts`
+- `src/cli/commands/serve-http.ts`
+
+Responsibilities:
+
+- register MCP tools
+- start stdio or HTTP transport
+- manage project switching
+- load config and dotenv state
+- expose the dashboard and HTTP APIs
+
+### Memory Core
+
+This layer stores, indexes, and serves persistent memory.
+
+Main pieces:
+
+- `src/memory/observations.ts`
+- `src/store/orama-store.ts`
+- `src/memory/session.ts`
+- `src/memory/retention.ts`
+- `src/memory/graph.ts`
+- `src/memory/consolidation.ts`
+
+Responsibilities:
+
+- assign observation IDs
+- persist project-scoped memory
+- maintain the search index
+- manage session state
+- retention, archive, and deduplication
+- knowledge graph entities and relations
+
+### Intelligence and Quality Layer
+
+This layer improves memory quality and retrieval quality.
+
+Main pieces:
+
+- `src/memory/formation/`
+- `src/search/intent-detector.ts`
+- `src/compact/engine.ts`
+- `src/llm/quality.ts`
+- `src/embedding/provider.ts`
+
+Responsibilities:
+
+- formation pipeline
+- fact extraction and evaluation
+- source-aware retrieval
+- compact formatting and token budgeting
+- optional embedding-backed semantic search
+- optional LLM-assisted quality improvements
+
+### Platform and Ecosystem Layer
+
+This is the layer that makes Memorix more than a simple MCP memory server.
+
+Main pieces:
+
+- `src/hooks/`
+- `src/git/`
+- `src/workspace/`
+- `src/rules/`
+- `src/team/`
+- `src/skills/`
+- `src/dashboard/`
+
+Responsibilities:
+
+- IDE hook capture
+- Git Memory ingestion
+- workspace and rule sync across agents
+- team collaboration
+- mini-skills and memory-driven workflows
+- dashboard and control plane APIs
+
+---
+
+## 2. Core Memory Layers
+
+### Observation Memory
+
+Observation memory captures operational and architectural facts such as:
+
+- `what-changed`
+- `problem-solution`
+- `decision`
+- `trade-off`
+- `gotcha`
+- `how-it-works`
+
+This is the main general-purpose memory layer.
+
+### Reasoning Memory
+
+Reasoning memory stores the thinking behind non-trivial decisions:
+
+- why a choice was made
+- alternatives considered
+- constraints
+- expected outcomes
+- known risks
+
+This layer is useful when a future agent asks:
+
+- why did we do this?
+- what trade-off did we accept?
+
+### Git Memory
+
+Git Memory turns commits into structured memory with source provenance:
+
+- `source='git'`
+- `commitHash`
+- changed files
+- inferred observation type
+- extracted concepts
+
+This creates an engineering truth layer that complements human- or agent-authored observations.
+
+---
+
+## 3. Main Data Flows
+
+### Explicit store flow
+
+```text
+Agent or user
+  -> memorix_store / memorix_store_reasoning
+  -> validation and enrichment
+  -> observation persistence
+  -> search index update
+  -> graph update
+```
+
+### Git Memory flow
+
+```text
+git commit
+  -> post-commit hook
+  -> memorix ingest commit --auto
+  -> git extractor + noise filter
+  -> observation persistence
+  -> search index update
+```
+
+### Hook capture flow
+
+```text
+IDE hook event
+  -> normalize
+  -> detect pattern and significance
+  -> optional memory write
+  -> session-aware context update
+```
+
+### Retrieval flow
+
+```text
+memorix_search
+  -> project-scoped search by default
+  -> BM25 or hybrid retrieval
+  -> source-aware reranking
+  -> compact result formatting
+
+memorix_detail
+  -> full observation lookup
+  -> optional project-aware refs for global hits
+
+memorix_timeline
+  -> surrounding chronological context
 ```
 
 ---
 
-## 数据流
+## 4. Retrieval Model
 
-### 显式记忆 (Agent 主动调用)
+Memorix does not treat all memory equally.
 
-```
-Agent --memorix_store--> server.ts
-  → observations.ts: 分配 ID, 计数 tokens
-  → entity-extractor.ts: 正则抽取文件/模块/标识符
-  → enrichConcepts(): 自动丰富概念列表
-  → orama-store.ts: 插入搜索索引 (+ 可选 embedding)
-  → persistence.ts: 写入 observations.json
-  → graph.ts: 确保 entity 存在, 添加 observation 引用
-  → auto-relations.ts: 自动创建知识图谱关系
-  ← 返回确认 + 自动丰富摘要
-```
+### Default scope
 
-### 隐式记忆 (Hooks 自动抓取)
+- `memorix_search` defaults to the current project
+- `scope="global"` searches across projects
+- global hits can be opened with project-aware refs in `memorix_detail`
 
-```
-Agent 操作 (编辑/命令/工具调用)
-  → Agent Hook (stdin JSON) → CLI: memorix hook
-  → normalizer.ts: 统一多 Agent 格式
-  → pattern-detector.ts: 中英双语模式检测
-  → handler.ts: 冷却/过滤/阈值判断
-  → 满足条件 → observations.ts: 同显式记忆流程
-  → stdout JSON → Agent (可注入系统消息)
-```
+### Source-aware retrieval
 
-### 搜索 (3层渐进式披露)
+Retrieval weights memory differently depending on intent:
 
-```
-Agent --memorix_search--> server.ts
-  → compact/engine.ts
-    → orama-store.ts: 全文/混合搜索
-    → index-format.ts: 格式化为 Markdown 表格
-    → token-budget.ts: Token 预算管理
-  ← L1: 紧凑索引 (~50-100 tokens/条)
+- "what changed" style queries boost Git Memory
+- "why" style queries boost reasoning and decision memory
+- "problem" style queries can boost both operational fixes and Git Memory
 
-Agent --memorix_timeline--> server.ts
-  → orama-store.ts: 获取锚点前后 observations
-  ← L2: 时间线上下文
+### Progressive disclosure
 
-Agent --memorix_detail--> server.ts
-  → observations.ts: 按 ID 获取完整记录
-  ← L3: 完整详情 (~500-1000 tokens/条)
-```
+Memorix retrieval is layered:
+
+- compact search results
+- timeline context
+- full detail only when explicitly requested
+
+This keeps normal retrieval efficient while still allowing deep inspection.
 
 ---
 
-## 模块分层
+## 5. Project Identity Model
 
-### Layer 0: 类型系统 (`types.ts`)
-- 所有核心接口定义
-- Entity, Relation, KnowledgeGraph (MCP 兼容)
-- Observation, ObservationType (claude-mem 风格)
-- UnifiedRule, RuleFormatAdapter (规则同步)
-- MCPServerEntry, MCPConfigAdapter (工作空间同步)
+Project identity is central to Memorix.
 
-### Layer 1: 存储层 (`store/`)
-- `orama-store.ts` — Orama 全文/向量搜索引擎
-- `persistence.ts` — JSONL/JSON 磁盘持久化
+Main idea:
 
-### Layer 2: 记忆层 (`memory/`)
-- `graph.ts` — 知识图谱管理 (CRUD + 搜索)
-- `observations.ts` — Observation 生命周期管理
-- `retention.ts` — 指数衰减 + 免疫 + 生命周期分区
-- `entity-extractor.ts` — 正则实体抽取 (MAGMA 启发)
-- `auto-relations.ts` — 自动关系推断
+- memory is project-scoped by default
+- project IDs come from Git identity
+- aliases and identity health are tracked explicitly
 
-### Layer 3: Compact 引擎 (`compact/`)
-- `engine.ts` — 3层渐进式披露编排
-- `index-format.ts` — Markdown 索引表格格式化
-- `token-budget.ts` — gpt-tokenizer Token 计数/截断
+This prevents unrelated repositories, IDE install folders, or system directories from polluting the same memory namespace.
 
-### Layer 4: Hooks 系统 (`hooks/`)
-- `types.ts` — HookEvent, NormalizedHookInput, HookOutput
-- `normalizer.ts` — 多 Agent 格式统一化
-- `pattern-detector.ts` — 中英双语模式检测
-- `handler.ts` — 事件处理 + 冷却 + 噪音过滤
+Useful runtime tools and surfaces:
 
-### Layer 5: 工作空间同步 (`workspace/` + `rules/`)
-- `workspace/engine.ts` — 跨 Agent 工作空间迁移
-- `workspace/mcp-adapters/` — 10个 MCP 配置适配器
-- `workspace/workflow-sync.ts` — Workflow 同步
-- `workspace/applier.ts` — 配置写入 + 备份/回滚
-- `rules/syncer.ts` — 规则扫描/去重/冲突检测
-- `rules/adapters/` — 10个规则格式适配器
-
-### Layer 6: 团队协作 (`team/`)
-- `team/registry.ts` — Agent 注册/注销/状态
-- `team/file-locks.ts` — 协商式文件锁 (10min TTL)
-- `team/tasks.ts` — 任务板 + 依赖管理
-- `team/messages.ts` — 直接消息 + 广播
-- `team/persistence.ts` — team-state.json 读写
-- `team/index.ts` — 统一导出
-
-### Layer 7: 基础设施
-- `server.ts` — MCP Server 主入口 (22个默认工具 + 9个可选KG工具)
-- `cli/index.ts` — Citty CLI 框架 + TUI 配置向导
-- `config.ts` — 统一配置读取 (env > config.json > 默认值)
-- `project/detector.ts` — Git-based 项目检测
-- `embedding/provider.ts` — Embedding 抽象层 (API/FastEmbed/Transformers)
-- `embedding/api-provider.ts` — OpenAI-compatible API Embedding (10K LRU 缓存)
-- `llm/provider.ts` — LLM 提供者 (OpenAI/Anthropic/OpenRouter)
-- `llm/memory-manager.ts` — Compact-on-Write + 语义去重
-- `dashboard/server.ts` — Web Dashboard (localhost:3210)
-- `skills/engine.ts` — Skills 引擎 (发现/生成/注入)
+- `memorix status`
+- dashboard identity health page
+- global search with project-aware refs
 
 ---
 
-## 部署模式
+## 6. Configuration Model
 
-### 方式 1: 全局安装 (推荐)
-```bash
-npm install -g memorix
-memorix serve
-```
+Memorix is intentionally converging on:
 
-### 方式 2: 本地开发
-```bash
-git clone <repo>
-cd memorix
-pnpm install
-pnpm dev    # tsup watch 模式
-pnpm test   # vitest 运行测试
-```
+- `memorix.yml` for behavior
+- `.env` for secrets
+
+Resolution order:
+
+### Behavior settings
+
+1. environment variables
+2. project `memorix.yml`
+3. user `~/.memorix/memorix.yml`
+4. legacy `~/.memorix/config.json`
+5. defaults
+
+### Secrets
+
+1. shell or host-provided environment variables
+2. project `.env`
+3. user `~/.memorix/.env`
+
+The dashboard and `memorix status` expose config provenance so the active value source is visible.
 
 ---
 
-## 项目规约
+## 7. Runtime Modes
 
-- **语言**: TypeScript (strict mode)
-- **打包**: tsup (ESM output)
-- **测试**: Vitest (753 tests, 56 files)
-- **CLI**: Citty (命令定义) + Clack (交互提示)
-- **代码风格**: 每个文件顶部有 JSDoc 注释块说明来源和设计意图
-- **错误处理**: Hooks 系统永远不抛错 (silent fail), MCP 工具返回 `isError: true`
+### `memorix serve`
+
+Starts the stdio MCP server.
+
+Use this for:
+
+- Cursor
+- Claude Code
+- Codex
+- Windsurf
+- other stdio MCP clients
+
+### `memorix serve-http --port 3211`
+
+Starts the HTTP MCP server and the main dashboard.
+
+Use this when you want:
+
+- an HTTP MCP endpoint
+- one shared Memorix process for multiple agents
+- Team features
+- the control plane dashboard
+
+Main URLs:
+
+- MCP endpoint: `http://localhost:3211/mcp`
+- dashboard: `http://localhost:3211`
+
+### `memorix dashboard`
+
+Standalone dashboard mode.
+
+Useful for local inspection and debugging, but the main product mode is the dashboard embedded in `serve-http`.
+
+---
+
+## 8. Dashboard as Control Plane
+
+The dashboard is no longer just an observation browser.
+
+It acts as a control plane for:
+
+- memory source breakdown
+- Git Memory visibility
+- config provenance
+- identity health
+- sessions
+- retention state
+- team collaboration in HTTP mode
+
+This is part of Memorix's shift from a single MCP server to a broader local memory platform.
+
+---
+
+## 9. Design Goals
+
+Memorix is designed around a few guiding ideas:
+
+- **Local-first**: memory should stay on the developer machine by default
+- **Project-safe**: default recall should respect project boundaries
+- **Cross-agent**: different tools should share one memory base
+- **Layered truth**: Git Memory, observation memory, and reasoning memory each serve different jobs
+- **Quality over volume**: retention, formation, compaction, and noise filtering matter as much as raw storage
+
+---
+
+## 10. Related Docs
+
+- [Setup Guide](SETUP.md)
+- [Configuration Guide](CONFIGURATION.md)
+- [Git Memory Guide](GIT_MEMORY.md)
+- [API Reference](API_REFERENCE.md)
+- [Development Guide](DEVELOPMENT.md)

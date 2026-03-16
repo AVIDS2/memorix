@@ -76,7 +76,7 @@ export const MemorixPlugin = async ({ project, client, $, directory, worktree })
       output.context.push(
         '## Memorix Cross-Agent Memory\n' +
         'Before compacting, use memorix_store to save important discoveries, decisions, and gotchas.\n' +
-        'After compacting, use memorix_session_start to reload session context, then memorix_search for specific topics.'
+        'After compacting, use memorix_search to reload relevant context.'
       );
     },
   };

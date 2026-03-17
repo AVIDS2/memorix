@@ -1,7 +1,7 @@
 {
   "name": "memorix",
   "version": "1.0.4",
-  "description": "Cross-Agent Memory Bridge — Persistent memory for AI coding agents across Cursor, Windsurf, Claude Code, Codex, Copilot, Kiro, Antigravity, Gemini CLI via MCP.",
+  "description": "Local-first memory platform for AI coding agents with Git memory, reasoning memory, and cross-agent recall via MCP.",
   "type": "module",
   "sideEffects": false,
   "bin": {
@@ -20,7 +20,9 @@
     "README.md",
     "LICENSE",
     "CHANGELOG.md",
-    "CLAUDE.md"
+    "CLAUDE.md",
+    "llms.txt",
+    "llms-full.txt"
   ],
   "scripts": {
     "build": "tsup",

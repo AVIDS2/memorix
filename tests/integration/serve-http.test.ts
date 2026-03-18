@@ -11,6 +11,7 @@ import { randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 vi.mock('../../src/embedding/provider.js', () => ({
   getEmbeddingProvider: async () => null,
@@ -26,15 +27,33 @@ vi.mock('../../src/llm/provider.js', () => ({
 
 // Dynamic imports to avoid bundling issues
 let StreamableHTTPServerTransport: any;
+let StreamableHTTPClientTransport: any;
+let Client: any;
 let isInitializeRequest: any;
 let createMemorixServer: any;
+let CallToolResultSchema: any;
+let ListRootsRequestSchema: any;
 
 const TEST_PORT = 13211; // Use high port to avoid conflicts
 const BASE_URL = `http://127.0.0.1:${TEST_PORT}`;
 
 let httpServer: Server;
+let tempHomeDir: string;
 let testDir: string;
-const transports = new Map<string, any>();
+let projectADir: string;
+let projectBDir: string;
+const originalHome = process.env.HOME;
+const originalUserProfile = process.env.USERPROFILE;
+const originalHomePath = process.env.HOMEPATH;
+const sessions = new Map<string, { transport: any; server: any; switchProject: any }>();
+
+async function createFakeGitRepo(root: string, remote?: string) {
+  await fs.mkdir(path.join(root, '.git'), { recursive: true });
+  const config = remote
+    ? `[remote "origin"]\n\turl = ${remote}\n`
+    : '';
+  await fs.writeFile(path.join(root, '.git', 'config'), config, 'utf8');
+}
 
 /**
  * Helper: send a JSON-RPC request to the MCP HTTP endpoint
@@ -104,16 +123,33 @@ async function initSession(): Promise<string> {
 }
 
 beforeAll(async () => {
+  tempHomeDir = await fs.mkdtemp(path.join(os.tmpdir(), 'memorix-http-home-'));
+  process.env.HOME = tempHomeDir;
+  process.env.USERPROFILE = tempHomeDir;
+  process.env.HOMEPATH = tempHomeDir;
+
   // Import dependencies
   const streamMod = await import('@modelcontextprotocol/sdk/server/streamableHttp.js');
   StreamableHTTPServerTransport = streamMod.StreamableHTTPServerTransport;
+  const clientTransportMod = await import('@modelcontextprotocol/sdk/client/streamableHttp.js');
+  StreamableHTTPClientTransport = clientTransportMod.StreamableHTTPClientTransport;
+  const clientMod = await import('@modelcontextprotocol/sdk/client/index.js');
+  Client = clientMod.Client;
   const typesMod = await import('@modelcontextprotocol/sdk/types.js');
   isInitializeRequest = typesMod.isInitializeRequest;
+  CallToolResultSchema = typesMod.CallToolResultSchema;
+  ListRootsRequestSchema = typesMod.ListRootsRequestSchema;
   const serverMod = await import('../../src/server.js');
   createMemorixServer = serverMod.createMemorixServer;
 
   // Create temp directory for test project
   testDir = await fs.mkdtemp(path.join(os.tmpdir(), 'memorix-http-test-'));
+  projectADir = path.join(testDir, 'project-a');
+  projectBDir = path.join(testDir, 'project-b');
+  await fs.mkdir(projectADir, { recursive: true });
+  await fs.mkdir(projectBDir, { recursive: true });
+  await createFakeGitRepo(projectADir, 'https://github.com/AVIDS2/http-project-a.git');
+  await createFakeGitRepo(projectBDir, 'https://github.com/AVIDS2/http-project-b.git');
 
   // Start test HTTP server (same logic as serve-http.ts)
   httpServer = createServer(async (req, res) => {
@@ -136,36 +172,64 @@ beforeAll(async () => {
         const body = JSON.parse(Buffer.concat(chunks).toString('utf-8'));
         const sessionId = req.headers['mcp-session-id'] as string | undefined;
 
-        if (sessionId && transports.has(sessionId)) {
-          await transports.get(sessionId)!.handleRequest(req, res, body);
+        if (sessionId && sessions.has(sessionId)) {
+          await sessions.get(sessionId)!.transport.handleRequest(req, res, body);
         } else if (!sessionId && isInitializeRequest(body)) {
+          let createdState: { transport: any; server: any; switchProject: any } | null = null;
           const transport = new StreamableHTTPServerTransport({
             sessionIdGenerator: () => randomUUID(),
-            onsessioninitialized: (sid: string) => { transports.set(sid, transport); },
+            onsessioninitialized: (sid: string) => {
+              if (createdState) sessions.set(sid, createdState);
+            },
           });
           transport.onclose = () => {
             const sid = transport.sessionId;
-            if (sid) transports.delete(sid);
+            if (sid) sessions.delete(sid);
           };
-          const { server } = await createMemorixServer(testDir);
+          const { server, switchProject } = await createMemorixServer(testDir);
+          createdState = { transport, server, switchProject };
           await server.connect(transport);
+
+          const tryRootsSwitch = async () => {
+            try {
+              const { roots } = await server.server.listRoots();
+              if (!roots || roots.length === 0) return;
+              for (const root of roots) {
+                if (!root.uri.startsWith('file://')) continue;
+                const rootPath = fileURLToPath(root.uri);
+                const switched = await switchProject(rootPath);
+                if (switched) return;
+              }
+            } catch { /* roots unsupported */ }
+          };
+
+          try {
+            const { RootsListChangedNotificationSchema } = await import('@modelcontextprotocol/sdk/types.js');
+            server.server.setNotificationHandler(RootsListChangedNotificationSchema, async () => {
+              await tryRootsSwitch();
+            });
+          } catch { /* optional */ }
+
           await transport.handleRequest(req, res, body);
+          queueMicrotask(() => {
+            tryRootsSwitch().catch(() => {});
+          });
         } else {
           res.writeHead(400, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ jsonrpc: '2.0', error: { code: -32000, message: 'Bad Request' }, id: null }));
         }
       } else if (req.method === 'GET') {
         const sessionId = req.headers['mcp-session-id'] as string | undefined;
-        if (!sessionId || !transports.has(sessionId)) {
+        if (!sessionId || !sessions.has(sessionId)) {
           res.writeHead(400); res.end('Invalid session'); return;
         }
-        await transports.get(sessionId)!.handleRequest(req, res);
+        await sessions.get(sessionId)!.transport.handleRequest(req, res);
       } else if (req.method === 'DELETE') {
         const sessionId = req.headers['mcp-session-id'] as string | undefined;
-        if (!sessionId || !transports.has(sessionId)) {
+        if (!sessionId || !sessions.has(sessionId)) {
           res.writeHead(400); res.end('Invalid session'); return;
         }
-        await transports.get(sessionId)!.handleRequest(req, res);
+        await sessions.get(sessionId)!.transport.handleRequest(req, res);
       } else {
         res.writeHead(405); res.end('Method not allowed');
       }
@@ -184,13 +248,16 @@ beforeAll(async () => {
 }, 30_000);
 
 afterAll(async () => {
-  for (const [, transport] of transports) {
-    try { await transport.close(); } catch { /* ignore */ }
+  for (const [, state] of sessions) {
+    try { await state.transport.close(); } catch { /* ignore */ }
   }
-  transports.clear();
+  sessions.clear();
   await new Promise<void>((resolve) => {
     httpServer.close(() => resolve());
   });
+  process.env.HOME = originalHome;
+  process.env.USERPROFILE = originalUserProfile;
+  process.env.HOMEPATH = originalHomePath;
 });
 
 describe('HTTP Transport', () => {
@@ -250,6 +317,60 @@ describe('HTTP Transport', () => {
 
     expect(res1.json?.result?.tools?.length).toBeGreaterThanOrEqual(20);
     expect(res2.json?.result?.tools?.length).toBeGreaterThanOrEqual(20);
+  });
+
+  it('should isolate project context per HTTP session via roots', async () => {
+    const clientA = new Client(
+      { name: 'roots-client-a', version: '1.0.0' },
+      { capabilities: { roots: { listChanged: true } } },
+    );
+    const clientB = new Client(
+      { name: 'roots-client-b', version: '1.0.0' },
+      { capabilities: { roots: { listChanged: true } } },
+    );
+
+    clientA.setRequestHandler(ListRootsRequestSchema, async () => ({
+      roots: [{ uri: pathToFileURL(projectADir).href, name: 'project-a' }],
+    }));
+    clientB.setRequestHandler(ListRootsRequestSchema, async () => ({
+      roots: [{ uri: pathToFileURL(projectBDir).href, name: 'project-b' }],
+    }));
+
+    const transportA = new StreamableHTTPClientTransport(new URL(`${BASE_URL}/mcp`));
+    const transportB = new StreamableHTTPClientTransport(new URL(`${BASE_URL}/mcp`));
+
+    try {
+      await clientA.connect(transportA);
+      await clientB.connect(transportB);
+      await clientA.sendRootsListChanged();
+      await clientB.sendRootsListChanged();
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      const resultA = await clientA.request({
+        method: 'tools/call',
+        params: {
+          name: 'memorix_session_start',
+          arguments: { agent: 'http-roots-a' },
+        },
+      }, CallToolResultSchema);
+      const resultB = await clientB.request({
+        method: 'tools/call',
+        params: {
+          name: 'memorix_session_start',
+          arguments: { agent: 'http-roots-b' },
+        },
+      }, CallToolResultSchema);
+
+      const textA = resultA.content?.[0]?.text ?? '';
+      const textB = resultB.content?.[0]?.text ?? '';
+      expect(textA).toContain('Project: http-project-a');
+      expect(textA).toContain('AVIDS2/http-project-a');
+      expect(textB).toContain('Project: http-project-b');
+      expect(textB).toContain('AVIDS2/http-project-b');
+    } finally {
+      await transportA.close();
+      await transportB.close();
+    }
   });
 
   it('should reject requests with invalid session ID', async () => {

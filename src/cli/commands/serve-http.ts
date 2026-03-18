@@ -2,8 +2,9 @@
  * memorix serve-http — Start MCP Server on Streamable HTTP transport
  *
  * Enables multiple agents (across different IDEs) to connect to ONE Memorix server.
- * Each agent gets its own MCP session, but all sessions currently share the same
- * project context chosen when serve-http starts.
+ * Each agent gets its own MCP session. Sessions start from the same startup project
+ * root, then supported clients can refine to their own git-backed workspace via MCP
+ * roots, yielding per-session project context.
  *
  * Usage:
  *   memorix serve-http                    # default port 3211
@@ -44,6 +45,7 @@ export default defineCommand({
       '@modelcontextprotocol/sdk/types.js'
     );
     const { createMemorixServer } = await import('../../server.js');
+    const { findGitInSubdirs } = await import('../../project/detector.js');
 
     const port = parseInt(args.port || '3211', 10);
 
@@ -68,8 +70,14 @@ export default defineCommand({
       taskManager: new TaskManager(),
     };
 
-    // Session map: sessionId → transport
-    const transports = new Map<string, InstanceType<typeof StreamableHTTPServerTransport>>();
+    type SessionState = {
+      transport: InstanceType<typeof StreamableHTTPServerTransport>;
+      server: Awaited<ReturnType<typeof createMemorixServer>>['server'];
+      switchProject: Awaited<ReturnType<typeof createMemorixServer>>['switchProject'];
+    };
+
+    // Session map: sessionId → transport + per-session server state
+    const sessions = new Map<string, SessionState>();
 
     /**
      * Parse JSON body from IncomingMessage
@@ -107,38 +115,94 @@ export default defineCommand({
       const sessionId = req.headers['mcp-session-id'] as string | undefined;
       const body = await parseBody(req);
 
-      if (sessionId && transports.has(sessionId)) {
+      if (sessionId && sessions.has(sessionId)) {
         // Existing session — route to its transport
         sessionLastActivity.set(sessionId, Date.now());
-        const transport = transports.get(sessionId)!;
-        await transport.handleRequest(req, res, body);
+        await sessions.get(sessionId)!.transport.handleRequest(req, res, body);
         return;
       }
 
       if (!sessionId && isInitializeRequest(body)) {
         // New session — create transport + server
+        let createdState: SessionState | null = null;
         const transport = new StreamableHTTPServerTransport({
           sessionIdGenerator: () => randomUUID(),
           onsessioninitialized: (sid: string) => {
             console.error(`[memorix] HTTP session initialized: ${sid}`);
-            transports.set(sid, transport);
+            if (createdState) sessions.set(sid, createdState);
             sessionLastActivity.set(sid, Date.now());
           },
         });
 
         transport.onclose = () => {
           const sid = transport.sessionId;
-          if (sid && transports.has(sid)) {
+          if (sid && sessions.has(sid)) {
             console.error(`[memorix] HTTP session closed: ${sid}`);
-            transports.delete(sid);
+            sessions.delete(sid);
             sessionLastActivity.delete(sid);
           }
         };
 
         // Create a fresh MCP server for this session (with shared team state)
-        const { server } = await createMemorixServer(projectRoot, undefined, sharedTeam);
+        const { server, switchProject } = await createMemorixServer(projectRoot, undefined, sharedTeam);
+        createdState = { transport, server, switchProject };
         await server.connect(transport);
+
+        const persistRoot = async (rootPath: string) => {
+          try {
+            const { writeFileSync, mkdirSync } = await import('node:fs');
+            const pathMod = await import('node:path');
+            const { homedir } = await import('node:os');
+            const memorixDir = pathMod.join(homedir(), '.memorix');
+            mkdirSync(memorixDir, { recursive: true });
+            writeFileSync(pathMod.join(memorixDir, 'last-project-root'), rootPath, 'utf-8');
+          } catch { /* non-critical */ }
+        };
+
+        const tryRootsSwitch = async () => {
+          try {
+            const { roots } = await server.server.listRoots();
+            if (!roots || roots.length === 0) return;
+
+            for (const root of roots) {
+              if (!root.uri.startsWith('file://')) continue;
+              let rootPath = decodeURIComponent(root.uri.replace('file://', ''));
+              if (/^\/[A-Za-z]:/.test(rootPath)) rootPath = rootPath.slice(1);
+              rootPath = rootPath.replace(/\//g, '\\');
+
+              const switched = await switchProject(rootPath);
+              if (switched) {
+                console.error(`[memorix] Session ${transport.sessionId?.slice(0, 8) ?? 'pending'} roots switched to: ${rootPath}`);
+                await persistRoot(rootPath);
+                return;
+              }
+
+              const subGit = findGitInSubdirs(rootPath);
+              if (subGit) {
+                const subSwitched = await switchProject(subGit);
+                if (subSwitched) {
+                  console.error(`[memorix] Session ${transport.sessionId?.slice(0, 8) ?? 'pending'} roots switched via subdir: ${subGit}`);
+                  await persistRoot(subGit);
+                  return;
+                }
+              }
+            }
+          } catch {
+            // Client doesn't support roots — keep startup project context.
+          }
+        };
+
+        try {
+          const { RootsListChangedNotificationSchema } = await import('@modelcontextprotocol/sdk/types.js');
+          server.server.setNotificationHandler(RootsListChangedNotificationSchema, async () => {
+            await tryRootsSwitch();
+          });
+        } catch { /* optional */ }
+
         await transport.handleRequest(req, res, body);
+        queueMicrotask(() => {
+          tryRootsSwitch().catch(() => {});
+        });
         return;
       }
 
@@ -156,14 +220,13 @@ export default defineCommand({
      */
     async function handleGet(req: IncomingMessage, res: ServerResponse) {
       const sessionId = req.headers['mcp-session-id'] as string | undefined;
-      if (!sessionId || !transports.has(sessionId)) {
+      if (!sessionId || !sessions.has(sessionId)) {
         res.writeHead(400, { 'Content-Type': 'text/plain' });
         res.end('Invalid or missing session ID');
         return;
       }
 
-      const transport = transports.get(sessionId)!;
-      await transport.handleRequest(req, res);
+      await sessions.get(sessionId)!.transport.handleRequest(req, res);
     }
 
     /**
@@ -171,14 +234,13 @@ export default defineCommand({
      */
     async function handleDelete(req: IncomingMessage, res: ServerResponse) {
       const sessionId = req.headers['mcp-session-id'] as string | undefined;
-      if (!sessionId || !transports.has(sessionId)) {
+      if (!sessionId || !sessions.has(sessionId)) {
         res.writeHead(400, { 'Content-Type': 'text/plain' });
         res.end('Invalid or missing session ID');
         return;
       }
 
-      const transport = transports.get(sessionId)!;
-      await transport.handleRequest(req, res);
+      await sessions.get(sessionId)!.transport.handleRequest(req, res);
     }
 
     // Create HTTP server
@@ -275,7 +337,7 @@ export default defineCommand({
                 locks,
                 tasks,
                 availableTasks: available.length,
-                sessions: transports.size,
+                sessions: sessions.size,
               });
               return;
             }
@@ -296,7 +358,7 @@ export default defineCommand({
             locks,
             tasks,
             availableTasks: available.length,
-            sessions: transports.size,
+            sessions: sessions.size,
           });
           return;
         }
@@ -676,7 +738,7 @@ export default defineCommand({
       console.error(`[memorix] MCP Streamable HTTP Server listening on http://127.0.0.1:${port}/mcp`);
       console.error(`[memorix] Dashboard:  http://127.0.0.1:${port}/`);
       console.error(`[memorix] Team API:   http://127.0.0.1:${port}/api/team`);
-      console.error(`[memorix] Active sessions: ${transports.size}`);
+      console.error(`[memorix] Active sessions: ${sessions.size}`);
       console.error(`[memorix] Agents can connect via: { "transport": "http", "url": "http://localhost:${port}/mcp" }`);
     });
 
@@ -685,12 +747,12 @@ export default defineCommand({
     const sessionLastActivity = new Map<string, number>();
     const gcInterval = setInterval(() => {
       const now = Date.now();
-      for (const [sid, transport] of transports) {
+      for (const [sid, state] of sessions) {
         const lastActive = sessionLastActivity.get(sid) ?? 0;
         if (now - lastActive > SESSION_TIMEOUT_MS) {
           console.error(`[memorix] Session ${sid.slice(0, 8)}… timed out (idle ${Math.round((now - lastActive) / 60000)}min), closing`);
-          transport.close().catch(() => {});
-          transports.delete(sid);
+          state.transport.close().catch(() => {});
+          sessions.delete(sid);
           sessionLastActivity.delete(sid);
         }
       }
@@ -700,10 +762,10 @@ export default defineCommand({
     // Graceful shutdown
     const shutdown = async () => {
       console.error('[memorix] Shutting down HTTP server...');
-      for (const [sid, transport] of transports) {
+      for (const [sid, state] of sessions) {
         try {
-          await transport.close();
-          transports.delete(sid);
+          await state.transport.close();
+          sessions.delete(sid);
         } catch (err) {
           console.error(`[memorix] Error closing session ${sid}:`, err);
         }

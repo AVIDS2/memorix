@@ -330,4 +330,84 @@ describe('Session Lifecycle', () => {
       expect(active!.id).toBe('active-alias');
     });
   });
+
+  describe('Noise filtering in session injection', () => {
+    it('should exclude demo/test observations from session context', async () => {
+      // Store a legitimate observation
+      await storeObservation({
+        entityName: 'blog-deploy',
+        type: 'decision',
+        title: 'Deploy blog to Vercel',
+        narrative: 'Chose Vercel for blog deployment due to zero-config Next.js support',
+        facts: ['Vercel auto-deploys on push'],
+        filesModified: [],
+        concepts: ['deployment'],
+        projectId: PROJECT_ID,
+      });
+
+      // Store a demo pollution observation
+      await storeObservation({
+        entityName: 'memorix-demo',
+        type: 'discovery',
+        title: 'Memorix 全能力展示 - Antigravity IDE',
+        narrative: 'Complete demo of all 22 tools',
+        facts: ['Tested all tools'],
+        filesModified: [],
+        concepts: ['memorix', 'demo'],
+        projectId: PROJECT_ID,
+      });
+
+      // Store a test pollution observation
+      await storeObservation({
+        entityName: 'for_memmcp_test',
+        type: 'gotcha',
+        title: '[测试] Memorix 兼容性检测',
+        narrative: 'Testing compat with memmcp',
+        facts: ['compat verified'],
+        filesModified: [],
+        concepts: ['testing'],
+        projectId: PROJECT_ID,
+      });
+
+      const context = await getSessionContext(testDir, PROJECT_ID);
+
+      // Legitimate observation should appear
+      expect(context).toContain('Deploy blog to Vercel');
+      // Demo/test observations should NOT appear
+      expect(context).not.toContain('全能力展示');
+      expect(context).not.toContain('兼容性检测');
+      expect(context).not.toContain('memorix-demo');
+      expect(context).not.toContain('for_memmcp_test');
+    });
+
+    it('should exclude system-self observations about Memorix runtime/injection', async () => {
+      await storeObservation({
+        entityName: 'my-status-feature',
+        type: 'decision',
+        title: 'Use React Query for data fetching',
+        narrative: 'Chose React Query over SWR for caching',
+        facts: ['Better cache invalidation'],
+        filesModified: ['src/hooks/useData.ts'],
+        concepts: ['react-query'],
+        projectId: PROJECT_ID,
+      });
+
+      await storeObservation({
+        entityName: 'memorix-runtime',
+        type: 'discovery',
+        title: 'Different users need different Memorix runtime modes',
+        narrative: 'Session injection now filters noisy context for control-plane',
+        facts: ['Runtime mode affects injection'],
+        filesModified: [],
+        concepts: ['memorix', 'runtime'],
+        projectId: PROJECT_ID,
+      });
+
+      const context = await getSessionContext(testDir, PROJECT_ID);
+
+      expect(context).toContain('React Query');
+      expect(context).not.toContain('Memorix runtime modes');
+      expect(context).not.toContain('Session injection');
+    });
+  });
 });

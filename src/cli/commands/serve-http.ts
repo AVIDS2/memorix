@@ -268,13 +268,37 @@ export default defineCommand({
     const { fileURLToPath } = await import('node:url');
 
     const detectedDashboardProject = detectProject(projectRoot);
-    const project = detectedDashboardProject ?? {
+    const defaultProject = detectedDashboardProject ?? {
       id: '__unresolved__',
       name: pathModule.default.basename(projectRoot),
       rootPath: projectRoot,
     };
-    const dashDataDir = await getProjectDataDir(project.id);
+    const defaultDataDir = await getProjectDataDir(defaultProject.id);
     const baseDir = getBaseDataDir();
+
+    // Cache resolved project data dirs to avoid repeated fs lookups
+    const projectDataDirCache = new Map<string, string>();
+    projectDataDirCache.set(defaultProject.id, defaultDataDir);
+
+    /** Resolve ?project= query param to { projectId, projectName, dataDir } */
+    async function resolveRequestProject(url: URL): Promise<{
+      projectId: string;
+      projectName: string;
+      dataDir: string;
+    }> {
+      const requestedId = url.searchParams.get('project');
+      if (!requestedId || requestedId === defaultProject.id) {
+        return { projectId: defaultProject.id, projectName: defaultProject.name, dataDir: defaultDataDir };
+      }
+      // Resolve data dir for the requested project (cached)
+      let dataDir = projectDataDirCache.get(requestedId);
+      if (!dataDir) {
+        dataDir = await getProjectDataDir(requestedId);
+        projectDataDirCache.set(requestedId, dataDir);
+      }
+      const name = requestedId.split('/').pop() || requestedId;
+      return { projectId: requestedId, projectName: name, dataDir };
+    }
 
     // Resolve static directory (dist/dashboard/static)
     const cliDir = pathModule.default.dirname(fileURLToPath(import.meta.url));
@@ -329,7 +353,8 @@ export default defineCommand({
       try {
         if (apiPath === '/team') {
           // Read cross-IDE team state from shared file (stdio agents)
-          const teamStatePath = pathModule.default.join(dashDataDir, 'team-state.json');
+          const { dataDir: teamDataDir } = await resolveRequestProject(url);
+          const teamStatePath = pathModule.default.join(teamDataDir, 'team-state.json');
           try {
             const raw = await fsPromises.readFile(teamStatePath, 'utf8');
             const snap = JSON.parse(raw);
@@ -384,14 +409,16 @@ export default defineCommand({
         }
 
         if (apiPath === '/project') {
-          sendJson({ id: project.id, name: project.name });
+          const { projectId: pid, projectName: pname } = await resolveRequestProject(url);
+          sendJson({ id: pid, name: pname });
           return;
         }
 
         if (apiPath === '/stats') {
+          const { projectId: statsProjectId, dataDir: statsDataDir } = await resolveRequestProject(url);
           const { loadObservationsJson, loadIdCounter, loadGraphJsonl } = await import('../../store/persistence.js');
-          const graph = await loadGraphJsonl(dashDataDir);
-          const allObs = await loadObservationsJson(dashDataDir) as Array<{
+          const graph = await loadGraphJsonl(statsDataDir);
+          const allObs = await loadObservationsJson(statsDataDir) as Array<{
             projectId?: string;
             type?: string;
             id?: number;
@@ -403,9 +430,10 @@ export default defineCommand({
             filesModified?: string[];
             importance?: number;
             accessCount?: number;
+            status?: string;
           }>;
-          const observations = allObs.filter(o => o.projectId === project.id);
-          const nextId = await loadIdCounter(dashDataDir);
+          const observations = allObs.filter(o => o.projectId === statsProjectId && (o.status ?? 'active') === 'active');
+          const nextId = await loadIdCounter(statsDataDir);
           const typeCounts: Record<string, number> = {};
           for (const obs of observations) {
             const t = obs.type || 'unknown';
@@ -488,30 +516,34 @@ export default defineCommand({
         }
 
         if (apiPath === '/observations') {
+          const { projectId: obsProjectId, dataDir: obsDataDir } = await resolveRequestProject(url);
           const { loadObservationsJson } = await import('../../store/persistence.js');
-          const allObs = await loadObservationsJson(dashDataDir) as Array<{ projectId?: string }>;
-          sendJson(allObs.filter(o => o.projectId === project.id));
+          const allObs = await loadObservationsJson(obsDataDir) as Array<{ projectId?: string; status?: string }>;
+          sendJson(allObs.filter(o => o.projectId === obsProjectId && (o.status ?? 'active') === 'active'));
           return;
         }
 
         if (apiPath === '/graph') {
+          const { dataDir: graphDataDir } = await resolveRequestProject(url);
           const { loadGraphJsonl } = await import('../../store/persistence.js');
-          const graph = await loadGraphJsonl(dashDataDir);
+          const graph = await loadGraphJsonl(graphDataDir);
           sendJson(graph);
           return;
         }
 
         if (apiPath === '/sessions') {
+          const { projectId: sessProjectId, dataDir: sessDataDir } = await resolveRequestProject(url);
           const { loadSessionsJson } = await import('../../store/persistence.js');
-          const allSessions = await loadSessionsJson(dashDataDir) as Array<{ projectId?: string }>;
-          sendJson(allSessions.filter(s => s.projectId === project.id));
+          const allSessions = await loadSessionsJson(sessDataDir) as Array<{ projectId?: string }>;
+          sendJson(allSessions.filter(s => s.projectId === sessProjectId));
           return;
         }
 
         if (apiPath === '/retention') {
+          const { projectId: retProjectId, dataDir: retDataDir } = await resolveRequestProject(url);
           const { loadObservationsJson } = await import('../../store/persistence.js');
-          const allObs = await loadObservationsJson(dashDataDir) as Array<{ projectId?: string; id?: number; title?: string; type?: string; importance?: number; accessCount?: number; lastAccessedAt?: string; createdAt?: string; entityName?: string }>;
-          const observations = allObs.filter(o => o.projectId === project.id);
+          const allObs = await loadObservationsJson(retDataDir) as Array<{ projectId?: string; id?: number; title?: string; type?: string; importance?: number; accessCount?: number; lastAccessedAt?: string; createdAt?: string; entityName?: string; status?: string }>;
+          const observations = allObs.filter(o => o.projectId === retProjectId && (o.status ?? 'active') === 'active');
           const now = Date.now();
           const scored = observations.map(obs => {
             const age = now - new Date(obs.createdAt || now).getTime();
@@ -637,6 +669,7 @@ export default defineCommand({
         }
 
         if (apiPath === '/identity') {
+          const { projectId: idProjectId } = await resolveRequestProject(url);
           const { loadObservationsJson } = await import('../../store/persistence.js');
           const allObs = await loadObservationsJson(baseDir) as Array<{ projectId?: string }>;
           const allProjectIds = [...new Set(allObs.map(o => o.projectId).filter(Boolean))] as string[];
@@ -652,25 +685,25 @@ export default defineCommand({
           const dirtyIds = allProjectIds.filter(id => dirtyPatterns.some(p => p.test(id)));
 
           let aliasGroups: any[] = [];
-          let canonicalId = project.id;
+          let canonicalId = idProjectId;
           try {
             const aliasModule = await import('../../project/aliases.js');
-            canonicalId = await aliasModule.getCanonicalId(project.id);
+            canonicalId = await aliasModule.getCanonicalId(idProjectId);
             const registryPath = pathModule.default.join(baseDir, '.project-aliases.json');
             const raw = await fsPromises.readFile(registryPath, 'utf-8');
             const registry = JSON.parse(raw);
             aliasGroups = registry.groups || [];
           } catch { /* best effort */ }
 
-          const currentGroup = aliasGroups.find((g: any) => g.aliases?.includes(project.id) || g.canonical === project.id);
-          const aliases = currentGroup?.aliases || [project.id];
+          const currentGroup = aliasGroups.find((g: any) => g.aliases?.includes(idProjectId) || g.canonical === idProjectId);
+          const aliases = currentGroup?.aliases || [idProjectId];
 
           const hasDirtyIds = dirtyIds.length > 0;
           const hasMultipleUnmerged = allProjectIds.length > aliasGroups.length + 1;
           const isHealthy = !hasDirtyIds && !hasMultipleUnmerged;
 
           sendJson({
-            currentProjectId: project.id,
+            currentProjectId: idProjectId,
             canonicalId,
             aliases,
             allProjectIds,
@@ -687,10 +720,10 @@ export default defineCommand({
 
         if (apiPath === '/projects') {
           const { loadObservationsJson } = await import('../../store/persistence.js');
-          const allObs = await loadObservationsJson(baseDir) as Array<{ projectId?: string }>;
+          const allObs = await loadObservationsJson(baseDir) as Array<{ projectId?: string; status?: string }>;
           const projectSet = new Map<string, number>();
-          for (const obs of allObs) { if (obs.projectId) projectSet.set(obs.projectId, (projectSet.get(obs.projectId) || 0) + 1); }
-          const projects = Array.from(projectSet.entries()).sort((a, b) => b[1] - a[1]).map(([id, count]) => ({ id, name: id.split('/').pop() || id, count, isCurrent: id === project.id }));
+          for (const obs of allObs) { if (obs.projectId && (obs.status ?? 'active') === 'active') projectSet.set(obs.projectId, (projectSet.get(obs.projectId) || 0) + 1); }
+          const projects = Array.from(projectSet.entries()).sort((a, b) => b[1] - a[1]).map(([id, count]) => ({ id, name: id.split('/').pop() || id, count, isCurrent: id === defaultProject.id }));
           sendJson(projects);
           return;
         }
@@ -758,7 +791,7 @@ export default defineCommand({
       console.error(`[memorix] MCP Streamable HTTP Server listening on http://127.0.0.1:${port}/mcp`);
       console.error(`[memorix] Dashboard:  http://127.0.0.1:${port}/`);
       console.error(`[memorix] Team API:   http://127.0.0.1:${port}/api/team`);
-      console.error(`[memorix] Active sessions: ${sessions.size}`);
+      console.error(`[memorix] Sessions at startup: ${sessions.size} (live count available at /api/team)`);
       console.error(`[memorix] Agents can connect via: { "transport": "http", "url": "http://localhost:${port}/mcp" }`);
     });
 

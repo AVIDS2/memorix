@@ -2373,9 +2373,19 @@ export async function createMemorixServer(
       ];
 
       // Inject mini-skills (permanent, never-decaying project knowledge)
+      // Filter out demo/test/system-self skills so they don't pollute unrelated projects.
       try {
-        const { loadAllMiniSkills, formatMiniSkillsForInjection, recordMiniSkillUsage } = await import('./skills/mini-skills.js');
-        const miniSkills = await loadAllMiniSkills(projectDir);
+        const { loadMiniSkills, formatMiniSkillsForInjection, recordMiniSkillUsage } = await import('./skills/mini-skills.js');
+        const SKILL_NOISE = [
+          /\bdemo\b/i, /展示/i, /全能力/i, /\[test\]/i, /\[测试\]/i, /测试/i,
+          /验证/i, /兼容/i, /compat/i, /memmcp/i, /memorix-demo/i, /sandbox/i,
+          /playground/i, /benchmark/i, /handoff/i, /交接/i, /for_memmcp/i,
+        ];
+        const allSkills = await loadMiniSkills(projectDir, project.id);
+        const miniSkills = allSkills.filter(s => {
+          const text = `${s.title}\n${s.sourceEntity}\n${s.instruction}`.toLowerCase();
+          return !SKILL_NOISE.some(p => p.test(text));
+        });
         if (miniSkills.length > 0) {
           const formatted = formatMiniSkillsForInjection(miniSkills);
           lines.push('---', '', formatted);

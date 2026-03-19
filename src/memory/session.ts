@@ -37,15 +37,37 @@ const TYPE_WEIGHTS: Record<string, number> = {
 };
 const NOISE_PATTERNS = [
   /\[测试\]/i,
-  /\btest(?:ing)?\b/i,
+  /\[test\]/i,
   /验证/i,
   /兼容/i,
+  /\bcompat(?:ibility)?\b/i,
   /\bdemo\b/i,
   /展示/i,
+  /全能力/i,
   /handoff/i,
   /交接/i,
-  /migration/i,
-  /迁移/i,
+  /for_memmcp_test/i,
+  /\bbenchmark\b/i,
+  /\bsandbox\b/i,
+  /\bplayground\b/i,
+];
+
+// Observations about Memorix itself (its tools, internals, runtime modes) should almost
+// never be injected into unrelated projects.  These get a much heavier penalty.
+const SYSTEM_SELF_PATTERNS = [
+  /memorix.demo/i,
+  /memorix.*全能力/i,
+  /memorix.*工具.*能力/i,
+  /memorix.*runtime.*mode/i,
+  /memorix.*运行模式/i,
+  /memorix.*control.plane/i,
+  /session.*inject(?:ion)?/i,
+  /注入.*逻辑/i,
+  /\b22\s*(?:个|tools?).*(?:工具|能力|capabilit)/i,
+  /memorix.*(?:v\d|版本|version)/i,
+  /memorix.*(?:兼容|compat)/i,
+  /memorix.*(?:测试|test)/i,
+  /memmcp/i,
 ];
 
 /**
@@ -107,6 +129,11 @@ function isNoiseObservation(obs: Observation): boolean {
   return NOISE_PATTERNS.some((pattern) => pattern.test(text));
 }
 
+function isSystemSelfObservation(obs: Observation): boolean {
+  const text = stringifyObservation(obs, false);
+  return SYSTEM_SELF_PATTERNS.some((pattern) => pattern.test(text));
+}
+
 function scoreObservationForSessionContext(obs: Observation, projectTokens: string[], now = Date.now()): number {
   let score = TYPE_WEIGHTS[obs.type] ?? 1;
   const text = stringifyObservation(obs);
@@ -130,9 +157,15 @@ function scoreObservationForSessionContext(obs: Observation, projectTokens: stri
     score -= 100;
   }
 
-  // Downrank demos, tests, migrations, and handoff records unless nothing else exists.
+  // Downrank demos, tests, migrations, and handoff records.
   if (isNoiseObservation(obs)) {
-    score -= 4;
+    score -= 8;
+  }
+
+  // Heavy penalty for observations about Memorix itself (system self-reference).
+  // These should almost never surface in unrelated project sessions.
+  if (isSystemSelfObservation(obs)) {
+    score -= 15;
   }
 
   return score;
@@ -238,8 +271,15 @@ export async function getSessionContext(
   const allObs = await loadObservationsJson(projectDir) as Observation[];
 
   const aliasSet = await resolveProjectIds(projectId);
+  /** Check if a session summary contains noise/system-self content */
+  const isNoisySummary = (summary: string | undefined): boolean => {
+    if (!summary) return false;
+    return NOISE_PATTERNS.some((p) => p.test(summary)) || SYSTEM_SELF_PATTERNS.some((p) => p.test(summary));
+  };
+
   const projectSessions = sessions
     .filter((session) => aliasSet.has(session.projectId) && session.status === 'completed')
+    .filter((session) => !isNoisySummary(session.summary))
     .sort((a, b) => new Date(b.endedAt || b.startedAt).getTime() - new Date(a.endedAt || a.startedAt).getTime())
     .slice(0, limit);
 
@@ -265,7 +305,7 @@ export async function getSessionContext(
   const projectTokens = tokenizeProjectId(projectId);
   const priorityObs = allObs
     .filter((obs) => aliasSet.has(obs.projectId) && PRIORITY_TYPES.has(obs.type) && (obs.status ?? 'active') === 'active')
-    .filter((obs) => !isNoiseObservation(obs))
+    .filter((obs) => !isNoiseObservation(obs) && !isSystemSelfObservation(obs))
     .map((obs) => ({ obs, score: scoreObservationForSessionContext(obs, projectTokens) }))
     .sort((a, b) => {
       if (b.score !== a.score) return b.score - a.score;

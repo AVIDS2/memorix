@@ -668,6 +668,26 @@ export default defineCommand({
             vectorStatus = getVectorStatus();
           } catch { /* best effort */ }
 
+          // Real search mode from the last actual search execution
+          let searchMode = 'fulltext';
+          try {
+            const { getLastSearchMode } = await import('../../store/orama-store.js');
+            searchMode = getLastSearchMode();
+          } catch { /* best effort */ }
+
+          // Embedding provider state: disabled / temporarily_unavailable / ready
+          let embeddingProviderState: 'disabled' | 'temporarily_unavailable' | 'ready' = 'disabled';
+          try {
+            const { isEmbeddingExplicitlyDisabled } = await import('../../embedding/provider.js');
+            if (isEmbeddingExplicitlyDisabled()) {
+              embeddingProviderState = 'disabled';
+            } else if (embeddingStatus.enabled) {
+              embeddingProviderState = 'ready';
+            } else {
+              embeddingProviderState = 'temporarily_unavailable';
+            }
+          } catch { /* best effort */ }
+
           sendJson({
             entities: graph.entities.length,
             relations: graph.relations.length,
@@ -677,6 +697,8 @@ export default defineCommand({
             sourceCounts,
             recentObservations: sorted,
             embedding: embeddingStatus,
+            embeddingProviderState,
+            searchMode,
             vectorStatus,
             gitSummary: {
               total: gitMemories.length,

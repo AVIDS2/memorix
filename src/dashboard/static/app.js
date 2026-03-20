@@ -768,10 +768,14 @@ async function loadDashboard() {
             </div>
             <div>
               <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">${t('searchMode')}</div>
-              <div style="font-size:14px;font-weight:600;color:${stats.embedding?.enabled ? 'var(--accent-blue)' : 'var(--accent-amber)'};">
-                ${stats.embedding?.enabled ? 'Hybrid (BM25 + Vector)' : 'BM25 Fulltext'}
+              <div style="font-size:14px;font-weight:600;color:${
+                (stats.searchMode || '').includes('hybrid') ? 'var(--accent-blue)'
+                : (stats.searchMode || '').includes('vector') ? 'var(--accent-purple)'
+                : (stats.searchMode || '').includes('rerank') ? 'var(--accent-green)'
+                : 'var(--accent-amber)'};">
+                ${stats.searchMode || (stats.embedding?.enabled ? 'hybrid' : 'fulltext')}
               </div>
-              ${!stats.embedding?.enabled && stats.embedding?.provider !== '' ? `<div style="font-size:11px;color:var(--accent-amber);margin-top:2px;">${t('degradedHint')}</div>` : ''}
+              ${stats.embeddingProviderState === 'temporarily_unavailable' ? `<div style="font-size:11px;color:var(--accent-amber);margin-top:2px;">${t('degradedHint')}</div>` : ''}
             </div>
           </div>
         </div>

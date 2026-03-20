@@ -2330,9 +2330,30 @@ export async function createMemorixServer(
             bound = await switchProject(subGit);
           }
         }
+        // switchProject returns false for "same project, no-op" — that's still success,
+        // but ONLY when the canonical projectId matches the currently bound project.
+        // We must NOT treat "different valid repo at a different path" as a no-op success.
+        if (!bound && projectResolved) {
+          const { detectProjectWithDiagnostics: diagnose } = await import('./project/detector.js');
+          const diag = diagnose(explicitRoot);
+          if (diag.project) {
+            const { registerAlias: regAlias } = await import('./project/aliases.js');
+            const resolvedCanonical = await regAlias(diag.project);
+            if (resolvedCanonical === project.id) {
+              // Same canonical project — switchProject returned false because it's a no-op.
+              bound = true;
+            }
+            // else: different canonical project — fall through to fail-closed path below
+          }
+        }
         if (!bound) {
           // Explicit projectRoot was provided but no git repo found.
           // ALWAYS fail closed — never silently fall back to a previously bound project.
+          const { detectProjectWithDiagnostics: diagnose } = await import('./project/detector.js');
+          const diag = diagnose(explicitRoot);
+          const failureDetail = diag.failure
+            ? `\nDiagnostic: [${diag.failure.reason}] ${diag.failure.detail}`
+            : '';
           const hint = projectResolved
             ? `The session was previously bound to "${project.name}" (${project.id}), but the explicitly requested path has no git repo. Refusing to silently reuse the old binding.`
             : 'No project is currently bound to this session.';
@@ -2341,7 +2362,7 @@ export async function createMemorixServer(
               type: 'text' as const,
               text:
                 `Cannot bind session to project.\n` +
-                `No git repository found at "${explicitRoot}".\n` +
+                `No git repository found at "${explicitRoot}".${failureDetail}\n` +
                 `${hint}\n\n` +
                 'Ensure the path points to a directory containing a .git folder (or a subdirectory of one). ' +
                 'Run "git init" in your project root if needed.',
@@ -3151,6 +3172,49 @@ export async function createMemorixServer(
     } catch { /* consolidation is optional */ }
     } // end autoCleanup
 
+    // ── Vector-missing observability & background backfill ──────────
+    // Log how many observations are missing embeddings (search quality degradation).
+    // If any are missing and embedding is available, attempt background backfill.
+    // A periodic timer retries every 60s so provider recovery actually helps.
+    try {
+      const { getVectorStatus, backfillVectorEmbeddings } = await import('./memory/observations.js');
+      const { isEmbeddingExplicitlyDisabled } = await import('./embedding/provider.js');
+
+      const runBackfill = async (label: string) => {
+        const vs = getVectorStatus();
+        if (vs.missing === 0 || isEmbeddingExplicitlyDisabled()) return;
+        if (label === 'init') {
+          console.error(`[memorix] Vector status: ${vs.missing}/${vs.total} observations missing embeddings`);
+        }
+        try {
+          const result = await backfillVectorEmbeddings();
+          if (result.succeeded > 0) {
+            console.error(`[memorix] Vector backfill (${label}): ${result.succeeded}/${result.attempted} embeddings recovered`);
+          }
+          if (result.failed > 0 && label === 'init') {
+            console.error(`[memorix] Vector backfill: ${result.failed} failed (periodic retry active)`);
+          }
+        } catch { /* best-effort */ }
+      };
+
+      // Initial backfill attempt (non-blocking)
+      runBackfill('init');
+
+      // Periodic retry: every 60s, check if there are still missing vectors
+      // Stops automatically when all vectors are backfilled or embedding is disabled
+      const BACKFILL_INTERVAL_MS = 60_000;
+      const backfillTimer = setInterval(async () => {
+        const vs = getVectorStatus();
+        if (vs.missing === 0 || isEmbeddingExplicitlyDisabled()) {
+          clearInterval(backfillTimer);
+          return;
+        }
+        await runBackfill('periodic');
+      }, BACKFILL_INTERVAL_MS);
+      // Don't keep the process alive just for backfill
+      if (backfillTimer.unref) backfillTimer.unref();
+    } catch { /* vector observability is optional */ }
+
     // Watch for external writes (e.g., from hook processes) and hot-reload.
     // Uses watchFile (polling) instead of watch because atomicWriteFile uses
     // rename(), which changes the file inode — fs.watch loses track on Windows.
@@ -3188,8 +3252,15 @@ export async function createMemorixServer(
   // Runtime project switch — called when MCP roots change, projectRoot binding, or new workspace detected.
   // Updates all mutable state; tool closures automatically pick up new values.
   const switchProject = async (newCwd: string): Promise<boolean> => {
-    const newDetected = detectProject(newCwd);
-    if (!newDetected) return false; // no .git found at new path
+    const { detectProjectWithDiagnostics } = await import('./project/detector.js');
+    const result = detectProjectWithDiagnostics(newCwd);
+    if (!result.project) {
+      if (result.failure) {
+        console.error(`[memorix] Project detection failed for "${newCwd}": [${result.failure.reason}] ${result.failure.detail}`);
+      }
+      return false;
+    }
+    const newDetected = result.project;
 
     // Resolve data dir FIRST (was buggy: used before declaration)
     const newProjectDir = await getProjectDataDir(newDetected.id);

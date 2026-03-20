@@ -26,6 +26,7 @@ const mockInitLLM = vi.fn(() => ({
 
 vi.mock('../../src/embedding/provider.js', () => ({
   getEmbeddingProvider: vi.fn(async () => mockProvider),
+  isEmbeddingExplicitlyDisabled: vi.fn(() => true),
   resetProvider: vi.fn(),
 }));
 

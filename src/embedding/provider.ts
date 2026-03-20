@@ -43,6 +43,13 @@ let provider: EmbeddingProvider | null = null;
 let initPromise: Promise<EmbeddingProvider | null> | null = null;
 
 /**
+ * Tracks whether the last init attempt resulted in a temporary failure
+ * (mode != 'off' but provider returned null). When true, the next
+ * getEmbeddingProvider() call will retry instead of returning cached null.
+ */
+let lastInitWasTemporaryFailure = false;
+
+/**
  * Get configured embedding mode from environment.
  * Default is 'off' to minimize resource usage.
  */
@@ -59,19 +66,43 @@ function getEmbeddingMode(): 'off' | 'fastembed' | 'transformers' | 'api' | 'aut
   }
 }
 
+/** Minimum interval between retry attempts after a temporary failure (ms). */
+const RETRY_COOLDOWN_MS = 30_000;
+let lastFailureTimestamp = 0;
+
 /**
  * Get the embedding provider. Returns null if disabled or unavailable.
  * Lazy-initialized on first call. Concurrent callers share the same Promise.
  *
+ * Recovery semantics:
+ *   - mode === 'off'  → permanently null (no retry)
+ *   - mode === 'auto' and NO local provider installed → permanently null (no retry)
+ *   - provider init failed due to network/API/temp error → retry after cooldown
+ *
  * Controlled by MEMORIX_EMBEDDING environment variable (default: off).
  */
 export async function getEmbeddingProvider(): Promise<EmbeddingProvider | null> {
+  // If we already have a successfully initialized provider, return it immediately
+  if (provider) return provider;
+
+  // If a previous attempt failed temporarily, allow retry after cooldown
+  if (lastInitWasTemporaryFailure) {
+    const elapsed = Date.now() - lastFailureTimestamp;
+    if (elapsed < RETRY_COOLDOWN_MS) {
+      // Still within cooldown — return cached null without retrying
+      return null;
+    }
+    // Cooldown expired — clear cached promise to allow retry
+    initPromise = null;
+    lastInitWasTemporaryFailure = false;
+  }
+
   if (initPromise) return initPromise;
 
   initPromise = (async () => {
     const mode = getEmbeddingMode();
 
-    // Explicit OFF — skip all embedding initialization
+    // Explicit OFF — skip all embedding initialization (permanent, no retry)
     if (mode === 'off') {
       console.error('[memorix] Embedding disabled (MEMORIX_EMBEDDING=off) — using BM25 fulltext search');
       return null;
@@ -141,7 +172,21 @@ export async function getEmbeddingProvider(): Promise<EmbeddingProvider | null> 
     return null;
   })();
 
-  return initPromise;
+  // After the init promise resolves, decide whether to cache or allow retry
+  const result = await initPromise;
+  if (result === null && !isEmbeddingExplicitlyDisabled()) {
+    // Temporary failure — mark for retry and record timestamp
+    const mode = getEmbeddingMode();
+    // 'auto' mode with no local providers installed is permanent (not retryable)
+    if (mode === 'api' || mode === 'fastembed' || mode === 'transformers') {
+      lastInitWasTemporaryFailure = true;
+      lastFailureTimestamp = Date.now();
+      console.error(`[memorix] Embedding provider temporarily unavailable — will retry after ${RETRY_COOLDOWN_MS / 1000}s`);
+    }
+    // 'auto' with no providers → permanent null, no retry needed
+  }
+
+  return result;
 }
 
 /**
@@ -153,9 +198,25 @@ export async function isVectorSearchAvailable(): Promise<boolean> {
 }
 
 /**
+ * Check if embedding is explicitly disabled by configuration (mode === 'off').
+ *
+ * When true, there is no provider to backfill from and observations can be
+ * safely removed from the vector-missing queue.
+ *
+ * When false, the provider MAY still be null due to initialization failure,
+ * API error, or missing dependencies — in those cases the observation should
+ * stay in the backfill queue for later retry.
+ */
+export function isEmbeddingExplicitlyDisabled(): boolean {
+  return getEmbeddingMode() === 'off';
+}
+
+/**
  * Reset provider (for testing).
  */
 export function resetProvider(): void {
   provider = null;
   initPromise = null;
+  lastInitWasTemporaryFailure = false;
+  lastFailureTimestamp = 0;
 }

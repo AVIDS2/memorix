@@ -20,6 +20,7 @@
 import { defineCommand } from 'citty';
 import * as fs from 'node:fs';
 import { spawn, execSync } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 
 // ============================================================
 // Paths & Types
@@ -30,7 +31,10 @@ interface BackgroundState {
   port: number;
   startedAt: string;   // ISO timestamp
   logFile: string;
-  projectRoot?: string;
+  /** Unique instance token — prevents PID-reuse misidentification */
+  instanceToken: string;
+  /** Shell cwd at start time (informational only, NOT used as daemon anchor) */
+  startCwd?: string;
 }
 
 function getMemorixDir(): string {
@@ -194,13 +198,15 @@ async function doStart(port: number): Promise<void> {
     return;
   }
 
-  // 6. Save state (synchronous — no yield point before output)
+  // 6. Generate instance token and save state (synchronous — no yield point before output)
+  const instanceToken = randomBytes(8).toString('hex');
   saveState({
     pid,
     port,
     startedAt: new Date().toISOString(),
     logFile,
-    projectRoot: process.cwd(),
+    instanceToken,
+    startCwd: process.cwd(),
   });
 
   // 7. Print essential info immediately
@@ -270,6 +276,19 @@ async function doStop(): Promise<void> {
     return;
   }
 
+  // Validate instance token — if the PID was reused by an unrelated process,
+  // the health check will fail or return unexpected data. This prevents misidentifying
+  // a random process as our background service.
+  if (state.instanceToken) {
+    const health = await healthCheck(state.port, 2000);
+    if (!health.ok) {
+      console.log(`⚠ PID ${state.pid} is alive but port ${state.port} is not responding.`);
+      console.log('  This may be a PID-reused unrelated process. Cleaning up stale state.');
+      clearState();
+      return;
+    }
+  }
+
   console.log(`Stopping control plane (PID ${state.pid}, port ${state.port})...`);
 
   // Try graceful HTTP shutdown first
@@ -336,15 +355,26 @@ async function doStatus(): Promise<void> {
   }
 
   const running = isProcessRunning(state.pid);
+
+  // PID reuse guard: if PID is alive but health check fails, it's likely a different process
   const health = running ? await healthCheck(state.port) : { ok: false, error: 'Process not running' };
+  const probablyReused = running && !health.ok && state.instanceToken;
 
   console.log('');
   console.log('Memorix Background Control Plane');
   console.log('================================');
-  console.log(`  Status:     ${health.ok ? '✓ Running & Healthy' : running ? '⚠ Running but unhealthy' : '✗ Not running'}`);
+  const statusLabel = health.ok
+    ? '✓ Running & Healthy'
+    : probablyReused
+      ? '⚠ PID reused by unrelated process'
+      : running
+        ? '⚠ Running but unhealthy'
+        : '✗ Not running';
+  console.log(`  Status:     ${statusLabel}`);
   console.log(`  PID:        ${state.pid}${running ? '' : ' (dead)'}`);
   console.log(`  Port:       ${state.port}`);
   console.log(`  Started:    ${state.startedAt}`);
+  if (state.instanceToken) console.log(`  Instance:   ${state.instanceToken.slice(0, 8)}…`);
   console.log(`  Dashboard:  http://127.0.0.1:${state.port}/`);
   console.log(`  MCP:        http://127.0.0.1:${state.port}/mcp`);
   console.log(`  Logs:       ${normalizePath(state.logFile)}`);
@@ -358,7 +388,13 @@ async function doStatus(): Promise<void> {
     if (d.uptime) console.log(`    Uptime:     ${d.uptime}`);
   }
 
-  if (!running) {
+  if (probablyReused) {
+    console.log('');
+    console.log('  ⚠ The PID in background.json belongs to a different process.');
+    console.log('  Cleaning up stale state...');
+    clearState();
+    console.log('  Run "memorix background start" to restart.');
+  } else if (!running) {
     console.log('');
     console.log('  Process has exited. Cleaning up stale state...');
     clearState();

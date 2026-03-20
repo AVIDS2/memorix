@@ -19,7 +19,11 @@ import { maybeExpandSearchQuery } from '../search/query-expansion.js';
 let db: AnyOrama | null = null;
 let embeddingEnabled = false;
 const NON_CJK_HYBRID_SIMILARITY = 0.45;
-const COMMAND_STYLE_TITLE = /^(Ran:|Command:)/i;
+// Hard filter: titles starting with these are command execution logs, not knowledge.
+// They are excluded from results entirely (not just demoted) unless the query is command-like.
+const COMMAND_LOG_TITLE = /^(Ran:|Command:|Executed:)\s/i;
+// Soft demotion: titles containing shell-specific patterns get a score penalty.
+const COMMAND_STYLE_TITLE = /(\bfindstr\b|\bSelect-String\b|\bGet-Content\b|\bnpx\s+vitest\b|\bnpx\s+tsc\b|\b2>&1\b)/i;
 const COMMAND_LIKE_QUERY = /\b(git|npm|npx|pnpm|yarn|node|bash|powershell|curl|memorix)\b/i;
 
 /**
@@ -36,6 +40,10 @@ function makeEntryKey(projectId: string | undefined, observationId: number): str
 
 function isCommandLikeQuery(query: string): boolean {
   return COMMAND_LIKE_QUERY.test(query);
+}
+
+function isCommandLogEntry(title: string): boolean {
+  return COMMAND_LOG_TITLE.test(title);
 }
 
 function isCommandStyleEntry(title: string): boolean {
@@ -295,6 +303,14 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
       const doc = hit.document as unknown as MemorixDocument;
       return (doc.status || 'active') === statusFilter;
     })
+    // Hard-filter: exclude command execution logs (Ran:/Command:/Executed:) unless
+    // the query itself is command-like.  73% of observations are Ran: logs from hooks —
+    // no score penalty can suppress this volume; they must be filtered out entirely.
+    .filter((hit) => {
+      if (hasQuery && isCommandLikeQuery(originalQuery!)) return true; // user wants commands
+      const doc = hit.document as unknown as MemorixDocument;
+      return !isCommandLogEntry(doc.title);
+    })
     .map((hit) => {
       const doc = hit.document as unknown as MemorixDocument;
       const obsType = doc.type as ObservationType;
@@ -346,7 +362,7 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
   if (hasQuery && !isCommandLikeQuery(originalQuery!)) {
     intermediate = intermediate.map(entry => ({
       ...entry,
-      score: isCommandStyleEntry(entry.title) ? entry.score * 0.55 : entry.score,
+      score: isCommandStyleEntry(entry.title) ? entry.score * 0.3 : entry.score,
     }));
   }
 

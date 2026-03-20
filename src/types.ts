@@ -296,6 +296,29 @@ export interface ProjectInfo {
   rootPath: string;
 }
 
+/**
+ * Diagnostic failure info from project detection.
+ * Tells callers exactly WHY detection failed so they can report actionable errors.
+ */
+export type DetectionFailureReason =
+  | 'path_not_found'
+  | 'not_a_directory'
+  | 'no_git'
+  | 'git_worktree_error'
+  | 'git_safe_directory'
+  | 'remote_resolve_failed';
+
+export interface DetectionFailure {
+  reason: DetectionFailureReason;
+  path: string;
+  detail: string;
+}
+
+export interface DetectionResult {
+  project: ProjectInfo | null;
+  failure: DetectionFailure | null;
+}
+
 // ============================================================
 // Memorix Server Configuration
 // ============================================================

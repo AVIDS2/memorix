@@ -13,7 +13,7 @@
 import { execSync } from 'node:child_process';
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
-import type { ProjectInfo } from '../types.js';
+import type { ProjectInfo, DetectionResult, DetectionFailure } from '../types.js';
 
 /**
  * Detect the current project identity from Git.
@@ -21,25 +21,66 @@ import type { ProjectInfo } from '../types.js';
  * @param cwd - Working directory to detect from (defaults to process.cwd())
  */
 export function detectProject(cwd?: string): ProjectInfo | null {
-  const basePath = cwd ?? process.cwd();
-  const gitRoot = getGitRoot(basePath);
+  return detectProjectWithDiagnostics(cwd).project;
+}
 
-  if (!gitRoot) {
-    return null;
+/**
+ * Detect project with full diagnostic info.
+ * Returns both the project (if found) and a failure descriptor (if not).
+ * Callers can use failure.reason to produce actionable error messages.
+ */
+export function detectProjectWithDiagnostics(cwd?: string): DetectionResult {
+  const basePath = cwd ?? process.cwd();
+
+  // Check: does the path exist?
+  if (!existsSync(basePath)) {
+    return {
+      project: null,
+      failure: { reason: 'path_not_found', path: basePath, detail: `Path does not exist: "${basePath}"` },
+    };
   }
 
+  // Check: is it a directory?
+  try {
+    if (!statSync(basePath).isDirectory()) {
+      return {
+        project: null,
+        failure: { reason: 'not_a_directory', path: basePath, detail: `Path is not a directory: "${basePath}"` },
+      };
+    }
+  } catch {
+    return {
+      project: null,
+      failure: { reason: 'path_not_found', path: basePath, detail: `Cannot stat path: "${basePath}"` },
+    };
+  }
+
+  // Check: git root
+  const gitRootResult = getGitRootWithDiagnostics(basePath);
+  if (!gitRootResult.root) {
+    return {
+      project: null,
+      failure: gitRootResult.failure ?? {
+        reason: 'no_git',
+        path: basePath,
+        detail: `No .git directory found in "${basePath}" or any parent directory.`,
+      },
+    };
+  }
+
+  const gitRoot = gitRootResult.root;
   const gitRemote = getGitRemote(gitRoot);
 
   if (gitRemote) {
     const id = normalizeGitRemote(gitRemote);
     const name = id.split('/').pop() ?? path.basename(gitRoot);
-    return { id, name, gitRemote, rootPath: gitRoot };
+    return { project: { id, name, gitRemote, rootPath: gitRoot }, failure: null };
   }
 
   // Git repo without remote — local-only project
   const name = path.basename(gitRoot);
   const id = `local/${name}`;
-  return { id, name, rootPath: gitRoot };
+  return { project: { id, name, rootPath: gitRoot }, failure: null };
 }
 
 /**
@@ -47,11 +88,35 @@ export function detectProject(cwd?: string): ProjectInfo | null {
  * Returns null if not inside a git repository.
  */
 function getGitRoot(cwd: string): string | null {
+  return getGitRootWithDiagnostics(cwd).root;
+}
+
+/**
+ * Get git root with diagnostic failure info.
+ * Distinguishes: no_git, git_worktree_error, git_safe_directory.
+ */
+function getGitRootWithDiagnostics(cwd: string): { root: string | null; failure: DetectionFailure | null } {
   // Fast path: walk up to find .git directory (instant, no subprocess)
   let dir = path.resolve(cwd);
   const fsRoot = path.parse(dir).root;
   while (dir !== fsRoot) {
-    if (existsSync(path.join(dir, '.git'))) return dir;
+    const gitPath = path.join(dir, '.git');
+    if (existsSync(gitPath)) {
+      // .git may be a file (worktree) or directory (normal repo)
+      try {
+        const st = statSync(gitPath);
+        if (st.isDirectory() || st.isFile()) return { root: dir, failure: null };
+      } catch {
+        return {
+          root: null,
+          failure: {
+            reason: 'git_worktree_error',
+            path: cwd,
+            detail: `Found .git at "${gitPath}" but cannot stat it (permission denied or broken worktree link).`,
+          },
+        };
+      }
+    }
     dir = path.dirname(dir);
   }
 
@@ -63,9 +128,25 @@ function getGitRoot(cwd: string): string | null {
       stdio: ['pipe', 'pipe', 'pipe'],
       timeout: 5000,
     }).trim();
-    return root || null;
-  } catch {
-    return null;
+    return root ? { root, failure: null } : { root: null, failure: null };
+  } catch (err) {
+    // Inspect stderr for known git error patterns
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes('safe.directory') || msg.includes('dubious ownership')) {
+      return {
+        root: null,
+        failure: {
+          reason: 'git_safe_directory',
+          path: cwd,
+          detail: `Git refuses to operate in "${cwd}" due to ownership/safe.directory restrictions. ` +
+            'Run: git config --global --add safe.directory "' + cwd + '"',
+        },
+      };
+    }
+    return {
+      root: null,
+      failure: { reason: 'no_git', path: cwd, detail: `No git repository found at "${cwd}" or any parent directory.` },
+    };
   }
 }
 

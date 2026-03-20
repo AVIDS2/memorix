@@ -7,6 +7,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 vi.mock('../../src/embedding/provider.js', () => ({
   getEmbeddingProvider: async () => null,
   isVectorSearchAvailable: async () => false,
+  isEmbeddingExplicitlyDisabled: () => true,
   resetProvider: () => {},
 }));
 

@@ -52,6 +52,19 @@ const NOISE_PATTERNS = [
   /\bplayground\b/i,
 ];
 
+// Command-trace observations (debug commands, shell output) are low-value noise
+// in session context. They may have been stored by hooks but shouldn't surface.
+const COMMAND_TRACE_PATTERNS = [
+  /^Ran:\s/i,
+  /^Command:\s/i,
+  /^Executed:\s/i,
+  /\b2>&1\b/,
+  /\bSelect-String\b/i,
+  /\bGet-Content\b/i,
+  /\bnpx\s+vitest\b/i,
+  /\bnpx\s+tsc\b/i,
+];
+
 // Observations about Memorix itself (its tools, internals, runtime modes) should almost
 // never be injected into unrelated projects.  These get a much heavier penalty.
 const SYSTEM_SELF_PATTERNS = [
@@ -124,9 +137,14 @@ function stringifyObservation(obs: Observation, includeFiles: boolean = true): s
     .toLowerCase();
 }
 
+function isCommandTrace(obs: Observation): boolean {
+  const title = obs.title ?? '';
+  return COMMAND_TRACE_PATTERNS.some((pattern) => pattern.test(title));
+}
+
 function isNoiseObservation(obs: Observation): boolean {
   const text = stringifyObservation(obs, false);
-  return NOISE_PATTERNS.some((pattern) => pattern.test(text));
+  return NOISE_PATTERNS.some((pattern) => pattern.test(text)) || isCommandTrace(obs);
 }
 
 function isSystemSelfObservation(obs: Observation): boolean {

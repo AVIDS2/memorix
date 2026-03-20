@@ -22,11 +22,18 @@ import { saveObservationsJson, loadObservationsJson, saveIdCounter, loadIdCounte
 import { withFileLock } from '../store/file-lock.js';
 import { countTextTokens } from '../compact/token-budget.js';
 import { extractEntities, enrichConcepts } from './entity-extractor.js';
+import { isEmbeddingExplicitlyDisabled } from '../embedding/provider.js';
 
 /** In-memory observation list (loaded from persistence on init) */
 let observations: Observation[] = [];
 let nextId = 1;
 let projectDir: string | null = null;
+
+// ── Vector-missing tracking ──────────────────────────────────────
+// Tracks observation IDs whose async embedding write failed or was skipped.
+// Enables observability ("how many memories lack vectors?") and backfill.
+const vectorMissingIds = new Set<number>();
+let vectorBackfillRunning = false;
 
 /**
  * Initialize the observations manager with a project directory.
@@ -179,6 +186,8 @@ export async function storeObservation(input: {
   }
 
   // Generate embedding async (fire-and-forget) — never blocks MCP response
+  // Track in vectorMissingIds until embedding is successfully written.
+  vectorMissingIds.add(id);
   const searchableText = [input.title, input.narrative, ...(input.facts ?? [])].join(' ');
   generateEmbedding(searchableText).then(async (embedding) => {
     if (embedding) {
@@ -186,12 +195,23 @@ export async function storeObservation(input: {
         const { removeObservation: removeObs } = await import('../store/orama-store.js');
         await removeObs(makeOramaObservationId(input.projectId, id));
         await insertObservation(Object.assign({}, doc, { embedding }));
+        vectorMissingIds.delete(id);
       } catch {
         // Embedding index update failed — observation still persisted without vector
+        console.error(`[memorix] Embedding index update failed for obs-${id} (kept in backfill queue)`);
       }
+    } else if (isEmbeddingExplicitlyDisabled()) {
+      // Embedding is explicitly turned off — no provider will ever be available,
+      // so remove from the missing set (nothing to backfill from).
+      vectorMissingIds.delete(id);
+    } else {
+      // Provider returned null due to init failure / API error / missing deps.
+      // Keep in backfill queue so a future retry can generate the embedding.
+      console.error(`[memorix] Embedding provider unavailable for obs-${id} (kept in backfill queue for retry)`);
     }
   }).catch((err) => {
     console.error(`[memorix] Async embedding failed for obs-${id}: ${err instanceof Error ? err.message : err}`);
+    // Keep in vectorMissingIds for backfill retry
   });
 
   return { observation, upserted: false };
@@ -536,4 +556,110 @@ export async function reindexObservations(): Promise<number> {
     }
   }
   return count;
+}
+
+// ── Vector-missing observability & backfill ─────────────────────────
+
+/**
+ * Get the current set of observation IDs that are missing vector embeddings.
+ * Useful for dashboards, health checks, and monitoring search quality degradation.
+ */
+export function getVectorMissingIds(): number[] {
+  return [...vectorMissingIds];
+}
+
+/**
+ * Get a summary of vector embedding status.
+ * Returns total observations, how many have vectors, and how many are missing.
+ */
+export function getVectorStatus(): {
+  total: number;
+  missing: number;
+  missingIds: number[];
+  backfillRunning: boolean;
+} {
+  return {
+    total: observations.length,
+    missing: vectorMissingIds.size,
+    missingIds: [...vectorMissingIds],
+    backfillRunning: vectorBackfillRunning,
+  };
+}
+
+/**
+ * Attempt to backfill missing vector embeddings.
+ * Re-generates embeddings for observations in vectorMissingIds.
+ * Returns the number successfully backfilled.
+ *
+ * Safe to call concurrently — only one backfill runs at a time.
+ */
+export async function backfillVectorEmbeddings(): Promise<{
+  attempted: number;
+  succeeded: number;
+  failed: number;
+}> {
+  if (vectorBackfillRunning) {
+    return { attempted: 0, succeeded: 0, failed: 0 };
+  }
+  vectorBackfillRunning = true;
+
+  const ids = [...vectorMissingIds];
+  let succeeded = 0;
+  let failed = 0;
+
+  try {
+    for (const id of ids) {
+      const obs = observations.find(o => o.id === id);
+      if (!obs) {
+        vectorMissingIds.delete(id);
+        continue;
+      }
+
+      const text = [obs.title, obs.narrative, ...obs.facts].join(' ');
+      try {
+        const embedding = await generateEmbedding(text);
+        if (embedding) {
+          const oramaId = makeOramaObservationId(obs.projectId, obs.id);
+          try {
+            const { removeObservation: removeObs } = await import('../store/orama-store.js');
+            await removeObs(oramaId);
+          } catch { /* may not exist */ }
+          const doc: MemorixDocument = {
+            id: oramaId,
+            observationId: obs.id,
+            entityName: obs.entityName,
+            type: obs.type,
+            title: obs.title,
+            narrative: obs.narrative,
+            facts: obs.facts.join('\n'),
+            filesModified: obs.filesModified.join('\n'),
+            concepts: obs.concepts.map(c => c.replace(/-/g, ' ')).join(', '),
+            tokens: obs.tokens,
+            createdAt: obs.createdAt,
+            projectId: obs.projectId,
+            accessCount: 0,
+            lastAccessedAt: '',
+            status: obs.status ?? 'active',
+            source: obs.source ?? 'agent',
+            embedding,
+          };
+          await insertObservation(doc);
+          vectorMissingIds.delete(id);
+          succeeded++;
+        } else if (isEmbeddingExplicitlyDisabled()) {
+          // Embedding explicitly off — nothing to backfill from
+          vectorMissingIds.delete(id);
+        } else {
+          // Provider temporarily unavailable — keep in queue for next backfill cycle
+          failed++;
+        }
+      } catch {
+        failed++;
+      }
+    }
+  } finally {
+    vectorBackfillRunning = false;
+  }
+
+  return { attempted: ids.length, succeeded, failed };
 }

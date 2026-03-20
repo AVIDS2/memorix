@@ -45,14 +45,33 @@ export default defineCommand({
       '@modelcontextprotocol/sdk/types.js'
     );
     const { createMemorixServer } = await import('../../server.js');
-    const { findGitInSubdirs } = await import('../../project/detector.js');
+    const { findGitInSubdirs, detectProjectWithDiagnostics } = await import('../../project/detector.js');
+    const { existsSync, readFileSync } = await import('node:fs');
+    const { homedir } = await import('node:os');
+    const earlyPath = await import('node:path');
 
     const port = parseInt(args.port || '3211', 10);
 
-    // Priority: explicit --cwd arg > MEMORIX_PROJECT_ROOT env > process.cwd()
+    // Priority: explicit --cwd arg > MEMORIX_PROJECT_ROOT env > last-project-root fallback > process.cwd()
     let safeCwd: string;
-    try { safeCwd = process.cwd(); } catch { safeCwd = (await import('node:os')).homedir(); }
-    const projectRoot = args.cwd || process.env.MEMORIX_PROJECT_ROOT || safeCwd;
+    try { safeCwd = process.cwd(); } catch { safeCwd = homedir(); }
+    let projectRoot = args.cwd || process.env.MEMORIX_PROJECT_ROOT || safeCwd;
+
+    // Fallback: if projectRoot has no git, try last-project-root
+    const lastRootFile = earlyPath.join(homedir(), '.memorix', 'last-project-root');
+    const initialCheck = detectProjectWithDiagnostics(projectRoot);
+    if (!initialCheck.project && existsSync(lastRootFile)) {
+      try {
+        const lastRoot = readFileSync(lastRootFile, 'utf-8').trim();
+        if (lastRoot && existsSync(lastRoot)) {
+          const lastCheck = detectProjectWithDiagnostics(lastRoot);
+          if (lastCheck.project) {
+            console.error(`[memorix] No git at "${projectRoot}", restored last known project: ${lastRoot}`);
+            projectRoot = lastRoot;
+          }
+        }
+      } catch { /* ignore */ }
+    }
 
     console.error(`[memorix] HTTP transport starting on port ${port}`);
     console.error(`[memorix] Project root: ${projectRoot}`);
@@ -118,6 +137,130 @@ export default defineCommand({
     }
 
     /**
+     * Patch ServerResponse for MCP compatibility with strict HTTP clients (rmcp/reqwest).
+     *
+     * Fixes three Hono/Node.js response issues that cause "error decoding response body" in Codex:
+     * 1. Empty 202 responses get Transfer-Encoding:chunked instead of Content-Length:0
+     * 2. SSE responses (text/event-stream) get Content-Length when the stream completes
+     *    quickly, which confuses SSE parsers expecting a streaming response.
+     * 3. JSON responses with multi-byte UTF-8 (emoji) get wrong Content-Length because
+     *    Hono's listener.js calculates it via value.length (character count) instead of
+     *    Buffer.byteLength (byte count). This makes rmcp/reqwest choke on search results.
+     */
+    function patchMcpResponse(res: ServerResponse): void {
+      const origWriteHead = res.writeHead;
+      const origWrite = res.write;
+      const origEnd = res.end;
+
+      // JSON buffering state — needed because the MCP transport pipes Response body
+      // via write(chunk)+end(), and we must set byte-accurate Content-Length before
+      // the first byte is sent (chunked encoding confuses rmcp/reqwest in Codex).
+      let isJsonResponse = false;
+      let deferredWriteHeadArgs: [number, ...any[]] | null = null;
+      let bufferedChunks: Buffer[] = [];
+
+      (res as any).writeHead = function (statusCode: number, ...rest: any[]): ServerResponse {
+        // Locate headers object in overloaded writeHead(status, headers) or writeHead(status, msg, headers)
+        let headers: Record<string, any> | undefined;
+        for (let i = rest.length - 1; i >= 0; i--) {
+          if (rest[i] && typeof rest[i] === 'object' && !Array.isArray(rest[i])) {
+            headers = rest[i];
+            break;
+          }
+        }
+
+        // Fix 1: Empty-body responses (202/204) — set Content-Length: 0, remove chunked
+        if (statusCode === 202 || statusCode === 204) {
+          if (headers) {
+            headers['content-length'] = '0';
+            delete headers['transfer-encoding'];
+          }
+          this.setHeader('content-length', '0');
+          this.removeHeader('transfer-encoding');
+          return origWriteHead.apply(this, [statusCode, ...rest] as any);
+        }
+
+        // Fix 2: SSE responses — must NOT have Content-Length (forces chunked streaming)
+        const ct = headers?.['content-type'] ?? headers?.['Content-Type'] ?? this.getHeader('content-type');
+        if (typeof ct === 'string' && ct.includes('text/event-stream')) {
+          if (headers) {
+            delete headers['content-length'];
+            delete headers['Content-Length'];
+          }
+          this.removeHeader('content-length');
+          return origWriteHead.apply(this, [statusCode, ...rest] as any);
+        }
+
+        // Fix 3: JSON responses — defer writeHead AND buffer body via write().
+        // The MCP transport pipes the Web Response body as write(chunk)+end().
+        // Without buffering, chunked Transfer-Encoding is used (no Content-Length),
+        // which rmcp/reqwest fails to decode. We accumulate chunks and flush
+        // everything atomically in end() with byte-accurate Content-Length.
+        if (typeof ct === 'string' && ct.includes('application/json')) {
+          isJsonResponse = true;
+          deferredWriteHeadArgs = [statusCode, ...rest];
+          return this; // defer — flushed in end()
+        }
+
+        return origWriteHead.apply(this, [statusCode, ...rest] as any);
+      };
+
+      // Buffer write() calls for JSON responses
+      (res as any).write = function (chunk: any, ...args: any[]): boolean {
+        if (isJsonResponse) {
+          if (chunk != null) {
+            bufferedChunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+          }
+          // Call the callback if provided (write(chunk, encoding, cb) or write(chunk, cb))
+          const cb = args.length > 0 ? args[args.length - 1] : undefined;
+          if (typeof cb === 'function') cb();
+          return true;
+        }
+        return origWrite.apply(this, [chunk, ...args] as any);
+      };
+
+      // Flush buffered JSON body with correct Content-Length
+      (res as any).end = function (chunk?: any, ...args: any[]): ServerResponse {
+        if (isJsonResponse && deferredWriteHeadArgs) {
+          // Collect final chunk
+          if (chunk != null && typeof chunk !== 'function') {
+            bufferedChunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk)));
+          }
+          const body = Buffer.concat(bufferedChunks);
+
+          // Set byte-accurate Content-Length in writeHead headers
+          const [status, ...whRest] = deferredWriteHeadArgs;
+          for (let i = whRest.length - 1; i >= 0; i--) {
+            if (whRest[i] && typeof whRest[i] === 'object' && !Array.isArray(whRest[i])) {
+              whRest[i]['content-length'] = String(body.length);
+              delete whRest[i]['Content-Length'];
+              delete whRest[i]['transfer-encoding'];
+              break;
+            }
+          }
+          this.setHeader('content-length', String(body.length));
+          this.removeHeader('transfer-encoding');
+
+          // Flush atomically: writeHead then end(body)
+          origWriteHead.apply(this, [status, ...whRest] as any);
+          deferredWriteHeadArgs = null;
+          bufferedChunks = [];
+
+          // Resolve the callback from end() args
+          const cb = args.length > 0 ? args[args.length - 1] : undefined;
+          return origEnd.call(this, body, typeof cb === 'function' ? cb : undefined);
+        }
+
+        // Non-JSON: pass through
+        if (deferredWriteHeadArgs) {
+          origWriteHead.apply(this, deferredWriteHeadArgs as any);
+          deferredWriteHeadArgs = null;
+        }
+        return origEnd.apply(this, [chunk, ...args] as any);
+      };
+    }
+
+    /**
      * Send CORS headers (allow all origins for local dev)
      */
     function setCorsHeaders(res: ServerResponse) {
@@ -137,6 +280,7 @@ export default defineCommand({
       if (sessionId && sessions.has(sessionId)) {
         // Existing session — route to its transport
         sessionLastActivity.set(sessionId, Date.now());
+        patchMcpResponse(res);
         await sessions.get(sessionId)!.transport.handleRequest(req, res, body);
         return;
       }
@@ -146,6 +290,7 @@ export default defineCommand({
         let createdState: SessionState | null = null;
         const transport = new StreamableHTTPServerTransport({
           sessionIdGenerator: () => randomUUID(),
+          enableJsonResponse: true,
           onsessioninitialized: (sid: string) => {
             if (createdState) sessions.set(sid, createdState);
             sessionLastActivity.set(sid, Date.now());
@@ -214,8 +359,10 @@ export default defineCommand({
             for (const root of roots) {
               if (!root.uri.startsWith('file://')) continue;
               let rootPath = decodeURIComponent(root.uri.replace('file://', ''));
+              // Cross-platform: strip leading slash on Windows drive paths
               if (/^\/[A-Za-z]:/.test(rootPath)) rootPath = rootPath.slice(1);
-              rootPath = rootPath.replace(/\//g, '\\');
+              // Normalize to OS-native separators
+              rootPath = earlyPath.normalize(rootPath);
 
               const switched = await switchProject(rootPath);
               if (switched) {
@@ -246,6 +393,7 @@ export default defineCommand({
           });
         } catch { /* optional */ }
 
+        patchMcpResponse(res);
         await transport.handleRequest(req, res, body);
         queueMicrotask(() => {
           tryRootsSwitch().catch(() => {});
@@ -384,54 +532,40 @@ export default defineCommand({
 
       try {
         if (apiPath === '/team') {
-          // Read cross-IDE team state from shared file (stdio agents)
-          const { dataDir: teamDataDir } = await resolveRequestProject(url);
-          const teamStatePath = pathModule.default.join(teamDataDir, 'team-state.json');
-          try {
-            const raw = await fsPromises.readFile(teamStatePath, 'utf8');
-            const snap = JSON.parse(raw);
-            if (snap.version === 1) {
-              const { AgentRegistry } = await import('../../team/registry.js');
-              const { MessageBus } = await import('../../team/messages.js');
-              const { FileLockRegistry } = await import('../../team/file-locks.js');
-              const { TaskManager } = await import('../../team/tasks.js');
-              const reg = new AgentRegistry();
-              const mb = new MessageBus(reg);
-              const fl = new FileLockRegistry();
-              const tm = new TaskManager();
-              reg.hydrate(snap.registry);
-              mb.hydrate(snap.messages);
-              fl.hydrate(snap.locks);
-              tm.hydrate(snap.tasks);
-              fl.cleanExpired();
-              const agents = reg.listAgents();
-              const locks = fl.listLocks();
-              const tasks = tm.list();
-              const available = tm.getAvailable();
-              sendJson({
-                agents: agents.map((a: any) => ({ ...a, unread: mb.getUnreadCount(a.id) })),
-                activeCount: reg.getActiveCount(),
-                locks,
-                tasks,
-                availableTasks: available.length,
-                sessions: sessions.size,
-              });
-              return;
-            }
-          } catch { /* file doesn't exist or invalid — fall through to in-memory */ }
-
-          // Fallback: use HTTP server's in-memory team state
+          // Team state is GLOBAL (not per-project) — always use in-memory state first.
+          // This is correct for HTTP mode where all projects share one control plane.
+          // File-based state is merged as a secondary source for stdio cross-IDE agents.
           sharedTeam.fileLocks.cleanExpired();
           const agents = sharedTeam.registry.listAgents();
           const locks = sharedTeam.fileLocks.listLocks();
           const tasks = sharedTeam.taskManager.list();
           const available = sharedTeam.taskManager.getAvailable();
+
+          // Merge file-based stdio agent state (if any) for cross-IDE visibility
+          let fileAgents: any[] = [];
+          try {
+            const { dataDir: teamDataDir } = await resolveRequestProject(url);
+            const teamStatePath = pathModule.default.join(teamDataDir, 'team-state.json');
+            const raw = await fsPromises.readFile(teamStatePath, 'utf8');
+            const snap = JSON.parse(raw);
+            if (snap.version === 1 && snap.registry?.agents) {
+              const httpAgentIds = new Set(agents.map((a: any) => a.id));
+              fileAgents = (snap.registry.agents as any[]).filter(
+                (a: any) => !httpAgentIds.has(a.id),
+              );
+            }
+          } catch { /* no file-based state — that's fine */ }
+
           sendJson({
-            agents: agents.map((a: any) => ({
-              ...a,
-              unread: sharedTeam.messageBus.getUnreadCount(a.id),
-            })),
-            activeCount: sharedTeam.registry.getActiveCount(),
+            agents: [
+              ...agents.map((a: any) => ({
+                ...a,
+                unread: sharedTeam.messageBus.getUnreadCount(a.id),
+                transport: 'http',
+              })),
+              ...fileAgents.map((a: any) => ({ ...a, transport: 'stdio' })),
+            ],
+            activeCount: sharedTeam.registry.getActiveCount() + fileAgents.filter((a: any) => a.status === 'active').length,
             locks,
             tasks,
             availableTasks: available.length,
@@ -528,6 +662,12 @@ export default defineCommand({
             };
           } catch { /* best effort */ }
 
+          let vectorStatus = { total: 0, missing: 0, missingIds: [] as number[], backfillRunning: false };
+          try {
+            const { getVectorStatus } = await import('../../memory/observations.js');
+            vectorStatus = getVectorStatus();
+          } catch { /* best effort */ }
+
           sendJson({
             entities: graph.entities.length,
             relations: graph.relations.length,
@@ -537,6 +677,7 @@ export default defineCommand({
             sourceCounts,
             recentObservations: sorted,
             embedding: embeddingStatus,
+            vectorStatus,
             gitSummary: {
               total: gitMemories.length,
               recentWeek: recentGitCount,

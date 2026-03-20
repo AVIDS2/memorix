@@ -16,6 +16,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 vi.mock('../../src/embedding/provider.js', () => ({
   getEmbeddingProvider: async () => null,
   isVectorSearchAvailable: async () => false,
+  isEmbeddingExplicitlyDisabled: () => true,
   resetProvider: () => {},
 }));
 
@@ -650,6 +651,48 @@ describe('HTTP Transport', () => {
     } finally {
       await transport.close();
     }
+  });
+
+  it('should succeed when rebinding via alias path (same canonical project)', async () => {
+    // Create an alias directory with the same git remote as project-a
+    const projectAAliasDir = path.join(testDir, 'project-a-alias');
+    await fs.mkdir(projectAAliasDir, { recursive: true });
+    await createFakeGitRepo(projectAAliasDir, 'https://github.com/AVIDS2/http-project-a.git');
+
+    const sessionId = await initSession();
+
+    // First: bind to project-a
+    const bindRes = await mcpPost({
+      jsonrpc: '2.0',
+      method: 'tools/call',
+      params: {
+        name: 'memorix_session_start',
+        arguments: { agent: 'alias-rebind', projectRoot: projectADir },
+      },
+      id: 701,
+    }, sessionId);
+    const bindResult = CallToolResultSchema.parse(bindRes.json?.result);
+    expect(bindResult.isError).toBeFalsy();
+    const bindText = bindResult.content.map((part: any) => part.text ?? '').join('\n');
+    expect(bindText).toContain('AVIDS2/http-project-a');
+
+    // Second: rebind via alias path (different directory, same git remote = same canonical)
+    // switchProject returns false (same canonical, no-op) → fallback path checks canonical ID match → success
+    const rebindRes = await mcpPost({
+      jsonrpc: '2.0',
+      method: 'tools/call',
+      params: {
+        name: 'memorix_session_start',
+        arguments: { agent: 'alias-rebind', projectRoot: projectAAliasDir },
+      },
+      id: 702,
+    }, sessionId);
+
+    const rebindResult = CallToolResultSchema.parse(rebindRes.json?.result);
+    // Should succeed — same canonical project, just a different path
+    expect(rebindResult.isError).toBeFalsy();
+    const rebindText = rebindResult.content.map((part: any) => part.text ?? '').join('\n');
+    expect(rebindText).toContain('AVIDS2/http-project-a');
   });
 
   it('should reject requests with invalid session ID', async () => {

@@ -74,22 +74,43 @@ interface WorkbenchState {
   headerLines: string[];
   running: boolean;
   statusLine: string;
+  _headerInfo: HeaderInfo;
 }
 
-// ── Header Detection ───────────────────────────────────────────
-async function detectHeader(): Promise<string[]> {
-  const lines: string[] = [];
+// ── ASCII Art Logo ─────────────────────────────────────────────
+const LOGO_LINES = [
+  ' _____ _____ _____ _____ _____ _____ __ __',
+  '|     |   __|     |     | __  |     |  |  |',
+  '| | | |   __| | | |  |  |    -|-   -|_   _|',
+  '|_|_|_|_____|_|_|_|_____|__|__|_____|_|___|',
+];
+const LOGO_WIDTH = 44;
 
-  let projectLabel = `${DIM}no project${RESET}`;
+// ── Header Detection ───────────────────────────────────────────
+interface HeaderInfo {
+  projectName: string;
+  projectId: string;
+  mode: string;
+  modeDetail: string;
+  search: string;
+  memCount: string;
+}
+
+async function detectHeaderInfo(): Promise<HeaderInfo> {
+  const info: HeaderInfo = {
+    projectName: '', projectId: '', mode: 'CLI', modeDetail: '',
+    search: 'BM25', memCount: '--',
+  };
+
   try {
     const { detectProject } = await import('../project/detector.js');
     const proj = detectProject(process.cwd());
     if (proj) {
-      projectLabel = `${WHITE}${proj.name}${RESET} ${DIM}(${proj.id})${RESET}`;
+      info.projectName = proj.name;
+      info.projectId = proj.id;
     }
   } catch { /* ignore */ }
 
-  let modeLabel = `${DIM}CLI${RESET}`;
   try {
     const { existsSync, readFileSync } = await import('node:fs');
     const { join } = await import('node:path');
@@ -97,114 +118,139 @@ async function detectHeader(): Promise<string[]> {
     const bgPath = join(homedir(), '.memorix', 'background.json');
     if (existsSync(bgPath)) {
       const bg = JSON.parse(readFileSync(bgPath, 'utf-8'));
-      try { process.kill(bg.pid, 0); modeLabel = `${GREEN}Background${RESET} ${DIM}port ${bg.port}${RESET}`; } catch { /* dead */ }
+      try { process.kill(bg.pid, 0); info.mode = 'Background'; info.modeDetail = `port ${bg.port}`; } catch { /* dead */ }
     }
   } catch { /* ignore */ }
 
-  let searchLabel = `${DIM}BM25 fulltext${RESET}`;
   try {
     const { getEmbeddingMode } = await import('../config.js');
-    if (getEmbeddingMode() !== 'off') {
-      searchLabel = `${CYAN}hybrid${RESET} ${DIM}BM25 + vector${RESET}`;
-    }
+    if (getEmbeddingMode() !== 'off') info.search = 'Hybrid';
   } catch { /* ignore */ }
 
-  let memLabel = '';
-  try {
-    const { detectProject } = await import('../project/detector.js');
-    const { getProjectDataDir, loadObservationsJson } = await import('../store/persistence.js');
-    const proj = detectProject(process.cwd());
-    if (proj) {
-      const dataDir = await getProjectDataDir(proj.id);
+  if (info.projectName) {
+    try {
+      const { getProjectDataDir, loadObservationsJson } = await import('../store/persistence.js');
+      const dataDir = await getProjectDataDir(info.projectId);
       const { existsSync } = await import('node:fs');
       const { join } = await import('node:path');
-      const obsFile = join(dataDir, 'observations.json');
-      if (existsSync(obsFile)) {
+      if (existsSync(join(dataDir, 'observations.json'))) {
         const obs = await loadObservationsJson(dataDir) as any[];
         const active = obs.filter((o: any) => (o.status ?? 'active') === 'active').length;
-        memLabel = `${WHITE}${active}${RESET} ${DIM}active${RESET}`;
+        info.memCount = String(active);
       }
-    }
-  } catch { /* ignore */ }
-  if (!memLabel) memLabel = `${DIM}--${RESET}`;
+    } catch { /* ignore */ }
+  }
 
-  lines.push(`  ${DIM}Project${RESET}   ${projectLabel}`);
-  lines.push(`  ${DIM}Mode${RESET}      ${modeLabel}`);
-  lines.push(`  ${DIM}Search${RESET}    ${searchLabel}`);
-  lines.push(`  ${DIM}Memories${RESET}  ${memLabel}`);
+  return info;
+}
 
-  return lines;
+// ── Centered text helper ───────────────────────────────────────
+function centerText(text: string, width: number, visibleLen?: number): string {
+  const len = visibleLen ?? text.length;
+  const pad = Math.max(0, Math.floor((width - len) / 2));
+  return ' '.repeat(pad) + text;
 }
 
 // ── Rendering ──────────────────────────────────────────────────
 function render(state: WorkbenchState): void {
-  const { columns: W, rows: H } = process.stdout;
-  let out = '';
+  const W = process.stdout.columns || 80;
+  const H = process.stdout.rows || 24;
+  const contentW = Math.min(W, 80);
+  const marginL = Math.max(1, Math.floor((W - contentW) / 2));
+  const pad = (s: string) => ' '.repeat(marginL) + s;
+  let out = CLEAR_SCREEN;
 
-  // Clear and position
-  out += CLEAR_SCREEN;
-
-  // ── Top bar ──
-  const ver = `v${pkg.version}`;
-  const titleLine = `  ${BOLD}Memorix Workbench${RESET}`;
-  const verPad = Math.max(2, W - 20 - ver.length);
-  out += moveTo(2, 1) + titleLine + ' '.repeat(verPad) + `${DIM}${ver}${RESET}`;
-  out += moveTo(3, 1) + `  ${DIM}${'─'.repeat(Math.min(W - 4, 70))}${RESET}`;
-
-  // ── Header info ──
-  for (let i = 0; i < state.headerLines.length; i++) {
-    out += moveTo(4 + i, 1) + state.headerLines[i];
+  // ── Logo (centered, top third) ──
+  const logoStart = Math.max(2, Math.floor(H * 0.15));
+  for (let i = 0; i < LOGO_LINES.length; i++) {
+    out += moveTo(logoStart + i, 1) + centerText(`${BOLD}${CYAN}${LOGO_LINES[i]}${RESET}`, W, LOGO_WIDTH);
   }
-  const headerEnd = 4 + state.headerLines.length;
-  out += moveTo(headerEnd, 1) + `  ${DIM}${'─'.repeat(Math.min(W - 4, 70))}${RESET}`;
 
-  // ── Input area ──
-  const inputRow = headerEnd + 2;
+  // ── Subtitle + status badges (below logo, centered) ──
+  const badgeRow = logoStart + LOGO_LINES.length + 1;
+  const info = state._headerInfo;
+
+  // Project badge
+  const projBadge = info.projectName
+    ? `${WHITE}${info.projectName}${RESET}`
+    : `${DIM}no project${RESET}`;
+  // Mode badge
+  const modeBadge = info.mode === 'Background'
+    ? `${GREEN}${info.mode}${RESET} ${DIM}${info.modeDetail}${RESET}`
+    : `${DIM}${info.mode}${RESET}`;
+  // Search badge
+  const searchBadge = info.search === 'Hybrid'
+    ? `${CYAN}${info.search}${RESET}`
+    : `${DIM}${info.search}${RESET}`;
+  // Memory badge
+  const memBadge = info.memCount !== '--'
+    ? `${WHITE}${info.memCount}${RESET} ${DIM}memories${RESET}`
+    : `${DIM}-- memories${RESET}`;
+
+  const statusLine = `${projBadge}  ${DIM}·${RESET}  ${modeBadge}  ${DIM}·${RESET}  ${searchBadge}  ${DIM}·${RESET}  ${memBadge}`;
+  const statusVisLen = (info.projectName || 'no project').length + 3 + info.mode.length + (info.modeDetail ? 1 + info.modeDetail.length : 0) + 3 + info.search.length + 3 + (info.memCount !== '--' ? info.memCount.length + 9 : 12);
+  out += moveTo(badgeRow, 1) + centerText(statusLine, W, statusVisLen);
+
+  // ── Input box (centered, with left accent border) ──
+  const inputRow = badgeRow + 3;
+  const boxW = Math.min(contentW - 4, 68);
+  const boxL = Math.max(1, Math.floor((W - boxW) / 2));
   const inputDisplay = state.input || '';
   const placeholder = !inputDisplay ? `${DIM}Search memories or type / for commands${RESET}` : '';
+  const inputContent = `${placeholder}${WHITE}${inputDisplay}${RESET}`;
 
-  out += moveTo(inputRow, 1) + `  ${CYAN}>${RESET} ${placeholder}${WHITE}${inputDisplay}${RESET}`;
+  // Top border with accent
+  out += moveTo(inputRow, boxL) + `${CYAN}┌${DIM}${'─'.repeat(boxW - 2)}${CYAN}┐${RESET}`;
+  // Input line
+  out += moveTo(inputRow + 1, boxL) + `${CYAN}│${RESET} ${inputContent}`;
+  // Fill rest of box width
+  out += moveTo(inputRow + 1, boxL + boxW - 1) + `${DIM}│${RESET}`;
+  // Bottom border
+  out += moveTo(inputRow + 2, boxL) + `${CYAN}└${DIM}${'─'.repeat(boxW - 2)}${CYAN}┘${RESET}`;
 
-  // ── Slash command popup ──
+  // ── Slash command popup (below input box, aligned) ──
   if (state.showSlashMenu && state.filteredCommands.length > 0) {
-    const menuRow = inputRow + 1;
+    const menuRow = inputRow + 3;
     const cmds = state.filteredCommands;
-    const maxVisible = Math.min(cmds.length, H - menuRow - 4);
+    const maxVisible = Math.min(cmds.length, H - menuRow - 3);
+    const menuW = Math.min(boxW, 56);
+    const menuL = boxL;
 
-    out += moveTo(menuRow, 1) + `  ${DIM}┌${'─'.repeat(50)}┐${RESET}`;
     for (let i = 0; i < maxVisible; i++) {
       const cmd = cmds[i];
       const isSelected = i === state.slashMenuIndex;
-      const prefix = isSelected ? `${BG_HIGHLIGHT}${YELLOW}` : `  `;
       const nameStr = `${isSelected ? YELLOW : CYAN}${cmd.name.padEnd(16)}${RESET}`;
       const descStr = `${DIM}${cmd.description}${RESET}`;
-      const line = isSelected
-        ? `${BG_HIGHLIGHT}  ${nameStr}${descStr}${''.padEnd(Math.max(0, 48 - cmd.name.length - cmd.description.length))}${BG_RESET}`
-        : `  ${nameStr}${descStr}`;
-      out += moveTo(menuRow + 1 + i, 1) + `  ${DIM}│${RESET}${line}${DIM}│${RESET}`;
+      const bg = isSelected ? BG_HIGHLIGHT : '';
+      const bgEnd = isSelected ? BG_RESET : '';
+      const lineContent = `${bg} ${nameStr} ${descStr}`;
+      const fillLen = Math.max(0, menuW - cmd.name.length - cmd.description.length - 20);
+      out += moveTo(menuRow + i, menuL) + `${lineContent}${' '.repeat(fillLen)}${bgEnd}`;
     }
-    out += moveTo(menuRow + 1 + maxVisible, 1) + `  ${DIM}└${'─'.repeat(50)}┘${RESET}`;
   }
 
-  // ── Output area ──
-  const outputStart = state.showSlashMenu
-    ? inputRow + 3 + Math.min(state.filteredCommands.length, H - inputRow - 6)
-    : inputRow + 2;
+  // ── Keyboard hints (centered, below input) ──
+  const hintRow = state.showSlashMenu
+    ? inputRow + 4 + Math.min(state.filteredCommands.length, H - inputRow - 7)
+    : inputRow + 4;
+
+  const hints = `${DIM}/ commands${RESET}    ${DIM}esc clear${RESET}    ${DIM}ctrl+c exit${RESET}`;
+  out += moveTo(hintRow, 1) + centerText(hints, W, 38);
+
+  // ── Output area (below hints) ──
+  const outputStart = hintRow + 2;
   const maxOutputLines = Math.max(0, H - outputStart - 2);
   const visibleOutput = state.outputLines.slice(-maxOutputLines);
   for (let i = 0; i < visibleOutput.length; i++) {
-    out += moveTo(outputStart + i, 1) + `  ${visibleOutput[i]}`;
+    out += moveTo(outputStart + i, boxL) + visibleOutput[i];
   }
 
   // ── Bottom bar ──
-  out += moveTo(H, 1) + `${BG_DARK}  ${DIM}/${RESET}${BG_DARK} commands  ${DIM}esc${RESET}${BG_DARK} clear  ${DIM}ctrl+c${RESET}${BG_DARK} exit`;
-  if (state.statusLine) {
-    out += `  ${DIM}${state.statusLine}${RESET}`;
-  }
-  out += ' '.repeat(Math.max(0, W - 50)) + BG_RESET;
+  const verStr = `${DIM}v${pkg.version}${RESET}`;
+  out += moveTo(H, W - pkg.version.length - 2) + verStr;
 
-  // Position cursor at input
-  out += moveTo(inputRow, 5 + state.cursorPos);
+  // Position cursor inside the input box
+  out += moveTo(inputRow + 1, boxL + 2 + state.cursorPos);
   out += CURSOR_SHOW;
 
   process.stdout.write(out);
@@ -418,6 +464,7 @@ export async function startWorkbench(): Promise<void> {
   }
   process.stdin.resume();
 
+  const defaultInfo: HeaderInfo = { projectName: '', projectId: '', mode: 'CLI', modeDetail: '', search: 'BM25', memCount: '--' };
   const state: WorkbenchState = {
     input: '',
     cursorPos: 0,
@@ -428,14 +475,13 @@ export async function startWorkbench(): Promise<void> {
     headerLines: [],
     running: true,
     statusLine: '',
+    _headerInfo: defaultInfo,
   };
 
   // Detect header info
   try {
-    state.headerLines = await detectHeader();
-  } catch {
-    state.headerLines = [`  ${DIM}(detecting project...)${RESET}`];
-  }
+    state._headerInfo = await detectHeaderInfo();
+  } catch { /* use defaults */ }
 
   // Clean exit handler
   const cleanup = () => {

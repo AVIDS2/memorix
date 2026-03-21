@@ -78,8 +78,8 @@ export function Sidebar({ health, background }: SidebarProps): React.ReactElemen
         </Box>
         {health.embeddingProviderName && (
           <Box>
-            <Text color={COLORS.muted}>{'Provider'.padEnd(10)}</Text>
-            <Text color={COLORS.textDim}>{truncate(health.embeddingProviderName)}</Text>
+            <Text color={COLORS.muted}>{'  '}</Text>
+            <Text color={COLORS.textDim}>{truncate(health.embeddingProviderName, 20)}</Text>
           </Box>
         )}
         <Box>

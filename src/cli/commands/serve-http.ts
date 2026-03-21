@@ -991,6 +991,31 @@ export default defineCommand({
 
       // MCP endpoint
       if (url.pathname === '/mcp') {
+        // Ensure Accept header includes both application/json and text/event-stream.
+        // Some MCP clients (e.g. rmcp) omit text/event-stream, causing the SDK's
+        // StreamableHTTPServerTransport to reject with 406 Not Acceptable.
+        // Hono's node-server reads rawHeaders (not req.headers), so we must patch both.
+        const accept = req.headers['accept'] || '';
+        const needs: string[] = [];
+        if (!accept.includes('application/json')) needs.push('application/json');
+        if (!accept.includes('text/event-stream')) needs.push('text/event-stream');
+        if (needs.length > 0) {
+          const patched = accept ? `${accept}, ${needs.join(', ')}` : needs.join(', ');
+          req.headers['accept'] = patched;
+          // Patch rawHeaders array (Hono reads this for Web Standard Request conversion)
+          let found = false;
+          for (let i = 0; i < req.rawHeaders.length; i += 2) {
+            if (req.rawHeaders[i].toLowerCase() === 'accept') {
+              req.rawHeaders[i + 1] = patched;
+              found = true;
+              break;
+            }
+          }
+          if (!found) {
+            req.rawHeaders.push('Accept', patched);
+          }
+        }
+
         try {
           switch (req.method) {
             case 'POST':

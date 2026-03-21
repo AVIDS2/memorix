@@ -1,19 +1,18 @@
 /**
- * Memorix TUI Entry Point
+ * Memorix TUI entry point.
  *
- * Renders the Ink-based workbench. Handles alternate screen buffer,
- * interactive command fallback (exit Ink → run @clack/prompts → re-enter Ink),
- * and clean exit.
+ * Renders the Ink-based workbench, manages the alternate screen buffer,
+ * handles the remaining interactive-command fallback, and exits cleanly.
  */
 
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-// At runtime, bundled code lives at dist/cli/index.js — 2 levels from root
+// At runtime, bundled code lives at dist/cli/index.js, two levels from root.
 const pkg = require('../../package.json') as { version: string };
 
-// ANSI escape sequences for alternate screen
-const ALT_ON  = '\x1b[?1049h\x1b[?25l';
+// ANSI escape sequences for alternate screen.
+const ALT_ON = '\x1b[?1049h\x1b[?25l';
 const ALT_OFF = '\x1b[?25h\x1b[?1049l';
 
 /**
@@ -21,7 +20,6 @@ const ALT_OFF = '\x1b[?25h\x1b[?1049l';
  * Exported as `startWorkbench` so the CLI entry can call it.
  */
 export async function startWorkbench(): Promise<void> {
-  // Dynamically import Ink + React to keep the module boundary clean
   const { render } = await import('ink');
   const React = await import('react');
   const { WorkbenchApp } = await import('./App.js');
@@ -29,34 +27,14 @@ export async function startWorkbench(): Promise<void> {
   let pendingInteractiveCmd: string | null = null;
   let instance: ReturnType<typeof render> | null = null;
 
-  // Suppress ALL output during TUI — must intercept at process level
-  // because embedding providers and other modules call console.error which
-  // resolves to process.stderr.write, and they may cache the original reference.
-  const origStderrWrite = process.stderr.write.bind(process.stderr);
-  const origLog = console.log;
-  const origError = console.error;
-  const origWarn = console.warn;
-  let tuiActive = false;
-
   const enterTUI = () => {
-    // Silence at every level: console + process.stderr
-    console.log = () => {};
-    console.error = () => {};
-    console.warn = () => {};
-    // Intercept process.stderr.write to swallow embedding/provider logs
-    const stderrProxy = function(chunk: any, encodingOrCb?: any, cb?: any): boolean {
-      if (tuiActive) return true;
-      return origStderrWrite(chunk, encodingOrCb, cb);
-    };
-    process.stderr.write = stderrProxy as typeof process.stderr.write;
-    tuiActive = true;
-
     process.stdout.write(ALT_ON);
 
     const app = React.createElement(WorkbenchApp, {
       version: pkg.version,
       onExitForInteractive: (cmd: string) => {
         pendingInteractiveCmd = cmd;
+        // Unmount Ink so any remaining external prompt flow can take over stdin/stdout.
         instance?.unmount();
       },
     });
@@ -67,39 +45,33 @@ export async function startWorkbench(): Promise<void> {
   };
 
   const exitTUI = () => {
-    tuiActive = false;
-    console.log = origLog;
-    console.error = origError;
-    console.warn = origWarn;
-    process.stderr.write = origStderrWrite;
     process.stdout.write(ALT_OFF);
   };
 
-  // Main loop: Ink → (optional interactive command) → Ink → ...
+  // Main loop: Ink -> optional interactive command -> Ink -> ...
   while (true) {
     pendingInteractiveCmd = null;
     enterTUI();
 
     try {
       await instance!.waitUntilExit();
-    } catch { /* unmounted */ }
+    } catch {
+      // Ignore unmount-triggered exits.
+    }
 
     exitTUI();
 
-    // If there's a pending interactive command, run it outside of Ink
     if (pendingInteractiveCmd) {
       await runInteractiveCommand(pendingInteractiveCmd);
-      // After the interactive command finishes, re-enter the TUI
       continue;
     }
 
-    // Normal exit (user typed /exit or Ctrl+C)
     break;
   }
 }
 
 /**
- * Run an interactive @clack/prompts command outside of Ink.
+ * Run an interactive command outside of Ink.
  * The terminal is in normal mode here (not alternate screen).
  */
 async function runInteractiveCommand(cmd: string): Promise<void> {
@@ -107,14 +79,10 @@ async function runInteractiveCommand(cmd: string): Promise<void> {
     switch (cmd) {
       case '/configure':
       case '/config': {
-        // Import the configure logic from the main CLI index
-        // We need to call runConfigure() which is defined in index.ts
-        // For now, dynamically import and run the configure flow
         const indexModule = await import('../index.js');
-        if (typeof (indexModule as any).runConfigureStandalone === 'function') {
-          await (indexModule as any).runConfigureStandalone();
+        if (typeof (indexModule as { runConfigureStandalone?: () => Promise<void> }).runConfigureStandalone === 'function') {
+          await (indexModule as { runConfigureStandalone: () => Promise<void> }).runConfigureStandalone();
         } else {
-          // Fallback: run directly
           console.log('\nOpening configuration...\n');
           const { runConfigureInline } = await import('./interactive-commands.js');
           await runConfigureInline();
@@ -122,25 +90,7 @@ async function runInteractiveCommand(cmd: string): Promise<void> {
         break;
       }
 
-      case '/integrate':
-      case '/setup': {
-        const m = await import('../commands/integrate.js');
-        await m.default.run?.({ args: { _: [] }, rawArgs: [], cmd: m.default } as any);
-        break;
-      }
-
-      case '/cleanup': {
-        const { runCleanupInline } = await import('./interactive-commands.js');
-        await runCleanupInline();
-        break;
-      }
-
-      case '/ingest': {
-        const { runIngestInline } = await import('./interactive-commands.js');
-        await runIngestInline();
-        break;
-      }
-
+      // /cleanup, /ingest, and /integrate are Ink-native views handled in App.tsx.
       default:
         console.log(`Unknown interactive command: ${cmd}`);
     }
@@ -148,15 +98,14 @@ async function runInteractiveCommand(cmd: string): Promise<void> {
     console.error(`Command failed: ${err instanceof Error ? err.message : err}`);
   }
 
-  // Brief pause so user can see output before TUI re-enters
   console.log('\nPress Enter to return to workbench...');
   await new Promise<void>((resolve) => {
     const onData = () => {
       process.stdin.removeListener('data', onData);
       resolve();
     };
+
     process.stdin.once('data', onData);
-    // Auto-return after 30s
     setTimeout(() => {
       process.stdin.removeListener('data', onData);
       resolve();

@@ -1,5 +1,5 @@
 /**
- * Sidebar — Right panel with Quick Actions + Health Snapshot
+ * Sidebar right panel with quick action hints and health snapshot.
  */
 
 import React from 'react';
@@ -16,76 +16,101 @@ interface SidebarProps {
 }
 
 const ACTIONS = [
-  { key: 's', label: 'Search memory',   cmd: '/search' },
-  { key: 'r', label: 'Remember',        cmd: '/remember' },
-  { key: 'd', label: 'Doctor',          cmd: '/doctor' },
-  { key: 'b', label: 'Background',      cmd: '/background' },
-  { key: 'w', label: 'Dashboard',       cmd: '/dashboard' },
-  { key: 'c', label: 'Configure',       cmd: '/configure' },
-  { key: 'i', label: 'Integrate IDE',   cmd: '/integrate' },
+  { key: 's', label: 'Search memory', cmd: '/search' },
+  { key: 'r', label: 'Remember', cmd: '/remember' },
+  { key: 'v', label: 'Recent activity', cmd: '/recent' },
+  { key: 'd', label: 'Doctor', cmd: '/doctor' },
+  { key: 'b', label: 'Background', cmd: '/background' },
+  { key: 'w', label: 'Dashboard', cmd: '/dashboard' },
+  { key: 'p', label: 'Project info', cmd: '/project' },
+  { key: 'c', label: 'Configure', cmd: '/configure' },
+  { key: 'i', label: 'Integrate IDE', cmd: '/integrate' },
+  { key: 'h', label: 'Home', cmd: '/home' },
 ];
 
-export function Sidebar({ health, background, activeView }: SidebarProps): React.ReactElement {
+function separator(width: number): string {
+  return '-'.repeat(width);
+}
+
+function colorForMode(mode: string): string {
+  const normalized = mode.toLowerCase();
+  if (normalized.includes('hybrid')) return COLORS.success;
+  if (normalized.includes('vector')) return COLORS.accent;
+  return COLORS.warning;
+}
+
+function truncate(text: string, max = 16): string {
+  if (text.length <= max) return text;
+  return `${text.slice(0, max)}...`;
+}
+
+export function Sidebar({ health, background }: SidebarProps): React.ReactElement {
   return (
     <Box
       flexDirection="column"
-      width={26}
+      width={28}
       borderStyle="single"
       borderColor={COLORS.border}
       paddingX={1}
     >
-      {/* Actions */}
       <Box flexDirection="column" marginBottom={1}>
-        <Text color={COLORS.accent} bold>Actions</Text>
-        {ACTIONS.map((a) => (
-          <Box key={a.key}>
-            <Text color={COLORS.accentDim}>{a.key}</Text>
-            <Text color={COLORS.muted}> </Text>
-            <Text color={COLORS.text}>{a.label}</Text>
+        <Text color={COLORS.accentDim} bold>Quick Actions</Text>
+        <Text color={COLORS.border}>{separator(24)}</Text>
+        {ACTIONS.map((action) => (
+          <Box key={action.key}>
+            <Text color={COLORS.muted}>{action.key} </Text>
+            <Text color={COLORS.text}>{action.label}</Text>
           </Box>
         ))}
       </Box>
 
-      {/* System */}
-      <Box flexDirection="column" marginBottom={1}>
-        <Text color={COLORS.accentDim} bold>System</Text>
+      <Box flexDirection="column">
+        <Text color={COLORS.accentDim} bold>Health</Text>
+        <Text color={COLORS.border}>{separator(24)}</Text>
+
         <Box>
-          <Text color={COLORS.muted}>{'Embed'.padEnd(8)}</Text>
+          <Text color={COLORS.muted}>{'Embed'.padEnd(10)}</Text>
           <Text color={
             health.embeddingProvider === 'ready' ? COLORS.success
             : health.embeddingProvider === 'unavailable' ? COLORS.warning
             : COLORS.muted
-          }>{health.embeddingProvider}</Text>
+          }>{health.embeddingLabel}</Text>
         </Box>
-        <Box>
-          <Text color={COLORS.muted}>{'Search'.padEnd(8)}</Text>
-          <Text color={
-            health.searchMode.includes('hybrid') ? COLORS.success
-            : health.searchMode.includes('vector') ? COLORS.accent
-            : COLORS.warning
-          }>{health.searchMode}</Text>
-        </Box>
-        <Box>
-          <Text color={COLORS.muted}>{'Memory'.padEnd(8)}</Text>
-          <Text color={COLORS.text}>{health.activeMemories}</Text>
-        </Box>
-      </Box>
-
-      {/* Control Plane */}
-      <Box flexDirection="column">
-        <Text color={COLORS.accentDim} bold>Control Plane</Text>
-        <Box>
-          <Text color={background.healthy ? COLORS.success : background.running ? COLORS.warning : COLORS.muted}>
-            {background.healthy ? '● Running' : background.running ? '● Unhealthy' : '○ Stopped'}
-          </Text>
-        </Box>
-        {background.port && (
-          <Text color={COLORS.textDim}>:{background.port}</Text>
+        {health.embeddingProviderName && (
+          <Box>
+            <Text color={COLORS.muted}>{'  '}</Text>
+            <Text color={COLORS.textDim}>{truncate(health.embeddingProviderName, 20)}</Text>
+          </Box>
         )}
+        <Box>
+          <Text color={COLORS.muted}>{'Search'.padEnd(10)}</Text>
+          <Text color={colorForMode(health.searchModeLabel)}>{health.searchModeLabel}</Text>
+        </Box>
+        <Box>
+          <Text color={COLORS.muted}>{'Sessions'.padEnd(10)}</Text>
+          <Text color={COLORS.text}>{health.sessions}</Text>
+        </Box>
+
+        <Box marginTop={1} flexDirection="column">
+          <Text color={COLORS.accentDim} bold>Background</Text>
+          <Text color={COLORS.border}>{separator(24)}</Text>
+          <Box>
+            <Text color={COLORS.muted}>Status    </Text>
+            <Text color={background.healthy ? COLORS.success : background.running ? COLORS.warning : COLORS.muted}>
+              {background.healthy ? 'Running' : background.running ? 'Unhealthy' : 'Stopped'}
+            </Text>
+          </Box>
+          {background.port && (
+            <Box>
+              <Text color={COLORS.muted}>Port      </Text>
+              <Text color={COLORS.text}>{background.port}</Text>
+            </Box>
+          )}
+        </Box>
       </Box>
 
       <Box marginTop={1}>
-        <Text color={COLORS.muted} dimColor>/ commands  ctrl+c quit</Text>
+        <Text color={COLORS.muted} italic>Type / for commands</Text>
       </Box>
     </Box>
   );

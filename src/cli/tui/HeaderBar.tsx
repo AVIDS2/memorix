@@ -1,7 +1,5 @@
 /**
- * HeaderBar — Top status bar for Memorix workbench
- *
- * Single-line dense header: brand left, project center, status badges right
+ * Top status bar for the Memorix workbench.
  */
 
 import React from 'react';
@@ -16,6 +14,13 @@ interface HeaderBarProps {
   mode: string;
 }
 
+function colorForMode(mode: string): string {
+  const normalized = mode.toLowerCase();
+  if (normalized.includes('hybrid')) return COLORS.success;
+  if (normalized.includes('vector')) return COLORS.accent;
+  return COLORS.warning;
+}
+
 export function HeaderBar({ version, project, health, mode }: HeaderBarProps): React.ReactElement {
   const projectLabel = project ? project.name : 'no project';
 
@@ -23,32 +28,29 @@ export function HeaderBar({ version, project, health, mode }: HeaderBarProps): R
     <Box
       flexDirection="row"
       justifyContent="space-between"
+      flexShrink={0}
       paddingX={1}
+      borderStyle="single"
+      borderColor={COLORS.border}
+      borderBottom={true}
+      borderTop={false}
+      borderLeft={false}
+      borderRight={false}
     >
-      {/* Left: Brand */}
       <Box>
-        <Text color={COLORS.brand} bold>◆ Memorix</Text>
+        <Text color={COLORS.brand} bold>Memorix</Text>
         <Text color={COLORS.muted}> v{version}</Text>
       </Box>
 
-      {/* Center: Project */}
       <Box>
         <Text color={COLORS.text}>{projectLabel}</Text>
       </Box>
 
-      {/* Right: Status badges */}
       <Box gap={1}>
         <Text color={COLORS.accentDim}>{mode.toLowerCase()}</Text>
-        <Text color={COLORS.muted}>·</Text>
-        <Text color={
-          health.searchMode.includes('hybrid') ? COLORS.success
-          : health.searchMode.includes('vector') ? COLORS.accent
-          : health.searchMode.includes('rerank') ? COLORS.success
-          : COLORS.warning
-        }>
-          {health.searchMode}
-        </Text>
-        <Text color={COLORS.muted}>·</Text>
+        <Text color={COLORS.muted}>|</Text>
+        <Text color={colorForMode(health.searchModeLabel)}>{health.searchModeLabel}</Text>
+        <Text color={COLORS.muted}>|</Text>
         <Text color={COLORS.text}>{health.activeMemories} memories</Text>
       </Box>
     </Box>

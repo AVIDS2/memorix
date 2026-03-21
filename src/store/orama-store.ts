@@ -139,6 +139,46 @@ export async function batchGenerateEmbeddings(texts: string[]): Promise<(number[
 }
 
 /**
+ * Hydrate the Orama index from persisted observations.
+ * Must be called before searching if the index was freshly created (TUI / CLI startup).
+ * Skips observations already in the index (idempotent).
+ */
+export async function hydrateIndex(observations: any[]): Promise<number> {
+  const database = await getDb();
+  const currentCount = await count(database);
+  if (currentCount > 0) return 0; // already hydrated
+
+  let inserted = 0;
+  for (const obs of observations) {
+    if (!obs || !obs.id || !obs.projectId) continue;
+    if ((obs.status ?? 'active') !== 'active') continue;
+    try {
+      const doc: MemorixDocument = {
+        id: makeOramaObservationId(obs.projectId, obs.id),
+        observationId: obs.id,
+        entityName: obs.entityName || '',
+        type: obs.type || 'discovery',
+        title: obs.title || '',
+        narrative: obs.narrative || '',
+        facts: Array.isArray(obs.facts) ? obs.facts.join(' ') : '',
+        filesModified: Array.isArray(obs.filesModified) ? obs.filesModified.join(' ') : '',
+        concepts: Array.isArray(obs.concepts) ? obs.concepts.join(' ') : '',
+        tokens: obs.tokens ?? 0,
+        createdAt: obs.createdAt || '',
+        projectId: obs.projectId,
+        accessCount: obs.accessCount ?? 0,
+        lastAccessedAt: obs.lastAccessedAt || '',
+        status: obs.status ?? 'active',
+        source: obs.source || 'agent',
+      };
+      await insert(database, doc);
+      inserted++;
+    } catch { /* skip malformed entries */ }
+  }
+  return inserted;
+}
+
+/**
  * Insert an observation document into the store.
  */
 export async function insertObservation(doc: MemorixDocument): Promise<void> {

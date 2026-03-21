@@ -1,13 +1,11 @@
 /**
- * Memorix TUI Data Layer — Shared data fetching functions
+ * Memorix TUI data layer.
  *
  * Pure data functions that return structured results without console output.
  * Used by Ink components to populate panels.
  */
 
 import * as fs from 'node:fs';
-
-// ── Types ──────────────────────────────────────────────────────
 
 export interface ProjectInfo {
   name: string;
@@ -18,7 +16,11 @@ export interface ProjectInfo {
 
 export interface HealthInfo {
   embeddingProvider: 'ready' | 'unavailable' | 'disabled';
+  embeddingProviderName?: string;
+  embeddingLabel: string;
   searchMode: string;
+  searchModeLabel: string;
+  searchDiagnostic: string;
   backfillPending: number;
   totalMemories: number;
   activeMemories: number;
@@ -29,7 +31,6 @@ export interface MemoryItem {
   id: number;
   title: string;
   type: string;
-  source: string;
   createdAt: string;
   entityName: string;
   status?: string;
@@ -67,7 +68,32 @@ export interface DoctorSection {
   items: { label: string; value: string; status: 'ok' | 'warn' | 'error' | 'info' }[];
 }
 
-// ── Project ────────────────────────────────────────────────────
+function formatSearchModeLabel(mode: string): string {
+  const normalized = (mode || '').toLowerCase();
+  if (!normalized) return 'Unknown';
+  if (normalized.includes('hybrid') && normalized.includes('rerank')) return 'Hybrid + rerank';
+  if (normalized.includes('hybrid')) return 'Hybrid';
+  if (normalized.includes('vector-only')) return 'Vector fallback';
+  if (normalized.includes('vector')) return 'Vector';
+  if (normalized.includes('fulltext')) return 'BM25 full-text';
+  return mode;
+}
+
+function formatEmbeddingLabel(
+  status: HealthInfo['embeddingProvider'],
+  providerName?: string,
+): string {
+  if (status === 'disabled') return 'Disabled';
+  if (status === 'unavailable') return 'Unavailable';
+  if ((providerName || '').startsWith('api-')) return 'API ready';
+  if (providerName) return 'Local ready';
+  return 'Ready';
+}
+
+function truncate(text: string, max = 60): string {
+  if (text.length <= max) return text;
+  return `${text.slice(0, max)}...`;
+}
 
 export async function getProjectInfo(): Promise<ProjectInfo | null> {
   try {
@@ -85,12 +111,14 @@ export async function getProjectInfo(): Promise<ProjectInfo | null> {
   }
 }
 
-// ── Health ──────────────────────────────────────────────────────
-
 export async function getHealthInfo(projectId?: string): Promise<HealthInfo> {
   const defaults: HealthInfo = {
     embeddingProvider: 'disabled',
-    searchMode: 'BM25',
+    embeddingProviderName: undefined,
+    embeddingLabel: 'Disabled',
+    searchMode: 'fulltext',
+    searchModeLabel: 'BM25 full-text',
+    searchDiagnostic: '',
     backfillPending: 0,
     totalMemories: 0,
     activeMemories: 0,
@@ -105,22 +133,22 @@ export async function getHealthInfo(projectId?: string): Promise<HealthInfo> {
     if (!proj) return defaults;
 
     const dataDir = await getProjectDataDir(projectId || proj.id);
-    const obs = await loadObservationsJson(dataDir) as any[];
+    const obs = (await loadObservationsJson(dataDir)) as any[];
     const active = obs.filter((o: any) => (o.status ?? 'active') === 'active');
 
     defaults.totalMemories = obs.length;
     defaults.activeMemories = active.length;
 
-    // Count sessions
     try {
       const sessionsPath = `${dataDir}/sessions.json`;
       if (fs.existsSync(sessionsPath)) {
         const sessions = JSON.parse(fs.readFileSync(sessionsPath, 'utf-8'));
         defaults.sessions = Array.isArray(sessions) ? sessions.length : 0;
       }
-    } catch { /* ignore */ }
+    } catch {
+      // Ignore unreadable session data and keep defaults.
+    }
 
-    // Real embedding provider state (not config heuristic)
     try {
       const { getEmbeddingProvider, isEmbeddingExplicitlyDisabled } = await import('../../embedding/provider.js');
       if (isEmbeddingExplicitlyDisabled()) {
@@ -128,22 +156,52 @@ export async function getHealthInfo(projectId?: string): Promise<HealthInfo> {
       } else {
         const provider = await getEmbeddingProvider();
         defaults.embeddingProvider = provider ? 'ready' : 'unavailable';
+        defaults.embeddingProviderName = provider?.name;
       }
-    } catch { /* ignore */ }
+      defaults.embeddingLabel = formatEmbeddingLabel(
+        defaults.embeddingProvider,
+        defaults.embeddingProviderName,
+      );
+    } catch {
+      defaults.embeddingProvider = 'unavailable';
+      defaults.embeddingLabel = 'Unavailable';
+    }
 
-    // Real search mode from last actual search execution
     try {
-      const { getLastSearchMode } = await import('../../store/orama-store.js');
+      const { getLastSearchMode, isEmbeddingEnabled } = await import('../../store/orama-store.js');
+      const vectorActive = isEmbeddingEnabled();
       defaults.searchMode = getLastSearchMode();
-    } catch { /* ignore */ }
+      defaults.searchModeLabel = formatSearchModeLabel(defaults.searchMode);
+
+      // Build diagnostic explanation
+      if (defaults.searchMode.includes('hybrid')) {
+        defaults.searchDiagnostic = 'Vector search active - last query used hybrid retrieval';
+      } else if (defaults.searchMode.includes('vector')) {
+        defaults.searchDiagnostic = 'Vector fallback - BM25 returned empty, used vector-only';
+      } else if (defaults.searchMode.includes('rerank')) {
+        defaults.searchDiagnostic = 'LLM reranking active on search results';
+      } else if (defaults.searchMode.includes('embedding unavailable')) {
+        defaults.searchDiagnostic = 'Embedding failed or timed out during last search';
+      } else if (defaults.embeddingProvider === 'ready' && vectorActive) {
+        defaults.searchDiagnostic = 'Provider ready, vector index built - next search will use hybrid';
+      } else if (defaults.embeddingProvider === 'ready' && !vectorActive) {
+        defaults.searchDiagnostic = 'Provider ready but index not yet initialized - run a search to activate';
+      } else if (defaults.embeddingProvider === 'unavailable') {
+        defaults.searchDiagnostic = 'No embedding provider available - using BM25 only';
+      } else {
+        defaults.searchDiagnostic = 'Embedding disabled (MEMORIX_EMBEDDING=off) - BM25 only';
+      }
+    } catch {
+      defaults.searchMode = 'fulltext';
+      defaults.searchModeLabel = 'BM25 full-text';
+      defaults.searchDiagnostic = 'Could not determine search mode';
+    }
 
     return defaults;
   } catch {
     return defaults;
   }
 }
-
-// ── Recent Memories ────────────────────────────────────────────
 
 export async function getRecentMemories(limit = 8): Promise<MemoryItem[]> {
   try {
@@ -154,19 +212,14 @@ export async function getRecentMemories(limit = 8): Promise<MemoryItem[]> {
     if (!proj) return [];
 
     const dataDir = await getProjectDataDir(proj.id);
-    const obs = await loadObservationsJson(dataDir) as any[];
+    const obs = (await loadObservationsJson(dataDir)) as any[];
     const active = obs.filter((o: any) => (o.status ?? 'active') === 'active');
-
-    // Filter out noise (Ran: / Command: prefixed titles)
-    const filtered = active.filter((o: any) =>
-      !/^(Ran:|Command:|Executed:)\s/i.test(o.title || '')
-    );
+    const filtered = active.filter((o: any) => !/^(Ran:|Command:|Executed:)\s/i.test(o.title || ''));
 
     return filtered.slice(-limit).reverse().map((o: any) => ({
       id: o.id,
       title: o.title || '(untitled)',
       type: o.type || 'discovery',
-      source: o.source || 'agent',
       createdAt: o.createdAt || '',
       entityName: o.entityName || '',
       status: o.status,
@@ -175,60 +228,11 @@ export async function getRecentMemories(limit = 8): Promise<MemoryItem[]> {
     return [];
   }
 }
-
-// ── High-Value Signals (top 3 decision/gotcha/problem-solution) ──
-
-const HIGH_VALUE_TYPES = new Set(['decision', 'gotcha', 'problem-solution', 'how-it-works', 'trade-off', 'session-request']);
-
-export async function getHighValueSignals(limit = 3): Promise<MemoryItem[]> {
-  try {
-    const { detectProject } = await import('../../project/detector.js');
-    const { getProjectDataDir, loadObservationsJson } = await import('../../store/persistence.js');
-
-    const proj = detectProject(process.cwd());
-    if (!proj) return [];
-
-    const dataDir = await getProjectDataDir(proj.id);
-    const obs = await loadObservationsJson(dataDir) as any[];
-    const active = obs.filter((o: any) =>
-      (o.status ?? 'active') === 'active' &&
-      o.projectId === proj.id &&
-      !/^(Ran:|Command:|Executed:)\s/i.test(o.title || '')
-    );
-
-    // Prioritize high-value types, then by importance and recency
-    const scored = active
-      .map((o: any) => {
-        const isHighValue = HIGH_VALUE_TYPES.has(o.type);
-        const importance = o.importance ?? 5;
-        const age = Date.now() - new Date(o.createdAt || 0).getTime();
-        const ageHours = age / (1000 * 60 * 60);
-        const score = (isHighValue ? 10 : 0) + importance - Math.min(ageHours * 0.01, 3);
-        return { obs: o, score };
-      })
-      .sort((a, b) => b.score - a.score)
-      .slice(0, limit);
-
-    return scored.map(({ obs: o }) => ({
-      id: o.id,
-      title: o.title || '(untitled)',
-      type: o.type || 'discovery',
-      source: o.source || 'agent',
-      createdAt: o.createdAt || '',
-      entityName: o.entityName || '',
-      status: o.status,
-    }));
-  } catch {
-    return [];
-  }
-}
-
-// ── Search ─────────────────────────────────────────────────────
 
 export async function searchMemories(query: string, limit = 10): Promise<SearchResult[]> {
   try {
-    const { searchObservations, getDb } = await import('../../store/orama-store.js');
-    const { getProjectDataDir } = await import('../../store/persistence.js');
+    const { searchObservations, getDb, hydrateIndex } = await import('../../store/orama-store.js');
+    const { getProjectDataDir, loadObservationsJson } = await import('../../store/persistence.js');
     const { detectProject } = await import('../../project/detector.js');
     const { initObservations } = await import('../../memory/observations.js');
 
@@ -239,11 +243,20 @@ export async function searchMemories(query: string, limit = 10): Promise<SearchR
     await initObservations(dataDir);
     await getDb();
 
+    const allObs = (await loadObservationsJson(dataDir)) as any[];
+    await hydrateIndex(allObs);
+
     const results = await searchObservations({ query, limit, projectId: proj.id });
 
     const typeIcons: Record<string, string> = {
-      gotcha: '!', decision: 'D', 'problem-solution': 'S', discovery: '?',
-      'how-it-works': 'H', 'what-changed': 'C', 'trade-off': 'T', reasoning: 'R',
+      gotcha: '!',
+      decision: 'D',
+      'problem-solution': 'S',
+      discovery: '?',
+      'how-it-works': 'H',
+      'what-changed': 'C',
+      'trade-off': 'T',
+      reasoning: 'R',
     };
 
     return results.map((r: any) => ({
@@ -252,14 +265,12 @@ export async function searchMemories(query: string, limit = 10): Promise<SearchR
       type: r.type || 'discovery',
       score: r.score ?? 0,
       entityName: r.entityName || '',
-      icon: typeIcons[r.type] || '·',
+      icon: typeIcons[r.type] || '?',
     }));
   } catch {
     return [];
   }
 }
-
-// ── Store Memory ───────────────────────────────────────────────
 
 export async function storeQuickMemory(text: string): Promise<{ id: number; title: string } | null> {
   try {
@@ -288,8 +299,6 @@ export async function storeQuickMemory(text: string): Promise<{ id: number; titl
   }
 }
 
-// ── Background Status ──────────────────────────────────────────
-
 export async function getBackgroundStatus(): Promise<BackgroundInfo> {
   const result: BackgroundInfo = { running: false, healthy: false };
 
@@ -298,14 +307,13 @@ export async function getBackgroundStatus(): Promise<BackgroundInfo> {
     const statePath = `${home.replace(/\\/g, '/')}/.memorix/background.json`;
 
     if (!fs.existsSync(statePath)) {
-      // Check if port 3211 has an unmanaged instance
       try {
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), 2000);
-        const res = await fetch(`http://127.0.0.1:3211/api/team`, { signal: controller.signal });
+        const res = await fetch('http://127.0.0.1:3211/api/team', { signal: controller.signal });
         clearTimeout(timer);
         if (res.ok) {
-          const data = await res.json() as any;
+          const data = (await res.json()) as any;
           result.running = true;
           result.healthy = true;
           result.port = 3211;
@@ -315,7 +323,9 @@ export async function getBackgroundStatus(): Promise<BackgroundInfo> {
           result.sessions = data.sessions ?? 0;
           result.message = 'Foreground instance detected';
         }
-      } catch { /* not running */ }
+      } catch {
+        // Not running.
+      }
       return result;
     }
 
@@ -326,7 +336,6 @@ export async function getBackgroundStatus(): Promise<BackgroundInfo> {
     result.dashboard = `http://127.0.0.1:${state.port}/`;
     result.mcp = `http://127.0.0.1:${state.port}/mcp`;
 
-    // Check if process is alive
     try {
       process.kill(state.pid, 0);
       result.running = true;
@@ -335,14 +344,13 @@ export async function getBackgroundStatus(): Promise<BackgroundInfo> {
       return result;
     }
 
-    // Health check
     try {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 2000);
       const res = await fetch(`http://127.0.0.1:${state.port}/api/team`, { signal: controller.signal });
       clearTimeout(timer);
       if (res.ok) {
-        const data = await res.json() as any;
+        const data = (await res.json()) as any;
         result.healthy = true;
         result.agents = data.agents?.length ?? 0;
         result.sessions = data.sessions ?? 0;
@@ -358,25 +366,25 @@ export async function getBackgroundStatus(): Promise<BackgroundInfo> {
   }
 }
 
-// ── Doctor (lightweight) ───────────────────────────────────────
-
 export async function getDoctorSummary(): Promise<DoctorResult> {
   const result: DoctorResult = { sections: [] };
 
   try {
-    // Project
     const proj = await getProjectInfo();
     const projectItems: DoctorSection['items'] = [];
     if (proj) {
       projectItems.push({ label: 'Name', value: proj.name, status: 'ok' });
-      projectItems.push({ label: 'ID', value: proj.id.slice(0, 16) + '…', status: 'info' });
-      projectItems.push({ label: 'Remote', value: proj.gitRemote, status: proj.gitRemote !== 'none' ? 'ok' : 'warn' });
+      projectItems.push({ label: 'ID', value: truncate(proj.id, 16), status: 'info' });
+      projectItems.push({
+        label: 'Remote',
+        value: proj.gitRemote,
+        status: proj.gitRemote !== 'none' ? 'ok' : 'warn',
+      });
     } else {
       projectItems.push({ label: 'Project', value: 'Not detected (no .git)', status: 'error' });
     }
     result.sections.push({ title: 'Project', items: projectItems });
 
-    // Health
     const health = await getHealthInfo(proj?.id);
     result.sections.push({
       title: 'Data',
@@ -387,25 +395,27 @@ export async function getDoctorSummary(): Promise<DoctorResult> {
       ],
     });
 
-    // Embedding
-    result.sections.push({
-      title: 'Search',
-      items: [
-        { label: 'Mode', value: health.searchMode, status: 'info' },
-        { label: 'Embedding', value: health.embeddingProvider, status: health.embeddingProvider === 'ready' ? 'ok' : 'info' },
-      ],
-    });
+    const searchItems: DoctorSection['items'] = [
+      { label: 'Search Mode', value: health.searchModeLabel, status: 'info' },
+      { label: 'Embedding', value: health.embeddingLabel, status: health.embeddingProvider === 'ready' ? 'ok' : 'info' },
+    ];
+    if (health.embeddingProviderName) {
+      searchItems.push({ label: 'Provider', value: health.embeddingProviderName, status: 'info' });
+    }
+    result.sections.push({ title: 'Search', items: searchItems });
 
-    // Background
     const bg = await getBackgroundStatus();
     result.sections.push({
       title: 'Background',
       items: [
-        { label: 'Status', value: bg.healthy ? 'Running & Healthy' : bg.running ? 'Running (unhealthy)' : 'Not running', status: bg.healthy ? 'ok' : bg.running ? 'warn' : 'info' },
+        {
+          label: 'Status',
+          value: bg.healthy ? 'Running & healthy' : bg.running ? 'Running (unhealthy)' : 'Not running',
+          status: bg.healthy ? 'ok' : bg.running ? 'warn' : 'info',
+        },
         ...(bg.port ? [{ label: 'Port', value: `${bg.port}`, status: 'info' as const }] : []),
       ],
     });
-
   } catch (err) {
     result.sections.push({
       title: 'Error',
@@ -416,8 +426,6 @@ export async function getDoctorSummary(): Promise<DoctorResult> {
   return result;
 }
 
-// ── Mode Detection ─────────────────────────────────────────────
-
 export function detectMode(): { mode: string; detail: string } {
   try {
     const home = process.env.HOME || process.env.USERPROFILE || '';
@@ -427,8 +435,12 @@ export function detectMode(): { mode: string; detail: string } {
       try {
         process.kill(state.pid, 0);
         return { mode: 'Background', detail: `port ${state.port}` };
-      } catch { /* dead */ }
+      } catch {
+        // Ignore dead process and fall back to CLI.
+      }
     }
-  } catch { /* ignore */ }
-  return { mode: 'CLI', detail: 'Quick Mode' };
+  } catch {
+    // Ignore state read failures and fall back to CLI.
+  }
+  return { mode: 'CLI', detail: 'Quick mode' };
 }

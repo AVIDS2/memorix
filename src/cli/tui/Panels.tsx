@@ -1,7 +1,10 @@
 /**
- * Panels — Content panels for the main work area
+ * Panels -- Content views for Memorix TUI
  *
- * HomeView, SearchResultsView, DoctorView, ProjectView, BackgroundView
+ * All views use the same modern design language:
+ * - Centered content, no fixed sidebar
+ * - Clean spacing, no ASCII separator lines
+ * - Action-first panels for dashboard/background
  */
 
 import React from 'react';
@@ -13,52 +16,35 @@ import type {
   DoctorResult,
   ProjectInfo,
   BackgroundInfo,
+  HealthInfo,
 } from './data.js';
 
-// ── Source Badge Colors ────────────────────────────────────────
-
-const SOURCE_COLORS: Record<string, string> = {
-  git: '#5faf5f',
-  agent: 'cyan',
-  hook: '#d7af5f',
-  session: '#af87d7',
-  manual: '#5f87af',
-  skill: '#87afaf',
-  reasoning: '#af87af',
+// -- Source badge colors
+const SRC: Record<string, string> = {
+  git: '#5faf5f', agent: 'cyan', hook: '#d7af5f',
+  session: '#af87d7', manual: '#5f87af', skill: '#87afaf', reasoning: '#af87af',
 };
 
-function sourceBadge(source: string): string {
-  return source || '?';
-}
-
-// ── Lightweight grouping for Recent Activity ──────────────────
-
-interface GroupedItem extends MemoryItem {
-  count: number;
-}
-
+// -- Grouping for recent activity
+interface GroupedItem extends MemoryItem { count: number; }
 function groupRecent(items: MemoryItem[]): GroupedItem[] {
-  if (items.length === 0) return [];
-  const groups: GroupedItem[] = [];
-  let current: GroupedItem = { ...items[0], count: 1 };
-
+  if (!items.length) return [];
+  const g: GroupedItem[] = [];
+  let cur: GroupedItem = { ...items[0], count: 1 };
   for (let i = 1; i < items.length; i++) {
     const m = items[i];
-    // Group if same entity or very similar title prefix (first 20 chars)
-    const sameEntity = current.entityName && m.entityName && current.entityName === m.entityName;
-    const similarTitle = current.title.slice(0, 20) === m.title.slice(0, 20);
-    if (sameEntity || similarTitle) {
-      current.count++;
-    } else {
-      groups.push(current);
-      current = { ...m, count: 1 };
-    }
+    if ((cur.entityName && m.entityName && cur.entityName === m.entityName) ||
+        cur.title.slice(0, 20) === m.title.slice(0, 20)) {
+      cur.count++;
+    } else { g.push(cur); cur = { ...m, count: 1 }; }
   }
-  groups.push(current);
-  return groups;
+  g.push(cur);
+  return g;
 }
 
-// ── Landing View (center-first workbench) ─────────────────────
+// ================================================================
+// Landing View -- OpenCode-inspired center-first launch surface
+// ================================================================
 
 interface LandingViewProps {
   recentMemories: MemoryItem[];
@@ -69,92 +55,58 @@ interface LandingViewProps {
   loading: boolean;
 }
 
-const LANDING_ACTIONS = [
-  { key: 's', label: 'Search',     cmd: '/search' },
-  { key: 'r', label: 'Remember',   cmd: '/remember' },
-  { key: 'd', label: 'Doctor',     cmd: '/doctor' },
-  { key: 'b', label: 'Background', cmd: '/background' },
-  { key: 'w', label: 'Dashboard',  cmd: '/dashboard' },
-  { key: 'c', label: 'Configure',  cmd: '/configure' },
+// Brand mark -- small block text inspired by OpenCode's pixel logo
+const BRAND_LINES = [
+  ' __  __ ___ __  __  ___  ___ _____  __',
+  '|  \\/  | __|  \\/  |/ _ \\| _ \\_ _\\ \\/ /',
+  '| |\\/| | _|| |\\/| | (_) |   /| | >  < ',
+  '|_|  |_|___|_|  |_|\\___/|_|_\\___|/_/\\_\\',
 ];
 
 export function LandingView({ recentMemories, highValueSignals, project, background, health, loading }: LandingViewProps): React.ReactElement {
   return (
-    <Box flexDirection="column" paddingX={2} paddingY={1}>
-      {/* Brand block */}
+    <Box flexDirection="column" alignItems="center" justifyContent="center" flexGrow={1}>
+      {/* Brand logo */}
       <Box flexDirection="column" alignItems="center" marginBottom={1}>
-        <Text color={COLORS.accent} bold>{'  '}◇ Memorix</Text>
-        <Text color={COLORS.muted}>Memory workbench for code and agents</Text>
-      </Box>
-
-      {/* Project + system status — single compact line */}
-      <Box justifyContent="center" marginBottom={1}>
-        <Text color={COLORS.text}>{project?.name || 'no project'}</Text>
-        <Text color={COLORS.muted}> · </Text>
-        <Text color={COLORS.textDim}>{health.activeMemories} memories</Text>
-        <Text color={COLORS.muted}> · </Text>
-        <Text color={health.searchMode.includes('hybrid') ? COLORS.success : COLORS.warning}>{health.searchMode}</Text>
-        <Text color={COLORS.muted}> · </Text>
-        <Text color={background.healthy ? COLORS.success : background.running ? COLORS.warning : COLORS.muted}>
-          {background.healthy ? 'bg running' : background.running ? 'bg unhealthy' : 'bg stopped'}
-        </Text>
-      </Box>
-
-      {/* Suggested Actions — compact chip row */}
-      <Box justifyContent="center" gap={2} marginBottom={1}>
-        {LANDING_ACTIONS.map((a) => (
-          <Box key={a.key}>
-            <Text color={COLORS.accentDim} bold>{a.key}</Text>
-            <Text color={COLORS.text}> {a.label}</Text>
-          </Box>
+        {BRAND_LINES.map((line, i) => (
+          <Text key={i} color={i < 2 ? COLORS.accent : COLORS.accentDim}>{line}</Text>
         ))}
       </Box>
 
-      {/* Current Focus — top signals */}
+      {/* Hint below command bar area */}
+      <Box marginBottom={1}>
+        <Text color={COLORS.muted}>Memory workbench for code and agents</Text>
+      </Box>
+
+      {/* Keyboard hints -- OpenCode style */}
+      <Box gap={2} marginBottom={1}>
+        <Text color={COLORS.muted}>tab</Text>
+        <Text color={COLORS.textDim}>commands</Text>
+        <Text color={COLORS.muted}>/doctor</Text>
+        <Text color={COLORS.textDim}>diagnose</Text>
+        <Text color={COLORS.muted}>/bg</Text>
+        <Text color={COLORS.textDim}>control plane</Text>
+      </Box>
+
+      {/* Focus signals -- only 1-2, very compact */}
       {!loading && highValueSignals.length > 0 && (
-        <Box flexDirection="column" marginBottom={1}>
-          <Text color={COLORS.accent} bold>Focus</Text>
-          {highValueSignals.map((m) => (
+        <Box flexDirection="column" alignItems="center" marginBottom={1}>
+          {highValueSignals.slice(0, 2).map((m) => (
             <Box key={m.id}>
-              <Text color={SOURCE_COLORS[m.source] || COLORS.muted}>{sourceBadge(m.source).padEnd(6)} </Text>
-              <Text color={COLORS.warning}>{(TYPE_ICONS[m.type] || '·')} </Text>
-              <Text color={COLORS.text} bold>{m.title.slice(0, 60)}{m.title.length > 60 ? '...' : ''}</Text>
-              <Text color={COLORS.textDim}> #{m.id}</Text>
+              <Text color={COLORS.warning}>{TYPE_ICONS[m.type] || '.'} </Text>
+              <Text color={SRC[m.source] || COLORS.muted}>{(m.source || '?').padEnd(6)} </Text>
+              <Text color={COLORS.text}>{m.title.slice(0, 50)}{m.title.length > 50 ? '...' : ''}</Text>
             </Box>
           ))}
         </Box>
       )}
-
-      {/* Recent Activity — grouped */}
-      {!loading && recentMemories.length > 0 && (
-        <Box flexDirection="column">
-          <Text color={COLORS.accentDim} bold>Recent</Text>
-          {groupRecent(recentMemories).map((item, idx) =>
-            item.count > 1 ? (
-              <Box key={`g-${idx}`}>
-                <Text color={SOURCE_COLORS[item.source] || COLORS.muted}>{sourceBadge(item.source).padEnd(6)} </Text>
-                <Text color={COLORS.muted}>  </Text>
-                <Text color={COLORS.textDim}>{item.count} related: </Text>
-                <Text color={COLORS.text}>{item.title.slice(0, 50)}{item.title.length > 50 ? '...' : ''}</Text>
-              </Box>
-            ) : (
-              <Box key={item.id}>
-                <Text color={SOURCE_COLORS[item.source] || COLORS.muted}>{sourceBadge(item.source).padEnd(6)} </Text>
-                <Text color={COLORS.muted}>{(TYPE_ICONS[item.type] || '·')} </Text>
-                <Text color={COLORS.textDim}>#{item.id} </Text>
-                <Text color={COLORS.text}>{item.title.slice(0, 55)}{item.title.length > 55 ? '...' : ''}</Text>
-              </Box>
-            )
-          )}
-        </Box>
-      )}
-
-      {loading && <Text color={COLORS.muted}>Loading...</Text>}
     </Box>
   );
 }
 
-// ── Search Results View ────────────────────────────────────────
+// ================================================================
+// Search Results
+// ================================================================
 
 interface SearchResultsViewProps {
   results: SearchResult[];
@@ -164,24 +116,27 @@ interface SearchResultsViewProps {
 
 export function SearchResultsView({ results, query, loading }: SearchResultsViewProps): React.ReactElement {
   return (
-    <Box flexDirection="column" paddingX={1}>
-      <Box>
-        <Text color={COLORS.accent} bold>Search: </Text>
+    <Box flexDirection="column" paddingX={2} paddingY={1}>
+      <Box marginBottom={1}>
+        <Text color={COLORS.accent} bold>Search </Text>
         <Text color={COLORS.text}>"{query}"</Text>
-        {!loading && <Text color={COLORS.muted}> — {results.length} results</Text>}
+        {!loading && <Text color={COLORS.muted}> -- {results.length} results</Text>}
       </Box>
 
       {loading ? (
         <Text color={COLORS.muted}>Searching...</Text>
       ) : results.length === 0 ? (
-        <Text color={COLORS.muted}>No results found.</Text>
+        <Box flexDirection="column" alignItems="center" paddingY={2}>
+          <Text color={COLORS.muted}>No results found for "{query}"</Text>
+          <Text color={COLORS.textDim}>Try different keywords or /help for commands</Text>
+        </Box>
       ) : (
         results.map((r) => (
-          <Box key={r.id}>
-            <Text color={COLORS.muted}>[{r.icon}] </Text>
-            <Text color={COLORS.textDim}>#{r.id} </Text>
-            <Text color={COLORS.text}>{r.title.slice(0, 60)}{r.title.length > 60 ? '…' : ''}</Text>
-            <Text color={COLORS.muted}> ({(r.score * 100).toFixed(0)}%)</Text>
+          <Box key={r.id} marginBottom={0}>
+            <Text color={COLORS.muted}>{r.icon} </Text>
+            <Text color={COLORS.textDim}>#{String(r.id).padEnd(4)} </Text>
+            <Text color={COLORS.text}>{r.title.slice(0, 55)}{r.title.length > 55 ? '...' : ''}</Text>
+            <Text color={COLORS.muted}> {(r.score * 100).toFixed(0)}%</Text>
           </Box>
         ))
       )}
@@ -189,66 +144,94 @@ export function SearchResultsView({ results, query, loading }: SearchResultsView
   );
 }
 
-// ── Doctor View ────────────────────────────────────────────────
+// ================================================================
+// Doctor -- diagnostic cards
+// ================================================================
 
 interface DoctorViewProps {
   doctor: DoctorResult | null;
+  health: HealthInfo;
+  background: BackgroundInfo;
+  project: ProjectInfo | null;
   loading: boolean;
 }
 
-const STATUS_COLORS: Record<string, string> = {
-  ok: COLORS.success,
-  warn: COLORS.warning,
-  error: COLORS.error,
-  info: COLORS.textDim,
-};
+const SI: Record<string, string> = { ok: '+', warn: '!', error: 'x', info: '.' };
+const SC: Record<string, string> = { ok: COLORS.success, warn: COLORS.warning, error: COLORS.error, info: COLORS.textDim };
 
-const STATUS_ICONS: Record<string, string> = {
-  ok: '✓',
-  warn: '⚠',
-  error: '✗',
-  info: '·',
-};
-
-export function DoctorView({ doctor, loading }: DoctorViewProps): React.ReactElement {
+export function DoctorView({ doctor, health, background, project, loading }: DoctorViewProps): React.ReactElement {
   return (
-    <Box flexDirection="column" paddingX={1}>
-      <Text color={COLORS.accent} bold>Diagnostics</Text>
+    <Box flexDirection="column" paddingX={2} paddingY={1}>
+      <Box marginBottom={1}>
+        <Text color={COLORS.accent} bold>Diagnostics</Text>
+        {project && <Text color={COLORS.muted}> -- {project.name}</Text>}
+      </Box>
 
       {loading ? (
         <Text color={COLORS.muted}>Running diagnostics...</Text>
       ) : !doctor ? (
         <Text color={COLORS.warning}>Failed to run diagnostics.</Text>
       ) : (
-        doctor.sections.map((section, i) => (
-          <Box key={i} flexDirection="column" marginBottom={1}>
-            <Text color={COLORS.text} bold>{section.title}</Text>
-            {section.items.map((item, j) => (
-              <Box key={j}>
-                <Text color={STATUS_COLORS[item.status] || COLORS.muted}>
-                  {STATUS_ICONS[item.status] || '·'}{' '}
-                </Text>
-                <Text color={COLORS.muted}>{item.label.padEnd(12)}</Text>
-                <Text color={COLORS.text}>{item.value}</Text>
-              </Box>
-            ))}
+        <Box flexDirection="column">
+          {/* Quick status cards */}
+          <Box marginBottom={1} gap={2}>
+            <Box flexDirection="column">
+              <Text color={COLORS.muted}>Memories</Text>
+              <Text color={COLORS.text} bold>{health.activeMemories}</Text>
+            </Box>
+            <Box flexDirection="column">
+              <Text color={COLORS.muted}>Search</Text>
+              <Text color={health.searchMode.includes('hybrid') ? COLORS.success : COLORS.warning} bold>{health.searchMode}</Text>
+            </Box>
+            <Box flexDirection="column">
+              <Text color={COLORS.muted}>Embed</Text>
+              <Text color={health.embeddingProvider === 'ready' ? COLORS.success : COLORS.muted} bold>{health.embeddingProvider}</Text>
+            </Box>
+            <Box flexDirection="column">
+              <Text color={COLORS.muted}>Background</Text>
+              <Text color={background.healthy ? COLORS.success : COLORS.muted} bold>{background.healthy ? 'healthy' : background.running ? 'unhealthy' : 'stopped'}</Text>
+            </Box>
           </Box>
-        ))
+
+          {/* Detailed diagnostics */}
+          {doctor.sections.map((section, i) => (
+            <Box key={i} flexDirection="column" marginBottom={1}>
+              <Text color={COLORS.text} bold>{section.title}</Text>
+              {section.items.map((item, j) => (
+                <Box key={j}>
+                  <Text color={SC[item.status] || COLORS.muted}>{SI[item.status] || '.'} </Text>
+                  <Text color={COLORS.muted}>{item.label.padEnd(14)}</Text>
+                  <Text color={COLORS.text}>{item.value}</Text>
+                </Box>
+              ))}
+            </Box>
+          ))}
+
+          {/* Next actions */}
+          <Box flexDirection="column">
+            <Text color={COLORS.accentDim}>Next: /dashboard /background /search</Text>
+          </Box>
+        </Box>
       )}
     </Box>
   );
 }
 
-// ── Project View ───────────────────────────────────────────────
+// ================================================================
+// Project -- compact inspector
+// ================================================================
 
 interface ProjectViewProps {
   project: ProjectInfo | null;
+  health: HealthInfo;
 }
 
-export function ProjectView({ project }: ProjectViewProps): React.ReactElement {
+export function ProjectView({ project, health }: ProjectViewProps): React.ReactElement {
   return (
-    <Box flexDirection="column" paddingX={1}>
-      <Text color={COLORS.accent} bold>Project Details</Text>
+    <Box flexDirection="column" paddingX={2} paddingY={1}>
+      <Box marginBottom={1}>
+        <Text color={COLORS.accent} bold>Project</Text>
+      </Box>
 
       {!project ? (
         <Text color={COLORS.warning}>No project detected. Run git init first.</Text>
@@ -259,19 +242,31 @@ export function ProjectView({ project }: ProjectViewProps): React.ReactElement {
             ['ID', project.id],
             ['Root', project.rootPath],
             ['Remote', project.gitRemote],
-          ] as const).map(([label, value]) => (
+          ] as [string, string][]).map(([label, value]) => (
             <Box key={label}>
-              <Text color={COLORS.muted}>{String(label).padEnd(10)}</Text>
+              <Text color={COLORS.muted}>{label.padEnd(8)}</Text>
               <Text color={COLORS.text}>{value}</Text>
             </Box>
           ))}
+          <Box marginTop={1} gap={2}>
+            <Box flexDirection="column">
+              <Text color={COLORS.muted}>Memories</Text>
+              <Text color={COLORS.text} bold>{health.activeMemories}</Text>
+            </Box>
+            <Box flexDirection="column">
+              <Text color={COLORS.muted}>Search</Text>
+              <Text color={COLORS.text} bold>{health.searchMode}</Text>
+            </Box>
+          </Box>
         </Box>
       )}
     </Box>
   );
 }
 
-// ── Background View ────────────────────────────────────────────
+// ================================================================
+// Background -- action surface
+// ================================================================
 
 interface BackgroundViewProps {
   background: BackgroundInfo;
@@ -280,78 +275,47 @@ interface BackgroundViewProps {
 
 export function BackgroundView({ background, loading }: BackgroundViewProps): React.ReactElement {
   return (
-    <Box flexDirection="column" paddingX={1}>
-      <Text color={COLORS.accent} bold>Background Control Plane</Text>
+    <Box flexDirection="column" paddingX={2} paddingY={1}>
+      <Box marginBottom={1}>
+        <Text color={COLORS.accent} bold>Control Plane</Text>
+      </Box>
 
       {loading ? (
-        <Text color={COLORS.muted}>Checking status...</Text>
+        <Text color={COLORS.muted}>Checking...</Text>
       ) : (
         <Box flexDirection="column">
-          <Box>
-            <Text color={COLORS.muted}>{'Status'.padEnd(12)}</Text>
-            <Text color={background.healthy ? COLORS.success : background.running ? COLORS.warning : COLORS.muted}>
-              {background.healthy ? '✓ Running & Healthy' : background.running ? '⚠ Running (unhealthy)' : '✗ Not running'}
+          {/* Status */}
+          <Box marginBottom={1}>
+            <Text color={background.healthy ? COLORS.success : background.running ? COLORS.warning : COLORS.muted} bold>
+              {background.healthy ? '+ Running' : background.running ? '! Unhealthy' : 'x Stopped'}
             </Text>
           </Box>
-          {background.pid && (
-            <Box>
-              <Text color={COLORS.muted}>{'PID'.padEnd(12)}</Text>
-              <Text color={COLORS.text}>{background.pid}</Text>
-            </Box>
-          )}
+
+          {/* Details */}
           {background.port && (
-            <>
-              <Box>
-                <Text color={COLORS.muted}>{'Port'.padEnd(12)}</Text>
-                <Text color={COLORS.text}>{background.port}</Text>
-              </Box>
-              <Box>
-                <Text color={COLORS.muted}>{'Dashboard'.padEnd(12)}</Text>
-                <Text color={COLORS.accent}>{background.dashboard}</Text>
-              </Box>
-              <Box>
-                <Text color={COLORS.muted}>{'MCP'.padEnd(12)}</Text>
-                <Text color={COLORS.accent}>{background.mcp}</Text>
-              </Box>
-            </>
-          )}
-          {background.startedAt && (
-            <Box>
-              <Text color={COLORS.muted}>{'Started'.padEnd(12)}</Text>
-              <Text color={COLORS.text}>{background.startedAt}</Text>
-            </Box>
-          )}
-          {background.agents != null && (
-            <Box>
-              <Text color={COLORS.muted}>{'Agents'.padEnd(12)}</Text>
-              <Text color={COLORS.text}>{background.agents}</Text>
-            </Box>
-          )}
-          {background.sessions != null && (
-            <Box>
-              <Text color={COLORS.muted}>{'Sessions'.padEnd(12)}</Text>
-              <Text color={COLORS.text}>{background.sessions}</Text>
-            </Box>
-          )}
-          {background.message && (
-            <Box marginTop={1}>
-              <Text color={COLORS.muted}>{background.message}</Text>
+            <Box flexDirection="column" marginBottom={1}>
+              <Box><Text color={COLORS.muted}>{'Port'.padEnd(10)}</Text><Text color={COLORS.text}>{background.port}</Text></Box>
+              <Box><Text color={COLORS.muted}>{'Dashboard'.padEnd(10)}</Text><Text color={COLORS.accent}>{background.dashboard}</Text></Box>
+              <Box><Text color={COLORS.muted}>{'MCP'.padEnd(10)}</Text><Text color={COLORS.accent}>{background.mcp}</Text></Box>
+              {background.pid && <Box><Text color={COLORS.muted}>{'PID'.padEnd(10)}</Text><Text color={COLORS.text}>{background.pid}</Text></Box>}
             </Box>
           )}
 
           {/* Actions */}
-          <Box marginTop={1} flexDirection="column">
+          <Box flexDirection="column">
             <Text color={COLORS.accentDim} bold>Actions</Text>
             {background.running ? (
-              <Box flexDirection="column">
+              <>
                 <Text color={COLORS.text}>  memorix background restart</Text>
                 <Text color={COLORS.text}>  memorix background stop</Text>
                 <Text color={COLORS.text}>  memorix background logs</Text>
-              </Box>
+                {background.dashboard && <Text color={COLORS.accent}>  Open {background.dashboard}</Text>}
+              </>
             ) : (
-              <Box flexDirection="column">
+              <>
                 <Text color={COLORS.success}>  memorix background start</Text>
-              </Box>
+                <Text color={COLORS.text}>  memorix dashboard  (standalone)</Text>
+              </>
             )}
           </Box>
         </Box>
@@ -360,7 +324,9 @@ export function BackgroundView({ background, loading }: BackgroundViewProps): Re
   );
 }
 
-// ── Dashboard View ─────────────────────────────────────────────
+// ================================================================
+// Dashboard -- action surface
+// ================================================================
 
 interface DashboardViewProps {
   background: BackgroundInfo;
@@ -368,36 +334,37 @@ interface DashboardViewProps {
 
 export function DashboardView({ background }: DashboardViewProps): React.ReactElement {
   return (
-    <Box flexDirection="column" paddingX={1}>
-      <Text color={COLORS.accent} bold>Dashboard</Text>
+    <Box flexDirection="column" paddingX={2} paddingY={1}>
+      <Box marginBottom={1}>
+        <Text color={COLORS.accent} bold>Dashboard</Text>
+      </Box>
 
       {background.healthy && background.dashboard ? (
         <Box flexDirection="column">
-          <Box>
-            <Text color={COLORS.muted}>{'URL'.padEnd(8)}</Text>
+          <Box marginBottom={1}>
             <Text color={COLORS.accent} bold>{background.dashboard}</Text>
           </Box>
-          <Box marginTop={1} flexDirection="column">
-            <Text color={COLORS.accentDim} bold>Actions</Text>
-            <Text color={COLORS.text}>  Open {background.dashboard} in browser</Text>
-            <Text color={COLORS.text}>  memorix dashboard (standalone)</Text>
-          </Box>
+          <Text color={COLORS.accentDim} bold>Actions</Text>
+          <Text color={COLORS.text}>  Open {background.dashboard} in browser</Text>
+          <Text color={COLORS.text}>  memorix dashboard  (standalone)</Text>
         </Box>
       ) : (
         <Box flexDirection="column">
-          <Text color={COLORS.warning}>○ No running control plane</Text>
-          <Box marginTop={1} flexDirection="column">
-            <Text color={COLORS.accentDim} bold>Actions</Text>
-            <Text color={COLORS.success}>  memorix background start</Text>
-            <Text color={COLORS.text}>  memorix dashboard (standalone)</Text>
+          <Box marginBottom={1}>
+            <Text color={COLORS.warning}>No running control plane</Text>
           </Box>
+          <Text color={COLORS.accentDim} bold>Actions</Text>
+          <Text color={COLORS.success}>  memorix background start</Text>
+          <Text color={COLORS.text}>  memorix dashboard  (standalone)</Text>
         </Box>
       )}
     </Box>
   );
 }
 
-// ── Status Message ─────────────────────────────────────────────
+// ================================================================
+// Status Message
+// ================================================================
 
 interface StatusMessageProps {
   message: string;
@@ -406,7 +373,7 @@ interface StatusMessageProps {
 
 export function StatusMessage({ message, type }: StatusMessageProps): React.ReactElement {
   const color = type === 'success' ? COLORS.success : type === 'error' ? COLORS.error : COLORS.muted;
-  const icon = type === 'success' ? '✓' : type === 'error' ? '✗' : '·';
+  const icon = type === 'success' ? '+' : type === 'error' ? 'x' : '.';
   return (
     <Box paddingX={1}>
       <Text color={color}>{icon} {message}</Text>

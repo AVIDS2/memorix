@@ -1,16 +1,14 @@
 /**
- * WorkbenchApp — Main Ink application for Memorix TUI
+ * WorkbenchApp -- Main Ink application for Memorix TUI
  *
- * Three-panel layout: HeaderBar + (MainContent | Sidebar) + CommandBar
- * Manages global state, view routing, and command execution.
+ * Unified center-first layout inspired by OpenCode.
+ * No fixed sidebar. Bottom status bar.
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { Box, Text, useApp, useStdout } from 'ink';
 import { COLORS, SLASH_COMMANDS } from './theme.js';
 import type { ViewType } from './theme.js';
-import { HeaderBar } from './HeaderBar.js';
-import { Sidebar } from './Sidebar.js';
 import { CommandBar } from './CommandBar.js';
 import {
   LandingView,
@@ -50,7 +48,7 @@ export function WorkbenchApp({ version, onExitForInteractive }: AppProps): React
   const { exit } = useApp();
   const { stdout } = useStdout();
 
-  // ── State ──────────────────────────────────────────────────
+  // -- State
   const [view, setView] = useState<ViewType>('home');
   const [loading, setLoading] = useState(true);
   const [project, setProject] = useState<ProjectInfo | null>(null);
@@ -67,19 +65,18 @@ export function WorkbenchApp({ version, onExitForInteractive }: AppProps): React
   const [statusMsg, setStatusMsg] = useState<{ text: string; type: 'success' | 'error' | 'info' } | null>(null);
   const [mode, setMode] = useState('CLI');
 
-  // ── Initial data load ──────────────────────────────────────
+  // -- Initial data load
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
         const [proj, recent, signals, bg] = await Promise.all([
           getProjectInfo(),
-          getRecentMemories(6),
-          getHighValueSignals(3),
+          getRecentMemories(4),
+          getHighValueSignals(2),
           getBackgroundStatus(),
         ]);
         if (cancelled) return;
-
         setProject(proj);
         setRecentMemories(recent);
         setHighValueSignals(signals);
@@ -88,21 +85,17 @@ export function WorkbenchApp({ version, onExitForInteractive }: AppProps): React
         const h = await getHealthInfo(proj?.id);
         if (cancelled) return;
         setHealth(h);
-
-        const m = detectMode();
-        setMode(m.mode);
+        setMode(detectMode().mode);
       } catch { /* ignore */ }
       if (!cancelled) setLoading(false);
     })();
     return () => { cancelled = true; };
   }, []);
 
-  // ── Command handler ────────────────────────────────────────
+  // -- Command handler
   const handleCommand = useCallback(async (input: string) => {
     const raw = input.trim();
     if (!raw) return;
-
-    // Clear status
     setStatusMsg(null);
 
     if (raw.startsWith('/')) {
@@ -110,101 +103,58 @@ export function WorkbenchApp({ version, onExitForInteractive }: AppProps): React
       const cmd = parts[0]?.toLowerCase() || '';
       const arg = parts.slice(1).join(' ');
 
-      // Find command definition
       const cmdDef = SLASH_COMMANDS.find(c =>
         c.name === `/${cmd}` || c.alias === `/${cmd}`
       );
-
-      // Interactive commands → exit Ink, run @clack/prompts, re-enter
       if (cmdDef?.interactive) {
         onExitForInteractive(`/${cmd}`);
         return;
       }
 
       switch (cmd) {
-        case 'search':
-        case 's': {
+        case 'search': case 's': {
           const query = arg || '';
-          if (!query) {
-            setStatusMsg({ text: 'Usage: /search <query>', type: 'info' });
-            return;
-          }
-          setView('search');
-          setSearchQuery(query);
-          setLoading(true);
-          const results = await searchMemories(query);
-          setSearchResults(results);
-          setLoading(false);
+          if (!query) { setStatusMsg({ text: 'Usage: /search <query>', type: 'info' }); return; }
+          setView('search'); setSearchQuery(query); setLoading(true);
+          setSearchResults(await searchMemories(query)); setLoading(false);
           break;
         }
-
-        case 'remember':
-        case 'r': {
-          if (!arg) {
-            setStatusMsg({ text: 'Usage: /remember <text>', type: 'info' });
-            return;
-          }
+        case 'remember': case 'r': {
+          if (!arg) { setStatusMsg({ text: 'Usage: /remember <text>', type: 'info' }); return; }
           setLoading(true);
           const stored = await storeQuickMemory(arg);
           setLoading(false);
           if (stored) {
             setStatusMsg({ text: `Stored #${stored.id}: ${stored.title}`, type: 'success' });
-            // Refresh recent
-            const recent = await getRecentMemories(8);
-            setRecentMemories(recent);
-            const h = await getHealthInfo(project?.id);
-            setHealth(h);
+            setRecentMemories(await getRecentMemories(4));
+            setHealth(await getHealthInfo(project?.id));
           } else {
             setStatusMsg({ text: 'Failed to store memory', type: 'error' });
           }
           break;
         }
-
         case 'recent': {
-          setView('home');
-          setLoading(true);
-          const recent = await getRecentMemories(10);
-          setRecentMemories(recent);
-          setLoading(false);
+          setView('home'); setLoading(true);
+          setRecentMemories(await getRecentMemories(6)); setLoading(false);
           break;
         }
-
         case 'doctor': {
-          setView('doctor');
-          setLoading(true);
-          const d = await getDoctorSummary();
-          setDoctor(d);
-          setLoading(false);
+          setView('doctor'); setLoading(true);
+          setDoctor(await getDoctorSummary()); setLoading(false);
           break;
         }
-
-        case 'project':
-        case 'status': {
-          setView('project');
+        case 'project': case 'status': { setView('project'); break; }
+        case 'background': case 'bg': {
+          setView('background'); setLoading(true);
+          setBackground(await getBackgroundStatus()); setLoading(false);
           break;
         }
-
-        case 'background':
-        case 'bg': {
-          setView('background');
-          setLoading(true);
-          const bg = await getBackgroundStatus();
-          setBackground(bg);
-          setLoading(false);
-          break;
-        }
-
-        case 'dashboard':
-        case 'dash': {
+        case 'dashboard': case 'dash': {
           setView('dashboard');
-          // Refresh background info for dashboard URL
-          const bg = await getBackgroundStatus();
-          setBackground(bg);
+          setBackground(await getBackgroundStatus());
           break;
         }
-
-        case 'help':
-        case '?': {
+        case 'help': case '?': {
           setStatusMsg({
             text: SLASH_COMMANDS.map(c =>
               `${c.name.padEnd(16)} ${c.description}${c.alias ? ` (${c.alias})` : ''}`
@@ -213,81 +163,40 @@ export function WorkbenchApp({ version, onExitForInteractive }: AppProps): React
           });
           break;
         }
-
-        case 'exit':
-        case 'quit':
-        case 'q': {
-          exit();
-          return;
-        }
-
+        case 'exit': case 'quit': case 'q': { exit(); return; }
         default:
-          setStatusMsg({ text: `Unknown command: /${cmd}. Type /help for available commands.`, type: 'error' });
+          setStatusMsg({ text: `Unknown: /${cmd}. Type /help`, type: 'error' });
       }
     } else {
-      // Default: search
-      setView('search');
-      setSearchQuery(raw);
-      setLoading(true);
-      const results = await searchMemories(raw);
-      setSearchResults(results);
-      setLoading(false);
+      setView('search'); setSearchQuery(raw); setLoading(true);
+      setSearchResults(await searchMemories(raw)); setLoading(false);
     }
   }, [project, exit, onExitForInteractive]);
 
-  // ── Render main content based on view ──────────────────────
+  // -- Render content
   const renderContent = () => {
     switch (view) {
       case 'search':
         return <SearchResultsView results={searchResults} query={searchQuery} loading={loading} />;
       case 'doctor':
-        return <DoctorView doctor={doctor} loading={loading} />;
+        return <DoctorView doctor={doctor} health={health} background={background} project={project} loading={loading} />;
       case 'project':
-        return <ProjectView project={project} />;
+        return <ProjectView project={project} health={health} />;
       case 'background':
         return <BackgroundView background={background} loading={loading} />;
       case 'dashboard':
         return <DashboardView background={background} />;
-      case 'home':
-      default:
+      case 'home': default:
         return <LandingView recentMemories={recentMemories} highValueSignals={highValueSignals} project={project} background={background} health={health} loading={loading} />;
     }
   };
 
-  // ── Layout ─────────────────────────────────────────────────
-  const termWidth = stdout?.columns || 80;
-  const narrow = termWidth < 80;
-
-  const showSidebar = !narrow && view !== 'home';
-
+  // -- Layout: unified, no sidebar, bottom status bar
   return (
     <Box flexDirection="column" height="100%">
-      {/* Header — only on non-home views (home has its own brand block) */}
-      {view !== 'home' && (
-        <HeaderBar version={version} project={project} health={health} mode={mode} />
-      )}
-
-      {/* Main area */}
-      <Box flexGrow={1} flexDirection={narrow ? 'column' : 'row'}>
-        {/* Main content — no border on home for cleaner look */}
-        <Box
-          flexGrow={1}
-          flexDirection="column"
-          borderStyle={view === 'home' ? undefined : 'single'}
-          borderColor={COLORS.border}
-        >
-          {renderContent()}
-        </Box>
-
-        {/* Sidebar — contextual, only for non-home views */}
-        {showSidebar && (
-          <Sidebar
-            health={health}
-            background={background}
-            onAction={handleCommand}
-            activeView={view}
-          />
-        )}
+      {/* Main content -- full width, no border, no sidebar */}
+      <Box flexGrow={1} flexDirection="column">
+        {renderContent()}
       </Box>
 
       {/* Status message */}
@@ -295,6 +204,21 @@ export function WorkbenchApp({ version, onExitForInteractive }: AppProps): React
 
       {/* Command bar */}
       <CommandBar onSubmit={handleCommand} onExit={() => exit()} />
+
+      {/* Bottom status bar -- OpenCode style */}
+      <Box paddingX={1} justifyContent="space-between">
+        <Box gap={1}>
+          <Text color={COLORS.muted}>~</Text>
+          <Text color={COLORS.text}>{project?.name || 'no project'}</Text>
+          <Text color={COLORS.muted}>
+            {health.activeMemories} memories
+          </Text>
+          <Text color={health.searchMode.includes('hybrid') ? COLORS.success : COLORS.muted}>
+            {health.searchMode}
+          </Text>
+        </Box>
+        <Text color={COLORS.muted}>v{version}</Text>
+      </Box>
     </Box>
   );
 }

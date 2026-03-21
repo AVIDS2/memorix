@@ -29,37 +29,24 @@ export async function startWorkbench(): Promise<void> {
   let pendingInteractiveCmd: string | null = null;
   let instance: ReturnType<typeof render> | null = null;
 
-  // Suppress console output during TUI to prevent log noise on alternate screen
-  const origLog = console.log;
-  const origError = console.error;
-  const origWarn = console.warn;
-
   const enterTUI = () => {
-    // Silence all console output while Ink owns the screen
-    console.log = () => {};
-    console.error = () => {};
-    console.warn = () => {};
-
     process.stdout.write(ALT_ON);
 
     const app = React.createElement(WorkbenchApp, {
       version: pkg.version,
       onExitForInteractive: (cmd: string) => {
         pendingInteractiveCmd = cmd;
+        // Unmount Ink so @clack/prompts can take over stdin/stdout
         instance?.unmount();
       },
     });
 
     instance = render(app, {
-      exitOnCtrlC: false,
+      exitOnCtrlC: false, // We handle Ctrl+C ourselves in CommandBar
     });
   };
 
   const exitTUI = () => {
-    // Restore console output before leaving alternate screen
-    console.log = origLog;
-    console.error = origError;
-    console.warn = origWarn;
     process.stdout.write(ALT_OFF);
   };
 

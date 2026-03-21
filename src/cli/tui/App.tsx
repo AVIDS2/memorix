@@ -191,56 +191,33 @@ export function WorkbenchApp({ version, onExitForInteractive }: AppProps): React
     }
   };
 
-  // -- Layout: OpenCode-faithful
-  // Home: [spacer] [logo] [spacer] [input+palette] [hints] [tip] [spacer] [status]
-  // Other: [content] [input] [status]
-  const isHome = view === 'home';
-
+  // -- Layout: unified, no sidebar, bottom status bar
   return (
     <Box flexDirection="column" height="100%">
-      {isHome ? (
-        <>
-          {/* Home: centered composition with input integrated */}
-          <Box flexGrow={1} flexDirection="column" justifyContent="center" alignItems="center">
-            {renderContent()}
-          </Box>
+      {/* Main content -- full width, no border, no sidebar */}
+      <Box flexGrow={1} flexDirection="column">
+        {renderContent()}
+      </Box>
 
-          {/* Input area -- part of the centered flow on home */}
-          <Box flexDirection="column" alignItems="center" marginBottom={0}>
-            {statusMsg && <StatusMessage message={statusMsg.text} type={statusMsg.type} />}
-            <Box width={64}>
-              <CommandBar onSubmit={handleCommand} onExit={() => exit()} />
-            </Box>
-          </Box>
+      {/* Status message */}
+      {statusMsg && <StatusMessage message={statusMsg.text} type={statusMsg.type} />}
 
-          {/* Hints below input -- OpenCode style */}
-          <Box justifyContent="center" gap={2} marginTop={0} marginBottom={1}>
-            <Box gap={1}><Text color={COLORS.muted}>tab</Text><Text color={COLORS.textDim}>commands</Text></Box>
-            <Box gap={1}><Text color={COLORS.muted}>/doctor</Text><Text color={COLORS.textDim}>diagnose</Text></Box>
-            <Box gap={1}><Text color={COLORS.muted}>/bg</Text><Text color={COLORS.textDim}>control plane</Text></Box>
-            <Box gap={1}><Text color={COLORS.muted}>ctrl+c</Text><Text color={COLORS.textDim}>quit</Text></Box>
-          </Box>
-        </>
-      ) : (
-        <>
-          {/* Non-home: content fills, input at bottom */}
-          <Box flexGrow={1} flexDirection="column">
-            {renderContent()}
-          </Box>
-          {statusMsg && <StatusMessage message={statusMsg.text} type={statusMsg.type} />}
-          <CommandBar onSubmit={handleCommand} onExit={() => exit()} />
-        </>
-      )}
+      {/* Command bar */}
+      <CommandBar onSubmit={handleCommand} onExit={() => exit()} />
 
-      {/* Bottom status bar -- always visible, OpenCode style */}
+      {/* Bottom status bar -- OpenCode style */}
       <Box paddingX={1} justifyContent="space-between">
         <Box gap={1}>
           <Text color={COLORS.muted}>~</Text>
           <Text color={COLORS.text}>{project?.name || 'no project'}</Text>
-          <Text color={COLORS.muted}>{health.activeMemories} memories</Text>
-          <Text color={health.searchMode.includes('hybrid') ? COLORS.success : COLORS.muted}>{health.searchMode}</Text>
+          <Text color={COLORS.muted}>
+            {health.activeMemories} memories
+          </Text>
+          <Text color={health.searchMode.includes('hybrid') ? COLORS.success : COLORS.muted}>
+            {health.searchMode}
+          </Text>
         </Box>
-        <Text color={COLORS.muted}>{version}</Text>
+        <Text color={COLORS.muted}>v{version}</Text>
       </Box>
     </Box>
   );

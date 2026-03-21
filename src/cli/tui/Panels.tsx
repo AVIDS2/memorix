@@ -65,7 +65,7 @@ const BRAND_LINES = [
 
 export function LandingView({ recentMemories, highValueSignals, project, background, health, loading }: LandingViewProps): React.ReactElement {
   return (
-    <Box flexDirection="column" alignItems="center">
+    <Box flexDirection="column" alignItems="center" justifyContent="center" flexGrow={1}>
       {/* Brand logo */}
       <Box flexDirection="column" alignItems="center" marginBottom={1}>
         {BRAND_LINES.map((line, i) => (
@@ -73,8 +73,33 @@ export function LandingView({ recentMemories, highValueSignals, project, backgro
         ))}
       </Box>
 
-      {/* Subtitle */}
-      <Text color={COLORS.muted}>Memory workbench for code and agents</Text>
+      {/* Hint below command bar area */}
+      <Box marginBottom={1}>
+        <Text color={COLORS.muted}>Memory workbench for code and agents</Text>
+      </Box>
+
+      {/* Keyboard hints -- OpenCode style */}
+      <Box gap={2} marginBottom={1}>
+        <Text color={COLORS.muted}>tab</Text>
+        <Text color={COLORS.textDim}>commands</Text>
+        <Text color={COLORS.muted}>/doctor</Text>
+        <Text color={COLORS.textDim}>diagnose</Text>
+        <Text color={COLORS.muted}>/bg</Text>
+        <Text color={COLORS.textDim}>control plane</Text>
+      </Box>
+
+      {/* Focus signals -- only 1-2, very compact */}
+      {!loading && highValueSignals.length > 0 && (
+        <Box flexDirection="column" alignItems="center" marginBottom={1}>
+          {highValueSignals.slice(0, 2).map((m) => (
+            <Box key={m.id}>
+              <Text color={COLORS.warning}>{TYPE_ICONS[m.type] || '.'} </Text>
+              <Text color={SRC[m.source] || COLORS.muted}>{(m.source || '?').padEnd(6)} </Text>
+              <Text color={COLORS.text}>{m.title.slice(0, 50)}{m.title.length > 50 ? '...' : ''}</Text>
+            </Box>
+          ))}
+        </Box>
+      )}
     </Box>
   );
 }

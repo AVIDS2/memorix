@@ -455,6 +455,37 @@ export function IngestView({ statusText }: IngestViewProps): React.ReactElement 
   );
 }
 
+interface IntegrateViewProps {
+  statusText: string;
+}
+
+export function IntegrateView({ statusText }: IntegrateViewProps): React.ReactElement {
+  return (
+    <Box flexDirection="column" paddingX={1}>
+      <Text color={COLORS.accentDim} bold>Integrate IDE</Text>
+      <Text color={COLORS.border}>{separator()}</Text>
+      <Box flexDirection="column" marginTop={1}>
+        <Box><Text color={COLORS.text}>  1  Claude Code</Text></Box>
+        <Box><Text color={COLORS.text}>  2  Windsurf</Text></Box>
+        <Box><Text color={COLORS.text}>  3  Cursor</Text></Box>
+        <Box><Text color={COLORS.text}>  4  GitHub Copilot</Text></Box>
+        <Box><Text color={COLORS.text}>  5  Kiro</Text></Box>
+        <Box><Text color={COLORS.text}>  6  Codex</Text></Box>
+        <Box><Text color={COLORS.text}>  7  Antigravity</Text></Box>
+        <Box><Text color={COLORS.text}>  8  OpenCode</Text></Box>
+        <Box><Text color={COLORS.text}>  9  Trae</Text></Box>
+        <Box><Text color={COLORS.muted}>  h  Back to home</Text></Box>
+      </Box>
+      <Box marginTop={1}>
+        <Text color={COLORS.textDim}>Installs only for the current project.</Text>
+      </Box>
+      {statusText && (
+        <Box marginTop={1}><Text color={COLORS.muted}>{statusText}</Text></Box>
+      )}
+    </Box>
+  );
+}
+
 interface StatusMessageProps {
   message: string;
   type: 'success' | 'error' | 'info';

@@ -90,18 +90,7 @@ async function runInteractiveCommand(cmd: string): Promise<void> {
         break;
       }
 
-      case '/integrate':
-      case '/setup': {
-        const integrateModule = await import('../commands/integrate.js');
-        await integrateModule.default.run?.({
-          args: { _: [] },
-          rawArgs: [],
-          cmd: integrateModule.default,
-        } as never);
-        break;
-      }
-
-      // /cleanup and /ingest are Ink-native views handled in App.tsx.
+      // /cleanup, /ingest, and /integrate are Ink-native views handled in App.tsx.
       default:
         console.log(`Unknown interactive command: ${cmd}`);
     }

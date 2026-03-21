@@ -22,6 +22,7 @@ import {
   DashboardView,
   CleanupView,
   IngestView,
+  IntegrateView,
   StatusMessage,
 } from './Panels.js';
 import type {
@@ -78,7 +79,30 @@ export function WorkbenchApp({ version, onExitForInteractive }: AppProps): React
   const [actionStatus, setActionStatus] = useState('');
 
   // Views that handle their own number/letter keys
-  const isActionView = view === 'cleanup' || view === 'ingest' || view === 'background' || view === 'dashboard';
+  const isActionView =
+    view === 'cleanup' ||
+    view === 'ingest' ||
+    view === 'background' ||
+    view === 'dashboard' ||
+    view === 'integrate';
+
+  const getProjectRoot = useCallback(async (): Promise<string | null> => {
+    const detected = project?.rootPath;
+    if (detected) return detected;
+    const { detectProject } = await import('../../project/detector.js');
+    return detectProject(process.cwd())?.rootPath ?? null;
+  }, [project]);
+
+  const refreshSummary = useCallback(async () => {
+    const [recent, bg, h] = await Promise.all([
+      getRecentMemories(8),
+      getBackgroundStatus(),
+      getHealthInfo(project?.id),
+    ]);
+    setRecentMemories(recent);
+    setBackground(bg);
+    setHealth(h);
+  }, [project]);
 
   // View-specific key dispatch: intercept 1-4, h, w on action views
   useInput((ch) => {
@@ -87,7 +111,11 @@ export function WorkbenchApp({ version, onExitForInteractive }: AppProps): React
       handleCleanupAction(ch);
     } else if (view === 'ingest' && (ch === '1' || ch === '2' || ch === '3' || ch === '4')) {
       handleIngestAction(ch);
+    } else if (view === 'integrate' && /^[1-9]$/.test(ch)) {
+      handleIntegrateAction(ch);
     } else if ((view === 'cleanup' || view === 'ingest') && ch === 'h') {
+      handleCommand('/home');
+    } else if (view === 'integrate' && ch === 'h') {
       handleCommand('/home');
     } else if (view === 'background' && (ch === '1' || ch === '2' || ch === '3')) {
       handleBackgroundAction(ch);
@@ -253,6 +281,13 @@ export function WorkbenchApp({ version, onExitForInteractive }: AppProps): React
           break;
         }
 
+        case 'integrate':
+        case 'setup': {
+          setView('integrate');
+          setActionStatus('');
+          break;
+        }
+
         case 'help':
         case '?': {
           setStatusMsg({
@@ -299,10 +334,45 @@ export function WorkbenchApp({ version, onExitForInteractive }: AppProps): React
         case '1': {
           if (!proj) { setActionStatus('No project detected.'); return; }
           try {
-            const hookMod = await import('../commands/git-hook-uninstall.js');
-            await hookMod.default.run?.({ args: { _: [], cwd: process.cwd() }, rawArgs: [], cmd: hookMod.default } as any);
+            const { resolveHooksDir } = await import('../../git/hooks-path.js');
+            const { existsSync, readFileSync, writeFileSync, unlinkSync } = await import('node:fs');
+            const resolved = resolveHooksDir(proj.rootPath);
+            const hookMarker = '# [memorix-git-hook]';
+            if (!resolved || !existsSync(resolved.hookPath)) {
+              setActionStatus('No post-commit hook found.');
+              return;
+            }
+            const content = readFileSync(resolved.hookPath, 'utf-8');
+            if (!content.includes(hookMarker)) {
+              setActionStatus('No memorix hook installed.');
+              return;
+            }
+            const filtered: string[] = [];
+            let inMemorixBlock = false;
+            for (const line of content.split('\n')) {
+              if (line.includes(hookMarker)) {
+                inMemorixBlock = true;
+                continue;
+              }
+              if (inMemorixBlock) {
+                if (line.trim() === '' || line.startsWith('#!') || line.startsWith('# [')) {
+                  if (line.trim() !== '') filtered.push(line);
+                  inMemorixBlock = false;
+                }
+                continue;
+              }
+              filtered.push(line);
+            }
+            const remaining = filtered.join('\n').trim();
+            if (!remaining || remaining === '#!/bin/sh') {
+              unlinkSync(resolved.hookPath);
+            } else {
+              writeFileSync(resolved.hookPath, `${remaining}\n`, 'utf-8');
+            }
             setActionStatus('Project artifacts uninstalled.');
-          } catch { setActionStatus('No artifacts to uninstall.'); }
+          } catch (err) {
+            setActionStatus(`Uninstall failed: ${err instanceof Error ? err.message : String(err)}`);
+          }
           break;
         }
         case '2': {
@@ -330,51 +400,206 @@ export function WorkbenchApp({ version, onExitForInteractive }: AppProps): React
         }
         default: setActionStatus('');
       }
+      await refreshSummary();
     } catch (err) {
       setActionStatus(`Error: ${err instanceof Error ? err.message : String(err)}`);
     }
-  }, []);
+  }, [refreshSummary]);
 
   const handleIngestAction = useCallback(async (action: string) => {
     setActionStatus('Executing...');
-    const cwd = process.cwd();
     try {
+      const cwd = (await getProjectRoot()) ?? process.cwd();
+      const { detectProject } = await import('../../project/detector.js');
+      const projectInfo = detectProject(cwd);
+      if (!projectInfo) {
+        setActionStatus('No git repository detected for the current project.');
+        return;
+      }
       switch (action) {
         case '1': {
           const { getRecentCommits, ingestCommit } = await import('../../git/extractor.js');
+          const { shouldFilterCommit } = await import('../../git/noise-filter.js');
+          const { getGitConfig } = await import('../../config.js');
+          const { getProjectDataDir, loadObservationsJson } = await import('../../store/persistence.js');
+          const { initObservations, storeObservation } = await import('../../memory/observations.js');
           const commits = getRecentCommits(cwd, 1);
           if (commits.length === 0) { setActionStatus('No commits found.'); break; }
-          const result = await ingestCommit(commits[0]);
-          setActionStatus(result ? `Ingested: ${commits[0].subject.slice(0, 50)}` : 'Commit skipped (noise filter).');
+          const commit = commits[0];
+          const gitCfg = getGitConfig();
+          const filterResult = shouldFilterCommit(commit, {
+            skipMergeCommits: gitCfg.skipMergeCommits,
+            excludePatterns: gitCfg.excludePatterns,
+            noiseKeywords: gitCfg.noiseKeywords,
+          });
+          if (filterResult.skip) {
+            setActionStatus(`Skipped ${commit.shortHash}: ${filterResult.reason}`);
+            break;
+          }
+          const dataDir = await getProjectDataDir(projectInfo.id);
+          await initObservations(dataDir);
+          const existingObs = await loadObservationsJson(dataDir) as Array<{ commitHash?: string }>;
+          if (existingObs.some((o) => o.commitHash === commit.hash)) {
+            setActionStatus(`Commit ${commit.shortHash} already ingested.`);
+            break;
+          }
+          const result = ingestCommit(commit);
+          await storeObservation({
+            entityName: result.entityName,
+            type: result.type as any,
+            title: result.title,
+            narrative: result.narrative,
+            facts: result.facts,
+            concepts: result.concepts,
+            filesModified: result.filesModified,
+            projectId: projectInfo.id,
+            source: 'git',
+            commitHash: commit.hash,
+          });
+          setActionStatus(`Ingested ${commit.shortHash}: ${truncateTitle(commit.subject, 48)}`);
           break;
         }
         case '2': {
           const { getRecentCommits, ingestCommit } = await import('../../git/extractor.js');
+          const { filterCommits } = await import('../../git/noise-filter.js');
+          const { getGitConfig } = await import('../../config.js');
+          const { getProjectDataDir, loadObservationsJson } = await import('../../store/persistence.js');
+          const { initObservations, storeObservation } = await import('../../memory/observations.js');
           const commits = getRecentCommits(cwd, 20);
           if (commits.length === 0) { setActionStatus('No commits found.'); break; }
+          const gitCfg = getGitConfig();
+          const { kept } = filterCommits(commits, {
+            skipMergeCommits: gitCfg.skipMergeCommits,
+            excludePatterns: gitCfg.excludePatterns,
+            noiseKeywords: gitCfg.noiseKeywords,
+          });
+          const dataDir = await getProjectDataDir(projectInfo.id);
+          await initObservations(dataDir);
+          const existingObs = await loadObservationsJson(dataDir) as Array<{ commitHash?: string }>;
+          const existingHashes = new Set(existingObs.map((o) => o.commitHash).filter(Boolean));
           let ingested = 0;
-          for (const c of commits) { if (await ingestCommit(c)) ingested++; }
-          setActionStatus(`Ingested ${ingested}/${commits.length} commits.`);
+          let skipped = 0;
+          for (const c of kept) {
+            if (existingHashes.has(c.hash)) {
+              skipped++;
+              continue;
+            }
+            const result = ingestCommit(c);
+            await storeObservation({
+              entityName: result.entityName,
+              type: result.type as any,
+              title: result.title,
+              narrative: result.narrative,
+              facts: result.facts,
+              concepts: result.concepts,
+              filesModified: result.filesModified,
+              projectId: projectInfo.id,
+              source: 'git',
+              commitHash: c.hash,
+            });
+            ingested++;
+            existingHashes.add(c.hash);
+          }
+          setActionStatus(`Ingested ${ingested}/${kept.length} commits${skipped ? ` (${skipped} already stored)` : ''}.`);
           break;
         }
         case '3': {
-          const hookMod = await import('../commands/git-hook-install.js');
-          await hookMod.default.run?.({ args: { _: [], cwd }, rawArgs: [], cmd: hookMod.default } as any);
+          const { existsSync, readFileSync, writeFileSync, chmodSync } = await import('node:fs');
+          const { ensureHooksDir } = await import('../../git/hooks-path.js');
+          const hookMarker = '# [memorix-git-hook]';
+          const resolved = ensureHooksDir(cwd);
+          if (!resolved) {
+            setActionStatus('No .git found. Run inside a git repository.');
+            break;
+          }
+          const hookScript = `${hookMarker}
+# Memorix: Auto-ingest git commits as memories
+# Runs in background - does not block your commit workflow.
+# To remove: memorix git-hook uninstall
+if command -v memorix >/dev/null 2>&1; then
+  memorix ingest commit --auto >/dev/null 2>&1 &
+fi
+`;
+          if (existsSync(resolved.hookPath)) {
+            const existing = readFileSync(resolved.hookPath, 'utf-8');
+            if (existing.includes(hookMarker)) {
+              setActionStatus('Post-commit hook already installed.');
+              break;
+            }
+            const appended = `${existing.trimEnd()}\n\n${hookScript}`;
+            writeFileSync(resolved.hookPath, appended, 'utf-8');
+          } else {
+            writeFileSync(resolved.hookPath, `#!/bin/sh\n${hookScript}`, 'utf-8');
+          }
+          try { chmodSync(resolved.hookPath, 0o755); } catch { /* Windows */ }
           setActionStatus('Post-commit hook installed.');
           break;
         }
         case '4': {
-          const hookMod = await import('../commands/git-hook-uninstall.js');
-          await hookMod.default.run?.({ args: { _: [], cwd }, rawArgs: [], cmd: hookMod.default } as any);
+          const { existsSync, readFileSync, writeFileSync, unlinkSync } = await import('node:fs');
+          const { resolveHooksDir } = await import('../../git/hooks-path.js');
+          const hookMarker = '# [memorix-git-hook]';
+          const resolved = resolveHooksDir(cwd);
+          if (!resolved || !existsSync(resolved.hookPath)) {
+            setActionStatus('No post-commit hook found.');
+            break;
+          }
+          const content = readFileSync(resolved.hookPath, 'utf-8');
+          if (!content.includes(hookMarker)) {
+            setActionStatus('No memorix hook installed.');
+            break;
+          }
+          const filtered: string[] = [];
+          let inMemorixBlock = false;
+          for (const line of content.split('\n')) {
+            if (line.includes(hookMarker)) {
+              inMemorixBlock = true;
+              continue;
+            }
+            if (inMemorixBlock) {
+              if (line.trim() === '' || line.startsWith('#!') || line.startsWith('# [')) {
+                if (line.trim() !== '') filtered.push(line);
+                inMemorixBlock = false;
+              }
+              continue;
+            }
+            filtered.push(line);
+          }
+          const remaining = filtered.join('\n').trim();
+          if (!remaining || remaining === '#!/bin/sh') {
+            unlinkSync(resolved.hookPath);
+          } else {
+            writeFileSync(resolved.hookPath, `${remaining}\n`, 'utf-8');
+          }
           setActionStatus('Post-commit hook uninstalled.');
           break;
         }
         default: setActionStatus('');
       }
+      await refreshSummary();
     } catch (err) {
       setActionStatus(`Error: ${err instanceof Error ? err.message : String(err)}`);
     }
-  }, []);
+  }, [getProjectRoot, refreshSummary]);
+
+  const handleIntegrateAction = useCallback(async (action: string) => {
+    const agents = ['claude', 'windsurf', 'cursor', 'copilot', 'kiro', 'codex', 'antigravity', 'opencode', 'trae'] as const;
+    const index = Number(action) - 1;
+    const agent = agents[index];
+    if (!agent) {
+      setActionStatus('');
+      return;
+    }
+    setActionStatus('Executing...');
+    try {
+      const cwd = (await getProjectRoot()) ?? process.cwd();
+      const { installHooks } = await import('../../hooks/installers/index.js');
+      const result = await installHooks(agent, cwd, false);
+      setActionStatus(`Installed ${agent} integration -> ${result.configPath}`);
+    } catch (err) {
+      setActionStatus(`Install failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }, [getProjectRoot]);
 
   const handleBackgroundAction = useCallback(async (action: string) => {
     setStatusMsg(null);
@@ -468,6 +693,8 @@ export function WorkbenchApp({ version, onExitForInteractive }: AppProps): React
         return <CleanupView onAction={handleCleanupAction} statusText={actionStatus} />;
       case 'ingest':
         return <IngestView onAction={handleIngestAction} statusText={actionStatus} />;
+      case 'integrate':
+        return <IntegrateView statusText={actionStatus} />;
       case 'home':
       default:
         return <HomeView project={project} health={health} background={background} loading={loading} />;
@@ -519,6 +746,8 @@ export function WorkbenchApp({ version, onExitForInteractive }: AppProps): React
             ? 'cleanup: press 1/2/3, or h for home'
             : view === 'ingest'
               ? 'git > memory: press 1/2/3/4, or h for home'
+              : view === 'integrate'
+                ? 'integrate: press 1-9, or h for home'
               : view === 'background'
                 ? background.running
                   ? 'background: press w/1/2/3'
@@ -530,4 +759,9 @@ export function WorkbenchApp({ version, onExitForInteractive }: AppProps): React
       />
     </Box>
   );
+}
+
+function truncateTitle(text: string, max: number): string {
+  if (text.length <= max) return text;
+  return `${text.slice(0, max)}...`;
 }

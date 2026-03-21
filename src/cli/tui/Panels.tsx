@@ -31,6 +31,33 @@ function sourceBadge(source: string): string {
   return source || '?';
 }
 
+// ── Lightweight grouping for Recent Activity ──────────────────
+
+interface GroupedItem extends MemoryItem {
+  count: number;
+}
+
+function groupRecent(items: MemoryItem[]): GroupedItem[] {
+  if (items.length === 0) return [];
+  const groups: GroupedItem[] = [];
+  let current: GroupedItem = { ...items[0], count: 1 };
+
+  for (let i = 1; i < items.length; i++) {
+    const m = items[i];
+    // Group if same entity or very similar title prefix (first 20 chars)
+    const sameEntity = current.entityName && m.entityName && current.entityName === m.entityName;
+    const similarTitle = current.title.slice(0, 20) === m.title.slice(0, 20);
+    if (sameEntity || similarTitle) {
+      current.count++;
+    } else {
+      groups.push(current);
+      current = { ...m, count: 1 };
+    }
+  }
+  groups.push(current);
+  return groups;
+}
+
 // ── Home View ──────────────────────────────────────────────────
 
 interface HomeViewProps {
@@ -65,7 +92,7 @@ export function HomeView({ recentMemories, highValueSignals, project, loading }:
         )}
       </Box>
 
-      {/* Recent Activity — last N items with source badges */}
+      {/* Recent Activity — last N items with source badges, grouped */}
       <Box flexDirection="column">
         <Box marginBottom={0}>
           <Text color={COLORS.accentDim} bold>Recent Activity</Text>
@@ -75,14 +102,23 @@ export function HomeView({ recentMemories, highValueSignals, project, loading }:
         ) : recentMemories.length === 0 ? (
           <Text color={COLORS.muted}>No memories yet. Use /remember to store one.</Text>
         ) : (
-          recentMemories.map((m) => (
-            <Box key={m.id}>
-              <Text color={SOURCE_COLORS[m.source] || COLORS.muted}>{sourceBadge(m.source).padEnd(6)} </Text>
-              <Text color={COLORS.muted}>{(TYPE_ICONS[m.type] || '·')} </Text>
-              <Text color={COLORS.textDim}>#{m.id} </Text>
-              <Text color={COLORS.text}>{m.title.slice(0, 55)}{m.title.length > 55 ? '…' : ''}</Text>
-            </Box>
-          ))
+          groupRecent(recentMemories).map((item, idx) =>
+            item.count > 1 ? (
+              <Box key={`g-${idx}`}>
+                <Text color={SOURCE_COLORS[item.source] || COLORS.muted}>{sourceBadge(item.source).padEnd(6)} </Text>
+                <Text color={COLORS.muted}>… </Text>
+                <Text color={COLORS.textDim}>{item.count} related: </Text>
+                <Text color={COLORS.text}>{item.title.slice(0, 45)}{item.title.length > 45 ? '…' : ''}</Text>
+              </Box>
+            ) : (
+              <Box key={item.id}>
+                <Text color={SOURCE_COLORS[item.source] || COLORS.muted}>{sourceBadge(item.source).padEnd(6)} </Text>
+                <Text color={COLORS.muted}>{(TYPE_ICONS[item.type] || '·')} </Text>
+                <Text color={COLORS.textDim}>#{item.id} </Text>
+                <Text color={COLORS.text}>{item.title.slice(0, 55)}{item.title.length > 55 ? '…' : ''}</Text>
+              </Box>
+            )
+          )
         )}
       </Box>
     </Box>

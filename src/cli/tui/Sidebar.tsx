@@ -29,63 +29,78 @@ export function Sidebar({ health, background, activeView }: SidebarProps): React
   return (
     <Box
       flexDirection="column"
-      width={26}
+      width={28}
       borderStyle="single"
       borderColor={COLORS.border}
       paddingX={1}
     >
-      {/* Actions */}
+      {/* Quick Actions */}
       <Box flexDirection="column" marginBottom={1}>
-        <Text color={COLORS.accent} bold>Actions</Text>
+        <Text color={COLORS.accentDim} bold>Quick Actions</Text>
+        <Text color={COLORS.border}>{'─'.repeat(24)}</Text>
         {ACTIONS.map((a) => (
           <Box key={a.key}>
-            <Text color={COLORS.accentDim}>{a.key}</Text>
-            <Text color={COLORS.muted}> </Text>
+            <Text color={COLORS.muted}>{a.key} </Text>
             <Text color={COLORS.text}>{a.label}</Text>
           </Box>
         ))}
       </Box>
 
-      {/* System */}
-      <Box flexDirection="column" marginBottom={1}>
-        <Text color={COLORS.accentDim} bold>System</Text>
+      {/* Health Snapshot */}
+      <Box flexDirection="column">
+        <Text color={COLORS.accentDim} bold>Health</Text>
+        <Text color={COLORS.border}>{'─'.repeat(24)}</Text>
+
         <Box>
-          <Text color={COLORS.muted}>{'Embed'.padEnd(8)}</Text>
+          <Text color={COLORS.muted}>Provider  </Text>
           <Text color={
             health.embeddingProvider === 'ready' ? COLORS.success
             : health.embeddingProvider === 'unavailable' ? COLORS.warning
             : COLORS.muted
-          }>{health.embeddingProvider}</Text>
+          }>
+            {health.embeddingProvider}
+          </Text>
         </Box>
+
         <Box>
-          <Text color={COLORS.muted}>{'Search'.padEnd(8)}</Text>
+          <Text color={COLORS.muted}>Search    </Text>
           <Text color={
             health.searchMode.includes('hybrid') ? COLORS.success
             : health.searchMode.includes('vector') ? COLORS.accent
+            : health.searchMode.includes('rerank') ? COLORS.success
             : COLORS.warning
-          }>{health.searchMode}</Text>
-        </Box>
-        <Box>
-          <Text color={COLORS.muted}>{'Memory'.padEnd(8)}</Text>
-          <Text color={COLORS.text}>{health.activeMemories}</Text>
-        </Box>
-      </Box>
-
-      {/* Control Plane */}
-      <Box flexDirection="column">
-        <Text color={COLORS.accentDim} bold>Control Plane</Text>
-        <Box>
-          <Text color={background.healthy ? COLORS.success : background.running ? COLORS.warning : COLORS.muted}>
-            {background.healthy ? '● Running' : background.running ? '● Unhealthy' : '○ Stopped'}
+          }>
+            {health.searchMode}
           </Text>
         </Box>
-        {background.port && (
-          <Text color={COLORS.textDim}>:{background.port}</Text>
-        )}
+
+        <Box>
+          <Text color={COLORS.muted}>Sessions  </Text>
+          <Text color={COLORS.text}>{health.sessions}</Text>
+        </Box>
+
+        {/* Background status */}
+        <Box marginTop={1} flexDirection="column">
+          <Text color={COLORS.accentDim} bold>Background</Text>
+          <Text color={COLORS.border}>{'─'.repeat(24)}</Text>
+          <Box>
+            <Text color={COLORS.muted}>Status    </Text>
+            <Text color={background.healthy ? COLORS.success : background.running ? COLORS.warning : COLORS.muted}>
+              {background.healthy ? 'Running' : background.running ? 'Unhealthy' : 'Stopped'}
+            </Text>
+          </Box>
+          {background.port && (
+            <Box>
+              <Text color={COLORS.muted}>Port      </Text>
+              <Text color={COLORS.text}>{background.port}</Text>
+            </Box>
+          )}
+        </Box>
       </Box>
 
+      {/* Footer hint */}
       <Box marginTop={1}>
-        <Text color={COLORS.muted} dimColor>/ commands  ctrl+c quit</Text>
+        <Text color={COLORS.muted} italic>Type / for commands</Text>
       </Box>
     </Box>
   );

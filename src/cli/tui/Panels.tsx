@@ -15,61 +15,45 @@ import type {
   BackgroundInfo,
 } from './data.js';
 
-// ── Source Badge Colors ────────────────────────────────────────
-
-const SOURCE_COLORS: Record<string, string> = {
-  git: '#5faf5f',
-  agent: 'cyan',
-  hook: '#d7af5f',
-  session: '#af87d7',
-  manual: '#5f87af',
-  skill: '#87afaf',
-  reasoning: '#af87af',
-};
-
-function sourceBadge(source: string): string {
-  return source || '?';
-}
-
 // ── Home View ──────────────────────────────────────────────────
 
 interface HomeViewProps {
   recentMemories: MemoryItem[];
-  highValueSignals: MemoryItem[];
   project: ProjectInfo | null;
   loading: boolean;
 }
 
-export function HomeView({ recentMemories, highValueSignals, project, loading }: HomeViewProps): React.ReactElement {
+export function HomeView({ recentMemories, project, loading }: HomeViewProps): React.ReactElement {
   return (
     <Box flexDirection="column" paddingX={1}>
-      {/* Current Focus — top 3 high-value signals */}
+      {/* Project summary */}
       <Box flexDirection="column" marginBottom={1}>
-        <Box marginBottom={0}>
-          <Text color={COLORS.accent} bold>Current Focus</Text>
-          <Text color={COLORS.muted}> — top signals for this project</Text>
-        </Box>
-        {loading ? (
-          <Text color={COLORS.muted}>Loading...</Text>
-        ) : highValueSignals.length === 0 ? (
-          <Text color={COLORS.muted}>No high-value signals yet. Decisions, gotchas, and solutions will appear here.</Text>
-        ) : (
-          highValueSignals.map((m) => (
-            <Box key={m.id} marginY={0}>
-              <Text color={SOURCE_COLORS[m.source] || COLORS.muted}>{sourceBadge(m.source).padEnd(6)} </Text>
-              <Text color={COLORS.warning}>{(TYPE_ICONS[m.type] || '·')} </Text>
-              <Text color={COLORS.text} bold>{m.title.slice(0, 55)}{m.title.length > 55 ? '…' : ''}</Text>
-              <Text color={COLORS.textDim}> #{m.id}</Text>
+        <Text color={COLORS.accentDim} bold>Project</Text>
+        <Text color={COLORS.border}>{'─'.repeat(50)}</Text>
+        {project ? (
+          <Box flexDirection="column">
+            <Box>
+              <Text color={COLORS.muted}>{'Name'.padEnd(10)}</Text>
+              <Text color={COLORS.text}>{project.name}</Text>
             </Box>
-          ))
+            <Box>
+              <Text color={COLORS.muted}>{'Root'.padEnd(10)}</Text>
+              <Text color={COLORS.textDim}>{project.rootPath}</Text>
+            </Box>
+            <Box>
+              <Text color={COLORS.muted}>{'Remote'.padEnd(10)}</Text>
+              <Text color={COLORS.textDim}>{project.gitRemote}</Text>
+            </Box>
+          </Box>
+        ) : (
+          <Text color={COLORS.warning}>No project detected. Run git init first.</Text>
         )}
       </Box>
 
-      {/* Recent Activity — last N items with source badges */}
+      {/* Recent memories */}
       <Box flexDirection="column">
-        <Box marginBottom={0}>
-          <Text color={COLORS.accentDim} bold>Recent Activity</Text>
-        </Box>
+        <Text color={COLORS.accentDim} bold>Recent Memories</Text>
+        <Text color={COLORS.border}>{'─'.repeat(50)}</Text>
         {loading ? (
           <Text color={COLORS.muted}>Loading...</Text>
         ) : recentMemories.length === 0 ? (
@@ -77,10 +61,9 @@ export function HomeView({ recentMemories, highValueSignals, project, loading }:
         ) : (
           recentMemories.map((m) => (
             <Box key={m.id}>
-              <Text color={SOURCE_COLORS[m.source] || COLORS.muted}>{sourceBadge(m.source).padEnd(6)} </Text>
-              <Text color={COLORS.muted}>{(TYPE_ICONS[m.type] || '·')} </Text>
+              <Text color={COLORS.muted}>[{(TYPE_ICONS[m.type] || '·')}] </Text>
               <Text color={COLORS.textDim}>#{m.id} </Text>
-              <Text color={COLORS.text}>{m.title.slice(0, 55)}{m.title.length > 55 ? '…' : ''}</Text>
+              <Text color={COLORS.text}>{m.title.slice(0, 60)}{m.title.length > 60 ? '…' : ''}</Text>
             </Box>
           ))
         )}
@@ -101,10 +84,11 @@ export function SearchResultsView({ results, query, loading }: SearchResultsView
   return (
     <Box flexDirection="column" paddingX={1}>
       <Box>
-        <Text color={COLORS.accent} bold>Search: </Text>
+        <Text color={COLORS.accentDim} bold>Search: </Text>
         <Text color={COLORS.text}>"{query}"</Text>
         {!loading && <Text color={COLORS.muted}> — {results.length} results</Text>}
       </Box>
+      <Text color={COLORS.border}>{'─'.repeat(50)}</Text>
 
       {loading ? (
         <Text color={COLORS.muted}>Searching...</Text>
@@ -148,7 +132,8 @@ const STATUS_ICONS: Record<string, string> = {
 export function DoctorView({ doctor, loading }: DoctorViewProps): React.ReactElement {
   return (
     <Box flexDirection="column" paddingX={1}>
-      <Text color={COLORS.accent} bold>Diagnostics</Text>
+      <Text color={COLORS.accentDim} bold>Diagnostics</Text>
+      <Text color={COLORS.border}>{'─'.repeat(50)}</Text>
 
       {loading ? (
         <Text color={COLORS.muted}>Running diagnostics...</Text>
@@ -183,7 +168,8 @@ interface ProjectViewProps {
 export function ProjectView({ project }: ProjectViewProps): React.ReactElement {
   return (
     <Box flexDirection="column" paddingX={1}>
-      <Text color={COLORS.accent} bold>Project Details</Text>
+      <Text color={COLORS.accentDim} bold>Project Details</Text>
+      <Text color={COLORS.border}>{'─'.repeat(50)}</Text>
 
       {!project ? (
         <Text color={COLORS.warning}>No project detected. Run git init first.</Text>
@@ -216,7 +202,8 @@ interface BackgroundViewProps {
 export function BackgroundView({ background, loading }: BackgroundViewProps): React.ReactElement {
   return (
     <Box flexDirection="column" paddingX={1}>
-      <Text color={COLORS.accent} bold>Background Control Plane</Text>
+      <Text color={COLORS.accentDim} bold>Background Control Plane</Text>
+      <Text color={COLORS.border}>{'─'.repeat(50)}</Text>
 
       {loading ? (
         <Text color={COLORS.muted}>Checking status...</Text>
@@ -274,20 +261,13 @@ export function BackgroundView({ background, loading }: BackgroundViewProps): Re
             </Box>
           )}
 
-          {/* Actions */}
+          {/* Action hints */}
           <Box marginTop={1} flexDirection="column">
-            <Text color={COLORS.accentDim} bold>Actions</Text>
-            {background.running ? (
-              <Box flexDirection="column">
-                <Text color={COLORS.text}>  memorix background restart</Text>
-                <Text color={COLORS.text}>  memorix background stop</Text>
-                <Text color={COLORS.text}>  memorix background logs</Text>
-              </Box>
-            ) : (
-              <Box flexDirection="column">
-                <Text color={COLORS.success}>  memorix background start</Text>
-              </Box>
-            )}
+            <Text color={COLORS.muted}>
+              {background.running
+                ? 'Use CLI: memorix background stop|restart|logs'
+                : 'Use CLI: memorix background start'}
+            </Text>
           </Box>
         </Box>
       )}
@@ -304,28 +284,26 @@ interface DashboardViewProps {
 export function DashboardView({ background }: DashboardViewProps): React.ReactElement {
   return (
     <Box flexDirection="column" paddingX={1}>
-      <Text color={COLORS.accent} bold>Dashboard</Text>
+      <Text color={COLORS.accentDim} bold>Dashboard</Text>
+      <Text color={COLORS.border}>{'─'.repeat(50)}</Text>
 
       {background.healthy && background.dashboard ? (
         <Box flexDirection="column">
           <Box>
-            <Text color={COLORS.muted}>{'URL'.padEnd(8)}</Text>
+            <Text color={COLORS.muted}>URL  </Text>
             <Text color={COLORS.accent} bold>{background.dashboard}</Text>
           </Box>
-          <Box marginTop={1} flexDirection="column">
-            <Text color={COLORS.accentDim} bold>Actions</Text>
-            <Text color={COLORS.text}>  Open {background.dashboard} in browser</Text>
-            <Text color={COLORS.text}>  memorix dashboard (standalone)</Text>
+          <Box marginTop={1}>
+            <Text color={COLORS.muted}>Open this URL in your browser to view the Memorix dashboard.</Text>
           </Box>
         </Box>
       ) : (
         <Box flexDirection="column">
-          <Text color={COLORS.warning}>○ No running control plane</Text>
-          <Box marginTop={1} flexDirection="column">
-            <Text color={COLORS.accentDim} bold>Actions</Text>
-            <Text color={COLORS.success}>  memorix background start</Text>
-            <Text color={COLORS.text}>  memorix dashboard (standalone)</Text>
+          <Text color={COLORS.warning}>No running control plane detected.</Text>
+          <Box marginTop={1}>
+            <Text color={COLORS.muted}>Start one with: memorix background start</Text>
           </Box>
+          <Text color={COLORS.muted}>Or run standalone: memorix dashboard</Text>
         </Box>
       )}
     </Box>

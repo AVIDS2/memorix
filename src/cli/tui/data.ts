@@ -29,7 +29,6 @@ export interface MemoryItem {
   id: number;
   title: string;
   type: string;
-  source: string;
   createdAt: string;
   entityName: string;
   status?: string;
@@ -166,54 +165,6 @@ export async function getRecentMemories(limit = 8): Promise<MemoryItem[]> {
       id: o.id,
       title: o.title || '(untitled)',
       type: o.type || 'discovery',
-      source: o.source || 'agent',
-      createdAt: o.createdAt || '',
-      entityName: o.entityName || '',
-      status: o.status,
-    }));
-  } catch {
-    return [];
-  }
-}
-
-// ── High-Value Signals (top 3 decision/gotcha/problem-solution) ──
-
-const HIGH_VALUE_TYPES = new Set(['decision', 'gotcha', 'problem-solution', 'how-it-works', 'trade-off', 'session-request']);
-
-export async function getHighValueSignals(limit = 3): Promise<MemoryItem[]> {
-  try {
-    const { detectProject } = await import('../../project/detector.js');
-    const { getProjectDataDir, loadObservationsJson } = await import('../../store/persistence.js');
-
-    const proj = detectProject(process.cwd());
-    if (!proj) return [];
-
-    const dataDir = await getProjectDataDir(proj.id);
-    const obs = await loadObservationsJson(dataDir) as any[];
-    const active = obs.filter((o: any) =>
-      (o.status ?? 'active') === 'active' &&
-      o.projectId === proj.id &&
-      !/^(Ran:|Command:|Executed:)\s/i.test(o.title || '')
-    );
-
-    // Prioritize high-value types, then by importance and recency
-    const scored = active
-      .map((o: any) => {
-        const isHighValue = HIGH_VALUE_TYPES.has(o.type);
-        const importance = o.importance ?? 5;
-        const age = Date.now() - new Date(o.createdAt || 0).getTime();
-        const ageHours = age / (1000 * 60 * 60);
-        const score = (isHighValue ? 10 : 0) + importance - Math.min(ageHours * 0.01, 3);
-        return { obs: o, score };
-      })
-      .sort((a, b) => b.score - a.score)
-      .slice(0, limit);
-
-    return scored.map(({ obs: o }) => ({
-      id: o.id,
-      title: o.title || '(untitled)',
-      type: o.type || 'discovery',
-      source: o.source || 'agent',
       createdAt: o.createdAt || '',
       entityName: o.entityName || '',
       status: o.status,

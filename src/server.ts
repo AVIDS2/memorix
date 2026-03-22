@@ -37,6 +37,21 @@ import type { ExistingMemory } from './llm/memory-manager.js';
 import { runFormation, getMetricsSummary, getBeforeAfterMetrics } from './memory/formation/index.js';
 import type { FormationConfig, SearchHit, FormedMemory } from './memory/formation/types.js';
 
+// ── Timeout budgets for LLM-heavy paths ──────────────────────────
+const FORMATION_TIMEOUT_MS = 20_000;   // Formation pipeline (extract+resolve+evaluate)
+const COMPRESSION_TIMEOUT_MS = 8_000;  // Narrative compression
+
+/** Race a promise against a timeout. Rejects with a descriptive Error on timeout. */
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+    }),
+  ]).finally(() => clearTimeout(timer!));
+}
+
 /** Timestamp of last MCP-initiated write — hot-reload skips changes within 10s */
 let lastInternalWriteMs = 0;
 const markInternalWrite = () => { lastInternalWriteMs = Date.now(); };
@@ -445,15 +460,19 @@ export async function createMemorixServer(
             getEntityNames: () => graphManager.getEntityNames(),
           };
 
-          formationResult = await runFormation({
-            entityName,
-            type: type as ObservationType,
-            title,
-            narrative,
-            facts: safeFacts,
-            projectId: project.id,
-            source: 'explicit',
-          }, formationConfig);
+          formationResult = await withTimeout(
+            runFormation({
+              entityName,
+              type: type as ObservationType,
+              title,
+              narrative,
+              facts: safeFacts,
+              projectId: project.id,
+              source: 'explicit',
+            }, formationConfig),
+            FORMATION_TIMEOUT_MS,
+            'Formation pipeline',
+          );
 
           const modeIcon = '⚡';
           formationNote = `\n${modeIcon} Formation[active]: ${formationResult.evaluation.category} (${formationResult.evaluation.score.toFixed(2)}) | ${formationResult.resolution.action} | ${formationResult.pipeline.durationMs}ms`;
@@ -463,7 +482,11 @@ export async function createMemorixServer(
           if (formationResult.extraction.titleImproved) formationNote += ' | title↑';
           if (formationResult.extraction.entityResolved) formationNote += ` | entity→${formationResult.entityName}`;
           if (formationResult.extraction.typeCorrected) formationNote += ` | type→${formationResult.type}`;
-        } catch { /* formation failure → fallback to old compact */ }
+        } catch (formationErr) {
+          // Formation timeout or failure → fall through to store without enrichment
+          const isTimeout = formationErr instanceof Error && formationErr.message.includes('timed out');
+          formationNote = `\n⚠️ Formation ${isTimeout ? 'timed out' : 'failed'} — storing base observation without enrichment`;
+        }
       }
 
       // ── Apply Formation decision (active mode only) ───────────────────
@@ -556,9 +579,13 @@ export async function createMemorixServer(
               score: similarEntries[i]?.score ?? 0,
             }));
 
-            const decision = await compactOnWrite(
-              { title, narrative, facts: safeFacts ?? [] },
-              existingMemories,
+            const decision = await withTimeout(
+              compactOnWrite(
+                { title, narrative, facts: safeFacts ?? [] },
+                existingMemories,
+              ),
+              FORMATION_TIMEOUT_MS,
+              'Compact-on-write',
             );
 
             if (decision.action === 'UPDATE' && decision.targetId) {
@@ -660,12 +687,16 @@ export async function createMemorixServer(
       let compressionNote = '';
       try {
         const { compressNarrative } = await import('./llm/quality.js');
-        const { compressed, saved, usedLLM } = await compressNarrative(narrative, safeFacts, type);
+        const { compressed, saved, usedLLM } = await withTimeout(
+          compressNarrative(narrative, safeFacts, type),
+          COMPRESSION_TIMEOUT_MS,
+          'Narrative compression',
+        );
         if (usedLLM && saved > 0) {
           finalNarrative = compressed;
           compressionNote = ` | compressed -${saved} tokens`;
         }
-      } catch { /* compression is best-effort */ }
+      } catch { /* compression is best-effort (timeout or LLM failure) */ }
 
       // Store the observation (may upsert if topicKey matches existing)
       markInternalWrite();
@@ -708,50 +739,43 @@ export async function createMemorixServer(
       const action = upserted ? '🔄 Updated' : '✅ Stored';
 
       // ── Formation Pipeline (shadow/fallback mode: observe only) ─────
-      // In shadow mode, Formation runs after storage to collect metrics.
-      // In fallback mode, Formation runs after old compact to collect metrics.
-      // Collects old compact decision for before/after comparison.
-      if (!useFormation) {
-        try {
-          // First, run old compact to get its decision (for comparison)
+      // Fire-and-forget: runs after storage to collect metrics.
+      // Never blocks the MCP response — purely for A/B comparison data.
+      if (!useFormation && !topicKey && !progress) {
+        const shadowFormation = async () => {
           let oldCompactDecision: { action: string, targetId?: number, reason?: string, durationMs?: number } | null = null;
-          if (!topicKey && !progress) {
-            try {
-              const compactStart = Date.now();
-              const searchResult = await compactSearch({
-                query: `${title} ${narrative.substring(0, 200)}`,
-                limit: 5,
-                projectId: project.id,
-                status: 'active',
-              });
-              const similarEntries = searchResult.entries.map(e => e);
-              if (similarEntries.length > 0) {
-                const similarIds = similarEntries.map(e => e.id);
-                const details = await compactDetail(similarIds);
-                const existingMemories: ExistingMemory[] = details.documents.map((d, i) => ({
-                  id: d.observationId,
-                  title: d.title,
-                  narrative: d.narrative,
-                  facts: d.facts,
-                  score: similarEntries[i]?.score ?? 0,
-                }));
+          try {
+            const compactStart = Date.now();
+            const searchResult = await compactSearch({
+              query: `${title} ${narrative.substring(0, 200)}`,
+              limit: 5,
+              projectId: project.id,
+              status: 'active',
+            });
+            const similarEntries = searchResult.entries.map(e => e);
+            if (similarEntries.length > 0) {
+              const similarIds = similarEntries.map(e => e.id);
+              const details = await compactDetail(similarIds);
+              const existingMemories: ExistingMemory[] = details.documents.map((d, i) => ({
+                id: d.observationId,
+                title: d.title,
+                narrative: d.narrative,
+                facts: d.facts,
+                score: similarEntries[i]?.score ?? 0,
+              }));
+              const decision = await compactOnWrite(
+                { title, narrative, facts: safeFacts ?? [] },
+                existingMemories,
+              );
+              oldCompactDecision = {
+                action: decision.action,
+                targetId: decision.targetId,
+                reason: decision.reason,
+                durationMs: Date.now() - compactStart,
+              };
+            }
+          } catch { /* best-effort */ }
 
-                const decision = await compactOnWrite(
-                  { title, narrative, facts: safeFacts ?? [] },
-                  existingMemories,
-                );
-                const compactDuration = Date.now() - compactStart;
-                oldCompactDecision = {
-                  action: decision.action,
-                  targetId: decision.targetId,
-                  reason: decision.reason,
-                  durationMs: compactDuration,
-                };
-              }
-            } catch { /* old compact decision collection is best-effort */ }
-          }
-
-          // Then run Formation to get its decision
           const formationConfig: FormationConfig = {
             mode: formationMode,
             useLLM: isLLMEnabled(),
@@ -774,31 +798,17 @@ export async function createMemorixServer(
             getObservation: (id: number) => {
               const o = getObservation(id);
               if (!o) return null;
-              return {
-                id: o.id,
-                entityName: o.entityName,
-                type: o.type,
-                title: o.title,
-                narrative: o.narrative,
-                facts: o.facts,
-                topicKey: o.topicKey,
-              };
+              return { id: o.id, entityName: o.entityName, type: o.type, title: o.title, narrative: o.narrative, facts: o.facts, topicKey: o.topicKey };
             },
             getEntityNames: () => graphManager.getEntityNames(),
           };
 
-          const formed = await runFormation({
-            entityName,
-            type: type as ObservationType,
-            title,
-            narrative,
-            facts: safeFacts,
-            projectId: project.id,
-            source: 'explicit',
-            topicKey,
-          }, formationConfig);
+          const formed = await withTimeout(
+            runFormation({ entityName, type: type as ObservationType, title, narrative, facts: safeFacts, projectId: project.id, source: 'explicit', topicKey }, formationConfig),
+            FORMATION_TIMEOUT_MS,
+            'Shadow formation',
+          );
 
-          // Store before/after comparison metrics
           const { recordBeforeAfterMetrics } = await import('./memory/formation/index.js');
           if (oldCompactDecision) {
             recordBeforeAfterMetrics({
@@ -813,19 +823,9 @@ export async function createMemorixServer(
               compactDurationMs: oldCompactDecision.durationMs,
             });
           }
-
-          const modeIcon = formationMode === 'shadow' ? '🔬' : '🛡️';
-          formationNote = `\n${modeIcon} Formation[${formationMode}]: ${formed.evaluation.category} (${formed.evaluation.score.toFixed(2)}) | ${formed.resolution.action} | ${formed.pipeline.durationMs}ms`;
-          if (oldCompactDecision) {
-            formationNote += ` | Compact: ${oldCompactDecision.action}${oldCompactDecision.targetId ? ` #${oldCompactDecision.targetId}` : ''}${oldCompactDecision.durationMs ? ` (${oldCompactDecision.durationMs}ms)` : ''}`;
-          }
-          if (formed.extraction.extractedFacts.length > 0) {
-            formationNote += ` | +${formed.extraction.extractedFacts.length} facts`;
-          }
-          if (formed.extraction.titleImproved) formationNote += ' | title↑';
-          if (formed.extraction.entityResolved) formationNote += ` | entity→${formed.entityName}`;
-          if (formed.extraction.typeCorrected) formationNote += ` | type→${formed.type}`;
-        } catch { /* formation is best-effort in shadow/fallback mode */ }
+        };
+        // Fire-and-forget — do not await
+        shadowFormation().catch(() => {});
       }
 
       return {

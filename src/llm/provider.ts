@@ -8,6 +8,9 @@
  * but with an LLM configured, memory quality approaches Mem0/Cipher level.
  */
 
+/** Per-call timeout for LLM API requests (ms). Prevents a single slow call from blocking the store path. */
+const LLM_CALL_TIMEOUT_MS = 12_000;
+
 export interface LLMConfig {
   provider: 'openai' | 'anthropic' | 'openrouter' | 'custom';
   apiKey: string;
@@ -113,6 +116,7 @@ async function callOpenAICompatible(
   const url = `${base}/chat/completions`;
 
   const response = await fetch(url, {
+    signal: AbortSignal.timeout(LLM_CALL_TIMEOUT_MS),
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -159,6 +163,7 @@ async function callAnthropic(
   const url = `${config.baseUrl}/messages`;
 
   const response = await fetch(url, {
+    signal: AbortSignal.timeout(LLM_CALL_TIMEOUT_MS),
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

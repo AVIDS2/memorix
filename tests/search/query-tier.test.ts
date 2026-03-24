@@ -2,19 +2,22 @@
  * Query Tier Classification Tests
  *
  * Verifies that classifyQueryTier correctly routes queries:
- * - fast:     single-word, short, actual commands (tool word leads)
+ * - fast:     single-word, short, actual CLI commands
  * - standard: multi-word English natural language
  * - heavy:    CJK, long complex queries
  *
- * Critical regression: natural language queries mentioning tools
- * (e.g. "why is memorix search slow") must NOT be misclassified as fast.
+ * Critical invariant: natural language queries that merely MENTION a tool
+ * (memorix, git, npm) must NEVER be classified as fast. Only actual CLI
+ * invocations (tool word leads + no natural language markers) may be fast.
  */
 
 import { describe, it, expect } from 'vitest';
 import { _classifyQueryTier as classifyQueryTier } from '../../src/store/orama-store.js';
 
 describe('classifyQueryTier', () => {
-  // ── fast tier ──
+  // ════════════════════════════════════════════
+  // fast tier — only truly short or CLI queries
+  // ════════════════════════════════════════════
 
   it('empty query → fast', () => {
     expect(classifyQueryTier('')).toBe('fast');
@@ -23,23 +26,43 @@ describe('classifyQueryTier', () => {
   it('single short word → fast', () => {
     expect(classifyQueryTier('hooks')).toBe('fast');
     expect(classifyQueryTier('auth')).toBe('fast');
+    expect(classifyQueryTier('cors')).toBe('fast');
   });
 
-  it('actual command intent: "git status" → fast', () => {
+  // Real CLI invocations — tool word leads, no NL markers
+  it('"git status" → fast (pure command)', () => {
     expect(classifyQueryTier('git status')).toBe('fast');
   });
 
-  it('actual command intent: "npm install" → fast', () => {
+  it('"git commit -m msg" → fast', () => {
+    expect(classifyQueryTier('git commit -m msg')).toBe('fast');
+  });
+
+  it('"npm install express" → fast', () => {
     expect(classifyQueryTier('npm install express')).toBe('fast');
   });
 
-  it('actual command intent: "memorix search" → fast', () => {
+  it('"npm publish" → fast', () => {
+    expect(classifyQueryTier('npm publish')).toBe('fast');
+  });
+
+  it('"memorix search hook" → fast (CLI invocation)', () => {
     expect(classifyQueryTier('memorix search hook')).toBe('fast');
   });
 
-  // ── standard tier ──
+  it('"memorix store entity" → fast', () => {
+    expect(classifyQueryTier('memorix store entity')).toBe('fast');
+  });
 
-  it('"hook commit" (2 words, no tool lead) → standard', () => {
+  it('"npx vitest run" → fast', () => {
+    expect(classifyQueryTier('npx vitest run')).toBe('fast');
+  });
+
+  // ════════════════════════════════════════════
+  // standard tier — normal multi-word queries
+  // ════════════════════════════════════════════
+
+  it('"hook commit" → standard', () => {
     expect(classifyQueryTier('hook commit')).toBe('standard');
   });
 
@@ -47,54 +70,92 @@ describe('classifyQueryTier', () => {
     expect(classifyQueryTier('authentication flow')).toBe('standard');
   });
 
-  // ── CRITICAL: natural language mentioning tools must NOT be fast ──
-
-  it('"why is memorix search slow" → NOT fast (heavy, 5+ words)', () => {
-    const tier = classifyQueryTier('why is memorix search slow');
-    expect(tier).not.toBe('fast');
+  it('"embedding cache" → standard', () => {
+    expect(classifyQueryTier('embedding cache')).toBe('standard');
   });
 
-  it('"how does git hook work" → NOT fast (heavy, 5+ words)', () => {
-    const tier = classifyQueryTier('how does git hook work');
-    expect(tier).not.toBe('fast');
+  // ════════════════════════════════════════════
+  // CRITICAL: tool word at start + NL markers → NOT fast
+  // These queries START with a tool word but contain
+  // natural language markers (slow, error, issue, etc.)
+  // so they must NOT be treated as CLI invocations.
+  // ════════════════════════════════════════════
+
+  // ── memorix ──
+  it('"memorix search slow" → NOT fast (NL: "slow")', () => {
+    expect(classifyQueryTier('memorix search slow')).not.toBe('fast');
   });
 
-  it('"npm install error fix" → NOT fast (standard, 4 words, no tool lead)', () => {
-    // "npm" leads but there are 4 words → isCommandIntentQuery matches "npm " at start
-    // However this IS a command intent. Let's verify behavior:
-    // "npm install error fix" → starts with "npm " → command intent → fast
-    // This is acceptable — "npm install error fix" is command-focused
-    const tier = classifyQueryTier('npm install error fix');
-    expect(tier).toBe('fast');
+  it('"memorix cold start performance" → NOT fast (NL: "performance")', () => {
+    expect(classifyQueryTier('memorix cold start performance')).not.toBe('fast');
   });
 
-  it('"why does npm install fail" → NOT fast', () => {
-    // "why" leads, not "npm" → not command intent
-    const tier = classifyQueryTier('why does npm install fail');
-    expect(tier).not.toBe('fast');
+  it('"memorix rerank issue" → NOT fast (NL: "issue")', () => {
+    expect(classifyQueryTier('memorix rerank issue')).not.toBe('fast');
   });
 
-  it('"memorix cold start performance" → NOT fast (4 words, natural language)', () => {
-    // "memorix" leads → command intent pattern "memorix " matches → fast
-    // But this is actually natural language about memorix...
-    // Since "memorix " at start could be either, and the query starts with the tool name,
-    // we accept this as command-intent. The key fix is queries like "why is memorix..." 
-    // where the tool is NOT at the start.
-    const tier = classifyQueryTier('memorix cold start performance');
-    expect(tier).toBe('fast');
+  it('"memorix deduplicate error" → NOT fast (NL: "error")', () => {
+    expect(classifyQueryTier('memorix deduplicate error')).not.toBe('fast');
   });
 
-  it('"what makes memorix slow" → NOT fast (natural language with embedded tool mention)', () => {
-    const tier = classifyQueryTier('what makes memorix slow');
-    expect(tier).not.toBe('fast');
+  // ── git ──
+  it('"git hook problem" → NOT fast (NL: "problem")', () => {
+    expect(classifyQueryTier('git hook problem')).not.toBe('fast');
+  });
+
+  it('"git push fail" → NOT fast (NL: "fail")', () => {
+    expect(classifyQueryTier('git push fail')).not.toBe('fast');
+  });
+
+  // ── npm ──
+  it('"npm install error fix" → NOT fast (NL: "error", "fix")', () => {
+    expect(classifyQueryTier('npm install error fix')).not.toBe('fast');
+  });
+
+  it('"npm publish broken" → NOT fast (NL: "broken")', () => {
+    expect(classifyQueryTier('npm publish broken')).not.toBe('fast');
+  });
+
+  // ════════════════════════════════════════════
+  // CRITICAL: tool word NOT at start → NOT fast
+  // Natural language questions with embedded tool mentions.
+  // ════════════════════════════════════════════
+
+  it('"why is memorix search slow" → NOT fast', () => {
+    expect(classifyQueryTier('why is memorix search slow')).not.toBe('fast');
+  });
+
+  it('"how does memorix deduplicate work" → NOT fast', () => {
+    expect(classifyQueryTier('how does memorix deduplicate work')).not.toBe('fast');
+  });
+
+  it('"how does memorix rerank work" → NOT fast', () => {
+    expect(classifyQueryTier('how does memorix rerank work')).not.toBe('fast');
+  });
+
+  it('"what makes memorix slow" → NOT fast', () => {
+    expect(classifyQueryTier('what makes memorix slow')).not.toBe('fast');
   });
 
   it('"search performance in memorix" → NOT fast', () => {
-    const tier = classifyQueryTier('search performance in memorix');
-    expect(tier).not.toBe('fast');
+    expect(classifyQueryTier('search performance in memorix')).not.toBe('fast');
   });
 
-  // ── heavy tier ──
+  it('"why did npm publish fail" → NOT fast', () => {
+    expect(classifyQueryTier('why did npm publish fail')).not.toBe('fast');
+  });
+
+  it('"how does git hook work" → NOT fast', () => {
+    expect(classifyQueryTier('how does git hook work')).not.toBe('fast');
+  });
+
+  it('"why does npm install fail" → NOT fast', () => {
+    expect(classifyQueryTier('why does npm install fail')).not.toBe('fast');
+  });
+
+  // ════════════════════════════════════════════
+  // heavy tier — CJK and long queries
+  // ════════════════════════════════════════════
 
   it('CJK query → heavy', () => {
     expect(classifyQueryTier('语义检索为什么变弱')).toBe('heavy');

@@ -33,6 +33,9 @@ const COMMAND_LIKE_QUERY = /\b(git|npm|npx|pnpm|yarn|node|bash|powershell|curl|m
 // Stricter pattern: query IS a command (tool word at start, e.g. "git status", "npm install").
 // Does NOT match natural language like "why is memorix search slow".
 const COMMAND_INTENT_QUERY = /^\s*(git|npm|npx|pnpm|yarn|node|bash|powershell|curl|memorix)\s/i;
+// Natural language markers — if ANY of these appear in the query, it is NOT a pure command.
+// Covers: question words, problem descriptors, reasoning words.
+const NATURAL_LANGUAGE_MARKERS = /\b(why|how|what|where|when|does|did|is|are|was|will|can|should|would|slow|fast|fail|error|bug|broken|issue|problem|wrong|crash|fix|work|performance|cause|reason|explain|understand)\b/i;
 
 /**
  * Build a globally unique Orama document ID for an observation.
@@ -52,7 +55,11 @@ function isCommandLikeQuery(query: string): boolean {
 
 /** True when the query IS a command (tool word leads), not just mentioning a tool. */
 function isCommandIntentQuery(query: string): boolean {
-  return COMMAND_INTENT_QUERY.test(query);
+  if (!COMMAND_INTENT_QUERY.test(query)) return false;
+  // If the query contains natural language markers (question words, problem
+  // descriptors), it is a human question about a tool, not a CLI invocation.
+  if (NATURAL_LANGUAGE_MARKERS.test(query)) return false;
+  return true;
 }
 
 /** @internal Exported for testing only. */

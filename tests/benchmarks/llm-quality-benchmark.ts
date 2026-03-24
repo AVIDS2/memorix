@@ -14,8 +14,8 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { getLLMApiKey, getLLMBaseUrl, getLLMModel, getLLMProvider, loadDotenv } from '../../src/config.js';
-import { initProjectRoot } from '../../src/config/yaml-loader.js';
+import { getLLMApiKey, getLLMBaseUrl, getLLMModel, getLLMProvider, loadDotenv } from '../../src/config.ts';
+import { initProjectRoot } from '../../src/config/yaml-loader.ts';
 
 const DATA_DIR = process.env.MEMORIX_DATA_DIR || path.join(os.homedir(), '.memorix', 'data');
 
@@ -376,9 +376,11 @@ async function benchmarkCJKRetrieval() {
 
 async function main() {
   console.log('🔬 Memorix LLM Quality Benchmark');
-  console.log(`API: ${API_BASE}`);
+  console.log(`Provider: ${provider}`);
   console.log(`Model: ${API_MODEL}`);
+  console.log(`Base URL: ${API_BASE}`);
   console.log(`Data: ${DATA_DIR}`);
+  console.log(`Config: initProjectRoot(${projectRoot}) + loadDotenv()`);
 
   const compression = await benchmarkCompression();
   await benchmarkReranking();

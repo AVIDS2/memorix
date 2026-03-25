@@ -218,9 +218,14 @@ function generateKiroHookFiles(): Array<{ filename: string; content: string }> {
  * The plugin hooks into OpenCode events and pipes JSON to `memorix hook`
  * via Bun.spawn, matching the same stdin/stdout protocol used by all agents.
  */
+// Version of the generated OpenCode plugin template.
+// Bump this when the template changes so hooks-status can detect stale installations.
+const OPENCODE_PLUGIN_VERSION = 2;
+
 function generateOpenCodePlugin(): string {
   return `/**
  * Memorix — Cross-Agent Memory Bridge Plugin for OpenCode
+ * @generated-version ${OPENCODE_PLUGIN_VERSION}
  *
  * Automatically captures session context and tool usage,
  * piping events to \`memorix hook\` for cross-agent memory persistence.
@@ -874,8 +879,8 @@ export async function uninstallHooks(
  */
 export async function getHookStatus(
   projectRoot: string,
-): Promise<Array<{ agent: AgentName; installed: boolean; configPath: string }>> {
-  const results: Array<{ agent: AgentName; installed: boolean; configPath: string }> = [];
+): Promise<Array<{ agent: AgentName; installed: boolean; outdated: boolean; configPath: string }>> {
+  const results: Array<{ agent: AgentName; installed: boolean; outdated: boolean; configPath: string }> = [];
   const agents: AgentName[] = ['claude', 'copilot', 'windsurf', 'cursor', 'kiro', 'codex', 'antigravity', 'opencode', 'trae'];
 
   for (const agent of agents) {
@@ -883,6 +888,7 @@ export async function getHookStatus(
     const globalPath = getGlobalConfigPath(agent);
 
     let installed = false;
+    let outdated = false;
     let usedPath = projectPath;
 
     try {
@@ -896,7 +902,19 @@ export async function getHookStatus(
       } catch { /* not installed */ }
     }
 
-    results.push({ agent, installed, configPath: usedPath });
+    // Check if installed OpenCode plugin is outdated by reading version marker
+    if (installed && agent === 'opencode') {
+      try {
+        const content = await fs.readFile(usedPath, 'utf-8');
+        const match = content.match(/@generated-version\s+(\d+)/);
+        const installedVersion = match ? parseInt(match[1], 10) : 0;
+        if (installedVersion < OPENCODE_PLUGIN_VERSION) {
+          outdated = true;
+        }
+      } catch { /* can't read — treat as not outdated */ }
+    }
+
+    results.push({ agent, installed, outdated, configPath: usedPath });
   }
 
   return results;

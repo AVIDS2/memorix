@@ -98,7 +98,20 @@ Memorix uses two files with two roles:
 - `memorix.yml` for behavior and project settings
 - `.env` for secrets such as API keys
 
-Choose one runtime mode:
+Then pick the path that matches what you want to do:
+
+| You want | Run | Best for |
+| --- | --- | --- |
+| Quick MCP setup inside one IDE | `memorix serve` | Cursor, Claude Code, Codex, Windsurf, Gemini CLI, and other stdio MCP clients |
+| Dashboard + long-lived HTTP MCP in the background | `memorix background start` | Daily use, multiple agents, collaboration, dashboard |
+| Foreground HTTP mode for debugging or a custom port | `memorix serve-http --port 3211` | Manual supervision, debugging, custom launch control |
+
+Most users should choose **one** of the first two options:
+
+- `memorix serve` if you just want Memorix available inside your IDE as fast as possible
+- `memorix background start` if you want the dashboard and a shared HTTP control plane running in the background
+
+You can also launch the local interactive workbench:
 
 ```bash
 memorix
@@ -110,21 +123,27 @@ Use bare `memorix` to launch the interactive workbench when you are in a TTY and
 memorix serve
 ```
 
-Use `serve` for normal stdio MCP integrations.
-
-```bash
-memorix serve-http --port 3211
-```
-
-Use `serve-http` when you want the HTTP control plane in the foreground for debugging, manual supervision, or a custom port.
-
-For the normal long-lived HTTP path, prefer:
+Use `serve` for the simplest stdio MCP setup.
 
 ```bash
 memorix background start
 ```
 
-Use `background start` when you want the HTTP transport, collaboration features, and the dashboard without babysitting a foreground terminal.
+Use `background start` when you want the normal HTTP experience without leaving a foreground terminal open.
+
+Companion commands:
+
+```bash
+memorix background status
+memorix background logs
+memorix background stop
+```
+
+If you need the HTTP control plane in the foreground for debugging, manual supervision, or a custom port, use:
+
+```bash
+memorix serve-http --port 3211
+```
 
 At startup, `serve-http` seeds its default project root from:
 

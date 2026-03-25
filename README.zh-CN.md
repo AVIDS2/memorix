@@ -98,7 +98,20 @@ Memorix 使用两个文件、两类职责：
 - `memorix.yml`：行为配置和项目级设置
 - `.env`：密钥和敏感变量
 
-然后选择一种运行模式：
+然后按你的目标选择一条最顺手的路径：
+
+| 你想做什么 | 运行命令 | 适合场景 |
+| --- | --- | --- |
+| 先把 Memorix 快速接到一个 IDE 里 | `memorix serve` | Cursor、Claude Code、Codex、Windsurf、Gemini CLI 等 stdio MCP 客户端 |
+| 在后台长期运行 HTTP MCP + Dashboard | `memorix background start` | 日常使用、多个 Agent、协作、dashboard |
+| 把 HTTP 模式放在前台调试或自定义端口 | `memorix serve-http --port 3211` | 调试、手动观察日志、自定义启动方式 |
+
+对大多数用户来说，先从下面两条里选一条就够了：
+
+- `memorix serve`：你只想尽快在 IDE 里用起来
+- `memorix background start`：你想要 dashboard 和后台常驻的 HTTP control plane
+
+如果你想先看本地交互式工作台，也可以直接运行：
 
 ```bash
 memorix
@@ -110,21 +123,27 @@ memorix
 memorix serve
 ```
 
-`serve` 适合标准的 stdio MCP 集成。
-
-```bash
-memorix serve-http --port 3211
-```
-
-`serve-http` 适合你想把 HTTP control plane 放在前台运行、做调试、手动观察日志或使用自定义端口的场景。
-
-如果你想要正常的长期 HTTP 运行方式，优先使用：
+`serve` 适合最直接、最轻量的 stdio MCP 接入。
 
 ```bash
 memorix background start
 ```
 
 `background start` 会把同一个 HTTP control plane 放到后台，适合日常使用 dashboard、协作能力和 HTTP MCP，而不用一直守着前台终端。
+
+配套命令：
+
+```bash
+memorix background status
+memorix background logs
+memorix background stop
+```
+
+如果你确实需要把 HTTP control plane 放在前台运行、做调试、手动观察日志或使用自定义端口，再用：
+
+```bash
+memorix serve-http --port 3211
+```
 
 `serve-http` 启动时会按下面的顺序为默认项目根做初始选择：
 

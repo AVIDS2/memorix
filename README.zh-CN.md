@@ -18,7 +18,7 @@
 </p>
 
 <p align="center">
-  <strong>Git Memory</strong> | <strong>Reasoning Memory</strong> | <strong>跨 Agent 召回</strong> | <strong>控制面 Dashboard</strong>
+  <strong>Git Memory</strong> | <strong>Reasoning Memory</strong> | <strong>跨 Agent 召回</strong> | <strong>Control Plane Dashboard</strong>
 </p>
 
 <p align="center">
@@ -34,12 +34,12 @@
 
 ## 为什么是 Memorix
 
-大多数 Coding Agent 只能记住当前线程。Memorix 的目标是把“项目记忆”沉淀成一个共享、可检索、可跨 IDE 和 Agent 复用的本地记忆层。
+大多数 Coding Agent 只能记住当前线程。Memorix 提供的是一层共享、持久、可检索的项目记忆，让不同 IDE、不同 Agent、不同会话都能在同一套本地记忆库上继续工作。
 
-Memorix 的差异化重点在于：
+Memorix 的几个关键差异点：
 
-- **Git Memory**：把 `git commit` 变成可检索的工程记忆，保留提交来源、文件变化和噪音过滤。
-- **Reasoning Memory**：不仅记“改了什么”，还记“为什么这样做”。
+- **Git Memory**：把 `git commit` 变成可检索的工程记忆，保留提交来源、变更文件和噪音过滤结果。
+- **Reasoning Memory**：不仅记录“改了什么”，还记录“为什么这么做”。
 - **跨 Agent 本地召回**：多个 IDE 和 Agent 可以读取同一套本地记忆，而不是各自形成孤岛。
 - **记忆质量管线**：formation、压缩、保留衰减和 source-aware retrieval 协同工作，而不是一堆彼此独立的小功能。
 
@@ -78,7 +78,7 @@ npm install -g memorix
 memorix init
 ```
 
-Memorix 采用两个文件、两类职责：
+Memorix 使用两个文件、两类职责：
 
 - `memorix.yml`：行为配置和项目级设置
 - `.env`：密钥和敏感变量
@@ -196,9 +196,9 @@ graph TB
 
 ### 三层记忆模型
 
-- **Observation Memory**：记录 what-changed、how-it-works、gotcha、problem-solution 等工程知识
-- **Reasoning Memory**：记录为什么这样做、比较过哪些方案、接受了什么权衡
-- **Git Memory**：从 commit 中提炼的工程真相层
+- **Observation Memory**：记录 what-changed、how-it-works、gotcha、problem-solution 等工程知识。
+- **Reasoning Memory**：记录为什么这样做、比较过哪些方案、接受了什么权衡。
+- **Git Memory**：从 commit 中提炼的工程真相层。
 
 ### 检索模型
 
@@ -265,7 +265,7 @@ memorix git-hook --force
 
 ## 致谢
 
-Memorix 借鉴了 [mcp-memory-service](https://github.com/doobidoo/mcp-memory-service)、[MemCP](https://github.com/maydali28/memcp)、[claude-mem](https://github.com/anthropics/claude-code)、[Mem0](https://github.com/mem0ai/mem0) 以及更广义 MCP 生态中的许多思路。
+Memorix 借鉴了 [mcp-memory-service](https://github.com/doobidoo/mcp-memory-service)、[MemCP](https://github.com/maydali28/memcp)、[claude-mem](https://github.com/anthropics/claude-code)、[Mem0](https://github.com/mem0ai/mem0) 以及更广泛 MCP 生态中的许多思路。
 
 ## Star History
 

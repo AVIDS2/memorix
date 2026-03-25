@@ -111,25 +111,13 @@ Memorix 使用两个文件、两类职责：
 - `memorix serve`：你只想尽快在 IDE 里用起来
 - `memorix background start`：你想要 dashboard 和后台常驻的 HTTP control plane
 
-如果你想先看本地交互式工作台，也可以直接运行：
+可选的本地交互式界面：
 
 ```bash
 memorix
 ```
 
-如果你在 TTY 中想直接使用交互式本地工作台，运行裸命令 `memorix`。
-
-```bash
-memorix serve
-```
-
-`serve` 适合最直接、最轻量的 stdio MCP 接入。
-
-```bash
-memorix background start
-```
-
-`background start` 会把同一个 HTTP control plane 放到后台，适合日常使用 dashboard、协作能力和 HTTP MCP，而不用一直守着前台终端。
+只有在你确实想在 TTY 里直接使用本地 workbench 时，才需要运行裸命令 `memorix`。对大多数用户来说，它不是主安装路径。
 
 配套命令：
 
@@ -147,7 +135,7 @@ memorix serve-http --port 3211
 
 如果你在多个工作区或多个 Agent 之间共享 HTTP control plane，请让每个 session 都在开始时调用 `memorix_session_start(projectRoot=...)`。
 
-更细的启动根路径选择、项目绑定和配置优先级说明，放在 [docs/SETUP.md](docs/SETUP.md) 和 [Agent Operator Playbook](docs/AGENT_OPERATOR_PLAYBOOK.md) 里。
+更细的启动根路径选择、项目绑定、配置优先级和 agent 操作说明，放在 [docs/SETUP.md](docs/SETUP.md) 和 [Agent Operator Playbook](docs/AGENT_OPERATOR_PLAYBOOK.md) 里。
 
 把 Memorix 加入 MCP 配置：
 

@@ -1,4 +1,4 @@
-# Agent Setup Guide
+# Setup Guide
 
 Memorix is an open-source cross-agent memory layer for coding agents via MCP, with first-class integrations for Cursor, Claude Code, Codex, Windsurf, Gemini CLI, GitHub Copilot, Kiro, OpenCode, Antigravity, and Trae.
 

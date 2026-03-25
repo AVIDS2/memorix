@@ -149,7 +149,7 @@ This is the best fit for quick, single-project usage where the client already la
 ### HTTP MCP + Dashboard
 
 ```bash
-memorix serve-http --port 3211
+memorix background start
 ```
 
 Use this when you want:
@@ -157,6 +157,9 @@ Use this when you want:
 - HTTP MCP transport
 - collaboration tools
 - the dashboard on the same port
+- a long-lived control plane that keeps running in the background
+
+Use `memorix serve-http --port 3211` when you want the same HTTP control plane in the foreground for debugging, manual supervision, or a custom port.
 
 Important:
 

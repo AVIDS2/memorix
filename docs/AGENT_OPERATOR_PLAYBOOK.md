@@ -104,6 +104,8 @@ through `memorix_session_start`.
 
 Do not assume the HTTP connection alone tells Memorix which project the user means.
 
+The HTTP control plane is normally started with `memorix background start`; the same project-binding rules apply when you run `memorix serve-http --port 3211` in the foreground.
+
 ### Do not confuse project config and global config
 
 Memorix intentionally supports both:

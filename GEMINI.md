@@ -9,7 +9,7 @@ You have access to Memorix memory tools. Follow these rules to maintain persiste
 At the **beginning of every conversation**, before responding to the user:
 
 1. Call `memorix_session_start`.
-2. If you are connected to the HTTP control plane (`memorix serve-http`) and you know the current workspace path, pass:
+2. If you are connected to the HTTP control-plane mode (normally started with `memorix background start`; `memorix serve-http` is the foreground variant) and you know the current workspace path, pass:
    - `agent`
    - `projectRoot` = the **absolute path of the current workspace or repo root**
 3. If you are using stdio / Quick Mode and Memorix is already project-bound, calling `memorix_session_start` without `projectRoot` is acceptable.

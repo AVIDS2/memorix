@@ -28,11 +28,13 @@ Memorix uses:
 - `memorix.yml` for behavior and project settings
 - `.env` for secrets such as API keys
 
-For HTTP transport, collaboration features, and the dashboard on one port:
+For the normal HTTP MCP + dashboard experience:
 
 ```bash
-memorix serve-http --port 3211
+memorix background start
 ```
+
+Use `memorix serve-http --port 3211` only when you want the same HTTP control plane in the foreground for debugging, manual supervision, or a custom port.
 
 In HTTP control-plane mode, agents should call `memorix_session_start` with `projectRoot` set to the **absolute path of the current workspace or repo root** when that path is available. Git remains the source of truth for the final project identity; `projectRoot` is the detection anchor that prevents cross-project drift.
 

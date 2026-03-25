@@ -111,25 +111,13 @@ Most users should choose **one** of the first two options:
 - `memorix serve` if you just want Memorix available inside your IDE as fast as possible
 - `memorix background start` if you want the dashboard and a shared HTTP control plane running in the background
 
-You can also launch the local interactive workbench:
+Optional local UI:
 
 ```bash
 memorix
 ```
 
-Use bare `memorix` to launch the interactive workbench when you are in a TTY and want the local UI.
-
-```bash
-memorix serve
-```
-
-Use `serve` for the simplest stdio MCP setup.
-
-```bash
-memorix background start
-```
-
-Use `background start` when you want the normal HTTP experience without leaving a foreground terminal open.
+Use bare `memorix` only when you want the interactive local workbench in a TTY. It is not the main setup path for most users.
 
 Companion commands:
 
@@ -147,7 +135,7 @@ memorix serve-http --port 3211
 
 If you are using the HTTP control plane across multiple workspaces or agents, make sure each session binds with `memorix_session_start(projectRoot=...)`.
 
-The deeper details around startup root selection, project binding, and config precedence live in [docs/SETUP.md](docs/SETUP.md) and the [Agent Operator Playbook](docs/AGENT_OPERATOR_PLAYBOOK.md).
+The deeper details around startup root selection, project binding, config precedence, and agent/operator workflows live in [docs/SETUP.md](docs/SETUP.md) and the [Agent Operator Playbook](docs/AGENT_OPERATOR_PLAYBOOK.md).
 
 Add Memorix to your MCP client:
 

@@ -46,7 +46,7 @@ All notable changes to this project will be documented in this file.
 ### Changed
 - **Documentation consolidation** — Reworked README, README.zh-CN, setup, architecture, API reference, configuration, Git Memory, and development guides so they match the current product model: local-first platform, `memorix.yml + .env`, Git Memory, HTTP dashboard, and the four-layer architecture.
 - **Project detection model** — Project identity now centers on real Git roots, MCP roots support, system-directory fallback handling, and runtime project switching instead of older placeholder-style fallback identities.
-- **Dashboard usage model** — `memorix serve-http --port 3211` is now the primary “control plane” entrypoint when you want HTTP transport, collaboration features, and dashboard access in one place.
+- **Dashboard usage model** — `memorix background start` is now the primary long-lived HTTP control-plane entrypoint when you want HTTP transport, collaboration features, and dashboard access in one place. `memorix serve-http --port 3211` remains the foreground/debug variant.
 
 ### Fixed
 - **Project identity drift** — Fixed Codex/Windsurf startup issues that produced `local/System32`, IDE-installation-directory identities, or other incorrect local project bindings.
@@ -60,7 +60,7 @@ All notable changes to this project will be documented in this file.
 
 ### Stats
 - **Tests:** 879/879 passing across 68 files
-- **Runtime modes:** stdio MCP (`memorix serve`), HTTP MCP + dashboard (`memorix serve-http --port 3211`), and standalone dashboard remain supported
+- **Runtime modes:** stdio MCP (`memorix serve`), HTTP MCP + dashboard (`memorix background start` by default, or `memorix serve-http --port 3211` in the foreground), and standalone dashboard remain supported
 
 ---
 

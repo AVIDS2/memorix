@@ -145,14 +145,9 @@ memorix background stop
 memorix serve-http --port 3211
 ```
 
-`serve-http` 启动时会按下面的顺序为默认项目根做初始选择：
+如果你在多个工作区或多个 Agent 之间共享 HTTP control plane，请让每个 session 都在开始时调用 `memorix_session_start(projectRoot=...)`。
 
-1. `--cwd`
-2. `MEMORIX_PROJECT_ROOT`
-3. `~/.memorix/last-project-root`
-4. `process.cwd()`
-
-在 HTTP control-plane 模式下，如果 Agent 能拿到当前工作区绝对路径，就应该在调用 `memorix_session_start` 时把它作为 `projectRoot` 传入。`projectRoot` 只是检测锚点，最终项目身份仍然以 Git 为准。
+更细的启动根路径选择、项目绑定和配置优先级说明，放在 [docs/SETUP.md](docs/SETUP.md) 和 [Agent Operator Playbook](docs/AGENT_OPERATOR_PLAYBOOK.md) 里。
 
 把 Memorix 加入 MCP 配置：
 

@@ -145,14 +145,9 @@ If you need the HTTP control plane in the foreground for debugging, manual super
 memorix serve-http --port 3211
 ```
 
-At startup, `serve-http` seeds its default project root from:
+If you are using the HTTP control plane across multiple workspaces or agents, make sure each session binds with `memorix_session_start(projectRoot=...)`.
 
-1. `--cwd`
-2. `MEMORIX_PROJECT_ROOT`
-3. `~/.memorix/last-project-root`
-4. `process.cwd()`
-
-In HTTP control-plane mode, agents should call `memorix_session_start` with `projectRoot` set to the absolute path of the current workspace or repo root when that path is available. Git remains the source of truth for the final project identity; `projectRoot` is the detection anchor that keeps parallel sessions from drifting into the wrong project bucket.
+The deeper details around startup root selection, project binding, and config precedence live in [docs/SETUP.md](docs/SETUP.md) and the [Agent Operator Playbook](docs/AGENT_OPERATOR_PLAYBOOK.md).
 
 Add Memorix to your MCP client:
 

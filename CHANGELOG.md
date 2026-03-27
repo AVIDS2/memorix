@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Fixed
+- **API-first auto embedding selection** — `MEMORIX_EMBEDDING=auto` now prefers a configured remote embedding API before falling back to local `fastembed` or `transformers`, preventing unexpected local-model activation when API credentials are already present.
+- **Embedding cache isolation across config changes** — API embedding cache keys and probe-dimension metadata now stay isolated per `baseUrl + model + requestedDimensions`, so switching between shortened and native dimensions no longer reuses stale cached embeddings or stale dimension probes.
+
 ## [1.0.5] - 2026-03-24
 
 ### Added

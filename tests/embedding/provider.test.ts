@@ -15,8 +15,15 @@ vi.mock('../../src/embedding/fastembed-provider.js', () => {
 vi.mock('../../src/embedding/transformers-provider.js', () => {
   throw new Error('transformers not installed (mocked)');
 });
+const mockApiProviderCreate = vi.fn();
+vi.mock('../../src/embedding/api-provider.js', () => ({
+  APIEmbeddingProvider: {
+    create: mockApiProviderCreate,
+  },
+}));
 import { getEmbeddingProvider, isVectorSearchAvailable, resetProvider } from '../../src/embedding/provider.js';
 import { resetDb, isEmbeddingEnabled, generateEmbedding, getDb } from '../../src/store/orama-store.js';
+import { resetConfigCache } from '../../src/config.js';
 
 // Save and clear embedding-related env vars to prevent real API provider initialization
 const savedEnv: Record<string, string | undefined> = {};
@@ -31,8 +38,10 @@ beforeEach(() => {
     savedEnv[key] = process.env[key];
     delete process.env[key];
   }
+  mockApiProviderCreate.mockReset();
   resetProvider();
   resetDb();
+  resetConfigCache();
 });
 
 import { afterEach } from 'vitest';
@@ -42,6 +51,7 @@ afterEach(() => {
       process.env[key] = savedEnv[key];
     }
   }
+  resetConfigCache();
 });
 
 describe('Embedding Provider', () => {
@@ -102,6 +112,28 @@ describe('Embedding Provider', () => {
       // Should be re-initializable
       const provider = await getEmbeddingProvider();
       expect(provider).toBeNull(); // still null since providers are mocked out
+    });
+  });
+
+  describe('auto mode with API config present', () => {
+    it('should prefer API embeddings before local fallback providers', async () => {
+      process.env.MEMORIX_EMBEDDING = 'auto';
+      process.env.MEMORIX_EMBEDDING_API_KEY = 'api-key';
+      process.env.MEMORIX_EMBEDDING_BASE_URL = 'https://embeddings.example/v1';
+      process.env.MEMORIX_EMBEDDING_MODEL = 'text-embedding-3-small';
+
+      const apiProvider = {
+        name: 'api-text-embedding-3-small',
+        dimensions: 1536,
+        embed: vi.fn(),
+        embedBatch: vi.fn(),
+      };
+      mockApiProviderCreate.mockResolvedValue(apiProvider);
+
+      const provider = await getEmbeddingProvider();
+
+      expect(provider).toBe(apiProvider);
+      expect(mockApiProviderCreate).toHaveBeenCalledTimes(1);
     });
   });
 });

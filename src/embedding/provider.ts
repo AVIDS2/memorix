@@ -8,7 +8,7 @@
  *   - MEMORIX_EMBEDDING=fastembed     → local ONNX inference (384-dim bge-small, ~300MB RAM)
  *   - MEMORIX_EMBEDDING=transformers  → pure JS WASM inference (384-dim MiniLM, ~500MB RAM)
  *   - MEMORIX_EMBEDDING=api           → remote API via OpenAI-compatible /v1/embeddings (zero local RAM)
- *   - MEMORIX_EMBEDDING=auto          → try fastembed → transformers → off (legacy behavior)
+ *   - MEMORIX_EMBEDDING=auto          → try configured API → fastembed → transformers → off
  *
  * API mode env vars (MEMORIX_EMBEDDING=api):
  *   - MEMORIX_EMBEDDING_API_KEY       → API key (fallback: MEMORIX_LLM_API_KEY → OPENAI_API_KEY)
@@ -63,6 +63,29 @@ function getEmbeddingMode(): 'off' | 'fastembed' | 'transformers' | 'api' | 'aut
     const env = process.env.MEMORIX_EMBEDDING?.toLowerCase()?.trim();
     if (env === 'fastembed' || env === 'transformers' || env === 'api' || env === 'auto') return env;
     return 'off';
+  }
+}
+
+function hasAPIEmbeddingConfig(): boolean {
+  try {
+    const {
+      getEmbeddingApiKey,
+      getEmbeddingBaseUrl,
+      getEmbeddingModel,
+    } = require('../config.js');
+
+    return Boolean(
+      getEmbeddingApiKey?.() &&
+      getEmbeddingBaseUrl?.() &&
+      getEmbeddingModel?.(),
+    );
+  } catch {
+    return Boolean(
+      process.env.MEMORIX_EMBEDDING_API_KEY ||
+      process.env.MEMORIX_API_KEY ||
+      process.env.MEMORIX_LLM_API_KEY ||
+      process.env.OPENAI_API_KEY,
+    );
   }
 }
 
@@ -149,7 +172,18 @@ export async function getEmbeddingProvider(): Promise<EmbeddingProvider | null> 
       }
     }
 
-    // Auto mode: try fastembed → transformers → off (legacy behavior)
+    // Auto mode: try configured API first, then local fallbacks
+    if (hasAPIEmbeddingConfig()) {
+      try {
+        const { APIEmbeddingProvider } = await import('./api-provider.js');
+        provider = await APIEmbeddingProvider.create();
+        console.error(`[memorix] Embedding provider: ${provider!.name} (${provider!.dimensions}d)`);
+        return provider;
+      } catch (e) {
+        console.error(`[memorix] API embedding unavailable in auto mode: ${e instanceof Error ? e.message : e}`);
+      }
+    }
+
     try {
       const { FastEmbedProvider } = await import('./fastembed-provider.js');
       provider = await FastEmbedProvider.create();

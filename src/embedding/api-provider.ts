@@ -35,8 +35,17 @@ function normalizeText(text: string): string {
   return text.replace(/\s+/g, ' ').trim().slice(0, MAX_INPUT_CHARS);
 }
 
-function textHash(text: string): string {
-  return createHash('sha256').update(text).digest('hex').slice(0, 16);
+function cacheNamespace(config: Pick<APIEmbeddingConfig, 'baseUrl' | 'model' | 'requestedDimensions'>): string {
+  return [
+    'v2',
+    config.baseUrl.replace(/\/+$/, ''),
+    config.model,
+    config.requestedDimensions ?? 'native',
+  ].join('|');
+}
+
+function textHash(text: string, namespace: string): string {
+  return createHash('sha256').update(`${namespace}\u0000${text}`).digest('hex').slice(0, 16);
 }
 
 async function loadDiskCache(): Promise<void> {
@@ -65,12 +74,50 @@ async function ensureDiskCacheLoaded(): Promise<void> {
   await loadDiskCache();
 }
 
+function dimsCacheKey(config: Pick<APIEmbeddingConfig, 'baseUrl' | 'model' | 'requestedDimensions'>): string {
+  return [
+    config.baseUrl.replace(/\/+$/, ''),
+    config.model,
+    config.requestedDimensions ?? 'native',
+  ].join('|');
+}
+
 /** Load cached probe dimensions from disk. Returns null if not cached. */
-async function loadCachedDims(model: string, baseUrl: string): Promise<number | null> {
+async function loadCachedDims(config: Pick<APIEmbeddingConfig, 'baseUrl' | 'model' | 'requestedDimensions'>): Promise<number | null> {
   try {
     const raw = await readFile(DIMS_CACHE_FILE, 'utf-8');
     const data = JSON.parse(raw);
-    if (data.model === model && data.baseUrl === baseUrl && typeof data.dimensions === 'number') {
+
+    const key = dimsCacheKey(config);
+
+    if (Array.isArray(data.entries)) {
+      const entry = data.entries.find((candidate: unknown) =>
+        typeof candidate === 'object' &&
+        candidate !== null &&
+        'key' in candidate &&
+        'dimensions' in candidate &&
+        (candidate as { key?: string }).key === key &&
+        typeof (candidate as { dimensions?: unknown }).dimensions === 'number',
+      ) as { dimensions: number } | undefined;
+      if (entry) return entry.dimensions;
+    }
+
+    if (
+      data.baseUrl === config.baseUrl &&
+      data.model === config.model &&
+      typeof data.dimensions === 'number' &&
+      (data.requestedDimensions ?? null) === (config.requestedDimensions ?? null)
+    ) {
+      return data.dimensions;
+    }
+
+    if (
+      data.baseUrl === config.baseUrl &&
+      data.model === config.model &&
+      typeof data.dimensions === 'number' &&
+      (config.requestedDimensions ?? null) === null &&
+      !('requestedDimensions' in data)
+    ) {
       return data.dimensions;
     }
   } catch { /* no cache or corrupt */ }
@@ -78,10 +125,59 @@ async function loadCachedDims(model: string, baseUrl: string): Promise<number | 
 }
 
 /** Persist probe dimensions for fast subsequent starts. */
-async function saveCachedDims(model: string, baseUrl: string, dimensions: number): Promise<void> {
+async function saveCachedDims(config: Pick<APIEmbeddingConfig, 'baseUrl' | 'model' | 'requestedDimensions'>, dimensions: number): Promise<void> {
   try {
     await mkdir(CACHE_DIR, { recursive: true });
-    await writeFile(DIMS_CACHE_FILE, JSON.stringify({ model, baseUrl, dimensions, ts: Date.now() }));
+    const key = dimsCacheKey(config);
+    let entries: Array<{ key: string; baseUrl: string; model: string; requestedDimensions: number | null; dimensions: number; ts: number }> = [];
+
+    try {
+      const raw = await readFile(DIMS_CACHE_FILE, 'utf-8');
+      const data = JSON.parse(raw);
+      if (Array.isArray(data.entries)) {
+        entries = data.entries.filter((entry: unknown) =>
+          typeof entry === 'object' &&
+          entry !== null &&
+          'key' in entry &&
+          typeof (entry as { key?: unknown }).key === 'string',
+        ) as typeof entries;
+      } else if (
+        data &&
+        typeof data === 'object' &&
+        typeof data.baseUrl === 'string' &&
+        typeof data.model === 'string' &&
+        typeof data.dimensions === 'number'
+      ) {
+        entries = [{
+          key: dimsCacheKey({
+            baseUrl: data.baseUrl,
+            model: data.model,
+            requestedDimensions: data.requestedDimensions ?? null,
+          }),
+          baseUrl: data.baseUrl,
+          model: data.model,
+          requestedDimensions: data.requestedDimensions ?? null,
+          dimensions: data.dimensions,
+          ts: typeof data.ts === 'number' ? data.ts : Date.now(),
+        }];
+      }
+    } catch {
+      // no existing cache
+    }
+
+    const nextEntry = {
+      key,
+      baseUrl: config.baseUrl,
+      model: config.model,
+      requestedDimensions: config.requestedDimensions ?? null,
+      dimensions,
+      ts: Date.now(),
+    };
+
+    entries = entries.filter((entry) => entry.key !== key);
+    entries.push(nextEntry);
+
+    await writeFile(DIMS_CACHE_FILE, JSON.stringify({ entries }));
   } catch { /* best-effort */ }
 }
 
@@ -161,11 +257,13 @@ export class APIEmbeddingProvider implements EmbeddingProvider {
   readonly dimensions: number;
 
   private config: APIEmbeddingConfig;
+  private readonly cacheKeyNamespace: string;
   private totalTokensUsed = 0;
   private totalApiCalls = 0;
 
   private constructor(config: APIEmbeddingConfig, detectedDimensions: number) {
     this.config = config;
+    this.cacheKeyNamespace = cacheNamespace(config);
     this.dimensions = detectedDimensions;
     this.name = `api-${config.model.replace(/\//g, '-')}`;
   }
@@ -178,14 +276,14 @@ export class APIEmbeddingProvider implements EmbeddingProvider {
     startDiskCacheLoad();
 
     // Try cached dimensions first to avoid a network probe on cold start
-    let probeDimensions = await loadCachedDims(config.model, config.baseUrl);
+    let probeDimensions = await loadCachedDims(config);
     if (probeDimensions !== null) {
       console.error(`[memorix] API embedding: ${config.model} @ ${config.baseUrl} (${probeDimensions}d) [cached dims]`);
     } else {
       probeDimensions = await APIEmbeddingProvider.probeAPI(config);
       console.error(`[memorix] API embedding: ${config.model} @ ${config.baseUrl} (${probeDimensions}d)`);
       // Persist for next cold start
-      saveCachedDims(config.model, config.baseUrl, probeDimensions).catch(() => {});
+      saveCachedDims(config, probeDimensions).catch(() => {});
     }
     if (config.requestedDimensions) {
       console.error(`[memorix] Dimension shortening: ${config.requestedDimensions}d requested`);
@@ -256,7 +354,7 @@ export class APIEmbeddingProvider implements EmbeddingProvider {
 
   async embed(text: string): Promise<number[]> {
     const normalized = normalizeText(text);
-    const hash = textHash(normalized);
+    const hash = textHash(normalized, this.cacheKeyNamespace);
 
     // Fast path: cache already loaded (warm process) — instant lookup
     if (diskCacheLoaded) {
@@ -331,7 +429,7 @@ export class APIEmbeddingProvider implements EmbeddingProvider {
     const uncachedTexts: string[] = [];
 
     for (let i = 0; i < normalizedTexts.length; i++) {
-      const hash = textHash(normalizedTexts[i]);
+      const hash = textHash(normalizedTexts[i], this.cacheKeyNamespace);
       const cached = cache.get(hash);
       if (cached) {
         results[i] = cached;
@@ -371,7 +469,7 @@ export class APIEmbeddingProvider implements EmbeddingProvider {
         for (const item of response.data) {
           const originalIdx = chunkIndices[item.index];
           results[originalIdx] = item.embedding;
-          cacheSet(textHash(normalizedTexts[originalIdx]), item.embedding);
+          cacheSet(textHash(normalizedTexts[originalIdx], this.cacheKeyNamespace), item.embedding);
         }
       } catch (error) {
         const providerLimit = parseBatchLimit(error);

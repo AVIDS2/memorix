@@ -20,8 +20,7 @@ import { watchFile } from 'node:fs';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { KnowledgeGraphManager } from './memory/graph.js';
-import { initObservations, storeObservation, reindexObservations, migrateProjectIds, getObservation } from './memory/observations.js';
-import { resetDb } from './store/orama-store.js';
+import { initObservations, storeObservation, prepareSearchIndex, migrateProjectIds, getObservation } from './memory/observations.js';
 import { createAutoRelations } from './memory/auto-relations.js';
 import { extractEntities } from './memory/entity-extractor.js';
 import { compactSearch, compactTimeline, compactDetail } from './compact/engine.js';
@@ -264,9 +263,9 @@ export async function createMemorixServer(
     await graphManager.init();
     await initObservations(projectDir);
 
-    const reindexed = await reindexObservations();
-    if (reindexed > 0) {
-      console.error(`[memorix] Reindexed ${reindexed} observations for project: ${project.id}`);
+    const indexed = await prepareSearchIndex();
+    if (indexed > 0) {
+      console.error(`[memorix] Prepared search index for ${indexed} observations in project: ${project.id}`);
     }
 
     const llmConfig = initLLM();
@@ -3286,11 +3285,10 @@ export async function createMemorixServer(
           if (reloading) return;
           reloading = true;
           try {
-            await resetDb();
             await initObservations(projectDir);
-            const count = await reindexObservations();
+            const count = await prepareSearchIndex();
             if (count > 0) {
-              console.error(`[memorix] Hot-reloaded ${count} observations (external write detected)`);
+              console.error(`[memorix] Hot-reloaded search index for ${count} observations (external write detected)`);
             }
           } catch { /* silent */ }
           reloading = false;

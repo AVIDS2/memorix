@@ -14,6 +14,7 @@ vi.mock('../../src/store/orama-store.js', () => ({
   resetDb: vi.fn().mockResolvedValue(undefined),
   generateEmbedding: vi.fn().mockResolvedValue(null),
   batchGenerateEmbeddings: vi.fn().mockResolvedValue([]),
+  getVectorDimensions: vi.fn().mockReturnValue(384),
   makeOramaObservationId: (projectId: string, id: number) => `obs-${projectId}-${id}`,
 }));
 
@@ -136,6 +137,28 @@ describe('Vector Stability', () => {
     expect(missingIds).toContain(observation.id);
   });
 
+  it('keeps obs in vectorMissingIds when fallback embedding dimensions do not match the current index', async () => {
+    const oramaStore = await import('../../src/store/orama-store.js');
+    vi.mocked(oramaStore.generateEmbedding).mockResolvedValue([0.1, 0.2, 0.3]);
+    vi.mocked(oramaStore.getVectorDimensions).mockReturnValue(4096);
+
+    const { storeObservation, getVectorMissingIds } = await import('../../src/memory/observations.js');
+    const { observation } = await storeObservation({
+      entityName: 'dimension-mismatch-test',
+      type: 'discovery',
+      title: 'Fallback dimensions differ from index',
+      narrative: 'This should stay queued until a compatible provider is available again',
+      projectId: 'test/vector-stability',
+    });
+
+    await new Promise(r => setTimeout(r, 100));
+
+    const missingIds = getVectorMissingIds();
+    expect(missingIds).toContain(observation.id);
+    expect(oramaStore.removeObservation).not.toHaveBeenCalled();
+    expect(oramaStore.insertObservation).toHaveBeenCalledTimes(1);
+  });
+
   it('removes obs from vectorMissingIds when embedding is explicitly disabled', async () => {
     const oramaStore = await import('../../src/store/orama-store.js');
     const embeddingProvider = await import('../../src/embedding/provider.js');
@@ -195,5 +218,72 @@ describe('Vector Stability', () => {
 
     // Must still be in the missing set for next retry
     expect(getVectorMissingIds()).toContain(observation.id);
+  });
+
+  it('backfill keeps items queued when the generated embedding dimensions do not match the index', async () => {
+    const oramaStore = await import('../../src/store/orama-store.js');
+
+    vi.mocked(oramaStore.generateEmbedding).mockResolvedValue([0.1, 0.2, 0.3]);
+    vi.mocked(oramaStore.getVectorDimensions).mockReturnValue(4096);
+
+    const { storeObservation, backfillVectorEmbeddings, getVectorMissingIds } =
+      await import('../../src/memory/observations.js');
+
+    const { observation } = await storeObservation({
+      entityName: 'backfill-dimension-mismatch',
+      type: 'gotcha',
+      title: 'Backfill dimension mismatch',
+      narrative: 'Backfill should not inject vectors into an incompatible index',
+      projectId: 'test/vector-stability',
+    });
+
+    await new Promise(r => setTimeout(r, 100));
+    expect(getVectorMissingIds()).toContain(observation.id);
+
+    const result = await backfillVectorEmbeddings();
+
+    expect(result.attempted).toBeGreaterThanOrEqual(1);
+    expect(result.failed).toBeGreaterThanOrEqual(1);
+    expect(getVectorMissingIds()).toContain(observation.id);
+  });
+
+  it('reindexObservations skips synchronous batch embedding when the active provider is remote API', async () => {
+    const oramaStore = await import('../../src/store/orama-store.js');
+    const embeddingProvider = await import('../../src/embedding/provider.js');
+    const persistence = await import('../../src/store/persistence.js');
+
+    vi.mocked(persistence.loadObservationsJson).mockResolvedValue([
+      {
+        id: 41,
+        entityName: 'startup-reindex',
+        type: 'discovery',
+        title: 'Remote API startup reindex',
+        narrative: 'Should not block MCP startup on remote embedding backfill',
+        facts: [],
+        filesModified: [],
+        concepts: [],
+        tokens: 10,
+        createdAt: new Date().toISOString(),
+        projectId: 'test/vector-stability',
+        status: 'active',
+        source: 'agent',
+      },
+    ]);
+    vi.mocked(embeddingProvider.getEmbeddingProvider).mockResolvedValue({
+      name: 'api-Qwen-Qwen3-Embedding-8B',
+      dimensions: 4096,
+      embed: vi.fn(),
+      embedBatch: vi.fn(),
+    });
+
+    const { initObservations, reindexObservations, getVectorMissingIds } =
+      await import('../../src/memory/observations.js');
+
+    await initObservations('/tmp/memorix-vector-stability');
+    const count = await reindexObservations();
+
+    expect(count).toBe(1);
+    expect(oramaStore.batchGenerateEmbeddings).not.toHaveBeenCalled();
+    expect(getVectorMissingIds()).toContain(41);
   });
 });

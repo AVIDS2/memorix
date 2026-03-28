@@ -18,6 +18,7 @@ import { maybeExpandSearchQuery } from '../search/query-expansion.js';
 
 let db: AnyOrama | null = null;
 let embeddingEnabled = false;
+let embeddingDimensions: number | null = null;
 const NON_CJK_HYBRID_SIMILARITY = 0.45;
 const lastSearchModeByProject = new Map<string, string>();
 const SEARCH_MODE_DEFAULT_KEY = '__global__';
@@ -99,6 +100,19 @@ function isCommandStyleEntry(title: string): boolean {
   return COMMAND_STYLE_TITLE.test(title);
 }
 
+function isVectorDimensionMismatchError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  return (
+    /declared as a \d+-dimensional vector, but got a \d+-dimensional vector/i.test(error.message) ||
+    /dimension mismatch/i.test(error.message)
+  );
+}
+
+function stripVectorSearchParams(params: Record<string, unknown>): Record<string, unknown> {
+  const { mode, vector, similarity, hybridWeights, ...rest } = params;
+  return rest;
+}
+
 /**
  * Initialize or return the Orama database instance.
  * Schema conditionally includes vector field based on embedding provider.
@@ -110,6 +124,7 @@ export async function getDb(): Promise<AnyOrama> {
   // Check if embedding provider is available
   const provider = await getEmbeddingProvider();
   embeddingEnabled = provider !== null;
+  embeddingDimensions = provider?.dimensions ?? null;
 
   const baseSchema = {
     id: 'string' as const,
@@ -131,7 +146,7 @@ export async function getDb(): Promise<AnyOrama> {
   };
 
   // Dynamic vector dimensions based on provider (384 for local, 1024+ for API)
-  const dims = provider?.dimensions ?? 384;
+  const dims = embeddingDimensions ?? 384;
   const schema = embeddingEnabled
     ? { ...baseSchema, embedding: `vector[${dims}]` as const }
     : baseSchema;
@@ -147,6 +162,7 @@ export async function getDb(): Promise<AnyOrama> {
 export async function resetDb(): Promise<void> {
   db = null;
   embeddingEnabled = false;
+  embeddingDimensions = null;
   lastSearchModeByProject.clear();
 }
 
@@ -155,6 +171,14 @@ export async function resetDb(): Promise<void> {
  */
 export function isEmbeddingEnabled(): boolean {
   return embeddingEnabled;
+}
+
+/**
+ * Current vector dimensions for the active Orama index.
+ * Returns null when vector search is disabled for this process.
+ */
+export function getVectorDimensions(): number | null {
+  return embeddingEnabled ? embeddingDimensions : null;
 }
 
 /**
@@ -333,32 +357,43 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
     try {
       const provider = await getEmbeddingProvider();
       if (provider) {
-        // Embedding timeout: 15 seconds
-        const EMBEDDING_TIMEOUT_MS = 15000;
-        const embedPromise = provider.embed(expandedEmbeddingQuery!);
-        const timeoutPromise = new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error(`Embedding timeout after ${EMBEDDING_TIMEOUT_MS}ms`)), EMBEDDING_TIMEOUT_MS)
-        );
-        queryVector = await Promise.race([embedPromise, timeoutPromise]);
-        mark('embedding');
-        // Detect CJK-heavy queries: BM25 can't tokenize Chinese/Japanese/Korean well
-        const cjkRatio = (originalQuery!.match(/[\u4e00-\u9fff\u3040-\u309f\u30a0-\u30ff\uac00-\ud7af]/g) || []).length / originalQuery!.length;
-        const isCJKHeavy = cjkRatio > 0.3;
-        lastSearchModeByProject.set(modeKey, 'hybrid');
-        searchParams = {
-          ...searchParams,
-          mode: 'hybrid',
-          vector: {
-            value: queryVector,
-            property: 'embedding',
-          },
-          // English paraphrase queries were getting clipped just below 0.5
-          // even when vector-only search could already find the right memory.
-          similarity: isCJKHeavy ? 0.3 : NON_CJK_HYBRID_SIMILARITY,
-          hybridWeights: isCJKHeavy
-            ? { text: 0.2, vector: 0.8 }  // CJK: trust vector over BM25
-            : { text: 0.6, vector: 0.4 },
-        };
+        const activeVectorDimensions = getVectorDimensions();
+        if (activeVectorDimensions !== null && provider.dimensions !== activeVectorDimensions) {
+          lastSearchModeByProject.set(
+            modeKey,
+            `fulltext (embedding dimension mismatch: provider ${provider.dimensions}d vs index ${activeVectorDimensions}d)`,
+          );
+          console.error(
+            `[memorix] Embedding provider dimension mismatch (${provider.dimensions}d provider vs ${activeVectorDimensions}d index); using fulltext search`,
+          );
+        } else {
+          // Embedding timeout: 15 seconds
+          const EMBEDDING_TIMEOUT_MS = 15000;
+          const embedPromise = provider.embed(expandedEmbeddingQuery!);
+          const timeoutPromise = new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error(`Embedding timeout after ${EMBEDDING_TIMEOUT_MS}ms`)), EMBEDDING_TIMEOUT_MS)
+          );
+          queryVector = await Promise.race([embedPromise, timeoutPromise]);
+          mark('embedding');
+          // Detect CJK-heavy queries: BM25 can't tokenize Chinese/Japanese/Korean well
+          const cjkRatio = (originalQuery!.match(/[\u4e00-\u9fff\u3040-\u309f\u30a0-\u30ff\uac00-\ud7af]/g) || []).length / originalQuery!.length;
+          const isCJKHeavy = cjkRatio > 0.3;
+          lastSearchModeByProject.set(modeKey, 'hybrid');
+          searchParams = {
+            ...searchParams,
+            mode: 'hybrid',
+            vector: {
+              value: queryVector,
+              property: 'embedding',
+            },
+            // English paraphrase queries were getting clipped just below 0.5
+            // even when vector-only search could already find the right memory.
+            similarity: isCJKHeavy ? 0.3 : NON_CJK_HYBRID_SIMILARITY,
+            hybridWeights: isCJKHeavy
+              ? { text: 0.2, vector: 0.8 }  // CJK: trust vector over BM25
+              : { text: 0.6, vector: 0.4 },
+          };
+        }
       }
     } catch (error) {
       // Fallback to fulltext if embedding fails or times out
@@ -368,7 +403,18 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
   }
 
   mark('preSearch');
-  let results = await search(database, searchParams);
+  let results;
+  try {
+    results = await search(database, searchParams);
+  } catch (error) {
+    if (queryVector && isVectorDimensionMismatchError(error)) {
+      lastSearchModeByProject.set(modeKey, 'fulltext (embedding dimension mismatch)');
+      console.error('[memorix] Vector search dimension mismatch detected, retrying without embeddings');
+      results = await search(database, stripVectorSearchParams(searchParams));
+    } else {
+      throw error;
+    }
+  }
   mark('oramaSearch');
 
   // Fallback: if hybrid returned nothing but we have a vector, retry with vector-only

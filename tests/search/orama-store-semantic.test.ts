@@ -284,4 +284,49 @@ describe('orama-store semantic hybrid search', () => {
     expect(entries[0]?.id).toBe(30);
     expect(entries[0]?.title).toContain('semantic retrieval weak');
   });
+
+  it('falls back to fulltext when the active provider dimensions no longer match the vector index', async () => {
+    const {
+      insertObservation,
+      makeOramaObservationId,
+      searchObservations,
+      getLastSearchMode,
+    } = await import('../../src/store/orama-store.js');
+
+    const now = new Date().toISOString();
+
+    await insertObservation({
+      id: makeOramaObservationId('AVIDS2/memorix', 40),
+      observationId: 40,
+      entityName: 'dimension-mismatch',
+      type: 'gotcha',
+      title: 'Dimension mismatch falls back to fulltext',
+      narrative: 'Lexical search should still work when vector dimensions stop matching.',
+      facts: 'The index was created with API vectors but the active fallback provider uses another size.',
+      filesModified: 'src/store/orama-store.ts',
+      concepts: 'semantic-search\nfallback\nmemorix',
+      tokens: 32,
+      createdAt: now,
+      projectId: 'AVIDS2/memorix',
+      accessCount: 0,
+      lastAccessedAt: now,
+      status: 'active',
+      source: 'agent',
+      embedding: [0.6, 0.8],
+    });
+
+    mockProvider.dimensions = 3;
+    mockProvider.embed = vi.fn(async () => [0.2, 0.3, 0.5]);
+    mockProvider.embedBatch = vi.fn(async () => [[0.2, 0.3, 0.5]]);
+
+    const entries = await searchObservations({
+      query: 'dimension mismatch fulltext fallback',
+      projectId: 'AVIDS2/memorix',
+      limit: 5,
+    });
+
+    expect(entries.length).toBeGreaterThan(0);
+    expect(entries[0]?.id).toBe(40);
+    expect(getLastSearchMode('AVIDS2/memorix')).toContain('dimension mismatch');
+  });
 });

@@ -5,6 +5,9 @@ const mockBatchGenerateEmbeddings = vi.fn();
 const mockInsertObservation = vi.fn();
 const mockLoadObservationsJson = vi.fn();
 const mockLoadIdCounter = vi.fn();
+const mockGetVectorDimensions = vi.fn();
+const mockGetEmbeddingProvider = vi.fn();
+const mockIsEmbeddingExplicitlyDisabled = vi.fn();
 
 vi.mock('../../src/store/orama-store.js', () => ({
   insertObservation: mockInsertObservation,
@@ -12,7 +15,14 @@ vi.mock('../../src/store/orama-store.js', () => ({
   resetDb: mockResetDb,
   generateEmbedding: vi.fn(),
   batchGenerateEmbeddings: mockBatchGenerateEmbeddings,
+  getVectorDimensions: mockGetVectorDimensions,
   makeOramaObservationId: (projectId: string, observationId: number) => `${projectId}:${observationId}`,
+}));
+
+vi.mock('../../src/embedding/provider.js', () => ({
+  getEmbeddingProvider: mockGetEmbeddingProvider,
+  isEmbeddingExplicitlyDisabled: mockIsEmbeddingExplicitlyDisabled,
+  resetProvider: vi.fn(),
 }));
 
 vi.mock('../../src/store/persistence.js', () => ({
@@ -43,6 +53,17 @@ describe('reindexObservations', () => {
     mockInsertObservation.mockReset();
     mockLoadObservationsJson.mockReset();
     mockLoadIdCounter.mockReset();
+    mockGetVectorDimensions.mockReset();
+    mockGetEmbeddingProvider.mockReset();
+    mockIsEmbeddingExplicitlyDisabled.mockReset();
+    mockGetVectorDimensions.mockReturnValue(null);
+    mockGetEmbeddingProvider.mockResolvedValue({
+      name: 'fastembed-bge-small-en-v1.5',
+      dimensions: 384,
+      embed: vi.fn(),
+      embedBatch: vi.fn(),
+    });
+    mockIsEmbeddingExplicitlyDisabled.mockReturnValue(false);
   });
 
   it('rebuilds historical observations with batch embeddings after reset', async () => {

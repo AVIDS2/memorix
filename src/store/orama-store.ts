@@ -16,6 +16,8 @@ import { getEmbeddingProvider, type EmbeddingProvider } from '../embedding/provi
 import { calculateProjectAffinity, extractProjectKeywords, type AffinityContext, type MemoryContent } from './project-affinity.js';
 import { detectQueryIntent, applyIntentBoost } from '../search/intent-detector.js';
 import { maybeExpandSearchQuery } from '../search/query-expansion.js';
+import type { KnowledgeGraphManager } from '../memory/graph.js';
+import { mergeWithRRF, type RrfSource } from '../search/rrf.js';
 
 let db: AnyOrama | null = null;
 let embeddingEnabled = false;
@@ -23,6 +25,28 @@ let embeddingDimensions: number | null = null;
 const NON_CJK_HYBRID_SIMILARITY = 0.45;
 const lastSearchModeByProject = new Map<string, string>();
 const SEARCH_MODE_DEFAULT_KEY = '__global__';
+
+// ── Graph Search Fusion ────────────────────────────────────────────
+// Module-level graph manager for RRF-based graph search fusion.
+// Set via setGraphManager() from server.ts at startup and on project switch.
+let graphManagerInstance: KnowledgeGraphManager | null = null;
+
+/**
+ * Inject the KnowledgeGraphManager for graph-based search fusion.
+ * Must be called after KnowledgeGraphManager is initialized.
+ * Called from server.ts at startup and on project switch.
+ */
+export function setGraphManager(gm: KnowledgeGraphManager | null): void {
+  graphManagerInstance = gm;
+}
+
+/** Default RRF source weights for the three retrieval channels. */
+const RRF_WEIGHTS = {
+  /** BM25 + Orama hybrid (fulltext/vector) */
+  orama: 1.0,
+  /** Graph traversal — lower weight since it's less precise */
+  graph: 0.4,
+};
 export function getLastSearchMode(projectId?: string): string {
   return lastSearchModeByProject.get(projectId ?? SEARCH_MODE_DEFAULT_KEY) ?? 'fulltext';
 }
@@ -242,7 +266,6 @@ export async function hydrateIndex(observations: any[]): Promise<number> {
   let inserted = 0;
   for (const obs of observations) {
     if (!obs || !obs.id || !obs.projectId) continue;
-    if ((obs.status ?? 'active') !== 'active') continue;
     try {
       const doc: MemorixDocument = {
         id: makeOramaObservationId(obs.projectId, obs.id),
@@ -424,7 +447,7 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
   }
 
   mark('preSearch');
-  let results;
+  let results: Awaited<ReturnType<typeof search>>;
   try {
     results = await search(database, searchParams);
   } catch (error) {
@@ -523,6 +546,117 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
       ...entry,
       score: entry.score * (layerBoosts[(entry as any).knowledgeLayer] ?? 1.0),
     }));
+  }
+
+  // ── Graph Search Fusion (RRF) ─────────────────────────────────
+  // On standard/heavy tier queries, traverse the knowledge graph from
+  // entities mentioned in Orama results to discover related observations
+  // not found by BM25/vector search. Merge via Reciprocal Rank Fusion.
+  if (graphManagerInstance && hasQuery && tier !== 'fast' && intermediate.length > 0) {
+    try {
+      const oramaEntityNames = new Set(
+        results.hits
+          .filter((hit) => {
+            if (!projectIds) return true;
+            const doc = hit.document as unknown as MemorixDocument;
+            return projectIds.includes(doc.projectId);
+          })
+          .filter((hit) => {
+            if (statusFilter === 'all') return true;
+            const doc = hit.document as unknown as MemorixDocument;
+            return (doc.status || 'active') === statusFilter;
+          })
+          .sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
+          .map((hit) => (hit.document as unknown as MemorixDocument).entityName)
+          .filter((name): name is string => !!name)
+          .slice(0, 2),
+      );
+
+      if (oramaEntityNames.size > 0) {
+        // BFS traversal: discover entities 1-2 hops from result entities
+        const graphDiscovered = await graphManagerInstance.graphSearch(
+          [...oramaEntityNames],
+          2, // maxHops
+        );
+        mark('graphTraversal');
+
+        if (graphDiscovered.length > 0) {
+          // Look up observations for graph-discovered entities via Orama
+          const discoveredNames = graphDiscovered.map(d => d.entityName);
+          const graphSearchParams: Record<string, unknown> = {
+            term: '',
+            limit: Math.min(discoveredNames.length * 5, 50),
+            where: {
+              entityName: discoveredNames,
+              ...(projectIds && projectIds.length === 1 ? { projectId: projectIds[0] } : {}),
+              ...(statusFilter !== 'all' ? { status: statusFilter } : {}),
+            },
+          };
+          let graphResults: Awaited<ReturnType<typeof search>> | null;
+          try {
+            graphResults = await search(database, graphSearchParams);
+          } catch {
+            graphResults = null;
+          }
+          mark('graphOramaLookup');
+
+          if (graphResults && graphResults.count > 0) {
+            // Build graph-sourced IndexEntry[] ranked by hop distance
+            const hopMap = new Map(graphDiscovered.map(d => [d.entityName.toLowerCase(), d.hopDistance]));
+            const graphEntries: IndexEntry[] = graphResults.hits
+              .filter(hit => {
+                if (!projectIds) return true;
+                const doc = hit.document as unknown as MemorixDocument;
+                return projectIds.includes(doc.projectId);
+              })
+              .map(hit => {
+                const doc = hit.document as unknown as MemorixDocument;
+                const obsType = doc.type as ObservationType;
+                const hopDist = hopMap.get(doc.entityName.toLowerCase()) ?? 2;
+                return {
+                  id: doc.observationId,
+                  time: formatTime(doc.createdAt),
+                  rawTime: doc.createdAt,
+                  type: obsType,
+                  icon: OBSERVATION_ICONS[obsType] ?? '❓',
+                  title: doc.title,
+                  tokens: doc.tokens,
+                  // Score inversely proportional to hop distance for graph ranking
+                  score: 1 / hopDist,
+                  projectId: doc.projectId,
+                  source: (doc.source || 'agent') as 'agent' | 'git' | 'manual',
+                  _isCommandLog: isCommandLogEntry(doc.title),
+                } as any;
+              })
+              // Sort by hop distance ascending (closer = better)
+              .sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+
+            // Merge with RRF: orama results + graph results
+            const rrfSources: RrfSource[] = [
+              { results: intermediate as IndexEntry[], weight: RRF_WEIGHTS.orama, label: 'orama' },
+              { results: graphEntries, weight: RRF_WEIGHTS.graph, label: 'graph' },
+            ];
+            const merged = mergeWithRRF(rrfSources, { limit: requestLimit });
+            intermediate = merged.map(entry => ({
+              ...entry,
+              score: entry.score ?? 0,
+              projectId: entry.projectId ?? options.projectId ?? '',
+              source: entry.source ?? 'agent',
+              rawTime: (entry as any).rawTime ?? '',
+              _isCommandLog: (entry as any)._isCommandLog ?? false,
+            }));
+            lastSearchModeByProject.set(
+              modeKey,
+              (lastSearchModeByProject.get(modeKey) ?? 'fulltext') + ' + graph-rrf',
+            );
+            mark('rrfMerge');
+          }
+        }
+      }
+    } catch (error) {
+      // Graph search is best-effort — fall back to Orama-only results
+      console.error('[memorix] Graph search fusion failed, using Orama results only', error);
+    }
   }
 
   // ── Intent-Aware Type Boosting ───────────────────────────────

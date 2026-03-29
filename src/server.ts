@@ -3055,6 +3055,51 @@ export async function createMemorixServer(
     },
   );
 
+  // ── Multimodal Ingestion Tools ─────────────────────────────────────
+
+  server.registerTool(
+    'memorix_ingest_audio',
+    {
+      title: 'Ingest Audio',
+      description:
+        'Transcribe audio via Whisper API (OpenAI or Groq) and store the transcript as a memory observation. ' +
+        'Supports mp3, wav, m4a, webm, ogg, flac formats.',
+      inputSchema: {
+        base64: z.string().describe('Base64-encoded audio data'),
+        mimeType: z.string().optional().describe('Audio MIME type (e.g. audio/mp3)'),
+        filename: z.string().optional().describe('Original filename'),
+        language: z.string().optional().describe('ISO language code for transcription hint'),
+        provider: z.enum(['openai', 'groq']).optional().describe('Whisper provider (default: openai)'),
+      },
+    },
+    async (args) => {
+      try {
+        const { ingestAudio } = await import('./multimodal/index.js');
+        markInternalWrite();
+        const result = await ingestAudio(
+          args,
+          (obs) => storeObservation(obs),
+          project.id,
+        );
+        return {
+          content: [{
+            type: 'text' as const,
+            text: `🎤 Audio transcribed (${result.duration ? result.duration.toFixed(1) + 's' : 'unknown duration'})\n` +
+              `Observation #${result.observationId}\n` +
+              `Preview: ${result.text.slice(0, 300)}${result.text.length > 300 ? '…' : ''}`,
+          }],
+        };
+      } catch (err: unknown) {
+        return {
+          content: [{
+            type: 'text' as const,
+            text: `❌ Audio ingestion failed: ${err instanceof Error ? err.message : String(err)}`,
+          }],
+          isError: true,
+        };
+      }
+    },
+  );
   // Deferred initialization — runs AFTER transport connect so MCP handshake isn't blocked.
   // Sync advisory scan and file watcher are non-essential for tool functionality.
   const deferredInit = async () => {

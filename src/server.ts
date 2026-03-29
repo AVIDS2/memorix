@@ -3055,6 +3055,55 @@ export async function createMemorixServer(
     },
   );
 
+  server.registerTool(
+    'memorix_ingest_image',
+    {
+      title: 'Ingest Image',
+      description:
+        'Analyze an image via Vision LLM and store the analysis as a memory observation. ' +
+        'Returns description, tags, and entities extracted from the image.',
+      inputSchema: {
+        base64: z.string().describe('Base64-encoded image data'),
+        mimeType: z.string().optional().describe('Image MIME type (e.g. image/png, image/jpeg)'),
+        filename: z.string().optional().describe('Original filename'),
+        prompt: z.string().optional().describe('Custom analysis prompt'),
+      },
+    },
+    async (args) => {
+      try {
+        const { analyzeImage } = await import('./multimodal/image-loader.js');
+        const analysis = await analyzeImage(args);
+        const entityName = args.filename?.replace(/\.[^.]+$/, '') ?? `image-${Date.now()}`;
+        markInternalWrite();
+        const { observation } = await storeObservation({
+          entityName,
+          type: 'discovery',
+          title: `Image analysis: ${entityName}`,
+          narrative: analysis.description,
+          concepts: analysis.tags,
+          facts: analysis.entities,
+          projectId: project.id,
+        });
+        return {
+          content: [{
+            type: 'text' as const,
+            text: `\uD83D\uDDBC\uFE0F Image analyzed\n` +
+              `Observation #${observation.id}\n` +
+              `Tags: ${analysis.tags.join(', ') || 'none'}\n` +
+              `Preview: ${analysis.description.slice(0, 300)}${analysis.description.length > 300 ? '\u2026' : ''}`,
+          }],
+        };
+      } catch (err: unknown) {
+        return {
+          content: [{
+            type: 'text' as const,
+            text: `\u274C Image ingestion failed: ${err instanceof Error ? err.message : String(err)}`,
+          }],
+          isError: true,
+        };
+      }
+    },
+  );
   // Deferred initialization — runs AFTER transport connect so MCP handshake isn't blocked.
   // Sync advisory scan and file watcher are non-essential for tool functionality.
   const deferredInit = async () => {

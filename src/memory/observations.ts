@@ -17,6 +17,8 @@ import {
   generateEmbedding,
   batchGenerateEmbeddings,
   getVectorDimensions,
+  hydrateIndex,
+  isEmbeddingEnabled,
   makeOramaObservationId,
 } from '../store/orama-store.js';
 import { saveObservationsJson, loadObservationsJson, saveIdCounter, loadIdCounter } from '../store/persistence.js';
@@ -562,8 +564,8 @@ export function suggestTopicKey(type: string, title: string): string {
 }
 
 /**
- * Reload observations into the Orama index.
- * Called during server startup to restore the search index.
+ * Reload observations into the Orama index with full corpus embeddings.
+ * Intended for explicit heavy rebuilds, not normal MCP startup.
  *
  * Optimization: uses batch embedding (ONNX processes 64 texts at a time)
  * instead of individual embed calls. This reduces startup CPU from minutes
@@ -638,6 +640,30 @@ export async function reindexObservations(): Promise<number> {
       console.error(`[memorix] Failed to reindex observation #${obs.id}: ${err}`);
     }
   }
+  return count;
+}
+
+/**
+ * Prepare the search index for startup and hot-reload without blocking on
+ * corpus-wide embedding generation.
+ *
+ * This hydrates the lexical/BM25 index immediately so MCP availability is not
+ * coupled to embedding provider throughput. Missing vectors are queued for the
+ * existing background backfill cycle.
+ */
+export async function prepareSearchIndex(): Promise<number> {
+  await resetDb();
+  const count = await hydrateIndex(observations as unknown as any[]);
+
+  vectorMissingIds.clear();
+  if (isEmbeddingEnabled()) {
+    for (const obs of observations) {
+      if ((obs.status ?? 'active') === 'active') {
+        vectorMissingIds.add(obs.id);
+      }
+    }
+  }
+
   return count;
 }
 

@@ -3292,6 +3292,48 @@ export async function createMemorixServer(
     },
   );
 
+  // ── Multimodal Ingestion: PDF ───────────────────────────────────────
+
+  server.registerTool(
+    'memorix_ingest_pdf',
+    {
+      title: 'Ingest PDF',
+      description:
+        'Extract text from a PDF document and store each page as a memory observation. ' +
+        'Requires unpdf (optional dependency: npm install unpdf).',
+      inputSchema: {
+        base64: z.string().describe('Base64-encoded PDF data'),
+        filename: z.string().optional().describe('Original filename'),
+        maxPages: z.number().optional().describe('Max pages to extract (default: 100)'),
+      },
+    },
+    async (args) => {
+      try {
+        const { ingestPdf } = await import('./multimodal/pdf-loader.js');
+        markInternalWrite();
+        const result = await ingestPdf(
+          args,
+          (obs) => storeObservation(obs),
+          project.id,
+        );
+        return {
+          content: [{
+            type: 'text' as const,
+            text: `\uD83D\uDCC4 PDF ingested: ${result.pagesProcessed} pages, ${result.totalChars} chars\n` +
+              `Observations: ${result.observationIds.join(', ')}`,
+          }],
+        };
+      } catch (err: unknown) {
+        return {
+          content: [{
+            type: 'text' as const,
+            text: `\u274C PDF ingestion failed: ${err instanceof Error ? err.message : String(err)}`,
+          }],
+          isError: true,
+        };
+      }
+    },
+  );
   // Deferred initialization — runs AFTER transport connect so MCP handshake isn't blocked.
   // Sync advisory scan and file watcher are non-essential for tool functionality.
   const deferredInit = async () => {

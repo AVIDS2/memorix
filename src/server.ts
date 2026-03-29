@@ -21,7 +21,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { KnowledgeGraphManager } from './memory/graph.js';
 import { initObservations, storeObservation, reindexObservations, migrateProjectIds, getObservation } from './memory/observations.js';
-import { resetDb } from './store/orama-store.js';
+import { resetDb, setGraphManager } from './store/orama-store.js';
 import { createAutoRelations } from './memory/auto-relations.js';
 import { extractEntities } from './memory/entity-extractor.js';
 import { compactSearch, compactTimeline, compactDetail } from './compact/engine.js';
@@ -255,6 +255,7 @@ export async function createMemorixServer(
   // Initialize components
   let graphManager = new KnowledgeGraphManager(projectDir);
   await graphManager.init();
+  setGraphManager(graphManager);
   await initObservations(projectDir);
 
   const lightweightUnresolvedSession = !projectResolved && deferProjectInitUntilBound;
@@ -262,6 +263,7 @@ export async function createMemorixServer(
   const initializeProjectRuntime = async (logPrefix: 'startup' | 'switch'): Promise<void> => {
     graphManager = new KnowledgeGraphManager(projectDir);
     await graphManager.init();
+    setGraphManager(graphManager);
     await initObservations(projectDir);
 
     const reindexed = await reindexObservations();

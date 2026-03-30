@@ -290,7 +290,7 @@ describe('Session Lifecycle', () => {
 
       // Each section has a clarifying subtitle
       expect(context).toContain('pick up where it left off');
-      expect(context).toContain('ranked by type and relevance, not recency');
+      expect(context).toContain('Durable working context');
       expect(context).toContain('for orientation, not action');
     });
   });

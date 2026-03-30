@@ -5,6 +5,7 @@
  */
 
 import type { IndexEntry, TimelineContext } from '../types.js';
+import { sourceBadge } from '../memory/disclosure-policy.js';
 
 /**
  * Format a list of IndexEntries as a compact markdown table.
@@ -18,6 +19,23 @@ export function formatIndexTable(entries: IndexEntry[], query?: string, forcePro
 
   const lines: string[] = [];
 
+  // Tier summary: shown when entries have mixed provenance
+  const badges = entries.map((e) => sourceBadge(e.sourceDetail));
+  const distinctBadges = new Set(badges.filter(Boolean));
+  if (distinctBadges.size > 1 || (distinctBadges.size === 1 && badges.some((b) => !b))) {
+    const exCount = badges.filter((b) => b === 'ex').length;
+    const hkCount = badges.filter((b) => b === 'hk').length;
+    const gitCount = badges.filter((b) => b === 'git').length;
+    const unknownCount = badges.filter((b) => !b).length;
+    const parts: string[] = [];
+    if (exCount > 0) parts.push(`${exCount} explicit`);
+    if (unknownCount > 0) parts.push(`${unknownCount} legacy`);
+    if (hkCount > 0) parts.push(`${hkCount} hook`);
+    if (gitCount > 0) parts.push(`${gitCount} git`);
+    lines.push(`Sources: ${parts.join('  ·  ')}`);
+    lines.push('');
+  }
+
   if (query) {
     lines.push(`Found ${entries.length} observation(s) matching "${query}":`);
     lines.push('');
@@ -26,9 +44,15 @@ export function formatIndexTable(entries: IndexEntry[], query?: string, forcePro
   const distinctProjects = [...new Set(entries.map((entry) => entry.projectId).filter(Boolean))];
   const hasProject = forceProjectColumn || distinctProjects.length > 1;
   const hasExplanation = entries.some((entry) => (entry.matchedFields?.length ?? 0) > 0);
+  // Show Src column only when at least one entry has a sourceDetail value
+  const hasSrc = entries.some((e) => !!e.sourceDetail);
 
   const header = ['ID', 'Time', 'T', 'Title', 'Tokens'];
   const divider = ['----', '------', '---', '-------', '--------'];
+  if (hasSrc) {
+    header.push('Src');
+    divider.push('---');
+  }
   if (hasProject) {
     header.push('Project');
     divider.push('---------');
@@ -43,6 +67,7 @@ export function formatIndexTable(entries: IndexEntry[], query?: string, forcePro
 
   for (const entry of entries) {
     const row = [`#${entry.id}`, entry.time, entry.icon, entry.title, `~${entry.tokens}`];
+    if (hasSrc) row.push(sourceBadge(entry.sourceDetail) || '-');
     if (hasProject) row.push(entry.projectId ?? '-');
     if (hasExplanation) row.push(entry.matchedFields?.join(', ') ?? '-');
     lines.push(`| ${row.join(' | ')} |`);

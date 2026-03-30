@@ -12,6 +12,7 @@
  */
 
 import type { Observation, Session } from '../types.js';
+import { classifyLayer } from './disclosure-policy.js';
 import { resolveAliases } from '../project/aliases.js';
 import { withFileLock } from '../store/file-lock.js';
 import { loadObservationsJson, loadSessionsJson, saveSessionsJson } from '../store/persistence.js';
@@ -289,10 +290,12 @@ export async function endSession(
 /**
  * Get formatted context from previous sessions for injection into a new session.
  *
- * Returns a concise summary of:
- * 1. Last completed session's summary (if available)
- * 2. Top observations from recent sessions
- * 3. Active decisions and gotchas
+ * Returns a layered context packet:
+ *   L1 Routing     — recent hook signals + search guidance
+ *   Recent Handoff — last session summary (L2)
+ *   Key Memories   — durable explicit working context (L2)
+ *   Session History— orientation log
+ *   L3 Evidence    — pointers to git-memory and hook traces (on-demand)
  */
 export async function getSessionContext(
   projectDir: string,
@@ -320,12 +323,64 @@ export async function getSessionContext(
   }
 
   const lines: string[] = [];
+  const projectTokens = tokenizeProjectId(projectId);
 
+  // ── Partition project observations by disclosure layer ─────────────
+  const projectObs = allObs
+    .filter((obs) => aliasSet.has(obs.projectId) && (obs.status ?? 'active') === 'active')
+    .filter((obs) => !isNoiseObservation(obs) && !isSystemSelfObservation(obs));
+
+  // L2: durable working context (explicit/undefined/core), priority types only
+  const l2Obs = projectObs
+    .filter((obs) => PRIORITY_TYPES.has(obs.type) && classifyLayer(obs) === 'L2')
+    .map((obs) => ({ obs, score: scoreObservationForSessionContext(obs, projectTokens) }))
+    .sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      return new Date(b.obs.createdAt).getTime() - new Date(a.obs.createdAt).getTime();
+    })
+    .slice(0, 5)
+    .map(({ obs }) => obs);
+
+  // L1: recent hook activity signals (titles only, most recent first)
+  const l1HookObs = projectObs
+    .filter((obs) => classifyLayer(obs) === 'L1')
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    .slice(0, 3);
+
+  // L3: git-ingest evidence count (pointer only, not injected)
+  const l3GitCount = projectObs.filter((obs) => classifyLayer(obs) === 'L3').length;
+  const totalHookCount = projectObs.filter((obs) => classifyLayer(obs) === 'L1').length;
+
+  // ── L1 Routing ─────────────────────────────────────────────────────
+  const hasL1Content = l1HookObs.length > 0 || l3GitCount > 0;
+  if (hasL1Content) {
+    lines.push('## L1 Routing');
+    lines.push('*Recent activity signals and search guidance for this session.*');
+
+    if (l1HookObs.length > 0) {
+      for (const obs of l1HookObs) {
+        lines.push(`🔗 ${obs.title}`);
+      }
+      lines.push('');
+    }
+
+    const hints: string[] = [];
+    if (l3GitCount > 0) {
+      hints.push(`${l3GitCount} git-memory item(s) available — search \`what-changed\` or by entity/commit`);
+    }
+    if (totalHookCount > 0) {
+      hints.push(`${totalHookCount} hook trace(s) available — use \`memorix_timeline\` for activity expansion`);
+    }
+    for (const hint of hints) {
+      lines.push(`💡 ${hint}`);
+    }
+    lines.push('');
+  }
+
+  // ── L2 Recent Handoff ──────────────────────────────────────────────
   if (projectSessions.length > 0) {
-    const last = projectSessions[0];
-    // Recent Handoff: the most recent completed session with a real summary.
-    // If the latest session only ended implicitly, walk back to find one with substance.
-    let handoff = last;
+    // Walk back to find the most recent session with a real summary.
+    let handoff = projectSessions[0];
     for (const s of projectSessions) {
       if (s.summary && s.summary !== '(session ended implicitly by new session start)') {
         handoff = s;
@@ -344,22 +399,11 @@ export async function getSessionContext(
     lines.push('');
   }
 
-  const projectTokens = tokenizeProjectId(projectId);
-  const priorityObs = allObs
-    .filter((obs) => aliasSet.has(obs.projectId) && PRIORITY_TYPES.has(obs.type) && (obs.status ?? 'active') === 'active')
-    .filter((obs) => !isNoiseObservation(obs) && !isSystemSelfObservation(obs))
-    .map((obs) => ({ obs, score: scoreObservationForSessionContext(obs, projectTokens) }))
-    .sort((a, b) => {
-      if (b.score !== a.score) return b.score - a.score;
-      return new Date(b.obs.createdAt).getTime() - new Date(a.obs.createdAt).getTime();
-    })
-    .slice(0, 5)
-    .map(({ obs }) => obs);
-
-  if (priorityObs.length > 0) {
+  // ── L2 Key Project Memories ────────────────────────────────────────
+  if (l2Obs.length > 0) {
     lines.push('## Key Project Memories');
-    lines.push('*Long-term important knowledge — ranked by type and relevance, not recency.*');
-    for (const obs of priorityObs) {
+    lines.push('*Durable working context — explicit decisions, gotchas, and discoveries.*');
+    for (const obs of l2Obs) {
       const emoji = TYPE_EMOJI[obs.type] ?? '📌';
       const fact = obs.facts?.[0] ? ` — ${obs.facts[0]}` : '';
       lines.push(`${emoji} ${obs.title}${fact}`);
@@ -367,6 +411,7 @@ export async function getSessionContext(
     lines.push('');
   }
 
+  // ── Session History ────────────────────────────────────────────────
   if (projectSessions.length > 1) {
     lines.push(`## Recent Session History (last ${projectSessions.length})`);
     lines.push('*Chronological session log — for orientation, not action.*');
@@ -379,6 +424,23 @@ export async function getSessionContext(
         ? ` — ${rawSummary.split('\n')[0].replace(/^#+\s*/, '').slice(0, 80)}`
         : '';
       lines.push(`- ${date}${agent}${summary}`);
+    }
+    lines.push('');
+  }
+
+  // ── L3 Evidence Hints ─────────────────────────────────────────────
+  const l3Lines: string[] = [];
+  if (l3GitCount > 0) {
+    l3Lines.push(`📌 ${l3GitCount} git-memory item(s) — use \`memorix_search\` to retrieve repository evidence`);
+  }
+  if (totalHookCount > 0) {
+    l3Lines.push(`🔗 ${totalHookCount} hook trace(s) — use \`memorix_timeline\` for full activity expansion`);
+  }
+  if (l3Lines.length > 0) {
+    lines.push('## L3 Evidence');
+    lines.push('*Deeper context available on demand — kept out of working context to stay compact.*');
+    for (const l of l3Lines) {
+      lines.push(l);
     }
     lines.push('');
   }

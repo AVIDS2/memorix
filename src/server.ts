@@ -3075,10 +3075,9 @@ export async function createMemorixServer(
     async (args) => {
       try {
         const { ingestAudio } = await import('./multimodal/index.js');
-        markInternalWrite();
         const result = await ingestAudio(
           args,
-          (obs) => storeObservation(obs),
+          (obs) => { markInternalWrite(); return storeObservation(obs); },
           project.id,
         );
         return {

@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach, beforeEach } from 'bun:test';
+import { describe, it, expect, afterEach, beforeEach } from 'vitest';
 import { transcribeAudio, ingestAudio } from '../../src/multimodal/audio-loader.js';
 import { resetConfigCache } from '../../src/config.js';
 

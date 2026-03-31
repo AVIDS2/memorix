@@ -19,7 +19,7 @@ export type DisclosureLayer = 'L1' | 'L2' | 'L3';
  * Evidence basis: how well-grounded a memory is in verifiable sources.
  *
  * Computed from existing fields — not stored separately.
- *   'repository' — directly backed by a git commit or repository evidence
+ *   'repository' — backed by git provenance, commit evidence, or repository evidence
  *   'direct'     — explicitly agent-recorded, no git backing
  *   undefined    — hook trace, legacy, or unknown origin → neutral
  */
@@ -36,7 +36,7 @@ export function resolveEvidenceBasis(fields: {
   commitHash?: string;
   relatedCommits?: string[];
 }): EvidenceBasis {
-  // Repository-backed: grounded in an actual git commit
+  // Repository-backed: any strong git/repository provenance signal.
   if (
     fields.commitHash ||
     (fields.relatedCommits?.length ?? 0) > 0 ||
@@ -52,8 +52,7 @@ export function resolveEvidenceBasis(fields: {
 }
 
 /**
- * Return a compact one-line verification annotation for provenance headers
- * and timeline anchor annotations.
+ * Return a compact one-line verification annotation for provenance headers.
  * Returns empty string when basis is 'direct' or undefined (not shown to avoid noise).
  * The commit hash is shown only in the detail path (commitHash present).
  */

@@ -5,7 +5,7 @@
  */
 
 import type { IndexEntry, TimelineContext } from '../types.js';
-import { sourceBadge, resolveSourceDetail } from '../memory/disclosure-policy.js';
+import { sourceBadge, resolveSourceDetail, resolveEvidenceBasis, evidenceBasisLine } from '../memory/disclosure-policy.js';
 
 /**
  * Format a list of IndexEntries as a compact markdown table.
@@ -111,7 +111,9 @@ export function formatTimeline(timeline: TimelineContext): string {
   // Anchor kind annotation — shown when provenance is available (sourceDetail or legacy source='git')
   const anchorEffectiveSource = resolveSourceDetail(anchor.sourceDetail, anchor.source);
   if (hasSrc && anchorEffectiveSource) {
-    lines.push(`*Expanding: ${sourceKindLabel(anchorEffectiveSource)}*`);
+    const anchorBasis = resolveEvidenceBasis({ sourceDetail: anchor.sourceDetail, source: anchor.source });
+    const basisSuffix = anchorBasis === 'repository' ? ' — ✓ repository-backed' : '';
+    lines.push(`*Expanding: ${sourceKindLabel(anchorEffectiveSource)}${basisSuffix}*`);
   }
   lines.push('');
 
@@ -165,12 +167,14 @@ export function formatObservationDetail(doc: {
   sourceDetail?: string;
   valueCategory?: string;
   source?: string;
+  commitHash?: string;
+  relatedCommits?: string[];
 }): string {
   const icon = getTypeIcon(doc.type);
   const lines: string[] = [];
 
   // Provenance header — shown before #ID when sourceDetail (or legacy source='git') is set
-  const header = buildProvenanceHeader(doc.sourceDetail, doc.valueCategory, doc.source);
+  const header = buildProvenanceHeader(doc.sourceDetail, doc.valueCategory, doc.source, doc.commitHash, doc.relatedCommits);
   if (header) {
     lines.push(header);
     lines.push('');
@@ -216,7 +220,13 @@ export function formatObservationDetail(doc: {
  * Returns empty string when no provenance can be resolved (backward-compat).
  * Supports legacy source='git' via resolveSourceDetail fallback.
  */
-function buildProvenanceHeader(sourceDetail?: string, valueCategory?: string, source?: string): string {
+function buildProvenanceHeader(
+  sourceDetail?: string,
+  valueCategory?: string,
+  source?: string,
+  commitHash?: string,
+  relatedCommits?: string[],
+): string {
   const sd = resolveSourceDetail(sourceDetail, source);
   if (!sd) return '';
 
@@ -226,6 +236,13 @@ function buildProvenanceHeader(sourceDetail?: string, valueCategory?: string, so
     : 'L2 — durable working context';
 
   const lines = [`${label}  [${layer}]`];
+
+  // Verification line — shown only for repository-backed memories
+  const basis = resolveEvidenceBasis({ sourceDetail, source, commitHash, relatedCommits });
+  const verificationLine = evidenceBasisLine(basis, commitHash);
+  if (verificationLine) {
+    lines.push(verificationLine);
+  }
 
   if (valueCategory === 'core') {
     lines.push('★ Core — immune to decay');

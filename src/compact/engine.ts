@@ -193,7 +193,14 @@ export async function compactDetail(
   }
 
   const formattedParts = documents.map((doc: MemorixDocument) => {
-    let detail = formatObservationDetail(doc);
+    // Re-use in-memory observation to forward commitHash/relatedCommits for
+    // evidence basis display — these fields are not in MemorixDocument.
+    const obs = getObservation(doc.observationId);
+    let detail = formatObservationDetail({
+      ...doc,
+      commitHash: obs?.commitHash,
+      relatedCommits: obs?.relatedCommits,
+    });
     const refs = crossRefMap.get(doc.id);
     if (refs && refs.length > 0) {
       detail += '\n\nCross-references:\n' + refs.join('\n');

@@ -157,6 +157,18 @@ Common values:
 - `transformers`
 - `auto`
 
+`auto` now prefers a configured remote embedding API first.
+
+- if `MEMORIX_EMBEDDING_API_KEY` or another supported API key is present, Memorix will use the remote `/v1/embeddings` provider first
+- only if API embedding is unavailable will it fall back to local `fastembed`, then `transformers`
+- this keeps semantic search on the API path by default while preserving local fallback behavior
+
+When using API embeddings with optional dimension shortening:
+
+- `MEMORIX_EMBEDDING_DIMENSIONS` is treated as part of the embedding configuration identity
+- Memorix keeps API embedding cache entries and probed dimension metadata isolated per `baseUrl + model + requestedDimensions`
+- changing from shortened dimensions back to native dimensions no longer reuses stale cached vectors or stale probe results
+
 ### `git`
 
 Controls Git-Memory behavior.

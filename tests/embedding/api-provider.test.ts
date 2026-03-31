@@ -11,6 +11,8 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 const mockFetch = vi.fn();
 vi.stubGlobal('fetch', mockFetch);
 
+const mockDiskFiles = new Map<string, string>();
+
 // Mock Headers for consistent behavior
 function mockHeaders(entries: [string, string][] = []): { get: (key: string) => string | null } {
   const map = new Map(entries);
@@ -19,8 +21,13 @@ function mockHeaders(entries: [string, string][] = []): { get: (key: string) => 
 
 // Mock fs for disk cache
 vi.mock('node:fs/promises', () => ({
-  readFile: vi.fn().mockRejectedValue(new Error('no cache')),
-  writeFile: vi.fn().mockResolvedValue(undefined),
+  readFile: vi.fn(async (path: string) => {
+    if (!mockDiskFiles.has(path)) throw new Error('no cache');
+    return mockDiskFiles.get(path);
+  }),
+  writeFile: vi.fn(async (path: string, content: string) => {
+    mockDiskFiles.set(path, content);
+  }),
   mkdir: vi.fn().mockResolvedValue(undefined),
 }));
 
@@ -59,6 +66,7 @@ describe('API Embedding Provider', () => {
   beforeEach(() => {
     vi.resetAllMocks();
     vi.stubGlobal('fetch', mockFetch);
+    mockDiskFiles.clear();
     process.env = {
       ...originalEnv,
       MEMORIX_EMBEDDING: 'api',
@@ -104,6 +112,22 @@ describe('API Embedding Provider', () => {
       expect(provider.dimensions).toBe(512);
       const body = JSON.parse(mockFetch.mock.calls[0][1].body);
       expect(body.dimensions).toBe(512);
+    });
+
+    it('should not reuse cached probe dimensions across requested dimension changes', async () => {
+      process.env.MEMORIX_EMBEDDING_DIMENSIONS = '512';
+      mockFetch.mockResolvedValueOnce(mockEmbeddingResponse([makeVector(512)]));
+
+      const shortenedProvider = await APIEmbeddingProvider.create();
+      expect(shortenedProvider.dimensions).toBe(512);
+
+      delete process.env.MEMORIX_EMBEDDING_DIMENSIONS;
+      mockFetch.mockResolvedValueOnce(mockEmbeddingResponse([makeVector(1536)]));
+
+      const nativeProvider = await APIEmbeddingProvider.create();
+
+      expect(nativeProvider.dimensions).toBe(1536);
+      expect(mockFetch).toHaveBeenCalledTimes(2);
     });
 
     it('should fall back to LLM API key if embedding key not set', async () => {
@@ -184,6 +208,31 @@ describe('API Embedding Provider', () => {
       // Second call should not trigger a new fetch
       expect(mockFetch).toHaveBeenCalledTimes(2); // probe + 1 embed only
       expect(result1).toEqual(result2);
+    });
+
+    it('should namespace cache entries by model config to avoid stale dimension reuse', async () => {
+      const smallVec = makeVector(1536);
+      mockFetch.mockResolvedValueOnce(mockEmbeddingResponse([smallVec]));
+      const smallProvider = await APIEmbeddingProvider.create();
+
+      const cachedSmallEmbed = makeVector(1536, 0.5);
+      mockFetch.mockResolvedValueOnce(mockEmbeddingResponse([cachedSmallEmbed]));
+      const firstResult = await smallProvider.embed('shared-text');
+      expect(firstResult.length).toBe(1536);
+
+      process.env.MEMORIX_EMBEDDING_MODEL = 'text-embedding-3-large';
+      const largeProbe = makeVector(3072, 0.2);
+      mockFetch.mockResolvedValueOnce(mockEmbeddingResponse([largeProbe], 'text-embedding-3-large'));
+      const largeProvider = await APIEmbeddingProvider.create();
+
+      const largeEmbed = makeVector(3072, 0.7);
+      mockFetch.mockResolvedValueOnce(mockEmbeddingResponse([largeEmbed], 'text-embedding-3-large'));
+
+      const secondResult = await largeProvider.embed('shared-text');
+
+      expect(secondResult).toEqual(largeEmbed);
+      expect(secondResult.length).toBe(3072);
+      expect(mockFetch).toHaveBeenCalledTimes(4);
     });
   });
 

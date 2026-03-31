@@ -16,13 +16,14 @@ import {
   resetDb,
   generateEmbedding,
   batchGenerateEmbeddings,
+  getVectorDimensions,
   makeOramaObservationId,
 } from '../store/orama-store.js';
 import { saveObservationsJson, loadObservationsJson, saveIdCounter, loadIdCounter } from '../store/persistence.js';
 import { withFileLock } from '../store/file-lock.js';
 import { countTextTokens } from '../compact/token-budget.js';
 import { extractEntities, enrichConcepts } from './entity-extractor.js';
-import { isEmbeddingExplicitlyDisabled } from '../embedding/provider.js';
+import { getEmbeddingProvider, isEmbeddingExplicitlyDisabled } from '../embedding/provider.js';
 
 /** In-memory observation list (loaded from persistence on init) */
 let observations: Observation[] = [];
@@ -34,6 +35,12 @@ let projectDir: string | null = null;
 // Enables observability ("how many memories lack vectors?") and backfill.
 const vectorMissingIds = new Set<number>();
 let vectorBackfillRunning = false;
+
+function isVectorCompatibleWithCurrentIndex(embedding: number[] | null): boolean {
+  if (!embedding) return false;
+  const vectorDimensions = getVectorDimensions();
+  return vectorDimensions === null || embedding.length === vectorDimensions;
+}
 
 /**
  * Initialize the observations manager with a project directory.
@@ -244,6 +251,13 @@ export async function storeObservation(input: {
   const searchableText = [input.title, input.narrative, ...(input.facts ?? [])].join(' ');
   generateEmbedding(searchableText).then(async (embedding) => {
     if (embedding) {
+      if (!isVectorCompatibleWithCurrentIndex(embedding)) {
+        const vectorDimensions = getVectorDimensions();
+        console.error(
+          `[memorix] Embedding dimension mismatch for obs-${obsId}: provider returned ${embedding.length}d, index expects ${vectorDimensions ?? 'unknown'}d (kept in backfill queue)`,
+        );
+        return;
+      }
       try {
         const { removeObservation: removeObs } = await import('../store/orama-store.js');
         await removeObs(makeOramaObservationId(input.projectId, obsId));
@@ -576,17 +590,27 @@ export async function reindexObservations(): Promise<number> {
 
   // Reset the Orama index to ensure clean reindex (idempotent)
   await resetDb();
+  vectorMissingIds.clear();
 
   // Batch-generate all embeddings at once (much faster than individual calls)
-  let embeddings: (number[] | null)[] = [];
-  try {
+  let embeddings: (number[] | null)[] = observations.map(() => null);
+  const provider = await getEmbeddingProvider();
+  const canBatchEmbedAtStartup = provider !== null && !provider.name.startsWith('api-');
+
+  if (provider && !canBatchEmbedAtStartup) {
+    console.error('[memorix] Startup reindex: skipping synchronous API embeddings; background backfill will hydrate vectors');
+  }
+
+  if (canBatchEmbedAtStartup) {
+    try {
       const texts = observations.map(obs =>
         [obs.title, obs.narrative, ...obs.facts].join(' '),
       );
       embeddings = await batchGenerateEmbeddings(texts);
       // Batch embedding failed — fall back to no embeddings
-  } catch {
-    // Batch embedding failed; fall back to no embeddings.
+    } catch {
+      // Batch embedding failed; fall back to no embeddings.
+    }
   }
 
   let count = 0;
@@ -594,6 +618,13 @@ export async function reindexObservations(): Promise<number> {
     const obs = observations[i];
     try {
       const embedding = embeddings[i] ?? null;
+      const compatibleEmbedding = isVectorCompatibleWithCurrentIndex(embedding) ? embedding : null;
+      if (embedding && !compatibleEmbedding) {
+        const vectorDimensions = getVectorDimensions();
+        console.error(
+          `[memorix] Startup reindex embedding mismatch for obs-${obs.id}: provider returned ${embedding.length}d, index expects ${vectorDimensions ?? 'unknown'}d (queued for backfill)`,
+        );
+      }
       const docId = makeOramaObservationId(obs.projectId, obs.id);
       const doc: MemorixDocument = {
         id: docId,
@@ -614,9 +645,12 @@ export async function reindexObservations(): Promise<number> {
         source: obs.source ?? 'agent',
         sourceDetail: obs.sourceDetail ?? '',
         valueCategory: obs.valueCategory ?? '',
-        ...(embedding ? { embedding } : {}),
+        ...(compatibleEmbedding ? { embedding: compatibleEmbedding } : {}),
       };
       await insertObservation(doc);
+      if (!compatibleEmbedding && !isEmbeddingExplicitlyDisabled()) {
+        vectorMissingIds.add(obs.id);
+      }
       count++;
     } catch (err) {
       console.error(`[memorix] Failed to reindex observation #${obs.id}: ${err}`);
@@ -686,6 +720,14 @@ export async function backfillVectorEmbeddings(): Promise<{
       try {
         const embedding = await generateEmbedding(text);
         if (embedding) {
+          if (!isVectorCompatibleWithCurrentIndex(embedding)) {
+            const vectorDimensions = getVectorDimensions();
+            console.error(
+              `[memorix] Backfill embedding mismatch for obs-${id}: provider returned ${embedding.length}d, index expects ${vectorDimensions ?? 'unknown'}d (kept in queue)`,
+            );
+            failed++;
+            continue;
+          }
           const oramaId = makeOramaObservationId(obs.projectId, obs.id);
           try {
             const { removeObservation: removeObs } = await import('../store/orama-store.js');

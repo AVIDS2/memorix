@@ -710,7 +710,10 @@ export async function getTimeline(
     return { before: [], anchor: null, after: [] };
   }
 
-  const toIndexEntry = (obs: { id: number; type: string; title: string; tokens: number; createdAt: string }): IndexEntry => {
+  const toIndexEntry = (obs: {
+    id: number; type: string; title: string; tokens: number; createdAt: string;
+    sourceDetail?: string; valueCategory?: string;
+  }): IndexEntry => {
     const obsType = obs.type as ObservationType;
     return {
       id: obs.id,
@@ -719,6 +722,8 @@ export async function getTimeline(
       icon: OBSERVATION_ICONS[obsType] ?? '❓',
       title: obs.title,
       tokens: obs.tokens,
+      sourceDetail: (obs.sourceDetail as IndexEntry['sourceDetail']) || undefined,
+      valueCategory: (obs.valueCategory as IndexEntry['valueCategory']) || undefined,
     };
   };
 

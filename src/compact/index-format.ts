@@ -81,39 +81,60 @@ export function formatIndexTable(entries: IndexEntry[], query?: string, forcePro
 
 /**
  * Format a timeline context around an anchor observation.
+ * When any entry carries sourceDetail provenance, adds a Src column and
+ * annotates the anchor with its evidence kind. Falls back to the original
+ * table format when no provenance is present (backward-compat).
  */
 export function formatTimeline(timeline: TimelineContext): string {
   if (!timeline.anchorEntry) {
     return `Observation #${timeline.anchorId} not found.`;
   }
 
+  const anchor = timeline.anchorEntry;
+
+  // Detect provenance across all entries — conditional Src column
+  const allEntries = [...timeline.before, anchor, ...timeline.after];
+  const hasSrc = allEntries.some((e) => !!e.sourceDetail);
+
+  const tableHeader = hasSrc ? '| ID | Time | T | Title | Tokens | Src |' : '| ID | Time | T | Title | Tokens |';
+  const tableDivider = hasSrc ? '|----|------|---|-------|--------|-----|' : '|----|------|---|-------|--------|';
+
+  const entryRow = (e: IndexEntry): string => {
+    const base = `| #${e.id} | ${e.time} | ${e.icon} | ${e.title} | ~${e.tokens} |`;
+    return hasSrc ? `${base} ${sourceBadge(e.sourceDetail) || '-'} |` : base;
+  };
+
   const lines: string[] = [];
   lines.push(`Timeline around #${timeline.anchorId}:`);
+
+  // Anchor kind annotation — shown only when provenance is available
+  if (hasSrc && anchor.sourceDetail) {
+    lines.push(`*Expanding: ${sourceKindLabel(anchor.sourceDetail)}*`);
+  }
   lines.push('');
 
   if (timeline.before.length > 0) {
     lines.push('**Before:**');
-    lines.push('| ID | Time | T | Title | Tokens |');
-    lines.push('|----|------|---|-------|--------|');
+    lines.push(tableHeader);
+    lines.push(tableDivider);
     for (const entry of timeline.before) {
-      lines.push(`| #${entry.id} | ${entry.time} | ${entry.icon} | ${entry.title} | ~${entry.tokens} |`);
+      lines.push(entryRow(entry));
     }
     lines.push('');
   }
 
   lines.push('**Anchor:**');
-  lines.push('| ID | Time | T | Title | Tokens |');
-  lines.push('|----|------|---|-------|--------|');
-  const anchor = timeline.anchorEntry;
-  lines.push(`| #${anchor.id} | ${anchor.time} | ${anchor.icon} | ${anchor.title} | ~${anchor.tokens} |`);
+  lines.push(tableHeader);
+  lines.push(tableDivider);
+  lines.push(entryRow(anchor));
   lines.push('');
 
   if (timeline.after.length > 0) {
     lines.push('**After:**');
-    lines.push('| ID | Time | T | Title | Tokens |');
-    lines.push('|----|------|---|-------|--------|');
+    lines.push(tableHeader);
+    lines.push(tableDivider);
     for (const entry of timeline.after) {
-      lines.push(`| #${entry.id} | ${entry.time} | ${entry.icon} | ${entry.title} | ~${entry.tokens} |`);
+      lines.push(entryRow(entry));
     }
     lines.push('');
   }
@@ -124,6 +145,9 @@ export function formatTimeline(timeline: TimelineContext): string {
 
 /**
  * Format full observation details (Layer 3).
+ * When sourceDetail/valueCategory are present, prepends a provenance header
+ * that clearly identifies the evidence kind before the main #ID block.
+ * Backward-compatible: if neither field is set, output is identical to before.
  */
 export function formatObservationDetail(doc: {
   observationId: number;
@@ -136,9 +160,18 @@ export function formatObservationDetail(doc: {
   createdAt: string;
   projectId: string;
   entityName: string;
+  sourceDetail?: string;
+  valueCategory?: string;
 }): string {
   const icon = getTypeIcon(doc.type);
   const lines: string[] = [];
+
+  // Provenance header — shown before #ID when sourceDetail is set
+  const header = buildProvenanceHeader(doc.sourceDetail, doc.valueCategory);
+  if (header) {
+    lines.push(header);
+    lines.push('');
+  }
 
   lines.push(`#${doc.observationId} ${icon} ${doc.title}`);
   lines.push('='.repeat(50));
@@ -173,6 +206,37 @@ export function formatObservationDetail(doc: {
   }
 
   return lines.join('\n');
+}
+
+/**
+ * Build a compact provenance header for detail output.
+ * Returns empty string when sourceDetail is absent (backward-compat).
+ */
+function buildProvenanceHeader(sourceDetail?: string, valueCategory?: string): string {
+  const sd = sourceDetail || '';
+  if (!sd) return '';
+
+  const label = sourceKindLabel(sd);
+  const layer = sd === 'git-ingest' ? 'L3 — evidence'
+    : sd === 'hook' ? 'L1 — activity routing signal'
+    : 'L2 — durable working context';
+
+  const lines = [`${label}  [${layer}]`];
+
+  if (valueCategory === 'core') {
+    lines.push('★ Core — immune to decay');
+  } else if (valueCategory === 'ephemeral') {
+    lines.push('⚠ Ephemeral — short-lived signal');
+  }
+
+  return lines.join('\n');
+}
+
+/** Short label for a sourceDetail value, used in headers and timeline annotations. */
+function sourceKindLabel(sourceDetail: string): string {
+  if (sourceDetail === 'git-ingest') return '📌 Git Repository Evidence';
+  if (sourceDetail === 'hook') return '🔗 Hook Trace';
+  return '💾 Explicit Working Memory';
 }
 
 function getTypeIcon(type: string): string {

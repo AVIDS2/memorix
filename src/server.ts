@@ -1282,18 +1282,20 @@ export async function createMemorixServer(
   );
 
   /**
-   * memorix_timeline — Layer 2: Chronological context
+   * memorix_timeline — Deep retrieval: provenance-aware chronological expansion
    *
-   * Shows observations before and after a specific anchor.
-   * Helps agents understand the temporal context of an observation.
+   * Natural follow-up after session L1 routing hints (hook traces) or L3
+   * evidence pointers (git memory). Distinguishes explicit memory evolution,
+   * hook activity traces, and git-backed facts via Src column when available.
    */
   server.registerTool(
     'memorix_timeline',
     {
       title: 'Memory Timeline',
       description:
-        'Get chronological context around a specific observation. ' +
-        'Shows what happened before and after the anchor observation.',
+        'Deep retrieval: expand chronological context around a specific observation — ' +
+        'distinguishes explicit memory evolution, hook activity traces, and git-backed facts. ' +
+        'Natural follow-up after session L1 routing hints (hook traces) or L3 evidence pointers (git memory).',
       inputSchema: {
         anchorId: z.number().describe('Observation ID to center the timeline on'),
         depthBefore: z.number().optional().describe('Number of observations before (default: 3)'),
@@ -1323,18 +1325,19 @@ export async function createMemorixServer(
   );
 
   /**
-   * memorix_detail — Layer 3: Full observation details
+   * memorix_detail — Layer 3: Provenance-aware full observation details
    *
-   * Fetch complete observation content by IDs.
-   * Only call after filtering via memorix_search / memorix_timeline.
-   * ~500-1000 tokens per observation.
+   * Opens explicit memories, hook traces, or git evidence depending on source.
+   * Output includes a provenance header identifying the evidence kind, value
+   * category (core / ephemeral), and cross-references to related items.
    */
   server.registerTool(
     'memorix_detail',
     {
       title: 'Memory Details',
       description:
-        'Fetch full observation details by IDs (~500-1000 tokens each). ' +
+        'Fetch full observation details by ID — includes source kind (explicit memory / hook trace / git evidence), ' +
+        'value category, and cross-references (~500-1000 tokens each). ' +
         'Always use memorix_search first to find relevant IDs, then fetch only what you need. ' +
         'For global search results, prefer refs with projectId to avoid cross-project ID ambiguity.',
       inputSchema: {

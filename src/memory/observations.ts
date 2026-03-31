@@ -411,8 +411,8 @@ async function upsertObservation(
 /**
  * Get an observation by ID.
  */
-export function getObservation(id: number): Observation | undefined {
-  return observations.find((o) => o.id === id);
+export function getObservation(id: number, projectId?: string): Observation | undefined {
+  return observations.find((o) => o.id === id && (projectId ? o.projectId === projectId : true));
 }
 
 /**

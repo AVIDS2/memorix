@@ -84,7 +84,7 @@ export async function compactDetail(
   const documentMap = new Map<string, MemorixDocument>();
   const missingRefs: ObservationRef[] = [];
   for (const ref of refs) {
-    const obs = getObservation(ref.id);
+    const obs = getObservation(ref.id, ref.projectId);
     if (obs && (ref.projectId ? obs.projectId === ref.projectId : true)) {
       documentMap.set(toRefKey(ref), {
         id: makeOramaObservationId(obs.projectId, obs.id),
@@ -129,7 +129,7 @@ export async function compactDetail(
   const allObs = getAllObservations();
   const crossRefMap = new Map<string, string[]>();
   for (const ref of refs) {
-    const obs = getObservation(ref.id);
+    const obs = getObservation(ref.id, ref.projectId);
     const doc = documentMap.get(toRefKey(ref));
     if (!obs && !doc) continue;
     const refs: string[] = [];
@@ -195,7 +195,7 @@ export async function compactDetail(
   const formattedParts = documents.map((doc: MemorixDocument) => {
     // Re-use in-memory observation to forward commitHash/relatedCommits for
     // evidence basis display — these fields are not in MemorixDocument.
-    const obs = getObservation(doc.observationId);
+    const obs = getObservation(doc.observationId, doc.projectId);
     let detail = formatObservationDetail({
       ...doc,
       commitHash: obs?.commitHash,

@@ -133,6 +133,16 @@ describe('Compact Engine', () => {
           narrative: 'Current in-memory project is now B',
           projectId: 'test/project-b',
         });
+        await storeObservation({
+          entityName: 'project-b',
+          type: 'what-changed',
+          title: 'Project B git evidence',
+          narrative: 'This should not leak into project A detail rendering',
+          projectId: 'test/project-b',
+          source: 'git',
+          sourceDetail: 'git-ingest',
+          commitHash: 'deadbeef1234567',
+        });
 
         const searchResult = await compactSearch({ query: 'Cross-project detail target' });
         const target = searchResult.entries.find((entry) => entry.title === 'Cross-project detail target');
@@ -147,6 +157,7 @@ describe('Compact Engine', () => {
         expect(detailResult.documents[0].title).toBe('Cross-project detail target');
         expect(detailResult.documents[0].projectId).toBe('test/project-a');
         expect(detailResult.formatted).toContain('Cross-project detail target');
+        expect(detailResult.formatted).not.toContain('Repository-backed');
       } finally {
         await fs.rm(projectADir, { recursive: true, force: true });
         await fs.rm(projectBDir, { recursive: true, force: true });

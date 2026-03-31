@@ -712,7 +712,7 @@ export async function getTimeline(
 
   const toIndexEntry = (obs: {
     id: number; type: string; title: string; tokens: number; createdAt: string;
-    sourceDetail?: string; valueCategory?: string;
+    source?: string; sourceDetail?: string; valueCategory?: string;
   }): IndexEntry => {
     const obsType = obs.type as ObservationType;
     return {
@@ -722,6 +722,7 @@ export async function getTimeline(
       icon: OBSERVATION_ICONS[obsType] ?? '❓',
       title: obs.title,
       tokens: obs.tokens,
+      source: (obs.source as IndexEntry['source']) || undefined,
       sourceDetail: (obs.sourceDetail as IndexEntry['sourceDetail']) || undefined,
       valueCategory: (obs.valueCategory as IndexEntry['valueCategory']) || undefined,
     };

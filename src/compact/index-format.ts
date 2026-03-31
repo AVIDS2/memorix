@@ -5,7 +5,7 @@
  */
 
 import type { IndexEntry, TimelineContext } from '../types.js';
-import { sourceBadge } from '../memory/disclosure-policy.js';
+import { sourceBadge, resolveSourceDetail } from '../memory/disclosure-policy.js';
 
 /**
  * Format a list of IndexEntries as a compact markdown table.
@@ -20,7 +20,7 @@ export function formatIndexTable(entries: IndexEntry[], query?: string, forcePro
   const lines: string[] = [];
 
   // Tier summary: shown when entries have mixed provenance
-  const badges = entries.map((e) => sourceBadge(e.sourceDetail));
+  const badges = entries.map((e) => sourceBadge(e.sourceDetail, e.source));
   const distinctBadges = new Set(badges.filter(Boolean));
   if (distinctBadges.size > 1 || (distinctBadges.size === 1 && badges.some((b) => !b))) {
     const exCount = badges.filter((b) => b === 'ex').length;
@@ -44,8 +44,8 @@ export function formatIndexTable(entries: IndexEntry[], query?: string, forcePro
   const distinctProjects = [...new Set(entries.map((entry) => entry.projectId).filter(Boolean))];
   const hasProject = forceProjectColumn || distinctProjects.length > 1;
   const hasExplanation = entries.some((entry) => (entry.matchedFields?.length ?? 0) > 0);
-  // Show Src column only when at least one entry has a sourceDetail value
-  const hasSrc = entries.some((e) => !!e.sourceDetail);
+  // Show Src column when at least one entry has provenance (sourceDetail or legacy source='git')
+  const hasSrc = entries.some((e) => !!e.sourceDetail || e.source === 'git');
 
   const header = ['ID', 'Time', 'T', 'Title', 'Tokens'];
   const divider = ['----', '------', '---', '-------', '--------'];
@@ -67,7 +67,7 @@ export function formatIndexTable(entries: IndexEntry[], query?: string, forcePro
 
   for (const entry of entries) {
     const row = [`#${entry.id}`, entry.time, entry.icon, entry.title, `~${entry.tokens}`];
-    if (hasSrc) row.push(sourceBadge(entry.sourceDetail) || '-');
+    if (hasSrc) row.push(sourceBadge(entry.sourceDetail, entry.source) || '-');
     if (hasProject) row.push(entry.projectId ?? '-');
     if (hasExplanation) row.push(entry.matchedFields?.join(', ') ?? '-');
     lines.push(`| ${row.join(' | ')} |`);
@@ -93,23 +93,25 @@ export function formatTimeline(timeline: TimelineContext): string {
   const anchor = timeline.anchorEntry;
 
   // Detect provenance across all entries — conditional Src column
+  // Includes legacy source='git' fallback.
   const allEntries = [...timeline.before, anchor, ...timeline.after];
-  const hasSrc = allEntries.some((e) => !!e.sourceDetail);
+  const hasSrc = allEntries.some((e) => !!e.sourceDetail || e.source === 'git');
 
   const tableHeader = hasSrc ? '| ID | Time | T | Title | Tokens | Src |' : '| ID | Time | T | Title | Tokens |';
   const tableDivider = hasSrc ? '|----|------|---|-------|--------|-----|' : '|----|------|---|-------|--------|';
 
   const entryRow = (e: IndexEntry): string => {
     const base = `| #${e.id} | ${e.time} | ${e.icon} | ${e.title} | ~${e.tokens} |`;
-    return hasSrc ? `${base} ${sourceBadge(e.sourceDetail) || '-'} |` : base;
+    return hasSrc ? `${base} ${sourceBadge(e.sourceDetail, e.source) || '-'} |` : base;
   };
 
   const lines: string[] = [];
   lines.push(`Timeline around #${timeline.anchorId}:`);
 
-  // Anchor kind annotation — shown only when provenance is available
-  if (hasSrc && anchor.sourceDetail) {
-    lines.push(`*Expanding: ${sourceKindLabel(anchor.sourceDetail)}*`);
+  // Anchor kind annotation — shown when provenance is available (sourceDetail or legacy source='git')
+  const anchorEffectiveSource = resolveSourceDetail(anchor.sourceDetail, anchor.source);
+  if (hasSrc && anchorEffectiveSource) {
+    lines.push(`*Expanding: ${sourceKindLabel(anchorEffectiveSource)}*`);
   }
   lines.push('');
 
@@ -162,12 +164,13 @@ export function formatObservationDetail(doc: {
   entityName: string;
   sourceDetail?: string;
   valueCategory?: string;
+  source?: string;
 }): string {
   const icon = getTypeIcon(doc.type);
   const lines: string[] = [];
 
-  // Provenance header — shown before #ID when sourceDetail is set
-  const header = buildProvenanceHeader(doc.sourceDetail, doc.valueCategory);
+  // Provenance header — shown before #ID when sourceDetail (or legacy source='git') is set
+  const header = buildProvenanceHeader(doc.sourceDetail, doc.valueCategory, doc.source);
   if (header) {
     lines.push(header);
     lines.push('');
@@ -210,10 +213,11 @@ export function formatObservationDetail(doc: {
 
 /**
  * Build a compact provenance header for detail output.
- * Returns empty string when sourceDetail is absent (backward-compat).
+ * Returns empty string when no provenance can be resolved (backward-compat).
+ * Supports legacy source='git' via resolveSourceDetail fallback.
  */
-function buildProvenanceHeader(sourceDetail?: string, valueCategory?: string): string {
-  const sd = sourceDetail || '';
+function buildProvenanceHeader(sourceDetail?: string, valueCategory?: string, source?: string): string {
+  const sd = resolveSourceDetail(sourceDetail, source);
   if (!sd) return '';
 
   const label = sourceKindLabel(sd);
@@ -232,10 +236,10 @@ function buildProvenanceHeader(sourceDetail?: string, valueCategory?: string): s
   return lines.join('\n');
 }
 
-/** Short label for a sourceDetail value, used in headers and timeline annotations. */
-function sourceKindLabel(sourceDetail: string): string {
-  if (sourceDetail === 'git-ingest') return '📌 Git Repository Evidence';
-  if (sourceDetail === 'hook') return '🔗 Hook Trace';
+/** Short label for a resolved sourceDetail value, used in headers and timeline annotations. */
+function sourceKindLabel(sd: string): string {
+  if (sd === 'git-ingest') return '📌 Git Repository Evidence';
+  if (sd === 'hook') return '🔗 Hook Trace';
   return '💾 Explicit Working Memory';
 }
 

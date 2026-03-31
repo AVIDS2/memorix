@@ -18,23 +18,44 @@ export type DisclosureLayer = 'L1' | 'L2' | 'L3';
 export interface ProvenanceFields {
   sourceDetail?: string;
   valueCategory?: string;
+  /** Legacy fallback: observations ingested before Phase 1 only have source='git'. */
+  source?: string;
+}
+
+/**
+ * Resolve the effective sourceDetail for an observation, supporting legacy
+ * observations that only have source='git' and no sourceDetail.
+ *
+ * This is the single fallback point — call this instead of reading sourceDetail
+ * directly whenever provenance classification or display is needed.
+ */
+export function resolveSourceDetail(
+  sourceDetail?: string,
+  source?: string,
+): 'explicit' | 'hook' | 'git-ingest' | undefined {
+  if (sourceDetail === 'explicit' || sourceDetail === 'hook' || sourceDetail === 'git-ingest') {
+    return sourceDetail;
+  }
+  // Legacy git memories: source='git' with no sourceDetail → treat as git-ingest.
+  if (source === 'git') return 'git-ingest';
+  return undefined;
 }
 
 /**
  * Classify a single observation or index entry into a disclosure layer.
  */
 export function classifyLayer(fields: ProvenanceFields): DisclosureLayer {
-  const { sourceDetail, valueCategory } = fields;
+  const { valueCategory } = fields;
+  const sd = resolveSourceDetail(fields.sourceDetail, fields.source);
 
   // Core-valued memories are always promoted to L2, regardless of source.
   if (valueCategory === 'core') return 'L2';
 
   // Hook auto-captures without core classification → L1 routing signal.
-  if (sourceDetail === 'hook') return 'L1';
+  if (sd === 'hook') return 'L1';
 
-  // Git-ingest is evidence-grounded but defaults to L3.
-  // Caller may choose to promote selectively (e.g., when L2 is thin).
-  if (sourceDetail === 'git-ingest') return 'L3';
+  // Git-ingest (including legacy source='git') defaults to L3.
+  if (sd === 'git-ingest') return 'L3';
 
   // Explicit, undefined/legacy, manual → L2 working context.
   return 'L2';
@@ -42,11 +63,13 @@ export function classifyLayer(fields: ProvenanceFields): DisclosureLayer {
 
 /**
  * Return a compact source badge string for display in search tables.
+ * Accepts both sourceDetail and legacy source for fallback resolution.
  * Keeps existing table structure stable — fits in a narrow column.
  */
-export function sourceBadge(sourceDetail?: string): string {
-  if (sourceDetail === 'explicit') return 'ex';
-  if (sourceDetail === 'hook') return 'hk';
-  if (sourceDetail === 'git-ingest') return 'git';
+export function sourceBadge(sourceDetail?: string, source?: string): string {
+  const sd = resolveSourceDetail(sourceDetail, source);
+  if (sd === 'explicit') return 'ex';
+  if (sd === 'hook') return 'hk';
+  if (sd === 'git-ingest') return 'git';
   return '';
 }

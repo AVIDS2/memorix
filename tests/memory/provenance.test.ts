@@ -300,7 +300,7 @@ describe('Session injection source-aware scoring', () => {
     const scoreHookEphemeral = scoreObservationForSessionContext(hookEphemeral, []);
 
     expect(scoreHookEphemeral).toBeLessThan(scoreHook);
-    expect(scoreHook - scoreHookEphemeral).toBeGreaterThanOrEqual(5); // extra -5 from session.ts
+    expect(scoreHook - scoreHookEphemeral).toBeCloseTo(5, 6); // tolerate platform float differences
   });
 
   it('core boosts above neutral/undefined (same type, same age)', () => {

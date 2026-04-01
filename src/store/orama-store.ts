@@ -54,6 +54,20 @@ function isCommandLikeQuery(query: string): boolean {
   return COMMAND_LIKE_QUERY.test(query);
 }
 
+/**
+ * Resolve the effective source label for intent-boost purposes.
+ * Phase 1 introduced sourceDetail='git-ingest' as a more precise signal than
+ * source='git'. Treat them as equivalent so intent-based source boosts
+ * (e.g. what_changed → git: 2.0) apply to both representations.
+ * Used in the source-aware retrieval path only — not stored or exported.
+ */
+function effectiveSource(
+  source: 'agent' | 'git' | 'manual',
+  sourceDetail?: 'explicit' | 'hook' | 'git-ingest',
+): 'agent' | 'git' | 'manual' {
+  return sourceDetail === 'git-ingest' ? 'git' : source;
+}
+
 /** True when the query IS a command (tool word leads), not just mentioning a tool. */
 function isCommandIntentQuery(query: string): boolean {
   if (!COMMAND_INTENT_QUERY.test(query)) return false;
@@ -503,7 +517,7 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
   if (intentResult && intentResult.confidence > 0.3 && intentResult.sourceBoosts) {
     const srcBoosts = intentResult.sourceBoosts;
     intermediate = intermediate.map(entry => {
-      const boost = srcBoosts[entry.source] ?? 1.0;
+      const boost = srcBoosts[effectiveSource(entry.source, entry.sourceDetail)] ?? 1.0;
       const effectiveBoost = 1 + (boost - 1) * intentResult.confidence;
       return { ...entry, score: entry.score * effectiveBoost };
     });
@@ -595,6 +609,41 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
   // Apply original limit after post-filtering (we intentionally over-requested when project filtering is active)
   if (projectIds) {
     intermediate = intermediate.slice(0, options.limit ?? 20);
+  }
+
+  // ── Provenance Tiebreaker (standard tier only) ──────────────────
+  // When Orama scores converge — a common outcome in standard-tier queries
+  // where both fulltext and embedding are used — this pass gives a tiny
+  // preference to repository-backed and core memories within the top-K
+  // results whose scores fall within a 20% window of the highest score.
+  // Amplitudes are intentionally small: the tiebreaker must never reverse
+  // a meaningful score gap, only resolve genuine ambiguity.
+  //   git-ingest / source=git  → ×1.06 (repository evidence)
+  //   valueCategory=core       → ×1.03 (explicitly classified durable memory)
+  // Constraints:
+  //   - Standard tier only (fast has no ambiguity; heavy has LLM rerank)
+  //   - Top-8 results only (doesn't affect long tail)
+  //   - 20% score window from top score (score ≥ topScore × 0.80)
+  if (tier === 'standard' && intermediate.length > 1) {
+    const TIEBREAK_TOP_K = 8;
+    const TIEBREAK_WINDOW = 0.20;
+    const topScore = intermediate[0]?.score ?? 0;
+    const threshold = topScore * (1 - TIEBREAK_WINDOW);
+    let changed = false;
+    for (let i = 0; i < Math.min(TIEBREAK_TOP_K, intermediate.length); i++) {
+      const entry = intermediate[i];
+      if (entry.score < threshold) break; // outside tiebreak window, stop
+      const isGitEvidence = effectiveSource(entry.source, entry.sourceDetail) === 'git';
+      const isCore = entry.valueCategory === 'core';
+      if (isGitEvidence) {
+        intermediate[i] = { ...entry, score: entry.score * 1.06 };
+        changed = true;
+      } else if (isCore) {
+        intermediate[i] = { ...entry, score: entry.score * 1.03 };
+        changed = true;
+      }
+    }
+    if (changed) intermediate.sort((a, b) => b.score - a.score);
   }
 
   // ── LLM Reranking (heavy-tier only) ────────────────────────────

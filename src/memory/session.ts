@@ -351,7 +351,16 @@ export async function getSessionContext(
   const l3GitCount = projectObs.filter((obs) => classifyLayer(obs) === 'L3').length;
   const totalHookCount = projectObs.filter((obs) => classifyLayer(obs) === 'L1').length;
 
+  // Active entities: unique entity names from top-scored L2 memories.
+  // Surfaced in L1 Routing as next-hop search guidance — not working context.
+  // Capped at 5, derived from the same l2Obs already scored above.
+  const activeEntities = [
+    ...new Set(l2Obs.map((o) => o.entityName).filter((n): n is string => !!n && n.trim().length > 0)),
+  ].slice(0, 5);
+
   // ── L1 Routing ─────────────────────────────────────────────────────
+  // L1 Routing requires actual L1/L3 signals (hooks or git evidence).
+  // Active entities enrich the section when it is shown but do not open it alone.
   const hasL1Content = l1HookObs.length > 0 || l3GitCount > 0;
   if (hasL1Content) {
     lines.push('## L1 Routing');
@@ -365,6 +374,9 @@ export async function getSessionContext(
     }
 
     const hints: string[] = [];
+    if (activeEntities.length > 0) {
+      hints.push(`Active entities: ${activeEntities.join(', ')}`);
+    }
     if (l3GitCount > 0) {
       hints.push(`${l3GitCount} git-memory item(s) available — search \`what-changed\` or by entity/commit`);
     }

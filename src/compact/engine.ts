@@ -14,6 +14,7 @@ import { searchObservations, getTimeline, getObservationsByIds, makeOramaObserva
 import { getObservation, getAllObservations } from '../memory/observations.js';
 import { formatIndexTable, formatTimeline, formatObservationDetail } from './index-format.js';
 import { countTextTokens } from './token-budget.js';
+import { resolveAliases } from '../project/aliases.js';
 
 /**
  * Layer 1: Search and return a compact index.
@@ -133,6 +134,9 @@ export async function compactDetail(
     const doc = documentMap.get(toRefKey(ref));
     if (!obs && !doc) continue;
     const refs: string[] = [];
+    const projectIds = obs
+      ? new Set(await resolveAliases(obs.projectId).catch(() => [obs.projectId]))
+      : new Set<string>(doc?.projectId ? [doc.projectId] : []);
 
     // Repository / source line
     if (obs?.source === 'git' && obs.commitHash) {
@@ -152,7 +156,12 @@ export async function compactDetail(
     if (obs.relatedCommits && obs.relatedCommits.length > 0) {
       refs.push(`Cited commits: ${obs.relatedCommits.map(h => h.substring(0, 7)).join(', ')}`);
       // Auto-find git memories for those commits
-      const gitMems = allObs.filter(o => o.source === 'git' && o.commitHash && obs.relatedCommits!.includes(o.commitHash));
+      const gitMems = allObs.filter(o =>
+        o.source === 'git' &&
+        projectIds.has(o.projectId) &&
+        o.commitHash &&
+        obs.relatedCommits!.includes(o.commitHash),
+      );
       for (const gm of gitMems) {
         refs.push(`  → #${gm.id} 🟢 ${gm.title}`);
       }
@@ -167,6 +176,7 @@ export async function compactDetail(
     if (obs.source === 'git') {
       const analysis = allObs.filter(o =>
         (o.type === 'reasoning' || o.type === 'decision') &&
+        projectIds.has(o.projectId) &&
         o.entityName === obs.entityName && o.id !== obs.id && o.status !== 'archived',
       ).slice(0, 3);
       if (analysis.length > 0) {
@@ -180,7 +190,11 @@ export async function compactDetail(
     // Auto: if this is a reasoning/decision memory, find git evidence for same entity
     if (obs.type === 'reasoning' || obs.type === 'decision') {
       const gitMems = allObs.filter(o =>
-        o.source === 'git' && o.entityName === obs.entityName && o.id !== obs.id && o.status !== 'archived',
+        o.source === 'git' &&
+        projectIds.has(o.projectId) &&
+        o.entityName === obs.entityName &&
+        o.id !== obs.id &&
+        o.status !== 'archived',
       ).slice(0, 3);
       if (gitMems.length > 0) {
         refs.push('Repository evidence:');

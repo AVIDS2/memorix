@@ -16,6 +16,7 @@ vi.mock('../../src/embedding/provider.js', () => ({
 import { compactSearch, compactDetail } from '../../src/compact/engine.js';
 import { storeObservation, initObservations } from '../../src/memory/observations.js';
 import { resetDb } from '../../src/store/orama-store.js';
+import { initAliasRegistry, registerAlias, resetAliasCache } from '../../src/project/aliases.js';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -25,6 +26,8 @@ let testDir: string;
 beforeEach(async () => {
   testDir = await fs.mkdtemp(path.join(os.tmpdir(), 'memorix-compact-'));
   await resetDb();
+  resetAliasCache();
+  initAliasRegistry(testDir);
   await initObservations(testDir);
 });
 
@@ -162,6 +165,113 @@ describe('Compact Engine', () => {
         await fs.rm(projectADir, { recursive: true, force: true });
         await fs.rm(projectBDir, { recursive: true, force: true });
       }
+    });
+
+    it('should not attach repository evidence from another project with the same entity name', async () => {
+      const { observation: reasoning } = await storeObservation({
+        entityName: 'auth',
+        type: 'reasoning',
+        title: 'Project A auth reasoning',
+        narrative: 'Project A reasoning should only cite project A git evidence.',
+        projectId: 'test/project-a',
+      });
+      await storeObservation({
+        entityName: 'auth',
+        type: 'what-changed',
+        title: 'Project A auth commit',
+        narrative: 'Git evidence for project A',
+        projectId: 'test/project-a',
+        source: 'git',
+        sourceDetail: 'git-ingest',
+        commitHash: 'aaa1111bbbb2222',
+      });
+      await storeObservation({
+        entityName: 'auth',
+        type: 'what-changed',
+        title: 'Project B auth commit',
+        narrative: 'Git evidence for project B',
+        projectId: 'test/project-b',
+        source: 'git',
+        sourceDetail: 'git-ingest',
+        commitHash: 'bbb3333cccc4444',
+      });
+
+      const detailResult = await compactDetail([{ id: reasoning.id, projectId: 'test/project-a' }]);
+      expect(detailResult.formatted).toContain('Evidence support:');
+      expect(detailResult.formatted).toContain('Project A auth commit');
+      expect(detailResult.formatted).not.toContain('Project B auth commit');
+    });
+
+    it('should not attach cited commit evidence from another project sharing the same commit hash', async () => {
+      const { observation: reasoning } = await storeObservation({
+        entityName: 'auth',
+        type: 'reasoning',
+        title: 'Project A commit analysis',
+        narrative: 'Project A reasoning cites one commit.',
+        relatedCommits: ['aaa1111bbbb2222'],
+        projectId: 'test/project-a',
+      });
+      await storeObservation({
+        entityName: 'auth',
+        type: 'what-changed',
+        title: 'Project A cited commit',
+        narrative: 'Git evidence for project A cited commit',
+        projectId: 'test/project-a',
+        source: 'git',
+        sourceDetail: 'git-ingest',
+        commitHash: 'aaa1111bbbb2222',
+      });
+      await storeObservation({
+        entityName: 'auth',
+        type: 'what-changed',
+        title: 'Project B same hash commit',
+        narrative: 'Different project reusing the same hash string',
+        projectId: 'test/project-b',
+        source: 'git',
+        sourceDetail: 'git-ingest',
+        commitHash: 'aaa1111bbbb2222',
+      });
+
+      const detailResult = await compactDetail([{ id: reasoning.id, projectId: 'test/project-a' }]);
+      expect(detailResult.formatted).toContain('Cited commits: aaa1111');
+      expect(detailResult.formatted).toContain('Project A cited commit');
+      expect(detailResult.formatted).not.toContain('Project B same hash commit');
+    });
+
+    it('should preserve evidence links across canonical project aliases', async () => {
+      await registerAlias({
+        id: 'local/memorix',
+        name: 'memorix',
+        rootPath: 'E:/repo/memorix',
+      }, testDir);
+      await registerAlias({
+        id: 'AVIDS2/memorix',
+        name: 'memorix',
+        rootPath: 'E:/repo/memorix',
+        gitRemote: 'https://github.com/AVIDS2/memorix.git',
+      }, testDir);
+
+      const { observation: reasoning } = await storeObservation({
+        entityName: 'auth',
+        type: 'reasoning',
+        title: 'Alias reasoning',
+        narrative: 'Local alias reasoning should still see canonical git evidence.',
+        projectId: 'local/memorix',
+      });
+      await storeObservation({
+        entityName: 'auth',
+        type: 'what-changed',
+        title: 'Canonical git evidence',
+        narrative: 'Git evidence stored under canonical alias',
+        projectId: 'AVIDS2/memorix',
+        source: 'git',
+        sourceDetail: 'git-ingest',
+        commitHash: 'ccc5555dddd6666',
+      });
+
+      const detailResult = await compactDetail([{ id: reasoning.id, projectId: 'local/memorix' }]);
+      expect(detailResult.formatted).toContain('Evidence support:');
+      expect(detailResult.formatted).toContain('Canonical git evidence');
     });
   });
 });

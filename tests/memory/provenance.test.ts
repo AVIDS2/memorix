@@ -289,7 +289,8 @@ describe('Session injection source-aware scoring', () => {
     const scoreHook = scoreObservationForSessionContext(hook, []);
 
     expect(scoreHook).toBeLessThan(scoreExplicit);
-    expect(scoreExplicit - scoreHook).toBeGreaterThanOrEqual(3); // exact delta from session.ts
+    // Floating point math can land infinitesimally below 3 on some runtimes.
+    expect(scoreExplicit - scoreHook).toBeGreaterThan(2.999); // nominal delta from session.ts
   });
 
   it('hook+ephemeral scores lower than hook alone (compound penalty)', () => {

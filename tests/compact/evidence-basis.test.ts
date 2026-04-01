@@ -116,12 +116,21 @@ describe('formatObservationDetail: evidence basis in provenance header', () => {
     expect(out).toContain('✓ Repository-backed — commit deadbee');
   });
 
-  it('source=git + relatedCommits → shows repository-backed', () => {
+  it('source=git + relatedCommits → shows repository-backed (source wins)', () => {
+    const out = formatObservationDetail(makeDoc({
+      source: 'git',
+      relatedCommits: ['abc1234'],
+    }));
+    expect(out).toContain('✓ Repository-backed');
+  });
+
+  it('explicit + relatedCommits + no commitHash → shows synthesized (Phase 5)', () => {
     const out = formatObservationDetail(makeDoc({
       sourceDetail: 'explicit',
       relatedCommits: ['abc1234'],
     }));
-    expect(out).toContain('✓ Repository-backed');
+    expect(out).toContain('◈ Synthesized');
+    expect(out).not.toContain('✓ Repository-backed');
   });
 
   it('explicit, no commits → no verification line (direct is silent)', () => {

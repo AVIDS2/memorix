@@ -112,8 +112,10 @@ export function formatTimeline(timeline: TimelineContext): string {
   const anchorEffectiveSource = resolveSourceDetail(anchor.sourceDetail, anchor.source);
   if (hasSrc && anchorEffectiveSource) {
     const anchorBasis = resolveEvidenceBasis({ sourceDetail: anchor.sourceDetail, source: anchor.source });
-    const basisLine = evidenceBasisLine(anchorBasis);
-    const basisSuffix = basisLine ? ` — ${basisLine.toLowerCase()}` : '';
+    const basisSuffix =
+      anchorBasis === 'repository' ? ' — ✓ repository-backed' :
+      anchorBasis === 'synthesized' ? ' — ◈ synthesized' :
+      '';
     lines.push(`*Expanding: ${sourceKindLabel(anchorEffectiveSource)}${basisSuffix}*`);
   }
   lines.push('');

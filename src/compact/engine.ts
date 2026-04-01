@@ -134,12 +134,12 @@ export async function compactDetail(
     if (!obs && !doc) continue;
     const refs: string[] = [];
 
-    // Source badge
+    // Repository / source line
     if (obs?.source === 'git' && obs.commitHash) {
-      refs.push(`Source: git commit ${obs.commitHash.substring(0, 7)}`);
-    } else if (obs?.source) {
+      refs.push(`Repository: commit ${obs.commitHash.substring(0, 7)}`);
+    } else if (obs?.source && obs.source !== 'agent') {
       refs.push(`Source: ${obs.source}`);
-    } else if (doc?.source) {
+    } else if (doc?.source && doc.source !== 'agent') {
       refs.push(`Source: ${doc.source}`);
     }
 
@@ -148,9 +148,9 @@ export async function compactDetail(
       continue;
     }
 
-    // Explicit relatedCommits
+    // Cited commits (explicit relatedCommits cross-references)
     if (obs.relatedCommits && obs.relatedCommits.length > 0) {
-      refs.push(`Related commits: ${obs.relatedCommits.map(h => h.substring(0, 7)).join(', ')}`);
+      refs.push(`Cited commits: ${obs.relatedCommits.map(h => h.substring(0, 7)).join(', ')}`);
       // Auto-find git memories for those commits
       const gitMems = allObs.filter(o => o.source === 'git' && o.commitHash && obs.relatedCommits!.includes(o.commitHash));
       for (const gm of gitMems) {
@@ -163,26 +163,27 @@ export async function compactDetail(
       refs.push(`Related entities: ${obs.relatedEntities.join(', ')}`);
     }
 
-    // Auto cross-reference: if this is a git memory, find reasoning memories for same entity
+    // Auto: if this is a git memory, find analysis (reasoning/decision) for same entity
     if (obs.source === 'git') {
-      const reasoning = allObs.filter(o =>
-        o.type === 'reasoning' && o.entityName === obs.entityName && o.id !== obs.id && o.status !== 'archived',
+      const analysis = allObs.filter(o =>
+        (o.type === 'reasoning' || o.type === 'decision') &&
+        o.entityName === obs.entityName && o.id !== obs.id && o.status !== 'archived',
       ).slice(0, 3);
-      if (reasoning.length > 0) {
-        refs.push('Related reasoning:');
-        for (const r of reasoning) {
-          refs.push(`  → #${r.id} 🧠 ${r.title}`);
+      if (analysis.length > 0) {
+        refs.push('Analysis:');
+        for (const r of analysis) {
+          refs.push(`  → #${r.id} ${r.type === 'reasoning' ? '🧠' : '🟤'} ${r.title}`);
         }
       }
     }
 
-    // Auto cross-reference: if this is a reasoning memory, find git memories for same entity
-    if (obs.type === 'reasoning') {
+    // Auto: if this is a reasoning/decision memory, find git evidence for same entity
+    if (obs.type === 'reasoning' || obs.type === 'decision') {
       const gitMems = allObs.filter(o =>
         o.source === 'git' && o.entityName === obs.entityName && o.id !== obs.id && o.status !== 'archived',
       ).slice(0, 3);
       if (gitMems.length > 0) {
-        refs.push('Related commits:');
+        refs.push('Repository evidence:');
         for (const g of gitMems) {
           refs.push(`  → #${g.id} 🟢 ${g.title}`);
         }
@@ -203,7 +204,7 @@ export async function compactDetail(
     });
     const refs = crossRefMap.get(doc.id);
     if (refs && refs.length > 0) {
-      detail += '\n\nCross-references:\n' + refs.join('\n');
+      detail += '\n\nEvidence support:\n' + refs.join('\n');
     }
     return detail;
   });

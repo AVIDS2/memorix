@@ -19,11 +19,13 @@ export type DisclosureLayer = 'L1' | 'L2' | 'L3';
  * Evidence basis: how well-grounded a memory is in verifiable sources.
  *
  * Computed from existing fields — not stored separately.
- *   'repository' — backed by git provenance, commit evidence, or repository evidence
- *   'direct'     — explicitly agent-recorded, no git backing
- *   undefined    — hook trace, legacy, or unknown origin → neutral
+ *   'repository'  — directly backed by a git commit or repository evidence
+ *   'synthesized' — explicit agent analysis that cites repository evidence
+ *                   via relatedCommits (no direct commitHash — not raw evidence)
+ *   'direct'      — explicitly agent-recorded, no git backing
+ *   undefined     — hook trace, legacy, or unknown origin → neutral
  */
-export type EvidenceBasis = 'repository' | 'direct' | undefined;
+export type EvidenceBasis = 'repository' | 'synthesized' | 'direct' | undefined;
 
 /**
  * Derive the evidence basis from existing provenance fields.
@@ -36,13 +38,26 @@ export function resolveEvidenceBasis(fields: {
   commitHash?: string;
   relatedCommits?: string[];
 }): EvidenceBasis {
-  // Repository-backed: any strong git/repository provenance signal.
+  // Repository-backed: commitHash present = direct git evidence (highest confidence).
+  // Also covers git-ingest source and legacy source='git'.
   if (
     fields.commitHash ||
-    (fields.relatedCommits?.length ?? 0) > 0 ||
     fields.source === 'git' ||
     fields.sourceDetail === 'git-ingest'
   ) {
+    return 'repository';
+  }
+  // Synthesized: explicit agent analysis that cites commits via relatedCommits,
+  // but has no direct commitHash (so it is analysis OF repository evidence, not raw evidence).
+  // Conservative: requires explicit sourceDetail, relatedCommits present, no commitHash.
+  if (
+    fields.sourceDetail === 'explicit' &&
+    (fields.relatedCommits?.length ?? 0) > 0
+  ) {
+    return 'synthesized';
+  }
+  // relatedCommits without explicit sourceDetail — legacy or unknown → repository fallback.
+  if ((fields.relatedCommits?.length ?? 0) > 0) {
     return 'repository';
   }
   // Direct: explicitly agent-recorded, no git backing
@@ -60,6 +75,9 @@ export function evidenceBasisLine(basis: EvidenceBasis, commitHash?: string): st
   if (basis === 'repository') {
     const commit = commitHash ? ` — commit ${commitHash.substring(0, 7)}` : '';
     return `✓ Repository-backed${commit}`;
+  }
+  if (basis === 'synthesized') {
+    return '◈ Synthesized — explicit analysis citing repository evidence';
   }
   return '';
 }

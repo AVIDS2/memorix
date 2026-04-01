@@ -679,7 +679,26 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
         if (queryTokens.some(t => valueLower.includes(t))) reasons.push(name);
       }
       if (reasons.length === 0) reasons.push('fuzzy');
-      entry.matchedFields = reasons;
+
+      // Prepend a single evidence-type tag (max 1) ahead of field-match labels.
+      // Priority: git evidence > synthesized > ★ core
+      // This surfaces WHY this result is notable beyond the query match.
+      const isGitEvidence = doc.sourceDetail === 'git-ingest' || doc.source === 'git';
+      const isSynthesized = doc.sourceDetail === 'explicit' &&
+        // Note: relatedCommits not in MemorixDocument; flag is best-effort from sourceDetail alone.
+        // Full synthesized detection is handled in the detail/timeline path where we have the full obs.
+        false; // reserved — set explicitly if MemorixDocument gains relatedCommits in future
+      const isCore = doc.valueCategory === 'core';
+
+      if (isGitEvidence) {
+        entry.matchedFields = ['git evidence', ...reasons];
+      } else if (isSynthesized) {
+        entry.matchedFields = ['synthesized', ...reasons];
+      } else if (isCore) {
+        entry.matchedFields = ['★ core', ...reasons];
+      } else {
+        entry.matchedFields = reasons;
+      }
     }
   }
 

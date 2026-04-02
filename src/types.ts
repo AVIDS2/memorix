@@ -171,6 +171,8 @@ export interface IndexEntry {
   valueCategory?: 'core' | 'contextual' | 'ephemeral';
   /** Explainable recall: why this result matched. */
   matchedFields?: string[];
+  /** Entity name — used for entity-affinity scoring and workstream deduplication. */
+  entityName?: string;
 }
 
 /** Explicit reference to an observation, optionally scoped to a project. */

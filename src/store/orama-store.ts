@@ -497,6 +497,7 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
         source: (doc.source || 'agent') as 'agent' | 'git' | 'manual',
         sourceDetail: (doc.sourceDetail || undefined) as 'explicit' | 'hook' | 'git-ingest' | undefined,
         valueCategory: (doc.valueCategory || undefined) as 'core' | 'contextual' | 'ephemeral' | undefined,
+        entityName: doc.entityName || undefined,
         _isCommandLog: isCommandLogEntry(doc.title),
       };
     });
@@ -644,6 +645,52 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
       }
     }
     if (changed) intermediate.sort((a, b) => b.score - a.score);
+  }
+
+  // ── Entity-affinity hint (standard + heavy tier only) ──────────────
+  // When query tokens (4+ chars) match some entity names in results but not
+  // others, mildly boost the matching entities (×1.08). This helps queries
+  // like "blog VPS deployment" surface blog-vps observations over api-relay
+  // observations stored in the same project bucket.
+  // Gates:
+  //   - standard or heavy tier only (fast tier is single-word, too noisy)
+  //   - only fires when some but not all entity names match the query
+  //   - top-8 and within the 20% window of the top score
+  //   - cannot reverse a meaningful score gap (amplitude ×1.08)
+  if ((tier === 'standard' || tier === 'heavy') && intermediate.length > 1 && hasQuery) {
+    const affTokens = originalQuery!
+      .toLowerCase()
+      .split(/\s+/)
+      .map(t => t.replace(/[_-]/g, ''))
+      .filter(t => t.length >= 4);
+
+    if (affTokens.length > 0) {
+      const entityNames = [...new Set(intermediate.map(e => e.entityName).filter((n): n is string => !!n))];
+      const matchedEntities = new Set(
+        entityNames.filter(name => {
+          const norm = name.toLowerCase().replace(/[_-]/g, '');
+          return affTokens.some(t => norm.includes(t));
+        }),
+      );
+
+      if (matchedEntities.size > 0 && matchedEntities.size < entityNames.length) {
+        const AFF_TOP_K = 8;
+        const AFF_WINDOW = 0.20;
+        const AFF_BOOST = 1.08;
+        const topScore = intermediate[0]?.score ?? 0;
+        const threshold = topScore * (1 - AFF_WINDOW);
+        let affChanged = false;
+        for (let i = 0; i < Math.min(AFF_TOP_K, intermediate.length); i++) {
+          const entry = intermediate[i];
+          if (entry.score < threshold) break;
+          if (matchedEntities.has(entry.entityName ?? '')) {
+            intermediate[i] = { ...entry, score: entry.score * AFF_BOOST };
+            affChanged = true;
+          }
+        }
+        if (affChanged) intermediate.sort((a, b) => b.score - a.score);
+      }
+    }
   }
 
   // ── LLM Reranking (heavy-tier only) ────────────────────────────

@@ -17,6 +17,7 @@ import { resolveAliases } from '../project/aliases.js';
 import { withFileLock } from '../store/file-lock.js';
 import { loadObservationsJson, loadSessionsJson, saveSessionsJson } from '../store/persistence.js';
 import { KnowledgeGraphManager } from './graph.js';
+import { redactCredentials, sanitizeCredentials } from './secret-filter.js';
 
 const PRIORITY_TYPES = new Set(['gotcha', 'decision', 'problem-solution', 'trade-off', 'discovery']);
 const TYPE_EMOJI: Record<string, string> = {
@@ -278,7 +279,7 @@ export async function endSession(
     session.status = 'completed';
     session.endedAt = new Date().toISOString();
     if (summary) {
-      session.summary = summary;
+      session.summary = sanitizeCredentials(summary);
     }
 
     endedSession = session;
@@ -332,15 +333,32 @@ export async function getSessionContext(
     .filter((obs) => !isNoiseObservation(obs) && !isSystemSelfObservation(obs));
 
   // L2: durable working context (explicit/undefined/core), priority types only
-  const l2Obs = projectObs
+  const l2Scored = projectObs
     .filter((obs) => PRIORITY_TYPES.has(obs.type) && classifyLayer(obs) === 'L2')
     .map((obs) => ({ obs, score: scoreObservationForSessionContext(obs, projectTokens) }))
     .sort((a, b) => {
       if (b.score !== a.score) return b.score - a.score;
       return new Date(b.obs.createdAt).getTime() - new Date(a.obs.createdAt).getTime();
-    })
-    .slice(0, 5)
-    .map(({ obs }) => obs);
+    });
+
+  // Per-entity cap: only when multiple distinct entities are present.
+  // Prevents one workstream from monopolizing session context.
+  // When all candidates belong to a single entity, skip the cap — no pollution risk.
+  const distinctL2Entities = new Set(l2Scored.map(({ obs }) => obs.entityName).filter(Boolean)).size;
+  const l2Obs = (distinctL2Entities > 1
+    ? (() => {
+        const entityCount = new Map<string, number>();
+        const ENTITY_CAP = 3;
+        return l2Scored.filter(({ obs }) => {
+          const key = obs.entityName ?? '';
+          const count = entityCount.get(key) ?? 0;
+          if (count >= ENTITY_CAP) return false;
+          entityCount.set(key, count + 1);
+          return true;
+        });
+      })()
+    : l2Scored
+  ).slice(0, 5).map(({ obs }) => obs);
 
   // L1: recent hook activity signals (titles only, most recent first)
   const l1HookObs = projectObs
@@ -392,7 +410,7 @@ export async function getSessionContext(
 
     if (l1HookObs.length > 0) {
       for (const obs of l1HookObs) {
-        lines.push(`🔗 ${obs.title}`);
+        lines.push(`🔗 ${redactCredentials(obs.title)}`);
       }
       lines.push('');
     }
@@ -433,7 +451,7 @@ export async function getSessionContext(
     }
     lines.push(`Ended: ${handoff.endedAt || handoff.startedAt}`);
     if (handoff.summary && handoff.summary !== '(session ended implicitly by new session start)') {
-      lines.push('', handoff.summary);
+      lines.push('', redactCredentials(handoff.summary));
     }
     lines.push('');
   }
@@ -444,8 +462,8 @@ export async function getSessionContext(
     lines.push('*Durable working context — explicit decisions, gotchas, and discoveries.*');
     for (const obs of l2Obs) {
       const emoji = TYPE_EMOJI[obs.type] ?? '📌';
-      const fact = obs.facts?.[0] ? ` — ${obs.facts[0]}` : '';
-      lines.push(`${emoji} ${obs.title}${fact}`);
+      const fact = obs.facts?.[0] ? ` — ${redactCredentials(obs.facts[0])}` : '';
+      lines.push(`${emoji} ${redactCredentials(obs.title)}${fact}`);
     }
     lines.push('');
   }
@@ -460,7 +478,7 @@ export async function getSessionContext(
       const rawSummary = session.summary && session.summary !== '(session ended implicitly by new session start)'
         ? session.summary : null;
       const summary = rawSummary
-        ? ` — ${rawSummary.split('\n')[0].replace(/^#+\s*/, '').slice(0, 80)}`
+        ? ` — ${redactCredentials(rawSummary.split('\n')[0].replace(/^#+\s*/, '')).slice(0, 80)}`
         : '';
       lines.push(`- ${date}${agent}${summary}`);
     }

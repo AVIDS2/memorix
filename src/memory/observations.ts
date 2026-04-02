@@ -24,6 +24,7 @@ import { withFileLock } from '../store/file-lock.js';
 import { countTextTokens } from '../compact/token-budget.js';
 import { extractEntities, enrichConcepts } from './entity-extractor.js';
 import { getEmbeddingProvider, isEmbeddingExplicitlyDisabled } from '../embedding/provider.js';
+import { sanitizeCredentials } from './secret-filter.js';
 
 /** In-memory observation list (loaded from persistence on init) */
 let observations: Observation[] = [];
@@ -82,6 +83,10 @@ export async function storeObservation(input: {
   valueCategory?: 'core' | 'contextual' | 'ephemeral';
 }): Promise<{ observation: Observation; upserted: boolean }> {
   const now = new Date().toISOString();
+
+  // ── Central secret sanitization — strip credential values before any persistence ──
+  // Covers all write paths: hooks, git-ingest, CLI, reasoning, compact-on-write, etc.
+  input = { ...input, title: sanitizeCredentials(input.title), narrative: sanitizeCredentials(input.narrative), facts: input.facts?.map(sanitizeCredentials) };
 
   // Topic key upsert: fast-path check in-memory (optimistic, may be stale).
   // A second authoritative check happens inside the file lock to prevent TOCTOU races
@@ -301,6 +306,9 @@ async function upsertObservation(
   },
   now: string,
 ): Promise<Observation> {
+  // ── Central secret sanitization ──
+  input = { ...input, title: sanitizeCredentials(input.title), narrative: sanitizeCredentials(input.narrative), facts: input.facts?.map(sanitizeCredentials) };
+
   // Auto-extract and enrich (same as storeObservation)
   const contentForExtraction = [input.title, input.narrative, ...(input.facts ?? [])].join(' ');
   const extracted = extractEntities(contentForExtraction);

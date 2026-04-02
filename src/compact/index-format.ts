@@ -6,6 +6,7 @@
 
 import type { IndexEntry, TimelineContext } from '../types.js';
 import { sourceBadge, resolveSourceDetail, resolveEvidenceBasis, evidenceBasisLine } from '../memory/disclosure-policy.js';
+import { redactCredentials } from '../memory/secret-filter.js';
 
 /**
  * Format a list of IndexEntries as a compact markdown table.
@@ -66,7 +67,7 @@ export function formatIndexTable(entries: IndexEntry[], query?: string, forcePro
   lines.push(`|${divider.map((part) => ` ${part} `).join('|')}|`);
 
   for (const entry of entries) {
-    const row = [`#${entry.id}`, entry.time, entry.icon, entry.title, `~${entry.tokens}`];
+    const row = [`#${entry.id}`, entry.time, entry.icon, redactCredentials(entry.title), `~${entry.tokens}`];
     if (hasSrc) row.push(sourceBadge(entry.sourceDetail, entry.source) || '-');
     if (hasProject) row.push(entry.projectId ?? '-');
     if (hasExplanation) row.push(entry.matchedFields?.join(', ') ?? '-');
@@ -101,7 +102,7 @@ export function formatTimeline(timeline: TimelineContext): string {
   const tableDivider = hasSrc ? '|----|------|---|-------|--------|-----|' : '|----|------|---|-------|--------|';
 
   const entryRow = (e: IndexEntry): string => {
-    const base = `| #${e.id} | ${e.time} | ${e.icon} | ${e.title} | ~${e.tokens} |`;
+    const base = `| #${e.id} | ${e.time} | ${e.icon} | ${redactCredentials(e.title)} | ~${e.tokens} |`;
     return hasSrc ? `${base} ${sourceBadge(e.sourceDetail, e.source) || '-'} |` : base;
   };
 
@@ -190,9 +191,9 @@ export function formatObservationDetail(doc: {
   lines.push(`Entity: ${doc.entityName}`);
   lines.push(`Project: ${doc.projectId}`);
   lines.push('');
-  lines.push(`Narrative: ${doc.narrative}`);
+  lines.push(`Narrative: ${redactCredentials(doc.narrative)}`);
 
-  const facts = doc.facts ? doc.facts.split('\n').filter(Boolean) : [];
+  const facts = doc.facts ? doc.facts.split('\n').filter(Boolean).map(redactCredentials) : [];
   if (facts.length > 0) {
     lines.push('');
     lines.push('Facts:');

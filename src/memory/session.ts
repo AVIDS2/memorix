@@ -16,6 +16,7 @@ import { classifyLayer } from './disclosure-policy.js';
 import { resolveAliases } from '../project/aliases.js';
 import { withFileLock } from '../store/file-lock.js';
 import { loadObservationsJson, loadSessionsJson, saveSessionsJson } from '../store/persistence.js';
+import { KnowledgeGraphManager } from './graph.js';
 
 const PRIORITY_TYPES = new Set(['gotcha', 'decision', 'problem-solution', 'trade-off', 'discovery']);
 const TYPE_EMOJI: Record<string, string> = {
@@ -363,6 +364,29 @@ export async function getSessionContext(
   // Active entities enrich the section when it is shown but do not open it alone.
   const hasL1Content = l1HookObs.length > 0 || l3GitCount > 0;
   if (hasL1Content) {
+    // Graph neighbor routing hint: 1-hop neighbors of activeEntities from the
+    // knowledge graph. Routing only — no query expansion, no rerank, no 2-hop
+    // traversal. Silently skipped if graph is absent, empty, or throws.
+    let graphNeighbors: string[] = [];
+    if (activeEntities.length > 0) {
+      try {
+        const graphMgr = new KnowledgeGraphManager(projectDir);
+        await graphMgr.init();
+        const { relations } = await graphMgr.readGraph();
+        const activeSet = new Set(activeEntities.map((n) => n.toLowerCase()));
+        const neighborSet = new Set<string>();
+        for (const rel of relations) {
+          const fromLower = rel.from.toLowerCase();
+          const toLower = rel.to.toLowerCase();
+          if (activeSet.has(fromLower) && !activeSet.has(toLower)) neighborSet.add(rel.to);
+          if (activeSet.has(toLower) && !activeSet.has(fromLower)) neighborSet.add(rel.from);
+        }
+        graphNeighbors = [...neighborSet].slice(0, 5);
+      } catch {
+        // Graph unavailable or empty — silently skip
+      }
+    }
+
     lines.push('## L1 Routing');
     lines.push('*Recent activity signals and search guidance for this session.*');
 
@@ -376,6 +400,9 @@ export async function getSessionContext(
     const hints: string[] = [];
     if (activeEntities.length > 0) {
       hints.push(`Active entities: ${activeEntities.join(', ')}`);
+    }
+    if (graphNeighbors.length > 0) {
+      hints.push(`Graph neighbors: ${graphNeighbors.join(', ')}`);
     }
     if (l3GitCount > 0) {
       hints.push(`${l3GitCount} git-memory item(s) available — search \`what-changed\` or by entity/commit`);

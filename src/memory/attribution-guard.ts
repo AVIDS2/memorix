@@ -120,30 +120,32 @@ export async function checkProjectAttribution(
     return { suspicious: false };
   }
 
-  // Find the other canonical project with the highest count for this entity
-  let maxCount = 0;
-  let maxCanonical = '';
+  // Only flag when there is a unique alternative project above threshold.
+  // If multiple other projects qualify, attribution is ambiguous and we avoid
+  // emitting a misleading warning.
+  const qualifyingTargets: Array<{ canonical: string; count: number }> = [];
   for (const [canonical, inner] of entityCounts) {
     if (canonical === currentCanonical) continue;
     const count = inner.get(entityName) ?? 0;
-    if (count > maxCount) {
-      maxCount = count;
-      maxCanonical = canonical;
+    if (count >= threshold) {
+      qualifyingTargets.push({ canonical, count });
     }
   }
 
-  if (maxCount < threshold) {
+  if (qualifyingTargets.length !== 1) {
     return { suspicious: false };
   }
 
+  const [{ canonical: targetCanonical, count: targetCount }] = qualifyingTargets;
+
   return {
     suspicious: true,
-    knownIn: maxCanonical,
-    count: maxCount,
-    confidence: maxCount >= 5 ? 'high' : 'low',
+    knownIn: targetCanonical,
+    count: targetCount,
+    confidence: targetCount >= 5 ? 'high' : 'low',
     reason:
       `Entity "${entityName}" has 0 observations in "${currentCanonical}" ` +
-      `but ${maxCount} in "${maxCanonical}"`,
+      `but ${targetCount} in "${targetCanonical}"`,
   };
 }
 
@@ -214,19 +216,21 @@ export async function auditProjectObservations(
 
     if (currentCount > 1) continue; // entity is meaningfully present → skip
 
-    // Find best alternative canonical project
-    let maxCount = 0;
-    let maxCanonical = '';
+    // Only emit an audit entry when there is a unique alternative target.
+    // Multiple qualifying projects is ambiguous and should not become a
+    // misleading "likely belongs to" suggestion.
+    const qualifyingTargets: Array<{ canonical: string; count: number }> = [];
     for (const [canonical, inner] of entityCounts) {
       if (canonical === currentCanonical) continue;
       const count = inner.get(obs.entityName) ?? 0;
-      if (count > maxCount) {
-        maxCount = count;
-        maxCanonical = canonical;
+      if (count >= threshold) {
+        qualifyingTargets.push({ canonical, count });
       }
     }
 
-    if (maxCount < threshold) continue;
+    if (qualifyingTargets.length !== 1) continue;
+
+    const [{ canonical: targetCanonical, count: targetCount }] = qualifyingTargets;
 
     entries.push({
       id: obs.id,
@@ -235,9 +239,9 @@ export async function auditProjectObservations(
       title: obs.title,
       source: obs.source ?? 'agent',
       sourceDetail: obs.sourceDetail,
-      likelyBelongsTo: maxCanonical,
-      count: maxCount,
-      confidence: maxCount >= 5 ? 'high' : 'low',
+      likelyBelongsTo: targetCanonical,
+      count: targetCount,
+      confidence: targetCount >= 5 ? 'high' : 'low',
     });
   }
 

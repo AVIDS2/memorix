@@ -9,8 +9,10 @@
  * Relevance formula:
  *   score = baseImportance × e^(-ageDays / retentionPeriod) × accessBoost × connectionBoost
  *
- * Immunity: observations with importance=critical, accessCount>=3, or tagged "keep"/"pinned"
- * are never auto-archived.
+ * Immunity: observations with importance=critical, valueCategory=core, accessCount>=3,
+ * or tagged "keep"/"pinned" are never auto-archived.
+ * High-importance types (gotcha/decision/trade-off/reasoning) retain a long 180-day
+ * retention period but are no longer permanently immune — they decay normally.
  */
 
 import type { MemorixDocument, Observation } from '../types.js';
@@ -55,6 +57,10 @@ const TYPE_IMPORTANCE: Record<string, ImportanceLevel> = {
 const PROTECTED_TAGS = new Set(['keep', 'important', 'pinned', 'critical']);
 const MIN_ACCESS_FOR_IMMUNITY = 3;
 
+/** Minimum effective retention period in days — prevents extreme multiplier combinations
+ *  (e.g. hook × ephemeral = 0.25×) from producing unreasonably short windows. */
+const MIN_RETENTION_DAYS = 7;
+
 /**
  * Get retention period multiplier based on sourceDetail.
  * Neutral (1.0) for unknown/undefined sourceDetail — backward-compatible.
@@ -66,6 +72,26 @@ function getSourceRetentionMultiplier(doc: MemorixDocument): number {
 }
 
 /**
+ * Get retention period multiplier based on valueCategory.
+ * Neutral (1.0) for undefined/contextual — backward-compatible.
+ */
+function getValueCategoryMultiplier(doc: MemorixDocument): number {
+  if (doc.valueCategory === 'ephemeral') return 0.5;  // short-lived context: decay faster
+  if (doc.valueCategory === 'core')      return 2.0;  // durable knowledge: extend retention
+  return 1.0;                                         // contextual/undefined: neutral
+}
+
+/**
+ * Compute the effective retention period in days, with floor applied.
+ * Combines base retention (from importance/type) with source and valueCategory multipliers.
+ */
+export function getEffectiveRetentionDays(doc: MemorixDocument): number {
+  const importance = getImportanceLevel(doc);
+  const raw = RETENTION_DAYS[importance] * getSourceRetentionMultiplier(doc) * getValueCategoryMultiplier(doc);
+  return Math.max(MIN_RETENTION_DAYS, raw);
+}
+
+/**
  * Check if an observation is immune from archiving/decay.
  * Immune observations maintain a minimum relevance score.
  */
@@ -74,11 +100,28 @@ export function isImmune(doc: MemorixDocument): boolean {
   if (doc.valueCategory === 'core') return true;
 
   const importance = getImportanceLevel(doc);
-  if (importance === 'critical' || importance === 'high') return true;
+  // Only 'critical' importance grants type-based immunity.
+  // 'high' importance types (gotcha/decision/trade-off/reasoning) keep their long
+  // 180-day retention period but are no longer permanently immune — this prevents
+  // unbounded growth of never-accessed high-type observations.
+  if (importance === 'critical') return true;
   if ((doc.accessCount ?? 0) >= MIN_ACCESS_FOR_IMMUNITY) return true;
 
   const concepts = doc.concepts?.split(', ').map((c) => c.toLowerCase()) ?? [];
   return concepts.some((c) => PROTECTED_TAGS.has(c));
+}
+
+/**
+ * Return a human-readable reason for why an observation is immune, or null if not immune.
+ */
+export function getImmunityReason(doc: MemorixDocument): string | null {
+  if (doc.valueCategory === 'core') return 'core valueCategory (formation-classified)';
+  const importance = getImportanceLevel(doc);
+  if (importance === 'critical') return 'critical importance';
+  if ((doc.accessCount ?? 0) >= MIN_ACCESS_FOR_IMMUNITY) return `frequently accessed (${doc.accessCount}×)`;
+  const concepts = doc.concepts?.split(', ').map((c) => c.toLowerCase()) ?? [];
+  if (concepts.some((c) => PROTECTED_TAGS.has(c))) return 'protected tag';
+  return null;
 }
 
 // ── Relevance Scoring ────────────────────────────────────────────────
@@ -116,7 +159,7 @@ export function calculateRelevance(
   const now = referenceTime ?? new Date();
   const importance = getImportanceLevel(doc);
   const base = BASE_IMPORTANCE[importance];
-  const retention = RETENTION_DAYS[importance] * getSourceRetentionMultiplier(doc);
+  const retention = getEffectiveRetentionDays(doc);
 
   // Age in days
   const createdAt = new Date(doc.createdAt);
@@ -176,7 +219,7 @@ export type RetentionZone = 'active' | 'stale' | 'archive-candidate';
 export function getRetentionZone(doc: MemorixDocument, referenceTime?: Date): RetentionZone {
   const now = referenceTime ?? new Date();
   const importance = getImportanceLevel(doc);
-  const retention = RETENTION_DAYS[importance] * getSourceRetentionMultiplier(doc);
+  const retention = getEffectiveRetentionDays(doc);
 
   const createdAt = new Date(doc.createdAt);
   const ageDays = (now.getTime() - createdAt.getTime()) / (1000 * 60 * 60 * 24);
@@ -226,6 +269,76 @@ export function getRetentionSummary(
   }
 
   return { active, stale, archiveCandidates, immune };
+}
+
+// ── Retention Explainability ─────────────────────────────────────────
+
+export interface RetentionExplanation {
+  observationId: number;
+  importanceLevel: ImportanceLevel;
+  baseRetentionDays: number;
+  sourceMultiplier: number;
+  valueCategoryMultiplier: number;
+  effectiveRetentionDays: number;
+  zone: RetentionZone;
+  immune: boolean;
+  /** Human-readable reason for immunity, or null when not immune. */
+  immunityReason: string | null;
+  ageDays: number;
+  /** Short human-readable summary of the retention posture. */
+  summary: string;
+}
+
+/**
+ * Produce a structured explanation of why an observation has its current
+ * retention posture.  Designed for operator-facing reporting.
+ */
+export function explainRetention(
+  doc: MemorixDocument,
+  referenceTime?: Date,
+): RetentionExplanation {
+  const importance = getImportanceLevel(doc);
+  const baseRetention = RETENTION_DAYS[importance];
+  const srcMul = getSourceRetentionMultiplier(doc);
+  const vcMul = getValueCategoryMultiplier(doc);
+  const effective = getEffectiveRetentionDays(doc);
+  const zone = getRetentionZone(doc, referenceTime);
+  const immuneFlag = isImmune(doc);
+  const immunityReason = getImmunityReason(doc);
+
+  const now = referenceTime ?? new Date();
+  const ageDays = Math.max(
+    0,
+    (now.getTime() - new Date(doc.createdAt).getTime()) / (1000 * 60 * 60 * 24),
+  );
+
+  // Build a concise human-readable summary
+  const parts: string[] = [];
+  parts.push(`${importance} importance (${baseRetention}d base)`);
+  if (srcMul !== 1.0) parts.push(`source ${srcMul}×`);
+  if (vcMul !== 1.0) parts.push(`valueCategory ${vcMul}×`);
+  parts.push(`→ ${effective}d effective`);
+  if (immuneFlag) {
+    parts.push(`immune: ${immunityReason}`);
+  } else {
+    parts.push(`zone: ${zone}`);
+  }
+
+  return {
+    observationId: doc.observationId,
+    importanceLevel: importance,
+    baseRetentionDays: baseRetention,
+    sourceMultiplier: srcMul,
+    valueCategoryMultiplier: vcMul,
+    effectiveRetentionDays: effective,
+    zone,
+    immune: immuneFlag,
+    immunityReason,
+    ageDays: Math.round(ageDays),
+    // Summary is rendered inside markdown table cells in memorix_retention output,
+    // so avoid pipe separators that would split the row into extra columns.
+    summary: parts.join(' ; '),
+  };
 }
 
 // ── Auto-Archive ────────────────────────────────────────────────────

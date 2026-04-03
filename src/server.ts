@@ -1518,7 +1518,7 @@ export async function createMemorixServer(
           limit: Math.max(1, allObs.length),
         });
         for (const hit of accessResults.hits) {
-          const doc = hit.document as import('./types.js').MemorixDocument;
+          const doc = hit.document as unknown as import('./types.js').MemorixDocument;
           accessMap.set(doc.observationId, {
             accessCount: doc.accessCount ?? 0,
             lastAccessedAt: doc.lastAccessedAt ?? '',

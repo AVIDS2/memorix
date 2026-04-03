@@ -20,7 +20,8 @@ import { watchFile } from 'node:fs';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { KnowledgeGraphManager } from './memory/graph.js';
-import { initObservations, storeObservation, reindexObservations, migrateProjectIds, getObservation } from './memory/observations.js';
+import { initObservations, storeObservation, reindexObservations, migrateProjectIds, getObservation, getAllObservations } from './memory/observations.js';
+import { checkProjectAttribution, auditProjectObservations } from './memory/attribution-guard.js';
 import { resetDb } from './store/orama-store.js';
 import { createAutoRelations } from './memory/auto-relations.js';
 import { extractEntities } from './memory/entity-extractor.js';
@@ -702,6 +703,19 @@ export async function createMemorixServer(
         }
       } catch { /* compression is best-effort (timeout or LLM failure) */ }
 
+      // ── Attribution guard (passive, non-blocking) ─────────────────
+      // Warns when entityName is unknown in this project but well-established
+      // in a different project — signals a potential wrong-bucket write.
+      let attributionWarning = '';
+      try {
+        const attrCheck = await checkProjectAttribution(entityName, project.id, getAllObservations());
+        if (attrCheck.suspicious) {
+          attributionWarning = `\n⚠️ Attribution notice: entity "${entityName}" has 0 observations in ` +
+            `"${project.id}" but ${attrCheck.count} in "${attrCheck.knownIn}" ` +
+            `(confidence: ${attrCheck.confidence}). Verify the correct project is bound before storing.`;
+        }
+      } catch { /* guard is best-effort — never blocks the write */ }
+
       // Store the observation (may upsert if topicKey matches existing)
       markInternalWrite();
       const { observation: obs, upserted } = await storeObservation({
@@ -838,7 +852,7 @@ export async function createMemorixServer(
         content: [
           {
             type: 'text' as const,
-            text: `${action} observation #${obs.id} "${title}" (~${obs.tokens} tokens)\nEntity: ${entityName} | Type: ${type} | Project: ${project.id}${obs.topicKey ? ` | Topic: ${obs.topicKey}` : ''}${compactAction}${compressionNote}${enrichment}${formationNote}`,
+            text: `${action} observation #${obs.id} "${title}" (~${obs.tokens} tokens)\nEntity: ${entityName} | Type: ${type} | Project: ${project.id}${obs.topicKey ? ` | Topic: ${obs.topicKey}` : ''}${compactAction}${compressionNote}${enrichment}${formationNote}${attributionWarning}`,
           },
         ],
       };
@@ -1086,6 +1100,17 @@ export async function createMemorixServer(
         { name: entityName, entityType: 'auto', observations: [] },
       ]);
 
+      // ── Attribution guard (passive, non-blocking) ─────────────────
+      let reasoningAttributionWarning = '';
+      try {
+        const attrCheck = await checkProjectAttribution(entityName, project.id, getAllObservations());
+        if (attrCheck.suspicious) {
+          reasoningAttributionWarning = `\n⚠️ Attribution notice: entity "${entityName}" has 0 observations in ` +
+            `"${project.id}" but ${attrCheck.count} in "${attrCheck.knownIn}" ` +
+            `(confidence: ${attrCheck.confidence}). Verify the correct project is bound before storing.`;
+        }
+      } catch { /* guard is best-effort — never blocks the write */ }
+
       markInternalWrite();
       const { observation: obs } = await storeObservation({
         entityName,
@@ -1109,8 +1134,80 @@ export async function createMemorixServer(
       return {
         content: [{
           type: 'text' as const,
-          text: `🧠 Reasoning trace stored #${obs.id}: "${decision}"\nEntity: ${entityName} | ${facts.length} facts | ${obs.tokens} tokens`,
+          text: `🧠 Reasoning trace stored #${obs.id}: "${decision}"\nEntity: ${entityName} | ${facts.length} facts | ${obs.tokens} tokens${reasoningAttributionWarning}`,
         }],
+      };
+    },
+  );
+
+  /**
+   * memorix_audit_project — Scan for misattributed observations
+   *
+   * Read-only audit: identifies observations in the current project whose
+   * entityName is well-known in a different project but absent here.
+   * Use the results to decide which observations to archive with memorix_resolve.
+   */
+  server.registerTool(
+    'memorix_audit_project',
+    {
+      title: 'Audit Project Attribution',
+      description:
+        'Scan the current project for observations that may have been written to the wrong project bucket. ' +
+        'Identifies observations whose entityName appears exclusively in a different project. ' +
+        'Read-only — no data is changed. Use memorix_resolve to archive confirmed mis-attributed observations.',
+      inputSchema: {
+        threshold: z.number().int().min(1).optional().describe(
+          'Minimum occurrences of an entityName in another project to flag it as suspicious (default: 2)',
+        ),
+      },
+    },
+    async ({ threshold }) => {
+      const unresolved = requireResolvedProject('audit project attribution');
+      if (unresolved) return unresolved;
+
+      const minCount = threshold ?? 2;
+      let entries: import('./memory/attribution-guard.js').AuditEntry[];
+      try {
+        entries = await auditProjectObservations(project.id, getAllObservations(), minCount);
+      } catch (err) {
+        return {
+          content: [{
+            type: 'text' as const,
+            text: `Audit failed: ${err instanceof Error ? err.message : String(err)}`,
+          }],
+        };
+      }
+
+      if (entries.length === 0) {
+        return {
+          content: [{
+            type: 'text' as const,
+            text: `✅ No suspicious observations found in project "${project.id}" (threshold: ${minCount}).`,
+          }],
+        };
+      }
+
+      const lines: string[] = [
+        `## Attribution Audit — ${project.id}`,
+        `Found **${entries.length}** potentially mis-attributed observation(s) (threshold: ≥${minCount} occurrences in another project).\n`,
+        '| ID | Entity | Title | Source | Detail | Likely Belongs To | Count | Confidence |',
+        '|----|--------|-------|--------|--------|-------------------|-------|------------|',
+      ];
+
+      for (const e of entries) {
+        const titleTrunc = e.title.length > 50 ? e.title.slice(0, 47) + '...' : e.title;
+        lines.push(
+          `| #${e.id} | ${e.entityName} | ${titleTrunc} | ${e.source} | ${e.sourceDetail ?? '-'} | ${e.likelyBelongsTo} | ${e.count} | ${e.confidence} |`,
+        );
+      }
+
+      lines.push('');
+      lines.push(
+        '> To clean up: use `memorix_resolve` with `status: "archived"` on confirmed mis-attributed observation IDs.',
+      );
+
+      return {
+        content: [{ type: 'text' as const, text: lines.join('\n') }],
       };
     },
   );

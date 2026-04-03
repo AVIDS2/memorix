@@ -112,6 +112,17 @@ describe('checkProjectAttribution', () => {
     expect(result.suspicious).toBe(false);
   });
 
+  it('returns not suspicious when multiple other projects qualify above threshold', async () => {
+    const obs = [
+      makeObs(1, 'user/api-relay', 'shared-service'),
+      makeObs(2, 'user/api-relay', 'shared-service'),
+      makeObs(3, 'user/devlens', 'shared-service'),
+      makeObs(4, 'user/devlens', 'shared-service'),
+    ];
+    const result = await checkProjectAttribution('shared-service', 'user/blog', obs);
+    expect(result.suspicious).toBe(false);
+  });
+
   it('returns not suspicious when entity is completely unknown everywhere', async () => {
     const obs = [
       makeObs(1, 'user/api-relay', 'api-relay'),
@@ -240,6 +251,18 @@ describe('auditProjectObservations', () => {
       makeObs(2, 'user/blog', 'blog-vps'),
       makeObs(3, 'user/api-relay', 'blog-vps'),
       makeObs(4, 'user/api-relay', 'blog-vps'),
+    ];
+    const result = await auditProjectObservations('user/blog', obs);
+    expect(result).toHaveLength(0);
+  });
+
+  it('does not emit audit entries when multiple other projects qualify above threshold', async () => {
+    const obs = [
+      makeObs(1, 'user/blog', 'shared-service'),
+      makeObs(2, 'user/api-relay', 'shared-service'),
+      makeObs(3, 'user/api-relay', 'shared-service'),
+      makeObs(4, 'user/devlens', 'shared-service'),
+      makeObs(5, 'user/devlens', 'shared-service'),
     ];
     const result = await auditProjectObservations('user/blog', obs);
     expect(result).toHaveLength(0);

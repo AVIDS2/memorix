@@ -392,6 +392,11 @@ export async function handleHookEvent(input: NormalizedHookInput): Promise<{
       output: defaultOutput,
     };
   }
+  if (input.event === 'post_compact') {
+    // Post-compaction: acknowledge the event, no observation needed.
+    // The real value is the side-effect (runHook pipe) already handled by the plugin.
+    return { observation: null, output: defaultOutput };
+  }
 
   // ─── Classify & extract ───
   const category = classifyTool(input);

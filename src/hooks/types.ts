@@ -12,6 +12,7 @@ export type HookEvent =
   | 'post_command'
   | 'post_tool'
   | 'pre_compact'
+  | 'post_compact'
   | 'session_end'
   | 'post_response';
 

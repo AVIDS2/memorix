@@ -243,7 +243,7 @@ function generateKiroHookFiles(): Array<{ filename: string; content: string }> {
  * The plugin hooks into OpenCode events and pipes JSON to `memorix hook`
  * via Bun.spawn, matching the same stdin/stdout protocol used by all agents.
  */
-const OPENCODE_PLUGIN_VERSION = 2;
+const OPENCODE_PLUGIN_VERSION = 3;
 
 function generateOpenCodePlugin(): string {
   return `/**
@@ -306,6 +306,12 @@ export const MemorixPlugin = async ({ project, client, $, directory, worktree })
           command: event.properties?.command ?? '',
           cwd: directory,
         });
+      } else if (event.type === 'session.compacted') {
+        await runHook({
+          agent: 'opencode',
+          hook_event_name: 'session.compacted',
+          cwd: directory,
+        });
       }
     },
 
@@ -320,12 +326,18 @@ export const MemorixPlugin = async ({ project, client, $, directory, worktree })
       });
     },
 
-    /** Inject memorix context into compaction prompt */
+    /** Structured continuation prompt for compaction (prompt-guided, not tool-automated) */
     'experimental.session.compacting': async (input, output) => {
       output.context.push(
-        '## Memorix Cross-Agent Memory\\n' +
-        'Before compacting, use memorix_store to save important discoveries, decisions, and gotchas.\\n' +
-        'After compacting, use memorix_session_start to reload session context, then memorix_search for specific topics.'
+        '## Continuation Context (Memorix)\\n' +
+        'Include the following in the compaction summary so the next continuation can resume effectively:\\n' +
+        '- **Current task**: what was being worked on and its status\\n' +
+        '- **Key decisions**: architectural or design choices made this session\\n' +
+        '- **Active files**: files currently being modified or reviewed\\n' +
+        '- **Blockers**: any unresolved issues or errors\\n' +
+        '- **Next steps**: what should happen next\\n' +
+        '- **Active entities**: module names, config keys, or concepts in play\\n' +
+        '- **Memorix context**: if memorix tools were used, note relevant entity names and memory topics for later retrieval'
       );
     },
   };
@@ -549,7 +561,7 @@ export async function installHooks(
       return {
         agent,
         configPath: pluginPath,
-        events: ['session_start', 'session_end', 'post_tool', 'post_edit', 'pre_compact'],
+        events: ['session_start', 'session_end', 'post_tool', 'post_edit', 'post_compact', 'post_command'],
         generated: { note: 'OpenCode plugin installed at ' + pluginPath },
       };
     }

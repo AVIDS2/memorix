@@ -73,7 +73,7 @@ const EVENT_MAP: Record<string, HookEvent> = {
   // OpenCode (plugin events piped via Bun.spawn → memorix hook)
   'session.created': 'session_start',
   'session.idle': 'session_end',
-  'session.compacted': 'pre_compact',
+  'session.compacted': 'post_compact',
   'tool.execute.after': 'post_tool',
   'file.edited': 'post_edit',
   'command.executed': 'post_command',

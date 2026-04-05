@@ -16,8 +16,8 @@
  */
 
 import type { MemorixDocument, Observation } from '../types.js';
-import { loadObservationsJson, saveObservationsJson, appendArchivedObservations } from '../store/persistence.js';
-import { withFileLock } from '../store/file-lock.js';
+import { appendArchivedObservations } from '../store/persistence.js';
+import { getObservationStore } from '../store/obs-store.js';
 
 // ── Importance → Retention Period mapping ────────────────────────────
 
@@ -355,8 +355,9 @@ export async function archiveExpired(
   referenceTime?: Date,
   accessMap?: Map<number, { accessCount: number; lastAccessedAt: string }>,
 ): Promise<{ archived: number; remaining: number }> {
-  return await withFileLock(projectDir, async () => {
-    const allObs = await loadObservationsJson(projectDir) as Observation[];
+  const store = getObservationStore();
+  return await store.atomic(async (tx) => {
+    const allObs = await tx.loadAll();
 
     // Convert to MemorixDocument-like shape for zone calculation
     // Use accessMap (from Orama index) when available for accurate immunity checks
@@ -401,9 +402,9 @@ export async function archiveExpired(
       return { archived: 0, remaining: allObs.length };
     }
 
-    // Move to archive file, then update active file
+    // Move to archive file, then update active observations
     await appendArchivedObservations(projectDir, toArchive);
-    await saveObservationsJson(projectDir, toKeep);
+    await tx.saveAll(toKeep);
 
     return { archived: toArchive.length, remaining: toKeep.length };
   });

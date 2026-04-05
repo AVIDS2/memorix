@@ -37,6 +37,10 @@ vi.mock('../../src/store/file-lock.js', () => ({
   withFileLock: vi.fn().mockImplementation((_dir: string, fn: () => Promise<void>) => fn()),
 }));
 
+vi.mock('../../src/store/sqlite-store.js', () => ({
+  SqliteBackend: class { async init() { throw new Error('SQLite disabled in test'); } close() {} },
+}));
+
 vi.mock('../../src/compact/token-budget.js', () => ({
   countTextTokens: vi.fn().mockReturnValue(10),
 }));

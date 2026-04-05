@@ -16,8 +16,7 @@
  */
 
 import type { Observation } from '../types.js';
-import { loadObservationsJson, saveObservationsJson } from '../store/persistence.js';
-import { withFileLock } from '../store/file-lock.js';
+import { getObservationStore } from '../store/obs-store.js';
 
 /** Default similarity threshold for merging (0.0-1.0) */
 const DEFAULT_SIMILARITY_THRESHOLD = 0.45;
@@ -110,7 +109,8 @@ export async function findConsolidationCandidates(
   const threshold = opts?.threshold ?? DEFAULT_SIMILARITY_THRESHOLD;
   const limit = opts?.limit ?? MAX_BATCH_SIZE;
 
-  const allObs = (await loadObservationsJson(projectDir)) as Observation[];
+  const store = getObservationStore();
+  const allObs = await store.loadAll();
   const projectObs = allObs
     .filter(o => o.projectId === projectId)
     .slice(0, limit);
@@ -196,8 +196,10 @@ export async function executeConsolidation(
 ): Promise<ConsolidationResult> {
   const clusters = await findConsolidationCandidates(projectDir, projectId, opts);
 
+  const store = getObservationStore();
+
   if (clusters.length === 0) {
-    const allObs = (await loadObservationsJson(projectDir)) as Observation[];
+    const allObs = await store.loadAll();
     return {
       clustersFound: 0,
       observationsMerged: 0,
@@ -213,8 +215,8 @@ export async function executeConsolidation(
     merges: [],
   };
 
-  await withFileLock(projectDir, async () => {
-    const allObs = (await loadObservationsJson(projectDir)) as Observation[];
+  await store.atomic(async (tx) => {
+    const allObs = await tx.loadAll();
     const obsMap = new Map(allObs.map(o => [o.id, o]));
     const idsToRemove = new Set<number>();
 
@@ -291,7 +293,7 @@ export async function executeConsolidation(
 
     // Remove merged observations
     const remaining = allObs.filter(o => !idsToRemove.has(o.id));
-    await saveObservationsJson(projectDir, remaining);
+    await tx.saveAll(remaining);
 
     result.observationsAfter = remaining.filter(o => o.projectId === projectId).length;
   });

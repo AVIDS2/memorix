@@ -268,7 +268,8 @@ async function handleSessionStart(input: NormalizedHookInput): Promise<{
   let contextSummary = '';
   try {
     const { detectProject } = await import('../project/detector.js');
-    const { getProjectDataDir, loadObservationsJson } = await import('../store/persistence.js');
+    const { getProjectDataDir } = await import('../store/persistence.js');
+    const { initObservationStore, getObservationStore: getStore } = await import('../store/obs-store.js');
     const { initAliasRegistry, registerAlias } = await import('../project/aliases.js');
     const { calculateProjectAffinity, extractProjectKeywords } = await import('../store/project-affinity.js');
 
@@ -279,7 +280,8 @@ async function handleSessionStart(input: NormalizedHookInput): Promise<{
     // Resolve to canonical project ID (same as server.ts does)
     initAliasRegistry(dataDir);
     const canonicalId = await registerAlias(rawProject);
-    const allObs = await loadObservationsJson(dataDir) as Array<{
+    await initObservationStore(dataDir);
+    const allObs = await getStore().loadAll() as Array<{
       type?: string; title?: string; narrative?: string;
       facts?: string[]; timestamp?: string; entityName?: string;
       concepts?: string[]; filesModified?: string[];
@@ -514,6 +516,7 @@ export async function runHook(agentOverride?: string): Promise<void> {
   if (observation) {
     try {
       const { storeObservation, initObservations } = await import('../memory/observations.js');
+      const { initObservationStore } = await import('../store/obs-store.js');
       const { detectProject } = await import('../project/detector.js');
       const { getProjectDataDir } = await import('../store/persistence.js');
       const { initAliasRegistry, registerAlias } = await import('../project/aliases.js');
@@ -527,6 +530,7 @@ export async function runHook(agentOverride?: string): Promise<void> {
       const canonicalId = await registerAlias(rawProject);
       const projectId = canonicalId;
       
+      await initObservationStore(dataDir);
       await initObservations(dataDir);
       await storeObservation({ ...observation, projectId, sourceDetail: 'hook' });
 
@@ -536,6 +540,11 @@ export async function runHook(agentOverride?: string): Promise<void> {
         const formationMode = (process.env.MEMORIX_FORMATION_MODE as 'shadow' | 'active' | 'fallback') || 'shadow';
         const samplingRate = parseFloat(process.env.MEMORIX_FORMATION_HOOKS_SAMPLING_RATE || '0.1');
         const shouldSample = Math.random() < samplingRate;
+
+        if (shouldSample) {
+          const { ensureFreshObservations } = await import('../memory/observations.js');
+          await ensureFreshObservations();
+        }
 
         // In hooks, shadow mode by default for performance
         // Sampling rate controls how often we run full resolve (expensive)

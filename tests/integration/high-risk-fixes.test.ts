@@ -166,13 +166,14 @@ describe('Observations concurrent write race', () => {
 
     await Promise.all(promises);
 
-    // Verify disk state matches
-    const diskObs = await loadObservationsJson(testDir) as any[];
-    const projectObs = diskObs.filter(o => o.projectId === 'test/concurrent-persist');
+    // Verify persisted state matches (read from store, not JSON file)
+    const { getObservationStore } = await import('../../src/store/obs-store.js');
+    const diskObs = await getObservationStore().loadAll() as any[];
+    const projectObs = diskObs.filter((o: any) => o.projectId === 'test/concurrent-persist');
     expect(projectObs).toHaveLength(3);
 
-    // All have unique IDs on disk
-    const diskIds = projectObs.map(o => o.id);
+    // All have unique IDs
+    const diskIds = projectObs.map((o: any) => o.id);
     expect(new Set(diskIds).size).toBe(3);
   });
 });

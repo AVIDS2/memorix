@@ -58,7 +58,12 @@ export default defineCommand({
 
     // Delete all memories
     try {
-      const { getAllObservations, resolveObservations } = await import('../../memory/observations.js');
+      const {
+        ensureFreshObservations,
+        getAllObservations,
+        resolveObservations,
+      } = await import('../../memory/observations.js');
+      await ensureFreshObservations();
       const observations = getAllObservations();
       const ids = observations.map((o) => o.id);
 

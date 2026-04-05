@@ -69,8 +69,9 @@ export default defineCommand({
 
       // Store via memorix_store logic
       const { initObservations, storeObservation } = await import('../../memory/observations.js');
-      const { getProjectDataDir, loadObservationsJson } = await import('../../store/persistence.js');
+      const { getProjectDataDir } = await import('../../store/persistence.js');
       const { detectProject } = await import('../../project/detector.js');
+      const { initObservationStore, getObservationStore: getStore } = await import('../../store/obs-store.js');
 
       const project = detectProject(cwd);
       if (!project) {
@@ -78,10 +79,11 @@ export default defineCommand({
         return;
       }
       const dataDir = await getProjectDataDir(project.id);
+      await initObservationStore(dataDir);
       await initObservations(dataDir);
 
       // Dedup: skip if this commit hash was already ingested
-      const existingObs = await loadObservationsJson(dataDir) as Array<{ commitHash?: string }>;
+      const existingObs = await getStore().loadAll() as Array<{ commitHash?: string }>;
       if (existingObs.some(o => o.commitHash === commit.hash)) {
         if (!auto) p.log.warn(`Commit ${commit.shortHash} already ingested. Skipping.`);
         if (auto) process.exit(0);

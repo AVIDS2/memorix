@@ -162,6 +162,8 @@ describe('Compact Engine', () => {
         expect(detailResult.formatted).toContain('Cross-project detail target');
         expect(detailResult.formatted).not.toContain('Repository-backed');
       } finally {
+        const { resetObservationStore } = await import('../../src/store/obs-store.js');
+        resetObservationStore();
         await fs.rm(projectADir, { recursive: true, force: true });
         await fs.rm(projectBDir, { recursive: true, force: true });
       }

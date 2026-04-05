@@ -19,8 +19,7 @@ import {
   getVectorDimensions,
   makeOramaObservationId,
 } from '../store/orama-store.js';
-import { saveObservationsJson, loadObservationsJson, saveIdCounter, loadIdCounter } from '../store/persistence.js';
-import { withFileLock } from '../store/file-lock.js';
+import { getObservationStore, initObservationStore } from '../store/obs-store.js';
 import { countTextTokens } from '../compact/token-budget.js';
 import { extractEntities, enrichConcepts } from './entity-extractor.js';
 import { getEmbeddingProvider, isEmbeddingExplicitlyDisabled } from '../embedding/provider.js';
@@ -45,12 +44,45 @@ function isVectorCompatibleWithCurrentIndex(embedding: number[] | null): boolean
 
 /**
  * Initialize the observations manager with a project directory.
+ * Auto-initializes the ObservationStore if not already set.
  */
 export async function initObservations(dir: string): Promise<void> {
   projectDir = dir;
-  const loaded = await loadObservationsJson(dir);
-  observations = loaded as Observation[];
-  nextId = await loadIdCounter(dir);
+  await initObservationStore(dir);
+  const store = getObservationStore();
+  observations = await store.loadAll();
+  nextId = await store.loadIdCounter();
+}
+
+/**
+ * Check cross-process freshness and reload if another process has written.
+ *
+ * Call this at every read boundary (MCP tool handler, dashboard API, etc.)
+ * BEFORE reading observations[] via getObservation / getAllObservations /
+ * getProjectObservations / getObservationCount.
+ *
+ * When the SQLite storage_generation has advanced beyond our local snapshot:
+ *   1. Reloads observations[] from the store
+ *   2. Updates nextId from the store
+ *   3. Rebuilds the Orama search index (so vector + BM25 search stay in sync)
+ *
+ * For JsonBackend this is a no-op (always returns false).
+ */
+export async function ensureFreshObservations(): Promise<boolean> {
+  if (!projectDir) return false;
+  try {
+    const store = getObservationStore();
+    const wasStale = await store.ensureFresh();
+    if (wasStale) {
+      observations = await store.loadAll();
+      nextId = await store.loadIdCounter();
+      await reindexObservations();
+      return true;
+    }
+  } catch {
+    // Best-effort — don't crash the read path on freshness failure
+  }
+  return false;
 }
 
 /**
@@ -126,10 +158,11 @@ export async function storeObservation(input: {
   let upsertedInsideLock = false;
   const assignAndPersist = async () => {
     if (projectDir) {
-      await withFileLock(projectDir, async () => {
-        // Re-read from disk to get the authoritative nextId and observation list
-        const diskObs = await loadObservationsJson(projectDir!) as Observation[];
-        const diskNextId = await loadIdCounter(projectDir!);
+      const store = getObservationStore();
+      await store.atomic(async (tx) => {
+        // Re-read from store to get the authoritative nextId and observation list
+        const diskObs = await tx.loadAll();
+        const diskNextId = await tx.loadIdCounter();
 
         // ── Atomic topicKey re-check inside lock (prevents TOCTOU race) ──
         // Two concurrent calls with the same topicKey may both pass the fast-path
@@ -143,7 +176,7 @@ export async function storeObservation(input: {
             observations = diskObs;
             upsertedInsideLock = true;
             observation = diskExisting as Observation;
-            return; // Exit lock — upsert will be handled after assignAndPersist
+            return; // Exit atomic — upsert will be handled after assignAndPersist
           }
         }
 
@@ -180,11 +213,11 @@ export async function storeObservation(input: {
         nextId = id + 1;
         observations = diskObs;
 
-        await saveObservationsJson(projectDir!, observations);
-        await saveIdCounter(projectDir!, nextId);
+        await tx.saveAll(observations);
+        await tx.saveIdCounter(nextId);
       });
 
-      // If the lock detected a topicKey duplicate, skip Orama insert — upsert handles it
+      // If the atomic block detected a topicKey duplicate, skip Orama insert — upsert handles it
       if (upsertedInsideLock) return;
     } else {
       // No projectDir (e.g., tests) — just use in-memory counter
@@ -381,19 +414,10 @@ async function upsertObservation(
     } catch { /* best effort — file persistence is the source of truth */ }
   }
 
-  // Persist
+  // Persist via ObservationStore
   if (projectDir) {
-    await withFileLock(projectDir, async () => {
-      const diskObs = await loadObservationsJson(projectDir!) as Observation[];
-      const idx = diskObs.findIndex(o => o.id === existing.id);
-      if (idx >= 0) {
-        diskObs[idx] = existing;
-      } else {
-        diskObs.push(existing);
-      }
-      observations = diskObs;
-      await saveObservationsJson(projectDir!, observations);
-    });
+    const store = getObservationStore();
+    await store.update(existing);
   }
 
   // Generate embedding async (fire-and-forget) — never blocks MCP response
@@ -486,11 +510,10 @@ export async function resolveObservations(
     } catch { /* best effort */ }
   }
 
-  // Persist
+  // Persist via ObservationStore
   if (projectDir && resolved.length > 0) {
-    await withFileLock(projectDir, async () => {
-      await saveObservationsJson(projectDir!, observations);
-    });
+    const store = getObservationStore();
+    await store.bulkReplace(observations);
   }
 
   return { resolved, notFound };
@@ -534,9 +557,8 @@ export async function migrateProjectIds(
   }
 
   if (migrated > 0 && projectDir) {
-    await withFileLock(projectDir, async () => {
-      await saveObservationsJson(projectDir!, observations);
-    });
+    const store = getObservationStore();
+    await store.bulkReplace(observations);
   }
 
   return migrated;

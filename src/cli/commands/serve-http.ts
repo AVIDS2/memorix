@@ -626,9 +626,10 @@ export default defineCommand({
 
         if (apiPath === '/stats') {
           const { projectId: statsProjectId, dataDir: statsDataDir } = await resolveRequestProject(url);
-          const { loadObservationsJson, loadIdCounter, loadGraphJsonl } = await import('../../store/persistence.js');
+          const { loadIdCounter, loadGraphJsonl } = await import('../../store/persistence.js');
+          const { getObservationStore: getStore } = await import('../../store/obs-store.js');
           const graph = await loadGraphJsonl(statsDataDir);
-          const allObs = await loadObservationsJson(statsDataDir) as Array<{
+          const allObs = await getStore().loadAll() as Array<{
             projectId?: string;
             type?: string;
             id?: number;
@@ -756,19 +757,20 @@ export default defineCommand({
 
         if (apiPath === '/observations') {
           const { projectId: obsProjectId, dataDir: obsDataDir } = await resolveRequestProject(url);
-          const { loadObservationsJson } = await import('../../store/persistence.js');
-          const allObs = await loadObservationsJson(obsDataDir) as Array<{ projectId?: string; status?: string }>;
+          const { getObservationStore: getStore } = await import('../../store/obs-store.js');
+          const allObs = await getStore().loadAll() as Array<{ projectId?: string; status?: string }>;
           sendJson(allObs.filter(o => o.projectId === obsProjectId && (o.status ?? 'active') === 'active'));
           return;
         }
 
         if (apiPath === '/graph') {
           const { projectId: graphProjectId, dataDir: graphDataDir } = await resolveRequestProject(url);
-          const { loadGraphJsonl, loadObservationsJson } = await import('../../store/persistence.js');
+          const { loadGraphJsonl } = await import('../../store/persistence.js');
+          const { getObservationStore: getStore } = await import('../../store/obs-store.js');
           const fullGraph = await loadGraphJsonl(graphDataDir);
 
           // Project-scope the graph: only include entities that have observations in this project
-          const allObs = await loadObservationsJson(graphDataDir) as Array<{ projectId?: string; entityName?: string; status?: string }>;
+          const allObs = await getStore().loadAll() as Array<{ projectId?: string; entityName?: string; status?: string }>;
           const projectEntityNames = new Set(
             allObs
               .filter(o => o.projectId === graphProjectId && (o.status ?? 'active') === 'active' && o.entityName)
@@ -793,8 +795,8 @@ export default defineCommand({
 
         if (apiPath === '/retention') {
           const { projectId: retProjectId, dataDir: retDataDir } = await resolveRequestProject(url);
-          const { loadObservationsJson } = await import('../../store/persistence.js');
-          const allObs = await loadObservationsJson(retDataDir) as Array<{ projectId?: string; id?: number; title?: string; type?: string; importance?: number; accessCount?: number; lastAccessedAt?: string; createdAt?: string; entityName?: string; status?: string }>;
+          const { getObservationStore: getStore } = await import('../../store/obs-store.js');
+          const allObs = await getStore().loadAll() as Array<{ projectId?: string; id?: number; title?: string; type?: string; importance?: number; accessCount?: number; lastAccessedAt?: string; createdAt?: string; entityName?: string; status?: string }>;
           const observations = allObs.filter(o => o.projectId === retProjectId && (o.status ?? 'active') === 'active');
           const now = Date.now();
           const scored = observations.map(obs => {
@@ -951,8 +953,8 @@ export default defineCommand({
 
         if (apiPath === '/identity') {
           const { projectId: idProjectId } = await resolveRequestProject(url);
-          const { loadObservationsJson } = await import('../../store/persistence.js');
-          const allObs = await loadObservationsJson(baseDir) as Array<{ projectId?: string }>;
+          const { getObservationStore: getStore } = await import('../../store/obs-store.js');
+          const allObs = await getStore().loadAll() as Array<{ projectId?: string }>;
           const allProjectIds = [...new Set(allObs.map(o => o.projectId).filter(Boolean))] as string[];
 
           const dirtyPatterns = [
@@ -1000,8 +1002,8 @@ export default defineCommand({
         }
 
         if (apiPath === '/projects') {
-          const { loadObservationsJson } = await import('../../store/persistence.js');
-          const allObs = await loadObservationsJson(baseDir) as Array<{ projectId?: string; status?: string }>;
+          const { getObservationStore: getStore } = await import('../../store/obs-store.js');
+          const allObs = await getStore().loadAll() as Array<{ projectId?: string; status?: string }>;
           const projectSet = new Map<string, number>();
           for (const obs of allObs) { if (obs.projectId && (obs.status ?? 'active') === 'active') projectSet.set(obs.projectId, (projectSet.get(obs.projectId) || 0) + 1); }
           const projects = Array.from(projectSet.entries())

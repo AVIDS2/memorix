@@ -13,6 +13,7 @@ import { createServer, type Server } from 'node:http';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { initObservationStore, resetObservationStore } from '../../src/store/obs-store.js';
 
 // ── Test setup ────────────────────────────────────────────────────
 
@@ -67,6 +68,9 @@ describe('Standalone Dashboard Project Scope', () => {
     // Seed empty sessions
     await fs.writeFile(path.join(dataDir, 'sessions.json'), '[]');
 
+    // Initialize ObservationStore for dashboard API calls
+    await initObservationStore(dataDir);
+
     // Start the standalone dashboard
     const { startDashboard } = await import('../../src/dashboard/server.js');
 
@@ -79,6 +83,7 @@ describe('Standalone Dashboard Project Scope', () => {
   }, 15_000);
 
   afterAll(async () => {
+    resetObservationStore();
     process.env.HOME = originalHome;
     process.env.USERPROFILE = originalUserProfile;
     // The dashboard server doesn't expose a close method, but the process cleanup will handle it

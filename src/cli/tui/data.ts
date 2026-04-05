@@ -127,7 +127,8 @@ export async function getHealthInfo(projectId?: string): Promise<HealthInfo> {
 
   try {
     const { detectProject } = await import('../../project/detector.js');
-    const { getProjectDataDir, loadObservationsJson } = await import('../../store/persistence.js');
+    const { getProjectDataDir } = await import('../../store/persistence.js');
+    const { initObservationStore: initStore, getObservationStore: getStore } = await import('../../store/obs-store.js');
 
     const proj = detectProject(process.cwd());
     if (!proj) return defaults;
@@ -140,7 +141,8 @@ export async function getHealthInfo(projectId?: string): Promise<HealthInfo> {
 
     const effectiveProjectId = projectId || proj.id;
     const dataDir = await getProjectDataDir(effectiveProjectId);
-    const allObs = (await loadObservationsJson(dataDir)) as any[];
+    await initStore(dataDir);
+    const allObs = (await getStore().loadAll()) as any[];
     // Filter by project — flat storage shares one observations.json across projects
     const obs = allObs.filter((o: any) => o.projectId === effectiveProjectId);
     const active = obs.filter((o: any) => (o.status ?? 'active') === 'active');
@@ -217,14 +219,16 @@ export async function getHealthInfo(projectId?: string): Promise<HealthInfo> {
 export async function getRecentMemories(limit = 8, projectId?: string): Promise<MemoryItem[]> {
   try {
     const { detectProject } = await import('../../project/detector.js');
-    const { getProjectDataDir, loadObservationsJson } = await import('../../store/persistence.js');
+    const { getProjectDataDir } = await import('../../store/persistence.js');
+    const { initObservationStore: initStore, getObservationStore: getStore } = await import('../../store/obs-store.js');
 
     const proj = detectProject(process.cwd());
     if (!proj) return [];
 
     const effectiveProjectId = projectId || proj.id;
     const dataDir = await getProjectDataDir(effectiveProjectId);
-    const allObs = (await loadObservationsJson(dataDir)) as any[];
+    await initStore(dataDir);
+    const allObs = (await getStore().loadAll()) as any[];
     // Filter by project — flat storage shares one observations.json
     const projectObs = allObs.filter((o: any) => o.projectId === effectiveProjectId);
     const active = projectObs.filter((o: any) => (o.status ?? 'active') === 'active');
@@ -246,18 +250,20 @@ export async function getRecentMemories(limit = 8, projectId?: string): Promise<
 export async function searchMemories(query: string, limit = 10): Promise<SearchResult[]> {
   try {
     const { searchObservations, getDb, hydrateIndex } = await import('../../store/orama-store.js');
-    const { getProjectDataDir, loadObservationsJson } = await import('../../store/persistence.js');
+    const { getProjectDataDir } = await import('../../store/persistence.js');
     const { detectProject } = await import('../../project/detector.js');
     const { initObservations } = await import('../../memory/observations.js');
+    const { initObservationStore, getObservationStore: getStore } = await import('../../store/obs-store.js');
 
     const proj = detectProject(process.cwd());
     if (!proj) return [];
 
     const dataDir = await getProjectDataDir(proj.id);
+    await initObservationStore(dataDir);
     await initObservations(dataDir);
     await getDb();
 
-    const allObs = (await loadObservationsJson(dataDir)) as any[];
+    const allObs = (await getStore().loadAll()) as any[];
     await hydrateIndex(allObs);
 
     const results = await searchObservations({ query, limit, projectId: proj.id });
@@ -291,11 +297,13 @@ export async function storeQuickMemory(text: string): Promise<{ id: number; titl
     const { detectProject } = await import('../../project/detector.js');
     const { getProjectDataDir } = await import('../../store/persistence.js');
     const { initObservations, storeObservation } = await import('../../memory/observations.js');
+    const { initObservationStore } = await import('../../store/obs-store.js');
 
     const proj = detectProject(process.cwd());
     if (!proj) return null;
 
     const dataDir = await getProjectDataDir(proj.id);
+    await initObservationStore(dataDir);
     await initObservations(dataDir);
 
     const result = await storeObservation({

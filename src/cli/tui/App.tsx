@@ -425,8 +425,9 @@ export function WorkbenchApp({ version, onExitForInteractive }: AppProps): React
           const { getRecentCommits, ingestCommit } = await import('../../git/extractor.js');
           const { shouldFilterCommit } = await import('../../git/noise-filter.js');
           const { getGitConfig } = await import('../../config.js');
-          const { getProjectDataDir, loadObservationsJson } = await import('../../store/persistence.js');
+          const { getProjectDataDir } = await import('../../store/persistence.js');
           const { initObservations, storeObservation } = await import('../../memory/observations.js');
+          const { initObservationStore, getObservationStore: getStore } = await import('../../store/obs-store.js');
           const commits = getRecentCommits(cwd, 1);
           if (commits.length === 0) { setActionStatus('No commits found.'); break; }
           const commit = commits[0];
@@ -441,8 +442,9 @@ export function WorkbenchApp({ version, onExitForInteractive }: AppProps): React
             break;
           }
           const dataDir = await getProjectDataDir(projectInfo.id);
+          await initObservationStore(dataDir);
           await initObservations(dataDir);
-          const existingObs = await loadObservationsJson(dataDir) as Array<{ commitHash?: string }>;
+          const existingObs = await getStore().loadAll() as Array<{ commitHash?: string }>;
           if (existingObs.some((o) => o.commitHash === commit.hash)) {
             setActionStatus(`Commit ${commit.shortHash} already ingested.`);
             break;
@@ -467,8 +469,9 @@ export function WorkbenchApp({ version, onExitForInteractive }: AppProps): React
           const { getRecentCommits, ingestCommit } = await import('../../git/extractor.js');
           const { filterCommits } = await import('../../git/noise-filter.js');
           const { getGitConfig } = await import('../../config.js');
-          const { getProjectDataDir, loadObservationsJson } = await import('../../store/persistence.js');
+          const { getProjectDataDir } = await import('../../store/persistence.js');
           const { initObservations, storeObservation } = await import('../../memory/observations.js');
+          const { initObservationStore, getObservationStore: getStore } = await import('../../store/obs-store.js');
           const commits = getRecentCommits(cwd, 20);
           if (commits.length === 0) { setActionStatus('No commits found.'); break; }
           const gitCfg = getGitConfig();
@@ -478,8 +481,9 @@ export function WorkbenchApp({ version, onExitForInteractive }: AppProps): React
             noiseKeywords: gitCfg.noiseKeywords,
           });
           const dataDir = await getProjectDataDir(projectInfo.id);
+          await initObservationStore(dataDir);
           await initObservations(dataDir);
-          const existingObs = await loadObservationsJson(dataDir) as Array<{ commitHash?: string }>;
+          const existingObs = await getStore().loadAll() as Array<{ commitHash?: string }>;
           const existingHashes = new Set(existingObs.map((o) => o.commitHash).filter(Boolean));
           let ingested = 0;
           let skipped = 0;

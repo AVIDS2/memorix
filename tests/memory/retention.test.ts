@@ -19,6 +19,7 @@ import {
   getImportanceLevel,
   archiveExpired,
 } from '../../src/memory/retention.js';
+import { initObservationStore, resetObservationStore } from '../../src/store/obs-store.js';
 import type { MemorixDocument } from '../../src/types.js';
 
 function makeDoc(overrides: Partial<MemorixDocument> = {}): MemorixDocument {
@@ -232,6 +233,7 @@ describe('Retention & Decay', () => {
     });
 
     afterEach(async () => {
+      resetObservationStore();
       await fs.rm(tmpDir, { recursive: true, force: true });
     });
 
@@ -246,13 +248,15 @@ describe('Retention & Decay', () => {
       ];
 
       await fs.writeFile(path.join(tmpDir, 'observations.json'), JSON.stringify(observations));
+      await initObservationStore(tmpDir);
 
       const result = await archiveExpired(tmpDir, now);
       expect(result.archived).toBe(1);
       expect(result.remaining).toBe(1);
 
-      // Active observations should remain
-      const remaining = JSON.parse(await fs.readFile(path.join(tmpDir, 'observations.json'), 'utf-8'));
+      // Active observations should remain (read from store, not JSON file)
+      const { getObservationStore } = await import('../../src/store/obs-store.js');
+      const remaining = await getObservationStore().loadAll();
       expect(remaining).toHaveLength(1);
       expect(remaining[0].id).toBe(2);
 
@@ -269,6 +273,7 @@ describe('Retention & Decay', () => {
       ];
 
       await fs.writeFile(path.join(tmpDir, 'observations.json'), JSON.stringify(observations));
+      await initObservationStore(tmpDir);
 
       const result = await archiveExpired(tmpDir, now);
       expect(result.archived).toBe(0);
@@ -286,6 +291,7 @@ describe('Retention & Decay', () => {
         { id: 1, entityName: 'a', type: 'session-request', title: 'Expired', narrative: '', facts: [], filesModified: [], concepts: [], tokens: 10, createdAt: expiredDate, projectId: 'test' },
       ];
       await fs.writeFile(path.join(tmpDir, 'observations.json'), JSON.stringify(observations));
+      await initObservationStore(tmpDir);
 
       await archiveExpired(tmpDir, now);
 
@@ -304,6 +310,7 @@ describe('Retention & Decay', () => {
       ];
 
       await fs.writeFile(path.join(tmpDir, 'observations.json'), JSON.stringify(observations));
+      await initObservationStore(tmpDir);
 
       const accessMap = new Map([
         [1, { accessCount: 3, lastAccessedAt: '' }],

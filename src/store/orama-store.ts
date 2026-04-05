@@ -855,7 +855,8 @@ export async function getTimeline(
 ): Promise<{ before: IndexEntry[]; anchor: IndexEntry | null; after: IndexEntry[] }> {
   // Use in-memory observations for reliable lookup
   // (Orama search with empty term is unreliable — same fix as compactDetail)
-  const { getAllObservations } = await import('../memory/observations.js');
+  const { ensureFreshObservations, getAllObservations } = await import('../memory/observations.js');
+  await ensureFreshObservations();
   const rawObs = getAllObservations();
 
   // Filter by project if specified — prevents cross-project context leaking

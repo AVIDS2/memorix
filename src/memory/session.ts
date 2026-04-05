@@ -15,7 +15,8 @@ import type { Observation, Session } from '../types.js';
 import { classifyLayer } from './disclosure-policy.js';
 import { resolveAliases } from '../project/aliases.js';
 import { withFileLock } from '../store/file-lock.js';
-import { loadObservationsJson, loadSessionsJson, saveSessionsJson } from '../store/persistence.js';
+import { loadSessionsJson, saveSessionsJson } from '../store/persistence.js';
+import { getObservationStore } from '../store/obs-store.js';
 import { KnowledgeGraphManager } from './graph.js';
 import { redactCredentials, sanitizeCredentials } from './secret-filter.js';
 
@@ -305,7 +306,7 @@ export async function getSessionContext(
   limit: number = 3,
 ): Promise<string> {
   const sessions = await loadSessionsJson(projectDir) as Session[];
-  const allObs = await loadObservationsJson(projectDir) as Observation[];
+  const allObs = await getObservationStore().loadAll();
 
   const aliasSet = await resolveProjectIds(projectId);
   /** Check if a session summary contains noise/system-self content */

@@ -130,8 +130,9 @@ export default defineCommand({
 
       // Store each commit
       const { initObservations, storeObservation } = await import('../../memory/observations.js');
-      const { getProjectDataDir, loadObservationsJson } = await import('../../store/persistence.js');
+      const { getProjectDataDir } = await import('../../store/persistence.js');
       const { detectProject } = await import('../../project/detector.js');
+      const { initObservationStore, getObservationStore: getStore } = await import('../../store/obs-store.js');
 
       const project = detectProject(cwd);
       if (!project) {
@@ -139,10 +140,11 @@ export default defineCommand({
         return;
       }
       const dataDir = await getProjectDataDir(project.id);
+      await initObservationStore(dataDir);
       await initObservations(dataDir);
 
       // Dedup: load existing commit hashes to skip already-ingested commits (#48)
-      const existingObs = await loadObservationsJson(dataDir) as Array<{ commitHash?: string }>;
+      const existingObs = await getStore().loadAll() as Array<{ commitHash?: string }>;
       const existingHashes = new Set(
         existingObs.map(o => o.commitHash).filter((hash): hash is string => typeof hash === 'string' && hash.length > 0),
       );

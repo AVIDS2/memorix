@@ -11,7 +11,7 @@
 
 import type { SearchOptions, IndexEntry, TimelineContext, MemorixDocument, ObservationRef } from '../types.js';
 import { searchObservations, getTimeline, getObservationsByIds, makeOramaObservationId } from '../store/orama-store.js';
-import { getObservation, getAllObservations } from '../memory/observations.js';
+import { getObservation, getAllObservations, ensureFreshObservations } from '../memory/observations.js';
 import { formatIndexTable, formatTimeline, formatObservationDetail } from './index-format.js';
 import { countTextTokens } from './token-budget.js';
 import { resolveAliases } from '../project/aliases.js';
@@ -81,6 +81,7 @@ export async function compactDetail(
   // Security: refs WITHOUT projectId are treated as ambiguous — the in-memory
   // lookup may return a wrong-project observation. Callers (memorix_detail tool)
   // should always inject projectId for bare numeric IDs.
+  await ensureFreshObservations();
   const toRefKey = (ref: ObservationRef) => `${ref.projectId ?? ''}::${ref.id}`;
   const documentMap = new Map<string, MemorixDocument>();
   const missingRefs: ObservationRef[] = [];

@@ -15,7 +15,8 @@
 
 import { defineCommand } from 'citty';
 import { detectProject } from '../../project/detector.js';
-import { getProjectDataDir, loadObservationsJson, saveObservationsJson } from '../../store/persistence.js';
+import { getProjectDataDir } from '../../store/persistence.js';
+import { getObservationStore } from '../../store/obs-store.js';
 
 /** Patterns that indicate auto-generated, low-value observations */
 const LOW_QUALITY_PATTERNS = [
@@ -110,7 +111,7 @@ export default defineCommand({
         console.log(`\nProject: ${projectName} (${projectId})\n`);
 
         const dataDir = await getProjectDataDir(projectId);
-        const allObs = await loadObservationsJson(dataDir) as Array<{
+        const allObs = await getObservationStore().loadAll() as Array<{
             id?: number;
             type?: string;
             title?: string;
@@ -243,7 +244,7 @@ export default defineCommand({
         const removeIds = new Set(toRemove.map(o => JSON.stringify(o)));
         const remaining = allObs.filter(o => !removeIds.has(JSON.stringify(o)));
 
-        await saveObservationsJson(dataDir, remaining);
+        await getObservationStore().bulkReplace(remaining as any);
 
         const parts: string[] = [];
         if (toRemove.length > 0) parts.push(`deleted ${toRemove.length}`);

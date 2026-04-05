@@ -77,7 +77,8 @@ async function getWorkbenchHeader(): Promise<string[]> {
   if (projectDetected) {
     try {
       const { detectProject } = await import('../project/detector.js');
-      const { getProjectDataDir, loadObservationsJson } = await import('../store/persistence.js');
+      const { getProjectDataDir } = await import('../store/persistence.js');
+      const { initObservationStore: initStore } = await import('../store/obs-store.js');
       const proj = detectProject(process.cwd());
       if (proj) {
         const dataDir = await getProjectDataDir(proj.id);
@@ -85,7 +86,9 @@ async function getWorkbenchHeader(): Promise<string[]> {
         const { join } = await import('node:path');
         const obsFile = join(dataDir, 'observations.json');
         if (existsSync(obsFile)) {
-          const obs = await loadObservationsJson(dataDir) as any[];
+          await initStore(dataDir);
+          const { getObservationStore: getStore } = await import('../store/obs-store.js');
+          const obs = await getStore().loadAll() as any[];
           const active = obs.filter((o: any) => (o.status ?? 'active') === 'active').length;
           memLabel = `${BOLD}${active}${RESET} ${DIM}active${RESET}`;
         }
@@ -133,10 +136,12 @@ async function runRemember(text: string): Promise<void> {
     const { detectProject } = await import('../project/detector.js');
     const { getProjectDataDir } = await import('../store/persistence.js');
     const { initObservations, storeObservation } = await import('../memory/observations.js');
+    const { initObservationStore } = await import('../store/obs-store.js');
 
     const proj = detectProject(process.cwd());
     if (!proj) { s.stop('No git repo'); p.log.error(NO_GIT_MSG); return; }
     const dataDir = await getProjectDataDir(proj.id);
+    await initObservationStore(dataDir);
     await initObservations(dataDir);
 
     const result = await storeObservation({
@@ -686,22 +691,25 @@ async function runSearch(query: string): Promise<void> {
   
   try {
     const { searchObservations, getDb, hydrateIndex } = await import('../store/orama-store.js');
-    const { getProjectDataDir, loadObservationsJson } = await import('../store/persistence.js');
+    const { getProjectDataDir } = await import('../store/persistence.js');
     const { detectProject } = await import('../project/detector.js');
     const { initObservations } = await import('../memory/observations.js');
+    const { initObservationStore } = await import('../store/obs-store.js');
     mark('imports');
     
     const project = detectProject(process.cwd());
     if (!project) { s.stop('No git repo'); p.log.error(NO_GIT_MSG); return; }
     const dataDir = await getProjectDataDir(project.id);
     mark('detectProject');
+    await initObservationStore(dataDir);
     await initObservations(dataDir);
     mark('initObservations');
 
-    // Parallel: getDb (embedding provider init) + loadObservationsJson (disk I/O)
+    // Parallel: getDb (embedding provider init) + store.loadAll (disk I/O)
+    const { getObservationStore: getStore } = await import('../store/obs-store.js');
     const [, allObs] = await Promise.all([
       getDb(),
-      loadObservationsJson(dataDir) as Promise<any[]>,
+      getStore().loadAll() as Promise<any[]>,
     ]);
     mark(`getDb+loadObs(${allObs.length})`);
     await hydrateIndex(allObs);
@@ -734,13 +742,15 @@ async function runList(): Promise<void> {
   s.start('Loading recent memories...');
   
   try {
-    const { getProjectDataDir, loadObservationsJson } = await import('../store/persistence.js');
+    const { getProjectDataDir } = await import('../store/persistence.js');
     const { detectProject } = await import('../project/detector.js');
+    const { initObservationStore: initStore, getObservationStore: getStore } = await import('../store/obs-store.js');
     
     const project = detectProject(process.cwd());
     if (!project) { s.stop('No git repo'); p.log.error(NO_GIT_MSG); return; }
     const dataDir = await getProjectDataDir(project.id);
-    const observations = await loadObservationsJson(dataDir) as Array<{
+    await initStore(dataDir);
+    const observations = await getStore().loadAll() as unknown as Array<{
       id: number; title: string; type: string; timestamp: string; status?: string;
     }>;
     

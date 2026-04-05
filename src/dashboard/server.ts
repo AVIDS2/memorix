@@ -13,8 +13,8 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { exec } from 'node:child_process';
 
-import { loadGraphJsonl, saveGraphJsonl, loadObservationsJson, saveObservationsJson, loadIdCounter, getBaseDataDir, loadSessionsJson } from '../store/persistence.js';
-import { withFileLock } from '../store/file-lock.js';
+import { loadGraphJsonl, saveGraphJsonl, loadIdCounter, getBaseDataDir, loadSessionsJson } from '../store/persistence.js';
+import { getObservationStore } from '../store/obs-store.js';
 
 // MIME types for static file serving
 const MIME_TYPES: Record<string, string> = {
@@ -84,7 +84,7 @@ async function handleApi(
                 // List all unique project IDs from observations data (flat storage)
                 // Deduplicate using alias registry — aliased IDs are merged under canonical
                 try {
-                    const allObs = await loadObservationsJson(baseDir) as Array<{ projectId?: string }>;
+                    const allObs = await getObservationStore().loadAll() as Array<{ projectId?: string }>;
                     const projectSet = new Map<string, number>();
                     for (const obs of allObs) {
                         if (obs.projectId) {
@@ -126,7 +126,7 @@ async function handleApi(
             case '/graph': {
                 const graph = await loadGraphJsonl(effectiveDataDir);
                 // Project-scope the graph: only include entities that have observations in this project
-                const graphObs = await loadObservationsJson(effectiveDataDir) as Array<{ projectId?: string; entityName?: string; status?: string }>;
+                const graphObs = await getObservationStore().loadAll() as Array<{ projectId?: string; entityName?: string; status?: string }>;
                 const projectEntityNames = new Set(
                     graphObs
                         .filter(o => o.projectId === effectiveProjectId && (o.status ?? 'active') === 'active' && o.entityName)
@@ -140,7 +140,7 @@ async function handleApi(
             }
 
             case '/observations': {
-                const allObs = await loadObservationsJson(effectiveDataDir);
+                const allObs = await getObservationStore().loadAll();
                 const observations = filterByProject(allObs as Array<{ projectId?: string }>, effectiveProjectId);
                 sendJson(res, observations);
                 break;
@@ -155,7 +155,7 @@ async function handleApi(
 
             case '/stats': {
                 const graph = await loadGraphJsonl(effectiveDataDir);
-                const allObs = await loadObservationsJson(effectiveDataDir);
+                const allObs = await getObservationStore().loadAll();
                 const observations = filterByProject(allObs as Array<{ projectId?: string; type?: string; id?: number; createdAt?: string; title?: string; entityName?: string }>, effectiveProjectId);
                 const nextId = await loadIdCounter(effectiveDataDir);
 
@@ -226,6 +226,13 @@ async function handleApi(
                     };
                 } catch { /* embedding module not available */ }
 
+                // Storage backend info
+                const store = getObservationStore();
+                const storageInfo = {
+                    backend: store.getBackendName(),
+                    generation: store.getGeneration(),
+                };
+
                 sendJson(res, {
                     entities: graph.entities.length,
                     relations: graph.relations.length,
@@ -235,6 +242,7 @@ async function handleApi(
                     sourceCounts,
                     recentObservations: sorted,
                     embedding: embeddingStatus,
+                    storage: storageInfo,
                     gitSummary: {
                         total: gitMemories.length,
                         recentWeek: recentGitCount,
@@ -246,7 +254,7 @@ async function handleApi(
             }
 
             case '/retention': {
-                const allObs = await loadObservationsJson(effectiveDataDir) as Array<{
+                const allObs = await getObservationStore().loadAll() as Array<{
                     id?: number;
                     title?: string;
                     type?: string;
@@ -381,7 +389,7 @@ async function handleApi(
 
             case '/identity': {
                 // Project identity health
-                const allObs = await loadObservationsJson(baseDir) as Array<{ projectId?: string }>;
+                const allObs = await getObservationStore().loadAll() as Array<{ projectId?: string }>;
                 const allProjectIds = [...new Set(allObs.map(o => o.projectId).filter(Boolean))] as string[];
 
                 // Known dirty patterns
@@ -439,42 +447,40 @@ async function handleApi(
                 const deleteMatch = apiPath.match(/^\/observations\/(\d+)$/);
                 if (deleteMatch && req.method === 'DELETE') {
                     const obsId = parseInt(deleteMatch[1], 10);
-                    await withFileLock(effectiveDataDir, async () => {
-                        const allObs = await loadObservationsJson(effectiveDataDir) as Array<{ id?: number; projectId?: string;[k: string]: unknown }>;
-                        const idx = allObs.findIndex(o => o.id === obsId);
-                        if (idx === -1) {
-                            sendError(res, 'Observation not found', 404);
-                        } else if (allObs[idx].projectId !== effectiveProjectId) {
-                            // Cross-project deletion guard: reject if obs belongs to a different project
-                            sendError(res, `Observation #${obsId} belongs to project "${allObs[idx].projectId}", not "${effectiveProjectId}"`, 403);
-                        } else {
-                            allObs.splice(idx, 1);
-                            await saveObservationsJson(effectiveDataDir, allObs);
+                    const obsStore = getObservationStore();
+                    const allObs = await obsStore.loadAll();
+                    const matchObs = allObs.find(o => o.id === obsId);
+                    if (!matchObs) {
+                        sendError(res, 'Observation not found', 404);
+                    } else if (matchObs.projectId !== effectiveProjectId) {
+                        // Cross-project deletion guard: reject if obs belongs to a different project
+                        sendError(res, `Observation #${obsId} belongs to project "${matchObs.projectId}", not "${effectiveProjectId}"`, 403);
+                    } else {
+                        await obsStore.remove(obsId);
 
-                            // Sync: clean up graph entity references for this observation
-                            try {
-                                const graph = await loadGraphJsonl(effectiveDataDir);
-                                const prefix = `[#${obsId}] `;
-                                let graphChanged = false;
-                                for (const entity of graph.entities) {
-                                    const before = entity.observations.length;
-                                    entity.observations = entity.observations.filter(o => !o.startsWith(prefix));
-                                    if (entity.observations.length < before) graphChanged = true;
-                                }
-                                if (graphChanged) {
-                                    await saveGraphJsonl(effectiveDataDir, graph.entities, graph.relations);
-                                }
-                            } catch { /* graph sync is best-effort */ }
+                        // Sync: clean up graph entity references for this observation
+                        try {
+                            const graph = await loadGraphJsonl(effectiveDataDir);
+                            const prefix = `[#${obsId}] `;
+                            let graphChanged = false;
+                            for (const entity of graph.entities) {
+                                const before = entity.observations.length;
+                                entity.observations = entity.observations.filter(o => !o.startsWith(prefix));
+                                if (entity.observations.length < before) graphChanged = true;
+                            }
+                            if (graphChanged) {
+                                await saveGraphJsonl(effectiveDataDir, graph.entities, graph.relations);
+                            }
+                        } catch { /* graph sync is best-effort */ }
 
-                            sendJson(res, { ok: true, deleted: obsId });
-                        }
-                    });
+                        sendJson(res, { ok: true, deleted: obsId });
+                    }
                     break;
                 }
 
                 if (apiPath === '/export') {
                     const fullGraph = await loadGraphJsonl(effectiveDataDir);
-                    const allObs = await loadObservationsJson(effectiveDataDir);
+                    const allObs = await getObservationStore().loadAll();
                     const observations = filterByProject(allObs as Array<{ projectId?: string; entityName?: string; status?: string }>, effectiveProjectId);
                     const nextId = await loadIdCounter(effectiveDataDir);
                     // Project-scope the graph: only entities referenced by this project's observations

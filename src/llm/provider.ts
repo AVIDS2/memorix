@@ -15,6 +15,13 @@ export interface LLMConfig {
   baseUrl?: string;
 }
 
+/**
+ * LLM call timeout in milliseconds.
+ * Configurable via MEMORIX_LLM_TIMEOUT_MS environment variable.
+ * Default: 30000ms (30s) — allows for proxy routing and cold starts.
+ */
+const LLM_CALL_TIMEOUT_MS = parseInt(process.env.MEMORIX_LLM_TIMEOUT_MS || '30000', 10);
+
 export interface LLMResponse {
   content: string;
   usage?: { promptTokens: number; completionTokens: number };
@@ -127,6 +134,7 @@ async function callOpenAICompatible(
       temperature: 0.1,
       max_tokens: 1024,
     }),
+    signal: AbortSignal.timeout(LLM_CALL_TIMEOUT_MS),
   });
 
   if (!response.ok) {
@@ -174,6 +182,7 @@ async function callAnthropic(
       temperature: 0.1,
       max_tokens: 1024,
     }),
+    signal: AbortSignal.timeout(LLM_CALL_TIMEOUT_MS),
   });
 
   if (!response.ok) {

@@ -17,6 +17,7 @@
 
 import { defineCommand } from 'citty';
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import type { ObservationStore } from '../../store/obs-store.js';
 
 export default defineCommand({
   meta: {
@@ -469,6 +470,7 @@ export default defineCommand({
     // Cache resolved project data dirs to avoid repeated fs lookups
     const projectDataDirCache = new Map<string, string>();
     projectDataDirCache.set(defaultProject.id, defaultDataDir);
+    const dashboardObservationStores = new Map<string, ObservationStore>();
 
     /** Resolve ?project= query param to { projectId, projectName, dataDir } */
     async function resolveRequestProject(url: URL): Promise<{
@@ -488,6 +490,20 @@ export default defineCommand({
       }
       const name = requestedId.split('/').pop() || requestedId;
       return { projectId: requestedId, projectName: name, dataDir };
+    }
+
+    async function getDashboardObservationStore(dataDir: string): Promise<ObservationStore> {
+      const cached = dashboardObservationStores.get(dataDir);
+      if (cached) return cached;
+      const { createObservationStore } = await import('../../store/obs-store.js');
+      const store = await createObservationStore(dataDir);
+      dashboardObservationStores.set(dataDir, store);
+      return store;
+    }
+
+    async function loadDashboardObservations(dataDir: string) {
+      const store = await getDashboardObservationStore(dataDir);
+      return store.loadAll();
     }
 
     // Resolve static directory (dist/dashboard/static)
@@ -627,9 +643,8 @@ export default defineCommand({
         if (apiPath === '/stats') {
           const { projectId: statsProjectId, dataDir: statsDataDir } = await resolveRequestProject(url);
           const { loadIdCounter, loadGraphJsonl } = await import('../../store/persistence.js');
-          const { getObservationStore: getStore } = await import('../../store/obs-store.js');
           const graph = await loadGraphJsonl(statsDataDir);
-          const allObs = await getStore().loadAll() as Array<{
+          const allObs = await loadDashboardObservations(statsDataDir) as Array<{
             projectId?: string;
             type?: string;
             id?: number;
@@ -757,8 +772,7 @@ export default defineCommand({
 
         if (apiPath === '/observations') {
           const { projectId: obsProjectId, dataDir: obsDataDir } = await resolveRequestProject(url);
-          const { getObservationStore: getStore } = await import('../../store/obs-store.js');
-          const allObs = await getStore().loadAll() as Array<{ projectId?: string; status?: string }>;
+          const allObs = await loadDashboardObservations(obsDataDir) as Array<{ projectId?: string; status?: string }>;
           sendJson(allObs.filter(o => o.projectId === obsProjectId && (o.status ?? 'active') === 'active'));
           return;
         }
@@ -766,11 +780,10 @@ export default defineCommand({
         if (apiPath === '/graph') {
           const { projectId: graphProjectId, dataDir: graphDataDir } = await resolveRequestProject(url);
           const { loadGraphJsonl } = await import('../../store/persistence.js');
-          const { getObservationStore: getStore } = await import('../../store/obs-store.js');
           const fullGraph = await loadGraphJsonl(graphDataDir);
 
           // Project-scope the graph: only include entities that have observations in this project
-          const allObs = await getStore().loadAll() as Array<{ projectId?: string; entityName?: string; status?: string }>;
+          const allObs = await loadDashboardObservations(graphDataDir) as Array<{ projectId?: string; entityName?: string; status?: string }>;
           const projectEntityNames = new Set(
             allObs
               .filter(o => o.projectId === graphProjectId && (o.status ?? 'active') === 'active' && o.entityName)
@@ -795,8 +808,7 @@ export default defineCommand({
 
         if (apiPath === '/retention') {
           const { projectId: retProjectId, dataDir: retDataDir } = await resolveRequestProject(url);
-          const { getObservationStore: getStore } = await import('../../store/obs-store.js');
-          const allObs = await getStore().loadAll() as Array<{ projectId?: string; id?: number; title?: string; type?: string; importance?: number; accessCount?: number; lastAccessedAt?: string; createdAt?: string; entityName?: string; status?: string }>;
+          const allObs = await loadDashboardObservations(retDataDir) as Array<{ projectId?: string; id?: number; title?: string; type?: string; importance?: number; accessCount?: number; lastAccessedAt?: string; createdAt?: string; entityName?: string; status?: string }>;
           const observations = allObs.filter(o => o.projectId === retProjectId && (o.status ?? 'active') === 'active');
           const now = Date.now();
           const scored = observations.map(obs => {
@@ -952,9 +964,8 @@ export default defineCommand({
         }
 
         if (apiPath === '/identity') {
-          const { projectId: idProjectId } = await resolveRequestProject(url);
-          const { getObservationStore: getStore } = await import('../../store/obs-store.js');
-          const allObs = await getStore().loadAll() as Array<{ projectId?: string }>;
+          const { projectId: idProjectId, dataDir: idDataDir } = await resolveRequestProject(url);
+          const allObs = await loadDashboardObservations(idDataDir) as Array<{ projectId?: string }>;
           const allProjectIds = [...new Set(allObs.map(o => o.projectId).filter(Boolean))] as string[];
 
           const dirtyPatterns = [
@@ -1002,8 +1013,7 @@ export default defineCommand({
         }
 
         if (apiPath === '/projects') {
-          const { getObservationStore: getStore } = await import('../../store/obs-store.js');
-          const allObs = await getStore().loadAll() as Array<{ projectId?: string; status?: string }>;
+          const allObs = await loadDashboardObservations(defaultDataDir) as Array<{ projectId?: string; status?: string }>;
           const projectSet = new Map<string, number>();
           for (const obs of allObs) { if (obs.projectId && (obs.status ?? 'active') === 'active') projectSet.set(obs.projectId, (projectSet.get(obs.projectId) || 0) + 1); }
           const projects = Array.from(projectSet.entries())
@@ -1133,6 +1143,10 @@ export default defineCommand({
         console.error(`[memorix] ${suppressedProbeCount} probe connection(s) suppressed during this session`);
       }
       console.error('[memorix] Shutting down HTTP server...');
+      for (const store of dashboardObservationStores.values()) {
+        try { store.close(); } catch { /* best-effort */ }
+      }
+      dashboardObservationStores.clear();
       for (const [sid, state] of sessions) {
         try {
           await state.transport.close();

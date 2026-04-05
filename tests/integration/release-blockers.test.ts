@@ -271,8 +271,13 @@ describe('B5: search mode is project-scoped', () => {
 describe('B1+B2: Real embedded serve-http route tests', () => {
   const REAL_PORT = 19879;
   const REAL_BASE = `http://127.0.0.1:${REAL_PORT}`;
+  const STARTUP_PROJECT_ID = 'test/real-http-blocker';
+  const SECONDARY_PROJECT_ID = 'other/secondary';
+  const originalHome = process.env.HOME;
+  const originalUserProfile = process.env.USERPROFILE;
   let serverProcess: ChildProcess;
   let startupDir: string;
+  let childHomeDir: string;
   const distCli = path.resolve('dist', 'cli', 'index.js');
 
   beforeAll(async () => {
@@ -282,6 +287,7 @@ describe('B1+B2: Real embedded serve-http route tests', () => {
 
     // Create temp dir with fake git repo + memorix.yml containing canary values
     startupDir = await fs.mkdtemp(path.join(os.tmpdir(), 'memorix-real-http-'));
+    childHomeDir = await fs.mkdtemp(path.join(os.tmpdir(), 'memorix-real-http-home-'));
     await fs.mkdir(path.join(startupDir, '.git'), { recursive: true });
     await fs.writeFile(
       path.join(startupDir, '.git', 'config'),
@@ -294,6 +300,46 @@ describe('B1+B2: Real embedded serve-http route tests', () => {
       'utf-8',
     );
 
+    // Seed isolated data dirs for the startup project and a second requested project
+    process.env.HOME = childHomeDir;
+    process.env.USERPROFILE = childHomeDir;
+
+    const startupDataDir = path.join(childHomeDir, '.memorix', 'data');
+    await fs.mkdir(startupDataDir, { recursive: true });
+
+    const now = new Date().toISOString();
+    await fs.writeFile(
+      path.join(startupDataDir, 'observations.json'),
+      JSON.stringify([
+        {
+          id: 1,
+          projectId: STARTUP_PROJECT_ID,
+          entityName: 'startup-entity',
+          type: 'decision',
+          title: 'Startup memory',
+          narrative: 'Startup project observation',
+          facts: [],
+          status: 'active',
+          createdAt: now,
+        },
+        {
+          id: 101,
+          projectId: SECONDARY_PROJECT_ID,
+          entityName: 'secondary-entity',
+          type: 'gotcha',
+          title: 'Secondary memory',
+          narrative: 'Secondary project observation',
+          facts: [],
+          status: 'active',
+          createdAt: now,
+        },
+      ], null, 2),
+      'utf-8',
+    );
+    await fs.writeFile(path.join(startupDataDir, 'counter.json'), JSON.stringify({ nextId: 102 }), 'utf-8');
+    await fs.writeFile(path.join(startupDataDir, 'graph.jsonl'), '', 'utf-8');
+    await fs.writeFile(path.join(startupDataDir, 'sessions.json'), '[]', 'utf-8');
+
     // Spawn real serve-http binary — this runs the full production handler
     serverProcess = spawn(
       process.execPath,
@@ -302,6 +348,8 @@ describe('B1+B2: Real embedded serve-http route tests', () => {
         stdio: ['pipe', 'pipe', 'pipe'],
         env: {
           ...process.env,
+          HOME: childHomeDir,
+          USERPROFILE: childHomeDir,
           MEMORIX_EMBEDDING: 'off',
           MEMORIX_LLM_PROVIDER: '',
           MEMORIX_LLM_MODEL: '',
@@ -331,6 +379,8 @@ describe('B1+B2: Real embedded serve-http route tests', () => {
 
   afterAll(() => {
     try { serverProcess?.kill(); } catch { /* already exited */ }
+    process.env.HOME = originalHome;
+    process.env.USERPROFILE = originalUserProfile;
   });
 
   // ── B1: CORS on real embedded /api/* routes ──
@@ -400,6 +450,21 @@ describe('B1+B2: Real embedded serve-http route tests', () => {
     expect(data.isStartupProject).toBe(true);
     const providerVal = data.values?.find((v: any) => v.key === 'llm.provider');
     expect(providerVal?.value).toBe('leak-canary-http');
+  });
+
+  it('B2: embedded observation routes must honor requested project scope', async () => {
+    const obsRes = await fetch(`${REAL_BASE}/api/observations?project=${encodeURIComponent(SECONDARY_PROJECT_ID)}`);
+    expect(obsRes.status).toBe(200);
+    const obs = await obsRes.json() as Array<{ projectId?: string; entityName?: string }>;
+    expect(obs).toHaveLength(1);
+    expect(obs[0].projectId).toBe(SECONDARY_PROJECT_ID);
+    expect(obs[0].entityName).toBe('secondary-entity');
+
+    const statsRes = await fetch(`${REAL_BASE}/api/stats?project=${encodeURIComponent(SECONDARY_PROJECT_ID)}`);
+    expect(statsRes.status).toBe(200);
+    const stats = await statsRes.json() as { observations?: number; recentObservations?: Array<{ projectId?: string; entityName?: string }> };
+    expect(stats.observations).toBe(1);
+    expect(stats.recentObservations?.[0]?.entityName).toBe('secondary-entity');
   });
 });
 

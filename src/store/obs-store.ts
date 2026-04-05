@@ -134,6 +134,30 @@ export function resetObservationStore(): void {
 }
 
 /**
+ * Create a fresh ObservationStore instance for a specific data directory
+ * without touching the process-wide singleton. This is useful for long-lived
+ * multi-project hosts (for example serve-http embedded dashboard APIs) where
+ * requests may need to read different project data dirs concurrently.
+ */
+export async function createObservationStore(dataDir: string): Promise<ObservationStore> {
+  // Try SQLite first (optionalDependencies — may not be installed)
+  try {
+    const { SqliteBackend } = await import('./sqlite-store.js');
+    const store = new SqliteBackend();
+    await store.init(dataDir);
+    return store;
+  } catch (err) {
+    console.error(`[memorix] SQLite backend unavailable, falling back to JSON: ${err instanceof Error ? err.message : err}`);
+  }
+
+  // Fallback: JsonBackend (always works)
+  const { JsonBackend } = await import('./json-store.js');
+  const store = new JsonBackend();
+  await store.init(dataDir);
+  return store;
+}
+
+/**
  * Initialize the ObservationStore singleton for the given data directory.
  *
  * In Step A this always creates a JsonBackend.
@@ -153,22 +177,7 @@ export async function initObservationStore(dataDir: string): Promise<Observation
     _storeDataDir = null;
   }
 
-  // Try SQLite first (optionalDependencies — may not be installed)
-  try {
-    const { SqliteBackend } = await import('./sqlite-store.js');
-    const store = new SqliteBackend();
-    await store.init(dataDir);
-    _store = store;
-    _storeDataDir = dataDir;
-    return store;
-  } catch (err) {
-    console.error(`[memorix] SQLite backend unavailable, falling back to JSON: ${err instanceof Error ? err.message : err}`);
-  }
-
-  // Fallback: JsonBackend (always works)
-  const { JsonBackend } = await import('./json-store.js');
-  const store = new JsonBackend();
-  await store.init(dataDir);
+  const store = await createObservationStore(dataDir);
   _store = store;
   _storeDataDir = dataDir;
   return store;

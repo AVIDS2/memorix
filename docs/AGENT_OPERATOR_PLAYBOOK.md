@@ -23,6 +23,17 @@ It supports:
 - local-first project-scoped memory
 - cross-agent recall across Cursor, Claude Code, Codex, Windsurf, Gemini CLI, GitHub Copilot, Kiro, OpenCode, Antigravity, and Trae
 
+### 1.0.6 operator delta
+
+If you used Memorix before `1.0.6`, the operator-visible changes worth knowing are:
+
+- session, search, detail, and timeline now expose a clearer `L1 / L2 / L3` retrieval model
+- compact evidence surfaces better distinguish repository-backed signals, synthesized analysis, and citation-lite support
+- retrieval is more task-line aware inside a single repo and less likely to surface the wrong subdomain
+- obvious credentials are sanitized on write and redacted on retrieval surfaces
+- retention, stale review, audit, and resolve now form a clearer cleanup/remediation loop
+- OpenCode compaction guidance now preserves structured continuation context without falsely implying automatic MCP tool calls
+
 ---
 
 ## 2. Operating Principles You Must Respect

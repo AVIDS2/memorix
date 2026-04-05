@@ -10,6 +10,19 @@ Memorix is a TypeScript project built around:
 - Orama search
 - dashboard and HTTP control plane
 
+## Current Release Baseline
+
+The current published release line is **1.0.6**.
+
+Contributors should assume the following are already part of the supported product surface:
+
+- provenance-aware memory fields and layered retrieval semantics
+- evidence-aware detail and timeline outputs
+- verification-aware and citation-lite compact output
+- task-line scoping, secret-safety, and attribution auditing
+- calibrated retention plus cleanup/remediation loop ergonomics
+- OpenCode `post_compact` support and structured continuation compaction prompt
+
 ---
 
 ## 1. Prerequisites

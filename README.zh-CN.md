@@ -58,6 +58,17 @@ Memorix 的几个关键差异点：
 
 一句话说，Memorix 解决的是：让多个 Coding Agent 通过 MCP 共享同一套耐久项目记忆，同时保留 Git 真相、推理上下文和本地控制权。
 
+## 1.0.6 更新亮点
+
+`1.0.6` 这次发布，真正把 Memorix 的记忆语义、检索层次和运维闭环补完整了。
+
+- **以 provenance 为先的检索模型**：记忆现在会明确区分 `explicit`、`hook`、`git-ingest` 等来源细节，以及 `core`、`contextual`、`ephemeral` 等价值类别。
+- **分层披露（Layered Disclosure）**：session start、search、detail、timeline 更清楚地区分了 routing hints、working context 和 deeper evidence。
+- **证据语义与 citation-lite**：紧凑输出现在能说明 repository-backed evidence、synthesized analysis，以及“为什么会浮出来 / 它由什么支持”的轻量提示。
+- **任务线收束与 secret safety**：检索更不容易在同一个 repo 内串到错误的 workstream，明显的密码、token、credential 也会在写入和读取路径上被拦截或脱敏。
+- **归属校验与 cleanup 闭环**：wrong-bucket 审计、retention explainability、stale review 和 remediation hint 现在已经形成一个可操作的清理闭环。
+- **OpenCode compaction 改进**：OpenCode 的 compaction 不再暗示会自动调用 MCP 工具，而是使用结构化 continuation prompt，并暴露真实的 `post_compact` 事件。
+
 ## 支持的客户端
 
 当前已经做了明确适配的集成目标有：

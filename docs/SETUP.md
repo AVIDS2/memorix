@@ -16,6 +16,18 @@ The two server runtime modes are:
 
 For the smoothest multi-project setup, use `memorix background start` as the main control plane. Use `memorix serve` when an IDE specifically wants a stdio MCP server process.
 
+## Current Release Context
+
+The current published release line is **1.0.6**.
+
+If you are setting up Memorix on a fresh machine or upgrading from an older install, the most visible operator-facing changes in 1.0.6 are:
+
+- provenance-aware memory fields and layered retrieval surfaces
+- stronger evidence semantics and citation-lite compact output
+- task-line scoping plus secret-safe storage/retrieval behavior
+- attribution auditing, retention explainability, and a cleaner remediation loop
+- OpenCode compaction using structured continuation context and `post_compact`
+
 ---
 
 ## 1. Install and Initialize

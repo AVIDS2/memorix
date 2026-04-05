@@ -22,7 +22,7 @@
 </p>
 
 <p align="center">
-  <a href="README.zh-CN.md">简体中文</a> |
+  <a href="README.zh-CN.md">Chinese</a> |
   <a href="#quick-start">Quick Start</a> |
   <a href="#supported-clients">Supported Clients</a> |
   <a href="#core-workflows">Core Workflows</a> |
@@ -57,6 +57,17 @@ What makes Memorix different:
 - **Memory Quality Pipeline**: formation, compaction, retention, and source-aware retrieval work together instead of acting like isolated tools.
 
 Memorix is built for one job: let multiple coding agents share the same durable project memory through MCP without giving up Git truth, reasoning history, or local control.
+
+## What's New in 1.0.6
+
+Version `1.0.6` is the release where Memorix's memory model became much more explicit, safer, and easier to operate.
+
+- **Provenance-first retrieval**: memories now carry clearer source semantics (`explicit`, `hook`, `git-ingest`) and value categories (`core`, `contextual`, `ephemeral`).
+- **Layered disclosure**: session start, search, detail, and timeline now separate routing hints, working context, and deeper evidence more intentionally.
+- **Evidence and citation-lite support**: compact outputs now explain repository-backed evidence, synthesized analysis, and lightweight "why surfaced / what supports this" signals.
+- **Task-line scoping and secret safety**: retrieval is better at staying inside the current workstream, and obvious credentials are sanitized or redacted on both write and read paths.
+- **Attribution and cleanup loop**: wrong-bucket auditing, retention explainability, stale-memory review, and structured remediation hints now form a practical operator loop.
+- **OpenCode compaction improvements**: OpenCode compaction now uses a structured continuation prompt and a real `post_compact` event instead of implying automatic MCP tool calls during compaction.
 
 ## Supported Clients
 

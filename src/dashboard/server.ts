@@ -14,7 +14,7 @@ import path from 'node:path';
 import { exec } from 'node:child_process';
 
 import { loadGraphJsonl, saveGraphJsonl, loadIdCounter, getBaseDataDir, loadSessionsJson } from '../store/persistence.js';
-import { getObservationStore } from '../store/obs-store.js';
+import { getObservationStore, initObservationStore } from '../store/obs-store.js';
 
 // MIME types for static file serving
 const MIME_TYPES: Record<string, string> = {
@@ -602,6 +602,7 @@ export async function startDashboard(
     autoOpen = true,
     teamInstances?: TeamInstances,
 ): Promise<void> {
+    await initObservationStore(dataDir);
     const resolvedStaticDir = staticDir;
     // Derive baseDir from dataDir (parent directory of project-specific dir)
     const baseDir = getBaseDataDir();

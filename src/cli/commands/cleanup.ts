@@ -16,7 +16,7 @@
 import { defineCommand } from 'citty';
 import { detectProject } from '../../project/detector.js';
 import { getProjectDataDir } from '../../store/persistence.js';
-import { getObservationStore } from '../../store/obs-store.js';
+import { getObservationStore, initObservationStore } from '../../store/obs-store.js';
 
 /** Patterns that indicate auto-generated, low-value observations */
 const LOW_QUALITY_PATTERNS = [
@@ -111,6 +111,7 @@ export default defineCommand({
         console.log(`\nProject: ${projectName} (${projectId})\n`);
 
         const dataDir = await getProjectDataDir(projectId);
+        await initObservationStore(dataDir);
         const allObs = await getObservationStore().loadAll() as Array<{
             id?: number;
             type?: string;

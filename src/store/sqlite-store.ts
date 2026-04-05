@@ -344,8 +344,9 @@ export class SqliteBackend implements ObservationStore {
   async atomic<T>(fn: (tx: StoreTransaction) => Promise<T>): Promise<T> {
     // Serialize concurrent atomic() calls via an async queue.
     // better-sqlite3 is single-connection; nested BEGIN is illegal.
-    return new Promise<T>((resolve, reject) => {
-      this._atomicQueue = this._atomicQueue.then(async () => {
+    const run = this._atomicQueue
+      .catch(() => undefined)
+      .then(async () => {
         this.db.prepare('BEGIN IMMEDIATE').run();
         try {
           const tx: StoreTransaction = {
@@ -362,13 +363,17 @@ export class SqliteBackend implements ObservationStore {
           const result = await fn(tx);
           this.bumpGeneration();
           this.db.prepare('COMMIT').run();
-          resolve(result);
+          return result;
         } catch (err) {
           try { this.db.prepare('ROLLBACK').run(); } catch { /* already rolled back */ }
-          reject(err);
+          throw err;
         }
       });
-    });
+
+    // Keep the queue alive after failures so one bad transaction does not poison
+    // all future atomic() calls.
+    this._atomicQueue = run.catch(() => undefined);
+    return run;
   }
 
   // ── Freshness ────────────────────────────────────────────────────

@@ -246,6 +246,24 @@ describe('SqliteBackend atomic()', () => {
     const all = await store.loadAll();
     expect(all).toHaveLength(3);
   });
+
+  it('failed atomic calls do not poison the queue for later writes', async () => {
+    await expect(store.atomic(async () => {
+      throw new Error('boom');
+    })).rejects.toThrow('boom');
+
+    await store.atomic(async (tx) => {
+      const all = await tx.loadAll();
+      all.push(makeObs({ id: 1, entityName: 'after-failure', projectId: 'p' }));
+      await tx.saveAll(all);
+      await tx.saveIdCounter(2);
+      return all.length;
+    });
+
+    const all = await store.loadAll();
+    expect(all).toHaveLength(1);
+    expect(all[0].entityName).toBe('after-failure');
+  });
 });
 
 // ── Storage generation / freshness ────────────────────────────────

@@ -296,14 +296,14 @@ export const MemorixPlugin = async ({ project, client, $, directory, worktree })
         await runHook({
           agent: 'opencode',
           hook_event_name: 'file.edited',
-          file_path: event.properties?.path ?? '',
+          file_path: event.properties?.file ?? '',
           cwd: directory,
         });
       } else if (event.type === 'command.executed') {
         await runHook({
           agent: 'opencode',
           hook_event_name: 'command.executed',
-          command: event.properties?.command ?? '',
+          command: event.properties?.name ?? '',
           cwd: directory,
         });
       } else if (event.type === 'session.compacted') {

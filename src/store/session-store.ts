@@ -25,6 +25,12 @@ export interface SessionStoreInterface {
   insert(session: Session): Promise<void>;
   update(session: Session): Promise<void>;
   bulkUpdate(sessions: Session[]): Promise<void>;
+  /**
+   * Atomic rollover: complete all active sessions for the given project IDs
+   * and insert a new active session in a single transaction.
+   * Guarantees at most one active session per project.
+   */
+  atomicRolloverInsert(newSession: Session, projectIds: string[], now: string): Promise<number>;
   getBackendName(): 'sqlite' | 'json';
 }
 
@@ -64,6 +70,7 @@ export class SessionSqliteStore implements SessionStoreInterface {
   private stmtSelectAll: any = null;
   private stmtSelectByProject: any = null;
   private stmtSelectActive: any = null;
+  private _stmtCompleteActive: any = null;
 
   async init(dataDir: string): Promise<void> {
     this.dataDir = dataDir;
@@ -146,6 +153,32 @@ export class SessionSqliteStore implements SessionStoreInterface {
     run(sessions);
   }
 
+  /**
+   * Atomic rollover: complete all active sessions for the given project IDs
+   * and insert a new active session in a single SQLite transaction.
+   * SQLite serializes write transactions, so concurrent calls are safely sequenced.
+   */
+  async atomicRolloverInsert(newSession: Session, projectIds: string[], now: string): Promise<number> {
+    if (!this._stmtCompleteActive) {
+      this._stmtCompleteActive = this.db.prepare(
+        `UPDATE sessions SET status = 'completed', endedAt = @now, summary = COALESCE(NULLIF(summary, ''), '(session ended implicitly by new session start)') WHERE projectId = @pid AND status = 'active'`
+      );
+    }
+    const stmtComplete = this._stmtCompleteActive;
+    const stmtIns = this.stmtInsert;
+
+    const result = this.db.transaction(() => {
+      let completedCount = 0;
+      for (const pid of projectIds) {
+        const info = stmtComplete.run({ pid, now });
+        completedCount += info.changes;
+      }
+      stmtIns.run(sessionToRow(newSession));
+      return completedCount;
+    })();
+    return result;
+  }
+
   getBackendName(): 'sqlite' | 'json' {
     return 'sqlite';
   }
@@ -178,6 +211,7 @@ export class SessionGracefulDegrade implements SessionStoreInterface {
   async insert(_session: Session): Promise<void> { this.warn(); }
   async update(_session: Session): Promise<void> { this.warn(); }
   async bulkUpdate(_sessions: Session[]): Promise<void> { this.warn(); }
+  async atomicRolloverInsert(_newSession: Session, _projectIds: string[], _now: string): Promise<number> { this.warn(); return 0; }
 
   getBackendName(): 'sqlite' | 'json' { return 'json'; }
 }

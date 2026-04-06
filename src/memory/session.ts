@@ -231,25 +231,12 @@ export async function startSession(
   // Load previous context before creating new session
   const previousContext = await getSessionContext(projectDir, projectId);
 
-  // Mark any existing active sessions as completed (stale)
+  // Atomic rollover: complete all active sessions for this project's aliases
+  // and insert the new session in a single SQLite transaction.
+  // Prevents concurrent startSession() from leaving multiple active sessions.
   const sessionStore = getSessionStore();
   const aliasSet = await resolveProjectIds(projectId);
-  const allSessions = await sessionStore.loadAll();
-  const staleUpdates: Session[] = [];
-  for (const s of allSessions) {
-    if (aliasSet.has(s.projectId) && s.status === 'active') {
-      s.status = 'completed';
-      s.endedAt = now;
-      if (!s.summary) {
-        s.summary = '(session ended implicitly by new session start)';
-      }
-      staleUpdates.push(s);
-    }
-  }
-  if (staleUpdates.length > 0) {
-    await sessionStore.bulkUpdate(staleUpdates);
-  }
-  await sessionStore.insert(session);
+  await sessionStore.atomicRolloverInsert(session, [...aliasSet], now);
 
   return { session, previousContext };
 }

@@ -28,6 +28,11 @@ export interface MiniSkillStore {
   remove(id: number): Promise<void>;
   loadIdCounter(): Promise<number>;
   saveIdCounter(nextId: number): Promise<void>;
+  /**
+   * Atomic create: allocate ID + insert skill + bump counter in one transaction.
+   * Prevents concurrent promotes from receiving the same ID.
+   */
+  atomicInsertWithId(skill: Omit<MiniSkill, 'id'>): Promise<MiniSkill>;
   ensureFresh(): Promise<boolean>;
   getGeneration(): number;
   getBackendName(): 'sqlite' | 'json';
@@ -206,6 +211,34 @@ export class MiniSkillSqliteStore implements MiniSkillStore {
     this.stmtSetMeta.run('mini_skills_next_id', String(nextId));
   }
 
+  /**
+   * Atomic create: allocate ID + insert + bump counter in a single SQLite transaction.
+   * SQLite serializes write transactions, so concurrent calls are safely sequenced.
+   */
+  async atomicInsertWithId(skillWithoutId: Omit<MiniSkill, 'id'>): Promise<MiniSkill> {
+    const result = this.db.transaction(() => {
+      // 1. Read current counter inside the transaction
+      const row = this.stmtGetMeta.get('mini_skills_next_id');
+      const nextId = row ? parseInt(row.value, 10) : 1;
+
+      // 2. Build the full skill with the allocated ID
+      const skill: MiniSkill = { ...skillWithoutId, id: nextId } as MiniSkill;
+
+      // 3. Insert
+      this.stmtInsert.run(skillToRow(skill));
+
+      // 4. Bump counter
+      this.stmtSetMeta.run('mini_skills_next_id', String(nextId + 1));
+
+      // 5. Bump generation
+      this.stmtBumpGeneration.run();
+      this.knownGeneration = this.readGeneration();
+
+      return skill;
+    })();
+    return result;
+  }
+
   // ── Freshness ────────────────────────────────────────────────────
 
   async ensureFresh(): Promise<boolean> {
@@ -255,6 +288,10 @@ export class MiniSkillGracefulDegrade implements MiniSkillStore {
   async update(_skill: MiniSkill): Promise<void> { this.warn(); }
   async remove(_id: number): Promise<void> { this.warn(); }
   async saveIdCounter(_nextId: number): Promise<void> { /* no-op */ }
+  async atomicInsertWithId(skillWithoutId: Omit<MiniSkill, 'id'>): Promise<MiniSkill> {
+    this.warn();
+    return { ...skillWithoutId, id: 0 } as MiniSkill;
+  }
 
   async ensureFresh(): Promise<boolean> { return false; }
   getGeneration(): number { return 0; }

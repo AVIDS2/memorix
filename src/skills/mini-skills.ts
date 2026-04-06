@@ -39,7 +39,6 @@ export async function promoteToMiniSkill(
   options?: PromoteOptions,
 ): Promise<MiniSkill> {
   const store = getMiniSkillStore();
-  let nextId = await store.loadIdCounter();
 
   // Auto-generate content from observations
   const title = generateTitle(observations);
@@ -51,8 +50,9 @@ export async function promoteToMiniSkill(
     ...extractTags(observations),
   ];
 
-  const skill: MiniSkill = {
-    id: nextId,
+  // Atomic: ID allocation + insert + counter bump in a single SQLite transaction.
+  // Prevents concurrent promotes from receiving the same ID.
+  const skill = await store.atomicInsertWithId({
     sourceObservationIds: observations.map(o => o.id),
     sourceEntity: observations[0]?.entityName || 'unknown',
     title,
@@ -63,11 +63,7 @@ export async function promoteToMiniSkill(
     createdAt: new Date().toISOString(),
     usedCount: 0,
     tags: [...new Set(tags)],
-  };
-
-  nextId++;
-  await store.insert(skill);
-  await store.saveIdCounter(nextId);
+  });
 
   return skill;
 }

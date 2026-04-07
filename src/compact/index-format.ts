@@ -4,7 +4,7 @@
  * Formats search, timeline, and detail outputs for the compact engine.
  */
 
-import type { IndexEntry, TimelineContext } from '../types.js';
+import type { IndexEntry, TimelineContext, DocumentType } from '../types.js';
 import { sourceBadge, resolveSourceDetail, resolveEvidenceBasis, evidenceBasisLine } from '../memory/disclosure-policy.js';
 import { redactCredentials } from '../memory/secret-filter.js';
 
@@ -14,8 +14,8 @@ import { redactCredentials } from '../memory/secret-filter.js';
 export function formatIndexTable(entries: IndexEntry[], query?: string, forceProjectColumn = false): string {
   if (entries.length === 0) {
     return query
-      ? `No observations found matching "${query}".`
-      : 'No observations found.';
+      ? `No memories found matching "${query}".`
+      : 'No memories found.';
   }
 
   const lines: string[] = [];
@@ -47,9 +47,16 @@ export function formatIndexTable(entries: IndexEntry[], query?: string, forcePro
   const hasExplanation = entries.some((entry) => (entry.matchedFields?.length ?? 0) > 0);
   // Show Src column when at least one entry has provenance (sourceDetail or legacy source='git')
   const hasSrc = entries.some((e) => !!e.sourceDetail || e.source === 'git');
+  // Show Layer column when results contain mixed document types (observations + mini-skills)
+  const distinctDocTypes = new Set(entries.map((e) => e.documentType || 'observation'));
+  const hasLayer = distinctDocTypes.size > 1;
 
-  const header = ['ID', 'Time', 'T', 'Title', 'Tokens'];
-  const divider = ['----', '------', '---', '-------', '--------'];
+  const header = ['Ref', 'Time', 'T', 'Title', 'Tokens'];
+  const divider = ['-----', '------', '---', '-------', '--------'];
+  if (hasLayer) {
+    header.push('Layer');
+    divider.push('--------');
+  }
   if (hasSrc) {
     header.push('Src');
     divider.push('---');
@@ -67,7 +74,9 @@ export function formatIndexTable(entries: IndexEntry[], query?: string, forcePro
   lines.push(`|${divider.map((part) => ` ${part} `).join('|')}|`);
 
   for (const entry of entries) {
-    const row = [`#${entry.id}`, entry.time, entry.icon, redactCredentials(entry.title), `~${entry.tokens}`];
+    const ref = formatEntryRef(entry);
+    const row = [ref, entry.time, entry.icon, redactCredentials(entry.title), `~${entry.tokens}`];
+    if (hasLayer) row.push(formatLayerBadge(entry.knowledgeLayer));
     if (hasSrc) row.push(sourceBadge(entry.sourceDetail, entry.source) || '-');
     if (hasProject) row.push(entry.projectId ?? '-');
     if (hasExplanation) row.push(entry.matchedFields?.join(', ') ?? '-');
@@ -283,7 +292,7 @@ function getTypeIcon(type: string): string {
 function getProgressiveDisclosureHint(hasProject: boolean): string {
   const lines = [
     '💡 **Progressive Disclosure:** This index shows WHAT exists and retrieval COST.',
-    '- Use `memorix_detail` to fetch full observation details by ID',
+    '- Use `memorix_detail` with typed refs (obs:42, skill:3) to fetch full details',
     '- Use `memorix_timeline` to see chronological context around an observation',
     '- Critical types (🔴 gotcha, 🟤 decision, ⚖️ trade-off) are often worth fetching immediately',
   ];
@@ -293,4 +302,18 @@ function getProgressiveDisclosureHint(hasProject: boolean): string {
   }
 
   return lines.join('\n');
+}
+
+// ── Phase 3a display helpers ──────────────────────────────────────
+
+/** Format an entry reference using typed ref protocol: #42 for obs, S3 for skills */
+function formatEntryRef(entry: IndexEntry): string {
+  return (entry.documentType === 'mini-skill') ? `S${entry.id}` : `#${entry.id}`;
+}
+
+/** Short badge for knowledge layer */
+function formatLayerBadge(layer?: string): string {
+  if (layer === 'promoted') return '★';
+  if (layer === 'evidence') return 'ev';
+  return '-';
 }

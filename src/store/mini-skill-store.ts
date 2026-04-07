@@ -53,6 +53,8 @@ function skillToRow(skill: MiniSkill): Record<string, unknown> {
     createdAt: skill.createdAt,
     usedCount: skill.usedCount ?? 0,
     tags: JSON.stringify(skill.tags ?? []),
+    sourceSnapshot: skill.sourceSnapshot ?? '',
+    updatedAt: skill.updatedAt ?? null,
   };
 }
 
@@ -69,6 +71,8 @@ function rowToSkill(row: any): MiniSkill {
     createdAt: row.createdAt,
     usedCount: row.usedCount ?? 0,
     tags: safeJsonParse(row.tags, []),
+    sourceSnapshot: row.sourceSnapshot || undefined,
+    updatedAt: row.updatedAt || undefined,
   };
 }
 
@@ -101,10 +105,10 @@ export class MiniSkillSqliteStore implements MiniSkillStore {
     this.stmtInsert = this.db.prepare(`
       INSERT OR REPLACE INTO mini_skills
         (id, sourceObservationIds, sourceEntity, title, instruction, trigger_desc,
-         facts, projectId, createdAt, usedCount, tags)
+         facts, projectId, createdAt, usedCount, tags, sourceSnapshot, updatedAt)
       VALUES
         (@id, @sourceObservationIds, @sourceEntity, @title, @instruction, @trigger_desc,
-         @facts, @projectId, @createdAt, @usedCount, @tags)
+         @facts, @projectId, @createdAt, @usedCount, @tags, @sourceSnapshot, @updatedAt)
     `);
     this.stmtDelete = this.db.prepare(`DELETE FROM mini_skills WHERE id = ?`);
     this.stmtSelectAll = this.db.prepare(`SELECT * FROM mini_skills`);

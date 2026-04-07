@@ -60,7 +60,7 @@ describe('Compact Engine', () => {
       });
 
       const result = await compactSearch({ query: 'JWT', projectId: 'test/project' });
-      expect(result.formatted).toContain('| ID |');
+      expect(result.formatted).toContain('| Ref |');
       expect(result.formatted).toContain('JWT');
       expect(result.formatted).toContain('Progressive Disclosure');
     });
@@ -68,7 +68,7 @@ describe('Compact Engine', () => {
     it('should return empty message when no results', async () => {
       const result = await compactSearch({ query: 'nonexistent', projectId: 'test/project' });
       expect(result.entries).toHaveLength(0);
-      expect(result.formatted).toContain('No observations found');
+      expect(result.formatted).toContain('No memories found');
     });
   });
 

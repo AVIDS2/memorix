@@ -13,8 +13,12 @@
  * Lifecycle: observation → memorix_promote → mini-skill → session_start injection
  */
 
-import type { MiniSkill, Observation } from '../types.js';
+import type { MiniSkill, Observation, SourceSnapshot, SnapshotObservation, KnowledgeLayer, DocumentType, MemorixDocument } from '../types.js';
 import { getMiniSkillStore } from '../store/mini-skill-store.js';
+import { countTextTokens } from '../compact/token-budget.js';
+
+// Hard filter: command execution logs are not promotable knowledge
+const COMMAND_LOG_TITLE = /^(Ran:|Command:|Executed:)\s/i;
 
 // ── Promote observations to mini-skills ──────────────────────────
 
@@ -25,7 +29,16 @@ export interface PromoteOptions {
   instruction?: string;
   /** Extra tags */
   tags?: string[];
+  /** Bypass R2 (no command logs) and R3 (has content) validation. Cannot bypass R1 (sources must exist). */
+  force?: boolean;
 }
+
+/** Provenance status of a mini-skill relative to its source observations */
+export type ProvenanceStatus =
+  | 'verified'          // all source observations exist and are active
+  | 'partial'           // some source observations exist
+  | 'snapshot-only'     // no sources available, but snapshot exists
+  | 'legacy';           // no snapshot AND no sources (unverifiable)
 
 /**
  * Promote one or more observations into a mini-skill.
@@ -38,6 +51,51 @@ export async function promoteToMiniSkill(
   observations: Observation[],
   options?: PromoteOptions,
 ): Promise<MiniSkill> {
+  // ── Promote-time validation ────────────────────────────────────
+  // R1a: Sources must exist (cannot be bypassed)
+  if (observations.length === 0) {
+    throw new Error('Cannot promote: no source observations provided');
+  }
+
+  // R1b: All sources must be active — stale/archived knowledge must never be
+  // permanently promoted. This check is NOT bypassable by force=true.
+  const nonActive = observations.filter(o => (o.status ?? 'active') !== 'active');
+  if (nonActive.length > 0) {
+    throw new Error(
+      `Cannot promote: ${nonActive.length} observation(s) are not active. ` +
+      `Blocked: ${nonActive.map(o => `#${o.id} (${o.status ?? 'unknown'})`).join(', ')}. ` +
+      `Only active observations can be promoted to permanent knowledge.`,
+    );
+  }
+
+  if (!options?.force) {
+    // R2: No command-log noise
+    const commandLogs = observations.filter(o => COMMAND_LOG_TITLE.test(o.title));
+    if (commandLogs.length > 0) {
+      throw new Error(
+        `Cannot promote command execution logs — use a knowledge observation instead. ` +
+        `Blocked: ${commandLogs.map(o => `#${o.id} "${o.title.substring(0, 60)}"`).join(', ')}. ` +
+        `Use force=true to override.`,
+      );
+    }
+
+    // R3: Has substantive content
+    const hasContent = observations.some(
+      o => (o.narrative && o.narrative.trim().length > 0) ||
+           (o.facts && o.facts.length > 0 && o.facts.some(f => f.trim().length > 0)),
+    );
+    if (!hasContent) {
+      throw new Error(
+        'Cannot promote: source observations have no substantive content (empty narrative and facts). ' +
+        'Use force=true to override.',
+      );
+    }
+  }
+
+  // ── Freeze source snapshot (immutable provenance proof) ────────
+  const snapshot = createSourceSnapshot(observations);
+  const snapshotJson = JSON.stringify(snapshot);
+
   const store = getMiniSkillStore();
 
   // Auto-generate content from observations
@@ -50,6 +108,8 @@ export async function promoteToMiniSkill(
     ...extractTags(observations),
   ];
 
+  const now = new Date().toISOString();
+
   // Atomic: ID allocation + insert + counter bump in a single SQLite transaction.
   // Prevents concurrent promotes from receiving the same ID.
   const skill = await store.atomicInsertWithId({
@@ -60,9 +120,11 @@ export async function promoteToMiniSkill(
     trigger,
     facts,
     projectId,
-    createdAt: new Date().toISOString(),
+    createdAt: now,
     usedCount: 0,
     tags: [...new Set(tags)],
+    sourceSnapshot: snapshotJson,
+    updatedAt: now,
   });
 
   return skill;
@@ -219,4 +281,97 @@ function extractTags(observations: Observation[]): string[] {
     }
   }
   return [...tags].slice(0, 10);
+}
+
+// ── Provenance helpers (Phase 3a) ────────────────────────────────
+
+/**
+ * Create an immutable source snapshot from observations at promote time.
+ * Contains the minimum field set needed for self-contained provenance proof.
+ */
+function createSourceSnapshot(observations: Observation[]): SourceSnapshot {
+  return {
+    observations: observations.map((o): SnapshotObservation => ({
+      id: o.id,
+      title: o.title,
+      type: o.type,
+      narrative: o.narrative,
+      facts: [...o.facts],
+      entityName: o.entityName,
+      projectId: o.projectId,
+      createdAt: o.createdAt,
+      sourceDetail: o.sourceDetail,
+    })),
+    promotedAt: new Date().toISOString(),
+  };
+}
+
+/**
+ * Resolve the provenance status of a mini-skill by checking whether its
+ * source observations still exist.
+ *
+ * @param skill The mini-skill to check
+ * @param getObservationById Lookup function: (id) => Observation | undefined
+ */
+export function resolveProvenanceStatus(
+  skill: MiniSkill,
+  getObservationById: (id: number) => { id: number; status?: string } | undefined,
+): ProvenanceStatus {
+  const ids = skill.sourceObservationIds;
+  if (ids.length === 0) {
+    return skill.sourceSnapshot ? 'snapshot-only' : 'legacy';
+  }
+  const found = ids.filter(id => {
+    const obs = getObservationById(id);
+    return obs && (obs.status ?? 'active') === 'active';
+  });
+  if (found.length === ids.length) return 'verified';
+  if (found.length > 0) return 'partial';
+  return skill.sourceSnapshot ? 'snapshot-only' : 'legacy';
+}
+
+// ── Knowledge Layer helpers (Phase 3a) ───────────────────────────
+
+/**
+ * Resolve the knowledge layer for a document based on its type and source.
+ * This is computed at index time — NOT stored in SQLite.
+ */
+export function resolveKnowledgeLayer(
+  documentType: DocumentType,
+  sourceDetail?: string,
+  source?: string,
+): KnowledgeLayer {
+  if (documentType === 'mini-skill') return 'promoted';
+  if (sourceDetail === 'git-ingest' || source === 'git') return 'evidence';
+  return 'project-truth';
+}
+
+/**
+ * Convert a MiniSkill into a MemorixDocument for Orama indexing.
+ * The document carries documentType='mini-skill' and knowledgeLayer='promoted'.
+ */
+export function miniSkillToDocument(skill: MiniSkill): MemorixDocument {
+  const content = skill.instruction + '\n' + skill.facts.join('\n');
+  return {
+    id: `skill:${encodeURIComponent(skill.projectId)}:${skill.id}`,
+    observationId: skill.id,
+    entityName: skill.sourceEntity,
+    type: 'mini-skill',
+    title: skill.title,
+    narrative: skill.instruction,
+    facts: skill.facts.join('\n'),
+    filesModified: '',
+    concepts: skill.tags.join(', '),
+    tokens: countTextTokens(content),
+    createdAt: skill.createdAt,
+    projectId: skill.projectId,
+    accessCount: skill.usedCount,
+    lastAccessedAt: '',
+    status: 'active',
+    source: 'agent',
+    sourceDetail: 'explicit',
+    valueCategory: 'core',
+    documentType: 'mini-skill',
+    knowledgeLayer: 'promoted',
+  };
 }

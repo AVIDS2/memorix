@@ -139,6 +139,11 @@ export function getDatabase(dataDir: string): any {
   db.exec(CREATE_META_TABLE);
   db.exec(CREATE_INDEXES);
 
+  // Phase 3a migration: add sourceSnapshot + updatedAt to mini_skills
+  // Idempotent — ALTER TABLE ADD COLUMN throws if column already exists
+  try { db.exec(`ALTER TABLE mini_skills ADD COLUMN sourceSnapshot TEXT NOT NULL DEFAULT ''`); } catch { /* already exists */ }
+  try { db.exec(`ALTER TABLE mini_skills ADD COLUMN updatedAt TEXT`); } catch { /* already exists */ }
+
   // Seed meta defaults
   db.prepare(`INSERT OR IGNORE INTO meta (key, value) VALUES ('storage_generation', '0')`).run();
   db.prepare(`INSERT OR IGNORE INTO meta (key, value) VALUES ('next_id', '1')`).run();

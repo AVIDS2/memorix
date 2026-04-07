@@ -9,8 +9,9 @@
  */
 
 import { create, insert, search, remove, update, count, type AnyOrama } from '@orama/orama';
-import type { MemorixDocument, SearchOptions, IndexEntry } from '../types.js';
+import type { MemorixDocument, SearchOptions, IndexEntry, KnowledgeLayer } from '../types.js';
 import { OBSERVATION_ICONS, type ObservationType } from '../types.js';
+import { resolveKnowledgeLayer } from '../skills/mini-skills.js';
 import { getEmbeddingProvider, type EmbeddingProvider } from '../embedding/provider.js';
 import { calculateProjectAffinity, extractProjectKeywords, type AffinityContext, type MemoryContent } from './project-affinity.js';
 import { detectQueryIntent, applyIntentBoost } from '../search/intent-detector.js';
@@ -159,6 +160,8 @@ export async function getDb(): Promise<AnyOrama> {
     source: 'string' as const,
     sourceDetail: 'string' as const,
     valueCategory: 'string' as const,
+    documentType: 'string' as const,
+    knowledgeLayer: 'string' as const,
   };
 
   // Dynamic vector dimensions based on provider (384 for local, 1024+ for API)
@@ -258,6 +261,8 @@ export async function hydrateIndex(observations: any[]): Promise<number> {
         lastAccessedAt: obs.lastAccessedAt || '',
         status: obs.status ?? 'active',
         source: obs.source || 'agent',
+        documentType: 'observation',
+        knowledgeLayer: resolveKnowledgeLayer('observation', obs.sourceDetail, obs.source),
       };
       await insert(database, doc);
       inserted++;
@@ -498,9 +503,27 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
         sourceDetail: (doc.sourceDetail || undefined) as 'explicit' | 'hook' | 'git-ingest' | undefined,
         valueCategory: (doc.valueCategory || undefined) as 'core' | 'contextual' | 'ephemeral' | undefined,
         entityName: doc.entityName || undefined,
+        documentType: (doc.documentType || 'observation') as 'observation' | 'mini-skill',
+        knowledgeLayer: (doc.knowledgeLayer || 'project-truth') as KnowledgeLayer,
         _isCommandLog: isCommandLogEntry(doc.title),
       };
     });
+
+  // ── Knowledge-Layer Boost (Phase 3a, step 3) ─────────────────
+  // Explicit layer-aware ranking: promoted knowledge gets a mild boost
+  // for general queries, evidence gets a boost for evidence-seeking queries.
+  // This is the dedicated layer signal — NOT borrowed from valueCategory.
+  {
+    const isEvidenceSeeking = intentResult?.intent === 'what_changed' ||
+      (hasQuery && /\b(evidence|verify|proof|git|commit)\b/i.test(originalQuery!));
+    const layerBoosts: Record<string, number> = isEvidenceSeeking
+      ? { promoted: 1.10, 'project-truth': 1.00, evidence: 1.15 }
+      : { promoted: 1.20, 'project-truth': 1.00, evidence: 0.90 };
+    intermediate = intermediate.map(entry => ({
+      ...entry,
+      score: entry.score * (layerBoosts[(entry as any).knowledgeLayer] ?? 1.0),
+    }));
+  }
 
   // ── Intent-Aware Type Boosting ───────────────────────────────
   // Boost scores for observation types that match the query intent

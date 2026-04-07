@@ -173,6 +173,10 @@ export interface IndexEntry {
   matchedFields?: string[];
   /** Entity name — used for entity-affinity scoring and workstream deduplication. */
   entityName?: string;
+  /** Document type: observation or mini-skill (Phase 3a) */
+  documentType?: DocumentType;
+  /** Knowledge layer for layer-aware ranking (Phase 3a) */
+  knowledgeLayer?: KnowledgeLayer;
 }
 
 /** Explicit reference to an observation, optionally scoped to a project. */
@@ -247,6 +251,10 @@ export interface MemorixDocument {
   valueCategory?: string;
   /** Optional vector embedding for semantic/hybrid retrieval */
   embedding?: number[];
+  /** Document type: observation or mini-skill (Phase 3a) */
+  documentType?: DocumentType;
+  /** Knowledge layer for layer-aware ranking (Phase 3a) */
+  knowledgeLayer?: KnowledgeLayer;
 }
 
 // ============================================================
@@ -430,7 +438,7 @@ export interface WorkspaceSyncResult {
 /** A mini-skill promoted from one or more observations */
 export interface MiniSkill {
   id: number;
-  /** Observation IDs this mini-skill was derived from */
+  /** Observation IDs this mini-skill was derived from (live refs, best-effort) */
   sourceObservationIds: number[];
   /** Entity the source observations belong to */
   sourceEntity: string;
@@ -450,6 +458,55 @@ export interface MiniSkill {
   usedCount: number;
   /** Classification tags */
   tags: string[];
+  /** Frozen source observation content at promote time (JSON, immutable provenance proof) */
+  sourceSnapshot?: string;
+  /** ISO timestamp of last modification (Phase 3a: set once at creation) */
+  updatedAt?: string;
+}
+
+// ============================================================
+// Source Snapshot — immutable provenance proof for promoted knowledge
+// ============================================================
+
+/** A single observation entry within a source snapshot */
+export interface SnapshotObservation {
+  id: number;
+  title: string;
+  type: string;
+  narrative: string;
+  facts: string[];
+  entityName: string;
+  projectId: string;
+  createdAt: string;
+  /** Frozen source detail for provenance (explicit / hook / git-ingest) */
+  sourceDetail?: string;
+}
+
+/** Frozen source content captured at promote time */
+export interface SourceSnapshot {
+  observations: SnapshotObservation[];
+  promotedAt: string;
+}
+
+// ============================================================
+// Knowledge Layer — Phase 3a retrieval classification
+// ============================================================
+
+/** Classification of knowledge for layer-aware ranking */
+export type KnowledgeLayer = 'project-truth' | 'promoted' | 'evidence';
+
+/** Document type discriminator for Orama index */
+export type DocumentType = 'observation' | 'mini-skill';
+
+// ============================================================
+// Typed Memory Reference — Phase 3a reference protocol
+// ============================================================
+
+/** A typed reference to a memory object (observation or mini-skill) */
+export interface MemoryRef {
+  kind: 'obs' | 'skill';
+  id: number;
+  projectId?: string;
 }
 
 /** MCP config format adapter interface */

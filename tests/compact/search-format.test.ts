@@ -57,8 +57,8 @@ describe('Core structure stability', () => {
   });
 
   it('empty entries returns no-result message', () => {
-    expect(formatIndexTable([], 'auth')).toContain('No observations found matching');
-    expect(formatIndexTable([])).toContain('No observations found');
+    expect(formatIndexTable([], 'auth')).toContain('No memories found matching');
+    expect(formatIndexTable([])).toContain('No memories found');
   });
 });
 

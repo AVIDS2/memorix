@@ -1,0 +1,68 @@
+version: '3.8'
+
+services:
+  memorix:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: memorix:latest
+    container_name: memorix
+    restart: unless-stopped
+    ports:
+      - "${MEMORIX_PORT:-3211}:3211"
+    volumes:
+      - memorix-data:/app/.memorix
+      - ${HOST_PROJECTS_DIR:-./projects}:/projects:ro
+    environment:
+      - NODE_ENV=production
+      - MEMORIX_HTTP_PORT=${MEMORIX_PORT:-3211}
+      - MEMORIX_DATA_DIR=/app/.memorix
+      # Optional: LLM configuration for embedding/rerank
+      - MEMORIX_LLM_PROVIDER=${MEMORIX_LLM_PROVIDER:-}
+      - MEMORIX_LLM_API_KEY=${MEMORIX_LLM_API_KEY:-}
+      - MEMORIX_LLM_BASE_URL=${MEMORIX_LLM_BASE_URL:-}
+    healthcheck:
+      test: ["CMD", "node", "dist/cli/index.js", "status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - memorix-net
+
+  # Optional: Reverse proxy with automatic HTTPS (Traefik)
+  traefik:
+    image: traefik:v3.0
+    container_name: memorix-traefik
+    restart: unless-stopped
+    command:
+      - "--api.insecure=true"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      # Uncomment for Let's Encrypt (production)
+      # - "--certificatesresolvers.letsencrypt.acme.tlschallenge=true"
+      # - "--certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL}"
+      # - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8080:8080"  # Traefik dashboard
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - traefik-certs:/letsencrypt
+    networks:
+      - memorix-net
+    profiles:
+      - traefik
+
+volumes:
+  memorix-data:
+    driver: local
+  traefik-certs:
+    driver: local
+
+networks:
+  memorix-net:
+    driver: bridge

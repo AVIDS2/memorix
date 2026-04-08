@@ -23,6 +23,7 @@ import { KnowledgeGraphManager } from './memory/graph.js';
 import { initObservations, storeObservation, prepareSearchIndex, migrateProjectIds, getObservation, getAllObservations } from './memory/observations.js';
 import { withFreshIndex } from './memory/freshness.js';
 import { initObservationStore, getObservationStore } from './store/obs-store.js';
+import { resetDb } from './store/orama-store.js';
 import { initMiniSkillStore } from './store/mini-skill-store.js';
 import { initSessionStore } from './store/session-store.js';
 import { checkProjectAttribution, auditProjectObservations } from './memory/attribution-guard.js';
@@ -3522,7 +3523,6 @@ export async function createMemorixServer(
           if (reloading) return;
           reloading = true;
           try {
-<<<<<<< HEAD
             await resetDb();
             await initObservationStore(projectDir);
             await initObservations(projectDir);

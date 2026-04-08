@@ -641,7 +641,12 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
               ...entry,
               score: entry.score ?? 0,
               projectId: entry.projectId ?? options.projectId ?? '',
-              source: entry.source ?? 'agent',
+              source: (entry.source ?? 'agent') as 'agent' | 'git' | 'manual',
+              sourceDetail: (entry as any).sourceDetail as 'explicit' | 'hook' | 'git-ingest' | undefined,
+              valueCategory: (entry as any).valueCategory as 'core' | 'contextual' | 'ephemeral' | undefined,
+              entityName: (entry as any).entityName as string | undefined,
+              documentType: ((entry as any).documentType ?? 'observation') as 'observation' | 'mini-skill',
+              knowledgeLayer: ((entry as any).knowledgeLayer ?? 'project-truth') as KnowledgeLayer,
               rawTime: (entry as any).rawTime ?? '',
               _isCommandLog: (entry as any)._isCommandLog ?? false,
             }));

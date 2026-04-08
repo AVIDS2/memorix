@@ -140,14 +140,14 @@ export function mergeWithRRF(
     sorted = sorted.slice(0, options.limit);
   }
 
-  return sorted
-    .map(([key, rrfScore]) => {
-      const item = bestItem.get(key);
-      if (!item) return null;
-      // Spread the best-ranked entry and overwrite score with RRF value
-      return { ...item.entry, score: rrfScore };
-    })
-    .filter((e): e is IndexEntry => e !== null);
+  const merged: IndexEntry[] = [];
+  for (const [key, rrfScore] of sorted) {
+    const item = bestItem.get(key);
+    if (!item) continue;
+    // Spread the best-ranked entry and overwrite score with RRF value
+    merged.push({ ...item.entry, score: rrfScore });
+  }
+  return merged;
 }
 
 // ─── Debug Trace ─────────────────────────────────────────────────────────────

@@ -251,6 +251,7 @@ export async function archiveExpired(
         accessCount: access?.accessCount ?? 0,
         lastAccessedAt: access?.lastAccessedAt ?? '',
         status: obs.status ?? 'active',
+        source: obs.source ?? 'agent',
       };
     };
 

@@ -721,9 +721,10 @@ export async function prepareSearchIndex(): Promise<number> {
   vectorMissingIds.clear();
   if (isEmbeddingEnabled()) {
     for (const obs of observations) {
-      if ((obs.status ?? 'active') === 'active') {
-        vectorMissingIds.add(obs.id);
-      }
+      // Queue ALL statuses for vector backfill — status filtering happens at query time,
+      // not at index time. Omitting non-active observations here would permanently
+      // exclude resolved/archived memories from hybrid search after restart.
+      vectorMissingIds.add(obs.id);
     }
   }
 

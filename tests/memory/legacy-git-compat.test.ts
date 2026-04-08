@@ -102,7 +102,7 @@ describe('formatIndexTable: legacy source=git', () => {
     const entries = [makeEntry(1, { source: 'git' })];
     const out = formatIndexTable(entries);
     // Row should have git badge
-    const row = out.split('\n').find((l) => l.includes('| #1'));
+    const row = out.split('\n').find((l) => l.includes('| obs:1'));
     expect(row).toBeDefined();
     expect(row).toContain('git');
   });

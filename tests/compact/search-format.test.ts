@@ -26,18 +26,18 @@ function makeEntry(overrides: Partial<IndexEntry> & { id: number }): IndexEntry 
 // ── Core structure stability ─────────────────────────────────────────
 
 describe('Core structure stability', () => {
-  it('#ID is always present and parseable', () => {
+  it('Ref column uses canonical typed refs (obs:N)', () => {
     const entries = [
       makeEntry({ id: 12, sourceDetail: 'explicit' }),
       makeEntry({ id: 34, sourceDetail: 'hook' }),
     ];
     const output = formatIndexTable(entries, 'auth');
 
-    expect(output).toContain('#12');
-    expect(output).toContain('#34');
-    // IDs are in table rows
-    expect(output).toMatch(/\| #12 \|/);
-    expect(output).toMatch(/\| #34 \|/);
+    expect(output).toContain('obs:12');
+    expect(output).toContain('obs:34');
+    // IDs are in table rows as typed refs
+    expect(output).toMatch(/\| obs:12 \|/);
+    expect(output).toMatch(/\| obs:34 \|/);
   });
 
   it('title is preserved in output', () => {
@@ -104,7 +104,7 @@ describe('Src badge column', () => {
 
     expect(output).toContain('| Src |');
     // The entry without sourceDetail should show '-'
-    const rows = output.split('\n').filter((l) => l.includes('| #'));
+    const rows = output.split('\n').filter((l) => l.includes('| obs:'));
     expect(rows.some((r) => r.includes('| - |'))).toBe(true);
   });
 });

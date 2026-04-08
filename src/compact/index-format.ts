@@ -306,9 +306,9 @@ function getProgressiveDisclosureHint(hasProject: boolean): string {
 
 // ── Phase 3a display helpers ──────────────────────────────────────
 
-/** Format an entry reference using typed ref protocol: #42 for obs, S3 for skills */
+/** Format an entry reference as a canonical typed ref usable in memorix_detail */
 function formatEntryRef(entry: IndexEntry): string {
-  return (entry.documentType === 'mini-skill') ? `S${entry.id}` : `#${entry.id}`;
+  return (entry.documentType === 'mini-skill') ? `skill:${entry.id}` : `obs:${entry.id}`;
 }
 
 /** Short badge for knowledge layer */

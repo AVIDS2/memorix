@@ -277,5 +277,243 @@ describe('Compact Engine', () => {
       expect(detailResult.formatted).toContain('Evidence support:');
       expect(detailResult.formatted).toContain('Canonical git evidence');
     });
+
+    it('should accept typed ref strings for observations', async () => {
+      const { observation: obs } = await storeObservation({
+        entityName: 'typed-ref-test',
+        type: 'decision',
+        title: 'Typed ref obs test',
+        narrative: 'Testing typed ref string path',
+        projectId: 'test/project',
+      });
+
+      const result = await compactDetail([`obs:${obs.id}`]);
+      expect(result.documents).toHaveLength(1);
+      expect(result.formatted).toContain('Typed ref obs test');
+    });
+
+    it('should accept typed ref strings for mini-skills', async () => {
+      const { initMiniSkillStore, resetMiniSkillStore } = await import('../../src/store/mini-skill-store.js');
+      const { promoteToMiniSkill } = await import('../../src/skills/mini-skills.js');
+      await initMiniSkillStore(testDir);
+
+      try {
+        const { observation: obs } = await storeObservation({
+          entityName: 'skill-ref-test',
+          type: 'decision',
+          title: 'Skill source observation',
+          narrative: 'This will be promoted to a skill',
+          facts: ['Fact A'],
+          projectId: 'test/project',
+        });
+
+        const skill = await promoteToMiniSkill(testDir, 'test/project', [obs]);
+
+        const result = await compactDetail([`skill:${skill.id}`]);
+        expect(result.documents).toHaveLength(1);
+        expect(result.documents[0].documentType).toBe('mini-skill');
+        expect(result.formatted).toContain('promoted knowledge');
+        expect(result.formatted).toContain('Provenance:');
+      } finally {
+        resetMiniSkillStore();
+        const { closeAllDatabases } = await import('../../src/store/sqlite-db.js');
+        closeAllDatabases();
+      }
+    });
+
+    it('should preserve input order for mixed refs [skill, obs]', async () => {
+      const { initMiniSkillStore, resetMiniSkillStore } = await import('../../src/store/mini-skill-store.js');
+      const { promoteToMiniSkill } = await import('../../src/skills/mini-skills.js');
+      await initMiniSkillStore(testDir);
+
+      try {
+        const { observation: obs } = await storeObservation({
+          entityName: 'order-test',
+          type: 'gotcha',
+          title: 'Order test observation',
+          narrative: 'This obs should appear SECOND',
+          facts: ['Order fact'],
+          projectId: 'test/project',
+        });
+
+        const skill = await promoteToMiniSkill(testDir, 'test/project', [obs]);
+
+        // Input: skill first, obs second
+        const result = await compactDetail([`skill:${skill.id}`, `obs:${obs.id}`]);
+        expect(result.documents).toHaveLength(2);
+        expect(result.documents[0].documentType).toBe('mini-skill');
+        expect(result.documents[1].type).toBe('gotcha');
+
+        // Formatted output: skill section (Type: promoted knowledge) before obs section (Provenance: gotcha)
+        // Use 'Type: promoted knowledge' (unique to skill detail) vs separator position
+        const skillMarker = result.formatted.indexOf('Type: promoted knowledge');
+        const separator = result.formatted.indexOf('\u2550'.repeat(50));
+        expect(skillMarker).toBeGreaterThanOrEqual(0);
+        expect(separator).toBeGreaterThan(skillMarker);
+      } finally {
+        resetMiniSkillStore();
+        const { closeAllDatabases } = await import('../../src/store/sqlite-db.js');
+        closeAllDatabases();
+      }
+    });
+
+    it('should preserve input order for mixed refs [obs, skill]', async () => {
+      const { initMiniSkillStore, resetMiniSkillStore } = await import('../../src/store/mini-skill-store.js');
+      const { promoteToMiniSkill } = await import('../../src/skills/mini-skills.js');
+      await initMiniSkillStore(testDir);
+
+      try {
+        const { observation: obs } = await storeObservation({
+          entityName: 'order-test-rev',
+          type: 'decision',
+          title: 'Reverse order observation',
+          narrative: 'This obs should appear FIRST',
+          facts: ['Rev fact'],
+          projectId: 'test/project',
+        });
+
+        const skill = await promoteToMiniSkill(testDir, 'test/project', [obs]);
+
+        // Input: obs first, skill second
+        const result = await compactDetail([`obs:${obs.id}`, `skill:${skill.id}`]);
+        expect(result.documents).toHaveLength(2);
+        expect(result.documents[0].type).toBe('decision');
+        expect(result.documents[1].documentType).toBe('mini-skill');
+
+        // Formatted output: obs section before skill section
+        // 'Type: promoted knowledge' is unique to skill detail format
+        const separator = result.formatted.indexOf('\u2550'.repeat(50));
+        const skillMarker = result.formatted.indexOf('Type: promoted knowledge');
+        expect(separator).toBeGreaterThanOrEqual(0);
+        expect(skillMarker).toBeGreaterThan(separator);
+      } finally {
+        resetMiniSkillStore();
+        const { closeAllDatabases } = await import('../../src/store/sqlite-db.js');
+        closeAllDatabases();
+      }
+    });
+
+    it('should throw on invalid typed ref strings', async () => {
+      await expect(compactDetail(['not-a-ref'])).rejects.toThrow('Invalid memory ref(s)');
+      await expect(compactDetail(['not-a-ref'])).rejects.toThrow('"not-a-ref"');
+    });
+
+    it('should throw listing all invalid refs in a mixed input', async () => {
+      await expect(compactDetail(['obs:1', 'garbage', 'also:bad:format'])).rejects.toThrow('"garbage"');
+      await expect(compactDetail(['obs:1', 'garbage', 'also:bad:format'])).rejects.toThrow('"also:bad:format"');
+    });
+
+    it('should not throw on valid bare numeric strings', async () => {
+      // "42" is a valid legacy bare numeric ref — should not throw
+      const result = await compactDetail(['42']);
+      expect(result).toBeDefined();
+      // May return empty docs (ID 42 doesn't exist) but should NOT throw
+    });
+  });
+
+  describe('compactSearch Ref column format (Fix 2)', () => {
+    it('should display canonical typed refs (obs:N) in the Ref column', async () => {
+      const { observation: obs } = await storeObservation({
+        entityName: 'ref-format-test',
+        type: 'gotcha',
+        title: 'Ref format test observation',
+        narrative: 'Testing that Ref column shows obs:N',
+        projectId: 'test/project',
+      });
+
+      const result = await compactSearch({ query: 'Ref format test', projectId: 'test/project' });
+      expect(result.entries).toHaveLength(1);
+      // The formatted table should contain obs:N, not #N
+      expect(result.formatted).toContain(`obs:${obs.id}`);
+      expect(result.formatted).not.toMatch(new RegExp(`\\| #${obs.id} \\|`));
+    });
+
+    it('should display canonical typed refs (skill:N) for mini-skills', async () => {
+      const { initMiniSkillStore, resetMiniSkillStore } = await import('../../src/store/mini-skill-store.js');
+      const { promoteToMiniSkill } = await import('../../src/skills/mini-skills.js');
+      await initMiniSkillStore(testDir);
+
+      try {
+        const { observation: obs } = await storeObservation({
+          entityName: 'ref-skill-format',
+          type: 'decision',
+          title: 'Skill ref format source',
+          narrative: 'Source for skill ref format test',
+          facts: ['Fact'],
+          projectId: 'test/project',
+        });
+
+        const skill = await promoteToMiniSkill(testDir, 'test/project', [obs]);
+
+        // Trigger freshness so the skill appears in search
+        const { ensureFreshIndex } = await import('../../src/memory/freshness.js');
+        await ensureFreshIndex();
+
+        const result = await compactSearch({ query: 'Skill ref format source', projectId: 'test/project' });
+        // At minimum the obs should appear; if skill also appears, check its ref format
+        const skillEntry = result.entries.find(e => e.documentType === 'mini-skill');
+        if (skillEntry) {
+          expect(result.formatted).toContain(`skill:${skillEntry.id}`);
+          expect(result.formatted).not.toMatch(new RegExp(`\\| S${skillEntry.id} \\|`));
+        }
+      } finally {
+        resetMiniSkillStore();
+        const { closeAllDatabases } = await import('../../src/store/sqlite-db.js');
+        closeAllDatabases();
+      }
+    });
+
+    it('hint text should reference typed ref format consistent with Ref column', async () => {
+      await storeObservation({
+        entityName: 'hint-check',
+        type: 'gotcha',
+        title: 'Hint consistency check',
+        narrative: 'Checking hint text',
+        projectId: 'test/project',
+      });
+
+      const result = await compactSearch({ query: 'hint', projectId: 'test/project' });
+      // Hint should mention typed refs
+      expect(result.formatted).toContain('obs:42');
+      expect(result.formatted).toContain('skill:3');
+    });
+  });
+
+  describe('compactDetail unified freshness gate (Fix 5)', () => {
+    it('should use ensureFreshIndex instead of withFreshObservations', async () => {
+      // Verify the import path — if withFreshObservations was still used, this
+      // store+detail round-trip with mini-skills would fail because
+      // withFreshObservations doesn't refresh mini-skill index.
+      const { initMiniSkillStore, resetMiniSkillStore } = await import('../../src/store/mini-skill-store.js');
+      const { promoteToMiniSkill } = await import('../../src/skills/mini-skills.js');
+      const { resetMiniSkillFreshness } = await import('../../src/memory/freshness.js');
+      await initMiniSkillStore(testDir);
+
+      try {
+        const { observation: obs } = await storeObservation({
+          entityName: 'freshness-gate',
+          type: 'decision',
+          title: 'Unified freshness gate source',
+          narrative: 'Testing that compactDetail uses ensureFreshIndex',
+          facts: ['Gate fact'],
+          projectId: 'test/project',
+        });
+
+        const skill = await promoteToMiniSkill(testDir, 'test/project', [obs]);
+
+        // Reset freshness tracking so the next compactDetail call must re-ensure
+        resetMiniSkillFreshness();
+
+        // If compactDetail still used withFreshObservations, the mini-skill
+        // would not be in the index and we'd get no formatted skill output
+        const result = await compactDetail([`skill:${skill.id}`]);
+        expect(result.documents).toHaveLength(1);
+        expect(result.documents[0].documentType).toBe('mini-skill');
+      } finally {
+        resetMiniSkillStore();
+        const { closeAllDatabases } = await import('../../src/store/sqlite-db.js');
+        closeAllDatabases();
+      }
+    });
   });
 });

@@ -1457,30 +1457,43 @@ export async function createMemorixServer(
     {
       title: 'Memory Details',
       description:
-        'Fetch full observation details by ID — includes source kind (explicit memory / hook trace / git evidence), ' +
+        'Fetch full observation or mini-skill details — includes source kind (explicit memory / hook trace / git evidence), ' +
         'value category, and cross-references (~500-1000 tokens each). ' +
         'Always use memorix_search first to find relevant IDs, then fetch only what you need. ' +
-        'For global search results, prefer refs with projectId to avoid cross-project ID ambiguity.',
+        'Accepts typed refs from search results (e.g. "obs:42", "skill:3") via the typedRefs field, ' +
+        'or legacy numeric ids / object refs for backward compatibility.',
       inputSchema: {
-        ids: z.array(z.number()).optional().describe('Observation IDs to fetch (from memorix_search results)'),
+        ids: z.array(z.number()).optional().describe('Observation IDs to fetch (legacy, from memorix_search results)'),
         refs: z.array(
           z.object({
             id: z.number().describe('Observation ID'),
             projectId: z.string().optional().describe('Project ID for global-search disambiguation'),
           }),
         ).optional().describe('Explicit observation refs. Prefer this for global search results.'),
+        typedRefs: z.array(z.string()).optional().describe('Typed memory refs from search results, e.g. "obs:42", "skill:3", "obs:42@org/proj"'),
       },
     },
-    async ({ ids, refs }) => {
+    async ({ ids, refs, typedRefs }) => {
       // Defensive coercion: Claude Code CLI + GLM may send "[16]" instead of [16]
       const safeIds = coerceNumberArray(ids);
       const safeRefs = coerceObservationRefs(refs);
-      // Bare numeric IDs are scoped to the current project to prevent cross-project
-      // ambiguity. Explicit refs with projectId are respected as-is (global search).
-      const detailInput: Array<{ id: number; projectId?: string }> = safeRefs.length > 0
-        ? safeRefs
-        : safeIds.map(id => ({ id, projectId: project.id }));
-      const result = await compactDetail(detailInput);
+      const safeTypedRefs = coerceStringArray(typedRefs);
+
+      // Priority: typedRefs > refs > ids (each is a complete, homogeneous input path)
+      let result;
+      try {
+        if (safeTypedRefs.length > 0) {
+          // Pass typed ref strings directly — compactDetail handles parsing
+          result = await compactDetail(safeTypedRefs);
+        } else if (safeRefs.length > 0) {
+          result = await compactDetail(safeRefs);
+        } else {
+          // Bare numeric IDs are scoped to the current project
+          result = await compactDetail(safeIds.map(id => ({ id, projectId: project.id })));
+        }
+      } catch (err) {
+        return { content: [{ type: 'text' as const, text: err instanceof Error ? err.message : String(err) }], isError: true };
+      }
 
       return {
         content: [
@@ -1488,9 +1501,11 @@ export async function createMemorixServer(
             type: 'text' as const,
             text: result.documents.length > 0
               ? result.formatted
-              : safeRefs.length > 0
-                ? `No observations found for refs: ${safeRefs.map((ref) => `${ref.projectId ?? 'current'}#${ref.id}`).join(', ')}`
-                : `No observations found for IDs: ${safeIds.join(', ')}`,
+              : safeTypedRefs.length > 0
+                ? `No memories found for refs: ${safeTypedRefs.join(', ')}`
+                : safeRefs.length > 0
+                  ? `No memories found for refs: ${safeRefs.map((ref) => `${ref.projectId ?? 'current'}#${ref.id}`).join(', ')}`
+                  : `No memories found for IDs: ${safeIds.join(', ')}`,
           },
         ],
       };

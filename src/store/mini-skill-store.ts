@@ -307,6 +307,10 @@ export class MiniSkillGracefulDegrade implements MiniSkillStore {
 let _store: MiniSkillStore | null = null;
 let _storeDataDir: string | null = null;
 
+export function isMiniSkillStoreInitialized(): boolean {
+  return _store !== null;
+}
+
 export function getMiniSkillStore(): MiniSkillStore {
   if (!_store) {
     throw new Error('[memorix] MiniSkillStore not initialized — call initMiniSkillStore() first');

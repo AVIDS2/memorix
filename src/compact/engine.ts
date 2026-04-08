@@ -11,7 +11,8 @@
 
 import type { SearchOptions, IndexEntry, TimelineContext, MemorixDocument, ObservationRef, MemoryRef, MiniSkill, SourceSnapshot } from '../types.js';
 import { searchObservations, getTimeline, getObservationsByIds, makeOramaObservationId } from '../store/orama-store.js';
-import { getObservation, getAllObservations, withFreshObservations } from '../memory/observations.js';
+import { getObservation, getAllObservations } from '../memory/observations.js';
+import { ensureFreshIndex } from '../memory/freshness.js';
 import { formatIndexTable, formatTimeline, formatObservationDetail } from './index-format.js';
 import { countTextTokens } from './token-budget.js';
 import { resolveAliases } from '../project/aliases.js';
@@ -79,59 +80,73 @@ export async function compactDetail(
   formatted: string;
   totalTokens: number;
 }> {
-  // Parse all inputs into typed MemoryRefs
-  const parsedRefs: MemoryRef[] = (idsOrRefs as any[]).map((item) => {
-    if (typeof item === 'number') return { kind: 'obs' as const, id: item };
-    if (typeof item === 'string') {
-      try { return parseMemoryRef(item); } catch { return { kind: 'obs' as const, id: parseInt(item, 10) || 0 }; }
+  // Parse all inputs into typed MemoryRefs — fail-fast on invalid refs
+  const invalidRefs: string[] = [];
+  const parsedRefs: MemoryRef[] = [];
+  for (let i = 0; i < (idsOrRefs as any[]).length; i++) {
+    const item = (idsOrRefs as any[])[i];
+    if (typeof item === 'number') {
+      parsedRefs.push({ kind: 'obs' as const, id: item });
+    } else if (typeof item === 'string') {
+      try { parsedRefs.push(parseMemoryRef(item)); } catch { invalidRefs.push(item); }
+    } else if (item && typeof item === 'object' && 'id' in item && typeof item.id === 'number') {
+      parsedRefs.push({ kind: 'obs' as const, id: item.id, projectId: item.projectId });
+    } else {
+      invalidRefs.push(String(item));
     }
-    // ObservationRef object
-    if (item && typeof item === 'object' && 'id' in item) {
-      return { kind: 'obs' as const, id: item.id, projectId: item.projectId };
-    }
-    return { kind: 'obs' as const, id: 0 };
-  });
+  }
+  if (invalidRefs.length > 0) {
+    throw new Error(
+      `Invalid memory ref(s): ${invalidRefs.map(r => `"${r}"`).join(', ')}. ` +
+      `Expected: obs:<id>, skill:<id>, obs:<id>@<projectId>, or a bare number.`,
+    );
+  }
 
-  // Separate observation refs from skill refs
-  const obsRefs = parsedRefs.filter((r) => r.kind === 'obs');
-  const skillRefs = parsedRefs.filter((r) => r.kind === 'skill');
+  // Tag each ref with its original position so we can reassemble in order
+  const obsRefsIndexed = parsedRefs
+    .map((r, i) => ({ ref: r, idx: i }))
+    .filter((x) => x.ref.kind === 'obs');
+  const skillRefsIndexed = parsedRefs
+    .map((r, i) => ({ ref: r, idx: i }))
+    .filter((x) => x.ref.kind === 'skill');
+
+  // Per-slot results — keyed by original parsedRefs index
+  const slotDoc = new Map<number, MemorixDocument>();
+  const slotFormatted = new Map<number, string>();
 
   // --- Resolve mini-skill refs ---
-  const skillDocuments: MemorixDocument[] = [];
-  const skillFormattedParts: string[] = [];
-  if (skillRefs.length > 0) {
+  if (skillRefsIndexed.length > 0) {
     try {
       const store = getMiniSkillStore();
       const allSkills = await store.loadAll();
       const skillMap = new Map(allSkills.map((s) => [s.id, s]));
-      for (const ref of skillRefs) {
+      for (const { ref, idx } of skillRefsIndexed) {
         const skill = skillMap.get(ref.id);
         if (skill) {
-          const doc = miniSkillToDocument(skill);
-          skillDocuments.push(doc);
+          slotDoc.set(idx, miniSkillToDocument(skill));
           const obsLookup = (id: number) => getObservation(id);
           const status = resolveProvenanceStatus(skill, obsLookup);
-          skillFormattedParts.push(formatMiniSkillDetail(skill, status));
+          slotFormatted.set(idx, formatMiniSkillDetail(skill, status));
         } else {
-          skillFormattedParts.push(`Mini-skill S${ref.id} not found.`);
+          slotFormatted.set(idx, `Mini-skill S${ref.id} not found.`);
         }
       }
     } catch {
-      for (const ref of skillRefs) {
-        skillFormattedParts.push(`Mini-skill S${ref.id}: store unavailable.`);
+      for (const { ref, idx } of skillRefsIndexed) {
+        slotFormatted.set(idx, `Mini-skill S${ref.id}: store unavailable.`);
       }
     }
   }
 
   // --- Resolve observation refs (existing path) ---
-  const refs: ObservationRef[] = obsRefs.map((r) => ({ id: r.id, projectId: r.projectId }));
+  const refs: ObservationRef[] = obsRefsIndexed.map((x) => ({ id: x.ref.id, projectId: x.ref.projectId }));
 
   // Prefer in-memory observations for current-project reliability, but fall back
   // to the global Orama index so cross-project search results can still open.
   // Security: refs WITHOUT projectId are treated as ambiguous — the in-memory
   // lookup may return a wrong-project observation. Callers (memorix_detail tool)
   // should always inject projectId for bare numeric IDs.
-  await withFreshObservations(() => getAllObservations()); // freshness gate before observation reads
+  await ensureFreshIndex(); // unified freshness gate: observations + mini-skills
   const toRefKey = (ref: ObservationRef) => `${ref.projectId ?? ''}::${ref.id}`;
   const documentMap = new Map<string, MemorixDocument>();
   const missingRefs: ObservationRef[] = [];
@@ -172,10 +187,6 @@ export async function compactDetail(
       }
     }
   }
-
-  const documents = refs
-    .map((ref) => documentMap.get(toRefKey(ref)))
-    .filter((doc): doc is MemorixDocument => Boolean(doc));
 
   // Build cross-reference map for all requested observations
   const allObs = getAllObservations();
@@ -258,25 +269,36 @@ export async function compactDetail(
     if (refs.length > 0) crossRefMap.set(makeOramaObservationId(obs.projectId, obs.id), refs);
   }
 
-  const obsFormattedParts = documents.map((doc: MemorixDocument) => {
-    // Re-use in-memory observation to forward commitHash/relatedCommits for
-    // evidence basis display — these fields are not in MemorixDocument.
-    const obs = getObservation(doc.observationId, doc.projectId);
-    let detail = formatObservationDetail({
-      ...doc,
-      commitHash: obs?.commitHash,
-      relatedCommits: obs?.relatedCommits,
-    });
-    const refs = crossRefMap.get(doc.id);
-    if (refs && refs.length > 0) {
-      detail += '\n\nEvidence support:\n' + refs.join('\n');
+  // Store observation results into slots by original index
+  for (let i = 0; i < obsRefsIndexed.length; i++) {
+    const { idx } = obsRefsIndexed[i];
+    const ref = refs[i];
+    const doc = documentMap.get(toRefKey(ref));
+    if (doc) {
+      slotDoc.set(idx, doc);
+      const obs = getObservation(doc.observationId, doc.projectId);
+      let detail = formatObservationDetail({
+        ...doc,
+        commitHash: obs?.commitHash,
+        relatedCommits: obs?.relatedCommits,
+      });
+      const xrefs = crossRefMap.get(doc.id);
+      if (xrefs && xrefs.length > 0) {
+        detail += '\n\nEvidence support:\n' + xrefs.join('\n');
+      }
+      slotFormatted.set(idx, detail);
     }
-    return detail;
-  });
+  }
 
-  // Merge observation and skill formatted parts in original request order
-  const allFormattedParts = [...obsFormattedParts, ...skillFormattedParts];
-  const allDocuments = [...documents, ...skillDocuments];
+  // Reassemble in original parsedRefs order
+  const allDocuments: MemorixDocument[] = [];
+  const allFormattedParts: string[] = [];
+  for (let i = 0; i < parsedRefs.length; i++) {
+    const doc = slotDoc.get(i);
+    const fmt = slotFormatted.get(i);
+    if (doc) allDocuments.push(doc);
+    if (fmt) allFormattedParts.push(fmt);
+  }
 
   const formatted = allFormattedParts.join('\n\n' + '═'.repeat(50) + '\n\n');
   const totalTokens = countTextTokens(formatted);

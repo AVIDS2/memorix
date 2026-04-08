@@ -10,9 +10,9 @@
  */
 
 import { ensureFreshObservations } from './observations.js';
-import { getMiniSkillStore } from '../store/mini-skill-store.js';
+import { getMiniSkillStore, isMiniSkillStoreInitialized } from '../store/mini-skill-store.js';
 import { miniSkillToDocument } from '../skills/mini-skills.js';
-import { insert, remove, search, type AnyOrama } from '@orama/orama';
+import { insert, remove } from '@orama/orama';
 
 // ── Mini-skill index state ──────────────────────────────────────
 
@@ -25,6 +25,10 @@ let lastMiniSkillGeneration = -1;
  * Returns true if the index was refreshed.
  */
 export async function ensureFreshMiniSkills(): Promise<boolean> {
+  // Skip silently when the store has not been initialized yet —
+  // observation-only paths never call initMiniSkillStore().
+  if (!isMiniSkillStoreInitialized()) return false;
+
   try {
     const store = getMiniSkillStore();
     const wasStale = await store.ensureFresh();
@@ -35,37 +39,33 @@ export async function ensureFreshMiniSkills(): Promise<boolean> {
       lastMiniSkillGeneration = currentGen;
       return true;
     }
-  } catch {
-    // Best-effort — don't crash the read path on freshness failure
+  } catch (err) {
+    // Best-effort — don't crash the read path, but log for diagnostics
+    console.warn(`[memorix] ensureFreshMiniSkills failed: ${err instanceof Error ? err.message : err}`);
   }
   return false;
 }
 
+// Deterministic tracking of indexed mini-skill doc IDs — avoids empty-term search
+const indexedSkillDocIds = new Set<string>();
+
 /**
  * Reindex all mini-skills into the Orama database.
- * Removes existing mini-skill documents first, then re-inserts.
+ * Uses deterministic doc ID tracking instead of empty-term search to ensure
+ * all stale documents are removed reliably.
  */
 export async function reindexMiniSkills(): Promise<number> {
   // Lazy import to avoid circular dependency
   const { getDb } = await import('../store/orama-store.js');
   const database = await getDb();
 
-  // Remove existing mini-skill documents
-  try {
-    const existing = await search(database, {
-      term: '',
-      where: { documentType: 'mini-skill' },
-      limit: 10000,
-    });
-    for (const hit of existing.hits) {
-      try { await remove(database, hit.id); } catch { /* best-effort */ }
-    }
-  } catch {
-    // documentType filter may fail if no mini-skills were ever indexed —
-    // this is expected on first run. Fall through to insert.
+  // Remove previously tracked mini-skill documents by their known IDs
+  for (const docId of indexedSkillDocIds) {
+    try { await remove(database, docId); } catch { /* already removed or never existed */ }
   }
+  indexedSkillDocIds.clear();
 
-  // Load and index all mini-skills
+  // Load and index all current mini-skills
   const store = getMiniSkillStore();
   const skills = await store.loadAll();
   let indexed = 0;
@@ -74,6 +74,7 @@ export async function reindexMiniSkills(): Promise<number> {
     try {
       const doc = miniSkillToDocument(skill);
       await insert(database, doc);
+      indexedSkillDocIds.add(doc.id);
       indexed++;
     } catch (err) {
       console.error(`[memorix] Failed to index mini-skill ${skill.id}: ${err instanceof Error ? err.message : err}`);
@@ -117,4 +118,5 @@ export async function withFreshIndex<T>(fn: () => T | Promise<T>): Promise<T> {
  */
 export function resetMiniSkillFreshness(): void {
   lastMiniSkillGeneration = -1;
+  indexedSkillDocIds.clear();
 }

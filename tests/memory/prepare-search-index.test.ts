@@ -26,6 +26,18 @@ vi.mock('../../src/store/persistence.js', () => ({
   loadIdCounter: mockLoadIdCounter,
 }));
 
+vi.mock('../../src/store/obs-store.js', () => ({
+  initObservationStore: vi.fn().mockResolvedValue(undefined),
+  getObservationStore: () => ({
+    loadAll: mockLoadObservationsJson,
+    loadIdCounter: mockLoadIdCounter,
+    ensureFresh: vi.fn().mockResolvedValue(false),
+    close: vi.fn(),
+    getBackendName: () => 'json',
+    getGeneration: () => 0,
+  }),
+}));
+
 vi.mock('../../src/store/file-lock.js', () => ({
   withFileLock: async (_dir: string, fn: () => Promise<unknown>) => fn(),
 }));
@@ -103,7 +115,7 @@ describe('prepareSearchIndex', () => {
       ]),
     );
     expect(mockBatchGenerateEmbeddings).not.toHaveBeenCalled();
-    expect(getVectorMissingIds()).toEqual([1]);
+    expect(getVectorMissingIds()).toEqual([1, 2]);
   });
 
   it('leaves the backfill queue empty when vector search is not enabled', async () => {

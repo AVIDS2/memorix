@@ -28,12 +28,14 @@ const LLM_TIMEOUT_MAX_MS = 300_000;
 export function parseLLMTimeoutMs(raw: string | undefined): number {
   if (raw === undefined || raw.trim() === '') return LLM_TIMEOUT_DEFAULT_MS;
   const parsed = Number(raw);
-  if (!Number.isInteger(parsed) || Number.isNaN(parsed) || parsed < LLM_TIMEOUT_MIN_MS || parsed > LLM_TIMEOUT_MAX_MS) {
+  if (!Number.isInteger(parsed) || Number.isNaN(parsed)) {
     console.warn(
       `[memorix] MEMORIX_LLM_TIMEOUT_MS="${raw}" is invalid (must be a positive integer between ${LLM_TIMEOUT_MIN_MS}–${LLM_TIMEOUT_MAX_MS}ms). Using default ${LLM_TIMEOUT_DEFAULT_MS}ms.`,
     );
     return LLM_TIMEOUT_DEFAULT_MS;
   }
+  if (parsed < LLM_TIMEOUT_MIN_MS) return LLM_TIMEOUT_MIN_MS;
+  if (parsed > LLM_TIMEOUT_MAX_MS) return LLM_TIMEOUT_MAX_MS;
   return parsed;
 }
 

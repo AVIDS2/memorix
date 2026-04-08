@@ -6,7 +6,10 @@
  */
 
 import { getLLMApiKey, getLLMBaseUrl, getLLMModel } from '../config.js';
-import { isLLMEnabled } from '../llm/provider.js';
+import { isLLMEnabled, getLLMConfig } from '../llm/provider.js';
+
+// Providers that use the OpenAI-compatible /chat/completions Vision endpoint
+const OPENAI_COMPATIBLE_PROVIDERS = new Set(['openai', 'openrouter', 'custom']);
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -98,6 +101,15 @@ export async function analyzeImage(input: ImageInput): Promise<ImageAnalysisResu
     throw new Error(
       'LLM not configured for image analysis. ' +
       'Set MEMORIX_LLM_API_KEY or OPENAI_API_KEY.',
+    );
+  }
+
+  const config = getLLMConfig()!;
+  if (!OPENAI_COMPATIBLE_PROVIDERS.has(config.provider)) {
+    throw new Error(
+      `Image analysis requires an OpenAI-compatible provider (openai, openrouter, or custom). ` +
+      `Current provider "${config.provider}" uses a different API shape. ` +
+      `Set MEMORIX_LLM_PROVIDER=openai or configure an OpenAI-compatible base URL.`,
     );
   }
 

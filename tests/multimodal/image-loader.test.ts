@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach, beforeEach } from 'bun:test';
+import { describe, it, expect, afterEach, beforeEach } from 'vitest';
 import { analyzeImage } from '../../src/multimodal/image-loader.js';
 import { resetConfigCache } from '../../src/config.js';
 import { setLLMConfig } from '../../src/llm/provider.js';
@@ -86,6 +86,14 @@ describe('image-loader', () => {
     await expect(
       analyzeImage({ base64: 'dGVzdA==' }),
     ).rejects.toThrow('LLM not configured');
+  });
+
+  it('throws when provider is not OpenAI-compatible', async () => {
+    setLLMConfig({ provider: 'anthropic', apiKey: 'test-key', model: 'claude-3-5-haiku-latest', baseUrl: 'https://api.anthropic.com/v1' });
+
+    await expect(
+      analyzeImage({ base64: 'dGVzdA==' }),
+    ).rejects.toThrow('OpenAI-compatible');
   });
 
   it('passes custom prompt to Vision LLM', async () => {

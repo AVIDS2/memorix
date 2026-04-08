@@ -15,12 +15,24 @@ export interface LLMConfig {
   baseUrl?: string;
 }
 
+const LLM_TIMEOUT_DEFAULT_MS = 30_000;
+const LLM_TIMEOUT_MIN_MS = 1_000;
+const LLM_TIMEOUT_MAX_MS = 300_000;
+
 /**
- * LLM call timeout in milliseconds.
- * Configurable via MEMORIX_LLM_TIMEOUT_MS environment variable.
+ * Parse and validate MEMORIX_LLM_TIMEOUT_MS environment variable.
+ * - Must be a valid integer; non-numeric values fall back to the default.
+ * - Clamped to [1000, 300000] ms (1 s – 5 min).
  * Default: 30000ms (30s) — allows for proxy routing and cold starts.
  */
-const LLM_CALL_TIMEOUT_MS = parseInt(process.env.MEMORIX_LLM_TIMEOUT_MS || '30000', 10);
+export function parseLLMTimeoutMs(raw: string | undefined): number {
+  if (raw === undefined || raw.trim() === '') return LLM_TIMEOUT_DEFAULT_MS;
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || Number.isNaN(parsed)) return LLM_TIMEOUT_DEFAULT_MS;
+  return Math.min(Math.max(parsed, LLM_TIMEOUT_MIN_MS), LLM_TIMEOUT_MAX_MS);
+}
+
+const LLM_CALL_TIMEOUT_MS = parseLLMTimeoutMs(process.env.MEMORIX_LLM_TIMEOUT_MS);
 
 export interface LLMResponse {
   content: string;

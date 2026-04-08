@@ -16,6 +16,8 @@ describe('audio-loader', () => {
     delete process.env.MEMORIX_LLM_API_KEY;
     delete process.env.MEMORIX_API_KEY;
     delete process.env.MEMORIX_AUDIO_PROVIDER;
+    delete process.env.MEMORIX_WHISPER_API_KEY;
+    delete process.env.MEMORIX_WHISPER_BASE_URL;
     resetConfigCache();
   });
 
@@ -75,11 +77,43 @@ describe('audio-loader', () => {
     expect(result.provider).toBe('groq');
   });
 
+  it('uses MEMORIX_WHISPER_API_KEY over OPENAI_API_KEY', async () => {
+    let calledHeaders: Record<string, string> = {};
+    globalThis.fetch = (async (_url: any, opts: any) => {
+      calledHeaders = opts?.headers ?? {};
+      return new Response(JSON.stringify({ text: 'result' }), { status: 200 });
+    }) as typeof fetch;
+
+    process.env.OPENAI_API_KEY = 'wrong-key';
+    process.env.MEMORIX_WHISPER_API_KEY = 'whisper-specific-key';
+    const result = await transcribeAudio({ base64: Buffer.from('data').toString('base64') });
+
+    expect(calledHeaders['Authorization']).toBe('Bearer whisper-specific-key');
+    expect(result.text).toBe('result');
+  });
+
+  it('uses MEMORIX_WHISPER_BASE_URL for custom endpoint', async () => {
+    let calledUrl = '';
+    globalThis.fetch = (async (url: any) => {
+      calledUrl = String(url);
+      return new Response(JSON.stringify({ text: 'custom result' }), { status: 200 });
+    }) as typeof fetch;
+
+    process.env.OPENAI_API_KEY = 'test-key';
+    process.env.MEMORIX_WHISPER_BASE_URL = 'https://my-whisper.example.com/v1';
+    const result = await transcribeAudio({ base64: Buffer.from('data').toString('base64') });
+
+    expect(calledUrl).toContain('my-whisper.example.com');
+    expect(calledUrl).toContain('/audio/transcriptions');
+    expect(result.text).toBe('custom result');
+  });
+
   it('throws when no API key configured', async () => {
     // Ensure no API keys are set
     delete process.env.OPENAI_API_KEY;
     delete process.env.MEMORIX_LLM_API_KEY;
     delete process.env.MEMORIX_API_KEY;
+    delete process.env.MEMORIX_WHISPER_API_KEY;
     delete process.env.ANTHROPIC_API_KEY;
     delete process.env.OPENROUTER_API_KEY;
 

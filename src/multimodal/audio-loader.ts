@@ -6,9 +6,19 @@
  *
  * Supports: mp3, wav, m4a, webm, mp4, ogg, flac
  * Providers: OpenAI (whisper-1), Groq (whisper-large-v3)
+ *
+ * Configuration:
+ *   MEMORIX_WHISPER_API_KEY  — API key for Whisper transcription (preferred)
+ *   MEMORIX_WHISPER_BASE_URL — Custom Whisper-compatible endpoint (optional)
+ *   MEMORIX_AUDIO_PROVIDER   — Provider preset: 'openai' | 'groq' (default: openai)
+ *
+ * Falls back to OPENAI_API_KEY when MEMORIX_WHISPER_API_KEY is not set,
+ * since OpenAI Whisper is the default provider. Does NOT fall back to
+ * generic MEMORIX_LLM_API_KEY to avoid sending the wrong credential to
+ * a non-Whisper provider (e.g. Anthropic).
  */
 
-import { getLLMApiKey } from '../config.js';
+import type { ObservationType } from '../types.js';
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -49,6 +59,38 @@ const PROVIDERS = {
   },
 } as const;
 
+// ── Key Resolution ───────────────────────────────────────────────────
+
+/**
+ * Resolve the API key for Whisper transcription.
+ *
+ * Resolution order:
+ *   1. MEMORIX_WHISPER_API_KEY  (dedicated Whisper key — always correct)
+ *   2. OPENAI_API_KEY           (OpenAI Whisper default)
+ *
+ * Intentionally does NOT fall back to MEMORIX_LLM_API_KEY or MEMORIX_API_KEY:
+ * those may point to Anthropic or another non-Whisper provider, which would
+ * send the wrong credential to the /audio/transcriptions endpoint.
+ */
+function getWhisperApiKey(): string | undefined {
+  return (
+    process.env.MEMORIX_WHISPER_API_KEY ||
+    process.env.OPENAI_API_KEY
+  );
+}
+
+/**
+ * Resolve the base URL for the Whisper endpoint.
+ *
+ * Resolution order:
+ *   1. MEMORIX_WHISPER_BASE_URL (custom / self-hosted endpoint)
+ *   2. Provider preset default (api.openai.com or api.groq.com)
+ */
+function getWhisperBaseUrl(providerDefault: string): string {
+  const custom = process.env.MEMORIX_WHISPER_BASE_URL;
+  return custom ? custom.replace(/\/+$/, '') : providerDefault;
+}
+
 // ── Core Functions ───────────────────────────────────────────────────
 
 /**
@@ -57,31 +99,32 @@ const PROVIDERS = {
  * @throws Error if no API key configured or API returns error.
  */
 export async function transcribeAudio(input: AudioInput): Promise<TranscriptionResult> {
-  const apiKey = getLLMApiKey();
+  const apiKey = getWhisperApiKey();
   if (!apiKey) {
     throw new Error(
       'No API key configured for audio transcription. ' +
-      'Set MEMORIX_LLM_API_KEY, MEMORIX_API_KEY, or OPENAI_API_KEY.',
+      'Set MEMORIX_WHISPER_API_KEY or OPENAI_API_KEY.',
     );
   }
 
   const providerName = input.provider
     ?? (process.env.MEMORIX_AUDIO_PROVIDER as 'openai' | 'groq' | undefined)
     ?? 'openai';
-  const config = PROVIDERS[providerName] ?? PROVIDERS.openai;
+  const preset = PROVIDERS[providerName] ?? PROVIDERS.openai;
+  const baseUrl = getWhisperBaseUrl(preset.baseUrl);
 
   // Build multipart form
   const audioBuffer = Buffer.from(input.base64, 'base64');
   const blob = new Blob([audioBuffer], { type: input.mimeType ?? 'audio/mp3' });
   const form = new FormData();
   form.append('file', blob, input.filename ?? 'audio.mp3');
-  form.append('model', config.model);
+  form.append('model', preset.model);
   form.append('response_format', 'json');
   if (input.language) {
     form.append('language', input.language);
   }
 
-  const response = await fetch(`${config.baseUrl}/audio/transcriptions`, {
+  const response = await fetch(`${baseUrl}/audio/transcriptions`, {
     method: 'POST',
     headers: { 'Authorization': `Bearer ${apiKey}` },
     body: form,
@@ -114,7 +157,7 @@ export async function ingestAudio(
   input: AudioInput,
   storeFn: (obs: {
     entityName: string;
-    type: string;
+    type: ObservationType;
     title: string;
     narrative: string;
     concepts: string[];
@@ -130,7 +173,7 @@ export async function ingestAudio(
 
   const { observation } = await storeFn({
     entityName,
-    type: 'discovery',
+    type: 'discovery' as ObservationType,
     title: `Audio transcript: ${entityName}`,
     narrative: result.text,
     concepts: ['audio', 'transcript', ...(result.language ? [result.language] : [])],

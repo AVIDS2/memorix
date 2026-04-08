@@ -1,34 +1,75 @@
 # Memorix
 
-> Cross-Agent Memory Bridge for AI Coding Assistants
+> Open-source cross-agent memory layer for coding agents via MCP.
 
-Memorix is an open-source MCP (Model Context Protocol) server that provides persistent, cross-IDE memory for AI coding agents. It solves the problem of context loss when starting new chat sessions or switching between coding IDEs like Cursor, Windsurf, Claude Code, Codex, VS Code Copilot, Kiro, Antigravity, OpenCode, Trae, and Gemini CLI.
+Memorix is an open-source MCP server that gives coding agents persistent, project-aware memory across IDEs and sessions. It is compatible with Cursor, Claude Code, Codex, Windsurf, Gemini CLI, GitHub Copilot, Kiro, OpenCode, Antigravity, and Trae through MCP. It combines three layers in one system:
 
-## What Memorix Does
+- **Git Memory** for engineering truth from commits
+- **Reasoning Memory** for why decisions were made
+- **Cross-Agent Recall** so multiple IDEs and agents can share the same local memory base
 
-- Stores architecture decisions, bug fixes, gotchas, and project knowledge in a local knowledge graph
-- Shares memory across 10 AI coding IDEs via MCP protocol — knowledge created in Cursor is instantly available in Claude Code
-- Team collaboration: multi-agent coordination with file locks, task boards, and cross-IDE messaging
-- Auto-cleanup on startup: background retention archiving + intelligent deduplication (LLM or heuristic)
-- Syncs MCP server configs, agent rules, skills, and workflows between IDEs with one command
-- Mini-Skills: promote high-value observations to permanent skills that auto-inject at session start
-- Provides token-efficient 3-layer progressive disclosure search (~10x savings over full context dumps)
-- Runs 100% locally — no cloud, no API keys, no cost
+## What Memorix Is Best At
 
-## Installation
+- Turning `git commit` history into searchable memory with commit provenance and noise filtering
+- Preserving architecture decisions, bug fixes, gotchas, and reasoning across sessions
+- Sharing memory across Cursor, Windsurf, Claude Code, Codex, Copilot, Kiro, Antigravity, OpenCode, Trae, and Gemini CLI
+- Running a local memory control plane with search, detail, timeline, dashboard, retention, and team workflows
 
-```
+## Quick Start
+
+```bash
 npm install -g memorix
+memorix init
 memorix serve
 ```
 
-Add to any IDE's MCP config and restart. No dependencies required.
+Memorix uses:
 
-## Links
+- `memorix.yml` for behavior and project settings
+- `.env` for secrets such as API keys
 
-- Docs: [llms-full.txt](https://github.com/AVIDS2/memorix/blob/main/llms-full.txt)
-- GitHub: https://github.com/AVIDS2/memorix
-- npm: https://www.npmjs.com/package/memorix
-- Setup Guide: https://github.com/AVIDS2/memorix/blob/main/docs/SETUP.md
-- Architecture: https://github.com/AVIDS2/memorix/blob/main/docs/ARCHITECTURE.md
-- API Reference: https://github.com/AVIDS2/memorix/blob/main/docs/API_REFERENCE.md
+For the normal HTTP MCP + dashboard experience:
+
+```bash
+memorix background start
+```
+
+Use `memorix serve-http --port 3211` only when you want the same HTTP control plane in the foreground for debugging, manual supervision, or a custom port.
+
+Generic stdio MCP config:
+
+```json
+{
+  "mcpServers": {
+    "memorix": {
+      "command": "memorix",
+      "args": ["serve"]
+    }
+  }
+}
+```
+
+Generic HTTP MCP config:
+
+```json
+{
+  "mcpServers": {
+    "memorix": {
+      "transport": "http",
+      "url": "http://localhost:3211/mcp"
+    }
+  }
+}
+```
+
+In HTTP control-plane mode, agents should call `memorix_session_start` with `projectRoot` set to the **absolute path of the current workspace or repo root** when that path is available. Git remains the source of truth for the final project identity; `projectRoot` is the detection anchor that prevents cross-project drift.
+
+## Core Links
+
+- Primary AI operator guide: [docs/AGENT_OPERATOR_PLAYBOOK.md](https://github.com/AVIDS2/memorix/blob/main/docs/AGENT_OPERATOR_PLAYBOOK.md)
+- GitHub: [AVIDS2/memorix](https://github.com/AVIDS2/memorix)
+- npm: [memorix](https://www.npmjs.com/package/memorix)
+- Full AI-facing docs: [llms-full.txt](https://github.com/AVIDS2/memorix/blob/main/llms-full.txt)
+- Setup: [docs/SETUP.md](https://github.com/AVIDS2/memorix/blob/main/docs/SETUP.md)
+- Configuration: [docs/CONFIGURATION.md](https://github.com/AVIDS2/memorix/blob/main/docs/CONFIGURATION.md)
+- Git Memory: [docs/GIT_MEMORY.md](https://github.com/AVIDS2/memorix/blob/main/docs/GIT_MEMORY.md)

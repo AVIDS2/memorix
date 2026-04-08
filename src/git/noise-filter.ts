@@ -67,10 +67,8 @@ const NOISE_MESSAGE_PATTERNS: { pattern: RegExp; reason: string }[] = [
   { pattern: /^\.$/i, reason: 'empty message' },
   { pattern: /^(?:update|change|fix|edit|modify)\s*$/i, reason: 'non-descriptive message' },
 
-  // CI / release automation
+  // CI automation
   { pattern: /^\[(?:ci|cd)\s+skip\]/i, reason: 'CI skip marker' },
-  { pattern: /^(?:release|v?\d+\.\d+\.\d+)\s*$/i, reason: 'version-only commit' },
-  { pattern: /^chore\(release\)/i, reason: 'release automation' },
 
   // Generated
   { pattern: /^(?:auto-?generated|generated\s+by)\b/i, reason: 'auto-generated' },

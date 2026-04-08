@@ -16,11 +16,16 @@
  */
 
 import type { Observation } from '../types.js';
-import { loadObservationsJson, saveObservationsJson } from '../store/persistence.js';
-import { withFileLock } from '../store/file-lock.js';
+import { getObservationStore } from '../store/obs-store.js';
 
 /** Default similarity threshold for merging (0.0-1.0) */
 const DEFAULT_SIMILARITY_THRESHOLD = 0.45;
+
+/** Higher threshold for high-value types — only near-duplicates should merge */
+const HIGH_VALUE_SIMILARITY_THRESHOLD = 0.85;
+
+/** Types that require much higher similarity to merge (carry unique implementation detail) */
+const HIGH_VALUE_TYPES = new Set(['gotcha', 'decision', 'trade-off', 'reasoning', 'problem-solution']);
 
 /** Minimum cluster size to trigger consolidation */
 const MIN_CLUSTER_SIZE = 2;
@@ -104,7 +109,8 @@ export async function findConsolidationCandidates(
   const threshold = opts?.threshold ?? DEFAULT_SIMILARITY_THRESHOLD;
   const limit = opts?.limit ?? MAX_BATCH_SIZE;
 
-  const allObs = (await loadObservationsJson(projectDir)) as Observation[];
+  const store = getObservationStore();
+  const allObs = await store.loadAll();
   const projectObs = allObs
     .filter(o => o.projectId === projectId)
     .slice(0, limit);
@@ -123,6 +129,12 @@ export async function findConsolidationCandidates(
 
   for (const [, group] of groups) {
     if (group.length < MIN_CLUSTER_SIZE) continue;
+
+    // High-value types require much higher similarity to merge
+    const groupType = group[0].type;
+    const effectiveThreshold = HIGH_VALUE_TYPES.has(groupType)
+      ? Math.max(threshold, HIGH_VALUE_SIMILARITY_THRESHOLD)
+      : threshold;
 
     // Pre-compute fingerprints
     const fingerprints = group.map(obs => ({
@@ -145,7 +157,7 @@ export async function findConsolidationCandidates(
         if (clustered.has(fingerprints[j].obs.id)) continue;
 
         const sim = jaccardSimilarity(fingerprints[i].tokens, fingerprints[j].tokens);
-        if (sim >= threshold) {
+        if (sim >= effectiveThreshold) {
           cluster.push(fingerprints[j].obs);
           totalSim += sim;
           simCount++;
@@ -184,8 +196,10 @@ export async function executeConsolidation(
 ): Promise<ConsolidationResult> {
   const clusters = await findConsolidationCandidates(projectDir, projectId, opts);
 
+  const store = getObservationStore();
+
   if (clusters.length === 0) {
-    const allObs = (await loadObservationsJson(projectDir)) as Observation[];
+    const allObs = await store.loadAll();
     return {
       clustersFound: 0,
       observationsMerged: 0,
@@ -201,8 +215,8 @@ export async function executeConsolidation(
     merges: [],
   };
 
-  await withFileLock(projectDir, async () => {
-    const allObs = (await loadObservationsJson(projectDir)) as Observation[];
+  await store.atomic(async (tx) => {
+    const allObs = await tx.loadAll();
     const obsMap = new Map(allObs.map(o => [o.id, o]));
     const idsToRemove = new Set<number>();
 
@@ -279,7 +293,7 @@ export async function executeConsolidation(
 
     // Remove merged observations
     const remaining = allObs.filter(o => !idsToRemove.has(o.id));
-    await saveObservationsJson(projectDir, remaining);
+    await tx.saveAll(remaining);
 
     result.observationsAfter = remaining.filter(o => o.projectId === projectId).length;
   });

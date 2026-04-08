@@ -5,6 +5,7 @@
  *
  * Usage:
  *   memorix hooks install [--agent <name>] [--global]
+ *   memorix hooks preview [--agent <name>] [--global]
  *   memorix hooks uninstall [--agent <name>] [--global]
  *   memorix hooks status
  */
@@ -18,6 +19,7 @@ export default defineCommand({
   },
   subCommands: {
     install: () => import('./hooks-install.js').then((m) => m.default),
+    preview: () => import('./hooks-preview.js').then((m) => m.default),
     uninstall: () => import('./hooks-uninstall.js').then((m) => m.default),
     status: () => import('./hooks-status.js').then((m) => m.default),
   },

@@ -1,16 +1,20 @@
 import { describe, it, expect } from 'vitest';
+import { basename, dirname } from 'node:path';
 import { findGitInSubdirs, detectProject } from '../../src/project/detector.js';
 
 describe('findGitInSubdirs', () => {
+  const repoRoot = process.cwd();
+  const workspaceDir = dirname(repoRoot);
+  const repoName = basename(repoRoot);
+
   it('should find memorix/.git from parent workspace dir', () => {
-    // e:\my_idea_cc\my_copilot has no .git, but memorix subdir does
-    const result = findGitInSubdirs('e:\\my_idea_cc\\my_copilot');
+    const result = findGitInSubdirs(workspaceDir);
     expect(result).not.toBeNull();
-    expect(result!).toMatch(/memorix/i);
+    expect(result!).toContain(repoName);
   });
 
   it('should detect project after finding subdir .git', () => {
-    const subdir = findGitInSubdirs('e:\\my_idea_cc\\my_copilot');
+    const subdir = findGitInSubdirs(workspaceDir);
     expect(subdir).not.toBeNull();
     const project = detectProject(subdir!);
     expect(project).not.toBeNull();

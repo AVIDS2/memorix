@@ -15,6 +15,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { loadYamlConfig, type MemorixYamlConfig } from './config/yaml-loader.js';
+export { loadDotenv, resetDotenv, getLoadedEnvFiles } from './config/dotenv-loader.js';
 
 // ─── Types ───────────────────────────────────────────────────────────
 

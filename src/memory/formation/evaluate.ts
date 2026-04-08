@@ -25,6 +25,7 @@ const TYPE_WEIGHTS: Record<ObservationType, number> = {
   'decision':         0.80,
   'problem-solution': 0.75,
   'trade-off':        0.70,
+  'reasoning':        0.70,
   'why-it-exists':    0.65,
   'how-it-works':     0.60,
   'discovery':        0.55,

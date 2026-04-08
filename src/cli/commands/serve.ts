@@ -23,6 +23,7 @@ export default defineCommand({
     const { createMemorixServer } = await import('../../server.js');
     const { detectProject, findGitInSubdirs, isSystemDirectory } = await import('../../project/detector.js');
     const { homedir } = await import('node:os');
+    const { resolveServeProject } = await import('./serve-shared.js');
 
     // Auto-exit when stdio pipe breaks (IDE closed) to prevent orphaned processes
     process.stdin.on('end', () => {
@@ -33,74 +34,47 @@ export default defineCommand({
     // Priority: explicit --cwd arg > MEMORIX_PROJECT_ROOT env > INIT_CWD (npm lifecycle) > process.cwd()
     let safeCwd: string;
     try { safeCwd = process.cwd(); } catch { safeCwd = homedir(); }
-    let projectRoot = args.cwd || process.env.MEMORIX_PROJECT_ROOT || process.env.INIT_CWD || safeCwd;
-
-    console.error(`[memorix] Starting with cwd: ${projectRoot}`);
-
-    // Strict .git detection — no .git = not a project
-    let detected = detectProject(projectRoot);
-
-    // Multi-project workspace: cwd has no .git, scan immediate subdirs
-    if (!detected) {
-      const subGit = findGitInSubdirs(projectRoot);
-      if (subGit) {
-        console.error(`[memorix] Found .git in subdirectory: ${subGit}`);
-        projectRoot = subGit;
-        detected = detectProject(subGit);
-      }
-    }
-
-    // System directory fallback: IDEs often set cwd to their install dir or System32.
-    // Try: 1) last known project root, 2) home directory scan.
-    if (!detected && isSystemDirectory(projectRoot)) {
-      console.error(`[memorix] ⚠️ System directory detected: ${projectRoot}`);
-      console.error(`[memorix] Your IDE launched memorix from a non-workspace directory.`);
-      console.error(`[memorix] Fix: add --cwd to your MCP config, e.g. args: ["serve", "--cwd", "/path/to/project"]`);
-
-      // Try last known project root first (persisted from previous successful detection)
-      const { existsSync, readFileSync } = await import('node:fs');
-      const path = await import('node:path');
-      const lastRootFile = path.join(homedir(), '.memorix', 'last-project-root');
-      if (existsSync(lastRootFile)) {
-        try {
-          const lastRoot = readFileSync(lastRootFile, 'utf-8').trim();
-          if (lastRoot && existsSync(lastRoot)) {
-            detected = detectProject(lastRoot);
-            if (detected) {
-              console.error(`[memorix] Restored last known project: ${lastRoot}`);
-              projectRoot = lastRoot;
-            }
-          }
-        } catch { /* ignore read errors */ }
-      }
-
-      // Fall back to home directory scan
-      if (!detected) {
-        const home = homedir();
-        detected = detectProject(home);
-        if (detected) {
-          projectRoot = home;
-        } else {
-          const homeSubGit = findGitInSubdirs(home);
-          if (homeSubGit) {
-            console.error(`[memorix] Found .git in home subdirectory: ${homeSubGit}`);
-            projectRoot = homeSubGit;
-            detected = detectProject(homeSubGit);
-          }
+    const { existsSync, readFileSync } = await import('node:fs');
+    const path = await import('node:path');
+    const lastRootFile = path.join(homedir(), '.memorix', 'last-project-root');
+    let lastKnownProjectRoot: string | undefined;
+    if (existsSync(lastRootFile)) {
+      try {
+        const lastRoot = readFileSync(lastRootFile, 'utf-8').trim();
+        if (lastRoot && existsSync(lastRoot)) {
+          lastKnownProjectRoot = lastRoot;
         }
-      }
-
-      if (!detected) {
-        console.error(`[memorix] ❌ No git project found. Project will use untracked/ fallback.`);
-        console.error(`[memorix] To fix, add --cwd to your IDE's MCP config pointing to your project root.`);
-      }
+      } catch { /* ignore read errors */ }
     }
+
+    const resolution = resolveServeProject(
+      {
+        cwdArg: args.cwd,
+        envProjectRoot: process.env.MEMORIX_PROJECT_ROOT,
+        initCwd: process.env.INIT_CWD,
+        processCwd: safeCwd,
+        homeDir: homedir(),
+        lastKnownProjectRoot,
+      },
+      { detectProject, findGitInSubdirs, isSystemDirectory },
+    );
+
+    for (const message of resolution.messages) {
+      console.error(message);
+    }
+
+    if (!resolution.detectedProject) {
+      console.error(`[memorix] ❌ ${resolution.error}`);
+      process.exit(1);
+    }
+
+    const detected = resolution.detectedProject;
+    const projectRoot = resolution.projectRoot;
 
     // Persist successful project root for future system-directory fallback
     if (detected) {
       try {
         const { writeFileSync, mkdirSync } = await import('node:fs');
-        const path = await import('node:path');
         const memorixDir = path.join(homedir(), '.memorix');
         mkdirSync(memorixDir, { recursive: true });
         writeFileSync(path.join(memorixDir, 'last-project-root'), detected.rootPath, 'utf-8');
@@ -109,7 +83,6 @@ export default defineCommand({
 
     // Always register ALL tools BEFORE connecting transport.
     // This ensures tools/list returns the full tool set immediately on connect.
-    // createMemorixServer handles no-.git gracefully (untracked/ fallback).
     const { server, projectId, deferredInit, switchProject } = await createMemorixServer(projectRoot);
     const transport = new StdioServerTransport();
     await server.connect(transport);

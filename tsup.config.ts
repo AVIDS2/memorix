@@ -14,7 +14,7 @@ export default defineConfig([
     splitting: false,
     shims: true,
     define,
-    external: ['fastembed', '@huggingface/transformers'],
+    external: ['fastembed', '@huggingface/transformers', 'better-sqlite3'],
   },
   {
     entry: { 'cli/index': 'src/cli/index.ts' },
@@ -34,8 +34,12 @@ export default defineConfig([
       ].join('\n'),
     },
     // Bundle all dependencies into CLI for portable global install
-    noExternal: [/^(?!(fastembed|@huggingface\/transformers))/],
-    external: ['fastembed', '@huggingface/transformers'],
+    // ink/react externalized: they have WASM yoga-layout that can't be inlined
+    noExternal: [/^(?!(fastembed|@huggingface\/transformers|better-sqlite3|ink|react|yoga-wasm-web))/],
+    external: ['fastembed', '@huggingface/transformers', 'better-sqlite3', 'ink', 'react', 'react/jsx-runtime', 'yoga-wasm-web'],
+    esbuildOptions(options) {
+      options.jsx = 'automatic';
+    },
     // Copy dashboard static files after CLI build
     onSuccess: 'node scripts/copy-static.cjs',
   },

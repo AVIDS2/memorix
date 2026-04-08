@@ -1,31 +1,34 @@
 # ============================================================
-# memorix.yml — Memorix Platform Configuration
+# memorix.yml — Memorix Configuration
 # ============================================================
+#
+# Two files, two roles:
+#   memorix.yml  → behavior settings (this file)
+#   .env         → secrets only (API keys) — see .env.example
 #
 # Place this file at:
 #   - Project root (./memorix.yml)  — project-specific settings
-#   - User home (~/.memorix/memorix.yml) — global defaults
+#   - User home (~/.memorix/memorix.yml) — global defaults (advanced)
 #
-# Priority: env vars > project memorix.yml > user memorix.yml > config.json > defaults
+# Priority: env > .env > project memorix.yml > user memorix.yml > defaults
 #
 # Docs: https://github.com/AVIDS2/memorix
 
 # ── LLM Configuration ────────────────────────────────────────
 # Used for smart dedup, fact extraction, and memory formation.
 # Optional — Memorix works without LLM (free heuristic mode).
+# API key goes in .env as MEMORIX_LLM_API_KEY
 llm:
   provider: openai          # openai, anthropic, openrouter, or custom endpoint
   model: gpt-4o-mini
-  # apiKey: sk-...          # Or set MEMORIX_LLM_API_KEY env var
   # baseUrl: https://api.openai.com/v1
 
-# ── Embedding / Vector Search ────────────────────────────────
+# ── Embedding / Vector Search ──────────────────────────────
 # Enables semantic search alongside BM25 fulltext.
+# API key goes in .env as MEMORIX_EMBEDDING_API_KEY
 embedding:
   provider: off             # off (default), api, fastembed, transformers, auto
   # model: text-embedding-3-small
-  # apiKey: sk-...          # Or set MEMORIX_EMBEDDING_API_KEY env var
-  # baseUrl: https://api.openai.com/v1
   # dimensions: 1024        # Override auto-detected dimensions
 
 # ── Git-Memory Pipeline ──────────────────────────────────────

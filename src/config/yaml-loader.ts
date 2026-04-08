@@ -121,9 +121,10 @@ export function initProjectRoot(root: string): void {
  * Load memorix.yml from project root and/or user home.
  * Project-level overrides user-level (shallow merge per top-level key).
  */
-export function loadYamlConfig(projectRoot?: string): MemorixYamlConfig {
-  // Fall back to globally-initialized project root when no explicit root is given
-  const resolvedRoot = projectRoot ?? globalProjectRoot ?? null;
+export function loadYamlConfig(projectRoot?: string | null): MemorixYamlConfig {
+  // When null is explicitly passed, skip global fallback (user-level config only).
+  // When undefined (no arg), fall back to globally-initialized project root.
+  const resolvedRoot = projectRoot === null ? null : (projectRoot ?? globalProjectRoot ?? null);
 
   // Cache invalidation: if project root changed, reload
   if (cachedYamlConfig !== null && cachedProjectRoot === resolvedRoot) {

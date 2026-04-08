@@ -19,6 +19,8 @@ import {
   getImportanceLevel,
   archiveExpired,
 } from '../../src/memory/retention.js';
+import { initObservationStore, resetObservationStore, getObservationStore } from '../../src/store/obs-store.js';
+import { closeAllDatabases } from '../../src/store/sqlite-db.js';
 import type { MemorixDocument } from '../../src/types.js';
 
 function makeDoc(overrides: Partial<MemorixDocument> = {}): MemorixDocument {
@@ -37,6 +39,10 @@ function makeDoc(overrides: Partial<MemorixDocument> = {}): MemorixDocument {
     projectId: 'test',
     accessCount: 0,
     lastAccessedAt: '',
+    status: 'active',
+    source: 'agent',
+    sourceDetail: '',
+    valueCategory: '',
     ...overrides,
   };
 }
@@ -95,7 +101,8 @@ describe('Retention & Decay', () => {
       const oldDate = new Date();
       oldDate.setDate(oldDate.getDate() - 365);
       const doc = makeDoc({
-        type: 'decision', // high importance → immune
+        type: 'decision',
+        valueCategory: 'core', // core valueCategory → immune
         createdAt: oldDate.toISOString(),
       });
       const score = calculateRelevance(doc);
@@ -105,9 +112,14 @@ describe('Retention & Decay', () => {
   });
 
   describe('isImmune', () => {
-    it('should protect high importance observations', () => {
-      expect(isImmune(makeDoc({ type: 'gotcha' }))).toBe(true);
-      expect(isImmune(makeDoc({ type: 'decision' }))).toBe(true);
+    it('should not protect high importance observations by type alone (P10 tightening)', () => {
+      expect(isImmune(makeDoc({ type: 'gotcha' }))).toBe(false);
+      expect(isImmune(makeDoc({ type: 'decision' }))).toBe(false);
+    });
+
+    it('should protect core valueCategory observations', () => {
+      expect(isImmune(makeDoc({ type: 'gotcha', valueCategory: 'core' }))).toBe(true);
+      expect(isImmune(makeDoc({ type: 'discovery', valueCategory: 'core' }))).toBe(true);
     });
 
     it('should protect frequently accessed observations', () => {
@@ -178,7 +190,7 @@ describe('Retention & Decay', () => {
     it('should keep immune observations active regardless of age', () => {
       const oldDate = new Date();
       oldDate.setDate(oldDate.getDate() - 400);
-      const doc = makeDoc({ type: 'decision', createdAt: oldDate.toISOString() });
+      const doc = makeDoc({ type: 'decision', valueCategory: 'core', createdAt: oldDate.toISOString() });
       expect(getRetentionZone(doc)).toBe('active');
     });
   });
@@ -206,7 +218,7 @@ describe('Retention & Decay', () => {
       const oldDate = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000);
 
       const docs = [
-        makeDoc({ observationId: 1, type: 'decision', createdAt: now.toISOString() }), // active + immune
+        makeDoc({ observationId: 1, type: 'decision', valueCategory: 'core', createdAt: now.toISOString() }), // active + immune (core)
         makeDoc({ observationId: 2, type: 'session-request', createdAt: oldDate.toISOString() }), // archive-candidate
         makeDoc({ observationId: 3, type: 'how-it-works', createdAt: now.toISOString() }), // active
       ];
@@ -226,6 +238,8 @@ describe('Retention & Decay', () => {
     });
 
     afterEach(async () => {
+      resetObservationStore();
+      closeAllDatabases();
       await fs.rm(tmpDir, { recursive: true, force: true });
     });
 
@@ -240,18 +254,19 @@ describe('Retention & Decay', () => {
       ];
 
       await fs.writeFile(path.join(tmpDir, 'observations.json'), JSON.stringify(observations));
+      await initObservationStore(tmpDir);
 
       const result = await archiveExpired(tmpDir, now);
       expect(result.archived).toBe(1);
       expect(result.remaining).toBe(1);
 
-      // Active observations should remain
-      const remaining = JSON.parse(await fs.readFile(path.join(tmpDir, 'observations.json'), 'utf-8'));
-      expect(remaining).toHaveLength(1);
-      expect(remaining[0].id).toBe(2);
-
-      // Archived observations should be in archive file
-      const archived = JSON.parse(await fs.readFile(path.join(tmpDir, 'observations.archived.json'), 'utf-8'));
+      // All observations remain in store, but archived ones have status='archived'
+      const all = await getObservationStore().loadAll();
+      expect(all).toHaveLength(2);
+      const active = all.filter((o: any) => (o.status ?? 'active') === 'active');
+      const archived = all.filter((o: any) => o.status === 'archived');
+      expect(active).toHaveLength(1);
+      expect(active[0].id).toBe(2);
       expect(archived).toHaveLength(1);
       expect(archived[0].id).toBe(1);
     });
@@ -263,30 +278,53 @@ describe('Retention & Decay', () => {
       ];
 
       await fs.writeFile(path.join(tmpDir, 'observations.json'), JSON.stringify(observations));
+      await initObservationStore(tmpDir);
 
       const result = await archiveExpired(tmpDir, now);
       expect(result.archived).toBe(0);
       expect(result.remaining).toBe(1);
     });
 
-    it('should append to existing archive file', async () => {
+    it('should set status=archived on expired observations (in-place)', async () => {
       const now = new Date();
       const expiredDate = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000).toISOString();
 
-      // Pre-existing archive
-      await fs.writeFile(path.join(tmpDir, 'observations.archived.json'), JSON.stringify([{ id: 0, title: 'Previously archived' }]));
-
       const observations = [
         { id: 1, entityName: 'a', type: 'session-request', title: 'Expired', narrative: '', facts: [], filesModified: [], concepts: [], tokens: 10, createdAt: expiredDate, projectId: 'test' },
+        { id: 2, entityName: 'b', type: 'decision', title: 'Active', narrative: '', facts: [], filesModified: [], concepts: [], tokens: 10, createdAt: now.toISOString(), projectId: 'test' },
       ];
       await fs.writeFile(path.join(tmpDir, 'observations.json'), JSON.stringify(observations));
+      await initObservationStore(tmpDir);
 
       await archiveExpired(tmpDir, now);
 
-      const archived = JSON.parse(await fs.readFile(path.join(tmpDir, 'observations.archived.json'), 'utf-8'));
-      expect(archived).toHaveLength(2);
-      expect(archived[0].id).toBe(0); // previously archived
-      expect(archived[1].id).toBe(1); // newly archived
+      // Both observations stay in the store; expired one has status='archived'
+      const all = await getObservationStore().loadAll();
+      expect(all).toHaveLength(2);
+      const obs1 = all.find((o: any) => o.id === 1);
+      expect(obs1?.status).toBe('archived');
+      const obs2 = all.find((o: any) => o.id === 2);
+      expect((obs2 as any)?.status ?? 'active').toBe('active');
+    });
+
+    it('should respect access-based immunity when accessMap is provided', async () => {
+      const now = new Date();
+      const expiredDate = new Date(now.getTime() - 200 * 24 * 60 * 60 * 1000).toISOString();
+
+      const observations = [
+        { id: 1, entityName: 'a', type: 'decision', title: 'Frequently accessed', narrative: '', facts: [], filesModified: [], concepts: [], tokens: 10, createdAt: expiredDate, projectId: 'test' },
+      ];
+
+      await fs.writeFile(path.join(tmpDir, 'observations.json'), JSON.stringify(observations));
+      await initObservationStore(tmpDir);
+
+      const accessMap = new Map([
+        [1, { accessCount: 3, lastAccessedAt: '' }],
+      ]);
+
+      const result = await archiveExpired(tmpDir, now, accessMap);
+      expect(result.archived).toBe(0);
+      expect(result.remaining).toBe(1);
     });
   });
 });

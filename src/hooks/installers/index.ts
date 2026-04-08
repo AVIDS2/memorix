@@ -111,6 +111,31 @@ function generateGeminiConfig(): Record<string, unknown> {
 }
 
 /**
+ * Generate Gemini CLI hook config (standalone CLI tool).
+ * Same format as Antigravity but the command includes --agent gemini-cli
+ * so the hook normalizer can reliably identify the source agent.
+ */
+function generateGeminiCLIConfig(): Record<string, unknown> {
+  const cmd = `${resolveHookCommand()} hook --agent gemini-cli`;
+
+  function entry(name: string, desc: string) {
+    return {
+      matcher: '*',
+      hooks: [{ name, type: 'command', command: cmd, description: desc }],
+    };
+  }
+
+  return {
+    hooks: {
+      SessionStart: [entry('memorix-session-start', 'Load memorix context at session start')],
+      AfterTool: [entry('memorix-after-tool', 'Record tool usage in memorix')],
+      AfterAgent: [entry('memorix-after-agent', 'Record agent response in memorix')],
+      PreCompress: [entry('memorix-pre-compress', 'Save context before compression')],
+    },
+  };
+}
+
+/**
  * Generate Windsurf Cascade hooks config.
  */
 function generateWindsurfConfig(): Record<string, unknown> {
@@ -218,9 +243,12 @@ function generateKiroHookFiles(): Array<{ filename: string; content: string }> {
  * The plugin hooks into OpenCode events and pipes JSON to `memorix hook`
  * via Bun.spawn, matching the same stdin/stdout protocol used by all agents.
  */
+const OPENCODE_PLUGIN_VERSION = 3;
+
 function generateOpenCodePlugin(): string {
   return `/**
- * Memorix — Cross-Agent Memory Bridge Plugin for OpenCode
+ * Memorix - Cross-Agent Memory Bridge Plugin for OpenCode
+ * @generated-version ${OPENCODE_PLUGIN_VERSION}
  *
  * Automatically captures session context and tool usage,
  * piping events to \`memorix hook\` for cross-agent memory persistence.
@@ -243,7 +271,7 @@ export const MemorixPlugin = async ({ project, client, $, directory, worktree })
       // cat | pipe works through .cmd wrappers; < redirect does NOT
       await $\`cat \${tmpPath} | memorix hook\`.quiet().nothrow();
     } catch {
-      // Silent — hooks must never break the agent
+      // Silent - hooks must never break the agent
     } finally {
       try { const { unlinkSync } = await import('node:fs'); unlinkSync(tmpPath); } catch {}
     }
@@ -268,14 +296,20 @@ export const MemorixPlugin = async ({ project, client, $, directory, worktree })
         await runHook({
           agent: 'opencode',
           hook_event_name: 'file.edited',
-          file_path: event.properties?.path ?? '',
+          file_path: event.properties?.file ?? '',
           cwd: directory,
         });
       } else if (event.type === 'command.executed') {
         await runHook({
           agent: 'opencode',
           hook_event_name: 'command.executed',
-          command: event.properties?.command ?? '',
+          command: event.properties?.name ?? '',
+          cwd: directory,
+        });
+      } else if (event.type === 'session.compacted') {
+        await runHook({
+          agent: 'opencode',
+          hook_event_name: 'session.compacted',
           cwd: directory,
         });
       }
@@ -292,12 +326,18 @@ export const MemorixPlugin = async ({ project, client, $, directory, worktree })
       });
     },
 
-    /** Inject memorix context into compaction prompt */
+    /** Structured continuation prompt for compaction (prompt-guided, not tool-automated) */
     'experimental.session.compacting': async (input, output) => {
       output.context.push(
-        '## Memorix Cross-Agent Memory\\n' +
-        'Before compacting, use memorix_store to save important discoveries, decisions, and gotchas.\\n' +
-        'After compacting, use memorix_session_start to reload session context, then memorix_search for specific topics.'
+        '## Continuation Context (Memorix)\\n' +
+        'Include the following in the compaction summary so the next continuation can resume effectively:\\n' +
+        '- **Current task**: what was being worked on and its status\\n' +
+        '- **Key decisions**: architectural or design choices made this session\\n' +
+        '- **Active files**: files currently being modified or reviewed\\n' +
+        '- **Blockers**: any unresolved issues or errors\\n' +
+        '- **Next steps**: what should happen next\\n' +
+        '- **Active entities**: module names, config keys, or concepts in play\\n' +
+        '- **Memorix context**: if memorix tools were used, note relevant entity names and memory topics for later retrieval'
       );
     },
   };
@@ -332,6 +372,8 @@ export function getProjectConfigPath(agent: AgentName, projectRoot: string): str
       return path.join(projectRoot, '.opencode', 'plugins', 'memorix.js');
     case 'antigravity':
       return path.join(projectRoot, '.gemini', 'settings.json');
+    case 'gemini-cli':
+      return path.join(projectRoot, '.gemini', 'settings.json');
     default:
       return path.join(projectRoot, '.memorix', 'hooks.json');
   }
@@ -351,6 +393,8 @@ export function getGlobalConfigPath(agent: AgentName): string {
     case 'cursor':
       return path.join(home, '.cursor', 'hooks.json');
     case 'antigravity':
+      return path.join(home, '.gemini', 'settings.json');
+    case 'gemini-cli':
       return path.join(home, '.gemini', 'settings.json');
     case 'opencode':
       return path.join(home, '.config', 'opencode', 'plugins', 'memorix.js');
@@ -410,11 +454,21 @@ export async function detectInstalledAgents(): Promise<AgentName[]> {
     agents.push('codex');
   } catch { /* not installed */ }
 
-  // Check for Antigravity / Gemini CLI (both share ~/.gemini/)
-  const geminiDir = path.join(home, '.gemini');
+  // Check for Antigravity (Google's AI IDE)
+  // Antigravity creates ~/.gemini/antigravity/ for its own configs (mcp_config.json, etc.)
+  const antigravityDir = path.join(home, '.gemini', 'antigravity');
   try {
-    await fs.access(geminiDir);
+    await fs.access(antigravityDir);
     agents.push('antigravity');
+  } catch { /* not installed */ }
+
+  // Check for Gemini CLI (standalone CLI tool)
+  // Detected by the presence of the `gemini` binary on PATH
+  try {
+    const { execSync } = await import('node:child_process');
+    const whereCmd = process.platform === 'win32' ? 'where gemini' : 'which gemini';
+    execSync(whereCmd, { stdio: 'ignore' });
+    agents.push('gemini-cli');
   } catch { /* not installed */ }
 
   // Check for OpenCode
@@ -464,6 +518,9 @@ export async function installHooks(
     case 'antigravity':
       generated = generateGeminiConfig();
       break;
+    case 'gemini-cli':
+      generated = generateGeminiCLIConfig();
+      break;
     case 'kiro':
       generated = 'kiro-multi'; // handled separately below
       break;
@@ -504,7 +561,7 @@ export async function installHooks(
       return {
         agent,
         configPath: pluginPath,
-        events: ['session_start', 'session_end', 'post_tool', 'post_edit', 'pre_compact'],
+        events: ['session_start', 'session_end', 'post_tool', 'post_edit', 'post_compact', 'post_command'],
         generated: { note: 'OpenCode plugin installed at ' + pluginPath },
       };
     }
@@ -568,7 +625,7 @@ export async function installHooks(
     }
 
     // Clean up stale keys from older memorix versions
-    if (agent === 'antigravity') {
+    if (agent === 'antigravity' || agent === 'gemini-cli') {
       const h = merged.hooks as Record<string, unknown> | undefined;
       if (h && typeof h.enabled === 'boolean') delete h.enabled;
       const t = merged.tools as Record<string, unknown> | undefined;
@@ -608,6 +665,9 @@ export async function installHooks(
       events.push('session_start', 'user_prompt', 'post_edit', 'post_tool', 'pre_compact', 'session_end');
       break;
     case 'antigravity':
+      events.push('session_start', 'post_tool', 'post_response', 'pre_compact');
+      break;
+    case 'gemini-cli':
       events.push('session_start', 'post_tool', 'post_response', 'pre_compact');
       break;
     case 'kiro':
@@ -656,6 +716,10 @@ async function installAgentRules(agent: AgentName, projectRoot: string): Promise
       rulesPath = path.join(projectRoot, 'AGENTS.md');
       break;
     case 'antigravity':
+      // Antigravity reads context from GEMINI.md by default
+      rulesPath = path.join(projectRoot, 'GEMINI.md');
+      break;
+    case 'gemini-cli':
       // Gemini CLI reads context from GEMINI.md by default (like Codex reads AGENTS.md)
       // See: context.fileName defaults to ["GEMINI.md", "CONTEXT.md"]
       rulesPath = path.join(projectRoot, 'GEMINI.md');
@@ -671,7 +735,7 @@ async function installAgentRules(agent: AgentName, projectRoot: string): Promise
   try {
     await fs.mkdir(path.dirname(rulesPath), { recursive: true });
 
-    if (agent === 'codex' || agent === 'opencode' || agent === 'antigravity') {
+    if (agent === 'codex' || agent === 'opencode' || agent === 'antigravity' || agent === 'gemini-cli') {
       // For shared context files (AGENTS.md / GEMINI.md), append rather than overwrite
       try {
         const existing = await fs.readFile(rulesPath, 'utf-8');
@@ -733,14 +797,20 @@ alwaysApply: true
 
 You have access to Memorix memory tools. Follow these rules to maintain persistent context across sessions.
 
-## RULE 1: Session Start — Load Context
+## RULE 1: Session Start — Bind Project, Then Load Context
 
 At the **beginning of every conversation**, BEFORE responding to the user:
 
-1. Call \`memorix_session_start\` to get the previous session summary and key memories (this is a direct read, not a search — no fragmentation risk)
+1. Call \`memorix_session_start\` with parameters:
+   - \`agent\`: your agent identifier (e.g. "windsurf", "codex", "antigravity")
+   - \`projectRoot\`: the **absolute path** of the current workspace or repo root
+   This binds the session to the correct project. Without \`projectRoot\`, memories may go to the wrong bucket.
 2. Then call \`memorix_search\` with a query related to the user's first message for additional context
 3. If search results are found, use \`memorix_detail\` to fetch the most relevant ones
 4. Reference relevant memories naturally — the user should feel you "remember" them
+
+**Important:** \`projectRoot\` is a detection anchor only; Git remains the source of truth for project identity.
+In HTTP control-plane mode (\`memorix serve-http\` / \`memorix background start\`), explicit \`projectRoot\` binding is required for correct multi-project isolation.
 
 ## RULE 2: Store Important Context
 
@@ -874,15 +944,16 @@ export async function uninstallHooks(
  */
 export async function getHookStatus(
   projectRoot: string,
-): Promise<Array<{ agent: AgentName; installed: boolean; configPath: string }>> {
-  const results: Array<{ agent: AgentName; installed: boolean; configPath: string }> = [];
-  const agents: AgentName[] = ['claude', 'copilot', 'windsurf', 'cursor', 'kiro', 'codex', 'antigravity', 'opencode', 'trae'];
+): Promise<Array<{ agent: AgentName; installed: boolean; outdated: boolean; configPath: string }>> {
+  const results: Array<{ agent: AgentName; installed: boolean; outdated: boolean; configPath: string }> = [];
+  const agents: AgentName[] = ['claude', 'copilot', 'windsurf', 'cursor', 'kiro', 'codex', 'antigravity', 'gemini-cli', 'opencode', 'trae'];
 
   for (const agent of agents) {
     const projectPath = getProjectConfigPath(agent, projectRoot);
     const globalPath = getGlobalConfigPath(agent);
 
     let installed = false;
+    let outdated = false;
     let usedPath = projectPath;
 
     try {
@@ -896,7 +967,18 @@ export async function getHookStatus(
       } catch { /* not installed */ }
     }
 
-    results.push({ agent, installed, configPath: usedPath });
+    if (installed && agent === 'opencode') {
+      try {
+        const content = await fs.readFile(usedPath, 'utf-8');
+        const match = content.match(/@generated-version\s+(\d+)/);
+        const installedVersion = match ? parseInt(match[1], 10) : 0;
+        outdated = installedVersion < OPENCODE_PLUGIN_VERSION;
+      } catch {
+        outdated = false;
+      }
+    }
+
+    results.push({ agent, installed, outdated, configPath: usedPath });
   }
 
   return results;

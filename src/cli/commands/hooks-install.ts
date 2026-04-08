@@ -130,6 +130,7 @@ function getAgentLabel(agent: string): string {
     opencode: 'OpenCode',
     kiro: 'Kiro',
     antigravity: 'Antigravity',
+    'gemini-cli': 'Gemini CLI',
     trae: 'Trae',
   };
   return labels[agent] || agent;
@@ -144,6 +145,7 @@ function getAgentHint(agent: string): string {
     opencode: '.opencode/hooks.json',
     kiro: '.kiro/hooks.json',
     antigravity: '.gemini/settings.json',
+    'gemini-cli': '.gemini/settings.json',
     trae: '.trae/hooks.json',
   };
   return hints[agent] || '';

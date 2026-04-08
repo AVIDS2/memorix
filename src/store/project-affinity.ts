@@ -109,7 +109,7 @@ export function calculateProjectAffinity(
   
   // No project reference found — this memory might be about a different project
   // Apply penalty but don't completely filter (might still be relevant)
-  return { score: 0.3, level: 'low', reason: 'no_project_reference' };
+  return { score: 0.65, level: 'low', reason: 'no_project_reference' };
 }
 
 /**

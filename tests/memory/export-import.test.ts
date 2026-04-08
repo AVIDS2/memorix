@@ -7,6 +7,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 vi.mock('../../src/embedding/provider.js', () => ({
   getEmbeddingProvider: async () => null,
   isVectorSearchAvailable: async () => false,
+  isEmbeddingExplicitlyDisabled: () => true,
   resetProvider: () => {},
 }));
 
@@ -17,13 +18,19 @@ import { exportAsJson, exportAsMarkdown, importFromJson } from '../../src/memory
 import { storeObservation, initObservations, getObservationCount } from '../../src/memory/observations.js';
 import { resetDb } from '../../src/store/orama-store.js';
 import { startSession, endSession } from '../../src/memory/session.js';
+import { initObservationStore, resetObservationStore } from '../../src/store/obs-store.js';
+import { initSessionStore, resetSessionStore } from '../../src/store/session-store.js';
 
 let testDir: string;
 const PROJECT_ID = 'test/export-import';
 
 beforeEach(async () => {
   testDir = await fs.mkdtemp(path.join(os.tmpdir(), 'memorix-export-'));
+  resetObservationStore();
+  resetSessionStore();
   await resetDb();
+  await initObservationStore(testDir);
+  await initSessionStore(testDir);
   await initObservations(testDir);
 });
 
@@ -137,6 +144,10 @@ describe('Import', () => {
     const exported = await exportAsJson(testDir, PROJECT_ID);
 
     const targetDir = await fs.mkdtemp(path.join(os.tmpdir(), 'memorix-import-'));
+    resetObservationStore();
+    resetSessionStore();
+    await initObservationStore(targetDir);
+    await initSessionStore(targetDir);
     await initObservations(targetDir);
 
     const result = await importFromJson(targetDir, exported);

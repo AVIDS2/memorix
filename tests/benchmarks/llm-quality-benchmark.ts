@@ -4,20 +4,44 @@
  * 用真实 observations + 真实 LLM API 测量：
  * 1. 压缩率：narrative 压缩前后 token 数对比
  * 2. Reranking：LLM 重排 vs 原始排序的差异
+ * 3. CJK 检索：中文 query 找英文 memory 的召回率
  *
  * 运行: npx tsx tests/benchmarks/llm-quality-benchmark.ts
+ *
+ * 自动从 Memorix 配置读取 provider/model，不再硬编码。
  */
 
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { getLLMApiKey, getLLMBaseUrl, getLLMModel, getLLMProvider, loadDotenv } from '../../src/config.ts';
+import { initProjectRoot } from '../../src/config/yaml-loader.ts';
 
-const DATA_DIR = path.join(os.homedir(), '.memorix', 'data');
-const API_BASE = process.env.MEMORIX_LLM_BASE_URL || 'https://api.rubbyai.com';
-const API_KEY = process.env.MEMORIX_LLM_API_KEY || '';
+const DATA_DIR = process.env.MEMORIX_DATA_DIR || path.join(os.homedir(), '.memorix', 'data');
+
+// ── Bootstrap config: load .env + set project root (same as production) ──
+const projectRoot = process.cwd();
+initProjectRoot(projectRoot);
+loadDotenv(projectRoot);
+
+// ── Resolve live LLM config from Memorix config chain ─────────────
+const PROVIDER_DEFAULTS: Record<string, { baseUrl: string; model: string }> = {
+  openai: { baseUrl: 'https://api.openai.com/v1', model: 'gpt-4.1-nano' },
+  anthropic: { baseUrl: 'https://api.anthropic.com/v1', model: 'claude-3-5-haiku-latest' },
+  openrouter: { baseUrl: 'https://openrouter.ai/api/v1', model: 'openai/gpt-4.1-nano' },
+  custom: { baseUrl: 'http://localhost:11434/v1', model: 'llama3' },
+};
+const provider = getLLMProvider() || 'openai';
+const defs = PROVIDER_DEFAULTS[provider] ?? PROVIDER_DEFAULTS.openai;
+
+const API_KEY = getLLMApiKey() || '';
+const API_BASE = getLLMBaseUrl(defs.baseUrl);
+const API_MODEL = getLLMModel(defs.model);
 
 if (!API_KEY) {
-  console.error('❌ Set MEMORIX_LLM_API_KEY env var');
+  console.error('❌ No LLM API key found.');
+  console.error('  Checked: MEMORIX_LLM_API_KEY, memorix.yml, config.json, OPENAI_API_KEY');
+  console.error('  Run `memorix init` or set MEMORIX_LLM_API_KEY to configure.');
   process.exit(1);
 }
 
@@ -34,7 +58,7 @@ async function callLLM(system: string, user: string): Promise<string> {
       'Authorization': `Bearer ${API_KEY}`,
     },
     body: JSON.stringify({
-      model: 'gpt-5.4',
+      model: API_MODEL,
       messages: [
         { role: 'system', content: system },
         { role: 'user', content: user },
@@ -255,18 +279,119 @@ async function benchmarkReranking() {
 
 // ── Main ─────────────────────────────────────────────────────────
 
+// ── CJK Retrieval Benchmark ─────────────────────────────────────
+
+const CJK_EXPANSION_PROMPT = `You rewrite coding-memory search queries for retrieval.
+Rules:
+- Input may be Chinese, Japanese, or Korean
+- Output one short English search phrase only
+- Keep the technical meaning
+- Prefer wording that would match engineering notes or memory titles
+- No bullets, no JSON, no explanation, no quotes
+- 4 to 12 words is ideal`;
+
+async function benchmarkCJKRetrieval() {
+  console.log('\n' + '═'.repeat(60));
+  console.log('📊 CJK RETRIEVAL BENCHMARK');
+  console.log('═'.repeat(60));
+
+  const raw = await fs.readFile(path.join(DATA_DIR, 'observations.json'), 'utf-8');
+  const all = JSON.parse(raw) as any[];
+  const active = all.filter((o: any) => o.status !== 'archived' && o.title);
+
+  // CJK queries paired with expected English memory keywords
+  const cjkQueries = [
+    { zh: '语义检索为什么变弱', expect: ['semantic', 'retrieval', 'search', 'vector', 'weak'] },
+    { zh: '冷启动搜索性能', expect: ['cold', 'start', 'search', 'performance', 'startup'] },
+    { zh: 'CORS跨域安全', expect: ['cors', 'origin', 'security', 'header', 'access'] },
+    { zh: '配置泄漏问题', expect: ['config', 'leak', 'yaml', 'project', 'startup'] },
+    { zh: '内存去重策略', expect: ['dedup', 'consolidat', 'merge', 'memory', 'redundant'] },
+    { zh: 'git hook自动提交', expect: ['git', 'hook', 'commit', 'auto'] },
+    { zh: '嵌入向量缓存', expect: ['embedding', 'cache', 'vector', 'api'] },
+  ];
+
+  let totalRecall = 0;
+  let totalExpansionMs = 0;
+  let totalSearchMs = 0;
+  let testedCount = 0;
+
+  for (const { zh, expect: keywords } of cjkQueries) {
+    // Step 1: Expand CJK query to English
+    const t0 = Date.now();
+    let expanded: string;
+    try {
+      expanded = await callLLM(CJK_EXPANSION_PROMPT, zh);
+      expanded = expanded.trim().split('\n')[0].replace(/^[-*]\s*/, '').replace(/^["'`]+|["'`]+$/g, '');
+    } catch (err) {
+      console.log(`  ❌ "${zh}" — expansion failed: ${(err as Error).message}`);
+      continue;
+    }
+    const expansionMs = Date.now() - t0;
+    totalExpansionMs += expansionMs;
+
+    // Step 2: BM25-style search with expanded query
+    const t1 = Date.now();
+    const searchTerms = `${zh} ${expanded}`.toLowerCase().split(/\s+/).filter(t => t.length > 1);
+    const scored = active.map((o: any) => {
+      const text = `${o.title} ${o.narrative || ''} ${(o.facts || []).join(' ')} ${(o.concepts || []).join(' ')}`.toLowerCase();
+      let matchScore = 0;
+      for (const term of searchTerms) {
+        if (text.includes(term)) matchScore++;
+      }
+      return { id: o.id, title: o.title, score: matchScore };
+    }).filter(o => o.score > 0).sort((a, b) => b.score - a.score).slice(0, 5);
+    const searchMs = Date.now() - t1;
+    totalSearchMs += searchMs;
+
+    // Step 3: Check recall — do top-5 results contain expected keywords?
+    const top5Text = scored.map(s => s.title).join(' ').toLowerCase();
+    const hits = keywords.filter(k => top5Text.includes(k.toLowerCase()));
+    const recall = hits.length / keywords.length;
+    totalRecall += recall;
+    testedCount++;
+
+    const recallPct = (recall * 100).toFixed(0);
+    const icon = recall >= 0.6 ? '✅' : recall >= 0.3 ? '⚠️' : '❌';
+    console.log(`\n  ${icon} "${zh}" → "${expanded}"`);
+    console.log(`     expansion: ${expansionMs}ms | search: ${searchMs}ms | recall: ${recallPct}% (${hits.length}/${keywords.length})`);
+    if (scored.length > 0) {
+      console.log(`     top-1: "${scored[0].title}"`);
+    } else {
+      console.log(`     ⚠️ No results found`);
+    }
+  }
+
+  const avgRecall = testedCount > 0 ? (totalRecall / testedCount * 100).toFixed(1) : 'N/A';
+  console.log('\n' + '─'.repeat(60));
+  console.log(`📈 CJK Retrieval Results:`);
+  console.log(`   Queries tested: ${testedCount}`);
+  console.log(`   Avg recall@5: ${avgRecall}%`);
+  console.log(`   Avg expansion latency: ${testedCount > 0 ? (totalExpansionMs / testedCount).toFixed(0) : 'N/A'}ms`);
+  console.log(`   Avg search latency: ${testedCount > 0 ? (totalSearchMs / testedCount).toFixed(0) : 'N/A'}ms`);
+  console.log(`   Bottleneck: ${totalExpansionMs > totalSearchMs * 10 ? 'expansion (LLM)' : 'balanced'}`);
+  console.log('─'.repeat(60));
+
+  return { avgRecall: parseFloat(avgRecall as string) || 0, testedCount };
+}
+
 async function main() {
   console.log('🔬 Memorix LLM Quality Benchmark');
-  console.log(`API: ${API_BASE}`);
+  console.log(`Provider: ${provider}`);
+  console.log(`Model: ${API_MODEL}`);
+  console.log(`Base URL: ${API_BASE}`);
   console.log(`Data: ${DATA_DIR}`);
+  console.log(`Config: initProjectRoot(${projectRoot}) + loadDotenv()`);
 
   const compression = await benchmarkCompression();
   await benchmarkReranking();
+  const cjk = await benchmarkCJKRetrieval();
 
   console.log('\n' + '═'.repeat(60));
   console.log('📋 FINAL SUMMARY');
   console.log('═'.repeat(60));
+  console.log(`Provider: ${API_MODEL} @ ${API_BASE}`);
   console.log(`Compression: ↓${compression.reduction}% token reduction (${compression.success}/${compression.samples} successful)`);
+  console.log(`CJK recall@5: ${cjk.avgRecall}% across ${cjk.testedCount} queries`);
 }
 
 main().catch(console.error);

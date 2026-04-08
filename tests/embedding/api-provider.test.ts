@@ -11,6 +11,8 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 const mockFetch = vi.fn();
 vi.stubGlobal('fetch', mockFetch);
 
+const mockDiskFiles = new Map<string, string>();
+
 // Mock Headers for consistent behavior
 function mockHeaders(entries: [string, string][] = []): { get: (key: string) => string | null } {
   const map = new Map(entries);
@@ -19,8 +21,13 @@ function mockHeaders(entries: [string, string][] = []): { get: (key: string) => 
 
 // Mock fs for disk cache
 vi.mock('node:fs/promises', () => ({
-  readFile: vi.fn().mockRejectedValue(new Error('no cache')),
-  writeFile: vi.fn().mockResolvedValue(undefined),
+  readFile: vi.fn(async (path: string) => {
+    if (!mockDiskFiles.has(path)) throw new Error('no cache');
+    return mockDiskFiles.get(path);
+  }),
+  writeFile: vi.fn(async (path: string, content: string) => {
+    mockDiskFiles.set(path, content);
+  }),
   mkdir: vi.fn().mockResolvedValue(undefined),
 }));
 
@@ -59,6 +66,7 @@ describe('API Embedding Provider', () => {
   beforeEach(() => {
     vi.resetAllMocks();
     vi.stubGlobal('fetch', mockFetch);
+    mockDiskFiles.clear();
     process.env = {
       ...originalEnv,
       MEMORIX_EMBEDDING: 'api',
@@ -104,6 +112,22 @@ describe('API Embedding Provider', () => {
       expect(provider.dimensions).toBe(512);
       const body = JSON.parse(mockFetch.mock.calls[0][1].body);
       expect(body.dimensions).toBe(512);
+    });
+
+    it('should not reuse cached probe dimensions across requested dimension changes', async () => {
+      process.env.MEMORIX_EMBEDDING_DIMENSIONS = '512';
+      mockFetch.mockResolvedValueOnce(mockEmbeddingResponse([makeVector(512)]));
+
+      const shortenedProvider = await APIEmbeddingProvider.create();
+      expect(shortenedProvider.dimensions).toBe(512);
+
+      delete process.env.MEMORIX_EMBEDDING_DIMENSIONS;
+      mockFetch.mockResolvedValueOnce(mockEmbeddingResponse([makeVector(1536)]));
+
+      const nativeProvider = await APIEmbeddingProvider.create();
+
+      expect(nativeProvider.dimensions).toBe(1536);
+      expect(mockFetch).toHaveBeenCalledTimes(2);
     });
 
     it('should fall back to LLM API key if embedding key not set', async () => {
@@ -185,6 +209,31 @@ describe('API Embedding Provider', () => {
       expect(mockFetch).toHaveBeenCalledTimes(2); // probe + 1 embed only
       expect(result1).toEqual(result2);
     });
+
+    it('should namespace cache entries by model config to avoid stale dimension reuse', async () => {
+      const smallVec = makeVector(1536);
+      mockFetch.mockResolvedValueOnce(mockEmbeddingResponse([smallVec]));
+      const smallProvider = await APIEmbeddingProvider.create();
+
+      const cachedSmallEmbed = makeVector(1536, 0.5);
+      mockFetch.mockResolvedValueOnce(mockEmbeddingResponse([cachedSmallEmbed]));
+      const firstResult = await smallProvider.embed('shared-text');
+      expect(firstResult.length).toBe(1536);
+
+      process.env.MEMORIX_EMBEDDING_MODEL = 'text-embedding-3-large';
+      const largeProbe = makeVector(3072, 0.2);
+      mockFetch.mockResolvedValueOnce(mockEmbeddingResponse([largeProbe], 'text-embedding-3-large'));
+      const largeProvider = await APIEmbeddingProvider.create();
+
+      const largeEmbed = makeVector(3072, 0.7);
+      mockFetch.mockResolvedValueOnce(mockEmbeddingResponse([largeEmbed], 'text-embedding-3-large'));
+
+      const secondResult = await largeProvider.embed('shared-text');
+
+      expect(secondResult).toEqual(largeEmbed);
+      expect(secondResult.length).toBe(3072);
+      expect(mockFetch).toHaveBeenCalledTimes(4);
+    });
   });
 
   describe('batch embed', () => {
@@ -245,6 +294,64 @@ describe('API Embedding Provider', () => {
 
       expect(results).toHaveLength(2);
       expect(mockFetch).toHaveBeenCalledTimes(callCount); // No new calls
+    });
+
+    it('should respect DashScope batch size limits', async () => {
+      process.env.MEMORIX_EMBEDDING_BASE_URL = 'https://dashscope.aliyuncs.com/compatible-mode/v1';
+      process.env.MEMORIX_EMBEDDING_MODEL = 'text-embedding-v4';
+
+      const probeVec = makeVector(1024);
+      mockFetch.mockResolvedValueOnce(mockEmbeddingResponse([probeVec], 'text-embedding-v4'));
+      const provider = await APIEmbeddingProvider.create();
+
+      const inputs = Array.from({ length: 12 }, (_, i) => `dashscope-batch-${i}`);
+      const chunk1 = Array.from({ length: 10 }, (_, i) => makeVector(1024, 0.01 * (i + 1)));
+      const chunk2 = Array.from({ length: 2 }, (_, i) => makeVector(1024, 0.2 + 0.01 * i));
+
+      mockFetch
+        .mockResolvedValueOnce(mockEmbeddingResponse(chunk1, 'text-embedding-v4'))
+        .mockResolvedValueOnce(mockEmbeddingResponse(chunk2, 'text-embedding-v4'));
+
+      const results = await provider.embedBatch(inputs);
+
+      expect(results).toHaveLength(12);
+      expect(results[0]).toEqual(chunk1[0]);
+      expect(results[9]).toEqual(chunk1[9]);
+      expect(results[10]).toEqual(chunk2[0]);
+      expect(results[11]).toEqual(chunk2[1]);
+
+      const firstBatchBody = JSON.parse(mockFetch.mock.calls[1][1].body);
+      const secondBatchBody = JSON.parse(mockFetch.mock.calls[2][1].body);
+      expect(firstBatchBody.input).toHaveLength(10);
+      expect(secondBatchBody.input).toHaveLength(2);
+    });
+
+    it('should split and retry when provider rejects an oversized batch', async () => {
+      const probeVec = makeVector(1536);
+      mockFetch.mockResolvedValueOnce(mockEmbeddingResponse([probeVec]));
+      const provider = await APIEmbeddingProvider.create();
+
+      const oversizeError = {
+        ok: false,
+        status: 400,
+        headers: mockHeaders(),
+        text: () => Promise.resolve('batch size is invalid, it should not be larger than 2'),
+      };
+
+      mockFetch
+        .mockResolvedValueOnce(oversizeError)
+        .mockResolvedValueOnce(mockEmbeddingResponse([makeVector(1536, 0.11), makeVector(1536, 0.12)]))
+        .mockResolvedValueOnce(mockEmbeddingResponse([makeVector(1536, 0.21), makeVector(1536, 0.22)]));
+
+      const results = await provider.embedBatch(['split-a', 'split-b', 'split-c', 'split-d']);
+
+      expect(results).toHaveLength(4);
+      expect(results.every((item) => Array.isArray(item) && item.length === 1536)).toBe(true);
+
+      const firstRetryBody = JSON.parse(mockFetch.mock.calls[2][1].body);
+      const secondRetryBody = JSON.parse(mockFetch.mock.calls[3][1].body);
+      expect(firstRetryBody.input).toEqual(['split-a', 'split-b']);
+      expect(secondRetryBody.input).toEqual(['split-c', 'split-d']);
     });
   });
 

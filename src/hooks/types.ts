@@ -12,11 +12,12 @@ export type HookEvent =
   | 'post_command'
   | 'post_tool'
   | 'pre_compact'
+  | 'post_compact'
   | 'session_end'
   | 'post_response';
 
 /** Supported agent identifiers */
-export type AgentName = 'claude' | 'copilot' | 'windsurf' | 'cursor' | 'kiro' | 'codex' | 'antigravity' | 'opencode' | 'trae';
+export type AgentName = 'claude' | 'copilot' | 'windsurf' | 'cursor' | 'kiro' | 'codex' | 'antigravity' | 'gemini-cli' | 'opencode' | 'trae';
 
 /** Normalized hook input — agent-agnostic */
 export interface NormalizedHookInput {

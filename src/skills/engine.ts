@@ -45,6 +45,8 @@ interface ObsData {
     concepts?: string[];
     filesModified?: string[];
     createdAt?: string;
+    status?: string;
+    source?: 'agent' | 'git' | 'manual';
 }
 
 /** Entity cluster for skill generation */
@@ -69,6 +71,7 @@ const SKILLS_DIRS: Record<AgentTarget, string[]> = {
     'claude-code': ['.claude/skills'],
     copilot: ['.github/skills', '.copilot/skills'],
     antigravity: ['.agent/skills', '.gemini/skills', '.gemini/antigravity/skills'],
+    'gemini-cli': [],
     kiro: ['.kiro/skills'],
     opencode: ['.opencode/skills'],
     trae: ['.trae/skills'],
@@ -84,6 +87,31 @@ const MIN_OBS_FOR_SKILL = 3;
 
 /** Minimum score for skill generation */
 const MIN_SCORE_FOR_SKILL = 5;
+const LOW_SIGNAL_TITLE_PATTERNS = [
+    /^ran:/i,
+    /^command:/i,
+];
+const LOW_SIGNAL_ENTITY_PATTERNS = [
+    /^(?:bash|sh|cmd|powershell|pwsh|node|npm|npx|pnpm|yarn|gh|git)$/i,
+    /^mcp[_-]/i,
+];
+const COMMAND_TRACE_PATTERNS = [
+    /\bcommand:\b/i,
+    /\b2>&1\b/i,
+    /\bselect-string\b/i,
+    /\bget-content\b/i,
+    /\bget-command\b/i,
+    /\bpowershell\b/i,
+    /\bcmd(?:\.exe)?\b/i,
+    /\bnpm\b/i,
+    /\bnpx\b/i,
+    /\bpnpm\b/i,
+    /\byarn\b/i,
+    /\bgit\b/i,
+    /\bgh\b/i,
+    /\|/,
+    /&&/,
+];
 
 export class SkillsEngine {
     private skipGlobal: boolean;
@@ -155,8 +183,10 @@ export class SkillsEngine {
      * rich knowledge accumulation.
      */
     generateFromObservations(observations: ObsData[]): SkillFull[] {
+        const candidates = observations.filter((obs) => !this.isLowSignalObservation(obs));
+
         // 1. Cluster observations by entity
-        const clusters = this.clusterByEntity(observations);
+        const clusters = this.clusterByEntity(candidates);
 
         // 2. Score each cluster for skill-worthiness
         for (const cluster of clusters.values()) {
@@ -215,6 +245,31 @@ export class SkillsEngine {
     private parseDescription(content: string): string {
         const match = content.match(/^---[\s\S]*?description:\s*["']?(.+?)["']?\s*$/m);
         return match ? match[1] : '';
+    }
+
+    private isLowSignalObservation(obs: ObsData): boolean {
+        if (obs.status === 'archived') return true;
+
+        const title = obs.title.trim();
+        const narrative = obs.narrative.trim();
+        const entity = (obs.entityName || '').trim();
+        const haystack = `${title}\n${narrative}`;
+
+        if (LOW_SIGNAL_TITLE_PATTERNS.some((pattern) => pattern.test(title))) {
+            return true;
+        }
+
+        // Generic command/tool entities don't form useful project skills, even if
+        // the observation came from git ingestion rather than an agent trace.
+        if (LOW_SIGNAL_ENTITY_PATTERNS.some((pattern) => pattern.test(entity))) {
+            return true;
+        }
+
+        if (obs.source !== 'git' && COMMAND_TRACE_PATTERNS.filter((pattern) => pattern.test(haystack)).length >= 2) {
+            return true;
+        }
+
+        return false;
     }
 
     private clusterByEntity(observations: ObsData[]): Map<string, EntityCluster> {

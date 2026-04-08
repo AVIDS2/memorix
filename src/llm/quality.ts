@@ -104,7 +104,7 @@ export async function compressNarrative(
 
 /** Minimal search result for reranking */
 export interface RerankCandidate {
-  id: number;
+  id: string;
   title: string;
   type: string;
   score: number;
@@ -120,11 +120,12 @@ Rules:
 - Consider semantic relevance, not just keyword overlap
 - Gotchas and decisions related to the query topic should rank higher
 - Recent problem-solutions for the same component should rank higher
+- Command or audit-log memories (titles starting with "Ran:" or "Command:") should rank lower for natural-language questions unless the query is explicitly about commands, scripts, or audit history
 - Generic or loosely related memories should rank lower
 - Output ONLY a JSON array of IDs in order of relevance (most relevant first)
 - Include ALL candidate IDs, just reorder them
 
-Example output: [42, 15, 87, 3, 21]`;
+Example output: ["r1", "r3", "r2"]`;
 
 /**
  * Rerank search results using LLM contextual understanding.
@@ -161,9 +162,9 @@ export async function rerankResults(
       content = content.replace(/^```(?:json)?\s*/, '').replace(/\s*```$/, '');
     }
 
-    const rankedIds = JSON.parse(content) as number[];
+    const rankedIds = JSON.parse(content) as string[];
 
-    // Validate: must be an array of numbers matching our candidates
+    // Validate: must be an array of IDs matching our candidates
     if (!Array.isArray(rankedIds) || rankedIds.length === 0) {
       return { reranked: candidates, usedLLM: true };
     }
@@ -171,7 +172,7 @@ export async function rerankResults(
     // Build reranked list preserving original scores for display
     const idMap = new Map(toRerank.map(c => [c.id, c]));
     const reranked: RerankCandidate[] = [];
-    const seen = new Set<number>();
+    const seen = new Set<string>();
 
     // Add IDs in LLM-reranked order
     for (const id of rankedIds) {

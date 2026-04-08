@@ -2,8 +2,11 @@
  * Background Auto-Updater
  *
  * Checks npm registry for newer versions and silently installs updates.
- * Non-blocking — runs entirely in the background after MCP server starts.
+ * Non-blocking — runs entirely in the background after server/TUI starts.
  * Rate-limited to once per 24 hours via a cache file.
+ *
+ * Default mode: 'install' (silent auto-update).
+ * Disable via MEMORIX_AUTO_UPDATE=off or memorix.yml auto-update: off.
  */
 
 import { execFile } from 'node:child_process';
@@ -18,16 +21,20 @@ const REGISTRY_URL = `https://registry.npmjs.org/${PACKAGE_NAME}/latest`;
 const CACHE_DIR = join(homedir(), '.memorix');
 const CACHE_FILE = join(CACHE_DIR, 'update-check.json');
 
-interface UpdateCache {
+export interface UpdateCache {
   lastCheck: number;
   latestVersion: string;
   lastAutoUpdate?: number;
+  lastAutoUpdateStatus?: 'success' | 'failed';
+  lastAutoUpdateError?: string;
+  updatedFrom?: string;
+  updatedTo?: string;
 }
 
 /**
  * Get the current installed version from package.json.
  */
-function getCurrentVersion(): string {
+export function getCurrentVersion(): string {
   try {
     const require = createRequire(import.meta.url);
     const pkg = require('../../package.json');
@@ -40,7 +47,7 @@ function getCurrentVersion(): string {
 /**
  * Compare two semver strings. Returns true if remote > local.
  */
-function isNewer(remote: string, local: string): boolean {
+export function isNewer(remote: string, local: string): boolean {
   const r = remote.split('.').map(Number);
   const l = local.split('.').map(Number);
   for (let i = 0; i < 3; i++) {
@@ -51,9 +58,9 @@ function isNewer(remote: string, local: string): boolean {
 }
 
 /**
- * Read the update check cache.
+ * Read the update check cache. Exported for doctor/status display.
  */
-async function readCache(): Promise<UpdateCache | null> {
+export async function readCache(): Promise<UpdateCache | null> {
   try {
     const data = await readFile(CACHE_FILE, 'utf-8');
     return JSON.parse(data);
@@ -68,8 +75,18 @@ async function readCache(): Promise<UpdateCache | null> {
 async function writeCache(cache: UpdateCache): Promise<void> {
   try {
     await mkdir(CACHE_DIR, { recursive: true });
-    await writeFile(CACHE_FILE, JSON.stringify(cache), 'utf-8');
+    await writeFile(CACHE_FILE, JSON.stringify(cache, null, 2), 'utf-8');
   } catch { /* silent */ }
+}
+
+/**
+ * Check if auto-update is enabled.
+ * Default: true (install mode). Disable via MEMORIX_AUTO_UPDATE=off.
+ */
+function isAutoUpdateEnabled(): boolean {
+  const env = process.env.MEMORIX_AUTO_UPDATE?.toLowerCase()?.trim();
+  if (env === 'off' || env === 'false' || env === '0' || env === 'notify') return false;
+  return true; // default: install
 }
 
 /**
@@ -101,36 +118,53 @@ async function fetchLatestVersion(): Promise<string | null> {
 
 /**
  * Silently install the latest version in the background.
- * Uses detached child process so it doesn't block the MCP server.
+ * Writes result to the cache file so doctor/status can report it.
  */
-function installUpdateInBackground(targetVersion: string): void {
+function installUpdateInBackground(targetVersion: string, currentVersion: string, cache: UpdateCache): void {
   try {
     const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
     const child = execFile(
       npmCmd,
       ['install', '-g', `${PACKAGE_NAME}@${targetVersion}`],
       { timeout: 60000 },
-      (error) => {
+      async (error) => {
+        const updatedCache: UpdateCache = {
+          ...cache,
+          lastAutoUpdate: Date.now(),
+          updatedFrom: currentVersion,
+          updatedTo: targetVersion,
+          lastAutoUpdateStatus: error ? 'failed' : 'success',
+          lastAutoUpdateError: error ? error.message : undefined,
+        };
+        await writeCache(updatedCache);
         if (error) {
           console.error(`[memorix] Auto-update failed: ${error.message}`);
         } else {
-          console.error(`[memorix] Auto-updated to v${targetVersion} — takes effect on next restart`);
+          console.error(`[memorix] Auto-updated to v${targetVersion} — restart to apply`);
         }
       },
     );
     // Unref so the child process doesn't prevent the main process from exiting
     child.unref();
   } catch (err) {
-    console.error(`[memorix] Auto-update spawn failed:`, err);
+    console.error(`[memorix] Auto-update spawn failed:`, (err as Error)?.message ?? err);
   }
 }
 
 /**
- * Run the background update check.
- * Call this after MCP server is fully started — it's entirely fire-and-forget.
+ * Run the background update check + silent auto-install.
+ *
+ * Call this fire-and-forget from entry points (serve-http, TUI).
+ * - Rate-limited to 1 check per 24h
+ * - Default mode: install (silent auto-update)
+ * - Disable via MEMORIX_AUTO_UPDATE=off
+ * - All output goes to stderr only (never stdout / MCP / TUI content)
+ * - Failures never crash the caller
  */
 export async function checkForUpdates(): Promise<void> {
   try {
+    if (!isAutoUpdateEnabled()) return;
+
     const cache = await readCache();
     const now = Date.now();
 
@@ -144,19 +178,37 @@ export async function checkForUpdates(): Promise<void> {
 
     const currentVersion = getCurrentVersion();
 
-    // Update cache regardless of whether we need to update
-    await writeCache({
+    // Update cache with check timestamp
+    const updatedCache: UpdateCache = {
       lastCheck: now,
       latestVersion,
       lastAutoUpdate: cache?.lastAutoUpdate,
-    });
+      lastAutoUpdateStatus: cache?.lastAutoUpdateStatus,
+      lastAutoUpdateError: cache?.lastAutoUpdateError,
+      updatedFrom: cache?.updatedFrom,
+      updatedTo: cache?.updatedTo,
+    };
+    await writeCache(updatedCache);
 
     if (isNewer(latestVersion, currentVersion)) {
-      console.error(`[memorix] New version available: v${currentVersion} → v${latestVersion}`);
-      console.error(`[memorix] Auto-updating in background...`);
-      installUpdateInBackground(latestVersion);
+      console.error(`[memorix] v${latestVersion} available (current: v${currentVersion}), auto-updating...`);
+      installUpdateInBackground(latestVersion, currentVersion, updatedCache);
     }
   } catch {
-    // Entire update check is best-effort — never crash the server
+    // Entire update check is best-effort — never crash the caller
   }
 }
+
+// ── Test helpers (exported for testing only) ──────────────────
+
+/** @internal */
+export const _testing = {
+  CACHE_FILE,
+  CHECK_INTERVAL_MS,
+  isAutoUpdateEnabled,
+  fetchLatestVersion,
+  installUpdateInBackground,
+  writeCache,
+  isNewer,
+  getCurrentVersion,
+};

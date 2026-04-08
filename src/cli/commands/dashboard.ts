@@ -25,7 +25,7 @@ export default defineCommand({
 
         const project = detectProject();
         if (!project) {
-            console.error('No .git found — not a project directory. Run "git init" first.');
+            console.error('Memorix requires a git repo to establish project identity. Run `git init` in this workspace first.');
             process.exit(1);
         }
         const dataDir = await getProjectDataDir(project.id);

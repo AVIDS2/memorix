@@ -12,6 +12,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 vi.mock('../../src/embedding/provider.js', () => ({
   getEmbeddingProvider: async () => null,
   isVectorSearchAvailable: async () => false,
+  isEmbeddingExplicitlyDisabled: () => true,
   resetProvider: () => {},
 }));
 import { promises as fs } from 'node:fs';
@@ -170,7 +171,7 @@ describe('End-to-End: Store → Search → Detail', () => {
 
     const result = await compactSearch({ query: 'memory leak', projectId: PROJECT_ID });
     // Should contain table headers
-    expect(result.formatted).toContain('| ID |');
+    expect(result.formatted).toContain('| Ref |');
     expect(result.formatted).toContain('| Time |');
     // Should contain Progressive Disclosure hint
     expect(result.formatted).toContain('memorix_detail');
@@ -224,6 +225,47 @@ describe('End-to-End: Store → Search → Detail', () => {
     });
     expect(budgetResults.entries.length).toBeLessThan(5);
     expect(budgetResults.entries.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('should reject promote when request contains non-active observations', async () => {
+    const { initMiniSkillStore, getMiniSkillStore, resetMiniSkillStore } = await import('../../src/store/mini-skill-store.js');
+    const { promoteToMiniSkill } = await import('../../src/skills/mini-skills.js');
+    const { resolveObservations } = await import('../../src/memory/observations.js');
+    await initMiniSkillStore(testDir);
+
+    // Store two observations — one will be archived
+    const { observation: obs1 } = await storeObservation({
+      entityName: 'promote-gate',
+      type: 'decision',
+      title: 'Active decision about caching',
+      narrative: 'Use Redis for session caching',
+      projectId: PROJECT_ID,
+    });
+    const { observation: obs2 } = await storeObservation({
+      entityName: 'promote-gate',
+      type: 'discovery',
+      title: 'Old discovery to archive',
+      narrative: 'Found stale pattern',
+      projectId: PROJECT_ID,
+    });
+
+    // Archive obs2
+    await resolveObservations([obs2.id]);
+
+    // Attempt to promote [active, archived] — must fail
+    const { getAllObservations } = await import('../../src/memory/observations.js');
+    const allObs = getAllObservations();
+    const selected = allObs.filter(o => [obs1.id, obs2.id].includes(o.id));
+    await expect(
+      promoteToMiniSkill(testDir, PROJECT_ID, selected),
+    ).rejects.toThrow('not active');
+
+    // Verify no skill was created
+    const store = getMiniSkillStore();
+    const skills = await store.loadAll();
+    expect(skills).toHaveLength(0);
+
+    resetMiniSkillStore();
   });
 
   it('should isolate projects — search should not cross projects', async () => {

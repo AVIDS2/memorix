@@ -23,6 +23,10 @@ function makeInput(overrides: Partial<FormationInput> = {}): FormationInput {
   };
 }
 
+// Live LLM quality tests are intentionally opt-in because upstream model
+// behavior can drift and should not make the default test suite flaky.
+const runLiveLLMTests = process.env.MEMORIX_RUN_LIVE_LLM_TESTS === '1';
+
 // Load LLM config from ~/.memorix/config.json and set env vars
 // so initLLM() works in vitest source mode (where require('../config.js') fails)
 let llmAvailable = false;
@@ -46,7 +50,7 @@ try {
       model: config.llm.model || 'gpt-4o-mini',
       baseUrl: config.llm.baseUrl || 'https://api.openai.com/v1',
     });
-    llmAvailable = isLLMEnabled();
+    llmAvailable = runLiveLLMTests && isLLMEnabled();
     console.log(`LLM: ${config.llm.provider}/${config.llm.model} @ ${config.llm.baseUrl} (enabled: ${llmAvailable})`);
   }
 } catch { /* no config */ }

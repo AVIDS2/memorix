@@ -1,5 +1,6 @@
 /**
- * Memorix — Cross-Agent Memory Bridge Plugin for OpenCode
+ * Memorix - Cross-Agent Memory Bridge Plugin for OpenCode
+ * @generated-version 2
  *
  * Automatically captures session context and tool usage,
  * piping events to `memorix hook` for cross-agent memory persistence.
@@ -8,10 +9,12 @@
  * Docs: https://github.com/AVIDS2/memorix
  */
 export const MemorixPlugin = async ({ project, client, $, directory, worktree }) => {
-  console.log('[memorix] plugin loaded, directory:', directory);
+  // Generate a stable session ID for this plugin lifetime
+  const sessionId = `opencode-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 
   /** Pipe event JSON to memorix hook via temp file (Windows .cmd stdin workaround) */
   async function runHook(payload) {
+    payload.session_id = sessionId;
     const tmpDir = Bun.env.TEMP || Bun.env.TMP || '/tmp';
     const tmpPath = `${tmpDir}/memorix-hook-${Date.now()}.json`;
     try {
@@ -19,9 +22,8 @@ export const MemorixPlugin = async ({ project, client, $, directory, worktree })
       await Bun.write(tmpPath, data);
       // cat | pipe works through .cmd wrappers; < redirect does NOT
       await $`cat ${tmpPath} | memorix hook`.quiet().nothrow();
-      console.log('[memorix] hook fired:', payload.hook_event_name);
-    } catch (err) {
-      console.log('[memorix] hook error:', err?.message ?? err);
+    } catch {
+      // Silent - hooks must never break the agent
     } finally {
       try { const { unlinkSync } = await import('node:fs'); unlinkSync(tmpPath); } catch {}
     }
@@ -75,7 +77,7 @@ export const MemorixPlugin = async ({ project, client, $, directory, worktree })
       output.context.push(
         '## Memorix Cross-Agent Memory\n' +
         'Before compacting, use memorix_store to save important discoveries, decisions, and gotchas.\n' +
-        'After compacting, use memorix_search to reload relevant context.'
+        'After compacting, use memorix_session_start to reload session context, then memorix_search for specific topics.'
       );
     },
   };

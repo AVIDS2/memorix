@@ -54,7 +54,7 @@ describe('Hook Normalizer', () => {
       expect(input.toolName).toBe('read_file');
     });
 
-    it('should detect Antigravity/Gemini CLI from gemini_session_id', () => {
+    it('should detect Antigravity from gemini_session_id', () => {
       const input = normalizeHookInput({
         hook_event_name: 'AfterTool',
         gemini_session_id: 'gem-123',
@@ -64,6 +64,36 @@ describe('Hook Normalizer', () => {
       expect(input.agent).toBe('antigravity');
       expect(input.event).toBe('post_tool');
       expect(input.toolName).toBe('write_file');
+    });
+
+    it('should detect Gemini CLI from _memorix_agent override', () => {
+      const input = normalizeHookInput({
+        hook_event_name: 'AfterTool',
+        cwd: '/project',
+        tool_name: 'edit_file',
+        _memorix_agent: 'gemini-cli',
+      });
+      expect(input.agent).toBe('gemini-cli');
+      expect(input.event).toBe('post_tool');
+      expect(input.toolName).toBe('edit_file');
+    });
+
+    it('_memorix_agent takes priority over all other detection heuristics', () => {
+      // Even with gemini_session_id (which normally → antigravity), _memorix_agent wins
+      const input = normalizeHookInput({
+        hook_event_name: 'SessionStart',
+        gemini_session_id: 'gem-999',
+        _memorix_agent: 'gemini-cli',
+      });
+      expect(input.agent).toBe('gemini-cli');
+    });
+
+    it('should still detect Antigravity when _memorix_agent is not present', () => {
+      const input = normalizeHookInput({
+        hook_event_name: 'SessionStart',
+        gemini_session_id: 'gem-999',
+      });
+      expect(input.agent).toBe('antigravity');
     });
   });
 

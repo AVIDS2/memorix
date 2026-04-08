@@ -48,6 +48,16 @@ describe('shouldFilterCommit', () => {
     expect(result.skip).toBe(false);
   });
 
+  it('should keep version release commits as high-signal milestones', () => {
+    const result = shouldFilterCommit(makeCommit({ subject: 'v1.0.4' }));
+    expect(result.skip).toBe(false);
+  });
+
+  it('should keep release automation commits as milestones', () => {
+    const result = shouldFilterCommit(makeCommit({ subject: 'chore(release): 1.0.4' }));
+    expect(result.skip).toBe(false);
+  });
+
   // ─── Should FILTER (noise) ───
 
   it('should filter typo fix commits', () => {

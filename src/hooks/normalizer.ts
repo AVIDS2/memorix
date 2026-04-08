@@ -73,7 +73,7 @@ const EVENT_MAP: Record<string, HookEvent> = {
   // OpenCode (plugin events piped via Bun.spawn → memorix hook)
   'session.created': 'session_start',
   'session.idle': 'session_end',
-  'session.compacted': 'pre_compact',
+  'session.compacted': 'post_compact',
   'tool.execute.after': 'post_tool',
   'file.edited': 'post_edit',
   'command.executed': 'post_command',
@@ -84,6 +84,12 @@ const EVENT_MAP: Record<string, HookEvent> = {
  * Detect which agent sent this hook event based on payload structure.
  */
 function detectAgent(payload: Record<string, unknown>): AgentName {
+  // Highest priority: explicit agent identity injected by memorix hook --agent flag
+  // This is set by generateGeminiCLIConfig() and future agent-specific configs.
+  if (typeof payload._memorix_agent === 'string') {
+    return payload._memorix_agent as AgentName;
+  }
+
   // Windsurf uses agent_action_name
   if ('agent_action_name' in payload) return 'windsurf';
 
@@ -129,7 +135,8 @@ function extractEventName(payload: Record<string, unknown>, agent: AgentName): s
     case 'claude':
       return (payload.hook_event_name as string) ?? '';
     case 'antigravity':
-      // Gemini CLI uses hook_event_name (PascalCase)
+    case 'gemini-cli':
+      // Gemini CLI / Antigravity uses hook_event_name (PascalCase)
       return (payload.hook_event_name as string) ?? '';
     case 'copilot':
       // Copilot: infer event from payload structure
@@ -427,6 +434,7 @@ export function normalizeHookInput(payload: Record<string, unknown>): Normalized
       agentSpecific = normalizeCursor(payload, event);
       break;
     case 'antigravity':
+    case 'gemini-cli':
       agentSpecific = normalizeGemini(payload, event);
       break;
     case 'opencode':

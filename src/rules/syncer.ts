@@ -18,6 +18,7 @@ import { ClaudeCodeAdapter } from './adapters/claude-code.js';
 import { CodexAdapter } from './adapters/codex.js';
 import { WindsurfAdapter } from './adapters/windsurf.js';
 import { AntigravityAdapter } from './adapters/antigravity.js';
+import { GeminiCLIAdapter } from './adapters/gemini-cli.js';
 import { CopilotAdapter } from './adapters/copilot.js';
 import { KiroAdapter } from './adapters/kiro.js';
 import { TraeAdapter } from './adapters/trae.js';
@@ -57,6 +58,7 @@ export class RulesSyncer {
       new CodexAdapter(),
       new WindsurfAdapter(),
       new AntigravityAdapter(),
+      new GeminiCLIAdapter(),
       new CopilotAdapter(),
       new KiroAdapter(),
       new TraeAdapter(),

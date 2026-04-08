@@ -24,6 +24,11 @@ export default defineCommand({
       description: 'Non-interactive mode (used by git post-commit hook)',
       required: false,
     },
+    force: {
+      type: 'boolean',
+      description: 'Bypass Git noise filter and ingest anyway',
+      required: false,
+    },
   },
   run: async ({ args }) => {
     const os = await import('node:os');
@@ -32,6 +37,7 @@ export default defineCommand({
 
     const ref = args.ref || 'HEAD';
     const auto = !!args.auto;
+    const force = !!args.force;
 
     if (!auto) p.intro(`Ingest commit: ${ref}`);
 
@@ -48,13 +54,13 @@ export default defineCommand({
         excludePatterns: gitCfg.excludePatterns,
         noiseKeywords: gitCfg.noiseKeywords,
       });
-      if (filterResult.skip) {
+      if (filterResult.skip && !force) {
         if (auto) {
           console.error(`[memorix] Skipped ${commit.shortHash}: ${filterResult.reason}`);
           process.exit(0);
         } else {
           p.log.warn(`Commit ${commit.shortHash} filtered as noise: ${filterResult.reason}`);
-          p.outro('Use --force to override noise filter (not yet implemented).');
+          p.outro('Use --force to override the noise filter.');
         }
         return;
       }
@@ -63,8 +69,9 @@ export default defineCommand({
 
       // Store via memorix_store logic
       const { initObservations, storeObservation } = await import('../../memory/observations.js');
-      const { getProjectDataDir, loadObservationsJson } = await import('../../store/persistence.js');
+      const { getProjectDataDir } = await import('../../store/persistence.js');
       const { detectProject } = await import('../../project/detector.js');
+      const { initObservationStore, getObservationStore: getStore } = await import('../../store/obs-store.js');
 
       const project = detectProject(cwd);
       if (!project) {
@@ -72,10 +79,11 @@ export default defineCommand({
         return;
       }
       const dataDir = await getProjectDataDir(project.id);
+      await initObservationStore(dataDir);
       await initObservations(dataDir);
 
       // Dedup: skip if this commit hash was already ingested
-      const existingObs = await loadObservationsJson(dataDir) as Array<{ commitHash?: string }>;
+      const existingObs = await getStore().loadAll() as Array<{ commitHash?: string }>;
       if (existingObs.some(o => o.commitHash === commit.hash)) {
         if (!auto) p.log.warn(`Commit ${commit.shortHash} already ingested. Skipping.`);
         if (auto) process.exit(0);
@@ -116,6 +124,7 @@ export default defineCommand({
         entityName: result.entityName,
         type: result.type as any,
         title: result.title,
+        sourceDetail: 'git-ingest',
         narrative: result.narrative,
         facts: result.facts,
         concepts: result.concepts,

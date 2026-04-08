@@ -61,7 +61,7 @@ describe('calculateProjectAffinity', () => {
     };
     const result = calculateProjectAffinity(memory, context);
     expect(result.level).toBe('low');
-    expect(result.score).toBe(0.3);
+    expect(result.score).toBe(0.65);
   });
 
   it('handles empty memory content gracefully', () => {
@@ -70,7 +70,7 @@ describe('calculateProjectAffinity', () => {
     };
     const result = calculateProjectAffinity(memory, context);
     expect(result.level).toBe('low');
-    expect(result.score).toBe(0.3);
+    expect(result.score).toBe(0.65);
   });
 
   it('detects project in entity name', () => {
@@ -147,7 +147,7 @@ describe('cross-project pollution prevention', () => {
 
     // Memorix memory should have low affinity
     expect(memorixResult.level).toBe('low');
-    expect(memorixResult.score).toBeLessThanOrEqual(0.5);
+    expect(memorixResult.score).toBeLessThan(projectResult.score);
 
     // Project memory should have high affinity
     expect(projectResult.level).toBe('high');

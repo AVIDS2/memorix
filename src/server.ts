@@ -20,7 +20,12 @@ import { watchFile } from 'node:fs';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { KnowledgeGraphManager } from './memory/graph.js';
-import { initObservations, storeObservation, reindexObservations, migrateProjectIds, getObservation } from './memory/observations.js';
+import { initObservations, storeObservation, reindexObservations, migrateProjectIds, getObservation, getAllObservations } from './memory/observations.js';
+import { withFreshIndex } from './memory/freshness.js';
+import { initObservationStore, getObservationStore } from './store/obs-store.js';
+import { initMiniSkillStore } from './store/mini-skill-store.js';
+import { initSessionStore } from './store/session-store.js';
+import { checkProjectAttribution, auditProjectObservations } from './memory/attribution-guard.js';
 import { resetDb } from './store/orama-store.js';
 import { createAutoRelations } from './memory/auto-relations.js';
 import { extractEntities } from './memory/entity-extractor.js';
@@ -36,6 +41,22 @@ import { compactOnWrite, deduplicateMemory } from './llm/memory-manager.js';
 import type { ExistingMemory } from './llm/memory-manager.js';
 import { runFormation, getMetricsSummary, getBeforeAfterMetrics } from './memory/formation/index.js';
 import type { FormationConfig, SearchHit, FormedMemory } from './memory/formation/types.js';
+
+// ── Timeout budgets for LLM-heavy paths ──────────────────────────
+const FORMATION_TIMEOUT_MS = 12_000;   // Formation pipeline (extract+resolve+evaluate)
+const COMPRESSION_TIMEOUT_MS = 5_000;  // Narrative compression
+const DEDUP_PER_PAIR_TIMEOUT_MS = 5_000; // Per-pair dedup LLM call
+
+/** Race a promise against a timeout. Rejects with a descriptive Error on timeout. */
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+    }),
+  ]).finally(() => clearTimeout(timer!));
+}
 
 /** Timestamp of last MCP-initiated write — hot-reload skips changes within 10s */
 let lastInternalWriteMs = 0;
@@ -68,6 +89,31 @@ function coerceNumberArray(val: unknown): number[] {
       const parsed = JSON.parse(val);
       if (Array.isArray(parsed)) return parsed.map(Number);
     } catch { /* not valid JSON */ }
+  }
+  return [];
+}
+
+function coerceObservationRefs(val: unknown): Array<{ id: number; projectId?: string }> {
+  if (Array.isArray(val)) {
+    const refs: Array<{ id: number; projectId?: string }> = [];
+    for (const item of val) {
+      if (!item || typeof item !== 'object') continue;
+      const record = item as Record<string, unknown>;
+      const id = Number(record['id']);
+      if (!Number.isFinite(id) || id <= 0) continue;
+
+      const projectId = typeof record['projectId'] === 'string' ? record['projectId'] : undefined;
+      refs.push(projectId ? { id, projectId } : { id });
+    }
+    return refs;
+  }
+  if (typeof val === 'string') {
+    try {
+      const parsed = JSON.parse(val);
+      return coerceObservationRefs(parsed);
+    } catch {
+      return [];
+    }
   }
   return [];
 }
@@ -132,25 +178,50 @@ export interface SharedTeamInstances {
   taskManager: InstanceType<typeof import('./team/tasks.js').TaskManager>;
 }
 
-export async function createMemorixServer(cwd?: string, existingServer?: McpServer, sharedTeam?: SharedTeamInstances): Promise<{
+export interface CreateMemorixServerOptions {
+  allowUntrackedFallback?: boolean;
+  deferProjectInitUntilBound?: boolean;
+}
+
+export async function createMemorixServer(
+  cwd?: string,
+  existingServer?: McpServer,
+  sharedTeam?: SharedTeamInstances,
+  options: CreateMemorixServerOptions = {},
+): Promise<{
   server: McpServer;
   graphManager: KnowledgeGraphManager;
   projectId: string;
   deferredInit: () => Promise<void>;
   switchProject: (newCwd: string) => Promise<boolean>;
+  isExplicitlyBound: () => boolean;
 }> {
   // Detect current project — strict .git-based detection
+  const allowUntrackedFallback = options.allowUntrackedFallback ?? true;
+  const deferProjectInitUntilBound = options.deferProjectInitUntilBound ?? false;
   const detectedProject = detectProject(cwd);
   let rawProject: import('./types.js').ProjectInfo;
+  let projectResolved = true;
+  let projectResolutionError: string | null = null;
+  let explicitProjectBound = false; // Set true when memorix_session_start binds via projectRoot
   if (detectedProject) {
     rawProject = detectedProject;
   } else {
-    // No .git found — warn but don't crash. Use path-based fallback.
     const basePath = cwd ?? process.cwd();
     const name = (await import('node:path')).basename(basePath) || 'unknown';
-    rawProject = { id: `untracked/${name}`, name, rootPath: basePath };
-    console.error(`[memorix] WARNING: No .git found in "${basePath}" — project isolation degraded`);
-    console.error(`[memorix] Run "git init" in your project for proper isolation.`);
+    projectResolved = false;
+    projectResolutionError =
+      `No git project could be resolved from "${basePath}". ` +
+      'This client did not provide a usable workspace root, so project-scoped tools are disabled until a git-backed project is detected.';
+    rawProject = allowUntrackedFallback
+      ? { id: `untracked/${name}`, name, rootPath: basePath }
+      : { id: '__unresolved__', name, rootPath: basePath };
+    if (!allowUntrackedFallback && !deferProjectInitUntilBound) {
+      console.error(`[memorix] WARNING: ${projectResolutionError}`);
+    } else if (allowUntrackedFallback) {
+      console.error(`[memorix] WARNING: No .git found in "${basePath}" - project isolation degraded`);
+      console.error(`[memorix] Run "git init" in your project for proper isolation.`);
+    }
   }
 
   // Migrate legacy per-project subdirectories into flat base directory (one-time, silent)
@@ -164,28 +235,72 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
 
   let projectDir = await getProjectDataDir(rawProject.id);
 
-  // Register alias and resolve to canonical project ID.
-  // This ensures the same physical project always uses the same ID
-  // regardless of which IDE or detection method discovered it.
-  initAliasRegistry(projectDir);
-  const canonicalId = await registerAlias(rawProject);
-  let project = { ...rawProject, id: canonicalId };
-  if (canonicalId !== rawProject.id) {
-    console.error(`[memorix] Alias resolved: ${rawProject.id} → ${canonicalId}`);
+  // Register aliases only for git-backed projects. Unresolved sessions should not
+  // silently create canonical IDs or pollute alias mappings.
+  let project = rawProject;
+  if (projectResolved) {
+    initAliasRegistry(projectDir);
+    const canonicalId = await registerAlias(rawProject);
+    project = { ...rawProject, id: canonicalId };
+    if (canonicalId !== rawProject.id) {
+      console.error(`[memorix] Alias resolved: ${rawProject.id} -> ${canonicalId}`);
+    }
   }
 
   // Initialize project root for YAML config resolution — ensures all config getters
   // (getLLMApiKey, getGitConfig, etc.) pick up project-level memorix.yml, not just user-level.
+  // Also load .env from project root for secrets (API keys, base URLs).
   try {
     const { initProjectRoot } = await import('./config/yaml-loader.js');
     initProjectRoot(project.rootPath);
+    const { loadDotenv } = await import('./config/dotenv-loader.js');
+    loadDotenv(project.rootPath);
   } catch { /* config init is best-effort */ }
 
   // Initialize components
+  await initObservationStore(projectDir);
+  await initMiniSkillStore(projectDir);
+  await initSessionStore(projectDir);
+  {
+    const store = getObservationStore();
+    console.error(`[memorix] ObservationStore backend: ${store.getBackendName()}, generation: ${store.getGeneration()}`);
+  }
   let graphManager = new KnowledgeGraphManager(projectDir);
   await graphManager.init();
   await initObservations(projectDir);
 
+  const lightweightUnresolvedSession = !projectResolved && deferProjectInitUntilBound;
+
+  const initializeProjectRuntime = async (logPrefix: 'startup' | 'switch'): Promise<void> => {
+    await initObservationStore(projectDir);
+    await initMiniSkillStore(projectDir);
+    await initSessionStore(projectDir);
+    graphManager = new KnowledgeGraphManager(projectDir);
+    await graphManager.init();
+    await initObservations(projectDir);
+
+    const reindexed = await reindexObservations();
+    if (reindexed > 0) {
+      console.error(`[memorix] Reindexed ${reindexed} observations for project: ${project.id}`);
+    }
+
+    const llmConfig = initLLM();
+    if (llmConfig) {
+      console.error(`[memorix] LLM enhanced mode: ${llmConfig.provider}/${llmConfig.model}`);
+    } else {
+      console.error(`[memorix] LLM mode: off (set MEMORIX_LLM_API_KEY or OPENAI_API_KEY to enable)`);
+    }
+
+    if (logPrefix === 'startup') {
+      console.error(`[memorix] Project: ${project.id} (${project.name})`);
+      console.error(`[memorix] Data dir: ${projectDir}`);
+    } else {
+      console.error(`[memorix] Project switched to: ${project.id} (${project.name})`);
+      console.error(`[memorix] Data dir: ${projectDir}`);
+    }
+  };
+
+  if (!lightweightUnresolvedSession) {
   // Auto-merge obvious alias groups by scanning observed projectIds in data.
   // This detects splits like local/foo + user/foo (legacy data migration)
   try {
@@ -218,26 +333,30 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
     }
   } catch { /* migration is optional */ }
 
-  // Reindex existing observations into Orama
-  const reindexed = await reindexObservations();
-  if (reindexed > 0) {
-    console.error(`[memorix] Reindexed ${reindexed} observations for project: ${project.id}`);
-  }
-
-  // Initialize LLM provider (optional — graceful degradation)
-  const llmConfig = initLLM();
-  if (llmConfig) {
-    console.error(`[memorix] LLM enhanced mode: ${llmConfig.provider}/${llmConfig.model}`);
+  await initializeProjectRuntime('startup');
   } else {
-    console.error(`[memorix] LLM mode: off (set MEMORIX_LLM_API_KEY or OPENAI_API_KEY to enable)`);
+    // Intentionally silent — serve-http.ts deferred logging handles session lifecycle visibility.
+    // Noisy per-probe 'awaiting binding' log was removed to reduce terminal spam.
   }
-
-  console.error(`[memorix] Project: ${project.id} (${project.name})`);
-  console.error(`[memorix] Data dir: ${projectDir}`);
 
   // Sync advisory variables — populated by deferredInit(), used by memorix_search
   let syncAdvisoryShown = false;
   let syncAdvisory: string | null = null;
+  const requireResolvedProject = (action: string) => {
+    if (projectResolved) return null;
+    return {
+      content: [{
+        type: 'text' as const,
+        text:
+          `Cannot ${action} yet.\n` +
+          `${projectResolutionError ?? 'No git-backed project is currently bound to this session.'}\n\n` +
+          'To bind this session to a project, call memorix_session_start with the projectRoot parameter:\n' +
+          '  memorix_session_start({ projectRoot: "/path/to/your/project" })\n\n' +
+          'The path should point to a directory containing a .git folder.',
+      }],
+      isError: true as const,
+    };
+  };
 
   // Create MCP server (or use existing one from roots-aware flow)
   const server = existingServer ?? new McpServer({
@@ -289,6 +408,10 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
       },
     },
     async ({ entityName: rawEntityName, type: rawType, title: rawTitle, narrative, facts, filesModified, concepts, topicKey, progress, relatedCommits, relatedEntities }) => {
+      const unresolved = requireResolvedProject('store memory in the current project');
+      if (unresolved) return unresolved;
+      return withFreshIndex(async () => {
+
       // Mutable copies — Formation Pipeline may improve these
       let entityName = rawEntityName;
       let type = rawType;
@@ -354,15 +477,19 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
             getEntityNames: () => graphManager.getEntityNames(),
           };
 
-          formationResult = await runFormation({
-            entityName,
-            type: type as ObservationType,
-            title,
-            narrative,
-            facts: safeFacts,
-            projectId: project.id,
-            source: 'explicit',
-          }, formationConfig);
+          formationResult = await withTimeout(
+            runFormation({
+              entityName,
+              type: type as ObservationType,
+              title,
+              narrative,
+              facts: safeFacts,
+              projectId: project.id,
+              source: 'explicit',
+            }, formationConfig),
+            FORMATION_TIMEOUT_MS,
+            'Formation pipeline',
+          );
 
           const modeIcon = '⚡';
           formationNote = `\n${modeIcon} Formation[active]: ${formationResult.evaluation.category} (${formationResult.evaluation.score.toFixed(2)}) | ${formationResult.resolution.action} | ${formationResult.pipeline.durationMs}ms`;
@@ -372,7 +499,11 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
           if (formationResult.extraction.titleImproved) formationNote += ' | title↑';
           if (formationResult.extraction.entityResolved) formationNote += ` | entity→${formationResult.entityName}`;
           if (formationResult.extraction.typeCorrected) formationNote += ` | type→${formationResult.type}`;
-        } catch { /* formation failure → fallback to old compact */ }
+        } catch (formationErr) {
+          // Formation timeout or failure → fall through to store without enrichment
+          const isTimeout = formationErr instanceof Error && formationErr.message.includes('timed out');
+          formationNote = `\n⚠️ Formation ${isTimeout ? 'timed out' : 'failed'} — storing base observation without enrichment`;
+        }
       }
 
       // ── Apply Formation decision (active mode only) ───────────────────
@@ -395,6 +526,7 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
               projectId: project.id,
               topicKey: targetObs.topicKey,
               progress: progress as import('./types.js').ProgressInfo | undefined,
+              sourceDetail: 'explicit',
             });
             return {
               content: [{
@@ -419,6 +551,7 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
               projectId: project.id,
               topicKey: targetObs.topicKey,
               progress: progress as import('./types.js').ProgressInfo | undefined,
+              sourceDetail: 'explicit',
             });
             return {
               content: [{
@@ -465,9 +598,13 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
               score: similarEntries[i]?.score ?? 0,
             }));
 
-            const decision = await compactOnWrite(
-              { title, narrative, facts: safeFacts ?? [] },
-              existingMemories,
+            const decision = await withTimeout(
+              compactOnWrite(
+                { title, narrative, facts: safeFacts ?? [] },
+                existingMemories,
+              ),
+              FORMATION_TIMEOUT_MS,
+              'Compact-on-write',
             );
 
             if (decision.action === 'UPDATE' && decision.targetId) {
@@ -486,6 +623,7 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
                   projectId: project.id,
                   topicKey: targetObs.topicKey,
                   progress: progress as import('./types.js').ProgressInfo | undefined,
+                  sourceDetail: 'explicit',
                 });
                 compactAction = `🔄 Compact UPDATE: merged into #${decision.targetId} (${decision.reason})`;
                 compactMerged = true;
@@ -569,12 +707,29 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
       let compressionNote = '';
       try {
         const { compressNarrative } = await import('./llm/quality.js');
-        const { compressed, saved, usedLLM } = await compressNarrative(narrative, safeFacts, type);
+        const { compressed, saved, usedLLM } = await withTimeout(
+          compressNarrative(narrative, safeFacts, type),
+          COMPRESSION_TIMEOUT_MS,
+          'Narrative compression',
+        );
         if (usedLLM && saved > 0) {
           finalNarrative = compressed;
           compressionNote = ` | compressed -${saved} tokens`;
         }
-      } catch { /* compression is best-effort */ }
+      } catch { /* compression is best-effort (timeout or LLM failure) */ }
+
+      // ── Attribution guard (passive, non-blocking) ─────────────────
+      // Warns when entityName is unknown in this project but well-established
+      // in a different project — signals a potential wrong-bucket write.
+      let attributionWarning = '';
+      try {
+        const attrCheck = await checkProjectAttribution(entityName, project.id, getAllObservations());
+        if (attrCheck.suspicious) {
+          attributionWarning = `\n⚠️ Attribution notice: entity "${entityName}" has 0 observations in ` +
+            `"${project.id}" but ${attrCheck.count} in "${attrCheck.knownIn}" ` +
+            `(confidence: ${attrCheck.confidence}). Verify the correct project is bound before storing.`;
+        }
+      } catch { /* guard is best-effort — never blocks the write */ }
 
       // Store the observation (may upsert if topicKey matches existing)
       markInternalWrite();
@@ -592,6 +747,8 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
         progress: progress as import('./types.js').ProgressInfo | undefined,
         relatedCommits,
         relatedEntities,
+        sourceDetail: 'explicit',
+        valueCategory: formationResult?.evaluation.category,
       });
 
       // Add a reference to the entity's observations
@@ -617,50 +774,43 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
       const action = upserted ? '🔄 Updated' : '✅ Stored';
 
       // ── Formation Pipeline (shadow/fallback mode: observe only) ─────
-      // In shadow mode, Formation runs after storage to collect metrics.
-      // In fallback mode, Formation runs after old compact to collect metrics.
-      // Collects old compact decision for before/after comparison.
-      if (!useFormation) {
-        try {
-          // First, run old compact to get its decision (for comparison)
+      // Fire-and-forget: runs after storage to collect metrics.
+      // Never blocks the MCP response — purely for A/B comparison data.
+      if (!useFormation && !topicKey && !progress) {
+        const shadowFormation = async () => {
           let oldCompactDecision: { action: string, targetId?: number, reason?: string, durationMs?: number } | null = null;
-          if (!topicKey && !progress) {
-            try {
-              const compactStart = Date.now();
-              const searchResult = await compactSearch({
-                query: `${title} ${narrative.substring(0, 200)}`,
-                limit: 5,
-                projectId: project.id,
-                status: 'active',
-              });
-              const similarEntries = searchResult.entries.map(e => e);
-              if (similarEntries.length > 0) {
-                const similarIds = similarEntries.map(e => e.id);
-                const details = await compactDetail(similarIds);
-                const existingMemories: ExistingMemory[] = details.documents.map((d, i) => ({
-                  id: d.observationId,
-                  title: d.title,
-                  narrative: d.narrative,
-                  facts: d.facts,
-                  score: similarEntries[i]?.score ?? 0,
-                }));
+          try {
+            const compactStart = Date.now();
+            const searchResult = await compactSearch({
+              query: `${title} ${narrative.substring(0, 200)}`,
+              limit: 5,
+              projectId: project.id,
+              status: 'active',
+            });
+            const similarEntries = searchResult.entries.map(e => e);
+            if (similarEntries.length > 0) {
+              const similarIds = similarEntries.map(e => e.id);
+              const details = await compactDetail(similarIds);
+              const existingMemories: ExistingMemory[] = details.documents.map((d, i) => ({
+                id: d.observationId,
+                title: d.title,
+                narrative: d.narrative,
+                facts: d.facts,
+                score: similarEntries[i]?.score ?? 0,
+              }));
+              const decision = await compactOnWrite(
+                { title, narrative, facts: safeFacts ?? [] },
+                existingMemories,
+              );
+              oldCompactDecision = {
+                action: decision.action,
+                targetId: decision.targetId,
+                reason: decision.reason,
+                durationMs: Date.now() - compactStart,
+              };
+            }
+          } catch { /* best-effort */ }
 
-                const decision = await compactOnWrite(
-                  { title, narrative, facts: safeFacts ?? [] },
-                  existingMemories,
-                );
-                const compactDuration = Date.now() - compactStart;
-                oldCompactDecision = {
-                  action: decision.action,
-                  targetId: decision.targetId,
-                  reason: decision.reason,
-                  durationMs: compactDuration,
-                };
-              }
-            } catch { /* old compact decision collection is best-effort */ }
-          }
-
-          // Then run Formation to get its decision
           const formationConfig: FormationConfig = {
             mode: formationMode,
             useLLM: isLLMEnabled(),
@@ -683,31 +833,17 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
             getObservation: (id: number) => {
               const o = getObservation(id);
               if (!o) return null;
-              return {
-                id: o.id,
-                entityName: o.entityName,
-                type: o.type,
-                title: o.title,
-                narrative: o.narrative,
-                facts: o.facts,
-                topicKey: o.topicKey,
-              };
+              return { id: o.id, entityName: o.entityName, type: o.type, title: o.title, narrative: o.narrative, facts: o.facts, topicKey: o.topicKey };
             },
             getEntityNames: () => graphManager.getEntityNames(),
           };
 
-          const formed = await runFormation({
-            entityName,
-            type: type as ObservationType,
-            title,
-            narrative,
-            facts: safeFacts,
-            projectId: project.id,
-            source: 'explicit',
-            topicKey,
-          }, formationConfig);
+          const formed = await withTimeout(
+            runFormation({ entityName, type: type as ObservationType, title, narrative, facts: safeFacts, projectId: project.id, source: 'explicit', topicKey }, formationConfig),
+            FORMATION_TIMEOUT_MS,
+            'Shadow formation',
+          );
 
-          // Store before/after comparison metrics
           const { recordBeforeAfterMetrics } = await import('./memory/formation/index.js');
           if (oldCompactDecision) {
             recordBeforeAfterMetrics({
@@ -722,29 +858,20 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
               compactDurationMs: oldCompactDecision.durationMs,
             });
           }
-
-          const modeIcon = formationMode === 'shadow' ? '🔬' : '🛡️';
-          formationNote = `\n${modeIcon} Formation[${formationMode}]: ${formed.evaluation.category} (${formed.evaluation.score.toFixed(2)}) | ${formed.resolution.action} | ${formed.pipeline.durationMs}ms`;
-          if (oldCompactDecision) {
-            formationNote += ` | Compact: ${oldCompactDecision.action}${oldCompactDecision.targetId ? ` #${oldCompactDecision.targetId}` : ''}${oldCompactDecision.durationMs ? ` (${oldCompactDecision.durationMs}ms)` : ''}`;
-          }
-          if (formed.extraction.extractedFacts.length > 0) {
-            formationNote += ` | +${formed.extraction.extractedFacts.length} facts`;
-          }
-          if (formed.extraction.titleImproved) formationNote += ' | title↑';
-          if (formed.extraction.entityResolved) formationNote += ` | entity→${formed.entityName}`;
-          if (formed.extraction.typeCorrected) formationNote += ` | type→${formed.type}`;
-        } catch { /* formation is best-effort in shadow/fallback mode */ }
+        };
+        // Fire-and-forget — do not await
+        shadowFormation().catch(() => {});
       }
 
       return {
         content: [
           {
             type: 'text' as const,
-            text: `${action} observation #${obs.id} "${title}" (~${obs.tokens} tokens)\nEntity: ${entityName} | Type: ${type} | Project: ${project.id}${obs.topicKey ? ` | Topic: ${obs.topicKey}` : ''}${compactAction}${compressionNote}${enrichment}${formationNote}`,
+            text: `${action} observation #${obs.id} "${title}" (~${obs.tokens} tokens)\nEntity: ${entityName} | Type: ${type} | Project: ${project.id}${obs.topicKey ? ` | Topic: ${obs.topicKey}` : ''}${compactAction}${compressionNote}${enrichment}${formationNote}${attributionWarning}`,
           },
         ],
       };
+      }); // withFreshIndex
     },
   );
 
@@ -818,6 +945,12 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
       },
     },
     async ({ query, limit, type, maxTokens, scope, since, until, status, source }) => {
+      if (scope !== 'global') {
+        const unresolved = requireResolvedProject('search the current project');
+        if (unresolved) return unresolved;
+      }
+      return withFreshIndex(async () => {
+
       const safeLimit = limit != null ? coerceNumber(limit, 20) : undefined;
       const safeMaxTokens = maxTokens != null ? coerceNumber(maxTokens, 0) : undefined;
 
@@ -860,8 +993,12 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
         throw error;
       }
 
-      // Append sync advisory on first search of the session
+      // Append search mode and sync advisory
       let text = result.formatted;
+      try {
+        const { getLastSearchMode } = await import('./store/orama-store.js');
+        text += `\n\n_Search mode: ${getLastSearchMode(project.id)}_`;
+      } catch { /* best-effort */ }
       if (!syncAdvisoryShown && syncAdvisory) {
         text += syncAdvisory;
         syncAdvisoryShown = true;
@@ -875,6 +1012,7 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
           },
         ],
       };
+      }); // withFreshIndex
     },
   );
 
@@ -912,6 +1050,7 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
         parts.push(`⚠️ Not found: #${result.notFound.join(', #')}`);
       }
       parts.push('\nResolved memories are hidden from default search. Use status="all" to include them.');
+      parts.push('📊 Run `memorix_retention` with `action: "report"` to check remaining cleanup status.');
 
       return {
         content: [{ type: 'text' as const, text: parts.join('\n') }],
@@ -953,6 +1092,10 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
       },
     },
     async ({ entityName, decision, alternatives, rationale, constraints, expectedOutcome, risks, concepts, filesModified, relatedCommits, relatedEntities }) => {
+      const unresolved = requireResolvedProject('store reasoning in the current project');
+      if (unresolved) return unresolved;
+      return withFreshIndex(async () => {
+
       // Build structured narrative from reasoning fields
       const narrativeParts: string[] = [rationale];
       if (alternatives && alternatives.length > 0) {
@@ -977,6 +1120,17 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
         { name: entityName, entityType: 'auto', observations: [] },
       ]);
 
+      // ── Attribution guard (passive, non-blocking) ─────────────────
+      let reasoningAttributionWarning = '';
+      try {
+        const attrCheck = await checkProjectAttribution(entityName, project.id, getAllObservations());
+        if (attrCheck.suspicious) {
+          reasoningAttributionWarning = `\n⚠️ Attribution notice: entity "${entityName}" has 0 observations in ` +
+            `"${project.id}" but ${attrCheck.count} in "${attrCheck.knownIn}" ` +
+            `(confidence: ${attrCheck.confidence}). Verify the correct project is bound before storing.`;
+        }
+      } catch { /* guard is best-effort — never blocks the write */ }
+
       markInternalWrite();
       const { observation: obs } = await storeObservation({
         entityName,
@@ -990,6 +1144,7 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
         source: 'agent',
         relatedCommits,
         relatedEntities,
+        sourceDetail: 'explicit',
       });
 
       await graphManager.addObservations([
@@ -999,8 +1154,85 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
       return {
         content: [{
           type: 'text' as const,
-          text: `🧠 Reasoning trace stored #${obs.id}: "${decision}"\nEntity: ${entityName} | ${facts.length} facts | ${obs.tokens} tokens`,
+          text: `🧠 Reasoning trace stored #${obs.id}: "${decision}"\nEntity: ${entityName} | ${facts.length} facts | ${obs.tokens} tokens${reasoningAttributionWarning}`,
         }],
+      };
+      }); // withFreshIndex
+    },
+  );
+
+  /**
+   * memorix_audit_project — Scan for misattributed observations
+   *
+   * Read-only audit: identifies observations in the current project whose
+   * entityName is well-known in a different project but absent here.
+   * Use the results to decide which observations to archive with memorix_resolve.
+   */
+  server.registerTool(
+    'memorix_audit_project',
+    {
+      title: 'Audit Project Attribution',
+      description:
+        'Scan the current project for observations that may have been written to the wrong project bucket. ' +
+        'Identifies observations whose entityName appears exclusively in a different project. ' +
+        'Read-only — no data is changed. Use memorix_resolve to archive confirmed mis-attributed observations.',
+      inputSchema: {
+        threshold: z.number().int().min(1).optional().describe(
+          'Minimum occurrences of an entityName in another project to flag it as suspicious (default: 2)',
+        ),
+      },
+    },
+    async ({ threshold }) => {
+      const unresolved = requireResolvedProject('audit project attribution');
+      if (unresolved) return unresolved;
+      const minCount = threshold ?? 2;
+      let entries: import('./memory/attribution-guard.js').AuditEntry[];
+      try {
+        entries = await auditProjectObservations(project.id, await withFreshIndex(() => getAllObservations()), minCount);
+      } catch (err) {
+        return {
+          content: [{
+            type: 'text' as const,
+            text: `Audit failed: ${err instanceof Error ? err.message : String(err)}`,
+          }],
+        };
+      }
+
+      if (entries.length === 0) {
+        return {
+          content: [{
+            type: 'text' as const,
+            text: `✅ No suspicious observations found in project "${project.id}" (threshold: ${minCount}).`,
+          }],
+        };
+      }
+
+      const lines: string[] = [
+        `## Attribution Audit — ${project.id}`,
+        `Found **${entries.length}** potentially mis-attributed observation(s) (threshold: ≥${minCount} occurrences in another project).\n`,
+        '| ID | Entity | Title | Source | Detail | Likely Belongs To | Count | Confidence |',
+        '|----|--------|-------|--------|--------|-------------------|-------|------------|',
+      ];
+
+      for (const e of entries) {
+        const titleTrunc = e.title.length > 50 ? e.title.slice(0, 47) + '...' : e.title;
+        lines.push(
+          `| #${e.id} | ${e.entityName} | ${titleTrunc} | ${e.source} | ${e.sourceDetail ?? '-'} | ${e.likelyBelongsTo} | ${e.count} | ${e.confidence} |`,
+        );
+      }
+
+      // Actionable IDs block (cap display to avoid very long outputs)
+      const auditIds = entries.map(e => e.id);
+      const auditPreview = auditIds.slice(0, 20);
+      const auditSummary = `[${auditPreview.join(', ')}]${auditIds.length > 20 ? ` … (${auditIds.length} total)` : ''}`;
+      lines.push('');
+      lines.push('### Suggested Actions');
+      lines.push(`Suggested IDs: ${auditSummary}`);
+      lines.push('- Archive confirmed mis-attributed observations: use `memorix_resolve` with the specific IDs above and `status: "archived"`.');
+      lines.push('- Review first with `memorix_detail` if unsure.');
+
+      return {
+        content: [{ type: 'text' as const, text: lines.join('\n') }],
       };
     },
   );
@@ -1028,14 +1260,18 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
       },
     },
     async ({ query, limit, scope }) => {
+      if (scope !== 'global') {
+        const unresolved = requireResolvedProject('search reasoning in the current project');
+        if (unresolved) return unresolved;
+      }
       const safeLimit = limit != null ? coerceNumber(limit, 10) : 10;
-      const result = await compactSearch({
+      const result = await withFreshIndex(() => compactSearch({
         query,
         limit: safeLimit,
         type: 'reasoning' as ObservationType,
         projectId: scope === 'global' ? undefined : project.id,
         status: 'active',
-      });
+      }));
 
       if (result.entries.length === 0) {
         return {
@@ -1071,7 +1307,7 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
     },
     async ({ query, dryRun }) => {
       const { getAllObservations, resolveObservations } = await import('./memory/observations.js');
-      const allObs = getAllObservations().filter(o => (o.status ?? 'active') === 'active' && o.projectId === project.id);
+      const allObs = await withFreshIndex(() => getAllObservations().filter(o => (o.status ?? 'active') === 'active' && o.projectId === project.id));
 
       if (allObs.length < 2) {
         return { content: [{ type: 'text' as const, text: 'Not enough active memories to deduplicate.' }] };
@@ -1167,18 +1403,20 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
   );
 
   /**
-   * memorix_timeline — Layer 2: Chronological context
+   * memorix_timeline — Deep retrieval: provenance-aware chronological expansion
    *
-   * Shows observations before and after a specific anchor.
-   * Helps agents understand the temporal context of an observation.
+   * Natural follow-up after session L1 routing hints (hook traces) or L3
+   * evidence pointers (git memory). Distinguishes explicit memory evolution,
+   * hook activity traces, and git-backed facts via Src column when available.
    */
   server.registerTool(
     'memorix_timeline',
     {
       title: 'Memory Timeline',
       description:
-        'Get chronological context around a specific observation. ' +
-        'Shows what happened before and after the anchor observation.',
+        'Deep retrieval: expand chronological context around a specific observation — ' +
+        'distinguishes explicit memory evolution, hook activity traces, and git-backed facts. ' +
+        'Natural follow-up after session L1 routing hints (hook traces) or L3 evidence pointers (git memory).',
       inputSchema: {
         anchorId: z.number().describe('Observation ID to center the timeline on'),
         depthBefore: z.number().optional().describe('Number of observations before (default: 3)'),
@@ -1191,7 +1429,7 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
       const safeAfter = depthAfter != null ? coerceNumber(depthAfter, 3) : undefined;
       const result = await compactTimeline(
         safeAnchor,
-        undefined,
+        project.id,
         safeBefore,
         safeAfter,
       );
@@ -1208,27 +1446,54 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
   );
 
   /**
-   * memorix_detail — Layer 3: Full observation details
+   * memorix_detail — Layer 3: Provenance-aware full observation details
    *
-   * Fetch complete observation content by IDs.
-   * Only call after filtering via memorix_search / memorix_timeline.
-   * ~500-1000 tokens per observation.
+   * Opens explicit memories, hook traces, or git evidence depending on source.
+   * Output includes a provenance header identifying the evidence kind, value
+   * category (core / ephemeral), and cross-references to related items.
    */
   server.registerTool(
     'memorix_detail',
     {
       title: 'Memory Details',
       description:
-        'Fetch full observation details by IDs (~500-1000 tokens each). ' +
-        'Always use memorix_search first to find relevant IDs, then fetch only what you need.',
+        'Fetch full observation or mini-skill details — includes source kind (explicit memory / hook trace / git evidence), ' +
+        'value category, and cross-references (~500-1000 tokens each). ' +
+        'Always use memorix_search first to find relevant IDs, then fetch only what you need. ' +
+        'Accepts typed refs from search results (e.g. "obs:42", "skill:3") via the typedRefs field, ' +
+        'or legacy numeric ids / object refs for backward compatibility.',
       inputSchema: {
-        ids: z.array(z.number()).describe('Observation IDs to fetch (from memorix_search results)'),
+        ids: z.array(z.number()).optional().describe('Observation IDs to fetch (legacy, from memorix_search results)'),
+        refs: z.array(
+          z.object({
+            id: z.number().describe('Observation ID'),
+            projectId: z.string().optional().describe('Project ID for global-search disambiguation'),
+          }),
+        ).optional().describe('Explicit observation refs. Prefer this for global search results.'),
+        typedRefs: z.array(z.string()).optional().describe('Typed memory refs from search results, e.g. "obs:42", "skill:3", "obs:42@org/proj"'),
       },
     },
-    async ({ ids }) => {
+    async ({ ids, refs, typedRefs }) => {
       // Defensive coercion: Claude Code CLI + GLM may send "[16]" instead of [16]
       const safeIds = coerceNumberArray(ids);
-      const result = await compactDetail(safeIds);
+      const safeRefs = coerceObservationRefs(refs);
+      const safeTypedRefs = coerceStringArray(typedRefs);
+
+      // Priority: typedRefs > refs > ids (each is a complete, homogeneous input path)
+      let result;
+      try {
+        if (safeTypedRefs.length > 0) {
+          // Pass typed ref strings directly — compactDetail handles parsing
+          result = await compactDetail(safeTypedRefs);
+        } else if (safeRefs.length > 0) {
+          result = await compactDetail(safeRefs);
+        } else {
+          // Bare numeric IDs are scoped to the current project
+          result = await compactDetail(safeIds.map(id => ({ id, projectId: project.id })));
+        }
+      } catch (err) {
+        return { content: [{ type: 'text' as const, text: err instanceof Error ? err.message : String(err) }], isError: true };
+      }
 
       return {
         content: [
@@ -1236,7 +1501,11 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
             type: 'text' as const,
             text: result.documents.length > 0
               ? result.formatted
-              : `No observations found for IDs: ${safeIds.join(', ')}`,
+              : safeTypedRefs.length > 0
+                ? `No memories found for refs: ${safeTypedRefs.join(', ')}`
+                : safeRefs.length > 0
+                  ? `No memories found for refs: ${safeRefs.map((ref) => `${ref.projectId ?? 'current'}#${ref.id}`).join(', ')}`
+                  : `No memories found for IDs: ${safeIds.join(', ')}`,
           },
         ],
       };
@@ -1261,33 +1530,57 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
         'Show memory retention status or archive expired memories. ' +
         'action="report" (default): show active/stale/archive-candidate counts. ' +
         'action="archive": move expired observations to archive file (reversible). ' +
+        'action="stale": list stale observations with full retention explanation. ' +
         'Uses exponential decay scoring based on importance, age, and access patterns.',
       inputSchema: {
-        action: z.enum(['report', 'archive']).optional().describe('Action: "report" (show status, default) or "archive" (move expired to archive)'),
+        action: z.enum(['report', 'archive', 'stale']).optional().describe('Action: "report" (show status, default) or "archive" (move expired to archive) or "stale" (list stale observations with explanation)'),
       },
     },
     async (args: { action?: string }) => {
       const action = args.action ?? 'report';
-      const { getRetentionSummary, getArchiveCandidates, rankByRelevance, archiveExpired } = await import('./memory/retention.js');
+      const { getRetentionSummary, getArchiveCandidates, rankByRelevance, archiveExpired, getRetentionZone, explainRetention } = await import('./memory/retention.js');
+      const { getDb } = await import('./store/orama-store.js');
       const { search } = await import('@orama/orama');
+
+      // Shared: build MemorixDocument[] from in-memory observations
+      const { getAllObservations } = await import('./memory/observations.js');
+      const allObs = await withFreshIndex(() => getAllObservations());
+
+      // Pull current access metadata from the live Orama index so access-based
+      // immunity (e.g. accessCount >= 3) still works in retention/report/archive
+      // paths even though observations.json itself does not persist those fields.
+      const accessMap = new Map<number, { accessCount: number; lastAccessedAt: string }>();
+      try {
+        const database = await getDb();
+        const accessResults = await search(database, {
+          term: '',
+          limit: Math.max(1, allObs.length),
+        });
+        for (const hit of accessResults.hits) {
+          const doc = hit.document as unknown as import('./types.js').MemorixDocument;
+          accessMap.set(doc.observationId, {
+            accessCount: doc.accessCount ?? 0,
+            lastAccessedAt: doc.lastAccessedAt ?? '',
+          });
+        }
+      } catch {
+        // Best-effort: retention still works without access metadata, just with
+        // less precise immunity/reporting.
+      }
 
       // Handle archive action
       if (action === 'archive') {
-        const result = await archiveExpired(projectDir);
+        const result = await archiveExpired(projectDir, undefined, accessMap);
         if (result.archived === 0) {
           return {
             content: [{ type: 'text' as const, text: '✅ No expired observations to archive. All memories are within their retention period.' }],
           };
         }
         return {
-          content: [{ type: 'text' as const, text: `🗄️ Archived ${result.archived} expired observations → observations.archived.json\n${result.remaining} active observations remaining.\n\nArchived memories can be restored manually if needed.` }],
+          content: [{ type: 'text' as const, text: `🗄️ Archived ${result.archived} expired observations (status set to 'archived' in-place)\n${result.remaining} active observations remaining.\n\nArchived memories are hidden from default search but can be found with status: "all".` }],
         };
       }
 
-      // Report action (default) — use in-memory observations for reliable lookup
-      // (Orama search with empty term is unreliable)
-      const { getAllObservations } = await import('./memory/observations.js');
-      const allObs = getAllObservations();
       const docs: import('./types.js').MemorixDocument[] = allObs.map(obs => ({
         id: `obs-${obs.id}`,
         observationId: obs.id,
@@ -1301,10 +1594,12 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
         tokens: obs.tokens,
         createdAt: obs.createdAt,
         projectId: obs.projectId,
-        accessCount: 0,
-        lastAccessedAt: '',
+        accessCount: accessMap.get(obs.id)?.accessCount ?? 0,
+        lastAccessedAt: accessMap.get(obs.id)?.lastAccessedAt ?? '',
         status: obs.status ?? 'active',
         source: obs.source ?? 'agent',
+        sourceDetail: obs.sourceDetail ?? '',
+        valueCategory: obs.valueCategory ?? '',
       }));
 
       if (docs.length === 0) {
@@ -1313,11 +1608,56 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
         };
       }
 
+      // ── action="stale": full table of stale observations with explanation ──
+      if (action === 'stale') {
+        const staleDocs = docs.filter(d => getRetentionZone(d) === 'stale');
+        if (staleDocs.length === 0) {
+          return {
+            content: [{ type: 'text' as const, text: '✅ No stale observations. All active memories are within 50% of their retention period.' }],
+          };
+        }
+        const staleLines: string[] = [
+          `## Stale Observations (${staleDocs.length})`,
+          '',
+          '| ID | Entity | Title | Age | Source | Retention | Why |',
+          '|----|--------|-------|-----|--------|-----------|-----|',
+        ];
+        for (const d of staleDocs) {
+          const exp = explainRetention(d);
+          const src = d.sourceDetail || '—';
+          const vc = d.valueCategory || '—';
+          staleLines.push(
+            `| ${d.observationId} | ${d.entityName} | ${d.title} | ${exp.ageDays}d | ${src} (${vc}) | ${exp.effectiveRetentionDays}d | ${exp.summary} |`,
+          );
+        }
+        staleLines.push('');
+        staleLines.push('> 💡 Stale = past 50% of effective retention. Review or access to keep; otherwise will become archive candidates.');
+
+        // Actionable IDs block
+        const staleIds = staleDocs.map(d => d.observationId);
+        staleLines.push('');
+        staleLines.push('### Suggested Actions');
+        staleLines.push(`Suggested IDs: [${staleIds.join(', ')}]`);
+        staleLines.push(`- Archive stale observations: \`memorix_resolve\` with \`ids: [${staleIds.join(', ')}]\` and \`status: "archived"\``);
+        staleLines.push('- Or review individually with `memorix_detail` before deciding.');
+
+        return {
+          content: [{ type: 'text' as const, text: staleLines.join('\n') }],
+        };
+      }
+
+      // ── action="report" (default): concise summary ──
       const summary = getRetentionSummary(docs);
       const candidates = getArchiveCandidates(docs);
       const ranked = rankByRelevance(docs);
 
-      // Format output
+      // Source breakdown
+      const srcCounts = new Map<string, number>();
+      for (const d of docs) {
+        const key = d.sourceDetail || '(undefined)';
+        srcCounts.set(key, (srcCounts.get(key) ?? 0) + 1);
+      }
+
       const lines: string[] = [
         `## Memory Retention Status`,
         ``,
@@ -1329,20 +1669,35 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
         `| Immune | ${summary.immune} |`,
         `| **Total** | **${docs.length}** |`,
         ``,
+        `### Source Breakdown`,
+        `| Source | Count |`,
+        `|--------|-------|`,
       ];
+      for (const [src, count] of [...srcCounts.entries()].sort((a, b) => b[1] - a[1])) {
+        lines.push(`| ${src} | ${count} |`);
+      }
+      lines.push('');
 
       if (candidates.length > 0) {
         lines.push(`### Archive Candidates (${candidates.length})`);
-        lines.push(`| ID | Title | Age (days) | Access |`);
-        lines.push(`|----|-------|-----------|--------|`);
+        lines.push(`| ID | Title | Age | Retention | Why |`);
+        lines.push(`|----|-------|-----|-----------|-----|`);
         for (const c of candidates.slice(0, 10)) {
-          const ageDays = Math.round(
-            (Date.now() - new Date(c.createdAt).getTime()) / (1000 * 60 * 60 * 24),
-          );
-          lines.push(`| ${c.observationId} | ${c.title} | ${ageDays}d | ${c.accessCount ?? 0}× |`);
+          const exp = explainRetention(c);
+          lines.push(`| ${c.observationId} | ${c.title} | ${exp.ageDays}d | ${exp.effectiveRetentionDays}d | ${exp.summary} |`);
         }
+        if (candidates.length > 10) {
+          lines.push(`| … | *(${candidates.length - 10} more)* | | | |`);
+        }
+        const candidateIds = candidates.map(c => c.observationId);
         lines.push('');
-        lines.push(`> 💡 Use \`memorix_retention\` with \`action: "archive"\` to move these to archive.`);
+        lines.push(`Candidate IDs: [${candidateIds.slice(0, 20).join(', ')}]${candidateIds.length > 20 ? ` … (${candidateIds.length} total)` : ''}`);
+        lines.push(`> 💡 Use \`memorix_retention\` with \`action: "archive"\` to move all, or \`memorix_resolve\` with specific IDs.`);
+        lines.push('');
+      }
+
+      if (summary.stale > 0) {
+        lines.push(`> 📋 ${summary.stale} stale observation(s) — use \`memorix_retention\` with \`action: "stale"\` for full details.`);
         lines.push('');
       }
 
@@ -1375,7 +1730,7 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
     {
       title: 'Formation Pipeline Metrics',
       description:
-        'Show aggregated metrics from the Memory Formation Pipeline running in shadow mode. ' +
+        'Show aggregated metrics from recent Memory Formation Pipeline runs. ' +
         'Reports value scores, resolution actions, fact extraction rates, and processing times.',
       inputSchema: {},
     },
@@ -1387,13 +1742,13 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
         return {
           content: [{
             type: 'text' as const,
-            text: '📊 Formation Pipeline: No metrics collected yet.\nStore some observations to start collecting shadow mode data.',
+            text: '📊 Formation Pipeline: No metrics collected yet.\nStore some observations to start collecting runtime data.',
           }],
         };
       }
 
       const lines: string[] = [
-        '📊 **Formation Pipeline Metrics** (shadow mode)',
+        '📊 **Formation Pipeline Metrics**',
         '',
         `**Total observations processed:** ${summary.total}`,
         `**Average value score:** ${summary.avgValueScore.toFixed(3)}`,
@@ -1489,6 +1844,8 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
       },
     },
     async ({ entities }) => {
+      const unresolved = requireResolvedProject('create entities in the knowledge graph');
+      if (unresolved) return unresolved;
       const safeEntities = coerceObjectArray<{ name: string; entityType: string; observations: string[] }>(entities);
       const result = await graphManager.createEntities(safeEntities);
       return {
@@ -1515,6 +1872,8 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
       },
     },
     async ({ relations }) => {
+      const unresolved = requireResolvedProject('create relations in the knowledge graph');
+      if (unresolved) return unresolved;
       const safeRelations = coerceObjectArray<{ from: string; to: string; relationType: string }>(relations);
       const result = await graphManager.createRelations(safeRelations);
       return {
@@ -1537,6 +1896,8 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
       },
     },
     async ({ observations }) => {
+      const unresolved = requireResolvedProject('add observations to the knowledge graph');
+      if (unresolved) return unresolved;
       const safeObs = coerceObjectArray<{ entityName: string; contents: string[] }>(observations);
       const result = await graphManager.addObservations(safeObs);
       return {
@@ -1556,6 +1917,8 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
       },
     },
     async ({ entityNames }) => {
+      const unresolved = requireResolvedProject('delete entities from the knowledge graph');
+      if (unresolved) return unresolved;
       const safeNames = coerceStringArray(entityNames);
       await graphManager.deleteEntities(safeNames);
       return {
@@ -1578,6 +1941,8 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
       },
     },
     async ({ deletions }) => {
+      const unresolved = requireResolvedProject('delete observations from the knowledge graph');
+      if (unresolved) return unresolved;
       const safeDeletions = coerceObjectArray<{ entityName: string; observations: string[] }>(deletions);
       await graphManager.deleteObservations(safeDeletions);
       return {
@@ -1601,6 +1966,8 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
       },
     },
     async ({ relations }) => {
+      const unresolved = requireResolvedProject('delete relations from the knowledge graph');
+      if (unresolved) return unresolved;
       const safeRelations = coerceObjectArray<{ from: string; to: string; relationType: string }>(relations);
       await graphManager.deleteRelations(safeRelations);
       return {
@@ -1608,6 +1975,21 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
       };
     },
   );
+
+  /** Filter a KnowledgeGraph to only entities referenced by the current project's observations */
+  async function scopeGraphToProject(graph: { entities: any[]; relations: any[] }) {
+    const { getAllObservations } = await import('./memory/observations.js');
+    const allObs = await withFreshIndex(() => getAllObservations());
+    const projectEntityNames = new Set(
+      allObs
+        .filter(o => o.projectId === project.id && (o.status ?? 'active') === 'active' && o.entityName)
+        .map(o => o.entityName),
+    );
+    const entities = graph.entities.filter((e: any) => projectEntityNames.has(e.name));
+    const entityNameSet = new Set(entities.map((e: any) => e.name));
+    const relations = graph.relations.filter((r: any) => entityNameSet.has(r.from) && entityNameSet.has(r.to));
+    return { entities, relations };
+  }
 
   /** read_graph — MCP Official compatible */
   server.registerTool(
@@ -1618,9 +2000,12 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
       inputSchema: {},
     },
     async () => {
+      const unresolved = requireResolvedProject('read the knowledge graph');
+      if (unresolved) return unresolved;
       const graph = await graphManager.readGraph();
+      const scoped = await scopeGraphToProject(graph);
       return {
-        content: [{ type: 'text' as const, text: JSON.stringify(graph, null, 2) }],
+        content: [{ type: 'text' as const, text: JSON.stringify(scoped, null, 2) }],
       };
     },
   );
@@ -1636,9 +2021,12 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
       },
     },
     async ({ query }) => {
+      const unresolved = requireResolvedProject('search nodes in the knowledge graph');
+      if (unresolved) return unresolved;
       const graph = await graphManager.searchNodes(query);
+      const scoped = await scopeGraphToProject(graph);
       return {
-        content: [{ type: 'text' as const, text: JSON.stringify(graph, null, 2) }],
+        content: [{ type: 'text' as const, text: JSON.stringify(scoped, null, 2) }],
       };
     },
   );
@@ -1654,10 +2042,13 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
       },
     },
     async ({ names }) => {
+      const unresolved = requireResolvedProject('open nodes in the knowledge graph');
+      if (unresolved) return unresolved;
       const safeNames = coerceStringArray(names);
       const graph = await graphManager.openNodes(safeNames);
+      const scoped = await scopeGraphToProject(graph);
       return {
-        content: [{ type: 'text' as const, text: JSON.stringify(graph, null, 2) }],
+        content: [{ type: 'text' as const, text: JSON.stringify(scoped, null, 2) }],
       };
     },
   );
@@ -1936,11 +2327,12 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
       }
 
       // action === 'generate'
-      const { loadObservationsJson } = await import('./store/persistence.js');
-      const allObs = await loadObservationsJson(projectDir) as Array<{
+      const { getObservationStore: getStore } = await import('./store/obs-store.js');
+      const allObs = await getStore().loadAll() as Array<{
         id?: number; entityName?: string; type?: string; title?: string;
         narrative?: string; facts?: string[]; concepts?: string[];
         filesModified?: string[]; createdAt?: string;
+        status?: string; source?: 'agent' | 'git' | 'manual';
       }>;
 
       const obsData = allObs.map(o => ({
@@ -1953,6 +2345,8 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
         concepts: o.concepts,
         filesModified: o.filesModified,
         createdAt: o.createdAt,
+        status: o.status,
+        source: o.source,
       }));
 
       const generated = engine.generateFromObservations(obsData);
@@ -2068,16 +2462,22 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
         return { content: [{ type: 'text' as const, text: 'Error: `observationIds` is required for promote action. Use `memorix_search` to find observation IDs.' }], isError: true };
       }
 
-      // Load observations by ID
+      // Load observations by ID — only active observations can be promoted
       const { getAllObservations } = await import('./memory/observations.js');
-      const allObs = getAllObservations();
-      const selected = allObs.filter(o => observationIds.includes(o.id));
+      const allObs = await withFreshIndex(() => getAllObservations());
+      const matched = allObs.filter(o => observationIds.includes(o.id));
 
-      if (selected.length === 0) {
+      if (matched.length === 0) {
         return { content: [{ type: 'text' as const, text: `No observations found for IDs: [${observationIds.join(', ')}]. Use \`memorix_search\` to find valid IDs.` }], isError: true };
       }
 
-      const skill = await promoteToMiniSkill(projectDir, project.id, selected, { trigger, instruction, tags });
+      // Fail-fast: ALL matched observations must be active — no silent drop
+      const nonActive = matched.filter(o => (o.status ?? 'active') !== 'active');
+      if (nonActive.length > 0) {
+        return { content: [{ type: 'text' as const, text: `Cannot promote: ${nonActive.length} observation(s) are not active: ${nonActive.map(o => `#${o.id} (${o.status})`).join(', ')}. Only active observations can be promoted to permanent knowledge.` }], isError: true };
+      }
+
+      const skill = await promoteToMiniSkill(projectDir, project.id, matched, { trigger, instruction, tags });
 
       const lines = [
         `✅ Created mini-skill #${skill.id}`,
@@ -2090,7 +2490,7 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
         lines.push('**Facts**:');
         for (const f of skill.facts) lines.push(`- ${f}`);
       }
-      lines.push('', `Source: ${selected.length} observation(s) [${selected.map(o => o.id).join(', ')}]`);
+      lines.push('', `Source: ${matched.length} observation(s) [${matched.map((o: any) => o.id).join(', ')}]`);
       lines.push('', '> This mini-skill will be auto-injected at every `memorix_session_start`.');
 
       return { content: [{ type: 'text' as const, text: lines.join('\n') }] };
@@ -2182,13 +2582,83 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
       description:
         'Start a new coding session. Returns context from previous sessions so you can resume work seamlessly. ' +
         'Call this at the beginning of a session to track activity and get injected context. ' +
-        'Any previous active session for this project will be auto-closed.',
+        'Any previous active session for this project will be auto-closed.\n\n' +
+        'IMPORTANT for HTTP/control-plane mode: pass `projectRoot` with the absolute path to your ' +
+        'workspace root (e.g., the directory open in your IDE). Memorix uses this to detect the git ' +
+        'project and bind this session to the correct project context. Without it, project-scoped ' +
+        'tools will be disabled.',
       inputSchema: {
         sessionId: z.string().optional().describe('Custom session ID (auto-generated if omitted)'),
         agent: z.string().optional().describe('Agent/IDE name (e.g., "cursor", "windsurf", "claude-code")'),
+        projectRoot: z.string().optional().describe(
+          'Absolute path to the workspace/project root directory (e.g., the folder open in your IDE). ' +
+          'Memorix will detect the git project from this path and bind this session to it. ' +
+          'Required for HTTP transport when multiple projects are open simultaneously.',
+        ),
       },
     },
-    async ({ sessionId, agent }) => {
+    async ({ sessionId, agent, projectRoot: explicitRoot }) => {
+      // ── Explicit project binding via projectRoot ──────────────────────
+      // If the caller provides projectRoot, attempt to switch/bind to that project
+      // BEFORE checking whether the project is resolved. This is the primary
+      // mechanism for HTTP/control-plane multi-project support.
+      if (explicitRoot && typeof explicitRoot === 'string') {
+        let bound = await switchProject(explicitRoot);
+        // Fallback: workspace root may contain a git project in a subdirectory
+        if (!bound) {
+          const { findGitInSubdirs } = await import('./project/detector.js');
+          const subGit = findGitInSubdirs(explicitRoot);
+          if (subGit) {
+            bound = await switchProject(subGit);
+          }
+        }
+        // switchProject returns false for "same project, no-op" — that's still success,
+        // but ONLY when the canonical projectId matches the currently bound project.
+        // We must NOT treat "different valid repo at a different path" as a no-op success.
+        if (!bound && projectResolved) {
+          const { detectProjectWithDiagnostics: diagnose } = await import('./project/detector.js');
+          const diag = diagnose(explicitRoot);
+          if (diag.project) {
+            const { registerAlias: regAlias } = await import('./project/aliases.js');
+            const resolvedCanonical = await regAlias(diag.project);
+            if (resolvedCanonical === project.id) {
+              // Same canonical project — switchProject returned false because it's a no-op.
+              bound = true;
+            }
+            // else: different canonical project — fall through to fail-closed path below
+          }
+        }
+        if (!bound) {
+          // Explicit projectRoot was provided but no git repo found.
+          // ALWAYS fail closed — never silently fall back to a previously bound project.
+          const { detectProjectWithDiagnostics: diagnose } = await import('./project/detector.js');
+          const diag = diagnose(explicitRoot);
+          const failureDetail = diag.failure
+            ? `\nDiagnostic: [${diag.failure.reason}] ${diag.failure.detail}`
+            : '';
+          const hint = projectResolved
+            ? `The session was previously bound to "${project.name}" (${project.id}), but the explicitly requested path has no git repo. Refusing to silently reuse the old binding.`
+            : 'No project is currently bound to this session.';
+          return {
+            content: [{
+              type: 'text' as const,
+              text:
+                `Cannot bind session to project.\n` +
+                `No git repository found at "${explicitRoot}".${failureDetail}\n` +
+                `${hint}\n\n` +
+                'Ensure the path points to a directory containing a .git folder (or a subdirectory of one). ' +
+                'Run "git init" in your project root if needed.',
+            }],
+            isError: true as const,
+          };
+        }
+        // Bound successfully — mark as explicitly bound so roots won't override
+        explicitProjectBound = true;
+      }
+
+      const unresolved = requireResolvedProject('start a project session');
+      if (unresolved) return unresolved;
+
       const { startSession } = await import('./memory/session.js');
       const result = await startSession(projectDir, project.id, { sessionId, agent });
 
@@ -2207,9 +2677,19 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
       ];
 
       // Inject mini-skills (permanent, never-decaying project knowledge)
+      // Filter out demo/test/system-self skills so they don't pollute unrelated projects.
       try {
-        const { loadAllMiniSkills, formatMiniSkillsForInjection, recordMiniSkillUsage } = await import('./skills/mini-skills.js');
-        const miniSkills = await loadAllMiniSkills(projectDir);
+        const { loadMiniSkills, formatMiniSkillsForInjection, recordMiniSkillUsage } = await import('./skills/mini-skills.js');
+        const SKILL_NOISE = [
+          /\bdemo\b/i, /展示/i, /全能力/i, /\[test\]/i, /\[测试\]/i, /测试/i,
+          /验证/i, /兼容/i, /compat/i, /memmcp/i, /memorix-demo/i, /sandbox/i,
+          /playground/i, /benchmark/i, /handoff/i, /交接/i, /for_memmcp/i,
+        ];
+        const allSkills = await loadMiniSkills(projectDir, project.id);
+        const miniSkills = allSkills.filter(s => {
+          const text = `${s.title}\n${s.sourceEntity}\n${s.instruction}`.toLowerCase();
+          return !SKILL_NOISE.some(p => p.test(text));
+        });
         if (miniSkills.length > 0) {
           const formatted = formatMiniSkillsForInjection(miniSkills);
           lines.push('---', '', formatted);
@@ -2932,7 +3412,7 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
       if (isLLMEnabled()) {
         const { getAllObservations, resolveObservations } = await import('./memory/observations.js');
         const { deduplicateMemory } = await import('./llm/memory-manager.js');
-        const allObs = getAllObservations().filter(o => (o.status ?? 'active') === 'active' && o.projectId === project.id);
+        const allObs = await withFreshIndex(() => getAllObservations().filter(o => (o.status ?? 'active') === 'active' && o.projectId === project.id));
         if (allObs.length > 10) {
           const grouped = new Map<string, typeof allObs>();
           for (const obs of allObs) {
@@ -2941,22 +3421,30 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
             grouped.get(key)!.push(obs);
           }
           const toResolve: number[] = [];
+          // Cap total LLM dedup calls per session to avoid runaway API usage
+          const MAX_DEDUP_CALLS = 15;
+          let dedupCalls = 0;
           for (const [, group] of grouped) {
-            if (group.length < 2) continue;
+            if (group.length < 2 || dedupCalls >= MAX_DEDUP_CALLS) continue;
             group.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
-            for (let i = 0; i < group.length - 1 && i < 5; i++) {
+            for (let i = 0; i < group.length - 1 && i < 3 && dedupCalls < MAX_DEDUP_CALLS; i++) {
               try {
+                dedupCalls++;
                 const older = group[i], newer = group[i + 1];
-                const decision = await deduplicateMemory(
-                  { title: newer.title, narrative: newer.narrative, facts: newer.facts },
-                  [{ id: older.id, title: older.title, narrative: older.narrative, facts: older.facts.join('\n') }],
+                const decision = await withTimeout(
+                  deduplicateMemory(
+                    { title: newer.title, narrative: newer.narrative, facts: newer.facts },
+                    [{ id: older.id, title: older.title, narrative: older.narrative, facts: older.facts.join('\n') }],
+                  ),
+                  DEDUP_PER_PAIR_TIMEOUT_MS,
+                  `Dedup pair #${older.id}↔#${newer.id}`,
                 );
                 if (decision && (decision.action === 'UPDATE' || decision.action === 'NONE')) {
                   toResolve.push(decision.action === 'UPDATE' ? older.id : newer.id);
                 } else if (decision?.action === 'DELETE' && decision.targetId) {
                   toResolve.push(decision.targetId);
                 }
-              } catch { /* skip individual comparison errors */ }
+              } catch { /* skip individual comparison errors or timeouts */ }
             }
           }
           if (toResolve.length > 0) {
@@ -2973,6 +3461,49 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
       }
     } catch { /* consolidation is optional */ }
     } // end autoCleanup
+
+    // ── Vector-missing observability & background backfill ──────────
+    // Log how many observations are missing embeddings (search quality degradation).
+    // If any are missing and embedding is available, attempt background backfill.
+    // A periodic timer retries every 60s so provider recovery actually helps.
+    try {
+      const { getVectorStatus, backfillVectorEmbeddings } = await import('./memory/observations.js');
+      const { isEmbeddingExplicitlyDisabled } = await import('./embedding/provider.js');
+
+      const runBackfill = async (label: string) => {
+        const vs = getVectorStatus();
+        if (vs.missing === 0 || isEmbeddingExplicitlyDisabled()) return;
+        if (label === 'init') {
+          console.error(`[memorix] Vector status: ${vs.missing}/${vs.total} observations missing embeddings`);
+        }
+        try {
+          const result = await backfillVectorEmbeddings();
+          if (result.succeeded > 0) {
+            console.error(`[memorix] Vector backfill (${label}): ${result.succeeded}/${result.attempted} embeddings recovered`);
+          }
+          if (result.failed > 0 && label === 'init') {
+            console.error(`[memorix] Vector backfill: ${result.failed} failed (periodic retry active)`);
+          }
+        } catch { /* best-effort */ }
+      };
+
+      // Initial backfill attempt (non-blocking)
+      runBackfill('init');
+
+      // Periodic retry: every 60s, check if there are still missing vectors
+      // Stops automatically when all vectors are backfilled or embedding is disabled
+      const BACKFILL_INTERVAL_MS = 60_000;
+      const backfillTimer = setInterval(async () => {
+        const vs = getVectorStatus();
+        if (vs.missing === 0 || isEmbeddingExplicitlyDisabled()) {
+          clearInterval(backfillTimer);
+          return;
+        }
+        await runBackfill('periodic');
+      }, BACKFILL_INTERVAL_MS);
+      // Don't keep the process alive just for backfill
+      if (backfillTimer.unref) backfillTimer.unref();
+    } catch { /* vector observability is optional */ }
 
     // Watch for external writes (e.g., from hook processes) and hot-reload.
     // Uses watchFile (polling) instead of watch because atomicWriteFile uses
@@ -2993,6 +3524,7 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
           reloading = true;
           try {
             await resetDb();
+            await initObservationStore(projectDir);
             await initObservations(projectDir);
             const count = await reindexObservations();
             if (count > 0) {
@@ -3008,38 +3540,55 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
     }
   };
 
-  // Runtime project switch — called when MCP roots change or new workspace detected.
+  // Runtime project switch — called when MCP roots change, projectRoot binding, or new workspace detected.
   // Updates all mutable state; tool closures automatically pick up new values.
   const switchProject = async (newCwd: string): Promise<boolean> => {
-    const newDetected = detectProject(newCwd);
-    if (!newDetected) return false; // no .git found at new path
+    const { detectProjectWithDiagnostics } = await import('./project/detector.js');
+    const result = detectProjectWithDiagnostics(newCwd);
+    if (!result.project) {
+      if (result.failure) {
+        console.error(`[memorix] Project detection failed for "${newCwd}": [${result.failure.reason}] ${result.failure.detail}`);
+      }
+      return false;
+    }
+    const newDetected = result.project;
 
+    // Resolve data dir FIRST (was buggy: used before declaration)
+    const newProjectDir = await getProjectDataDir(newDetected.id);
+    initAliasRegistry(newProjectDir);
     const newCanonicalId = await registerAlias(newDetected);
-    if (newCanonicalId === project.id) return false; // same project, no-op
+
+    // Allow switch if: different project OR current project is unresolved (__unresolved__)
+    if (newCanonicalId === project.id && projectResolved) return false; // same project, no-op
 
     console.error(`[memorix] Switching project: ${project.id} → ${newCanonicalId}`);
 
-    // Update mutable state — all tool closures reference these by closure
-    const newProjectDir = await getProjectDataDir(newCanonicalId);
-    project = { ...newDetected, id: newCanonicalId };
-    projectDir = newProjectDir;
+    // Re-resolve data dir with canonical ID (may differ from raw detected ID)
+    const canonicalProjectDir = newCanonicalId !== newDetected.id
+      ? await getProjectDataDir(newCanonicalId)
+      : newProjectDir;
 
-    // Update YAML config root for the new project
+    // Update mutable state — all tool closures reference these by closure
+    projectResolved = true;
+    projectResolutionError = null;
+    project = { ...newDetected, id: newCanonicalId };
+    projectDir = canonicalProjectDir;
+
+    // Update YAML config root and reload .env for the new project
     try {
       const { initProjectRoot } = await import('./config/yaml-loader.js');
       initProjectRoot(project.rootPath);
+      const { resetDotenv, loadDotenv } = await import('./config/dotenv-loader.js');
+      resetDotenv();
+      loadDotenv(project.rootPath);
     } catch { /* best-effort */ }
 
-    // Re-initialize stores
-    graphManager = new KnowledgeGraphManager(projectDir);
-    await graphManager.init();
-    await initObservations(projectDir);
-    await reindexObservations();
-
-    console.error(`[memorix] Project switched to: ${project.id} (${project.name})`);
-    console.error(`[memorix] Data dir: ${projectDir}`);
+    await initializeProjectRuntime('switch');
     return true;
   };
 
-  return { server, graphManager, projectId: project.id, deferredInit, switchProject };
+  return {
+    server, graphManager, projectId: project.id, deferredInit, switchProject,
+    isExplicitlyBound: () => explicitProjectBound,
+  };
 }

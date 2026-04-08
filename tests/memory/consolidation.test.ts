@@ -7,6 +7,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 vi.mock('../../src/embedding/provider.js', () => ({
   getEmbeddingProvider: async () => null,
   isVectorSearchAvailable: async () => false,
+  isEmbeddingExplicitlyDisabled: () => true,
   resetProvider: () => {},
 }));
 
@@ -43,21 +44,23 @@ describe('Memory Consolidation', () => {
     });
 
     it('should find candidates among similar observations', async () => {
-      // Store 3 similar gotchas about Windows path issues
+      // Store 3 similar discoveries about Windows path issues
+      // Uses 'discovery' type (not high-value) so consolidation at 0.3 threshold works.
+      // High-value types (gotcha/decision) require 0.85 similarity to merge.
       await storeObservation({
-        entityName: 'paths', type: 'gotcha', title: 'Windows path separator bug',
+        entityName: 'paths', type: 'discovery', title: 'Windows path separator bug',
         narrative: 'Use path.join instead of string concatenation for Windows paths',
         facts: ['Use path.join', 'Windows uses backslash'],
         projectId: PROJECT_ID,
       });
       await storeObservation({
-        entityName: 'paths', type: 'gotcha', title: 'Windows path separator issue',
+        entityName: 'paths', type: 'discovery', title: 'Windows path separator issue',
         narrative: 'String concatenation with / breaks on Windows, use path.join',
         facts: ['path.join is cross-platform', 'Avoid / in paths'],
         projectId: PROJECT_ID,
       });
       await storeObservation({
-        entityName: 'paths', type: 'gotcha', title: 'Windows path bug with separators',
+        entityName: 'paths', type: 'discovery', title: 'Windows path bug with separators',
         narrative: 'Path concatenation fails on Windows when using forward slash, fix with path.join',
         facts: ['path.join handles separators', 'Windows path bug'],
         projectId: PROJECT_ID,
@@ -66,7 +69,7 @@ describe('Memory Consolidation', () => {
       const clusters = await findConsolidationCandidates(testDir, PROJECT_ID, { threshold: 0.3 });
       expect(clusters.length).toBeGreaterThanOrEqual(1);
       expect(clusters[0].entityName).toBe('paths');
-      expect(clusters[0].type).toBe('gotcha');
+      expect(clusters[0].type).toBe('discovery');
       expect(clusters[0].ids.length).toBeGreaterThanOrEqual(2);
     });
 
@@ -125,8 +128,9 @@ describe('Memory Consolidation', () => {
 
   describe('executeConsolidation', () => {
     it('should merge similar observations and reduce count', async () => {
+      // Uses 'discovery' type — high-value types (gotcha/decision) require 0.85 similarity
       await storeObservation({
-        entityName: 'paths', type: 'gotcha', title: 'Windows path separator bug',
+        entityName: 'paths', type: 'discovery', title: 'Windows path separator bug',
         narrative: 'Use path.join for Windows compatibility',
         facts: ['Use path.join', 'Windows uses backslash'],
         filesModified: ['utils.ts'],
@@ -134,7 +138,7 @@ describe('Memory Consolidation', () => {
         projectId: PROJECT_ID,
       });
       await storeObservation({
-        entityName: 'paths', type: 'gotcha', title: 'Windows path separator issue',
+        entityName: 'paths', type: 'discovery', title: 'Windows path separator issue',
         narrative: 'String concat with / breaks on Windows, use path.join',
         facts: ['path.join is cross-platform', 'Avoid / concatenation'],
         filesModified: ['helpers.ts'],
@@ -142,7 +146,7 @@ describe('Memory Consolidation', () => {
         projectId: PROJECT_ID,
       });
       await storeObservation({
-        entityName: 'paths', type: 'gotcha', title: 'Windows path bug separators',
+        entityName: 'paths', type: 'discovery', title: 'Windows path bug separators',
         narrative: 'Path concatenation fails on Windows, fix with path.join',
         facts: ['path.join handles OS separators'],
         filesModified: ['utils.ts'],

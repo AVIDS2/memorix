@@ -223,6 +223,43 @@ describe('SkillsEngine', () => {
             expect(content).toContain('description:');
             expect(content).toMatch(/---\n\n#/);
         });
+
+        it('should ignore low-signal command traces when generating skills', () => {
+            const obs = [
+                { id: 1, entityName: 'npm', type: 'what-changed', title: 'Ran: npx vitest run', narrative: 'Command: npx vitest run tests/skills/engine.test.ts 2>&1 | Select-String vitest', source: 'agent' as const },
+                { id: 2, entityName: 'mcp_memorix_memorix_search', type: 'discovery', title: 'Ran: memorix_search', narrative: 'Command: memorix_search query=skills | Get-Content output.txt', source: 'agent' as const },
+                { id: 3, entityName: 'gh', type: 'what-changed', title: 'Ran: gh pr view', narrative: 'Command: gh pr view 17 && git status', source: 'manual' as const },
+                { id: 4, entityName: 'auth-module', type: 'gotcha', title: 'JWT expiry trap', narrative: 'Tokens expire silently', facts: ['Default TTL: 60s'], source: 'agent' as const },
+                { id: 5, entityName: 'auth-module', type: 'decision', title: 'Use refresh rotation', narrative: 'Reduces replay risk', source: 'agent' as const },
+                { id: 6, entityName: 'auth-module', type: 'how-it-works', title: 'Auth refresh flow', narrative: 'Access token rotates through a refresh endpoint', source: 'agent' as const },
+            ];
+
+            const skills = engine.generateFromObservations(obs);
+
+            expect(skills).toHaveLength(1);
+            expect(skills[0].name).toBe('auth-module');
+            expect(skills[0].content).not.toContain('Ran: npx vitest run');
+            expect(skills[0].content).not.toContain('memorix_search');
+            expect(skills[0].content).not.toContain('gh pr view');
+        });
+
+        it('should not turn generic git command history into a skill', () => {
+            const obs = [
+                { id: 1, entityName: 'git', type: 'decision', title: 'Ran: git commit -m "feat: add git memory"', narrative: 'Command: git commit -m "feat: add git memory"', source: 'git' as const, status: 'resolved' },
+                { id: 2, entityName: 'git', type: 'discovery', title: 'Ran: git diff --stat HEAD~1..HEAD', narrative: 'Command: git diff --stat HEAD~1..HEAD', source: 'git' as const, status: 'resolved' },
+                { id: 3, entityName: 'git', type: 'problem-solution', title: 'Ran: git push origin main', narrative: 'Command: git push origin main', source: 'git' as const },
+                { id: 4, entityName: 'release-pipeline', type: 'decision', title: 'Tag releases after green CI', narrative: 'Release tags are only cut after CI passes on main', source: 'git' as const },
+                { id: 5, entityName: 'release-pipeline', type: 'how-it-works', title: 'Release flow overview', narrative: 'Main branch tags drive release notes and npm publication', source: 'git' as const },
+                { id: 6, entityName: 'release-pipeline', type: 'trade-off', title: 'Manual publish keeps 2FA', narrative: 'We prefer manual npm publish to preserve interactive 2FA', source: 'agent' as const },
+            ];
+
+            const skills = engine.generateFromObservations(obs);
+
+            expect(skills).toHaveLength(1);
+            expect(skills[0].name).toBe('release-pipeline');
+            expect(skills[0].content).not.toContain('Ran: git commit');
+            expect(skills[0].content).not.toContain('git push origin main');
+        });
     });
 
     // ============================================================

@@ -125,6 +125,10 @@ export interface Observation {
   relatedCommits?: string[];
   /** Related entity names — explicit cross-references to other memory entities */
   relatedEntities?: string[];
+  /** Provenance detail: how this observation entered the system */
+  sourceDetail?: 'explicit' | 'hook' | 'git-ingest';
+  /** Value category from formation pipeline evaluation */
+  valueCategory?: 'core' | 'contextual' | 'ephemeral';
 }
 
 // ============================================================
@@ -157,6 +161,28 @@ export interface IndexEntry {
   tokens: number;
   /** Relevance score from search (time-decayed). Used by compact engine. */
   score?: number;
+  /** Project that owns this observation. Needed to disambiguate global results. */
+  projectId?: string;
+  /** Origin of the memory for source-aware retrieval and display. */
+  source?: 'agent' | 'git' | 'manual';
+  /** Provenance detail for source-aware display */
+  sourceDetail?: 'explicit' | 'hook' | 'git-ingest';
+  /** Value category for source-aware ranking */
+  valueCategory?: 'core' | 'contextual' | 'ephemeral';
+  /** Explainable recall: why this result matched. */
+  matchedFields?: string[];
+  /** Entity name — used for entity-affinity scoring and workstream deduplication. */
+  entityName?: string;
+  /** Document type: observation or mini-skill (Phase 3a) */
+  documentType?: DocumentType;
+  /** Knowledge layer for layer-aware ranking (Phase 3a) */
+  knowledgeLayer?: KnowledgeLayer;
+}
+
+/** Explicit reference to an observation, optionally scoped to a project. */
+export interface ObservationRef {
+  id: number;
+  projectId?: string;
 }
 
 /** L2 timeline context — observations around an anchor */
@@ -219,6 +245,16 @@ export interface MemorixDocument {
   status: string;
   /** Origin: agent, git, manual */
   source: string;
+  /** Provenance detail: explicit, hook, or git-ingest */
+  sourceDetail?: string;
+  /** Value category from formation evaluation */
+  valueCategory?: string;
+  /** Optional vector embedding for semantic/hybrid retrieval */
+  embedding?: number[];
+  /** Document type: observation or mini-skill (Phase 3a) */
+  documentType?: DocumentType;
+  /** Knowledge layer for layer-aware ranking (Phase 3a) */
+  knowledgeLayer?: KnowledgeLayer;
 }
 
 // ============================================================
@@ -235,6 +271,7 @@ export type RuleSource =
   | 'codex'
   | 'windsurf'
   | 'antigravity'
+  | 'gemini-cli'
   | 'copilot'
   | 'kiro'
   | 'trae'
@@ -282,6 +319,29 @@ export interface ProjectInfo {
   rootPath: string;
 }
 
+/**
+ * Diagnostic failure info from project detection.
+ * Tells callers exactly WHY detection failed so they can report actionable errors.
+ */
+export type DetectionFailureReason =
+  | 'path_not_found'
+  | 'not_a_directory'
+  | 'no_git'
+  | 'git_worktree_error'
+  | 'git_safe_directory'
+  | 'remote_resolve_failed';
+
+export interface DetectionFailure {
+  reason: DetectionFailureReason;
+  path: string;
+  detail: string;
+}
+
+export interface DetectionResult {
+  project: ProjectInfo | null;
+  failure: DetectionFailure | null;
+}
+
 // ============================================================
 // Memorix Server Configuration
 // ============================================================
@@ -306,7 +366,7 @@ export const DEFAULT_CONFIG: Partial<MemorixConfig> = {
 // ============================================================
 
 /** Supported agent targets for workspace sync */
-export type AgentTarget = 'windsurf' | 'cursor' | 'claude-code' | 'codex' | 'copilot' | 'antigravity' | 'kiro' | 'opencode' | 'trae';
+export type AgentTarget = 'windsurf' | 'cursor' | 'claude-code' | 'codex' | 'copilot' | 'antigravity' | 'gemini-cli' | 'kiro' | 'opencode' | 'trae';
 
 /** A unified MCP server entry across all agent config formats */
 export interface MCPServerEntry {
@@ -378,7 +438,7 @@ export interface WorkspaceSyncResult {
 /** A mini-skill promoted from one or more observations */
 export interface MiniSkill {
   id: number;
-  /** Observation IDs this mini-skill was derived from */
+  /** Observation IDs this mini-skill was derived from (live refs, best-effort) */
   sourceObservationIds: number[];
   /** Entity the source observations belong to */
   sourceEntity: string;
@@ -398,6 +458,55 @@ export interface MiniSkill {
   usedCount: number;
   /** Classification tags */
   tags: string[];
+  /** Frozen source observation content at promote time (JSON, immutable provenance proof) */
+  sourceSnapshot?: string;
+  /** ISO timestamp of last modification (Phase 3a: set once at creation) */
+  updatedAt?: string;
+}
+
+// ============================================================
+// Source Snapshot — immutable provenance proof for promoted knowledge
+// ============================================================
+
+/** A single observation entry within a source snapshot */
+export interface SnapshotObservation {
+  id: number;
+  title: string;
+  type: string;
+  narrative: string;
+  facts: string[];
+  entityName: string;
+  projectId: string;
+  createdAt: string;
+  /** Frozen source detail for provenance (explicit / hook / git-ingest) */
+  sourceDetail?: string;
+}
+
+/** Frozen source content captured at promote time */
+export interface SourceSnapshot {
+  observations: SnapshotObservation[];
+  promotedAt: string;
+}
+
+// ============================================================
+// Knowledge Layer — Phase 3a retrieval classification
+// ============================================================
+
+/** Classification of knowledge for layer-aware ranking */
+export type KnowledgeLayer = 'project-truth' | 'promoted' | 'evidence';
+
+/** Document type discriminator for Orama index */
+export type DocumentType = 'observation' | 'mini-skill';
+
+// ============================================================
+// Typed Memory Reference — Phase 3a reference protocol
+// ============================================================
+
+/** A typed reference to a memory object (observation or mini-skill) */
+export interface MemoryRef {
+  kind: 'obs' | 'skill';
+  id: number;
+  projectId?: string;
 }
 
 /** MCP config format adapter interface */

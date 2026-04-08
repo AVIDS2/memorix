@@ -5,84 +5,193 @@
 <h1 align="center">Memorix</h1>
 
 <p align="center">
-  <strong>AI 编码 Agent 的持久化记忆层</strong><br>
-  一个 MCP 服务器，十个 Agent，零上下文丢失。
+  <strong>面向 Coding Agent 的开源跨 Agent Memory Layer。</strong><br>
+  通过 MCP 兼容 Cursor、Claude Code、Codex、Windsurf、Gemini CLI、GitHub Copilot、Kiro、OpenCode、Antigravity 和 Trae。
 </p>
 
 <p align="center">
   <a href="https://www.npmjs.com/package/memorix"><img src="https://img.shields.io/npm/v/memorix.svg?style=flat-square&color=cb3837" alt="npm"></a>
   <a href="https://www.npmjs.com/package/memorix"><img src="https://img.shields.io/npm/dm/memorix.svg?style=flat-square&color=blue" alt="downloads"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-green.svg?style=flat-square" alt="license"></a>
-  <a href="https://github.com/AVIDS2/memorix"><img src="https://img.shields.io/github/stars/AVIDS2/memorix?style=flat-square&color=yellow" alt="stars"></a>
-  <img src="https://img.shields.io/badge/tests-803%20passed-brightgreen?style=flat-square" alt="tests">
   <a href="https://github.com/AVIDS2/memorix/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/AVIDS2/memorix/ci.yml?style=flat-square&label=CI" alt="CI"></a>
+  <a href="https://github.com/AVIDS2/memorix"><img src="https://img.shields.io/github/stars/AVIDS2/memorix?style=flat-square&color=yellow" alt="stars"></a>
 </p>
 
 <p align="center">
-  <strong>v1.0 正式版 | 23 个 MCP 工具 | 自动清理 | 多 Agent 协作 | 10 IDE 支持</strong>
+  <strong>Git Memory</strong> | <strong>Reasoning Memory</strong> | <strong>跨 Agent 召回</strong> | <strong>Control Plane Dashboard</strong>
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/-Cursor-orange?style=flat-square" alt="Cursor">
-  <img src="https://img.shields.io/badge/-Windsurf-blue?style=flat-square" alt="Windsurf">
-  <img src="https://img.shields.io/badge/-Claude%20Code-purple?style=flat-square" alt="Claude Code">
-  <img src="https://img.shields.io/badge/-Codex-green?style=flat-square" alt="Codex">
-  <img src="https://img.shields.io/badge/-Copilot-lightblue?style=flat-square" alt="Copilot">
-  <img src="https://img.shields.io/badge/-Kiro-red?style=flat-square" alt="Kiro">
-  <img src="https://img.shields.io/badge/-Antigravity-grey?style=flat-square" alt="Antigravity">
-  <img src="https://img.shields.io/badge/-OpenCode-teal?style=flat-square" alt="OpenCode">
-  <img src="https://img.shields.io/badge/-Trae-FF6B35?style=flat-square" alt="Trae">
-  <img src="https://img.shields.io/badge/-Gemini%20CLI-4285F4?style=flat-square" alt="Gemini CLI">
-</p>
-
-<p align="center">
-  <a href="README.md">English</a> ·
-  <a href="#快速开始">快速开始</a> ·
-  <a href="#功能">功能</a> ·
-  <a href="#架构">架构</a> ·
-  <a href="docs/SETUP.md">配置指南</a>
+  <a href="README.md">English</a> |
+  <a href="#快速开始">快速开始</a> |
+  <a href="#支持的客户端">支持的客户端</a> |
+  <a href="#核心工作流">核心工作流</a> |
+  <a href="#文档导航">文档导航</a> |
+  <a href="docs/SETUP.md">安装与接入</a>
 </p>
 
 ---
 
-## 简介
+## 给 Coding Agent 的说明
 
-AI 编码 Agent 在会话之间会丢失全部上下文。切换 IDE 后，之前的决策、调试历史和架构知识全部消失。Memorix 提供跨 Agent、跨会话的共享持久化记忆层——存储决策、踩坑经验和项目知识，任何 Agent 都可以即时检索。
+如果你在用 AI coding agent 帮用户安装、配置或排障 Memorix，请先读 [Agent Operator Playbook](docs/AGENT_OPERATOR_PLAYBOOK.md)。
 
-```
-会话 1（Cursor）：      "用 JWT + refresh token，15 分钟过期"  → 存储为 decision
-会话 2（Claude Code）： "添加登录接口"  → 检索到该决策 → 正确实现
-```
+这份文档是给 agent 的正式操作手册，重点说明：
 
-无需重复解释。无需复制粘贴。无厂商锁定。
+- 安装与运行模式选择
+- Git 与项目绑定规则
+- stdio 与 HTTP control plane 的区别
+- 各 IDE / Agent 的集成和 hooks
+- dot 目录按需生成策略
+- 排障顺序和安全操作边界
 
-### 核心能力
+## 为什么是 Memorix
 
-- **跨 Agent 记忆共享**：所有 Agent 共用同一记忆存储。在 Cursor 中存储，在 Claude Code 中检索。
-- **多 Agent 协作**：Team 工具支持 Agent 间协调——注册/注销、文件锁、任务板、跨 IDE 消息传递，通过共享的 `team-state.json` 实现。
-- **启动自动清理**：后台自动归档过期记忆 + 智能去重（配有 LLM 时用语义分析，否则用启发式），零人工维护。
-- **双模式质量引擎**：免费启发式引擎处理基础去重；可选 LLM 模式提供智能压缩、重排序和冲突检测。
-- **3 层渐进式展示**：搜索返回紧凑索引（每条约 50 tokens），时间线展示前后文，详情提供完整内容。相比全文检索节省约 10 倍 token。
-- **Mini-Skills**：将高价值观察提升为永久技能，每次会话启动自动注入。关键知识永不衰减。
-- **记忆形成管线**：每次存储自动进行事实抽取、实体归并和知识价值评估。Shadow 模式收集质量指标而不影响存储。
-- **自动记忆 Hook**：自动从 IDE 工具调用中捕获决策、错误和踩坑经验。支持中英文模式检测。
-- **知识图谱**：实体-关系模型，兼容 [MCP 官方 Memory Server](https://github.com/modelcontextprotocol/servers/tree/main/src/memory)。自动从内容中提取实体并创建关联。
+大多数 Coding Agent 只记得当前线程。Memorix 提供的是一层共享、持久、可检索的项目记忆，让不同 IDE、不同 Agent、不同会话都能在同一套本地记忆库上继续工作。
+
+Memorix 的几个关键差异点：
+
+- **Git Memory**：把 `git commit` 变成可检索的工程记忆，保留提交来源、变更文件和噪音过滤结果。
+- **Reasoning Memory**：不只记录“改了什么”，还记录“为什么这么做”。
+- **跨 Agent 本地召回**：多个 IDE 和 Agent 可以读取同一套本地记忆，而不是各自形成孤岛。
+- **记忆质量管线**：formation、压缩、保留衰减和 source-aware retrieval 协同工作，而不是一堆彼此独立的小功能。
+
+一句话说，Memorix 解决的是：让多个 Coding Agent 通过 MCP 共享同一套耐久项目记忆，同时保留 Git 真相、推理上下文和本地控制权。
+
+## 1.0.6 更新亮点
+
+`1.0.6` 这次发布，真正把 Memorix 的记忆语义、检索层次和运维闭环补完整了。
+
+- **以 provenance 为先的检索模型**：记忆现在会明确区分 `explicit`、`hook`、`git-ingest` 等来源细节，以及 `core`、`contextual`、`ephemeral` 等价值类别。
+- **分层披露（Layered Disclosure）**：session start、search、detail、timeline 更清楚地区分了 routing hints、working context 和 deeper evidence。
+- **证据语义与 citation-lite**：紧凑输出现在能说明 repository-backed evidence、synthesized analysis，以及“为什么会浮出来 / 它由什么支持”的轻量提示。
+- **任务线收束与 secret safety**：检索更不容易在同一个 repo 内串到错误的 workstream，明显的密码、token、credential 也会在写入和读取路径上被拦截或脱敏。
+- **归属校验与 cleanup 闭环**：wrong-bucket 审计、retention explainability、stale review 和 remediation hint 现在已经形成一个可操作的清理闭环。
+- **OpenCode compaction 改进**：OpenCode 的 compaction 不再暗示会自动调用 MCP 工具，而是使用结构化 continuation prompt，并暴露真实的 `post_compact` 事件。
+
+## 支持的客户端
+
+当前已经做了明确适配的集成目标有：
+
+- Cursor
+- Claude Code
+- Codex
+- Windsurf
+- Gemini CLI
+- GitHub Copilot
+- Kiro
+- OpenCode
+- Antigravity
+- Trae
+
+如果某个客户端能通过 MCP 连接本地命令或 HTTP 端点，通常也可以接入 Memorix，只是暂时没有单独的适配器或引导页。
 
 ---
 
 ## 快速开始
 
+全局安装：
+
 ```bash
 npm install -g memorix
 ```
 
-添加到 Agent 的 MCP 配置：
+初始化 Memorix 配置：
 
-<details open>
-<summary><strong>Cursor</strong> · <code>.cursor/mcp.json</code></summary>
+```bash
+memorix init
+```
+
+`memorix init` 会让你在 `Global defaults` 和 `Project config` 之间选择作用域。
+
+Memorix 使用两类文件：
+
+- `memorix.yml`：行为配置和项目设置
+- `.env`：API key 等 secrets
+
+然后按你的目标选择一条最顺手的路径：
+
+| 你想做什么 | 运行命令 | 适合场景 |
+| --- | --- | --- |
+| 先把 Memorix 快速接到一个 IDE 里 | `memorix serve` | Cursor、Claude Code、Codex、Windsurf、Gemini CLI 等 stdio MCP 客户端 |
+| 在后台长期运行 HTTP MCP + Dashboard | `memorix background start` | 日常使用、多 Agent、协作、dashboard |
+| 把 HTTP 模式放在前台调试或自定义端口 | `memorix serve-http --port 3211` | 调试、手动观察日志、自定义启动方式 |
+
+对大多数用户来说，先从下面两条里选一条就够了：
+
+- `memorix serve`：你只想尽快在 IDE 里用起来
+- `memorix background start`：你想要 dashboard 和后台常驻的 HTTP control plane
+
+可选的本地交互式界面：
+
+```bash
+memorix
+```
+
+只有在你确实想在 TTY 里直接使用本地 workbench 时，才需要运行裸命令 `memorix`。对大多数用户来说，它不是主安装路径。
+
+配套命令：
+
+```bash
+memorix background status
+memorix background logs
+memorix background stop
+```
+
+如果你确实需要把 HTTP control plane 放在前台运行、做调试、手动观察日志或使用自定义端口，再用：
+
+```bash
+memorix serve-http --port 3211
+```
+
+如果你在多个工作区或多个 Agent 之间共享 HTTP control plane，请让每个 session 都在开始时调用 `memorix_session_start(projectRoot=...)`。
+
+更细的启动根路径选择、项目绑定、配置优先级和 agent 操作说明，放在 [docs/SETUP.md](docs/SETUP.md) 和 [Agent Operator Playbook](docs/AGENT_OPERATOR_PLAYBOOK.md) 里。
+
+把 Memorix 加进你的 MCP 客户端：
+
+### 通用 stdio MCP 配置
 
 ```json
-{ "mcpServers": { "memorix": { "command": "memorix", "args": ["serve"] } } }
+{
+  "mcpServers": {
+    "memorix": {
+      "command": "memorix",
+      "args": ["serve"]
+    }
+  }
+}
+```
+
+### 通用 HTTP MCP 配置
+
+```json
+{
+  "mcpServers": {
+    "memorix": {
+      "transport": "http",
+      "url": "http://localhost:3211/mcp"
+    }
+  }
+}
+```
+
+如果你用的是 HTTP control plane，并且会跨多个工作区或多个 Agent 共享，请确保客户端或 agent 在每个项目 session 开始时调用 `memorix_session_start(projectRoot=绝对工作区路径)`。
+
+下面这些客户端示例展示的是最简单的 stdio 形态。如果你更想使用共享的 HTTP control plane，请沿用上面的通用 HTTP 配置块，并到 [docs/SETUP.md](docs/SETUP.md) 查看各客户端字段差异。
+
+<details open>
+<summary><strong>Cursor</strong> | <code>.cursor/mcp.json</code></summary>
+
+```json
+{
+  "mcpServers": {
+    "memorix": {
+      "command": "memorix",
+      "args": ["serve"]
+    }
+  }
+}
 ```
 </details>
 
@@ -95,23 +204,7 @@ claude mcp add memorix -- memorix serve
 </details>
 
 <details>
-<summary><strong>Windsurf</strong> · <code>~/.codeium/windsurf/mcp_config.json</code></summary>
-
-```json
-{ "mcpServers": { "memorix": { "command": "memorix", "args": ["serve"] } } }
-```
-</details>
-
-<details>
-<summary><strong>VS Code Copilot</strong> · <code>.vscode/mcp.json</code></summary>
-
-```json
-{ "servers": { "memorix": { "command": "memorix", "args": ["serve"] } } }
-```
-</details>
-
-<details>
-<summary><strong>Codex</strong> · <code>~/.codex/config.toml</code></summary>
+<summary><strong>Codex</strong> | <code>~/.codex/config.toml</code></summary>
 
 ```toml
 [mcp_servers.memorix]
@@ -120,227 +213,187 @@ args = ["serve"]
 ```
 </details>
 
-<details>
-<summary><strong>Kiro</strong> · <code>.kiro/settings/mcp.json</code></summary>
-
-```json
-{ "mcpServers": { "memorix": { "command": "memorix", "args": ["serve"] } } }
-```
-</details>
-
-<details>
-<summary><strong>Antigravity</strong> · <code>~/.gemini/antigravity/mcp_config.json</code></summary>
-
-```json
-{ "mcpServers": { "memorix": { "command": "memorix", "args": ["serve"], "env": { "MEMORIX_PROJECT_ROOT": "/your/project/path" } } } }
-```
-</details>
-
-<details>
-<summary><strong>OpenCode</strong> · <code>~/.config/opencode/config.json</code></summary>
-
-```json
-{ "mcpServers": { "memorix": { "command": "memorix", "args": ["serve"] } } }
-```
-</details>
-
-<details>
-<summary><strong>Trae</strong> · <code>~/%APPDATA%/Trae/User/mcp.json</code></summary>
-
-```json
-{ "mcpServers": { "memorix": { "command": "memorix", "args": ["serve"] } } }
-```
-</details>
-
-<details>
-<summary><strong>Gemini CLI</strong> · <code>.gemini/settings.json</code></summary>
-
-```json
-{ "mcpServers": { "memorix": { "command": "memorix", "args": ["serve"] } } }
-```
-</details>
-
-重启 Agent 即可。无需 API Key，无需云服务，无需额外依赖。
-
-> **自动更新**：Memorix 启动时静默检查更新（每 24 小时一次），有新版本自动后台安装。
-
-> **注意**：不要用 `npx`——它每次都会重新下载，导致 MCP 超时。请用全局安装。
->
-> [完整配置指南](docs/SETUP.md) · [常见问题排查](docs/SETUP.md#troubleshooting)
+完整 IDE 配置矩阵、Windows 注意事项和排障说明见 [docs/SETUP.md](docs/SETUP.md)。
 
 ---
 
-## 功能
+## 核心工作流
 
-### 23 个 MCP 工具（默认）
+### 1. 存储与检索项目记忆
 
-| 分类 | 工具 |
-|------|------|
-| **记忆** | `memorix_store` · `memorix_search` · `memorix_detail` · `memorix_timeline` · `memorix_resolve` · `memorix_deduplicate` · `memorix_suggest_topic_key` |
-| **会话** | `memorix_session_start` · `memorix_session_end` · `memorix_session_context` |
-| **技能** | `memorix_skills` · `memorix_promote` |
-| **工作区** | `memorix_workspace_sync` · `memorix_rules_sync` |
-| **维护** | `memorix_retention` · `memorix_consolidate` · `memorix_transfer` · `memorix_formation_metrics` |
-| **团队** | `team_manage` · `team_file_lock` · `team_task` · `team_message` |
-| **仪表盘** | `memorix_dashboard` |
+常用 MCP 工具包括：
 
-<details>
-<summary><strong>+9 可选：知识图谱工具</strong>（在 <code>~/.memorix/settings.json</code> 中启用）</summary>
+- `memorix_store`
+- `memorix_search`
+- `memorix_detail`
+- `memorix_timeline`
+- `memorix_resolve`
 
-`create_entities` · `create_relations` · `add_observations` · `delete_entities` · `delete_observations` · `delete_relations` · `search_nodes` · `open_nodes` · `read_graph`
+这条主链适合沉淀决策、坑点、问题修复和会话交接。
 
-启用方式：`{ "knowledgeGraph": true }` 写入 `~/.memorix/settings.json`
-</details>
+### 2. 自动捕获 Git 真相
 
-### 观察类型
-
-九种结构化类型用于分类存储的知识：
-
-`session-request` · `gotcha` · `problem-solution` · `how-it-works` · `what-changed` · `discovery` · `why-it-exists` · `decision` · `trade-off`
-
-### 混合搜索
-
-BM25 全文搜索开箱即用，资源占用极低（~50MB RAM）。语义向量搜索为可选项，提供三种接入方式：
-
-| 方式 | 配置 | 资源消耗 | 质量 |
-|------|------|---------|------|
-| **API**（推荐） | `MEMORIX_EMBEDDING=api` | 零本地 RAM | 最高 |
-| **fastembed** | `MEMORIX_EMBEDDING=fastembed` | ~300MB RAM | 高 |
-| **transformers** | `MEMORIX_EMBEDDING=transformers` | ~500MB RAM | 高 |
-| **关闭**（默认） | `MEMORIX_EMBEDDING=off` | ~50MB RAM | 仅 BM25 |
-
-API Embedding 兼容任何 OpenAI 格式的接口——OpenAI、通义千问/DashScope、OpenRouter、Ollama 或任何代理：
+安装 post-commit hook：
 
 ```bash
-MEMORIX_EMBEDDING=api
-MEMORIX_EMBEDDING_API_KEY=sk-xxx
-MEMORIX_EMBEDDING_MODEL=text-embedding-3-small
-MEMORIX_EMBEDDING_BASE_URL=https://api.openai.com/v1    # 可选
-MEMORIX_EMBEDDING_DIMENSIONS=512                         # 可选
+memorix git-hook --force
 ```
 
-Embedding 基础设施包含 10K LRU 缓存及磁盘持久化、批量 API 调用（单次最多 2048 条文本）、并行处理（4 个并发分块）以及文本归一化以提升缓存命中率。零外部依赖——不需要 Chroma，不需要 SQLite。
-
-本地 Embedding：
+或者手动导入：
 
 ```bash
-npm install -g fastembed                     # ONNX 运行时
-npm install -g @huggingface/transformers     # JS/WASM 运行时
+memorix ingest commit
+memorix ingest log --count 20
 ```
 
-### LLM 增强模式
+Git Memory 会保留 `source='git'`、提交哈希、文件变更和噪音过滤结果。
 
-可选的 LLM 集成，显著提升记忆质量。在基础搜索之上叠加三项能力：
-
-| 能力 | 说明 | 实测效果 |
-|------|------|---------|
-| **叙述压缩** | 存储前压缩冗余观察，保留所有技术事实 | 降低 27% token 消耗（叙述性内容最高 44%） |
-| **搜索重排序** | LLM 按语义相关性对搜索结果重新排序 | 60% 查询改善，0% 恶化 |
-| **写入时去重** | 写入时检测重复和冲突；自动合并、更新或跳过 | 防止冗余存储，解决矛盾 |
-
-智能过滤确保 LLM 仅在有意义时被调用——命令、文件路径等结构化内容自动跳过。
+### 3. 运行控制面与 Dashboard
 
 ```bash
-MEMORIX_LLM_API_KEY=sk-xxx
-MEMORIX_LLM_PROVIDER=openai          # openai | anthropic | openrouter | custom
-MEMORIX_LLM_MODEL=gpt-4.1-nano       # 任何聊天补全模型
-MEMORIX_LLM_BASE_URL=https://...     # 自定义端点（可选）
+memorix background start
 ```
 
-Memorix 自动检测已有环境变量：
+然后访问：
 
-| 变量 | 提供商 |
-|------|--------|
-| `OPENAI_API_KEY` | OpenAI |
-| `ANTHROPIC_API_KEY` | Anthropic |
-| `OPENROUTER_API_KEY` | OpenRouter |
+- MCP HTTP 端点：`http://localhost:3211/mcp`
+- Dashboard：`http://localhost:3211`
 
-**无 LLM**：免费启发式去重（基于相似度规则）。**有 LLM**：智能压缩、上下文重排序、矛盾检测和事实提取。
-
-> **Embedding vs LLM**：Embedding 用于语义搜索（文本向量化），LLM 用于智能管理（理解文本含义）。两者独立配置，均为可选。
-
-### Mini-Skills
-
-使用 `memorix_promote` 将高价值观察提升为永久技能。Mini-Skills 的特性：
-
-- **永久保留** — 不受衰减机制影响，永不归档
-- **自动注入** — 每次 `memorix_session_start` 时自动加载到上下文
-- **项目隔离** — 按项目独立存储，无跨项目污染
-
-适用于必须永久保留的关键知识：部署流程、架构约束、反复出现的坑。
-
-### 团队协作
-
-多个 Agent 在同一工作区可通过 4 个团队工具协调：
-
-| 工具 | 操作 | 用途 |
-|------|------|------|
-| `team_manage` | join, leave, status | Agent 注册——查看谁在线 |
-| `team_file_lock` | lock, unlock, status | 协商式文件锁防止冲突 |
-| `team_task` | create, claim, complete, list | 共享任务板+依赖管理 |
-| `team_message` | send, broadcast, inbox | 直接消息和广播 |
-
-状态持久化到 `team-state.json`，所有 IDE 进程共享。详见 [TEAM.md](TEAM.md)。
-
-### 自动记忆 Hook
+配套命令：
 
 ```bash
-memorix hooks install
+memorix background status
+memorix background logs
+memorix background stop
 ```
 
-自动从 IDE 工具调用中捕获决策、错误和踩坑经验。支持中英文模式检测。智能过滤（30 秒冷却，跳过无关命令）。高价值记忆在会话启动时自动注入。
-
-### 交互式 CLI
+如果你需要把控制面放在前台做调试或手动观察，也可以使用：
 
 ```bash
-memorix              # 交互菜单
-memorix configure    # LLM + Embedding 配置向导
-memorix status       # 项目信息与统计
-memorix dashboard    # Web UI（localhost:3210）
-memorix hooks install # 为 IDE 安装自动记忆
+memorix serve-http --port 3211
 ```
+
+这一模式会把 dashboard、配置诊断、项目身份、团队协作和 Git Memory 视图统一到一个控制面入口里。
+
+当多个 HTTP session 同时存在时，每个 session 都应先用 `memorix_session_start(projectRoot=...)` 显式绑定当前工作区，再去调用项目级记忆工具。
 
 ---
 
-## 架构
+## 工作原理
 
 ```mermaid
-graph TB
-    A["Cursor · Claude Code · Windsurf · Codex · +6 更多"]
-    A -->|MCP stdio| Core
-    Core["Memorix MCP Server\n23 个默认工具 · 自动Hook · 自动清理"]
-    Core --> Search["检索管线\nBM25 + 向量 + 重排序"]
-    Core --> Team["团队协作\n注册 · 任务 · 锁 · 消息"]
-    Core --> Sync["规则 & 工作区同步\n10 个适配器"]
-    Core --> Cleanup["自动清理\n保留衰减 + LLM 去重"]
-    Core --> KG["知识图谱\n实体 · 关系"]
-    Search --> Disk["~/.memorix/data/\nobservations · sessions · mini-skills · team-state · entities · relations"]
-    Team --> Disk
-    KG --> Disk
+flowchart LR
+    subgraph Ingress["入口层"]
+        A1["Git hooks / ingest"]
+        A2["MCP tools"]
+        A3["CLI / TUI"]
+        A4["HTTP dashboard"]
+    end
+
+    subgraph Runtime["Memorix Runtime"]
+        B1["stdio MCP server"]
+        B2["HTTP control plane"]
+        B3["project binding + config"]
+    end
+
+    subgraph Memory["记忆基底"]
+        C1["Observation memory"]
+        C2["Reasoning memory"]
+        C3["Git memory"]
+        C4["Session + team state"]
+    end
+
+    subgraph Processing["异步处理"]
+        D1["Formation pipeline"]
+        D2["Embedding + indexing"]
+        D3["Graph linking"]
+        D4["Dedup + retention"]
+    end
+
+    subgraph Consumption["消费面"]
+        E1["Search / detail / timeline"]
+        E2["Dashboard / team views"]
+        E3["Agent recall / handoff"]
+    end
+
+    A1 --> B1
+    A2 --> B1
+    A2 --> B2
+    A3 --> B1
+    A3 --> B2
+    A4 --> B2
+
+    B1 --> B3
+    B2 --> B3
+
+    B3 --> C1
+    B3 --> C2
+    B3 --> C3
+    B3 --> C4
+
+    C1 --> D1
+    C1 --> D2
+    C1 --> D3
+    C1 --> D4
+    C2 --> D1
+    C2 --> D3
+    C3 --> D2
+    C4 --> D3
+
+    D1 --> E1
+    D2 --> E1
+    D3 --> E2
+    D4 --> E3
+    C4 --> E3
 ```
 
-### 检索管线
+Memorix 不是一条单线流水线。它从多个入口接收记忆，把内容落到多种记忆基底上，经过异步质量与索引处理，再通过不同的检索和协作界面提供给用户与 agent。
 
-三阶段检索，渐进式质量提升：
+### 记忆层
 
-```
-阶段 1:  Orama (BM25 + 向量混合)  →  Top-N 候选
-阶段 2:  LLM 重排序（可选）       →  按语义相关性重新排序
-阶段 3:  时间衰减 + 项目亲和度    →  最终评分结果
-```
+- **Observation Memory**：记录“改了什么 / 系统怎么工作 / 踩过什么坑”
+- **Reasoning Memory**：记录“为什么这么做 / 替代方案 / 权衡 / 风险”
+- **Git Memory**：记录从提交中提炼出的工程事实
 
-### 写入管线
+### 检索模型
 
-```
-输入  →  记忆形成管线 (抽取/归并/评估)  →  LLM 压缩（可选）  →  写入时去重/合并  →  存储 + 索引
-```
+- 默认搜索是**当前项目作用域**
+- `scope="global"` 可以跨项目搜索
+- 全局结果可通过带项目信息的 ref 再展开
+- source-aware retrieval 会对“发生了什么”问题偏向 Git Memory，对“为什么”问题偏向 reasoning memory
 
-### 关键设计决策
+---
 
-- **项目隔离**：通过 `git remote` 自动检测，默认按项目搜索。
-- **共享存储**：所有 Agent 读写 `~/.memorix/data/`，天然跨 IDE。
-- **Token 效率**：3 层渐进式展示（search、timeline、detail），节省约 10 倍。
-- **优雅降级**：所有 LLM 和 Embedding 功能均为可选。核心功能零配置即可使用。
+## 文档导航
+
+### 入门
+
+- [Setup Guide](docs/SETUP.md)
+- [Configuration Guide](docs/CONFIGURATION.md)
+
+### 产品与架构
+
+- [Architecture](docs/ARCHITECTURE.md)
+- [Memory Formation Pipeline](docs/MEMORY_FORMATION_PIPELINE.md)
+- [Design Decisions](docs/DESIGN_DECISIONS.md)
+
+### 参考资料
+
+- [API Reference](docs/API_REFERENCE.md)
+- [Git Memory Guide](docs/GIT_MEMORY.md)
+- [Modules](docs/MODULES.md)
+
+### 开发
+
+- [Development Guide](docs/DEVELOPMENT.md)
+- [Known Issues and Roadmap](docs/KNOWN_ISSUES_AND_ROADMAP.md)
+
+### AI / Agent 文档
+
+- [Agent Operator Playbook](docs/AGENT_OPERATOR_PLAYBOOK.md)
+- [AI Context Note](docs/AI_CONTEXT.md)
+- [`llms.txt`](llms.txt)
+- [`llms-full.txt`](llms-full.txt)
 
 ---
 
@@ -348,24 +401,31 @@ graph TB
 
 ```bash
 git clone https://github.com/AVIDS2/memorix.git
-cd memorix && npm install
+cd memorix
+npm install
 
-npm run dev       # 监听模式
-npm test          # 803 个测试
-npm run build     # 生产构建
+npm run dev
+npm test
+npm run build
 ```
 
-[架构设计](docs/ARCHITECTURE.md) · [API 参考](docs/API_REFERENCE.md) · [模块说明](docs/MODULES.md) · [设计决策](docs/DESIGN_DECISIONS.md)
+常用本地命令：
 
-> AI 系统参考：[`llms.txt`](llms.txt) · [`llms-full.txt`](llms-full.txt)
+```bash
+memorix status
+memorix dashboard
+memorix background start
+memorix serve-http --port 3211
+memorix git-hook --force
+```
 
 ---
 
-## 致谢
+## 鸣谢
 
-参考了 [mcp-memory-service](https://github.com/doobidoo/mcp-memory-service)、[MemCP](https://github.com/maydali28/memcp)、[claude-mem](https://github.com/anthropics/claude-code) 和 [Mem0](https://github.com/mem0ai/mem0) 的设计思路。
+Memorix 借鉴了 [mcp-memory-service](https://github.com/doobidoo/mcp-memory-service)、[MemCP](https://github.com/maydali28/memcp)、[claude-mem](https://github.com/anthropics/claude-code)、[Mem0](https://github.com/mem0ai/mem0) 和整个 MCP 生态中的许多思路。
 
-## Star History
+## Star 历史
 
 <a href="https://star-history.com/#AVIDS2/memorix&Date">
  <picture>

@@ -10,6 +10,7 @@ import {
   recordMiniSkillUsage,
   formatMiniSkillsForInjection,
 } from '../../src/skills/mini-skills.js';
+import { initMiniSkillStore, resetMiniSkillStore } from '../../src/store/mini-skill-store.js';
 import type { Observation } from '../../src/types.js';
 
 // ── Test fixtures ────────────────────────────────────────────────
@@ -38,9 +39,12 @@ let testDir: string;
 beforeEach(async () => {
   testDir = path.join(os.tmpdir(), `memorix-mini-skills-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
   await fs.mkdir(testDir, { recursive: true });
+  resetMiniSkillStore();
+  await initMiniSkillStore(testDir);
 });
 
 afterEach(async () => {
+  resetMiniSkillStore();
   try {
     await fs.rm(testDir, { recursive: true, force: true });
   } catch { /* ignore */ }

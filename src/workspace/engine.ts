@@ -17,6 +17,7 @@ import { CodexMCPAdapter } from './mcp-adapters/codex.js';
 import { ClaudeCodeMCPAdapter } from './mcp-adapters/claude-code.js';
 import { CopilotMCPAdapter } from './mcp-adapters/copilot.js';
 import { AntigravityMCPAdapter } from './mcp-adapters/antigravity.js';
+import { GeminiCLIMCPAdapter } from './mcp-adapters/gemini-cli.js';
 import { KiroMCPAdapter } from './mcp-adapters/kiro.js';
 import { OpenCodeMCPAdapter } from './mcp-adapters/opencode.js';
 import { TraeMCPAdapter } from './mcp-adapters/trae.js';
@@ -55,6 +56,7 @@ export class WorkspaceSyncEngine {
       ['claude-code', new ClaudeCodeMCPAdapter()],
       ['copilot', new CopilotMCPAdapter()],
       ['antigravity', new AntigravityMCPAdapter()],
+      ['gemini-cli', new GeminiCLIMCPAdapter()],
       ['kiro', new KiroMCPAdapter()],
       ['opencode', new OpenCodeMCPAdapter()],
       ['trae', new TraeMCPAdapter()],
@@ -74,6 +76,7 @@ export class WorkspaceSyncEngine {
       'claude-code': [],
       copilot: [],
       antigravity: [],
+      'gemini-cli': [],
       kiro: [],
       opencode: [],
       trae: [],
@@ -227,6 +230,7 @@ export class WorkspaceSyncEngine {
     'claude-code': ['.claude/skills'],
     copilot: ['.github/skills', '.copilot/skills'],
     antigravity: ['.agent/skills', '.gemini/skills', '.gemini/antigravity/skills'],
+    'gemini-cli': [],
     kiro: ['.kiro/skills'],
     opencode: ['.opencode/skills'],
     trae: ['.trae/skills'],
@@ -449,6 +453,7 @@ export class WorkspaceSyncEngine {
       windsurf: 'windsurf',
       copilot: 'copilot',
       antigravity: 'antigravity',
+      'gemini-cli': 'gemini-cli',
       kiro: 'kiro',
       opencode: 'codex',
       trae: 'trae',

@@ -268,7 +268,10 @@ async function handleSessionStart(input: NormalizedHookInput): Promise<{
   let contextSummary = '';
   try {
     const { detectProject } = await import('../project/detector.js');
-    const { getProjectDataDir, loadObservationsJson } = await import('../store/persistence.js');
+    const { getProjectDataDir } = await import('../store/persistence.js');
+    const { initObservationStore, getObservationStore: getStore } = await import('../store/obs-store.js');
+    const { initMiniSkillStore } = await import('../store/mini-skill-store.js');
+    const { initSessionStore } = await import('../store/session-store.js');
     const { initAliasRegistry, registerAlias } = await import('../project/aliases.js');
     const { calculateProjectAffinity, extractProjectKeywords } = await import('../store/project-affinity.js');
 
@@ -279,7 +282,10 @@ async function handleSessionStart(input: NormalizedHookInput): Promise<{
     // Resolve to canonical project ID (same as server.ts does)
     initAliasRegistry(dataDir);
     const canonicalId = await registerAlias(rawProject);
-    const allObs = await loadObservationsJson(dataDir) as Array<{
+    await initObservationStore(dataDir);
+    await initMiniSkillStore(dataDir);
+    await initSessionStore(dataDir);
+    const allObs = await getStore().loadAll() as Array<{
       type?: string; title?: string; narrative?: string;
       facts?: string[]; timestamp?: string; entityName?: string;
       concepts?: string[]; filesModified?: string[];
@@ -392,6 +398,11 @@ export async function handleHookEvent(input: NormalizedHookInput): Promise<{
       output: defaultOutput,
     };
   }
+  if (input.event === 'post_compact') {
+    // Post-compaction: acknowledge the event, no observation needed.
+    // The real value is the side-effect (runHook pipe) already handled by the plugin.
+    return { observation: null, output: defaultOutput };
+  }
 
   // ─── Classify & extract ───
   const category = classifyTool(input);
@@ -465,7 +476,7 @@ export async function handleHookEvent(input: NormalizedHookInput): Promise<{
  * Main entry point: read stdin, process, write stdout.
  * Called by the CLI: `memorix hook`
  */
-export async function runHook(): Promise<void> {
+export async function runHook(agentOverride?: string): Promise<void> {
   // Read stdin with a timeout — some hosts (e.g. Gemini CLI) may not close
   // stdin promptly, causing `for await` to hang until the process is killed.
   const rawInput = await new Promise<string>((resolve) => {
@@ -497,12 +508,21 @@ export async function runHook(): Promise<void> {
     return;
   }
 
+  // Inject agent identity from CLI --agent flag into the payload
+  // so the normalizer can reliably identify the source agent.
+  if (agentOverride) {
+    payload._memorix_agent = agentOverride;
+  }
+
   const input = normalizeHookInput(payload);
   const { observation, output } = await handleHookEvent(input);
 
   if (observation) {
     try {
       const { storeObservation, initObservations } = await import('../memory/observations.js');
+      const { initObservationStore } = await import('../store/obs-store.js');
+      const { initMiniSkillStore: initMSStore } = await import('../store/mini-skill-store.js');
+      const { initSessionStore: initSessStore } = await import('../store/session-store.js');
       const { detectProject } = await import('../project/detector.js');
       const { getProjectDataDir } = await import('../store/persistence.js');
       const { initAliasRegistry, registerAlias } = await import('../project/aliases.js');
@@ -516,8 +536,11 @@ export async function runHook(): Promise<void> {
       const canonicalId = await registerAlias(rawProject);
       const projectId = canonicalId;
       
+      await initObservationStore(dataDir);
+      await initMSStore(dataDir);
+      await initSessStore(dataDir);
       await initObservations(dataDir);
-      await storeObservation({ ...observation, projectId });
+      await storeObservation({ ...observation, projectId, sourceDetail: 'hook' });
 
       // Shadow mode: Formation Pipeline metrics (fire-and-forget, never blocks)
       try {
@@ -525,6 +548,11 @@ export async function runHook(): Promise<void> {
         const formationMode = (process.env.MEMORIX_FORMATION_MODE as 'shadow' | 'active' | 'fallback') || 'shadow';
         const samplingRate = parseFloat(process.env.MEMORIX_FORMATION_HOOKS_SAMPLING_RATE || '0.1');
         const shouldSample = Math.random() < samplingRate;
+
+        if (shouldSample) {
+          const { withFreshObservations, getAllObservations } = await import('../memory/observations.js');
+          await withFreshObservations(() => getAllObservations());
+        }
 
         // In hooks, shadow mode by default for performance
         // Sampling rate controls how often we run full resolve (expensive)

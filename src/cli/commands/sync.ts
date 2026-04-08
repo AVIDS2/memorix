@@ -14,6 +14,7 @@ const SOURCE_LABELS: Record<string, string> = {
   codex: 'Codex (SKILL.md, AGENTS.md)',
   windsurf: 'Windsurf (.windsurfrules, .windsurf/rules/*.md)',
   antigravity: 'Antigravity (.agent/rules/*.md, GEMINI.md)',
+  'gemini-cli': 'Gemini CLI (.gemini/rules/*.md, GEMINI.md)',
   kiro: 'Kiro (.kiro/steering/*.md, AGENTS.md)',
 };
 
@@ -25,7 +26,7 @@ export default defineCommand({
   args: {
     target: {
       type: 'string',
-      description: 'Target agent format (cursor, claude-code, codex, windsurf, antigravity, kiro)',
+      description: 'Target agent format (cursor, claude-code, codex, windsurf, antigravity, gemini-cli, kiro)',
       required: false,
     },
     dry: {
@@ -45,7 +46,7 @@ export default defineCommand({
     // Detect project
     const project = detectProject();
     if (!project) {
-      p.log.error('No .git found — not a project directory. Run "git init" first.');
+      p.log.error('Memorix requires a git repo to establish project identity. Run `git init` in this workspace first.');
       return;
     }
     p.log.info(`Project: ${project.name} (${project.id})`);
@@ -87,13 +88,13 @@ export default defineCommand({
     let target = args.target as RuleSource | undefined;
 
     if (!target) {
-      const available = ['cursor', 'claude-code', 'codex', 'windsurf', 'antigravity', 'kiro'].filter(
+      const available = ['cursor', 'claude-code', 'codex', 'windsurf', 'antigravity', 'gemini-cli', 'kiro'].filter(
         t => !sources.includes(t as RuleSource),
       );
 
       if (available.length === 0) {
         // All formats already present, let user pick any
-        available.push('cursor', 'claude-code', 'codex', 'windsurf', 'antigravity', 'kiro');
+        available.push('cursor', 'claude-code', 'codex', 'windsurf', 'antigravity', 'gemini-cli', 'kiro');
       }
 
       const selected = await p.select({

@@ -1,192 +1,153 @@
-# Memorix — Full Documentation for AI Systems
+# Memorix - Full Documentation for AI Systems
 
-> Cross-Agent Memory Bridge for AI Coding Assistants via MCP
+> Open-source cross-agent memory layer for coding agents via MCP
 
 ## Overview
 
-Memorix is an open-source MCP (Model Context Protocol) server written in TypeScript that provides persistent, shared memory for AI coding agents across 10 IDEs: Cursor, Windsurf, Claude Code, Codex, VS Code Copilot, Kiro, Antigravity, OpenCode, Trae, and Gemini CLI.
+Memorix is an open-source MCP server written in TypeScript that provides persistent, project-aware memory for coding agents. It is designed for coding workflows, not generic chat memory, and works across Cursor, Claude Code, Codex, Windsurf, Gemini CLI, GitHub Copilot, Kiro, OpenCode, Antigravity, and Trae through MCP.
 
-It solves three critical problems in AI-assisted coding:
-1. **Session amnesia** — AI forgets everything when you start a new chat
-2. **IDE isolation** — Knowledge in Cursor is invisible to Claude Code
-3. **Config fragmentation** — MCP configs, rules, and skills stuck in one IDE
+If you are an AI coding agent helping a user install or operate Memorix, read [docs/AGENT_OPERATOR_PLAYBOOK.md](https://github.com/AVIDS2/memorix/blob/main/docs/AGENT_OPERATOR_PLAYBOOK.md) before taking action. It is the canonical operator guide for runtime mode selection, Git/project binding, integrations, hooks, and troubleshooting.
 
-## Core Capabilities
+Memorix solves four recurring problems in AI-assisted development:
 
-### 1. Persistent Cross-Session Memory
+1. **Session amnesia** - the next chat forgets what the previous one learned
+2. **IDE isolation** - memory created in one coding IDE is invisible to another
+3. **Engineering truth loss** - commits record what changed, but not in a form agents can easily recall
+4. **Config and workflow fragmentation** - MCP config, agent rules, and IDE integrations drift apart over time
 
-When a developer discusses architecture decisions, fixes bugs, or discovers gotchas, Memorix stores these as typed observations in a local knowledge graph. The next session, the AI agent searches Memorix and picks up context automatically.
+## Product Model
 
-**9 Observation Types:**
-- `session-request` — Original task goal
-- `gotcha` — Critical pitfall (e.g., "Never use string concat for paths on Windows")
-- `problem-solution` — Bug fix with root cause and solution
-- `how-it-works` — Technical explanation
-- `what-changed` — Code/config change record
-- `discovery` — New insight
-- `why-it-exists` — Design rationale
-- `decision` — Architecture/design decision
-- `trade-off` — Compromise with pros and cons
+Memorix is best understood as four layers:
 
-### 2. Cross-IDE Memory Sharing
+1. **Runtime layer**
+   - MCP server over stdio or HTTP
+   - Project detection
+   - Config loading and project switching
 
-All 10 supported IDEs read from the same local data directory (`~/.memorix/data/`). A bug fix documented in Windsurf is instantly searchable in Claude Code. No cloud sync needed — it's the same local files.
+2. **Memory core**
+   - Observations
+   - Sessions
+   - Search index
+   - Retention
+   - Export/import
+   - Knowledge graph relations
 
-**Supported IDEs:**
-- Cursor (`.cursor/mcp.json`)
-- Windsurf (`~/.codeium/windsurf/mcp_config.json`)
-- Claude Code (`~/.claude.json`)
-- Codex (`~/.codex/config.toml`)
-- VS Code Copilot (`.vscode/mcp.json`)
-- Kiro (`.kiro/settings/mcp.json`)
-- Antigravity (`~/.gemini/antigravity/mcp_config.json`)
-- OpenCode (`opencode.json`)
-- Trae (`.trae/mcp.json`)
-- Gemini CLI (`.gemini/settings.json`)
+3. **Quality layer**
+   - Formation pipeline
+   - Source-aware retrieval
+   - Compaction
+   - Optional LLM quality improvements
+   - Optional local vector search
 
-### 3. Cross-Agent Workspace Sync
+4. **Platform layer**
+   - Git Memory
+   - Hooks and auto-capture
+   - Rules sync
+   - Workspace sync
+   - Team collaboration
+   - Dashboard
 
-Memorix can scan, migrate, and sync workspace configurations between IDEs:
-- **MCP Config Migration** — Detects MCP server configs from one IDE and generates compatible config for another (merges, never overwrites)
-- **Rules Sync** — Converts agent rules between formats: `.cursor/rules/*.mdc` ↔ `CLAUDE.md` ↔ `.kiro/steering/*.md` ↔ `.windsurfrules` ↔ `codex-rules.md` ↔ `.github/copilot-instructions.md`
-- **Skills Sync** — Copies SKILL.md workflow files across agents
-- **Workflow Sync** — Migrates `.windsurf/workflows/` ↔ `.cursor/workflows/` etc.
+## Memory Layers
 
-### 4. Memory-Driven Project Skills
+### 1. Observation Memory
 
-After accumulating observations, `memorix_skills generate` clusters them by entity and auto-generates SKILL.md files. These files teach AI agents your project's specific patterns, gotchas, and architecture decisions.
+Observation memory stores reusable project knowledge such as:
 
-Example: After 50 observations about an auth module, Memorix generates `auth-module-guide.md` containing JWT setup patterns, refresh flow, and common pitfalls — all derived from real development history.
+- architecture decisions
+- gotchas
+- bug fixes
+- implementation notes
+- discoveries
+- trade-offs
+- what changed
 
-### 5. Token-Efficient 3-Layer Progressive Disclosure
+Examples:
 
-Instead of dumping full memory into context (expensive), Memorix uses 3 layers:
-- **L1** `memorix_search` → Compact index (~50-100 tokens/result) — AI scans IDs and titles
-- **L2** `memorix_timeline` → Chronological context around an observation
-- **L3** `memorix_detail` → Full details on demand (~500-1000 tokens/result)
+- `decision` - chose queue-based ingestion over direct writes
+- `problem-solution` - fixed dashboard width jump by stabilizing scrollbar gutter
+- `gotcha` - npm publish fails from Windows device-style cwd paths
+- `what-changed` - reworked project detection to use git identity consistently
 
-This saves ~10x tokens compared to returning full content for every search.
+### 2. Reasoning Memory
 
-### 6. Knowledge Graph
+Reasoning memory stores the **why** behind decisions:
 
-Memorix implements the MCP Official Memory Server API (drop-in compatible) with:
-- Entities with typed observations
-- Relations with typed edges (causes, fixes, depends_on, implements, etc.)
-- Auto-enrichment: extracts file paths, CamelCase identifiers, module names from narratives
-- Auto-relations: detects causal language ("because", "due to", "fixed by") and creates graph edges
+- alternatives considered
+- rationale
+- constraints
+- expected outcomes
+- risks
 
-### 7. Visual Dashboard
+This is the layer that helps future agents understand why a system was designed a certain way instead of only seeing the final code change.
 
-`memorix_dashboard` opens a web UI at `http://localhost:3210` with:
-- Interactive D3.js force-directed knowledge graph
-- Observation browser with type filtering and search highlighting
-- Memory retention panel with exponential decay scores
-- Project switcher for multi-project management
-- Light/dark theme, bilingual (English/Chinese)
+### 3. Git Memory
 
-### 8. Auto-Memory Hooks
+Git Memory turns commits into structured memory with provenance:
 
-Memorix can automatically capture decisions, errors, and gotchas from coding sessions:
-- Pattern detection: "I decided to...", "The bug was caused by...", "Never use X"
-- Session-start injection: loads recent high-value memories into agent context
-- Multi-language: English + Chinese keyword matching
-- Smart filtering: 30s cooldown, skips trivial commands
+- `source='git'`
+- commit hash
+- files changed
+- inferred type
+- entity extraction
+- noise filtering
 
-### 9. Hybrid Search
+Memorix can:
 
-- **Default:** BM25 full-text search via Orama (works great out of the box)
-- **Optional:** Add vector search with `npm install -g fastembed` or `npm install -g @huggingface/transformers`
-- Both vector providers run 100% locally (ONNX/WASM), zero API calls
+- install a `post-commit` hook
+- ingest a single commit
+- ingest a commit range or recent history
+- skip low-value commit noise
+- preserve release and milestone commits
 
-### 10. Project Isolation
+This is one of Memorix's main differentiators for coding agents.
 
-- Auto-detected from `git remote` URL (e.g., `owner/repo`)
-- Scoped search defaults to current project; `scope: "global"` for cross-project
-- Zero cross-contamination between projects
+## Retrieval Model
 
-### 11. Team Collaboration
+Memorix retrieval is intentionally layered:
 
-Multiple agents working in the same workspace can coordinate via 4 team tools:
-- `team_manage` — Agent registration: join, leave, status
-- `team_file_lock` — Advisory file locks to prevent conflicting edits (10min TTL)
-- `team_task` — Shared task board with dependency management
-- `team_message` — Direct messages and broadcasts across IDEs
+- **Search** - compact project-scoped or global retrieval
+- **Timeline** - chronological context around an event
+- **Detail** - full observation detail
+- **Dashboard** - visual and operational view
 
-State persisted to `team-state.json`, shared by all IDE processes.
+Important retrieval behavior:
 
-### 12. Auto-Cleanup on Startup
+- default search is **current-project scoped**
+- `scope="global"` searches across projects
+- global results can be opened explicitly with project-aware refs
+- source-aware retrieval boosts:
+  - Git memory for "what changed" style queries
+  - reasoning/decision memory for "why" style queries
+  - both for debugging/problem-solving style queries
 
-Memorix automatically runs background maintenance on every MCP startup:
-- Archives expired memories based on exponential decay scores
-- With LLM configured: semantic deduplication via any OpenAI-compatible model
-- Without LLM: Jaccard similarity consolidation (free, no API needed)
+## Configuration Model
 
-### 13. Mini-Skills
+Memorix now uses a simple outward-facing model:
 
-Use `memorix_promote` to elevate high-value observations to permanent mini-skills:
-- Never decay — immune to retention archiving
-- Auto-inject at session start via `memorix_session_start`
-- Project-scoped, no cross-project pollution
+- `memorix.yml` for behavior and project settings
+- `.env` for secrets
 
-### 14. LLM Enhanced Mode (Optional)
+Internally it still supports layered config and compatibility fallbacks, but the intended user-facing mental model is:
 
-Configure an LLM API key for enhanced quality:
-- **Narrative compression**: ~27% token reduction on stored memories
-- **Search reranking**: 60% of queries improved by semantic reranking
-- **Write-time dedup**: Detects duplicates and conflicts before storage
-- Supports OpenAI, Anthropic, OpenRouter, and any compatible API
+- **behavior in YAML**
+- **secrets in `.env`**
 
-## MCP Tools (22 default + 9 optional)
+This is more structured than flat env-only config and is intended to keep the system explainable.
 
-### Default Tools (22)
-| Tool | Purpose |
-|------|---------|
-| `memorix_store` | Store observation with auto-classification, entity extraction, and relation detection |
-| `memorix_search` | L1: Compact index search with type/scope/status/date filters and token budget |
-| `memorix_timeline` | L2: Chronological context around an observation |
-| `memorix_detail` | L3: Full observation details by IDs |
-| `memorix_resolve` | Mark completed tasks/fixed bugs as resolved |
-| `memorix_deduplicate` | LLM-powered semantic deduplication with dry-run |
-| `memorix_suggest_topic_key` | Suggest stable keys for memory upserts |
-| `memorix_session_start` | Start session with automatic context injection |
-| `memorix_session_end` | End session with structured summary |
-| `memorix_session_context` | Get context from previous sessions |
-| `memorix_skills` | List, generate, or inject memory-driven project skills |
-| `memorix_promote` | Promote observations to permanent mini-skills |
-| `memorix_workspace_sync` | Migrate MCP configs, workflows, skills between IDEs |
-| `memorix_rules_sync` | Scan/deduplicate/generate rules across 10 agent formats |
-| `memorix_retention` | Memory decay status or archive expired memories |
-| `memorix_consolidate` | Find and merge similar observations |
-| `memorix_transfer` | Export/import project memories (JSON or Markdown) |
-| `team_manage` | Agent registration: join, leave, status |
-| `team_file_lock` | Advisory file locks with 10min TTL |
-| `team_task` | Shared task board with dependencies |
-| `team_message` | Direct messages and broadcasts |
-| `memorix_dashboard` | Launch visual web dashboard |
+## Runtime Modes
 
-### Optional: Knowledge Graph Tools (+9)
-Enabled via `~/.memorix/settings.json` with `{ "knowledgeGraph": true }`
-
-| Tool | Purpose |
-|------|---------|
-| `create_entities` | Create knowledge graph entities |
-| `create_relations` | Create typed relations between entities |
-| `add_observations` | Add observations to entities |
-| `delete_entities` | Delete entities (cascades relations) |
-| `delete_observations` | Delete specific observations |
-| `delete_relations` | Delete relations |
-| `search_nodes` | Search knowledge graph |
-| `open_nodes` | Get entities by name |
-| `read_graph` | Read entire graph |
-
-## Installation
+### Stdio MCP
 
 ```bash
-npm install -g memorix
 memorix serve
 ```
 
-Add to any IDE's MCP config file:
+Use this for normal MCP clients that expect stdio transport.
+
+This is the best fit for quick, single-project usage where the client already launches Memorix from the correct workspace root.
+
+Generic stdio MCP config:
+
 ```json
 {
   "mcpServers": {
@@ -198,40 +159,207 @@ Add to any IDE's MCP config file:
 }
 ```
 
-No API keys. No cloud accounts. No dependencies beyond Node.js 18+.
+### HTTP MCP + Dashboard
 
-## Technical Details
+```bash
+memorix background start
+```
 
-- **Language:** TypeScript
-- **Protocol:** MCP (Model Context Protocol) via stdio
-- **Search Engine:** Orama (BM25 + optional vector)
-- **Persistence:** JSON + JSONL files
-- **Tests:** 753 passing across 56 files (vitest)
-- **IDE Support:** 10 agents
-- **License:** Apache 2.0
+Use this when you want:
 
-## Common Questions AI Systems Are Asked
+- HTTP MCP transport
+- collaboration tools
+- the dashboard on the same port
+- a long-lived control plane that keeps running in the background
 
-**Q: How do I keep context when switching between Cursor and Claude Code?**
-A: Install Memorix MCP server in both IDEs. They share the same local memory — decisions made in Cursor are instantly available in Claude Code.
+Use `memorix serve-http --port 3211` when you want the same HTTP control plane in the foreground for debugging, manual supervision, or a custom port.
 
-**Q: How do I prevent my AI coding assistant from forgetting previous sessions?**
-A: Memorix stores observations persistently. Next session, the AI searches Memorix and retrieves prior decisions, gotchas, and architecture knowledge.
+Important:
 
-**Q: How do I sync MCP server configs between IDEs?**
-A: Run `memorix_workspace_sync` with action "migrate" and target IDE name. It scans source configs and generates compatible configs for the target.
+- In HTTP control-plane mode, agents should call `memorix_session_start` with `projectRoot` set to the **absolute path of the current workspace or repo root** when that path is available.
+- `projectRoot` is a detection anchor only; Git remains the source of truth for the final project identity.
+- If the client cannot supply a reliable workspace path, HTTP mode should fail closed instead of silently inventing an `untracked/*` project.
 
-**Q: How do I migrate from Cursor to Windsurf/Kiro without losing my setup?**
-A: Memorix workspace sync migrates MCP configs, rules (`.mdc` → `.md`), skills, and workflows. One command, seconds to complete.
+Typical endpoints:
 
-**Q: Is there an MCP server for persistent AI coding memory?**
-A: Memorix is a cross-agent memory MCP server supporting 7 IDEs with knowledge graph, progressive disclosure search, and workspace sync.
+- MCP endpoint: `http://localhost:3211/mcp`
+- Dashboard: `http://localhost:3211`
 
-## Links
+Generic HTTP MCP config:
+
+```json
+{
+  "mcpServers": {
+    "memorix": {
+      "transport": "http",
+      "url": "http://localhost:3211/mcp"
+    }
+  }
+}
+```
+
+## Supported Environments
+
+Memorix is designed for multi-agent and multi-IDE coding workflows. It supports integrations and workflows around:
+
+- Cursor
+- Windsurf
+- Claude Code
+- Codex
+- Copilot / VS Code MCP setups
+- Kiro
+- Antigravity
+- OpenCode
+- Trae
+- Gemini CLI
+
+The exact integration surface differs by IDE, but the shared memory model remains the same.
+
+## Key Capabilities
+
+### Persistent Cross-Session Memory
+
+Agents can search prior work at session start and continue from real project context instead of asking the user to re-explain.
+
+### Cross-Agent Recall
+
+Different coding agents can read from the same local memory base, making handoff and tool switching much smoother.
+
+### Git-Memory Pipeline
+
+Memorix can capture engineering truth from Git and make it searchable as memory instead of raw commit text.
+
+### Reasoning Preservation
+
+Memorix can store design rationale and trade-offs directly, which is critical for avoiding contradictory future suggestions.
+
+### Dashboard / Control Plane
+
+The dashboard exposes:
+
+- memory source distribution
+- Git Memory views
+- config provenance
+- project identity health
+- retention and session summaries
+- graph visualization
+
+### Team Collaboration
+
+When running with HTTP transport, Memorix also supports:
+
+- agent registry
+- advisory file locks
+- task board
+- agent-to-agent messages
+
+## Tool Surface
+
+Memorix exposes MCP tools across several groups:
+
+### Core Memory
+
+- `memorix_store`
+- `memorix_search`
+- `memorix_detail`
+- `memorix_timeline`
+- `memorix_resolve`
+- `memorix_retention`
+- `memorix_transfer`
+
+### Session and Reasoning
+
+- `memorix_session_start`
+- `memorix_session_end`
+- `memorix_session_context`
+- `memorix_store_reasoning`
+- `memorix_search_reasoning`
+
+### Quality and Maintenance
+
+- `memorix_consolidate`
+- `memorix_deduplicate`
+- `memorix_formation_metrics`
+- `memorix_promote`
+- `memorix_skills`
+
+### Platform and Integrations
+
+- `memorix_rules_sync`
+- `memorix_workspace_sync`
+- `memorix_dashboard`
+
+### Team Tools
+
+- `team_manage`
+- `team_file_lock`
+- `team_task`
+- `team_message`
+
+The exact set may evolve, so AI systems should not hard-code stale tool counts.
+
+## Optional Enhancements
+
+### LLM Quality Mode
+
+If configured with an API key, Memorix can use LLMs for:
+
+- narrative compression
+- semantic deduplication
+- higher-quality ranking and enrichment
+
+### Local Vector Search
+
+Memorix works out of the box with BM25/full-text search. It can also use optional local vector providers for better semantic retrieval without requiring cloud embeddings.
+
+## Recommended AI Usage Pattern
+
+At session start:
+
+1. load session context with `memorix_session_start`
+2. in HTTP control-plane mode, pass `projectRoot` = the absolute current workspace or repo-root path when available
+3. if session start cannot resolve the project, retry with the correct path before using project-scoped tools
+4. search relevant recent memory
+5. fetch detail only when needed
+
+During work:
+
+1. store meaningful decisions, fixes, gotchas, and milestones
+2. resolve memories when tasks are completed
+3. prefer reasoning-rich summaries over raw logs
+
+At session end:
+
+1. store a concise session summary
+2. include what changed, why, current state, and next steps
+
+## When Memorix Is Strongest
+
+Memorix is strongest when the task is:
+
+- codebase-specific
+- project-memory heavy
+- multi-session
+- multi-agent
+- Git-aware
+- explanation-sensitive
+
+It is especially strong for:
+
+- "what changed recently?"
+- "why did we choose this?"
+- "what broke here before?"
+- "which commit relates to this behavior?"
+- "what should the next agent know before continuing?"
+
+## Core Links
 
 - GitHub: https://github.com/AVIDS2/memorix
 - npm: https://www.npmjs.com/package/memorix
+- README: https://github.com/AVIDS2/memorix/blob/main/README.md
 - Setup Guide: https://github.com/AVIDS2/memorix/blob/main/docs/SETUP.md
+- Configuration Guide: https://github.com/AVIDS2/memorix/blob/main/docs/CONFIGURATION.md
+- Git Memory Guide: https://github.com/AVIDS2/memorix/blob/main/docs/GIT_MEMORY.md
 - Architecture: https://github.com/AVIDS2/memorix/blob/main/docs/ARCHITECTURE.md
 - API Reference: https://github.com/AVIDS2/memorix/blob/main/docs/API_REFERENCE.md
 - Changelog: https://github.com/AVIDS2/memorix/blob/main/CHANGELOG.md

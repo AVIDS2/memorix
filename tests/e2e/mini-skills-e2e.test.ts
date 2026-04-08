@@ -14,6 +14,7 @@ import {
   formatMiniSkillsForInjection,
 } from '../../src/skills/mini-skills.js';
 import { saveObservationsJson, loadObservationsJson } from '../../src/store/persistence.js';
+import { initMiniSkillStore, resetMiniSkillStore } from '../../src/store/mini-skill-store.js';
 
 /** Synthetic observations for testing — never touches real user data */
 const SYNTHETIC_OBSERVATIONS = [
@@ -54,9 +55,12 @@ describe('mini-skills e2e (isolated temp dir)', () => {
   beforeAll(async () => {
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'memorix-e2e-'));
     await saveObservationsJson(tmpDir, SYNTHETIC_OBSERVATIONS);
+    resetMiniSkillStore();
+    await initMiniSkillStore(tmpDir);
   });
 
   afterAll(async () => {
+    resetMiniSkillStore();
     try { await fs.rm(tmpDir, { recursive: true, force: true }); } catch { /* best effort */ }
   });
 

@@ -21,15 +21,20 @@ const LLM_TIMEOUT_MAX_MS = 300_000;
 
 /**
  * Parse and validate MEMORIX_LLM_TIMEOUT_MS environment variable.
- * - Must be a valid integer; non-numeric values fall back to the default.
- * - Clamped to [1000, 300000] ms (1 s – 5 min).
+ * - Must be a valid integer in the range 1000–300000ms.
+ * - Non-integer or out-of-range values log a warning and fall back to the default.
  * Default: 30000ms (30s) — allows for proxy routing and cold starts.
  */
 export function parseLLMTimeoutMs(raw: string | undefined): number {
   if (raw === undefined || raw.trim() === '') return LLM_TIMEOUT_DEFAULT_MS;
   const parsed = Number(raw);
-  if (!Number.isInteger(parsed) || Number.isNaN(parsed)) return LLM_TIMEOUT_DEFAULT_MS;
-  return Math.min(Math.max(parsed, LLM_TIMEOUT_MIN_MS), LLM_TIMEOUT_MAX_MS);
+  if (!Number.isInteger(parsed) || Number.isNaN(parsed) || parsed < LLM_TIMEOUT_MIN_MS || parsed > LLM_TIMEOUT_MAX_MS) {
+    console.warn(
+      `[memorix] MEMORIX_LLM_TIMEOUT_MS="${raw}" is invalid (must be a positive integer between ${LLM_TIMEOUT_MIN_MS}–${LLM_TIMEOUT_MAX_MS}ms). Using default ${LLM_TIMEOUT_DEFAULT_MS}ms.`,
+    );
+    return LLM_TIMEOUT_DEFAULT_MS;
+  }
+  return parsed;
 }
 
 const LLM_CALL_TIMEOUT_MS = parseLLMTimeoutMs(process.env.MEMORIX_LLM_TIMEOUT_MS);

@@ -5,6 +5,8 @@
  * Creates per-page observations for searchable memory storage.
  */
 
+import type { ObservationType } from '../types.js';
+
 // ── Types ────────────────────────────────────────────────────────────
 
 export interface PdfInput {
@@ -25,6 +27,31 @@ export interface PdfExtractionResult {
   extractionMethod: 'unpdf';
 }
 
+// ── Type shim for optional unpdf dependency ───────────────────────────
+
+interface UnpdfModule {
+  extractText: (data: Uint8Array, options?: { mergePages?: boolean }) => Promise<{
+    totalPages: number;
+    text: string;
+    pages?: string[];
+  }>;
+}
+
+async function tryLoadUnpdf(): Promise<UnpdfModule | null> {
+  try {
+    // unpdf is an optional peer dependency — TypeScript cannot resolve it at compile time.
+    // The runtime import is intentional; the catch handles the missing-module case.
+    // @ts-ignore
+    const mod = await import('unpdf') as unknown as UnpdfModule;
+    if (typeof mod?.extractText === 'function') {
+      return mod;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 // ── Core Functions ───────────────────────────────────────────────────
 
 /**
@@ -33,10 +60,7 @@ export interface PdfExtractionResult {
  * @throws Error if unpdf is not installed (it's an optional dependency).
  */
 export async function extractPdfText(input: PdfInput): Promise<PdfExtractionResult> {
-  // Dynamic import — unpdf is optional
-  const unpdf = await import('unpdf').catch(() => null) as {
-    extractText: (data: Uint8Array, options?: { mergePages?: boolean }) => Promise<{ totalPages: number; text: string; pages?: string[] }>;
-  } | null;
+  const unpdf = await tryLoadUnpdf();
 
   if (!unpdf) {
     throw new Error(
@@ -82,7 +106,7 @@ export async function ingestPdf(
   input: PdfInput,
   storeFn: (obs: {
     entityName: string;
-    type: string;
+    type: ObservationType;
     title: string;
     narrative: string;
     concepts: string[];
@@ -106,7 +130,7 @@ export async function ingestPdf(
 
     const { observation } = await storeFn({
       entityName,
-      type: 'discovery',
+      type: 'discovery' as ObservationType,
       title: `${entityName} — Page ${page.pageNumber}`,
       narrative,
       concepts: ['pdf', 'document', entityName],

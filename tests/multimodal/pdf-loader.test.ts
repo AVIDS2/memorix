@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'bun:test';
+import { describe, it, expect } from 'vitest';
 import { extractPdfText, ingestPdf } from '../../src/multimodal/pdf-loader.js';
 
 describe('pdf-loader', () => {

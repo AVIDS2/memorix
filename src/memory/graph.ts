@@ -195,4 +195,99 @@ export class KnowledgeGraphManager {
 
     return { entities: filteredEntities, relations: filteredRelations };
   }
+
+  // ─── Graph Search (RRF Fusion) ──────────────────────────────────
+
+  /**
+   * BFS traversal from seed entity names through graph relations.
+   * Returns entity names (and hop distance) reachable within maxHops.
+   *
+   * Used by orama-store's searchObservations() to discover related
+   * observations through the knowledge graph, which are then fused
+   * into BM25+vector results via Reciprocal Rank Fusion (RRF).
+   *
+   * @param seedNames - Starting entity names (e.g. from BM25/vector hits)
+   * @param maxHops - Maximum traversal depth (default: 2)
+   * @returns Discovered entities with their hop distance from seeds
+   */
+  async graphSearch(
+    seedNames: string[],
+    maxHops = 2,
+  ): Promise<{ entityName: string; hopDistance: number }[]> {
+    await this.init();
+
+    // Normalize seeds to lowercase for index lookup
+    const seedSet = new Set(seedNames.map(n => n.toLowerCase()));
+
+    // BFS state
+    const visited = new Set<string>(); // lowercase entity names
+    const discovered: { entityName: string; hopDistance: number }[] = [];
+
+    // Initialize frontier with seeds that actually exist in the graph
+    let frontier: string[] = []; // lowercase names
+    for (const name of seedSet) {
+      if (this.entityIndex.has(name)) {
+        visited.add(name);
+        frontier.push(name);
+      }
+    }
+
+    // Pre-build adjacency: lowercase name → Set<lowercase neighbor names>
+    // Relations are directed but we traverse both directions for discovery
+    const adjacency = new Map<string, Set<string>>();
+    for (const rel of this.relations) {
+      const fromLower = rel.from.toLowerCase();
+      const toLower = rel.to.toLowerCase();
+
+      if (!adjacency.has(fromLower)) adjacency.set(fromLower, new Set());
+      adjacency.get(fromLower)!.add(toLower);
+
+      if (!adjacency.has(toLower)) adjacency.set(toLower, new Set());
+      adjacency.get(toLower)!.add(fromLower);
+    }
+
+    // BFS: expand frontier hop by hop
+    for (let hop = 1; hop <= maxHops; hop++) {
+      const nextFrontier: string[] = [];
+
+      for (const current of frontier) {
+        const neighbors = adjacency.get(current);
+        if (!neighbors) continue;
+
+        for (const neighbor of neighbors) {
+          if (visited.has(neighbor)) continue;
+          visited.add(neighbor);
+
+          // Only include if the entity actually exists in the graph
+          const entity = this.entityIndex.get(neighbor);
+          if (entity) {
+            discovered.push({ entityName: entity.name, hopDistance: hop });
+            nextFrontier.push(neighbor);
+          }
+        }
+      }
+
+      frontier = nextFrontier;
+      if (frontier.length === 0) break; // no more to explore
+    }
+
+    return discovered;
+  }
+
+  /**
+   * Get all observation IDs associated with given entity names.
+   * Used to look up graph-discovered observations for RRF fusion.
+   *
+   * Note: Entity.observations[] contains free-text strings (not IDs).
+   * Actual observation lookup by entityName must go through the
+   * observations module or Orama search.
+   */
+  getEntitiesForNames(names: string[]): Entity[] {
+    const result: Entity[] = [];
+    for (const name of names) {
+      const entity = this.entityIndex.get(name.toLowerCase());
+      if (entity) result.push(entity);
+    }
+    return result;
+  }
 }

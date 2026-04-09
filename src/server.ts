@@ -26,7 +26,7 @@ import { initObservationStore, getObservationStore } from './store/obs-store.js'
 import { initMiniSkillStore } from './store/mini-skill-store.js';
 import { initSessionStore } from './store/session-store.js';
 import { checkProjectAttribution, auditProjectObservations } from './memory/attribution-guard.js';
-import { resetDb } from './store/orama-store.js';
+import { resetDb, setGraphManager } from './store/orama-store.js';
 import { createAutoRelations } from './memory/auto-relations.js';
 import { extractEntities } from './memory/entity-extractor.js';
 import { compactSearch, compactTimeline, compactDetail } from './compact/engine.js';
@@ -265,6 +265,7 @@ export async function createMemorixServer(
   }
   let graphManager = new KnowledgeGraphManager(projectDir);
   await graphManager.init();
+  setGraphManager(graphManager);
   await initObservations(projectDir);
 
   const lightweightUnresolvedSession = !projectResolved && deferProjectInitUntilBound;
@@ -275,6 +276,7 @@ export async function createMemorixServer(
     await initSessionStore(projectDir);
     graphManager = new KnowledgeGraphManager(projectDir);
     await graphManager.init();
+    setGraphManager(graphManager);
     await initObservations(projectDir);
 
     const reindexed = await reindexObservations();

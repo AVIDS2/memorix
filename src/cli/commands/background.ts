@@ -21,6 +21,10 @@ import { defineCommand } from 'citty';
 import * as fs from 'node:fs';
 import { spawn, execSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
+import {
+  checkControlPlaneHealth,
+  isMemorixBackgroundProcess,
+} from './control-plane-shared.js';
 
 // ============================================================
 // Paths & Types
@@ -104,21 +108,7 @@ function killProcess(pid: number): boolean {
   }
 }
 
-async function healthCheck(port: number, timeoutMs = 3000): Promise<{ ok: boolean; data?: any; error?: string }> {
-  try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-    const res = await fetch(`http://127.0.0.1:${port}/api/team`, {
-      signal: controller.signal,
-    });
-    clearTimeout(timer);
-    if (!res.ok) return { ok: false, error: `HTTP ${res.status}` };
-    const data = await res.json();
-    return { ok: true, data };
-  } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : 'Unknown error' };
-  }
-}
+const healthCheck = checkControlPlaneHealth;
 
 async function isPortInUse(port: number): Promise<boolean> {
   const health = await healthCheck(port, 1500);
@@ -358,7 +348,7 @@ async function doStatus(): Promise<void> {
 
   // PID reuse guard: if PID is alive but health check fails, it's likely a different process
   const health = running ? await healthCheck(state.port) : { ok: false, error: 'Process not running' };
-  const probablyReused = running && !health.ok && state.instanceToken;
+  const probablyReused = running && !health.ok && !!state.instanceToken && !isMemorixBackgroundProcess(state.pid);
 
   console.log('');
   console.log('Memorix Background Control Plane');

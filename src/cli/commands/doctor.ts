@@ -6,6 +6,7 @@
  */
 
 import { defineCommand } from 'citty';
+import { checkControlPlaneHealth } from './control-plane-shared.js';
 
 export default defineCommand({
   meta: {
@@ -118,17 +119,8 @@ export default defineCommand({
 
       // Health check
       try {
-        const http = await import('node:http');
-        const healthy = await new Promise<boolean>((resolve) => {
-          const req = http.request({ hostname: '127.0.0.1', port: bgPort, path: '/health', timeout: 3000 }, (res) => {
-            res.resume();
-            resolve(res.statusCode === 200);
-          });
-          req.on('error', () => resolve(false));
-          req.on('timeout', () => { req.destroy(); resolve(false); });
-          req.end();
-        });
-        if (healthy) {
+        const health = await checkControlPlaneHealth(bgPort, 3000);
+        if (health.ok) {
           lines.push(ok('Health check: OK'));
         } else {
           lines.push(warn('Health check: FAILED (process alive but not responding)'));
@@ -148,17 +140,8 @@ export default defineCommand({
     // Check for unmanaged foreground on default port
     if (!bgRunning) {
       try {
-        const http = await import('node:http');
-        const portUsed = await new Promise<boolean>((resolve) => {
-          const req = http.request({ hostname: '127.0.0.1', port: 3211, path: '/health', timeout: 2000 }, (res) => {
-            res.resume();
-            resolve(res.statusCode === 200);
-          });
-          req.on('error', () => resolve(false));
-          req.on('timeout', () => { req.destroy(); resolve(false); });
-          req.end();
-        });
-        if (portUsed) {
+        const portHealth = await checkControlPlaneHealth(3211, 2000);
+        if (portHealth.ok) {
           lines.push(warn('Unmanaged foreground instance detected on port 3211'));
           issues.push('A foreground "memorix serve-http" is running but not managed by background mode.');
           (report.mode as any).unmanagedForeground = true;

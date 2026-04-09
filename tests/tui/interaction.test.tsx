@@ -539,7 +539,7 @@ describe('ConfigureView', () => {
     // Navigate to "Show Current Config" (index 3)
     for (let i = 0; i < 3; i++) { stdin.write('\x1B[B'); await tick(); }
     stdin.write('\r');
-    await tick();
+    await waitForCondition(() => (lastFrame() ?? '').includes('Current Configuration'));
     const frame = lastFrame()!;
     expect(frame).toContain('Current Configuration');
     expect(frame).toContain('Config file');
@@ -553,10 +553,10 @@ describe('ConfigureView', () => {
     );
     for (let i = 0; i < 3; i++) { stdin.write('\x1B[B'); await tick(); }
     stdin.write('\r');
-    await tick();
+    await waitForCondition(() => (lastFrame() ?? '').includes('Current Configuration'));
     expect(lastFrame()).toContain('Current Configuration');
     stdin.write('\x1B');
-    await tick();
+    await waitForCondition(() => (lastFrame() ?? '').includes('LLM Enhanced Mode'));
     expect(lastFrame()).toContain('LLM Enhanced Mode');
     unmount();
   });

@@ -128,6 +128,7 @@ export async function storeObservation(input: {
   relatedEntities?: string[];
   sourceDetail?: 'explicit' | 'hook' | 'git-ingest';
   valueCategory?: 'core' | 'contextual' | 'ephemeral';
+  createdByAgentId?: string;
 }): Promise<{ observation: Observation; upserted: boolean }> {
   const now = new Date().toISOString();
 
@@ -222,6 +223,10 @@ export async function storeObservation(input: {
           relatedEntities: input.relatedEntities,
           sourceDetail: input.sourceDetail,
           valueCategory: input.valueCategory,
+          createdByAgentId: input.createdByAgentId,
+          // Phase 4a: predict writeGeneration before saveAll so it gets persisted to SQLite.
+          // bumpGeneration() runs after fn(tx) returns, incrementing by 1.
+          writeGeneration: store.getGeneration() + 1,
         };
 
         diskObs.push(observation);
@@ -231,6 +236,9 @@ export async function storeObservation(input: {
         await tx.saveAll(observations);
         await tx.saveIdCounter(nextId);
       });
+
+      // Phase 4a: confirm writeGeneration matches actual post-bump value
+      observation.writeGeneration = store.getGeneration();
 
       // If the atomic block detected a topicKey duplicate, skip Orama insert — upsert handles it
       if (upsertedInsideLock) return;
@@ -261,6 +269,8 @@ export async function storeObservation(input: {
         relatedEntities: input.relatedEntities,
         sourceDetail: input.sourceDetail,
         valueCategory: input.valueCategory,
+        createdByAgentId: input.createdByAgentId,
+        writeGeneration: 0,
       };
       observations.push(observation);
     }

@@ -129,6 +129,10 @@ export interface Observation {
   sourceDetail?: 'explicit' | 'hook' | 'git-ingest';
   /** Value category from formation pipeline evaluation */
   valueCategory?: 'core' | 'contextual' | 'ephemeral';
+  /** Phase 4a: Agent ID that created this observation (team attribution) */
+  createdByAgentId?: string;
+  /** Phase 4a: Monotonic write generation — snapshot of storage_generation at write time (watermark coherence) */
+  writeGeneration?: number;
 }
 
 // ============================================================

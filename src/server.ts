@@ -170,12 +170,9 @@ function coerceObjectArray<T>(val: unknown): T[] {
 /**
  * Create and configure the Memorix MCP Server.
  */
-/** Optional shared team instances — passed by serve-http so all sessions share state */
+/** Optional shared TeamStore — passed by serve-http so all sessions share state */
 export interface SharedTeamInstances {
-  registry: InstanceType<typeof import('./team/registry.js').AgentRegistry>;
-  messageBus: InstanceType<typeof import('./team/messages.js').MessageBus>;
-  fileLocks: InstanceType<typeof import('./team/file-locks.js').FileLockRegistry>;
-  taskManager: InstanceType<typeof import('./team/tasks.js').TaskManager>;
+  teamStore: import('./team/team-store.js').TeamStore;
 }
 
 export interface CreateMemorixServerOptions {
@@ -204,6 +201,7 @@ export async function createMemorixServer(
   let projectResolved = true;
   let projectResolutionError: string | null = null;
   let explicitProjectBound = false; // Set true when memorix_session_start binds via projectRoot
+  let currentAgentId: string | undefined; // Phase 4a: set by session_start auto-registration, used by observation writes
   if (detectedProject) {
     rawProject = detectedProject;
   } else {
@@ -527,6 +525,7 @@ export async function createMemorixServer(
               topicKey: targetObs.topicKey,
               progress: progress as import('./types.js').ProgressInfo | undefined,
               sourceDetail: 'explicit',
+              createdByAgentId: currentAgentId,
             });
             return {
               content: [{
@@ -552,6 +551,7 @@ export async function createMemorixServer(
               topicKey: targetObs.topicKey,
               progress: progress as import('./types.js').ProgressInfo | undefined,
               sourceDetail: 'explicit',
+              createdByAgentId: currentAgentId,
             });
             return {
               content: [{
@@ -624,6 +624,7 @@ export async function createMemorixServer(
                   topicKey: targetObs.topicKey,
                   progress: progress as import('./types.js').ProgressInfo | undefined,
                   sourceDetail: 'explicit',
+                  createdByAgentId: currentAgentId,
                 });
                 compactAction = `🔄 Compact UPDATE: merged into #${decision.targetId} (${decision.reason})`;
                 compactMerged = true;
@@ -749,6 +750,7 @@ export async function createMemorixServer(
         relatedEntities,
         sourceDetail: 'explicit',
         valueCategory: formationResult?.evaluation.category,
+        createdByAgentId: currentAgentId,
       });
 
       // Add a reference to the entity's observations
@@ -1145,6 +1147,7 @@ export async function createMemorixServer(
         relatedCommits,
         relatedEntities,
         sourceDetail: 'explicit',
+        createdByAgentId: currentAgentId,
       });
 
       await graphManager.addObservations([
@@ -2590,6 +2593,8 @@ export async function createMemorixServer(
       inputSchema: {
         sessionId: z.string().optional().describe('Custom session ID (auto-generated if omitted)'),
         agent: z.string().optional().describe('Agent/IDE name (e.g., "cursor", "windsurf", "claude-code")'),
+        agentType: z.string().optional().describe('Agent type for durable identity (e.g., "windsurf", "cursor"). Defaults to agent if omitted.'),
+        instanceId: z.string().optional().describe('Stable instance ID for durable identity across restarts. Auto-generated if omitted.'),
         projectRoot: z.string().optional().describe(
           'Absolute path to the workspace/project root directory (e.g., the folder open in your IDE). ' +
           'Memorix will detect the git project from this path and bind this session to it. ' +
@@ -2597,7 +2602,10 @@ export async function createMemorixServer(
         ),
       },
     },
-    async ({ sessionId, agent, projectRoot: explicitRoot }) => {
+    async ({ sessionId, agent, agentType, instanceId, projectRoot: explicitRoot }) => {
+      // Phase 4a: clear agent identity — must not bleed from prior session_start
+      currentAgentId = undefined;
+
       // ── Explicit project binding via projectRoot ──────────────────────
       // If the caller provides projectRoot, attempt to switch/bind to that project
       // BEFORE checking whether the project is resolved. This is the primary
@@ -2666,11 +2674,45 @@ export async function createMemorixServer(
         ? `LLM enhanced mode: ${getLLMConfig()?.provider}/${getLLMConfig()?.model} (fact extraction + auto-dedup active)`
         : 'LLM mode: off (set MEMORIX_LLM_API_KEY to enable enhanced memory quality)';
 
+      // Phase 4a: Auto-register agent in TeamStore for durable identity
+      let registeredAgent: import('./team/team-store.js').TeamAgentRow | null = null;
+      let watermarkInfo = '';
+      try {
+        if (typeof teamStore !== 'undefined' && (agent || agentType)) {
+          registeredAgent = teamStore.registerAgent({
+            projectId: project.id,
+            agentType: agentType || agent || 'unknown',
+            instanceId: instanceId || undefined,
+            name: agent || agentType || undefined,
+          });
+
+          // Set session-level agent identity for observation attribution
+          currentAgentId = registeredAgent.agent_id;
+
+          // Watermark: project-scoped count of new observations since last seen
+          // Uses projectId + writeGeneration filter (not global storage_generation diff)
+          // withFreshIndex ensures cross-process writes are visible before counting
+          const lastSeen = registeredAgent.last_seen_obs_generation;
+          const projectObs = await withFreshIndex(() => getAllObservations().filter(
+            o => o.projectId === project.id && (o.writeGeneration ?? 0) > lastSeen,
+          ));
+          if (projectObs.length > 0) {
+            watermarkInfo = `📊 ${projectObs.length} new observation(s) in this project since your last session.`;
+          }
+
+          // Update watermark to current global generation (high-water mark for next session)
+          const store = getObservationStore();
+          teamStore.updateWatermark(registeredAgent.agent_id, store.getGeneration());
+        }
+      } catch { /* team auto-registration is best-effort */ }
+
       const lines = [
         `✅ Session started: ${result.session.id}`,
         `Project: ${project.name} (${project.id})`,
         result.session.agent ? `Agent: ${result.session.agent}` : '',
+        registeredAgent ? `Agent ID: ${registeredAgent.agent_id} (instance: ${registeredAgent.instance_id})` : '',
         llmStatus,
+        watermarkInfo,
         '',
         '💡 Tips: Use `memorix_resolve` to mark completed tasks. Use `progress` param in `memorix_store` for task tracking. Use `topicKey` to prevent duplicate memories.',
         '',
@@ -2704,27 +2746,28 @@ export async function createMemorixServer(
         lines.push('No previous session context found. This appears to be a fresh project.');
       }
 
-      // Inject team context if any agents are active
+      // Inject team context if any agents are active (Phase 4a: SQLite-backed)
       try {
-        const activeAgents = teamRegistry.listAgents({ status: 'active' });
-        if (activeAgents.length > 0) {
-          lines.push('', '---', '👥 **Team Status:**');
-          for (const a of activeAgents) {
-            lines.push(`- 🟢 ${a.name}${a.role ? ` (${a.role})` : ''}`);
-          }
-
-          // Show locked files
-          fileLocks.cleanExpired();
-          const locks = fileLocks.listLocks();
-          if (locks.length > 0) {
-            lines.push('', '🔒 **Locked files:**');
-            for (const l of locks) {
-              const owner = teamRegistry.getAgent(l.lockedBy);
-              lines.push(`- ${l.file} — ${owner?.name ?? l.lockedBy.slice(0, 8)}`);
+        if (typeof teamStore !== 'undefined') {
+          const activeAgents = teamStore.listAgents(project.id, { status: 'active' });
+          if (activeAgents.length > 0) {
+            lines.push('', '---', '👥 **Team Status:**');
+            for (const a of activeAgents) {
+              lines.push(`- 🟢 ${a.name}${a.role ? ` (${a.role})` : ''}`);
             }
-          }
 
-          lines.push('', '💡 Use `team_join` to register, `team_inbox` to check messages, `team_task_list available=true` for available work.');
+            // Show locked files
+            const locks = teamStore.listLocks(project.id);
+            if (locks.length > 0) {
+              lines.push('', '🔒 **Locked files:**');
+              for (const l of locks) {
+                const owner = teamStore.getAgent(l.locked_by);
+                lines.push(`- ${l.file} — ${owner?.name ?? l.locked_by.slice(0, 8)}`);
+              }
+            }
+
+            lines.push('', '💡 Use `team_manage` to register, `team_message` to check inbox, `team_task` to see tasks.');
+          }
         }
       } catch { /* team context injection is optional */ }
 
@@ -2971,11 +3014,8 @@ export async function createMemorixServer(
 
         // Start in background (non-blocking), disable auto-open (we'll open it ourselves)
         startDashboard(projectDir, portNum, staticDir, project.id, project.name, false, {
-            registry: teamRegistry,
-            fileLocks,
-            taskManager,
-            messageBus,
-          })
+            teamStore,
+          } as any)
           .then(() => { dashboardRunning = true; })
           .catch((err) => { console.error('[memorix] Dashboard error:', err); dashboardRunning = false; });
 
@@ -3028,34 +3068,19 @@ export async function createMemorixServer(
   );
 
   // ================================================================
-  // Team Collaboration Tools (Multi-Agent)
+  // Team Collaboration Tools (Multi-Agent) — Phase 4a: SQLite-backed
   // ================================================================
 
-  const { AgentRegistry } = await import('./team/registry.js');
-  const { MessageBus } = await import('./team/messages.js');
-  const { FileLockRegistry } = await import('./team/file-locks.js');
-  const { TaskManager } = await import('./team/tasks.js');
+  const { initTeamStore } = await import('./team/team-store.js');
 
-  // Use shared instances (from HTTP server) or create new ones (stdio mode)
-  const teamRegistry = sharedTeam?.registry ?? new AgentRegistry();
-  const messageBus = sharedTeam?.messageBus ?? new MessageBus(teamRegistry);
-  const fileLocks = sharedTeam?.fileLocks ?? new FileLockRegistry();
-  const taskManager = sharedTeam?.taskManager ?? new TaskManager();
-
-  // File-based persistence for cross-IDE team state sharing (stdio mode only).
-  // In HTTP mode, all sessions share in-memory state — no persistence needed.
-  let teamPersist: import('./team/persistence.js').TeamPersistence | null = null;
-  if (!sharedTeam) {
-    const { TeamPersistence } = await import('./team/persistence.js');
-    const { join } = await import('node:path');
-    teamPersist = new TeamPersistence(
-      join(projectDir, 'team-state.json'),
-      teamRegistry, messageBus, taskManager, fileLocks,
-    );
-    await teamPersist.sync();
+  // Use shared TeamStore (from HTTP server) or create new one (stdio mode).
+  // All team state is canonical in SQLite — no JSON persistence, no sync/flush.
+  let teamStore: Awaited<ReturnType<typeof initTeamStore>>;
+  if (sharedTeam?.teamStore) {
+    teamStore = sharedTeam.teamStore;
+  } else {
+    teamStore = await initTeamStore(projectDir);
   }
-  const teamSync = () => teamPersist ? teamPersist.sync() : Promise.resolve();
-  const teamFlush = () => teamPersist ? teamPersist.flush() : Promise.resolve();
 
   // ── team_manage (join / leave / status) ─────────────────────────
   server.registerTool(
@@ -3064,60 +3089,66 @@ export async function createMemorixServer(
       title: 'Team Management',
       description:
         'Register, unregister, or list agents in the team. ' +
-        'Action "join": register this agent (returns agent ID). ' +
+        'Action "join": register this agent (returns agent ID and instance ID for reactivation). ' +
         'Action "leave": mark agent inactive, release locks. ' +
         'Action "status": list all agents with roles and capabilities.',
       inputSchema: {
         action: z.enum(['join', 'leave', 'status']).describe('Operation to perform'),
-        name: z.string().optional().describe('Agent name for join (e.g., "cursor-frontend")'),
+        name: z.string().optional().describe('Agent display name for join (e.g., "cursor-frontend")'),
+        agentType: z.string().optional().describe('Agent type for join (e.g., "windsurf", "cursor", "claude-code")'),
+        instanceId: z.string().optional().describe('Stable instance ID for join (preserves identity across restarts)'),
         role: z.string().optional().describe('Agent role for join'),
         capabilities: z.array(z.string()).optional().describe('Agent capabilities for join'),
         agentId: z.string().optional().describe('Agent ID for leave'),
       },
     },
-    async ({ action, name, role, capabilities, agentId }) => {
-      await teamSync();
+    async ({ action, name, agentType, instanceId, role, capabilities, agentId }) => {
       if (action === 'join') {
-        const trimmed = (name || '').trim();
-        if (!trimmed) return { content: [{ type: 'text' as const, text: '❌ Agent name is required' }], isError: true };
-        if (trimmed.length > 100) return { content: [{ type: 'text' as const, text: '❌ Agent name too long (max 100 chars)' }], isError: true };
-        const agent = teamRegistry.join({ name: trimmed, role, capabilities: capabilities ? coerceStringArray(capabilities) : undefined });
-        await teamFlush();
+        const agent = teamStore.registerAgent({
+          projectId: project.id,
+          agentType: agentType || 'unknown',
+          instanceId: instanceId || undefined,
+          name: (name || '').trim() || undefined,
+          role,
+          capabilities: capabilities ? coerceStringArray(capabilities) : undefined,
+        });
+        const caps = agent.capabilities ? JSON.parse(agent.capabilities) : [];
         return {
           content: [{
             type: 'text' as const,
-            text: `✅ Joined team as "${agent.name}" (ID: ${agent.id})\nRole: ${agent.role ?? 'unspecified'}\nActive agents: ${teamRegistry.getActiveCount()}`,
+            text: `✅ Joined team as "${agent.name}" (ID: ${agent.agent_id})\nInstance ID: ${agent.instance_id}\nRole: ${agent.role ?? 'unspecified'}\nActive agents: ${teamStore.getActiveCount(project.id)}`,
           }],
         };
       }
       if (action === 'leave') {
         if (!agentId) return { content: [{ type: 'text' as const, text: '❌ agentId is required for leave' }], isError: true };
-        const left = teamRegistry.leave(agentId);
+        const left = teamStore.leaveAgent(agentId);
         if (!left) return { content: [{ type: 'text' as const, text: '⚠️ Agent not found' }] };
-        const releasedLocks = fileLocks.releaseAll(agentId);
-        messageBus.clearInbox(agentId);
-        await teamFlush();
+        const releasedLocks = teamStore.releaseAllLocks(agentId);
+        const releasedTasks = teamStore.releaseTasksByAgent(agentId);
         const parts: string[] = [];
         if (releasedLocks > 0) parts.push(`released ${releasedLocks} lock(s)`);
+        if (releasedTasks > 0) parts.push(`released ${releasedTasks} task(s)`);
         return {
           content: [{
             type: 'text' as const,
-            text: `Left team.${parts.length > 0 ? ' ' + parts.join(', ') + '.' : ''}\nActive agents: ${teamRegistry.getActiveCount()}`,
+            text: `Left team.${parts.length > 0 ? ' ' + parts.join(', ') + '.' : ''}\nActive agents: ${teamStore.getActiveCount(project.id)}`,
           }],
         };
       }
       // status
-      const agents = teamRegistry.listAgents();
+      const agents = teamStore.listAgents(project.id);
       if (agents.length === 0) {
         return { content: [{ type: 'text' as const, text: 'No agents registered. Use action "join" to register.' }] };
       }
-      const lines = agents.map(a =>
-        `${a.status === 'active' ? '●' : '○'} ${a.name} (${a.id}) — ${a.role ?? 'no role'} [${a.capabilities.join(', ') || '-'}]`,
-      );
+      const lines = agents.map((a: import('./team/team-store.js').TeamAgentRow) => {
+        const caps = a.capabilities ? JSON.parse(a.capabilities) : [];
+        return `${a.status === 'active' ? '●' : '○'} ${a.name} (${a.agent_id.slice(0, 8)}…) — ${a.role ?? 'no role'} [${caps.join(', ') || '-'}]`;
+      });
       return {
         content: [{
           type: 'text' as const,
-          text: `Team: ${teamRegistry.getActiveCount()} active / ${agents.length} total\n\n${lines.join('\n')}`,
+          text: `Team: ${teamStore.getActiveCount(project.id)} active / ${agents.length} total\n\n${lines.join('\n')}`,
         }],
       };
     },
@@ -3138,38 +3169,34 @@ export async function createMemorixServer(
       },
     },
     async ({ action, file, agentId }) => {
-      await teamSync();
-      fileLocks.cleanExpired();
       if (action === 'lock') {
         if (!file || !agentId) return { content: [{ type: 'text' as const, text: '❌ file and agentId are required for lock' }], isError: true };
-        const agent = teamRegistry.getAgent(agentId);
+        const agent = teamStore.getAgent(agentId);
         if (!agent || agent.status !== 'active') {
           return { content: [{ type: 'text' as const, text: `❌ Unknown or inactive agent: ${agentId.slice(0, 8)}…` }], isError: true };
         }
-        const result = fileLocks.lock(file, agentId);
-        await teamFlush();
+        const result = teamStore.acquireLock(project.id, file, agentId);
         if (result.success) return { content: [{ type: 'text' as const, text: `Locked: ${file}` }] };
-        const owner = teamRegistry.getAgent(result.lockedBy);
+        const owner = teamStore.getAgent(result.lockedBy);
         return { content: [{ type: 'text' as const, text: `Denied — locked by ${owner?.name ?? result.lockedBy.slice(0, 8)}` }], isError: true };
       }
       if (action === 'unlock') {
         if (!file || !agentId) return { content: [{ type: 'text' as const, text: '❌ file and agentId are required for unlock' }], isError: true };
-        const released = fileLocks.unlock(file, agentId);
-        await teamFlush();
+        const released = teamStore.releaseLock(project.id, file, agentId);
         return { content: [{ type: 'text' as const, text: released ? `Unlocked: ${file}` : `Cannot unlock: not owner or not locked` }] };
       }
       // status
       if (file) {
-        const status = fileLocks.getStatus(file);
-        if (!status) return { content: [{ type: 'text' as const, text: `${file} — unlocked` }] };
-        const owner = teamRegistry.getAgent(status.lockedBy);
-        return { content: [{ type: 'text' as const, text: `${file} — locked by ${owner?.name ?? status.lockedBy.slice(0, 8)} (expires ${status.expiresAt.toISOString()})` }] };
+        const lockStatus = teamStore.getLockStatus(project.id, file);
+        if (!lockStatus) return { content: [{ type: 'text' as const, text: `${file} — unlocked` }] };
+        const owner = teamStore.getAgent(lockStatus.locked_by);
+        return { content: [{ type: 'text' as const, text: `${file} — locked by ${owner?.name ?? lockStatus.locked_by.slice(0, 8)} (expires ${new Date(lockStatus.expires_at).toISOString()})` }] };
       }
-      const all = fileLocks.listLocks();
+      const all = teamStore.listLocks(project.id);
       if (all.length === 0) return { content: [{ type: 'text' as const, text: 'No files locked' }] };
-      const lines = all.map(l => {
-        const owner = teamRegistry.getAgent(l.lockedBy);
-        return `${l.file} — ${owner?.name ?? l.lockedBy.slice(0, 8)}`;
+      const lines = all.map((l: import('./team/team-store.js').TeamLockRow) => {
+        const owner = teamStore.getAgent(l.locked_by);
+        return `${l.file} — ${owner?.name ?? l.locked_by.slice(0, 8)}`;
       });
       return { content: [{ type: 'text' as const, text: `Locked files (${all.length}):\n${lines.join('\n')}` }] };
     },
@@ -3182,7 +3209,7 @@ export async function createMemorixServer(
       title: 'Task Board',
       description:
         'Create, claim, complete, or list tasks in the team task board. Supports dependencies. ' +
-        'Action "create": create a task. Action "claim": assign to yourself. ' +
+        'Action "create": create a task. Action "claim": assign to yourself (atomic, race-safe). ' +
         'Action "complete": mark done with result. Action "list": show tasks.',
       inputSchema: {
         action: z.enum(['create', 'claim', 'complete', 'list']).describe('Operation to perform'),
@@ -3196,37 +3223,41 @@ export async function createMemorixServer(
       },
     },
     async ({ action, description: desc, deps, taskId, agentId, result, status, available }) => {
-      await teamSync();
       try {
         if (action === 'create') {
           if (!desc) return { content: [{ type: 'text' as const, text: '❌ description is required for create' }], isError: true };
-          const task = taskManager.create({ description: desc, deps: deps ? coerceStringArray(deps) : undefined });
-          await teamFlush();
-          return { content: [{ type: 'text' as const, text: `Task created: ${task.id} "${desc}"${task.deps.length > 0 ? ` (depends on ${task.deps.length})` : ''}` }] };
+          const task = teamStore.createTask({
+            projectId: project.id,
+            description: desc,
+            deps: deps ? coerceStringArray(deps) : undefined,
+            createdBy: agentId || undefined,
+          });
+          const taskDeps = teamStore.getTaskDeps(task.task_id);
+          return { content: [{ type: 'text' as const, text: `Task created: ${task.task_id.slice(0, 8)}… "${desc}"${taskDeps.length > 0 ? ` (depends on ${taskDeps.length})` : ''}` }] };
         }
         if (action === 'claim') {
           if (!taskId || !agentId) return { content: [{ type: 'text' as const, text: '❌ taskId and agentId required for claim' }], isError: true };
-          const agent = teamRegistry.getAgent(agentId);
+          const agent = teamStore.getAgent(agentId);
           if (!agent || agent.status !== 'active') return { content: [{ type: 'text' as const, text: `❌ Unknown or inactive agent` }], isError: true };
-          const task = taskManager.claim(taskId, agentId);
-          await teamFlush();
-          return { content: [{ type: 'text' as const, text: `Task claimed by ${agent.name}: "${task.description}"` }] };
+          const claimResult = teamStore.claimTask(taskId, agentId);
+          if (!claimResult.success) return { content: [{ type: 'text' as const, text: `❌ ${claimResult.reason}` }], isError: true };
+          return { content: [{ type: 'text' as const, text: `Task claimed by ${agent.name}: "${claimResult.task!.description}"` }] };
         }
         if (action === 'complete') {
           if (!taskId || !agentId || !result) return { content: [{ type: 'text' as const, text: '❌ taskId, agentId, and result required for complete' }], isError: true };
-          const existingTask = taskManager.getTask(taskId);
-          const allowRescue = existingTask?.assignee ? teamRegistry.getAgent(existingTask.assignee)?.status !== 'active' : false;
-          const task = taskManager.complete(taskId, agentId, result, allowRescue);
-          await teamFlush();
-          return { content: [{ type: 'text' as const, text: `Task completed${allowRescue ? ' (rescued)' : ''}: "${task.description}"\nResult: ${result}` }] };
+          const completeResult = teamStore.completeTask(taskId, agentId, result);
+          if (!completeResult.success) return { content: [{ type: 'text' as const, text: `❌ ${completeResult.reason}` }], isError: true };
+          const completedTask = teamStore.getTask(taskId);
+          return { content: [{ type: 'text' as const, text: `Task completed: "${completedTask?.description ?? taskId}"\nResult: ${result}` }] };
         }
         // list
-        const list = available ? taskManager.getAvailable() : taskManager.list(status ? { status } : undefined);
+        const list = teamStore.listTasks(project.id, available ? { available: true } : (status ? { status } : undefined));
         if (list.length === 0) return { content: [{ type: 'text' as const, text: available ? 'No tasks available to claim' : 'No tasks found' }] };
         const statusIcon: Record<string, string> = { pending: '[ ]', in_progress: '[~]', completed: '[x]', failed: '[!]' };
-        const lines = list.map(t => {
-          const assignee = t.assignee ? teamRegistry.getAgent(t.assignee)?.name ?? t.assignee.slice(0, 8) : 'unassigned';
-          return `${statusIcon[t.status] ?? '[ ]'} ${t.id} "${t.description}" — ${assignee}${t.deps.length > 0 ? ` [deps: ${t.deps.length}]` : ''}`;
+        const lines = list.map((t: import('./team/team-store.js').TeamTaskRow) => {
+          const assignee = t.assignee_agent_id ? teamStore.getAgent(t.assignee_agent_id)?.name ?? t.assignee_agent_id.slice(0, 8) : 'unassigned';
+          const taskDeps = teamStore.getTaskDeps(t.task_id);
+          return `${statusIcon[t.status] ?? '[ ]'} ${t.task_id.slice(0, 8)}… "${t.description}" — ${assignee}${taskDeps.length > 0 ? ` [deps: ${taskDeps.length}]` : ''}`;
         });
         return { content: [{ type: 'text' as const, text: `Tasks (${list.length}):\n${lines.join('\n')}` }] };
       } catch (err) {
@@ -3241,52 +3272,56 @@ export async function createMemorixServer(
     {
       title: 'Team Messaging',
       description:
-        'Send, broadcast, or read messages between agents. ' +
-        'Action "send": direct message to one agent. Action "broadcast": message all active agents. ' +
+        'Send, broadcast, or read messages between agents. Durable: messages survive restarts and reach inactive recipients. ' +
+        'Action "send": direct message to one agent. Action "broadcast": message all agents. ' +
         'Action "inbox": read this agent\'s inbox.',
       inputSchema: {
         action: z.enum(['send', 'broadcast', 'inbox']).describe('Operation to perform'),
         from: z.string().optional().describe('Sender agent ID (for send/broadcast)'),
         to: z.string().optional().describe('Receiver agent ID (for send)'),
-        type: z.enum(['request', 'response', 'info', 'announcement', 'contract', 'error']).optional().describe('Message type (for send/broadcast)'),
+        type: z.enum(['request', 'response', 'info', 'announcement', 'contract', 'error', 'handoff']).optional().describe('Message type (for send/broadcast)'),
         content: z.string().optional().describe('Message content (for send/broadcast)'),
         agentId: z.string().optional().describe('Agent ID (for inbox)'),
         markRead: z.boolean().optional().default(false).describe('Mark messages as read (for inbox)'),
       },
     },
     async ({ action, from, to, type: msgType, content, agentId, markRead }) => {
-      await teamSync();
       if (action === 'send') {
         if (!from || !to || !msgType || !content) return { content: [{ type: 'text' as const, text: '❌ from, to, type, and content required for send' }], isError: true };
         if (content.length > 10_000) return { content: [{ type: 'text' as const, text: '❌ Message too large (max 10KB)' }], isError: true };
-        try {
-          const msg = messageBus.send({ from, to, type: msgType, content });
-          await teamFlush();
-          return { content: [{ type: 'text' as const, text: `Message sent (${msgType}) to ${to.slice(0, 8)}… | ID: ${msg.id.slice(0, 8)}…` }] };
-        } catch (err) {
-          return { content: [{ type: 'text' as const, text: `❌ ${(err as Error).message}` }], isError: true };
-        }
+        const msg = teamStore.sendMessage({
+          projectId: project.id,
+          senderAgentId: from,
+          recipientAgentId: to,
+          type: msgType,
+          content,
+        });
+        return { content: [{ type: 'text' as const, text: `Message sent (${msgType}) to ${to.slice(0, 8)}… | ID: ${msg.id.slice(0, 8)}…` }] };
       }
       if (action === 'broadcast') {
         if (!from || !msgType || !content) return { content: [{ type: 'text' as const, text: '❌ from, type, and content required for broadcast' }], isError: true };
         if (content.length > 10_000) return { content: [{ type: 'text' as const, text: '❌ Message too large (max 10KB)' }], isError: true };
-        const msgs = messageBus.broadcast({ from, type: msgType, content });
-        await teamFlush();
-        return { content: [{ type: 'text' as const, text: `Broadcast (${msgType}) to ${msgs.length} agent(s)` }] };
+        const msg = teamStore.sendMessage({
+          projectId: project.id,
+          senderAgentId: from,
+          recipientAgentId: null,
+          type: msgType,
+          content,
+        });
+        return { content: [{ type: 'text' as const, text: `Broadcast (${msgType}) | ID: ${msg.id.slice(0, 8)}…` }] };
       }
       // inbox
       const inboxId = agentId || from || '';
       if (!inboxId) return { content: [{ type: 'text' as const, text: '❌ agentId required for inbox' }], isError: true };
-      const inbox = messageBus.getInbox(inboxId);
-      const unread = messageBus.getUnreadCount(inboxId);
+      const inbox = teamStore.getInbox(project.id, inboxId);
+      const unread = teamStore.getUnreadCount(project.id, inboxId);
       if (inbox.length === 0) return { content: [{ type: 'text' as const, text: 'Inbox empty' }] };
       if (markRead) {
-        messageBus.markRead(inboxId, inbox.map(m => m.id));
-        await teamFlush();
+        teamStore.markAllRead(project.id, inboxId);
       }
-      const lines = inbox.slice(-10).map(m => {
-        const sender = teamRegistry.getAgent(m.from);
-        return `${m.read ? ' ' : '*'} [${m.type}] from ${sender?.name ?? m.from.slice(0, 8)}: ${m.content.slice(0, 100)}`;
+      const lines = inbox.slice(-10).map((m: import('./team/team-store.js').TeamMessageRow) => {
+        const sender = teamStore.getAgent(m.sender_agent_id);
+        return `${m.read_at ? ' ' : '*'} [${m.type}] from ${sender?.name ?? m.sender_agent_id.slice(0, 8)}: ${m.content.slice(0, 100)}`;
       });
       return { content: [{ type: 'text' as const, text: `Inbox: ${unread} unread / ${inbox.length} total\n\n${lines.join('\n')}` }] };
     },
@@ -3562,6 +3597,9 @@ export async function createMemorixServer(
     if (newCanonicalId === project.id && projectResolved) return false; // same project, no-op
 
     console.error(`[memorix] Switching project: ${project.id} → ${newCanonicalId}`);
+
+    // Phase 4a: clear agent identity — old project's agent is not valid in new project
+    currentAgentId = undefined;
 
     // Re-resolve data dir with canonical ID (may differ from raw detected ID)
     const canonicalProjectDir = newCanonicalId !== newDetected.id

@@ -49,6 +49,8 @@ function obsToRow(obs: Observation): Record<string, unknown> {
     relatedEntities: obs.relatedEntities ? JSON.stringify(obs.relatedEntities) : null,
     sourceDetail: obs.sourceDetail ?? null,
     valueCategory: obs.valueCategory ?? null,
+    createdByAgentId: obs.createdByAgentId ?? null,
+    writeGeneration: obs.writeGeneration ?? 0,
   };
 }
 
@@ -78,6 +80,8 @@ function rowToObs(row: any): Observation {
     ...(row.relatedEntities ? { relatedEntities: safeJsonParse(row.relatedEntities, []) } : {}),
     ...(row.sourceDetail ? { sourceDetail: row.sourceDetail } : {}),
     ...(row.valueCategory ? { valueCategory: row.valueCategory } : {}),
+    ...(row.createdByAgentId ? { createdByAgentId: row.createdByAgentId } : {}),
+    ...(row.writeGeneration ? { writeGeneration: row.writeGeneration } : {}),
   } as Observation;
 }
 
@@ -118,12 +122,12 @@ export class SqliteBackend implements ObservationStore {
         (id, entityName, type, title, narrative, facts, filesModified, concepts, tokens,
          createdAt, updatedAt, projectId, hasCausalLanguage, topicKey, revisionCount,
          sessionId, status, progress, source, commitHash, relatedCommits, relatedEntities,
-         sourceDetail, valueCategory)
+         sourceDetail, valueCategory, createdByAgentId, writeGeneration)
       VALUES
         (@id, @entityName, @type, @title, @narrative, @facts, @filesModified, @concepts, @tokens,
          @createdAt, @updatedAt, @projectId, @hasCausalLanguage, @topicKey, @revisionCount,
          @sessionId, @status, @progress, @source, @commitHash, @relatedCommits, @relatedEntities,
-         @sourceDetail, @valueCategory)
+         @sourceDetail, @valueCategory, @createdByAgentId, @writeGeneration)
     `);
     this.stmtUpdate = this.stmtInsert; // INSERT OR REPLACE works for both
     this.stmtDelete = this.db.prepare(`DELETE FROM observations WHERE id = ?`);

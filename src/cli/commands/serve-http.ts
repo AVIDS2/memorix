@@ -77,18 +77,14 @@ export default defineCommand({
     console.error(`[memorix] HTTP transport starting on port ${port}`);
     console.error(`[memorix] Project root: ${projectRoot}`);
 
-    // Create shared team instances ONCE — all sessions share the same state
-    const { AgentRegistry } = await import('../../team/registry.js');
-    const { MessageBus } = await import('../../team/messages.js');
-    const { FileLockRegistry } = await import('../../team/file-locks.js');
-    const { TaskManager } = await import('../../team/tasks.js');
-    const teamRegistry = new AgentRegistry();
-    const sharedTeam = {
-      registry: teamRegistry,
-      messageBus: new MessageBus(teamRegistry),
-      fileLocks: new FileLockRegistry(),
-      taskManager: new TaskManager(),
-    };
+    // Create shared TeamStore ONCE — all sessions share the same SQLite-backed state
+    const persistMod = await import('../../store/persistence.js');
+    const detectorMod = await import('../../project/detector.js');
+    const detectedProj = detectorMod.detectProject(projectRoot);
+    const teamDataDir = detectedProj ? await persistMod.getProjectDataDir(detectedProj.rootPath) : projectRoot;
+    const { initTeamStore } = await import('../../team/team-store.js');
+    const sharedTeamStore = await initTeamStore(teamDataDir);
+    const sharedTeam = { teamStore: sharedTeamStore };
 
     type SessionState = {
       transport: InstanceType<typeof StreamableHTTPServerTransport>;
@@ -560,76 +556,29 @@ export default defineCommand({
 
       try {
         if (apiPath === '/team') {
-          // Team API supports ?scope=project (default) or ?scope=global
-          // Project scope: only runtime agents from this control-plane process
-          // Global scope: runtime + persisted agents from team-state.json
-          const teamScope = url.searchParams.get('scope') || 'project';
+          // Phase 4a: All team state is in SQLite via TeamStore
+          const { projectId: teamProjectId } = await resolveRequestProject(url);
+          const ts = sharedTeam.teamStore;
 
-          sharedTeam.fileLocks.cleanExpired();
-          const runtimeAgents = sharedTeam.registry.listAgents();
-          const locks = sharedTeam.fileLocks.listLocks();
-          const runtimeTasks = sharedTeam.taskManager.list();
-          const available = sharedTeam.taskManager.getAvailable();
+          const agents = ts.listAgents(teamProjectId);
+          const locks = ts.listLocks(teamProjectId);
+          const tasks = ts.listTasks(teamProjectId);
+          const available = ts.listTasks(teamProjectId, { available: true });
 
-          // Always read file-based state for global scope
-          let fileAgents: any[] = [];
-          let fileTasks: any[] = [];
-          try {
-            const { dataDir: teamDataDir } = await resolveRequestProject(url);
-            const teamStatePath = pathModule.default.join(teamDataDir, 'team-state.json');
-            const raw = await fsPromises.readFile(teamStatePath, 'utf8');
-            const snap = JSON.parse(raw);
-            if (snap.version === 1 && snap.registry?.agents) {
-              const httpAgentIds = new Set(runtimeAgents.map((a: any) => a.id));
-              const rawAgents = snap.registry.agents;
-              const agentList = Array.isArray(rawAgents)
-                ? rawAgents
-                : Object.values(rawAgents);
-              fileAgents = agentList.filter(
-                (a: any) => a && a.id && !httpAgentIds.has(a.id),
-              );
-            }
-            if (snap.taskManager?.tasks) {
-              const rawTasks = snap.taskManager.tasks;
-              fileTasks = Array.isArray(rawTasks) ? rawTasks : Object.values(rawTasks);
-            }
-          } catch (err) {
-            if (err && (err as any).code !== 'ENOENT') {
-              console.error('[memorix] Warning: failed to merge team-state.json:', (err as Error).message);
-            }
-          }
-
-          // Build response based on scope
-          const allAgents = [
-            ...runtimeAgents.map((a: any) => ({
-              ...a,
-              unread: sharedTeam.messageBus.getUnreadCount(a.id),
-              transport: 'http',
-              source: 'runtime',
-            })),
-            ...fileAgents.map((a: any) => ({ ...a, transport: 'stdio', source: 'persisted' })),
-          ];
-          const allTasks = [...runtimeTasks, ...fileTasks.filter((ft: any) => !runtimeTasks.some((t: any) => t.id === ft.id))];
-
-          // Project scope: only runtime agents + runtime tasks (current control-plane)
-          // Global scope: everything (runtime + persisted)
-          const scopedAgents = teamScope === 'global' ? allAgents : allAgents.filter((a: any) => a.source === 'runtime');
-          const scopedTasks = teamScope === 'global' ? allTasks : runtimeTasks;
+          const agentsWithUnread = agents.map((a: any) => ({
+            ...a,
+            unread: ts.getUnreadCount(teamProjectId, a.agent_id),
+            source: 'sqlite',
+          }));
 
           sendJson({
-            scope: teamScope,
-            agents: scopedAgents,
-            activeCount: scopedAgents.filter((a: any) => a.status === 'active').length,
+            scope: 'project',
+            agents: agentsWithUnread,
+            activeCount: agents.filter((a: any) => a.status === 'active').length,
             locks,
-            tasks: scopedTasks,
+            tasks,
             availableTasks: available.length,
             sessions: sessions.size,
-            _meta: {
-              scope: teamScope,
-              runtimeAgents: runtimeAgents.length,
-              persistedAgents: fileAgents.length,
-              totalAgents: allAgents.length,
-            },
           });
           return;
         }

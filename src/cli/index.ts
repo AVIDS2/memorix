@@ -855,6 +855,7 @@ const main = defineCommand({
     doctor: () => import('./commands/doctor.js').then(m => m.default),
     dashboard: () => import('./commands/dashboard.js').then(m => m.default),
     cleanup: () => import('./commands/cleanup.js').then(m => m.default),
+    orchestrate: () => import('./commands/orchestrate.js').then(m => m.default),
   },
   async run() {
     // Guard: if citty already resolved a subcommand, its run() was called before this.
@@ -863,7 +864,7 @@ const main = defineCommand({
     const knownSubs = ['search', 'remember', 'recent',
       'init', 'integrate', 'serve', 'serve-http', 'status', 'sync',
       'hook', 'hooks', 'ingest', 'git-hook', 'git-hook-uninstall',
-      'background', 'doctor', 'dashboard', 'cleanup'];
+      'background', 'doctor', 'dashboard', 'cleanup', 'orchestrate'];
     if (firstArg && knownSubs.includes(firstArg)) return;
 
     // No subcommand provided — show fullscreen workbench if in TTY, otherwise show help

@@ -17,6 +17,7 @@ import { randomUUID } from 'node:crypto';
 import { getDatabase } from '../store/sqlite-db.js';
 import path from 'node:path';
 import fs from 'node:fs';
+import type { TeamEventBus } from './event-bus.js';
 
 // ── Types ───────────────────────────────────────────────────────────
 
@@ -74,6 +75,13 @@ export interface TeamLockRow {
 export class TeamStore {
   private db: any = null;
   private dataDir: string = '';
+
+  /** Optional event bus for same-process lifecycle notifications.
+   *  Set via setEventBus(). Emit failures never block TeamStore writes. */
+  private eventBus: TeamEventBus | null = null;
+
+  setEventBus(bus: TeamEventBus): void { this.eventBus = bus; }
+  getEventBus(): TeamEventBus | null { return this.eventBus; }
 
   // ── Agent prepared statements
   private stmtAgentUpsert: any = null;
@@ -376,7 +384,9 @@ export class TeamStore {
         left_at: null,
         last_seen_obs_generation: existing.last_seen_obs_generation,
       });
-      return this.stmtAgentFindById.get(existing.agent_id) as TeamAgentRow;
+      const row = this.stmtAgentFindById.get(existing.agent_id) as TeamAgentRow;
+      this.eventBus?.emit('agent:joined', { agentId: row.agent_id, projectId: input.projectId, agentType: input.agentType });
+      return row;
     }
 
     // New agent
@@ -395,7 +405,9 @@ export class TeamStore {
       left_at: null,
       last_seen_obs_generation: 0,
     });
-    return this.stmtAgentFindById.get(agentId) as TeamAgentRow;
+    const row = this.stmtAgentFindById.get(agentId) as TeamAgentRow;
+    this.eventBus?.emit('agent:joined', { agentId: row.agent_id, projectId: input.projectId, agentType: input.agentType });
+    return row;
   }
 
   getAgent(agentId: string): TeamAgentRow | undefined {
@@ -420,7 +432,11 @@ export class TeamStore {
   }
 
   leaveAgent(agentId: string): boolean {
+    const agent = this.stmtAgentFindById.get(agentId) as TeamAgentRow | undefined;
     const info = this.stmtAgentLeave.run(Date.now(), agentId);
+    if (info.changes > 0 && agent) {
+      this.eventBus?.emit('agent:left', { agentId, projectId: agent.project_id });
+    }
     return info.changes > 0;
   }
 
@@ -441,10 +457,12 @@ export class TeamStore {
     for (const agent of staleAgents) {
       this.stmtAgentLeave.run(now, agent.agent_id);
       // Release tasks
-      this.stmtTaskReleaseByAgent.run(now, agent.agent_id);
+      const released = this.stmtTaskReleaseByAgent.run(now, agent.agent_id);
       // Release locks
       this.stmtLockDeleteByAgent.run(agent.agent_id);
       staleIds.push(agent.agent_id);
+      // Lifecycle hook: stale agent detected (best-effort)
+      this.eventBus?.emit('agent:stale', { agentId: agent.agent_id, projectId, releasedTasks: released.changes });
     }
     return staleIds;
   }
@@ -551,6 +569,10 @@ export class TeamStore {
         this.stmtTaskDepInsert.run(taskId, depId);
       }
     }
+
+    // Lifecycle hook: task created (best-effort, after successful write)
+    this.eventBus?.emit('task:created', { taskId, projectId: input.projectId, description: input.description });
+
     return row;
   }
 
@@ -603,7 +625,14 @@ export class TeamStore {
     });
 
     // Use immediate to acquire write lock before reading
-    return claimTx.immediate();
+    const result = claimTx.immediate();
+
+    // Lifecycle hook: task claimed (best-effort, after successful write)
+    if (result.success && result.task) {
+      this.eventBus?.emit('task:claimed', { taskId, projectId: result.task.project_id, agentId });
+    }
+
+    return result;
   }
 
   completeTask(taskId: string, agentId: string, result?: string): { success: boolean; reason?: string } {
@@ -612,6 +641,13 @@ export class TeamStore {
     if (info.changes === 0) {
       return { success: false, reason: 'Not the assignee or task not in progress' };
     }
+
+    // Lifecycle hook: task completed (best-effort)
+    const task = this.stmtTaskById.get(taskId) as TeamTaskRow | undefined;
+    if (task) {
+      this.eventBus?.emit('task:completed', { taskId, projectId: task.project_id, agentId, result: result ?? undefined });
+    }
+
     return { success: true };
   }
 
@@ -621,15 +657,29 @@ export class TeamStore {
     if (info.changes === 0) {
       return { success: false, reason: 'Not the assignee or task not in progress' };
     }
+
+    // Lifecycle hook: task failed (best-effort)
+    const task = this.stmtTaskById.get(taskId) as TeamTaskRow | undefined;
+    if (task) {
+      this.eventBus?.emit('task:failed', { taskId, projectId: task.project_id, agentId, result: result ?? undefined });
+    }
+
     return { success: true };
   }
 
   releaseTask(taskId: string, agentId: string): { success: boolean; reason?: string } {
     const now = Date.now();
+    const task = this.stmtTaskById.get(taskId) as TeamTaskRow | undefined;
     const info = this.stmtTaskRelease.run(now, taskId, agentId);
     if (info.changes === 0) {
       return { success: false, reason: 'Not the assignee or task not in progress' };
     }
+
+    // Lifecycle hook: task released (best-effort)
+    if (task) {
+      this.eventBus?.emit('task:released', { taskId, projectId: task.project_id, agentId });
+    }
+
     return { success: true };
   }
 

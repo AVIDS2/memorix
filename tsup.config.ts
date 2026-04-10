@@ -6,11 +6,13 @@ const define = { __MEMORIX_VERSION__: JSON.stringify(pkg.version) };
 
 export default defineConfig([
   {
-    entry: { index: 'src/index.ts' },
+    // Phase 4b: types entry added for memorix/types SDK subpath export
+    entry: { index: 'src/index.ts', types: 'src/types.ts' },
     format: ['esm'],
     target: 'node20',
     dts: true,
     sourcemap: true,
+    clean: true,
     splitting: false,
     shims: true,
     define,
@@ -22,7 +24,6 @@ export default defineConfig([
     target: 'node20',
     dts: true,
     sourcemap: true,
-    clean: true,
     splitting: false,
     shims: true,
     define,

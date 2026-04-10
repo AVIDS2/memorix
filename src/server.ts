@@ -2677,6 +2677,7 @@ export async function createMemorixServer(
       // Phase 4a: Auto-register agent in TeamStore for durable identity
       let registeredAgent: import('./team/team-store.js').TeamAgentRow | null = null;
       let watermarkInfo = '';
+      let rescueInfo = '';
       try {
         if (typeof teamStore !== 'undefined' && (agent || agentType)) {
           registeredAgent = teamStore.registerAgent({
@@ -2690,19 +2691,37 @@ export async function createMemorixServer(
           currentAgentId = registeredAgent.agent_id;
 
           // Watermark: project-scoped count of new observations since last seen
-          // Uses projectId + writeGeneration filter (not global storage_generation diff)
+          // Uses computeWatermark (extracted to team/poll.ts for reuse by memorix_poll)
           // withFreshIndex ensures cross-process writes are visible before counting
+          const { computeWatermark } = await import('./team/poll.js');
           const lastSeen = registeredAgent.last_seen_obs_generation;
+          const store = getObservationStore();
+          const currentGen = store.getGeneration();
           const projectObs = await withFreshIndex(() => getAllObservations().filter(
             o => o.projectId === project.id && (o.writeGeneration ?? 0) > lastSeen,
           ));
-          if (projectObs.length > 0) {
-            watermarkInfo = `📊 ${projectObs.length} new observation(s) in this project since your last session.`;
+          const wm = computeWatermark(lastSeen, currentGen, projectObs.length);
+          if (wm.newObservationCount > 0) {
+            watermarkInfo = `📊 ${wm.newObservationCount} new observation(s) in this project since your last session.`;
           }
 
           // Update watermark to current global generation (high-water mark for next session)
-          const store = getObservationStore();
-          teamStore.updateWatermark(registeredAgent.agent_id, store.getGeneration());
+          teamStore.updateWatermark(registeredAgent.agent_id, currentGen);
+
+          // Phase 4b: Rescue detection — detect stale agents and surface rescued tasks
+          // detectAndMarkStale releases tasks from agents with stale heartbeats
+          const STALE_TTL_MS = 5 * 60 * 1000; // 5 minutes without heartbeat = stale
+          const rescuedAgentIds = teamStore.detectAndMarkStale(project.id, STALE_TTL_MS);
+          if (rescuedAgentIds.length > 0) {
+            rescueInfo = `🚑 ${rescuedAgentIds.length} stale agent(s) detected and rescued.`;
+          }
+
+          // Check for available tasks (including any just-rescued ones)
+          const availableTasks = teamStore.listTasks(project.id, { available: true });
+          if (availableTasks.length > 0) {
+            rescueInfo += rescueInfo ? '\n' : '';
+            rescueInfo += `📋 ${availableTasks.length} task(s) available to claim. Use memorix_poll for details.`;
+          }
         }
       } catch { /* team auto-registration is best-effort */ }
 
@@ -2713,6 +2732,7 @@ export async function createMemorixServer(
         registeredAgent ? `Agent ID: ${registeredAgent.agent_id} (instance: ${registeredAgent.instance_id})` : '',
         llmStatus,
         watermarkInfo,
+        rescueInfo,
         '',
         '💡 Tips: Use `memorix_resolve` to mark completed tasks. Use `progress` param in `memorix_store` for task tracking. Use `topicKey` to prevent duplicate memories.',
         '',
@@ -3082,6 +3102,13 @@ export async function createMemorixServer(
     teamStore = await initTeamStore(projectDir);
   }
 
+  // Phase 4b: Wire EventBus for same-process lifecycle notifications.
+  // EventBus is process-local only — NOT a cross-process mechanism.
+  if (!teamStore.getEventBus()) {
+    const { TeamEventBus } = await import('./team/event-bus.js');
+    teamStore.setEventBus(new TeamEventBus());
+  }
+
   // ── team_manage (join / leave / status) ─────────────────────────
   server.registerTool(
     'team_manage',
@@ -3324,6 +3351,171 @@ export async function createMemorixServer(
         return `${m.read_at ? ' ' : '*'} [${m.type}] from ${sender?.name ?? m.sender_agent_id.slice(0, 8)}: ${m.content.slice(0, 100)}`;
       });
       return { content: [{ type: 'text' as const, text: `Inbox: ${unread} unread / ${inbox.length} total\n\n${lines.join('\n')}` }] };
+    },
+  );
+
+  // ── memorix_poll (Phase 4b: situational awareness) ────────────────
+  server.registerTool(
+    'memorix_poll',
+    {
+      title: 'Team Poll — Situational Awareness',
+      description:
+        'Get a full snapshot of your team coordination state in one call. ' +
+        'Returns: your agent info, watermark (new observations since last session), ' +
+        'inbox (unread messages), tasks (your in-progress, available to claim, completed, failed), ' +
+        'and team roster (active agents). Use this to decide what to work on next.',
+      inputSchema: {
+        agentId: z.string().optional().describe('Your agent ID (from team_manage join or session_start). If omitted, returns project-level overview only.'),
+        markInboxRead: z.boolean().optional().describe('If true, mark all inbox messages as read after returning them.'),
+      },
+    },
+    async ({ agentId, markInboxRead }) => {
+      const { computeWatermark, computePoll } = await import('./team/poll.js');
+
+      // Compute watermark — requires observation store access
+      let watermark = computeWatermark(0, 0, 0);
+      if (agentId) {
+        const agent = teamStore.getAgent(agentId);
+        if (agent) {
+          const lastSeen = agent.last_seen_obs_generation;
+          const store = getObservationStore();
+          const currentGen = store.getGeneration();
+          const projectObs = await withFreshIndex(() => getAllObservations().filter(
+            o => o.projectId === project.id && (o.writeGeneration ?? 0) > lastSeen,
+          ));
+          watermark = computeWatermark(lastSeen, currentGen, projectObs.length);
+
+          // Advance watermark so next poll sees only truly new observations
+          teamStore.updateWatermark(agentId, currentGen);
+          // Heartbeat — proves this agent is alive
+          teamStore.heartbeat(agentId);
+        }
+      }
+
+      const poll = computePoll(teamStore, project.id, agentId ?? null, watermark);
+
+      // Optionally mark inbox as read
+      if (markInboxRead && agentId) {
+        teamStore.markAllRead(project.id, agentId);
+      }
+
+      // Format as readable text
+      const lines: string[] = [];
+
+      // Agent
+      if (poll.agent) {
+        lines.push(`🤖 You: ${poll.agent.agentId.slice(0, 8)}… (${poll.agent.status})`);
+      }
+
+      // Watermark
+      if (poll.watermark.newObservationCount > 0) {
+        lines.push(`📊 ${poll.watermark.newObservationCount} new observation(s) since your last session`);
+      }
+
+      // Inbox
+      if (poll.inbox.unreadCount > 0) {
+        lines.push(`📬 ${poll.inbox.unreadCount} unread message(s)`);
+        for (const m of poll.inbox.messages.slice(-5)) {
+          const sender = teamStore.getAgent(m.sender_agent_id);
+          lines.push(`  ${m.read_at ? ' ' : '*'} [${m.type}] from ${sender?.name ?? m.sender_agent_id.slice(0, 8)}: ${m.content.slice(0, 80)}`);
+        }
+      }
+
+      // Tasks
+      if (poll.tasks.myInProgress.length > 0) {
+        lines.push(`\n🔧 Your in-progress tasks (${poll.tasks.myInProgress.length}):`);
+        for (const t of poll.tasks.myInProgress) {
+          lines.push(`  [~] ${t.task_id.slice(0, 8)}… "${t.description}"`);
+        }
+      }
+      if (poll.tasks.availableToClaim.length > 0) {
+        lines.push(`\n📋 Available to claim (${poll.tasks.availableToClaim.length}):`);
+        for (const t of poll.tasks.availableToClaim) {
+          lines.push(`  [ ] ${t.task_id.slice(0, 8)}… "${t.description}"`);
+        }
+      }
+      if (poll.tasks.recentlyCompleted.length > 0) {
+        lines.push(`\n✅ Completed (${poll.tasks.recentlyCompleted.length}):`);
+        for (const t of poll.tasks.recentlyCompleted.slice(-5)) {
+          const who = t.assignee_agent_id ? teamStore.getAgent(t.assignee_agent_id)?.name ?? t.assignee_agent_id.slice(0, 8) : '?';
+          lines.push(`  [x] ${t.task_id.slice(0, 8)}… "${t.description}" — by ${who}`);
+        }
+      }
+      if (poll.tasks.recentlyFailed.length > 0) {
+        lines.push(`\n❌ Failed (${poll.tasks.recentlyFailed.length}):`);
+        for (const t of poll.tasks.recentlyFailed.slice(-3)) {
+          lines.push(`  [!] ${t.task_id.slice(0, 8)}… "${t.description}" — ${t.result?.slice(0, 80) ?? 'no reason'}`);
+        }
+      }
+
+      // Team
+      lines.push(`\n👥 Team: ${poll.team.activeAgents.length} active / ${poll.team.totalAgents} total`);
+      for (const a of poll.team.activeAgents) {
+        lines.push(`  ● ${a.name} (${a.agent_type}) — ${a.role ?? 'no role'}`);
+      }
+
+      if (lines.length === 0) {
+        lines.push('No team activity yet. Use team_manage action="join" to register, then team_task to create tasks.');
+      }
+
+      return { content: [{ type: 'text' as const, text: lines.join('\n') }] };
+    },
+  );
+
+  // ── memorix_handoff (Phase 4b: structured agent-to-agent context transfer) ──
+  server.registerTool(
+    'memorix_handoff',
+    {
+      title: 'Team Handoff — Agent Context Transfer',
+      description:
+        'Create a structured handoff artifact when passing work to another agent. ' +
+        'The handoff is stored as a durable observation (searchable, immune to archival) ' +
+        'and a notification message is sent to the recipient. ' +
+        'Use this when completing a task and another agent should continue, ' +
+        'or when you want to leave context for whoever works on this next.',
+      inputSchema: {
+        fromAgentId: z.string().describe('Your agent ID (from team_manage join or session_start)'),
+        summary: z.string().describe('Human-readable summary of what you did and what needs to happen next'),
+        context: z.string().describe('Detailed context for the next agent: what was done, current state, known issues, next steps'),
+        toAgentId: z.string().optional().describe('Specific recipient agent ID. Omit to broadcast to all.'),
+        taskId: z.string().optional().describe('Link to a specific team_task ID'),
+        filesModified: z.array(z.string()).optional().describe('Files you modified during this work'),
+        concepts: z.array(z.string()).optional().describe('Key concepts for search discoverability'),
+      },
+    },
+    async ({ fromAgentId, summary, context, toAgentId, taskId, filesModified, concepts }) => {
+      const { createHandoffArtifact } = await import('./team/handoff.js');
+
+      const result = await createHandoffArtifact(
+        {
+          projectId: project.id,
+          fromAgentId,
+          toAgentId,
+          taskId,
+          summary,
+          context,
+          filesModified: filesModified ? coerceStringArray(filesModified) : undefined,
+          concepts: concepts ? coerceStringArray(concepts) : undefined,
+        },
+        storeObservation,
+        teamStore,
+      );
+
+      const lines = [
+        `✅ Handoff created`,
+        `Observation: #${result.observationId}`,
+        `From: ${result.fromAgentId.slice(0, 8)}…`,
+        result.toAgentId ? `To: ${result.toAgentId.slice(0, 8)}…` : 'To: broadcast (any agent)',
+        result.taskId ? `Task: ${result.taskId.slice(0, 8)}…` : '',
+        `Summary: ${result.summary}`,
+        '',
+        'The handoff context is now stored as a durable observation (searchable via memorix_search).',
+        result.toAgentId
+          ? 'A notification message has been sent to the recipient.'
+          : 'A broadcast notification has been sent to all agents.',
+      ];
+
+      return { content: [{ type: 'text' as const, text: lines.filter(Boolean).join('\n') }] };
     },
   );
 

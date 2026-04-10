@@ -242,7 +242,6 @@ export async function hydrateIndex(observations: any[]): Promise<number> {
   let inserted = 0;
   for (const obs of observations) {
     if (!obs || !obs.id || !obs.projectId) continue;
-    if ((obs.status ?? 'active') !== 'active') continue;
     try {
       const doc: MemorixDocument = {
         id: makeOramaObservationId(obs.projectId, obs.id),

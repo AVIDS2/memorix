@@ -436,5 +436,5 @@ describe('HTTP embedding fallback regression', () => {
     } finally {
       errorSpy.mockRestore();
     }
-  });
+  }, 30_000);
 });

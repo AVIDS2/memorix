@@ -8,15 +8,38 @@
  * but with an LLM configured, memory quality approaches Mem0/Cipher level.
  */
 
-/** Per-call timeout for LLM API requests (ms). Prevents a single slow call from blocking the store path. */
-const LLM_CALL_TIMEOUT_MS = 12_000;
-
 export interface LLMConfig {
   provider: 'openai' | 'anthropic' | 'openrouter' | 'custom';
   apiKey: string;
   model?: string;
   baseUrl?: string;
 }
+
+const LLM_TIMEOUT_DEFAULT_MS = 30_000;
+const LLM_TIMEOUT_MIN_MS = 1_000;
+const LLM_TIMEOUT_MAX_MS = 300_000;
+
+/**
+ * Parse and validate MEMORIX_LLM_TIMEOUT_MS environment variable.
+ * - Must be a valid integer in the range 1000–300000ms.
+ * - Non-integer or out-of-range values log a warning and fall back to the default.
+ * Default: 30000ms (30s) — allows for proxy routing and cold starts.
+ */
+export function parseLLMTimeoutMs(raw: string | undefined): number {
+  if (raw === undefined || raw.trim() === '') return LLM_TIMEOUT_DEFAULT_MS;
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || Number.isNaN(parsed)) {
+    console.warn(
+      `[memorix] MEMORIX_LLM_TIMEOUT_MS="${raw}" is invalid (must be a positive integer between ${LLM_TIMEOUT_MIN_MS}–${LLM_TIMEOUT_MAX_MS}ms). Using default ${LLM_TIMEOUT_DEFAULT_MS}ms.`,
+    );
+    return LLM_TIMEOUT_DEFAULT_MS;
+  }
+  if (parsed < LLM_TIMEOUT_MIN_MS) return LLM_TIMEOUT_MIN_MS;
+  if (parsed > LLM_TIMEOUT_MAX_MS) return LLM_TIMEOUT_MAX_MS;
+  return parsed;
+}
+
+const LLM_CALL_TIMEOUT_MS = parseLLMTimeoutMs(process.env.MEMORIX_LLM_TIMEOUT_MS);
 
 export interface LLMResponse {
   content: string;

@@ -20,13 +20,13 @@ import { watchFile } from 'node:fs';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { KnowledgeGraphManager } from './memory/graph.js';
-import { initObservations, storeObservation, reindexObservations, migrateProjectIds, getObservation, getAllObservations } from './memory/observations.js';
+import { initObservations, storeObservation, prepareSearchIndex, migrateProjectIds, getObservation, getAllObservations } from './memory/observations.js';
 import { withFreshIndex } from './memory/freshness.js';
 import { initObservationStore, getObservationStore } from './store/obs-store.js';
+import { resetDb } from './store/orama-store.js';
 import { initMiniSkillStore } from './store/mini-skill-store.js';
 import { initSessionStore } from './store/session-store.js';
 import { checkProjectAttribution, auditProjectObservations } from './memory/attribution-guard.js';
-import { resetDb } from './store/orama-store.js';
 import { createAutoRelations } from './memory/auto-relations.js';
 import { extractEntities } from './memory/entity-extractor.js';
 import { compactSearch, compactTimeline, compactDetail } from './compact/engine.js';
@@ -277,9 +277,9 @@ export async function createMemorixServer(
     await graphManager.init();
     await initObservations(projectDir);
 
-    const reindexed = await reindexObservations();
-    if (reindexed > 0) {
-      console.error(`[memorix] Reindexed ${reindexed} observations for project: ${project.id}`);
+    const indexed = await prepareSearchIndex();
+    if (indexed > 0) {
+      console.error(`[memorix] Prepared search index for ${indexed} observations in project: ${project.id}`);
     }
 
     const llmConfig = initLLM();
@@ -3518,7 +3518,55 @@ export async function createMemorixServer(
       return { content: [{ type: 'text' as const, text: lines.filter(Boolean).join('\n') }] };
     },
   );
-
+  server.registerTool(
+    'memorix_ingest_image',
+    {
+      title: 'Ingest Image',
+      description:
+        'Analyze an image via Vision LLM and store the analysis as a memory observation. ' +
+        'Returns description, tags, and entities extracted from the image.',
+      inputSchema: {
+        base64: z.string().describe('Base64-encoded image data'),
+        mimeType: z.string().optional().describe('Image MIME type (e.g. image/png, image/jpeg)'),
+        filename: z.string().optional().describe('Original filename'),
+        prompt: z.string().optional().describe('Custom analysis prompt'),
+      },
+    },
+    async (args) => {
+      try {
+        const { analyzeImage } = await import('./multimodal/image-loader.js');
+        const analysis = await analyzeImage(args);
+        const entityName = args.filename?.replace(/\.[^.]+$/, '') ?? `image-${Date.now()}`;
+        markInternalWrite();
+        const { observation } = await storeObservation({
+          entityName,
+          type: 'discovery',
+          title: `Image analysis: ${entityName}`,
+          narrative: analysis.description,
+          concepts: analysis.tags,
+          facts: analysis.entities,
+          projectId: project.id,
+        });
+        return {
+          content: [{
+            type: 'text' as const,
+            text: `\uD83D\uDDBC\uFE0F Image analyzed\n` +
+              `Observation #${observation.id}\n` +
+              `Tags: ${analysis.tags.join(', ') || 'none'}\n` +
+              `Preview: ${analysis.description.slice(0, 300)}${analysis.description.length > 300 ? '\u2026' : ''}`,
+          }],
+        };
+      } catch (err: unknown) {
+        return {
+          content: [{
+            type: 'text' as const,
+            text: `\u274C Image ingestion failed: ${err instanceof Error ? err.message : String(err)}`,
+          }],
+          isError: true,
+        };
+      }
+    },
+  );
   // Deferred initialization — runs AFTER transport connect so MCP handshake isn't blocked.
   // Sync advisory scan and file watcher are non-essential for tool functionality.
   const deferredInit = async () => {
@@ -3753,9 +3801,9 @@ export async function createMemorixServer(
             await resetDb();
             await initObservationStore(projectDir);
             await initObservations(projectDir);
-            const count = await reindexObservations();
+            const count = await prepareSearchIndex();
             if (count > 0) {
-              console.error(`[memorix] Hot-reloaded ${count} observations (external write detected)`);
+              console.error(`[memorix] Hot-reloaded search index for ${count} observations (external write detected)`);
             }
           } catch { /* silent */ }
           reloading = false;

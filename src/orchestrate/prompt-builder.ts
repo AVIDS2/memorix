@@ -9,6 +9,7 @@
  */
 
 import type { TeamTaskRow } from '../team/team-store.js';
+import { isPlannerTask } from './planner.js';
 
 export interface HandoffContext {
   fromAgent: string;
@@ -64,6 +65,17 @@ export function buildAgentPrompt(input: PromptInput): string {
   }
 
   // 4. Memorix tool instructions
+  const plannerMeta = isPlannerTask(input.task.metadata);
+  const isAutonomous = !!plannerMeta;
+
+  const taskInstruction = isAutonomous
+    ? '5. You have FULL ACCESS to `team_task action="create"` for creating subtasks. Follow the instructions in your task description.'
+    : '5. Focus on completing the work. Do NOT call `team_task` — the orchestrator manages task state.';
+
+  const creationRule = isAutonomous
+    ? '8. Create tasks as instructed in your task description. Respect the task budget and include proper dependencies.'
+    : '8. Do NOT create new tasks unless the original task explicitly requires subtask decomposition.';
+
   sections.push([
     '## Instructions',
     '',
@@ -71,10 +83,10 @@ export function buildAgentPrompt(input: PromptInput): string {
     '2. Use the agentId returned by `memorix_session_start` as YOUR identity for any identity-bearing calls (e.g. `memorix_handoff` fromAgentId). Do NOT use the coordinator agent ID above — that belongs to the orchestrator, not to you.',
     '3. Call `memorix_poll` to check for any additional context or messages.',
     `4. Work on the task described above. The task is already claimed and managed by the orchestrator.`,
-    '5. Focus on completing the work. Do NOT call `team_task` — the orchestrator manages task state.',
+    taskInstruction,
     '6. If you want to leave context for the next agent, call `memorix_handoff` with a summary of what you did.',
     '7. Use `memorix_store` to save any important discoveries, decisions, or gotchas.',
-    '8. Do NOT create new tasks unless the original task explicitly requires subtask decomposition.',
+    creationRule,
   ].join('\n'));
 
   // 5. Completion criteria

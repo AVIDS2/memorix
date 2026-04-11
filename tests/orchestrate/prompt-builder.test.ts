@@ -125,6 +125,38 @@ describe('buildAgentPrompt', () => {
     expect(prompt).toContain('belongs to the orchestrator, not to you');
   });
 
+  it('should grant FULL ACCESS to team_task for planner tasks (Phase 5)', () => {
+    const prompt = buildAgentPrompt({
+      task: makeTask({
+        metadata: JSON.stringify({ plannerType: 'plan', pipelineId: 'pipe-1', goal: 'Build X', iteration: 0, maxIterations: 3, taskBudget: 15 }),
+      }),
+      handoffs: [],
+      agentId: 'agent-abc',
+      projectId: 'proj1',
+      projectDir: '/tmp/proj',
+    });
+
+    expect(prompt).toContain('FULL ACCESS');
+    expect(prompt).toContain('team_task action="create"');
+    expect(prompt).not.toContain('Do NOT call `team_task`');
+    expect(prompt).toContain('Respect the task budget');
+  });
+
+  it('should grant FULL ACCESS to team_task for review tasks (Phase 5)', () => {
+    const prompt = buildAgentPrompt({
+      task: makeTask({
+        metadata: JSON.stringify({ plannerType: 'review', pipelineId: 'pipe-1', goal: 'Build X', iteration: 1, maxIterations: 3, taskBudget: 10 }),
+      }),
+      handoffs: [],
+      agentId: 'agent-abc',
+      projectId: 'proj1',
+      projectDir: '/tmp/proj',
+    });
+
+    expect(prompt).toContain('FULL ACCESS');
+    expect(prompt).not.toContain('Do NOT call `team_task`');
+  });
+
   it('should NOT instruct agent to call team_task complete or fail (方案 A contract)', () => {
     const prompt = buildAgentPrompt({
       task: makeTask(),

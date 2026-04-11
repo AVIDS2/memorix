@@ -50,6 +50,21 @@ export default defineCommand({
       description: 'Poll interval in ms (default: 5000)',
       default: '5000',
     },
+    goal: {
+      type: 'string',
+      description: 'High-level goal for autonomous planning. Agents will decompose, execute, review, and iterate.',
+      required: false,
+    },
+    'max-iterations': {
+      type: 'string',
+      description: 'Max review→fix cycles for autonomous mode (default: 3)',
+      default: '3',
+    },
+    'task-budget': {
+      type: 'string',
+      description: 'Max total tasks for autonomous mode (default: 15)',
+      default: '15',
+    },
   },
   run: async ({ args }) => {
     const { detectProject } = await import('../../project/detector.js');
@@ -116,11 +131,43 @@ export default defineCommand({
       process.exit(1);
     }
 
+    // ── Autonomous mode: seed planning task from --goal ──────────
+    const goal = args.goal as string | undefined;
+    if (goal) {
+      const maxIterations = parseInt(args['max-iterations'] as string, 10);
+      const taskBudget = parseInt(args['task-budget'] as string, 10);
+
+      if (!Number.isFinite(maxIterations) || maxIterations < 1) {
+        console.error(`❌ --max-iterations must be a positive integer, got: ${args['max-iterations']}`);
+        process.exit(1);
+      }
+      if (!Number.isFinite(taskBudget) || taskBudget < 2) {
+        console.error(`❌ --task-budget must be >= 2, got: ${args['task-budget']}`);
+        process.exit(1);
+      }
+
+      if (dryRun) {
+        console.error(`\n🧠 Autonomous mode (DRY RUN): goal → "${goal}"`);
+        console.error(`📝 Would seed planning task (not written to task board)`);
+        console.error(`🔄 Max iterations: ${maxIterations}, Task budget: ${taskBudget}`);
+      } else {
+        const { seedAutonomousPipeline } = await import('../../orchestrate/planner.js');
+        const { planningTaskId, pipelineId } = seedAutonomousPipeline(teamStore, proj.id, {
+          goal,
+          maxIterations,
+          taskBudget,
+        });
+        console.error(`\n🧠 Autonomous mode: goal → "${goal}"`);
+        console.error(`📝 Planning task seeded: ${planningTaskId.slice(0, 8)}… (pipeline ${pipelineId.slice(0, 8)}…)`);
+        console.error(`🔄 Max iterations: ${maxIterations}, Task budget: ${taskBudget}`);
+      }
+    }
+
     // Check if there are tasks to work on
     const tasks = teamStore.listTasks(proj.id);
     const pendingTasks = tasks.filter(t => t.status === 'pending');
     if (tasks.length === 0) {
-      console.error('📋 No tasks found. Create tasks first with `team_task create`.');
+      console.error('📋 No tasks found. Use --goal or create tasks with `team_task create`.');
       process.exit(0);
     }
 

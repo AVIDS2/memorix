@@ -3247,16 +3247,31 @@ export async function createMemorixServer(
         result: z.string().optional().describe('Result summary (for complete)'),
         status: z.enum(['pending', 'in_progress', 'completed', 'failed']).optional().describe('Filter by status (for list)'),
         available: z.boolean().optional().describe('Show only claimable tasks (for list)'),
+        metadata: z.string().optional().describe('JSON metadata for the task (for create). Used by planner/review tasks for autonomous mode.'),
       },
     },
-    async ({ action, description: desc, deps, taskId, agentId, result, status, available }) => {
+    async ({ action, description: desc, deps, taskId, agentId, result, status, available, metadata }) => {
       try {
         if (action === 'create') {
           if (!desc) return { content: [{ type: 'text' as const, text: '❌ description is required for create' }], isError: true };
+          let parsedMeta: Record<string, unknown> | undefined;
+          if (metadata) {
+            try { parsedMeta = JSON.parse(metadata); } catch { /* ignore invalid JSON */ }
+          }
+
+          // Phase 5: enforce autonomous-pipeline hard guards
+          const { checkPipelineGuards } = await import('./orchestrate/planner.js');
+          const existingTasks = teamStore.listTasks(project.id);
+          const guard = checkPipelineGuards({ existingTasks, newTaskMeta: parsedMeta });
+          if (!guard.allowed) {
+            return { content: [{ type: 'text' as const, text: `❌ ${guard.reason}` }], isError: true };
+          }
+
           const task = teamStore.createTask({
             projectId: project.id,
             description: desc,
             deps: deps ? coerceStringArray(deps) : undefined,
+            metadata: parsedMeta,
             createdBy: agentId || undefined,
           });
           const taskDeps = teamStore.getTaskDeps(task.task_id);

@@ -44,6 +44,9 @@ test-*.mjs
 run-*.mjs
 e2e-*.mts
 e2e-*.mjs
+e2e-test/
+scripts/e2e-*.ts
+scripts/tsconfig.json
 
 # Reference / cloned repos
 temple/

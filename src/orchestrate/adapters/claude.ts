@@ -22,6 +22,7 @@ export class ClaudeAdapter implements AgentAdapter {
 
   spawn(prompt: string, opts: SpawnOptions): AgentProcess {
     // Use stdin to avoid shell escaping issues with long prompts
-    return spawnAgent('claude', ['-p', '-', '--output-format', 'json'], opts, prompt);
+    // --permission-mode bypassPermissions: auto-approve all tools (including MCP) in orchestrated headless mode
+    return spawnAgent('claude', ['-p', '-', '--output-format', 'json', '--permission-mode', 'bypassPermissions'], opts, prompt);
   }
 }

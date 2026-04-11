@@ -28,10 +28,20 @@ export function spawnAgent(
     shell: process.platform === 'win32',
   });
 
-  // Write prompt via stdin to avoid shell argument escaping issues
+  // Write prompt via stdin to avoid shell argument escaping issues.
+  // Must handle EPIPE / early-close — if the child exits before we finish
+  // writing (bad args, crash, etc.), write() would emit an unhandled error
+  // that kills the orchestrator process.
+  let stdinError: string | undefined;
   if (stdinData && child.stdin) {
-    child.stdin.write(stdinData);
-    child.stdin.end();
+    child.stdin.on('error', (err: NodeJS.ErrnoException) => {
+      // Swallow EPIPE and other write errors — they are expected when
+      // the child process closes stdin early. Record for diagnostics.
+      stdinError = `stdin write error: ${err.code ?? err.message}`;
+    });
+    child.stdin.write(stdinData, () => {
+      try { child.stdin!.end(); } catch { /* already destroyed */ }
+    });
   }
 
   const ring = new RingBuffer(opts.tailLines ?? DEFAULT_TAIL_LINES);
@@ -53,19 +63,21 @@ export function spawnAgent(
   const completion = new Promise<AgentProcessResult>((resolve) => {
     child.on('exit', (code, signal) => {
       if (timer) clearTimeout(timer);
+      const tail = stdinError ? `${stdinError}\n${ring.toString()}` : ring.toString();
       resolve({
         exitCode: code,
         signal: signal ?? null,
-        tailOutput: ring.toString(),
+        tailOutput: tail,
         killed,
       });
     });
     child.on('error', (err) => {
       if (timer) clearTimeout(timer);
+      const tail = stdinError ? `${stdinError}\n` : '';
       resolve({
         exitCode: null,
         signal: null,
-        tailOutput: `spawn error: ${err.message}\n${ring.toString()}`,
+        tailOutput: `${tail}spawn error: ${err.message}\n${ring.toString()}`,
         killed: false,
       });
     });

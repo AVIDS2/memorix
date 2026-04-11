@@ -21,7 +21,7 @@ async function main() {
   // Create a trivial task
   const task = store.createTask({
     projectId: proj.id,
-    description: 'Create a file called e2e-test-output.txt in the project root containing "Hello from autonomous agent". Then mark this task as complete using team_task with action "complete".',
+    description: 'Create a file called e2e-test-output.txt in the project root containing "Hello from autonomous agent". Exit when done (the orchestrator manages task state).',
   });
 
   console.log(`✅ Task created: ${task.task_id}`);

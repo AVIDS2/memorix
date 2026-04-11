@@ -22,6 +22,8 @@ export class CodexAdapter implements AgentAdapter {
 
   spawn(prompt: string, opts: SpawnOptions): AgentProcess {
     // Use stdin ('-') to avoid shell escaping issues with long prompts
-    return spawnAgent('codex', ['exec', '-'], opts, prompt);
+    // --dangerously-bypass-approvals-and-sandbox: auto-approve + full write access for orchestrated headless mode
+    // (--full-auto forces read-only sandbox which blocks file creation)
+    return spawnAgent('codex', ['exec', '--dangerously-bypass-approvals-and-sandbox', '-'], opts, prompt);
   }
 }

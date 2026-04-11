@@ -98,6 +98,24 @@ export default defineCommand({
     const pollIntervalMs = parseInt(args.poll as string, 10);
     const dryRun = args['dry-run'] as boolean;
 
+    // Validate numeric CLI args — fail fast with clear messages
+    if (!Number.isFinite(parallel) || parallel < 1) {
+      console.error(`❌ --parallel must be a positive integer, got: ${args.parallel}`);
+      process.exit(1);
+    }
+    if (!Number.isFinite(taskTimeoutMs) || taskTimeoutMs <= 0) {
+      console.error(`❌ --timeout must be a positive integer (ms), got: ${args.timeout}`);
+      process.exit(1);
+    }
+    if (!Number.isFinite(pollIntervalMs) || pollIntervalMs < 0) {
+      console.error(`❌ --poll must be a non-negative integer (ms), got: ${args.poll}`);
+      process.exit(1);
+    }
+    if (!Number.isFinite(maxRetries) || maxRetries < 0) {
+      console.error(`❌ --max-retries must be a non-negative integer, got: ${args['max-retries']}`);
+      process.exit(1);
+    }
+
     // Check if there are tasks to work on
     const tasks = teamStore.listTasks(proj.id);
     const pendingTasks = tasks.filter(t => t.status === 'pending');

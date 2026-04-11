@@ -1,7 +1,8 @@
 /**
  * Gemini CLI adapter.
  *
- * Invocation: gemini "<prompt>"
+ * Invocation: echo "<prompt>" | gemini -p ""
+ * Gemini's -p flag enables headless mode and is "appended to input on stdin (if any)".
  */
 
 import { execSync } from 'node:child_process';
@@ -21,6 +22,9 @@ export class GeminiAdapter implements AgentAdapter {
   }
 
   spawn(prompt: string, opts: SpawnOptions): AgentProcess {
-    return spawnAgent('gemini', [prompt], opts);
+    // Use stdin to avoid shell escaping issues with long prompts
+    // -p "." activates headless mode (requires non-empty value); actual prompt piped via stdin
+    // --yolo auto-approves actions (orchestrated agent should not block on confirmations)
+    return spawnAgent('gemini', ['-p', '.', '--yolo'], opts, prompt);
   }
 }

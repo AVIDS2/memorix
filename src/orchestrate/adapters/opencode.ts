@@ -1,7 +1,9 @@
 /**
  * OpenCode CLI adapter.
  *
- * Invocation: opencode -p "<prompt>"
+ * Invocation: echo "<prompt>" | opencode -p "."
+ * OpenCode's -p flag enables non-interactive mode; prompt piped via stdin
+ * to avoid shell escaping and Windows command line length limits.
  */
 
 import { execSync } from 'node:child_process';
@@ -21,6 +23,7 @@ export class OpenCodeAdapter implements AgentAdapter {
   }
 
   spawn(prompt: string, opts: SpawnOptions): AgentProcess {
-    return spawnAgent('opencode', ['-p', prompt], opts);
+    // Pipe prompt via stdin; -p "." triggers non-interactive mode with minimal arg
+    return spawnAgent('opencode', ['-p', '.'], opts, prompt);
   }
 }

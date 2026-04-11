@@ -87,6 +87,23 @@ export async function runCoordinationLoop(config: CoordinatorConfig): Promise<Co
     resolveHandoffs,
   } = config;
 
+  // ── Defensive validation (guards npm import path too) ──────────
+  if (!adapters || adapters.length === 0) {
+    throw new Error('coordinator: adapters must be a non-empty array');
+  }
+  if (!Number.isFinite(parallel) || parallel < 1) {
+    throw new Error(`coordinator: parallel must be >= 1, got ${parallel}`);
+  }
+  if (!Number.isFinite(pollIntervalMs) || pollIntervalMs < 0) {
+    throw new Error(`coordinator: pollIntervalMs must be >= 0, got ${pollIntervalMs}`);
+  }
+  if (!Number.isFinite(taskTimeoutMs) || taskTimeoutMs <= 0) {
+    throw new Error(`coordinator: taskTimeoutMs must be > 0, got ${taskTimeoutMs}`);
+  }
+  if (!Number.isFinite(maxRetries) || maxRetries < 0) {
+    throw new Error(`coordinator: maxRetries must be >= 0, got ${maxRetries}`);
+  }
+
   const startTime = Date.now();
   let retryCount = 0;
   let aborted = false;
@@ -213,8 +230,11 @@ export async function runCoordinationLoop(config: CoordinatorConfig): Promise<Co
         const claim = teamStore.claimTask(task.task_id, orchAgentId);
         if (!claim.success) continue; // another process claimed it
 
-        // Build prompt with handoff context
-        const handoffs = resolveHandoffs ? await resolveHandoffs(task.task_id) : [];
+        // Build prompt with handoff context (best-effort — failure falls back to empty)
+        let handoffs: HandoffContext[] = [];
+        if (resolveHandoffs) {
+          try { handoffs = await resolveHandoffs(task.task_id); } catch { /* handoff is enhancement, not critical */ }
+        }
         const prompt = buildAgentPrompt({
           task,
           handoffs,
@@ -290,10 +310,11 @@ export async function runCoordinationLoop(config: CoordinatorConfig): Promise<Co
             const attempts = taskAttempts.get(dispatch.taskId) ?? 1;
             if (attempts <= maxRetries) {
               // Reset to pending for retry via direct DB update
+              // Clear result to avoid stale data from previous attempt leaking
               const taskRow = teamStore.getTask(dispatch.taskId);
               if (taskRow && taskRow.status === 'failed') {
                 teamStore.getDb().prepare(
-                  'UPDATE team_tasks SET status = ?, assignee_agent_id = NULL, updated_at = ? WHERE task_id = ?',
+                  'UPDATE team_tasks SET status = ?, assignee_agent_id = NULL, result = NULL, updated_at = ? WHERE task_id = ?',
                 ).run('pending', Date.now(), dispatch.taskId);
               }
               retryCount++;

@@ -381,6 +381,105 @@ describe('Coordinator', () => {
   });
 
   // ═══════════════════════════════════════════════════════════════
+  // Fix 2: Coordinator config validation (PR #76 round 3)
+  // ═══════════════════════════════════════════════════════════════
+
+  it('should throw on empty adapters array', async () => {
+    store.createTask({ projectId: 'proj1', description: 'Task' });
+    await expect(runCoordinationLoop({
+      projectDir: tmpDir,
+      projectId: 'proj1',
+      adapters: [],
+      teamStore: store,
+    })).rejects.toThrow('adapters must be a non-empty array');
+  });
+
+  it('should throw on invalid numeric config values', async () => {
+    store.createTask({ projectId: 'proj1', description: 'Task' });
+    const base = {
+      projectDir: tmpDir,
+      projectId: 'proj1',
+      adapters: [createMockAdapter({})],
+      teamStore: store,
+    };
+
+    await expect(runCoordinationLoop({ ...base, parallel: 0 }))
+      .rejects.toThrow('parallel must be >= 1');
+    await expect(runCoordinationLoop({ ...base, parallel: NaN }))
+      .rejects.toThrow('parallel must be >= 1');
+    await expect(runCoordinationLoop({ ...base, taskTimeoutMs: -1 }))
+      .rejects.toThrow('taskTimeoutMs must be > 0');
+    await expect(runCoordinationLoop({ ...base, taskTimeoutMs: 0 }))
+      .rejects.toThrow('taskTimeoutMs must be > 0');
+    await expect(runCoordinationLoop({ ...base, maxRetries: -1 }))
+      .rejects.toThrow('maxRetries must be >= 0');
+    await expect(runCoordinationLoop({ ...base, pollIntervalMs: -5 }))
+      .rejects.toThrow('pollIntervalMs must be >= 0');
+  });
+
+  // ═══════════════════════════════════════════════════════════════
+  // Fix 4a: retry reset clears stale result (PR #76 round 3)
+  // ═══════════════════════════════════════════════════════════════
+
+  it('should clear stale result on retry reset', async () => {
+    let callCount = 0;
+    // First call fails, second call succeeds
+    const flakyAdapter: AgentAdapter = {
+      name: 'flaky',
+      async available() { return true; },
+      spawn(_prompt: string, _opts: SpawnOptions): AgentProcess {
+        callCount++;
+        const exitCode = callCount === 1 ? 1 : 0;
+        const completion = new Promise<AgentProcessResult>(r =>
+          setTimeout(() => r({ exitCode, signal: null, tailOutput: `attempt ${callCount}`, killed: false }), 10),
+        );
+        return { pid: 99999, completion, abort() {} };
+      },
+    };
+
+    const task = store.createTask({ projectId: 'proj1', description: 'Flaky task' });
+
+    await runCoordinationLoop({
+      projectDir: tmpDir,
+      projectId: 'proj1',
+      adapters: [flakyAdapter],
+      teamStore: store,
+      maxRetries: 1,
+      pollIntervalMs: 50,
+      taskTimeoutMs: 5_000,
+    });
+
+    // After retry+success, result should reflect the second attempt, not the first failure
+    const finalTask = store.getTask(task.task_id);
+    expect(finalTask?.status).toBe('completed');
+    // The result should NOT contain the first failure's error message
+    expect(finalTask?.result).not.toContain('Exit code 1');
+  });
+
+  // ═══════════════════════════════════════════════════════════════
+  // Fix 4b: resolveHandoffs failure fallback (PR #76 round 3)
+  // ═══════════════════════════════════════════════════════════════
+
+  it('should not crash when resolveHandoffs throws', async () => {
+    store.createTask({ projectId: 'proj1', description: 'Task A' });
+
+    const result = await runCoordinationLoop({
+      projectDir: tmpDir,
+      projectId: 'proj1',
+      adapters: [createMockAdapter({})],
+      teamStore: store,
+      maxRetries: 0,
+      pollIntervalMs: 50,
+      taskTimeoutMs: 5_000,
+      resolveHandoffs: async () => { throw new Error('handoff DB exploded'); },
+    });
+
+    // Should still complete successfully — handoff is enhancement, not critical
+    expect(result.completed).toBe(1);
+    expect(result.failed).toBe(0);
+  });
+
+  // ═══════════════════════════════════════════════════════════════
   // Blocker 3: Stranded pending tasks with failed deps
   // ═══════════════════════════════════════════════════════════════
 

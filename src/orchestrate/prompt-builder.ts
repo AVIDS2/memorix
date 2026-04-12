@@ -13,8 +13,14 @@ import { isPlannerTask } from './planner.js';
 
 export interface HandoffContext {
   fromAgent: string;
+  fromTaskId?: string;
+  fromRole?: string;
   summary: string;
   context: string;
+  outputFiles?: string[];
+  keyDecisions?: string[];
+  openQuestions?: string[];
+  /** @deprecated Use outputFiles instead */
   filesModified?: string[];
 }
 
@@ -24,6 +30,12 @@ export interface PromptInput {
   agentId: string;
   projectId: string;
   projectDir: string;
+  /** Phase 6d: Ledger context for pipeline progress */
+  ledgerContext?: string;
+  /** Phase 6d: Task position in pipeline (0-indexed) */
+  taskIndex?: number;
+  /** Phase 6d: Total tasks in pipeline */
+  totalTasks?: number;
 }
 
 export function buildAgentPrompt(input: PromptInput): string {
@@ -45,14 +57,25 @@ export function buildAgentPrompt(input: PromptInput): string {
     input.task.metadata ? `Metadata: ${input.task.metadata}` : '',
   ].filter(Boolean).join('\n'));
 
-  // 3. Handoff context from previous agents
+  // 3. Ledger context (Phase 6d — pipeline progress)
+  if (input.ledgerContext) {
+    sections.push(input.ledgerContext);
+  }
+
+  // 4. Handoff context from previous agents
   if (input.handoffs.length > 0) {
-    const handoffLines = input.handoffs.map((h, i) => [
-      `### Handoff ${i + 1} (from ${h.fromAgent})`,
-      `Summary: ${h.summary}`,
-      `Context: ${h.context}`,
-      h.filesModified?.length ? `Files modified: ${h.filesModified.join(', ')}` : '',
-    ].filter(Boolean).join('\n'));
+    const handoffLines = input.handoffs.map((h, i) => {
+      const lines = [
+        `### Handoff ${i + 1} (from ${h.fromAgent}${h.fromRole ? ` [${h.fromRole}]` : ''})`,
+        `Summary: ${h.summary}`,
+        `Context: ${h.context}`,
+      ];
+      const files = h.outputFiles ?? h.filesModified;
+      if (files?.length) lines.push(`Files: ${files.join(', ')}`);
+      if (h.keyDecisions?.length) lines.push(`Key decisions: ${h.keyDecisions.join('; ')}`);
+      if (h.openQuestions?.length) lines.push(`Open questions: ${h.openQuestions.join('; ')}`);
+      return lines.filter(Boolean).join('\n');
+    });
 
     sections.push([
       '## Context from Previous Agents',

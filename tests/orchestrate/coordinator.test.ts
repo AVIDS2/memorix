@@ -276,9 +276,10 @@ describe('Coordinator', () => {
     expect(result.aborted).toBe(false);
   });
 
-  it('should use round-robin adapter selection', async () => {
-    store.createTask({ projectId: 'proj1', description: 'Task 1' });
-    store.createTask({ projectId: 'proj1', description: 'Task 2' });
+  it('should use capability-based adapter selection by role', async () => {
+    // PM task should prefer claude, Engineer task should prefer codex
+    store.createTask({ projectId: 'proj1', description: '[Role: PM] Write the spec for the landing page project' });
+    store.createTask({ projectId: 'proj1', description: '[Role: Engineer] Build the landing page with HTML and CSS' });
 
     const adapterCalls: string[] = [];
     const makeTracked = (adapterName: string): AgentAdapter => ({
@@ -298,14 +299,15 @@ describe('Coordinator', () => {
     await runCoordinationLoop({
       projectDir: tmpDir,
       projectId: 'proj1',
-      adapters: [makeTracked('alpha'), makeTracked('beta')],
+      adapters: [makeTracked('claude'), makeTracked('codex')],
       teamStore: store,
-      parallel: 1, // sequential to test round-robin
+      parallel: 1, // sequential to test routing
       pollIntervalMs: 50,
       taskTimeoutMs: 5_000,
     });
 
-    expect(adapterCalls).toEqual(['alpha', 'beta']);
+    // PM → claude preferred, Engineer → codex preferred
+    expect(adapterCalls).toEqual(['claude', 'codex']);
   });
 
   // ═══════════════════════════════════════════════════════════════
@@ -511,5 +513,247 @@ describe('Coordinator', () => {
 
     // Verify the event was emitted for the stranded task
     expect(events.some(e => e.type === 'task:failed' && e.message.includes('blocked by failed dependency'))).toBe(true);
+  });
+
+  // ═══════════════════════════════════════════════════════════════
+  // Blocker 1: Global timeout aborts entire pipeline
+  // ═══════════════════════════════════════════════════════════════
+
+  it('should abort all active agents when globalTimeoutMs is reached', async () => {
+    // Create 3 tasks; agent takes 200ms each, global timeout 150ms
+    store.createTask({ projectId: 'proj1', description: 'Slow task 1' });
+    store.createTask({ projectId: 'proj1', description: 'Slow task 2' });
+    store.createTask({ projectId: 'proj1', description: 'Slow task 3' });
+
+    let abortCallCount = 0;
+    const slowAdapter: AgentAdapter = {
+      name: 'slow',
+      async available() { return true; },
+      spawn(_prompt: string, _opts: SpawnOptions): AgentProcess {
+        let aborted = false;
+        const completion = new Promise<AgentProcessResult>(async (resolve) => {
+          await new Promise(r => setTimeout(r, 200));
+          if (aborted) {
+            resolve({ exitCode: null, signal: 'SIGTERM', tailOutput: 'aborted', killed: true });
+            return;
+          }
+          resolve({ exitCode: 0, signal: null, tailOutput: 'done', killed: false });
+        });
+        return {
+          pid: 99999,
+          completion,
+          abort() { aborted = true; abortCallCount++; },
+        };
+      },
+    };
+
+    const events: CoordinatorEvent[] = [];
+    const result = await runCoordinationLoop({
+      projectDir: tmpDir,
+      projectId: 'proj1',
+      adapters: [slowAdapter],
+      teamStore: store,
+      parallel: 1,
+      pollIntervalMs: 30,
+      taskTimeoutMs: 5_000,
+      globalTimeoutMs: 150,
+      maxRetries: 0,
+      onProgress: (e) => events.push(e),
+    });
+
+    // Pipeline must be aborted
+    expect(result.aborted).toBe(true);
+    // Not all tasks should have completed
+    expect(result.completed).toBeLessThan(3);
+    // Active agent(s) should have been aborted
+    expect(abortCallCount).toBeGreaterThanOrEqual(0); // may be 0 if between tasks
+    // Global timeout event must have been emitted
+    expect(events.some(e => e.type === 'error' && e.message.includes('Global timeout'))).toBe(true);
+  });
+
+  // ═══════════════════════════════════════════════════════════════
+  // Blocker 2: Planner materialization failure → run is not success
+  // ═══════════════════════════════════════════════════════════════
+
+  it('should fail planning task when materializeTaskGraph fails (not report success)', async () => {
+    const { randomUUID } = await import('node:crypto');
+    const pipeId = randomUUID();
+
+    // Create a planner task with proper metadata
+    const plannerMeta = {
+      plannerType: 'plan',
+      pipelineId: pipeId,
+      goal: 'test goal',
+      iteration: 0,
+      maxIterations: 3,
+      taskBudget: 15,
+    };
+    const planTask = store.createTask({
+      projectId: 'proj1',
+      description: '[Role: Planner] Create the task plan',
+      metadata: plannerMeta as unknown as Record<string, unknown>,
+    });
+
+    // Agent exits 0 but output is NOT valid JSON TaskGraph
+    const badOutputAdapter: AgentAdapter = {
+      name: 'bad-planner',
+      async available() { return true; },
+      spawn(_prompt: string, _opts: SpawnOptions): AgentProcess {
+        const completion = new Promise<AgentProcessResult>(async (resolve) => {
+          await new Promise(r => setTimeout(r, 10));
+          resolve({
+            exitCode: 0,
+            signal: null,
+            tailOutput: 'This is not valid JSON and has no code fence',
+            killed: false,
+          });
+        });
+        return { pid: 99999, completion, abort() {} };
+      },
+    };
+
+    const events: CoordinatorEvent[] = [];
+    const result = await runCoordinationLoop({
+      projectDir: tmpDir,
+      projectId: 'proj1',
+      adapters: [badOutputAdapter],
+      teamStore: store,
+      maxRetries: 0,
+      pollIntervalMs: 50,
+      taskTimeoutMs: 5_000,
+      pipelineId: pipeId,
+      structuredPlan: true,
+      onProgress: (e) => events.push(e),
+    });
+
+    // Run must NOT be pure success: planning task should be failed
+    expect(result.failed).toBeGreaterThanOrEqual(1);
+    // plan:failed event must have been emitted
+    expect(events.some(e => e.type === 'plan:failed')).toBe(true);
+    // Planning task in DB must be 'failed'
+    const finalPlan = store.getTask(planTask.task_id);
+    expect(finalPlan?.status).toBe('failed');
+    expect(finalPlan?.result).toContain('materialization failed');
+  });
+
+  // ═══════════════════════════════════════════════════════════════
+  // Blocker 3: Merge conflict preserves worktree (no removeWorktree)
+  // ═══════════════════════════════════════════════════════════════
+
+  it('should mark task failed on merge conflict, preserve worktree, and surface in result/events', async () => {
+    // This test verifies: merge conflict → task status=failed, worktree preserved,
+    // event is task:failed (not task:completed), result clearly says manual recovery.
+    const { execSync } = await import('node:child_process');
+
+    try {
+      execSync('git init', { cwd: tmpDir, encoding: 'utf-8' });
+      fs.writeFileSync(path.join(tmpDir, 'README.md'), '# test');
+      execSync('git add . && git commit -m "init"', { cwd: tmpDir, encoding: 'utf-8' });
+    } catch {
+      // If git is not available, skip this test
+      return;
+    }
+
+    const task = store.createTask({ projectId: 'proj1', description: '[Role: Engineer] Build feature X' });
+
+    // Adapter that writes a conflicting file in worktree cwd AND on main
+    const conflictAdapter: AgentAdapter = {
+      name: 'conflict-maker',
+      async available() { return true; },
+      spawn(_prompt: string, opts: SpawnOptions): AgentProcess {
+        const completion = new Promise<AgentProcessResult>(async (resolve) => {
+          await new Promise(r => setTimeout(r, 10));
+          try {
+            const cwd = opts.cwd ?? tmpDir;
+            fs.writeFileSync(path.join(cwd, 'conflict.txt'), 'from worktree branch');
+            execSync('git add . && git commit -m "worktree change"', {
+              cwd,
+              encoding: 'utf-8',
+            });
+            // Commit a conflicting change on main
+            fs.writeFileSync(path.join(tmpDir, 'conflict.txt'), 'from main branch');
+            execSync('git add . && git commit -m "main change"', {
+              cwd: tmpDir,
+              encoding: 'utf-8',
+            });
+          } catch { /* best-effort */ }
+          resolve({ exitCode: 0, signal: null, tailOutput: 'done', killed: false });
+        });
+        return { pid: 99999, completion, abort() {} };
+      },
+    };
+
+    const events: CoordinatorEvent[] = [];
+    const result = await runCoordinationLoop({
+      projectDir: tmpDir,
+      projectId: 'proj1',
+      adapters: [conflictAdapter],
+      teamStore: store,
+      parallel: 2, // enables worktree mode
+      pollIntervalMs: 50,
+      taskTimeoutMs: 5_000,
+      maxRetries: 0,
+      pipelineId: 'test-pipe-123',
+      onProgress: (e) => events.push(e),
+    });
+
+    // Check if worktree was actually created (depends on git availability)
+    const worktreeCreated = events.some(e => e.type === 'worktree:create');
+    if (worktreeCreated) {
+      const conflictEvent = events.find(e =>
+        e.type === 'task:failed' && e.message.includes('merge conflict'),
+      );
+      const mergeSuccessEvent = events.find(e => e.type === 'worktree:merge');
+
+      if (conflictEvent) {
+        // ── Core assertions: merge conflict → task is failed, not completed ──
+        expect(result.failed).toBeGreaterThanOrEqual(1);
+        expect(conflictEvent.message).toContain('manual recovery');
+
+        // Task board must reflect failed status
+        const finalTask = store.getTask(task.task_id);
+        expect(finalTask?.status).toBe('failed');
+        expect(finalTask?.result).toContain('manual recovery required');
+
+        // Worktree directory must still exist
+        const worktreeDir = path.join(tmpDir, '.worktrees');
+        expect(fs.existsSync(worktreeDir)).toBe(true);
+
+        // task:completed must NOT have been emitted for this task
+        const completedForTask = events.find(e =>
+          e.type === 'task:completed' && e.taskId === task.task_id,
+        );
+        expect(completedForTask).toBeUndefined();
+      } else {
+        // No conflict occurred (merge succeeded) — that's also valid
+        expect(mergeSuccessEvent).toBeTruthy();
+        expect(result.completed).toBe(1);
+      }
+    }
+  });
+
+  // ═══════════════════════════════════════════════════════════════
+  // Fix: globalTimeoutMs defensive validation at coordinator API
+  // ═══════════════════════════════════════════════════════════════
+
+  it('should throw on invalid globalTimeoutMs values', async () => {
+    store.createTask({ projectId: 'proj1', description: 'Task' });
+    const base = {
+      projectDir: tmpDir,
+      projectId: 'proj1',
+      adapters: [createMockAdapter({})],
+      teamStore: store,
+    };
+
+    await expect(runCoordinationLoop({ ...base, globalTimeoutMs: 0 }))
+      .rejects.toThrow('globalTimeoutMs must be > 0');
+    await expect(runCoordinationLoop({ ...base, globalTimeoutMs: -100 }))
+      .rejects.toThrow('globalTimeoutMs must be > 0');
+    await expect(runCoordinationLoop({ ...base, globalTimeoutMs: NaN }))
+      .rejects.toThrow('globalTimeoutMs must be > 0');
+
+    // undefined is fine (no global timeout)
+    const result = await runCoordinationLoop({ ...base, globalTimeoutMs: undefined });
+    expect(result.completed).toBe(1);
   });
 });

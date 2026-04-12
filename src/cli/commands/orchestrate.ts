@@ -1,8 +1,9 @@
 /**
  * memorix orchestrate — Autonomous multi-agent coordination.
  *
- * Phase 4c: Runs a coordination loop that dispatches agents to tasks,
- * monitors progress, handles failures, and exits when all work is done.
+ * Phase 6k: Runs a production-grade coordination loop with structured
+ * planning, shared ledger, capability routing, pipeline tracing, and
+ * optional Git worktree parallel isolation.
  *
  * Drive model: SQLite poll (rule D1). NOT EventBus.
  */
@@ -50,6 +51,11 @@ export default defineCommand({
       description: 'Poll interval in ms (default: 5000)',
       default: '5000',
     },
+    'stale-ttl': {
+      type: 'string',
+      description: 'Stale agent TTL in ms (default: 600000 = 10 min)',
+      default: '600000',
+    },
     goal: {
       type: 'string',
       description: 'High-level goal for autonomous planning. Agents will decompose, execute, review, and iterate.',
@@ -64,6 +70,26 @@ export default defineCommand({
       type: 'string',
       description: 'Max total tasks for autonomous mode (default: 15)',
       default: '15',
+    },
+    routing: {
+      type: 'string',
+      description: 'Capability routing overrides: "pm=claude,engineer=codex"',
+      required: false,
+    },
+    'no-structured-plan': {
+      type: 'boolean',
+      description: 'Disable structured JSON planning, use P5 legacy mode',
+      default: false,
+    },
+    purge: {
+      type: 'boolean',
+      description: 'Clear all tasks before starting (clean slate)',
+      default: false,
+    },
+    'global-timeout': {
+      type: 'string',
+      description: 'Overall pipeline timeout in ms (default: no limit)',
+      required: false,
     },
   },
   run: async ({ args }) => {
@@ -111,7 +137,10 @@ export default defineCommand({
     const taskTimeoutMs = parseInt(args.timeout as string, 10);
     const parallel = parseInt(args.parallel as string, 10);
     const pollIntervalMs = parseInt(args.poll as string, 10);
+    const staleTtlMs = parseInt(args['stale-ttl'] as string, 10);
     const dryRun = args['dry-run'] as boolean;
+    const globalTimeoutRaw = args['global-timeout'] as string | undefined;
+    const globalTimeoutMs = globalTimeoutRaw ? parseInt(globalTimeoutRaw, 10) : undefined;
 
     // Validate numeric CLI args — fail fast with clear messages
     if (!Number.isFinite(parallel) || parallel < 1) {
@@ -130,9 +159,39 @@ export default defineCommand({
       console.error(`❌ --max-retries must be a non-negative integer, got: ${args['max-retries']}`);
       process.exit(1);
     }
+    if (globalTimeoutMs != null && (!Number.isFinite(globalTimeoutMs) || globalTimeoutMs <= 0)) {
+      console.error(`❌ --global-timeout must be a positive integer (ms), got: ${globalTimeoutRaw}`);
+      process.exit(1);
+    }
+
+    // Phase 6k: Purge tasks before starting (D2 debt fix)
+    const purge = args.purge as boolean;
+    if (purge) {
+      const existing = teamStore.listTasks(proj.id);
+      if (existing.length > 0) {
+        for (const task of existing) {
+          try {
+            teamStore.getDb().prepare(
+              'DELETE FROM team_tasks WHERE task_id = ?',
+            ).run(task.task_id);
+          } catch { /* best-effort */ }
+        }
+        console.error(`🧹 Purged ${existing.length} existing task(s)`);
+      }
+    }
+
+    // Phase 6f: Parse routing overrides
+    const { parseRoutingOverrides } = await import('../../orchestrate/capability-router.js');
+    const routingConfig = args.routing
+      ? { overrides: parseRoutingOverrides(args.routing as string) }
+      : undefined;
+
+    const structuredPlan = !(args['no-structured-plan'] as boolean);
 
     // ── Autonomous mode: seed planning task from --goal ──────────
     const goal = args.goal as string | undefined;
+    let currentPipelineId: string | undefined;
+
     if (goal) {
       const maxIterations = parseInt(args['max-iterations'] as string, 10);
       const taskBudget = parseInt(args['task-budget'] as string, 10);
@@ -150,16 +209,23 @@ export default defineCommand({
         console.error(`\n🧠 Autonomous mode (DRY RUN): goal → "${goal}"`);
         console.error(`📝 Would seed planning task (not written to task board)`);
         console.error(`🔄 Max iterations: ${maxIterations}, Task budget: ${taskBudget}`);
+        console.error(`📦 Structured plan: ${structuredPlan ? 'yes' : 'no (legacy)'}`);
       } else {
         const { seedAutonomousPipeline } = await import('../../orchestrate/planner.js');
         const { planningTaskId, pipelineId } = seedAutonomousPipeline(teamStore, proj.id, {
           goal,
           maxIterations,
           taskBudget,
+        }, {
+          structuredPlan,
+          projectDir,
+          agents: agentNames,
         });
+        currentPipelineId = pipelineId;
         console.error(`\n🧠 Autonomous mode: goal → "${goal}"`);
         console.error(`📝 Planning task seeded: ${planningTaskId.slice(0, 8)}… (pipeline ${pipelineId.slice(0, 8)}…)`);
         console.error(`🔄 Max iterations: ${maxIterations}, Task budget: ${taskBudget}`);
+        console.error(`📦 Structured plan: ${structuredPlan ? 'yes' : 'no (legacy)'}`);
       }
     }
 
@@ -174,7 +240,9 @@ export default defineCommand({
     console.error(`\n🚀 Orchestrator started for project ${proj.name}`);
     console.error(`📋 ${pendingTasks.length} pending, ${tasks.filter(t => t.status === 'in_progress').length} in progress, ${tasks.filter(t => t.status === 'completed').length} completed`);
     console.error(`🤖 Agents: ${(dryRun ? adapters : available).map(a => a.name).join(', ')}`);
-    console.error(`⚙️  Parallel: ${parallel}, Retries: ${maxRetries}, Timeout: ${taskTimeoutMs}ms`);
+    console.error(`⚙️  Parallel: ${parallel}, Retries: ${maxRetries}, Timeout: ${taskTimeoutMs}ms${globalTimeoutMs ? `, Global: ${globalTimeoutMs}ms` : ''}`);
+    if (routingConfig) console.error(`🛣️  Routing: ${args.routing}`);
+    if (parallel >= 2) console.error(`🌳 Git worktree isolation: enabled`);
     if (dryRun) console.error('🔍 DRY RUN — no agents will be spawned\n');
     else console.error('');
 
@@ -187,7 +255,12 @@ export default defineCommand({
       pollIntervalMs,
       taskTimeoutMs,
       parallel,
+      staleTtlMs,
       dryRun,
+      routingConfig,
+      pipelineId: currentPipelineId,
+      structuredPlan,
+      globalTimeoutMs,
       onProgress: (event) => {
         const ts = new Date(event.timestamp).toLocaleTimeString();
         const icons: Record<string, string> = {
@@ -200,6 +273,10 @@ export default defineCommand({
           'agent:stale': '💀',
           'finished': '🎉',
           'error': '⚠️',
+          'plan:materialized': '📋',
+          'plan:failed': '🚨',
+          'worktree:create': '🌳',
+          'worktree:merge': '🔀',
         };
         console.error(`[${ts}] ${icons[event.type] ?? '•'} ${event.message}`);
       },

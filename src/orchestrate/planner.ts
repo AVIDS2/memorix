@@ -1,21 +1,19 @@
 /**
- * Planner — Phase 5: Autonomous goal→tasks decomposition.
+ * Planner — Phase 6c: Structured goal→tasks decomposition.
  *
- * Seeds a "planning" meta-task that instructs an agent to break a high-level
- * goal into concrete team tasks (via team_task MCP tool).  The existing
- * coordinator loop then executes those tasks naturally.
+ * Seeds a "planning" meta-task. The planner agent returns a structured
+ * JSON TaskGraph (validated by Zod). The coordinator then calls
+ * materializeTaskGraph() to create real tasks with system-injected
+ * pipelineId (eliminating D1 debt: no more prompt-compliance dependency).
  *
  * Review tasks include a quality-gate: the reviewer checks completed work
  * and may spawn fix tasks + a follow-up review, up to maxIterations.
- *
- * Key insight: NO changes to the coordinator loop are needed.  Planning and
- * review tasks are regular tasks whose descriptions instruct the agent to
- * call team_task create.  Dependencies handle ordering.  The coordinator's
- * SQLite poll picks up newly-created tasks automatically.
  */
 
 import { randomUUID } from 'node:crypto';
 import type { TeamStore } from '../team/team-store.js';
+import { parseTaskGraph, topologicalSort, type TaskGraph } from './task-graph.js';
+import { collectPlanningContext, contextToPromptSection } from './context-collector.js';
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -136,17 +134,26 @@ export function checkPipelineGuards(input: GuardInput): GuardResult {
 
 // ── Seed ───────────────────────────────────────────────────────────
 
+export interface SeedOptions {
+  /** Collect project context before planning (default: true) */
+  collectContext?: boolean;
+  /** Use structured JSON output (default: true). Set false for P5 legacy mode. */
+  structuredPlan?: boolean;
+}
+
 /**
  * Create the initial planning task.  The agent that executes it will
- * decompose the goal into concrete worker + review tasks via team_task.
+ * return a structured JSON TaskGraph (or call team_task in legacy mode).
  */
 export function seedAutonomousPipeline(
   teamStore: TeamStore,
   projectId: string,
   config: PlannerConfig,
+  opts?: SeedOptions & { projectDir?: string; agents?: string[] },
 ): { planningTaskId: string; pipelineId: string } {
   const maxIterations = config.maxIterations ?? 3;
   const taskBudget = config.taskBudget ?? 15;
+  const structuredPlan = opts?.structuredPlan ?? true;
 
   const pipelineId = randomUUID();
 
@@ -159,22 +166,200 @@ export function seedAutonomousPipeline(
     taskBudget,
   };
 
+  // Collect project context (best-effort)
+  let contextSection = '';
+  if (opts?.collectContext !== false && opts?.projectDir) {
+    try {
+      const ctx = collectPlanningContext({
+        projectDir: opts.projectDir,
+        agents: opts.agents ?? [],
+      });
+      contextSection = contextToPromptSection(ctx);
+    } catch { /* best-effort */ }
+  }
+
+  const prompt = structuredPlan
+    ? buildStructuredPlanningPrompt(config.goal, maxIterations, taskBudget, pipelineId, contextSection)
+    : buildLegacyPlanningPrompt(config.goal, maxIterations, taskBudget, pipelineId, contextSection);
+
   const task = teamStore.createTask({
     projectId,
-    description: buildPlanningPrompt(config.goal, maxIterations, taskBudget, pipelineId),
+    description: prompt,
     metadata: meta as unknown as Record<string, unknown>,
   });
 
   return { planningTaskId: task.task_id, pipelineId };
 }
 
+// ── Materialize (Phase 6c core: structured output → real tasks) ────
+
+export interface MaterializeResult {
+  success: boolean;
+  taskIds: string[];
+  graph?: TaskGraph;
+  error?: string;
+  warnings: string[];
+}
+
+/**
+ * Parse planner agent's raw output into a TaskGraph, validate it,
+ * and create real tasks in TeamStore with system-injected pipelineId.
+ *
+ * This eliminates D1 debt: pipelineId is set by the system, not by
+ * the agent's prompt compliance.
+ */
+export function materializeTaskGraph(
+  teamStore: TeamStore,
+  projectId: string,
+  pipelineId: string,
+  plannerOutput: string,
+  meta: { maxIterations: number; taskBudget: number; goal: string },
+): MaterializeResult {
+  const parsed = parseTaskGraph(plannerOutput);
+  if (!parsed.success) {
+    return { success: false, taskIds: [], error: parsed.error, warnings: [] };
+  }
+
+  const { data: graph, warnings } = parsed;
+
+  // Topological sort for correct creation order
+  let sorted;
+  try {
+    sorted = topologicalSort(graph.tasks);
+  } catch (e) {
+    return { success: false, taskIds: [], error: (e as Error).message, warnings };
+  }
+
+  // Map tempId → real taskId
+  const idMap = new Map<string, string>();
+  const taskIds: string[] = [];
+
+  for (const node of sorted) {
+    // Resolve deps to real IDs
+    const realDeps = node.deps.map(d => idMap.get(d)).filter(Boolean) as string[];
+
+    // System-inject pipelineId into metadata (D1 fix)
+    const taskMeta: Record<string, unknown> = { pipelineId, role: node.role };
+    if (node.role === 'reviewer') {
+      taskMeta.plannerType = 'review';
+      taskMeta.goal = meta.goal;
+      taskMeta.iteration = 1;
+      taskMeta.maxIterations = meta.maxIterations;
+      taskMeta.taskBudget = meta.taskBudget;
+    }
+
+    const created = teamStore.createTask({
+      projectId,
+      description: node.description,
+      deps: realDeps,
+      metadata: taskMeta,
+    });
+
+    idMap.set(node.tempId, created.task_id);
+    taskIds.push(created.task_id);
+  }
+
+  return { success: true, taskIds, graph, warnings };
+}
+
 // ── Prompts ────────────────────────────────────────────────────────
 
-function buildPlanningPrompt(
+/**
+ * Phase 6c: Structured JSON planning prompt.
+ * Agent returns a JSON TaskGraph — no MCP tool calls needed.
+ */
+function buildStructuredPlanningPrompt(
   goal: string,
   maxIterations: number,
   taskBudget: number,
   pipelineId: string,
+  contextSection: string,
+): string {
+  return `[Role: Project Planner — Autonomous Task Decomposition]
+
+You are the technical lead and project planner for a team of AI agents.
+Analyze the goal below and output a **structured JSON task plan**.
+
+## Goal
+${goal}
+${contextSection ? `\n${contextSection}\n` : ''}
+## Output Format
+
+Return a single JSON object (inside a \`\`\`json code fence) matching this schema:
+
+\`\`\`json
+{
+  "summary": "One-paragraph summary of your plan",
+  "tasks": [
+    {
+      "tempId": "t1",
+      "role": "pm",
+      "description": "[Role: PM] Self-contained task description with all context...",
+      "deps": [],
+      "files": ["optional/list/of/files.ts"]
+    },
+    {
+      "tempId": "t2",
+      "role": "engineer",
+      "description": "[Role: Engineer] Build the component...",
+      "deps": ["t1"]
+    },
+    {
+      "tempId": "tN",
+      "role": "reviewer",
+      "description": "[Role: Reviewer — Quality Gate (iteration 1/${maxIterations})] Review all work...",
+      "deps": ["t1", "t2", "...all other tempIds"]
+    }
+  ]
+}
+\`\`\`
+
+## Schema Rules
+
+- **role** must be one of: \`pm\`, \`engineer\`, \`qa\`, \`reviewer\`
+- **description** must start with \`[Role: ...]\` and be **self-contained** (all context, file paths, acceptance criteria)
+- **deps** is an array of tempIds of prerequisite tasks
+- **The LAST task MUST be a reviewer** — it depends on ALL other tasks
+- **files** (optional) lists files the task creates or modifies
+
+## Suggested Structure
+
+1. 1–2 research/planning tasks (PM writes spec)
+2. 1–3 implementation tasks (Engineer builds)
+3. 0–1 QA tasks (testing/validation)
+4. 1 review task (MANDATORY, last, depends on ALL others)
+
+## Review Task Description Template
+
+The reviewer description MUST include:
+- "Review all completed work for this goal: \"{goal}\""
+- Instructions to check correctness, completeness, polish
+- If quality OK → call memorix_handoff with approval summary, exit
+- If issues → create fix tasks via team_task action="create" (no deps), then a follow-up review task
+- If some pending tasks are unnecessary → create a cancellation note via memorix_handoff
+- Can also create NEW general tasks (not just fixes) if gaps are found
+- Task budget remaining: ~${taskBudget - 1}
+- The reviewer will receive a full Pipeline Progress ledger in its prompt
+
+## Rules
+- Task budget: **${taskBudget}** max tasks. Create only what's needed.
+- Maximum **${maxIterations}** review iterations.
+- Prefer fewer, focused tasks over many trivial ones.
+- Output ONLY the JSON. No other text before or after the code fence.
+
+pipelineId (for your reference only, the system will inject this): ${pipelineId}`;
+}
+
+/**
+ * Phase 5 legacy: agent calls team_task create directly.
+ * Retained for --no-structured-plan fallback.
+ */
+function buildLegacyPlanningPrompt(
+  goal: string,
+  maxIterations: number,
+  taskBudget: number,
+  pipelineId: string,
+  contextSection: string,
 ): string {
   const reviewMetaExample = JSON.stringify({
     plannerType: 'review',
@@ -193,7 +378,7 @@ Analyze the goal below and create a concrete, executable task plan.
 
 ## Goal
 ${goal}
-
+${contextSection ? `\n${contextSection}\n` : ''}
 ## Instructions
 
 1. **Analyze** the goal.  Think about what roles are needed (PM, Engineer, QA, Reviewer) and what order tasks should run in.

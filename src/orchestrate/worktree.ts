@@ -56,13 +56,51 @@ export interface MergeResult {
 }
 
 /**
- * Merge the worktree branch back into the current branch.
+ * Commit any uncommitted changes in the worktree, then merge the worktree
+ * branch back into the current branch in projectDir.
  * Returns success=false with conflict details if merge fails.
+ *
+ * @param worktreePath - path to the worktree directory (for add+commit)
+ * @param projectDir - path to the main repo (for merge)
+ * @param branch - the worktree branch name
  */
 export function mergeWorktree(
   projectDir: string,
   branch: string,
+  worktreePath?: string,
 ): MergeResult {
+  // Step 1: Commit any agent-produced changes in the worktree.
+  // Without this, files written by the agent are untracked and the merge
+  // will be a no-op (no commits on the branch beyond the checkout base).
+  if (worktreePath) {
+    try {
+      execSync('git add -A', {
+        cwd: worktreePath,
+        encoding: 'utf-8',
+        timeout: 15_000,
+      });
+      // Check if there's anything to commit
+      const status = execSync('git status --porcelain', {
+        cwd: worktreePath,
+        encoding: 'utf-8',
+        timeout: 5_000,
+      }).trim();
+      if (status) {
+        execSync('git commit -m "task: agent work" --no-verify', {
+          cwd: worktreePath,
+          encoding: 'utf-8',
+          timeout: 15_000,
+        });
+      }
+      // else: nothing to commit — merge will be a no-op
+    } catch {
+      // "nothing to commit" is fine — the merge will just be a no-op.
+      // Any other git error here (e.g., invalid index) is also non-fatal;
+      // we still attempt the merge which will correctly report as no-op.
+    }
+  }
+
+  // Step 2: Merge the branch into the main repo.
   try {
     execSync(`git merge --no-ff "${branch}" -m "merge: ${branch}"`, {
       cwd: projectDir,

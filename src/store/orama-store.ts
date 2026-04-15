@@ -747,8 +747,9 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
         narrative: narrativeMap.get(makeEntryKey(e.projectId, e.id)),
       }));
       
-      // LLM rerank timeout: 5 seconds (was 10s)
-      const RERANK_TIMEOUT_MS = 5000;
+      // LLM rerank timeout: configurable via MEMORIX_RERANK_TIMEOUT_MS, default 5s
+      const _parsedRerank = parseInt(process.env.MEMORIX_RERANK_TIMEOUT_MS || '', 10);
+      const RERANK_TIMEOUT_MS = Number.isFinite(_parsedRerank) && _parsedRerank > 0 ? _parsedRerank : 5000;
       const rerankPromise = rerankResults(originalQuery!, candidates);
       const timeoutPromise = new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error(`LLM rerank timeout after ${RERANK_TIMEOUT_MS}ms`)), RERANK_TIMEOUT_MS)

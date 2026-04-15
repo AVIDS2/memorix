@@ -318,13 +318,19 @@ async function handleApi(
                 const { join } = await import('node:path');
 
                 let yml: any = {};
+                let projectRoot = process.cwd(); // approximate — dashboard may not have project root
                 try {
                     const { loadYamlConfig } = await import('../config/yaml-loader.js');
-                    yml = loadYamlConfig(effectiveProjectId.includes('/') ? undefined : undefined);
+                    yml = loadYamlConfig();
+                } catch { /* best effort */ }
+
+                // Load .env files so process.env reflects actual config (fixes #74, #62)
+                try {
+                    const { loadDotenv } = await import('../config/dotenv-loader.js');
+                    loadDotenv(projectRoot);
                 } catch { /* best effort */ }
 
                 // Check which config files exist
-                const projectRoot = process.cwd(); // approximate — dashboard may not have project root
                 const files: Record<string, { exists: boolean; path: string }> = {
                     'project memorix.yml': { exists: false, path: '' },
                     'user memorix.yml': { exists: false, path: '' },
@@ -350,19 +356,33 @@ async function handleApi(
                 const values: Array<{ key: string; value: string; source: string; sensitive?: boolean }> = [];
 
                 // LLM
+                // Helper: determine source label (distinguishes .env file vs system env)
+                const getEnvSource = async (envKey: string, ymlSource?: string): Promise<string> => {
+                    if (process.env[envKey]) {
+                        // Check if this key was injected by dotenv-loader (from .env file)
+                        try {
+                            const { getLoadedEnvFiles } = await import('../config/dotenv-loader.js');
+                            const envFiles = getLoadedEnvFiles();
+                            if (envFiles.length > 0) return `.env (${envKey})`;
+                        } catch { /* ignore */ }
+                        return `env:${envKey}`;
+                    }
+                    return ymlSource ?? 'default';
+                };
+
                 const llmProvider = process.env.MEMORIX_LLM_PROVIDER || yml.llm?.provider;
-                if (llmProvider) values.push({ key: 'llm.provider', value: llmProvider, source: process.env.MEMORIX_LLM_PROVIDER ? 'env' : 'memorix.yml' });
+                if (llmProvider) values.push({ key: 'llm.provider', value: llmProvider, source: await getEnvSource('MEMORIX_LLM_PROVIDER', yml.llm?.provider ? 'memorix.yml' : undefined) });
 
                 const llmModel = process.env.MEMORIX_LLM_MODEL || yml.llm?.model;
-                if (llmModel) values.push({ key: 'llm.model', value: llmModel, source: process.env.MEMORIX_LLM_MODEL ? 'env' : 'memorix.yml' });
+                if (llmModel) values.push({ key: 'llm.model', value: llmModel, source: await getEnvSource('MEMORIX_LLM_MODEL', yml.llm?.model ? 'memorix.yml' : undefined) });
 
                 const llmKey = process.env.MEMORIX_LLM_API_KEY || process.env.MEMORIX_API_KEY || yml.llm?.apiKey || process.env.OPENAI_API_KEY;
                 if (llmKey) {
                     let src = 'unknown';
-                    if (process.env.MEMORIX_LLM_API_KEY) src = 'env:MEMORIX_LLM_API_KEY';
-                    else if (process.env.MEMORIX_API_KEY) src = 'env:MEMORIX_API_KEY';
+                    if (process.env.MEMORIX_LLM_API_KEY) src = await getEnvSource('MEMORIX_LLM_API_KEY');
+                    else if (process.env.MEMORIX_API_KEY) src = await getEnvSource('MEMORIX_API_KEY');
                     else if (yml.llm?.apiKey) src = 'memorix.yml (move to .env!)';
-                    else if (process.env.OPENAI_API_KEY) src = 'env:OPENAI_API_KEY';
+                    else if (process.env.OPENAI_API_KEY) src = await getEnvSource('OPENAI_API_KEY');
                     values.push({ key: 'llm.apiKey', value: '****' + llmKey.slice(-4), source: src, sensitive: true });
                 } else {
                     values.push({ key: 'llm.apiKey', value: 'not set', source: 'none' });
@@ -370,7 +390,7 @@ async function handleApi(
 
                 // Embedding
                 const embProvider = process.env.MEMORIX_EMBEDDING || yml.embedding?.provider || 'off';
-                values.push({ key: 'embedding.provider', value: embProvider, source: process.env.MEMORIX_EMBEDDING ? 'env' : yml.embedding?.provider ? 'memorix.yml' : 'default' });
+                values.push({ key: 'embedding.provider', value: embProvider, source: await getEnvSource('MEMORIX_EMBEDDING', yml.embedding?.provider ? 'memorix.yml' : undefined) });
 
                 // Git
                 values.push({ key: 'git.autoHook', value: String(yml.git?.autoHook ?? false), source: yml.git?.autoHook !== undefined ? 'memorix.yml' : 'default' });

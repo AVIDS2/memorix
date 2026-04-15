@@ -500,6 +500,29 @@ export async function installHooks(
     ? getGlobalConfigPath(agent)
     : getProjectConfigPath(agent, projectRoot);
 
+  // Clean up previous memorix-written files for this agent before reinstalling.
+  // This ensures stale config from older versions is removed, while preserving
+  // user's own customizations in shared config files (e.g. AGENTS.md, GEMINI.md).
+  try {
+    const { getProjectFiles, removeFile } = await import('../../audit/index.js');
+    const prevFiles = await getProjectFiles(projectRoot);
+    const agentPrev = prevFiles.filter(e => e.agent === agent);
+    for (const entry of agentPrev) {
+      try {
+        const { access, unlink } = await import('node:fs/promises');
+        await access(entry.path);
+        // For shared context files (AGENTS.md, GEMINI.md), don't delete —
+        // the install logic below will handle in-place update.
+        const basename = path.basename(entry.path);
+        if (basename === 'AGENTS.md' || basename === 'GEMINI.md' || basename === 'CONTEXT.md') {
+          continue;
+        }
+        await unlink(entry.path);
+        await removeFile(projectRoot, entry.path);
+      } catch { /* file already gone */ }
+    }
+  } catch { /* audit cleanup is best-effort */ }
+
   let generated: Record<string, unknown> | string;
 
   switch (agent) {
@@ -740,7 +763,13 @@ async function installAgentRules(agent: AgentName, projectRoot: string): Promise
       try {
         const existing = await fs.readFile(rulesPath, 'utf-8');
         if (existing.includes('Memorix')) {
-          return; // Already contains memorix rules
+          // Already contains memorix rules — but still record audit entry
+          // in case audit.json was lost/corrupted and we're re-installing
+          try {
+            const { recordFile } = await import('../../audit/index.js');
+            await recordFile(projectRoot, 'rule', rulesPath, agent);
+          } catch { /* audit is optional */ }
+          return;
         }
         // Append to existing file
         await fs.writeFile(rulesPath, existing + '\n\n' + rulesContent, 'utf-8');
@@ -753,6 +782,12 @@ async function installAgentRules(agent: AgentName, projectRoot: string): Promise
       } catch {
         // File doesn't exist, create it
         await fs.writeFile(rulesPath, rulesContent, 'utf-8');
+        
+        // Record audit entry (non-critical) — needed for uninstallHooks cleanup
+        try {
+          const { recordFile } = await import('../../audit/index.js');
+          await recordFile(projectRoot, 'rule', rulesPath, agent);
+        } catch { /* audit is optional */ }
       }
     } else {
       // Only write if not already present
@@ -918,9 +953,12 @@ export async function uninstallHooks(
     ? getGlobalConfigPath(agent)
     : getProjectConfigPath(agent, projectRoot);
 
+  let success = false;
+
   try {
     if (agent === 'kiro') {
       await fs.unlink(configPath);
+      success = true;
     } else {
       // For JSON configs, remove the hooks key
       const content = await fs.readFile(configPath, 'utf-8');
@@ -932,11 +970,79 @@ export async function uninstallHooks(
       } else {
         await fs.writeFile(configPath, JSON.stringify(config, null, 2), 'utf-8');
       }
+      success = true;
     }
-    return true;
-  } catch {
-    return false;
+  } catch { /* config file may not exist */ }
+
+  // Also clean up rules files written by memorix
+  let auditCleaned = false;
+  try {
+    const { getProjectFiles, removeFile } = await import('../../audit/index.js');
+    const prevFiles = await getProjectFiles(projectRoot);
+    const agentFiles = prevFiles.filter(e => e.agent === agent);
+    for (const entry of agentFiles) {
+      try {
+        const basename = path.basename(entry.path);
+        // Shared context files: remove only the Memorix block, not the whole file
+        if (basename === 'AGENTS.md' || basename === 'GEMINI.md' || basename === 'CONTEXT.md') {
+          try {
+            const content = await fs.readFile(entry.path, 'utf-8');
+            const memorixStart = content.indexOf('# Memorix');
+            if (memorixStart >= 0) {
+              // Find the next top-level heading after Memorix block
+              const afterMemorix = content.substring(memorixStart);
+              const nextHeadingMatch = afterMemorix.match(/\n# [^#]/);
+              let before = content.substring(0, memorixStart).trimEnd();
+              let after = '';
+              if (nextHeadingMatch && nextHeadingMatch.index != null) {
+                after = afterMemorix.substring(nextHeadingMatch.index + 1).trimStart();
+              }
+              const cleaned = (before + '\n' + after).trim();
+              if (cleaned.length === 0) {
+                // File only had Memorix content — delete it
+                await fs.unlink(entry.path);
+              } else {
+                await fs.writeFile(entry.path, cleaned + '\n', 'utf-8');
+              }
+            }
+          } catch { /* file read failed, skip */ }
+          await removeFile(projectRoot, entry.path);
+          auditCleaned = true;
+          continue;
+        }
+        // Non-shared files: safe to unlink entirely
+        await fs.unlink(entry.path);
+        await removeFile(projectRoot, entry.path);
+        auditCleaned = true;
+      } catch { /* file already gone */ }
+    }
+  } catch { /* audit cleanup is best-effort */ }
+
+  // For rules-only agents, audit cleanup success counts as overall success
+  if (auditCleaned) success = true;
+
+  // Remove empty parent directories left behind (e.g. .cursor/rules/ if empty)
+  if (success) {
+    try {
+      const { rm } = await import('node:fs/promises');
+      const dir = path.dirname(configPath);
+      // Try to remove empty dirs up to project root (max 3 levels)
+      let current = dir;
+      for (let i = 0; i < 3; i++) {
+        try {
+          const entries = await fs.readdir(current);
+          if (entries.length === 0) {
+            await rm(current, { recursive: true });
+            current = path.dirname(current);
+          } else {
+            break; // non-empty dir, stop
+          }
+        } catch { break; }
+      }
+    } catch { /* cleanup is best-effort */ }
   }
+
+  return success;
 }
 
 /**

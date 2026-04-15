@@ -402,9 +402,14 @@ export default defineCommand({
 
         patchMcpResponse(res);
         await transport.handleRequest(req, res, body);
-        queueMicrotask(() => {
-          tryRootsSwitch().catch(() => {});
-        });
+        // Do NOT proactively call listRoots() after session establishment —
+        // this violates MCP SEP-2260 (server-initiated request must be associated
+        // with a client request). Codex and other strict clients treat standalone
+        // roots/list as unexpected, which can break MCP tool injection.
+        // Project binding relies on:
+        //   1. RootsListChangedNotification (client-initiated, then we respond)
+        //   2. memorix_session_start({ projectRoot }) for explicit binding
+        //   3. cwd-based detection as fallback (deferred-binding mode)
         return;
       }
 
@@ -971,6 +976,67 @@ export default defineCommand({
             .sort((a, b) => b[1] - a[1])
             .map(([id, count]) => ({ id, name: id.split('/').pop() || id, count, isCurrent: id === defaultProject.id }));
           sendJson(projects);
+          return;
+        }
+
+        // DELETE /api/observations/:id — delete a single observation
+        const deleteMatch = apiPath.match(/^\/observations\/(\d+)$/);
+        if (deleteMatch && req.method === 'DELETE') {
+          const obsId = parseInt(deleteMatch[1], 10);
+          const { projectId: delProjectId, dataDir: delDataDir } = await resolveRequestProject(url);
+          const store = await getDashboardObservationStore(delDataDir);
+          const allObs = await store.loadAll();
+          const matchObs = allObs.find((o: any) => o.id === obsId);
+          if (!matchObs) {
+            sendJson({ error: 'Observation not found' }, 404);
+          } else if ((matchObs as any).projectId !== delProjectId) {
+            sendJson({ error: `Observation #${obsId} belongs to project "${(matchObs as any).projectId}", not "${delProjectId}"` }, 403);
+          } else {
+            await store.remove(obsId);
+            // Sync: clean up graph entity references
+            try {
+              const { loadGraphJsonl, saveGraphJsonl } = await import('../../store/persistence.js');
+              const graph = await loadGraphJsonl(delDataDir);
+              const prefix = `[#${obsId}] `;
+              let graphChanged = false;
+              for (const entity of graph.entities) {
+                const before = entity.observations.length;
+                entity.observations = entity.observations.filter((o: string) => !o.startsWith(prefix));
+                if (entity.observations.length < before) graphChanged = true;
+              }
+              if (graphChanged) await saveGraphJsonl(delDataDir, graph.entities, graph.relations);
+            } catch { /* graph sync is best-effort */ }
+            sendJson({ ok: true, deleted: obsId });
+          }
+          return;
+        }
+
+        // GET /api/export — export observations as JSON
+        if (apiPath === '/export') {
+          const { projectId: expProjectId, projectName: expProjectName, dataDir: expDataDir } = await resolveRequestProject(url);
+          const { loadIdCounter, loadGraphJsonl } = await import('../../store/persistence.js');
+          const fullGraph = await loadGraphJsonl(expDataDir);
+          const allObs = await loadDashboardObservations(expDataDir) as Array<{ projectId?: string; entityName?: string; status?: string }>;
+          const observations = allObs.filter(o => o.projectId === expProjectId && (o.status ?? 'active') === 'active');
+          const nextId = await loadIdCounter(expDataDir);
+          const exportEntityNames = new Set(
+            observations.filter(o => o.entityName).map(o => o.entityName!),
+          );
+          const exportEntities = fullGraph.entities.filter((e: any) => exportEntityNames.has(e.name));
+          const exportEntitySet = new Set(exportEntities.map((e: any) => e.name));
+          const exportRelations = fullGraph.relations.filter((r: any) => exportEntitySet.has(r.from) && exportEntitySet.has(r.to));
+          const exportData = {
+            project: { id: expProjectId, name: expProjectName },
+            exportedAt: new Date().toISOString(),
+            graph: { entities: exportEntities, relations: exportRelations },
+            observations,
+            nextId,
+          };
+          res.writeHead(200, {
+            'Content-Type': 'application/json',
+            'Content-Disposition': `attachment; filename="memorix-${expProjectId.replace(/\//g, '-')}-export.json"`,
+          });
+          res.end(JSON.stringify(exportData, null, 2));
           return;
         }
 

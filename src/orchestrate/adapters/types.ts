@@ -15,6 +15,30 @@ export interface AgentProcess {
 
   /** Abort the process (SIGTERM, then SIGKILL after grace period) */
   abort(): void;
+
+  /** Streaming messages from the agent process (if supported by the adapter) */
+  messages?: AsyncIterable<AgentMessage>;
+}
+
+export type AgentMessageType = 'text' | 'thinking' | 'tool_use' | 'tool_result' | 'error' | 'status';
+
+export interface AgentMessage {
+  type: AgentMessageType;
+  content?: string;
+  tool?: string;
+  callId?: string;
+  input?: Record<string, unknown>;
+  output?: string;
+  /** Token usage snapshot (cumulative, present on 'assistant' messages from Claude) */
+  usage?: TokenUsage;
+}
+
+export interface TokenUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  model?: string;
 }
 
 export interface AgentProcessResult {
@@ -24,6 +48,10 @@ export interface AgentProcessResult {
   tailOutput: string;
   /** Whether the process was killed by timeout or abort */
   killed: boolean;
+  /** Accumulated token usage per model (populated by streaming adapters) */
+  tokenUsage?: Record<string, TokenUsage>;
+  /** Session ID (populated by Claude stream-json adapter for session reuse) */
+  sessionId?: string;
 }
 
 export interface SpawnOptions {
@@ -33,6 +61,8 @@ export interface SpawnOptions {
   timeoutMs?: number;
   /** Ring buffer size in lines (default: 50) */
   tailLines?: number;
+  /** Resume a previous agent session (supported by Claude --resume) */
+  resumeSessionId?: string;
 }
 
 export interface AgentAdapter {

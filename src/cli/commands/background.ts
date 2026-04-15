@@ -129,7 +129,7 @@ async function isPortInUse(port: number): Promise<boolean> {
 // Subcommands
 // ============================================================
 
-async function doStart(port: number): Promise<void> {
+export async function doStart(port: number): Promise<void> {
   // 1. Check if already running
   const state = loadState();
   if (state && isProcessRunning(state.pid)) {
@@ -226,21 +226,30 @@ async function doStart(port: number): Promise<void> {
   process.stderr.write(startMsg + '\n');
 
   // 8. Wait for health check (up to 30 seconds — large projects may need time to reindex)
+  //    In non-TTY environments (AI agent bash tools), skip the wait loop to avoid
+  //    appearing to hang. The process will still become healthy asynchronously.
+  const isNonInteractive = !process.stdout.isTTY && !process.stderr.isTTY;
   let healthy = false;
-  for (let i = 0; i < 60; i++) {
-    await new Promise(r => setTimeout(r, 500));
-    const check = await healthCheck(port, 2000);
-    if (check.ok) {
-      healthy = true;
-      break;
-    }
-    // Check if process died
-    if (!isProcessRunning(pid)) {
-      console.error('✗ Background process exited unexpectedly.');
-      console.error(`  Check logs: ${normalizePath(logFile)}`);
-      clearState();
-      process.exitCode = 1;
-      return;
+  if (isNonInteractive) {
+    // Fire-and-forget: do a single quick check, don't block the caller
+    process.stderr.write('Non-interactive mode — skipping health wait. Check status with: memorix background status\n');
+    healthy = false; // will be confirmed asynchronously
+  } else {
+    for (let i = 0; i < 60; i++) {
+      await new Promise(r => setTimeout(r, 500));
+      const check = await healthCheck(port, 2000);
+      if (check.ok) {
+        healthy = true;
+        break;
+      }
+      // Check if process died
+      if (!isProcessRunning(pid)) {
+        console.error('✗ Background process exited unexpectedly.');
+        console.error(`  Check logs: ${normalizePath(logFile)}`);
+        clearState();
+        process.exitCode = 1;
+        return;
+      }
     }
   }
 

@@ -2,11 +2,40 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [1.0.7] - 2026-04-14
+
+### Added -- Multi-Agent Orchestrator (Phase 7)
+- **`memorix orchestrate`** -- Autonomous pipeline: plan → parallel execution → verify gates → fix loops → review → merge. 4 agent adapters (Claude, Codex, Gemini, OpenCode), capability routing with quotas, worktree isolation, evidence collection, stranded task detection, agent fallback on repeated failures.
+- **CLI flags**: `--agents claude:2,codex:1`, `--goal`, `--parallel`, `--compile-command`, `--test-command`, `--max-fix`, `--budget`, `--routing`, `--memory-capture`, `--no-evidence`, `--global-timeout`
+
+### Added -- SQLite Canonical Store (Phase 2)
+- Observations, mini-skills, sessions, archives all in SQLite. Shared DB handle, freshness-safe retrieval, in-place archiving.
+
+### Added -- Team Identity (Phase 4)
+- Team store with agent registration, heartbeat, task board, handoff artifacts, stale detection. Prompt identity contract, sticky attribution prevention.
 
 ### Fixed
-- **API-first auto embedding selection** -- `MEMORIX_EMBEDDING=auto` now prefers a configured remote embedding API before falling back to local `fastembed` or `transformers`, preventing unexpected local-model activation when API credentials are already present.
-- **Embedding cache isolation across config changes** -- API embedding cache keys and probe-dimension metadata now stay isolated per `baseUrl + model + requestedDimensions`, so switching between shortened and native dimensions no longer reuses stale cached embeddings or stale dimension probes.
+- **#4** Parallel multi-agent — fully implemented via orchestrator
+- **#52** observations.json perf — migrated to SQLite
+- **#56** LLM rerank timeout — configurable via `MEMORIX_RERANK_TIMEOUT_MS`
+- **#75** Cursor stdio binding — deferred-binding mode instead of exit
+- **Gemini JSON parse** — brace-counting extractor handles trailing text
+- **Evidence for failed tasks** — both fix-exhausted and normal failure paths now write evidence
+- **Agent fallback** — failed agents excluded from retry routing
+- **P1: uninstall hooks** — shared context files (AGENTS.md/GEMINI.md) now block-level removal instead of deleting entire file
+- **P1: budget abort** — current settled dispatch now fails task (was left stuck in_progress)
+- **P1: streaming completion** — waits for stdout/stderr close before resolving (was missing final JSONL lines)
+- **P2: budget validation** — CLI and coordinator reject NaN/negative/zero budget values
+- **P2: streaming buffer** — bounded at 1024 messages with drop-oldest policy
+- **P2: install audit** — recordFile called even when Memorix block already exists (audit self-heal on reinstall)
+- **P2: install audit** — new shared file creation also records audit entry
+- **P2: uninstall return** — rules-only agents (codex/gemini-cli) return true when audit cleanup succeeds
+- **#62+#74** dashboard loadDotenv
+- **#70** doctor health check
+- **#69** background start non-TTY hang
+- **#66** dashboard delete/cleanup/export
+- **#79** Codex roots/list protocol compatibility
+- **#18** dot-directory merge + hooks install migration
 
 ## [1.0.6] - 2026-04-05
 

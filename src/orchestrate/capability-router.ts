@@ -13,6 +13,8 @@ import type { AgentAdapter } from './adapters/types.js';
 export interface RoutingConfig {
   /** User-specified overrides: "pm=claude,engineer=codex" */
   overrides?: Record<string, string[]>;
+  /** Per-adapter-type concurrent quota: { claude: 2, codex: 1, ... } */
+  quotaMap?: Record<string, number>;
 }
 
 // ── Defaults ───────────────────────────────────────────────────────
@@ -31,39 +33,59 @@ const DEFAULT_ROLE_PREFERENCES: Record<string, string[]> = {
  * Pick the best available adapter for a given role.
  *
  * Priority: user override > default preference > first available.
- * Skips adapters currently in `busyNames` set (all parallel slots used).
+ * Respects per-type quota: an adapter whose active dispatch count >= quota
+ * is treated as "full" and skipped.
+ * Falls back to busyNames (legacy) if no quotaMap is provided.
  */
 export function pickAdapter(
   role: string,
   available: AgentAdapter[],
   busyNames?: Set<string>,
   config?: RoutingConfig,
+  /** Count of active dispatches per adapter name */
+  dispatchCounts?: Record<string, number>,
+  /** Agents to exclude (e.g. previously failed on this task) */
+  excludeAgents?: Set<string>,
 ): AgentAdapter {
   if (available.length === 0) {
     throw new Error('capability-router: no adapters available');
   }
 
-  const busy = busyNames ?? new Set<string>();
   const normalizedRole = role.toLowerCase();
+  const quotaMap = config?.quotaMap;
+  const excluded = excludeAgents ?? new Set<string>();
+
+  // Helper: check if an adapter has available capacity and is not excluded
+  const isAvailable = (name: string): boolean => {
+    if (excluded.has(name)) return false;
+    if (quotaMap && dispatchCounts) {
+      const quota = quotaMap[name] ?? 1;
+      const active = dispatchCounts[name] ?? 0;
+      return active < quota;
+    }
+    // Legacy fallback: use busyNames set
+    return !(busyNames ?? new Set<string>()).has(name);
+  };
 
   // Build preference list
   const prefs = config?.overrides?.[normalizedRole]
     ?? DEFAULT_ROLE_PREFERENCES[normalizedRole]
     ?? [];
 
-  // Try preferences first (skip busy ones)
+  // Try preferences first (skip full/excluded ones)
   for (const pref of prefs) {
-    const adapter = available.find(a => a.name === pref && !busy.has(a.name));
+    const adapter = available.find(a => a.name === pref && isAvailable(a.name));
     if (adapter) return adapter;
   }
 
-  // Fallback: any non-busy adapter
+  // Fallback: any adapter with capacity and not excluded
   for (const adapter of available) {
-    if (!busy.has(adapter.name)) return adapter;
+    if (isAvailable(adapter.name)) return adapter;
   }
 
-  // Last resort: any adapter (even busy — the coordinator manages parallel limits)
-  return available[0];
+  // Last resort: any non-excluded adapter
+  const nonExcluded = available.find(a => !excluded.has(a.name));
+  return nonExcluded ?? available[0];
 }
 
 /**

@@ -1,28 +1,44 @@
 /**
  * Claude Code CLI adapter.
  *
- * Invocation: claude -p "<prompt>" --output-format json
+ * Invocation: claude -p - --output-format stream-json --verbose --permission-mode bypassPermissions
+ *
+ * Uses stream-json output format for:
+ *   - Real-time tool_use / text / thinking events
+ *   - Token usage tracking per model
+ *   - Session ID capture for future session reuse
  */
 
-import { execSync } from 'node:child_process';
-import { spawnAgent } from './spawn-helper.js';
+import { spawnAgentWithStream, isCommandAvailable } from './spawn-helper.js';
+import { parseClaudeStreamLine, createStreamState } from './claude-stream.js';
 import type { AgentAdapter, AgentProcess, SpawnOptions } from './types.js';
 
 export class ClaudeAdapter implements AgentAdapter {
   name = 'claude';
 
   async available(): Promise<boolean> {
-    try {
-      execSync('claude --version', { stdio: 'ignore', timeout: 5_000 });
-      return true;
-    } catch {
-      return false;
-    }
+    return isCommandAvailable('claude');
   }
 
   spawn(prompt: string, opts: SpawnOptions): AgentProcess {
-    // Use stdin to avoid shell escaping issues with long prompts
-    // --permission-mode bypassPermissions: auto-approve all tools (including MCP) in orchestrated headless mode
-    return spawnAgent('claude', ['-p', '-', '--output-format', 'json', '--permission-mode', 'bypassPermissions'], opts, prompt);
+    const state = createStreamState();
+
+    const args = ['-p', '-', '--output-format', 'stream-json', '--verbose', '--permission-mode', 'bypassPermissions'];
+    if (opts.resumeSessionId) {
+      args.push('--resume', opts.resumeSessionId);
+    }
+
+    return spawnAgentWithStream(
+      'claude',
+      args,
+      opts,
+      prompt,
+      (line) => parseClaudeStreamLine(line, state),
+      (result) => ({
+        ...result,
+        tokenUsage: Object.keys(state.usage).length > 0 ? { ...state.usage } : undefined,
+        sessionId: state.sessionId,
+      }),
+    );
   }
 }

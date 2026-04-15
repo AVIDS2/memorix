@@ -36,6 +36,10 @@ export interface PromptInput {
   taskIndex?: number;
   /** Phase 6d: Total tasks in pipeline */
   totalTasks?: number;
+  /** Phase 7: Lesson context from Memorix (advisory) */
+  lessonContext?: string;
+  /** Phase 7: Goal verification — acceptance criteria for this task */
+  goals?: string[];
 }
 
 export function buildAgentPrompt(input: PromptInput): string {
@@ -60,6 +64,23 @@ export function buildAgentPrompt(input: PromptInput): string {
   // 3. Ledger context (Phase 6d — pipeline progress)
   if (input.ledgerContext) {
     sections.push(input.ledgerContext);
+  }
+
+  // Phase 7: Lesson injection (advisory)
+  if (input.lessonContext) {
+    sections.push(input.lessonContext);
+  }
+
+  // Phase 7: Goal verification — acceptance criteria
+  if (input.goals && input.goals.length > 0) {
+    sections.push([
+      '## Acceptance Criteria',
+      '',
+      'Your work will be verified against these goals:',
+      ...input.goals.map((g, i) => `${i + 1}. ${g}`),
+      '',
+      'Ensure ALL criteria are satisfied before finishing.',
+    ].join('\n'));
   }
 
   // 4. Handoff context from previous agents

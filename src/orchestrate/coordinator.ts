@@ -11,13 +11,19 @@
  */
 
 import type { TeamStore, TeamTaskRow } from '../team/team-store.js';
-import type { AgentAdapter, AgentProcess } from './adapters/types.js';
+import type { AgentAdapter, AgentProcess, AgentMessage, TokenUsage } from './adapters/types.js';
 import { buildAgentPrompt, type HandoffContext } from './prompt-builder.js';
 import { isPlannerTask, materializeTaskGraph, extractPipelineId } from './planner.js';
 import { createLedger, appendEntry, ledgerToPromptSection, type PipelineLedger } from './ledger.js';
 import { pickAdapter, extractRoleFromDescription, type RoutingConfig } from './capability-router.js';
 import { initTraceTable, writeTrace, pruneOldTraces, resetTraceCache, type TraceEvent } from './pipeline-trace.js';
 import { createWorktree, mergeWorktree, removeWorktree, cleanupOrphanWorktrees } from './worktree.js';
+import { runVerifyGates, hasGateFailure, getFirstFailure, type GateResult, type GateConfig } from './verify-gate.js';
+import { classifyError, resetBackoff, type RecoveryAction } from './error-recovery.js';
+import { calculatePipelineCost, isBudgetExceeded, formatCostSummary } from './cost-tracker.js';
+import { writeTaskEvidence, writePipelineSummary, type TaskEvidence } from './evidence.js';
+import { TaskToolTracker } from './permission.js';
+import { storeVerifiedFix, storeFixExhausted, searchKnownFixes, searchLessons, storeTaskCompletion, storePipelineSummary as memStorePipelineSummary, type BridgeConfig, DEFAULT_BRIDGE_CONFIG } from './memorix-bridge.js';
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -50,12 +56,32 @@ export interface CoordinatorConfig {
   structuredPlan?: boolean;
   /** Global pipeline timeout in ms. When reached, abort all active agents and stop. */
   globalTimeoutMs?: number;
+
+  // ── Phase 7: Verify Gates + Fix Loop ────────────────────────────
+
+  /** Shell command for compile gate (e.g. 'npm run build', 'tsc --noEmit'). Skipped if unset. */
+  compileCommand?: string;
+  /** Shell command for test gate (e.g. 'npm test', 'npx vitest run'). Skipped if unset. */
+  testCommand?: string;
+  /** Max fix attempts per task before falling back to from-scratch retry (default: 3) */
+  maxFixAttempts?: number;
+  /** USD budget limit — abort pipeline when exceeded (no limit if unset) */
+  budgetUSD?: number;
+  /** Enable lesson injection from Memorix before dispatch (default: true) */
+  enableLessons?: boolean;
+  /** Enable lifecycle memory capture (default: false) */
+  enableMemoryCapture?: boolean;
+  /** Enable evidence directory writing (default: true when pipelineId set) */
+  enableEvidence?: boolean;
+  /** Phase 7: Verification mode — 'command' (default), 'goals', or 'both' */
+  verifyMode?: 'command' | 'goals' | 'both';
 }
 
 export type CoordinatorEventType =
   | 'started' | 'task:dispatched' | 'task:completed' | 'task:failed'
   | 'task:retry' | 'task:timeout' | 'agent:stale' | 'finished' | 'error'
-  | 'plan:materialized' | 'plan:failed' | 'worktree:create' | 'worktree:merge';
+  | 'plan:materialized' | 'plan:failed' | 'worktree:create' | 'worktree:merge'
+  | 'agent:tool_use' | 'agent:message';
 
 export interface CoordinatorEvent {
   type: CoordinatorEventType;
@@ -72,6 +98,10 @@ export interface CoordinatorResult {
   retries: number;
   elapsed: number;
   aborted: boolean;
+  /** Accumulated token usage per model across all tasks */
+  tokenUsage?: Record<string, TokenUsage>;
+  /** Phase 7: Cost summary with USD breakdown */
+  costSummary?: ReturnType<typeof calculatePipelineCost>;
 }
 
 // ── Internal tracking ──────────────────────────────────────────────
@@ -84,6 +114,10 @@ interface ActiveDispatch {
   dispatchedAt: number;
   worktreePath?: string;
   worktreeBranch?: string;
+  /** Background promise consuming stream messages (fire-and-forget) */
+  messageConsumer?: Promise<void>;
+  /** Tool use counter for this dispatch */
+  toolCount: number;
 }
 
 // ── Main coordination loop ─────────────────────────────────────────
@@ -127,13 +161,40 @@ export async function runCoordinationLoop(config: CoordinatorConfig): Promise<Co
   if (globalTimeoutMs != null && (!Number.isFinite(globalTimeoutMs) || globalTimeoutMs <= 0)) {
     throw new Error(`coordinator: globalTimeoutMs must be > 0 when set, got ${globalTimeoutMs}`);
   }
+  if (config.budgetUSD != null && (!Number.isFinite(config.budgetUSD) || config.budgetUSD <= 0)) {
+    throw new Error(`coordinator: budgetUSD must be > 0 when set, got ${config.budgetUSD}`);
+  }
 
   const startTime = Date.now();
   let retryCount = 0;
   let aborted = false;
   const taskAttempts = new Map<string, number>(); // taskId → attempt count
+  const taskSessionIds = new Map<string, string>(); // taskId → sessionId (for retry reuse)
+  const taskFixAttempts = new Map<string, number>(); // taskId → fix loop attempt count
+  const taskFailedAgents = new Map<string, Set<string>>(); // taskId → agents that failed on this task
   const activeDispatches: ActiveDispatch[] = [];
+
+  // Phase 7: Gate config (derived from coordinator config)
+  const maxFixAttempts = config.maxFixAttempts ?? 3;
+  const gateConfig: GateConfig = {
+    compileCommand: config.compileCommand,
+    testCommand: config.testCommand,
+  };
+  const hasGates = !!(config.compileCommand || config.testCommand);
   const useWorktrees = parallel >= 2 && !dryRun;
+
+  // Phase 7: Bridge config, evidence tracking, tool trackers
+  const bridgeConfig: BridgeConfig = {
+    ...DEFAULT_BRIDGE_CONFIG,
+    enableLessons: config.enableLessons ?? true,
+    enableMemoryCapture: config.enableMemoryCapture ?? false,
+  };
+  const enableEvidence = config.enableEvidence ?? !!pipelineId;
+  const taskEvidenceList: TaskEvidence[] = [];
+  const taskToolTrackers = new Map<string, TaskToolTracker>();
+
+  // Pipeline-level token usage accumulator
+  const pipelineUsage: Record<string, TokenUsage> = {};
 
   // Phase 6d: Pipeline ledger (lazy-initialized after planning task completes)
   let ledger: PipelineLedger | null = null;
@@ -268,6 +329,8 @@ export async function runCoordinationLoop(config: CoordinatorConfig): Promise<Co
 
       // Exit condition: no available, no in_progress, no active dispatches
       if (available.length === 0 && inProgress.length === 0 && activeDispatches.length === 0) {
+        const hasUsage = Object.keys(pipelineUsage).length > 0;
+        const costSummary = hasUsage ? calculatePipelineCost(pipelineUsage, config.budgetUSD) : undefined;
         const result: CoordinatorResult = {
           totalTasks: allTasks.length,
           completed: completed.length,
@@ -275,8 +338,38 @@ export async function runCoordinationLoop(config: CoordinatorConfig): Promise<Co
           retries: retryCount,
           elapsed: Date.now() - startTime,
           aborted: false,
+          tokenUsage: hasUsage ? pipelineUsage : undefined,
+          costSummary,
         };
-        emit('finished', `All tasks processed: ${completed.length} completed, ${failed.length} failed`);
+
+        // Phase 7: Write pipeline summary (evidence + memorix)
+        if (enableEvidence && pipelineId) {
+          try {
+            writePipelineSummary(projectDir, {
+              pipelineId, goal: '', totalTasks: allTasks.length,
+              completed: completed.length, failed: failed.length,
+              elapsedMs: Date.now() - startTime,
+              tokenUsage: hasUsage ? pipelineUsage : undefined,
+              costUSD: costSummary?.totalUSD,
+              tasks: taskEvidenceList,
+            });
+          } catch { /* evidence is best-effort */ }
+        }
+        if (bridgeConfig.enableMemoryCapture && pipelineId) {
+          try {
+            memStorePipelineSummary({
+              projectId, pipelineId, goal: '',
+              totalTasks: allTasks.length, completed: completed.length,
+              failed: failed.length, elapsedMs: Date.now() - startTime,
+            });
+          } catch { /* fire-and-forget */ }
+        }
+
+        if (costSummary) {
+          emit('finished', `All tasks processed: ${completed.length} completed, ${failed.length} failed\n${formatCostSummary(costSummary)}`);
+        } else {
+          emit('finished', `All tasks processed: ${completed.length} completed, ${failed.length} failed`);
+        }
         return result;
       }
 
@@ -290,6 +383,7 @@ export async function runCoordinationLoop(config: CoordinatorConfig): Promise<Co
           retries: 0,
           elapsed: Date.now() - startTime,
           aborted: false,
+          tokenUsage: Object.keys(pipelineUsage).length > 0 ? pipelineUsage : undefined,
         };
       }
 
@@ -303,10 +397,23 @@ export async function runCoordinationLoop(config: CoordinatorConfig): Promise<Co
           continue;
         }
 
-        // Phase 6f: Pick adapter by role (instead of round-robin)
+        // Phase 6f: Pick adapter by role with per-type quota awareness
         const role = extractRoleFromDescription(task.description);
         const busyNames = new Set(activeDispatches.map(d => d.adapterName));
-        const adapter = pickAdapter(role, adapters, busyNames, routingConfig);
+        // Build dispatch count per adapter name for quota-aware routing
+        const dispatchCounts: Record<string, number> = {};
+        for (const d of activeDispatches) {
+          dispatchCounts[d.adapterName] = (dispatchCounts[d.adapterName] ?? 0) + 1;
+        }
+        const failedOnTask = taskFailedAgents.get(task.task_id);
+        const adapter = pickAdapter(role, adapters, busyNames, routingConfig, dispatchCounts, failedOnTask);
+
+        // If quotaMap is set and all adapters are at capacity, stop dispatching this cycle
+        if (routingConfig?.quotaMap) {
+          const quota = routingConfig.quotaMap[adapter.name] ?? 1;
+          const active = dispatchCounts[adapter.name] ?? 0;
+          if (active >= quota) break; // all adapters full — wait for completions
+        }
 
         // Claim task
         const claim = teamStore.claimTask(task.task_id, orchAgentId);
@@ -325,6 +432,21 @@ export async function runCoordinationLoop(config: CoordinatorConfig): Promise<Co
             })
           : undefined;
 
+        // Phase 7: Inject lessons from Memorix (best-effort, 3s timeout)
+        let lessonContext: string | undefined;
+        try {
+          lessonContext = await searchLessons(task.description ?? '', projectId, bridgeConfig) || undefined;
+        } catch { /* lesson injection is best-effort */ }
+
+        // Phase 7: Extract goals from task metadata (Goal-First Testing)
+        let goals: string[] | undefined;
+        try {
+          if (task.metadata) {
+            const meta = typeof task.metadata === 'string' ? JSON.parse(task.metadata) : task.metadata;
+            if (Array.isArray(meta?.goals)) goals = meta.goals;
+          }
+        } catch { /* metadata parse is best-effort */ }
+
         const prompt = buildAgentPrompt({
           task,
           handoffs,
@@ -332,6 +454,8 @@ export async function runCoordinationLoop(config: CoordinatorConfig): Promise<Co
           projectId,
           projectDir,
           ledgerContext,
+          lessonContext,
+          goals,
         });
 
         // Phase 6i: Create worktree for parallel mode
@@ -356,14 +480,19 @@ export async function runCoordinationLoop(config: CoordinatorConfig): Promise<Co
           }
         }
 
-        // Spawn agent
+        // Spawn agent — planner tasks get larger ring buffer for full TaskGraph output
+        const taskMeta = isPlannerTask(task.metadata);
+        // Session reuse: on retry, pass previous sessionId so Claude can resume context
+        const prevSessionId = taskSessionIds.get(task.task_id);
         const agentProcess = adapter.spawn(prompt, {
           cwd: spawnCwd,
           timeoutMs: taskTimeoutMs,
+          tailLines: taskMeta ? 500 : undefined,
+          resumeSessionId: attempts > 0 ? prevSessionId : undefined,
         });
 
         taskAttempts.set(task.task_id, attempts + 1);
-        activeDispatches.push({
+        const dispatch: ActiveDispatch = {
           taskId: task.task_id,
           agentProcess,
           adapterName: adapter.name,
@@ -371,7 +500,46 @@ export async function runCoordinationLoop(config: CoordinatorConfig): Promise<Co
           dispatchedAt: Date.now(),
           worktreePath,
           worktreeBranch,
-        });
+          toolCount: 0,
+        };
+
+        // Start streaming message consumer (fire-and-forget, best-effort)
+        if (agentProcess.messages) {
+          dispatch.messageConsumer = (async () => {
+            // Phase 7: Create tool tracker for permission monitoring
+            const tracker = new TaskToolTracker(task.task_id);
+            taskToolTrackers.set(task.task_id, tracker);
+
+            try {
+              for await (const msg of agentProcess.messages!) {
+                if (msg.type === 'tool_use') {
+                  dispatch.toolCount++;
+                  // Phase 7: Record tool usage for risk profiling
+                  if (msg.tool) tracker.record(msg.tool);
+                  emit('agent:tool_use', `[${adapter.name}] tool #${dispatch.toolCount}: ${msg.tool ?? 'unknown'}`, {
+                    taskId: task.task_id,
+                    agentName: adapter.name,
+                  });
+                  // Write tool_use to pipeline trace
+                  if (traceDb && pipelineId) {
+                    try {
+                      writeTrace(traceDb, {
+                        pipelineId,
+                        timestamp: Date.now(),
+                        type: 'dispatch',
+                        taskId: task.task_id,
+                        agent: adapter.name,
+                        detail: `tool: ${msg.tool ?? 'unknown'}`,
+                      });
+                    } catch { /* trace is best-effort */ }
+                  }
+                }
+              }
+            } catch { /* stream consumer is best-effort */ }
+          })();
+        }
+
+        activeDispatches.push(dispatch);
 
         emit('task:dispatched', `Task "${task.description}" → ${adapter.name} [${role}] (attempt ${attempts + 1})`, {
           taskId: task.task_id,
@@ -394,20 +562,259 @@ export async function runCoordinationLoop(config: CoordinatorConfig): Promise<Co
           activeDispatches.splice(settled.idx, 1);
           const { dispatch, result } = settled;
 
+          // Accumulate token usage into pipeline total
+          if (result.tokenUsage) {
+            for (const [model, usage] of Object.entries(result.tokenUsage)) {
+              const prev = pipelineUsage[model] ?? { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, model };
+              prev.inputTokens += usage.inputTokens;
+              prev.outputTokens += usage.outputTokens;
+              prev.cacheReadTokens += usage.cacheReadTokens;
+              prev.cacheWriteTokens += usage.cacheWriteTokens;
+              pipelineUsage[model] = prev;
+            }
+            // Write usage to pipeline trace
+            if (traceDb && pipelineId) {
+              try {
+                const usageSummary = Object.entries(result.tokenUsage)
+                  .map(([m, u]) => `${m}: in=${u.inputTokens} out=${u.outputTokens} cache_r=${u.cacheReadTokens} cache_w=${u.cacheWriteTokens}`)
+                  .join('; ');
+                writeTrace(traceDb, {
+                  pipelineId,
+                  timestamp: Date.now(),
+                  type: 'complete',
+                  taskId: dispatch.taskId,
+                  agent: dispatch.adapterName,
+                  detail: `usage: ${usageSummary}; tools: ${dispatch.toolCount}`,
+                  durationMs: Date.now() - dispatch.dispatchedAt,
+                });
+              } catch { /* trace is best-effort */ }
+            }
+
+            // Phase 7: Budget check — abort if exceeded
+            if (config.budgetUSD != null && isBudgetExceeded(pipelineUsage, config.budgetUSD)) {
+              emit('error', `Budget exceeded ($${config.budgetUSD}) — aborting pipeline`, {});
+              aborted = true;
+              // Fail/release the current settled dispatch (already spliced out of activeDispatches)
+              try {
+                teamStore.failTask(dispatch.taskId, orchAgentId, `Budget exceeded ($${config.budgetUSD})`);
+              } catch { try { teamStore.releaseTask(dispatch.taskId, orchAgentId); } catch { /* */ } }
+              // Kill all remaining active agents and fail/release their tasks
+              for (const d of activeDispatches) {
+                try { d.agentProcess.abort(); } catch { /* best-effort */ }
+                try {
+                  teamStore.failTask(d.taskId, orchAgentId, `Budget exceeded ($${config.budgetUSD})`);
+                } catch { try { teamStore.releaseTask(d.taskId, orchAgentId); } catch { /* */ } }
+              }
+              activeDispatches.length = 0;
+              break; // Exit main loop
+            }
+          }
+
+          // Track sessionId for retry reuse (Claude session continuity)
+          if (result.sessionId) {
+            taskSessionIds.set(dispatch.taskId, result.sessionId);
+          }
+
           // ── 方案 A: Orchestrator owns task lifecycle ──
           // Agent does NOT call team_task. Orchestrator infers outcome from exit code.
           const taskState = teamStore.getTask(dispatch.taskId);
           const taskDesc = taskState?.description ?? dispatch.taskId;
 
           if (!result.killed && result.exitCode === 0) {
-            // Agent exited 0 → orchestrator marks task completed
+            // ── Phase 7: Run verify gates before marking completed ──
+            let gateResults: GateResult[] = [];
+            let gateFailed = false;
+
+            // Skip gates for planner/reviewer tasks — they produce plans, not code
+            const taskMeta = isPlannerTask(taskState?.metadata as string | null);
+            const skipGates = !!taskMeta; // planner or reviewer task
+
+            if (hasGates && !skipGates) {
+              const gateCwd = dispatch.worktreePath ?? projectDir;
+              try {
+                gateResults = await runVerifyGates(gateCwd, gateConfig);
+                gateFailed = hasGateFailure(gateResults);
+              } catch {
+                // Gate runner itself crashed → degrade to no-gate behavior
+                gateResults = [];
+                gateFailed = false;
+              }
+            }
+
+            if (gateFailed) {
+              // ── Phase 7: Fix Loop — gate failed, try targeted repair ──
+              const fixAttempts = taskFixAttempts.get(dispatch.taskId) ?? 0;
+              const failure = getFirstFailure(gateResults)!;
+
+              if (fixAttempts < maxFixAttempts) {
+                taskFixAttempts.set(dispatch.taskId, fixAttempts + 1);
+
+                // Build fix prompt with gate error output
+                const gateOutput = failure.output.length > 4096
+                  ? failure.output.slice(0, 2048) + `\n... (${failure.output.length - 4096} bytes omitted) ...\n` + failure.output.slice(-2048)
+                  : failure.output;
+
+                const fixPrompt = [
+                  `## Fix Required (${failure.gate} gate failed, attempt ${fixAttempts + 1}/${maxFixAttempts})`,
+                  '',
+                  `The ${failure.gate} gate failed after your code changes.`,
+                  `Command: \`${failure.command}\``,
+                  '',
+                  '### Error Output',
+                  '```',
+                  gateOutput,
+                  '```',
+                  '',
+                  'Fix ONLY the errors above. Do not rewrite from scratch.',
+                  'Focus on the specific compile/test errors and make minimal changes.',
+                ].join('\n');
+
+                // Re-dispatch with resumeSessionId for context continuity
+                const prevSessionId = taskSessionIds.get(dispatch.taskId);
+                const fixAdapter = adapters.find(a => a.name === dispatch.adapterName) ?? adapters[0];
+                const fixProcess = fixAdapter.spawn(fixPrompt, {
+                  cwd: dispatch.worktreePath ?? projectDir,
+                  timeoutMs: taskTimeoutMs,
+                  resumeSessionId: prevSessionId,
+                });
+
+                // Track the fix dispatch
+                const fixDispatch: ActiveDispatch = {
+                  taskId: dispatch.taskId,
+                  agentProcess: fixProcess,
+                  adapterName: dispatch.adapterName,
+                  attempt: dispatch.attempt,
+                  dispatchedAt: Date.now(),
+                  worktreePath: dispatch.worktreePath,
+                  worktreeBranch: dispatch.worktreeBranch,
+                  toolCount: 0,
+                };
+
+                // Start streaming message consumer for fix dispatch
+                if (fixProcess.messages) {
+                  fixDispatch.messageConsumer = (async () => {
+                    try {
+                      for await (const msg of fixProcess.messages!) {
+                        if (msg.type === 'tool_use') {
+                          fixDispatch.toolCount++;
+                        }
+                      }
+                    } catch { /* stream consumer is best-effort */ }
+                  })();
+                }
+
+                activeDispatches.push(fixDispatch);
+
+                emit('task:retry', `${failure.gate} gate failed for "${taskDesc}", fix attempt ${fixAttempts + 1}/${maxFixAttempts}`, {
+                  taskId: dispatch.taskId,
+                  agentName: dispatch.adapterName,
+                });
+
+                // Update ledger with gate failure
+                if (ledger) {
+                  try {
+                    const role = extractRoleFromDescription(taskState?.description ?? '');
+                    appendEntry(ledger, {
+                      taskId: dispatch.taskId,
+                      role,
+                      agent: dispatch.adapterName,
+                      status: 'failed',
+                      summary: `${failure.gate} gate failed (fix ${fixAttempts + 1}/${maxFixAttempts}): ${failure.output.slice(0, 200)}`,
+                      outputFiles: [],
+                      durationMs: Date.now() - dispatch.dispatchedAt,
+                      timestamp: Date.now(),
+                    });
+                  } catch { /* ledger is best-effort */ }
+                }
+
+                continue; // Skip to next settled dispatch — fix dispatch is now active
+              } else {
+                // Fix attempts exhausted → fall through to normal failure path below
+                emit('task:failed', `Fix loop exhausted for "${taskDesc}" after ${fixAttempts} fix attempts (${failure.gate} gate)`, {
+                  taskId: dispatch.taskId,
+                  agentName: dispatch.adapterName,
+                });
+
+                // Record failed agent for fallback routing
+                const failedSet = taskFailedAgents.get(dispatch.taskId) ?? new Set<string>();
+                failedSet.add(dispatch.adapterName);
+                taskFailedAgents.set(dispatch.taskId, failedSet);
+
+                // Fail the task — will be retried from scratch by existing retry logic
+                try {
+                  teamStore.failTask(dispatch.taskId, orchAgentId,
+                    `${failure.gate} gate failed after ${fixAttempts} fix attempts: ${failure.output.slice(0, 300)}`);
+                } catch { /* best-effort */ }
+
+                // Update ledger
+                if (ledger) {
+                  try {
+                    appendEntry(ledger, {
+                      taskId: dispatch.taskId,
+                      role: extractRoleFromDescription(taskState?.description ?? ''),
+                      agent: dispatch.adapterName,
+                      status: 'failed',
+                      summary: `Fix loop exhausted (${fixAttempts} attempts): ${failure.output.slice(0, 200)}`,
+                      outputFiles: [],
+                      durationMs: Date.now() - dispatch.dispatchedAt,
+                      timestamp: Date.now(),
+                    });
+                  } catch { /* ledger is best-effort */ }
+                }
+
+                // Phase 7: Write evidence for fix-exhausted task
+                if (enableEvidence && pipelineId) {
+                  try {
+                    const ev: TaskEvidence = {
+                      taskId: dispatch.taskId, taskDescription: taskDesc,
+                      agentName: dispatch.adapterName, status: 'failed',
+                      durationMs: Date.now() - dispatch.dispatchedAt,
+                      tailOutput: result.tailOutput, tokenUsage: result.tokenUsage,
+                      fixAttempts,
+                      gateResults,
+                    };
+                    writeTaskEvidence(projectDir, pipelineId, ev);
+                    taskEvidenceList.push(ev);
+                  } catch { /* evidence is best-effort */ }
+                }
+
+                // Worktree cleanup on fix exhaustion
+                if (dispatch.worktreePath) {
+                  try { removeWorktree(projectDir, dispatch.worktreePath, dispatch.worktreeBranch); } catch { /* best-effort */ }
+                }
+
+                // Check if we can retry from scratch
+                const attempts = taskAttempts.get(dispatch.taskId) ?? 1;
+                if (attempts <= maxRetries) {
+                  taskFixAttempts.delete(dispatch.taskId); // Reset fix counter for fresh retry
+                  const taskRow = teamStore.getTask(dispatch.taskId);
+                  if (taskRow && taskRow.status === 'failed') {
+                    teamStore.getDb().prepare(
+                      'UPDATE team_tasks SET status = ?, assignee_agent_id = NULL, result = NULL, updated_at = ? WHERE task_id = ?',
+                    ).run('pending', Date.now(), dispatch.taskId);
+                  }
+                  retryCount++;
+                  emit('task:retry', `Task "${taskDesc}" fix loop exhausted, retrying from scratch (${attempts}/${maxRetries})`, {
+                    taskId: dispatch.taskId,
+                  });
+                }
+
+                continue; // Already handled — skip the normal completion path
+              }
+            }
+
+            // ── Gates passed (or no gates configured) → mark completed ──
             try {
               teamStore.completeTask(dispatch.taskId, orchAgentId, result.tailOutput.slice(-500) || 'Completed');
             } catch { /* best-effort */ }
 
+            // Reset fix counter and failed agents on success
+            taskFixAttempts.delete(dispatch.taskId);
+            taskFailedAgents.delete(dispatch.taskId);
+
             // Phase 6c: If this was a structured planner task, materialize the graph
-            const taskMeta = teamStore.getTask(dispatch.taskId);
-            const plannerMeta = taskMeta ? isPlannerTask(taskMeta.metadata) : null;
+            const taskRow = teamStore.getTask(dispatch.taskId);
+            const plannerMeta = taskRow ? isPlannerTask(taskRow.metadata) : null;
             if (plannerMeta?.plannerType === 'plan' && structuredPlan && pipelineId) {
               const matResult = materializeTaskGraph(
                 teamStore,
@@ -455,7 +862,7 @@ export async function runCoordinationLoop(config: CoordinatorConfig): Promise<Co
             let mergeConflict = false;
             if (dispatch.worktreePath && dispatch.worktreeBranch) {
               try {
-                const mergeResult = mergeWorktree(projectDir, dispatch.worktreeBranch);
+                const mergeResult = mergeWorktree(projectDir, dispatch.worktreeBranch, dispatch.worktreePath);
                 if (mergeResult.success) {
                   emit('worktree:merge', `Merged worktree ${dispatch.worktreeBranch}`, {
                     taskId: dispatch.taskId,
@@ -480,9 +887,9 @@ export async function runCoordinationLoop(config: CoordinatorConfig): Promise<Co
             }
 
             // Phase 6d: Update ledger (status reflects merge outcome)
-            if (ledger && taskMeta) {
+            if (ledger && taskRow) {
               try {
-                const role = extractRoleFromDescription(taskMeta.description);
+                const role = extractRoleFromDescription(taskRow.description);
                 appendEntry(ledger, {
                   taskId: dispatch.taskId,
                   role,
@@ -503,6 +910,47 @@ export async function runCoordinationLoop(config: CoordinatorConfig): Promise<Co
                 taskId: dispatch.taskId,
                 agentName: dispatch.adapterName,
               });
+
+              // Phase 7: Store verified fix memory (if gate passed after fix attempts)
+              const fixCount = taskFixAttempts.get(dispatch.taskId) ?? 0;
+              if (fixCount > 0 && hasGates) {
+                try {
+                  storeVerifiedFix({
+                    projectId, gate: 'compile', passed: true,
+                    errorOutput: '', fixDescription: result.tailOutput.slice(-300),
+                    fixAttempt: fixCount, maxAttempts: maxFixAttempts,
+                  });
+                } catch { /* fire-and-forget */ }
+              }
+              resetBackoff(dispatch.taskId);
+
+              // Phase 7: Lifecycle memory capture (opt-in)
+              if (bridgeConfig.enableMemoryCapture && pipelineId) {
+                try {
+                  storeTaskCompletion({
+                    projectId, pipelineId, taskId: dispatch.taskId,
+                    taskDescription: taskDesc, agentName: dispatch.adapterName,
+                    durationMs: Date.now() - dispatch.dispatchedAt,
+                    tailOutput: result.tailOutput.slice(-200),
+                  });
+                } catch { /* fire-and-forget */ }
+              }
+
+              // Phase 7: Write evidence (best-effort)
+              if (enableEvidence && pipelineId) {
+                try {
+                  const ev: TaskEvidence = {
+                    taskId: dispatch.taskId, taskDescription: taskDesc,
+                    agentName: dispatch.adapterName, status: 'completed',
+                    durationMs: Date.now() - dispatch.dispatchedAt,
+                    tailOutput: result.tailOutput, tokenUsage: result.tokenUsage,
+                    fixAttempts: fixCount,
+                    gateResults: gateResults.length > 0 ? gateResults : undefined,
+                  };
+                  writeTaskEvidence(projectDir, pipelineId, ev);
+                  taskEvidenceList.push(ev);
+                } catch { /* evidence is best-effort */ }
+              }
             }
           } else {
             // Agent failed or timed out → orchestrator marks task failed (may retry)
@@ -512,6 +960,10 @@ export async function runCoordinationLoop(config: CoordinatorConfig): Promise<Co
               emit('task:timeout', reason, { taskId: dispatch.taskId, agentName: dispatch.adapterName });
             } else {
               reason = `Exit code ${result.exitCode}: ${result.tailOutput.slice(-200)}`;
+              // Diagnostic: emit full tail for debugging agent failures
+              emit('error', `[DIAG] ${dispatch.adapterName} exit=${result.exitCode} tail(500)=${result.tailOutput.slice(-500)}`, {
+                taskId: dispatch.taskId, agentName: dispatch.adapterName,
+              });
             }
 
             // Fail the task (orchestrator is the assignee)
@@ -541,8 +993,41 @@ export async function runCoordinationLoop(config: CoordinatorConfig): Promise<Co
               try { removeWorktree(projectDir, dispatch.worktreePath, dispatch.worktreeBranch); } catch { /* best-effort */ }
             }
 
+            // Phase 7: Error recovery classification
+            const recovery = classifyError({
+              exitCode: result.exitCode,
+              killed: result.killed,
+              tailOutput: result.tailOutput,
+            }, dispatch.taskId);
+
+            // Record failed agent for fallback routing
+            const failedSet2 = taskFailedAgents.get(dispatch.taskId) ?? new Set<string>();
+            failedSet2.add(dispatch.adapterName);
+            taskFailedAgents.set(dispatch.taskId, failedSet2);
+
+            // Phase 7: Write evidence for failed task
+            if (enableEvidence && pipelineId) {
+              try {
+                const fixCount = taskFixAttempts.get(dispatch.taskId) ?? 0;
+                const ev: TaskEvidence = {
+                  taskId: dispatch.taskId, taskDescription: taskDesc,
+                  agentName: dispatch.adapterName, status: 'failed',
+                  durationMs: Date.now() - dispatch.dispatchedAt,
+                  tailOutput: result.tailOutput, tokenUsage: result.tokenUsage,
+                  fixAttempts: fixCount > 0 ? fixCount : undefined,
+                };
+                writeTaskEvidence(projectDir, pipelineId, ev);
+                taskEvidenceList.push(ev);
+              } catch { /* evidence is best-effort */ }
+            }
+
             const attempts = taskAttempts.get(dispatch.taskId) ?? 1;
             if (attempts <= maxRetries) {
+              // Phase 7: Apply recovery strategy delay
+              if (recovery.delayMs > 0) {
+                await sleep(recovery.delayMs);
+              }
+
               // Reset to pending for retry via direct DB update
               // Clear result to avoid stale data from previous attempt leaking
               const taskRow = teamStore.getTask(dispatch.taskId);
@@ -552,7 +1037,7 @@ export async function runCoordinationLoop(config: CoordinatorConfig): Promise<Co
                 ).run('pending', Date.now(), dispatch.taskId);
               }
               retryCount++;
-              emit('task:retry', `Task "${taskDesc}" failed, retrying (${attempts}/${maxRetries})`, {
+              emit('task:retry', `Task "${taskDesc}" failed (${recovery.category}), retrying (${attempts}/${maxRetries})`, {
                 taskId: dispatch.taskId,
               });
             } else {
@@ -570,6 +1055,7 @@ export async function runCoordinationLoop(config: CoordinatorConfig): Promise<Co
     }
 
     // Aborted
+    const hasUsageAbort = Object.keys(pipelineUsage).length > 0;
     return {
       totalTasks: teamStore.listTasks(projectId).length,
       completed: teamStore.listTasks(projectId, { status: 'completed' }).length,
@@ -577,6 +1063,8 @@ export async function runCoordinationLoop(config: CoordinatorConfig): Promise<Co
       retries: retryCount,
       elapsed: Date.now() - startTime,
       aborted: true,
+      tokenUsage: hasUsageAbort ? pipelineUsage : undefined,
+      costSummary: hasUsageAbort ? calculatePipelineCost(pipelineUsage, config.budgetUSD) : undefined,
     };
   } finally {
     process.off('SIGINT', cleanup);

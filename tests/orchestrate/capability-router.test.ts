@@ -4,6 +4,7 @@ import {
   parseRoutingOverrides,
   extractRoleFromDescription,
 } from '../../src/orchestrate/capability-router.js';
+import { parseAgentQuotas, buildQuotaMap } from '../../src/orchestrate/adapters/index.js';
 import type { AgentAdapter } from '../../src/orchestrate/adapters/types.js';
 
 function mockAdapter(name: string): AgentAdapter {
@@ -93,6 +94,80 @@ describe('capability-router', () => {
 
     it('should default to engineer if no role found', () => {
       expect(extractRoleFromDescription('Just do the thing')).toBe('engineer');
+    });
+  });
+
+  describe('parseAgentQuotas', () => {
+    it('should parse quota syntax', () => {
+      const result = parseAgentQuotas('claude:2,codex:1,gemini:3');
+      expect(result).toEqual([
+        { name: 'claude', quota: 2 },
+        { name: 'codex', quota: 1 },
+        { name: 'gemini', quota: 3 },
+      ]);
+    });
+
+    it('should default quota to 1 for plain names', () => {
+      const result = parseAgentQuotas('claude,codex');
+      expect(result).toEqual([
+        { name: 'claude', quota: 1 },
+        { name: 'codex', quota: 1 },
+      ]);
+    });
+
+    it('should handle mixed syntax', () => {
+      const result = parseAgentQuotas('claude:2,codex');
+      expect(result).toEqual([
+        { name: 'claude', quota: 2 },
+        { name: 'codex', quota: 1 },
+      ]);
+    });
+
+    it('should skip unknown adapters', () => {
+      const result = parseAgentQuotas('claude,unknown:3');
+      expect(result).toEqual([{ name: 'claude', quota: 1 }]);
+    });
+  });
+
+  describe('buildQuotaMap', () => {
+    it('should build map from quotas', () => {
+      const map = buildQuotaMap([
+        { name: 'claude', quota: 2 },
+        { name: 'codex', quota: 1 },
+      ]);
+      expect(map).toEqual({ claude: 2, codex: 1 });
+    });
+  });
+
+  describe('pickAdapter with quotaMap', () => {
+    const opencode = mockAdapter('opencode');
+
+    it('should respect per-type quota limits', () => {
+      const config = { quotaMap: { claude: 2, codex: 1 } };
+      // claude has 1 active dispatch (quota 2) → still available
+      const result = pickAdapter('pm', [claude, codex], undefined, config, { claude: 1, codex: 0 });
+      expect(result.name).toBe('claude');
+    });
+
+    it('should skip adapter at quota capacity', () => {
+      const config = { quotaMap: { claude: 1, codex: 2 } };
+      // claude at capacity (1/1), codex not (0/2) → picks codex
+      const result = pickAdapter('pm', [claude, codex], undefined, config, { claude: 1, codex: 0 });
+      expect(result.name).toBe('codex');
+    });
+
+    it('should fall back to last resort when all at capacity', () => {
+      const config = { quotaMap: { claude: 1, codex: 1 } };
+      // both at capacity → returns first adapter (last resort)
+      const result = pickAdapter('pm', [claude, codex], undefined, config, { claude: 1, codex: 1 });
+      expect(result.name).toBe('claude'); // last resort = available[0]
+    });
+
+    it('should use quota=1 for adapters not in quotaMap', () => {
+      const config = { quotaMap: { claude: 3 } };
+      // codex has quota=1 (default), 1 active → full; claude has 3 quota, 2 active → available
+      const result = pickAdapter('engineer', [codex, claude], undefined, config, { codex: 1, claude: 2 });
+      expect(result.name).toBe('claude');
     });
   });
 });

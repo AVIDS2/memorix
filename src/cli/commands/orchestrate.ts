@@ -23,7 +23,7 @@ export default defineCommand({
     },
     agents: {
       type: 'string',
-      description: 'Comma-separated agent names: claude,codex,gemini (default: claude)',
+      description: 'Agent names with optional quotas: claude:2,codex:1,gemini:2 (default: claude)',
       default: 'claude',
     },
     'max-retries': {
@@ -91,12 +91,48 @@ export default defineCommand({
       description: 'Overall pipeline timeout in ms (default: no limit)',
       required: false,
     },
+    // ── Phase 7 flags ──────────────────────────────────────────────
+    'compile-command': {
+      type: 'string',
+      description: 'Compile gate command (e.g. "npx tsc --noEmit"). Skipped if unset.',
+      required: false,
+    },
+    'test-command': {
+      type: 'string',
+      description: 'Test gate command (e.g. "npx vitest run"). Skipped if unset.',
+      required: false,
+    },
+    'max-fix': {
+      type: 'string',
+      description: 'Max fix attempts per task before from-scratch retry (default: 3)',
+      default: '3',
+    },
+    budget: {
+      type: 'string',
+      description: 'USD budget limit — abort pipeline when exceeded (no limit if unset)',
+      required: false,
+    },
+    'no-lessons': {
+      type: 'boolean',
+      description: 'Disable Memorix lesson injection before dispatch',
+      default: false,
+    },
+    'memory-capture': {
+      type: 'boolean',
+      description: 'Enable lifecycle memory capture to Memorix',
+      default: false,
+    },
+    'no-evidence': {
+      type: 'boolean',
+      description: 'Disable evidence directory writing',
+      default: false,
+    },
   },
   run: async ({ args }) => {
     const { detectProject } = await import('../../project/detector.js');
     const { initTeamStore } = await import('../../team/team-store.js');
     const { getProjectDataDir } = await import('../../store/persistence.js');
-    const { resolveAdapters } = await import('../../orchestrate/adapters/index.js');
+    const { resolveAdapters, parseAgentQuotas, buildQuotaMap } = await import('../../orchestrate/adapters/index.js');
     const { runCoordinationLoop } = await import('../../orchestrate/coordinator.js');
     const path = await import('node:path');
 
@@ -107,7 +143,14 @@ export default defineCommand({
       process.exit(1);
     }
 
-    const agentNames = (args.agents as string).split(',').map(s => s.trim()).filter(Boolean);
+    // Parse agent quotas: "claude:2,codex:1,gemini:2" or legacy "claude,codex,gemini"
+    const agentQuotas = parseAgentQuotas(args.agents as string);
+    if (agentQuotas.length === 0) {
+      console.error('❌ No valid agent adapters found.');
+      process.exit(1);
+    }
+    const quotaMap = buildQuotaMap(agentQuotas);
+    const agentNames = [...new Set(agentQuotas.map(q => q.name))];
     const adapters = resolveAdapters(agentNames);
     if (adapters.length === 0) {
       console.error('❌ No valid agent adapters found.');
@@ -135,7 +178,10 @@ export default defineCommand({
 
     const maxRetries = parseInt(args['max-retries'] as string, 10);
     const taskTimeoutMs = parseInt(args.timeout as string, 10);
-    const parallel = parseInt(args.parallel as string, 10);
+    // Default parallel = sum of quotas (e.g. claude:2,codex:1 → parallel 3)
+    const totalQuota = Object.values(quotaMap).reduce((a, b) => a + b, 0);
+    const parallelRaw = args.parallel as string;
+    const parallel = parallelRaw === '1' && totalQuota > 1 ? totalQuota : parseInt(parallelRaw, 10);
     const pollIntervalMs = parseInt(args.poll as string, 10);
     const staleTtlMs = parseInt(args['stale-ttl'] as string, 10);
     const dryRun = args['dry-run'] as boolean;
@@ -180,10 +226,13 @@ export default defineCommand({
       }
     }
 
-    // Phase 6f: Parse routing overrides
+    // Phase 6f: Parse routing overrides + inject quota map
     const { parseRoutingOverrides } = await import('../../orchestrate/capability-router.js');
-    const routingConfig = args.routing
-      ? { overrides: parseRoutingOverrides(args.routing as string) }
+    const routingOverrides = args.routing
+      ? parseRoutingOverrides(args.routing as string)
+      : undefined;
+    const routingConfig = (routingOverrides || Object.keys(quotaMap).length > 0)
+      ? { overrides: routingOverrides, quotaMap }
       : undefined;
 
     const structuredPlan = !(args['no-structured-plan'] as boolean);
@@ -239,10 +288,34 @@ export default defineCommand({
 
     console.error(`\n🚀 Orchestrator started for project ${proj.name}`);
     console.error(`📋 ${pendingTasks.length} pending, ${tasks.filter(t => t.status === 'in_progress').length} in progress, ${tasks.filter(t => t.status === 'completed').length} completed`);
-    console.error(`🤖 Agents: ${(dryRun ? adapters : available).map(a => a.name).join(', ')}`);
+    const agentLabel = agentQuotas.map(q => q.quota > 1 ? `${q.name}×${q.quota}` : q.name).join(', ');
+    console.error(`🤖 Agents: ${agentLabel}`);
     console.error(`⚙️  Parallel: ${parallel}, Retries: ${maxRetries}, Timeout: ${taskTimeoutMs}ms${globalTimeoutMs ? `, Global: ${globalTimeoutMs}ms` : ''}`);
-    if (routingConfig) console.error(`🛣️  Routing: ${args.routing}`);
+    if (args.routing) console.error(`🛣️  Routing: ${args.routing}`);
     if (parallel >= 2) console.error(`🌳 Git worktree isolation: enabled`);
+
+    // Phase 7 config display
+    const compileCommand = args['compile-command'] as string | undefined;
+    const testCommand = args['test-command'] as string | undefined;
+    const maxFixAttempts = parseInt(args['max-fix'] as string, 10);
+    const budgetRaw = args.budget as string | undefined;
+    const budgetUSD = budgetRaw ? parseFloat(budgetRaw) : undefined;
+    if (budgetUSD != null && (!Number.isFinite(budgetUSD) || budgetUSD <= 0)) {
+      console.error(`❌ Invalid --budget value: "${budgetRaw}" (must be a positive number)`);
+      process.exit(1);
+    }
+    const enableLessons = !(args['no-lessons'] as boolean);
+    const enableMemoryCapture = args['memory-capture'] as boolean;
+    const enableEvidence = !(args['no-evidence'] as boolean);
+
+    if (compileCommand) console.error(`🔨 Compile gate: ${compileCommand}`);
+    if (testCommand) console.error(`🧪 Test gate: ${testCommand}`);
+    if (compileCommand || testCommand) console.error(`🔧 Max fix attempts: ${maxFixAttempts}`);
+    if (budgetUSD != null) console.error(`💵 Budget: $${budgetUSD}`);
+    if (!enableLessons) console.error(`📚 Lessons: disabled`);
+    if (enableMemoryCapture) console.error(`🧠 Memory capture: enabled`);
+    if (!enableEvidence) console.error(`📁 Evidence: disabled`);
+
     if (dryRun) console.error('🔍 DRY RUN — no agents will be spawned\n');
     else console.error('');
 
@@ -261,6 +334,13 @@ export default defineCommand({
       pipelineId: currentPipelineId,
       structuredPlan,
       globalTimeoutMs,
+      compileCommand,
+      testCommand,
+      maxFixAttempts,
+      budgetUSD,
+      enableLessons,
+      enableMemoryCapture,
+      enableEvidence,
       onProgress: (event) => {
         const ts = new Date(event.timestamp).toLocaleTimeString();
         const icons: Record<string, string> = {
@@ -277,6 +357,8 @@ export default defineCommand({
           'plan:failed': '🚨',
           'worktree:create': '🌳',
           'worktree:merge': '🔀',
+          'agent:tool_use': '🔧',
+          'agent:message': '💬',
         };
         console.error(`[${ts}] ${icons[event.type] ?? '•'} ${event.message}`);
       },
@@ -292,6 +374,22 @@ export default defineCommand({
     }
     if (result.retries > 0) console.error(`🔄 ${result.retries} retries`);
     console.error(`⏱️  Total time: ${formatDuration(result.elapsed)}`);
+
+    // Token usage summary
+    if (result.tokenUsage) {
+      console.error(`\n💰 Token Usage:`);
+      for (const [model, usage] of Object.entries(result.tokenUsage)) {
+        const total = usage.inputTokens + usage.outputTokens;
+        const cacheHits = usage.cacheReadTokens;
+        console.error(`   ${model}: ${total.toLocaleString()} tokens (in: ${usage.inputTokens.toLocaleString()}, out: ${usage.outputTokens.toLocaleString()}${cacheHits > 0 ? `, cache: ${cacheHits.toLocaleString()}` : ''})`);
+      }
+    }
+
+    // Phase 7: Cost summary
+    if (result.costSummary) {
+      const { formatCostSummary } = await import('../../orchestrate/cost-tracker.js');
+      console.error(`\n${formatCostSummary(result.costSummary)}`);
+    }
 
     process.exit(result.failed > 0 ? 1 : 0);
   },

@@ -120,7 +120,7 @@ export default defineCommand({
       try {
         const http = await import('node:http');
         const healthy = await new Promise<boolean>((resolve) => {
-          const req = http.request({ hostname: '127.0.0.1', port: bgPort, path: '/health', timeout: 3000 }, (res) => {
+          const req = http.request({ hostname: '127.0.0.1', port: bgPort, path: '/api/team', timeout: 3000 }, (res) => {
             res.resume();
             resolve(res.statusCode === 200);
           });
@@ -150,7 +150,7 @@ export default defineCommand({
       try {
         const http = await import('node:http');
         const portUsed = await new Promise<boolean>((resolve) => {
-          const req = http.request({ hostname: '127.0.0.1', port: 3211, path: '/health', timeout: 2000 }, (res) => {
+          const req = http.request({ hostname: '127.0.0.1', port: 3211, path: '/api/team', timeout: 2000 }, (res) => {
             res.resume();
             resolve(res.statusCode === 200);
           });

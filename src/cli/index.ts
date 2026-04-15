@@ -852,6 +852,17 @@ const main = defineCommand({
     'git-hook': () => import('./commands/git-hook-install.js').then(m => m.default),
     'git-hook-uninstall': () => import('./commands/git-hook-uninstall.js').then(m => m.default),
     background: () => import('./commands/background.js').then(m => m.default),
+    bg: () => import('./commands/background.js').then(m => m.default),
+    bs: () => Promise.resolve(defineCommand({
+      meta: { name: 'bs', description: 'Shortcut: background start' },
+      args: { port: { type: 'string', description: 'HTTP port (default: 3211)', required: false } },
+      async run({ args }) {
+        // Directly invoke background start instead of going through citty's CommandContext
+        const port = parseInt((args.port as string) || '3211', 10);
+        const { doStart } = await import('./commands/background.js');
+        await doStart(port);
+      },
+    })),
     doctor: () => import('./commands/doctor.js').then(m => m.default),
     dashboard: () => import('./commands/dashboard.js').then(m => m.default),
     cleanup: () => import('./commands/cleanup.js').then(m => m.default),
@@ -864,7 +875,7 @@ const main = defineCommand({
     const knownSubs = ['search', 'remember', 'recent',
       'init', 'integrate', 'serve', 'serve-http', 'status', 'sync',
       'hook', 'hooks', 'ingest', 'git-hook', 'git-hook-uninstall',
-      'background', 'doctor', 'dashboard', 'cleanup', 'orchestrate'];
+      'background', 'bg', 'bs', 'doctor', 'dashboard', 'cleanup', 'orchestrate'];
     if (firstArg && knownSubs.includes(firstArg)) return;
 
     // No subcommand provided — show fullscreen workbench if in TTY, otherwise show help

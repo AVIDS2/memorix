@@ -1,6 +1,6 @@
 {
   "name": "memorix",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "description": "Open-source cross-agent memory layer for coding agents across Cursor, Claude Code, Codex, Windsurf, Gemini CLI, Copilot, Kiro, OpenCode, Antigravity, and Trae via MCP.",
   "type": "module",
   "sideEffects": false,

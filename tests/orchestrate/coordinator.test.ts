@@ -756,4 +756,92 @@ describe('Coordinator', () => {
     const result = await runCoordinationLoop({ ...base, globalTimeoutMs: undefined });
     expect(result.completed).toBe(1);
   });
+
+  // ═══════════════════════════════════════════════════════════════
+  // Fix: Budget abort must fail current settled dispatch
+  // ═══════════════════════════════════════════════════════════════
+
+  it('should fail current task when budget is exceeded after it settles', async () => {
+    // Create a mock adapter that returns expensive token usage
+    const expensiveAdapter: AgentAdapter = {
+      name: 'claude-opus-4-6',
+      async available() { return true; },
+      spawn(_prompt: string, _spawnOpts: SpawnOptions): AgentProcess {
+        let aborted = false;
+        const completion = new Promise<AgentProcessResult>(async (resolve) => {
+          await new Promise(r => setTimeout(r, 10));
+          if (aborted) {
+            resolve({ exitCode: null, signal: 'SIGTERM', tailOutput: 'aborted', killed: true });
+            return;
+          }
+          resolve({
+            exitCode: 0,
+            signal: null,
+            tailOutput: 'expensive output',
+            killed: false,
+            // claude-opus-4-6: input=$5/1M, output=$25/1M
+            // 200K input + 100K output = $1 + $2.50 = $3.50
+            tokenUsage: {
+              'claude-opus-4-6': {
+                inputTokens: 200_000,
+                outputTokens: 100_000,
+                cacheReadTokens: 0,
+                cacheWriteTokens: 0,
+                model: 'claude-opus-4-6',
+              },
+            },
+          });
+        });
+        return { pid: 99999, completion, abort() { aborted = true; } };
+      },
+    };
+
+    const taskId = store.createTask({ projectId: 'proj1', description: 'Expensive task' });
+
+    const result = await runCoordinationLoop({
+      projectDir: tmpDir,
+      projectId: 'proj1',
+      adapters: [expensiveAdapter],
+      teamStore: store,
+      budgetUSD: 0.01, // $0.01 budget — way below the $3.50 cost
+      parallel: 1,
+      pollIntervalMs: 30,
+      taskTimeoutMs: 5_000,
+      maxRetries: 0,
+    });
+
+    // Pipeline must be aborted
+    expect(result.aborted).toBe(true);
+
+    // The task that triggered the budget must be failed, NOT stuck in_progress
+    const task = store.getTask(taskId.task_id);
+    expect(task).toBeDefined();
+    expect(task!.status).toBe('failed');
+    expect(task!.status).not.toBe('in_progress');
+  });
+
+  // ═══════════════════════════════════════════════════════════════
+  // Fix: budgetUSD defensive validation at coordinator API
+  // ═══════════════════════════════════════════════════════════════
+
+  it('should throw on invalid budgetUSD values', async () => {
+    store.createTask({ projectId: 'proj1', description: 'Task' });
+    const base = {
+      projectDir: tmpDir,
+      projectId: 'proj1',
+      adapters: [createMockAdapter({})],
+      teamStore: store,
+    };
+
+    await expect(runCoordinationLoop({ ...base, budgetUSD: 0 }))
+      .rejects.toThrow('budgetUSD must be > 0');
+    await expect(runCoordinationLoop({ ...base, budgetUSD: -5 }))
+      .rejects.toThrow('budgetUSD must be > 0');
+    await expect(runCoordinationLoop({ ...base, budgetUSD: NaN }))
+      .rejects.toThrow('budgetUSD must be > 0');
+
+    // undefined is fine (no budget)
+    const result = await runCoordinationLoop({ ...base, budgetUSD: undefined });
+    expect(result.completed).toBe(1);
+  });
 });

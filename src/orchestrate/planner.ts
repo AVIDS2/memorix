@@ -293,22 +293,30 @@ Return a single JSON object (inside a \`\`\`json code fence) matching this schem
   "tasks": [
     {
       "tempId": "t1",
-      "role": "pm",
-      "description": "[Role: PM] Self-contained task description with all context...",
+      "role": "engineer",
+      "description": "[Role: Engineer] Build module A — full spec inline, all file paths, acceptance criteria...",
       "deps": [],
-      "files": ["optional/list/of/files.ts"]
+      "files": ["src/moduleA.js"]
     },
     {
       "tempId": "t2",
       "role": "engineer",
-      "description": "[Role: Engineer] Build the component...",
-      "deps": ["t1"]
+      "description": "[Role: Engineer] Build module B — no dependency on t1, can run in parallel...",
+      "deps": [],
+      "files": ["src/moduleB.js"]
+    },
+    {
+      "tempId": "t3",
+      "role": "engineer",
+      "description": "[Role: Engineer] Build integration layer — needs t1 and t2 output...",
+      "deps": ["t1", "t2"],
+      "files": ["src/main.js"]
     },
     {
       "tempId": "tN",
       "role": "reviewer",
       "description": "[Role: Reviewer — Quality Gate (iteration 1/${maxIterations})] Review all work...",
-      "deps": ["t1", "t2", "...all other tempIds"]
+      "deps": ["t1", "t2", "t3"]
     }
   ]
 }
@@ -322,12 +330,17 @@ Return a single JSON object (inside a \`\`\`json code fence) matching this schem
 - **The LAST task MUST be a reviewer** — it depends on ALL other tasks
 - **files** (optional) lists files the task creates or modifies
 
-## Suggested Structure
+## Suggested Structure — MAXIMIZE PARALLELISM
 
-1. 1–2 research/planning tasks (PM writes spec)
-2. 1–3 implementation tasks (Engineer builds)
-3. 0–1 QA tasks (testing/validation)
-4. 1 review task (MANDATORY, last, depends on ALL others)
+- **Skip PM tasks unless truly necessary.** Instead, embed all requirements, specs, file paths, and acceptance criteria DIRECTLY into each engineer task description. This lets engineers start immediately in parallel.
+- Only create a PM task if the goal is so ambiguous that engineers cannot begin without a research phase.
+- Engineers with NO dependencies on each other should have \`"deps": []\` so they run in parallel.
+- Engineers that build on another engineer's output should depend on that specific task only.
+
+Typical structure (4–8 tasks):
+1. 2–5 engineer tasks (parallel where possible, deps only where truly needed)
+2. 0–1 QA tasks (optional, depends on engineers)
+3. 1 review task (MANDATORY, last, depends on ALL others)
 
 ## Review Task Description Template
 

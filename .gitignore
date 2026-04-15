@@ -16,6 +16,12 @@ image/
 .tmp-*
 *.tmp
 
+# Test/demo artifacts
+.pipeline/
+.playwright-mcp/
+output/
+memory-game-*.png
+
 # Auto-generated agent configs
 .agents/
 .windsurfrules

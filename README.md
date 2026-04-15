@@ -58,16 +58,15 @@ What makes Memorix different:
 
 Memorix is built for one job: let multiple coding agents share the same durable project memory through MCP without giving up Git truth, reasoning history, or local control.
 
-## What's New in 1.0.6
+## What's New in 1.0.7
 
-Version `1.0.6` is the release where Memorix's memory model became much more explicit, safer, and easier to operate.
+Version `1.0.7` adds autonomous multi-agent orchestration, SQLite canonical storage, and team identity.
 
-- **Provenance-first retrieval**: memories now carry clearer source semantics (`explicit`, `hook`, `git-ingest`) and value categories (`core`, `contextual`, `ephemeral`).
-- **Layered disclosure**: session start, search, detail, and timeline now separate routing hints, working context, and deeper evidence more intentionally.
-- **Evidence and citation-lite support**: compact outputs now explain repository-backed evidence, synthesized analysis, and lightweight "why surfaced / what supports this" signals.
-- **Task-line scoping and secret safety**: retrieval is better at staying inside the current workstream, and obvious credentials are sanitized or redacted on both write and read paths.
-- **Attribution and cleanup loop**: wrong-bucket auditing, retention explainability, stale-memory review, and structured remediation hints now form a practical operator loop.
-- **OpenCode compaction improvements**: OpenCode compaction now uses a structured continuation prompt and a real `post_compact` event instead of implying automatic MCP tool calls during compaction.
+- **Multi-Agent Orchestrator**: `memorix orchestrate` runs a full autonomous pipeline — plan → parallel execution → verify gates → fix loops → review → merge. Supports Claude, Codex, Gemini CLI, and OpenCode with capability routing, worktree isolation, and agent fallback.
+- **SQLite Canonical Store**: Observations, mini-skills, sessions, and archives now use SQLite as the single source of truth with shared DB handle and freshness-safe retrieval.
+- **Team Identity**: Agent registration, heartbeat, task board, handoff artifacts, and stale detection for multi-agent collaboration.
+- **Configurable Timeouts**: `MEMORIX_LLM_TIMEOUT_MS` (default 30s) and `MEMORIX_RERANK_TIMEOUT_MS` (default 5s) for slow API providers.
+- **Cursor stdio fix**: No longer exits when workspace root is unavailable — starts in deferred-binding mode instead.
 
 ## Supported Clients
 

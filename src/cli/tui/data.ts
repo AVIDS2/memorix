@@ -151,13 +151,11 @@ export async function getHealthInfo(projectId?: string): Promise<HealthInfo> {
     defaults.activeMemories = active.length;
 
     try {
-      const sessionsPath = `${dataDir}/sessions.json`;
-      if (fs.existsSync(sessionsPath)) {
-        const allSessions = JSON.parse(fs.readFileSync(sessionsPath, 'utf-8')) as any[];
-        defaults.sessions = Array.isArray(allSessions)
-          ? allSessions.filter((s: any) => s.projectId === effectiveProjectId).length
-          : 0;
-      }
+      const { initSessionStore, getSessionStore } = await import('../../store/session-store.js');
+      await initSessionStore(dataDir);
+      const sessStore = getSessionStore();
+      const allSessions = await sessStore.loadAll() as any[];
+      defaults.sessions = allSessions.filter((s: any) => s.projectId === effectiveProjectId).length;
     } catch {
       // Ignore unreadable session data and keep defaults.
     }

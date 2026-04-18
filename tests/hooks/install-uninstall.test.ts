@@ -9,7 +9,7 @@
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { installHooks, uninstallHooks } from '../../src/hooks/installers/index.js';
-import { getProjectFiles, loadAudit } from '../../src/audit/index.js';
+import { getProjectFiles } from '../../src/audit/index.js';
 import fs from 'node:fs/promises';
 import fsSync from 'node:fs';
 import path from 'node:path';
@@ -25,12 +25,16 @@ async function cleanup(dir: string): Promise<void> {
 
 describe('Hooks install/uninstall lifecycle', () => {
   let tmpDir: string;
+  let auditFile: string;
 
   beforeEach(() => {
     tmpDir = makeTmpDir();
+    auditFile = path.join(tmpDir, '.memorix', 'audit.json');
+    process.env.MEMORIX_AUDIT_FILE = auditFile;
   });
 
   afterEach(async () => {
+    delete process.env.MEMORIX_AUDIT_FILE;
     await cleanup(tmpDir);
   });
 
@@ -168,6 +172,55 @@ describe('Hooks install/uninstall lifecycle', () => {
     await installHooks('gemini-cli', tmpDir);
 
     const result = await uninstallHooks('gemini-cli', tmpDir);
+    expect(result).toBe(true);
+  });
+
+  it('should recover audit entry when ledger is lost and re-install is called (codex)', async () => {
+    const agentsMd = path.join(tmpDir, 'AGENTS.md');
+
+    // Install codex hooks (creates AGENTS.md + audit entry)
+    await installHooks('codex', tmpDir);
+    let content = await fs.readFile(agentsMd, 'utf-8');
+    expect(content).toContain('# Memorix');
+
+    // Verify audit has entry
+    let files = await getProjectFiles(tmpDir);
+    expect(files.find(e => e.path === agentsMd)).toBeDefined();
+
+    // Corrupt the audit ledger by deleting it
+    try { await fs.unlink(auditFile); } catch { /* may not exist at this path */ }
+
+    // Re-install should recover the audit entry
+    await installHooks('codex', tmpDir);
+
+    // File should still have Memorix content
+    content = await fs.readFile(agentsMd, 'utf-8');
+    expect(content).toContain('# Memorix');
+
+    // Audit should be recovered
+    files = await getProjectFiles(tmpDir);
+    const entry = files.find(e => e.path === agentsMd);
+    expect(entry).toBeDefined();
+    expect(entry!.agent).toBe('codex');
+  });
+
+  it('should install and uninstall claude hooks (non-shared-rules agent)', async () => {
+    const settingsPath = path.join(tmpDir, '.claude', 'settings.local.json');
+
+    // Install claude hooks
+    await installHooks('claude', tmpDir);
+
+    // Config file should exist
+    const content = await fs.readFile(settingsPath, 'utf-8');
+    const parsed = JSON.parse(content);
+    expect(parsed).toBeDefined();
+
+    // Audit should have entries
+    const files = await getProjectFiles(tmpDir);
+    expect(files.length).toBeGreaterThan(0);
+
+    // Uninstall should succeed
+    const result = await uninstallHooks('claude', tmpDir);
     expect(result).toBe(true);
   });
 });

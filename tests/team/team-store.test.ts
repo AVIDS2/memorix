@@ -197,6 +197,7 @@ describe('TeamStore', () => {
         content: 'Handoff context',
         payload: { summary: 'Done task X', nextSteps: ['Continue Y'] },
       });
+      if ('error' in msg) throw new Error(msg.error);
       expect(msg.id).toBeTruthy();
 
       // When B comes back, it can read the message
@@ -230,6 +231,7 @@ describe('TeamStore', () => {
         type: 'direct',
         content: 'Old message',
       });
+      if ('error' in msg) throw new Error(msg.error);
 
       store.markMessageRead(msg.id);
 
@@ -240,6 +242,48 @@ describe('TeamStore', () => {
       const pruned = store.pruneReadMessages('proj1', 0);
       expect(pruned).toBe(1);
       expect(store.getInbox('proj1', agentB).length).toBe(0);
+    });
+
+    it('should reject message from unknown sender', () => {
+      const result = store.sendMessage({
+        projectId: 'proj1',
+        senderAgentId: 'nonexistent-agent',
+        recipientAgentId: agentB,
+        type: 'direct',
+        content: 'Fake message',
+      });
+      expect('error' in result).toBe(true);
+      if ('error' in result) {
+        expect(result.error).toContain('Sender agent');
+        expect(result.error).toContain('not found');
+      }
+    });
+
+    it('should reject message to unknown recipient', () => {
+      const result = store.sendMessage({
+        projectId: 'proj1',
+        senderAgentId: agentA,
+        recipientAgentId: 'nonexistent-agent',
+        type: 'direct',
+        content: 'Fake message',
+      });
+      expect('error' in result).toBe(true);
+      if ('error' in result) {
+        expect(result.error).toContain('Recipient agent');
+        expect(result.error).toContain('not found');
+      }
+    });
+
+    it('should allow broadcast with null recipient (no validation needed)', () => {
+      const result = store.sendMessage({
+        projectId: 'proj1',
+        senderAgentId: agentA,
+        recipientAgentId: null,
+        type: 'announcement',
+        content: 'Broadcast message',
+      });
+      if ('error' in result) throw new Error(result.error);
+      expect(result.id).toBeTruthy();
     });
   });
 
@@ -354,6 +398,66 @@ describe('TeamStore', () => {
       const available = store.listTasks('proj1', { available: true });
       expect(available.length).toBe(1);
       expect(available[0].description).toBe('Available');
+    });
+
+    it('should reject claim when required_role does not match agent role', () => {
+      const engineer = store.registerAgent({ projectId: 'proj1', agentType: 'windsurf', instanceId: 'eng1', role: 'engineer' });
+      const reviewer = store.registerAgent({ projectId: 'proj1', agentType: 'cursor', instanceId: 'rev1', role: 'reviewer' });
+      const task = store.createTask({ projectId: 'proj1', description: 'Review PR', requiredRole: 'reviewer' });
+
+      // Engineer cannot claim a reviewer-only task
+      const engResult = store.claimTask(task.task_id, engineer.agent_id);
+      expect(engResult.success).toBe(false);
+      expect(engResult.reason).toContain('Role mismatch');
+      expect(engResult.reason).toContain('reviewer');
+
+      // Reviewer can claim
+      const revResult = store.claimTask(task.task_id, reviewer.agent_id);
+      expect(revResult.success).toBe(true);
+    });
+
+    it('should allow claim when preferred_role does not match but required_role does', () => {
+      const engineer = store.registerAgent({ projectId: 'proj1', agentType: 'windsurf', instanceId: 'eng1', role: 'engineer' });
+      const task = store.createTask({ projectId: 'proj1', description: 'Fix bug', requiredRole: 'engineer', preferredRole: 'senior-engineer' });
+
+      // Engineer matches required_role, claim succeeds even though preferred_role doesn't match
+      const result = store.claimTask(task.task_id, engineer.agent_id);
+      expect(result.success).toBe(true);
+      expect(result.hint).toContain('Preferred role');
+      expect(result.hint).toContain('senior-engineer');
+    });
+
+    it('should allow claim when no required_role is set (role-agnostic)', () => {
+      const engineer = store.registerAgent({ projectId: 'proj1', agentType: 'windsurf', instanceId: 'eng1', role: 'engineer' });
+      const task = store.createTask({ projectId: 'proj1', description: 'Any role task' });
+
+      const result = store.claimTask(task.task_id, engineer.agent_id);
+      expect(result.success).toBe(true);
+      expect(result.hint).toBeUndefined();
+    });
+
+    it('should sort available tasks by role affinity for a specific agent', () => {
+      const senior = store.registerAgent({ projectId: 'proj1', agentType: 'windsurf', instanceId: 'sen1', role: 'senior-engineer' });
+      const engineer = store.registerAgent({ projectId: 'proj1', agentType: 'windsurf', instanceId: 'eng1', role: 'engineer' });
+
+      // preferred_role matches senior, required_role also senior → best for senior
+      const preferredTask = store.createTask({ projectId: 'proj1', description: 'Senior task', requiredRole: 'senior-engineer', preferredRole: 'senior-engineer' });
+      // required_role matches engineer only
+      const engTask = store.createTask({ projectId: 'proj1', description: 'Engineer task', requiredRole: 'engineer' });
+      // no role constraint
+      const anyTask = store.createTask({ projectId: 'proj1', description: 'Any task' });
+
+      // Senior sees: preferred first, then agnostic (engineer-only task excluded)
+      const seniorTasks = store.listTasksForAgent('proj1', senior.agent_id);
+      expect(seniorTasks.length).toBe(2);
+      expect(seniorTasks[0].description).toBe('Senior task');
+      expect(seniorTasks[1].description).toBe('Any task');
+
+      // Engineer sees: required first, then agnostic (senior-only task excluded)
+      const engTasks = store.listTasksForAgent('proj1', engineer.agent_id);
+      expect(engTasks.length).toBe(2);
+      expect(engTasks[0].description).toBe('Engineer task');
+      expect(engTasks[1].description).toBe('Any task');
     });
   });
 

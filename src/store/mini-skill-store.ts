@@ -35,7 +35,7 @@ export interface MiniSkillStore {
   atomicInsertWithId(skill: Omit<MiniSkill, 'id'>): Promise<MiniSkill>;
   ensureFresh(): Promise<boolean>;
   getGeneration(): number;
-  getBackendName(): 'sqlite' | 'json';
+  getBackendName(): 'sqlite' | 'degraded';
 }
 
 // ── Row <-> MiniSkill serialization ─────────────────────────────────
@@ -258,7 +258,7 @@ export class MiniSkillSqliteStore implements MiniSkillStore {
     return this.knownGeneration;
   }
 
-  getBackendName(): 'sqlite' | 'json' {
+  getBackendName(): 'sqlite' | 'degraded' {
     return 'sqlite';
   }
 }
@@ -299,7 +299,7 @@ export class MiniSkillGracefulDegrade implements MiniSkillStore {
 
   async ensureFresh(): Promise<boolean> { return false; }
   getGeneration(): number { return 0; }
-  getBackendName(): 'sqlite' | 'json' { return 'json'; }
+  getBackendName(): 'sqlite' | 'degraded' { return 'degraded'; }
 }
 
 // ── Singleton access ────────────────────────────────────────────────
@@ -337,7 +337,7 @@ export async function initMiniSkillStore(dataDir: string): Promise<MiniSkillStor
     _storeDataDir = dataDir;
     return store;
   } catch (err) {
-    console.error(`[memorix] MiniSkillSqliteStore unavailable, falling back to JSON: ${err instanceof Error ? err.message : err}`);
+    console.error(`[memorix] MiniSkillSqliteStore unavailable, running in degraded read-only mode: ${err instanceof Error ? err.message : err}`);
   }
 
   // Fallback: graceful degrade (no writable JSON backend per debt-zero rule)

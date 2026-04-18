@@ -1,5 +1,12 @@
 /**
- * memorix dashboard — Launch the Memorix Web Dashboard
+ * memorix dashboard — Launch the Memorix Web Dashboard (Standalone mode)
+ *
+ * Starts a Standalone Dashboard server with no MCP or Team features.
+ * For the full Control Plane (MCP + Dashboard + Team), use `memorix serve-http`.
+ *
+ * Mode semantics:
+ *   - "Standalone" = Dashboard only, no MCP/team (this command, default port 3210)
+ *   - "Control Plane" = HTTP MCP + Dashboard + Team (memorix serve-http, default port 3211)
  */
 
 import { defineCommand } from 'citty';
@@ -36,7 +43,7 @@ export default defineCommand({
         const cliDir = path.dirname(fileURLToPath(import.meta.url));
         const staticDir = path.join(cliDir, '..', 'dashboard', 'static');
 
-        await startDashboard(dataDir, port, staticDir, project.id, project.name);
+        await startDashboard(dataDir, port, staticDir, project.id, project.name, true, undefined, project.rootPath, true);
 
         // Keep alive
         await new Promise(() => { });

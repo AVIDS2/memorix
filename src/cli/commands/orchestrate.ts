@@ -1,5 +1,5 @@
 /**
- * memorix orchestrate — Autonomous multi-agent coordination.
+ * memorix orchestrate — Structured multi-agent coordination.
  *
  * Phase 6k: Runs a production-grade coordination loop with structured
  * planning, shared ledger, capability routing, pipeline tracing, and
@@ -13,7 +13,7 @@ import { defineCommand } from 'citty';
 export default defineCommand({
   meta: {
     name: 'orchestrate',
-    description: 'Run autonomous multi-agent coordination loop',
+    description: 'Run structured multi-agent coordination loop',
   },
   args: {
     project: {
@@ -75,6 +75,11 @@ export default defineCommand({
       type: 'string',
       description: 'Capability routing overrides: "pm=claude,engineer=codex"',
       required: false,
+    },
+    scheduling: {
+      type: 'string',
+      description: 'Scheduling policy: best-fit (default) or balanced (round-robin tiebreaker)',
+      default: 'best-fit',
     },
     'no-structured-plan': {
       type: 'boolean',
@@ -226,13 +231,14 @@ export default defineCommand({
       }
     }
 
-    // Phase 6f: Parse routing overrides + inject quota map
+    // Phase 6f: Parse routing overrides + inject quota map + scheduling policy
     const { parseRoutingOverrides } = await import('../../orchestrate/capability-router.js');
     const routingOverrides = args.routing
       ? parseRoutingOverrides(args.routing as string)
       : undefined;
-    const routingConfig = (routingOverrides || Object.keys(quotaMap).length > 0)
-      ? { overrides: routingOverrides, quotaMap }
+    const schedulingPolicy = (args.scheduling as string) === 'balanced' ? 'balanced' as const : 'best-fit' as const;
+    const routingConfig = (routingOverrides || Object.keys(quotaMap).length > 0 || schedulingPolicy === 'balanced')
+      ? { overrides: routingOverrides, quotaMap, scheduling: schedulingPolicy }
       : undefined;
 
     const structuredPlan = !(args['no-structured-plan'] as boolean);

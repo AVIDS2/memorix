@@ -31,7 +31,7 @@ export interface SessionStoreInterface {
    * Guarantees at most one active session per project.
    */
   atomicRolloverInsert(newSession: Session, projectIds: string[], now: string): Promise<number>;
-  getBackendName(): 'sqlite' | 'json';
+  getBackendName(): 'sqlite' | 'degraded';
 }
 
 // ── Row <-> Session serialization ───────────────────────────────────
@@ -179,7 +179,7 @@ export class SessionSqliteStore implements SessionStoreInterface {
     return result;
   }
 
-  getBackendName(): 'sqlite' | 'json' {
+  getBackendName(): 'sqlite' | 'degraded' {
     return 'sqlite';
   }
 }
@@ -213,7 +213,7 @@ export class SessionGracefulDegrade implements SessionStoreInterface {
   async bulkUpdate(_sessions: Session[]): Promise<void> { this.warn(); }
   async atomicRolloverInsert(_newSession: Session, _projectIds: string[], _now: string): Promise<number> { this.warn(); return 0; }
 
-  getBackendName(): 'sqlite' | 'json' { return 'json'; }
+  getBackendName(): 'sqlite' | 'degraded' { return 'degraded'; }
 }
 
 // ── Singleton access ────────────────────────────────────────────────
@@ -247,7 +247,7 @@ export async function initSessionStore(dataDir: string): Promise<SessionStoreInt
     _storeDataDir = dataDir;
     return store;
   } catch (err) {
-    console.error(`[memorix] SessionSqliteStore unavailable, falling back to JSON: ${err instanceof Error ? err.message : err}`);
+    console.error(`[memorix] SessionSqliteStore unavailable, running in degraded read-only mode: ${err instanceof Error ? err.message : err}`);
   }
 
   // Fallback: graceful degrade (no writable JSON backend per debt-zero rule)

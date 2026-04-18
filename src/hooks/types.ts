@@ -19,6 +19,23 @@ export type HookEvent =
 /** Supported agent identifiers */
 export type AgentName = 'claude' | 'copilot' | 'windsurf' | 'cursor' | 'kiro' | 'codex' | 'antigravity' | 'gemini-cli' | 'opencode' | 'trae';
 
+/** Support tier for hook agents */
+export type SupportTier = 'core' | 'extended' | 'community';
+
+/** Agent support tier mapping */
+export const AGENT_SUPPORT_TIER: Record<AgentName, SupportTier> = {
+  claude: 'core',
+  windsurf: 'core',
+  cursor: 'core',
+  copilot: 'extended',
+  kiro: 'extended',
+  codex: 'extended',
+  'gemini-cli': 'community',
+  opencode: 'community',
+  trae: 'community',
+  antigravity: 'community',
+};
+
 /** Normalized hook input — agent-agnostic */
 export interface NormalizedHookInput {
   event: HookEvent;

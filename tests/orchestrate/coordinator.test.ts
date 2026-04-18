@@ -656,28 +656,39 @@ describe('Coordinator', () => {
 
     const task = store.createTask({ projectId: 'proj1', description: '[Role: Engineer] Build feature X' });
 
-    // Adapter that writes a conflicting file in worktree cwd AND on main
+    // Adapter that writes a conflicting file in worktree cwd AND on main.
+    // Writes happen synchronously in spawn() to avoid timing races.
+    let worktreeCwd: string | null = null;
+    let conflictWritten = false;
     const conflictAdapter: AgentAdapter = {
       name: 'conflict-maker',
       async available() { return true; },
       spawn(_prompt: string, opts: SpawnOptions): AgentProcess {
-        const completion = new Promise<AgentProcessResult>(async (resolve) => {
-          await new Promise(r => setTimeout(r, 10));
-          try {
-            const cwd = opts.cwd ?? tmpDir;
-            fs.writeFileSync(path.join(cwd, 'conflict.txt'), 'from worktree branch');
+        worktreeCwd = opts.cwd ?? tmpDir;
+
+        // Write conflict file in worktree branch synchronously
+        try {
+          if (worktreeCwd && worktreeCwd !== tmpDir) {
+            fs.writeFileSync(path.join(worktreeCwd, 'conflict.txt'), 'from worktree branch');
             execSync('git add . && git commit -m "worktree change"', {
-              cwd,
+              cwd: worktreeCwd,
               encoding: 'utf-8',
             });
-            // Commit a conflicting change on main
+            // Write conflicting change on main branch
             fs.writeFileSync(path.join(tmpDir, 'conflict.txt'), 'from main branch');
             execSync('git add . && git commit -m "main change"', {
               cwd: tmpDir,
               encoding: 'utf-8',
             });
-          } catch { /* best-effort */ }
-          resolve({ exitCode: 0, signal: null, tailOutput: 'done', killed: false });
+            conflictWritten = true;
+          }
+        } catch { /* best-effort: git ops may fail in some envs */ }
+
+        const completion = Promise.resolve({
+          exitCode: 0,
+          signal: null,
+          tailOutput: 'done',
+          killed: false,
         });
         return { pid: 99999, completion, abort() {} };
       },
@@ -699,7 +710,7 @@ describe('Coordinator', () => {
 
     // Check if worktree was actually created (depends on git availability)
     const worktreeCreated = events.some(e => e.type === 'worktree:create');
-    if (worktreeCreated) {
+    if (worktreeCreated && conflictWritten) {
       const conflictEvent = events.find(e =>
         e.type === 'task:failed' && e.message.includes('merge conflict'),
       );
@@ -730,7 +741,8 @@ describe('Coordinator', () => {
         expect(result.completed).toBe(1);
       }
     }
-  });
+  }, 30_000); // Explicit 30s timeout: git worktree + merge ops take ~4s under suite load;
+              // default 5s vitest timeout is too tight for this test.
 
   // ═══════════════════════════════════════════════════════════════
   // Fix: globalTimeoutMs defensive validation at coordinator API

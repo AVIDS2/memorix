@@ -12,7 +12,10 @@ export default defineConfig([
     target: 'node20',
     dts: true,
     sourcemap: true,
-    clean: true,
+    // NO clean here — tsup runs configs in Promise.all (parallel).
+    // clean:true would delete dist/ while the CLI config is concurrently writing to it,
+    // causing EPERM on Windows (file locked by concurrent writer).
+    // Clean is handled by the "build" script in package.json before tsup starts.
     splitting: false,
     shims: true,
     define,

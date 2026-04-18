@@ -23,9 +23,9 @@ It supports:
 - local-first project-scoped memory
 - cross-agent recall across Cursor, Claude Code, Codex, Windsurf, Gemini CLI, GitHub Copilot, Kiro, OpenCode, Antigravity, and Trae
 
-### 1.0.6 operator delta
+### 1.0.7 operator delta
 
-If you used Memorix before `1.0.6`, the operator-visible changes worth knowing are:
+If you used Memorix before `1.0.7`, the operator-visible changes worth knowing are:
 
 - session, search, detail, and timeline now expose a clearer `L1 / L2 / L3` retrieval model
 - compact evidence surfaces better distinguish repository-backed signals, synthesized analysis, and citation-lite support
@@ -204,6 +204,21 @@ Generic HTTP MCP example:
 }
 ```
 
+**⚠ serverUrl mode requires the background control plane to already be running.**
+The `serverUrl` config is a pure HTTP client — it connects to an endpoint but does NOT start the server.
+If the control plane is down, the MCP client receives `ECONNREFUSED` with no auto-recovery.
+
+To guarantee the server is available before the IDE connects, use:
+
+```bash
+memorix background ensure
+```
+
+This command checks health and auto-starts if needed. Add it to your shell profile or IDE startup script.
+
+Some IDEs (Windsurf, Cursor) use `serverUrl` in their MCP config and do not support preflight commands.
+For those, the background must be started manually or via OS startup (see §4 Step 3b below).
+
 If you choose HTTP mode, do not stop at the URL. The agent must also bind each project session with `memorix_session_start(projectRoot=ABSOLUTE_WORKSPACE_PATH)` when the workspace path is available.
 
 This is the best path for:
@@ -248,10 +263,36 @@ Main URLs:
 Companion commands:
 
 ```bash
-memorix background status
-memorix background logs
-memorix background stop
+memorix background status   # Show running state and health
+memorix background ensure   # Auto-start if not running (idempotent, silent when healthy)
+memorix background logs     # Show recent log output
+memorix background stop     # Stop the background control plane
+memorix background restart  # Stop + start
 ```
+
+### Step 3b. Make the control plane persistent (recommended)
+
+`memorix background start` spawns a detached process that survives the terminal, but it does **not** survive system reboots or user logouts.
+
+The background control plane is a **persistent server** — it is designed to run continuously in the background, not to be auto-launched by MCP clients on demand.
+
+To make it truly persistent:
+
+**Windows** — add to shell profile (`$PROFILE`):
+
+```powershell
+memorix background ensure
+```
+
+**macOS/Linux** — add to shell profile (`.bashrc`, `.zshrc`):
+
+```bash
+memorix background ensure 2>/dev/null
+```
+
+Or use a launchd plist / systemd user service for true boot-time persistence.
+
+**Why this matters:** IDEs that use `serverUrl` (Windsurf, Cursor HTTP mode) connect to `http://localhost:3211/mcp` but cannot start the server. If the control plane is down, the IDE shows an MCP error with no recovery path. The user must run `memorix background start` or `ensure` manually.
 
 At startup, `serve-http` seeds its default project root from:
 
@@ -412,10 +453,12 @@ In HTTP control-plane mode:
 
 1. Call `memorix_session_start`
 2. Pass:
-   - `agent`
+   - `agent` — display name (e.g. `"cursor-frontend"`)
+   - `agentType` — agent type for auto-registration (e.g. `"windsurf"`, `"cursor"`, `"claude-code"`, `"codex"`, `"gemini-cli"`)
    - `projectRoot` = absolute workspace path
-3. If project binding fails, stop using project-scoped tools until the path is corrected
-4. Then use:
+3. The agent is automatically registered in the team with a default role derived from `agentType` via `AGENT_TYPE_ROLE_MAP`. No separate `team_manage(join)` call is needed.
+4. If project binding fails, stop using project-scoped tools until the path is corrected
+5. Then use:
    - `memorix_search`
    - `memorix_detail`
    - `memorix_timeline`
@@ -479,15 +522,42 @@ git init
 - stdio MCP client -> `memorix serve`
 - HTTP/dashboard/control-plane use case -> `memorix background start` by default, or `memorix serve-http --port 3211` when foreground control is required
 
-### 3. Is the MCP config pointing to the right command?
+### 3. Is the background control plane actually running?
+
+If the MCP client reports `ECONNREFUSED` on `localhost:3211`:
+
+```bash
+memorix background status
+```
+
+If it shows "Not running" or "dead":
+
+```bash
+memorix background ensure
+```
+
+Common causes of the background dying:
+- System reboot or user logout (background is not a system service)
+- Unhandled error in the control plane process (now logged to `~/.memorix/background.log`)
+- Terminal that started it was closed before the process fully detached (rare on Node.js v20+)
+
+The heartbeat file `~/.memorix/background.heartbeat` is updated every 30 seconds while the control plane is alive. If `status` reports a dead process with a recent heartbeat, the control plane crashed — check the log file.
+
+### 4. Is the MCP config pointing to the right command?
 
 On Windows, some hosts behave better with `memorix.cmd` than bare `memorix`.
 
-### 4. In HTTP mode, did the session bind with `projectRoot`?
+**serverUrl vs command mode:**
+- `serverUrl` (HTTP) requires the background to already be running — it cannot auto-start
+- `command` (stdio) launches `memorix serve` on demand — no background needed, but no dashboard/team
+
+If using `serverUrl` and the background keeps disappearing, consider switching to stdio mode as a fallback.
+
+### 5. In HTTP mode, did the session bind with `projectRoot`?
 
 If not, the agent may drift into the wrong project bucket or fail closed.
 
-### 5. Did the user install the integration they actually need?
+### 6. Did the user install the integration they actually need?
 
 Use:
 
@@ -496,7 +566,7 @@ memorix integrate --agent <agent>
 memorix hooks install --agent <agent>
 ```
 
-### 6. Is the generated plugin/hook stale?
+### 7. Is the generated plugin/hook stale?
 
 OpenCode in particular now supports stale-install detection through:
 
@@ -510,7 +580,7 @@ If outdated, re-run:
 memorix hooks install --agent opencode
 ```
 
-### 7. Are LLM and embedding secrets configured?
+### 8. Are LLM and embedding secrets configured?
 
 Check:
 
@@ -538,6 +608,9 @@ Do not:
 - promise that all `.xxx` integration directories can be physically merged
 - tell users "auto-update is implemented" unless you mean the real wired runtime feature
 - rely on stale generated plugin files when diagnosing current behavior
+- assume `serverUrl` HTTP mode will auto-start the background control plane — it cannot
+- tell users "just restart the IDE" when the fix is `memorix background ensure`
+- promise the background control plane survives reboots without OS-level startup config
 
 ---
 
@@ -551,6 +624,8 @@ If a user asks any of these:
 - "Why does it fail in this workspace?"
 - "How should I use serve vs serve-http?"
 - "What files will this create?"
+- "Why does my MCP client show ECONNREFUSED / connection refused?"
+- "Why did the background control plane disappear?"
 
 read this document first, then act.
 

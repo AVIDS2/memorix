@@ -13,9 +13,10 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { exec } from 'node:child_process';
 
-import { loadGraphJsonl, saveGraphJsonl, loadIdCounter, getBaseDataDir } from '../store/persistence.js';
+import { getBaseDataDir } from '../store/persistence.js';
 import { getObservationStore, initObservationStore } from '../store/obs-store.js';
 import { getSessionStore, initSessionStore } from '../store/session-store.js';
+import { initGraphStore, getGraphStore } from '../store/graph-store.js';
 
 // MIME types for static file serving
 const MIME_TYPES: Record<string, string> = {
@@ -54,6 +55,26 @@ function filterByProject<T extends { projectId?: string }>(items: T[], projectId
 }
 
 /**
+ * Compute project-scoped graph counts from observations.
+ * Only entities referenced by this project's active observations are counted.
+ */
+function computeProjectGraphCounts(
+    allEntities: Array<{ name: string }>,
+    allRelations: Array<{ from: string; to: string }>,
+    projectObs: Array<{ entityName?: string; status?: string }>,
+): { entities: number; relations: number; entityNames: Set<string> } {
+    const entityNames = new Set(
+        projectObs
+            .filter(o => (o.status ?? 'active') === 'active' && o.entityName)
+            .map(o => o.entityName!),
+    );
+    const entities = allEntities.filter(e => entityNames.has(e.name));
+    const entityNameSet = new Set(entities.map(e => e.name));
+    const relations = allRelations.filter(r => entityNameSet.has(r.from) && entityNameSet.has(r.to));
+    return { entities: entities.length, relations: relations.length, entityNames };
+}
+
+/**
  * API route handlers
  */
 async function handleApi(
@@ -63,6 +84,10 @@ async function handleApi(
     projectId: string,
     projectName: string,
     baseDir: string,
+    projectRoot: string | null,
+    projectResolved: boolean,
+    mode: 'standalone' | 'control-plane' = 'standalone',
+    port: number = 3210,
 ) {
     const url = new URL(req.url || '/', `http://${req.headers.host}`);
     const apiPath = url.pathname.replace('/api', '');
@@ -73,10 +98,15 @@ async function handleApi(
     let effectiveDataDir = dataDir;
     let effectiveProjectId = projectId;
     let effectiveProjectName = projectName;
+    let effectiveProjectRoot = projectRoot;
+    let effectiveProjectResolved = projectResolved;
     if (requestedProject && requestedProject !== projectId) {
         effectiveDataDir = baseDir;  // flat storage: all data in one dir
         effectiveProjectId = requestedProject;
         effectiveProjectName = requestedProject.split('/').pop() || requestedProject;
+        // Switched project is considered resolved (user selected it from known projects)
+        effectiveProjectResolved = true;
+        effectiveProjectRoot = null; // root unknown for switched project
     }
 
     try {
@@ -104,6 +134,9 @@ async function handleApi(
                         }
                     } catch { /* alias module not available, use raw IDs */ }
 
+                    // Classify projects as real/temporary/placeholder + dirty flag
+                    const { classifyProjectId, isDirtyProjectId } = await import('./project-classification.js');
+
                     const projects = Array.from(mergedSet.entries())
                         .sort((a, b) => b[1] - a[1])  // Most observations first
                         .map(([id, count]) => ({
@@ -111,6 +144,8 @@ async function handleApi(
                             name: id.split('/').pop() || id,
                             count,
                             isCurrent: id === projectId,
+                            kind: classifyProjectId(id),
+                            dirty: isDirtyProjectId(id),
                         }));
                     sendJson(res, projects);
                 } catch {
@@ -120,12 +155,22 @@ async function handleApi(
             }
 
             case '/project': {
-                sendJson(res, { id: effectiveProjectId, name: effectiveProjectName });
+                sendJson(res, {
+                    id: effectiveProjectId,
+                    name: effectiveProjectName,
+                    resolved: effectiveProjectResolved,
+                    rootPath: effectiveProjectRoot,
+                    mode,
+                    port,
+                    mcpEndpoint: mode === 'control-plane' ? `http://127.0.0.1:${port}/mcp` : null,
+                });
                 break;
             }
 
             case '/graph': {
-                const graph = await loadGraphJsonl(effectiveDataDir);
+                await initGraphStore(effectiveDataDir);
+                const gStore = getGraphStore();
+                const graph = { entities: gStore.loadEntities(), relations: gStore.loadRelations() };
                 // Project-scope the graph: only include entities that have observations in this project
                 const graphObs = await getObservationStore().loadAll() as Array<{ projectId?: string; entityName?: string; status?: string }>;
                 const projectEntityNames = new Set(
@@ -133,9 +178,9 @@ async function handleApi(
                         .filter(o => o.projectId === effectiveProjectId && (o.status ?? 'active') === 'active' && o.entityName)
                         .map(o => o.entityName!),
                 );
-                const entities = graph.entities.filter(e => projectEntityNames.has(e.name));
-                const entityNameSet = new Set(entities.map(e => e.name));
-                const relations = graph.relations.filter(r => entityNameSet.has(r.from) && entityNameSet.has(r.to));
+                const entities = graph.entities.filter((e: any) => projectEntityNames.has(e.name));
+                const entityNameSet = new Set(entities.map((e: any) => e.name));
+                const relations = graph.relations.filter((r: any) => entityNameSet.has(r.from) && entityNameSet.has(r.to));
                 sendJson(res, { entities, relations });
                 break;
             }
@@ -155,10 +200,14 @@ async function handleApi(
             }
 
             case '/stats': {
-                const graph = await loadGraphJsonl(effectiveDataDir);
+                await initGraphStore(effectiveDataDir);
+                const graph = { entities: getGraphStore().loadEntities(), relations: getGraphStore().loadRelations() };
                 const allObs = await getObservationStore().loadAll();
                 const observations = filterByProject(allObs as Array<{ projectId?: string; type?: string; id?: number; createdAt?: string; title?: string; entityName?: string }>, effectiveProjectId);
-                const nextId = await loadIdCounter(effectiveDataDir);
+                const nextId = await getObservationStore().loadIdCounter();
+
+                // Project-scoped graph counts (must match /api/graph and /api/export)
+                const projectGraphCounts = computeProjectGraphCounts(graph.entities, graph.relations, observations as Array<{ entityName?: string; status?: string }>);
 
                 // Type counts
                 const typeCounts: Record<string, number> = {};
@@ -235,8 +284,8 @@ async function handleApi(
                 };
 
                 sendJson(res, {
-                    entities: graph.entities.length,
-                    relations: graph.relations.length,
+                    entities: projectGraphCounts.entities,
+                    relations: projectGraphCounts.relations,
                     observations: observations.length,
                     nextId,
                     typeCounts,
@@ -318,37 +367,44 @@ async function handleApi(
                 const { join } = await import('node:path');
 
                 let yml: any = {};
-                let projectRoot = process.cwd(); // approximate — dashboard may not have project root
+                // Use the real project root from dashboard state, not process.cwd()
+                const configProjectRoot = effectiveProjectRoot;
                 try {
                     const { loadYamlConfig } = await import('../config/yaml-loader.js');
                     yml = loadYamlConfig();
                 } catch { /* best effort */ }
 
                 // Load .env files so process.env reflects actual config (fixes #74, #62)
-                try {
-                    const { loadDotenv } = await import('../config/dotenv-loader.js');
-                    loadDotenv(projectRoot);
-                } catch { /* best effort */ }
+                if (configProjectRoot) {
+                    try {
+                        const { loadDotenv } = await import('../config/dotenv-loader.js');
+                        loadDotenv(configProjectRoot);
+                    } catch { /* best effort */ }
+                }
 
                 // Check which config files exist
-                const files: Record<string, { exists: boolean; path: string }> = {
-                    'project memorix.yml': { exists: false, path: '' },
+                const files: Record<string, { exists: boolean; path: string; unavailable?: boolean }> = {
+                    'project memorix.yml': { exists: false, path: '', unavailable: !configProjectRoot },
                     'user memorix.yml': { exists: false, path: '' },
-                    'project .env': { exists: false, path: '' },
+                    'project .env': { exists: false, path: '', unavailable: !configProjectRoot },
                     'user .env': { exists: false, path: '' },
                     'legacy config.json': { exists: false, path: '' },
                 };
                 try {
                     const home = os.homedir();
-                    const paths: Record<string, string> = {
-                        'project memorix.yml': join(projectRoot, 'memorix.yml'),
+                    const paths: Record<string, string | null> = {
+                        'project memorix.yml': configProjectRoot ? join(configProjectRoot, 'memorix.yml') : null,
                         'user memorix.yml': join(home, '.memorix', 'memorix.yml'),
-                        'project .env': join(projectRoot, '.env'),
+                        'project .env': configProjectRoot ? join(configProjectRoot, '.env') : null,
                         'user .env': join(home, '.memorix', '.env'),
                         'legacy config.json': join(home, '.memorix', 'config.json'),
                     };
                     for (const [key, fpath] of Object.entries(paths)) {
-                        files[key] = { exists: existsSync(fpath), path: fpath };
+                        if (fpath === null) {
+                            files[key] = { exists: false, path: 'unavailable', unavailable: true };
+                        } else {
+                            files[key] = { exists: existsSync(fpath), path: fpath };
+                        }
                     }
                 } catch { /* best effort */ }
 
@@ -409,20 +465,30 @@ async function handleApi(
             }
 
             case '/identity': {
-                // Project identity health
+                // Project identity health — with classification layering (matches control-plane contract)
                 const allObs = await getObservationStore().loadAll() as Array<{ projectId?: string }>;
                 const allProjectIds = [...new Set(allObs.map(o => o.projectId).filter(Boolean))] as string[];
 
-                // Known dirty patterns
-                const dirtyPatterns = [
-                    /^placeholder\//,
-                    /System32/i,
-                    /Microsoft VS Code/i,
-                    /node_modules/i,
-                    /\.vscode/i,
-                    /^local\/[A-Z]:\\/,
-                ];
-                const dirtyIds = allProjectIds.filter(id => dirtyPatterns.some(p => p.test(id)));
+                // Classify every known ID (real / temporary / placeholder) + dirty axis
+                let classifyProjectId: (id: string) => string = () => 'real';
+                let isDirtyProjectId: (id: string) => boolean = () => false;
+                try {
+                    const cls = await import('../dashboard/project-classification.js');
+                    classifyProjectId = cls.classifyProjectId;
+                    isDirtyProjectId = cls.isDirtyProjectId;
+                } catch { /* classification module not available */ }
+
+                const classified = allProjectIds.map(id => ({
+                    id,
+                    kind: classifyProjectId(id),
+                    dirty: isDirtyProjectId(id),
+                    isCurrent: id === effectiveProjectId,
+                }));
+
+                const realIds = classified.filter(c => c.kind === 'real').map(c => c.id);
+                const temporaryIds = classified.filter(c => c.kind === 'temporary').map(c => c.id);
+                const placeholderIds = classified.filter(c => c.kind === 'placeholder').map(c => c.id);
+                const dirtyIds = classified.filter(c => c.dirty).map(c => c.id);
 
                 // Get alias info
                 let aliasGroups: any[] = [];
@@ -442,22 +508,48 @@ async function handleApi(
                 const currentGroup = aliasGroups.find((g: any) => g.aliases?.includes(effectiveProjectId) || g.canonical === effectiveProjectId);
                 const aliases = currentGroup?.aliases || [effectiveProjectId];
 
-                // Health assessment
-                const hasDirtyIds = dirtyIds.length > 0;
-                const hasMultipleUnmerged = allProjectIds.length > aliasGroups.length + 1;
-                const isHealthy = !hasDirtyIds && !hasMultipleUnmerged;
+                // Alias groups intersecting real (non-temporary, non-placeholder) IDs
+                const realIdSet = new Set(realIds);
+                const aliasGroupsReal = aliasGroups.filter((g: any) => {
+                    const members = [g.canonical, ...(g.aliases || [])].filter(Boolean);
+                    return members.some((m: string) => realIdSet.has(m));
+                }).length;
+
+                // Current project dirty flag
+                const currentDirty = isDirtyProjectId(effectiveProjectId);
+                // Unmerged real fragments = real IDs not covered by any alias group
+                const aliasCoveredReal = new Set<string>();
+                for (const g of aliasGroups) {
+                    for (const m of [g.canonical, ...(g.aliases || [])]) {
+                        if (m && realIdSet.has(m)) aliasCoveredReal.add(m);
+                    }
+                }
+                const unmergedRealFragments = realIds.filter(id => !aliasCoveredReal.has(id));
+                const hasMultipleUnmerged = unmergedRealFragments.length > 1;
+                const isHealthy = !currentDirty && !hasMultipleUnmerged;
 
                 sendJson(res, {
                     currentProjectId: effectiveProjectId,
                     canonicalId,
                     aliases,
+                    currentKind: classifyProjectId(effectiveProjectId),
+                    currentDirty,
+                    // Primary counts — the ones UI should headline
+                    realKnownIds: realIds,
+                    // De-emphasized / historical
+                    temporaryKnownIds: temporaryIds,
+                    placeholderKnownIds: placeholderIds,
+                    // Back-compat: full list for legacy consumers
                     allProjectIds,
                     dirtyIds,
+                    // Alias registry: both raw count and real-scoped count
                     aliasGroups: aliasGroups.length,
+                    aliasGroupsReal,
+                    unmergedRealFragments,
                     isHealthy,
                     healthIssues: [
-                        ...(hasDirtyIds ? [`${dirtyIds.length} dirty project ID(s) detected`] : []),
-                        ...(hasMultipleUnmerged ? ['Possible unmerged project identity splits'] : []),
+                        ...(currentDirty ? ['Current project ID is dirty (broken canonical)'] : []),
+                        ...(hasMultipleUnmerged ? [`${unmergedRealFragments.length} unmerged real project fragments detected`] : []),
                     ],
                 });
                 break;
@@ -481,17 +573,15 @@ async function handleApi(
 
                         // Sync: clean up graph entity references for this observation
                         try {
-                            const graph = await loadGraphJsonl(effectiveDataDir);
+                            await initGraphStore(effectiveDataDir);
+                            const gStore = getGraphStore();
                             const prefix = `[#${obsId}] `;
-                            let graphChanged = false;
-                            for (const entity of graph.entities) {
-                                const before = entity.observations.length;
-                                entity.observations = entity.observations.filter(o => !o.startsWith(prefix));
-                                if (entity.observations.length < before) graphChanged = true;
+                            const deletions: { entityName: string; observations: string[] }[] = [];
+                            for (const entity of gStore.loadEntities()) {
+                                const toRemove = entity.observations.filter((o: string) => o.startsWith(prefix));
+                                if (toRemove.length > 0) deletions.push({ entityName: entity.name, observations: toRemove });
                             }
-                            if (graphChanged) {
-                                await saveGraphJsonl(effectiveDataDir, graph.entities, graph.relations);
-                            }
+                            if (deletions.length > 0) gStore.deleteObservations(deletions);
                         } catch { /* graph sync is best-effort */ }
 
                         sendJson(res, { ok: true, deleted: obsId });
@@ -500,19 +590,20 @@ async function handleApi(
                 }
 
                 if (apiPath === '/export') {
-                    const fullGraph = await loadGraphJsonl(effectiveDataDir);
+                    await initGraphStore(effectiveDataDir);
+                    const fullGraph = { entities: getGraphStore().loadEntities(), relations: getGraphStore().loadRelations() };
                     const allObs = await getObservationStore().loadAll();
                     const observations = filterByProject(allObs as Array<{ projectId?: string; entityName?: string; status?: string }>, effectiveProjectId);
-                    const nextId = await loadIdCounter(effectiveDataDir);
+                    const nextId = await getObservationStore().loadIdCounter();
                     // Project-scope the graph: only entities referenced by this project's observations
                     const exportEntityNames = new Set(
                         observations
                             .filter(o => (o.status ?? 'active') === 'active' && o.entityName)
                             .map(o => o.entityName!),
                     );
-                    const exportEntities = fullGraph.entities.filter(e => exportEntityNames.has(e.name));
-                    const exportEntitySet = new Set(exportEntities.map(e => e.name));
-                    const exportRelations = fullGraph.relations.filter(r => exportEntitySet.has(r.from) && exportEntitySet.has(r.to));
+                    const exportEntities = fullGraph.entities.filter((e: any) => exportEntityNames.has(e.name));
+                    const exportEntitySet = new Set(exportEntities.map((e: any) => e.name));
+                    const exportRelations = fullGraph.relations.filter((r: any) => exportEntitySet.has(r.from) && exportEntitySet.has(r.to));
                     const exportData = {
                         project: { id: effectiveProjectId, name: effectiveProjectName },
                         exportedAt: new Date().toISOString(),
@@ -594,6 +685,10 @@ interface DashboardState {
     projectId: string;
     projectName: string;
     dataDir: string;
+    projectRoot: string | null;
+    projectResolved: boolean;
+    mode: 'standalone' | 'control-plane';
+    port: number;
 }
 
 /** Optional team collaboration instances passed from MCP server */
@@ -622,6 +717,8 @@ export async function startDashboard(
     projectName: string,
     autoOpen = true,
     teamInstances?: TeamInstances,
+    projectRoot: string | null = null,
+    projectResolved = true,
 ): Promise<void> {
     await initObservationStore(dataDir);
     await initSessionStore(dataDir);
@@ -630,7 +727,8 @@ export async function startDashboard(
     const baseDir = getBaseDataDir();
 
     // Mutable state — can be updated via /api/set-current-project
-    const state: DashboardState = { projectId, projectName, dataDir };
+    const isControlPlane = !!teamInstances;
+    const state: DashboardState = { projectId, projectName, dataDir, projectRoot, projectResolved, mode: isControlPlane ? 'control-plane' : 'standalone', port };
 
     const server = createServer(async (req, res) => {
         const url = req.url || '/';
@@ -644,8 +742,10 @@ export async function startDashboard(
                     state.projectId = body.projectId;
                     state.projectName = body.projectName || body.projectId.split('/').pop() || body.projectId;
                     state.dataDir = baseDir;  // flat storage: always use base dir
-                    console.error(`[dashboard] Switched current project to: ${state.projectId}`);
-                    sendJson(res, { ok: true, projectId: state.projectId, projectName: state.projectName });
+                    state.projectRoot = body.projectRoot || null;
+                    state.projectResolved = body.projectResolved ?? (body.projectId !== '__unresolved__');
+                    console.error(`[dashboard] Switched current project to: ${state.projectId} (resolved: ${state.projectResolved})`);
+                    sendJson(res, { ok: true, projectId: state.projectId, projectName: state.projectName, resolved: state.projectResolved });
                 } else {
                     sendError(res, 'Missing projectId in body', 400);
                 }
@@ -666,6 +766,22 @@ export async function startDashboard(
                 const locks = teamInstances.fileLocks.listLocks();
                 const tasks = teamInstances.taskManager.list();
                 const available = teamInstances.taskManager.getAvailable();
+
+                // Role occupancy and handoffs from TeamStore (if available)
+                let roles: any[] = [];
+                let roleOccupancy: any[] = [];
+                let handoffs: any[] = [];
+                try {
+                    const { getTeamStore, isTeamStoreInitialized } = await import('../team/team-store.js');
+                    if (isTeamStoreInitialized()) {
+                        const teamStore = getTeamStore();
+                        const projectId = state.projectId;
+                        roles = teamStore.listRoles(projectId);
+                        roleOccupancy = teamStore.getRoleOccupancy(projectId);
+                        handoffs = teamStore.listHandoffs(projectId);
+                    }
+                } catch { /* team store not available in standalone mode */ }
+
                 sendJson(res, {
                     agents: agents.map((a: any) => ({
                         ...a,
@@ -675,15 +791,23 @@ export async function startDashboard(
                     locks,
                     tasks,
                     availableTasks: available.length,
+                    roles,
+                    roleOccupancy,
+                    handoffs,
+                    // Resume data for "Continue this project" area
+                    openTasks: tasks.filter((t: any) => t.status === 'pending' || t.status === 'in_progress').length,
+                    openHandoffs: handoffs.filter((h: any) => h.handoff_status === 'open' || h.handoffStatus === 'open').length,
+                    totalUnread: agents.reduce((sum: number, a: any) => sum + teamInstances!.messageBus.getUnreadCount(a.id), 0),
+                    activeSessions: agents.filter((a: any) => a.status === 'active').length,
                 });
             } catch {
-                sendJson(res, { agents: [], activeCount: 0, locks: [], tasks: [], availableTasks: 0 });
+                sendJson(res, { agents: [], activeCount: 0, locks: [], tasks: [], availableTasks: 0, roles: [], roleOccupancy: [], handoffs: [] });
             }
             return;
         }
 
         if (url.startsWith('/api/')) {
-            await handleApi(req, res, state.dataDir, state.projectId, state.projectName, baseDir);
+            await handleApi(req, res, state.dataDir, state.projectId, state.projectName, baseDir, state.projectRoot, state.projectResolved, state.mode, state.port);
         } else {
             await serveStatic(req, res, resolvedStaticDir);
         }
@@ -699,18 +823,19 @@ export async function startDashboard(
             }
         });
 
-        server.listen(port, () => {
-            const url = `http://localhost:${port}`;
-            console.error(`\n  Memorix Dashboard`);
+        server.listen(port, '127.0.0.1', () => {
+            const url = `http://127.0.0.1:${port}`;
+            const resolvedLabel = projectResolved ? 'resolved' : 'unresolved';
+            const modeLabel = isControlPlane ? 'Control Plane' : 'Standalone';
+            console.error(`  Memorix Dashboard [${modeLabel}]`);
             console.error(`  ───────────────────────`);
-            console.error(`  Project:  ${projectName} (${projectId})`);
+            console.error(`  Mode:     ${modeLabel}`);
+            console.error(`  Project:  ${projectName} (${projectId}) [${resolvedLabel}]`);
             console.error(`  Local:    ${url}`);
+            if (isControlPlane) console.error(`  MCP:      ${url}/mcp`);
             console.error(`  Data dir: ${dataDir}`);
             console.error(`\n  Press Ctrl+C to stop\n`);
-
-            // Auto-open browser
             if (autoOpen) openBrowser(url);
-
             resolve();
         });
     });

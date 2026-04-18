@@ -6,13 +6,13 @@ Memorix is a TypeScript project built around:
 
 - MCP server runtime
 - CLI workflows
-- local JSON persistence
+- SQLite canonical persistence with compatibility/fallback layers
 - Orama search
 - dashboard and HTTP control plane
 
 ## Current Release Baseline
 
-The current published release line is **1.0.6**.
+The current published release line is **1.0.7**.
 
 Contributors should assume the following are already part of the supported product surface:
 

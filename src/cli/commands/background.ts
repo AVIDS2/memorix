@@ -108,7 +108,9 @@ async function healthCheck(port: number, timeoutMs = 3000): Promise<{ ok: boolea
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
-    const res = await fetch(`http://127.0.0.1:${port}/api/team`, {
+    // Use /health endpoint — lightweight, no TeamStore or heavy init required.
+    // Responds immediately once the HTTP server has bound the port.
+    const res = await fetch(`http://127.0.0.1:${port}/health`, {
       signal: controller.signal,
     });
     clearTimeout(timer);
@@ -130,20 +132,50 @@ async function isPortInUse(port: number): Promise<boolean> {
 // ============================================================
 
 export async function doStart(port: number): Promise<void> {
-  // 1. Check if already running
+  // 1. Check if already running — validate both PID existence AND HTTP health
   const state = loadState();
-  if (state && isProcessRunning(state.pid)) {
-    const health = await healthCheck(state.port);
-    if (health.ok) {
-      console.log(`✓ Control plane is already running (PID ${state.pid}, port ${state.port})`);
-      console.log(`  Dashboard:  http://127.0.0.1:${state.port}/`);
-      console.log(`  MCP:        http://127.0.0.1:${state.port}/mcp`);
-      return;
+  if (state) {
+    if (isProcessRunning(state.pid)) {
+      const health = await healthCheck(state.port, 2000);
+      if (health.ok) {
+        console.log(`✓ Control plane is already running (PID ${state.pid}, port ${state.port})`);
+        console.log(`  Dashboard:  http://127.0.0.1:${state.port}/`);
+        console.log(`  MCP:        http://127.0.0.1:${state.port}/mcp`);
+        return;
+      }
+      // PID alive but HTTP not responding — either still starting or stale
+      // Give it one more chance with a longer timeout (5s)
+      const retry = await healthCheck(state.port, 5000);
+      if (retry.ok) {
+        console.log(`✓ Control plane is already running (PID ${state.pid}, port ${state.port})`);
+        console.log(`  Dashboard:  http://127.0.0.1:${state.port}/`);
+        console.log(`  MCP:        http://127.0.0.1:${state.port}/mcp`);
+        return;
+      }
+      // Stale or PID-reused — kill and auto-restart
+      console.log(`⚠ Stale process ${state.pid} detected (PID alive but port ${state.port} not responding), cleaning up...`);
+      killProcess(state.pid);
+      clearState();
+      // Fall through to auto-restart below
+    } else {
+      // PID dead — clean up stale state and auto-restart
+      console.log(`⚠ Previous process (PID ${state.pid}) is dead. Cleaning up stale state...`);
+      clearState();
+      // Fall through to auto-restart below
     }
-    // Process exists but HTTP not responding — stale, clean up
-    console.log(`⚠ Stale process ${state.pid} detected, cleaning up...`);
-    killProcess(state.pid);
-    clearState();
+  } else {
+    // No background.json — check heartbeat for crash evidence
+    try {
+      const heartbeatPath = getMemorixDir() + '/background.heartbeat';
+      const hbData = fs.readFileSync(heartbeatPath, 'utf-8');
+      const hb = JSON.parse(hbData);
+      const age = Date.now() - hb.heartbeatAt;
+      if (age < 120_000) { // heartbeat less than 2 minutes old
+        console.log(`⚠ Recent heartbeat found (PID ${hb.pid}, ${Math.round(age / 1000)}s ago) but no background.json.`);
+        console.log('  The control plane likely crashed. Auto-restarting...');
+      }
+      try { fs.unlinkSync(heartbeatPath); } catch { /* ok */ }
+    } catch { /* no heartbeat — first run or clean shutdown */ }
   }
 
   // 2. Check if port is already taken by another process
@@ -162,7 +194,13 @@ export async function doStart(port: number): Promise<void> {
     return;
   }
 
-  // 3. Prepare log file
+  // 3. Clean up stale readiness file from previous run
+  try {
+    const readyFile = getMemorixDir() + '/background.ready';
+    if (fs.existsSync(readyFile)) fs.unlinkSync(readyFile);
+  } catch { /* ignore */ }
+
+  // 4. Prepare log file
   const logFile = getLogFilePath();
   const dir = getMemorixDir();
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
@@ -174,12 +212,15 @@ export async function doStart(port: number): Promise<void> {
 
   const logFd = fs.openSync(logFile, 'a');
 
-  // 4. Find the memorix CLI entry point
+  // 5. Find the memorix CLI entry point
   // We need to spawn `node <cli-entry> serve-http --port <port>`
   // The entry point is the same binary that's running now
   const cliEntry = process.argv[1]; // e.g., dist/cli/index.js or node_modules/.bin/memorix
 
-  // 5. Spawn detached process
+  // 6. Spawn detached process
+  // On Windows, detached:true + stdio:['ignore', fd, fd] + unref() is the correct
+  // pattern. The child gets its own console and survives the parent terminal closing.
+  // Note: Node.js spawn does NOT support a 'flags' option — that was a dead code path.
   const child = spawn(process.execPath, [cliEntry, 'serve-http', '--port', String(port)], {
     detached: true,
     stdio: ['ignore', logFd, logFd],
@@ -198,7 +239,7 @@ export async function doStart(port: number): Promise<void> {
     return;
   }
 
-  // 6. Generate instance token and save state (synchronous — no yield point before output)
+  // 7. Generate instance token and save state (synchronous — no yield point before output)
   const instanceToken = randomBytes(8).toString('hex');
   saveState({
     pid,
@@ -209,7 +250,7 @@ export async function doStart(port: number): Promise<void> {
     startCwd: process.cwd(),
   });
 
-  // 7. Print essential info immediately
+  // 8. Print essential info immediately
   // Use stderr for the critical startup line — stderr is ALWAYS unbuffered/synchronous,
   // even when stdout is a pipe or in a non-TTY environment.
   const startMsg = [
@@ -225,31 +266,26 @@ export async function doStart(port: number): Promise<void> {
   ].join('\n');
   process.stderr.write(startMsg + '\n');
 
-  // 8. Wait for health check (up to 30 seconds — large projects may need time to reindex)
-  //    In non-TTY environments (AI agent bash tools), skip the wait loop to avoid
-  //    appearing to hang. The process will still become healthy asynchronously.
-  const isNonInteractive = !process.stdout.isTTY && !process.stderr.isTTY;
+  // 9. Wait for readiness — ALWAYS, even in non-interactive mode.
+  //    The /health endpoint responds immediately once the HTTP server has bound the port,
+  //    so this typically completes in 1-3 seconds. Non-interactive callers (AI agents)
+  //    need the server to be actually ready before they try to connect.
+  //    Timeout: 30 seconds (large projects may need time to reindex before listen()).
   let healthy = false;
-  if (isNonInteractive) {
-    // Fire-and-forget: do a single quick check, don't block the caller
-    process.stderr.write('Non-interactive mode — skipping health wait. Check status with: memorix background status\n');
-    healthy = false; // will be confirmed asynchronously
-  } else {
-    for (let i = 0; i < 60; i++) {
-      await new Promise(r => setTimeout(r, 500));
-      const check = await healthCheck(port, 2000);
-      if (check.ok) {
-        healthy = true;
-        break;
-      }
-      // Check if process died
-      if (!isProcessRunning(pid)) {
-        console.error('✗ Background process exited unexpectedly.');
-        console.error(`  Check logs: ${normalizePath(logFile)}`);
-        clearState();
-        process.exitCode = 1;
-        return;
-      }
+  for (let i = 0; i < 60; i++) {
+    await new Promise(r => setTimeout(r, 500));
+    const check = await healthCheck(port, 2000);
+    if (check.ok) {
+      healthy = true;
+      break;
+    }
+    // Check if process died
+    if (!isProcessRunning(pid)) {
+      console.error('✗ Background process exited unexpectedly.');
+      console.error(`  Check logs: ${normalizePath(logFile)}`);
+      clearState();
+      process.exitCode = 1;
+      return;
     }
   }
 
@@ -282,20 +318,38 @@ async function doStop(): Promise<void> {
   if (!isProcessRunning(state.pid)) {
     console.log(`Background process (PID ${state.pid}) is not running. Cleaning up state.`);
     clearState();
+    // Also clean up readiness file
+    try { fs.unlinkSync(getMemorixDir() + '/background.ready'); } catch { /* ignore */ }
     return;
   }
 
-  // Validate instance token — if the PID was reused by an unrelated process,
-  // the health check will fail or return unexpected data. This prevents misidentifying
-  // a random process as our background service.
-  if (state.instanceToken) {
-    const health = await healthCheck(state.port, 2000);
-    if (!health.ok) {
-      console.log(`⚠ PID ${state.pid} is alive but port ${state.port} is not responding.`);
-      console.log('  This may be a PID-reused unrelated process. Cleaning up stale state.');
-      clearState();
-      return;
-    }
+  // Validate that the PID is actually our Memorix process — check /health
+  const health = await healthCheck(state.port, 2000);
+  if (!health.ok) {
+    // PID alive but port not responding — likely PID-reused or process stuck
+    console.log(`⚠ PID ${state.pid} is alive but port ${state.port} is not responding.`);
+    console.log('  This may be a PID-reused unrelated process. Force-killing and cleaning up stale state.');
+    try {
+      if (process.platform === 'win32') {
+        execSync(`taskkill /F /PID ${state.pid}`, { stdio: 'ignore' });
+      } else {
+        process.kill(state.pid, 'SIGKILL');
+      }
+    } catch { /* best effort */ }
+    clearState();
+    try { fs.unlinkSync(getMemorixDir() + '/background.ready'); } catch { /* ignore */ }
+    return;
+  }
+
+  // Verify PID matches — if /health returns a different PID, it's a different process
+  if (health.data?.pid && health.data.pid !== state.pid) {
+    console.log(`⚠ PID mismatch: background.json has ${state.pid}, but /health reports ${health.data.pid}.`);
+    console.log('  The Memorix process was likely restarted. Updating state...');
+    // Don't kill — this is a valid Memorix, just with a different PID than we expected
+    // (e.g., process was restarted manually)
+    clearState();
+    console.log('  Run "memorix background start" to register the current instance.');
+    return;
   }
 
   console.log(`Stopping control plane (PID ${state.pid}, port ${state.port})...`);
@@ -327,6 +381,8 @@ async function doStop(): Promise<void> {
   }
 
   clearState();
+  // Clean up readiness file
+  try { fs.unlinkSync(getMemorixDir() + '/background.ready'); } catch { /* ignore */ }
   console.log('✓ Control plane stopped.');
 }
 
@@ -347,8 +403,8 @@ async function doStatus(): Promise<void> {
         const d = portHealth.data;
         console.log('');
         console.log('  Health:');
-        console.log(`    Agents:     ${d.agents?.length ?? 0}`);
-        console.log(`    Sessions:   ${d.sessions ?? 0}`);
+        console.log(`    PID:        ${d.pid ?? 'unknown'}`);
+        console.log(`    Uptime:     ${d.uptime ?? 0}s`);
       }
       console.log('');
       console.log('  To switch to background mode:');
@@ -365,20 +421,25 @@ async function doStatus(): Promise<void> {
 
   const running = isProcessRunning(state.pid);
 
-  // PID reuse guard: if PID is alive but health check fails, it's likely a different process
+  // Always do HTTP health check — this is the ground truth, not just PID existence
   const health = running ? await healthCheck(state.port) : { ok: false, error: 'Process not running' };
-  const probablyReused = running && !health.ok && state.instanceToken;
+
+  // PID reuse detection: PID alive but /health fails or returns different PID
+  const pidMismatch = health.ok && health.data?.pid && health.data.pid !== state.pid;
+  const probablyReused = running && !health.ok;
 
   console.log('');
   console.log('Memorix Background Control Plane');
   console.log('================================');
-  const statusLabel = health.ok
+  const statusLabel = health.ok && !pidMismatch
     ? '✓ Running & Healthy'
-    : probablyReused
-      ? '⚠ PID reused by unrelated process'
-      : running
-        ? '⚠ Running but unhealthy'
-        : '✗ Not running';
+    : pidMismatch
+      ? '⚠ PID mismatch — different Memorix instance'
+      : probablyReused
+        ? '⚠ PID reused by unrelated process'
+        : running
+          ? '⚠ Starting up (port not yet bound)'
+          : '✗ Not running';
   console.log(`  Status:     ${statusLabel}`);
   console.log(`  PID:        ${state.pid}${running ? '' : ' (dead)'}`);
   console.log(`  Port:       ${state.port}`);
@@ -392,12 +453,18 @@ async function doStatus(): Promise<void> {
     const d = health.data;
     console.log('');
     console.log('  Health:');
-    console.log(`    Agents:     ${d.agents?.length ?? 0}`);
-    console.log(`    Sessions:   ${d.sessions ?? 0}`);
-    if (d.uptime) console.log(`    Uptime:     ${d.uptime}`);
+    console.log(`    PID:        ${d.pid ?? 'unknown'}`);
+    console.log(`    Uptime:     ${d.uptime ?? 0}s`);
+    console.log(`    Mode:       ${d.mode ?? 'unknown'}`);
   }
 
-  if (probablyReused) {
+  if (pidMismatch) {
+    console.log('');
+    console.log(`  ⚠ background.json has PID ${state.pid}, but /health reports PID ${health.data?.pid}.`);
+    console.log('  The Memorix process was likely restarted. Updating state...');
+    clearState();
+    console.log('  Run "memorix background start" to register the current instance.');
+  } else if (probablyReused) {
     console.log('');
     console.log('  ⚠ The PID in background.json belongs to a different process.');
     console.log('  Cleaning up stale state...');
@@ -406,6 +473,17 @@ async function doStatus(): Promise<void> {
   } else if (!running) {
     console.log('');
     console.log('  Process has exited. Cleaning up stale state...');
+    // Diagnose: check heartbeat for crash evidence
+    try {
+      const heartbeatPath = getMemorixDir() + '/background.heartbeat';
+      const hbData = fs.readFileSync(heartbeatPath, 'utf-8');
+      const hb = JSON.parse(hbData);
+      const age = Date.now() - hb.heartbeatAt;
+      if (age < 300_000) { // heartbeat less than 5 minutes old
+        console.log(`  ⚠ Recent heartbeat found (${Math.round(age / 1000)}s ago, uptime ${hb.uptime ?? '?'}s)`);
+        console.log('  The control plane likely crashed. Check the log file for errors.');
+      }
+    } catch { /* no heartbeat */ }
     clearState();
     console.log('  Run "memorix background start" to restart.');
   }
@@ -418,6 +496,34 @@ async function doRestart(port: number): Promise<void> {
   await doStop();
   // Brief pause to let port release
   await new Promise(r => setTimeout(r, 1000));
+  // Verify port is actually free before starting
+  for (let i = 0; i < 10; i++) {
+    const inUse = await isPortInUse(port);
+    if (!inUse) break;
+    await new Promise(r => setTimeout(r, 300));
+  }
+  await doStart(port);
+}
+
+async function doEnsure(port: number): Promise<void> {
+  // Lightweight: just check if healthy, auto-start if not.
+  // Designed for use as a pre-condition by MCP clients (e.g., Windsurf).
+  const state = loadState();
+  if (state && isProcessRunning(state.pid)) {
+    const health = await healthCheck(state.port, 2000);
+    if (health.ok) {
+      // Already running and healthy — silent success
+      return;
+    }
+    // PID alive but unhealthy — kill and restart
+    killProcess(state.pid);
+    clearState();
+  } else if (state) {
+    // PID dead — clean up
+    clearState();
+  }
+
+  // Not running — auto-start
   await doStart(port);
 }
 
@@ -510,6 +616,12 @@ export default defineCommand({
         case 'restart':
           await doRestart(port);
           break;
+        case 'ensure':
+          // Health check + auto-start if not running.
+          // Useful as a pre-condition for MCP clients that need the control plane.
+          // Returns exit code 0 if control plane is running (or was just started).
+          await doEnsure(port);
+          break;
         case 'logs':
           doLogs(!!args.follow, parseInt(args.lines || '50', 10));
           break;
@@ -521,6 +633,7 @@ export default defineCommand({
           console.log('  memorix background stop      Stop the background control plane');
           console.log('  memorix background status    Show running state and health');
           console.log('  memorix background restart   Stop + start');
+          console.log('  memorix background ensure    Ensure control plane is running (auto-start if not)');
           console.log('  memorix background logs      Show recent log output');
           console.log('');
           console.log('Options:');

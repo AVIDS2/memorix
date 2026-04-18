@@ -28,7 +28,13 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await fs.rm(testDir, { recursive: true, force: true });
+  // Close SQLite DB handle to release file locks on Windows
+  try {
+    const { closeDatabase } = await import('../../src/store/sqlite-db.js');
+    closeDatabase(testDir);
+  } catch { /* ignore */ }
+  await new Promise(r => setTimeout(r, 50));
+  try { await fs.rm(testDir, { recursive: true, force: true }); } catch { /* EBUSY on Windows */ }
 });
 
 describe('Persistence Layer', () => {

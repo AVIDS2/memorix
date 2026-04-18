@@ -386,14 +386,14 @@ describe('SqliteBackend migration', () => {
 // ── Fallback wiring ──────────────────────────────────────────────
 
 describe('initObservationStore fallback', () => {
-  it('falls back to JsonBackend when SQLite is unavailable', async () => {
+  it('falls back to DegradedBackend when SQLite is unavailable', async () => {
     // We can't easily remove better-sqlite3 at runtime, but we can test
     // that the store init logic works and reports the correct backend.
     await initObservationStore(tmpDir);
     const store = getObservationStore();
-    // If better-sqlite3 IS available, this will be 'sqlite'; otherwise 'json'.
+    // If better-sqlite3 IS available, this will be 'sqlite'; otherwise 'degraded'.
     // Either way, the store should be functional.
-    expect(['sqlite', 'json']).toContain(store.getBackendName());
+    expect(['sqlite', 'degraded']).toContain(store.getBackendName());
 
     // Verify basic functionality regardless of backend
     const all = await store.loadAll();

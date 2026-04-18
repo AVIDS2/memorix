@@ -36,15 +36,13 @@ export default defineCommand({
     let obsCount = 0;
     let activeCount = 0;
     try {
-      const obsFile = join(dataDir, 'observations.json');
-      if (existsSync(obsFile)) {
-        const data = JSON.parse(readFileSync(obsFile, 'utf-8')) as Array<{ projectId?: string; status?: string }>;
-        if (Array.isArray(data)) {
-          const projectObs = data.filter(o => o.projectId === project.id);
-          obsCount = projectObs.length;
-          activeCount = projectObs.filter(o => (o.status ?? 'active') === 'active').length;
-        }
-      }
+      const { initObservationStore, getObservationStore } = await import('../../store/obs-store.js');
+      await initObservationStore(dataDir);
+      const store = getObservationStore();
+      const data = await store.loadAll() as Array<{ projectId?: string; status?: string }>;
+      const projectObs = data.filter(o => o.projectId === project.id);
+      obsCount = projectObs.length;
+      activeCount = projectObs.filter(o => (o.status ?? 'active') === 'active').length;
     } catch { /* ignore */ }
 
     p.note(
@@ -220,17 +218,17 @@ export default defineCommand({
 
     // Count by source
     try {
-      const obsFile = join(dataDir, 'observations.json');
-      if (existsSync(obsFile)) {
-        const allObs = JSON.parse(readFileSync(obsFile, 'utf-8')) as Array<{ source?: string; type?: string }>;
-        const gitCount = allObs.filter(o => o.source === 'git').length;
-        const reasoningCount = allObs.filter(o => o.type === 'reasoning').length;
-        if (gitCount > 0 || reasoningCount > 0) {
-          const parts: string[] = [];
-          if (gitCount > 0) parts.push(`Git memories: ${gitCount}`);
-          if (reasoningCount > 0) parts.push(`Reasoning traces: ${reasoningCount}`);
-          p.note(parts.join('\n'), 'Memory Sources');
-        }
+      const { initObservationStore, getObservationStore } = await import('../../store/obs-store.js');
+      await initObservationStore(dataDir);
+      const store = getObservationStore();
+      const allObs = await store.loadAll() as Array<{ source?: string; type?: string }>;
+      const gitCount = allObs.filter(o => o.source === 'git').length;
+      const reasoningCount = allObs.filter(o => o.type === 'reasoning').length;
+      if (gitCount > 0 || reasoningCount > 0) {
+        const parts: string[] = [];
+        if (gitCount > 0) parts.push(`Git memories: ${gitCount}`);
+        if (reasoningCount > 0) parts.push(`Reasoning traces: ${reasoningCount}`);
+        p.note(parts.join('\n'), 'Memory Sources');
       }
     } catch { /* best effort */ }
 

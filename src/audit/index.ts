@@ -9,7 +9,9 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { homedir } from 'node:os';
 
-const AUDIT_FILE = path.join(homedir(), '.memorix', 'audit.json');
+function getAuditFilePath(): string {
+  return process.env.MEMORIX_AUDIT_FILE || path.join(homedir(), '.memorix', 'audit.json');
+}
 
 export interface AuditEntry {
   type: 'hook' | 'rule' | 'other';
@@ -34,7 +36,7 @@ export interface AuditData {
  */
 export async function loadAudit(): Promise<AuditData> {
   try {
-    const content = await fs.readFile(AUDIT_FILE, 'utf-8');
+    const content = await fs.readFile(getAuditFilePath(), 'utf-8');
     return JSON.parse(content) as AuditData;
   } catch {
     // No audit file yet
@@ -49,9 +51,10 @@ export async function loadAudit(): Promise<AuditData> {
  * Save audit data to disk.
  */
 export async function saveAudit(data: AuditData): Promise<void> {
-  const dir = path.dirname(AUDIT_FILE);
+  const auditFile = getAuditFilePath();
+  const dir = path.dirname(auditFile);
   await fs.mkdir(dir, { recursive: true });
-  await fs.writeFile(AUDIT_FILE, JSON.stringify(data, null, 2), 'utf-8');
+  await fs.writeFile(auditFile, JSON.stringify(data, null, 2), 'utf-8');
 }
 
 /**

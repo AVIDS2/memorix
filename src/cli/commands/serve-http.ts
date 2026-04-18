@@ -1,10 +1,14 @@
 /**
- * memorix serve-http — Start MCP Server on Streamable HTTP transport
+ * memorix serve-http — Start MCP Server on Streamable HTTP transport (Control Plane mode)
  *
- * Enables multiple agents (across different IDEs) to connect to ONE Memorix server.
- * Each agent gets its own MCP session. Sessions start from the same startup project
- * root, then supported clients can refine to their own git-backed workspace via MCP
- * roots, yielding per-session project context.
+ * Starts the Memorix Control Plane: a single HTTP server that provides:
+ *   - MCP endpoint at /mcp (multi-agent, multi-session)
+ *   - Web Dashboard at / (project browser, graph, team, config)
+ *   - Team API at /api/team (agents, locks, tasks, messages)
+ *
+ * Mode semantics:
+ *   - "Control Plane" = HTTP MCP + Dashboard + Team (this command, default port 3211)
+ *   - "Standalone" = Dashboard only, no MCP/team (memorix dashboard, default port 3210)
  *
  * Usage:
  *   memorix serve-http                    # default port 3211
@@ -47,7 +51,7 @@ export default defineCommand({
     );
     const { createMemorixServer } = await import('../../server.js');
     const { findGitInSubdirs, detectProjectWithDiagnostics } = await import('../../project/detector.js');
-    const { existsSync, readFileSync } = await import('node:fs');
+    const { existsSync, readFileSync, writeFileSync, mkdirSync } = await import('node:fs');
     const { homedir } = await import('node:os');
     const earlyPath = await import('node:path');
 
@@ -77,14 +81,25 @@ export default defineCommand({
     console.error(`[memorix] HTTP transport starting on port ${port}`);
     console.error(`[memorix] Project root: ${projectRoot}`);
 
-    // Create shared TeamStore ONCE — all sessions share the same SQLite-backed state
+    // Per-project TeamStore cache (Option B) — each dataDir gets its own TeamStore instance.
+    // This ensures true isolation between projects in HTTP control-plane mode.
+    const teamStoreCache = new Map<string, Awaited<ReturnType<typeof initTeamStore>>>();
+    const { initTeamStore } = await import('../../team/team-store.js');
+
+    async function getTeamStore(dataDir: string) {
+      const existing = teamStoreCache.get(dataDir);
+      if (existing) return existing;
+      const store = await initTeamStore(dataDir);
+      teamStoreCache.set(dataDir, store);
+      return store;
+    }
+
+    // Bootstrap the initial project's TeamStore
     const persistMod = await import('../../store/persistence.js');
     const detectorMod = await import('../../project/detector.js');
     const detectedProj = detectorMod.detectProject(projectRoot);
     const teamDataDir = detectedProj ? await persistMod.getProjectDataDir(detectedProj.rootPath) : projectRoot;
-    const { initTeamStore } = await import('../../team/team-store.js');
-    const sharedTeamStore = await initTeamStore(teamDataDir);
-    const sharedTeam = { teamStore: sharedTeamStore };
+    const sharedTeamStore = await getTeamStore(teamDataDir);
 
     type SessionState = {
       transport: InstanceType<typeof StreamableHTTPServerTransport>;
@@ -329,15 +344,17 @@ export default defineCommand({
         };
 
         // Create a fresh MCP server for this session (with shared team state)
-        const { server, switchProject, isExplicitlyBound } = await createMemorixServer(
-          projectRoot,
-          undefined,
-          sharedTeam,
-          {
-            allowUntrackedFallback: false,
-            deferProjectInitUntilBound: true,
-          },
-        );
+      const { server, switchProject, isExplicitlyBound } = await createMemorixServer(
+        projectRoot,
+        undefined,
+        { teamStore: sharedTeamStore },
+        {
+          allowUntrackedFallback: false,
+          deferProjectInitUntilBound: true,
+          dashboardMode: 'control-plane',
+          dashboardPort: port,
+        },
+      );
         createdState = { transport, server, switchProject, isExplicitlyBound };
         await server.connect(transport);
 
@@ -452,7 +469,7 @@ export default defineCommand({
 
     // Create HTTP server
     // ── Dashboard embedding ────────────────────────────────────────
-    // Serve dashboard alongside MCP so Team panel has direct access to sharedTeam
+    // Serve dashboard alongside MCP so Team panel has direct access to TeamStore
     const { detectProject } = await import('../../project/detector.js');
     const { getProjectDataDir, getBaseDataDir } = await import('../../store/persistence.js');
     const { promises: fsPromises } = await import('node:fs');
@@ -560,44 +577,123 @@ export default defineCommand({
       };
 
       try {
+        // Project switcher sync — in control-plane, project is scoped per-request via ?project= query param,
+        // so this is a no-op (frontend still sends it for contract parity with standalone mode)
+        if (apiPath === '/set-current-project' && req.method === 'POST') {
+          sendJson({ ok: true, scope: 'per-request' });
+          return;
+        }
+
         if (apiPath === '/team') {
           // Phase 4a: All team state is in SQLite via TeamStore
           const { projectId: teamProjectId } = await resolveRequestProject(url);
-          const ts = sharedTeam.teamStore;
+          const ts = sharedTeamStore;
+          const scope = url.searchParams.get('scope') || 'project';
 
-          const agents = ts.listAgents(teamProjectId);
-          const locks = ts.listLocks(teamProjectId);
-          const tasks = ts.listTasks(teamProjectId);
-          const available = ts.listTasks(teamProjectId, { available: true });
+          // Determine effective project ID for query
+          const effectiveTeamProjectId = scope === 'global' ? undefined : teamProjectId;
 
-          const agentsWithUnread = agents.map((a: any) => ({
-            ...a,
-            unread: ts.getUnreadCount(teamProjectId, a.agent_id),
-            source: 'sqlite',
+          const agents = effectiveTeamProjectId ? ts.listAgents(effectiveTeamProjectId) : ts.listAllAgents();
+          const locks = effectiveTeamProjectId ? ts.listLocks(effectiveTeamProjectId) : ts.listAllLocks();
+          const tasks = effectiveTeamProjectId ? ts.listTasks(effectiveTeamProjectId) : ts.listAllTasks();
+          const available = effectiveTeamProjectId ? ts.listTasks(effectiveTeamProjectId, { available: true }) : ts.listAllTasks({ available: true });
+
+          // Normalize snake_case DB rows → camelCase frontend contract
+          const normalizedAgents = agents.map((a: any) => ({
+            id: a.agent_id ?? a.id,
+            projectId: a.project_id ?? a.projectId,
+            instanceId: a.instance_id ?? a.instanceId,
+            agentType: a.agent_type ?? a.agentType,
+            name: a.name,
+            role: a.role,
+            capabilities: typeof a.capabilities === 'string' ? JSON.parse(a.capabilities || '[]') : (a.capabilities || []),
+            status: a.status,
+            joinedAt: a.joined_at ?? a.joinedAt,
+            lastSeenAt: a.last_heartbeat ?? a.last_seen_at ?? a.lastSeenAt,
+            leftAt: a.left_at ?? a.leftAt,
+            unread: ts.getUnreadCount(teamProjectId, a.agent_id ?? a.id),
+            source: a.source || 'sqlite',
           }));
 
+          const normalizedLocks = locks.map((l: any) => ({
+            file: l.file,
+            projectId: l.project_id ?? l.projectId,
+            lockedBy: l.locked_by ?? l.lockedBy,
+            lockedAt: l.locked_at ?? l.lockedAt,
+            expiresAt: l.expires_at ?? l.expiresAt,
+          }));
+
+          const normalizedTasks = tasks.map((tk: any) => ({
+            id: tk.task_id ?? tk.id,
+            projectId: tk.project_id ?? tk.projectId,
+            description: tk.description,
+            status: tk.status,
+            assignee: tk.assignee_agent_id ?? tk.assignee,
+            result: tk.result,
+            metadata: typeof tk.metadata === 'string' ? JSON.parse(tk.metadata || 'null') : tk.metadata,
+            createdBy: tk.created_by ?? tk.createdBy,
+            createdAt: tk.created_at ?? tk.createdAt,
+            updatedAt: tk.updated_at ?? tk.updatedAt,
+            deps: tk.deps || [],
+            requiredRole: tk.required_role ?? tk.requiredRole ?? null,
+            preferredRole: tk.preferred_role ?? tk.preferredRole ?? null,
+          }));
+
+          // Activity layering: active / recent / historical
+          // Thresholds (ms): recent = last 7 days, historical = older
+          const RECENT_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+          const now = Date.now();
+          const tierOf = (a: any): 'active' | 'recent' | 'historical' => {
+            if (a.status === 'active') return 'active';
+            const seen = Date.parse(a.lastSeenAt ?? '') || 0;
+            if (now - seen <= RECENT_WINDOW_MS) return 'recent';
+            return 'historical';
+          };
+          const withTier = normalizedAgents.map((a: any) => ({ ...a, activityTier: tierOf(a) }));
+          const activeCount = withTier.filter((a: any) => a.activityTier === 'active').length;
+          const recentCount = withTier.filter((a: any) => a.activityTier === 'recent').length;
+          const historicalCount = withTier.filter((a: any) => a.activityTier === 'historical').length;
+
+          // Role occupancy and handoffs
+          const roles = effectiveTeamProjectId ? ts.listRoles(effectiveTeamProjectId) : [];
+          const roleOccupancy = effectiveTeamProjectId ? ts.getRoleOccupancy(effectiveTeamProjectId) : [];
+          const handoffs = effectiveTeamProjectId ? ts.listHandoffs(effectiveTeamProjectId) : [];
+
           sendJson({
-            scope: 'project',
-            agents: agentsWithUnread,
-            activeCount: agents.filter((a: any) => a.status === 'active').length,
-            locks,
-            tasks,
+            scope,
+            agents: withTier,
+            // Primary headline number
+            activeCount,
+            // Secondary layering
+            recentCount,
+            historicalCount,
+            totalAgents: withTier.length,
+            recentWindowDays: 7,
+            locks: normalizedLocks,
+            tasks: normalizedTasks,
             availableTasks: available.length,
             sessions: sessions.size,
+            roles,
+            roleOccupancy,
+            handoffs,
           });
           return;
         }
 
         if (apiPath === '/project') {
           const { projectId: pid, projectName: pname } = await resolveRequestProject(url);
-          sendJson({ id: pid, name: pname });
+          const isResolved = pid !== '__unresolved__';
+          const rootPath = isResolved && defaultProject.rootPath && pid === defaultProject.id ? defaultProject.rootPath : null;
+          sendJson({ id: pid, name: pname, resolved: isResolved, rootPath, mode: 'control-plane', port, mcpEndpoint: `http://127.0.0.1:${port}/mcp` });
           return;
         }
 
         if (apiPath === '/stats') {
           const { projectId: statsProjectId, dataDir: statsDataDir } = await resolveRequestProject(url);
-          const { loadIdCounter, loadGraphJsonl } = await import('../../store/persistence.js');
-          const graph = await loadGraphJsonl(statsDataDir);
+          const { initGraphStore, getGraphStore } = await import('../../store/graph-store.js');
+          await initGraphStore(statsDataDir);
+          const graph = { entities: getGraphStore().loadEntities(), relations: getGraphStore().loadRelations() };
+
           const allObs = await loadDashboardObservations(statsDataDir) as Array<{
             projectId?: string;
             type?: string;
@@ -608,12 +704,13 @@ export default defineCommand({
             source?: string;
             commitHash?: string;
             filesModified?: string[];
+            status?: string;
             importance?: number;
             accessCount?: number;
-            status?: string;
           }>;
           const observations = allObs.filter(o => o.projectId === statsProjectId && (o.status ?? 'active') === 'active');
-          const nextId = await loadIdCounter(statsDataDir);
+          const statsStore = await getDashboardObservationStore(statsDataDir);
+          const nextId = await statsStore.loadIdCounter();
           const typeCounts: Record<string, number> = {};
           for (const obs of observations) {
             const t = obs.type || 'unknown';
@@ -702,9 +799,17 @@ export default defineCommand({
             }
           } catch { /* best effort */ }
 
+          // Project-scoped graph counts (must match /graph and /export)
+          const projectEntityNames = new Set(
+            observations.filter(o => o.entityName).map(o => o.entityName!)
+          );
+          const projectEntities = graph.entities.filter((e: any) => projectEntityNames.has(e.name));
+          const projectEntitySet = new Set(projectEntities.map((e: any) => e.name));
+          const projectRelations = graph.relations.filter((r: any) => projectEntitySet.has(r.from) && projectEntitySet.has(r.to));
+
           sendJson({
-            entities: graph.entities.length,
-            relations: graph.relations.length,
+            entities: projectEntities.length,
+            relations: projectRelations.length,
             observations: observations.length,
             nextId,
             typeCounts,
@@ -733,8 +838,9 @@ export default defineCommand({
 
         if (apiPath === '/graph') {
           const { projectId: graphProjectId, dataDir: graphDataDir } = await resolveRequestProject(url);
-          const { loadGraphJsonl } = await import('../../store/persistence.js');
-          const fullGraph = await loadGraphJsonl(graphDataDir);
+          const { initGraphStore, getGraphStore } = await import('../../store/graph-store.js');
+          await initGraphStore(graphDataDir);
+          const fullGraph = { entities: getGraphStore().loadEntities(), relations: getGraphStore().loadRelations() };
 
           // Project-scope the graph: only include entities that have observations in this project
           const allObs = await loadDashboardObservations(graphDataDir) as Array<{ projectId?: string; entityName?: string; status?: string }>;
@@ -808,7 +914,7 @@ export default defineCommand({
           const yml = effectiveRoot ? loadYamlConfig(effectiveRoot) : loadYamlConfig(null);
           const legacy = loadFileConfig();
 
-          const files: Record<string, { exists: boolean; path: string }> = {};
+          const files: Record<string, { exists: boolean; path: string; unavailable?: boolean }> = {};
           const home = os.homedir();
           if (effectiveRoot) {
             const paths: Record<string, string> = {
@@ -822,7 +928,9 @@ export default defineCommand({
               files[key] = { exists: existsSync(fpath), path: fpath };
             }
           } else {
-            // Non-startup project: only user-level config files are resolvable
+            // Non-startup/unresolved project: only user-level config files are resolvable
+            files['project memorix.yml'] = { exists: false, path: 'unavailable', unavailable: true };
+            files['project .env'] = { exists: false, path: 'unavailable', unavailable: true };
             const userPaths: Record<string, string> = {
               'user memorix.yml': join(home, '.memorix', 'memorix.yml'),
               'user .env': join(home, '.memorix', '.env'),
@@ -920,18 +1028,22 @@ export default defineCommand({
 
         if (apiPath === '/identity') {
           const { projectId: idProjectId, dataDir: idDataDir } = await resolveRequestProject(url);
+          const { classifyProjectId, isDirtyProjectId } = await import('../../dashboard/project-classification.js');
           const allObs = await loadDashboardObservations(idDataDir) as Array<{ projectId?: string }>;
           const allProjectIds = [...new Set(allObs.map(o => o.projectId).filter(Boolean))] as string[];
 
-          const dirtyPatterns = [
-            /^placeholder\//,
-            /System32/i,
-            /Microsoft VS Code/i,
-            /node_modules/i,
-            /\.vscode/i,
-            /^local\/[A-Z]:\\/,
-          ];
-          const dirtyIds = allProjectIds.filter(id => dirtyPatterns.some(p => p.test(id)));
+          // Classify every known ID (real / temporary / placeholder) + dirty axis
+          const classified = allProjectIds.map(id => ({
+            id,
+            kind: classifyProjectId(id),
+            dirty: isDirtyProjectId(id),
+            isCurrent: id === idProjectId,
+          }));
+
+          const realIds = classified.filter(c => c.kind === 'real').map(c => c.id);
+          const temporaryIds = classified.filter(c => c.kind === 'temporary').map(c => c.id);
+          const placeholderIds = classified.filter(c => c.kind === 'placeholder').map(c => c.id);
+          const dirtyIds = classified.filter(c => c.dirty).map(c => c.id);
 
           let aliasGroups: any[] = [];
           let canonicalId = idProjectId;
@@ -947,34 +1059,82 @@ export default defineCommand({
           const currentGroup = aliasGroups.find((g: any) => g.aliases?.includes(idProjectId) || g.canonical === idProjectId);
           const aliases = currentGroup?.aliases || [idProjectId];
 
-          const hasDirtyIds = dirtyIds.length > 0;
-          const hasMultipleUnmerged = allProjectIds.length > aliasGroups.length + 1;
-          const isHealthy = !hasDirtyIds && !hasMultipleUnmerged;
+          // Alias groups intersecting real (non-temporary, non-placeholder) IDs.
+          // This is the number UI should headline — not the raw registry count.
+          const realIdSet = new Set(realIds);
+          const aliasGroupsReal = aliasGroups.filter((g: any) => {
+            const members = [g.canonical, ...(g.aliases || [])].filter(Boolean);
+            return members.some((m: string) => realIdSet.has(m));
+          }).length;
+
+          // Current project dirty flag
+          const currentDirty = isDirtyProjectId(idProjectId);
+          // Unmerged real fragments = real IDs that aren't covered by any alias group
+          const aliasCoveredReal = new Set<string>();
+          for (const g of aliasGroups) {
+            for (const m of [g.canonical, ...(g.aliases || [])]) {
+              if (m && realIdSet.has(m)) aliasCoveredReal.add(m);
+            }
+          }
+          const unmergedRealFragments = realIds.filter(id => !aliasCoveredReal.has(id));
+          const hasMultipleUnmerged = unmergedRealFragments.length > 1;
+          const isHealthy = !currentDirty && !hasMultipleUnmerged;
 
           sendJson({
             currentProjectId: idProjectId,
             canonicalId,
             aliases,
+            currentKind: classifyProjectId(idProjectId),
+            currentDirty,
+            // Primary counts — the ones UI should headline
+            realKnownIds: realIds,
+            // De-emphasized / historical
+            temporaryKnownIds: temporaryIds,
+            placeholderKnownIds: placeholderIds,
+            // Back-compat: full list for legacy consumers
             allProjectIds,
             dirtyIds,
+            // Alias registry: both a raw count (whole registry) and a real-scoped count
             aliasGroups: aliasGroups.length,
+            aliasGroupsReal,
+            unmergedRealFragments,
             isHealthy,
             healthIssues: [
-              ...(hasDirtyIds ? [`${dirtyIds.length} dirty project ID(s) detected`] : []),
-              ...(hasMultipleUnmerged ? ['Potential unmerged project identity fragments detected'] : []),
+              ...(currentDirty ? ['Current project ID is dirty (broken canonical)'] : []),
+              ...(hasMultipleUnmerged ? [`${unmergedRealFragments.length} unmerged real project fragments detected`] : []),
             ],
           });
           return;
         }
 
         if (apiPath === '/projects') {
-          const allObs = await loadDashboardObservations(defaultDataDir) as Array<{ projectId?: string; status?: string }>;
-          const projectSet = new Map<string, number>();
-          for (const obs of allObs) { if (obs.projectId && (obs.status ?? 'active') === 'active') projectSet.set(obs.projectId, (projectSet.get(obs.projectId) || 0) + 1); }
-          const projects = Array.from(projectSet.entries())
+          const { classifyProjectId, isDirtyProjectId } = await import('../../dashboard/project-classification.js');
+          const allObs = await loadDashboardObservations(defaultDataDir) as Array<{ projectId?: string; status?: string; createdAt?: string; timestamp?: string }>;
+          const agg = new Map<string, { count: number; lastActivity: number }>();
+          for (const obs of allObs) {
+            if (!obs.projectId) continue;
+            if ((obs.status ?? 'active') !== 'active') continue;
+            const ts = Date.parse(obs.createdAt ?? obs.timestamp ?? '') || 0;
+            const cur = agg.get(obs.projectId);
+            if (cur) {
+              cur.count++;
+              if (ts > cur.lastActivity) cur.lastActivity = ts;
+            } else {
+              agg.set(obs.projectId, { count: 1, lastActivity: ts });
+            }
+          }
+          const projects = Array.from(agg.entries())
             .filter(([id]) => id !== '__unresolved__')
-            .sort((a, b) => b[1] - a[1])
-            .map(([id, count]) => ({ id, name: id.split('/').pop() || id, count, isCurrent: id === defaultProject.id }));
+            .sort((a, b) => b[1].count - a[1].count)
+            .map(([id, v]) => ({
+              id,
+              name: id.split('/').pop() || id,
+              count: v.count,
+              lastActivity: v.lastActivity || null,
+              isCurrent: id === defaultProject.id,
+              kind: classifyProjectId(id),
+              dirty: isDirtyProjectId(id),
+            }));
           sendJson(projects);
           return;
         }
@@ -995,16 +1155,16 @@ export default defineCommand({
             await store.remove(obsId);
             // Sync: clean up graph entity references
             try {
-              const { loadGraphJsonl, saveGraphJsonl } = await import('../../store/persistence.js');
-              const graph = await loadGraphJsonl(delDataDir);
+              const { initGraphStore, getGraphStore } = await import('../../store/graph-store.js');
+              await initGraphStore(delDataDir);
+              const gStore = getGraphStore();
               const prefix = `[#${obsId}] `;
-              let graphChanged = false;
-              for (const entity of graph.entities) {
-                const before = entity.observations.length;
-                entity.observations = entity.observations.filter((o: string) => !o.startsWith(prefix));
-                if (entity.observations.length < before) graphChanged = true;
+              const deletions: { entityName: string; observations: string[] }[] = [];
+              for (const entity of gStore.loadEntities()) {
+                const toRemove = entity.observations.filter((o: string) => o.startsWith(prefix));
+                if (toRemove.length > 0) deletions.push({ entityName: entity.name, observations: toRemove });
               }
-              if (graphChanged) await saveGraphJsonl(delDataDir, graph.entities, graph.relations);
+              if (deletions.length > 0) gStore.deleteObservations(deletions);
             } catch { /* graph sync is best-effort */ }
             sendJson({ ok: true, deleted: obsId });
           }
@@ -1014,11 +1174,13 @@ export default defineCommand({
         // GET /api/export — export observations as JSON
         if (apiPath === '/export') {
           const { projectId: expProjectId, projectName: expProjectName, dataDir: expDataDir } = await resolveRequestProject(url);
-          const { loadIdCounter, loadGraphJsonl } = await import('../../store/persistence.js');
-          const fullGraph = await loadGraphJsonl(expDataDir);
+          const { initGraphStore, getGraphStore } = await import('../../store/graph-store.js');
+          await initGraphStore(expDataDir);
+          const fullGraph = { entities: getGraphStore().loadEntities(), relations: getGraphStore().loadRelations() };
           const allObs = await loadDashboardObservations(expDataDir) as Array<{ projectId?: string; entityName?: string; status?: string }>;
           const observations = allObs.filter(o => o.projectId === expProjectId && (o.status ?? 'active') === 'active');
-          const nextId = await loadIdCounter(expDataDir);
+          const expStore = await getDashboardObservationStore(expDataDir);
+          const nextId = await expStore.loadIdCounter();
           const exportEntityNames = new Set(
             observations.filter(o => o.entityName).map(o => o.entityName!),
           );
@@ -1057,6 +1219,20 @@ export default defineCommand({
       }
 
       const url = new URL(req.url || '/', `http://localhost:${port}`);
+
+      // Lightweight health check — responds immediately, no heavy init required.
+      // This is the readiness signal for background start / status.
+      if (url.pathname === '/health') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          status: 'ok',
+          mode: 'control-plane',
+          port,
+          uptime: Math.round(process.uptime()),
+          pid: process.pid,
+        }));
+        return;
+      }
 
       // MCP endpoint
       if (url.pathname === '/mcp') {
@@ -1125,9 +1301,20 @@ export default defineCommand({
     });
 
     httpServer.listen(port, '127.0.0.1', () => {
-      console.error(`[memorix] MCP Streamable HTTP Server listening on http://127.0.0.1:${port}/mcp`);
-      console.error(`[memorix] Dashboard:  http://127.0.0.1:${port}/`);
-      console.error(`[memorix] Team API:   http://127.0.0.1:${port}/api/team`);
+      // Write readiness file — background start polls this for out-of-band readiness detection
+      try {
+        const memorixDir = (process.env.HOME || process.env.USERPROFILE || '').replace(/\\/g, '/') + '/.memorix';
+        mkdirSync(memorixDir, { recursive: true });
+        writeFileSync(memorixDir + '/background.ready', JSON.stringify({ pid: process.pid, port, readyAt: Date.now() }));
+      } catch { /* best-effort — HTTP /health is the primary signal */ }
+
+      console.error(`[memorix] ═══════════════════════════════════════════════════`);
+      console.error(`[memorix] Mode: Control Plane (HTTP MCP + Dashboard + Team)`);
+      console.error(`[memorix] MCP Server listening on http://127.0.0.1:${port}/mcp`);
+      console.error(`[memorix] Dashboard:     http://127.0.0.1:${port}/`);
+      console.error(`[memorix] Team API:      http://127.0.0.1:${port}/api/team`);
+      console.error(`[memorix] Port:          ${port}`);
+      console.error(`[memorix] ═══════════════════════════════════════════════════`);
       console.error(`[memorix] Sessions at startup: ${sessions.size} (live count available at /api/team)`);
       console.error(`[memorix] Agents can connect via: { "transport": "http", "url": "http://localhost:${port}/mcp" }`);
 
@@ -1159,6 +1346,13 @@ export default defineCommand({
         console.error(`[memorix] ${suppressedProbeCount} probe connection(s) suppressed during this session`);
       }
       console.error('[memorix] Shutting down HTTP server...');
+      // Clean up readiness and heartbeat files
+      try {
+        const memorixDir = (process.env.HOME || process.env.USERPROFILE || '').replace(/\\/g, '/') + '/.memorix';
+        const { unlinkSync } = await import('node:fs');
+        try { unlinkSync(memorixDir + '/background.ready'); } catch { /* ok */ }
+        try { unlinkSync(memorixDir + '/background.heartbeat'); } catch { /* ok */ }
+      } catch { /* best-effort */ }
       for (const store of dashboardObservationStores.values()) {
         try { store.close(); } catch { /* best-effort */ }
       }
@@ -1177,5 +1371,43 @@ export default defineCommand({
 
     process.on('SIGINT', shutdown);
     process.on('SIGTERM', shutdown);
+
+    // Prevent unhandled rejections / exceptions from killing the background process.
+    // Without these, any unhandled promise rejection in Node.js v20+ terminates the process
+    // silently — the background control plane disappears with no log trail.
+    process.on('unhandledRejection', (reason) => {
+      console.error('[memorix] Unhandled rejection in control plane:', reason);
+    });
+    process.on('uncaughtException', (err) => {
+      console.error('[memorix] Uncaught exception in control plane:', err);
+      // Do NOT exit — log and continue. The process is a long-running service.
+      // Only exit on truly catastrophic errors (OOM, stack overflow) which Node handles itself.
+    });
+
+    // Self-health watchdog: write heartbeat every 30s so stale detection works
+    // even if the process is alive but the HTTP server has hung.
+    const _memorixDir = (process.env.HOME || process.env.USERPROFILE || '').replace(/\\/g, '/') + '/.memorix';
+    const heartbeatFile = _memorixDir + '/background.heartbeat';
+    const heartbeatInterval = setInterval(() => {
+      try {
+        writeFileSync(heartbeatFile, JSON.stringify({
+          pid: process.pid,
+          port,
+          uptime: Math.round(process.uptime()),
+          heartbeatAt: Date.now(),
+        }));
+      } catch { /* best-effort */ }
+    }, 30_000);
+    heartbeatInterval.unref();
+    // Write initial heartbeat immediately
+    try {
+      mkdirSync(_memorixDir, { recursive: true });
+      writeFileSync(heartbeatFile, JSON.stringify({
+        pid: process.pid,
+        port,
+        uptime: Math.round(process.uptime()),
+        heartbeatAt: Date.now(),
+      }));
+    } catch { /* best-effort */ }
   },
 });

@@ -1,6 +1,6 @@
 # Setup Guide
 
-Memorix is an open-source cross-agent memory layer for coding agents via MCP, with first-class integrations for Cursor, Claude Code, Codex, Windsurf, Gemini CLI, GitHub Copilot, Kiro, OpenCode, Antigravity, and Trae.
+Memorix is an open-source cross-agent memory layer for coding agents via MCP, with tiered support for Cursor, Claude Code, Windsurf (★ core), GitHub Copilot, Kiro, Codex (◆ extended), and Gemini CLI, OpenCode, Antigravity, Trae (○ community).
 
 Memorix has four common operator entry points:
 
@@ -18,15 +18,25 @@ For the smoothest multi-project setup, use `memorix background start` as the mai
 
 ## Current Release Context
 
-The current published release line is **1.0.6**.
+The current published release line is **1.0.7**.
 
-If you are setting up Memorix on a fresh machine or upgrading from an older install, the most visible operator-facing changes in 1.0.6 are:
+If you are setting up Memorix on a fresh machine or upgrading from an older install, the most visible operator-facing changes in 1.0.7 are:
 
 - provenance-aware memory fields and layered retrieval surfaces
 - stronger evidence semantics and citation-lite compact output
 - task-line scoping plus secret-safe storage/retrieval behavior
 - attribution auditing, retention explainability, and a cleaner remediation loop
 - OpenCode compaction using structured continuation context and `post_compact`
+
+### Support Tiers
+
+| Tier | Clients | Meaning |
+|------|---------|---------|
+| ★ Core | Claude Code, Cursor, Windsurf | Full hook integration + tested MCP + rules sync |
+| ◆ Extended | GitHub Copilot, Kiro, Codex | Hook integration with platform caveats |
+| ○ Community | Gemini CLI, OpenCode, Antigravity, Trae | Best-effort hooks, community-reported compatibility |
+
+**Install ≠ runtime-ready.** `memorix hooks install` succeeds when config files are written to disk; whether the agent actually loads and executes those hooks at runtime depends on the agent's own behavior. Core-tier agents are verified end-to-end; extended/community may have gaps.
 
 ---
 

@@ -333,7 +333,7 @@ export class SqliteBackend implements ObservationStore {
     this.db = null;
   }
 
-  getBackendName(): 'sqlite' | 'json' {
+  getBackendName(): 'sqlite' | 'degraded' {
     return 'sqlite';
   }
 }

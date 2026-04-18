@@ -15,7 +15,7 @@ import type { AgentAdapter, AgentProcess, AgentMessage, TokenUsage } from './ada
 import { buildAgentPrompt, type HandoffContext } from './prompt-builder.js';
 import { isPlannerTask, materializeTaskGraph, extractPipelineId } from './planner.js';
 import { createLedger, appendEntry, ledgerToPromptSection, type PipelineLedger } from './ledger.js';
-import { pickAdapter, extractRoleFromDescription, type RoutingConfig } from './capability-router.js';
+import { pickAdapter, extractRole, buildRoutingDecision, buildIdleReasons, type RoutingConfig, type RoutingDecision } from './capability-router.js';
 import { initTraceTable, writeTrace, pruneOldTraces, resetTraceCache, type TraceEvent } from './pipeline-trace.js';
 import { createWorktree, mergeWorktree, removeWorktree, cleanupOrphanWorktrees } from './worktree.js';
 import { runVerifyGates, hasGateFailure, getFirstFailure, type GateResult, type GateConfig } from './verify-gate.js';
@@ -118,6 +118,8 @@ interface ActiveDispatch {
   messageConsumer?: Promise<void>;
   /** Tool use counter for this dispatch */
   toolCount: number;
+  /** Accumulated text from message stream (for planner tasks, avoids ring buffer truncation) */
+  accumulatedText: string;
 }
 
 // ── Main coordination loop ─────────────────────────────────────────
@@ -198,6 +200,11 @@ export async function runCoordinationLoop(config: CoordinatorConfig): Promise<Co
 
   // Phase 6d: Pipeline ledger (lazy-initialized after planning task completes)
   let ledger: PipelineLedger | null = null;
+
+  // A4: Track which adapters were dispatched (for idle-agent visibility)
+  const dispatchedAdapterNames = new Set<string>();
+  // A2: Collect routing decisions for pipeline summary
+  const routingDecisions: Array<{ role: string; selected: string; reason: string; available: string[] }> = [];
 
   // Phase 6g: Pipeline tracing
   let traceDb: ReturnType<typeof teamStore.getDb> | null = null;
@@ -352,6 +359,8 @@ export async function runCoordinationLoop(config: CoordinatorConfig): Promise<Co
               tokenUsage: hasUsage ? pipelineUsage : undefined,
               costUSD: costSummary?.totalUSD,
               tasks: taskEvidenceList,
+              idleAgents: buildIdleReasons(adapters, dispatchedAdapterNames, routingConfig),
+              routingDecisions,
             });
           } catch { /* evidence is best-effort */ }
         }
@@ -398,7 +407,7 @@ export async function runCoordinationLoop(config: CoordinatorConfig): Promise<Co
         }
 
         // Phase 6f: Pick adapter by role with per-type quota awareness
-        const role = extractRoleFromDescription(task.description);
+        const role = extractRole(task);
         const busyNames = new Set(activeDispatches.map(d => d.adapterName));
         // Build dispatch count per adapter name for quota-aware routing
         const dispatchCounts: Record<string, number> = {};
@@ -407,6 +416,23 @@ export async function runCoordinationLoop(config: CoordinatorConfig): Promise<Co
         }
         const failedOnTask = taskFailedAgents.get(task.task_id);
         const adapter = pickAdapter(role, adapters, busyNames, routingConfig, dispatchCounts, failedOnTask);
+
+        // A2: Routing explainability — log decision to trace
+        const routingDecision = buildRoutingDecision(role, adapters, adapter, routingConfig, dispatchCounts, failedOnTask);
+        routingDecisions.push({ role: routingDecision.role, selected: routingDecision.selected, reason: routingDecision.reason, available: routingDecision.available });
+        if (traceDb && pipelineId) {
+          try {
+            writeTrace(traceDb, {
+              pipelineId,
+              timestamp: Date.now(),
+              type: 'dispatch',
+              taskId: task.task_id,
+              agent: adapter.name,
+              detail: `routing: role=${routingDecision.role} selected=${routingDecision.selected} reason=${routingDecision.reason} available=[${routingDecision.available.join(',')}]`,
+            });
+          } catch { /* tracing is best-effort */ }
+        }
+        dispatchedAdapterNames.add(adapter.name);
 
         // If quotaMap is set and all adapters are at capacity, stop dispatching this cycle
         if (routingConfig?.quotaMap) {
@@ -501,6 +527,7 @@ export async function runCoordinationLoop(config: CoordinatorConfig): Promise<Co
           worktreePath,
           worktreeBranch,
           toolCount: 0,
+          accumulatedText: '',
         };
 
         // Start streaming message consumer (fire-and-forget, best-effort)
@@ -533,6 +560,10 @@ export async function runCoordinationLoop(config: CoordinatorConfig): Promise<Co
                       });
                     } catch { /* trace is best-effort */ }
                   }
+                }
+                // Accumulate text for planner output extraction (avoids ring buffer truncation)
+                if (msg.type === 'text' && msg.content) {
+                  dispatch.accumulatedText += msg.content;
                 }
               }
             } catch { /* stream consumer is best-effort */ }
@@ -688,6 +719,7 @@ export async function runCoordinationLoop(config: CoordinatorConfig): Promise<Co
                   worktreePath: dispatch.worktreePath,
                   worktreeBranch: dispatch.worktreeBranch,
                   toolCount: 0,
+                  accumulatedText: '',
                 };
 
                 // Start streaming message consumer for fix dispatch
@@ -697,6 +729,9 @@ export async function runCoordinationLoop(config: CoordinatorConfig): Promise<Co
                       for await (const msg of fixProcess.messages!) {
                         if (msg.type === 'tool_use') {
                           fixDispatch.toolCount++;
+                        }
+                        if (msg.type === 'text' && msg.content) {
+                          fixDispatch.accumulatedText += msg.content;
                         }
                       }
                     } catch { /* stream consumer is best-effort */ }
@@ -713,7 +748,7 @@ export async function runCoordinationLoop(config: CoordinatorConfig): Promise<Co
                 // Update ledger with gate failure
                 if (ledger) {
                   try {
-                    const role = extractRoleFromDescription(taskState?.description ?? '');
+                    const role = extractRole({ description: taskState?.description ?? '', metadata: taskState?.metadata });
                     appendEntry(ledger, {
                       taskId: dispatch.taskId,
                       role,
@@ -751,7 +786,7 @@ export async function runCoordinationLoop(config: CoordinatorConfig): Promise<Co
                   try {
                     appendEntry(ledger, {
                       taskId: dispatch.taskId,
-                      role: extractRoleFromDescription(taskState?.description ?? ''),
+                      role: extractRole({ description: taskState?.description ?? '', metadata: taskState?.metadata }),
                       agent: dispatch.adapterName,
                       status: 'failed',
                       summary: `Fix loop exhausted (${fixAttempts} attempts): ${failure.output.slice(0, 200)}`,
@@ -816,11 +851,16 @@ export async function runCoordinationLoop(config: CoordinatorConfig): Promise<Co
             const taskRow = teamStore.getTask(dispatch.taskId);
             const plannerMeta = taskRow ? isPlannerTask(taskRow.metadata) : null;
             if (plannerMeta?.plannerType === 'plan' && structuredPlan && pipelineId) {
+              // Use accumulatedText from message stream instead of tailOutput ring buffer.
+              // The ring buffer may truncate the planner's JSON output if the agent
+              // does many tool calls before outputting the plan. accumulatedText
+              // captures all text content from the stream in order.
+              const plannerOutput = dispatch.accumulatedText || result.tailOutput;
               const matResult = materializeTaskGraph(
                 teamStore,
                 projectId,
                 pipelineId,
-                result.tailOutput,
+                plannerOutput,
                 {
                   maxIterations: plannerMeta.maxIterations,
                   taskBudget: plannerMeta.taskBudget,
@@ -889,7 +929,7 @@ export async function runCoordinationLoop(config: CoordinatorConfig): Promise<Co
             // Phase 6d: Update ledger (status reflects merge outcome)
             if (ledger && taskRow) {
               try {
-                const role = extractRoleFromDescription(taskRow.description);
+                const role = extractRole(taskRow);
                 appendEntry(ledger, {
                   taskId: dispatch.taskId,
                   role,
@@ -977,7 +1017,7 @@ export async function runCoordinationLoop(config: CoordinatorConfig): Promise<Co
                 const taskMeta2 = teamStore.getTask(dispatch.taskId);
                 appendEntry(ledger, {
                   taskId: dispatch.taskId,
-                  role: taskMeta2 ? extractRoleFromDescription(taskMeta2.description) : 'unknown',
+                  role: taskMeta2 ? extractRole(taskMeta2) : 'unknown',
                   agent: dispatch.adapterName,
                   status: 'failed',
                   summary: reason.slice(0, 200),
@@ -1070,6 +1110,15 @@ export async function runCoordinationLoop(config: CoordinatorConfig): Promise<Co
     process.off('SIGINT', cleanup);
     process.off('SIGTERM', cleanup);
     try { teamStore.leaveAgent(orchAgentId); } catch { /* best-effort */ }
+    // Phase 6i: Freeze remaining worktrees on exit
+    if (useWorktrees) {
+      try {
+        const remaining = activeDispatches.filter(d => d.worktreePath);
+        for (const d of remaining) {
+          try { removeWorktree(projectDir, d.worktreePath!, d.worktreeBranch); } catch { /* best-effort */ }
+        }
+      } catch { /* best-effort */ }
+    }
     // Phase 6g: Prune old traces
     if (traceDb) {
       try { pruneOldTraces(traceDb, 20); } catch { /* best-effort */ }

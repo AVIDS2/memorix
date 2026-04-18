@@ -178,6 +178,8 @@ export interface SharedTeamInstances {
 export interface CreateMemorixServerOptions {
   allowUntrackedFallback?: boolean;
   deferProjectInitUntilBound?: boolean;
+  dashboardMode?: 'standalone' | 'control-plane';
+  dashboardPort?: number;
 }
 
 export async function createMemorixServer(
@@ -196,6 +198,8 @@ export async function createMemorixServer(
   // Detect current project — strict .git-based detection
   const allowUntrackedFallback = options.allowUntrackedFallback ?? true;
   const deferProjectInitUntilBound = options.deferProjectInitUntilBound ?? false;
+  const dashboardMode = options.dashboardMode ?? (sharedTeam ? 'control-plane' : 'standalone');
+  const configuredDashboardPort = options.dashboardPort ?? (dashboardMode === 'control-plane' ? 3211 : 3210);
   const detectedProject = detectProject(cwd);
   let rawProject: import('./types.js').ProjectInfo;
   let projectResolved = true;
@@ -2680,11 +2684,16 @@ export async function createMemorixServer(
       let rescueInfo = '';
       try {
         if (typeof teamStore !== 'undefined' && (agent || agentType)) {
+          // Auto-derive role from agentType using AGENT_TYPE_ROLE_MAP
+          const { AGENT_TYPE_ROLE_MAP } = await import('./team/team-store.js');
+          const resolvedAgentType = agentType || agent || 'unknown';
+          const resolvedRole = (resolvedAgentType ? AGENT_TYPE_ROLE_MAP[resolvedAgentType] : undefined) || 'engineer';
           registeredAgent = teamStore.registerAgent({
             projectId: project.id,
-            agentType: agentType || agent || 'unknown',
+            agentType: resolvedAgentType,
             instanceId: instanceId || undefined,
             name: agent || agentType || undefined,
+            role: resolvedRole,
           });
 
           // Set session-level agent identity for observation attribution
@@ -2950,14 +2959,57 @@ export async function createMemorixServer(
       title: 'Launch Dashboard',
       description:
         'Launch the Memorix Web Dashboard in the browser. ' +
-        'Shows knowledge graph, observations, retention scores, and project stats in a visual interface.',
+        'In HTTP control-plane mode, this reuses the current control-plane dashboard. ' +
+        'In stdio/standalone mode, it starts the standalone dashboard server.',
       inputSchema: {
-        port: z.number().optional().describe('Port to run the dashboard on (default: 3210)'),
+        port: z.number().optional().describe('Optional port override for standalone mode. In HTTP control-plane mode, the active dashboard port is reused.'),
       },
     },
     async ({ port: dashboardPort }) => {
-      const portNum = dashboardPort != null ? coerceNumber(dashboardPort, 3210) : 3210;
+      const inControlPlane = dashboardMode === 'control-plane';
+      const portNum = inControlPlane
+        ? configuredDashboardPort
+        : (dashboardPort != null ? coerceNumber(dashboardPort, configuredDashboardPort) : configuredDashboardPort);
       const url = `http://localhost:${portNum}`;
+
+      if (inControlPlane) {
+        const http = await import('node:http');
+        const postData = JSON.stringify({ projectId: project.id, projectName: project.name });
+        await new Promise<void>(resolve => {
+          const req = http.request({
+            hostname: '127.0.0.1',
+            port: portNum,
+            path: '/api/set-current-project',
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(postData) },
+          }, () => resolve());
+          req.on('error', () => resolve());
+          req.write(postData);
+          req.end();
+        });
+
+        const projectUrl = `${url}?project=${encodeURIComponent(project.id)}`;
+        const { exec } = await import('node:child_process');
+        const cmd =
+          process.platform === 'win32' ? `start "" "${projectUrl}"` :
+            process.platform === 'darwin' ? `open "${projectUrl}"` :
+              `xdg-open "${projectUrl}"`;
+        exec(cmd, () => { });
+
+        return {
+          content: [{
+            type: 'text' as const,
+            text: [
+              `Memorix Dashboard opened on the current control plane.`,
+              ``,
+              `URL: ${url}`,
+              `Project: ${project.name} (${project.id})`,
+              ``,
+              `This MCP session is already running in HTTP control-plane mode, so no standalone 3210 dashboard was started.`,
+            ].join('\n'),
+          }],
+        };
+      }
 
       if (dashboardRunning) {
         // Verify the dashboard is actually still listening (process may have been killed externally)
@@ -3035,7 +3087,7 @@ export async function createMemorixServer(
         // Start in background (non-blocking), disable auto-open (we'll open it ourselves)
         startDashboard(projectDir, portNum, staticDir, project.id, project.name, false, {
             teamStore,
-          } as any)
+          } as any, project.rootPath, projectResolved)
           .then(() => { dashboardRunning = true; })
           .catch((err) => { console.error('[memorix] Dashboard error:', err); dashboardRunning = false; });
 
@@ -3109,7 +3161,7 @@ export async function createMemorixServer(
     teamStore.setEventBus(new TeamEventBus());
   }
 
-  // ── team_manage (join / leave / status) ─────────────────────────
+  // ── team_manage (join / leave / status / listRoles / addRole / removeRole) ──
   server.registerTool(
     'team_manage',
     {
@@ -3118,39 +3170,51 @@ export async function createMemorixServer(
         'Register, unregister, or list agents in the team. ' +
         'Action "join": register this agent (returns agent ID and instance ID for reactivation). ' +
         'Action "leave": mark agent inactive, release locks. ' +
-        'Action "status": list all agents with roles and capabilities.',
+        'Action "status": list all agents with roles and capabilities, plus role occupancy. ' +
+        'Action "listRoles": show defined roles for this project. ' +
+        'Action "addRole": define a new role for this project. ' +
+        'Action "removeRole": remove a role definition.',
       inputSchema: {
-        action: z.enum(['join', 'leave', 'status']).describe('Operation to perform'),
+        action: z.enum(['join', 'leave', 'status', 'listRoles', 'addRole', 'removeRole']).describe('Operation to perform'),
         name: z.string().optional().describe('Agent display name for join (e.g., "cursor-frontend")'),
         agentType: z.string().optional().describe('Agent type for join (e.g., "windsurf", "cursor", "claude-code")'),
         instanceId: z.string().optional().describe('Stable instance ID for join (preserves identity across restarts)'),
-        role: z.string().optional().describe('Agent role for join'),
+        role: z.string().optional().describe('Agent role for join (defaults by agentType if omitted)'),
         capabilities: z.array(z.string()).optional().describe('Agent capabilities for join'),
         agentId: z.string().optional().describe('Agent ID for leave'),
+        // Role management params
+        roleId: z.string().optional().describe('Role ID (for addRole/removeRole)'),
+        label: z.string().optional().describe('Role label (for addRole)'),
+        roleDescription: z.string().optional().describe('Role description (for addRole)'),
+        preferredAgentTypes: z.array(z.string()).optional().describe('Preferred agent types for this role (for addRole)'),
+        maxConcurrent: z.number().optional().describe('Max concurrent agents for this role (for addRole, default 1)'),
       },
     },
-    async ({ action, name, agentType, instanceId, role, capabilities, agentId }) => {
+    async ({ action, name, agentType, instanceId, role, capabilities, agentId, roleId, label, roleDescription, preferredAgentTypes, maxConcurrent }) => {
       if (action === 'join') {
+        // Auto-derive role from agentType if not provided
+        const { AGENT_TYPE_ROLE_MAP } = await import('./team/team-store.js');
+        const resolvedRole = role || (agentType ? AGENT_TYPE_ROLE_MAP[agentType] : undefined) || 'engineer';
         const agent = teamStore.registerAgent({
           projectId: project.id,
           agentType: agentType || 'unknown',
           instanceId: instanceId || undefined,
           name: (name || '').trim() || undefined,
-          role,
+          role: resolvedRole,
           capabilities: capabilities ? coerceStringArray(capabilities) : undefined,
         });
         const caps = agent.capabilities ? JSON.parse(agent.capabilities) : [];
         return {
           content: [{
             type: 'text' as const,
-            text: `✅ Joined team as "${agent.name}" (ID: ${agent.agent_id})\nInstance ID: ${agent.instance_id}\nRole: ${agent.role ?? 'unspecified'}\nActive agents: ${teamStore.getActiveCount(project.id)}`,
+            text: `Joined team as "${agent.name}" (ID: ${agent.agent_id})\nInstance ID: ${agent.instance_id}\nRole: ${agent.role}\nActive agents: ${teamStore.getActiveCount(project.id)}`,
           }],
         };
       }
       if (action === 'leave') {
-        if (!agentId) return { content: [{ type: 'text' as const, text: '❌ agentId is required for leave' }], isError: true };
+        if (!agentId) return { content: [{ type: 'text' as const, text: 'agentId is required for leave' }], isError: true };
         const left = teamStore.leaveAgent(agentId);
-        if (!left) return { content: [{ type: 'text' as const, text: '⚠️ Agent not found' }] };
+        if (!left) return { content: [{ type: 'text' as const, text: 'Agent not found' }] };
         const releasedLocks = teamStore.releaseAllLocks(agentId);
         const releasedTasks = teamStore.releaseTasksByAgent(agentId);
         const parts: string[] = [];
@@ -3163,19 +3227,54 @@ export async function createMemorixServer(
           }],
         };
       }
-      // status
+      if (action === 'listRoles') {
+        const roles = teamStore.listRoles(project.id);
+        if (roles.length === 0) {
+          return { content: [{ type: 'text' as const, text: 'No roles defined for this project.' }] };
+        }
+        const occupancy = teamStore.getRoleOccupancy(project.id);
+        const lines = occupancy.map(({ role, activeAgents, vacant }) => {
+          const agentTypes = JSON.parse(role.preferred_agent_types);
+          const agentNames = activeAgents.map(a => a.name).join(', ') || 'vacant';
+          return `${role.label} (${role.role_id.split(':').pop()}) — ${activeAgents.length}/${role.max_concurrent} filled, ${vacant} vacant\n  Agents: ${agentNames}\n  Preferred types: ${agentTypes.join(', ') || 'any'}${role.description ? '\n  ' + role.description : ''}`;
+        });
+        return { content: [{ type: 'text' as const, text: `Roles (${roles.length}):\n\n${lines.join('\n\n')}` }] };
+      }
+      if (action === 'addRole') {
+        if (!roleId || !label) return { content: [{ type: 'text' as const, text: 'roleId and label are required for addRole' }], isError: true };
+        const newRole = teamStore.addRole(project.id, {
+          roleId,
+          label,
+          description: roleDescription,
+          preferredAgentTypes: preferredAgentTypes ? coerceStringArray(preferredAgentTypes) : undefined,
+          maxConcurrent,
+        });
+        return { content: [{ type: 'text' as const, text: `Role added: ${newRole.label} (${newRole.role_id})` }] };
+      }
+      if (action === 'removeRole') {
+        if (!roleId) return { content: [{ type: 'text' as const, text: 'roleId is required for removeRole' }], isError: true };
+        const removed = teamStore.removeRole(project.id, roleId);
+        if (!removed) return { content: [{ type: 'text' as const, text: 'Role not found' }] };
+        return { content: [{ type: 'text' as const, text: `Role removed: ${roleId}` }] };
+      }
+      // status — now includes role occupancy
       const agents = teamStore.listAgents(project.id);
-      if (agents.length === 0) {
+      const occupancy = teamStore.getRoleOccupancy(project.id);
+      if (agents.length === 0 && occupancy.length === 0) {
         return { content: [{ type: 'text' as const, text: 'No agents registered. Use action "join" to register.' }] };
       }
-      const lines = agents.map((a: import('./team/team-store.js').TeamAgentRow) => {
+      const roleLines = occupancy.map(({ role, activeAgents, vacant }) => {
+        const agentNames = activeAgents.map(a => a.name).join(', ') || 'vacant';
+        return `${role.label}: ${activeAgents.length}/${role.max_concurrent} — ${agentNames}${vacant > 0 ? ` (${vacant} slot${vacant > 1 ? 's' : ''} open)` : ''}`;
+      });
+      const agentLines = agents.map((a: import('./team/team-store.js').TeamAgentRow) => {
         const caps = a.capabilities ? JSON.parse(a.capabilities) : [];
         return `${a.status === 'active' ? '●' : '○'} ${a.name} (${a.agent_id.slice(0, 8)}…) — ${a.role ?? 'no role'} [${caps.join(', ') || '-'}]`;
       });
       return {
         content: [{
           type: 'text' as const,
-          text: `Team: ${teamStore.getActiveCount(project.id)} active / ${agents.length} total\n\n${lines.join('\n')}`,
+          text: `Team: ${teamStore.getActiveCount(project.id)} active / ${agents.length} total\n\nRole Occupancy:\n${roleLines.join('\n')}\n\nAgents:\n${agentLines.join('\n')}`,
         }],
       };
     },
@@ -3248,9 +3347,11 @@ export async function createMemorixServer(
         status: z.enum(['pending', 'in_progress', 'completed', 'failed']).optional().describe('Filter by status (for list)'),
         available: z.boolean().optional().describe('Show only claimable tasks (for list)'),
         metadata: z.string().optional().describe('JSON metadata for the task (for create). Used by planner/review tasks for autonomous mode.'),
+        requiredRole: z.string().optional().describe('Required role for this task (for create). Agents without this role cannot claim.'),
+        preferredRole: z.string().optional().describe('Preferred role for this task (for create). Agents with this role are prioritized.'),
       },
     },
-    async ({ action, description: desc, deps, taskId, agentId, result, status, available, metadata }) => {
+    async ({ action, description: desc, deps, taskId, agentId, result, status, available, metadata, requiredRole, preferredRole }) => {
       try {
         if (action === 'create') {
           if (!desc) return { content: [{ type: 'text' as const, text: '❌ description is required for create' }], isError: true };
@@ -3273,9 +3374,12 @@ export async function createMemorixServer(
             deps: deps ? coerceStringArray(deps) : undefined,
             metadata: parsedMeta,
             createdBy: agentId || undefined,
+            requiredRole: requiredRole || undefined,
+            preferredRole: preferredRole || undefined,
           });
           const taskDeps = teamStore.getTaskDeps(task.task_id);
-          return { content: [{ type: 'text' as const, text: `Task created: ${task.task_id.slice(0, 8)}… "${desc}"${taskDeps.length > 0 ? ` (depends on ${taskDeps.length})` : ''}` }] };
+          const roleInfo = task.required_role ? ` [role: ${task.required_role}${task.preferred_role && task.preferred_role !== task.required_role ? '/' + task.preferred_role : ''}]` : '';
+          return { content: [{ type: 'text' as const, text: `Task created: ${task.task_id.slice(0, 8)}… "${desc}"${taskDeps.length > 0 ? ` (depends on ${taskDeps.length})` : ''}${roleInfo}` }] };
         }
         if (action === 'claim') {
           if (!taskId || !agentId) return { content: [{ type: 'text' as const, text: '❌ taskId and agentId required for claim' }], isError: true };
@@ -3283,7 +3387,8 @@ export async function createMemorixServer(
           if (!agent || agent.status !== 'active') return { content: [{ type: 'text' as const, text: `❌ Unknown or inactive agent` }], isError: true };
           const claimResult = teamStore.claimTask(taskId, agentId);
           if (!claimResult.success) return { content: [{ type: 'text' as const, text: `❌ ${claimResult.reason}` }], isError: true };
-          return { content: [{ type: 'text' as const, text: `Task claimed by ${agent.name}: "${claimResult.task!.description}"` }] };
+          const hintSuffix = claimResult.hint ? `\n⚠️ ${claimResult.hint}` : '';
+          return { content: [{ type: 'text' as const, text: `Task claimed by ${agent.name}: "${claimResult.task!.description}"${hintSuffix}` }] };
         }
         if (action === 'complete') {
           if (!taskId || !agentId || !result) return { content: [{ type: 'text' as const, text: '❌ taskId, agentId, and result required for complete' }], isError: true };
@@ -3293,13 +3398,16 @@ export async function createMemorixServer(
           return { content: [{ type: 'text' as const, text: `Task completed: "${completedTask?.description ?? taskId}"\nResult: ${result}` }] };
         }
         // list
-        const list = teamStore.listTasks(project.id, available ? { available: true } : (status ? { status } : undefined));
+        const list = (available && agentId)
+          ? teamStore.listTasksForAgent(project.id, agentId)
+          : teamStore.listTasks(project.id, available ? { available: true } : (status ? { status } : undefined));
         if (list.length === 0) return { content: [{ type: 'text' as const, text: available ? 'No tasks available to claim' : 'No tasks found' }] };
         const statusIcon: Record<string, string> = { pending: '[ ]', in_progress: '[~]', completed: '[x]', failed: '[!]' };
         const lines = list.map((t: import('./team/team-store.js').TeamTaskRow) => {
           const assignee = t.assignee_agent_id ? teamStore.getAgent(t.assignee_agent_id)?.name ?? t.assignee_agent_id.slice(0, 8) : 'unassigned';
           const taskDeps = teamStore.getTaskDeps(t.task_id);
-          return `${statusIcon[t.status] ?? '[ ]'} ${t.task_id.slice(0, 8)}… "${t.description}" — ${assignee}${taskDeps.length > 0 ? ` [deps: ${taskDeps.length}]` : ''}`;
+          const roleTag = t.required_role ? ` [${t.required_role}${t.preferred_role && t.preferred_role !== t.required_role ? '→' + t.preferred_role : ''}]` : (t.preferred_role ? ` [~${t.preferred_role}]` : '');
+          return `${statusIcon[t.status] ?? '[ ]'} ${t.task_id.slice(0, 8)}… "${t.description}" — ${assignee}${roleTag}${taskDeps.length > 0 ? ` [deps: ${taskDeps.length}]` : ''}`;
         });
         return { content: [{ type: 'text' as const, text: `Tasks (${list.length}):\n${lines.join('\n')}` }] };
       } catch (err) {
@@ -3325,20 +3433,27 @@ export async function createMemorixServer(
         content: z.string().optional().describe('Message content (for send/broadcast)'),
         agentId: z.string().optional().describe('Agent ID (for inbox)'),
         markRead: z.boolean().optional().default(false).describe('Mark messages as read (for inbox)'),
+        toRole: z.string().optional().describe('Target role for role-based messaging/handoff (for send)'),
+        handoffStatus: z.enum(['open', 'claimed', 'completed', 'archived']).optional().describe('Handoff status (for send with type=handoff)'),
       },
     },
-    async ({ action, from, to, type: msgType, content, agentId, markRead }) => {
+    async ({ action, from, to, type: msgType, content, agentId, markRead, toRole, handoffStatus }) => {
       if (action === 'send') {
-        if (!from || !to || !msgType || !content) return { content: [{ type: 'text' as const, text: '❌ from, to, type, and content required for send' }], isError: true };
+        if (!from || !msgType || !content) return { content: [{ type: 'text' as const, text: '❌ from, type, and content required for send' }], isError: true };
+        if (!to && !toRole) return { content: [{ type: 'text' as const, text: '❌ either to (agent ID) or toRole is required for send' }], isError: true };
         if (content.length > 10_000) return { content: [{ type: 'text' as const, text: '❌ Message too large (max 10KB)' }], isError: true };
         const msg = teamStore.sendMessage({
           projectId: project.id,
           senderAgentId: from,
-          recipientAgentId: to,
+          recipientAgentId: to ?? null,
           type: msgType,
           content,
+          toRole: toRole ?? null,
+          handoffStatus: handoffStatus ?? (msgType === 'handoff' ? 'open' : null),
         });
-        return { content: [{ type: 'text' as const, text: `Message sent (${msgType}) to ${to.slice(0, 8)}… | ID: ${msg.id.slice(0, 8)}…` }] };
+        if ('error' in msg) return { content: [{ type: 'text' as const, text: `❌ ${msg.error}` }], isError: true };
+        const target = to ? `agent ${to.slice(0, 8)}…` : `role ${toRole}`;
+        return { content: [{ type: 'text' as const, text: `Message sent (${msgType}) to ${target} | ID: ${msg.id.slice(0, 8)}…${toRole ? ` [role: ${toRole}]` : ''}` }] };
       }
       if (action === 'broadcast') {
         if (!from || !msgType || !content) return { content: [{ type: 'text' as const, text: '❌ from, type, and content required for broadcast' }], isError: true };
@@ -3350,6 +3465,7 @@ export async function createMemorixServer(
           type: msgType,
           content,
         });
+        if ('error' in msg) return { content: [{ type: 'text' as const, text: `❌ ${msg.error}` }], isError: true };
         return { content: [{ type: 'text' as const, text: `Broadcast (${msgType}) | ID: ${msg.id.slice(0, 8)}…` }] };
       }
       // inbox
@@ -3875,6 +3991,25 @@ export async function createMemorixServer(
       resetDotenv();
       loadDotenv(project.rootPath);
     } catch { /* best-effort */ }
+
+    // Reinitialize TeamStore for the new project (per-project isolation)
+    // In HTTP mode, the shared TeamStore from serve-http is replaced with
+    // a project-specific one. In stdio mode, a fresh one is created.
+    try {
+      if (sharedTeam?.teamStore) {
+        // HTTP mode: check if the new projectDir already has a cached TeamStore
+        // For now, reinitialize since the sharedTeam was for the original project
+        teamStore = await initTeamStore(canonicalProjectDir);
+        // Re-attach EventBus if available
+        if (!teamStore.getEventBus()) {
+          const { TeamEventBus } = await import('./team/event-bus.js');
+          teamStore.setEventBus(new TeamEventBus());
+        }
+      } else {
+        // Stdio mode: always reinitialize
+        teamStore = await initTeamStore(canonicalProjectDir);
+      }
+    } catch { /* best-effort — team features degrade gracefully */ }
 
     await initializeProjectRuntime('switch');
     return true;

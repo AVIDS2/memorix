@@ -351,8 +351,9 @@ async function handleSessionStart(input: NormalizedHookInput): Promise<{
 
       contextSummary = `\n\nRecent project memories (${rawProject.name}):\n${lines.join('\n')}`;
     }
-  } catch {
-    // Silent fail — hooks must never break the agent
+  } catch (sessErr) {
+    // Diagnostic log — session start context injection failed
+    console.error('[memorix] session start context failed:', (sessErr as Error)?.message ?? sessErr);
   }
 
   // Build system message based on inject mode
@@ -550,8 +551,9 @@ export async function runHook(agentOverride?: string): Promise<void> {
         const shouldSample = Math.random() < samplingRate;
 
         if (shouldSample) {
-          const { withFreshObservations, getAllObservations } = await import('../memory/observations.js');
-          await withFreshObservations(() => getAllObservations());
+          const { withFreshIndex } = await import('../memory/freshness.js');
+          const { getAllObservations } = await import('../memory/observations.js');
+          await withFreshIndex(() => getAllObservations());
         }
 
         // In hooks, shadow mode by default for performance
@@ -622,8 +624,10 @@ export async function runHook(agentOverride?: string): Promise<void> {
       const emoji = TYPE_EMOJI[observation.type] ?? '📝';
       output.systemMessage = (output.systemMessage ?? '') +
         `\n${emoji} Memorix saved: ${observation.title} [${observation.type}]`;
-    } catch {
-      // Silent fail — hooks must never break the agent
+    } catch (storeErr) {
+      // Diagnostic log — hooks must never break the agent, but silent
+      // swallow makes end-to-end debugging impossible.
+      console.error('[memorix] hook store failed:', (storeErr as Error)?.message ?? storeErr);
     }
   }
 

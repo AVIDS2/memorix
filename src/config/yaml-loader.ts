@@ -99,8 +99,9 @@ export interface MemorixYamlConfig {
 
 // ─── Loader ──────────────────────────────────────────────────────────
 
-let cachedYamlConfig: MemorixYamlConfig | null = null;
-let cachedProjectRoot: string | null = null;
+// Per-project config cache — keyed by resolved projectRoot string.
+// null key = user-level-only config (no project root).
+const configCache = new Map<string | null, MemorixYamlConfig>();
 
 /** Stored project root — set once by server init, used by all no-arg loadYamlConfig() calls */
 let globalProjectRoot: string | null = null;
@@ -109,12 +110,14 @@ let globalProjectRoot: string | null = null;
  * Set the project root for YAML config resolution.
  * Call this once during server init so all config getters
  * (which call loadYamlConfig() without args) pick up project-level memorix.yml.
+ *
+ * In HTTP mode, this is called per-session/switchProject — the Map cache
+ * preserves configs for all projects simultaneously.
  */
 export function initProjectRoot(root: string): void {
   globalProjectRoot = root;
-  // Invalidate cache so next loadYamlConfig() reloads with the new root
-  cachedYamlConfig = null;
-  cachedProjectRoot = null;
+  // Invalidate this project's cache entry so file changes are picked up
+  configCache.delete(root);
 }
 
 /**
@@ -126,10 +129,9 @@ export function loadYamlConfig(projectRoot?: string | null): MemorixYamlConfig {
   // When undefined (no arg), fall back to globally-initialized project root.
   const resolvedRoot = projectRoot === null ? null : (projectRoot ?? globalProjectRoot ?? null);
 
-  // Cache invalidation: if project root changed, reload
-  if (cachedYamlConfig !== null && cachedProjectRoot === resolvedRoot) {
-    return cachedYamlConfig;
-  }
+  // Per-project cache hit
+  const cached = configCache.get(resolvedRoot ?? null);
+  if (cached) return cached;
 
   const userYaml = join(homedir(), '.memorix', 'memorix.yml');
   const projectYaml = resolvedRoot ? join(resolvedRoot, 'memorix.yml') : null;
@@ -156,7 +158,7 @@ export function loadYamlConfig(projectRoot?: string | null): MemorixYamlConfig {
   }
 
   // Shallow merge: project-level top keys override user-level
-  cachedYamlConfig = {
+  const merged: MemorixYamlConfig = {
     ...userConfig,
     ...projectConfig,
     // Deep merge for nested objects where both exist
@@ -167,17 +169,21 @@ export function loadYamlConfig(projectRoot?: string | null): MemorixYamlConfig {
     server: { ...userConfig.server, ...projectConfig.server },
     team: { ...userConfig.team, ...projectConfig.team },
   };
-  cachedProjectRoot = resolvedRoot;
+  configCache.set(resolvedRoot ?? null, merged);
 
-  return cachedYamlConfig;
+  return merged;
 }
 
 /**
  * Reset cached YAML config (for testing or project switching).
+ * Invalidates all cached entries, or a specific projectRoot if provided.
  */
-export function resetYamlConfigCache(): void {
-  cachedYamlConfig = null;
-  cachedProjectRoot = null;
+export function resetYamlConfigCache(projectRoot?: string | null): void {
+  if (projectRoot !== undefined) {
+    configCache.delete(projectRoot ?? null);
+  } else {
+    configCache.clear();
+  }
 }
 
 /**

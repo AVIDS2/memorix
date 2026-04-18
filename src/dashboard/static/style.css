@@ -231,6 +231,52 @@ body {
   filter: drop-shadow(0 0 14px rgba(208, 188, 255, 0.5));
 }
 
+/* Mode Badge — shows standalone vs control-plane, port, MCP endpoint */
+.mode-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  margin: 0 20px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  flex-wrap: wrap;
+}
+.mode-badge-label {
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.mode-badge-label.control-plane {
+  background: rgba(103, 80, 164, 0.15);
+  color: var(--accent-purple);
+}
+.mode-badge-label.standalone {
+  background: rgba(180, 160, 120, 0.12);
+  color: var(--accent-amber);
+}
+.mode-badge-port {
+  color: var(--text-muted);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+}
+.mode-badge-mcp {
+  color: var(--accent-blue);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  cursor: pointer;
+}
+.mode-badge-mcp:hover {
+  text-decoration: underline;
+}
+
 .brand-text {
   font-size: 16px;
   font-weight: 700;

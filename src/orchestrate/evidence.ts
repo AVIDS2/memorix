@@ -40,6 +40,10 @@ export interface PipelineSummary {
   tokenUsage?: Record<string, TokenUsage>;
   costUSD?: number | null;
   tasks: TaskEvidence[];
+  /** A4: Idle agents and why they weren't dispatched */
+  idleAgents?: Array<{ name: string; reason: string }>;
+  /** A2: Routing decisions for explainability */
+  routingDecisions?: Array<{ role: string; selected: string; reason: string; available: string[] }>;
 }
 
 // ── Core ───────────────────────────────────────────────────────────

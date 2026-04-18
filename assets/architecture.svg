@@ -165,22 +165,22 @@
     </g>
   </g>
 
-  <!-- FLOW ARROWS -->
-  <path d="M220 195h40" stroke="#64748b" stroke-width="1.5" fill="none" marker-end="url(#a)"/>
-  <path d="M220 263h40" stroke="#64748b" stroke-width="1.5" fill="none" marker-end="url(#a)"/>
-  <path d="M220 331h40" stroke="#64748b" stroke-width="1.5" fill="none" marker-end="url(#a)"/>
-  <path d="M220 399h40" stroke="#64748b" stroke-width="1.5" fill="none" marker-end="url(#a)"/>
-  <path d="M450 195h40" stroke="#64748b" stroke-width="1.5" fill="none" marker-end="url(#a)"/>
-  <path d="M450 263h40" stroke="#64748b" stroke-width="1.5" fill="none" marker-end="url(#a)"/>
-  <path d="M450 331h40" stroke="#64748b" stroke-width="1.5" fill="none" marker-end="url(#a)"/>
-  <path d="M680 195h40" stroke="#64748b" stroke-width="1.5" fill="none" marker-end="url(#a)"/>
-  <path d="M680 263h40" stroke="#64748b" stroke-width="1.5" fill="none" marker-end="url(#a)"/>
-  <path d="M680 331h40" stroke="#64748b" stroke-width="1.5" fill="none" marker-end="url(#a)"/>
-  <path d="M680 399h40" stroke="#64748b" stroke-width="1.5" fill="none" marker-end="url(#a)"/>
-  <path d="M910 195h40" stroke="#64748b" stroke-width="1.5" fill="none" marker-end="url(#a)"/>
-  <path d="M910 263h40" stroke="#64748b" stroke-width="1.5" fill="none" marker-end="url(#a)"/>
-  <path d="M910 331h40" stroke="#64748b" stroke-width="1.5" fill="none" marker-end="url(#a)"/>
-  <path d="M910 399h40" stroke="#64748b" stroke-width="1.5" fill="none" marker-end="url(#a)"/>
+  <!-- FLOW ARROWS — Y aligned to card centers: 148, 216, 284, 352 -->
+  <path d="M220 148h40" stroke="#64748b" stroke-width="1.5" fill="none" marker-end="url(#a)"/>
+  <path d="M220 216h40" stroke="#64748b" stroke-width="1.5" fill="none" marker-end="url(#a)"/>
+  <path d="M220 284h40" stroke="#64748b" stroke-width="1.5" fill="none" marker-end="url(#a)"/>
+  <path d="M220 352h40" stroke="#64748b" stroke-width="1.5" fill="none" marker-end="url(#a)"/>
+  <path d="M450 148h40" stroke="#64748b" stroke-width="1.5" fill="none" marker-end="url(#a)"/>
+  <path d="M450 216h40" stroke="#64748b" stroke-width="1.5" fill="none" marker-end="url(#a)"/>
+  <path d="M450 284h40" stroke="#64748b" stroke-width="1.5" fill="none" marker-end="url(#a)"/>
+  <path d="M680 148h40" stroke="#64748b" stroke-width="1.5" fill="none" marker-end="url(#a)"/>
+  <path d="M680 216h40" stroke="#64748b" stroke-width="1.5" fill="none" marker-end="url(#a)"/>
+  <path d="M680 284h40" stroke="#64748b" stroke-width="1.5" fill="none" marker-end="url(#a)"/>
+  <path d="M680 352h40" stroke="#64748b" stroke-width="1.5" fill="none" marker-end="url(#a)"/>
+  <path d="M910 148h40" stroke="#64748b" stroke-width="1.5" fill="none" marker-end="url(#a)"/>
+  <path d="M910 216h40" stroke="#64748b" stroke-width="1.5" fill="none" marker-end="url(#a)"/>
+  <path d="M910 284h40" stroke="#64748b" stroke-width="1.5" fill="none" marker-end="url(#a)"/>
+  <path d="M910 352h40" stroke="#64748b" stroke-width="1.5" fill="none" marker-end="url(#a)"/>
 
   <!-- SUPPORTED CLIENTS -->
   <g transform="translate(40,590)">

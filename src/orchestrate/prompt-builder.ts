@@ -36,6 +36,10 @@ export interface PromptInput {
   taskIndex?: number;
   /** Phase 6d: Total tasks in pipeline */
   totalTasks?: number;
+  /** Phase 7: Lesson context from Memorix (advisory) */
+  lessonContext?: string;
+  /** Phase 7: Goal verification — acceptance criteria for this task */
+  goals?: string[];
 }
 
 export function buildAgentPrompt(input: PromptInput): string {
@@ -60,6 +64,23 @@ export function buildAgentPrompt(input: PromptInput): string {
   // 3. Ledger context (Phase 6d — pipeline progress)
   if (input.ledgerContext) {
     sections.push(input.ledgerContext);
+  }
+
+  // Phase 7: Lesson injection (advisory)
+  if (input.lessonContext) {
+    sections.push(input.lessonContext);
+  }
+
+  // Phase 7: Goal verification — acceptance criteria
+  if (input.goals && input.goals.length > 0) {
+    sections.push([
+      '## Acceptance Criteria',
+      '',
+      'Your work will be verified against these goals:',
+      ...input.goals.map((g, i) => `${i + 1}. ${g}`),
+      '',
+      'Ensure ALL criteria are satisfied before finishing.',
+    ].join('\n'));
   }
 
   // 4. Handoff context from previous agents
@@ -90,13 +111,21 @@ export function buildAgentPrompt(input: PromptInput): string {
   // 4. Memorix tool instructions
   const plannerMeta = isPlannerTask(input.task.metadata);
   const isAutonomous = !!plannerMeta;
+  // Structured plan tasks (plannerType='plan') output JSON only — the coordinator materializes.
+  // They must NOT call team_task create, or tasks get double-created.
+  // Review tasks and decomposition tasks still need team_task create for fix/follow-up tasks.
+  const isStructuredPlan = plannerMeta?.plannerType === 'plan';
 
-  const taskInstruction = isAutonomous
+  const taskInstruction = isAutonomous && !isStructuredPlan
     ? '5. You have FULL ACCESS to `team_task action="create"` for creating subtasks. Follow the instructions in your task description.'
+    : isStructuredPlan
+    ? '5. Do NOT call `team_task` — output ONLY the structured JSON plan as specified. The coordinator will materialize tasks from your JSON output.'
     : '5. Focus on completing the work. Do NOT call `team_task` — the orchestrator manages task state.';
 
-  const creationRule = isAutonomous
+  const creationRule = isAutonomous && !isStructuredPlan
     ? '8. Create tasks as instructed in your task description. Respect the task budget and include proper dependencies.'
+    : isStructuredPlan
+    ? '8. Output ONLY the JSON plan inside a ```json code fence. Do NOT create tasks directly — the system will parse your JSON and create them automatically.'
     : '8. Do NOT create new tasks unless the original task explicitly requires subtask decomposition.';
 
   sections.push([

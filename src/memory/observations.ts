@@ -68,7 +68,7 @@ export async function initObservations(dir: string): Promise<void> {
  *   2. Updates nextId from the store
  *   3. Rebuilds the Orama search index (so vector + BM25 search stay in sync)
  *
- * For JsonBackend this is a no-op (always returns false).
+ * For DegradedBackend this is a no-op (always returns false).
  */
 export async function ensureFreshObservations(): Promise<boolean> {
   if (!projectDir) return false;
@@ -88,14 +88,11 @@ export async function ensureFreshObservations(): Promise<boolean> {
 }
 
 /**
- * Centralized freshness gate — wraps a read-facing function with
- * ensureFreshObservations() so callers cannot forget the freshness check.
+ * @internal Observation-only freshness gate.
  *
- * Usage:
- *   return withFreshObservations(async () => { ... read observations ... });
- *
- * Phase 2 debt paydown: replaces scattered manual ensureFreshObservations()
- * calls with a single wrapper. New read surfaces should use this by default.
+ * Public callers should use `withFreshIndex()` from freshness.ts instead,
+ * which also covers mini-skills. This function remains for internal use
+ * by the freshness module and legacy test code only.
  */
 export async function withFreshObservations<T>(fn: () => T | Promise<T>): Promise<T> {
   await ensureFreshObservations();

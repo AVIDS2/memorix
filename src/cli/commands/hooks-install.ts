@@ -64,12 +64,13 @@ export default defineCommand({
     // TUI interactive selection
     p.intro('Memorix Hooks Installation');
 
+    const { AGENT_SUPPORT_TIER } = await import('../../hooks/types.js');
     const selected = await p.multiselect({
       message: 'Select IDEs to install Memorix hooks:',
       options: availableAgents.map((agent) => ({
         value: agent,
         label: getAgentLabel(agent),
-        hint: getAgentHint(agent),
+        hint: getAgentHint(agent) + ` [${AGENT_SUPPORT_TIER[agent as import('../../hooks/types.js').AgentName] ?? 'community'}]`,
       })),
       required: false,
     });
@@ -116,6 +117,23 @@ async function installSingleAgent(agent: string, cwd: string, global: boolean): 
     );
     console.log(`✅ ${agent}: hooks installed -> ${config.configPath}`);
     console.log(`   Events: ${config.events.join(', ')}`);
+
+    // Copilot on Windows without pwsh: warn about runtime compatibility
+    if (agent === 'copilot' && process.platform === 'win32') {
+      try {
+        const { execSync } = await import('node:child_process');
+        execSync('pwsh --version', { encoding: 'utf-8', timeout: 3000, stdio: ['pipe', 'pipe', 'ignore'] });
+      } catch {
+        console.warn(`⚠️  ${agent}: pwsh (PowerShell v7+) not found. Copilot hooks will use the bash field via Git Bash.`);
+        console.warn(`   For best Windows support, install PowerShell v7+: winget install Microsoft.PowerShell`);
+      }
+    }
+
+    // Copilot global not supported
+    if (agent === 'copilot' && global) {
+      const note = (config.generated as Record<string, unknown>)?.note;
+      if (note) console.warn(`⚠️  ${note}`);
+    }
   } catch (err) {
     console.error(`❌ ${agent}: failed - ${err}`);
   }
@@ -140,13 +158,14 @@ function getAgentHint(agent: string): string {
   const hints: Record<string, string> = {
     claude: '.claude/settings.json',
     windsurf: '.windsurf/hooks.json',
-    cursor: '.cursor/rules/memorix.mdc',
-    copilot: '.github/hooks/memorix.json',
-    opencode: '.opencode/hooks.json',
-    kiro: '.kiro/hooks.json',
+    cursor: '.cursor/hooks.json',
+    copilot: '.github/hooks/memorix.json (project-only, no global)',
+    opencode: '.opencode/plugins/memorix.js',
+    kiro: '.kiro/hooks/memorix-agent-stop.kiro.hook',
     antigravity: '.gemini/settings.json',
     'gemini-cli': '.gemini/settings.json',
-    trae: '.trae/hooks.json',
+    trae: '.trae/rules/project_rules.md (rules only, no hooks system)',
+    codex: 'AGENTS.md (rules only, hooks are experimental)',
   };
   return hints[agent] || '';
 }

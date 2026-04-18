@@ -125,7 +125,7 @@ describe('buildAgentPrompt', () => {
     expect(prompt).toContain('belongs to the orchestrator, not to you');
   });
 
-  it('should grant FULL ACCESS to team_task for planner tasks (Phase 5)', () => {
+  it('should forbid team_task for structured plan tasks — coordinator materializes (anti-double-create)', () => {
     const prompt = buildAgentPrompt({
       task: makeTask({
         metadata: JSON.stringify({ plannerType: 'plan', pipelineId: 'pipe-1', goal: 'Build X', iteration: 0, maxIterations: 3, taskBudget: 15 }),
@@ -136,10 +136,15 @@ describe('buildAgentPrompt', () => {
       projectDir: '/tmp/proj',
     });
 
-    expect(prompt).toContain('FULL ACCESS');
-    expect(prompt).toContain('team_task action="create"');
-    expect(prompt).not.toContain('Do NOT call `team_task`');
-    expect(prompt).toContain('Respect the task budget');
+    // Structured plan tasks must NOT call team_task — they output JSON only,
+    // and the coordinator materializes tasks from that JSON.
+    // Allowing team_task would cause double-creation.
+    expect(prompt).toContain('Do NOT call `team_task`');
+    expect(prompt).toContain('output ONLY the structured JSON plan');
+    expect(prompt).toContain('coordinator will materialize');
+    expect(prompt).not.toContain('FULL ACCESS');
+    expect(prompt).toContain('Output ONLY the JSON plan');
+    expect(prompt).toContain('system will parse your JSON');
   });
 
   it('should grant FULL ACCESS to team_task for review tasks (Phase 5)', () => {
@@ -153,8 +158,11 @@ describe('buildAgentPrompt', () => {
       projectDir: '/tmp/proj',
     });
 
+    // Review tasks need team_task create for fix/follow-up tasks
     expect(prompt).toContain('FULL ACCESS');
+    expect(prompt).toContain('team_task action="create"');
     expect(prompt).not.toContain('Do NOT call `team_task`');
+    expect(prompt).toContain('Respect the task budget');
   });
 
   it('should NOT instruct agent to call team_task complete or fail (方案 A contract)', () => {

@@ -120,7 +120,7 @@ export default defineCommand({
       try {
         const http = await import('node:http');
         const healthy = await new Promise<boolean>((resolve) => {
-          const req = http.request({ hostname: '127.0.0.1', port: bgPort, path: '/health', timeout: 3000 }, (res) => {
+          const req = http.request({ hostname: '127.0.0.1', port: bgPort, path: '/api/team', timeout: 3000 }, (res) => {
             res.resume();
             resolve(res.statusCode === 200);
           });
@@ -150,7 +150,7 @@ export default defineCommand({
       try {
         const http = await import('node:http');
         const portUsed = await new Promise<boolean>((resolve) => {
-          const req = http.request({ hostname: '127.0.0.1', port: 3211, path: '/health', timeout: 2000 }, (res) => {
+          const req = http.request({ hostname: '127.0.0.1', port: 3211, path: '/api/team', timeout: 2000 }, (res) => {
             res.resume();
             resolve(res.statusCode === 200);
           });
@@ -218,52 +218,59 @@ export default defineCommand({
     lines.push('┌─ Data Status ─────────────────────────────────────');
 
     if (dataDir && existsSync(dataDir)) {
-      // Observations
+      // Observations — read from SQLite (canonical store)
       let obsCount = 0;
       let activeCount = 0;
       let ranCount = 0;
+      let backendName = 'unknown';
       try {
-        const obsFile = join(dataDir, 'observations.json');
-        if (existsSync(obsFile)) {
-          const obs = JSON.parse(readFileSync(obsFile, 'utf-8'));
-          obsCount = Array.isArray(obs) ? obs.length : 0;
-          activeCount = Array.isArray(obs) ? obs.filter((o: any) => (o.status ?? 'active') === 'active').length : 0;
-          ranCount = Array.isArray(obs) ? obs.filter((o: any) => /^Ran:\s/i.test(o.title ?? '')).length : 0;
-        }
+        const { initObservationStore, getObservationStore } = await import('../../store/obs-store.js');
+        await initObservationStore(dataDir);
+        const store = getObservationStore();
+        backendName = store.getBackendName();
+        const obs = await store.loadAll();
+        obsCount = obs.length;
+        activeCount = obs.filter((o: any) => (o.status ?? 'active') === 'active').length;
+        ranCount = obs.filter((o: any) => /^Ran:\s/i.test(o.title ?? '')).length;
       } catch { /* ignore */ }
 
-      lines.push(ok(`Observations: ${obsCount} total, ${activeCount} active`));
-      if (ranCount > 0) {
-        const pct = Math.round(ranCount / obsCount * 100);
-        lines.push(warn(`Command logs (Ran:): ${ranCount} (${pct}%) — filtered from search results`));
-        if (pct > 50) {
-          tips.push(`${pct}% of observations are command logs from hooks. Consider running cleanup or adjusting hook config.`);
+      if (backendName === 'degraded') {
+        lines.push(warn('Observations: SQLite unavailable — degraded (read-only, no data)'));
+        issues.push('SQLite backend unavailable — observations cannot be read or written.');
+      } else {
+        lines.push(ok(`Observations: ${obsCount} total, ${activeCount} active`));
+        if (ranCount > 0) {
+          const pct = Math.round(ranCount / obsCount * 100);
+          lines.push(warn(`Command logs (Ran:): ${ranCount} (${pct}%) — filtered from search results`));
+          if (pct > 50) {
+            tips.push(`${pct}% of observations are command logs from hooks. Consider running cleanup or adjusting hook config.`);
+          }
         }
       }
       report.data = { observations: obsCount, active: activeCount, commandLogs: ranCount };
 
-      // Sessions
+      // Sessions — read from SQLite (canonical store)
       try {
-        const sessFile = join(dataDir, 'sessions.json');
-        if (existsSync(sessFile)) {
-          const sess = JSON.parse(readFileSync(sessFile, 'utf-8'));
-          const sessCount = Array.isArray(sess) ? sess.length : 0;
-          const activeSess = Array.isArray(sess) ? sess.filter((s: any) => s.status === 'active').length : 0;
-          lines.push(ok(`Sessions: ${sessCount} total, ${activeSess} active`));
-          (report.data as any).sessions = sessCount;
-        }
+        const { initSessionStore, getSessionStore } = await import('../../store/session-store.js');
+        await initSessionStore(dataDir);
+        const sessStore = getSessionStore();
+        const sess = await sessStore.loadAll();
+        const sessCount = sess.length;
+        const activeSess = sess.filter((s: any) => s.status === 'active').length;
+        lines.push(ok(`Sessions: ${sessCount} total, ${activeSess} active`));
+        (report.data as any).sessions = sessCount;
       } catch { /* ignore */ }
 
-      // Mini-skills
+      // Mini-skills — read from SQLite (canonical store)
       try {
-        const skillsFile = join(dataDir, 'mini-skills.json');
-        if (existsSync(skillsFile)) {
-          const skills = JSON.parse(readFileSync(skillsFile, 'utf-8'));
-          const skillCount = Array.isArray(skills) ? skills.length : 0;
-          if (skillCount > 0) {
-            lines.push(ok(`Mini-skills: ${skillCount}`));
-            (report.data as any).miniSkills = skillCount;
-          }
+        const { initMiniSkillStore, getMiniSkillStore } = await import('../../store/mini-skill-store.js');
+        await initMiniSkillStore(dataDir);
+        const skillStore = getMiniSkillStore();
+        const skills = await skillStore.loadAll();
+        const skillCount = skills.length;
+        if (skillCount > 0) {
+          lines.push(ok(`Mini-skills: ${skillCount}`));
+          (report.data as any).miniSkills = skillCount;
         }
       } catch { /* ignore */ }
     } else {

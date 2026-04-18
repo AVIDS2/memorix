@@ -19,6 +19,8 @@ export const TaskNodeSchema = z.object({
   description: z.string().min(30).describe('Self-contained task description with all context'),
   deps: z.array(z.string()).describe('tempIds of prerequisite tasks'),
   files: z.array(z.string()).optional().describe('Files this task will create or modify'),
+  /** Phase 7: Natural-language acceptance criteria (Goal-First Testing) */
+  goals: z.array(z.string()).optional().describe('Acceptance criteria for task verification'),
 });
 
 export type TaskNode = z.infer<typeof TaskNodeSchema>;
@@ -280,19 +282,108 @@ function validateSemantics(graph: TaskGraph): string[] {
  * bare JSON objects, and markdown-wrapped output.
  */
 function extractJson(raw: string): string | null {
+  // Handle Claude CLI output formats:
+  // 1. --output-format json: single {"type":"result","result":"...text..."}
+  // 2. --output-format stream-json: multiple lines, plan is in assistant text blocks
+  // 3. Plain text with fenced code blocks or bare JSON
+  let text = raw;
+
+  // Try single JSON envelope first
+  try {
+    const envelope = JSON.parse(raw.trim());
+    if (envelope && typeof envelope.result === 'string' && envelope.type === 'result') {
+      text = envelope.result;
+    }
+  } catch { /* not a single JSON envelope */ }
+
+  // Handle stream-json: extract text content from assistant messages
+  // Each line is a separate JSON object — collect all text blocks
+  if (text === raw && raw.includes('"type"')) {
+    const textBlocks: string[] = [];
+    for (const line of raw.split('\n')) {
+      const trimmed = line.trim();
+      if (!trimmed.startsWith('{')) continue;
+      try {
+        const obj = JSON.parse(trimmed);
+        // Claude stream-json assistant message with text content
+        if (obj.type === 'assistant' && Array.isArray(obj.message?.content)) {
+          for (const block of obj.message.content) {
+            if (block.type === 'text' && typeof block.text === 'string') {
+              textBlocks.push(block.text);
+            }
+          }
+        }
+        // Also check content_block_delta (streaming text chunks)
+        if (obj.type === 'content_block_delta' && obj.delta?.type === 'text_delta') {
+          textBlocks.push(obj.delta.text);
+        }
+        // Result message with subtype text
+        if (obj.type === 'result' && typeof obj.result === 'string') {
+          textBlocks.push(obj.result);
+        }
+      } catch { /* skip unparseable lines */ }
+    }
+    if (textBlocks.length > 0) {
+      text = textBlocks.join('');
+    }
+  }
+
   // Try fenced code block first: ```json ... ``` or ``` ... ```
-  const fenced = raw.match(/```(?:json)?\s*\n?([\s\S]*?)```/);
+  const fenced = text.match(/```(?:json)?\s*\n?([\s\S]*?)```/);
   if (fenced) {
     const candidate = fenced[1].trim();
     if (candidate.startsWith('{')) return candidate;
   }
 
-  // Try bare JSON object
-  const braceStart = raw.indexOf('{');
-  const braceEnd = raw.lastIndexOf('}');
-  if (braceStart !== -1 && braceEnd > braceStart) {
-    return raw.slice(braceStart, braceEnd + 1);
+  // Try bare JSON object — use brace-counting to find matching closing brace
+  // This handles trailing text after the JSON (common with Gemini and other LLMs)
+  const braceStart = text.indexOf('{');
+  if (braceStart !== -1) {
+    const extracted = extractBalancedJson(text, braceStart);
+    if (extracted) return extracted;
   }
 
   return null;
+}
+
+/**
+ * Extract a balanced JSON object starting at `startIdx` using brace-counting.
+ * Respects string literals (skips braces inside quotes) and escape sequences.
+ * Returns the substring if a balanced object is found, else null.
+ */
+function extractBalancedJson(text: string, startIdx: number): string | null {
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+
+  for (let i = startIdx; i < text.length; i++) {
+    const ch = text[i];
+
+    if (escape) {
+      escape = false;
+      continue;
+    }
+
+    if (ch === '\\' && inString) {
+      escape = true;
+      continue;
+    }
+
+    if (ch === '"') {
+      inString = !inString;
+      continue;
+    }
+
+    if (inString) continue;
+
+    if (ch === '{') depth++;
+    else if (ch === '}') {
+      depth--;
+      if (depth === 0) {
+        return text.slice(startIdx, i + 1);
+      }
+    }
+  }
+
+  return null; // unbalanced
 }

@@ -3,7 +3,11 @@ import {
   pickAdapter,
   parseRoutingOverrides,
   extractRoleFromDescription,
+  extractRole,
+  buildRoutingDecision,
+  buildIdleReasons,
 } from '../../src/orchestrate/capability-router.js';
+import { parseAgentQuotas, buildQuotaMap } from '../../src/orchestrate/adapters/index.js';
 import type { AgentAdapter } from '../../src/orchestrate/adapters/types.js';
 
 function mockAdapter(name: string): AgentAdapter {
@@ -93,6 +97,205 @@ describe('capability-router', () => {
 
     it('should default to engineer if no role found', () => {
       expect(extractRoleFromDescription('Just do the thing')).toBe('engineer');
+    });
+  });
+
+  describe('parseAgentQuotas', () => {
+    it('should parse quota syntax', () => {
+      const result = parseAgentQuotas('claude:2,codex:1,gemini:3');
+      expect(result).toEqual([
+        { name: 'claude', quota: 2 },
+        { name: 'codex', quota: 1 },
+        { name: 'gemini', quota: 3 },
+      ]);
+    });
+
+    it('should default quota to 1 for plain names', () => {
+      const result = parseAgentQuotas('claude,codex');
+      expect(result).toEqual([
+        { name: 'claude', quota: 1 },
+        { name: 'codex', quota: 1 },
+      ]);
+    });
+
+    it('should handle mixed syntax', () => {
+      const result = parseAgentQuotas('claude:2,codex');
+      expect(result).toEqual([
+        { name: 'claude', quota: 2 },
+        { name: 'codex', quota: 1 },
+      ]);
+    });
+
+    it('should skip unknown adapters', () => {
+      const result = parseAgentQuotas('claude,unknown:3');
+      expect(result).toEqual([{ name: 'claude', quota: 1 }]);
+    });
+  });
+
+  describe('buildQuotaMap', () => {
+    it('should build map from quotas', () => {
+      const map = buildQuotaMap([
+        { name: 'claude', quota: 2 },
+        { name: 'codex', quota: 1 },
+      ]);
+      expect(map).toEqual({ claude: 2, codex: 1 });
+    });
+  });
+
+  describe('pickAdapter with quotaMap', () => {
+    const opencode = mockAdapter('opencode');
+
+    it('should respect per-type quota limits', () => {
+      const config = { quotaMap: { claude: 2, codex: 1 } };
+      // claude has 1 active dispatch (quota 2) → still available
+      const result = pickAdapter('pm', [claude, codex], undefined, config, { claude: 1, codex: 0 });
+      expect(result.name).toBe('claude');
+    });
+
+    it('should skip adapter at quota capacity', () => {
+      const config = { quotaMap: { claude: 1, codex: 2 } };
+      // claude at capacity (1/1), codex not (0/2) → picks codex
+      const result = pickAdapter('pm', [claude, codex], undefined, config, { claude: 1, codex: 0 });
+      expect(result.name).toBe('codex');
+    });
+
+    it('should fall back to last resort when all at capacity', () => {
+      const config = { quotaMap: { claude: 1, codex: 1 } };
+      // both at capacity → returns first adapter (last resort)
+      const result = pickAdapter('pm', [claude, codex], undefined, config, { claude: 1, codex: 1 });
+      expect(result.name).toBe('claude'); // last resort = available[0]
+    });
+
+    it('should use quota=1 for adapters not in quotaMap', () => {
+      const config = { quotaMap: { claude: 3 } };
+      // codex has quota=1 (default), 1 active → full; claude has 3 quota, 2 active → available
+      const result = pickAdapter('engineer', [codex, claude], undefined, config, { codex: 1, claude: 2 });
+      expect(result.name).toBe('claude');
+    });
+  });
+
+  describe('extractRole', () => {
+    it('should prefer metadata.role over description text', () => {
+      const task = { description: '[Role: Engineer] Build something', metadata: { role: 'reviewer' } };
+      expect(extractRole(task)).toBe('reviewer');
+    });
+
+    it('should fall back to description when metadata.role is absent', () => {
+      const task = { description: '[Role: Engineer] Build something', metadata: {} };
+      expect(extractRole(task)).toBe('engineer');
+    });
+
+    it('should fall back to description when metadata is null', () => {
+      const task = { description: '[Role: QA Tester] Test everything', metadata: null };
+      expect(extractRole(task)).toBe('qa');
+    });
+
+    it('should parse JSON string metadata', () => {
+      const task = { description: '[Role: Engineer] Build something', metadata: '{"role":"pm"}' };
+      expect(extractRole(task)).toBe('pm');
+    });
+
+    it('should handle invalid JSON metadata gracefully', () => {
+      const task = { description: '[Role: Engineer] Build something', metadata: 'not-json' };
+      expect(extractRole(task)).toBe('engineer');
+    });
+
+    it('should default to engineer when no role found anywhere', () => {
+      const task = { description: 'Just do the thing', metadata: null };
+      expect(extractRole(task)).toBe('engineer');
+    });
+  });
+
+  describe('buildRoutingDecision', () => {
+    it('should report default_preference when top-ranked adapter selected', () => {
+      const selected = claude;
+      const decision = buildRoutingDecision('pm', [codex, claude, gemini], selected);
+      expect(decision.role).toBe('pm');
+      expect(decision.selected).toBe('claude');
+      expect(decision.reason).toBe('default_preference');
+    });
+
+    it('should report cli_override when selected via user override', () => {
+      const selected = codex;
+      const config = { overrides: { pm: ['codex'] } };
+      const decision = buildRoutingDecision('pm', [claude, codex], selected, config);
+      expect(decision.reason).toBe('cli_override');
+    });
+
+    it('should report quota_fallback when preferred adapter at capacity', () => {
+      const selected = gemini; // 2nd preference for pm, claude is at capacity
+      const config = { quotaMap: { claude: 1, gemini: 2 } };
+      const decision = buildRoutingDecision('pm', [claude, gemini], selected, config, { claude: 1, gemini: 0 });
+      expect(decision.reason).toBe('quota_fallback');
+    });
+
+    it('should report excluded_failed when preferred adapter excluded', () => {
+      const selected = gemini; // 2nd preference for pm, claude excluded
+      const decision = buildRoutingDecision('pm', [claude, gemini], selected, undefined, undefined, new Set(['claude']));
+      expect(decision.reason).toBe('excluded_failed');
+    });
+
+    it('should report last_resort for fallback selection', () => {
+      const unknown = mockAdapter('unknown-agent');
+      const decision = buildRoutingDecision('pm', [unknown], unknown);
+      expect(decision.reason).toBe('last_resort');
+    });
+
+    it('should include available adapter names', () => {
+      const decision = buildRoutingDecision('pm', [codex, claude, gemini], claude);
+      expect(decision.available).toEqual(['codex', 'claude', 'gemini']);
+    });
+  });
+
+  describe('buildIdleReasons', () => {
+    it('should report idle agents with preference rank reason', () => {
+      const dispatched = new Set(['claude']);
+      const reasons = buildIdleReasons([claude, codex, gemini], dispatched);
+      expect(reasons).toHaveLength(2);
+      expect(reasons.find(r => r.name === 'codex')?.reason).toContain('preference rank');
+      expect(reasons.find(r => r.name === 'gemini')?.reason).toContain('preference rank');
+    });
+
+    it('should report excluded agents', () => {
+      const dispatched = new Set(['claude']);
+      const reasons = buildIdleReasons([claude, codex, gemini], dispatched, undefined, new Set(['codex']));
+      const codexReason = reasons.find(r => r.name === 'codex');
+      expect(codexReason?.reason).toContain('excluded');
+    });
+
+    it('should return empty when all agents dispatched', () => {
+      const dispatched = new Set(['claude', 'codex', 'gemini']);
+      const reasons = buildIdleReasons([claude, codex, gemini], dispatched);
+      expect(reasons).toHaveLength(0);
+    });
+  });
+
+  describe('balanced scheduling', () => {
+    it('should rotate among equally-preferred adapters', () => {
+      const opencode = mockAdapter('opencode');
+      const config = { scheduling: 'balanced' as const, overrides: { engineer: ['codex', 'claude', 'opencode'] } };
+      // First call: codex (index 0)
+      const r1 = pickAdapter('engineer', [codex, claude, opencode], undefined, config);
+      expect(r1.name).toBe('codex');
+      // Second call: claude (index 1)
+      const r2 = pickAdapter('engineer', [codex, claude, opencode], undefined, config);
+      expect(r2.name).toBe('claude');
+      // Third call: opencode (index 2)
+      const r3 = pickAdapter('engineer', [codex, claude, opencode], undefined, config);
+      expect(r3.name).toBe('opencode');
+      // Fourth call: wraps back to codex (index 0)
+      const r4 = pickAdapter('engineer', [codex, claude, opencode], undefined, config);
+      expect(r4.name).toBe('codex');
+    });
+
+    it('should use best-fit by default', () => {
+      const opencode = mockAdapter('opencode');
+      const config = { overrides: { engineer: ['codex', 'claude', 'opencode'] } };
+      // Both calls should return codex (first preference)
+      const r1 = pickAdapter('engineer', [codex, claude, opencode], undefined, config);
+      const r2 = pickAdapter('engineer', [codex, claude, opencode], undefined, config);
+      expect(r1.name).toBe('codex');
+      expect(r2.name).toBe('codex');
     });
   });
 });

@@ -33,6 +33,21 @@ const GREEN = '\x1b[32m';
 const YELLOW = '\x1b[33m';
 const BLUE = '\x1b[34m';
 
+type SpinnerLike = {
+  start: (message: string) => void;
+  stop: (message?: string) => void;
+};
+
+function createSpinnerForCurrentOutput(): SpinnerLike {
+  if (process.stdout.isTTY && process.stdin.isTTY) {
+    return p.spinner();
+  }
+  return {
+    start: () => {},
+    stop: () => {},
+  };
+}
+
 async function getWorkbenchHeader(): Promise<string[]> {
   const lines: string[] = [];
   const ver = `v${pkg.version}`;
@@ -82,14 +97,11 @@ async function getWorkbenchHeader(): Promise<string[]> {
       const proj = detectProject(process.cwd());
       if (proj) {
         const dataDir = await getProjectDataDir(proj.id);
-        const { existsSync } = await import('node:fs');
-        const { join } = await import('node:path');
-        const obsFile = join(dataDir, 'observations.json');
-        if (existsSync(obsFile)) {
-          await initStore(dataDir);
-          const { getObservationStore: getStore } = await import('../store/obs-store.js');
-          const obs = await getStore().loadAll() as any[];
-          const active = obs.filter((o: any) => (o.status ?? 'active') === 'active').length;
+        await initStore(dataDir);
+        const { getObservationStore: getStore } = await import('../store/obs-store.js');
+        const obs = await getStore().loadAll() as any[];
+        const active = obs.filter((o: any) => (o.status ?? 'active') === 'active').length;
+        if (active > 0) {
           memLabel = `${BOLD}${active}${RESET} ${DIM}active${RESET}`;
         }
       }
@@ -129,7 +141,7 @@ function printSlashHelp(): void {
 }
 
 async function runRemember(text: string): Promise<void> {
-  const s = p.spinner();
+  const s = createSpinnerForCurrentOutput();
   s.start('Storing memory...');
 
   try {
@@ -683,7 +695,7 @@ async function runConfigure(): Promise<void> {
 }
 
 async function runSearch(query: string): Promise<void> {
-  const s = p.spinner();
+  const s = createSpinnerForCurrentOutput();
   s.start('Searching memories...');
   const perf = !!process.env.MEMORIX_PERF;
   const t0 = perf ? performance.now() : 0;
@@ -738,7 +750,7 @@ async function runSearch(query: string): Promise<void> {
 }
 
 async function runList(): Promise<void> {
-  const s = p.spinner();
+  const s = createSpinnerForCurrentOutput();
   s.start('Loading recent memories...');
   
   try {
@@ -852,6 +864,17 @@ const main = defineCommand({
     'git-hook': () => import('./commands/git-hook-install.js').then(m => m.default),
     'git-hook-uninstall': () => import('./commands/git-hook-uninstall.js').then(m => m.default),
     background: () => import('./commands/background.js').then(m => m.default),
+    bg: () => import('./commands/background.js').then(m => m.default),
+    bs: () => Promise.resolve(defineCommand({
+      meta: { name: 'bs', description: 'Shortcut: background start' },
+      args: { port: { type: 'string', description: 'HTTP port (default: 3211)', required: false } },
+      async run({ args }) {
+        // Directly invoke background start instead of going through citty's CommandContext
+        const port = parseInt((args.port as string) || '3211', 10);
+        const { doStart } = await import('./commands/background.js');
+        await doStart(port);
+      },
+    })),
     doctor: () => import('./commands/doctor.js').then(m => m.default),
     dashboard: () => import('./commands/dashboard.js').then(m => m.default),
     cleanup: () => import('./commands/cleanup.js').then(m => m.default),
@@ -864,7 +887,7 @@ const main = defineCommand({
     const knownSubs = ['search', 'remember', 'recent',
       'init', 'integrate', 'serve', 'serve-http', 'status', 'sync',
       'hook', 'hooks', 'ingest', 'git-hook', 'git-hook-uninstall',
-      'background', 'doctor', 'dashboard', 'cleanup', 'orchestrate'];
+      'background', 'bg', 'bs', 'doctor', 'dashboard', 'cleanup', 'orchestrate'];
     if (firstArg && knownSubs.includes(firstArg)) return;
 
     // No subcommand provided — show fullscreen workbench if in TTY, otherwise show help

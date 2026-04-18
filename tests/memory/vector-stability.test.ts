@@ -41,6 +41,34 @@ vi.mock('../../src/store/sqlite-store.js', () => ({
   SqliteBackend: class { async init() { throw new Error('SQLite disabled in test'); } close() {} },
 }));
 
+// Mock obs-store to provide a working ObservationStore (DegradedBackend is read-only)
+const mockStore = {
+  loadAll: vi.fn().mockResolvedValue([]),
+  saveAll: vi.fn(),
+  upsert: vi.fn(),
+  remove: vi.fn(),
+  loadIdCounter: vi.fn().mockResolvedValue(1),
+  saveIdCounter: vi.fn(),
+  getGeneration: vi.fn().mockReturnValue(1),
+  ensureFresh: vi.fn().mockResolvedValue(false),
+  transaction: vi.fn().mockImplementation(async (fn: Function) => fn({
+    loadAll: vi.fn(),
+    saveAll: vi.fn(),
+    loadIdCounter: vi.fn(),
+    saveIdCounter: vi.fn(),
+    upsert: vi.fn(),
+    remove: vi.fn(),
+  })),
+  close: vi.fn(),
+  getBackendName: vi.fn().mockReturnValue('sqlite'),
+};
+
+vi.mock('../../src/store/obs-store.js', () => ({
+  initObservationStore: vi.fn().mockResolvedValue(undefined),
+  getObservationStore: vi.fn().mockReturnValue(mockStore),
+  ObservationStore: { loadIdCounter: vi.fn().mockResolvedValue(1) },
+}));
+
 vi.mock('../../src/compact/token-budget.js', () => ({
   countTextTokens: vi.fn().mockReturnValue(10),
 }));
@@ -256,7 +284,7 @@ describe('Vector Stability', () => {
     const embeddingProvider = await import('../../src/embedding/provider.js');
     const persistence = await import('../../src/store/persistence.js');
 
-    vi.mocked(persistence.loadObservationsJson).mockResolvedValue([
+    const testObs = [
       {
         id: 41,
         entityName: 'startup-reindex',
@@ -272,7 +300,10 @@ describe('Vector Stability', () => {
         status: 'active',
         source: 'agent',
       },
-    ]);
+    ];
+    vi.mocked(persistence.loadObservationsJson).mockResolvedValue(testObs);
+    mockStore.loadAll.mockResolvedValue(testObs);
+    mockStore.loadIdCounter.mockResolvedValue(42);
     vi.mocked(embeddingProvider.getEmbeddingProvider).mockResolvedValue({
       name: 'api-Qwen-Qwen3-Embedding-8B',
       dimensions: 4096,

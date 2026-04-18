@@ -70,7 +70,7 @@ const EVENT_MAP: Record<string, HookEvent> = {
   preCompact: 'pre_compact',
   stop: 'session_end',
 
-  // OpenCode (plugin events piped via Bun.spawn → memorix hook)
+  // OpenCode (plugin events piped via child_process.spawnSync → memorix hook)
   'session.created': 'session_start',
   'session.idle': 'session_end',
   'session.compacted': 'post_compact',
@@ -439,6 +439,10 @@ export function normalizeHookInput(payload: Record<string, unknown>): Normalized
       break;
     case 'opencode':
       agentSpecific = normalizeOpenCode(payload, event);
+      break;
+    case 'codex':
+      // Codex hooks use the same payload format as Claude Code
+      agentSpecific = normalizeClaude(payload, event);
       break;
     default:
       agentSpecific = { sessionId: '', cwd: '' };

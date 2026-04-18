@@ -1,12 +1,12 @@
 <p align="center">
-  <img src="assets/logo.png" alt="Memorix" width="120">
+  <img src="https://raw.githubusercontent.com/AVIDS2/memorix/main/assets/readme-logo-bridge.png" alt="Memorix Bridge" width="720">
 </p>
 
 <h1 align="center">Memorix</h1>
 
 <p align="center">
   <strong>Open-source cross-agent memory layer for coding agents.</strong><br>
-  Compatible with Cursor, Claude Code, Codex, Windsurf, Gemini CLI, GitHub Copilot, Kiro, OpenCode, Antigravity, and Trae through MCP.
+  Tiered MCP support across Cursor, Claude Code, Codex, Windsurf, Gemini CLI, GitHub Copilot, Kiro, OpenCode, Antigravity, and Trae.
 </p>
 
 <p align="center">
@@ -58,31 +58,25 @@ What makes Memorix different:
 
 Memorix is built for one job: let multiple coding agents share the same durable project memory through MCP without giving up Git truth, reasoning history, or local control.
 
-## What's New in 1.0.6
+## What's New in 1.0.7
 
-Version `1.0.6` is the release where Memorix's memory model became much more explicit, safer, and easier to operate.
+Version `1.0.7` adds multi-agent coordination, SQLite canonical storage, and team identity.
 
-- **Provenance-first retrieval**: memories now carry clearer source semantics (`explicit`, `hook`, `git-ingest`) and value categories (`core`, `contextual`, `ephemeral`).
-- **Layered disclosure**: session start, search, detail, and timeline now separate routing hints, working context, and deeper evidence more intentionally.
-- **Evidence and citation-lite support**: compact outputs now explain repository-backed evidence, synthesized analysis, and lightweight "why surfaced / what supports this" signals.
-- **Task-line scoping and secret safety**: retrieval is better at staying inside the current workstream, and obvious credentials are sanitized or redacted on both write and read paths.
-- **Attribution and cleanup loop**: wrong-bucket auditing, retention explainability, stale-memory review, and structured remediation hints now form a practical operator loop.
-- **OpenCode compaction improvements**: OpenCode compaction now uses a structured continuation prompt and a real `post_compact` event instead of implying automatic MCP tool calls during compaction.
+- **Multi-Agent Coordinator**: `memorix orchestrate` runs a structured coordination loop — plan → parallel execution → verify gates → fix loops → review → merge. Supports Claude, Codex, Gemini CLI, and OpenCode with capability routing, worktree isolation, and agent fallback.
+- **SQLite Canonical Store**: Observations, mini-skills, sessions, and archives now use SQLite as the single source of truth with shared DB handle and freshness-safe retrieval.
+- **Team Identity**: Agent registration, heartbeat, task board, handoff artifacts, and stale detection for multi-agent collaboration.
+- **Configurable Timeouts**: `MEMORIX_LLM_TIMEOUT_MS` (default 30s) and `MEMORIX_RERANK_TIMEOUT_MS` (default 5s) for slow API providers.
+- **Cursor stdio fix**: No longer exits when workspace root is unavailable — starts in deferred-binding mode instead.
 
 ## Supported Clients
 
-Memorix currently ships first-class integrations for:
+| Tier | Clients |
+|------|---------|
+| ★ Core | Claude Code, Cursor, Windsurf |
+| ◆ Extended | GitHub Copilot, Kiro, Codex |
+| ○ Community | Gemini CLI, OpenCode, Antigravity, Trae |
 
-- Cursor
-- Claude Code
-- Codex
-- Windsurf
-- Gemini CLI
-- GitHub Copilot
-- Kiro
-- OpenCode
-- Antigravity
-- Trae
+**Core** = full hook integration + tested MCP + rules sync. **Extended** = hook integration with platform caveats. **Community** = best-effort hooks, community-reported compatibility.
 
 If a client can speak MCP and launch a local command or HTTP endpoint, it can usually connect to Memorix even if it is not in the list above yet.
 
@@ -366,31 +360,25 @@ Memorix is not a single linear pipeline. It accepts memory from multiple ingress
 
 ## Documentation
 
-### Getting Started
+Start with the [Docs Map](docs/README.md) if you want the fastest route to the right document.
 
-- [Setup Guide](docs/SETUP.md)
-- [Configuration Guide](docs/CONFIGURATION.md)
+| If you want to... | Read this |
+| --- | --- |
+| Install Memorix and choose the right runtime mode | [Setup Guide](docs/SETUP.md) |
+| Configure `memorix.yml`, `.env`, and project overrides | [Configuration Guide](docs/CONFIGURATION.md) |
+| Operate Memorix correctly as an AI coding agent | [Agent Operator Playbook](docs/AGENT_OPERATOR_PLAYBOOK.md) |
+| Understand the system shape and runtime surfaces | [Architecture](docs/ARCHITECTURE.md) |
+| Learn the MCP / HTTP / CLI command surface | [API Reference](docs/API_REFERENCE.md) |
+| Understand Git memory and retrieval semantics | [Git Memory Guide](docs/GIT_MEMORY.md) |
+| Contribute to Memorix itself | [Development Guide](docs/DEVELOPMENT.md) |
+| Browse the full document map | [docs/README.md](docs/README.md) |
 
-### Product and Architecture
+Additional deep references:
 
-- [Architecture](docs/ARCHITECTURE.md)
 - [Memory Formation Pipeline](docs/MEMORY_FORMATION_PIPELINE.md)
 - [Design Decisions](docs/DESIGN_DECISIONS.md)
-
-### Reference
-
-- [API Reference](docs/API_REFERENCE.md)
-- [Git Memory Guide](docs/GIT_MEMORY.md)
 - [Modules](docs/MODULES.md)
-
-### Development
-
-- [Development Guide](docs/DEVELOPMENT.md)
 - [Known Issues and Roadmap](docs/KNOWN_ISSUES_AND_ROADMAP.md)
-
-### AI-Facing Project Docs
-
-- [Agent Operator Playbook](docs/AGENT_OPERATOR_PLAYBOOK.md)
 - [AI Context Note](docs/AI_CONTEXT.md)
 - [`llms.txt`](llms.txt)
 - [`llms-full.txt`](llms-full.txt)

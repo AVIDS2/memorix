@@ -47,11 +47,11 @@ export default defineCommand({
     // Delete project memories
     try {
       const {
-        withFreshObservations,
         getProjectObservations,
         resolveObservations,
       } = await import('../../memory/observations.js');
-      const observations = await withFreshObservations(() => getProjectObservations(projectId));
+      const { withFreshIndex } = await import('../../memory/freshness.js');
+      const observations = await withFreshIndex(() => getProjectObservations(projectId));
       const ids = observations.map((o) => o.id);
 
       if (ids.length === 0) {

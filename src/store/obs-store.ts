@@ -1,12 +1,14 @@
 /**
  * ObservationStore — unified persistence abstraction for observations.
  *
- * Two backends:
- *   - JsonBackend  (json-store.ts)  — current file-lock + observations.json model
+ * Backends:
  *   - SqliteBackend (sqlite-store.ts) — WAL-mode SQLite with generation tracking
+ *   - DegradedBackend — read-only empty store when SQLite is unavailable
+ *
+ * JSON is no longer a runtime writable backend.
+ * observations.json is only used as a one-time migration source into SQLite.
  *
  * All observation persistence flows through this interface.
- * Graph, sessions, mini-skills remain file-based (not in scope).
  */
 
 import type { Observation } from '../types.js';
@@ -86,7 +88,7 @@ export interface ObservationStore {
    * If yes, the caller should reload observations[] and rebuild the Orama index.
    *
    * - SqliteBackend: compares storage_generation in meta table vs local knownGeneration
-   * - JsonBackend: no-op, returns false (every write already re-reads from disk)
+   * - DegradedBackend: no-op, returns false (no data to refresh)
    *
    * @returns true if the local cache is stale and was refreshed
    */
@@ -102,8 +104,8 @@ export interface ObservationStore {
 
   // ── Diagnostics ────────────────────────────────────────────────────
 
-  /** Which backend is active: 'sqlite' or 'json'. */
-  getBackendName(): 'sqlite' | 'json';
+  /** Which backend is active: 'sqlite' or 'degraded' (read-only). */
+  getBackendName(): 'sqlite' | 'degraded';
 }
 
 // ── Singleton store access ─────────────────────────────────────────
@@ -148,12 +150,12 @@ export async function createObservationStore(dataDir: string): Promise<Observati
     await store.init(dataDir);
     return store;
   } catch (err) {
-    console.error(`[memorix] SQLite backend unavailable, falling back to JSON: ${err instanceof Error ? err.message : err}`);
+    console.error(`[memorix] SQLite backend unavailable — degraded mode (read-only): ${err instanceof Error ? err.message : err}`);
   }
 
-  // Fallback: JsonBackend (always works)
-  const { JsonBackend } = await import('./json-store.js');
-  const store = new JsonBackend();
+  // No writable JSON fallback — degraded read-only mode instead
+  // observations.json is only used as migration source, not runtime backend
+  const store = new DegradedBackend();
   await store.init(dataDir);
   return store;
 }
@@ -161,8 +163,7 @@ export async function createObservationStore(dataDir: string): Promise<Observati
 /**
  * Initialize the ObservationStore singleton for the given data directory.
  *
- * In Step A this always creates a JsonBackend.
- * In Step B this will try SQLite first, falling back to JSON.
+ * Tries SQLite first. If unavailable, falls back to DegradedBackend (read-only).
  *
  * Idempotent: if already initialized for the same dataDir, returns the existing store.
  */
@@ -182,4 +183,73 @@ export async function initObservationStore(dataDir: string): Promise<Observation
   _store = store;
   _storeDataDir = dataDir;
   return store;
+}
+
+// ── DegradedBackend (read-only when SQLite unavailable) ──────────
+
+/**
+ * DegradedBackend — ObservationStore that is read-only and empty.
+ *
+ * Used when better-sqlite3 is unavailable. All write operations throw.
+ * This ensures the system does not silently fall back to writing observations.json
+ * as a runtime canonical store.
+ */
+export class DegradedBackend implements ObservationStore {
+  private dataDir: string = '';
+
+  async init(dataDir: string): Promise<void> {
+    this.dataDir = dataDir;
+  }
+
+  async loadAll(): Promise<Observation[]> {
+    return [];
+  }
+
+  async loadIdCounter(): Promise<number> {
+    return 1;
+  }
+
+  async insert(_obs: Observation): Promise<void> {
+    throw new Error('[memorix] Cannot write observations: SQLite backend unavailable (degraded mode)');
+  }
+
+  async update(_obs: Observation): Promise<void> {
+    throw new Error('[memorix] Cannot write observations: SQLite backend unavailable (degraded mode)');
+  }
+
+  async remove(_id: number): Promise<void> {
+    throw new Error('[memorix] Cannot write observations: SQLite backend unavailable (degraded mode)');
+  }
+
+  async bulkReplace(_obs: Observation[]): Promise<void> {
+    throw new Error('[memorix] Cannot write observations: SQLite backend unavailable (degraded mode)');
+  }
+
+  async bulkRemoveByIds(_ids: number[]): Promise<void> {
+    throw new Error('[memorix] Cannot write observations: SQLite backend unavailable (degraded mode)');
+  }
+
+  async saveIdCounter(_nextId: number): Promise<void> {
+    throw new Error('[memorix] Cannot write observations: SQLite backend unavailable (degraded mode)');
+  }
+
+  async atomic<T>(_fn: (tx: StoreTransaction) => Promise<T>): Promise<T> {
+    throw new Error('[memorix] Cannot write observations: SQLite backend unavailable (degraded mode)');
+  }
+
+  async ensureFresh(): Promise<boolean> {
+    return false;
+  }
+
+  getGeneration(): number {
+    return 0;
+  }
+
+  close(): void {
+    // No resources to release
+  }
+
+  getBackendName(): 'sqlite' | 'degraded' {
+    return 'degraded';
+  }
 }

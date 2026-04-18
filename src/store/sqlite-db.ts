@@ -128,6 +128,8 @@ CREATE TABLE IF NOT EXISTS team_messages (
   task_id         TEXT,
   read_at         INTEGER,
   created_at      INTEGER NOT NULL,
+  to_role         TEXT,
+  handoff_status  TEXT,
   FOREIGN KEY (sender_agent_id) REFERENCES team_agents(agent_id),
   FOREIGN KEY (task_id) REFERENCES team_tasks(task_id)
 );
@@ -145,6 +147,8 @@ CREATE TABLE IF NOT EXISTS team_tasks (
   created_by      TEXT,
   created_at      INTEGER NOT NULL,
   updated_at      INTEGER NOT NULL,
+  required_role   TEXT,
+  preferred_role  TEXT,
   FOREIGN KEY (assignee_agent_id) REFERENCES team_agents(agent_id),
   FOREIGN KEY (created_by) REFERENCES team_agents(agent_id)
 );
@@ -172,6 +176,40 @@ CREATE TABLE IF NOT EXISTS team_locks (
 );
 `;
 
+// ── Phase 4d: Role-based Collaboration Tables ─────────────────────────
+
+const CREATE_TEAM_ROLES_TABLE = `
+CREATE TABLE IF NOT EXISTS team_roles (
+  role_id               TEXT PRIMARY KEY,
+  project_id            TEXT NOT NULL,
+  label                 TEXT NOT NULL,
+  description           TEXT,
+  preferred_agent_types TEXT NOT NULL DEFAULT '[]',
+  max_concurrent        INTEGER NOT NULL DEFAULT 1,
+  created_at            INTEGER NOT NULL
+);
+`;
+
+// ── Knowledge Graph Tables ────────────────────────────────────────────
+
+const CREATE_GRAPH_ENTITIES_TABLE = `
+CREATE TABLE IF NOT EXISTS graph_entities (
+  name            TEXT PRIMARY KEY,
+  entityType      TEXT NOT NULL DEFAULT '',
+  observations    TEXT NOT NULL DEFAULT '[]'
+);
+`;
+
+const CREATE_GRAPH_RELATIONS_TABLE = `
+CREATE TABLE IF NOT EXISTS graph_relations (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  from_entity     TEXT NOT NULL,
+  to_entity       TEXT NOT NULL,
+  relationType    TEXT NOT NULL DEFAULT '',
+  UNIQUE(from_entity, to_entity, relationType)
+);
+`;
+
 const CREATE_INDEXES = `
 CREATE INDEX IF NOT EXISTS idx_observations_projectId ON observations(projectId);
 CREATE INDEX IF NOT EXISTS idx_observations_topicKey ON observations(projectId, topicKey);
@@ -185,6 +223,11 @@ CREATE INDEX IF NOT EXISTS idx_team_messages_project ON team_messages(project_id
 CREATE INDEX IF NOT EXISTS idx_team_tasks_project ON team_tasks(project_id, status);
 CREATE INDEX IF NOT EXISTS idx_team_tasks_assignee ON team_tasks(assignee_agent_id, status);
 CREATE INDEX IF NOT EXISTS idx_team_locks_project ON team_locks(project_id);
+CREATE INDEX IF NOT EXISTS idx_team_roles_project ON team_roles(project_id);
+CREATE INDEX IF NOT EXISTS idx_team_tasks_role ON team_tasks(required_role);
+CREATE INDEX IF NOT EXISTS idx_team_messages_role ON team_messages(to_role);
+CREATE INDEX IF NOT EXISTS idx_graph_relations_from ON graph_relations(from_entity);
+CREATE INDEX IF NOT EXISTS idx_graph_relations_to ON graph_relations(to_entity);
 `;
 
 // ── Singleton cache ─────────────────────────────────────────────────
@@ -213,6 +256,7 @@ export function getDatabase(dataDir: string): any {
   // WAL mode for concurrent read performance
   db.pragma('journal_mode = WAL');
   db.pragma('busy_timeout = 5000');
+  db.pragma('foreign_keys = ON');
 
   // Create all tables
   db.exec(CREATE_OBSERVATIONS_TABLE);
@@ -225,16 +269,28 @@ export function getDatabase(dataDir: string): any {
   db.exec(CREATE_TEAM_TASK_DEPS_TABLE);
   db.exec(CREATE_TEAM_MESSAGES_TABLE);
   db.exec(CREATE_TEAM_LOCKS_TABLE);
-  db.exec(CREATE_INDEXES);
+  db.exec(CREATE_TEAM_ROLES_TABLE);
+  db.exec(CREATE_GRAPH_ENTITIES_TABLE);
+  db.exec(CREATE_GRAPH_RELATIONS_TABLE);
 
   // Phase 3a migration: add sourceSnapshot + updatedAt to mini_skills
   // Idempotent — ALTER TABLE ADD COLUMN throws if column already exists
+  // IMPORTANT: These must run BEFORE CREATE_INDEXES so columns exist when indexes reference them
   try { db.exec(`ALTER TABLE mini_skills ADD COLUMN sourceSnapshot TEXT NOT NULL DEFAULT ''`); } catch { /* already exists */ }
   try { db.exec(`ALTER TABLE mini_skills ADD COLUMN updatedAt TEXT`); } catch { /* already exists */ }
 
   // Phase 4a: observation attribution columns
   try { db.exec(`ALTER TABLE observations ADD COLUMN createdByAgentId TEXT`); } catch { /* already exists */ }
   try { db.exec(`ALTER TABLE observations ADD COLUMN writeGeneration INTEGER DEFAULT 0`); } catch { /* already exists */ }
+
+  // Phase 4d: role-based collaboration columns
+  try { db.exec(`ALTER TABLE team_tasks ADD COLUMN required_role TEXT`); } catch { /* already exists */ }
+  try { db.exec(`ALTER TABLE team_tasks ADD COLUMN preferred_role TEXT`); } catch { /* already exists */ }
+  try { db.exec(`ALTER TABLE team_messages ADD COLUMN to_role TEXT`); } catch { /* already exists */ }
+  try { db.exec(`ALTER TABLE team_messages ADD COLUMN handoff_status TEXT`); } catch { /* already exists */ }
+
+  // Create indexes AFTER all ALTER TABLE migrations so referenced columns exist
+  db.exec(CREATE_INDEXES);
 
   // Seed meta defaults
   db.prepare(`INSERT OR IGNORE INTO meta (key, value) VALUES ('storage_generation', '0')`).run();

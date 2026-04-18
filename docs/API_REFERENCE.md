@@ -238,15 +238,19 @@ Start a new coding session and load recent context.
 
 Important inputs:
 
-- optional `agent`
+- optional `agent` — display name (e.g. `"cursor-frontend"`)
+- optional `agentType` — agent type for auto-registration (e.g. `"windsurf"`, `"cursor"`, `"claude-code"`, `"codex"`, `"gemini-cli"`)
 - optional `projectRoot`
 - optional `sessionId`
+- optional `instanceId`
 
 Behavior:
 
 - opens a session for the current project
 - can auto-close any previous active session for that project
-- returns recent session context and relevant memories
+- **auto-registers the agent in the team** with a default role derived from `agentType` via `AGENT_TYPE_ROLE_MAP` (no separate `team_manage(join)` needed)
+- returns recent session context, relevant memories, and the assigned agent ID
+- reports watermark (new observations since last session) and available tasks
 
 In HTTP control-plane mode, pass `projectRoot` as the absolute workspace or repo root whenever the client knows it. `projectRoot` is the detection anchor; Git remains the source of truth for the final project identity.
 

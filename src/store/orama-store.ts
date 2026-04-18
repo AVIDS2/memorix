@@ -747,8 +747,9 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
         narrative: narrativeMap.get(makeEntryKey(e.projectId, e.id)),
       }));
       
-      // LLM rerank timeout: 5 seconds (was 10s)
-      const RERANK_TIMEOUT_MS = 5000;
+      // LLM rerank timeout: configurable via MEMORIX_RERANK_TIMEOUT_MS, default 5s
+      const _parsedRerank = parseInt(process.env.MEMORIX_RERANK_TIMEOUT_MS || '', 10);
+      const RERANK_TIMEOUT_MS = Number.isFinite(_parsedRerank) && _parsedRerank > 0 ? _parsedRerank : 5000;
       const rerankPromise = rerankResults(originalQuery!, candidates);
       const timeoutPromise = new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error(`LLM rerank timeout after ${RERANK_TIMEOUT_MS}ms`)), RERANK_TIMEOUT_MS)
@@ -877,8 +878,9 @@ export async function getTimeline(
 ): Promise<{ before: IndexEntry[]; anchor: IndexEntry | null; after: IndexEntry[] }> {
   // Use in-memory observations for reliable lookup
   // (Orama search with empty term is unreliable — same fix as compactDetail)
-  const { withFreshObservations, getAllObservations } = await import('../memory/observations.js');
-  const rawObs = await withFreshObservations(() => getAllObservations());
+  const { withFreshIndex } = await import('../memory/freshness.js');
+  const { getAllObservations } = await import('../memory/observations.js');
+  const rawObs = await withFreshIndex(() => getAllObservations());
 
   // Filter by project if specified — prevents cross-project context leaking
   const allObs = projectId

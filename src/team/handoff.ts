@@ -105,6 +105,20 @@ export async function createHandoffArtifact(
   // This prevents Agent A's markRead from consuming Agent B's unread state.
   try {
     if (input.toAgentId) {
+      // Role validation: if the handoff is linked to a task with required_role,
+      // verify the recipient's role matches before sending.
+      if (input.taskId) {
+        const task = teamStore.getTask(input.taskId);
+        if (task?.required_role) {
+          const recipient = teamStore.getAgent(input.toAgentId);
+          if (recipient && recipient.role !== task.required_role) {
+            // Log warning but don't block — handoff observation is still created
+            console.error(
+              `[memorix] Handoff role mismatch: task "${input.taskId}" requires role "${task.required_role}" but recipient "${input.toAgentId}" has role "${recipient.role}". Handoff proceeds but claim will be rejected.`
+            );
+          }
+        }
+      }
       // Targeted handoff — single recipient-specific message
       teamStore.sendMessage({
         projectId: input.projectId,

@@ -28,7 +28,13 @@ beforeEach(async () => {
   dataDir = path.join(testDir, '.memorix', 'data');
   await fs.mkdir(dataDir, { recursive: true });
 
-  // Seed flat storage with observations from two projects
+  // Seed SQLite storage with observations from two projects
+  const { initObservationStore, getObservationStore } = await import('../../src/store/obs-store.js');
+  const { initSessionStore, getSessionStore } = await import('../../src/store/session-store.js');
+  const { initGraphStore } = await import('../../src/store/graph-store.js');
+
+  await initObservationStore(dataDir);
+  const obsStore = getObservationStore();
   const observations = [
     { id: 1, entityName: 'auth', type: 'decision', title: 'Use JWT', narrative: 'JWT auth', facts: [], projectId: PROJECT_A, status: 'active', createdAt: '2025-01-01T00:00:00Z' },
     { id: 2, entityName: 'auth', type: 'gotcha', title: 'Token leak', narrative: 'Token leaks', facts: [], projectId: PROJECT_A, status: 'active', createdAt: '2025-01-02T00:00:00Z' },
@@ -36,14 +42,16 @@ beforeEach(async () => {
     { id: 4, entityName: 'billing', type: 'decision', title: 'Use Stripe', narrative: 'Stripe billing', facts: [], projectId: PROJECT_B, status: 'active', createdAt: '2025-01-03T00:00:00Z' },
     { id: 5, entityName: 'billing', type: 'gotcha', title: 'Webhook retry', narrative: 'Retry logic', facts: [], projectId: PROJECT_B, status: 'active', createdAt: '2025-01-04T00:00:00Z' },
   ];
-  await fs.writeFile(path.join(dataDir, 'observations.json'), JSON.stringify(observations));
-  await fs.writeFile(path.join(dataDir, 'counter.json'), JSON.stringify({ nextId: 6 }));
-  await fs.writeFile(path.join(dataDir, 'sessions.json'), JSON.stringify([
-    { id: 's1', projectId: PROJECT_A },
-    { id: 's2', projectId: PROJECT_A },
-    { id: 's3', projectId: PROJECT_B },
-  ]));
-  await fs.writeFile(path.join(dataDir, 'graph.jsonl'), '');
+  await obsStore.bulkReplace(observations as any);
+  await obsStore.saveIdCounter(6);
+
+  await initSessionStore(dataDir);
+  const sessStore = getSessionStore();
+  await sessStore.insert({ id: 's1', projectId: PROJECT_A, startedAt: '2025-01-01T00:00:00Z', status: 'active' } as any);
+  await sessStore.insert({ id: 's2', projectId: PROJECT_A, startedAt: '2025-01-02T00:00:00Z', status: 'active' } as any);
+  await sessStore.insert({ id: 's3', projectId: PROJECT_B, startedAt: '2025-01-03T00:00:00Z', status: 'active' } as any);
+
+  await initGraphStore(dataDir);
 });
 
 describe('getHealthInfo project scope', () => {

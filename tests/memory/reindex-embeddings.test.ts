@@ -40,6 +40,33 @@ vi.mock('../../src/store/sqlite-store.js', () => ({
   SqliteBackend: class { async init() { throw new Error('SQLite disabled in test'); } close() {} },
 }));
 
+// Mock obs-store to provide a working ObservationStore (DegradedBackend is read-only)
+const mockStore = {
+  loadAll: vi.fn(),
+  saveAll: vi.fn(),
+  upsert: vi.fn(),
+  remove: vi.fn(),
+  loadIdCounter: vi.fn(),
+  saveIdCounter: vi.fn(),
+  getGeneration: vi.fn().mockReturnValue(1),
+  transaction: vi.fn().mockImplementation(async (fn: Function) => fn({
+    loadAll: vi.fn(),
+    saveAll: vi.fn(),
+    loadIdCounter: vi.fn(),
+    saveIdCounter: vi.fn(),
+    upsert: vi.fn(),
+    remove: vi.fn(),
+  })),
+  close: vi.fn(),
+  getBackendName: vi.fn().mockReturnValue('sqlite'),
+};
+
+vi.mock('../../src/store/obs-store.js', () => ({
+  initObservationStore: vi.fn().mockResolvedValue(undefined),
+  getObservationStore: vi.fn().mockReturnValue(mockStore),
+  ObservationStore: { loadIdCounter: vi.fn().mockResolvedValue(1) },
+}));
+
 vi.mock('../../src/compact/token-budget.js', () => ({
   countTextTokens: () => 0,
 }));
@@ -71,7 +98,7 @@ describe('reindexObservations', () => {
   });
 
   it('rebuilds historical observations with batch embeddings after reset', async () => {
-    mockLoadObservationsJson.mockResolvedValue([
+    const testObs = [
       {
         id: 1,
         projectId: 'AVIDS2/memorix',
@@ -102,8 +129,11 @@ describe('reindexObservations', () => {
         status: 'active',
         source: 'git',
       },
-    ]);
+    ];
+    mockLoadObservationsJson.mockResolvedValue(testObs);
     mockLoadIdCounter.mockResolvedValue(3);
+    mockStore.loadAll.mockResolvedValue(testObs);
+    mockStore.loadIdCounter.mockResolvedValue(3);
     mockBatchGenerateEmbeddings.mockResolvedValue([[0.1, 0.2], [0.3, 0.4]]);
 
     const { initObservations, reindexObservations } = await import('../../src/memory/observations.js');

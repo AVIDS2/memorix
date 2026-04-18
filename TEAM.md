@@ -1,6 +1,8 @@
 # Memorix Team Protocol
 
-Rules for multi-agent coordination via Memorix team tools. All agents sharing a workspace MUST follow this protocol to prevent conflicts and enable structured collaboration.
+Rules for project-scoped multi-agent coordination via Memorix team tools. The Team page is a **project collaboration space** — it shows who is working on the current project right now, what tasks are open, and what needs attention. It is NOT an organization backend or staffing admin tool.
+
+All agents sharing a project MUST follow this protocol to prevent conflicts and enable structured collaboration.
 
 There are 4 team tools, each with an `action` parameter:
 
@@ -9,14 +11,14 @@ There are 4 team tools, each with an `action` parameter:
 - `team_task` — action: create / claim / complete / list
 - `team_message` — action: send / broadcast / inbox
 
-## RULE 1: Join on Session Start
+## RULE 1: Auto-Registration on Session Start
 
 At the **beginning of every session**, before any other work:
 
-1. Call `team_manage` with `action: "join"`, a descriptive `name` (format: `{ide}-{role}`, e.g. `windsurf-backend`, `cursor-frontend`), and a short `role`. Include `capabilities` if relevant.
+1. Call `memorix_session_start` with `agentType` (e.g. `"windsurf"`, `"cursor"`, `"claude-code"`). This **automatically registers** you in the team with a default role derived from your agent type (see `AGENT_TYPE_ROLE_MAP`). No separate `team_manage(join)` call is needed.
 2. Store the returned **agent ID** — you will need it for all subsequent team operations.
-3. Call `team_manage` with `action: "status"` to see who else is active. If other agents are present, check their roles and current work to avoid overlap.
-4. Call `team_message` with `action: "inbox"` and your agent ID to check for pending messages. Read and act on any unread messages before starting new work.
+3. Call `memorix_poll` with your agent ID to see who else is active, check for available tasks, and read unread messages. If other agents are present, check their roles and current work to avoid overlap.
+4. If you need a custom role or capabilities, you can still call `team_manage` with `action: "join"` explicitly — the explicit role overrides the auto-derived default.
 
 ## RULE 2: Lock Before Edit
 
@@ -87,7 +89,7 @@ When the session is ending:
 
 | When | Tool Call |
 |------|-----------|
-| Session start | `team_manage(join)`, `team_manage(status)`, `team_message(inbox)` |
+| Session start | `memorix_session_start` (auto-registers), `memorix_poll` (check status + inbox) |
 | Before editing a shared file | `team_file_lock(status)`, `team_file_lock(lock)` |
 | After editing | `team_file_lock(unlock)` |
 | Starting a unit of work | `team_task(claim)` or `team_task(create)` + `team_task(claim)` |

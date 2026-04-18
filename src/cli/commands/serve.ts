@@ -15,6 +15,11 @@ export default defineCommand({
       description: 'Project working directory (defaults to process.cwd())',
       required: false,
     },
+    'allow-untracked': {
+      type: 'boolean',
+      description: 'Allow non-git directories as untracked/ projects (default: false)',
+      default: false,
+    },
   },
   run: async ({ args }) => {
     const { StdioServerTransport } = await import(
@@ -64,8 +69,10 @@ export default defineCommand({
     }
 
     if (!resolution.detectedProject) {
-      console.error(`[memorix] ❌ ${resolution.error}`);
-      process.exit(1);
+      console.error(`[memorix] ⚠️ ${resolution.error}`);
+      console.error(`[memorix] Starting in deferred-binding mode — project will bind via MCP roots or memorix_session_start.`);
+      console.error(`[memorix] For non-git directories, use --allow-untracked to enable untracked/ fallback.`);
+      // Don't exit — allow deferred binding via session_start or MCP roots (fixes Cursor stdio #75)
     }
 
     const detected = resolution.detectedProject;
@@ -83,7 +90,12 @@ export default defineCommand({
 
     // Always register ALL tools BEFORE connecting transport.
     // This ensures tools/list returns the full tool set immediately on connect.
-    const { server, projectId, deferredInit, switchProject } = await createMemorixServer(projectRoot);
+    // When no project detected, use deferred binding (allowUntrackedFallback=false, deferProjectInitUntilBound=true)
+    const allowUntracked = args['allow-untracked'] ?? false;
+    const serverOptions = detected
+      ? {}
+      : { allowUntrackedFallback: allowUntracked, deferProjectInitUntilBound: !allowUntracked };
+    const { server, projectId, deferredInit, switchProject } = await createMemorixServer(projectRoot, undefined, undefined, serverOptions);
     const transport = new StdioServerTransport();
     await server.connect(transport);
 
@@ -144,8 +156,13 @@ export default defineCommand({
       }
     };
 
-    // Request roots asynchronously (don't block MCP handshake)
-    tryRootsSwitch().catch(() => {});
+    // Do NOT proactively call listRoots() after connect — this violates MCP SEP-2260
+    // which requires server-initiated requests to be associated with a client request.
+    // Some clients (e.g. Codex) treat standalone roots/list as unexpected and may
+    // fail to inject MCP tools. Instead, rely on:
+    //   1. RootsListChangedNotification (client-initiated, then we respond)
+    //   2. memorix_session_start({ projectRoot }) for explicit binding
+    //   3. cwd-based detection as fallback (already done in deferred-binding)
 
     // Listen for roots changes (user switches workspace)
     try {

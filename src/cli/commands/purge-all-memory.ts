@@ -59,11 +59,11 @@ export default defineCommand({
     // Delete all memories
     try {
       const {
-        withFreshObservations,
         getAllObservations,
         resolveObservations,
       } = await import('../../memory/observations.js');
-      const observations = await withFreshObservations(() => getAllObservations());
+      const { withFreshIndex } = await import('../../memory/freshness.js');
+      const observations = await withFreshIndex(() => getAllObservations());
       const ids = observations.map((o) => o.id);
 
       if (ids.length === 0) {

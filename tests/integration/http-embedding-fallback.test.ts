@@ -46,6 +46,8 @@ vi.mock('../../src/llm/provider.js', () => ({
 import { resetProvider } from '../../src/embedding/provider.js';
 import { resetDb } from '../../src/store/orama-store.js';
 import { resetConfigCache } from '../../src/config.js';
+import { resetTeamStore } from '../../src/team/team-store.js';
+import { closeAllDatabases } from '../../src/store/sqlite-db.js';
 
 let StreamableHTTPServerTransport: any;
 let isInitializeRequest: any;
@@ -162,6 +164,10 @@ async function waitFor(predicate: () => boolean, timeoutMs = 3000): Promise<void
 }
 
 beforeAll(async () => {
+  // Reset module-level singletons that may be stale from other test files in same worker
+  resetTeamStore();
+  closeAllDatabases();
+
   tempHomeDir = await fs.mkdtemp(path.join(os.tmpdir(), 'memorix-http-embed-home-'));
   process.env.HOME = tempHomeDir;
   process.env.USERPROFILE = tempHomeDir;

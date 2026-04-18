@@ -10,6 +10,8 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { KnowledgeGraphManager } from '../../src/memory/graph.js';
+import { closeDatabase, closeAllDatabases } from '../../src/store/sqlite-db.js';
+import { resetGraphStore } from '../../src/store/graph-store.js';
 
 let testDir: string;
 let manager: KnowledgeGraphManager;
@@ -20,7 +22,11 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await fs.rm(testDir, { recursive: true, force: true });
+  resetGraphStore();
+  closeDatabase(testDir);
+  // Give Windows a moment to release file locks
+  await new Promise(r => setTimeout(r, 50));
+  try { await fs.rm(testDir, { recursive: true, force: true }); } catch { /* EBUSY on Windows — ignore */ }
 });
 
 describe('KnowledgeGraphManager', () => {

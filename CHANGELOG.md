@@ -2,11 +2,101 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [1.0.7] - Unreleased
+
+### Visual Semantic Layering (dashboard follow-up)
+- Team page headline is now **active-only**; `recent`/`historical` shown as secondary subtitle only.
+- Team agents list gets four filter tabs: **Active** (default) / Recent / Historical / All. Historical rows no longer flood the view; they sit behind an explicit "Show historical (N)" toggle.
+- Each agent row carries an explicit tier badge (Active/Recent/Historical) instead of a single "offline" sea of red.
+- Historical agent rows are de-emphasized (reduced opacity, muted colors) so they don't dominate the main view.
+- Identity page headline shows **real** project count + **real** alias groups only. Temporary/placeholder IDs moved into a collapsed "Historical / temporary project IDs" section.
+- Identity "Dirty IDs" card now splits current-project dirty (primary) from historical dirty (secondary) so a single placeholder no longer looks like an active problem.
+- Project switcher groups items into **Current / Real projects / Temporary / Placeholder**, with temporary and placeholder folded behind a "Show temporary" toggle. Each group has a visible count so users can tell a real project list apart from the historical test/smoke scratch pile.
+- All new labels wired through the i18n system (English + Simplified Chinese).
+
+### Team Page Cleanup (1.0.7 final)
+- **Team page semantics**: clearly presented as a **project collaboration space**, not an organization backend or staffing admin tool. Scope labels: "Project Collaboration" / "All Projects".
+- **`memorix_session_start` auto-registration**: agents are automatically registered in the team with a default role derived from `agentType` via `AGENT_TYPE_ROLE_MAP` (e.g. `windsurf`→`engineer`, `gemini-cli`→`researcher`). No separate `team_manage(join)` call needed. Explicit role overrides the default.
+- **"Continue This Project" resume area**: shows open tasks, available-to-claim tasks, open handoffs, unread messages, active locks, and active agent count at the top of the Team page. Provides a clear "pick up where you left off" entry point.
+- **Unified statistics**: stat cards clearly labeled — Active Agents (with session count + historical total), Locked Files, Tasks (by status), Messages (unread count). No conflicting or ambiguous labels.
+
+### Added -- Multi-Agent Orchestrator (Phase 7)
+- **`memorix orchestrate`** -- Autonomous pipeline: plan → parallel execution → verify gates → fix loops → review → merge. 4 agent adapters (Claude, Codex, Gemini, OpenCode), capability routing with quotas, worktree isolation, evidence collection, stranded task detection, agent fallback on repeated failures.
+- **CLI flags**: `--agents claude:2,codex:1`, `--goal`, `--parallel`, `--compile-command`, `--test-command`, `--max-fix`, `--budget`, `--routing`, `--memory-capture`, `--no-evidence`, `--global-timeout`
+
+### Added -- SQLite Canonical Store (Phase 2)
+- Observations, mini-skills, sessions, archives all in SQLite. Shared DB handle, freshness-safe retrieval, in-place archiving.
+
+### Added -- Team Identity (Phase 4)
+- Team store with agent registration, heartbeat, task board, handoff artifacts, stale detection. Prompt identity contract, sticky attribution prevention.
 
 ### Fixed
-- **API-first auto embedding selection** -- `MEMORIX_EMBEDDING=auto` now prefers a configured remote embedding API before falling back to local `fastembed` or `transformers`, preventing unexpected local-model activation when API credentials are already present.
-- **Embedding cache isolation across config changes** -- API embedding cache keys and probe-dimension metadata now stay isolated per `baseUrl + model + requestedDimensions`, so switching between shortened and native dimensions no longer reuses stale cached embeddings or stale dimension probes.
+- **#4** Parallel multi-agent — fully implemented via orchestrator
+- **#52** observations.json perf — migrated to SQLite
+- **#56** LLM rerank timeout — configurable via `MEMORIX_RERANK_TIMEOUT_MS`
+- **#75** Cursor stdio binding — deferred-binding mode instead of exit
+- **Gemini JSON parse** — brace-counting extractor handles trailing text
+- **Evidence for failed tasks** — both fix-exhausted and normal failure paths now write evidence
+- **Agent fallback** — failed agents excluded from retry routing
+- **P1: uninstall hooks** — shared context files (AGENTS.md/GEMINI.md) now block-level removal instead of deleting entire file
+- **P1: budget abort** — current settled dispatch now fails task (was left stuck in_progress)
+- **P1: streaming completion** — waits for stdout/stderr close before resolving (was missing final JSONL lines)
+- **P1: Claude adapter headless hang** — added `--bare` flag to skip hooks/LSP/keychain/interactive ops, plus `--mcp-config` to restore Memorix MCP tool access in bare mode
+- **P1: planner JSON materialization** — use accumulated text from message stream instead of ring buffer `tailOutput` (avoids truncation when planner does many tool calls before outputting plan)
+- **P1: reviewer hanging** — `--mcp-config` enables `memorix_handoff` / `team_task` MCP tool calls that reviewer needs for completion path
+- **P1: structured planner double-create** — `plannerType: 'plan'` tasks now forbidden from calling `team_task create` (must output JSON only; coordinator materializes). Prevents duplicate engineer/reviewer tasks in goal-mode pipelines
+- **P2: budget validation** — CLI and coordinator reject NaN/negative/zero budget values
+- **P2: streaming buffer** — bounded at 1024 messages with drop-oldest policy
+- **P2: install audit** — recordFile called even when Memorix block already exists (audit self-heal on reinstall)
+- **P2: install audit** — new shared file creation also records audit entry
+- **P2: uninstall return** — rules-only agents (codex/gemini-cli) return true when audit cleanup succeeds
+- **#80** OpenCode hooks — plugin now uses individual event-name keys (`session.created`, `file.edited`, `command.executed`, etc.) instead of invalid catch-all `event` handler that OpenCode never called. Replaced fragile `cat | memorix hook` pipe with `Bun.spawn` stdin pipe for reliable cross-platform invocation. Added diagnostic logging on failure. Hooks status now distinguishes verified (config-based) from unverified (plugin-based) agents.
+- **OpenCode plugin v5** — replaced `Bun.spawn` with `child_process.spawnSync` for cross-runtime compatibility (OpenCode may fall back to Node.js on Windows where Bun segfaults). Fixed `file.edited` field extraction (`input.path` before `input.file`). Added exit code and stderr diagnostic logging. Added 10s timeout to prevent hangs.
+- **Copilot Windows runtime** — `powershell` field omitted from hook config when `pwsh` (PowerShell v7+) is not installed, preventing `spawn pwsh.exe ENOENT` errors. Copilot falls back to `bash` field (Git Bash). Install command warns if `pwsh` is missing on Windows and suggests `winget install Microsoft.PowerShell`.
+- **Copilot global hooks** — `getGlobalConfigPath('copilot')` was falling through to the Claude case and returning `~/.claude/settings.json`, which is completely wrong. Per official GitHub docs, Copilot only supports project-level hooks at `.github/hooks/*.json` — there is no global hooks path. Fixed by returning empty string for global path, adding guards in install/uninstall to reject `--global` for Copilot, and updating hooks status to skip the global check.
+- **Hook handler diagnostics** — `runHook()` store path and `handleSessionStart()` now log errors to stderr instead of silently swallowing, making end-to-end pipeline failures visible for debugging.
+
+### Added -- 1.0.7 Closeout
+- **Routing explainability** — `buildRoutingDecision()` / `buildIdleReasons()` helpers trace adapter selection reasons (default_preference, cli_override, quota_fallback, excluded_failed, last_resort) in pipeline trace, evidence, and summary
+- **Structured role extraction** — `extractRole()` prioritizes `metadata.role` over `[Role: ...]` text parsing; canonical source is structured metadata
+- **Balanced scheduling** — `--scheduling balanced` policy with round-robin tiebreaker among equally-preferred adapters; `best-fit` remains default
+- **Idle agent visibility** — pipeline summary includes `idleAgents` with reasons for non-participation
+- **Pipeline summary extensions** — `routingDecisions` and `idleAgents` fields in `PipelineSummary` for full explainability
+- **#62+#74** dashboard loadDotenv
+- **#70** doctor health check
+- **#69** background start non-TTY hang
+- **#66** dashboard delete/cleanup/export
+- **#79** Codex roots/list protocol compatibility
+- **#18** dot-directory merge + hooks install migration
+
+### Removed -- Dead Code (Stabilization)
+- **`src/store/json-store.ts`** — `JsonBackend` class deleted; no runtime or test references. SQLite is sole canonical backend, `DegradedBackend` is read-only fallback.
+- **`appendArchivedObservations` / `loadArchivedObservations`** — dead code removed from `persistence-json.ts` and `persistence.ts` re-exports. Archives live in SQLite `status='archived'` rows.
+- **`'json'` from `getBackendName()` return type** — union narrowed to `'sqlite' | 'degraded'` across `ObservationStore` interface, `SqliteBackend`, `DegradedBackend`.
+
+### Changed -- Stale Naming Cleanup
+- All `JsonBackend` references in comments and test names replaced with `DegradedBackend`.
+- `observations.ts:71` "For JsonBackend" → "For DegradedBackend".
+- `obs-store.ts:91` "JsonBackend: no-op" → "DegradedBackend: no-op".
+- `sqlite-store.test.ts:389` test name "falls back to JsonBackend" → "falls back to DegradedBackend", assertion `['sqlite', 'json']` → `['sqlite', 'degraded']`.
+
+### Fixed -- Dashboard Semantics Closure
+- **Mode/Port semantics** — `DashboardState` now includes `mode` ('standalone' | 'control-plane') and `port`. `/api/project` returns `mode`, `port`, and `mcpEndpoint`. Dashboard UI shows mode banner with i18n support.
+- **Team API contract** — `/api/team` in control-plane mode now normalizes SQLite snake_case rows to camelCase, matching the frontend contract. Added `listAllAgents`, `listAllLocks`, `listAllTasks` to `TeamStore` for global scope.
+- **Team page crash-proof** — `loadTeam()` safely normalizes missing/null fields (`a.id`, `tk.deps`, `l.lockedBy`). No more `Cannot read properties of undefined` errors.
+- **Project switcher sync** — Switching project in the dashboard now calls `/api/set-current-project` to sync backend state.
+- **i18n coverage** — All remaining hardcoded English strings in Team page (time ago, lock TTL, agent time labels, session count) now use `t()` with Chinese translations.
+- **CLI help alignment** — `memorix dashboard` and `memorix serve-http` JSDoc now document mode semantics (Standalone=3210, Control Plane=3211). Startup logs show mode label.
+
+### Changed -- Test Suite Stabilization
+- **E2e demo tests** (`tests/e2e/`) excluded from default `vitest run` — these test CLI-agent demo artifacts, not Memorix product code. Available via `npm run test:e2e`.
+- **Live LLM quality tests** excluded from default suite — require `MEMORIX_RUN_LIVE_LLM_TESTS=1`. Rules-only fallback test preserved in `tests/memory/formation-rules-fallback.test.ts`. Available via `npm run test:llm-live`.
+- **Coordinator merge-conflict test** made deterministic — synchronous conflict file writes in `spawn()` instead of async `setTimeout` race. Removed `{ retry: 3 }`.
+- **Default test suite**: 141 files, 1906 tests, **0 skipped, 0 failed**.
+
+### Added -- Hooks Test Coverage
+- Audit ledger lost/corrupted → re-install recovers audit entry (codex).
+- Non-shared-rules agent install/uninstall (claude) verifying config file creation and cleanup.
 
 ## [1.0.6] - 2026-04-05
 

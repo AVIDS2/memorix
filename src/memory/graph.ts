@@ -11,8 +11,7 @@
  */
 
 import type { Entity, Relation, KnowledgeGraph } from '../types.js';
-import { saveGraphJsonl, loadGraphJsonl } from '../store/persistence.js';
-import { withFileLock } from '../store/file-lock.js';
+import { initGraphStore, getGraphStore } from '../store/graph-store.js';
 
 export class KnowledgeGraphManager {
   private entities: Entity[] = [];
@@ -34,12 +33,13 @@ export class KnowledgeGraphManager {
     }
   }
 
-  /** Load graph from disk on first access */
+  /** Load graph from SQLite on first access */
   async init(): Promise<void> {
     if (this.initialized) return;
-    const data = await loadGraphJsonl(this.projectDir);
-    this.entities = data.entities;
-    this.relations = data.relations;
+    await initGraphStore(this.projectDir);
+    const store = getGraphStore();
+    this.entities = store.loadEntities();
+    this.relations = store.loadRelations();
     this.rebuildIndex();
     this.initialized = true;
   }
@@ -54,11 +54,10 @@ export class KnowledgeGraphManager {
     return new Set(this.entityIndex.keys());
   }
 
-  /** Persist current state to disk with file lock (cross-process safe) */
+  /** Persist current state to SQLite */
   private async save(): Promise<void> {
-    await withFileLock(this.projectDir, async () => {
-      await saveGraphJsonl(this.projectDir, this.entities, this.relations);
-    });
+    const store = getGraphStore();
+    store.replaceAll(this.entities, this.relations);
   }
 
   /** Create new entities (skip duplicates by name) */

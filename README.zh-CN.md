@@ -1,12 +1,12 @@
 <p align="center">
-  <img src="assets/logo.png" alt="Memorix" width="120">
+  <img src="https://raw.githubusercontent.com/AVIDS2/memorix/main/assets/readme-logo-bridge.png" alt="Memorix Bridge" width="720">
 </p>
 
 <h1 align="center">Memorix</h1>
 
 <p align="center">
   <strong>面向 Coding Agent 的开源跨 Agent Memory Layer。</strong><br>
-  通过 MCP 兼容 Cursor、Claude Code、Codex、Windsurf、Gemini CLI、GitHub Copilot、Kiro、OpenCode、Antigravity 和 Trae。
+  通过 MCP 为 Cursor、Claude Code、Codex、Windsurf、Gemini CLI、GitHub Copilot、Kiro、OpenCode、Antigravity 和 Trae 提供分级支持。
 </p>
 
 <p align="center">
@@ -58,9 +58,9 @@ Memorix 的几个关键差异点：
 
 一句话说，Memorix 解决的是：让多个 Coding Agent 通过 MCP 共享同一套耐久项目记忆，同时保留 Git 真相、推理上下文和本地控制权。
 
-## 1.0.6 更新亮点
+## 1.0.7 更新亮点
 
-`1.0.6` 这次发布，真正把 Memorix 的记忆语义、检索层次和运维闭环补完整了。
+`1.0.7` 这次发布，真正把 Memorix 的记忆语义、检索层次和运维闭环补完整了。
 
 - **以 provenance 为先的检索模型**：记忆现在会明确区分 `explicit`、`hook`、`git-ingest` 等来源细节，以及 `core`、`contextual`、`ephemeral` 等价值类别。
 - **分层披露（Layered Disclosure）**：session start、search、detail、timeline 更清楚地区分了 routing hints、working context 和 deeper evidence。
@@ -71,18 +71,13 @@ Memorix 的几个关键差异点：
 
 ## 支持的客户端
 
-当前已经做了明确适配的集成目标有：
+| 层级 | 客户端 |
+|------|--------|
+| ★ 核心 | Claude Code, Cursor, Windsurf |
+| ◆ 扩展 | GitHub Copilot, Kiro, Codex |
+| ○ 社区 | Gemini CLI, OpenCode, Antigravity, Trae |
 
-- Cursor
-- Claude Code
-- Codex
-- Windsurf
-- Gemini CLI
-- GitHub Copilot
-- Kiro
-- OpenCode
-- Antigravity
-- Trae
+**核心** = 完整 hook 集成 + 测试过的 MCP + 规则同步。**扩展** = hook 集成但有平台限制。**社区** = 尽力适配，兼容性由社区反馈。
 
 如果某个客户端能通过 MCP 连接本地命令或 HTTP 端点，通常也可以接入 Memorix，只是暂时没有单独的适配器或引导页。
 

@@ -160,7 +160,7 @@ export function RecentView({ recentMemories, loading }: RecentViewProps): React.
 
   return (
     <Box flexDirection="column" paddingX={1}>
-      <Text color={COLORS.accentDim} bold>Recent Memory Activity</Text>
+      <Text color={COLORS.accentDim} bold>Recent Memory Activity{filtered.length < recentMemories.length ? ' (filtered)' : ''}</Text>
       <Text color={COLORS.border}>{separator()}</Text>
       {loading ? (
         <Text color={COLORS.muted}>Loading...</Text>

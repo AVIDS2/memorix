@@ -382,24 +382,28 @@ export function WorkbenchApp({ version, onExitForInteractive }: AppProps): React
         case '2': {
           if (!proj) { setActionStatus('No project detected.'); return; }
           const dataDir = await getProjectDataDir(proj.id);
-          const fsm = await import('node:fs');
-          const pathm = await import('node:path');
-          const obsPath = pathm.join(dataDir, 'observations.json');
-          if (fsm.existsSync(obsPath)) {
-            fsm.writeFileSync(obsPath, '[]');
-            setActionStatus(`Purged memory for ${proj.name}.`);
-          } else { setActionStatus('No observations file found.'); }
+          try {
+            const { initObservationStore, getObservationStore } = await import('../../store/obs-store.js');
+            await initObservationStore(dataDir);
+            const store = getObservationStore();
+            const allObs = await store.loadAll() as any[];
+            const toRemove = allObs.filter((o: any) => o.projectId === proj.id);
+            if (toRemove.length > 0) {
+              await store.bulkRemoveByIds(toRemove.map((o: any) => o.id));
+              setActionStatus(`Purged memory for ${proj.name}.`);
+            } else { setActionStatus('No observations found for this project.'); }
+          } catch { setActionStatus('Failed to purge — store unavailable.'); }
           break;
         }
         case '3': {
           const dataDir = await getProjectDataDir('_');
-          const fsm = await import('node:fs');
-          const pathm = await import('node:path');
-          const obsPath = pathm.join(dataDir, 'observations.json');
-          if (fsm.existsSync(obsPath)) {
-            fsm.writeFileSync(obsPath, '[]');
+          try {
+            const { initObservationStore, getObservationStore } = await import('../../store/obs-store.js');
+            await initObservationStore(dataDir);
+            const store = getObservationStore();
+            await store.bulkReplace([]);
             setActionStatus('All memory purged.');
-          } else { setActionStatus('No observations file found.'); }
+          } catch { setActionStatus('Failed to purge — store unavailable.'); }
           break;
         }
         default: setActionStatus('');

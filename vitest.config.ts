@@ -28,6 +28,7 @@ export default defineConfig({
             'tests/hooks/opencode-compaction.test.ts',
             'tests/hooks/copilot-paths.test.ts',
             'tests/hooks/copilot-windows-compat.test.ts',
+            'tests/cli/operator-surface.test.ts',
           ],
         },
       },
@@ -46,6 +47,7 @@ export default defineConfig({
             'tests/hooks/opencode-compaction.test.ts',
             'tests/hooks/copilot-paths.test.ts',
             'tests/hooks/copilot-windows-compat.test.ts',
+            'tests/cli/operator-surface.test.ts',
           ],
           // Run one file at a time — no parallelism, no port/CPU races
           // @ts-expect-error — fileParallelism is valid at project level per vitest docs

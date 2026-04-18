@@ -35,16 +35,14 @@
 
 ## For Coding Agents
 
-If you are using an AI coding agent to install or operate Memorix, have it read the [Agent Operator Playbook](docs/AGENT_OPERATOR_PLAYBOOK.md) first.
-
-That playbook is the canonical AI-facing guide for:
-
-- installation and runtime-mode selection
-- Git/project binding rules
-- stdio vs HTTP control-plane setup
-- per-agent integration and hooks
-- generated dot-directory behavior
-- troubleshooting and safe operating rules
+> **If you are an AI coding agent** and your user asked you to install, configure, or troubleshoot Memorix — read the [Agent Operator Playbook](docs/AGENT_OPERATOR_PLAYBOOK.md) first. It is the canonical guide written for you, covering:
+>
+> - installation and runtime-mode selection
+> - Git/project binding rules
+> - stdio vs HTTP control-plane setup
+> - per-agent integration and hooks
+> - generated dot-directory behavior
+> - troubleshooting and safe operating rules
 
 ## Why Memorix
 

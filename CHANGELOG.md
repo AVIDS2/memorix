@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 ## [1.0.8] - Unreleased
 
+### Added -- Operator CLI Surface
+- **Namespaced operator commands** -- Added human-oriented CLI namespaces for `session`, `memory`, `team`, `task`, `message`, `lock`, `handoff`, and `poll` so the most common project operations no longer require raw MCP tool calls.
+- **Default-role session registration** -- `memorix session start --agentType ...` now auto-registers the operator into the project collaboration space and applies the same default role mapping used by the control plane.
+- **CLI-first project ops** -- Terminal operators can now inspect memory detail/timeline, claim and complete tasks, send messages, check inbox state, acquire locks, and compute situational-awareness poll output without leaving the shell.
+
 ### Added -- Official Docker Deployment
 - **Official HTTP control-plane container path** -- `Dockerfile` now builds a real `serve-http` runtime image instead of defaulting to stdio MCP.
 - **Compose example** -- added `compose.yaml` with port `3211`, persistent data volume, and `/health` healthcheck.

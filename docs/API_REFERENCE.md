@@ -11,9 +11,52 @@ Memorix exposes:
 - team collaboration tools
 - dashboard and optional graph compatibility tools
 
+It also exposes a **human/operator CLI surface** for common terminal workflows. The CLI is not a raw mirror of MCP tool names; it groups the main actions into namespaced commands such as `memorix session`, `memorix memory`, `memorix team`, and `memorix task`.
+
 ---
 
-## 1. Retrieval Model Basics
+## 1. CLI vs MCP
+
+Use **MCP** when:
+
+- an IDE or agent needs tool calls
+- you want the full fine-grained API surface
+- you are integrating Memorix into an MCP-capable client
+
+Use the **CLI** when:
+
+- a human operator wants to inspect or change project state from a terminal
+- you are on SSH / Docker / CI / NAS and want direct commands
+- you want readable, namespaced actions instead of raw MCP tool payloads
+
+The current operator CLI namespaces are:
+
+- `memorix session`
+- `memorix memory`
+- `memorix team`
+- `memorix task`
+- `memorix message`
+- `memorix lock`
+- `memorix handoff`
+- `memorix poll`
+
+Typical examples:
+
+```bash
+memorix session start --agent codex-main --agentType codex
+memorix memory search --query "release blocker"
+memorix task list
+memorix task claim --taskId <id> --agentId <agent-id>
+memorix message inbox --agentId <agent-id>
+memorix lock status --file src/cli/index.ts
+memorix poll --agentId <agent-id>
+```
+
+The CLI is designed as an **operator control surface**, not as a 1:1 rename of MCP tools.
+
+---
+
+## 2. Retrieval Model Basics
 
 Before looking at individual tools, there are three important defaults:
 
@@ -46,7 +89,7 @@ Memorix ranks memory differently depending on intent:
 
 ---
 
-## 2. Core Memory Tools
+## 3. Core Memory Tools
 
 ### `memorix_store`
 
@@ -186,7 +229,7 @@ Typical use:
 
 ---
 
-## 3. Reasoning Tools
+## 4. Reasoning Tools
 
 ### `memorix_store_reasoning`
 
@@ -230,7 +273,7 @@ Use it when you want:
 
 ---
 
-## 4. Session Tools
+## 5. Session Tools
 
 ### `memorix_session_start`
 
@@ -275,7 +318,7 @@ Important inputs:
 
 ---
 
-## 5. Quality and Maintenance Tools
+## 6. Quality and Maintenance Tools
 
 ### `memorix_retention`
 
@@ -350,7 +393,7 @@ Use it to inspect:
 
 ---
 
-## 6. Skills and Promotion Tools
+## 7. Skills and Promotion Tools
 
 ### `memorix_skills`
 
@@ -390,7 +433,7 @@ Typical actions:
 
 ---
 
-## 7. Workspace and Rules Tools
+## 8. Workspace and Rules Tools
 
 ### `memorix_workspace_sync`
 
@@ -424,7 +467,7 @@ Typical actions:
 
 ---
 
-## 8. Team Collaboration Tools
+## 9. Team Collaboration Tools
 
 These tools are most meaningful in HTTP transport mode:
 
@@ -486,7 +529,7 @@ Important inputs:
 
 ---
 
-## 9. Dashboard Tool
+## 10. Dashboard Tool
 
 ### `memorix_dashboard`
 
@@ -500,7 +543,7 @@ When using HTTP mode, the main dashboard is usually served from the same port as
 
 ---
 
-## 10. Optional Graph Compatibility Tools
+## 11. Optional Graph Compatibility Tools
 
 Memorix can expose MCP-compatible graph tools for workflows that expect the official memory-server style graph API.
 
@@ -520,7 +563,7 @@ These are optional compatibility tools rather than the main recommended Memorix 
 
 ---
 
-## 11. Observation Types
+## 12. Observation Types
 
 Common observation types include:
 
@@ -539,7 +582,7 @@ Each type helps retrieval and formatting behave differently, especially when com
 
 ---
 
-## 12. Recommended Usage Pattern
+## 13. Recommended Usage Pattern
 
 For most agents, the best working pattern is:
 
@@ -552,7 +595,7 @@ Git Memory, retention, skills, and team tools sit on top of that core loop.
 
 ---
 
-## 13. Related Docs
+## 14. Related Docs
 
 - [Setup Guide](SETUP.md)
 - [Configuration Guide](CONFIGURATION.md)

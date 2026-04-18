@@ -854,6 +854,14 @@ const main = defineCommand({
     // Infrastructure commands
     init: () => import('./commands/init.js').then(m => m.default),
     integrate: () => import('./commands/integrate.js').then(m => m.default),
+    memory: () => import('./commands/memory.js').then(m => m.default),
+    session: () => import('./commands/session.js').then(m => m.default),
+    team: () => import('./commands/team.js').then(m => m.default),
+    task: () => import('./commands/task.js').then(m => m.default),
+    message: () => import('./commands/message.js').then(m => m.default),
+    lock: () => import('./commands/lock.js').then(m => m.default),
+    handoff: () => import('./commands/handoff.js').then(m => m.default),
+    poll: () => import('./commands/poll.js').then(m => m.default),
     serve: () => import('./commands/serve.js').then(m => m.default),
     'serve-http': () => import('./commands/serve-http.js').then(m => m.default),
     status: () => import('./commands/status.js').then(m => m.default),
@@ -885,7 +893,8 @@ const main = defineCommand({
     // Detect by checking if the first CLI arg matches a registered subcommand name.
     const firstArg = process.argv[2];
     const knownSubs = ['search', 'remember', 'recent',
-      'init', 'integrate', 'serve', 'serve-http', 'status', 'sync',
+      'init', 'integrate', 'memory', 'session', 'team', 'task', 'message', 'lock', 'handoff', 'poll',
+      'serve', 'serve-http', 'status', 'sync',
       'hook', 'hooks', 'ingest', 'git-hook', 'git-hook-uninstall',
       'background', 'bg', 'bs', 'doctor', 'dashboard', 'cleanup', 'orchestrate'];
     if (firstArg && knownSubs.includes(firstArg)) return;
@@ -902,6 +911,14 @@ const main = defineCommand({
       console.error('Usage: memorix <command>\n');
       console.error('Commands:');
       console.error('  background Start/stop/status background control plane');
+      console.error('  session    Start/end/context for coding sessions');
+      console.error('  memory     Search/store/detail/timeline/resolve observations');
+      console.error('  team       Join/status/role operations for project collaboration');
+      console.error('  task       Create/claim/complete/list team tasks');
+      console.error('  message    Send/broadcast/read team messages');
+      console.error('  lock       Manage advisory file locks');
+      console.error('  handoff    Create durable handoff artifacts');
+      console.error('  poll       Snapshot project coordination state');
       console.error('  serve-http Start HTTP MCP + dashboard control plane');
       console.error('  serve      Start MCP server on stdio');
       console.error('  init       Create global defaults or project config');

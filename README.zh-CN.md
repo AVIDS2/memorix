@@ -35,16 +35,14 @@
 
 ## 给 Coding Agent 的说明
 
-如果你在用 AI coding agent 帮用户安装、配置或排障 Memorix，请先读 [Agent Operator Playbook](docs/AGENT_OPERATOR_PLAYBOOK.md)。
-
-这份文档是给 agent 的正式操作手册，重点说明：
-
-- 安装与运行模式选择
-- Git 与项目绑定规则
-- stdio 与 HTTP control plane 的区别
-- 各 IDE / Agent 的集成和 hooks
-- dot 目录按需生成策略
-- 排障顺序和安全操作边界
+> **如果你是 AI coding agent**，用户让你安装、配置或排障 Memorix —— 请先读 [Agent Operator Playbook](docs/AGENT_OPERATOR_PLAYBOOK.md)。这是专门写给你的操作手册，涵盖：
+>
+> - 安装与运行模式选择
+> - Git 与项目绑定规则
+> - stdio 与 HTTP control plane 的区别
+> - 各 IDE / Agent 的集成和 hooks
+> - dot 目录按需生成策略
+> - 排障顺序和安全操作边界
 
 ## 为什么是 Memorix
 

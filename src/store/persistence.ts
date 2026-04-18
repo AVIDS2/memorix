@@ -35,7 +35,9 @@ export {
 } from './persistence-json.js';
 
 /** Default base data directory — overridable via MEMORIX_DATA_DIR env var */
-const DEFAULT_DATA_DIR = process.env.MEMORIX_DATA_DIR || path.join(os.homedir(), '.memorix', 'data');
+function resolveDefaultDataDir(): string {
+  return process.env.MEMORIX_DATA_DIR || path.join(os.homedir(), '.memorix', 'data');
+}
 
 /**
  * Sanitize a projectId for use as a directory name.
@@ -56,7 +58,7 @@ function sanitizeProjectId(projectId: string): string {
  */
 export async function getProjectDataDir(_projectId: string, baseDir?: string): Promise<string> {
   // All projects share one flat data directory — projectId is metadata only
-  const base = baseDir ?? DEFAULT_DATA_DIR;
+  const base = baseDir ?? resolveDefaultDataDir();
   await fs.mkdir(base, { recursive: true });
   return base;
 }
@@ -65,7 +67,7 @@ export async function getProjectDataDir(_projectId: string, baseDir?: string): P
  * Get the base data directory (parent of all project dirs).
  */
 export function getBaseDataDir(baseDir?: string): string {
-  return baseDir ?? DEFAULT_DATA_DIR;
+  return baseDir ?? resolveDefaultDataDir();
 }
 
 /**
@@ -73,7 +75,7 @@ export function getBaseDataDir(baseDir?: string): string {
  * Used for cross-project (global) search.
  */
 export async function listProjectDirs(baseDir?: string): Promise<string[]> {
-  const base = baseDir ?? DEFAULT_DATA_DIR;
+  const base = baseDir ?? resolveDefaultDataDir();
   try {
     const entries = await fs.readdir(base, { withFileTypes: true });
     return entries
@@ -101,7 +103,7 @@ export async function listProjectDirs(baseDir?: string): Promise<string[]> {
  *   4. Move subdirectories to .migrated-subdirs/ backup
  */
 export async function migrateSubdirsToFlat(baseDir?: string): Promise<boolean> {
-  const base = baseDir ?? DEFAULT_DATA_DIR;
+  const base = baseDir ?? resolveDefaultDataDir();
   await fs.mkdir(base, { recursive: true });
 
   // Find all subdirectories that contain observations.json

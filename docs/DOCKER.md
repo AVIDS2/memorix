@@ -51,6 +51,17 @@ docker run --rm -p 3211:3211 -v memorix-data:/data memorix:local
 
 ---
 
+## Host Binding
+
+`memorix serve-http` accepts a `--host` flag:
+
+- **Local** (default): binds to `127.0.0.1` — only accessible from the host machine
+- **Docker**: the Dockerfile sets `--host 0.0.0.0` — accessible from outside the container, which is required for port mapping (`-p 3211:3211`) to work
+
+If you run `serve-http` manually inside a container, make sure to pass `--host 0.0.0.0` or the port will not be reachable from the host.
+
+---
+
 ## What Docker Support Means
 
 The official Docker artifacts in this repo provide:

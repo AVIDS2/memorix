@@ -151,6 +151,7 @@ Then connect to:
 
 - dashboard: `http://localhost:3211`
 - MCP: `http://localhost:3211/mcp`
+- health: `http://localhost:3211/health`
 
 Important: Docker support is for `serve-http`, not `memorix serve`. Project-scoped Git/config behavior only works when the container can see the repositories it is asked to bind.
 

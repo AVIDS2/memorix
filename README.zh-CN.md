@@ -450,6 +450,7 @@ docker compose up --build -d
 
 - Dashboard：`http://localhost:3211`
 - MCP：`http://localhost:3211/mcp`
+- 健康检查：`http://localhost:3211/health`
 
 需要注意：Docker 支持的是 `serve-http`，不是 `memorix serve`。如果容器看不到你要绑定的仓库路径，那么项目级 Git / 配置语义不会完整生效。
 

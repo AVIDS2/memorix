@@ -33,20 +33,15 @@
 
 ---
 
-## For Coding Agents
+> Using Memorix through Cursor, Windsurf, Claude Code, Codex, or another AI coding agent? Read the [Agent Operator Playbook](docs/AGENT_OPERATOR_PLAYBOOK.md) for the agent-facing install, MCP, hook, and troubleshooting rules.
 
-> **If you are an AI coding agent** and your user asked you to install, configure, or troubleshoot Memorix — read the [Agent Operator Playbook](docs/AGENT_OPERATOR_PLAYBOOK.md) first. It is the canonical guide written for you, covering:
->
-> - installation and runtime-mode selection
-> - Git/project binding rules
-> - stdio vs HTTP control-plane setup
-> - per-agent integration and hooks
-> - generated dot-directory behavior
-> - troubleshooting and safe operating rules
+## What Is Memorix?
+
+**Memorix is a local-first memory control plane for coding agents.**
+
+It keeps project memory, reasoning context, Git-derived facts, and optional collaboration state in one place so you can continue work across IDEs, sessions, terminals, and autonomous agent runs without losing project truth.
 
 ## Why Memorix
-
-**The only cross-agent memory layer that preserves Git truth, reasoning context, and local control — across 10 IDEs and agents.**
 
 Most coding agents remember only the current thread. Memorix gives them a shared, persistent memory layer across IDEs, sessions, and projects.
 
@@ -109,14 +104,14 @@ Then pick the path that matches what you want to do:
 
 Most users should choose **one** of the first two options above.
 
-Mental model:
+Common paths:
 
-| If you are... | Use... | Why |
+| Goal | Use | Why |
 | --- | --- | --- |
-| A human operating Memorix from a terminal | `memorix` or `memorix <command>` | CLI/TUI is the primary product surface. |
-| An IDE or coding agent that needs memory | MCP (`memorix serve` or HTTP) + `memorix_session_start` | Start a lightweight memory session; do not join team by default. |
-| Running autonomous multi-agent work | `memorix orchestrate` | This is the production multi-agent loop: plan, spawn CLI agents, verify, fix, review. |
-| Watching shared project state | `memorix background start` + dashboard | Dashboard shows current project memory and opt-in collaboration state. |
+| Work directly in the terminal | `memorix` or `memorix <command>` | CLI/TUI is the primary product surface. |
+| Connect an IDE or coding agent over MCP | `memorix serve` or HTTP + `memorix_session_start` | Start a lightweight memory session without joining team by default. |
+| Run autonomous multi-agent execution | `memorix orchestrate` | Structured plan → spawn → verify → fix → review loop with CLI agents. |
+| Watch shared project memory in the browser | `memorix background start` + dashboard | Shared HTTP control plane plus dashboard for memory and opt-in collaboration state. |
 
 Companion commands: `memorix background status|logs|stop`. For multi-workspace HTTP sessions, bind with `memorix_session_start(projectRoot=...)`.
 
@@ -130,7 +125,7 @@ Single-shot chat (no TUI): `memorix ask "your question"`.
 
 ### Operator CLI
 
-Memorix now exposes a **CLI-first operator surface**. Use it when you want to inspect or control the current project directly from a terminal without going through MCP tool calls. MCP remains the integration protocol for IDEs and agents; the CLI is the primary human product surface.
+Memorix exposes a **CLI-first operator surface**. Use it when you want to inspect or control the current project directly from a terminal. MCP remains the integration layer for IDEs and agents.
 
 ```bash
 memorix session start --agent codex-main --agentType codex
@@ -143,7 +138,7 @@ memorix audit project
 memorix sync workspace --action scan
 ```
 
-The CLI is intentionally **human-shaped**, not a 1:1 mirror of MCP tool names. Native capabilities are available through `session`, `memory`, `reasoning`, `retention`, `formation`, `audit`, `transfer`, `skills`, `team`, `task`, `message`, `lock`, `handoff`, `poll`, `sync`, and `ingest`. MCP stays available for IDEs, agents, and optional graph-compatibility tools.
+The CLI is intentionally **task-shaped**, not a 1:1 mirror of MCP tool names. Native capabilities are available through `session`, `memory`, `reasoning`, `retention`, `formation`, `audit`, `transfer`, `skills`, `team`, `task`, `message`, `lock`, `handoff`, `poll`, `sync`, and `ingest`. MCP stays available for IDEs, agents, and optional graph-compatibility tools.
 
 ## Docker
 
@@ -371,7 +366,7 @@ Additional deep references:
 
 Version `1.0.8` builds on the 1.0.7 coordination/storage/team baseline with a CLI-first operator surface, official Docker path, dashboard refinements, and broad hooks fixes.
 
-- **CLI-First Product Surface**: Every Memorix-native operator capability now has a human-oriented CLI route (`session`, `memory`, `reasoning`, `retention`, `formation`, `audit`, `transfer`, `skills`, `team`, `task`, `message`, `lock`, `handoff`, `poll`, `sync`, `ingest`). MCP remains the integration protocol and optional graph-compatibility layer.
+- **CLI-First Product Surface**: Every Memorix-native operator capability now has a task-oriented CLI route (`session`, `memory`, `reasoning`, `retention`, `formation`, `audit`, `transfer`, `skills`, `team`, `task`, `message`, `lock`, `handoff`, `poll`, `sync`, `ingest`). MCP remains the integration protocol and optional graph-compatibility layer.
 - **Docker Deployment**: Official `Dockerfile`, `compose.yaml`, healthcheck, `--host` binding, and [DOCKER.md](docs/DOCKER.md) for running the HTTP control plane in a container.
 - **Multi-Agent Orchestrator**: `memorix orchestrate` runs plan, parallel execution, verification, fix, review, and merge loops across Claude, Codex, Gemini CLI, and OpenCode with capability routing, worktree isolation, and agent fallback.
 - **SQLite Canonical Store**: Observations, mini-skills, sessions, and archives in SQLite. Shared DB handle, freshness-safe retrieval, dead `JsonBackend` removed.

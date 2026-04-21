@@ -140,6 +140,7 @@ export const SYMBOLS = {
 
 export type ViewType =
   | 'home'
+  | 'commands'
   | 'chat'
   | 'search'
   | 'doctor'

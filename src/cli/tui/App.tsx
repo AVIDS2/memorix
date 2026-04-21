@@ -637,12 +637,8 @@ export function WorkbenchApp({ version, onExitForInteractive }: AppProps): React
 
         case 'help':
         case '?': {
-          setStatusMsg({
-            text: SLASH_COMMANDS.map(c =>
-              `${c.name.padEnd(16)} ${c.description}${c.alias ? ` (${c.alias})` : ''}`
-            ).join('\n'),
-            type: 'info',
-          });
+          setView('commands');
+          setStatusMsg(null);
           break;
         }
 
@@ -1026,6 +1022,13 @@ fi
 
   // ── Render main content based on view ──────────────────────
   const renderContent = () => {
+    const fitInline = (text: string, max: number): string => {
+      if (max <= 0) return '';
+      if (text.length <= max) return text;
+      if (max === 1) return '…';
+      return `${text.slice(0, max - 1)}…`;
+    };
+
     switch (view) {
       case 'chat':
         return <ChatView ref={chatViewRef} project={project} messages={chatMessages} loading={loading} contentWidth={contentWidth} viewportHeight={mainAreaHeight} threadId={chatThreadId} keyboardScrollEnabled={!inputFocused} />;
@@ -1049,6 +1052,29 @@ fi
         return <IntegrateView statusText={actionStatus} />;
       case 'configure':
         return <ConfigureView onBack={() => handleCommand('/home')} />;
+      case 'commands':
+        return (
+          <Box flexDirection="column" paddingX={2} paddingY={1}>
+            <Text color={COLORS.brand} bold>Commands</Text>
+            <Text color={COLORS.border}>{'─'.repeat(getHomeSeparatorWidth(contentWidth))}</Text>
+            <Box marginTop={1} flexDirection="column">
+              {SLASH_COMMANDS.map((command) => {
+                const nameCol = 16;
+                const descCol = Math.max(18, contentWidth - nameCol - 6);
+                const desc = `${command.description}${command.alias ? ` (${command.alias})` : ''}`;
+                return (
+                  <Box key={command.name}>
+                    <Text color={COLORS.brand}>{fitInline(command.name.padEnd(nameCol), nameCol)}</Text>
+                    <Text color={COLORS.text}>{fitInline(desc, descCol)}</Text>
+                  </Box>
+                );
+              })}
+            </Box>
+            <Box marginTop={1}>
+              <Text color={COLORS.textDim}>Use /home to return or type another /command below</Text>
+            </Box>
+          </Box>
+        );
       case 'home':
       default:
         return (

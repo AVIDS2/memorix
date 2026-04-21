@@ -654,6 +654,27 @@ describe('WorkbenchApp', () => {
     unmount();
   });
 
+  it('shows /help in a dedicated commands view without duplicating the command list in the status area', async () => {
+    const { lastFrame, stdin, unmount } = render(
+      <WorkbenchApp version="1.0.8" onExitForInteractive={() => {}} />,
+    );
+
+    await waitForCondition(() => (lastFrame() ?? '').includes('[cmd]'));
+    stdin.write('/help ');
+    await waitForCondition(() => (lastFrame() ?? '').includes('[cmd] > /help '));
+    stdin.write('\r');
+
+    await waitForCondition(() => (lastFrame() ?? '').includes('Commands'));
+    const frame = lastFrame() ?? '';
+    expect(frame.toLowerCase()).toContain('commands');
+    expect(frame).toContain('/chat');
+    expect(frame).toContain('/help');
+    expect(frame).not.toContain('Unknown command');
+    expect(frame).not.toContain('ℹ /chat');
+
+    unmount();
+  });
+
 });
 
  // ── Sidebar rendering tests ────────────────────────────────────────

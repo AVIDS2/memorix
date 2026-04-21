@@ -23,8 +23,8 @@
 
 <p align="center">
   <a href="README.md">English</a> |
-  <a href="#docker">Docker</a> |
   <a href="#快速开始">快速开始</a> |
+  <a href="#docker">Docker</a> |
   <a href="#支持的客户端">支持的客户端</a> |
   <a href="#常用工作流">常用工作流</a> |
   <a href="#文档导航">文档导航</a> |
@@ -39,13 +39,11 @@
 
 **Memorix 是一个面向 Coding Agent 的、本地优先的记忆控制面。**
 
-它把项目记忆、推理上下文、Git 导出的工程事实，以及可选的协作状态放在同一套本地系统里，让你可以在 IDE、终端、不同 session 和自主 agent 运行之间持续推进同一个项目，而不丢失上下文。
+它把项目记忆、推理上下文、Git 导出的工程事实，以及可选的协作状态放在同一套本地系统里，让你可以在 IDE、终端、不同 session 和自主 agent 运行之间持续推进同一个项目，而不丢失项目真相。
 
 对大多数用户来说，默认路径其实很简单：直接用本地 TUI/CLI，或者把一个 IDE 通过 stdio MCP 接进来。HTTP 更适合作为你主动启用的共享控制面模式，用在 dashboard、长驻后台服务，或多个客户端共享协作状态的场景里。
 
 ## 为什么选择 Memorix
-
-**唯一同时保留 Git 真相、推理上下文和本地控制权的跨 Agent 记忆层 — 支持 10 个 IDE 和 Agent。**
 
 大多数 Coding Agent 只记得当前线程。Memorix 提供的是一层共享、持久、可检索的项目记忆，让不同 IDE、不同 Agent、不同会话都能在同一套本地记忆库上继续工作。
 
@@ -65,14 +63,14 @@
 ## 支持的客户端
 
 | 层级 | 客户端 |
-|------|--------|
+|------|---------|
 | ★ 核心 | Claude Code, Cursor, Windsurf |
 | ◆ 扩展 | GitHub Copilot, Kiro, Codex |
 | ○ 社区 | Gemini CLI, OpenCode, Antigravity, Trae |
 
 **核心** = 完整 hook 集成 + 测试过的 MCP + 规则同步。**扩展** = hook 集成但有平台限制。**社区** = 尽力适配，兼容性由社区反馈。
 
-如果某个客户端能通过 MCP 连接本地命令或 HTTP 端点，通常也可以接入 Memorix，只是暂时没有单独的适配器或引导页。
+如果某个客户端能通过 MCP 连接本地命令或 HTTP 端点，通常也可以接入 Memorix，即使它暂时不在上面的列表里。
 
 ---
 
@@ -108,14 +106,14 @@ Memorix 使用两类文件：
 
 对大多数用户来说，选上面前两条之一就够了。只有在你明确想要 dashboard、共享后台服务或多客户端协作时，再切到 HTTP。
 
-心智模型：
+常见路径：
 
-| 如果你是... | 使用... | 原因 |
+| 目标 | 使用 | 原因 |
 | --- | --- | --- |
-| 人类用户在终端里操作 Memorix | `memorix` 或 `memorix <command>` | CLI/TUI 是主要产品入口。 |
-| IDE 或 Coding Agent 只需要记忆能力 | 优先 `memorix serve`；需要时再用 HTTP + `memorix_session_start` | 启动轻量记忆会话；默认不加入 team。 |
-| 需要自主多 Agent 开发循环 | `memorix orchestrate` | 这是实际的多 Agent loop：计划、启动 CLI agents、验证、修复、审查。 |
-| 需要观察共享项目状态 | `memorix background start` + Dashboard | Dashboard 展示当前项目记忆和显式加入后的协作状态。 |
+| 在终端里直接操作 | `memorix` 或 `memorix <command>` | CLI/TUI 是主要产品入口。 |
+| 通过 MCP 接入 IDE 或 Coding Agent | 优先 `memorix serve`；需要时再用 HTTP + `memorix_session_start` | 启动轻量记忆会话；默认不加入 team。 |
+| 运行自主多 Agent 执行 | `memorix orchestrate` | 结构化计划→启动→验证→修复→审查循环。 |
+| 在浏览器里观察共享项目记忆 | `memorix background start` + Dashboard | 共享 HTTP 控制面 + Dashboard，展示记忆和可选协作状态。 |
 
 配套命令：`memorix background status|logs|stop`。多工作区 HTTP session 需用 `memorix_session_start(projectRoot=...)` 绑定。
 
@@ -127,11 +125,11 @@ Memorix 使用两类文件：
 
 在终端中直接运行 `memorix`（不带参数）即可打开交互式全屏 TUI（需要 TTY）。它适合用于项目记忆问答、搜索、快速存储、诊断、后台服务控制、Dashboard 打开和 IDE 配置。进入 TUI 后用 `/help` 查看当前命令列表。
 
-单次聊天（不进 TUI）：`memorix ask "你的问题"`。
+单次聊天（不进 TUI）：`memorix ask "your question"`。
 
 ### Operator CLI
 
-Memorix 现在提供的是一套 **CLI-first 的 operator 命令面**。你可以直接在终端里完成完整操作，不必什么都绕到 MCP tool call；MCP 继续作为 IDE / agent 的集成协议层存在。
+Memorix 提供了一套 **CLI-first 的 operator 命令面**。当你想直接在终端里检查或控制当前项目时使用。MCP 继续作为 IDE 和 Agent 的集成协议层。
 
 ```bash
 memorix session start --agent codex-main --agentType codex
@@ -144,9 +142,29 @@ memorix audit project
 memorix sync workspace --action scan
 ```
 
-这组 CLI 故意做成“人类可读”的命名空间，而不是把 MCP 工具名原样搬出来。原生能力可以通过 `session`、`memory`、`reasoning`、`retention`、`formation`、`audit`、`transfer`、`skills`、`team`、`task`、`message`、`lock`、`handoff`、`poll`、`sync`、`ingest` 进入；MCP 继续保留为 IDE / agent 接入层和可选 graph compatibility 层。
+这组 CLI 故意做成**任务导向**的命名空间，而不是把 MCP 工具名原样搬出来。原生能力可以通过这些命名空间进入：`session`、`memory`、`reasoning`、`retention`、`formation`、`audit`、`transfer`、`skills`、`team`、`task`、`message`、`lock`、`handoff`、`poll`、`sync`、`ingest`。MCP 继续保留为 IDE、Agent 和可选 graph-compatibility 工具的接入层。
 
-把 Memorix 加进你的 MCP 客户端：
+## Docker
+
+Memorix 现在包含了面向 **HTTP control plane** 的官方 Docker 部署路径。
+
+快速启动：
+
+```bash
+docker compose up --build -d
+```
+
+启动后可访问：
+
+- Dashboard：`http://localhost:3211`
+- MCP：`http://localhost:3211/mcp`
+- 健康检查：`http://localhost:3211/health`
+
+需要注意：Docker 支持的是 `serve-http`，不是 `memorix serve`。如果容器看不到你要绑定的仓库路径，那么项目级 Git / 配置语义不会完整生效。
+
+完整 Docker 指南：[docs/DOCKER.md](docs/DOCKER.md)
+
+将 Memorix 添加到你的 MCP 客户端：
 
 ### 通用 stdio MCP 配置
 
@@ -239,10 +257,10 @@ memorix session start --agent codex-main --agentType codex
 HTTP MCP session 默认 30 分钟空闲后过期。如果你的客户端不会自动从陈旧 HTTP session ID 中恢复，可以在启动控制面前设置更长超时：
 
 ```bash
-MEMORIX_SESSION_TIMEOUT_MS=86400000 memorix background start  # 24 小时
+MEMORIX_SESSION_TIMEOUT_MS=86400000 memorix background start  # 24h
 ```
 
-Team 协作不是普通记忆启动路径，也不是多个 IDE 对话窗口之间的聊天室。只有需要任务、消息、文件锁，或结构化自主 Agent 工作流时，才加入 team。真正的多 Agent 执行优先使用：
+Team 协作**不是**普通记忆启动路径，也**不是**多个 IDE 对话窗口之间的聊天室。只有需要任务、消息、文件锁，或结构化自主 Agent 工作流时，才加入 team。真正的多 Agent 执行优先使用：
 
 ```bash
 memorix orchestrate --goal "Add user authentication" --agents claude-code,cursor,codex
@@ -307,16 +325,16 @@ Memorix 不是一条单线流水线。它从多个入口接收记忆，把内容
 
 ### 记忆层
 
-- **Observation Memory**：记录“改了什么 / 系统怎么工作 / 踩过什么坑”
-- **Reasoning Memory**：记录“为什么这么做 / 替代方案 / 权衡 / 风险”
-- **Git Memory**：记录从提交中提炼出的工程事实
+- **Observation Memory**：记录"改了什么 / 系统怎么工作 / 踩过什么坑"
+- **Reasoning Memory**：记录"为什么这么做 / 替代方案 / 权衡 / 风险"
+- **Git Memory**：记录从提交中提炼出的不可变工程事实
 
 ### 检索模型
 
 - 默认搜索是**当前项目作用域**
 - `scope="global"` 可以跨项目搜索
 - 全局结果可通过带项目信息的 ref 再展开
-- source-aware retrieval 会对“发生了什么”问题偏向 Git Memory，对“为什么”问题偏向 reasoning memory
+- source-aware retrieval 会对"发生了什么"问题偏向 Git Memory，对"为什么"问题偏向 reasoning memory
 
 ---
 
@@ -348,31 +366,11 @@ Memorix 不是一条单线流水线。它从多个入口接收记忆，把内容
 
 ---
 
-## Docker
-
-Memorix 现在提供了面向 **HTTP control plane** 的官方 Docker 部署路径。
-
-快速启动：
-
-```bash
-docker compose up --build -d
-```
-
-启动后可访问：
-
-- Dashboard：`http://localhost:3211`
-- MCP：`http://localhost:3211/mcp`
-- 健康检查：`http://localhost:3211/health`
-
-需要注意：Docker 支持的是 `serve-http`，不是 `memorix serve`。如果容器看不到你要绑定的仓库路径，那么项目级 Git / 配置语义不会完整生效。
-
-完整说明见：[docs/DOCKER.md](docs/DOCKER.md)
-
 ## 1.0.8 更新亮点
 
 `1.0.8` 在 1.0.7 的多 Agent 协调 / SQLite / 团队身份基线上，进一步收成了 CLI-first operator surface、官方 Docker 路径、Dashboard 语义分层和大量 Hooks 修复。
 
-- **CLI-First 产品面**：所有 Memorix 原生能力都已经有面向人的 CLI 路径（`session`、`memory`、`reasoning`、`retention`、`formation`、`audit`、`transfer`、`skills`、`team`、`task`、`message`、`lock`、`handoff`、`poll`、`sync`、`ingest`）。MCP 保留为标准接入协议和可选 graph compatibility 层。
+- **CLI-First 产品面**：所有 Memorix 原生能力都已经有面向人的 CLI 路径 — `session`、`memory`、`reasoning`、`retention`、`formation`、`audit`、`transfer`、`skills`、`team`、`task`、`message`、`lock`、`handoff`、`poll`、`sync`、`ingest`。MCP 保留为标准接入协议和可选 graph-compatibility 层。
 - **Docker 部署**：官方 `Dockerfile`、`compose.yaml`、健康检查、`--host` 绑定，详见 [DOCKER.md](docs/DOCKER.md)。
 - **多 Agent 协调器**：`memorix orchestrate` 运行计划、并行执行、验证、修复、审查和合并循环。支持 Claude、Codex、Gemini CLI、OpenCode，含能力路由、worktree 隔离和 Agent 回退。
 - **SQLite 统一存储**：Observation、mini-skill、session、archive 全部 SQLite。共享 DB 句柄，检索前自动刷新，已删除废弃的 `JsonBackend`。

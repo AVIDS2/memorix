@@ -1,10 +1,14 @@
 /**
  * Content views for the Memorix TUI.
+ *
+ * Modern design: Unicode separators, status dots, upgraded type icons,
+ * brand-colored section headers, logo banner in HomeView.
  */
 
 import React from 'react';
 import { Box, Text } from 'ink';
-import { COLORS, TYPE_ICONS } from './theme.js';
+import { COLORS, TYPE_ICONS, SEP, STATUS_DOTS, SYMBOLS } from './theme.js';
+import { LogoBanner } from './LogoBanner.js';
 import type {
   MemoryItem,
   SearchResult,
@@ -15,12 +19,12 @@ import type {
 } from './data.js';
 
 function separator(width = 50): string {
-  return '-'.repeat(width);
+  return SEP.thin.repeat(width);
 }
 
 function truncate(text: string, max = 60): string {
   if (text.length <= max) return text;
-  return `${text.slice(0, max)}...`;
+  return `${text.slice(0, max)}…`;
 }
 
 interface HomeViewProps {
@@ -28,22 +32,24 @@ interface HomeViewProps {
   health: HealthInfo;
   background: BackgroundInfo;
   loading: boolean;
+  contentWidth?: number;
 }
 
-export function HomeView({ project, health, background }: HomeViewProps): React.ReactElement {
+export function HomeView({ project, health, background, contentWidth = 80 }: HomeViewProps): React.ReactElement {
   // ── No-project empty state: guidance only, no misleading status ──
   if (!project) {
     return (
       <Box flexDirection="column" paddingX={1}>
-        <Box flexDirection="column" marginBottom={1}>
-          <Text color={COLORS.warning} bold>No project detected</Text>
+        <LogoBanner width={contentWidth} />
+        <Box flexDirection="column" marginBottom={1} marginTop={1}>
+          <Text color={COLORS.warning} bold>{STATUS_DOTS.warn} No project detected</Text>
           <Text color={COLORS.border}>{separator()}</Text>
           <Text color={COLORS.muted}>Memorix works best inside a git repository.</Text>
           <Text color={COLORS.muted}>Navigate to your project directory and re-launch, or:</Text>
         </Box>
 
         <Box flexDirection="column" marginBottom={1}>
-          <Text color={COLORS.accentDim} bold>Getting Started</Text>
+          <Text color={COLORS.brand} bold>Getting Started</Text>
           <Text color={COLORS.border}>{separator()}</Text>
           <Text color={COLORS.textDim}>  git init          Initialize a git repo in this directory</Text>
           <Text color={COLORS.textDim}>  c  /configure     Set up LLM + embedding providers</Text>
@@ -51,12 +57,12 @@ export function HomeView({ project, health, background }: HomeViewProps): React.
         </Box>
 
         <Box flexDirection="column">
-          <Text color={COLORS.accentDim} bold>Global Services</Text>
+          <Text color={COLORS.brand} bold>Global Services</Text>
           <Text color={COLORS.border}>{separator()}</Text>
           <Box>
             <Text color={COLORS.muted}>{'Background'.padEnd(12)}</Text>
             <Text color={background.healthy ? COLORS.success : background.running ? COLORS.warning : COLORS.muted}>
-              {background.healthy ? 'Running' : background.running ? 'Unhealthy' : 'Stopped'}
+              {background.healthy ? `${STATUS_DOTS.running} Running` : background.running ? `${STATUS_DOTS.warn} Unhealthy` : `${STATUS_DOTS.stopped} Stopped`}
             </Text>
             {background.port && <Text color={COLORS.textDim}> :{background.port}</Text>}
           </Box>
@@ -69,8 +75,9 @@ export function HomeView({ project, health, background }: HomeViewProps): React.
   // ── Project detected: full status view ──
   return (
     <Box flexDirection="column" paddingX={1}>
-      <Box flexDirection="column" marginBottom={1}>
-        <Text color={COLORS.accentDim} bold>Project</Text>
+      <LogoBanner width={contentWidth} />
+      <Box flexDirection="column" marginBottom={1} marginTop={1}>
+        <Text color={COLORS.brand} bold>Project</Text>
         <Text color={COLORS.border}>{separator()}</Text>
         <Box flexDirection="column">
           <Box>
@@ -89,7 +96,7 @@ export function HomeView({ project, health, background }: HomeViewProps): React.
       </Box>
 
       <Box flexDirection="column" marginBottom={1}>
-        <Text color={COLORS.accentDim} bold>Status</Text>
+        <Text color={COLORS.brand} bold>Status</Text>
         <Text color={COLORS.border}>{separator()}</Text>
         <Box>
           <Text color={COLORS.muted}>{'Memories'.padEnd(12)}</Text>
@@ -106,6 +113,7 @@ export function HomeView({ project, health, background }: HomeViewProps): React.
                   : COLORS.muted
             }
           >
+            {health.embeddingProvider === 'ready' ? STATUS_DOTS.ok : health.embeddingProvider === 'unavailable' ? STATUS_DOTS.warn : STATUS_DOTS.off}{' '}
             {health.embeddingLabel}
           </Text>
         </Box>
@@ -118,7 +126,7 @@ export function HomeView({ project, health, background }: HomeViewProps): React.
         <Box>
           <Text color={COLORS.muted}>{'Search Mode'.padEnd(12)}</Text>
           <Text color={health.searchModeLabel.toLowerCase().includes('hybrid') ? COLORS.success : COLORS.warning}>
-            {health.searchModeLabel}
+            {STATUS_DOTS.ok} {health.searchModeLabel}
           </Text>
         </Box>
         {health.searchDiagnostic && (
@@ -130,13 +138,13 @@ export function HomeView({ project, health, background }: HomeViewProps): React.
         <Box>
           <Text color={COLORS.muted}>{'Background'.padEnd(12)}</Text>
           <Text color={background.healthy ? COLORS.success : background.running ? COLORS.warning : COLORS.muted}>
-            {background.healthy ? 'Running' : background.running ? 'Unhealthy' : 'Stopped'}
+            {background.healthy ? `${STATUS_DOTS.running} Running` : background.running ? `${STATUS_DOTS.warn} Unhealthy` : `${STATUS_DOTS.stopped} Stopped`}
           </Text>
           {background.port && <Text color={COLORS.textDim}> :{background.port}</Text>}
         </Box>
       </Box>
 
-      <Text color={COLORS.muted}>Use /recent to view recent memory activity</Text>
+      <Text color={COLORS.muted}>{SYMBOLS.arrow} Use /recent to view recent memory activity</Text>
     </Box>
   );
 }
@@ -160,26 +168,26 @@ export function RecentView({ recentMemories, loading }: RecentViewProps): React.
 
   return (
     <Box flexDirection="column" paddingX={1}>
-      <Text color={COLORS.accentDim} bold>Recent Memory Activity{filtered.length < recentMemories.length ? ' (filtered)' : ''}</Text>
+      <Text color={COLORS.brand} bold>Recent Memory Activity{filtered.length < recentMemories.length ? ' (filtered)' : ''}</Text>
       <Text color={COLORS.border}>{separator()}</Text>
       {loading ? (
-        <Text color={COLORS.muted}>Loading...</Text>
+        <Text color={COLORS.muted}>Loading…</Text>
       ) : filtered.length === 0 ? (
         <Text color={COLORS.muted}>No recent activity. Use /remember to store a memory.</Text>
       ) : (
         filtered.map((memory) => (
           <Box key={memory.id}>
-            <Text color={COLORS.muted}>[{TYPE_ICONS[memory.type] || '.'}] </Text>
+            <Text color={COLORS.muted}>{TYPE_ICONS[memory.type] || SYMBOLS.bullet} </Text>
             <Text color={COLORS.textDim}>#{memory.id} </Text>
             <Text color={COLORS.text}>{truncate(memory.title)}</Text>
           </Box>
         ))
       )}
       {filtered.length < recentMemories.length && (
-        <Text color={COLORS.textDim}>({recentMemories.length - filtered.length} dev/noise entries hidden — revert/TUI-fix commits filtered)</Text>
+        <Text color={COLORS.textDim}>({recentMemories.length - filtered.length} dev/noise entries hidden)</Text>
       )}
       {!loading && filtered.length > 0 && (
-        <Box marginTop={1}><Text color={COLORS.muted}>Try: /search {'<'}query{'>'} | /doctor | /home</Text></Box>
+        <Box marginTop={1}><Text color={COLORS.muted}>{SYMBOLS.arrow} /search {'<'}query{'>'} │ /doctor │ /home</Text></Box>
       )}
     </Box>
   );
@@ -192,32 +200,40 @@ interface SearchResultsViewProps {
 }
 
 export function SearchResultsView({ results, query, loading }: SearchResultsViewProps): React.ReactElement {
+  // Normalize scores relative to top result for relevance dots
+  const topScore = results.length > 0 ? Math.max(...results.map(r => r.score)) : 1;
+  const relevanceBar = (score: number): string => {
+    const ratio = topScore > 0 ? score / topScore : 0;
+    const filled = Math.round(ratio * 3);
+    return '●'.repeat(filled) + '○'.repeat(3 - filled);
+  };
+
   return (
     <Box flexDirection="column" paddingX={1}>
       <Box>
-        <Text color={COLORS.accentDim} bold>Search: </Text>
+        <Text color={COLORS.brand} bold>Search: </Text>
         <Text color={COLORS.text}>"{query}"</Text>
-        {!loading && <Text color={COLORS.muted}> - {results.length} results</Text>}
+        {!loading && <Text color={COLORS.muted}> │ {results.length} results</Text>}
       </Box>
       <Text color={COLORS.border}>{separator()}</Text>
 
       {loading ? (
-        <Text color={COLORS.muted}>Searching...</Text>
+        <Text color={COLORS.muted}>Searching…</Text>
       ) : results.length === 0 ? (
         <Text color={COLORS.muted}>No results found.</Text>
       ) : (
         results.map((result) => (
           <Box key={result.id}>
-            <Text color={COLORS.muted}>[{result.icon}] </Text>
+            <Text color={COLORS.muted}>{result.icon} </Text>
             <Text color={COLORS.textDim}>#{result.id} </Text>
             <Text color={COLORS.text}>{truncate(result.title)}</Text>
-            <Text color={COLORS.muted}> ({(result.score * 100).toFixed(0)}%)</Text>
+            <Text color={COLORS.accent}> {relevanceBar(result.score)}</Text>
           </Box>
         ))
       )}
       {!loading && results.length > 0 && (
         <Box marginTop={1} flexDirection="column">
-          <Text color={COLORS.muted}>Try: /search {'<'}other query{'>'} | /recent | /home</Text>
+          <Text color={COLORS.muted}>{SYMBOLS.arrow} /search {'<'}other query{'>'} │ /recent │ /home</Text>
         </Box>
       )}
     </Box>
@@ -237,16 +253,16 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 const STATUS_ICONS: Record<string, string> = {
-  ok: '+',
-  warn: '!',
-  error: 'x',
-  info: '-',
+  ok: SYMBOLS.check,
+  warn: STATUS_DOTS.warn,
+  error: SYMBOLS.cross,
+  info: SYMBOLS.info,
 };
 
 export function DoctorView({ doctor, loading }: DoctorViewProps): React.ReactElement {
   return (
     <Box flexDirection="column" paddingX={1}>
-      <Text color={COLORS.accentDim} bold>Diagnostics</Text>
+      <Text color={COLORS.brand} bold>Diagnostics</Text>
       <Text color={COLORS.border}>{separator()}</Text>
 
       {loading ? (
@@ -271,8 +287,8 @@ export function DoctorView({ doctor, loading }: DoctorViewProps): React.ReactEle
           ))}
 
           <Box marginTop={1} flexDirection="column">
-            <Text color={COLORS.accentDim} bold>Next</Text>
-            <Text color={COLORS.muted}>  /dashboard  /background  /search  /recent</Text>
+            <Text color={COLORS.brand} bold>Next</Text>
+            <Text color={COLORS.muted}>  /dashboard │ /background │ /search │ /recent</Text>
           </Box>
         </Box>
       )}
@@ -287,7 +303,7 @@ interface ProjectViewProps {
 export function ProjectView({ project }: ProjectViewProps): React.ReactElement {
   return (
     <Box flexDirection="column" paddingX={1}>
-      <Text color={COLORS.accentDim} bold>Project Details</Text>
+      <Text color={COLORS.brand} bold>Project Details</Text>
       <Text color={COLORS.border}>{separator()}</Text>
 
       {!project ? (
@@ -319,17 +335,17 @@ interface BackgroundViewProps {
 export function BackgroundView({ background, loading }: BackgroundViewProps): React.ReactElement {
   return (
     <Box flexDirection="column" paddingX={1}>
-      <Text color={COLORS.accentDim} bold>Background Control Plane</Text>
+      <Text color={COLORS.brand} bold>Background Control Plane</Text>
       <Text color={COLORS.border}>{separator()}</Text>
 
       {loading ? (
-        <Text color={COLORS.muted}>Checking status...</Text>
+        <Text color={COLORS.muted}>Checking status…</Text>
       ) : (
         <Box flexDirection="column">
           <Box>
             <Text color={COLORS.muted}>{'Status'.padEnd(12)}</Text>
             <Text color={background.healthy ? COLORS.success : background.running ? COLORS.warning : COLORS.muted}>
-              {background.healthy ? 'Running & healthy' : background.running ? 'Running (unhealthy)' : 'Not running'}
+              {background.healthy ? `${STATUS_DOTS.running} Running & healthy` : background.running ? `${STATUS_DOTS.warn} Running (unhealthy)` : `${STATUS_DOTS.stopped} Not running`}
             </Text>
           </Box>
           {background.pid && (
@@ -379,13 +395,13 @@ export function BackgroundView({ background, loading }: BackgroundViewProps): Re
           )}
 
           <Box marginTop={1} flexDirection="column">
-            <Text color={COLORS.accentDim} bold>Actions</Text>
+            <Text color={COLORS.brand} bold>Actions</Text>
             <Text color={COLORS.border}>{separator()}</Text>
             {background.running ? (
               <Box flexDirection="column">
                 {background.dashboard && (
                   <Box>
-                    <Text color={COLORS.accent}>  w  Open dashboard  </Text>
+                    <Text color={COLORS.brand}>  w  Open dashboard  </Text>
                     <Text color={COLORS.textDim}>{background.dashboard}</Text>
                   </Box>
                 )}
@@ -398,7 +414,7 @@ export function BackgroundView({ background, loading }: BackgroundViewProps): Re
               </Box>
             ) : (
               <Box flexDirection="column">
-                <Box><Text color={COLORS.success}>  1  Start control plane</Text></Box>
+                <Box><Text color={COLORS.success}>{SYMBOLS.arrow} 1  Start control plane</Text></Box>
                 <Box><Text color={COLORS.text}>  2  Launch standalone dashboard</Text></Box>
               </Box>
             )}
@@ -416,7 +432,7 @@ interface DashboardViewProps {
 export function DashboardView({ background }: DashboardViewProps): React.ReactElement {
   return (
     <Box flexDirection="column" paddingX={1}>
-      <Text color={COLORS.accentDim} bold>Dashboard</Text>
+      <Text color={COLORS.brand} bold>Dashboard</Text>
       <Text color={COLORS.border}>{separator()}</Text>
 
       {background.healthy && background.dashboard ? (
@@ -425,9 +441,9 @@ export function DashboardView({ background }: DashboardViewProps): React.ReactEl
             <Text color={COLORS.muted}>{'URL'.padEnd(12)}</Text>
             <Text color={COLORS.accent} bold>{background.dashboard}</Text>
           </Box>
-          <Text color={COLORS.accentDim} bold>Actions</Text>
+          <Text color={COLORS.brand} bold>Actions</Text>
           <Text color={COLORS.border}>{separator()}</Text>
-          <Box><Text color={COLORS.accent}>  1  Open {background.dashboard} in browser</Text></Box>
+          <Box><Text color={COLORS.brand}>  1  Open {background.dashboard} in browser</Text></Box>
           <Box><Text color={COLORS.text}>  2  Launch standalone dashboard</Text></Box>
         </Box>
       ) : (
@@ -435,10 +451,10 @@ export function DashboardView({ background }: DashboardViewProps): React.ReactEl
           <Box marginBottom={1}>
             <Text color={COLORS.warning}>No running control plane</Text>
           </Box>
-          <Text color={COLORS.accentDim} bold>Actions</Text>
+          <Text color={COLORS.brand} bold>Actions</Text>
           <Text color={COLORS.border}>{separator()}</Text>
           <Box>
-            <Text color={COLORS.success}>  1  Start control plane  </Text>
+            <Text color={COLORS.success}>{SYMBOLS.arrow} 1  Start control plane  </Text>
             <Text color={COLORS.muted}>(then open dashboard)</Text>
           </Box>
           <Box><Text color={COLORS.text}>  2  Launch standalone dashboard</Text></Box>
@@ -456,12 +472,12 @@ interface CleanupViewProps {
 export function CleanupView({ statusText }: CleanupViewProps): React.ReactElement {
   return (
     <Box flexDirection="column" paddingX={1}>
-      <Text color={COLORS.accentDim} bold>Cleanup & Purge</Text>
+      <Text color={COLORS.brand} bold>Cleanup & Purge</Text>
       <Text color={COLORS.border}>{separator()}</Text>
       <Box flexDirection="column" marginTop={1}>
         <Box><Text color={COLORS.text}>  1  Uninstall project artifacts</Text></Box>
         <Box><Text color={COLORS.text}>  2  Purge current project memory</Text></Box>
-        <Box><Text color={COLORS.warning}>  3  Purge ALL memory (danger)</Text></Box>
+        <Box><Text color={COLORS.error}>{SYMBOLS.cross} 3  Purge ALL memory (danger)</Text></Box>
         <Box><Text color={COLORS.muted}>  h  Back to home</Text></Box>
       </Box>
       {statusText && (
@@ -479,7 +495,7 @@ interface IngestViewProps {
 export function IngestView({ statusText }: IngestViewProps): React.ReactElement {
   return (
     <Box flexDirection="column" paddingX={1}>
-      <Text color={COLORS.accentDim} bold>Git &gt; Memory</Text>
+      <Text color={COLORS.brand} bold>Git {'>'} Memory</Text>
       <Text color={COLORS.border}>{separator()}</Text>
       <Box flexDirection="column" marginTop={1}>
         <Box><Text color={COLORS.text}>  1  Ingest latest commit</Text></Box>
@@ -502,7 +518,7 @@ interface IntegrateViewProps {
 export function IntegrateView({ statusText }: IntegrateViewProps): React.ReactElement {
   return (
     <Box flexDirection="column" paddingX={1}>
-      <Text color={COLORS.accentDim} bold>Integrate IDE</Text>
+      <Text color={COLORS.brand} bold>Integrate IDE</Text>
       <Text color={COLORS.border}>{separator()}</Text>
       <Box flexDirection="column" marginTop={1}>
         <Box><Text color={COLORS.text}>  1  Claude Code</Text></Box>
@@ -534,10 +550,15 @@ interface StatusMessageProps {
 
 export function StatusMessage({ message, type }: StatusMessageProps): React.ReactElement {
   const color = type === 'success' ? COLORS.success : type === 'error' ? COLORS.error : COLORS.muted;
-  const icon = type === 'success' ? '+' : type === 'error' ? 'x' : 'i';
+  const icon = type === 'success' ? SYMBOLS.check : type === 'error' ? SYMBOLS.cross : SYMBOLS.info;
+  const lines = message.split('\n');
   return (
-    <Box paddingX={1}>
-      <Text color={color}>{icon} {message}</Text>
+    <Box paddingX={1} flexDirection="column">
+      {lines.map((line, index) => (
+        <Text key={index} color={color} wrap="truncate-end">
+          {index === 0 ? `${icon} ${line}` : `  ${line}`}
+        </Text>
+      ))}
     </Box>
   );
 }

@@ -96,13 +96,17 @@ describe('Issue #45: OpenCode compaction', () => {
 
 describe('Issue #80: OpenCode plugin must use correct event keys', () => {
   let tmpDir: string;
+  let auditFile: string;
 
   beforeEach(async () => {
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'memorix-oc80-'));
     await fs.mkdir(path.join(tmpDir, '.git'), { recursive: true });
+    auditFile = path.join(tmpDir, '.memorix', 'audit.json');
+    process.env.MEMORIX_AUDIT_FILE = auditFile;
   });
 
   afterEach(async () => {
+    delete process.env.MEMORIX_AUDIT_FILE;
     await fs.rm(tmpDir, { recursive: true, force: true });
   });
 
@@ -256,6 +260,17 @@ describe('Issue #80: OpenCode plugin must use correct event keys', () => {
     expect(uninstalled).toBe(true);
 
     // Plugin file should be gone
+    await expect(fs.access(pluginPath)).rejects.toThrow();
+  });
+
+  it('should uninstall OpenCode plugin even if the audit ledger is missing', async () => {
+    await installHooks('opencode', tmpDir);
+    const pluginPath = path.join(tmpDir, '.opencode', 'plugins', 'memorix.js');
+    await fs.access(pluginPath);
+    await fs.rm(auditFile, { force: true });
+
+    const uninstalled = await uninstallHooks('opencode', tmpDir);
+    expect(uninstalled).toBe(true);
     await expect(fs.access(pluginPath)).rejects.toThrow();
   });
 

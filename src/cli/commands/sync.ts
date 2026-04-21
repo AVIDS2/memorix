@@ -1,12 +1,11 @@
 /**
- * memorix sync — Interactive cross-agent rule sync
- *
- * Uses @clack/prompts for a beautiful interactive wizard.
+ * memorix sync — interactive sync wizard plus explicit rules/workspace surfaces
  */
 
 import { defineCommand } from 'citty';
 import * as p from '@clack/prompts';
-import type { RuleSource } from '../../types.js';
+import type { AgentTarget, RuleSource } from '../../types.js';
+import { emitError, emitResult, getCliProjectContext } from './operator-shared.js';
 
 const SOURCE_LABELS: Record<string, string> = {
   cursor: 'Cursor (.cursor/rules/*.mdc, .cursorrules)',
@@ -21,12 +20,22 @@ const SOURCE_LABELS: Record<string, string> = {
 export default defineCommand({
   meta: {
     name: 'sync',
-    description: 'Interactive cross-agent rule synchronization',
+    description: 'Interactive cross-agent synchronization plus explicit rules/workspace subcommands',
   },
   args: {
+    action: {
+      type: 'string',
+      description: 'Explicit action for rules/workspace sync',
+      required: false,
+    },
     target: {
       type: 'string',
       description: 'Target agent format (cursor, claude-code, codex, windsurf, antigravity, gemini-cli, kiro)',
+      required: false,
+    },
+    items: {
+      type: 'string',
+      description: 'Comma-separated item names for workspace sync filtering',
       required: false,
     },
     dry: {
@@ -34,8 +43,111 @@ export default defineCommand({
       description: 'Dry run — show what would be generated without writing files',
       default: false,
     },
+    json: {
+      type: 'boolean',
+      description: 'Emit machine-readable JSON output',
+      default: false,
+    },
   },
   run: async ({ args }) => {
+    const section = (args._ as string[])?.[0] || '';
+    const asJson = !!args.json;
+
+    if (section === 'rules' || section === 'workspace') {
+      try {
+        const { project } = await getCliProjectContext();
+
+        if (section === 'rules') {
+          const { RulesSyncer } = await import('../../rules/syncer.js');
+          const syncer = new RulesSyncer(project.rootPath);
+          const action = (args.action as string | undefined) || 'status';
+
+          if (action === 'status') {
+            const status = await syncer.syncStatus();
+            emitResult(
+              { project, status },
+              [
+                'Rules Sync Status',
+                `- Sources found: ${status.sources.join(', ') || 'none'}`,
+                `- Total rules: ${status.totalRules}`,
+                `- Unique rules: ${status.uniqueRules}`,
+                `- Conflicts: ${status.conflicts.length}`,
+              ].join('\n'),
+              asJson,
+            );
+            return;
+          }
+
+          if (action === 'generate') {
+            const rawTarget = args.target as string | undefined;
+            if (!rawTarget) {
+              emitError('target is required for "memorix sync rules --action generate"', asJson);
+              return;
+            }
+            const rules = await syncer.scanRules();
+            const effectiveTarget = (rawTarget === 'opencode' ? 'codex' : rawTarget) as RuleSource;
+            const files = syncer.generateForTarget(syncer.deduplicateRules(rules), effectiveTarget);
+            emitResult(
+              { project, target: rawTarget, files },
+              files.length === 0 ? 'No rules generated.' : files.map((file) => `- ${file.filePath}`).join('\n'),
+              asJson,
+            );
+            return;
+          }
+
+          emitError('action must be status or generate for "memorix sync rules"', asJson);
+          return;
+        }
+
+        const { WorkspaceSyncEngine } = await import('../../workspace/engine.js');
+        const engine = new WorkspaceSyncEngine(project.rootPath);
+        const action = (args.action as string | undefined) || 'scan';
+        const items = args.items
+          ? String(args.items).split(',').map((item) => item.trim()).filter(Boolean)
+          : undefined;
+
+        if (action === 'scan') {
+          const scan = await engine.scan();
+          emitResult(
+            { project, scan },
+            [
+              'Workspace Scan Report',
+              `- MCP configs: ${Object.values(scan.mcpConfigs).reduce((sum, servers) => sum + servers.length, 0)}`,
+              `- Workflows: ${scan.workflows.length}`,
+              `- Rules: ${scan.rulesCount}`,
+              `- Skills: ${scan.skills.length}`,
+            ].join('\n'),
+            asJson,
+          );
+          return;
+        }
+
+        const target = args.target as AgentTarget | undefined;
+        if (!target) {
+          emitError('target is required for "memorix sync workspace" migrate/apply actions', asJson);
+          return;
+        }
+
+        if (action === 'migrate') {
+          const result = await engine.migrate(target, items);
+          emitResult({ project, target, result }, `Workspace migration preview for ${target}`, asJson);
+          return;
+        }
+
+        if (action === 'apply') {
+          const result = await engine.apply(target, items);
+          emitResult({ project, target, result }, result.migrationSummary, asJson);
+          return;
+        }
+
+        emitError('action must be scan, migrate, or apply for "memorix sync workspace"', asJson);
+        return;
+      } catch (error) {
+        emitError(error instanceof Error ? error.message : String(error), asJson);
+        return;
+      }
+    }
+
     const { detectProject } = await import('../../project/detector.js');
     const { RulesSyncer } = await import('../../rules/syncer.js');
     const { promises: fs } = await import('node:fs');
@@ -43,7 +155,6 @@ export default defineCommand({
 
     p.intro('memorix sync');
 
-    // Detect project
     const project = detectProject();
     if (!project) {
       p.log.error('Memorix requires a git repo to establish project identity. Run `git init` in this workspace first.');
@@ -51,7 +162,6 @@ export default defineCommand({
     }
     p.log.info(`Project: ${project.name} (${project.id})`);
 
-    // Scan rules
     const syncer = new RulesSyncer(project.rootPath);
     const spin = p.spinner();
     spin.start('Scanning rule files...');
@@ -65,43 +175,37 @@ export default defineCommand({
       return;
     }
 
-    // Show sources
-    const sources = [...new Set(rules.map(r => r.source))];
-    p.log.info(`Sources: ${sources.map(s => SOURCE_LABELS[s] || s).join(', ')}`);
+    const sources = [...new Set(rules.map((rule) => rule.source))];
+    p.log.info(`Sources: ${sources.map((source) => SOURCE_LABELS[source] || source).join(', ')}`);
 
-    // Dedup
     const deduped = syncer.deduplicateRules(rules);
     if (deduped.length < rules.length) {
       p.log.info(`Deduplicated: ${rules.length} → ${deduped.length} unique rule(s)`);
     }
 
-    // Conflicts
     const conflicts = syncer.detectConflicts(deduped);
     if (conflicts.length > 0) {
       p.log.warn(`⚠ ${conflicts.length} conflict(s) detected:`);
-      for (const c of conflicts) {
-        p.log.warn(`  ${c.ruleA.source} vs ${c.ruleB.source}: ${c.reason}`);
+      for (const conflict of conflicts) {
+        p.log.warn(`  ${conflict.ruleA.source} vs ${conflict.ruleB.source}: ${conflict.reason}`);
       }
     }
 
-    // Select target
     let target = args.target as RuleSource | undefined;
-
     if (!target) {
       const available = ['cursor', 'claude-code', 'codex', 'windsurf', 'antigravity', 'gemini-cli', 'kiro'].filter(
-        t => !sources.includes(t as RuleSource),
+        (value) => !sources.includes(value as RuleSource),
       );
 
       if (available.length === 0) {
-        // All formats already present, let user pick any
         available.push('cursor', 'claude-code', 'codex', 'windsurf', 'antigravity', 'gemini-cli', 'kiro');
       }
 
       const selected = await p.select({
         message: 'Generate rules for which agent?',
-        options: available.map(t => ({
-          value: t,
-          label: SOURCE_LABELS[t] || t,
+        options: available.map((value) => ({
+          value,
+          label: SOURCE_LABELS[value] || value,
         })),
       });
 
@@ -113,17 +217,14 @@ export default defineCommand({
       target = selected as RuleSource;
     }
 
-    // Generate
     spin.start(`Generating ${target} rules...`);
     const files = syncer.generateForTarget(deduped, target);
     spin.stop(`Generated ${files.length} file(s)`);
 
-    // Show preview
     for (const file of files) {
       p.note(file.content, file.filePath);
     }
 
-    // Write or dry run
     if (args.dry) {
       p.log.info('Dry run — no files written');
       p.outro('Done (dry run)');

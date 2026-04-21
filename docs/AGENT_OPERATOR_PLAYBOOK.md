@@ -33,13 +33,33 @@ If you used Memorix before `1.0.8`, the operator-visible changes worth knowing a
 - obvious credentials are sanitized on write and redacted on retrieval surfaces
 - retention, stale review, audit, and resolve now form a clearer cleanup/remediation loop
 - OpenCode compaction guidance now preserves structured continuation context without falsely implying automatic MCP tool calls
-- `memorix_session_start` now **auto-registers** the agent in the team with a default role derived from `agentType` via `AGENT_TYPE_ROLE_MAP` — no separate `team_manage(join)` call needed
-- Team page is a **project collaboration space** (not an org backend): shows active agents, open tasks, handoffs, and a "Continue This Project" resume area
+- `memorix_session_start` is now **lightweight by default**: it binds the project, opens the session, and restores context without auto-registering a team identity
+- team participation is now explicit: use `joinTeam: true` on `memorix_session_start` or call `team_manage(join)` directly
+- Memorix is now **CLI-first for operators**: every Memorix-native operator capability has a terminal route, while MCP remains the integration protocol for IDEs and agents
+- Team page is a **project collaboration space** (not an org backend or IDE-window chat room): shows explicitly joined active collaborators, open tasks, handoffs, and a "Continue This Project" resume area
 - Docker now has an official HTTP control-plane deployment path; when running in a container, `projectRoot` must be visible inside that container or project-scoped semantics will fail closed
 
 ---
 
 ## 2. Operating Principles You Must Respect
+
+### CLI is the primary operator surface; MCP is the integration layer
+
+For human operators, prefer `memorix ...` commands first. In 1.0.8, the CLI covers all Memorix-native operator capabilities across session, memory, reasoning, retention, formation, audit, transfer, skills, team, task, message, lock, handoff, poll, sync, and ingest workflows.
+
+Do not ask memory-only users to join team collaboration. A lightweight session is enough for memory, retrieval, reasoning, and continuation. Join team only for task/message/lock coordination or for autonomous CLI-agent work managed by `memorix orchestrate`.
+
+Use MCP when:
+
+- an IDE or agent needs tool calls
+- you are integrating Memorix into an MCP-capable client
+- you need the optional graph-compatibility tools that intentionally remain MCP-only
+
+Use the CLI when:
+
+- a human is operating Memorix directly
+- you are on SSH / Docker / CI / NAS and want direct control
+- you want readable, stable command namespaces instead of raw tool payloads
 
 ### Git is the source of truth for project identity
 
@@ -120,6 +140,8 @@ Do not assume the HTTP connection alone tells Memorix which project the user mea
 
 The HTTP control plane is normally started with `memorix background start`; the same project-binding rules apply when you run `memorix serve-http --port 3211` in the foreground.
 
+HTTP MCP sessions idle out after 30 minutes by default. If the user's HTTP MCP client is sensitive to stale session IDs after long idle periods, set `MEMORIX_SESSION_TIMEOUT_MS` before starting or restarting the control plane. Example: `MEMORIX_SESSION_TIMEOUT_MS=86400000` keeps sessions alive for 24 hours.
+
 ### Do not confuse project config and global config
 
 Memorix intentionally supports both:
@@ -174,6 +196,8 @@ memorix
 ```
 
 Use that for local browsing, commands, and quick validation in a TTY.
+
+Inside the TUI workbench, slash commands are available: `/chat` (or just type a question), `/search`, `/remember`, `/recent`, `/resume` (or `/resume 2` for thread #2), `/new`, `/clear`, `/doctor`, `/project`, `/background`, `/dashboard`, `/integrate`, `/configure`, `/cleanup`, `/ingest`, `/help`, `/exit`. Most have short aliases (e.g. `/s`, `/r`, `/v`, `/d`, `/q`).
 
 ```bash
 memorix serve
@@ -457,11 +481,14 @@ In HTTP control-plane mode:
 1. Call `memorix_session_start`
 2. Pass:
    - `agent` — display name (e.g. `"cursor-frontend"`)
-   - `agentType` — agent type for auto-registration (e.g. `"windsurf"`, `"cursor"`, `"claude-code"`, `"codex"`, `"gemini-cli"`)
+   - `agentType` — optional agent type for collaboration role mapping (e.g. `"windsurf"`, `"cursor"`, `"claude-code"`, `"codex"`, `"gemini-cli"`)
    - `projectRoot` = absolute workspace path
-3. The agent is automatically registered in the team with a default role derived from `agentType` via `AGENT_TYPE_ROLE_MAP`. No separate `team_manage(join)` call is needed.
-4. If project binding fails, stop using project-scoped tools until the path is corrected
-5. Then use:
+3. By default this only starts a lightweight session. It does **not** auto-register a team identity.
+4. If the user wants collaboration features, either:
+   - call `memorix_session_start` with `joinTeam: true`
+   - or call `team_manage(join)` explicitly
+5. If project binding fails, stop using project-scoped tools until the path is corrected
+6. Then use:
    - `memorix_search`
    - `memorix_detail`
    - `memorix_timeline`
@@ -470,6 +497,12 @@ In HTTP control-plane mode:
 In stdio / project-bound mode:
 
 - `projectRoot` is optional if the process is already launched from the correct workspace
+- keep this path lightweight unless the user explicitly asks for team coordination
+
+Important boundary:
+
+- `team_manage(join)` does not make separate Cursor, Windsurf, Codex, or TUI conversation windows magically talk to each other.
+- For real autonomous multi-agent implementation loops, use `memorix orchestrate`; it launches CLI agents, coordinates work through tasks/context, and runs verification/fix/review gates.
 
 ---
 
@@ -537,6 +570,13 @@ If it shows "Not running" or "dead":
 
 ```bash
 memorix background ensure
+```
+
+If the client is connected but starts failing after roughly 30 minutes of no Memorix tool use, check for stale HTTP session expiry rather than treating it as project binding failure. Restart the control plane with a longer idle timeout:
+
+```powershell
+$env:MEMORIX_SESSION_TIMEOUT_MS = "86400000"
+memorix background restart
 ```
 
 Common causes of the background dying:

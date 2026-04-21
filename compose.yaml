@@ -11,6 +11,8 @@ services:
     environment:
       MEMORIX_PROJECT_ROOT: /workspace
       MEMORIX_DATA_DIR: /data/.memorix/data
+      # Keep HTTP MCP sessions alive for long IDE work blocks. Default is 30 min.
+      MEMORIX_SESSION_TIMEOUT_MS: 86400000
     volumes:
       - memorix-data:/data
       - ./:/workspace

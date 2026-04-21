@@ -118,6 +118,7 @@ Startup note:
 - `serve-http` seeds its default project root from `--cwd` -> `MEMORIX_PROJECT_ROOT` -> `~/.memorix/last-project-root` -> `process.cwd()`
 - this helps the dashboard and control plane start in a sensible project even before any agent binds explicitly
 - in multi-session workflows, agents should still call `memorix_session_start(projectRoot=...)` to avoid cross-project drift
+- HTTP MCP sessions idle out after 30 minutes by default. For clients that do not transparently recover from stale HTTP session IDs, set `MEMORIX_SESSION_TIMEOUT_MS` before starting the control plane, for example `MEMORIX_SESSION_TIMEOUT_MS=86400000` for 24 hours.
 
 Use `memorix serve-http --port 3211` when you want the same HTTP control plane in the foreground for debugging, manual supervision, or a custom port.
 
@@ -446,6 +447,17 @@ startup_timeout_sec = 30
 ```
 
 or higher on slower Windows machines.
+
+### Codex stale HTTP session after idle time
+
+If Codex is connected to `http://localhost:3211/mcp` and fails after a long idle period with a transport/body decoding error, the HTTP session may have expired server-side. Memorix defaults to a 30-minute HTTP session idle timeout. Increase it before starting the background control plane:
+
+```powershell
+$env:MEMORIX_SESSION_TIMEOUT_MS = "86400000" # 24h
+memorix background restart
+```
+
+This keeps the default safe for normal users while giving long-running Codex HTTP sessions a practical recovery knob.
 
 ### Project detection is wrong
 

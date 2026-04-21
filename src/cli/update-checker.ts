@@ -10,6 +10,7 @@
  */
 
 import { execFile } from 'node:child_process';
+import type { ExecFileException } from 'node:child_process';
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
@@ -17,6 +18,9 @@ import { createRequire } from 'node:module';
 
 const PACKAGE_NAME = 'memorix';
 const CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
+const DEFAULT_AUTO_UPDATE_TIMEOUT_MS = 5 * 60 * 1000;
+const MIN_AUTO_UPDATE_TIMEOUT_MS = 5_000;
+const MAX_AUTO_UPDATE_TIMEOUT_MS = 30 * 60 * 1000;
 const REGISTRY_URL = `https://registry.npmjs.org/${PACKAGE_NAME}/latest`;
 const CACHE_DIR = join(homedir(), '.memorix');
 const CACHE_FILE = join(CACHE_DIR, 'update-check.json');
@@ -27,6 +31,10 @@ export interface UpdateCache {
   lastAutoUpdate?: number;
   lastAutoUpdateStatus?: 'success' | 'failed';
   lastAutoUpdateError?: string;
+  lastAutoUpdateTimedOut?: boolean;
+  lastAutoUpdateExitCode?: number | null;
+  lastAutoUpdateSignal?: string | null;
+  lastAutoUpdateTimeoutMs?: number;
   updatedFrom?: string;
   updatedTo?: string;
 }
@@ -89,6 +97,35 @@ function isAutoUpdateEnabled(): boolean {
   return true; // default: install
 }
 
+function parseAutoUpdateTimeoutMs(raw: string | undefined): number {
+  const value = raw?.trim();
+  if (!value) return DEFAULT_AUTO_UPDATE_TIMEOUT_MS;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return DEFAULT_AUTO_UPDATE_TIMEOUT_MS;
+  return Math.max(MIN_AUTO_UPDATE_TIMEOUT_MS, Math.min(MAX_AUTO_UPDATE_TIMEOUT_MS, Math.floor(parsed)));
+}
+
+function describeAutoUpdateFailure(error: ExecFileException, timeoutMs: number): {
+  message: string;
+  timedOut: boolean;
+  exitCode: number | null;
+  signal: string | null;
+} {
+  const timedOut = /timed out/i.test(error.message);
+  const exitCode = typeof error.code === 'number' ? error.code : null;
+  const signal = typeof error.signal === 'string' ? error.signal : null;
+  const details: string[] = [];
+  if (timedOut) details.push(`timeout ${timeoutMs}ms`);
+  if (exitCode !== null) details.push(`exit code ${exitCode}`);
+  if (signal) details.push(`signal ${signal}`);
+  return {
+    message: details.length > 0 ? `${error.message} (${details.join(', ')})` : error.message,
+    timedOut,
+    exitCode,
+    signal,
+  };
+}
+
 /**
  * Fetch the latest version from npm registry.
  * Uses native https to avoid dependencies. Timeout: 5s.
@@ -123,22 +160,28 @@ async function fetchLatestVersion(): Promise<string | null> {
 function installUpdateInBackground(targetVersion: string, currentVersion: string, cache: UpdateCache): void {
   try {
     const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+    const timeoutMs = parseAutoUpdateTimeoutMs(process.env.MEMORIX_AUTO_UPDATE_TIMEOUT_MS);
     const child = execFile(
       npmCmd,
       ['install', '-g', `${PACKAGE_NAME}@${targetVersion}`],
-      { timeout: 60000 },
+      { timeout: timeoutMs },
       async (error) => {
+        const failure = error ? describeAutoUpdateFailure(error, timeoutMs) : null;
         const updatedCache: UpdateCache = {
           ...cache,
           lastAutoUpdate: Date.now(),
           updatedFrom: currentVersion,
           updatedTo: targetVersion,
           lastAutoUpdateStatus: error ? 'failed' : 'success',
-          lastAutoUpdateError: error ? error.message : undefined,
+          lastAutoUpdateError: failure?.message,
+          lastAutoUpdateTimedOut: failure?.timedOut,
+          lastAutoUpdateExitCode: failure?.exitCode,
+          lastAutoUpdateSignal: failure?.signal,
+          lastAutoUpdateTimeoutMs: timeoutMs,
         };
         await writeCache(updatedCache);
         if (error) {
-          console.error(`[memorix] Auto-update failed: ${error.message}`);
+          console.error(`[memorix] Auto-update failed: ${failure?.message ?? error.message}`);
         } else {
           console.error(`[memorix] Auto-updated to v${targetVersion} — restart to apply`);
         }
@@ -185,6 +228,10 @@ export async function checkForUpdates(): Promise<void> {
       lastAutoUpdate: cache?.lastAutoUpdate,
       lastAutoUpdateStatus: cache?.lastAutoUpdateStatus,
       lastAutoUpdateError: cache?.lastAutoUpdateError,
+      lastAutoUpdateTimedOut: cache?.lastAutoUpdateTimedOut,
+      lastAutoUpdateExitCode: cache?.lastAutoUpdateExitCode,
+      lastAutoUpdateSignal: cache?.lastAutoUpdateSignal,
+      lastAutoUpdateTimeoutMs: cache?.lastAutoUpdateTimeoutMs,
       updatedFrom: cache?.updatedFrom,
       updatedTo: cache?.updatedTo,
     };
@@ -205,7 +252,10 @@ export async function checkForUpdates(): Promise<void> {
 export const _testing = {
   CACHE_FILE,
   CHECK_INTERVAL_MS,
+  DEFAULT_AUTO_UPDATE_TIMEOUT_MS,
   isAutoUpdateEnabled,
+  parseAutoUpdateTimeoutMs,
+  describeAutoUpdateFailure,
   fetchLatestVersion,
   installUpdateInBackground,
   writeCache,

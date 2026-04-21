@@ -16,7 +16,8 @@ export default defineCommand({
     agent: { type: 'string', description: 'Agent/client name (for example codex or windsurf)' },
     agentType: { type: 'string', description: 'Stable agent type used for role mapping' },
     instanceId: { type: 'string', description: 'Stable instance identity across restarts' },
-    role: { type: 'string', description: 'Explicit role override for auto-registration' },
+    joinTeam: { type: 'boolean', description: 'Explicitly join the project collaboration space for this session' },
+    role: { type: 'string', description: 'Explicit role override used only when --joinTeam is set' },
     sessionId: { type: 'string', description: 'Custom session ID (optional)' },
     summary: { type: 'string', description: 'Structured session summary for session end' },
     limit: { type: 'string', description: 'How many recent sessions to include' },
@@ -36,9 +37,11 @@ export default defineCommand({
             agent: args.agent as string | undefined,
           });
 
+          const shouldJoinTeam = !!args.joinTeam;
           let agentRecord: ReturnType<typeof teamStore.registerAgent> | null = null;
+          let teamJoinNotice: string | null = null;
           const agentType = (args.agentType as string | undefined) || (args.agent as string | undefined);
-          if (args.agent || agentType) {
+          if (shouldJoinTeam && (args.agent || agentType)) {
             const resolvedType = agentType || 'unknown';
             const resolvedRole =
               (args.role as string | undefined) ||
@@ -51,6 +54,8 @@ export default defineCommand({
               name: (args.agent as string | undefined) || agentType,
               role: resolvedRole,
             });
+          } else if (shouldJoinTeam) {
+            teamJoinNotice = 'Team join skipped: provide --agent or --agentType to create a collaboration identity.';
           }
 
           let watermark = computeWatermark(0, 0, 0);
@@ -84,6 +89,11 @@ export default defineCommand({
                   role: agentRecord.role,
                 }
               : null,
+            teamJoin: {
+              requested: shouldJoinTeam,
+              joined: !!agentRecord,
+              notice: teamJoinNotice,
+            },
             watermark,
             rescue: {
               staleAgents: rescuedAgentIds,
@@ -93,18 +103,22 @@ export default defineCommand({
           };
 
           const textLines = [
-            `Session started: ${result.session.id}`,
+            shouldJoinTeam && agentRecord
+              ? `Session started with collaboration identity: ${result.session.id}`
+              : `Lightweight session started: ${result.session.id}`,
             `Project: ${project.name} (${project.id})`,
             agentRecord
               ? `Agent: ${agentRecord.name} [${agentRecord.agent_type}] as ${agentRecord.role} (${agentRecord.agent_id})`
               : '',
-            watermark.newObservationCount > 0
+            !agentRecord ? 'Team identity: not joined (memory/session context only)' : '',
+            teamJoinNotice ?? '',
+            agentRecord && watermark.newObservationCount > 0
               ? `${watermark.newObservationCount} new observation(s) since your last session`
-              : 'No unseen observations since your last session',
-            rescuedAgentIds.length > 0
+              : '',
+            agentRecord && rescuedAgentIds.length > 0
               ? `Rescued ${rescuedAgentIds.length} stale agent(s)`
               : '',
-            availableTasks > 0 ? `${availableTasks} task(s) available to claim` : '',
+            agentRecord && availableTasks > 0 ? `${availableTasks} task(s) available to claim` : '',
             '',
             result.previousContext || 'No previous session context found.',
           ].filter(Boolean);
@@ -156,13 +170,14 @@ export default defineCommand({
           console.log('Memorix Session Commands');
           console.log('');
           console.log('Usage:');
-          console.log('  memorix session start [--agent codex --agentType codex --instanceId abc]');
+          console.log('  memorix session start [--agent codex --agentType codex --instanceId abc] [--joinTeam]');
           console.log('  memorix session end --sessionId <id> [--summary "..."]');
           console.log('  memorix session context [--limit 3]');
           console.log('');
           console.log('Options:');
           console.log('  --json              Emit JSON output');
-          console.log('  --role <role>       Override default role during session auto-registration');
+          console.log('  --joinTeam          Explicitly join the project collaboration space');
+          console.log('  --role <role>       Override default role when joining the team');
       }
     } catch (error) {
       emitError(error instanceof Error ? error.message : String(error), asJson);

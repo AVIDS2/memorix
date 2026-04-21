@@ -12,6 +12,7 @@ Memorix docs are intentionally split by **user intent**, not by a giant flat lis
 | --- | --- |
 | Install Memorix and choose between stdio vs HTTP control-plane mode | [SETUP.md](SETUP.md) |
 | Run Memorix in Docker / compose as an HTTP control plane | [DOCKER.md](DOCKER.md) |
+| Understand resource usage and performance trade-offs | [PERFORMANCE.md](PERFORMANCE.md) |
 | Configure `memorix.yml`, `.env`, and project overrides | [CONFIGURATION.md](CONFIGURATION.md) |
 | Operate Memorix correctly as an AI coding agent | [AGENT_OPERATOR_PLAYBOOK.md](AGENT_OPERATOR_PLAYBOOK.md) |
 | Understand the MCP / HTTP / CLI command surface | [API_REFERENCE.md](API_REFERENCE.md) |
@@ -24,12 +25,13 @@ Memorix docs are intentionally split by **user intent**, not by a giant flat lis
 | Topic | Document |
 | --- | --- |
 | System shape, control plane, storage, and retrieval architecture | [ARCHITECTURE.md](ARCHITECTURE.md) |
+| Resource profile, heavier paths, and tuning knobs | [PERFORMANCE.md](PERFORMANCE.md) |
 | Memory formation, enrichment, and quality pipeline | [MEMORY_FORMATION_PIPELINE.md](MEMORY_FORMATION_PIPELINE.md) |
 | Git-derived engineering memory | [GIT_MEMORY.md](GIT_MEMORY.md) |
-| Team collaboration: agents, tasks, messages, locks, poll | [API_REFERENCE.md §8](API_REFERENCE.md#8-team-collaboration-tools) |
+| Team collaboration: agents, tasks, messages, locks, poll | [API_REFERENCE.md §9](API_REFERENCE.md#9-team-collaboration-tools) |
 | Multi-agent orchestration loop | [API_REFERENCE.md](API_REFERENCE.md) — `memorix orchestrate` |
-| Workspace & rules sync across agents | [API_REFERENCE.md §7](API_REFERENCE.md#7-workspace-and-rules-tools) |
-| Project skills and mini-skill promotion | [API_REFERENCE.md §6](API_REFERENCE.md#6-skills-and-promotion-tools) |
+| Workspace & rules sync across agents | [API_REFERENCE.md §8](API_REFERENCE.md#8-workspace-and-rules-tools) |
+| Project skills and mini-skill promotion | [API_REFERENCE.md §7](API_REFERENCE.md#7-skills-and-promotion-tools) |
 
 ---
 
@@ -60,6 +62,7 @@ For `1.0.8`, treat the following as the **release-truth** docs:
 
 - [SETUP.md](SETUP.md)
 - [DOCKER.md](DOCKER.md)
+- [PERFORMANCE.md](PERFORMANCE.md)
 - [CONFIGURATION.md](CONFIGURATION.md)
 - [AGENT_OPERATOR_PLAYBOOK.md](AGENT_OPERATOR_PLAYBOOK.md)
 - [API_REFERENCE.md](API_REFERENCE.md)

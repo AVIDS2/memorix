@@ -32,6 +32,7 @@ let StreamableHTTPClientTransport: any;
 let Client: any;
 let isInitializeRequest: any;
 let createMemorixServer: any;
+let initTeamStore: any;
 let CallToolResultSchema: any;
 let ListRootsRequestSchema: any;
 
@@ -142,6 +143,8 @@ beforeAll(async () => {
   ListRootsRequestSchema = typesMod.ListRootsRequestSchema;
   const serverMod = await import('../../src/server.js');
   createMemorixServer = serverMod.createMemorixServer;
+  const teamMod = await import('../../src/team/team-store.js');
+  initTeamStore = teamMod.initTeamStore;
 
   // Create temp directory for test project
   testDir = await fs.mkdtemp(path.join(os.tmpdir(), 'memorix-http-test-'));
@@ -151,6 +154,7 @@ beforeAll(async () => {
   await fs.mkdir(projectBDir, { recursive: true });
   await createFakeGitRepo(projectADir, 'https://github.com/AVIDS2/http-project-a.git');
   await createFakeGitRepo(projectBDir, 'https://github.com/AVIDS2/http-project-b.git');
+  const sharedTeamStore = await initTeamStore(path.join(tempHomeDir, '.memorix', 'data'));
 
   // Start test HTTP server (same logic as serve-http.ts)
   httpServer = createServer(async (req, res) => {
@@ -183,6 +187,7 @@ beforeAll(async () => {
           await sessions.get(sessionId)!.transport.handleRequest(req, res, body);
         } else if (!sessionId && isInitializeRequest(body)) {
           let createdState: { transport: any; server: any; switchProject: any; isExplicitlyBound: any } | null = null;
+          let handleTransportClose = () => {};
           const transport = new StreamableHTTPServerTransport({
             sessionIdGenerator: () => randomUUID(),
             onsessioninitialized: (sid: string) => {
@@ -192,16 +197,19 @@ beforeAll(async () => {
           transport.onclose = () => {
             const sid = transport.sessionId;
             if (sid) sessions.delete(sid);
+            handleTransportClose();
           };
-          const { server, switchProject, isExplicitlyBound } = await createMemorixServer(
+          const { server, switchProject, isExplicitlyBound, handleTransportClose: onTransportClose } = await createMemorixServer(
             testDir,
             undefined,
-            undefined,
+            { teamStore: sharedTeamStore },
             {
               allowUntrackedFallback: false,
               deferProjectInitUntilBound: true,
+              toolProfile: 'team',
             },
           );
+          handleTransportClose = onTransportClose;
           createdState = { transport, server, switchProject, isExplicitlyBound };
           await server.connect(transport);
 
@@ -233,7 +241,11 @@ beforeAll(async () => {
           });
         } else {
           res.writeHead(400, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ jsonrpc: '2.0', error: { code: -32000, message: 'Bad Request' }, id: null }));
+          res.end(JSON.stringify({
+            jsonrpc: '2.0',
+            error: { code: -32000, message: 'Bad Request: No valid session ID provided or initialize request required' },
+            id: null,
+          }));
         }
       } else if (req.method === 'GET') {
         const sessionId = req.headers['mcp-session-id'] as string | undefined;
@@ -286,6 +298,8 @@ describe('HTTP Transport', () => {
   it('should reject POST without session ID or initialize', async () => {
     const res = await mcpPost({ jsonrpc: '2.0', method: 'tools/list', id: 1 });
     expect(res.status).toBe(400);
+    expect(res.json?.error?.message).toContain('No valid session ID');
+    expect(res.json?.error?.message).toContain('initialize');
   });
 
   it('should initialize a new MCP session', async () => {
@@ -447,6 +461,73 @@ describe('HTTP Transport', () => {
     expect(text).toContain('Session started');
     expect(text).toContain('AVIDS2/http-project-a');
     expect(text).toContain('Project:');
+    expect(text).not.toContain('Agent ID:');
+  });
+
+  it('should only add an HTTP session to the team roster when joinTeam is true', async () => {
+    const sessionId = await initSession();
+
+    const startResponse = await mcpPost({
+      jsonrpc: '2.0',
+      method: 'tools/call',
+      params: {
+        name: 'memorix_session_start',
+        arguments: { agent: 'team-opt-in', agentType: 'windsurf', projectRoot: projectADir },
+      },
+      id: 110,
+    }, sessionId);
+
+    const startResult = CallToolResultSchema.parse(startResponse.json?.result);
+    expect(startResult.isError).toBeFalsy();
+    const startText = startResult.content.map((part: any) => part.text ?? '').join('\n');
+    expect(startText).not.toContain('Agent ID:');
+
+    const statusWithoutJoin = await mcpPost({
+      jsonrpc: '2.0',
+      method: 'tools/call',
+      params: {
+        name: 'team_manage',
+        arguments: { action: 'status' },
+      },
+      id: 111,
+    }, sessionId);
+    const statusWithoutJoinResult = CallToolResultSchema.parse(statusWithoutJoin.json?.result);
+    const statusWithoutJoinText = statusWithoutJoinResult.content.map((part: any) => part.text ?? '').join('\n');
+    expect(statusWithoutJoinText).toContain('No agents registered');
+
+    const joinResponse = await mcpPost({
+      jsonrpc: '2.0',
+      method: 'tools/call',
+      params: {
+        name: 'memorix_session_start',
+        arguments: {
+          agent: 'team-opt-in',
+          agentType: 'windsurf',
+          projectRoot: projectADir,
+          joinTeam: true,
+        },
+      },
+      id: 112,
+    }, sessionId);
+
+    const joinResult = CallToolResultSchema.parse(joinResponse.json?.result);
+    expect(joinResult.isError).toBeFalsy();
+    const joinText = joinResult.content.map((part: any) => part.text ?? '').join('\n');
+    expect(joinText).toContain('Agent ID:');
+
+    const statusWithJoin = await mcpPost({
+      jsonrpc: '2.0',
+      method: 'tools/call',
+      params: {
+        name: 'team_manage',
+        arguments: { action: 'status' },
+      },
+      id: 113,
+    }, sessionId);
+    const statusWithJoinResult = CallToolResultSchema.parse(statusWithJoin.json?.result);
+    const statusWithJoinText = statusWithJoinResult.content.map((part: any) => part.text ?? '').join('\n');
+    expect(statusWithJoinText).toContain('1 active / 1 total');
+    expect(statusWithJoinText).toContain('team-opt-in');
   });
 
   it('should support dual session parallel binding to different projects', async () => {
@@ -565,6 +646,148 @@ describe('HTTP Transport', () => {
     expect(searchResult.isError).toBeFalsy();
     const searchText = searchResult.content.map((part: any) => part.text ?? '').join('\n');
     expect(searchText).toContain('HTTP binding test');
+  });
+
+  it('should mark explicitly joined agent inactive on transport close', async () => {
+    const sessionId = await initSession();
+
+    const startRes = await mcpPost({
+      jsonrpc: '2.0',
+      method: 'tools/call',
+      params: {
+        name: 'memorix_session_start',
+        arguments: { agent: 'close-cleanup-test', projectRoot: projectADir, joinTeam: true },
+      },
+      id: 450,
+    }, sessionId);
+
+    const startResult = CallToolResultSchema.parse(startRes.json?.result);
+    expect(startResult.isError).toBeFalsy();
+    const startText = startResult.content.map((part: any) => part.text ?? '').join('\n');
+    const agentIdMatch = startText.match(/Agent ID: ([^\s]+) \(instance:/);
+    expect(agentIdMatch).toBeTruthy();
+    const agentId = agentIdMatch![1];
+
+    const statusBefore = await mcpPost({
+      jsonrpc: '2.0',
+      method: 'tools/call',
+      params: {
+        name: 'team_manage',
+        arguments: { action: 'status' },
+      },
+      id: 451,
+    }, sessionId);
+    const statusBeforeResult = CallToolResultSchema.parse(statusBefore.json?.result);
+    const statusBeforeText = statusBeforeResult.content.map((part: any) => part.text ?? '').join('\n');
+    expect(statusBeforeText).toContain('● close-cleanup-test');
+
+    const deleteRes = await fetch(`${BASE_URL}/mcp`, {
+      method: 'DELETE',
+      headers: {
+        'Accept': 'application/json, text/event-stream',
+        'Mcp-Session-Id': sessionId,
+      },
+    });
+    expect(deleteRes.status).toBe(200);
+
+    await new Promise(resolve => setTimeout(resolve, 100));
+
+    const observerSessionId = await initSession();
+    await mcpPost({
+      jsonrpc: '2.0',
+      method: 'tools/call',
+      params: {
+        name: 'memorix_session_start',
+        arguments: { agent: 'close-cleanup-observer', projectRoot: projectADir },
+      },
+      id: 452,
+    }, observerSessionId);
+
+    const statusAfter = await mcpPost({
+      jsonrpc: '2.0',
+      method: 'tools/call',
+      params: {
+        name: 'team_manage',
+        arguments: { action: 'status' },
+      },
+      id: 453,
+    }, observerSessionId);
+    const statusAfterResult = CallToolResultSchema.parse(statusAfter.json?.result);
+    const statusAfterText = statusAfterResult.content.map((part: any) => part.text ?? '').join('\n');
+    expect(statusAfterText).toContain(`○ close-cleanup-test (${agentId.slice(0, 8)}…)`);
+  });
+
+  it('should treat team_manage join as the current session identity source', async () => {
+    const sessionId = await initSession();
+
+    const startRes = await mcpPost({
+      jsonrpc: '2.0',
+      method: 'tools/call',
+      params: {
+        name: 'memorix_session_start',
+        arguments: { agent: 'manual-join-session', projectRoot: projectADir },
+      },
+      id: 454,
+    }, sessionId);
+    const startResult = CallToolResultSchema.parse(startRes.json?.result);
+    expect(startResult.isError).toBeFalsy();
+    const startText = startResult.content.map((part: any) => part.text ?? '').join('\n');
+    expect(startText).not.toContain('Agent ID:');
+
+    const joinRes = await mcpPost({
+      jsonrpc: '2.0',
+      method: 'tools/call',
+      params: {
+        name: 'team_manage',
+        arguments: {
+          action: 'join',
+          name: 'manual-join-session',
+          agentType: 'windsurf',
+          instanceId: 'manual-join-instance',
+        },
+      },
+      id: 455,
+    }, sessionId);
+    const joinResult = CallToolResultSchema.parse(joinRes.json?.result);
+    expect(joinResult.isError).toBeFalsy();
+    const joinText = joinResult.content.map((part: any) => part.text ?? '').join('\n');
+    const joinAgentIdMatch = joinText.match(/ID: ([^\)\n]+)/);
+    expect(joinAgentIdMatch).toBeTruthy();
+    const joinAgentId = joinAgentIdMatch![1];
+
+    const deleteRes = await fetch(`${BASE_URL}/mcp`, {
+      method: 'DELETE',
+      headers: {
+        'Accept': 'application/json, text/event-stream',
+        'Mcp-Session-Id': sessionId,
+      },
+    });
+    expect(deleteRes.status).toBe(200);
+    await new Promise(resolve => setTimeout(resolve, 100));
+
+    const observerSessionId = await initSession();
+    await mcpPost({
+      jsonrpc: '2.0',
+      method: 'tools/call',
+      params: {
+        name: 'memorix_session_start',
+        arguments: { agent: 'manual-join-observer', projectRoot: projectADir, joinTeam: true },
+      },
+      id: 456,
+    }, observerSessionId);
+
+    const statusAfter = await mcpPost({
+      jsonrpc: '2.0',
+      method: 'tools/call',
+      params: {
+        name: 'team_manage',
+        arguments: { action: 'status' },
+      },
+      id: 457,
+    }, observerSessionId);
+    const statusAfterResult = CallToolResultSchema.parse(statusAfter.json?.result);
+    const statusAfterText = statusAfterResult.content.map((part: any) => part.text ?? '').join('\n');
+    expect(statusAfterText).toContain(`manual-join-session (${joinAgentId.slice(0, 8)}`);
   });
 
   it('should fail closed when already bound + bad projectRoot is given', async () => {

@@ -8,7 +8,7 @@
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const pkg = require('../../package.json') as { version: string };
+const pkg = require('../../../package.json') as { version: string };
 
 const ALT_ON = '\x1b[?1049h\x1b[?25l';
 const ALT_OFF = '\x1b[?25h\x1b[?1049l';

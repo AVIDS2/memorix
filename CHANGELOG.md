@@ -2,12 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
-## [1.0.8] - 2026-04-18
+## [1.0.8] - 2026-04-19
 
 ### Added -- Operator CLI Surface
-- **Namespaced operator commands** -- Added human-oriented CLI namespaces for `session`, `memory`, `team`, `task`, `message`, `lock`, `handoff`, and `poll` so the most common project operations no longer require raw MCP tool calls.
-- **Default-role session registration** -- `memorix session start --agentType ...` now auto-registers the operator into the project collaboration space and applies the same default role mapping used by the control plane.
-- **CLI-first project ops** -- Terminal operators can now inspect memory detail/timeline, claim and complete tasks, send messages, check inbox state, acquire locks, and compute situational-awareness poll output without leaving the shell.
+- **Namespaced operator commands** -- Added human-oriented CLI namespaces for `session`, `memory`, `reasoning`, `retention`, `formation`, `audit`, `transfer`, `skills`, `team`, `task`, `message`, `lock`, `handoff`, `poll`, `sync`, and `ingest` so Memorix-native operations no longer require raw MCP tool calls.
+- **Lightweight session start + explicit collaboration join** -- `memorix session start` now opens project-bound memory sessions without auto-registering a team identity. Operators can opt into collaboration with `--joinTeam`, or join later via `memorix team join`, while still getting default role mapping from `agentType` when they do join.
+- **CLI-first project ops** -- Terminal operators can now inspect memory detail/timeline, store and search reasoning traces, run retention and formation checks, audit attribution, export/import memory snapshots, inspect/generate skills, run explicit rules/workspace sync flows, and ingest images without leaving the shell.
 
 ### Added -- Programmatic SDK
 - **`memorix/sdk` subpath export** -- `createMemoryClient()` factory returns a self-contained `MemoryClient` with `store`, `search`, `get`, `getAll`, `count`, `resolve`, and `close` methods. No MCP transport or CLI needed — initialize from a Git project root, read/write observations directly.
@@ -22,6 +22,8 @@ All notable changes to this project will be documented in this file.
 - **Runtime truth** -- documentation now explicitly states that Docker support is for the HTTP control plane and that project-scoped Git/config behavior requires the container to see the bound repo path.
 
 ### Visual Semantic Layering (dashboard follow-up)
+- Team mental model tightened before release: docs and dashboard copy now say "explicit collaborators" instead of implying a persistent IDE-window roster.
+- `memorix team status` now defaults to active collaborators only; inactive/historical identities remain available with `--all` for audits without flooding the normal operator view.
 - Team page headline is now **active-only**; `recent`/`historical` shown as secondary subtitle only.
 - Team agents list gets four filter tabs: **Active** (default) / Recent / Historical / All. Historical rows no longer flood the view; they sit behind an explicit "Show historical (N)" toggle.
 - Each agent row carries an explicit tier badge (Active/Recent/Historical) instead of a single "offline" sea of red.
@@ -33,7 +35,7 @@ All notable changes to this project will be documented in this file.
 
 ### Team Page Cleanup (1.0.7 final)
 - **Team page semantics**: clearly presented as a **project collaboration space**, not an organization backend or staffing admin tool. Scope labels: "Project Collaboration" / "All Projects".
-- **`memorix_session_start` auto-registration**: agents are automatically registered in the team with a default role derived from `agentType` via `AGENT_TYPE_ROLE_MAP` (e.g. `windsurf`→`engineer`, `gemini-cli`→`researcher`). No separate `team_manage(join)` call needed. Explicit role overrides the default.
+- **Explicit collaboration join**: `memorix_session_start` is lightweight by default and no longer auto-registers a team identity. Collaboration is now opt-in via `joinTeam: true` or `team_manage(join)`, and default role mapping from `agentType` applies only when joining.
 - **"Continue This Project" resume area**: shows open tasks, available-to-claim tasks, open handoffs, unread messages, active locks, and active agent count at the top of the Team page. Provides a clear "pick up where you left off" entry point.
 - **Unified statistics**: stat cards clearly labeled — Active Agents (with session count + historical total), Locked Files, Tasks (by status), Messages (unread count). No conflicting or ambiguous labels.
 
@@ -48,6 +50,14 @@ All notable changes to this project will be documented in this file.
 - Team store with agent registration, heartbeat, task board, handoff artifacts, stale detection. Prompt identity contract, sticky attribution prevention.
 
 ### Fixed
+- **HTTP stale-session poisoning (#82)** — `serve-http` no longer has only a hardcoded 30-minute idle GC. Added `MEMORIX_SESSION_TIMEOUT_MS` so long-running HTTP MCP clients such as Codex can keep sessions alive for longer work blocks without getting stuck on stale `Mcp-Session-Id` failures.
+- **TUI responsive layout** — sidebar width now scales with terminal width (28% ratio, 26-40 range) instead of fixed 34 columns; content area uses `flexGrow` to fill remaining space; maximized terminal windows now show expanded UI instead of locked small-window layout
+- **TUI search score display** — replaced absurd raw-percentage display (e.g. "927%") with relative relevance dots (●●●○○) normalized against top result
+- **TUI /resume numeric index** — `/resume 2` now selects thread #2 from the list (1-based), in addition to `/resume <threadId>` by ID
+- **TUI CJK text wrapping** — Ink's `wrap="wrap"` doesn't understand double-width CJK characters, causing garbled text; replaced with CJK-aware manual line splitting in chat output and ContextRail sizing so mixed CJK content renders predictably
+- **TUI layout DRY** — sidebar/content width calculation extracted to shared `computeLayoutWidths()` in theme.ts; App.tsx and ChatView.tsx now use the same function, preventing drift
+- **TUI CommandBar overlay** — palette no longer pushes input bar down; rendered as overlay in App.tsx; mouse SGR mode centrally managed to avoid conflicts between palette clicks and chat scrolling
+- **TUI chat freeze under assistant output** — removed assistant Markdown rendering from the workbench chat path and render chat bodies as plain text with CJK-aware wrapping; this avoids heavy reparsing/rerender spikes that could freeze the TUI when the assistant started answering after tool calls
 - **#4** Parallel multi-agent — fully implemented via orchestrator
 - **#52** observations.json perf — migrated to SQLite
 - **#56** LLM rerank timeout — configurable via `MEMORIX_RERANK_TIMEOUT_MS`
@@ -109,7 +119,7 @@ All notable changes to this project will be documented in this file.
 - **E2e demo tests** (`tests/e2e/`) excluded from default `vitest run` — these test CLI-agent demo artifacts, not Memorix product code. Available via `npm run test:e2e`.
 - **Live LLM quality tests** excluded from default suite — require `MEMORIX_RUN_LIVE_LLM_TESTS=1`. Rules-only fallback test preserved in `tests/memory/formation-rules-fallback.test.ts`. Available via `npm run test:llm-live`.
 - **Coordinator merge-conflict test** made deterministic — synchronous conflict file writes in `spawn()` instead of async `setTimeout` race. Removed `{ retry: 3 }`.
-- **Default test suite**: 147 files, 2002 tests, **0 skipped, 0 failed**.
+- **Default test suite**: 156 files, 2064 tests, **0 failed**.
 
 ### Added -- Hooks Test Coverage
 - Audit ledger lost/corrupted → re-install recovers audit entry (codex).

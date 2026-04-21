@@ -13,9 +13,70 @@
  */
 
 import React, { useState, useCallback } from 'react';
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { render } from 'ink-testing-library';
 import { Box, Text, useInput } from 'ink';
+import { WorkbenchApp } from '../../src/cli/tui/App.js';
+
+ const {
+   mockGetProjectInfo,
+   mockGetHealthInfo,
+   mockGetRecentMemories,
+   mockGetBackgroundStatus,
+   mockSearchMemories,
+   mockStoreQuickMemory,
+   mockGetDoctorSummary,
+   mockDetectMode,
+   mockGetProjectDataDir,
+   mockChatStore,
+ } = vi.hoisted(() => ({
+   mockGetProjectInfo: vi.fn(),
+   mockGetHealthInfo: vi.fn(),
+   mockGetRecentMemories: vi.fn(),
+   mockGetBackgroundStatus: vi.fn(),
+   mockSearchMemories: vi.fn(),
+   mockStoreQuickMemory: vi.fn(),
+   mockGetDoctorSummary: vi.fn(),
+   mockDetectMode: vi.fn(),
+   mockGetProjectDataDir: vi.fn(),
+   mockChatStore: {
+     init: vi.fn(),
+     append: vi.fn(),
+     load: vi.fn(),
+     clear: vi.fn(),
+     listThreads: vi.fn(),
+     getLatestThreadId: vi.fn(),
+     newThreadId: vi.fn(),
+   },
+ }));
+
+ vi.mock('../../src/cli/tui/data.js', async () => {
+   const actual = await vi.importActual<typeof import('../../src/cli/tui/data.js')>('../../src/cli/tui/data.js');
+   return {
+     ...actual,
+     getProjectInfo: mockGetProjectInfo,
+     getHealthInfo: mockGetHealthInfo,
+     getRecentMemories: mockGetRecentMemories,
+     getBackgroundStatus: mockGetBackgroundStatus,
+     searchMemories: mockSearchMemories,
+     storeQuickMemory: mockStoreQuickMemory,
+     getDoctorSummary: mockGetDoctorSummary,
+     detectMode: mockDetectMode,
+   };
+ });
+
+ vi.mock('../../src/cli/tui/chat-service.js', () => ({
+   askMemoryQuestion: vi.fn(),
+   askMemoryQuestionStream: vi.fn(),
+ }));
+
+ vi.mock('../../src/store/persistence.js', () => ({
+   getProjectDataDir: mockGetProjectDataDir,
+ }));
+
+ vi.mock('../../src/store/chat-store.js', () => ({
+   getChatStore: () => mockChatStore,
+ }));
 
 const tick = (ms = 120) => new Promise<void>(r => setTimeout(r, ms));
 
@@ -98,6 +159,117 @@ describe('useNavigation', () => {
   });
 });
 
+describe('ChatView', () => {
+  it('renders an onboarding state before any messages exist', () => {
+    const { lastFrame, unmount } = render(
+      <ChatView
+        project={{ id: 'test/proj', name: 'my-project', rootPath: '/tmp', gitRemote: 'origin' }}
+        messages={[]}
+        loading={false}
+        contentWidth={80}
+      />,
+    );
+    const frame = lastFrame()!;
+    expect(frame).toContain('Memory Chat');
+    expect(frame).toContain('Ask Memorix about project decisions');
+    expect(frame).toContain('Why did we choose this architecture?');
+    unmount();
+  });
+
+  it('renders conversation messages and cited sources', () => {
+    const { lastFrame, unmount } = render(
+      <ChatView
+        project={{ id: 'test/proj', name: 'my-project', rootPath: '/tmp', gitRemote: 'origin' }}
+        loading={false}
+        contentWidth={80}
+        messages={[
+          { role: 'user', content: 'How does auth work?' },
+          {
+            role: 'assistant',
+            content: 'Auth uses rotating refresh tokens [obs:11].',
+            sources: [{ id: 11, title: 'Use token refresh flow', type: 'decision', entityName: 'auth', excerpt: 'Rotating refresh tokens', score: 0.93 }],
+            meta: { usedLLM: true, llmModel: 'gpt-4.1-nano', searchMode: 'hybrid' },
+          },
+        ]}
+      />,
+    );
+    const frame = lastFrame()!;
+    expect(frame).toContain('Conversation');
+    expect(frame).toContain('How does auth work?');
+    expect(frame).toContain('Auth uses rotating refresh tokens [obs:11].');
+    expect(frame).toContain('Use token refresh flow');
+    unmount();
+  });
+});
+
+describe('ContextRail', () => {
+  it('shows retrieval status and last cited sources', () => {
+    const { lastFrame, unmount } = render(
+      <ContextRail
+        project={{ id: 'test/proj', name: 'my-project', rootPath: '/tmp', gitRemote: 'origin' }}
+        health={mockHealth}
+        background={mockBackground}
+        activeView="chat"
+        transcriptCount={4}
+        lastChat={{
+          question: 'How does auth work?',
+          answer: 'Auth uses rotating refresh tokens [obs:11].',
+          usedLLM: true,
+          llmModel: 'gpt-4.1-nano',
+          searchMode: 'hybrid',
+          sources: [{ id: 11, title: 'Use token refresh flow', type: 'decision', entityName: 'auth', excerpt: 'Rotating refresh tokens', score: 0.93 }],
+        }}
+      />,
+    );
+    const frame = lastFrame()!;
+    expect(frame).toContain('Context');
+    expect(frame).toContain('Hybrid');
+    expect(frame).toContain('[obs:11]');
+    expect(frame).toContain('/chat ask with memory');
+    unmount();
+  });
+
+  it('does not leave stale retrieval text when the mode label shrinks', () => {
+    const { lastFrame, rerender, unmount } = render(
+      <ContextRail
+        project={{ id: 'test/proj', name: 'my-project', rootPath: '/tmp', gitRemote: 'origin' }}
+        health={{
+          ...mockHealth,
+          searchModeLabel: 'Hybrid + rerank',
+          searchDiagnostic: 'LLM reranking active',
+        }}
+        background={mockBackground}
+        activeView="chat"
+        transcriptCount={4}
+        lastChat={null}
+      />,
+    );
+
+    expect(lastFrame()).toContain('Hybrid + rerank');
+
+    rerender(
+      <ContextRail
+        project={{ id: 'test/proj', name: 'my-project', rootPath: '/tmp', gitRemote: 'origin' }}
+        health={{
+          ...mockHealth,
+          searchModeLabel: 'Hybrid',
+          searchDiagnostic: 'Hybrid search active',
+        }}
+        background={mockBackground}
+        activeView="chat"
+        transcriptCount={4}
+        lastChat={null}
+      />,
+    );
+
+    const frame = lastFrame()!;
+    expect(frame).toContain('Hybrid');
+    expect(frame).not.toContain('Hybridl');
+    expect(frame).not.toContain('rerank');
+    unmount();
+  });
+});
+
 // ── CommandBar interaction tests ────────────────────────────────────
 
 import { CommandBar } from '../../src/cli/tui/CommandBar.js';
@@ -111,7 +283,7 @@ describe('CommandBar', () => {
     );
     const frame = lastFrame();
     expect(frame).toContain('>');
-    expect(frame).toContain('search memories or /command');
+    expect(frame).toContain('type to search or use /command');
     unmount();
   });
 
@@ -144,8 +316,8 @@ describe('CommandBar', () => {
     stdin.write('\r');
     await waitForCondition(() => onSubmit.mock.calls.length > 0);
     expect(onSubmit).toHaveBeenCalledWith('test query');
-    await waitForCondition(() => (lastFrame() ?? '').includes('search memories or /command'));
-    expect(lastFrame()).toContain('search memories or /command');
+    await waitForCondition(() => (lastFrame() ?? '').includes('type to search or use /command'));
+    expect(lastFrame()).toContain('type to search or use /command');
     unmount();
   });
 
@@ -156,38 +328,91 @@ describe('CommandBar', () => {
     stdin.write('partial');
     await waitForCondition(() => (lastFrame() ?? '').includes('partial'));
     stdin.write('\x1B'); // Escape
-    await waitForCondition(() => (lastFrame() ?? '').includes('search memories or /command'));
-    expect(lastFrame()).toContain('search memories or /command');
+    await waitForCondition(() => (lastFrame() ?? '').includes('type to search or use /command'));
+    expect(lastFrame()).toContain('type to search or use /command');
+    unmount();
+  });
+
+  it('Backspace removes an emoji without leaving a broken surrogate', async () => {
+    const { lastFrame, stdin, unmount } = render(
+      <CommandBar onSubmit={() => {}} onExit={() => {}} />,
+    );
+    stdin.write('🙂');
+    await waitForCondition(() => (lastFrame() ?? '').includes('🙂'));
+    stdin.write('\x7F');
+    await waitForCondition(() => (lastFrame() ?? '').includes('type to search or use /command'));
+    expect(lastFrame()).not.toContain('�');
+    expect(lastFrame()).toContain('type to search or use /command');
+    unmount();
+  });
+
+  it('Delete removes the character under the cursor, not the one before it', async () => {
+    const { lastFrame, stdin, unmount } = render(
+      <CommandBar onSubmit={() => {}} onExit={() => {}} />,
+    );
+    stdin.write('abc');
+    await waitForCondition(() => (lastFrame() ?? '').includes('abc'));
+    stdin.write('\u001B[D');
+    await tick();
+    stdin.write('\u001B[D');
+    await tick();
+    stdin.write('\u001B[3~');
+    await waitForCondition(() => (lastFrame() ?? '').includes('ac'));
+    expect(lastFrame()).toContain('ac');
+    expect(lastFrame()).not.toContain('ab');
     unmount();
   });
 
   it('slash palette shows commands when typing /', async () => {
+    const paletteItems: Array<{name: string; description: string; alias?: string}> = [];
+    const onPaletteItems = (items: Array<{name: string; description: string; alias?: string}>) => {
+      paletteItems.length = 0;
+      paletteItems.push(...items);
+    };
     const { lastFrame, stdin, unmount } = render(
-      <CommandBar onSubmit={() => {}} onExit={() => {}} />,
+      <CommandBar onSubmit={() => {}} onExit={() => {}} onPaletteItems={onPaletteItems} />,
     );
     stdin.write('/');
-    await waitForCondition(() => (lastFrame() ?? '').includes('Commands'));
-    const frame = lastFrame()!;
-    expect(frame).toContain('Commands');
-    expect(frame).toContain('/search');
+    // Palette items are reported via callback (overlay rendering is in App.tsx)
+    await waitForCondition(() => paletteItems.length > 0);
+    expect(paletteItems.some(item => item.name === '/search')).toBe(true);
     unmount();
   });
 
-  it('Enter on slash palette executes the selected command directly', async () => {
+  it('Enter on slash palette auto-completes command name + space', async () => {
+    const onSubmit = vi.fn();
+    const paletteItems: Array<{name: string; description: string; alias?: string}> = [];
+    const onPaletteItems = (items: Array<{name: string; description: string; alias?: string}>) => {
+      paletteItems.push(...items);
+    };
+    const { lastFrame, stdin, unmount } = render(
+      <CommandBar onSubmit={onSubmit} onExit={() => {}} onPaletteItems={onPaletteItems} />,
+    );
+    stdin.write('/se');
+    // Palette items should be reported via callback (palette is rendered as overlay in App)
+    await waitForCondition(() => paletteItems.some(item => item.name === '/search'));
+    stdin.write('\r');
+    // Enter should auto-complete the command name in the input, NOT submit
+    await waitForCondition(() => (lastFrame() ?? '').includes('/search'));
+    expect(lastFrame()).toContain('/search');
+    // onSubmit should NOT have been called (user needs to type args first)
+    expect(onSubmit).not.toHaveBeenCalled();
+    unmount();
+  });
+
+  it('Enter on an exact arg-less /resume command submits immediately', async () => {
     const onSubmit = vi.fn();
     const { lastFrame, stdin, unmount } = render(
       <CommandBar onSubmit={onSubmit} onExit={() => {}} />,
     );
-    stdin.write('/');
-    await waitForCondition(() => {
-      const frame = lastFrame() ?? '';
-      return frame.includes('Commands') && frame.includes('/search');
-    });
+
+    stdin.write('/resume');
+    await waitForCondition(() => (lastFrame() ?? '').includes('/resume'));
     stdin.write('\r');
-    await waitForCondition(() => onSubmit.mock.calls.length > 0);
-    expect(onSubmit).toHaveBeenCalled();
-    const submittedCmd = onSubmit.mock.calls[0][0];
-    expect(submittedCmd.startsWith('/')).toBe(true);
+    await tick(200);
+
+    expect(onSubmit).toHaveBeenCalledWith('/resume');
+    expect(lastFrame()).toContain('type to search or use /command');
     unmount();
   });
 
@@ -240,9 +465,200 @@ describe('CommandBar', () => {
   });
 });
 
-// ── Sidebar rendering tests ────────────────────────────────────────
+describe('WorkbenchApp', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockGetProjectInfo.mockResolvedValue(null);
+    mockGetHealthInfo.mockResolvedValue({
+      embeddingProvider: 'disabled',
+      embeddingProviderName: undefined,
+      embeddingLabel: 'Disabled',
+      searchMode: 'fulltext',
+      searchModeLabel: 'BM25 full-text',
+      searchDiagnostic: '',
+      backfillPending: 0,
+      totalMemories: 0,
+      activeMemories: 0,
+      sessions: 0,
+    });
+    mockGetRecentMemories.mockResolvedValue([]);
+    mockGetBackgroundStatus.mockResolvedValue({ running: false, healthy: false });
+    mockSearchMemories.mockResolvedValue([]);
+    mockStoreQuickMemory.mockResolvedValue(null);
+    mockGetDoctorSummary.mockResolvedValue(null);
+    mockDetectMode.mockReturnValue({ mode: 'CLI', detail: 'Quick mode' });
+    mockGetProjectDataDir.mockResolvedValue('/tmp/memorix');
+    mockChatStore.init.mockResolvedValue(undefined);
+    mockChatStore.append.mockImplementation(() => {});
+    mockChatStore.load.mockReturnValue([]);
+    mockChatStore.clear.mockImplementation(() => {});
+    mockChatStore.listThreads.mockReturnValue([]);
+    mockChatStore.getLatestThreadId.mockReturnValue(null);
+    mockChatStore.newThreadId.mockReturnValue('t-new-thread');
+  });
 
-import { Sidebar } from '../../src/cli/tui/Sidebar.js';
+  it('keeps the command bar on the same row when the slash palette appears', async () => {
+    const { lastFrame, stdin, unmount } = render(
+      <WorkbenchApp version="1.0.8" onExitForInteractive={() => {}} />,
+    );
+
+    await waitForCondition(() => (lastFrame() ?? '').includes('[cmd]'));
+    const beforeFrame = lastFrame() ?? '';
+    const beforeCommandRow = beforeFrame.split('\n').findIndex(line => line.includes('[cmd]'));
+
+    stdin.write('/');
+
+    await waitForCondition(() => (lastFrame() ?? '').includes('Commands'));
+    const afterFrame = lastFrame() ?? '';
+    const afterCommandRow = afterFrame.split('\n').findIndex(line => line.includes('[cmd]'));
+
+    expect(afterFrame).toContain('Commands');
+    expect(afterFrame).toContain('/chat');
+    expect(afterCommandRow).toBe(beforeCommandRow);
+    unmount();
+  });
+
+  it('does not compress the sidebar or main area when the slash palette appears', async () => {
+    const { lastFrame, stdin, unmount } = render(
+      <WorkbenchApp version="1.0.8" onExitForInteractive={() => {}} />,
+    );
+
+    await waitForCondition(() => (lastFrame() ?? '').includes('[cmd]'));
+    const beforeFrame = lastFrame() ?? '';
+
+    // Use sidebar value lines that are always rendered (labels may be clipped
+    // in the 24-row test viewport, but values like "home" and quick-action
+    // items survive).
+    expect(beforeFrame).toContain('home');
+    expect(beforeFrame).toContain('/doctor diagnostics');
+
+    const anchor = (frame: string, needle: string) =>
+      frame.split('\n').findIndex((line) => line.includes(needle));
+    const homeRowBefore = anchor(beforeFrame, 'home');
+    const doctorRowBefore = anchor(beforeFrame, '/doctor diagnostics');
+
+    stdin.write('/');
+    await waitForCondition(() => (lastFrame() ?? '').includes('Commands'));
+    const afterFrame = lastFrame() ?? '';
+
+    // Sidebar value rows must still be present AND at the same vertical
+    // position — the overlay must not squeeze the sidebar flex layout.
+    expect(afterFrame).toContain('home');
+    expect(afterFrame).toContain('/doctor diagnostics');
+    expect(anchor(afterFrame, 'home')).toBe(homeRowBefore);
+
+    // Use a sidebar-unique value that doesn't appear in the palette to avoid
+    // false matches against palette items that also have '│' borders.
+    const sidebarAnchor = (frame: string, needle: string) =>
+      frame.split('\n').findIndex((l) => l.includes('│') && l.includes(needle));
+    expect(sidebarAnchor(afterFrame, 'BM25')).toBe(sidebarAnchor(beforeFrame, 'BM25'));
+
+    // Command bar must stay put too (existing test already covers this,
+    // but double-check).
+    expect(anchor(afterFrame, '[cmd]')).toBe(anchor(beforeFrame, '[cmd]'));
+
+    unmount();
+  });
+
+  it('shows a new-chat hint on startup even when no saved thread exists', async () => {
+    mockGetProjectInfo.mockResolvedValue({
+      id: 'test/proj',
+      name: 'my-project',
+      rootPath: '/tmp/project',
+      gitRemote: 'origin',
+    });
+    mockChatStore.getLatestThreadId.mockReturnValue(null);
+
+    const { lastFrame, unmount } = render(
+      <WorkbenchApp version="1.0.8" onExitForInteractive={() => {}} />,
+    );
+
+    await waitForCondition(() => (lastFrame() ?? '').includes('New chat ready'));
+    const initialFrame = lastFrame() ?? '';
+    expect(initialFrame).toContain('type a question to start');
+    expect(initialFrame).not.toContain('use /resume to continue a saved thread');
+    expect(mockChatStore.load).not.toHaveBeenCalled();
+    unmount();
+  });
+
+  it('starts with a fresh chat even when a saved thread exists', async () => {
+    mockGetProjectInfo.mockResolvedValue({
+      id: 'test/proj',
+      name: 'my-project',
+      rootPath: '/tmp/project',
+      gitRemote: 'origin',
+    });
+    mockChatStore.getLatestThreadId.mockReturnValue('thread-old');
+    mockChatStore.listThreads.mockReturnValue([
+      { threadId: 'thread-old', messageCount: 2, lastActivity: '2026-04-20T10:00:00.000Z' },
+    ]);
+    mockChatStore.load.mockImplementation((_projectId: string, threadId: string) => (
+      threadId === 'thread-old'
+        ? [
+            { role: 'user', content: 'Old question?' },
+            { role: 'assistant', content: 'Old answer.' },
+          ]
+        : []
+    ));
+
+    const { lastFrame, unmount } = render(
+      <WorkbenchApp version="1.0.8" onExitForInteractive={() => {}} />,
+    );
+
+    await waitForCondition(() => (lastFrame() ?? '').includes('New chat ready'));
+    const initialFrame = lastFrame() ?? '';
+    expect(initialFrame).toContain('use /resume');
+    expect(initialFrame).not.toContain('Old question?');
+    expect(initialFrame).not.toContain('Old answer.');
+    expect(mockChatStore.load).not.toHaveBeenCalled();
+    unmount();
+  });
+
+  it('only restores a saved thread after an explicit /resume command', async () => {
+    mockGetProjectInfo.mockResolvedValue({
+      id: 'test/proj',
+      name: 'my-project',
+      rootPath: '/tmp/project',
+      gitRemote: 'origin',
+    });
+    mockChatStore.getLatestThreadId.mockReturnValue('thread-old');
+    mockChatStore.listThreads.mockReturnValue([
+      { threadId: 'thread-old', messageCount: 2, lastActivity: '2026-04-20T10:00:00.000Z' },
+    ]);
+    mockChatStore.load.mockImplementation((_projectId: string, threadId: string) => (
+      threadId === 'thread-old'
+        ? [
+            { role: 'user', content: 'Old question?' },
+            { role: 'assistant', content: 'Old answer.' },
+          ]
+        : []
+    ));
+
+    const { lastFrame, stdin, unmount } = render(
+      <WorkbenchApp version="1.0.8" onExitForInteractive={() => {}} />,
+    );
+
+    await waitForCondition(() => (lastFrame() ?? '').includes('New chat ready'));
+    expect(mockChatStore.load).not.toHaveBeenCalled();
+
+    stdin.write('/resume ');
+    await waitForCondition(() => (lastFrame() ?? '').includes('[cmd] > /resume '));
+    stdin.write('\r');
+
+    await waitForCondition(() => (lastFrame() ?? '').includes('Resumed thread thread-old'));
+    const resumedFrame = lastFrame() ?? '';
+    expect(resumedFrame).toContain('Old question?');
+    expect(resumedFrame).toContain('Old answer.');
+    expect(resumedFrame).toContain('Resumed thread thread-old');
+    expect(mockChatStore.load).toHaveBeenCalledWith('test/proj', 'thread-old');
+    unmount();
+  });
+
+});
+
+ // ── Sidebar rendering tests ────────────────────────────────────────
+
+ import { Sidebar } from '../../src/cli/tui/Sidebar.js';
 import type { HealthInfo, BackgroundInfo } from '../../src/cli/tui/data.js';
 
 const mockHealth: HealthInfo = {
@@ -276,15 +692,15 @@ describe('Sidebar', () => {
     );
     const frame = lastFrame()!;
     expect(frame).toContain('Quick Actions');
-    expect(frame).toContain('Search memory');
+    expect(frame).toContain('Search');
     expect(frame).toContain('Remember');
-    expect(frame).toContain('Recent activity');
+    expect(frame).toContain('Recent');
     expect(frame).toContain('Doctor');
     expect(frame).toContain('Background');
     expect(frame).toContain('Dashboard');
-    expect(frame).toContain('Project info');
+    expect(frame).toContain('Project');
     expect(frame).toContain('Configure');
-    expect(frame).toContain('Integrate IDE');
+    expect(frame).toContain('Integrate');
     expect(frame).toContain('Home');
     unmount();
   });
@@ -303,6 +719,33 @@ describe('Sidebar', () => {
     const doctorLine = lines.find(l => l.includes('Doctor'));
     expect(doctorLine).toBeTruthy();
     expect(doctorLine).toContain('>');
+    unmount();
+  });
+
+  it('does not leave stale text when active view changes', () => {
+    const { lastFrame, rerender, unmount } = render(
+      <Sidebar
+        health={mockHealth}
+        background={mockBackground}
+        onAction={() => {}}
+        activeView="integrate"
+      />,
+    );
+
+    expect(lastFrame()).toContain('Integrate');
+
+    rerender(
+      <Sidebar
+        health={mockHealth}
+        background={mockBackground}
+        onAction={() => {}}
+        activeView="home"
+      />,
+    );
+
+    const frame = lastFrame()!;
+    expect(frame).toContain('> Home');
+    expect(frame).not.toContain('Homeegrate');
     unmount();
   });
 
@@ -769,6 +1212,8 @@ describe('HeaderBar', () => {
 // ── StatusMessage rendering test ────────────────────────────────────
 
 import { StatusMessage, HomeView, IntegrateView } from '../../src/cli/tui/Panels.js';
+import { ChatView } from '../../src/cli/tui/ChatView.js';
+import { ContextRail } from '../../src/cli/tui/ContextRail.js';
 
 describe('StatusMessage', () => {
   it('renders success message', () => {

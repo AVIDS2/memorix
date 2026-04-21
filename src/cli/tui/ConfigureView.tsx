@@ -7,7 +7,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Box, Text, useInput } from 'ink';
-import { COLORS } from './theme.js';
+import { COLORS, SEP, SYMBOLS, STATUS_DOTS } from './theme.js';
 import * as fs from 'node:fs';
 
 // ── Types ──
@@ -49,7 +49,7 @@ function saveConfig(config: ConfigData): void {
   fs.writeFileSync(getConfigPath(), JSON.stringify(config, null, 2));
 }
 
-function separator(w = 50): string { return '-'.repeat(w); }
+function separator(w = 50): string { return SEP.thin.repeat(w); }
 function mask(key?: string): string {
   if (!key) return '(not set)';
   if (key.length <= 8) return '****';
@@ -73,10 +73,10 @@ function SelectList({ items, selectedIndex, onSelect }: {
     <Box flexDirection="column">
       {items.map((item, i) => (
         <Box key={item.key}>
-          <Text color={i === selectedIndex ? COLORS.accent : COLORS.muted}>
-            {i === selectedIndex ? '> ' : '  '}
+          <Text color={i === selectedIndex ? COLORS.brand : COLORS.muted}>
+            {i === selectedIndex ? `${SYMBOLS.arrow} ` : '  '}
           </Text>
-          <Text color={item.color || (i === selectedIndex ? COLORS.accent : COLORS.text)} bold={i === selectedIndex}>
+          <Text color={item.color || (i === selectedIndex ? COLORS.brand : COLORS.text)} bold={i === selectedIndex}>
             {item.label}
           </Text>
           {item.hint && <Text color={COLORS.textDim}> {item.hint}</Text>}
@@ -104,9 +104,9 @@ function InlineInput({ label, value, onChange, onSubmit, isPassword }: {
   const display = isPassword ? '*'.repeat(value.length) : value;
   return (
     <Box>
-      <Text color={COLORS.accentDim}>{label}: </Text>
+      <Text color={COLORS.brand}>{label}: </Text>
       <Text color={COLORS.text}>{display}</Text>
-      <Text backgroundColor={COLORS.accent} color={COLORS.bg}> </Text>
+      <Text backgroundColor={COLORS.brand} color={COLORS.bg}> </Text>
     </Box>
   );
 }
@@ -321,7 +321,7 @@ export function ConfigureView({ onBack }: ConfigureViewProps): React.ReactElemen
 
   return (
     <Box flexDirection="column" paddingX={1}>
-      <Text color={COLORS.accentDim} bold>Configure Memorix</Text>
+      <Text color={COLORS.brand} bold>Configure Memorix</Text>
       <Text color={COLORS.border}>{separator()}</Text>
 
       {feedback && (
@@ -333,7 +333,7 @@ export function ConfigureView({ onBack }: ConfigureViewProps): React.ReactElemen
       {section === 'menu' && (
         <Box flexDirection="column">
           <SelectList items={MENU_ITEMS} selectedIndex={menuIndex} onSelect={handleMenuSelect} />
-          <Box marginTop={1}><Text color={COLORS.muted}>Up/Down + Enter to select | Esc to go back</Text></Box>
+          <Box marginTop={1}><Text color={COLORS.muted}>↑↓ + Enter to select │ Esc to go back</Text></Box>
         </Box>
       )}
 

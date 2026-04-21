@@ -11,7 +11,7 @@ Memorix exposes:
 - team collaboration tools
 - dashboard and optional graph compatibility tools
 
-It also exposes a **human/operator CLI surface** for common terminal workflows. The CLI is not a raw mirror of MCP tool names; it groups the main actions into namespaced commands such as `memorix session`, `memorix memory`, `memorix team`, and `memorix task`.
+It also exposes a **human/operator CLI surface** for terminal workflows. The CLI is not a raw mirror of MCP tool names; it is the primary product surface for human operators, while MCP remains the integration protocol for IDEs and agents.
 
 ---
 
@@ -28,31 +28,47 @@ Use the **CLI** when:
 - a human operator wants to inspect or change project state from a terminal
 - you are on SSH / Docker / CI / NAS and want direct commands
 - you want readable, namespaced actions instead of raw MCP tool payloads
+- you want full access to Memorix-native capabilities without depending on an MCP host
 
 The current operator CLI namespaces are:
 
 - `memorix session`
 - `memorix memory`
+- `memorix reasoning`
+- `memorix retention`
+- `memorix formation`
+- `memorix audit`
+- `memorix transfer`
+- `memorix skills`
 - `memorix team`
 - `memorix task`
 - `memorix message`
 - `memorix lock`
 - `memorix handoff`
 - `memorix poll`
+- `memorix sync`
+- `memorix ingest`
 
 Typical examples:
 
 ```bash
 memorix session start --agent codex-main --agentType codex
 memorix memory search --query "release blocker"
+memorix reasoning search --query "why sqlite"
+memorix retention status
 memorix task list
 memorix task claim --taskId <id> --agentId <agent-id>
 memorix message inbox --agentId <agent-id>
 memorix lock status --file src/cli/index.ts
+memorix audit project
+memorix transfer export --format markdown
+memorix skills show --name auth-pattern
+memorix sync workspace --action scan
+memorix ingest image --path ./diagram.png
 memorix poll --agentId <agent-id>
 ```
 
-The CLI is designed as an **operator control surface**, not as a 1:1 rename of MCP tools.
+The CLI is designed as an **operator control surface**, not as a 1:1 rename of MCP tools. All Memorix-native operator capabilities have a CLI path in 1.0.8. The only intentional MCP-only area is the optional graph-compatibility surface (`create_entities`, `read_graph`, and related tools) for workflows that expect the official memory-server style graph API.
 
 ---
 
@@ -282,18 +298,23 @@ Start a new coding session and load recent context.
 Important inputs:
 
 - optional `agent` — display name (e.g. `"cursor-frontend"`)
-- optional `agentType` — agent type for auto-registration (e.g. `"windsurf"`, `"cursor"`, `"claude-code"`, `"codex"`, `"gemini-cli"`)
+- optional `agentType` — agent type for optional collaboration identity mapping (e.g. `"windsurf"`, `"cursor"`, `"claude-code"`, `"codex"`, `"gemini-cli"`)
 - optional `projectRoot`
 - optional `sessionId`
 - optional `instanceId`
+- optional `joinTeam`
+- optional `role`
 
 Behavior:
 
 - opens a session for the current project
 - can auto-close any previous active session for that project
-- **auto-registers the agent in the team** with a default role derived from `agentType` via `AGENT_TYPE_ROLE_MAP` (no separate `team_manage(join)` needed)
-- returns recent session context, relevant memories, and the assigned agent ID
-- reports watermark (new observations since last session) and available tasks
+- returns recent session context and project binding state
+- **does not join the team by default**
+- if you only need memory/search/reasoning/session recovery, stop here; no team identity is required
+- when `joinTeam=true`, it also registers a collaboration identity using the default role derived from `agentType` via `AGENT_TYPE_ROLE_MAP`
+- `team_manage(join)` remains the formal explicit join entrypoint if you want to separate session start from collaboration identity
+- team-specific outputs such as agent ID, watermark, and available tasks appear only when the session explicitly joins collaboration
 
 In HTTP control-plane mode, pass `projectRoot` as the absolute workspace or repo root whenever the client knows it. `projectRoot` is the detection anchor; Git remains the source of truth for the final project identity.
 
@@ -477,6 +498,12 @@ memorix background start
 
 Use `memorix serve-http --port 3211` when you want the same HTTP control plane in the foreground for debugging or manual supervision.
 
+Team collaboration is opt-in project coordination for tasks, messages, locks, and autonomous agent workflows. It is not required for normal memory use, and it should not be treated as an automatic chat room between separate IDE conversations. For production multi-agent execution, use `memorix orchestrate`; the team tools provide the coordination substrate.
+
+Runtime environment:
+
+- `MEMORIX_SESSION_TIMEOUT_MS` — HTTP MCP session idle timeout in milliseconds. Default: `1800000` (30 minutes). Increase this for clients that do not transparently reinitialize after stale HTTP session IDs, for example `86400000` for 24 hours.
+
 ### `team_manage`
 
 Register, unregister, or inspect agents.
@@ -527,9 +554,63 @@ Important inputs:
 - optional `agentId`
 - optional `file`
 
+### `memorix_poll`
+
+Return a compact situational-awareness snapshot for an explicitly joined collaborator.
+
+Important inputs:
+
+- optional `agentId`
+
+Use it for:
+
+- active collaborator overview
+- available tasks
+- unread messages
+- active file locks
+- project-level team activity
+
+If `agentId` is omitted, it returns a project-level overview only.
+
+### `memorix_handoff`
+
+Create, claim, complete, or inspect handoff artifacts between collaborators.
+
+Important inputs:
+
+- `action`
+- optional `handoffId`
+- optional `fromAgentId`
+- optional `toAgentId`
+- optional `summary`
+- optional `context`
+
+Use it when work should survive agent/session boundaries without relying on an IDE chat window staying alive.
+
 ---
 
-## 10. Dashboard Tool
+## 10. Ingestion Tools
+
+### `memorix_ingest_image`
+
+Ingest an image as memory context when visual artifacts are relevant to the project.
+
+Important inputs:
+
+- `path`
+- optional `title`
+- optional `entityName`
+- optional `type`
+
+CLI equivalent:
+
+```bash
+memorix ingest image --path ./diagram.png
+```
+
+---
+
+## 11. Dashboard Tool
 
 ### `memorix_dashboard`
 
@@ -543,7 +624,7 @@ When using HTTP mode, the main dashboard is usually served from the same port as
 
 ---
 
-## 11. Optional Graph Compatibility Tools
+## 12. Optional Graph Compatibility Tools
 
 Memorix can expose MCP-compatible graph tools for workflows that expect the official memory-server style graph API.
 
@@ -563,7 +644,7 @@ These are optional compatibility tools rather than the main recommended Memorix 
 
 ---
 
-## 12. Observation Types
+## 13. Observation Types
 
 Common observation types include:
 
@@ -582,7 +663,7 @@ Each type helps retrieval and formatting behave differently, especially when com
 
 ---
 
-## 13. Recommended Usage Pattern
+## 14. Recommended Usage Pattern
 
 For most agents, the best working pattern is:
 
@@ -595,10 +676,11 @@ Git Memory, retention, skills, and team tools sit on top of that core loop.
 
 ---
 
-## 14. Related Docs
+## 15. Related Docs
 
 - [Setup Guide](SETUP.md)
 - [Configuration Guide](CONFIGURATION.md)
+- [Performance and Resource Notes](PERFORMANCE.md)
 - [Git Memory Guide](GIT_MEMORY.md)
 - [Architecture](ARCHITECTURE.md)
 - [Development Guide](DEVELOPMENT.md)

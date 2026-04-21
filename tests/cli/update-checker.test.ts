@@ -14,6 +14,14 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 
+ const { mockExecFile } = vi.hoisted(() => ({
+   mockExecFile: vi.fn(),
+ }));
+
+ vi.mock('node:child_process', () => ({
+   execFile: mockExecFile,
+ }));
+
 // Import the ACTUAL exports — not replicated logic
 import {
   isNewer,
@@ -24,6 +32,11 @@ import {
 } from '../../src/cli/update-checker.js';
 
 describe('Auto-Update', () => {
+  beforeEach(() => {
+    mockExecFile.mockReset();
+    mockExecFile.mockReturnValue({ unref: vi.fn() });
+  });
+
   // ════════════════════════════════════════════════
   // Exported helpers — using real module exports
   // ════════════════════════════════════════════════
@@ -106,6 +119,66 @@ describe('Auto-Update', () => {
   describe('24h rate limit', () => {
     it('CHECK_INTERVAL_MS is 24 hours', () => {
       expect(_testing.CHECK_INTERVAL_MS).toBe(24 * 60 * 60 * 1000);
+    });
+  });
+
+  describe('timeout configuration and diagnostics', () => {
+    const origTimeoutEnv = process.env.MEMORIX_AUTO_UPDATE_TIMEOUT_MS;
+
+    afterEach(() => {
+      if (origTimeoutEnv === undefined) {
+        delete process.env.MEMORIX_AUTO_UPDATE_TIMEOUT_MS;
+      } else {
+        process.env.MEMORIX_AUTO_UPDATE_TIMEOUT_MS = origTimeoutEnv;
+      }
+    });
+
+    it('defaults the silent auto-update timeout to 5 minutes', () => {
+      delete process.env.MEMORIX_AUTO_UPDATE_TIMEOUT_MS;
+      expect(_testing.parseAutoUpdateTimeoutMs(process.env.MEMORIX_AUTO_UPDATE_TIMEOUT_MS)).toBe(
+        _testing.DEFAULT_AUTO_UPDATE_TIMEOUT_MS,
+      );
+    });
+
+    it('clamps invalid or extreme timeout values safely', () => {
+      expect(_testing.parseAutoUpdateTimeoutMs('not-a-number')).toBe(_testing.DEFAULT_AUTO_UPDATE_TIMEOUT_MS);
+      expect(_testing.parseAutoUpdateTimeoutMs('1000')).toBe(5000);
+      expect(_testing.parseAutoUpdateTimeoutMs('999999999')).toBe(30 * 60 * 1000);
+    });
+
+    it('passes the configured timeout to the background npm install', () => {
+      process.env.MEMORIX_AUTO_UPDATE_TIMEOUT_MS = '123456';
+
+      _testing.installUpdateInBackground('1.2.4', '1.2.3', {
+        lastCheck: 0,
+        latestVersion: '1.2.4',
+      });
+
+      expect(mockExecFile).toHaveBeenCalledWith(
+        expect.any(String),
+        ['install', '-g', 'memorix@1.2.4'],
+        expect.objectContaining({ timeout: 123456 }),
+        expect.any(Function),
+      );
+    });
+
+    it('includes timeout, exit code, and signal details in failure diagnostics', () => {
+      const failure = _testing.describeAutoUpdateFailure({
+        name: 'Error',
+        message: 'Command failed: npm install timed out',
+        code: 124,
+        signal: 'SIGTERM',
+        killed: true,
+      } as any, 123456);
+
+      expect(failure).toMatchObject({
+        timedOut: true,
+        exitCode: 124,
+        signal: 'SIGTERM',
+      });
+      expect(failure.message).toContain('timeout 123456ms');
+      expect(failure.message).toContain('exit code 124');
+      expect(failure.message).toContain('signal SIGTERM');
     });
   });
 

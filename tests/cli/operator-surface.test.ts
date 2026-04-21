@@ -5,6 +5,7 @@ import path from 'node:path';
 import { execSync } from 'node:child_process';
 
 import sessionCommand from '../../src/cli/commands/session.js';
+import teamCommand from '../../src/cli/commands/team.js';
 import taskCommand from '../../src/cli/commands/task.js';
 import messageCommand from '../../src/cli/commands/message.js';
 import lockCommand from '../../src/cli/commands/lock.js';
@@ -84,7 +85,7 @@ describe('CLI operator surface', () => {
     rmSync(sandboxRoot, { recursive: true, force: true });
   });
 
-  it('session start auto-registers the default role from agentType', async () => {
+  it('session start is lightweight by default and only joins the team when requested', async () => {
     const result = await runCommand(sessionCommand, {
       _: ['start'],
       agent: 'codex-main',
@@ -95,9 +96,67 @@ describe('CLI operator surface', () => {
 
     expect(result.exitCode).toBe(0);
     const parsed = JSON.parse(result.stdout);
-    expect(parsed.agent.role).toBe('engineer');
-    expect(parsed.agent.agentType).toBe('codex');
+    expect(parsed.agent).toBeNull();
     expect(parsed.session.id).toMatch(/^sess-/);
+
+    const joined = await runCommand(sessionCommand, {
+      _: ['start'],
+      agent: 'codex-main',
+      agentType: 'codex',
+      instanceId: 'codex-instance',
+      joinTeam: true,
+      json: true,
+    });
+    expect(joined.exitCode).toBe(0);
+    const joinedParsed = JSON.parse(joined.stdout);
+    expect(joinedParsed.agent.role).toBe('engineer');
+    expect(joinedParsed.agent.agentType).toBe('codex');
+  });
+
+  it('team status keeps historical agents out of the default collaborator list', async () => {
+    const active = JSON.parse((await runCommand(sessionCommand, {
+      _: ['start'],
+      agent: 'codex-active',
+      agentType: 'codex',
+      instanceId: 'codex-active-instance',
+      joinTeam: true,
+      json: true,
+    })).stdout);
+
+    const historical = JSON.parse((await runCommand(sessionCommand, {
+      _: ['start'],
+      agent: 'windsurf-old',
+      agentType: 'windsurf',
+      instanceId: 'windsurf-old-instance',
+      joinTeam: true,
+      json: true,
+    })).stdout);
+
+    await runCommand(teamCommand, {
+      _: ['leave'],
+      agentId: historical.agent.agentId,
+      json: true,
+    });
+
+    const status = await runCommand(teamCommand, { _: ['status'] });
+    expect(status.stdout).toContain('Active collaborators:');
+    expect(status.stdout).toContain('codex-active');
+    expect(status.stdout).not.toContain('windsurf-old');
+    expect(status.stdout).toContain('Historical/inactive collaborators: 1');
+    expect(status.stdout).toContain('use --all to list');
+
+    const statusAll = await runCommand(teamCommand, { _: ['status'], all: true });
+    expect(statusAll.stdout).toContain('All collaborators:');
+    expect(statusAll.stdout).toContain('codex-active');
+    expect(statusAll.stdout).toContain('windsurf-old');
+    expect(statusAll.stdout).toContain('(inactive)');
+
+    const statusJson = JSON.parse((await runCommand(teamCommand, { _: ['status'], json: true })).stdout);
+    expect(statusJson.activeCount).toBe(1);
+    expect(statusJson.historicalCount).toBe(1);
+    expect(statusJson.visibleAgents).toHaveLength(1);
+    expect(statusJson.agents).toHaveLength(2);
+    expect(statusJson.visibleAgents[0].agent_id).toBe(active.agent.agentId);
   });
 
   it('enforces task requiredRole and lets the matching role claim successfully', async () => {
@@ -106,6 +165,7 @@ describe('CLI operator surface', () => {
       agent: 'codex-main',
       agentType: 'codex',
       instanceId: 'codex-instance',
+      joinTeam: true,
       json: true,
     })).stdout);
 
@@ -114,6 +174,7 @@ describe('CLI operator surface', () => {
       agent: 'gemini-main',
       agentType: 'gemini-cli',
       instanceId: 'gemini-instance',
+      joinTeam: true,
       json: true,
     })).stdout);
 
@@ -150,6 +211,7 @@ describe('CLI operator surface', () => {
       agent: 'codex-main',
       agentType: 'codex',
       instanceId: 'codex-instance',
+      joinTeam: true,
       json: true,
     })).stdout);
 
@@ -159,6 +221,7 @@ describe('CLI operator surface', () => {
       agentType: 'claude-code',
       role: 'reviewer',
       instanceId: 'reviewer-instance',
+      joinTeam: true,
       json: true,
     })).stdout);
 

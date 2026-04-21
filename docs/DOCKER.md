@@ -37,6 +37,7 @@ The provided compose file:
 - persists Memorix state in a named volume
 - mounts the current repository at `/workspace`
 - sets `MEMORIX_PROJECT_ROOT=/workspace`
+- sets `MEMORIX_SESSION_TIMEOUT_MS=86400000` so long IDE HTTP sessions can remain idle for up to 24 hours
 
 ---
 
@@ -123,4 +124,15 @@ curl http://localhost:3211/health
 curl http://localhost:3211/api/stats
 docker compose logs -f memorix
 docker compose ps
+```
+
+### HTTP session idle timeout
+
+The HTTP MCP transport defaults to a 30-minute idle timeout. The example `compose.yaml` raises this to 24 hours for IDEs that keep one HTTP MCP session open while the user reads diffs, runs tests, or switches focus.
+
+To change it:
+
+```yaml
+environment:
+  MEMORIX_SESSION_TIMEOUT_MS: 86400000
 ```

@@ -960,6 +960,7 @@ At the **beginning of every conversation**, BEFORE responding to the user:
 
 **Important:** \`projectRoot\` is a detection anchor only; Git remains the source of truth for project identity.
 In HTTP control-plane mode (\`memorix serve-http\` / \`memorix background start\`), explicit \`projectRoot\` binding is required for correct multi-project isolation.
+\`memorix_session_start\` is lightweight by default: it starts memory/session context only. Do not set \`joinTeam\` unless the user explicitly needs task, message, file-lock, or autonomous-agent collaboration features.
 
 ## RULE 2: Store Important Context
 
@@ -1060,7 +1061,7 @@ This file contains the **minimum operating rules** for Memorix memory tools. It 
 For authoritative, up-to-date details on:
 - **Support tiers** (core / extended / community) and what "installed" vs "runtime-ready" means
 - **HTTP control-plane binding** and \`projectRoot\` isolation rules
-- **Role-aware team semantics** (required_role, preferred_role, task claim, handoff validation)
+- **Opt-in team semantics** (\`joinTeam\`, \`team_manage join\`, roles, task claim, handoff validation)
 - **Install vs runtime-ready distinction** — hook config written ≠ agent will execute it
 - **Agent-specific caveats** (Copilot project-level only, OpenCode plugin lifecycle, etc.)
 
@@ -1090,7 +1091,7 @@ export async function uninstallHooks(
   let success = false;
 
   try {
-    if (agent === 'kiro') {
+    if (agent === 'kiro' || agent === 'opencode') {
       await fs.unlink(configPath);
       success = true;
     } else {

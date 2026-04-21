@@ -5,15 +5,14 @@
  * Manages global state, view routing, and command execution.
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Box, Text, useApp, useStdout, useInput } from 'ink';
-import { COLORS, SLASH_COMMANDS } from './theme.js';
+import { COLORS, SLASH_COMMANDS, COMMAND_BAR_ROWS, computeLayoutWidths, getCommandPaletteHeight, getHomeSeparatorWidth, getStatusMessageRows } from './theme.js';
 import type { ViewType } from './theme.js';
 import { HeaderBar } from './HeaderBar.js';
-import { Sidebar } from './Sidebar.js';
 import { CommandBar } from './CommandBar.js';
+import type { PaletteItem } from './CommandBar.js';
 import {
-  HomeView,
   RecentView,
   SearchResultsView,
   DoctorView,
@@ -45,15 +44,35 @@ import {
   getDoctorSummary,
   detectMode,
 } from './data.js';
+import { ChatView } from './ChatView.js';
+import type { ChatTranscriptMessage, ChatViewRef } from './ChatView.js';
+import { ContextRail } from './ContextRail.js';
+import { askMemoryQuestion, askMemoryQuestionStream } from './chat-service.js';
+import type { ChatAnswer, StreamingChatCallbacks } from './chat-service.js';
 
 interface AppProps {
   version: string;
   onExitForInteractive: (cmd: string) => void;
 }
 
+function createThreadId(): string {
+  return `t${Date.now().toString(36)}`;
+}
+
+function getNewChatHint(hasSavedThread: boolean): string {
+  return hasSavedThread
+    ? 'New chat ready — type a question or use /resume to continue a saved thread'
+    : 'New chat ready — type a question to start';
+}
+
 export function WorkbenchApp({ version, onExitForInteractive }: AppProps): React.ReactElement {
   const { exit } = useApp();
   const { stdout } = useStdout();
+
+  // ── Constants ───────────────────────────────────────────────
+  // Cap in-memory chat transcript to avoid unbounded memory growth.
+  // Older messages remain persisted in SQLite; only the tail is kept in RAM.
+  const MAX_CHAT_MESSAGES = 100;
 
   // ── State ──────────────────────────────────────────────────
   const [view, setView] = useState<ViewType>('home');
@@ -79,11 +98,28 @@ export function WorkbenchApp({ version, onExitForInteractive }: AppProps): React
   const [statusMsg, setStatusMsg] = useState<{ text: string; type: 'success' | 'error' | 'info' } | null>(null);
   const [mode, setMode] = useState('CLI');
   const [actionStatus, setActionStatus] = useState('');
+  const [chatMessages, setChatMessages] = useState<ChatTranscriptMessage[]>([]);
+  const [chatThreadId, setChatThreadId] = useState<string>(() => createThreadId());
+  const [lastChat, setLastChat] = useState<ChatAnswer | null>(null);
   // Derived from centralized navigation model
   const isActionView = ACTION_VIEWS.has(view);
   const canEscReturnHome = ESC_RETURNABLE_VIEWS.has(view);
   // Track whether CommandBar is actively receiving text input
   const [inputFocused, setInputFocused] = useState(false);
+  // Track whether command palette is visible (for layout compensation)
+  const [paletteVisible, setPaletteVisible] = useState(false);
+  // Track palette items for overlay rendering
+  const [paletteItems, setPaletteItems] = useState<PaletteItem[]>([]);
+  const [paletteSelectedIdx, setPaletteSelectedIdx] = useState(0);
+  // Ref to ChatView for keyboard scroll (PageUp/PageDown/arrows)
+  const chatViewRef = useRef<ChatViewRef>(null);
+  // AbortController for cancelling ongoing LLM chat requests
+  const chatAbortRef = useRef<AbortController | null>(null);
+
+  const handlePaletteItemsChange = useCallback((items: PaletteItem[], idx: number) => {
+    setPaletteItems(items);
+    setPaletteSelectedIdx(idx);
+  }, []);
 
   const getProjectRoot = useCallback(async (): Promise<string | null> => {
     const detected = project?.rootPath;
@@ -108,6 +144,12 @@ export function WorkbenchApp({ version, onExitForInteractive }: AppProps): React
   // Layer 2: CommandBar input mode (captures printable chars)
   // Layer 3: Global nav keys (lowest, only when idle)
   useInput((ch, key) => {
+    // Esc while LLM is thinking: cancel the ongoing chat request
+    if (key.escape && loading && view === 'chat' && chatAbortRef.current) {
+      cancelChat();
+      return;
+    }
+
     // Esc: return home from any secondary view
     if (key.escape && canEscReturnHome) {
       handleCommand('/home');
@@ -157,11 +199,183 @@ export function WorkbenchApp({ version, onExitForInteractive }: AppProps): React
 
         const m = detectMode();
         setMode(m.mode);
+        setStatusMsg({ text: getNewChatHint(false), type: 'info' });
+
+        if (proj) {
+          try {
+            const { getProjectDataDir } = await import('../../store/persistence.js');
+            const { getChatStore } = await import('../../store/chat-store.js');
+            const dataDir = await getProjectDataDir(proj.id);
+            const store = getChatStore();
+            await store.init(dataDir);
+            const latestThreadId = store.getLatestThreadId(proj.id);
+            setStatusMsg({ text: getNewChatHint(Boolean(latestThreadId)), type: 'info' });
+          } catch (err) { process.stderr.write(`[memorix] chat restore failed: ${err instanceof Error ? err.message : String(err)}\n`); }
+        }
       } catch { /* ignore */ }
       if (!cancelled) setLoading(false);
     })();
     return () => { cancelled = true; };
   }, []);
+
+  const CHAT_GLOBAL_TIMEOUT_MS = 90_000; // 90s hard cap for entire chat operation
+
+  const cancelChat = useCallback(() => {
+    if (chatAbortRef.current) {
+      chatAbortRef.current.abort('User cancelled');
+      chatAbortRef.current = null;
+    }
+  }, []);
+
+  const submitChatQuestion = useCallback(async (question: string) => {
+    const trimmed = question.trim();
+    if (!trimmed) return;
+
+    // Cancel any in-flight chat request before starting a new one
+    cancelChat();
+
+    const ac = new AbortController();
+    chatAbortRef.current = ac;
+    // Hard timeout for the whole operation — kills even stuck network sockets
+    const globalTimer = setTimeout(() => ac.abort('Chat timed out'), CHAT_GLOBAL_TIMEOUT_MS);
+
+    const userMessage: ChatTranscriptMessage = {
+      role: 'user',
+      content: trimmed,
+      timestamp: new Date().toISOString(),
+    };
+    const history = chatMessages.map((message) => ({
+      role: message.role,
+      content: message.content,
+    }));
+
+    setView('chat');
+    setLoading(true);
+    setChatMessages((prev) => {
+      const next = [...prev, userMessage];
+      return next.length > MAX_CHAT_MESSAGES ? next.slice(-MAX_CHAT_MESSAGES) : next;
+    });
+
+    // Persist user message to SQLite
+    try {
+      if (project) {
+        const { getProjectDataDir } = await import('../../store/persistence.js');
+        const { getChatStore } = await import('../../store/chat-store.js');
+        const dataDir = await getProjectDataDir(project.id);
+        const store = getChatStore();
+        await store.init(dataDir);
+        store.append(project.id, chatThreadId, userMessage);
+      }
+    } catch (err) { process.stderr.write(`[memorix] chat persist user msg failed: ${err instanceof Error ? err.message : String(err)}\n`); }
+
+    // Add a placeholder assistant message for streaming updates
+    const streamingMsg: ChatTranscriptMessage = {
+      role: 'assistant',
+      content: '',
+      timestamp: new Date().toISOString(),
+      meta: { usedLLM: true },
+    };
+    setChatMessages((prev) => {
+      const next = [...prev, streamingMsg];
+      return next.length > MAX_CHAT_MESSAGES ? next.slice(-MAX_CHAT_MESSAGES) : next;
+    });
+
+    try {
+      const result = await askMemoryQuestionStream(trimmed, history, {
+        onChunk: (text) => {
+          // Incrementally update the last assistant message
+          setChatMessages((prev) => {
+            const updated = [...prev];
+            const lastIdx = updated.length - 1;
+            if (lastIdx >= 0 && updated[lastIdx].role === 'assistant') {
+              updated[lastIdx] = {
+                ...updated[lastIdx],
+                content: updated[lastIdx].content + text,
+              };
+            }
+            return updated;
+          });
+        },
+        onToolCall: (name) => {
+          // Show tool execution progress to the user
+          setChatMessages((prev) => {
+            const updated = [...prev];
+            const lastIdx = updated.length - 1;
+            if (lastIdx >= 0 && updated[lastIdx].role === 'assistant') {
+              updated[lastIdx] = {
+                ...updated[lastIdx],
+                content: `Searching memories (${name})…`,
+              };
+            }
+            return updated;
+          });
+        },
+      }, ac.signal);
+
+      // Final update with complete metadata
+      const assistantMessage: ChatTranscriptMessage = {
+        role: 'assistant',
+        content: result.answer,
+        sources: result.sources,
+        timestamp: new Date().toISOString(),
+        error: false,
+        meta: {
+          usedLLM: result.usedLLM,
+          searchMode: result.searchMode,
+          llmModel: result.llmModel,
+          warning: result.warning,
+        },
+      };
+      setLastChat(result);
+      setChatMessages((prev) => {
+        const updated = [...prev];
+        const lastIdx = updated.length - 1;
+        if (lastIdx >= 0 && updated[lastIdx].role === 'assistant') {
+          updated[lastIdx] = assistantMessage;
+        }
+        return updated;
+      });
+      setHealth(await getHealthInfo(project?.id));
+
+      // Persist assistant message to SQLite
+      try {
+        if (project) {
+          const { getProjectDataDir } = await import('../../store/persistence.js');
+          const { getChatStore } = await import('../../store/chat-store.js');
+          const dataDir = await getProjectDataDir(project.id);
+          const store = getChatStore();
+          await store.init(dataDir);
+          store.append(project.id, chatThreadId, assistantMessage);
+        }
+      } catch (err2) { process.stderr.write(`[memorix] chat persist assistant msg failed: ${err2 instanceof Error ? err2.message : String(err2)}\n`); }
+    } catch (err) {
+      // Distinguish user cancellation from real errors
+      const isAbort = err instanceof DOMException && err.name === 'AbortError';
+      const isCancelled = isAbort || (err instanceof Error && err.message === 'User cancelled');
+      const failure = isCancelled ? 'Chat cancelled (Esc)' : (err instanceof Error ? err.message : String(err));
+      const errorMsg: ChatTranscriptMessage = {
+        role: 'assistant',
+        content: isCancelled ? 'Chat cancelled.' : `Chat failed: ${failure}`,
+        error: !isCancelled,
+        timestamp: new Date().toISOString(),
+      };
+      setChatMessages((prev) => {
+        const updated = [...prev];
+        const lastIdx = updated.length - 1;
+        if (lastIdx >= 0 && updated[lastIdx].role === 'assistant') {
+          updated[lastIdx] = errorMsg;
+        }
+        return updated;
+      });
+      if (!isCancelled) {
+        setStatusMsg({ text: `Chat failed: ${failure}`, type: 'error' });
+      }
+    } finally {
+      clearTimeout(globalTimer);
+      chatAbortRef.current = null;
+      setLoading(false);
+    }
+  }, [chatMessages, project, cancelChat]);
 
   // ── Command handler ────────────────────────────────────────
   const handleCommand = useCallback(async (input: string) => {
@@ -177,6 +391,125 @@ export function WorkbenchApp({ version, onExitForInteractive }: AppProps): React
       const arg = parts.slice(1).join(' ');
 
       switch (cmd) {
+        case 'chat':
+        case 'ask': {
+          if (!arg) {
+            setView('chat');
+            setStatusMsg({ text: 'Chat ready — type a question. Use /new for a fresh thread or /resume to open a saved one', type: 'info' });
+            return;
+          }
+          await submitChatQuestion(arg);
+          break;
+        }
+
+        case 'clear':
+        case 'cc': {
+          setChatMessages([]);
+          if (project) {
+            try {
+              const { getProjectDataDir } = await import('../../store/persistence.js');
+              const { getChatStore } = await import('../../store/chat-store.js');
+              const dataDir = await getProjectDataDir(project.id);
+              const store = getChatStore();
+              await store.init(dataDir);
+              store.clear(project.id, chatThreadId);
+            } catch { /* non-fatal */ }
+          }
+          setView('chat');
+          setStatusMsg({ text: 'Chat cleared', type: 'info' });
+          break;
+        }
+
+        case 'resume':
+        case 'cr': {
+          if (!project) {
+            setStatusMsg({ text: 'No project detected', type: 'error' });
+            break;
+          }
+          try {
+            const { getProjectDataDir } = await import('../../store/persistence.js');
+            const { getChatStore } = await import('../../store/chat-store.js');
+            const dataDir = await getProjectDataDir(project.id);
+            const store = getChatStore();
+            await store.init(dataDir);
+            const threads = store.listThreads(project.id);
+
+            if (threads.length === 0) {
+              // No threads in DB — check if current in-memory messages exist
+              if (chatMessages.length > 0) {
+                setView('chat');
+                setStatusMsg({ text: `Current thread has ${chatMessages.length} messages (not yet persisted)`, type: 'info' });
+              } else {
+                setStatusMsg({ text: 'No saved threads found. Start chatting with /chat or type a question.', type: 'info' });
+              }
+              break;
+            }
+
+            // If arg provided (e.g. /resume t1a2b3c or /resume 2), load that specific thread
+            if (arg) {
+              // Support numeric index (1-based) as shortcut: /resume 2 → threads[1]
+              const numericIdx = /^\d+$/.test(arg) ? parseInt(arg, 10) - 1 : -1;
+              const target = numericIdx >= 0 && numericIdx < threads.length
+                ? threads[numericIdx]
+                : threads.find(t => t.threadId === arg);
+              if (target) {
+                const saved = store.load(project.id, target.threadId);
+                setChatThreadId(target.threadId);
+                setChatMessages(saved);
+                setView('chat');
+                setStatusMsg({ text: `Resumed thread ${target.threadId} (${saved.length} messages)`, type: 'success' });
+              } else {
+                const threadList = threads.map((t: any, i: number) =>
+                  `${i + 1}. ${t.threadId} (${t.messageCount} msgs, ${t.lastActivity?.slice(0, 16) || '?'})`
+                ).join('\n');
+                setStatusMsg({ text: `Thread "${arg}" not found. Available:\n${threadList}`, type: 'error' });
+              }
+              break;
+            }
+
+            // No arg: load the most recent thread (first in list = most recent)
+            const latestThread = threads[0];
+            const saved = store.load(project.id, latestThread.threadId);
+            setChatThreadId(latestThread.threadId);
+            setChatMessages(saved);
+            setView('chat');
+
+            if (threads.length === 1) {
+              setStatusMsg({ text: `Resumed thread ${latestThread.threadId} (${saved.length} messages)`, type: 'success' });
+            } else {
+              const threadList = threads.map((t: any, i: number) => {
+                const marker = t.threadId === latestThread.threadId ? ' (active)' : '';
+                return `${String(i + 1).padStart(2)}. ${t.threadId}  ${String(t.messageCount).padStart(3)} msgs  ${t.lastActivity?.slice(0, 16) || '?'}${marker}`;
+              }).join('\n');
+              setStatusMsg({ text: `Resumed ${latestThread.threadId} (${saved.length} msgs). Other threads:\n${threadList}\nUse /resume <threadId> to switch`, type: 'info' });
+            }
+          } catch (err) {
+            setStatusMsg({ text: `Could not resume chat: ${err instanceof Error ? err.message : String(err)}`, type: 'error' });
+          }
+          break;
+        }
+
+        case 'new':
+        case 'cn': {
+          try {
+            const { getChatStore } = await import('../../store/chat-store.js');
+            const store = getChatStore();
+            const newId = store.newThreadId();
+            setChatThreadId(newId);
+            setChatMessages([]);
+            setView('chat');
+            setStatusMsg({ text: `New thread ${newId} — type a question to start`, type: 'info' });
+          } catch {
+            // Fallback without store
+            const newId = `t${Date.now().toString(36)}`;
+            setChatMessages([]);
+            setChatThreadId(newId);
+            setView('chat');
+            setStatusMsg({ text: `New thread ${newId} — type a question to start`, type: 'info' });
+          }
+          break;
+        }
+
         case 'search':
         case 's': {
           const query = arg || '';
@@ -224,24 +557,28 @@ export function WorkbenchApp({ version, onExitForInteractive }: AppProps): React
           const recent = await getRecentMemories(12, project?.id);
           setRecentMemories(recent);
           setLoading(false);
+          setStatusMsg({ text: `Showing ${recent.length} recent memories`, type: 'info' });
           break;
         }
 
         case 'home':
         case 'h': {
           setView('home');
+          setStatusMsg({ text: 'Home — type a question or /command', type: 'info' });
           break;
         }
 
         case 'cleanup': {
           setView('cleanup');
           setActionStatus('');
+          setStatusMsg({ text: 'Cleanup: choose 1/2/3', type: 'info' });
           break;
         }
 
         case 'ingest': {
           setView('ingest');
           setActionStatus('');
+          setStatusMsg({ text: 'Ingest: choose 1/2/3/4', type: 'info' });
           break;
         }
 
@@ -251,12 +588,14 @@ export function WorkbenchApp({ version, onExitForInteractive }: AppProps): React
           const d = await getDoctorSummary();
           setDoctor(d);
           setLoading(false);
+          setStatusMsg({ text: 'Diagnostics complete', type: 'info' });
           break;
         }
 
         case 'project':
         case 'status': {
           setView('project');
+          setStatusMsg({ text: project ? `Project: ${project.name}` : 'No project detected', type: 'info' });
           break;
         }
 
@@ -267,6 +606,7 @@ export function WorkbenchApp({ version, onExitForInteractive }: AppProps): React
           const bg = await getBackgroundStatus();
           setBackground(bg);
           setLoading(false);
+          setStatusMsg({ text: bg.running ? 'Background running' : 'Background stopped', type: 'info' });
           break;
         }
 
@@ -276,6 +616,7 @@ export function WorkbenchApp({ version, onExitForInteractive }: AppProps): React
           // Refresh background info for dashboard URL
           const bg = await getBackgroundStatus();
           setBackground(bg);
+          setStatusMsg({ text: bg.healthy && bg.dashboard ? `Dashboard: ${bg.dashboard}` : 'Background not running — /background to start', type: 'info' });
           break;
         }
 
@@ -283,12 +624,14 @@ export function WorkbenchApp({ version, onExitForInteractive }: AppProps): React
         case 'setup': {
           setView('integrate');
           setActionStatus('');
+          setStatusMsg({ text: 'Integrate: choose 0-9 for IDE', type: 'info' });
           break;
         }
 
         case 'configure':
         case 'config': {
           setView('configure');
+          setStatusMsg({ text: 'Configure: Up/Down/Enter, Esc to back', type: 'info' });
           break;
         }
 
@@ -314,17 +657,9 @@ export function WorkbenchApp({ version, onExitForInteractive }: AppProps): React
           setStatusMsg({ text: `Unknown command: /${cmd}. Type /help for available commands.`, type: 'error' });
       }
     } else {
-      // Default: search
-      setView('search');
-      setSearchQuery(raw);
-      setLoading(true);
-      const results = await searchMemories(raw);
-      setSearchResults(results);
-      setLoading(false);
-      // Refresh health so Search Mode / diagnostic reflects actual search path
-      setHealth(await getHealthInfo(project?.id));
+      await submitChatQuestion(raw);
     }
-  }, [project, exit, onExitForInteractive]);
+  }, [project, exit, onExitForInteractive, submitChatQuestion]);
 
   // ── Action handlers for Cleanup, Ingest, Background, Dashboard ──
 
@@ -692,6 +1027,8 @@ fi
   // ── Render main content based on view ──────────────────────
   const renderContent = () => {
     switch (view) {
+      case 'chat':
+        return <ChatView ref={chatViewRef} project={project} messages={chatMessages} loading={loading} contentWidth={contentWidth} viewportHeight={mainAreaHeight} threadId={chatThreadId} keyboardScrollEnabled={!inputFocused} />;
       case 'search':
         return <SearchResultsView results={searchResults} query={searchQuery} loading={loading} />;
       case 'doctor':
@@ -714,19 +1051,48 @@ fi
         return <ConfigureView onBack={() => handleCommand('/home')} />;
       case 'home':
       default:
-        return <HomeView project={project} health={health} background={background} loading={loading} />;
+        return (
+          <Box flexDirection="column" paddingX={2} paddingY={1}>
+            <Text color={COLORS.brand} bold>Memorix Workbench</Text>
+            <Text color={COLORS.border}>{'─'.repeat(getHomeSeparatorWidth(contentWidth))}</Text>
+            <Box marginTop={1} flexDirection="column">
+              <Text color={COLORS.text}>Your project memory control plane.</Text>
+              <Text color={COLORS.textDim}>Ask questions, search memories, manage context.</Text>
+            </Box>
+            <Box marginTop={1} flexDirection="column">
+              <Text color={COLORS.muted}>Quick actions</Text>
+              <Text color={COLORS.textDim}>{'  > /chat ask with memory'}</Text>
+              <Text color={COLORS.textDim}>{'  > /search inspect hits'}</Text>
+              <Text color={COLORS.textDim}>{'  > /recent recent activity'}</Text>
+              <Text color={COLORS.textDim}>{'  > /remember store a note'}</Text>
+              <Text color={COLORS.textDim}>{'  > /doctor diagnostics'}</Text>
+            </Box>
+            {project && (
+              <Box marginTop={1} flexDirection="column">
+                <Text color={COLORS.muted}>Project</Text>
+                <Text color={COLORS.text}>{`  ${project.name} · ${health.activeMemories} memories · ${health.searchModeLabel}`}</Text>
+              </Box>
+            )}
+            <Box marginTop={1}>
+              <Text color={COLORS.textDim}>Type a question below to chat, or /help for all commands</Text>
+            </Box>
+          </Box>
+        );
     }
   };
 
   // ── Layout ─────────────────────────────────────────────────
   const termWidth = stdout?.columns || 80;
   const termHeight = stdout?.rows || 24;
-  const narrow = termWidth < 80;
-  const veryNarrow = termWidth < 60;
-  const statusRows = statusMsg ? 1 : 0;
+  const { sidebarWidth, contentWidth, narrow, veryNarrow } = computeLayoutWidths(termWidth);
+  const statusRows = statusMsg ? getStatusMessageRows(statusMsg.text) : 0;
   // Keep header and command bar visible during terminal resize.
-  const reservedRows = 2 + statusRows + 3;
+  // Palette is rendered as an overlay — does not affect layout height.
+  const reservedRows = 2 + statusRows + (COMMAND_BAR_ROWS + 1);
   const mainAreaHeight = Math.max(6, termHeight - reservedRows);
+  const paletteHeight = getCommandPaletteHeight(paletteItems.length);
+  const paletteTopInContent = Math.max(0, mainAreaHeight - paletteHeight);
+  const paletteSeparatorWidth = Math.max(8, Math.min(30, contentWidth - 10));
 
   return (
     <Box flexDirection="column" height={termHeight}>
@@ -740,33 +1106,81 @@ fi
         flexGrow={0}
         flexShrink={1}
       >
-        {/* Main content */}
+        {/* Main content — palette overlays here so it never affects sidebar */}
         <Box
           flexGrow={1}
           flexShrink={1}
           flexDirection="column"
-          borderStyle="single"
-          borderColor={COLORS.border}
+          paddingRight={narrow ? 0 : 1}
         >
           {renderContent()}
+
+          {/* Command palette overlay — absolute inside the content column.
+              Manual border rendering: every cell is explicitly written so
+              underlying CJK wide-chars cannot bleed through. */}
+          {paletteVisible && paletteItems.length > 0 && (() => {
+            // Cover the FULL content column so nothing bleeds through.
+            const contentColW = termWidth - (narrow ? 0 : sidebarWidth) - (narrow ? 0 : 1);
+            const palBoxW = Math.max(40, contentColW);
+            // inner = total - border(1) - space(1) on each side = total - 4
+            const palInner = palBoxW - 4;
+            // Pad string to exact palInner chars (ASCII-only content, so length == display width)
+            const padText = (s: string) =>
+              s.length >= palInner ? s.slice(0, palInner) : s + ' '.repeat(palInner - s.length);
+            // Build full-width line: │ <content> │ — every cell explicitly written
+            const row = (content: string, fg: string, bold = false) => (
+              <Text key={content.slice(0, 20)} color={fg} bold={bold}>
+                <Text color={COLORS.border}>{'│ '}</Text>{padText(content)}<Text color={COLORS.border}>{' │'}</Text>
+              </Text>
+            );
+            const hBorder = '─'.repeat(palBoxW - 2);
+
+            return (
+              <Box
+                position="absolute"
+                flexDirection="column"
+                width={palBoxW}
+                marginTop={paletteTopInContent}
+              >
+                <Text color={COLORS.border}>{'┌' + hBorder + '┐'}</Text>
+                {row('Commands', COLORS.brand, true)}
+                {row('─'.repeat(Math.min(palInner, paletteSeparatorWidth)), COLORS.border)}
+                {paletteItems.map((cmd, index) => {
+                  const prefix = index === paletteSelectedIdx ? '> ' : '  ';
+                  const name = cmd.name.padEnd(16).slice(0, 16);
+                  const desc = cmd.description + (cmd.alias ? ` (${cmd.alias})` : '');
+                  return (
+                    <Text key={cmd.name} color={index === paletteSelectedIdx ? COLORS.brand : COLORS.text} bold={index === paletteSelectedIdx}>
+                      <Text color={COLORS.border}>{'│ '}</Text>{padText(prefix + name + desc)}<Text color={COLORS.border}>{' │'}</Text>
+                    </Text>
+                  );
+                })}
+                {row('↑↓ navigate │ Tab complete │ Enter execute', COLORS.muted)}
+                <Text color={COLORS.border}>{'└' + hBorder + '┘'}</Text>
+              </Box>
+            );
+          })()}
         </Box>
 
         {/* Sidebar: full at >=80, compact health-only at 60-79, hidden at <60 */}
         {!narrow ? (
-          <Sidebar
+          <ContextRail
+            project={project}
             health={health}
             background={background}
-            onAction={handleCommand}
             activeView={view}
-            isFocused={!isActionView && !inputFocused}
+            lastChat={lastChat}
+            transcriptCount={chatMessages.length}
+            width={sidebarWidth}
           />
         ) : !veryNarrow ? (
-          <Box flexDirection="column" width={20} borderStyle="single" borderColor={COLORS.border} paddingX={1}>
-            <Text color={COLORS.accentDim} bold>Health</Text>
-            <Box><Text color={COLORS.muted}>Mem </Text><Text color={COLORS.text}>{health.activeMemories}</Text></Box>
-            <Box><Text color={COLORS.muted}>Emb </Text><Text color={health.embeddingProvider === 'ready' ? COLORS.success : COLORS.muted}>{health.embeddingLabel}</Text></Box>
-            <Box><Text color={COLORS.muted}>Bg  </Text><Text color={background.healthy ? COLORS.success : COLORS.muted}>{background.healthy ? 'Up' : 'Down'}</Text></Box>
-            <Box marginTop={1}><Text color={COLORS.textDim}>h=home /=cmd</Text></Box>
+          <Box flexDirection="column" width={24} flexShrink={0} paddingLeft={1} borderStyle="single" borderColor={COLORS.border} borderLeft={true} borderTop={false} borderRight={false} borderBottom={false}>
+            <Text color={COLORS.brand} bold wrap="truncate-end">Context</Text>
+            <Box><Text color={COLORS.muted} wrap="truncate-end">View </Text><Text color={COLORS.text} wrap="truncate-end">{view}</Text></Box>
+            <Box><Text color={COLORS.muted} wrap="truncate-end">Mem  </Text><Text color={COLORS.text} wrap="truncate-end">{health.activeMemories}</Text></Box>
+            <Box><Text color={COLORS.muted} wrap="truncate-end">Mode </Text><Text color={health.embeddingProvider === 'ready' ? COLORS.success : COLORS.muted} wrap="truncate-end">{health.searchModeLabel}</Text></Box>
+            <Box><Text color={COLORS.muted} wrap="truncate-end">Msgs </Text><Text color={COLORS.text} wrap="truncate-end">{chatMessages.length}</Text></Box>
+            <Box marginTop={1}><Text color={COLORS.textDim} wrap="truncate-end">/chat /search /recent</Text></Box>
           </Box>
         ) : null}
         {/* Very narrow (<60): inline minimal status hint above command bar */}
@@ -786,6 +1200,11 @@ fi
           onExit={() => exit()}
           disabled={isActionView}
           onFocusChange={setInputFocused}
+          prefixLabel={view === 'chat' ? '[ask]' : '[cmd]'}
+          placeholder={view === 'chat' ? 'ask Memorix about this project or use /command' : 'type a question or /command'}
+          contentWidth={contentWidth}
+          onPaletteChange={setPaletteVisible}
+          onPaletteItems={handlePaletteItemsChange}
           disabledHint={
             view === 'cleanup' ? 'cleanup: 1/2/3, h or Esc'
             : view === 'ingest' ? 'ingest: 1/2/3/4, h or Esc'

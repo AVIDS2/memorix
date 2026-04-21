@@ -6,6 +6,7 @@
  *
  * Commands:
  *   memorix         — Interactive TUI menu (no args)
+ *   memorix ask "q" — Single-shot chat question (pipe: echo "q" | memorix ask)
  *   memorix serve   — Start MCP Server on stdio
  *   memorix status  — Show project info + rules sync status
  *   memorix sync    — Interactive cross-agent rule sync
@@ -694,6 +695,74 @@ async function runConfigure(): Promise<void> {
   }
 }
 
+async function runAsk(question: string): Promise<void> {
+  // Use a smooth dots-style spinner (same frames as TUI ink-spinner "dots")
+  // instead of @clack's ASCII spinner which flickers in non-Ink terminals.
+  const dotsFrames = ['⠋','⠙','⠹','⠸','⠼','⠴','⠦','⠧','⠇','⠏'];
+  let frameIdx = 0;
+  let interval: ReturnType<typeof setInterval> | null = null;
+
+  const startSmoothSpinner = (msg: string) => {
+    if (process.stdout.isTTY) {
+      process.stdout.write(`${CYAN}${dotsFrames[0]}${RESET} ${msg}`);
+      interval = setInterval(() => {
+        frameIdx = (frameIdx + 1) % dotsFrames.length;
+        process.stdout.write(`\r${CYAN}${dotsFrames[frameIdx]}${RESET} ${msg}`);
+      }, 80);
+    } else {
+      process.stderr.write(`${msg}...\n`);
+    }
+  };
+
+  const stopSmoothSpinner = () => {
+    if (interval) { clearInterval(interval); interval = null; }
+    if (process.stdout.isTTY) {
+      process.stdout.write('\r' + ' '.repeat(40) + '\r'); // clear line
+    }
+  };
+
+  startSmoothSpinner('Thinking…');
+
+  try {
+    const { askMemoryQuestion } = await import('./tui/chat-service.js');
+    const result = await askMemoryQuestion(question);
+
+    stopSmoothSpinner();
+
+    // Output the answer
+    console.log('');
+    console.log(result.answer);
+
+    // Show sources if any
+    if (result.sources.length > 0) {
+      console.log('');
+      console.log(`${DIM}Sources:${RESET}`);
+      for (const src of result.sources.slice(0, 5)) {
+        console.log(`  ${DIM}[obs:${src.id}]${RESET} ${src.title}`);
+      }
+    }
+
+    // Show warnings
+    if (result.warning) {
+      console.log('');
+      console.log(`${YELLOW}⚠ ${result.warning}${RESET}`);
+    }
+
+    // Metadata footer
+    const meta: string[] = [];
+    if (result.usedLLM && result.llmModel) meta.push(result.llmModel);
+    if (result.searchMode) meta.push(result.searchMode);
+    if (result.toolCallsCount) meta.push(`${result.toolCallsCount} tool call${result.toolCallsCount > 1 ? 's' : ''}`);
+    if (meta.length > 0) {
+      console.log(`${DIM}  ${meta.join(' · ')}${RESET}`);
+    }
+  } catch (err) {
+    stopSmoothSpinner();
+    p.log.error(`Error: ${err instanceof Error ? err.message : err}`);
+    process.exitCode = 1;
+  }
+}
+
 async function runSearch(query: string): Promise<void> {
   const s = createSpinnerForCurrentOutput();
   s.start('Searching memories...');
@@ -837,6 +906,30 @@ const main = defineCommand({
   },
   subCommands: {
     // One-shot product commands (primary user paths)
+    ask: () => Promise.resolve(defineCommand({
+      meta: { name: 'ask', description: 'Ask Memorix a question (single-shot chat). Pipe: echo "q" | memorix ask' },
+      args: {
+        question: { type: 'positional', description: 'Question to ask (or pipe via stdin)', required: false },
+      },
+      async run({ args }) {
+        let q = (args.question as string) || '';
+        // Read from stdin if no positional arg and stdin is piped
+        if (!q && !process.stdin.isTTY) {
+          q = await new Promise<string>((resolve) => {
+            let data = '';
+            process.stdin.setEncoding('utf-8');
+            process.stdin.on('data', (chunk) => { data += chunk; });
+            process.stdin.on('end', () => resolve(data.trim()));
+            process.stdin.on('error', () => resolve(''));
+          });
+        }
+        if (!q) {
+          p.log.error('No question provided. Usage: memorix ask "your question" or echo "q" | memorix ask');
+          return;
+        }
+        await runAsk(q);
+      },
+    })),
     search: () => Promise.resolve(defineCommand({
       meta: { name: 'search', description: 'Search memories' },
       args: { query: { type: 'positional', description: 'Search query', required: true } },
@@ -855,6 +948,12 @@ const main = defineCommand({
     init: () => import('./commands/init.js').then(m => m.default),
     integrate: () => import('./commands/integrate.js').then(m => m.default),
     memory: () => import('./commands/memory.js').then(m => m.default),
+    reasoning: () => import('./commands/reasoning.js').then(m => m.default),
+    retention: () => import('./commands/retention.js').then(m => m.default),
+    formation: () => import('./commands/formation.js').then(m => m.default),
+    audit: () => import('./commands/audit.js').then(m => m.default),
+    transfer: () => import('./commands/transfer.js').then(m => m.default),
+    skills: () => import('./commands/skills.js').then(m => m.default),
     session: () => import('./commands/session.js').then(m => m.default),
     team: () => import('./commands/team.js').then(m => m.default),
     task: () => import('./commands/task.js').then(m => m.default),
@@ -892,8 +991,9 @@ const main = defineCommand({
     // Guard: if citty already resolved a subcommand, its run() was called before this.
     // Detect by checking if the first CLI arg matches a registered subcommand name.
     const firstArg = process.argv[2];
-    const knownSubs = ['search', 'remember', 'recent',
-      'init', 'integrate', 'memory', 'session', 'team', 'task', 'message', 'lock', 'handoff', 'poll',
+    const knownSubs = ['ask', 'search', 'remember', 'recent',
+      'init', 'integrate', 'memory', 'reasoning', 'retention', 'formation', 'audit', 'transfer', 'skills',
+      'session', 'team', 'task', 'message', 'lock', 'handoff', 'poll',
       'serve', 'serve-http', 'status', 'sync',
       'hook', 'hooks', 'ingest', 'git-hook', 'git-hook-uninstall',
       'background', 'bg', 'bs', 'doctor', 'dashboard', 'cleanup', 'orchestrate'];
@@ -910,9 +1010,17 @@ const main = defineCommand({
       console.error(`Memorix v${pkg.version} — Local-first memory control plane\n`);
       console.error('Usage: memorix <command>\n');
       console.error('Commands:');
+      console.error('  ask "q"    Ask Memorix a question (single-shot chat)');
+      console.error('             Pipe: echo "q" | memorix ask');
       console.error('  background Start/stop/status background control plane');
       console.error('  session    Start/end/context for coding sessions');
       console.error('  memory     Search/store/detail/timeline/resolve observations');
+      console.error('  reasoning  Store/search decision rationale');
+      console.error('  retention  Inspect stale/archive status');
+      console.error('  formation  Inspect Memory Formation metrics');
+      console.error('  audit      Audit trail and project attribution checks');
+      console.error('  transfer   Export/import memory snapshots');
+      console.error('  skills     List/generate/show project skills');
       console.error('  team       Join/status/role operations for project collaboration');
       console.error('  task       Create/claim/complete/list team tasks');
       console.error('  message    Send/broadcast/read team messages');
@@ -927,7 +1035,8 @@ const main = defineCommand({
       console.error('  dashboard  Open standalone dashboard (read-mostly)');
       console.error('  hooks      Open legacy hook installer menu');
       console.error('  cleanup    Remove old memories');
-      console.error('  sync       Cross-agent rule sync');
+      console.error('  sync       Rules/workspace sync plus interactive wizard');
+      console.error('  ingest     Ingest commit, log, or image knowledge');
       console.error('\nRun `memorix` in an interactive terminal for guided menu.');
     }
   },

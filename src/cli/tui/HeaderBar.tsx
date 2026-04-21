@@ -1,10 +1,13 @@
 /**
  * Top status bar for the Memorix workbench.
+ *
+ * Modern design: brand symbol, pill-style badges, status dots,
+ * Unicode separators.
  */
 
 import React from 'react';
 import { Box, Text } from 'ink';
-import { COLORS } from './theme.js';
+import { COLORS, STATUS_DOTS, SYMBOLS } from './theme.js';
 import type { ProjectInfo, HealthInfo } from './data.js';
 
 interface HeaderBarProps {
@@ -35,26 +38,29 @@ export function HeaderBar({ version, project, health, mode }: HeaderBarProps): R
       borderLeft={false}
       borderRight={false}
     >
-      <Box>
-        <Text color={COLORS.brand} bold>Memorix</Text>
-        <Text color={COLORS.muted}> v{version}</Text>
+      {/* Brand */}
+      <Box gap={1}>
+        <Text color={COLORS.brand} bold>{SYMBOLS.bullet} Memorix</Text>
+        <Text color={COLORS.muted}>v{version}</Text>
       </Box>
 
+      {/* Project name */}
       <Box>
         {project ? (
           <Text color={COLORS.text}>{project.name}</Text>
         ) : (
-          <Text color={COLORS.warning}>no project</Text>
+          <Text color={COLORS.warning}>{STATUS_DOTS.warn} no project</Text>
         )}
       </Box>
 
+      {/* Status badges */}
       <Box gap={1}>
         {project ? (
           <>
-            <Text color={COLORS.accentDim}>{mode.toLowerCase()}</Text>
-            <Text color={COLORS.muted}>|</Text>
-            <Text color={colorForMode(health.searchModeLabel)}>{health.searchModeLabel}</Text>
-            <Text color={COLORS.muted}>|</Text>
+            <Text color={COLORS.muted}>{SYMBOLS.pill(mode.toLowerCase())}</Text>
+            <Text color={COLORS.border}>│</Text>
+            <Text color={colorForMode(health.searchModeLabel)}>{STATUS_DOTS.ok} {health.searchModeLabel}</Text>
+            <Text color={COLORS.border}>│</Text>
             <Text color={COLORS.text}>{health.activeMemories} mem</Text>
           </>
         ) : (

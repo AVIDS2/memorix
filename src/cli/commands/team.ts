@@ -19,6 +19,7 @@ export default defineCommand({
     description: { type: 'string', description: 'Description text' },
     preferredAgentTypes: { type: 'string', description: 'Comma-separated preferred agent types' },
     maxConcurrent: { type: 'string', description: 'Maximum concurrent agents for a role' },
+    all: { type: 'boolean', description: 'Show inactive/historical collaborators in status output' },
     json: { type: 'boolean', description: 'Emit machine-readable JSON output' },
   },
   run: async ({ args }) => {
@@ -129,10 +130,23 @@ export default defineCommand({
         case 'status': {
           const agents = teamStore.listAgents(project.id);
           const occupancy = teamStore.getRoleOccupancy(project.id);
+          const activeAgents = agents.filter((agent) => agent.status === 'active');
+          const historicalAgents = agents.filter((agent) => agent.status !== 'active');
+          const showAll = !!args.all;
+          const visibleAgents = showAll ? agents : activeAgents;
+          const formatAgent = (agent: typeof agents[number]) =>
+            `- ${agent.name} [${agent.agent_type}] ${agent.role ?? 'no role'} (${shortId(agent.agent_id)})${agent.status === 'active' ? '' : ' (inactive)'}`;
           emitResult(
-            { project, agents, occupancy, activeCount: teamStore.getActiveCount(project.id) },
+            {
+              project,
+              agents,
+              visibleAgents,
+              occupancy,
+              activeCount: activeAgents.length,
+              historicalCount: historicalAgents.length,
+            },
             [
-              `Project collaboration: ${teamStore.getActiveCount(project.id)} active / ${agents.length} total agents`,
+              `Project collaboration: ${activeAgents.length} active collaborator(s) / ${historicalAgents.length} historical or inactive`,
               '',
               occupancy.length > 0
                 ? `Role occupancy:\n${occupancy
@@ -143,11 +157,12 @@ export default defineCommand({
                     .join('\n')}`
                 : 'Role occupancy: none',
               '',
-              agents.length > 0
-                ? `Agents:\n${agents
-                    .map((agent) => `- ${agent.status === 'active' ? '*' : '-'} ${agent.name} [${agent.agent_type}] ${agent.role ?? 'no role'} (${shortId(agent.agent_id)})`)
-                    .join('\n')}`
-                : 'Agents: none',
+              visibleAgents.length > 0
+                ? `${showAll ? 'All collaborators' : 'Active collaborators'}:\n${visibleAgents.map(formatAgent).join('\n')}`
+                : `${showAll ? 'All collaborators' : 'Active collaborators'}: none`,
+              !showAll && historicalAgents.length > 0
+                ? `\nHistorical/inactive collaborators: ${historicalAgents.length} (use --all to list).`
+                : '',
             ].join('\n'),
             asJson,
           );
@@ -158,7 +173,7 @@ export default defineCommand({
           console.log('Memorix Team Commands');
           console.log('');
           console.log('Usage:');
-          console.log('  memorix team status');
+          console.log('  memorix team status [--all]');
           console.log('  memorix team join --agentType codex [--name codex-main --instanceId abc]');
           console.log('  memorix team leave --agentId <id>');
           console.log('  memorix team roles');

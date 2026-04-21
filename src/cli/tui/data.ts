@@ -186,21 +186,21 @@ export async function getHealthInfo(projectId?: string): Promise<HealthInfo> {
 
       // Build diagnostic explanation
       if (defaults.searchMode.includes('hybrid')) {
-        defaults.searchDiagnostic = 'Vector search active - last query used hybrid retrieval';
+        defaults.searchDiagnostic = 'Hybrid search active';
       } else if (defaults.searchMode.includes('vector')) {
-        defaults.searchDiagnostic = 'Vector fallback - BM25 returned empty, used vector-only';
+        defaults.searchDiagnostic = 'Vector fallback (BM25 empty)';
       } else if (defaults.searchMode.includes('rerank')) {
-        defaults.searchDiagnostic = 'LLM reranking active on search results';
+        defaults.searchDiagnostic = 'LLM reranking active';
       } else if (defaults.searchMode.includes('embedding unavailable')) {
-        defaults.searchDiagnostic = 'Embedding failed or timed out during last search';
+        defaults.searchDiagnostic = 'Embedding unavailable';
       } else if (defaults.embeddingProvider === 'ready' && vectorActive) {
-        defaults.searchDiagnostic = 'Provider ready, vector index built - next search will use hybrid';
+        defaults.searchDiagnostic = 'Vector index ready';
       } else if (defaults.embeddingProvider === 'ready' && !vectorActive) {
-        defaults.searchDiagnostic = 'Provider ready but index not yet initialized - run a search to activate';
+        defaults.searchDiagnostic = 'Provider ready, no index yet';
       } else if (defaults.embeddingProvider === 'unavailable') {
-        defaults.searchDiagnostic = 'No embedding provider available - using BM25 only';
+        defaults.searchDiagnostic = 'BM25 only (no provider)';
       } else {
-        defaults.searchDiagnostic = 'Embedding disabled (MEMORIX_EMBEDDING=off) - BM25 only';
+        defaults.searchDiagnostic = 'BM25 only (disabled)';
       }
     } catch {
       defaults.searchMode = 'fulltext';

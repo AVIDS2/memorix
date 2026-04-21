@@ -3,6 +3,7 @@
  */
 
 import { defineCommand } from 'citty';
+import { resolveToolProfile } from '../../server/tool-profile.js';
 
 export default defineCommand({
   meta: {
@@ -19,6 +20,11 @@ export default defineCommand({
       type: 'boolean',
       description: 'Allow non-git directories as untracked/ projects (default: false)',
       default: false,
+    },
+    mode: {
+      type: 'string',
+      description: 'Tool profile to expose (lite, team, full; default: lite; collaboration join remains explicit)',
+      required: false,
     },
   },
   run: async ({ args }) => {
@@ -92,9 +98,10 @@ export default defineCommand({
     // This ensures tools/list returns the full tool set immediately on connect.
     // When no project detected, use deferred binding (allowUntrackedFallback=false, deferProjectInitUntilBound=true)
     const allowUntracked = args['allow-untracked'] ?? false;
+    const toolProfile = resolveToolProfile({ explicit: args.mode, envValue: process.env.MEMORIX_MODE, fallback: 'lite' });
     const serverOptions = detected
-      ? {}
-      : { allowUntrackedFallback: allowUntracked, deferProjectInitUntilBound: !allowUntracked };
+      ? { toolProfile }
+      : { allowUntrackedFallback: allowUntracked, deferProjectInitUntilBound: !allowUntracked, toolProfile };
     const { server, projectId, deferredInit, switchProject } = await createMemorixServer(projectRoot, undefined, undefined, serverOptions);
     const transport = new StdioServerTransport();
     await server.connect(transport);

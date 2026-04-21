@@ -190,6 +190,22 @@ CREATE TABLE IF NOT EXISTS team_roles (
 );
 `;
 
+// ── Chat Transcript Table ──────────────────────────────────────────────
+
+const CREATE_CHAT_TRANSCRIPT_TABLE = `
+CREATE TABLE IF NOT EXISTS chat_transcript (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  project_id      TEXT NOT NULL,
+  thread_id       TEXT NOT NULL DEFAULT 'default',
+  role            TEXT NOT NULL,
+  content         TEXT NOT NULL DEFAULT '',
+  sources_json    TEXT NOT NULL DEFAULT '[]',
+  meta_json       TEXT NOT NULL DEFAULT '{}',
+  error           INTEGER NOT NULL DEFAULT 0,
+  created_at      TEXT NOT NULL
+);
+`;
+
 // ── Knowledge Graph Tables ────────────────────────────────────────────
 
 const CREATE_GRAPH_ENTITIES_TABLE = `
@@ -228,6 +244,7 @@ CREATE INDEX IF NOT EXISTS idx_team_tasks_role ON team_tasks(required_role);
 CREATE INDEX IF NOT EXISTS idx_team_messages_role ON team_messages(to_role);
 CREATE INDEX IF NOT EXISTS idx_graph_relations_from ON graph_relations(from_entity);
 CREATE INDEX IF NOT EXISTS idx_graph_relations_to ON graph_relations(to_entity);
+CREATE INDEX IF NOT EXISTS idx_chat_transcript_project ON chat_transcript(project_id, thread_id);
 `;
 
 // ── Singleton cache ─────────────────────────────────────────────────
@@ -272,6 +289,7 @@ export function getDatabase(dataDir: string): any {
   db.exec(CREATE_TEAM_ROLES_TABLE);
   db.exec(CREATE_GRAPH_ENTITIES_TABLE);
   db.exec(CREATE_GRAPH_RELATIONS_TABLE);
+  db.exec(CREATE_CHAT_TRANSCRIPT_TABLE);
 
   // Phase 3a migration: add sourceSnapshot + updatedAt to mini_skills
   // Idempotent — ALTER TABLE ADD COLUMN throws if column already exists

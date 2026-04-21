@@ -22,6 +22,17 @@
 import { defineCommand } from 'citty';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { ObservationStore } from '../../store/obs-store.js';
+import { resolveToolProfile } from '../../server/tool-profile.js';
+
+export const DEFAULT_SESSION_TIMEOUT_MS = 30 * 60 * 1000;
+
+export function parseSessionTimeoutMs(raw: string | undefined): number {
+  const value = raw?.trim();
+  if (!value) return DEFAULT_SESSION_TIMEOUT_MS;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return DEFAULT_SESSION_TIMEOUT_MS;
+  return Math.floor(parsed);
+}
 
 export default defineCommand({
   meta: {
@@ -44,6 +55,11 @@ export default defineCommand({
       description: 'Project working directory (defaults to process.cwd())',
       required: false,
     },
+    mode: {
+      type: 'string',
+      description: 'Tool profile to expose (lite, team, full; default: team; collaboration join remains explicit)',
+      required: false,
+    },
   },
   run: async ({ args }) => {
     const { createServer } = await import('node:http');
@@ -62,6 +78,7 @@ export default defineCommand({
 
     const port = parseInt(args.port || '3211', 10);
     const host = args.host || '127.0.0.1';
+    const toolProfile = resolveToolProfile({ explicit: args.mode, envValue: process.env.MEMORIX_MODE, fallback: 'team' });
 
     // Priority: explicit --cwd arg > MEMORIX_PROJECT_ROOT env > last-project-root fallback > process.cwd()
     let safeCwd: string;
@@ -86,6 +103,8 @@ export default defineCommand({
 
     console.error(`[memorix] HTTP transport starting on ${host}:${port}`);
     console.error(`[memorix] Project root: ${projectRoot}`);
+    const sessionTimeoutMs = parseSessionTimeoutMs(process.env.MEMORIX_SESSION_TIMEOUT_MS);
+    console.error(`[memorix] HTTP session idle timeout: ${Math.round(sessionTimeoutMs / 60000)}min (${sessionTimeoutMs}ms)`);
 
     // Per-project TeamStore cache (Option B) — each dataDir gets its own TeamStore instance.
     // This ensures true isolation between projects in HTTP control-plane mode.
@@ -347,20 +366,22 @@ export default defineCommand({
             sessions.delete(sid);
             sessionLastActivity.delete(sid);
           }
+          handleTransportClose();
         };
 
         // Create a fresh MCP server for this session (with shared team state)
-      const { server, switchProject, isExplicitlyBound } = await createMemorixServer(
-        projectRoot,
-        undefined,
-        { teamStore: sharedTeamStore },
-        {
-          allowUntrackedFallback: false,
-          deferProjectInitUntilBound: true,
-          dashboardMode: 'control-plane',
-          dashboardPort: port,
-        },
-      );
+        const { server, switchProject, isExplicitlyBound, handleTransportClose } = await createMemorixServer(
+          projectRoot,
+          undefined,
+          { teamStore: sharedTeamStore },
+          {
+            allowUntrackedFallback: false,
+            deferProjectInitUntilBound: true,
+            dashboardMode: 'control-plane',
+            dashboardPort: port,
+            toolProfile,
+          },
+        );
         createdState = { transport, server, switchProject, isExplicitlyBound };
         await server.connect(transport);
 
@@ -440,7 +461,7 @@ export default defineCommand({
       res.writeHead(400, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({
         jsonrpc: '2.0',
-        error: { code: -32000, message: 'Bad Request: No valid session ID provided' },
+        error: { code: -32000, message: 'Bad Request: No valid session ID provided or initialize request required' },
         id: null,
       }));
     }
@@ -1329,8 +1350,10 @@ export default defineCommand({
       import('../update-checker.js').then(m => m.checkForUpdates()).catch(() => {});
     });
 
-    // Session timeout GC — close sessions idle for 30 minutes
-    const SESSION_TIMEOUT_MS = 30 * 60 * 1000;
+    // Session timeout GC — close sessions idle past the configured threshold.
+    // MEMORIX_SESSION_TIMEOUT_MS lets operators work around HTTP clients that do
+    // not transparently reinitialize after stale session IDs (notably Codex/rmcp).
+    const SESSION_TIMEOUT_MS = sessionTimeoutMs;
     const gcInterval = setInterval(() => {
       maybeProbeSummary(); // Flush suppressed probe count periodically
       const now = Date.now();
@@ -1417,3 +1440,11 @@ export default defineCommand({
     } catch { /* best-effort */ }
   },
 });
+
+// ── Test helpers (exported for testing only) ──────────────────
+
+/** @internal */
+export const _testing = {
+  DEFAULT_SESSION_TIMEOUT_MS,
+  parseSessionTimeoutMs,
+};

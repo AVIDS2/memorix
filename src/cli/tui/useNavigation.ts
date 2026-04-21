@@ -30,7 +30,7 @@ export const ACTION_VIEWS: Set<ViewType> = new Set([
 
 /** Views where Esc returns to home */
 export const ESC_RETURNABLE_VIEWS: Set<ViewType> = new Set([
-  'recent', 'doctor', 'project', 'cleanup', 'ingest',
+  'chat', 'recent', 'doctor', 'project', 'cleanup', 'ingest',
   'background', 'dashboard', 'integrate', 'configure', 'search',
 ]);
 

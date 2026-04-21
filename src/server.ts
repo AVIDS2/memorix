@@ -16,6 +16,7 @@
  * - New agent format adapters plug in without changing this file
  */
 
+import { createHash } from 'node:crypto';
 import { watchFile } from 'node:fs';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
@@ -36,6 +37,12 @@ import { getProjectDataDir } from './store/persistence.js';
 import type { ObservationType, RuleSource, AgentTarget, MCPServerEntry } from './types.js';
 import { RulesSyncer } from './rules/syncer.js';
 import { WorkspaceSyncEngine } from './workspace/engine.js';
+import {
+  resolveToolProfile,
+  isToolInProfile,
+  describeProfile,
+  type ToolProfile,
+} from './server/tool-profile.js';
 import { initLLM, isLLMEnabled, getLLMConfig } from './llm/provider.js';
 import { compactOnWrite, deduplicateMemory } from './llm/memory-manager.js';
 import type { ExistingMemory } from './llm/memory-manager.js';
@@ -167,6 +174,18 @@ function coerceObjectArray<T>(val: unknown): T[] {
   return [];
 }
 
+function createDeterministicInstanceId(projectId: string, agentType: string, agentName?: string): string {
+  const digest = createHash('sha256')
+    .update(projectId)
+    .update('\n')
+    .update(agentType)
+    .update('\n')
+    .update(agentName ?? '')
+    .digest('hex')
+    .slice(0, 24);
+  return `auto-${digest}`;
+}
+
 /**
  * Create and configure the Memorix MCP Server.
  */
@@ -180,6 +199,7 @@ export interface CreateMemorixServerOptions {
   deferProjectInitUntilBound?: boolean;
   dashboardMode?: 'standalone' | 'control-plane';
   dashboardPort?: number;
+  toolProfile?: ToolProfile;
 }
 
 export async function createMemorixServer(
@@ -194,18 +214,25 @@ export async function createMemorixServer(
   deferredInit: () => Promise<void>;
   switchProject: (newCwd: string) => Promise<boolean>;
   isExplicitlyBound: () => boolean;
+  handleTransportClose: () => void;
 }> {
   // Detect current project — strict .git-based detection
   const allowUntrackedFallback = options.allowUntrackedFallback ?? true;
   const deferProjectInitUntilBound = options.deferProjectInitUntilBound ?? false;
   const dashboardMode = options.dashboardMode ?? (sharedTeam ? 'control-plane' : 'standalone');
   const configuredDashboardPort = options.dashboardPort ?? (dashboardMode === 'control-plane' ? 3211 : 3210);
+  const toolProfile = resolveToolProfile({
+    explicit: options.toolProfile,
+    envValue: process.env.MEMORIX_MODE,
+    fallback: sharedTeam ? 'team' : 'lite',
+  });
+  const teamFeaturesEnabled = isToolInProfile('team_manage', toolProfile);
   const detectedProject = detectProject(cwd);
   let rawProject: import('./types.js').ProjectInfo;
   let projectResolved = true;
   let projectResolutionError: string | null = null;
-  let explicitProjectBound = false; // Set true when memorix_session_start binds via projectRoot
-  let currentAgentId: string | undefined; // Phase 4a: set by session_start auto-registration, used by observation writes
+    let explicitProjectBound = false; // Set true when memorix_session_start binds via projectRoot
+    let currentAgentId: string | undefined; // Session-scoped collaboration identity for observation attribution after explicit join
   if (detectedProject) {
     rawProject = detectedProject;
   } else {
@@ -294,6 +321,10 @@ export async function createMemorixServer(
     }
 
     if (logPrefix === 'startup') {
+      console.error(`[memorix] Tool profile: ${describeProfile(toolProfile)}`);
+    }
+
+    if (logPrefix === 'startup') {
       console.error(`[memorix] Project: ${project.id} (${project.name})`);
       console.error(`[memorix] Data dir: ${projectDir}`);
     } else {
@@ -365,6 +396,14 @@ export async function createMemorixServer(
     name: 'memorix',
     version: typeof __MEMORIX_VERSION__ !== 'undefined' ? __MEMORIX_VERSION__ : '1.0.1',
   });
+
+  const originalRegisterTool = server.registerTool.bind(server);
+  server.registerTool = ((name: string, ...args: unknown[]) => {
+    if (!isToolInProfile(name, toolProfile)) {
+      return undefined as never;
+    }
+    return (originalRegisterTool as (...innerArgs: unknown[]) => unknown)(name, ...args) as never;
+  }) as typeof server.registerTool;
 
   // ================================================================
   // Memorix Extended Tools (3-layer Progressive Disclosure)
@@ -1824,7 +1863,7 @@ export async function createMemorixServer(
   // Enable via ~/.memorix/settings.json { "knowledgeGraph": true }
   // ================================================================
 
-  let enableKG = false;
+  let enableKG = isToolInProfile('create_entities', toolProfile);
   try {
     const { homedir } = await import('node:os');
     const { join } = await import('node:path');
@@ -2589,7 +2628,9 @@ export async function createMemorixServer(
       description:
         'Start a new coding session. Returns context from previous sessions so you can resume work seamlessly. ' +
         'Call this at the beginning of a session to track activity and get injected context. ' +
-        'Any previous active session for this project will be auto-closed.\n\n' +
+        'Any previous active session for this project will be auto-closed. ' +
+        'By default this is lightweight: it binds the project, opens a session, and injects context only. ' +
+        'Team identity is opt-in via `joinTeam: true` or a separate `team_manage` join call.\n\n' +
         'IMPORTANT for HTTP/control-plane mode: pass `projectRoot` with the absolute path to your ' +
         'workspace root (e.g., the directory open in your IDE). Memorix uses this to detect the git ' +
         'project and bind this session to the correct project context. Without it, project-scoped ' +
@@ -2597,16 +2638,18 @@ export async function createMemorixServer(
       inputSchema: {
         sessionId: z.string().optional().describe('Custom session ID (auto-generated if omitted)'),
         agent: z.string().optional().describe('Agent/IDE name (e.g., "cursor", "windsurf", "claude-code")'),
-        agentType: z.string().optional().describe('Agent type for durable identity (e.g., "windsurf", "cursor"). Defaults to agent if omitted.'),
-        instanceId: z.string().optional().describe('Stable instance ID for durable identity across restarts. Auto-generated if omitted.'),
+        agentType: z.string().optional().describe('Agent type used for optional collaboration identity mapping (e.g., "windsurf", "cursor").'),
+        instanceId: z.string().optional().describe('Stable instance ID for optional collaboration identity across restarts. If omitted with joinTeam=true, Memorix derives a deterministic fallback from the project and agent identity.'),
+        joinTeam: z.boolean().optional().describe('If true, also join the project collaboration space for this session. Defaults to false.'),
+        role: z.string().optional().describe('Explicit role override used only when joinTeam=true.'),
         projectRoot: z.string().optional().describe(
           'Absolute path to the workspace/project root directory (e.g., the folder open in your IDE). ' +
           'Memorix will detect the git project from this path and bind this session to it. ' +
-          'Required for HTTP transport when multiple projects are open simultaneously.',
+          'Required for HTTP transport when multiple projects are open simultaneously or when rebinding an existing control-plane session.',
         ),
       },
     },
-    async ({ sessionId, agent, agentType, instanceId, projectRoot: explicitRoot }) => {
+    async ({ sessionId, agent, agentType, instanceId, joinTeam, role, projectRoot: explicitRoot }) => {
       // Phase 4a: clear agent identity — must not bleed from prior session_start
       currentAgentId = undefined;
 
@@ -2678,20 +2721,29 @@ export async function createMemorixServer(
         ? `LLM enhanced mode: ${getLLMConfig()?.provider}/${getLLMConfig()?.model} (fact extraction + auto-dedup active)`
         : 'LLM mode: off (set MEMORIX_LLM_API_KEY to enable enhanced memory quality)';
 
-      // Phase 4a: Auto-register agent in TeamStore for durable identity
+      const shouldJoinTeam = !!joinTeam;
+      // Phase 4a: Explicit team join only
       let registeredAgent: import('./team/team-store.js').TeamAgentRow | null = null;
       let watermarkInfo = '';
       let rescueInfo = '';
+      let teamJoinNotice = '';
       try {
-        if (typeof teamStore !== 'undefined' && (agent || agentType)) {
+        if (!teamFeaturesEnabled && shouldJoinTeam) {
+          teamJoinNotice = 'Team join skipped: the current tool profile does not expose collaboration tools.';
+        } else if (shouldJoinTeam && typeof teamStore !== 'undefined' && (agent || agentType)) {
           // Auto-derive role from agentType using AGENT_TYPE_ROLE_MAP
           const { AGENT_TYPE_ROLE_MAP } = await import('./team/team-store.js');
           const resolvedAgentType = agentType || agent || 'unknown';
-          const resolvedRole = (resolvedAgentType ? AGENT_TYPE_ROLE_MAP[resolvedAgentType] : undefined) || 'engineer';
+          const resolvedRole = role || (resolvedAgentType ? AGENT_TYPE_ROLE_MAP[resolvedAgentType] : undefined) || 'engineer';
+          const resolvedInstanceId = instanceId || createDeterministicInstanceId(
+            project.id,
+            resolvedAgentType,
+            agent || agentType || undefined,
+          );
           registeredAgent = teamStore.registerAgent({
             projectId: project.id,
             agentType: resolvedAgentType,
-            instanceId: instanceId || undefined,
+            instanceId: resolvedInstanceId,
             name: agent || agentType || undefined,
             role: resolvedRole,
           });
@@ -2731,6 +2783,8 @@ export async function createMemorixServer(
             rescueInfo += rescueInfo ? '\n' : '';
             rescueInfo += `📋 ${availableTasks.length} task(s) available to claim. Use memorix_poll for details.`;
           }
+        } else if (shouldJoinTeam) {
+          teamJoinNotice = 'Team join skipped: pass `agent` or `agentType` to create a collaboration identity.';
         }
       } catch { /* team auto-registration is best-effort */ }
 
@@ -2739,9 +2793,11 @@ export async function createMemorixServer(
         `Project: ${project.name} (${project.id})`,
         result.session.agent ? `Agent: ${result.session.agent}` : '',
         registeredAgent ? `Agent ID: ${registeredAgent.agent_id} (instance: ${registeredAgent.instance_id})` : '',
+        !registeredAgent ? 'Team identity: not joined (memory/session context only)' : '',
         llmStatus,
-        watermarkInfo,
-        rescueInfo,
+        teamJoinNotice,
+        registeredAgent ? watermarkInfo : '',
+        registeredAgent ? rescueInfo : '',
         '',
         '💡 Tips: Use `memorix_resolve` to mark completed tasks. Use `progress` param in `memorix_store` for task tracking. Use `topicKey` to prevent duplicate memories.',
         '',
@@ -2777,7 +2833,7 @@ export async function createMemorixServer(
 
       // Inject team context if any agents are active (Phase 4a: SQLite-backed)
       try {
-        if (typeof teamStore !== 'undefined') {
+        if (registeredAgent && teamFeaturesEnabled && typeof teamStore !== 'undefined') {
           const activeAgents = teamStore.listAgents(project.id, { status: 'active' });
           if (activeAgents.length > 0) {
             lines.push('', '---', '👥 **Team Status:**');
@@ -3143,22 +3199,25 @@ export async function createMemorixServer(
   // Team Collaboration Tools (Multi-Agent) — Phase 4a: SQLite-backed
   // ================================================================
 
-  const { initTeamStore } = await import('./team/team-store.js');
-
   // Use shared TeamStore (from HTTP server) or create new one (stdio mode).
   // All team state is canonical in SQLite — no JSON persistence, no sync/flush.
-  let teamStore: Awaited<ReturnType<typeof initTeamStore>>;
-  if (sharedTeam?.teamStore) {
-    teamStore = sharedTeam.teamStore;
-  } else {
-    teamStore = await initTeamStore(projectDir);
-  }
+  let teamStore!: import('./team/team-store.js').TeamStore;
+  let initTeamStoreForProject: ((dataDir: string) => Promise<import('./team/team-store.js').TeamStore>) | undefined;
+  if (teamFeaturesEnabled) {
+    const { initTeamStore } = await import('./team/team-store.js');
+    initTeamStoreForProject = initTeamStore;
+    if (sharedTeam?.teamStore) {
+      teamStore = sharedTeam.teamStore;
+    } else {
+      teamStore = await initTeamStore(projectDir);
+    }
 
-  // Phase 4b: Wire EventBus for same-process lifecycle notifications.
-  // EventBus is process-local only — NOT a cross-process mechanism.
-  if (!teamStore.getEventBus()) {
-    const { TeamEventBus } = await import('./team/event-bus.js');
-    teamStore.setEventBus(new TeamEventBus());
+    // Phase 4b: Wire EventBus for same-process lifecycle notifications.
+    // EventBus is process-local only — NOT a cross-process mechanism.
+    if (!teamStore.getEventBus()) {
+      const { TeamEventBus } = await import('./team/event-bus.js');
+      teamStore.setEventBus(new TeamEventBus());
+    }
   }
 
   // ── team_manage (join / leave / status / listRoles / addRole / removeRole) ──
@@ -3203,17 +3262,19 @@ export async function createMemorixServer(
           role: resolvedRole,
           capabilities: capabilities ? coerceStringArray(capabilities) : undefined,
         });
+        currentAgentId = agent.agent_id;
         const caps = agent.capabilities ? JSON.parse(agent.capabilities) : [];
         return {
           content: [{
             type: 'text' as const,
-            text: `Joined team as "${agent.name}" (ID: ${agent.agent_id})\nInstance ID: ${agent.instance_id}\nRole: ${agent.role}\nActive agents: ${teamStore.getActiveCount(project.id)}`,
+            text: `Joined team as "${agent.name}" (ID: ${agent.agent_id})\nInstance ID: ${agent.instance_id}\nRole: ${agent.role}\nThis session now attributes collaboration activity to that identity.\nActive agents: ${teamStore.getActiveCount(project.id)}`,
           }],
         };
       }
       if (action === 'leave') {
         if (!agentId) return { content: [{ type: 'text' as const, text: 'agentId is required for leave' }], isError: true };
         const left = teamStore.leaveAgent(agentId);
+        if (currentAgentId === agentId) currentAgentId = undefined;
         if (!left) return { content: [{ type: 'text' as const, text: 'Agent not found' }] };
         const releasedLocks = teamStore.releaseAllLocks(agentId);
         const releasedTasks = teamStore.releaseTasksByAgent(agentId);
@@ -3496,7 +3557,7 @@ export async function createMemorixServer(
         'inbox (unread messages), tasks (your in-progress, available to claim, completed, failed), ' +
         'and team roster (active agents). Use this to decide what to work on next.',
       inputSchema: {
-        agentId: z.string().optional().describe('Your agent ID (from team_manage join or session_start). If omitted, returns project-level overview only.'),
+        agentId: z.string().optional().describe('Your agent ID (from team_manage join or session_start with joinTeam=true). If omitted, returns project-level overview only.'),
         markInboxRead: z.boolean().optional().describe('If true, mark all inbox messages as read after returning them.'),
       },
     },
@@ -3605,7 +3666,7 @@ export async function createMemorixServer(
         'Use this when completing a task and another agent should continue, ' +
         'or when you want to leave context for whoever works on this next.',
       inputSchema: {
-        fromAgentId: z.string().describe('Your agent ID (from team_manage join or session_start)'),
+        fromAgentId: z.string().describe('Your agent ID (from team_manage join or session_start with joinTeam=true)'),
         summary: z.string().describe('Human-readable summary of what you did and what needs to happen next'),
         context: z.string().describe('Detailed context for the next agent: what was done, current state, known issues, next steps'),
         toAgentId: z.string().optional().describe('Specific recipient agent ID. Omit to broadcast to all.'),
@@ -3996,10 +4057,11 @@ export async function createMemorixServer(
     // In HTTP mode, the shared TeamStore from serve-http is replaced with
     // a project-specific one. In stdio mode, a fresh one is created.
     try {
+      if (!initTeamStoreForProject) throw new Error('Team store init unavailable');
       if (sharedTeam?.teamStore) {
         // HTTP mode: check if the new projectDir already has a cached TeamStore
         // For now, reinitialize since the sharedTeam was for the original project
-        teamStore = await initTeamStore(canonicalProjectDir);
+        teamStore = await initTeamStoreForProject(canonicalProjectDir);
         // Re-attach EventBus if available
         if (!teamStore.getEventBus()) {
           const { TeamEventBus } = await import('./team/event-bus.js');
@@ -4007,7 +4069,7 @@ export async function createMemorixServer(
         }
       } else {
         // Stdio mode: always reinitialize
-        teamStore = await initTeamStore(canonicalProjectDir);
+        teamStore = await initTeamStoreForProject(canonicalProjectDir);
       }
     } catch { /* best-effort — team features degrade gracefully */ }
 
@@ -4015,8 +4077,21 @@ export async function createMemorixServer(
     return true;
   };
 
+  const handleTransportClose = (): void => {
+    const agentId = currentAgentId;
+    currentAgentId = undefined;
+    if (!teamFeaturesEnabled || !agentId) return;
+
+    try {
+      teamStore.leaveAgent(agentId);
+      teamStore.releaseAllLocks(agentId);
+      teamStore.releaseTasksByAgent(agentId);
+    } catch { /* best-effort cleanup on transport close */ }
+  };
+
   return {
     server, graphManager, projectId: project.id, deferredInit, switchProject,
     isExplicitlyBound: () => explicitProjectBound,
+    handleTransportClose,
   };
 }

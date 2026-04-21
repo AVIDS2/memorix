@@ -15,6 +15,8 @@ let dataDir: string;
 function createTestGitRepo(): string {
   const dir = mkdtempSync(join(tmpdir(), 'memorix-sdk-test-'));
   execSync('git init', { cwd: dir, stdio: 'ignore' });
+  execSync('git config user.name "Memorix Test"', { cwd: dir, stdio: 'ignore' });
+  execSync('git config user.email "tests@memorix.local"', { cwd: dir, stdio: 'ignore' });
   execSync('git commit --allow-empty -m "init"', { cwd: dir, stdio: 'ignore' });
   return dir;
 }

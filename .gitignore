@@ -19,6 +19,7 @@ image/
 # Test/demo artifacts
 .pipeline/
 .playwright-mcp/
+.planning/
 output/
 memory-game-*.png
 

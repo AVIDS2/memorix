@@ -88,7 +88,7 @@ There are four practical operator entry points:
 
 - `memorix` for the interactive local workbench in a TTY
 - `memorix serve` for stdio MCP hosts
-- `memorix background start` for the recommended long-lived HTTP control plane
+- `memorix background start` for an optional long-lived HTTP control plane
 - `memorix serve-http --port 3211` for foreground HTTP control-plane work
 
 The two server runtime modes are:
@@ -114,6 +114,8 @@ when the user wants:
 - multiple agents or sessions
 - team/task/message features
 - one shared control-plane process
+
+Default recommendation: if the user just wants memory inside one IDE or terminal, start with `memorix` or `memorix serve`. Reach for HTTP only when the dashboard, a shared background service, or explicit collaboration features are actually needed.
 
 Use:
 

@@ -41,6 +41,8 @@
 
 It keeps project memory, reasoning context, Git-derived facts, and optional collaboration state in one place so you can continue work across IDEs, sessions, terminals, and autonomous agent runs without losing project truth.
 
+For most users, the default path is simple: use the local TUI/CLI or connect one IDE over stdio MCP. Treat HTTP as the shared-control-plane mode you opt into when you specifically want the dashboard, one long-lived background service, or collaboration state shared across multiple clients.
+
 ## Why Memorix
 
 Most coding agents remember only the current thread. Memorix gives them a shared, persistent memory layer across IDEs, sessions, and projects.
@@ -97,19 +99,19 @@ Then pick the path that matches what you want to do:
 
 | You want | Run | Best for |
 | --- | --- | --- |
-| Interactive terminal workbench | `memorix` | Search, chat, store memories, run diagnostics — all from one fullscreen TUI |
-| Quick MCP setup inside one IDE | `memorix serve` | Cursor, Claude Code, Codex, Windsurf, Gemini CLI, and other stdio MCP clients |
-| Dashboard + long-lived HTTP MCP in the background | `memorix background start` | Daily use, multiple agents, collaboration, dashboard |
+| Interactive terminal workbench | `memorix` | Default starting point for local search, chat, memory capture, and diagnostics |
+| Quick MCP setup inside one IDE | `memorix serve` | Default MCP path for Cursor, Claude Code, Codex, Windsurf, Gemini CLI, and other stdio clients |
+| Dashboard + shared HTTP MCP in the background | `memorix background start` | A long-lived shared control plane for the dashboard, multiple clients, or collaboration state |
 | Foreground HTTP mode for debugging or a custom port | `memorix serve-http --port 3211` | Manual supervision, debugging, custom launch control |
 
-Most users should choose **one** of the first two options above.
+Most users should choose **one** of the first two options above. Move to HTTP only when you intentionally want the dashboard, one shared background service, or multi-client collaboration.
 
 Common paths:
 
 | Goal | Use | Why |
 | --- | --- | --- |
 | Work directly in the terminal | `memorix` or `memorix <command>` | CLI/TUI is the primary product surface. |
-| Connect an IDE or coding agent over MCP | `memorix serve` or HTTP + `memorix_session_start` | Start a lightweight memory session without joining team by default. |
+| Connect an IDE or coding agent over MCP | `memorix serve` first; HTTP + `memorix_session_start` when needed | Start a lightweight memory session without joining team by default. |
 | Run autonomous multi-agent execution | `memorix orchestrate` | Structured plan → spawn → verify → fix → review loop with CLI agents. |
 | Watch shared project memory in the browser | `memorix background start` + dashboard | Shared HTTP control plane plus dashboard for memory and opt-in collaboration state. |
 
@@ -118,6 +120,8 @@ Companion commands: `memorix background status|logs|stop`. For multi-workspace H
 Deeper details on startup, project binding, config precedence, and agent workflows: [docs/SETUP.md](docs/SETUP.md) and the [Agent Operator Playbook](docs/AGENT_OPERATOR_PLAYBOOK.md).
 
 ### TUI Workbench
+
+![Memorix TUI Workbench](https://raw.githubusercontent.com/AVIDS2/memorix/main/assets/readme-tui-workbench.png)
 
 Running `memorix` without arguments opens an interactive fullscreen terminal UI (requires a TTY). Use it for chat with project memory, search, quick memory capture, diagnostics, background service control, dashboard launch, and IDE setup. Press `/help` inside the TUI for the current command list.
 

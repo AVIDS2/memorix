@@ -5,8 +5,8 @@ Memorix is an open-source cross-agent memory layer for coding agents via MCP, wi
 Memorix has four common operator entry points:
 
 - `memorix` for the interactive local workbench in a TTY
-- `memorix serve` for stdio MCP integrations
-- `memorix background start` for the recommended long-lived HTTP control plane
+- `memorix serve` for the default stdio MCP path used by most IDE integrations
+- `memorix background start` for an optional long-lived HTTP control plane
 - `memorix serve-http --port 3211` for foreground HTTP MCP, debugging, and manual supervision
 
 The two server runtime modes are:
@@ -14,7 +14,7 @@ The two server runtime modes are:
 - `memorix serve` for stdio MCP integrations
 - `memorix background start` or `memorix serve-http --port 3211` for HTTP MCP, the dashboard, and collaboration features
 
-For the smoothest multi-project setup, use `memorix background start` as the main control plane. Use `memorix serve` when an IDE specifically wants a stdio MCP server process.
+For most users, start with `memorix` or `memorix serve`. Move to HTTP only when you explicitly want the dashboard, one shared background control plane, or multi-client collaboration features.
 
 ## Current Release Context
 
@@ -77,7 +77,7 @@ See [CONFIGURATION.md](CONFIGURATION.md) for the full model.
 memorix serve
 ```
 
-Use this when your IDE launches Memorix as a local stdio MCP server.
+Use this when your IDE launches Memorix as a local stdio MCP server. This is the default MCP path for most single-IDE setups.
 
 Generic stdio MCP config:
 
@@ -104,6 +104,8 @@ This mode gives you:
 - dashboard at `http://localhost:3211`
 - Team and collaboration features
 - a single long-lived Memorix process shared by multiple agents
+
+Choose this mode when you intentionally want a shared control plane. It is not the default starting point for normal single-IDE memory use.
 
 Companion commands:
 

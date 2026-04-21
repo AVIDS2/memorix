@@ -33,18 +33,17 @@
 
 ---
 
-## 给 Coding Agent 的说明
+> 如果你是通过 Cursor、Windsurf、Claude Code、Codex 或其他 AI coding agent 来操作 Memorix，请先读 [Agent Operator Playbook](docs/AGENT_OPERATOR_PLAYBOOK.md)。那份文档是面向 agent 的安装、MCP、hook 和排障手册。
 
-> **如果你是 AI coding agent**，用户让你安装、配置或排障 Memorix —— 请先读 [Agent Operator Playbook](docs/AGENT_OPERATOR_PLAYBOOK.md)。这是专门写给你的操作手册，涵盖：
->
-> - 安装与运行模式选择
-> - Git 与项目绑定规则
-> - stdio 与 HTTP control plane 的区别
-> - 各 IDE / Agent 的集成和 hooks
-> - dot 目录按需生成策略
-> - 排障顺序和安全操作边界
+## Memorix 是什么？
 
-## 为什么是 Memorix
+**Memorix 是一个面向 Coding Agent 的、本地优先的记忆控制面。**
+
+它把项目记忆、推理上下文、Git 导出的工程事实，以及可选的协作状态放在同一套本地系统里，让你可以在 IDE、终端、不同 session 和自主 agent 运行之间持续推进同一个项目，而不丢失上下文。
+
+对大多数用户来说，默认路径其实很简单：直接用本地 TUI/CLI，或者把一个 IDE 通过 stdio MCP 接进来。HTTP 更适合作为你主动启用的共享控制面模式，用在 dashboard、长驻后台服务，或多个客户端共享协作状态的场景里。
+
+## 为什么选择 Memorix
 
 **唯一同时保留 Git 真相、推理上下文和本地控制权的跨 Agent 记忆层 — 支持 10 个 IDE 和 Agent。**
 
@@ -102,19 +101,19 @@ Memorix 使用两类文件：
 
 | 你想做什么 | 运行命令 | 适合场景 |
 | --- | --- | --- |
-| 交互式终端工作台 | `memorix` | 搜索、聊天、存储记忆、诊断 — 全在一个全屏 TUI 里完成 |
-| 先把 Memorix 快速接到一个 IDE 里 | `memorix serve` | Cursor、Claude Code、Codex、Windsurf、Gemini CLI 等 stdio MCP 客户端 |
-| 在后台长期运行 HTTP MCP + Dashboard | `memorix background start` | 日常使用、多 Agent、协作、dashboard |
+| 交互式终端工作台 | `memorix` | 默认起手式：本地搜索、聊天、记忆录入、诊断都在一个全屏 TUI 里完成 |
+| 先把 Memorix 快速接到一个 IDE 里 | `memorix serve` | 默认 MCP 路径，适合 Cursor、Claude Code、Codex、Windsurf、Gemini CLI 等 stdio 客户端 |
+| 在后台长期运行 HTTP MCP + Dashboard | `memorix background start` | 当你明确需要共享控制面、dashboard、多个客户端或协作状态时再启用 |
 | 把 HTTP 模式放在前台调试或自定义端口 | `memorix serve-http --port 3211` | 调试、手动观察日志、自定义启动方式 |
 
-对大多数用户来说，选上面前两条之一就够了。
+对大多数用户来说，选上面前两条之一就够了。只有在你明确想要 dashboard、共享后台服务或多客户端协作时，再切到 HTTP。
 
 心智模型：
 
 | 如果你是... | 使用... | 原因 |
 | --- | --- | --- |
 | 人类用户在终端里操作 Memorix | `memorix` 或 `memorix <command>` | CLI/TUI 是主要产品入口。 |
-| IDE 或 Coding Agent 只需要记忆能力 | MCP（`memorix serve` 或 HTTP）+ `memorix_session_start` | 启动轻量记忆会话；默认不加入 team。 |
+| IDE 或 Coding Agent 只需要记忆能力 | 优先 `memorix serve`；需要时再用 HTTP + `memorix_session_start` | 启动轻量记忆会话；默认不加入 team。 |
 | 需要自主多 Agent 开发循环 | `memorix orchestrate` | 这是实际的多 Agent loop：计划、启动 CLI agents、验证、修复、审查。 |
 | 需要观察共享项目状态 | `memorix background start` + Dashboard | Dashboard 展示当前项目记忆和显式加入后的协作状态。 |
 
@@ -124,13 +123,15 @@ Memorix 使用两类文件：
 
 ### TUI 工作台
 
+![Memorix TUI Workbench](https://raw.githubusercontent.com/AVIDS2/memorix/main/assets/readme-tui-workbench.png)
+
 在终端中直接运行 `memorix`（不带参数）即可打开交互式全屏 TUI（需要 TTY）。它适合用于项目记忆问答、搜索、快速存储、诊断、后台服务控制、Dashboard 打开和 IDE 配置。进入 TUI 后用 `/help` 查看当前命令列表。
 
 单次聊天（不进 TUI）：`memorix ask "你的问题"`。
 
 ### Operator CLI
 
-Memorix 现在提供的是一套 **CLI-first 的 operator 命令面**。人类用户可以直接在终端里完成完整操作，不必什么都绕到 MCP tool call；MCP 继续作为 IDE / agent 的集成协议层存在。
+Memorix 现在提供的是一套 **CLI-first 的 operator 命令面**。你可以直接在终端里完成完整操作，不必什么都绕到 MCP tool call；MCP 继续作为 IDE / agent 的集成协议层存在。
 
 ```bash
 memorix session start --agent codex-main --agentType codex

@@ -385,33 +385,41 @@ describe('HTTP Transport', () => {
     const transportA = new StreamableHTTPClientTransport(new URL(`${BASE_URL}/mcp`));
     const transportB = new StreamableHTTPClientTransport(new URL(`${BASE_URL}/mcp`));
 
-    try {
-      await clientA.connect(transportA);
-      await clientB.connect(transportB);
-      await clientA.sendRootsListChanged();
-      await clientB.sendRootsListChanged();
-      await new Promise(resolve => setTimeout(resolve, 300));
+      try {
+        await clientA.connect(transportA);
+        await clientB.connect(transportB);
+        await clientA.sendRootsListChanged();
+        await clientB.sendRootsListChanged();
+        const waitForBoundSessionText = async (
+          client: any,
+          agent: string,
+          expectedProjectName: string,
+          expectedProjectId: string,
+        ): Promise<string> => {
+          let lastText = '';
+          for (let attempt = 0; attempt < 20; attempt++) {
+            const result = await client.request({
+              method: 'tools/call',
+              params: {
+                name: 'memorix_session_start',
+                arguments: { agent },
+              },
+            }, CallToolResultSchema);
+            const text = result.content?.[0]?.text ?? '';
+            lastText = text;
+            if (text.includes(`Project: ${expectedProjectName}`) && text.includes(expectedProjectId)) {
+              return text;
+            }
+            await new Promise(resolve => setTimeout(resolve, 200));
+          }
+          return lastText;
+        };
 
-      const resultA = await clientA.request({
-        method: 'tools/call',
-        params: {
-          name: 'memorix_session_start',
-          arguments: { agent: 'http-roots-a' },
-        },
-      }, CallToolResultSchema);
-      const resultB = await clientB.request({
-        method: 'tools/call',
-        params: {
-          name: 'memorix_session_start',
-          arguments: { agent: 'http-roots-b' },
-        },
-      }, CallToolResultSchema);
-
-      const textA = resultA.content?.[0]?.text ?? '';
-      const textB = resultB.content?.[0]?.text ?? '';
-      expect(textA).toContain('Project: http-project-a');
-      expect(textA).toContain('AVIDS2/http-project-a');
-      expect(textB).toContain('Project: http-project-b');
+        const textA = await waitForBoundSessionText(clientA, 'http-roots-a', 'http-project-a', 'AVIDS2/http-project-a');
+        const textB = await waitForBoundSessionText(clientB, 'http-roots-b', 'http-project-b', 'AVIDS2/http-project-b');
+        expect(textA).toContain('Project: http-project-a');
+        expect(textA).toContain('AVIDS2/http-project-a');
+        expect(textB).toContain('Project: http-project-b');
       expect(textB).toContain('AVIDS2/http-project-b');
     } finally {
       await transportA.close();

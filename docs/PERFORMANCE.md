@@ -37,7 +37,9 @@ On the release development machine used for this check, the healthy HTTP control
 | Knob | Default | Use When |
 | --- | --- | --- |
 | `MEMORIX_SESSION_TIMEOUT_MS` | `1800000` (30 min) | Increase for HTTP MCP clients that do not recover from stale session IDs after idle time |
+| `MEMORIX_FORMATION_TIMEOUT_MS` | `12000` (12 s) | Raise when LLM-backed formation should outlive slow proxy/provider hops |
 | `MEMORIX_LLM_API_KEY` / `OPENAI_API_KEY` | unset | Enable LLM-backed enrichment, extraction, rerank, or skill generation |
+| `MEMORIX_LLM_TIMEOUT_MS` | `30000` (30 s) | Bound a single LLM-backed extraction/resolve call |
 | `MEMORIX_RERANK_TIMEOUT_MS` | provider default | Bound slow LLM rerank calls |
 | `memorix retention status` | report only | Inspect whether memory growth needs cleanup |
 | `memorix retention archive` | explicit | Archive expired memories when the project gets noisy |
@@ -47,6 +49,7 @@ On the release development machine used for this check, the healthy HTTP control
 
 - For memory-only use, prefer stdio MCP or a lightweight `memorix_session_start`; do not join the Agent Team by default.
 - For long-lived IDE sessions over HTTP, set `MEMORIX_SESSION_TIMEOUT_MS=86400000` before `memorix background start` if your client is stale-session-sensitive.
+- If LLM-backed formation is timing out against a slow proxy/provider, raise `MEMORIX_FORMATION_TIMEOUT_MS` and keep it higher than `MEMORIX_LLM_TIMEOUT_MS`, because the full pipeline can include multiple LLM-backed stages.
 - For Docker, use it when you want a managed HTTP control plane. Do not use image size alone as the runtime memory estimate.
 - For autonomous multi-agent work, expect CPU and disk activity proportional to the spawned agents and verification commands.
 - For release checks, measure build/test/pack separately from idle service cost.

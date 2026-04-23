@@ -47,10 +47,12 @@ import { initLLM, isLLMEnabled, getLLMConfig } from './llm/provider.js';
 import { compactOnWrite, deduplicateMemory } from './llm/memory-manager.js';
 import type { ExistingMemory } from './llm/memory-manager.js';
 import { runFormation, getMetricsSummary, getBeforeAfterMetrics } from './memory/formation/index.js';
-import type { FormationConfig, SearchHit, FormedMemory } from './memory/formation/types.js';
+import type { FormationConfig, SearchHit, FormedMemory, FormationStage, FormationStageEvent } from './memory/formation/types.js';
+import { parseFormationTimeoutMs } from './server/formation-timeout.js';
 
 // ── Timeout budgets for LLM-heavy paths ──────────────────────────
-const FORMATION_TIMEOUT_MS = 12_000;   // Formation pipeline (extract+resolve+evaluate)
+const FORMATION_TIMEOUT_MS = parseFormationTimeoutMs(process.env.MEMORIX_FORMATION_TIMEOUT_MS); // Formation pipeline (extract+resolve+evaluate)
+const COMPACT_ON_WRITE_TIMEOUT_MS = 12_000; // Legacy compact-on-write fallback path
 const COMPRESSION_TIMEOUT_MS = 5_000;  // Narrative compression
 const DEDUP_PER_PAIR_TIMEOUT_MS = 5_000; // Per-pair dedup LLM call
 
@@ -63,6 +65,14 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
       timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
     }),
   ]).finally(() => clearTimeout(timer!));
+}
+
+function formatFormationStageDurations(stageDurationsMs: Partial<Record<FormationStage, number>>): string {
+  const orderedStages: FormationStage[] = ['extract', 'resolve', 'evaluate'];
+  const parts = orderedStages
+    .filter(stage => stageDurationsMs[stage] !== undefined)
+    .map(stage => `${stage}=${stageDurationsMs[stage]}ms`);
+  return parts.join(', ');
 }
 
 /** Timestamp of last MCP-initiated write — hot-reload skips changes within 10s */
@@ -482,6 +492,19 @@ export async function createMemorixServer(
       let formationResult: FormedMemory | null = null;
       let formationNote = '';
       if (useFormation && !topicKey && !progress) {
+        let currentFormationStage: FormationStage | 'setup' = 'setup';
+        const completedFormationStages: Partial<Record<FormationStage, number>> = {};
+        const formationStartTime = Date.now();
+        const onFormationStageEvent = (event: FormationStageEvent): void => {
+          if (event.status === 'start') {
+            currentFormationStage = event.stage;
+            return;
+          }
+          currentFormationStage = event.stage;
+          if (event.stageDurationMs !== undefined) {
+            completedFormationStages[event.stage] = event.stageDurationMs;
+          }
+        };
         try {
           const formationConfig: FormationConfig = {
             mode: 'active',
@@ -516,6 +539,7 @@ export async function createMemorixServer(
               };
             },
             getEntityNames: () => graphManager.getEntityNames(),
+            onStageEvent: onFormationStageEvent,
           };
 
           formationResult = await withTimeout(
@@ -543,6 +567,14 @@ export async function createMemorixServer(
         } catch (formationErr) {
           // Formation timeout or failure → fall through to store without enrichment
           const isTimeout = formationErr instanceof Error && formationErr.message.includes('timed out');
+          const elapsedMs = Date.now() - formationStartTime;
+          const stageSummary = formatFormationStageDurations(completedFormationStages);
+          console.error(
+            `[memorix] Formation ${isTimeout ? 'timed out' : 'failed'} in memorix_store after ${elapsedMs}ms/${FORMATION_TIMEOUT_MS}ms at stage ${currentFormationStage}${stageSummary ? ` | completed: ${stageSummary}` : ''}`,
+          );
+          if (!isTimeout && formationErr instanceof Error) {
+            console.error(`[memorix] Formation error: ${formationErr.message}`);
+          }
           formationNote = `\n[WARN] Formation ${isTimeout ? 'timed out' : 'failed'} — storing base observation without enrichment`;
         }
       }
@@ -646,7 +678,7 @@ export async function createMemorixServer(
                 { title, narrative, facts: safeFacts ?? [] },
                 existingMemories,
               ),
-              FORMATION_TIMEOUT_MS,
+              COMPACT_ON_WRITE_TIMEOUT_MS,
               'Compact-on-write',
             );
 

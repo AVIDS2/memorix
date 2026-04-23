@@ -74,6 +74,59 @@ describe('Formation Pipeline', () => {
     expect(result.resolution.reason).toContain('TopicKey');
   });
 
+  it('should emit stage events and record per-stage durations', async () => {
+    const events: string[] = [];
+    const result = await runFormation(
+      makeInput(),
+      makeConfig({
+        onStageEvent: (event) => {
+          events.push(`${event.stage}:${event.status}`);
+        },
+      }),
+    );
+
+    expect(events).toEqual([
+      'extract:start',
+      'extract:success',
+      'resolve:start',
+      'resolve:success',
+      'evaluate:start',
+      'evaluate:success',
+    ]);
+    expect(result.pipeline.stageDurationsMs.extract).toBeGreaterThanOrEqual(0);
+    expect(result.pipeline.stageDurationsMs.resolve).toBeGreaterThanOrEqual(0);
+    expect(result.pipeline.stageDurationsMs.evaluate).toBeGreaterThanOrEqual(0);
+  });
+
+  it('should emit a skipped resolve event for topicKey inputs', async () => {
+    const events: string[] = [];
+    const result = await runFormation(
+      makeInput({ topicKey: 'architecture/database' }),
+      makeConfig({
+        onStageEvent: (event) => {
+          events.push(`${event.stage}:${event.status}`);
+        },
+      }),
+    );
+
+    expect(events).toContain('resolve:skipped');
+    expect(result.pipeline.stageDurationsMs.resolve).toBe(0);
+  });
+
+  it('should ignore errors thrown by stage observers', async () => {
+    const result = await runFormation(
+      makeInput(),
+      makeConfig({
+        onStageEvent: () => {
+          throw new Error('observer failed');
+        },
+      }),
+    );
+
+    expect(result.pipeline.stagesCompleted).toBe(3);
+    expect(result.pipeline.stageDurationsMs.extract).toBeGreaterThanOrEqual(0);
+  });
+
   it('should return "discard" resolution for near-duplicates', async () => {
     const result = await runFormation(
       makeInput({ narrative: 'Short note.' }),

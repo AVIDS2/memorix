@@ -18,6 +18,7 @@ import type {
   FormationConfig,
   FormationMetrics,
   BeforeAfterMetrics,
+  FormationStage,
 } from './types.js';
 import { runExtract } from './extract.js';
 import { runResolve } from './resolve.js';
@@ -270,21 +271,46 @@ export async function runFormation(
 ): Promise<FormedMemory> {
   const startTime = Date.now();
   let stagesCompleted = 0;
+  const stageDurationsMs: Partial<Record<FormationStage, number>> = {};
+  const emitStageEvent = (
+    stage: FormationStage,
+    status: 'start' | 'success' | 'skipped',
+    stageDurationMs?: number,
+  ): void => {
+    try {
+      config.onStageEvent?.({
+        stage,
+        status,
+        stageDurationMs,
+        totalElapsedMs: Date.now() - startTime,
+      });
+    } catch {
+      // Diagnostics hooks must never break the formation pipeline.
+    }
+  };
 
   // ── Stage 1: Extract ──
   const existingEntities = config.getEntityNames();
+  const extractStartTime = Date.now();
+  emitStageEvent('extract', 'start');
   const extraction = await runExtract(input, existingEntities, config.useLLM);
+  stageDurationsMs.extract = Date.now() - extractStartTime;
+  emitStageEvent('extract', 'success', stageDurationsMs.extract);
   stagesCompleted = 1;
 
   // ── Stage 2: Resolve ──
   // Skip resolve for topicKey upserts (they have their own resolution via topicKey)
   let resolution;
   if (input.topicKey) {
+    stageDurationsMs.resolve = 0;
+    emitStageEvent('resolve', 'skipped', 0);
     resolution = {
       action: 'new' as const,
       reason: 'TopicKey upsert — bypasses resolve stage',
     };
   } else {
+    const resolveStartTime = Date.now();
+    emitStageEvent('resolve', 'start');
     resolution = await runResolve(
       extraction,
       input.projectId,
@@ -292,11 +318,17 @@ export async function runFormation(
       config.getObservation,
       config.useLLM,
     );
+    stageDurationsMs.resolve = Date.now() - resolveStartTime;
+    emitStageEvent('resolve', 'success', stageDurationsMs.resolve);
   }
   stagesCompleted = 2;
 
   // ── Stage 3: Evaluate ──
+  const evaluateStartTime = Date.now();
+  emitStageEvent('evaluate', 'start');
   const evaluation = runEvaluate(extraction);
+  stageDurationsMs.evaluate = Date.now() - evaluateStartTime;
+  emitStageEvent('evaluate', 'success', stageDurationsMs.evaluate);
   stagesCompleted = 3;
 
   const durationMs = Date.now() - startTime;
@@ -320,6 +352,7 @@ export async function runFormation(
       durationMs,
       stagesCompleted,
       shadow: config.mode === 'shadow',
+      stageDurationsMs,
     },
 
     // Governance fields

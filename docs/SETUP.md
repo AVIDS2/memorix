@@ -133,8 +133,8 @@ Important for multi-project usage:
 Recommended when:
 
 - you want to use the dashboard regularly
-- you want one shared MCP endpoint for multiple IDEs or agents
-- you want a live HTTP control-plane endpoint instead of on-demand stdio startup
+- you want Team tools to work
+- you want multiple IDEs or agents to talk to one Memorix instance
 
 Generic HTTP MCP config:
 

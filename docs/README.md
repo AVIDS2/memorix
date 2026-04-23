@@ -1,10 +1,8 @@
 # Memorix Docs Map
 
-Use this page when the README is no longer enough.
+Use this page as the shortest path to the right Memorix document.
 
-The README is intentionally the short product overview. This docs map is the shortest path to the full operating and reference docs.
-
-Memorix docs are intentionally split by **user intent**, not by one giant flat manual.
+Memorix docs are intentionally split by **user intent**, not by a giant flat list.
 
 ---
 
@@ -30,10 +28,10 @@ Memorix docs are intentionally split by **user intent**, not by one giant flat m
 | Resource profile, heavier paths, and tuning knobs | [PERFORMANCE.md](PERFORMANCE.md) |
 | Memory formation, enrichment, and quality pipeline | [MEMORY_FORMATION_PIPELINE.md](MEMORY_FORMATION_PIPELINE.md) |
 | Git-derived engineering memory | [GIT_MEMORY.md](GIT_MEMORY.md) |
-| Agent Team: autonomous agents, tasks, messages, locks, poll | [API Reference: Section 9](API_REFERENCE.md#9-agent-team-tools) |
-| Multi-agent orchestration loop | [API Reference](API_REFERENCE.md) - `memorix orchestrate` |
-| Workspace & rules sync across agents | [API Reference: Section 8](API_REFERENCE.md#8-workspace-and-rules-tools) |
-| Project skills and mini-skill promotion | [API Reference: Section 7](API_REFERENCE.md#7-skills-and-promotion-tools) |
+| Agent Team: autonomous agents, tasks, messages, locks, poll | [API_REFERENCE.md §9](API_REFERENCE.md#9-agent-team-tools) |
+| Multi-agent orchestration loop | [API_REFERENCE.md](API_REFERENCE.md) — `memorix orchestrate` |
+| Workspace & rules sync across agents | [API_REFERENCE.md §8](API_REFERENCE.md#8-workspace-and-rules-tools) |
+| Project skills and mini-skill promotion | [API_REFERENCE.md §7](API_REFERENCE.md#7-skills-and-promotion-tools) |
 
 ---
 

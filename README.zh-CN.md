@@ -6,7 +6,7 @@
 
 <p align="center">
   <strong>面向 Coding Agent 的开源跨 Agent Memory Layer。</strong><br>
-  通过 MCP 为 Cursor、Claude Code、Codex、Windsurf、Gemini CLI、GitHub Copilot、Kiro、OpenCode、Antigravity 和 Trae 提供分级支持。
+  通过 MCP 为 Cursor、Claude Code、Codex、Windsurf、Gemini CLI、GitHub Copilot、Kiro、OpenCode、Antigravity、Trae 以及其他兼容 MCP 的客户端提供分级支持。
 </p>
 
 <p align="center">
@@ -317,9 +317,72 @@ await client.close();
 
 ## 工作原理
 
-<p align="center">
-  <img src="assets/architecture.svg" alt="Memorix Architecture" width="960">
-</p>
+```mermaid
+flowchart LR
+    subgraph ING["接入入口"]
+        A["Git Hooks<br/>commit + ingest"]
+        B["MCP Tools<br/>search, store, recall"]
+        C["CLI / TUI<br/>operator workflows"]
+        D["Dashboard<br/>read-mostly project view"]
+    end
+
+    subgraph RUN["运行时"]
+        E["stdio MCP Server<br/>memorix serve"]
+        F["HTTP Control Plane<br/>background / serve-http"]
+        G["项目绑定<br/>git root + config"]
+    end
+
+    subgraph MEM["记忆层"]
+        H["Observation<br/>事实、坑点、修复"]
+        I["Reasoning<br/>原因、权衡、风险"]
+        J["Git Memory<br/>commit-derived ground truth"]
+        K["Session + Agent Team<br/>显式加入的任务、锁、交接"]
+    end
+
+    subgraph PROC["处理层"]
+        L["Formation<br/>质量整理"]
+        M["Embedding + Index<br/>混合检索"]
+        N["Graph Linking<br/>实体关系"]
+        O["Dedup + Retention<br/>长期收敛"]
+    end
+
+    subgraph USE["使用面"]
+        P["Search / Timeline / Detail"]
+        Q["Dashboard / Agent Team View<br/>只读为主的状态面板"]
+        R["Recall / Handoff / Resume"]
+        S["Skills / Sync / Orchestrate"]
+    end
+
+    A --> E
+    B --> E
+    C --> E
+    D --> F
+
+    E --> G
+    F --> G
+
+    G --> H
+    G --> I
+    G --> J
+    G --> K
+
+    H --> L
+    H --> M
+    I --> L
+    I --> N
+    J --> M
+    J --> N
+    K --> O
+
+    H --> P
+    I --> P
+    J --> P
+    K --> Q
+    H --> R
+    I --> R
+    J --> R
+    K --> S
+```
 
 Memorix 不是一条单线流水线。它从多个入口接收记忆，把内容落到多种记忆基底上，经过异步质量与索引处理，再通过不同的检索和协作界面提供给用户与 agent。
 

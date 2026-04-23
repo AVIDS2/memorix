@@ -6,7 +6,7 @@
 
 <p align="center">
   <strong>Open-source cross-agent memory layer for coding agents.</strong><br>
-  Tiered MCP support across Cursor, Claude Code, Codex, Windsurf, Gemini CLI, GitHub Copilot, Kiro, OpenCode, Antigravity, and Trae.
+  Tiered MCP support across Cursor, Claude Code, Codex, Windsurf, Gemini CLI, GitHub Copilot, Kiro, OpenCode, Antigravity, Trae, and other MCP-compatible clients.
 </p>
 
 <p align="center">
@@ -317,9 +317,72 @@ Three subpath exports:
 
 ## How It Works
 
-<p align="center">
-  <img src="assets/architecture.svg" alt="Memorix Architecture" width="960">
-</p>
+```mermaid
+flowchart LR
+    subgraph ING["Ingress"]
+        A["Git Hooks<br/>commit + ingest"]
+        B["MCP Tools<br/>search, store, recall"]
+        C["CLI / TUI<br/>operator workflows"]
+        D["Dashboard<br/>read-mostly project view"]
+    end
+
+    subgraph RUN["Runtime"]
+        E["stdio MCP Server<br/>memorix serve"]
+        F["HTTP Control Plane<br/>background / serve-http"]
+        G["Project Binding<br/>git root + config"]
+    end
+
+    subgraph MEM["Memory"]
+        H["Observation<br/>facts, gotchas, fixes"]
+        I["Reasoning<br/>why, trade-offs, risks"]
+        J["Git Memory<br/>commit-derived ground truth"]
+        K["Session + Agent Team<br/>opt-in tasks, locks, handoffs"]
+    end
+
+    subgraph PROC["Processing"]
+        L["Formation<br/>quality shaping"]
+        M["Embedding + Index<br/>hybrid retrieval"]
+        N["Graph Linking<br/>entity relations"]
+        O["Dedup + Retention<br/>consolidate over time"]
+    end
+
+    subgraph USE["Consumption"]
+        P["Search / Timeline / Detail"]
+        Q["Dashboard / Agent Team View<br/>read-mostly state"]
+        R["Recall / Handoff / Resume"]
+        S["Skills / Sync / Orchestrate"]
+    end
+
+    A --> E
+    B --> E
+    C --> E
+    D --> F
+
+    E --> G
+    F --> G
+
+    G --> H
+    G --> I
+    G --> J
+    G --> K
+
+    H --> L
+    H --> M
+    I --> L
+    I --> N
+    J --> M
+    J --> N
+    K --> O
+
+    H --> P
+    I --> P
+    J --> P
+    K --> Q
+    H --> R
+    I --> R
+    J --> R
+    K --> S
+```
 
 Memorix is not a single linear pipeline. It accepts memory from multiple ingress surfaces, persists it across multiple substrates, runs several asynchronous quality/indexing branches, and exposes the results through retrieval, dashboard, and explicit Agent Team surfaces.
 

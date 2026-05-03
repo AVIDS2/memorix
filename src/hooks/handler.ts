@@ -132,6 +132,13 @@ function markTriggered(eventKey: string): void {
   cooldowns.set(eventKey, Date.now());
 }
 
+function buildCooldownKey(input: NormalizedHookInput, content: string): string {
+  if (input.event === 'user_prompt' || input.event === 'post_response') {
+    return `${input.event}:${input.sessionId}:${content.slice(0, 160)}`;
+  }
+  return `${input.event}:${input.filePath ?? input.command ?? input.toolName ?? 'general'}`;
+}
+
 /**
  * Reset all cooldowns (for testing only — in production each hook call is a separate process).
  */
@@ -430,7 +437,9 @@ export async function handleHookEvent(input: NormalizedHookInput): Promise<{
   }
 
   // Minimum length gate
-  const minLen = input.event === 'user_prompt' ? MIN_PROMPT_LENGTH : policy.minLength;
+  const minLen = (input.event === 'user_prompt' || input.event === 'post_response')
+    ? MIN_PROMPT_LENGTH
+    : policy.minLength;
   if (content.length < minLen) {
     return { observation: null, output: defaultOutput };
   }
@@ -459,7 +468,7 @@ export async function handleHookEvent(input: NormalizedHookInput): Promise<{
   }
 
   // Cooldown (per-file or per-command, not per-tool-category)
-  const cooldownKey = `${input.event}:${input.filePath ?? input.command ?? input.toolName ?? 'general'}`;
+  const cooldownKey = buildCooldownKey(input, content);
   if (isInCooldown(cooldownKey)) {
     return { observation: null, output: defaultOutput };
   }

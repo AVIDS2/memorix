@@ -287,7 +287,7 @@ function generateKiroHookFiles(): Array<{ filename: string; content: string }> {
  * protocol used by all agents. spawnSync works in both Node.js and Bun
  * runtimes (OpenCode may fall back to Node.js on Windows).
  */
-const OPENCODE_PLUGIN_VERSION = 5;
+const OPENCODE_PLUGIN_VERSION = 6;
 
 function generateOpenCodePlugin(): string {
   return `/**
@@ -306,6 +306,8 @@ import { spawnSync } from 'node:child_process';
 export const MemorixPlugin = async ({ project, client, $, directory, worktree }) => {
   // Generate a stable session ID for this plugin lifetime
   const sessionId = \`opencode-\${Date.now().toString(36)}-\${Math.random().toString(36).slice(2, 8)}\`;
+  let pendingAssistantResponse = null;
+  let lastDeliveredAssistantKey = '';
 
   /**
    * Send event JSON to \`memorix hook\` via child_process.spawnSync.
@@ -338,6 +340,33 @@ export const MemorixPlugin = async ({ project, client, $, directory, worktree })
     }
   }
 
+  function extractMessageInfo(input) {
+    if (input && typeof input === 'object') {
+      if (input.info && typeof input.info === 'object') return input.info;
+      if (input.message && typeof input.message === 'object') return input.message;
+      if (input.properties && typeof input.properties === 'object') {
+        if (input.properties.info && typeof input.properties.info === 'object') return input.properties.info;
+        if (input.properties.message && typeof input.properties.message === 'object') return input.properties.message;
+      }
+    }
+    return input;
+  }
+
+  function extractMessageText(message) {
+    if (!message || typeof message !== 'object') return '';
+    if (typeof message.content === 'string') return message.content.trim();
+    const parts = Array.isArray(message.parts) ? message.parts : [];
+    return parts
+      .map((part) => {
+        if (!part || typeof part !== 'object') return '';
+        if (typeof part.text === 'string') return part.text;
+        if (typeof part.content === 'string') return part.content;
+        return '';
+      })
+      .join('')
+      .trim();
+  }
+
   return {
     /** Session created — record session start */
     'session.created': async ({ session }) => {
@@ -350,6 +379,21 @@ export const MemorixPlugin = async ({ project, client, $, directory, worktree })
 
     /** Session idle — record session end */
     'session.idle': async ({ session }) => {
+      if (pendingAssistantResponse?.text) {
+        const deliveryKey = pendingAssistantResponse.id
+          ? \`\${pendingAssistantResponse.id}:\${pendingAssistantResponse.text}\`
+          : pendingAssistantResponse.text;
+        if (deliveryKey !== lastDeliveredAssistantKey) {
+          runHook({
+            agent: 'opencode',
+            hook_event_name: 'message.updated',
+            ai_response: pendingAssistantResponse.text,
+            message_id: pendingAssistantResponse.id,
+            cwd: directory,
+          });
+          lastDeliveredAssistantKey = deliveryKey;
+        }
+      }
       runHook({
         agent: 'opencode',
         hook_event_name: 'session.idle',
@@ -376,6 +420,19 @@ export const MemorixPlugin = async ({ project, client, $, directory, worktree })
         command: input?.command ?? input?.name ?? '',
         cwd: directory,
       });
+    },
+
+    /** Message updated — cache the latest assistant response until session.idle */
+    'message.updated': async (input, output) => {
+      const message = extractMessageInfo(input);
+      const role = message?.role ?? input?.role ?? input?.info?.role;
+      if (role !== 'assistant') return;
+      const text = extractMessageText(message);
+      if (!text) return;
+      pendingAssistantResponse = {
+        id: message?.id ?? input?.id ?? input?.messageID,
+        text,
+      };
     },
 
     /** Session compacted — record post-compact event */
@@ -698,7 +755,7 @@ export async function installHooks(
       return {
         agent,
         configPath: pluginPath,
-        events: ['session_start', 'session_end', 'post_tool', 'post_edit', 'post_compact', 'post_command'],
+        events: ['session_start', 'session_end', 'post_tool', 'post_edit', 'post_compact', 'post_command', 'post_response'],
         generated: { note: 'OpenCode plugin installed at ' + pluginPath },
       };
     }

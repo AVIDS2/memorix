@@ -180,6 +180,19 @@ describe('Hook Normalizer', () => {
       expect(input.aiResponse).toBe('I fixed the bug by...');
     });
 
+    it('should normalize OpenCode message.updated → post_response with aiResponse', () => {
+      const input = normalizeHookInput({
+        agent: 'opencode',
+        hook_event_name: 'message.updated',
+        ai_response: 'Finished implementing the fix and updated the tests.',
+        session_id: 'oc-1',
+        cwd: '/project',
+      });
+      expect(input.agent).toBe('opencode');
+      expect(input.event).toBe('post_response');
+      expect(input.aiResponse).toBe('Finished implementing the fix and updated the tests.');
+    });
+
     it('should normalize Windsurf MCP tool use', () => {
       const input = normalizeHookInput({
         agent_action_name: 'post_mcp_tool_use',

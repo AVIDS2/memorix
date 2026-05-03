@@ -121,3 +121,29 @@ describe('getRecentMemories project scope', () => {
     vi.doUnmock('../../src/store/persistence.js');
   });
 });
+
+describe('getKnowledgeBase project scope', () => {
+  it('returns only knowledge from the specified project', async () => {
+    vi.doMock('../../src/project/detector.js', () => ({
+      detectProject: () => ({ id: PROJECT_A, name: 'project-a', rootPath: testDir, gitRemote: 'none' }),
+    }));
+    vi.doMock('../../src/store/persistence.js', async () => {
+      const actual = await vi.importActual('../../src/store/persistence.js') as any;
+      return { ...actual, getProjectDataDir: async () => dataDir };
+    });
+
+    const { getKnowledgeBase } = await import('../../src/cli/tui/data.js');
+    const kb = await getKnowledgeBase(PROJECT_A);
+
+    // Should return a valid overview for project A
+    expect(kb).not.toBeNull();
+    expect(kb!.projectId).toBe(PROJECT_A);
+    expect(kb!.title).toBe('Knowledge Base');
+    expect(kb!.subtitle).toBe('LLM Wiki');
+    // Project A has 2 active observations, Project B has 2 -- only A's should be counted
+    expect(kb!.stats.observationsUsed).toBe(2);
+
+    vi.doUnmock('../../src/project/detector.js');
+    vi.doUnmock('../../src/store/persistence.js');
+  });
+});

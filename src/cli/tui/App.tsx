@@ -22,6 +22,7 @@ import {
   CleanupView,
   IngestView,
   IntegrateView,
+  WikiView,
   StatusMessage,
 } from './Panels.js';
 import { ConfigureView } from './ConfigureView.js';
@@ -42,6 +43,7 @@ import {
   searchMemories,
   storeQuickMemory,
   getDoctorSummary,
+  getKnowledgeBase,
   detectMode,
 } from './data.js';
 import { ChatView } from './ChatView.js';
@@ -95,6 +97,7 @@ export function WorkbenchApp({ version, onExitForInteractive }: AppProps): React
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [doctor, setDoctor] = useState<DoctorResult | null>(null);
+  const [knowledge, setKnowledge] = useState<import('../../wiki/types.js').ProjectKnowledgeOverview | null>(null);
   const [statusMsg, setStatusMsg] = useState<{ text: string; type: 'success' | 'error' | 'info' } | null>(null);
   const [mode, setMode] = useState('CLI');
   const [actionStatus, setActionStatus] = useState('');
@@ -635,6 +638,17 @@ export function WorkbenchApp({ version, onExitForInteractive }: AppProps): React
           break;
         }
 
+        case 'wiki':
+        case 'knowledge': {
+          setView('wiki');
+          setLoading(true);
+          const kb = await getKnowledgeBase(project?.id);
+          setKnowledge(kb);
+          setLoading(false);
+          setStatusMsg({ text: kb ? `Knowledge Base: ${kb.stats.observationsUsed} obs, ${kb.stats.miniSkillsUsed} skills` : 'No knowledge available', type: 'info' });
+          break;
+        }
+
         case 'help':
         case '?': {
           setView('commands');
@@ -1052,6 +1066,8 @@ fi
         return <IntegrateView statusText={actionStatus} />;
       case 'configure':
         return <ConfigureView onBack={() => handleCommand('/home')} />;
+      case 'wiki':
+        return <WikiView knowledge={knowledge} loading={loading} />;
       case 'commands':
         return (
           <Box flexDirection="column" paddingX={2} paddingY={1}>

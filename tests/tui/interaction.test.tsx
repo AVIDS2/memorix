@@ -26,6 +26,7 @@ import { WorkbenchApp } from '../../src/cli/tui/App.js';
    mockSearchMemories,
    mockStoreQuickMemory,
    mockGetDoctorSummary,
+   mockGetKnowledgeBase,
    mockDetectMode,
    mockGetProjectDataDir,
    mockChatStore,
@@ -37,6 +38,7 @@ import { WorkbenchApp } from '../../src/cli/tui/App.js';
    mockSearchMemories: vi.fn(),
    mockStoreQuickMemory: vi.fn(),
    mockGetDoctorSummary: vi.fn(),
+   mockGetKnowledgeBase: vi.fn(),
    mockDetectMode: vi.fn(),
    mockGetProjectDataDir: vi.fn(),
    mockChatStore: {
@@ -61,6 +63,7 @@ import { WorkbenchApp } from '../../src/cli/tui/App.js';
      searchMemories: mockSearchMemories,
      storeQuickMemory: mockStoreQuickMemory,
      getDoctorSummary: mockGetDoctorSummary,
+     getKnowledgeBase: mockGetKnowledgeBase,
      detectMode: mockDetectMode,
    };
  });
@@ -132,6 +135,7 @@ describe('useNavigation', () => {
     expect(ESC_RETURNABLE_VIEWS.has('doctor')).toBe(true);
     expect(ESC_RETURNABLE_VIEWS.has('configure')).toBe(true);
     expect(ESC_RETURNABLE_VIEWS.has('search')).toBe(true);
+    expect(ESC_RETURNABLE_VIEWS.has('wiki')).toBe(true);
     // Home is not esc-returnable (already home)
     expect(ESC_RETURNABLE_VIEWS.has('home' as any)).toBe(false);
   });
@@ -1232,7 +1236,7 @@ describe('HeaderBar', () => {
 
 // ── StatusMessage rendering test ────────────────────────────────────
 
-import { StatusMessage, HomeView, IntegrateView } from '../../src/cli/tui/Panels.js';
+import { StatusMessage, HomeView, IntegrateView, WikiView } from '../../src/cli/tui/Panels.js';
 import { ChatView } from '../../src/cli/tui/ChatView.js';
 import { ContextRail } from '../../src/cli/tui/ContextRail.js';
 
@@ -1369,6 +1373,88 @@ describe('IntegrateView', () => {
       <IntegrateView statusText="Installed gemini-cli integration" />,
     );
     expect(lastFrame()).toContain('Installed gemini-cli integration');
+    unmount();
+  });
+});
+
+// -- WikiView tests --
+
+describe('WikiView', () => {
+  it('renders Knowledge Base heading and LLM Wiki label', () => {
+    const { lastFrame, unmount } = render(
+      <WikiView knowledge={null} loading={false} />,
+    );
+    const frame = lastFrame()!;
+    expect(frame).toContain('Knowledge Base');
+    expect(frame).toContain('LLM Wiki');
+    unmount();
+  });
+
+  it('renders empty state when no knowledge available', () => {
+    const { lastFrame, unmount } = render(
+      <WikiView knowledge={null} loading={false} />,
+    );
+    const frame = lastFrame()!;
+    expect(frame).toContain('No knowledge available');
+    unmount();
+  });
+
+  it('renders loading state', () => {
+    const { lastFrame, unmount } = render(
+      <WikiView knowledge={null} loading={true} />,
+    );
+    const frame = lastFrame()!;
+    expect(frame).toContain('Knowledge Base');
+    expect(frame).toContain('Loading');
+    unmount();
+  });
+
+  it('renders sections and source refs with knowledge data', () => {
+    const kb: import('../../src/wiki/types.js').ProjectKnowledgeOverview = {
+      title: 'Knowledge Base',
+      subtitle: 'LLM Wiki',
+      projectId: 'test/project',
+      generatedAt: new Date().toISOString(),
+      sections: [
+        {
+          id: 'project-overview',
+          title: 'Project Overview',
+          items: [{ title: 'test/project', summary: 'Project: test/project', type: 'overview', refs: [] }],
+        },
+        {
+          id: 'core-decisions',
+          title: 'Core Decisions',
+          items: [{
+            title: 'Use JWT for auth',
+            summary: 'We chose JWT because it is stateless.',
+            type: 'decision',
+            entityName: 'auth',
+            refs: [{ kind: 'observation', id: 'obs:1', title: 'Use JWT for auth' }],
+          }],
+          empty: false,
+        },
+        {
+          id: 'known-gotchas',
+          title: 'Known Gotchas',
+          items: [],
+          empty: true,
+        },
+      ],
+      stats: { observationsUsed: 1, miniSkillsUsed: 0, refs: 1 },
+    };
+    const { lastFrame, unmount } = render(
+      <WikiView knowledge={kb} loading={false} />,
+    );
+    const frame = lastFrame()!;
+    expect(frame).toContain('Knowledge Base');
+    expect(frame).toContain('LLM Wiki');
+    expect(frame).toContain('test/project');
+    expect(frame).toContain('Core Decisions');
+    expect(frame).toContain('Use JWT for auth');
+    expect(frame).toContain('obs:1');
+    expect(frame).toContain('Known Gotchas');
+    expect(frame).toContain('(empty)');
+    expect(frame).toContain('Esc to return home');
     unmount();
   });
 });

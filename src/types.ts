@@ -52,6 +52,7 @@ export interface KnowledgeGraph {
  * [DECISION] decision          — Architecture decision
  * [TRADEOFF] trade-off         — Deliberate compromise
  * [REASONING] reasoning         — Why this approach was chosen (System 2 reasoning trace)
+ * [PROBE] probe                — Operational heartbeat / connectivity check (short-lived, excluded from default search)
  */
 export type ObservationType =
   | 'session-request'
@@ -63,7 +64,8 @@ export type ObservationType =
   | 'why-it-exists'
   | 'decision'
   | 'trade-off'
-  | 'reasoning';
+  | 'reasoning'
+  | 'probe';
 
 /** Map from ObservationType to display icon */
 export const OBSERVATION_ICONS: Record<ObservationType, string> = {
@@ -77,6 +79,7 @@ export const OBSERVATION_ICONS: Record<ObservationType, string> = {
   'decision': '[DECISION]',
   'trade-off': '[TRADEOFF]',
   'reasoning': '[REASONING]',
+  'probe': '[PROBE]',
 };
 
 /** Observation lifecycle status */

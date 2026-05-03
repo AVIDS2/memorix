@@ -750,6 +750,7 @@ export default defineCommand({
           const typeCounts: Record<string, number> = {};
           for (const obs of observations) {
             const t = obs.type || 'unknown';
+            if (t === 'probe') continue; // Exclude operational heartbeats from dashboard type distribution
             typeCounts[t] = (typeCounts[t] || 0) + 1;
           }
 
@@ -796,7 +797,7 @@ export default defineCommand({
             else retentionSummary.archive++;
           }
 
-          const sorted = [...observations].sort((a, b) => (b.id || 0) - (a.id || 0)).slice(0, 10);
+          const sorted = [...observations].filter(o => o.type !== 'probe').sort((a, b) => (b.id || 0) - (a.id || 0)).slice(0, 10);
 
           let embeddingStatus = { enabled: false, provider: '', dimensions: 0 };
           try {

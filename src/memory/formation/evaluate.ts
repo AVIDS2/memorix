@@ -31,6 +31,7 @@ const TYPE_WEIGHTS: Record<ObservationType, number> = {
   'discovery':        0.55,
   'what-changed':     0.45,
   'session-request':  0.40,
+  'probe':            0.10,
 };
 
 /** Patterns indicating high-specificity content (boost value) */

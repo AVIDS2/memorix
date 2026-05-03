@@ -84,6 +84,7 @@ const OBSERVATION_TYPES: ObservationType[] = [
   'decision',
   'trade-off',
   'reasoning',
+  'probe',
 ];
 
 const OBSERVATION_STATUSES: ObservationStatus[] = ['active', 'resolved', 'archived'];

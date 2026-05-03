@@ -49,6 +49,12 @@ const TYPE_IMPORTANCE: Record<string, ImportanceLevel> = {
   'why-it-exists': 'medium',
   discovery: 'low',
   'session-request': 'low',
+  probe: 'low',
+};
+
+/** Per-type retention period overrides (in days). When set, replaces the importance-based base retention. */
+const TYPE_RETENTION_OVERRIDE: Partial<Record<string, number>> = {
+  probe: 7, // Operational heartbeats: expire after ~7 days regardless of source/valueCategory
 };
 
 // ── Immunity ─────────────────────────────────────────────────────────
@@ -85,6 +91,15 @@ function getValueCategoryMultiplier(doc: MemorixDocument): number {
  * Combines base retention (from importance/type) with source and valueCategory multipliers.
  */
 export function getEffectiveRetentionDays(doc: MemorixDocument): number {
+  const typeOverride = TYPE_RETENTION_OVERRIDE[doc.type];
+  if (typeOverride !== undefined) {
+    // Type-specific override: use the override directly, ignoring importance-based base retention.
+    // Source multiplier still applies so that e.g. hook-sourced probes decay even faster.
+    // valueCategory multiplier is intentionally excluded for type-override types:
+    // probe + core must NOT extend to 14 days -- probe is always short-lived.
+    const raw = typeOverride * getSourceRetentionMultiplier(doc);
+    return Math.max(MIN_RETENTION_DAYS, raw);
+  }
   const importance = getImportanceLevel(doc);
   const raw = RETENTION_DAYS[importance] * getSourceRetentionMultiplier(doc) * getValueCategoryMultiplier(doc);
   return Math.max(MIN_RETENTION_DAYS, raw);
@@ -95,6 +110,9 @@ export function getEffectiveRetentionDays(doc: MemorixDocument): number {
  * Immune observations maintain a minimum relevance score.
  */
 export function isImmune(doc: MemorixDocument): boolean {
+  // Probe observations are operational heartbeats -- never immune, regardless of valueCategory or access.
+  if (doc.type === 'probe') return false;
+
   // formation-classified core memories are immune regardless of type
   if (doc.valueCategory === 'core') return true;
 
@@ -114,6 +132,9 @@ export function isImmune(doc: MemorixDocument): boolean {
  * Return a human-readable reason for why an observation is immune, or null if not immune.
  */
 export function getImmunityReason(doc: MemorixDocument): string | null {
+  // Probe observations are never immune
+  if (doc.type === 'probe') return null;
+
   if (doc.valueCategory === 'core') return 'core valueCategory (formation-classified)';
   const importance = getImportanceLevel(doc);
   if (importance === 'critical') return 'critical importance';

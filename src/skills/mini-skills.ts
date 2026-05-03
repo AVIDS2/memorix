@@ -68,6 +68,15 @@ export async function promoteToMiniSkill(
     );
   }
 
+  // R1c: Probe observations are operational heartbeats -- never promotable, even with force=true
+  const probes = observations.filter(o => o.type === 'probe');
+  if (probes.length > 0) {
+    throw new Error(
+      `Cannot promote probe observations — they are operational heartbeats, not durable knowledge. ` +
+      `Blocked: ${probes.map(o => `#${o.id} "${o.title.substring(0, 60)}"`).join(', ')}.`,
+    );
+  }
+
   if (!options?.force) {
     // R2: No command-log noise
     const commandLogs = observations.filter(o => COMMAND_LOG_TITLE.test(o.title));

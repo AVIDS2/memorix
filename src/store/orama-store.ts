@@ -476,6 +476,14 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
       const doc = hit.document as unknown as MemorixDocument;
       return (doc.status || 'active') === statusFilter;
     })
+    // Post-filter: exclude probe observations from default search.
+    // Probe is operational memory (heartbeats, connectivity checks) — not durable knowledge.
+    // Only included when the caller explicitly requests type: 'probe'.
+    .filter((hit) => {
+      if (options.type === 'probe') return true;
+      const doc = hit.document as unknown as MemorixDocument;
+      return doc.type !== 'probe';
+    })
     .map((hit) => {
       const doc = hit.document as unknown as MemorixDocument;
       const obsType = doc.type as ObservationType;

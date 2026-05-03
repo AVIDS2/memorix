@@ -74,7 +74,7 @@ const MEMORY_TOOLS: ToolDefinition[] = [
       type: 'object',
       properties: {
         entityName: { type: 'string', description: 'The entity this observation belongs to (e.g. "auth-module", "database-schema")' },
-        type: { type: 'string', description: 'Observation type: gotcha, decision, problem-solution, how-it-works, what-changed, discovery, why-it-exists, trade-off, reasoning', enum: ['gotcha', 'decision', 'problem-solution', 'how-it-works', 'what-changed', 'discovery', 'why-it-exists', 'trade-off', 'reasoning'] },
+        type: { type: 'string', description: 'Observation type: gotcha, decision, problem-solution, how-it-works, what-changed, discovery, why-it-exists, trade-off, reasoning, probe', enum: ['gotcha', 'decision', 'problem-solution', 'how-it-works', 'what-changed', 'discovery', 'why-it-exists', 'trade-off', 'reasoning', 'probe'] },
         title: { type: 'string', description: 'Short descriptive title (5-10 words)' },
         narrative: { type: 'string', description: 'Full description of the observation' },
         facts: { type: 'array', items: { type: 'string' }, description: 'Key facts as structured strings (e.g. "Default timeout: 60s")' },

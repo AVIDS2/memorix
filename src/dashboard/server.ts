@@ -222,10 +222,11 @@ async function handleApi(
                 // Project-scoped graph counts (must match /api/graph and /api/export)
                 const projectGraphCounts = computeProjectGraphCounts(graph.entities, graph.relations, observations as Array<{ entityName?: string; status?: string }>);
 
-                // Type counts
+                // Type counts (exclude probe -- operational heartbeats, not durable knowledge)
                 const typeCounts: Record<string, number> = {};
                 for (const obs of observations) {
                     const t = obs.type || 'unknown';
+                    if (t === 'probe') continue;
                     typeCounts[t] = (typeCounts[t] || 0) + 1;
                 }
 
@@ -272,8 +273,8 @@ async function handleApi(
                     else retentionSummary.archive++;
                 }
 
-                // Recent observations (last 10)
-                const sorted = [...observations]
+                // Recent observations (last 10, exclude probe)
+                const sorted = [...observations].filter(o => o.type !== 'probe')
                     .sort((a, b) => (b.id || 0) - (a.id || 0))
                     .slice(0, 10);
 
@@ -332,7 +333,8 @@ async function handleApi(
                 const observations = filterActiveByProject(allObs, effectiveProjectId);
 
                 const now = Date.now();
-                const scored = observations.map((obs) => {
+                // Exclude probe from retention display -- not durable knowledge
+                const scored = observations.filter(obs => obs.type !== 'probe').map((obs) => {
                     const age = now - new Date(obs.createdAt || now).getTime();
                     const ageHours = age / (1000 * 60 * 60);
                     const importance = obs.importance ?? 5;

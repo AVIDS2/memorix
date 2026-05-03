@@ -285,6 +285,7 @@ function getTypeIcon(type: string): string {
     'decision': '[DECISION]',
     'trade-off': '[TRADEOFF]',
     'reasoning': '[REASONING]',
+    'probe': '[PROBE]',
   };
   return icons[type] ?? '[UNKNOWN]';
 }

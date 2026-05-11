@@ -30,6 +30,7 @@ const TYPE_EMOJI: Record<string, string> = {
   'what-changed': '[CHANGE]',
   'why-it-exists': '[DECISION]',
   'session-request': '[SESSION]',
+  'probe': '[PROBE]',
 };
 const TYPE_WEIGHTS: Record<string, number> = {
   'gotcha': 6,
@@ -201,6 +202,11 @@ export function scoreObservationForSessionContext(obs: Observation, projectToken
   if (obs.valueCategory === 'core') {
     // Formation-classified core memory: high-value, prefer in working context
     score += 2;
+  }
+
+  // Probe observations are operational heartbeats — never surface as priority session context
+  if (obs.type === 'probe') {
+    score -= 100;
   }
 
   return score;

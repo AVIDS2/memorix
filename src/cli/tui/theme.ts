@@ -26,11 +26,12 @@ export const SLASH_COMMANDS: SlashCommand[] = [
   { name: '/background', description: 'Control plane service',  alias: '/bg' },
   { name: '/dashboard',  description: 'Open web dashboard',     alias: '/dash' },
   { name: '/home',       description: 'Back to home',           alias: '/h' },
+  { name: '/help',       description: 'Show commands',          alias: '/?' },
   { name: '/configure',  description: 'Settings',               alias: '/config' },
   { name: '/integrate',  description: 'Set up an IDE',          alias: '/setup' },
   { name: '/cleanup',    description: 'Cleanup and purge' },
   { name: '/ingest',     description: 'Git to Memory' },
-  { name: '/help',       description: 'Show commands',          alias: '/?' },
+  { name: '/wiki',       description: 'Knowledge Base',         alias: '/knowledge' },
   { name: '/exit',       description: 'Exit workbench',         alias: '/q' },
 ];
 
@@ -151,7 +152,8 @@ export type ViewType =
   | 'cleanup'
   | 'ingest'
   | 'integrate'
-  | 'configure';
+  | 'configure'
+  | 'wiki';
 
 /** Compute responsive sidebar and content widths from terminal width.
  *  Shared between App.tsx and ChatView.tsx to avoid DRY drift. */

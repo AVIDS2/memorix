@@ -222,10 +222,11 @@ async function handleApi(
                 // Project-scoped graph counts (must match /api/graph and /api/export)
                 const projectGraphCounts = computeProjectGraphCounts(graph.entities, graph.relations, observations as Array<{ entityName?: string; status?: string }>);
 
-                // Type counts
+                // Type counts (exclude probe -- operational heartbeats, not durable knowledge)
                 const typeCounts: Record<string, number> = {};
                 for (const obs of observations) {
                     const t = obs.type || 'unknown';
+                    if (t === 'probe') continue;
                     typeCounts[t] = (typeCounts[t] || 0) + 1;
                 }
 
@@ -272,8 +273,8 @@ async function handleApi(
                     else retentionSummary.archive++;
                 }
 
-                // Recent observations (last 10)
-                const sorted = [...observations]
+                // Recent observations (last 10, exclude probe)
+                const sorted = [...observations].filter(o => o.type !== 'probe')
                     .sort((a, b) => (b.id || 0) - (a.id || 0))
                     .slice(0, 10);
 
@@ -332,7 +333,8 @@ async function handleApi(
                 const observations = filterActiveByProject(allObs, effectiveProjectId);
 
                 const now = Date.now();
-                const scored = observations.map((obs) => {
+                // Exclude probe from retention display -- not durable knowledge
+                const scored = observations.filter(obs => obs.type !== 'probe').map((obs) => {
                     const age = now - new Date(obs.createdAt || now).getTime();
                     const ageHours = age / (1000 * 60 * 60);
                     const importance = obs.importance ?? 5;
@@ -371,6 +373,64 @@ async function handleApi(
                     summary: { active: activeCount, stale: staleCount, archive: archiveCount, immune: immuneCount },
                     items: scored,
                 });
+                break;
+            }
+
+            case '/knowledge': {
+                const { generateKnowledgeBase } = await import('../wiki/generator.js');
+                const { initObservations, getAllObservations } = await import('../memory/observations.js');
+                const { initMiniSkillStore, getMiniSkillStore } = await import('../store/mini-skill-store.js');
+
+                await initObservations(effectiveDataDir);
+                await initMiniSkillStore(effectiveDataDir);
+
+                const allObs = getAllObservations();
+                const skills = await getMiniSkillStore().loadByProject(effectiveProjectId);
+
+                const overview = generateKnowledgeBase({
+                    projectId: effectiveProjectId,
+                    observations: allObs,
+                    miniSkills: skills,
+                });
+
+                sendJson(res, overview);
+                break;
+            }
+
+            case '/knowledge-graph': {
+                const { generateKnowledgeGraph } = await import('../wiki/knowledge-graph.js');
+                const { initObservations, getAllObservations } = await import('../memory/observations.js');
+                const { initMiniSkillStore, getMiniSkillStore } = await import('../store/mini-skill-store.js');
+                const { initGraphStore, getGraphStore } = await import('../store/graph-store.js');
+
+                await initObservations(effectiveDataDir);
+                await initMiniSkillStore(effectiveDataDir);
+                await initGraphStore(effectiveDataDir);
+
+                const allObs = getAllObservations();
+                const skills = await getMiniSkillStore().loadByProject(effectiveProjectId);
+
+                // Project-scope graph store (same logic as /api/graph)
+                const fullGraph = { entities: getGraphStore().loadEntities(), relations: getGraphStore().loadRelations() };
+                const graphObs = await getObservationStore().loadAll() as Array<{ projectId?: string; entityName?: string; status?: string }>;
+                const projectEntityNames = new Set(
+                    graphObs
+                        .filter(o => o.projectId === effectiveProjectId && (o.status ?? 'active') === 'active' && o.entityName)
+                        .map(o => o.entityName!),
+                );
+                const scopedEntities = fullGraph.entities.filter((e: any) => projectEntityNames.has(e.name));
+                const scopedEntityNameSet = new Set(scopedEntities.map((e: any) => e.name));
+                const scopedRelations = fullGraph.relations.filter((r: any) => scopedEntityNameSet.has(r.from) && scopedEntityNameSet.has(r.to));
+
+                const graph = generateKnowledgeGraph({
+                    projectId: effectiveProjectId,
+                    observations: allObs,
+                    miniSkills: skills,
+                    graphEntities: scopedEntities,
+                    graphRelations: scopedRelations,
+                });
+
+                sendJson(res, graph);
                 break;
             }
 
@@ -666,14 +726,21 @@ async function serveStatic(req: IncomingMessage, res: ServerResponse, staticDir:
         const ext = path.extname(filePath);
         res.writeHead(200, {
             'Content-Type': MIME_TYPES[ext] || 'application/octet-stream',
-            'Cache-Control': 'no-cache',
+            'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
+            'Pragma': 'no-cache',
+            'Expires': '0',
         });
         res.end(data);
     } catch {
         // Fallback to index.html for SPA routing
         try {
             const indexData = await fs.readFile(path.join(staticDir, 'index.html'));
-            res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+            res.writeHead(200, {
+                'Content-Type': 'text/html; charset=utf-8',
+                'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
+                'Pragma': 'no-cache',
+                'Expires': '0',
+            });
             res.end(indexData);
         } catch {
             sendError(res, 'Not found', 404);

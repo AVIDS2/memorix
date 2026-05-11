@@ -38,3 +38,17 @@ export function getInitScopeDescription(scope: InitScope): string {
 export function shouldOfferDotenv(scope: InitScope): boolean {
   return scope === 'global' || scope === 'project';
 }
+
+export interface EnvTemplateTargetOptions {
+  hasDotenvExample: boolean;
+}
+
+export function getEnvTemplateTarget(
+  targetDir: string,
+  options: EnvTemplateTargetOptions,
+): string {
+  const filename = options.hasDotenvExample
+    ? '.env.memorix-example'
+    : '.env.example';
+  return path.join(targetDir, filename);
+}

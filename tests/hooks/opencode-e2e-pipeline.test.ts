@@ -87,6 +87,18 @@ describe('OpenCode e2e pipeline: event → normalize → handle → store', () =
       });
       expect(input.event).toBe('post_compact');
     });
+
+    it('should normalize message.updated → post_response with AI text', () => {
+      const input = normalizeHookInput({
+        agent: 'opencode',
+        hook_event_name: 'message.updated',
+        ai_response: 'I updated the auth flow and added coverage for token refresh.',
+        cwd: '/project',
+        session_id: 'oc-abc123',
+      });
+      expect(input.event).toBe('post_response');
+      expect(input.aiResponse).toBe('I updated the auth flow and added coverage for token refresh.');
+    });
   });
 
   // ─── Handler: OpenCode events produce observations ───
@@ -232,6 +244,41 @@ describe('OpenCode e2e pipeline: event → normalize → handle → store', () =
       const { observation } = await handleHookEvent(input);
       // No content → below 50 char minimum → no observation
       expect(observation).toBeNull();
+    });
+
+    it('message.updated should produce a post_response observation for assistant text', async () => {
+      const input: NormalizedHookInput = {
+        ...baseInput,
+        event: 'post_response',
+        sessionId: 'oc-test-010',
+        cwd: '/project',
+        aiResponse: 'Implemented the OpenCode hook fix by caching assistant messages and flushing them on session idle.',
+      };
+      const { observation, output } = await handleHookEvent(input);
+      expect(observation).not.toBeNull();
+      expect(observation!.narrative).toContain('caching assistant messages');
+      expect(output.continue).toBe(true);
+    });
+
+    it('distinct post_response events in the same session should not collide in cooldown', async () => {
+      const first: NormalizedHookInput = {
+        ...baseInput,
+        event: 'post_response',
+        sessionId: 'oc-test-011',
+        cwd: '/project',
+        aiResponse: 'First assistant response about auth token rotation and refresh handling.',
+      };
+      const second: NormalizedHookInput = {
+        ...baseInput,
+        event: 'post_response',
+        sessionId: 'oc-test-011',
+        cwd: '/project',
+        aiResponse: 'Second assistant response about dashboard knowledge graph rendering.',
+      };
+      const firstResult = await handleHookEvent(first);
+      const secondResult = await handleHookEvent(second);
+      expect(firstResult.observation).not.toBeNull();
+      expect(secondResult.observation).not.toBeNull();
     });
   });
 

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { computeLayoutWidths, getHomeSeparatorWidth, getStatusMessageRows } from '../../src/cli/tui/theme.js';
+import { computeLayoutWidths, getHomeSeparatorWidth, getStatusMessageRows, SLASH_COMMANDS } from '../../src/cli/tui/theme.js';
 
 describe('tui layout helpers', () => {
   it('clamps the home separator width for very narrow content areas', () => {
@@ -17,5 +17,12 @@ describe('tui layout helpers', () => {
   it('never returns a negative content width on tiny terminals', () => {
     expect(computeLayoutWidths(3).contentWidth).toBe(0);
     expect(computeLayoutWidths(4).contentWidth).toBe(0);
+  });
+
+  it('includes the Knowledge Base slash command', () => {
+    const wiki = SLASH_COMMANDS.find(command => command.name === '/wiki');
+    expect(wiki).toBeDefined();
+    expect(wiki?.alias).toBe('/knowledge');
+    expect(wiki?.description).toBe('Knowledge Base');
   });
 });

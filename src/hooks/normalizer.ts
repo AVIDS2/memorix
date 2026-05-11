@@ -402,6 +402,9 @@ function normalizeOpenCode(payload: Record<string, unknown>, event: HookEvent): 
   if (event === 'post_command') {
     result.command = (payload.command as string) ?? '';
   }
+  if (event === 'post_response') {
+    result.aiResponse = (payload.ai_response as string) ?? '';
+  }
 
   return result;
 }

@@ -11,6 +11,7 @@ import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import {
+  getEnvTemplateTarget,
   getInitScopeDescription,
   getInitTargetDir,
   resolveInitScope,
@@ -74,7 +75,6 @@ export default defineCommand({
     const isGlobal = scope === 'global';
     const targetDir = getInitTargetDir(scope, process.cwd(), homedir());
     const targetPath = path.join(targetDir, 'memorix.yml');
-    const envExamplePath = path.join(targetDir, '.env.example');
     const envPath = path.join(targetDir, '.env');
 
     p.log.info(getInitScopeDescription(scope));
@@ -237,13 +237,26 @@ export default defineCommand({
     p.log.success(`Created ${targetPath}`);
 
     if (shouldOfferDotenv(scope)) {
+      const envExamplePath = getEnvTemplateTarget(targetDir, {
+        hasDotenvExample: existsSync(path.join(targetDir, '.env.example')),
+      });
       const envContent = envLines.join('\n');
+      if (existsSync(envExamplePath)) {
+        const overwriteEnvTemplate = await p.confirm({
+          message: `${envExamplePath} already exists. Overwrite it?`,
+          initialValue: false,
+        });
+        if (p.isCancel(overwriteEnvTemplate) || !overwriteEnvTemplate) {
+          p.outro('Cancelled.');
+          return;
+        }
+      }
       writeFileSync(envExamplePath, envContent, 'utf-8');
       p.log.success(`Created ${envExamplePath}`);
 
       const createEnv = !existsSync(envPath)
         ? await p.confirm({
-          message: 'Create .env from .env.example now? (you can fill in keys later)',
+          message: `Create .env from ${path.basename(envExamplePath)} now? (you can fill in keys later)`,
           initialValue: true,
         })
         : false;

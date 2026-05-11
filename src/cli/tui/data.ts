@@ -465,3 +465,34 @@ export function detectMode(): { mode: string; detail: string } {
   }
   return { mode: 'CLI', detail: 'Quick mode' };
 }
+
+export async function getKnowledgeBase(projectId?: string): Promise<import('../../wiki/types.js').ProjectKnowledgeOverview | null> {
+  try {
+    const { detectProject } = await import('../../project/detector.js');
+    const { getProjectDataDir } = await import('../../store/persistence.js');
+    const { initObservationStore } = await import('../../store/obs-store.js');
+    const { initObservations, getAllObservations } = await import('../../memory/observations.js');
+    const { initMiniSkillStore, getMiniSkillStore } = await import('../../store/mini-skill-store.js');
+    const { generateKnowledgeBase } = await import('../../wiki/generator.js');
+
+    const proj = detectProject(process.cwd());
+    if (!proj) return null;
+
+    const effectiveProjectId = projectId || proj.id;
+    const dataDir = await getProjectDataDir(effectiveProjectId);
+    await initObservationStore(dataDir);
+    await initObservations(dataDir);
+    await initMiniSkillStore(dataDir);
+
+    const observations = getAllObservations();
+    const skills = await getMiniSkillStore().loadByProject(effectiveProjectId);
+
+    return generateKnowledgeBase({
+      projectId: effectiveProjectId,
+      observations,
+      miniSkills: skills,
+    });
+  } catch {
+    return null;
+  }
+}

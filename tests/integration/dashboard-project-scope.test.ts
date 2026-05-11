@@ -155,6 +155,113 @@ describe('Standalone Dashboard Project Scope', () => {
     expect(body.nextId).toBe(7);
   });
 
+  it('GET /api/knowledge returns project-scoped Knowledge Base overview', async () => {
+    const { status, body } = await fetchJson('/api/knowledge');
+    expect(status).toBe(200);
+
+    expect(body.title).toBe('Knowledge Base');
+    expect(body.subtitle).toBe('LLM Wiki');
+    expect(body.projectId).toBe(PROJECT_A);
+    expect(body.stats.observationsUsed).toBe(2);
+
+    const titles = body.sections.flatMap((section: any) => section.items.map((item: any) => item.title));
+    expect(titles).toContain('Use JWT');
+    expect(titles).toContain('Token expiry');
+    expect(titles).not.toContain('Use Stripe');
+    expect(titles).not.toContain('Webhook retry');
+  });
+
+  it('GET /api/knowledge?project=... returns requested project knowledge only', async () => {
+    const { status, body } = await fetchJson(`/api/knowledge?project=${encodeURIComponent(PROJECT_B)}`);
+    expect(status).toBe(200);
+
+    expect(body.projectId).toBe(PROJECT_B);
+    expect(body.stats.observationsUsed).toBe(2);
+
+    const titles = body.sections.flatMap((section: any) => section.items.map((item: any) => item.title));
+    expect(titles).toContain('Use Stripe');
+    expect(titles).toContain('Webhook retry');
+    expect(titles).not.toContain('Use JWT');
+    expect(titles).not.toContain('Token expiry');
+  });
+
+  // ── /api/knowledge-graph project scope ──
+
+  it('GET /api/knowledge-graph returns project-scoped semantic graph', async () => {
+    const { status, body } = await fetchJson('/api/knowledge-graph');
+    expect(status).toBe(200);
+
+    expect(body.title).toBe('Knowledge Graph');
+    expect(body.projectId).toBe(PROJECT_A);
+    expect(body.nodes.length).toBeGreaterThan(0);
+    expect(body.clusters.length).toBeGreaterThan(0);
+    expect(body.stats.totalNodes).toBeGreaterThan(0);
+
+    // No nodes from project B
+    const nodeIds = body.nodes.map((n: any) => n.id);
+    expect(nodeIds).not.toContain('obs:3');
+    expect(nodeIds).not.toContain('obs:4');
+  });
+
+  it('GET /api/knowledge-graph?project=... returns requested project graph only', async () => {
+    const { status, body } = await fetchJson(`/api/knowledge-graph?project=${encodeURIComponent(PROJECT_B)}`);
+    expect(status).toBe(200);
+
+    expect(body.projectId).toBe(PROJECT_B);
+    // Project B has billing-service observations
+    const labels = body.nodes.map((n: any) => n.label);
+    expect(labels).toContain('Use Stripe');
+    expect(labels).toContain('Webhook retry');
+    expect(labels).not.toContain('Use JWT');
+    expect(labels).not.toContain('Token expiry');
+  });
+
+  it('GET /api/knowledge-graph excludes resolved observations', async () => {
+    const { status, body } = await fetchJson('/api/knowledge-graph');
+    expect(status).toBe(200);
+
+    // Project A has obs 1 (active), 2 (active), 5 (resolved)
+    // Only 1 and 2 should appear as nodes
+    const nodeIds = body.nodes.map((n: any) => n.id);
+    expect(nodeIds).toContain('obs:1');
+    expect(nodeIds).toContain('obs:2');
+    expect(nodeIds).not.toContain('obs:5');
+  });
+
+  it('GET /api/knowledge-graph response shape supports showKGInspector', async () => {
+    const { status, body } = await fetchJson('/api/knowledge-graph');
+    expect(status).toBe(200);
+
+    // Every node must have fields that showKGInspector reads
+    for (const node of body.nodes) {
+      expect(node).toHaveProperty('id');
+      expect(node).toHaveProperty('label');
+      expect(node).toHaveProperty('nodeType');
+      expect(node).toHaveProperty('sectionId');
+      expect(node).toHaveProperty('evidenceCount');
+      expect(node).toHaveProperty('summary');
+      expect(node).toHaveProperty('refs');
+      // sectionId must be a known i18n key target
+      expect(['core-decisions', 'operational-knowledge', 'known-gotchas', 'git-backed-facts', 'promoted-skills']).toContain(node.sectionId);
+    }
+
+    // Every edge must have fields that the renderer uses
+    for (const edge of body.edges) {
+      expect(edge).toHaveProperty('id');
+      expect(edge).toHaveProperty('source');
+      expect(edge).toHaveProperty('target');
+      expect(edge).toHaveProperty('edgeType');
+      expect(['supports', 'relates_to', 'mentions', 'derived_from']).toContain(edge.edgeType);
+    }
+
+    // Clusters must have sectionId for i18n lookup
+    for (const cluster of body.clusters) {
+      expect(cluster).toHaveProperty('id');
+      expect(cluster).toHaveProperty('sectionId');
+      expect(cluster).toHaveProperty('nodeCount');
+    }
+  });
+
   it('GET /api/projects counts only active observations per project', async () => {
     const { status, body } = await fetchJson('/api/projects');
     expect(status).toBe(200);

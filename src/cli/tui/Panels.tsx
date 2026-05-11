@@ -17,6 +17,7 @@ import type {
   BackgroundInfo,
   HealthInfo,
 } from './data.js';
+import type { ProjectKnowledgeOverview } from '../../wiki/types.js';
 
 function separator(width = 50): string {
   return SEP.thin.repeat(width);
@@ -539,6 +540,73 @@ export function IntegrateView({ statusText }: IntegrateViewProps): React.ReactEl
       {statusText && (
         <Box marginTop={1}><Text color={COLORS.muted}>{statusText}</Text></Box>
       )}
+    </Box>
+  );
+}
+
+interface WikiViewProps {
+  knowledge: ProjectKnowledgeOverview | null;
+  loading: boolean;
+}
+
+export function WikiView({ knowledge, loading }: WikiViewProps): React.ReactElement {
+  if (loading) {
+    return (
+      <Box flexDirection="column" paddingX={1}>
+        <Text color={COLORS.brand} bold>Knowledge Base</Text>
+        <Text color={COLORS.muted}>  LLM Wiki</Text>
+        <Text color={COLORS.border}>{separator()}</Text>
+        <Text color={COLORS.muted}>Loading...</Text>
+      </Box>
+    );
+  }
+
+  if (!knowledge) {
+    return (
+      <Box flexDirection="column" paddingX={1}>
+        <Text color={COLORS.brand} bold>Knowledge Base</Text>
+        <Text color={COLORS.muted}>  LLM Wiki</Text>
+        <Text color={COLORS.border}>{separator()}</Text>
+        <Text color={COLORS.warning}>No knowledge available for this project.</Text>
+        <Text color={COLORS.textDim}>Store memories with /remember or /chat to build your Knowledge Base.</Text>
+      </Box>
+    );
+  }
+
+  return (
+    <Box flexDirection="column" paddingX={1}>
+      <Text color={COLORS.brand} bold>Knowledge Base</Text>
+      <Text color={COLORS.muted}>  LLM Wiki</Text>
+      <Box>
+        <Text color={COLORS.textDim}>  Project: {knowledge.projectId}</Text>
+        <Text color={COLORS.muted}> │ {knowledge.stats.observationsUsed} obs, {knowledge.stats.miniSkillsUsed} skills</Text>
+      </Box>
+      <Text color={COLORS.border}>{separator()}</Text>
+
+      {knowledge.sections.map((section) => (
+        <Box key={section.id} flexDirection="column" marginBottom={1}>
+          <Text color={COLORS.brandDim} bold>{section.title}</Text>
+          {section.empty ? (
+            <Text color={COLORS.textDim}>  (empty)</Text>
+          ) : (
+            section.items.map((item, idx) => (
+              <Box key={idx} flexDirection="column">
+                <Box>
+                  <Text color={COLORS.muted}>{SYMBOLS.bullet} </Text>
+                  <Text color={COLORS.text}>{truncate(item.title)}</Text>
+                  {item.entityName && <Text color={COLORS.textDim}> [{item.entityName}]</Text>}
+                </Box>
+                <Text color={COLORS.textDim}>  {truncate(item.summary, 80)}</Text>
+                <Text color={COLORS.muted}>  refs: {item.refs.map((r) => r.id).join(', ')}</Text>
+              </Box>
+            ))
+          )}
+        </Box>
+      ))}
+
+      <Box marginTop={1}>
+        <Text color={COLORS.muted}>{SYMBOLS.arrow} Esc to return home</Text>
+      </Box>
     </Box>
   );
 }

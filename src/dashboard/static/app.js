@@ -147,6 +147,28 @@ const i18n = {
     recentGitMemories: 'Recent Git Memories',
     commit: 'Commit',
     created: 'Created',
+    knowledgeTitle: 'Knowledge Base',
+    knowledgeSubtitle: 'Project-scoped engineering knowledge distilled from durable memory',
+    knowledgeObservationsUsed: 'Observations Used',
+    knowledgeMiniSkillsUsed: 'Mini-skills Used',
+    knowledgeRefs: 'Refs',
+    knowledgeGenerated: 'Generated',
+    knowledgeQuickJump: 'Sections',
+    knowledgeNoItems: 'No entries in this section yet',
+    knowledgeNoItemsDesc: 'This section will fill in as durable project knowledge is stored.',
+    knowledgeUnavailable: 'Knowledge Base Unavailable',
+    knowledgeUnavailableDesc: 'Could not load /api/knowledge for the selected project.',
+    knowledgeEmpty: 'No Knowledge Base Entries',
+    knowledgeEmptyDesc: 'Store durable observations or promote mini-skills to populate this read-only project wiki.',
+    knowledgeProvenance: 'Provenance',
+    knowledgeEntry: 'entry',
+    knowledgeEntries: 'entries',
+    knowledgeSectionProjectOverview: 'Project Overview',
+    knowledgeSectionCoreDecisions: 'Core Decisions',
+    knowledgeSectionOperationalKnowledge: 'Operational Knowledge',
+    knowledgeSectionKnownGotchas: 'Known Gotchas',
+    knowledgeSectionGitBackedFacts: 'Git-backed Facts',
+    knowledgeSectionPromotedSkills: 'Promoted Skills',
 
     // Config
     configTitle: 'Config Provenance',
@@ -314,6 +336,34 @@ const i18n = {
     graphTopToBottom: 'Top → Bottom',
     graphMore: 'more',
 
+    // Knowledge Graph (semantic)
+    kgTitle: 'Knowledge Graph',
+    kgSubtitle: 'Semantic knowledge topology — section clusters, evidence links, provenance',
+    kgNodes: 'nodes',
+    kgEdges: 'edges',
+    kgClusters: 'clusters',
+    kgNoData: 'No Knowledge Graph Data',
+    kgNoDataDesc: 'Store durable observations or promote mini-skills to generate a semantic knowledge graph.',
+    kgClusterFilter: 'Section Cluster',
+    kgEdgeTypeFilter: 'Edge Type',
+    kgEdgeSupports: 'supports',
+    kgEdgeRelatesTo: 'relates to',
+    kgEdgeMentions: 'mentions',
+    kgEdgeDerivedFrom: 'derived from',
+    kgInspectorSummary: 'Summary',
+    kgInspectorProvenance: 'Provenance',
+    kgInspectorSection: 'Section',
+    kgInspectorEntity: 'Entity',
+    kgInspectorEvidence: 'Evidence',
+    kgInspectorRelatedEdges: 'Related Edges',
+    kgInspectorNoEdges: 'No edges',
+    kgDataMode: 'Data Source',
+    kgModeSemantic: 'Semantic KG',
+    kgModeEntity: 'Entity Graph',
+    kgViewMode: 'View Mode',
+    kgFocused: 'Focused',
+    kgFullGraph: 'Full Graph',
+
     // Identity (additional)
     identityCurrentProject: 'Current Project',
     identityHistoricalProjects: 'Historical Projects',
@@ -333,6 +383,7 @@ const i18n = {
     // Nav tooltips + labels
     navDashboard: 'Dashboard',
     navGitMemory: 'Git Memory',
+    navKnowledge: 'Knowledge Base',
     navGraph: 'Knowledge Graph',
     navObservations: 'Observations',
     navRetention: 'Retention',
@@ -342,6 +393,7 @@ const i18n = {
     navTeam: 'Agent Team',
     navLabelDashboard: 'Overview',
     navLabelGitMemory: 'Git Memory',
+    navLabelKnowledge: 'Knowledge',
     navLabelGraph: 'Graph',
     navLabelObservations: 'Observations',
     navLabelRetention: 'Retention',
@@ -506,17 +558,39 @@ const i18n = {
 
     // Git Memory
     gitMemoryTitle: 'Git 记忆',
-    gitMemorySubtitle: '来自 git 提交的记忆 — 不可变的事实源',
+    gitMemorySubtitle: '来自 git 提交的记忆 — 真实来源且不可变',
     totalGitMemories: 'Git 记忆总数',
-    uniqueCommits: '唯一提交数',
+    uniqueCommits: '唯一提交',
     typeCoverage: '类型覆盖',
     noGitMemory: '暂无 Git 记忆',
     noGitMemoryDesc: '使用以下命令安装 post-commit hook: memorix git-hook-install',
     noGitMemoriesYet: '暂无 Git 记忆',
     noGitMemoriesHint: '安装 post-commit hook 以自动捕获 git 记忆：',
-    recentGitMemories: '最近的 Git 记忆',
+    recentGitMemories: '最近 Git 记忆',
     commit: '提交',
     created: '创建时间',
+    knowledgeTitle: '知识库',
+    knowledgeSubtitle: '从持久项目记忆中提炼出的工程知识',
+    knowledgeObservationsUsed: '使用的观察',
+    knowledgeMiniSkillsUsed: '使用的 Mini-skills',
+    knowledgeRefs: '引用',
+    knowledgeGenerated: '生成于',
+    knowledgeQuickJump: '章节',
+    knowledgeNoItems: '本章节暂无条目',
+    knowledgeNoItemsDesc: '当项目中出现持久知识后，本章节会自动填充。',
+    knowledgeUnavailable: '知识库不可用',
+    knowledgeUnavailableDesc: '无法为所选项目加载 /api/knowledge。',
+    knowledgeEmpty: '暂无知识库条目',
+    knowledgeEmptyDesc: '存储持久观察或提升 mini-skill 后，此只读项目 wiki 会自动填充。',
+    knowledgeProvenance: '来源',
+    knowledgeEntry: '条',
+    knowledgeEntries: '条',
+    knowledgeSectionProjectOverview: '项目概览',
+    knowledgeSectionCoreDecisions: '核心决策',
+    knowledgeSectionOperationalKnowledge: '操作知识',
+    knowledgeSectionKnownGotchas: '已知陷阱',
+    knowledgeSectionGitBackedFacts: 'Git 事实',
+    knowledgeSectionPromotedSkills: '提升技能',
 
     // Config
     configTitle: '配置溯源',
@@ -689,6 +763,34 @@ const i18n = {
     graphTopToBottom: '从上到下',
     graphMore: '更多',
 
+    // Knowledge Graph (semantic)
+    kgTitle: '知识图谱',
+    kgSubtitle: '语义知识拓扑 — 分区聚类、证据关联、溯源',
+    kgNodes: '个节点',
+    kgEdges: '条边',
+    kgClusters: '个聚类',
+    kgNoData: '暂无知识图谱数据',
+    kgNoDataDesc: '存储持久观察或提升迷你技能以生成语义知识图谱。',
+    kgClusterFilter: '分区聚类',
+    kgEdgeTypeFilter: '边类型',
+    kgEdgeSupports: '支撑',
+    kgEdgeRelatesTo: '关联',
+    kgEdgeMentions: '提及',
+    kgEdgeDerivedFrom: '派生自',
+    kgInspectorSummary: '摘要',
+    kgInspectorProvenance: '溯源',
+    kgInspectorSection: '分区',
+    kgInspectorEntity: '实体',
+    kgInspectorEvidence: '证据',
+    kgInspectorRelatedEdges: '相关边',
+    kgInspectorNoEdges: '无边',
+    kgDataMode: '数据源',
+    kgModeSemantic: '语义图谱',
+    kgModeEntity: '实体图谱',
+    kgViewMode: '视图模式',
+    kgFocused: '聚焦',
+    kgFullGraph: '全量',
+
     // Identity (additional)
     identityCurrentProject: '当前项目',
     identityHistoricalProjects: '历史项目',
@@ -708,6 +810,7 @@ const i18n = {
     // Nav tooltips
     navDashboard: '仪表盘',
     navGitMemory: 'Git 记忆',
+    navKnowledge: '知识库',
     navGraph: '知识图谱',
     navObservations: '观察记录',
     navRetention: '记忆衰减',
@@ -717,6 +820,7 @@ const i18n = {
     navTeam: 'Agent 团队',
     navLabelDashboard: '概览',
     navLabelGitMemory: 'Git 记忆',
+    navLabelKnowledge: '知识库',
     navLabelGraph: '图谱',
     navLabelObservations: '观察',
     navLabelRetention: '衰减',
@@ -764,6 +868,14 @@ function t(key) {
   return (i18n[currentLang] && i18n[currentLang][key]) || i18n.en[key] || key;
 }
 
+function onDomReady(fn) {
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', fn, { once: true });
+  } else {
+    fn();
+  }
+}
+
 function setLang(lang) {
   currentLang = lang;
   localStorage.setItem('memorix-lang', lang);
@@ -774,8 +886,8 @@ function setLang(lang) {
   if (label) label.textContent = lang === 'en' ? '中文' : 'EN';
 
   // Update nav tooltips + labels
-  const tooltipMap = { dashboard: 'navDashboard', 'git-memory': 'navGitMemory', graph: 'navGraph', observations: 'navObservations', retention: 'navRetention', config: 'navConfig', identity: 'navIdentity', sessions: 'navSessions', team: 'navTeam' };
-  const labelMap = { dashboard: 'navLabelDashboard', 'git-memory': 'navLabelGitMemory', graph: 'navLabelGraph', observations: 'navLabelObservations', retention: 'navLabelRetention', config: 'navLabelConfig', identity: 'navLabelIdentity', sessions: 'navLabelSessions', team: 'navLabelTeam' };
+  const tooltipMap = { dashboard: 'navDashboard', 'git-memory': 'navGitMemory', knowledge: 'navKnowledge', graph: 'navGraph', observations: 'navObservations', retention: 'navRetention', config: 'navConfig', identity: 'navIdentity', sessions: 'navSessions', team: 'navTeam' };
+  const labelMap = { dashboard: 'navLabelDashboard', 'git-memory': 'navLabelGitMemory', knowledge: 'navLabelKnowledge', graph: 'navLabelGraph', observations: 'navLabelObservations', retention: 'navLabelRetention', config: 'navLabelConfig', identity: 'navLabelIdentity', sessions: 'navLabelSessions', team: 'navLabelTeam' };
   document.querySelectorAll('.nav-btn').forEach(b => {
     const page = b.dataset.page;
     if (page && tooltipMap[page]) b.title = t(tooltipMap[page]);
@@ -810,7 +922,7 @@ function setLang(lang) {
 }
 
 // Init lang toggle button
-document.addEventListener('DOMContentLoaded', () => {
+onDomReady(() => {
   const btn = document.getElementById('lang-toggle');
   const label = document.getElementById('lang-label');
   if (label) label.textContent = currentLang === 'en' ? '中文' : 'EN';
@@ -853,7 +965,7 @@ function applyTheme(theme) {
 // Apply saved theme immediately
 applyTheme(currentTheme);
 
-document.addEventListener('DOMContentLoaded', () => {
+onDomReady(() => {
   const themeBtn = document.getElementById('theme-toggle');
   if (themeBtn) {
     themeBtn.addEventListener('click', () => {
@@ -866,7 +978,7 @@ document.addEventListener('DOMContentLoaded', () => {
 // Router & Navigation
 // ============================================================
 
-const pages = ['dashboard', 'git-memory', 'graph', 'observations', 'retention', 'config', 'identity', 'sessions', 'team'];
+const pages = ['dashboard', 'git-memory', 'knowledge', 'graph', 'observations', 'retention', 'config', 'identity', 'sessions', 'team'];
 let currentPage = 'dashboard';
 
 function navigate(page) {
@@ -1151,7 +1263,7 @@ async function initProjectSwitcher() {
   }
 }
 
-document.addEventListener('DOMContentLoaded', () => {
+onDomReady(() => {
   initProjectSwitcher();
 });
 
@@ -1167,6 +1279,7 @@ async function loadPage(page) {
   switch (page) {
     case 'dashboard': await loadDashboard(); break;
     case 'git-memory': await loadGitMemory(); break;
+    case 'knowledge': await loadKnowledge(); break;
     case 'graph': await loadGraph(); break;
     case 'observations': await loadObservations(); break;
     case 'retention': await loadRetention(); break;
@@ -1417,6 +1530,201 @@ function renderPieChart(canvasId, entries, icons) {
   ctx.fillText('total', cx, cy + 10);
 }
 
+async function loadKnowledge() {
+  const container = document.getElementById('page-knowledge');
+  container.innerHTML = '<div class="loading knowledge-loading"><div class="spinner"></div><div class="knowledge-loading-text">' + t('loading') + '</div></div>';
+
+  const kb = await api('knowledge');
+  if (!kb) {
+    container.innerHTML = `
+      <div class="page-header">
+        <h1 class="page-title">${t('knowledgeTitle')}</h1>
+        <p class="page-subtitle">${t('knowledgeSubtitle')}</p>
+      </div>
+      <div class="panel knowledge-error-panel">
+        <div class="panel-body">
+          <div class="knowledge-state-icon"><span class="iconify" data-icon="lucide:book-x"></span></div>
+          <div class="empty-state-title">${t('knowledgeUnavailable')}</div>
+          <div class="empty-state-desc">${t('knowledgeUnavailableDesc')}</div>
+          <button class="team-refresh-btn" id="knowledge-retry-btn" style="margin:16px auto 0;">${t('teamRefresh')}</button>
+        </div>
+      </div>
+    `;
+    const retry = document.getElementById('knowledge-retry-btn');
+    if (retry) retry.addEventListener('click', () => {
+      delete loaded.knowledge;
+      loadPage('knowledge');
+    });
+    return;
+  }
+
+  const sections = normalizeKnowledgeSections(kb.sections || []);
+  const totalItems = sections.reduce((sum, section) => sum + (section.items || []).length, 0);
+  const stats = kb.stats || { observationsUsed: 0, miniSkillsUsed: 0, refs: 0 };
+  const overviewSection = sections.find(s => s.id === 'project-overview');
+  const mainSections = sections.filter(s => s.id !== 'project-overview');
+
+  container.innerHTML = `
+    <div class="knowledge-page-shell">
+      <div class="knowledge-topbar">
+        <div class="page-header knowledge-header">
+          <div class="knowledge-title-block">
+            <h1 class="page-title">${escapeHtml(t('knowledgeTitle'))}</h1>
+            <p class="page-subtitle">${t('knowledgeSubtitle')}</p>
+            <div class="knowledge-project-line" title="${escapeHtml(kb.projectId || '')}">${escapeHtml(kb.projectId || '')}</div>
+          </div>
+          <div class="knowledge-generated">
+            <span>${t('knowledgeGenerated')}</span>
+            <strong>${escapeHtml(formatTime(kb.generatedAt))}</strong>
+          </div>
+        </div>
+
+        <div class="knowledge-stats-grid">
+          <div class="stat-card" data-accent="purple">
+            <div class="stat-label">${t('knowledgeObservationsUsed')}</div>
+            <div class="stat-value">${stats.observationsUsed || 0}</div>
+          </div>
+          <div class="stat-card" data-accent="cyan">
+            <div class="stat-label">${t('knowledgeMiniSkillsUsed')}</div>
+            <div class="stat-value">${stats.miniSkillsUsed || 0}</div>
+          </div>
+          <div class="stat-card" data-accent="green">
+            <div class="stat-label">${t('knowledgeRefs')}</div>
+            <div class="stat-value">${stats.refs || 0}</div>
+          </div>
+        </div>
+
+        <nav class="knowledge-jump" aria-label="${t('knowledgeQuickJump')}">
+          <span class="knowledge-jump-label">${t('knowledgeQuickJump')}</span>
+          ${sections.map(section => `<a href="#${knowledgeAnchor(section.id)}" class="knowledge-jump-chip">${escapeHtml(section.title)} <span>${(section.items || []).length}</span></a>`).join('')}
+        </nav>
+
+        ${overviewSection ? renderKnowledgeOverviewCard(overviewSection) : ''}
+      </div>
+
+      ${totalItems === 0 ? `
+        <div class="panel knowledge-empty-overview">
+          <div class="panel-body">
+            <div class="knowledge-state-icon"><span class="iconify" data-icon="lucide:book-open"></span></div>
+            <div class="empty-state-title">${t('knowledgeEmpty')}</div>
+            <div class="empty-state-desc">${t('knowledgeEmptyDesc')}</div>
+          </div>
+        </div>
+      ` : `
+        <div class="knowledge-sections-region">
+          ${mainSections.map(renderKnowledgeSection).join('')}
+        </div>
+      `}
+    </div>
+  `;
+}
+
+function normalizeKnowledgeSections(sections) {
+  const byId = new Map(sections.map(section => [section.id, section]));
+  const order = [
+    ['project-overview', 'knowledgeSectionProjectOverview'],
+    ['core-decisions', 'knowledgeSectionCoreDecisions'],
+    ['operational-knowledge', 'knowledgeSectionOperationalKnowledge'],
+    ['known-gotchas', 'knowledgeSectionKnownGotchas'],
+    ['git-backed-facts', 'knowledgeSectionGitBackedFacts'],
+    ['promoted-skills', 'knowledgeSectionPromotedSkills'],
+  ];
+  return order.map(([id, titleKey]) => {
+    const section = byId.get(id);
+    const localizedTitle = t(titleKey);
+    if (section) return { ...section, title: localizedTitle };
+    return { id, title: localizedTitle, items: [], empty: true };
+  });
+}
+
+function knowledgeEntryLabel(count) {
+  return count === 1 ? t('knowledgeEntry') : t('knowledgeEntries');
+}
+
+function renderKnowledgeOverviewCard(section) {
+  const item = (section.items || [])[0];
+  if (!item) {
+    return `
+      <section class="knowledge-overview-card knowledge-overview-card--empty" id="${knowledgeAnchor(section.id)}">
+        <div class="knowledge-overview-meta">
+          <span class="knowledge-overview-label">${escapeHtml(section.title)}</span>
+          <span class="knowledge-section-meta">0 ${t('knowledgeEntries')}</span>
+        </div>
+        <div class="knowledge-overview-body">
+          <p class="knowledge-summary">${t('knowledgeNoItemsDesc')}</p>
+        </div>
+      </section>
+    `;
+  }
+  return `
+    <section class="knowledge-overview-card" id="${knowledgeAnchor(section.id)}">
+      <div class="knowledge-overview-meta">
+        <span class="knowledge-overview-label">${escapeHtml(section.title)}</span>
+        <span class="knowledge-overview-title" title="${escapeHtml(item.title || '')}">${escapeHtml(item.title || t('untitled'))}</span>
+      </div>
+      <div class="knowledge-overview-body">
+        <p class="knowledge-summary knowledge-summary--overview">${escapeHtml(item.summary || '')}</p>
+        <div class="knowledge-ref-list">${renderKnowledgeRefs(item.refs || [])}</div>
+      </div>
+    </section>
+  `;
+}
+
+function renderKnowledgeSection(section) {
+  const items = section.items || [];
+  return `
+    <section class="panel knowledge-section" id="${knowledgeAnchor(section.id)}">
+      <div class="panel-header knowledge-section-header">
+        <span class="panel-title">${escapeHtml(section.title)}</span>
+        <span class="knowledge-section-meta">${items.length} ${knowledgeEntryLabel(items.length)}</span>
+      </div>
+      <div class="panel-body knowledge-section-body">
+        ${items.length === 0 ? renderKnowledgeEmptySection() : items.map(renderKnowledgeItem).join('')}
+      </div>
+    </section>
+  `;
+}
+
+function renderKnowledgeItem(item) {
+  const refs = item.refs || [];
+  return `
+    <article class="knowledge-item">
+      <div class="knowledge-item-head">
+        <h3 title="${escapeHtml(item.title || t('untitled'))}">${escapeHtml(item.title || t('untitled'))}</h3>
+        <span class="type-badge" data-type="${escapeHtml(item.type || 'unknown')}">${escapeHtml(item.type || t('unknown'))}</span>
+      </div>
+      ${item.entityName ? `<div class="knowledge-entity" title="${escapeHtml(item.entityName)}">${escapeHtml(item.entityName)}</div>` : ''}
+      <p class="knowledge-summary">${escapeHtml(item.summary || '')}</p>
+      ${refs.length > 0 ? `<div class="knowledge-ref-list">${renderKnowledgeRefs(refs)}</div>` : ''}
+    </article>
+  `;
+}
+
+function renderKnowledgeRefs(refs) {
+  if (refs.length === 0) return '<span class="knowledge-ref-empty">—</span>';
+  return refs.map(ref => {
+    const kind = ref.kind || 'observation';
+    const title = ref.title ? ` title="${escapeHtml(ref.title)}"` : '';
+    return `<span class="knowledge-ref-chip" data-kind="${escapeHtml(kind)}"${title}>${escapeHtml(ref.id || kind)}</span>`;
+  }).join('');
+}
+
+function renderKnowledgeEmptySection() {
+  return `
+    <div class="knowledge-section-empty">
+      <span class="iconify" data-icon="lucide:circle-dashed"></span>
+      <div>
+        <strong>${t('knowledgeNoItems')}</strong>
+        <span>${t('knowledgeNoItemsDesc')}</span>
+      </div>
+    </div>
+  `;
+}
+
+function knowledgeAnchor(id) {
+  return `knowledge-${String(id || 'section').replace(/[^a-z0-9_-]/gi, '-')}`;
+}
+
 // ============================================================
 // Memory Topology Explorer — Cytoscape.js + Dagre
 // Focused topology default, not full graph dump
@@ -1428,9 +1736,21 @@ async function loadGraph() {
   const container = document.getElementById('page-graph');
   container.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
 
+  // Try semantic Knowledge Graph first
+  try {
+    const kg = await api('knowledge-graph');
+    if (kg && kg.nodes && kg.nodes.length > 0) {
+      renderSemanticGraph(kg);
+      return;
+    }
+  } catch (_e) {
+    // Fallback to entity graph
+  }
+
+  // Fallback: entity/relation graph
   const graph = await api('graph');
   if (!graph || (graph.entities.length === 0 && graph.relations.length === 0)) {
-    container.innerHTML = emptyState('<span class="iconify" data-icon="lucide:network" style="font-size:36px;"></span>', t('noGraphData'), t('noGraphDataDesc'));
+    container.innerHTML = emptyState('<span class="iconify" data-icon="lucide:network" style="font-size:36px;"></span>', t('kgNoData'), t('kgNoDataDesc'));
     return;
   }
 
@@ -1480,6 +1800,610 @@ async function loadGraph() {
   `;
 
   renderGraph(graph);
+}
+
+// ============================================================
+// Semantic Knowledge Graph Renderer — Apache ECharts 5
+// Force layout, section categories, evidence-based edges
+// ============================================================
+
+function renderSemanticGraph(kg) {
+  const container = document.getElementById('page-graph');
+
+  // Section color palette (vivid for both light/dark themes)
+  const sectionPalette = {
+    'core-decisions': '#7B9FD9',
+    'operational-knowledge': '#7CC598',
+    'known-gotchas': '#E08585',
+    'git-backed-facts': '#56D6A6',
+    'promoted-skills': '#C9A8FF',
+  };
+  const defaultSectionColor = '#A893C2';
+
+  function getSectionColor(sectionId) {
+    return sectionPalette[sectionId] || defaultSectionColor;
+  }
+
+  // Edge type styles — solid hex + opacity controlled by G6 strokeOpacity
+  const edgeStyleMap = {
+    'supports':     { color: '#69F0AE', arrow: true,  dash: false,  label: t('kgEdgeSupports') },
+    'relates_to':   { color: '#80D8FF', arrow: false, dash: [4, 4], label: t('kgEdgeRelatesTo') },
+    'mentions':     { color: '#D0BCFF', arrow: true,  dash: false,  label: t('kgEdgeMentions') },
+    'derived_from': { color: '#FFB74D', arrow: true,  dash: [6, 3], label: t('kgEdgeDerivedFrom') },
+  };
+
+  // Section label i18n map (matches knowledgeSection* keys)
+  const sectionI18nKeys = {
+    'core-decisions': 'knowledgeSectionCoreDecisions',
+    'operational-knowledge': 'knowledgeSectionOperationalKnowledge',
+    'known-gotchas': 'knowledgeSectionKnownGotchas',
+    'git-backed-facts': 'knowledgeSectionGitBackedFacts',
+    'promoted-skills': 'knowledgeSectionPromotedSkills',
+  };
+  function sectionLabel(sectionId) {
+    const key = sectionI18nKeys[sectionId];
+    return key ? t(key) : sectionId;
+  }
+
+  // State
+  let activeSections = new Set((kg.clusters || []).map(c => c.sectionId));
+  let activeEdgeTypes = new Set(Object.keys(edgeStyleMap).filter(type => type !== 'relates_to'));
+  let selectedNodeId = null;
+  let echartsInstance = null;
+  let echartsResizeObserver = null;
+  let focusedMode = true; // default: show top-N nodes only
+  const FOCUSED_TOP_N = 40; // max nodes in focused view
+  const MAX_EDGES_PER_NODE_FOCUSED = 4; // cap per-node edges (top-K by priority) to keep graph readable
+  const FOCUSED_EDGE_BUDGET = 120; // hard visual budget for first-render readability
+
+  function isLight() { return document.documentElement.getAttribute('data-theme') === 'light'; }
+
+  // Compute degree (edge count) for each node
+  const nodeDegreeMap = new Map();
+  for (const edge of kg.edges) {
+    nodeDegreeMap.set(edge.source, (nodeDegreeMap.get(edge.source) || 0) + 1);
+    nodeDegreeMap.set(edge.target, (nodeDegreeMap.get(edge.target) || 0) + 1);
+  }
+
+  // Section ordering for stable category index
+  const SECTION_ORDER = ['core-decisions', 'operational-knowledge', 'known-gotchas', 'git-backed-facts', 'promoted-skills'];
+
+  // Build ECharts graph data: { categories, nodes, links }
+  function buildEChartsData() {
+    // Determine which nodes to show
+    let visibleNodes = kg.nodes.filter(n => activeSections.has(n.sectionId));
+    if (focusedMode && visibleNodes.length > FOCUSED_TOP_N) {
+      visibleNodes.sort((a, b) => {
+        const scoreA = (a.evidenceCount || 0) + (nodeDegreeMap.get(a.id) || 0) * 2;
+        const scoreB = (b.evidenceCount || 0) + (nodeDegreeMap.get(b.id) || 0) * 2;
+        return scoreB - scoreA;
+      });
+      visibleNodes = visibleNodes.slice(0, FOCUSED_TOP_N);
+    }
+    const visibleNodeIds = new Set(visibleNodes.map(n => n.id));
+
+    // Categories (one per section, ECharts uses index reference from nodes)
+    const categories = SECTION_ORDER.map(sectionId => ({
+      name: sectionLabel(sectionId),
+      sectionId,
+      itemStyle: { color: getSectionColor(sectionId) },
+    }));
+    const categoryIndexBySection = Object.fromEntries(SECTION_ORDER.map((s, i) => [s, i]));
+    const visibleBySection = new Map(SECTION_ORDER.map(sectionId => [sectionId, []]));
+    visibleNodes.forEach(node => {
+      const group = visibleBySection.get(node.sectionId) || [];
+      group.push(node);
+      visibleBySection.set(node.sectionId, group);
+    });
+
+    const sectionCenters = {
+      'core-decisions': { x: -360, y: -170 },
+      'operational-knowledge': { x: 0, y: 0 },
+      'known-gotchas': { x: -340, y: 190 },
+      'git-backed-facts': { x: 360, y: -150 },
+      'promoted-skills': { x: 350, y: 190 },
+    };
+
+    function stableNodePosition(node, index) {
+      const group = visibleBySection.get(node.sectionId) || [];
+      const total = Math.max(1, group.length);
+      const center = sectionCenters[node.sectionId] || { x: 0, y: 0 };
+      const ring = Math.floor(index / 10);
+      const ringIndex = index % 10;
+      const radius = total === 1 ? 0 : 34 + ring * 42;
+      const angleStep = (Math.PI * 2) / Math.min(10, total);
+      const angleOffset = SECTION_ORDER.indexOf(node.sectionId) * 0.55;
+      const angle = ringIndex * angleStep + angleOffset;
+      return {
+        x: Math.round(center.x + Math.cos(angle) * radius),
+        y: Math.round(center.y + Math.sin(angle) * radius),
+      };
+    }
+
+    // Nodes (stable coordinates; dragging a node must not trigger global force rotation)
+    const nodes = visibleNodes.map(node => {
+      const symbolSize = Math.max(14, Math.min(10 + Math.sqrt(node.evidenceCount || 1) * 4, 32));
+      const sectionIndex = (visibleBySection.get(node.sectionId) || []).findIndex(n => n.id === node.id);
+      const pos = stableNodePosition(node, Math.max(0, sectionIndex));
+      return {
+        id: node.id,
+        name: node.label.length > 28 ? node.label.slice(0, 26) + '\u2026' : node.label,
+        x: pos.x,
+        y: pos.y,
+        category: categoryIndexBySection[node.sectionId] ?? 0,
+        symbolSize,
+        value: node.evidenceCount || 0,
+        sectionId: node.sectionId,
+        nodeType: node.nodeType,
+        entityName: node.entityName || '',
+        evidenceCount: node.evidenceCount || 0,
+        summary: node.summary || '',
+        refs: node.refs || [],
+        fullLabel: node.label,
+      };
+    });
+
+    // Collect candidate edges (both endpoints visible + active type)
+    const edgePriority = { supports: 3, derived_from: 2, mentions: 1, relates_to: 0 };
+    const candidateEdges = kg.edges.filter(e =>
+      activeEdgeTypes.has(e.edgeType) &&
+      visibleNodeIds.has(e.source) &&
+      visibleNodeIds.has(e.target),
+    );
+
+    // In focused mode, cap each node's edges to top-K strongest by type priority
+    let finalEdges = candidateEdges;
+    if (focusedMode && candidateEdges.length > 0) {
+      // Sort all candidates by priority descending (stronger types first)
+      const sorted = [...candidateEdges].sort(
+        (a, b) => (edgePriority[b.edgeType] ?? 0) - (edgePriority[a.edgeType] ?? 0),
+      );
+      const perNodeCount = new Map();
+      finalEdges = [];
+      for (const e of sorted) {
+        if (finalEdges.length >= FOCUSED_EDGE_BUDGET) break;
+        const sCount = perNodeCount.get(e.source) || 0;
+        const tCount = perNodeCount.get(e.target) || 0;
+        if (sCount >= MAX_EDGES_PER_NODE_FOCUSED || tCount >= MAX_EDGES_PER_NODE_FOCUSED) continue;
+        perNodeCount.set(e.source, sCount + 1);
+        perNodeCount.set(e.target, tCount + 1);
+        finalEdges.push(e);
+      }
+    }
+
+    // Build ECharts link objects
+    const links = finalEdges.map(edge => {
+      const style = edgeStyleMap[edge.edgeType] || {};
+      return {
+        id: edge.id,
+        source: edge.source,
+        target: edge.target,
+        edgeType: edge.edgeType,
+        edgeLabel: style.label || edge.edgeType,
+        lineStyle: {
+          color: style.color || '#999',
+          opacity: 0.5,
+          width: 1.1,
+          curveness: 0.12,
+          type: Array.isArray(style.dash) ? 'dashed' : 'solid',
+        },
+        symbol: style.arrow ? ['none', 'arrow'] : ['none', 'none'],
+        symbolSize: [4, 7],
+      };
+    });
+
+    return { categories, nodes, links };
+  }
+
+  let lastRenderedCounts = { nodes: 0, edges: 0 };
+
+  // Render the page shell
+  container.innerHTML = `
+    <div class="kg-page-shell">
+      <div class="page-header">
+        <h1 class="page-title">${t('kgTitle')}</h1>
+        <p class="page-subtitle">${t('kgSubtitle')}</p>
+      </div>
+      <div class="graph-layout">
+        <div class="graph-filter-panel" id="kg-filter-panel"></div>
+        <div id="graph-container">
+          <div id="echarts-mount" style="width:100%;height:100%;"></div>
+          <div class="graph-status-bar">
+            <span class="graph-status-item" id="gs-nodes"></span>
+            <span class="graph-status-item" id="gs-edges"></span>
+            <span class="graph-status-item" id="gs-clusters"></span>
+            <div class="graph-zoom-controls">
+              <button class="graph-zoom-btn" id="gz-out">\u2212</button>
+              <button class="graph-zoom-btn" id="gz-fit">\u2B21</button>
+              <button class="graph-zoom-btn" id="gz-in">+</button>
+            </div>
+          </div>
+        </div>
+        <div class="graph-inspector" id="graph-inspector">
+          <div class="gi-empty"><div class="gi-empty-icon">\u2B21</div>${t('graphSelectNode')}</div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  function initEChartsGraph() {
+    const mountEl = document.getElementById('echarts-mount');
+    if (!mountEl || typeof echarts === 'undefined') return;
+
+    // Ensure container has dimensions before init
+    if (mountEl.clientWidth === 0 || mountEl.clientHeight === 0) {
+      // Defer until layout finishes
+      requestAnimationFrame(() => initEChartsGraph());
+      return;
+    }
+
+    // Dispose previous instance if any
+    if (echartsInstance) {
+      try { echartsInstance.dispose(); } catch (_) { /* noop */ }
+      echartsInstance = null;
+    }
+
+    const data = buildEChartsData();
+    lastRenderedCounts = { nodes: data.nodes.length, edges: data.links.length };
+    const light = isLight();
+    const labelColor = light ? '#1C1B1F' : '#E6E1E5';
+    const labelMutedColor = light ? '#666' : '#999';
+    const tooltipBg = light ? 'rgba(255,255,255,0.96)' : 'rgba(20,20,28,0.96)';
+    const tooltipBorder = light ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.12)';
+
+    echartsInstance = echarts.init(mountEl, null, { renderer: 'canvas' });
+
+    const wrap = (txt) => String(txt ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+    const option = {
+      backgroundColor: 'transparent',
+      tooltip: {
+        trigger: 'item',
+        backgroundColor: tooltipBg,
+        borderColor: tooltipBorder,
+        borderWidth: 1,
+        textStyle: { color: labelColor, fontSize: 12, fontFamily: 'Inter, system-ui, sans-serif' },
+        extraCssText: 'box-shadow: 0 4px 16px rgba(0,0,0,0.18); border-radius: 8px; padding: 10px 12px; max-width: 320px;',
+        formatter: (params) => {
+          if (params.dataType === 'node') {
+            const d = params.data;
+            const summary = d.summary ? String(d.summary).slice(0, 160) : '';
+            return (
+              `<div style="font-weight:600;font-size:13px;margin-bottom:4px;line-height:1.35;">${wrap(d.fullLabel || d.name)}</div>` +
+              `<div style="font-size:11px;color:${labelMutedColor};margin-bottom:6px;">${wrap(d.nodeType || '')}${d.entityName ? ' \u00b7 ' + wrap(d.entityName) : ''}</div>` +
+              `<div style="font-size:11px;color:${labelMutedColor};">${d.evidenceCount || 0} ${wrap(t('kgInspectorEvidence'))}</div>` +
+              (summary ? `<div style="font-size:11.5px;line-height:1.5;margin-top:8px;color:${labelColor};opacity:0.85;">${wrap(summary)}\u2026</div>` : '')
+            );
+          }
+          if (params.dataType === 'edge') {
+            return `<div style="font-size:12px;">${wrap(params.data.edgeLabel || params.data.edgeType)}</div>`;
+          }
+          return '';
+        },
+      },
+      legend: [{
+        data: data.categories.map(c => c.name),
+        textStyle: { color: labelColor, fontSize: 11 },
+        top: 8,
+        right: 12,
+        itemWidth: 10,
+        itemHeight: 10,
+        itemGap: 12,
+        icon: 'circle',
+        selectedMode: false,
+      }],
+      animationDuration: 500,
+      animationEasingUpdate: 'quinticInOut',
+      series: [{
+        type: 'graph',
+        layout: 'none',
+        roam: true,
+        draggable: true,
+        zoom: 1,
+        scaleLimit: { min: 0.2, max: 4 },
+        edgeSymbol: ['none', 'arrow'],
+        edgeSymbolSize: [0, 8],
+        categories: data.categories,
+        data: data.nodes,
+        edges: data.links,
+        label: {
+          show: true,
+          position: 'right',
+          formatter: '{b}',
+          color: labelColor,
+          fontSize: 11,
+          fontFamily: 'Inter, system-ui, sans-serif',
+          backgroundColor: light ? 'rgba(255,255,255,0.82)' : 'rgba(15,15,23,0.72)',
+          padding: [2, 5],
+          borderRadius: 3,
+        },
+        labelLayout: { hideOverlap: true, moveOverlap: 'shiftY' },
+        itemStyle: {
+          opacity: 0.92,
+          borderColor: light ? 'rgba(0,0,0,0.22)' : 'rgba(255,255,255,0.2)',
+          borderWidth: 1,
+          shadowColor: light ? 'rgba(0,0,0,0.18)' : 'rgba(0,0,0,0.45)',
+          shadowBlur: 8,
+        },
+        emphasis: {
+          focus: 'adjacency',
+          label: { show: true, fontWeight: 700, fontSize: 12 },
+          itemStyle: { borderColor: light ? '#6750A4' : '#D0BCFF', borderWidth: 2 },
+          lineStyle: { width: 2.5, opacity: 1 },
+        },
+        blur: {
+          itemStyle: { opacity: 0.18 },
+          label: { opacity: 0.25 },
+          lineStyle: { opacity: 0.06 },
+        },
+        lineStyle: { opacity: 0.55, curveness: 0.15, width: 1.2 },
+      }],
+    };
+
+    echartsInstance.setOption(option);
+
+    // Click handlers — use ECharts event API (auto-cleaned on dispose) instead of zrender
+    echartsInstance.on('click', (params) => {
+      if (params.dataType === 'node') {
+        const id = params.data?.id;
+        if (id) {
+          selectedNodeId = id;
+          showKGInspector(id);
+        }
+      }
+    });
+    // Click on blank canvas deselects (ECharts emits click with empty target at chart level).
+    // Use `click` event at series level only; do NOT intercept zrender events so roam/pan works.
+    // User reported pan-on-empty-canvas not working when zr click was intercepted.
+
+    // Resize observer
+    if (echartsResizeObserver) {
+      try { echartsResizeObserver.disconnect(); } catch (_) { /* noop */ }
+    }
+    if (typeof ResizeObserver !== 'undefined') {
+      echartsResizeObserver = new ResizeObserver(() => {
+        if (echartsInstance) echartsInstance.resize();
+      });
+      echartsResizeObserver.observe(mountEl);
+    }
+
+    window._kgEChart = echartsInstance;
+    window._kgShowInspector = showKGInspector;
+
+    updateStatusBar();
+    bindZoomControls();
+  }
+
+  function bindZoomControls() {
+    const outBtn = document.getElementById('gz-out');
+    const fitBtn = document.getElementById('gz-fit');
+    const inBtn = document.getElementById('gz-in');
+    const setZoom = (factor) => {
+      if (!echartsInstance) return;
+      const opt = echartsInstance.getOption();
+      const cur = (opt.series && opt.series[0] && opt.series[0].zoom) || 1;
+      echartsInstance.setOption({ series: [{ zoom: Math.min(4, Math.max(0.2, cur * factor)) }] });
+    };
+    if (outBtn) outBtn.onclick = () => setZoom(0.75);
+    if (fitBtn) fitBtn.onclick = () => {
+      if (echartsInstance) echartsInstance.setOption({ series: [{ zoom: 1, center: null }] });
+    };
+    if (inBtn) inBtn.onclick = () => setZoom(1.35);
+  }
+
+  function updateStatusBar() {
+    const gsNodes = document.getElementById('gs-nodes');
+    const gsEdges = document.getElementById('gs-edges');
+    const gsClusters = document.getElementById('gs-clusters');
+    const shownNodes = focusedMode ? Math.min(kg.nodes.length, FOCUSED_TOP_N) : kg.nodes.length;
+    const shownLabel = focusedMode && kg.nodes.length > FOCUSED_TOP_N ? `${shownNodes}/${kg.nodes.length}` : `${kg.nodes.length}`;
+    if (gsNodes) gsNodes.textContent = `${shownLabel} ${t('kgNodes')}`;
+    const edgeLabel = lastRenderedCounts.edges < kg.edges.length
+      ? `${lastRenderedCounts.edges}/${kg.edges.length}`
+      : `${kg.edges.length}`;
+    if (gsEdges) gsEdges.textContent = `${edgeLabel} ${t('kgEdges')}`;
+    if (gsClusters) gsClusters.textContent = `${(kg.clusters || []).length} ${t('kgClusters')}`;
+  }
+
+  // Inspector
+  function showKGInspector(nodeId) {
+    const inspector = document.getElementById('graph-inspector');
+    if (!inspector) return;
+    if (!nodeId) {
+      inspector.innerHTML = '<div class="gi-empty"><div class="gi-empty-icon">\u2B21</div>' + t('graphSelectNode') + '</div>';
+      return;
+    }
+    const node = kg.nodes.find(n => n.id === nodeId);
+    if (!node) {
+      inspector.innerHTML = '<div class="gi-empty"><div class="gi-empty-icon">\u2B21</div>' + t('graphSelectNode') + '</div>';
+      return;
+    }
+    const color = getSectionColor(node.sectionId);
+    const relatedEdges = kg.edges.filter(e => e.source === nodeId || e.target === nodeId);
+
+    const refsHtml = (node.refs || []).length > 0
+      ? node.refs.map(r => `<span class="knowledge-ref-chip" data-kind="${escapeHtml(r.kind)}">${escapeHtml(r.id)}</span>`).join('')
+      : '<span style="font-size:12px;color:var(--text-muted);">—</span>';
+
+    const edgeHtml = relatedEdges.length > 0
+      ? relatedEdges.map(e => {
+          const dir = e.source === nodeId;
+          const other = dir ? e.target : e.source;
+          const otherNode = kg.nodes.find(n => n.id === other);
+          const style = edgeStyleMap[e.edgeType] || {};
+          return `<div class="gi-rel-item">
+            <span class="gi-rel-arrow">${dir ? '\u2192' : '\u2190'}</span>
+            <span class="gi-rel-type" style="color:${style.color || 'var(--text-muted)'}">${escapeHtml(style.label || e.edgeType)}</span>
+            <span class="gi-rel-target" data-kg-nav="${escapeHtml(other)}">${escapeHtml(otherNode?.label || other)}</span>
+          </div>`;
+        }).join('')
+      : '<div style="font-size:12px;color:var(--text-muted);font-style:italic;">' + t('kgInspectorNoEdges') + '</div>';
+
+    inspector.innerHTML = `
+      <div class="gi-header">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+          <span style="width:10px;height:10px;border-radius:50%;background:${color};flex-shrink:0;"></span>
+          <div class="gi-name">${escapeHtml(node.label)}</div>
+        </div>
+        <div class="gi-type">${escapeHtml(node.nodeType)}</div>
+      </div>
+      <div class="gi-stats">
+        <div class="gi-stat"><div class="gi-stat-value">${node.evidenceCount}</div><div class="gi-stat-label">${t('kgInspectorEvidence')}</div></div>
+        <div class="gi-stat"><div class="gi-stat-value">${relatedEdges.length}</div><div class="gi-stat-label">${t('kgInspectorRelatedEdges')}</div></div>
+      </div>
+      <div class="gi-section">
+        <div class="gi-section-title">${t('kgInspectorSection')}</div>
+        <div style="font-size:12px;color:${color};font-weight:500;">${escapeHtml(sectionLabel(node.sectionId))}</div>
+      </div>
+      ${node.entityName ? `<div class="gi-section"><div class="gi-section-title">${t('kgInspectorEntity')}</div><div style="font-size:12px;color:var(--accent-cyan);font-family:var(--font-mono);">${escapeHtml(node.entityName)}</div></div>` : ''}
+      <div class="gi-section">
+        <div class="gi-section-title">${t('kgInspectorSummary')}</div>
+        <div style="font-size:12px;color:var(--text-secondary);line-height:1.5;">${escapeHtml(node.summary || '—')}</div>
+      </div>
+      <div class="gi-section">
+        <div class="gi-section-title">${t('kgInspectorProvenance')}</div>
+        <div class="knowledge-ref-list">${refsHtml}</div>
+      </div>
+      <div class="gi-section">
+        <div class="gi-section-title">${t('kgInspectorRelatedEdges')} <span class="gi-section-count">${relatedEdges.length}</span></div>
+        ${edgeHtml}
+      </div>
+    `;
+
+    inspector.querySelectorAll('[data-kg-nav]').forEach(el => {
+      el.addEventListener('click', () => {
+        const targetId = el.dataset.kgNav;
+        if (echartsInstance) {
+          try {
+            echartsInstance.dispatchAction({ type: 'highlight', seriesIndex: 0, dataType: 'node', name: kg.nodes.find(n => n.id === targetId)?.label });
+          } catch (_) { /* noop */ }
+        }
+        showKGInspector(targetId);
+      });
+    });
+  }
+
+  // Filter panel
+  function renderKGFilterPanel() {
+    const panel = document.getElementById('kg-filter-panel');
+    if (!panel) return;
+
+    const clusterEntries = (kg.clusters || []).map(c => [c.sectionId, c]);
+    const clusterHtml = `
+      <div class="gfp-section">
+        <div class="gfp-label">${t('kgClusterFilter')}</div>
+        <div class="gfp-radio-group">
+          ${clusterEntries.map(([id, cluster]) => `
+            <button class="gfp-check${activeSections.has(id) ? ' active' : ''}" data-section-filter="${escapeHtml(id)}">
+              <span class="gfp-check-box">\u2713</span>
+              <span class="gfp-type-dot" style="background:${getSectionColor(id)}"></span>
+              ${escapeHtml(sectionLabel(cluster.sectionId))}
+              <span class="gfp-check-count">${cluster.nodeCount}</span>
+            </button>
+          `).join('')}
+        </div>
+      </div>
+    `;
+
+    const edgeTypeEntries = Object.entries(edgeStyleMap);
+    const edgeTypeHtml = `
+      <div class="gfp-section">
+        <div class="gfp-label">${t('kgEdgeTypeFilter')}</div>
+        <div class="gfp-radio-group">
+          ${edgeTypeEntries.map(([type, style]) => `
+            <button class="gfp-check${activeEdgeTypes.has(type) ? ' active' : ''}" data-edge-type-filter="${escapeHtml(type)}">
+              <span class="gfp-check-box">\u2713</span>
+              <span style="color:${style.color};font-size:11px;">\u2192</span>
+              ${escapeHtml(style.label)}
+              <span class="gfp-check-count">${kg.edges.filter(e => e.edgeType === type).length}</span>
+            </button>
+          `).join('')}
+        </div>
+      </div>
+    `;
+
+    const searchHtml = `
+      <div class="gfp-section">
+        <div class="gfp-label">${t('graphSearch')}</div>
+        <input type="text" class="gfp-search" id="kg-search" placeholder="${t('graphFindEntity')}" autocomplete="off" />
+      </div>
+    `;
+
+    const viewModeHtml = `
+      <div class="gfp-section">
+        <div class="gfp-label">${t('kgViewMode')}</div>
+        <div class="gfp-depth-row">
+          <button class="gfp-depth-btn${focusedMode ? ' active' : ''}" data-view-mode="focused">${t('kgFocused')}</button>
+          <button class="gfp-depth-btn${!focusedMode ? ' active' : ''}" data-view-mode="full">${t('kgFullGraph')}</button>
+        </div>
+      </div>
+    `;
+
+    panel.innerHTML = searchHtml + viewModeHtml + clusterHtml + edgeTypeHtml;
+
+    // Bind section filters
+    panel.querySelectorAll('[data-section-filter]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const id = btn.dataset.sectionFilter;
+        if (activeSections.has(id)) activeSections.delete(id);
+        else activeSections.add(id);
+        initEChartsGraph();
+        renderKGFilterPanel();
+      });
+    });
+
+    // Bind edge type filters
+    panel.querySelectorAll('[data-edge-type-filter]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const type = btn.dataset.edgeTypeFilter;
+        if (activeEdgeTypes.has(type)) activeEdgeTypes.delete(type);
+        else activeEdgeTypes.add(type);
+        initEChartsGraph();
+        renderKGFilterPanel();
+      });
+    });
+
+    // Bind view mode toggle
+    panel.querySelectorAll('[data-view-mode]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const mode = btn.dataset.viewMode;
+        focusedMode = mode === 'focused';
+        initEChartsGraph();
+        renderKGFilterPanel();
+      });
+    });
+
+    // Bind search
+    const searchInput = document.getElementById('kg-search');
+    if (searchInput) {
+      searchInput.addEventListener('input', () => {
+        const q = searchInput.value.toLowerCase();
+        if (!echartsInstance) return;
+        try {
+          echartsInstance.dispatchAction({ type: 'downplay', seriesIndex: 0 });
+        } catch (_) { /* noop */ }
+        if (!q) return;
+        // Highlight matched nodes (which auto-blurs others via emphasis.focus 'adjacency' isn't ideal here;
+        // instead, use 'highlight' on matching dataIndex array for visual emphasis)
+        const data = buildEChartsData();
+        const matchIndexes = [];
+        data.nodes.forEach((n, idx) => {
+          const match = (n.fullLabel || '').toLowerCase().includes(q) ||
+                        (n.nodeType || '').toLowerCase().includes(q) ||
+                        (n.entityName || '').toLowerCase().includes(q);
+          if (match) matchIndexes.push(idx);
+        });
+        if (matchIndexes.length > 0) {
+          try {
+            echartsInstance.dispatchAction({ type: 'highlight', seriesIndex: 0, dataIndex: matchIndexes });
+          } catch (_) { /* noop */ }
+        }
+      });
+    }
+  }
+
+  initEChartsGraph();
+  renderKGFilterPanel();
 }
 
 // ============================================================

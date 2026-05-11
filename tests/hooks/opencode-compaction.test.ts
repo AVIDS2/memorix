@@ -57,6 +57,11 @@ describe('Issue #45: OpenCode compaction', () => {
       expect(result.events).toContain('post_compact');
     });
 
+    it('should include post_response in returned events list', async () => {
+      const result = await installHooks('opencode', tmpDir);
+      expect(result.events).toContain('post_response');
+    });
+
     it('should NOT include pre_compact in returned events list', async () => {
       const result = await installHooks('opencode', tmpDir);
       expect(result.events).not.toContain('pre_compact');
@@ -151,6 +156,15 @@ describe('Issue #80: OpenCode plugin must use correct event keys', () => {
     expect(content).toContain("'tool.execute.after':");
   });
 
+  it('should use message.updated as direct hook key', async () => {
+    await installHooks('opencode', tmpDir);
+    const pluginPath = path.join(tmpDir, '.opencode', 'plugins', 'memorix.js');
+    const content = await fs.readFile(pluginPath, 'utf-8');
+    expect(content).toContain("'message.updated':");
+    expect(content).toContain('pendingAssistantResponse');
+    expect(content).toContain('hook_event_name: \'message.updated\'');
+  });
+
   it('should NOT contain catch-all event handler', async () => {
     await installHooks('opencode', tmpDir);
     const pluginPath = path.join(tmpDir, '.opencode', 'plugins', 'memorix.js');
@@ -191,11 +205,11 @@ describe('Issue #80: OpenCode plugin must use correct event keys', () => {
 
   // ─── Plugin version ───
 
-  it('should generate version 5 plugin (spawnSync, cross-runtime)', async () => {
+  it('should generate version 6 plugin (assistant response capture + spawnSync)', async () => {
     await installHooks('opencode', tmpDir);
     const pluginPath = path.join(tmpDir, '.opencode', 'plugins', 'memorix.js');
     const content = await fs.readFile(pluginPath, 'utf-8');
-    expect(content).toContain('@generated-version 5');
+    expect(content).toContain('@generated-version 6');
   });
 
   // ─── Hooks status: verified field ───
@@ -276,15 +290,16 @@ describe('Issue #80: OpenCode plugin must use correct event keys', () => {
 
   // ─── Reinstall ───
 
-  it('should reinstall after uninstall with correct v5 format', async () => {
+  it('should reinstall after uninstall with correct v6 format', async () => {
     await installHooks('opencode', tmpDir);
     await uninstallHooks('opencode', tmpDir);
     await installHooks('opencode', tmpDir);
 
     const pluginPath = path.join(tmpDir, '.opencode', 'plugins', 'memorix.js');
     const content = await fs.readFile(pluginPath, 'utf-8');
-    expect(content).toContain('@generated-version 5');
+    expect(content).toContain('@generated-version 6');
     expect(content).toContain("'session.created':");
+    expect(content).toContain("'message.updated':");
     expect(content).toContain('spawnSync');
   });
 });

@@ -91,6 +91,7 @@ const OBSERVATION_TYPES: [string, ...string[]] = [
   'why-it-exists',
   'decision',
   'trade-off',
+  'probe',
 ];
 
 /**

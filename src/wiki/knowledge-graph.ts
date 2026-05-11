@@ -60,8 +60,8 @@ const ALL_SECTIONS: SectionDef[] = [...SECTION_DEFS, GIT_SECTION, SKILLS_SECTION
 // Rules (no LLM, deterministic):
 // 1. supports: same entityName, different section -> source supports target
 // 2. relates_to: same entityName, same section -> bidirectional
-// 3. mentions: entityName of A appears in concepts/facts of B -> A mentions B
-// 4. derived_from: mini-skill source obs -> skill node
+// 3. derived_from: mini-skill source obs -> skill node
+// Explicit graph-store references are merged later as mentions edges.
 
 function inferEdges(
   nodes: SemanticNode[],
@@ -129,19 +129,6 @@ function inferEdges(
           ? 'relates_to'
           : 'supports';
         addEdge(from.id, to.id, edgeType);
-      }
-    }
-  }
-
-  // 3: Concept/fact cross-reference edges (mentions)
-  for (const node of nodes) {
-    if (!node.refs.length) continue;
-    for (const ref of node.refs) {
-      for (const other of nodes) {
-        if (other.id === node.id) continue;
-        if (ref.title && other.label.toLowerCase().includes(ref.title.toLowerCase().slice(0, 20))) {
-          addEdge(node.id, other.id, 'mentions');
-        }
       }
     }
   }

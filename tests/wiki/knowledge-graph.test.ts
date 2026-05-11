@@ -216,6 +216,22 @@ describe('Edge inference', () => {
     expect(relatesEdges.length).toBeLessThanOrEqual(8);
     expect(Math.max(...degree.values())).toBeLessThanOrEqual(8);
   });
+
+  it('does not infer mention cliques from repeated provenance titles', () => {
+    const obs = Array.from({ length: 20 }, (_, idx) =>
+      makeObs({
+        id: 2000 + idx,
+        type: 'gotcha',
+        title: 'HTTP quota fallback memory',
+        entityName: `quota-${idx}`,
+      }),
+    );
+
+    const kg = generateKnowledgeGraph({ projectId: PROJECT_ID, observations: obs, miniSkills: [] });
+    const mentionsEdges = kg.edges.filter(e => e.edgeType === 'mentions');
+
+    expect(mentionsEdges.length).toBe(0);
+  });
 });
 
 // Section clusters

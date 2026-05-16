@@ -307,7 +307,7 @@ export async function doStart(port: number): Promise<void> {
   process.stderr.write(footer + '\n');
 }
 
-async function doStop(): Promise<void> {
+export async function doStop(): Promise<void> {
   const state = loadState();
 
   if (!state) {

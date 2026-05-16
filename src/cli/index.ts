@@ -982,6 +982,7 @@ const main = defineCommand({
     doctor: () => import('./commands/doctor.js').then(m => m.default),
     dashboard: () => import('./commands/dashboard.js').then(m => m.default),
     cleanup: () => import('./commands/cleanup.js').then(m => m.default),
+    uninstall: () => import('./commands/uninstall.js').then(m => m.default),
     orchestrate: () => import('./commands/orchestrate.js').then(m => m.default),
   },
   async run() {
@@ -993,7 +994,7 @@ const main = defineCommand({
       'session', 'team', 'task', 'message', 'lock', 'handoff', 'poll',
       'serve', 'serve-http', 'status', 'sync',
       'hook', 'hooks', 'ingest', 'git-hook', 'git-hook-uninstall',
-      'background', 'bg', 'bs', 'doctor', 'dashboard', 'cleanup', 'orchestrate'];
+      'background', 'bg', 'bs', 'doctor', 'dashboard', 'cleanup', 'uninstall', 'orchestrate'];
     if (firstArg && knownSubs.includes(firstArg)) return;
 
     // No subcommand provided — show fullscreen workbench if in TTY, otherwise show help

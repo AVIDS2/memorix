@@ -512,7 +512,103 @@ and see [GIT_MEMORY.md](GIT_MEMORY.md).
 
 ---
 
-## 8. Related Docs
+## 8. Uninstall
+
+Memorix provides a safe, guided uninstall flow. It does **not** run `npm uninstall` — that remains a manual step.
+
+### Quick uninstall
+
+```bash
+# Preview what would happen
+memorix uninstall --dry-run
+
+# Stop background + remove hooks
+memorix uninstall --background --hooks
+
+# Then remove the package
+npm uninstall -g memorix
+```
+
+### Full purge (delete all local data)
+
+```bash
+# Preview first
+memorix uninstall --dry-run --purge-data
+
+# Full cleanup with confirmation
+memorix uninstall --background --hooks --purge-data
+
+# Skip prompts
+memorix uninstall --yes --background --hooks --purge-data
+
+# Then remove the package
+npm uninstall -g memorix
+```
+
+### Windows PowerShell equivalent
+
+```powershell
+# Preview
+memorix uninstall --dry-run
+
+# Stop background + remove hooks
+memorix uninstall --background --hooks
+
+# Full purge
+memorix uninstall --yes --background --hooks --purge-data
+
+# Remove package
+npm uninstall -g memorix
+```
+
+### What each flag does
+
+| Flag | Effect |
+|------|--------|
+| `--dry-run` | Preview only, no changes |
+| `--background` | Stop the background control plane |
+| `--hooks` | Remove agent hook configuration files |
+| `--purge-data` | Delete `~/.memorix` directory |
+| `--yes` | Skip all confirmation prompts |
+
+### What memorix uninstall does NOT do
+
+- Does **not** run `npm uninstall -g memorix` — you must run this yourself.
+- Does **not** silently delete or modify MCP config files (`.claude.json`, `.cursor/mcp.json`, `.codex/config.toml`, etc.). It reports which files contain memorix entries and provides per-file cleanup instructions.
+- Does **not** delete `~/.memorix` unless `--purge-data` is explicitly passed and confirmed (or `--yes --purge-data`).
+
+### Warning: deleting `~/.memorix`
+
+Passing `--purge-data` permanently deletes:
+
+- all stored memories (observations)
+- all mini-skills
+- all session records
+- background service logs
+- local configuration and cached state
+
+This operation is irreversible. Use `--dry-run` first to see what would happen.
+
+### MCP config manual cleanup
+
+After running `memorix uninstall`, you may still have memorix entries in your agent MCP config files. Memorix reports these but does not modify them. Common locations:
+
+| Agent | Config file |
+|-------|------------|
+| Claude Code | `~/.claude.json` or `.claude/settings.json` |
+| Cursor | `~/.cursor/mcp.json` or `.cursor/mcp.json` |
+| Windsurf | `~/.codeium/windsurf/mcp_config.json` |
+| Codex | `~/.codex/config.toml` |
+| VS Code / Copilot | `.vscode/mcp.json` |
+| Kiro | `~/.kiro/settings/mcp.json` or `.kiro/settings/mcp.json` |
+| Gemini CLI / Antigravity | `~/.gemini/settings.json` |
+| Trae | `%APPDATA%/Trae/User/mcp.json` (Windows) |
+
+Remove the `"memorix"` entry from the `mcpServers` (or equivalent) section in each file.
+
+---
+
+## 9. Related Docs
 
 - [Configuration Guide](CONFIGURATION.md)
 - [Git Memory Guide](GIT_MEMORY.md)

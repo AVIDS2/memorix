@@ -333,7 +333,7 @@ export function ConfigureView({ onBack }: ConfigureViewProps): React.ReactElemen
       {section === 'menu' && (
         <Box flexDirection="column">
           <SelectList items={MENU_ITEMS} selectedIndex={menuIndex} onSelect={handleMenuSelect} />
-          <Box marginTop={1}><Text color={COLORS.muted}>↑↓ + Enter to select │ Esc to go back</Text></Box>
+          <Box marginTop={1}><Text color={COLORS.muted}>up/down + Enter to select | Esc to go back</Text></Box>
         </Box>
       )}
 

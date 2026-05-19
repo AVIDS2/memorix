@@ -29,6 +29,7 @@ export default defineConfig({
             'tests/hooks/copilot-paths.test.ts',
             'tests/hooks/copilot-windows-compat.test.ts',
             'tests/cli/operator-surface.test.ts',
+            'tests/cli/uninstall.test.ts',
           ],
         },
       },
@@ -48,7 +49,9 @@ export default defineConfig({
             'tests/hooks/copilot-paths.test.ts',
             'tests/hooks/copilot-windows-compat.test.ts',
             'tests/cli/operator-surface.test.ts',
+            'tests/cli/uninstall.test.ts',
           ],
+          testTimeout: 15_000,
           // Run one file at a time — no parallelism, no port/CPU races
           // @ts-expect-error — fileParallelism is valid at project level per vitest docs
           fileParallelism: false,

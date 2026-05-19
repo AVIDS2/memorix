@@ -125,6 +125,8 @@ Deeper details on startup, project binding, config precedence, and agent workflo
 
 Running `memorix` without arguments opens an interactive fullscreen terminal UI (requires a TTY). Use it for chat with project memory, search, quick memory capture, diagnostics, background service control, dashboard launch, and IDE setup. Press `/help` inside the TUI for the current command list.
 
+In 1.0.9 the TUI is organized as a knowledge workbench with `Home`, `Knowledge`, `Memory`, `Workbench`, and `Graph` tabs. It can browse the generated Knowledge Base, inspect memory detail, jump between wiki refs and source observations, view the text Knowledge Graph, and keep chatting after answers without leaving the terminal.
+
 Single-shot chat (no TUI): `memorix ask "your question"`.
 
 ### Operator CLI
@@ -429,19 +431,17 @@ Additional deep references:
 
 ---
 
-## What's New in 1.0.8
+## What's New in 1.0.9
 
-Version `1.0.8` builds on the 1.0.7 coordination/storage/team baseline with a CLI-first operator surface, official Docker path, dashboard refinements, and broad hooks fixes.
+Version `1.0.9` adds the first readable project knowledge layer and turns the terminal UI into a knowledge-native workbench.
 
-- **CLI-First Product Surface**: Every Memorix-native operator capability now has a task-oriented CLI route — `session`, `memory`, `reasoning`, `retention`, `formation`, `audit`, `transfer`, `skills`, `team`, `task`, `message`, `lock`, `handoff`, `poll`, `sync`, `ingest`. MCP remains the integration protocol and optional graph-compatibility layer.
-- **Docker Deployment**: Official `Dockerfile`, `compose.yaml`, healthcheck, `--host` binding, and [DOCKER.md](docs/DOCKER.md) for running the HTTP control plane in a container.
-- **Multi-Agent Orchestrator**: `memorix orchestrate` runs plan, parallel execution, verification, fix, review, and merge loops across Claude, Codex, Gemini CLI, and OpenCode with capability routing, worktree isolation, and agent fallback.
-- **SQLite Canonical Store**: Observations, mini-skills, sessions, and archives in SQLite. Shared DB handle, freshness-safe retrieval, dead `JsonBackend` removed.
-- **Opt-in Agent Team**: task board, messages, file locks, handoff artifacts, and autonomous-agent heartbeat state. `session_start` is lightweight by default; team identity is opt-in via `joinTeam` or `team_manage join`.
-- **Dashboard Semantic Layering**: Team page filter tabs (Active/Recent/Historical), de-emphasized historical agents, project switcher grouped by real/temporary/placeholder, identity page cleanup.
-- **Hooks Fixes**: OpenCode event-name key mapping + `Bun.spawn` → `spawnSync`; Copilot `pwsh` fallback + global-hooks guard; hook handler diagnostic logging.
-- **Programmatic SDK**: `import { createMemoryClient } from 'memorix/sdk'` to store, search, get, and resolve observations directly from your own code without MCP or CLI. Also exports `createMemorixServer` and `detectProject`.
-- **Test Suite Stabilization**: E2e and live-LLM tests are excluded from the default suite, and load-sensitive tests are isolated so the default verification path stays deterministic.
+- **Knowledge Base / LLM Wiki**: Memorix now exposes a generated, readable Knowledge Base from durable observations, git facts, mini-skills, and project evidence. Raw memory remains the source of truth; the Knowledge Base is a citable synthesis for humans and agents.
+- **Semantic Knowledge Graph**: A graph projection over the same eligible knowledge inputs preserves source refs and supports concept/module/decision exploration without claiming to be GraphRAG.
+- **Tabbed TUI Workbench**: `Home`, `Knowledge`, `Memory`, `Workbench`, and `Graph` tabs replace the old scattered view model.
+- **Cross-Reference Navigation**: Jump between Knowledge items, Memory detail, and Graph nodes through stable refs where available.
+- **Explicit Session Center**: Workbench shows session state and context sources with explicit bind/end actions. It does not auto-start sessions or auto-join Agent Team.
+- **TUI Chat Usability Fixes**: Chat input remains active after assistant responses, and view shortcuts no longer steal normal CommandBar text.
+- **Architecture Boundaries**: App, realtime agent messaging, full coding-agent harness, graph editing, and GraphRAG remain outside 1.0.9 scope.
 
 ---
 

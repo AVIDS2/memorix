@@ -55,18 +55,18 @@ export function getStatusMessageRows(message: string): number {
   return Math.max(1, message.split('\n').length);
 }
 
-// ── Type icons: Unicode symbols for observation types ──────────────
+// ── Type icons: ASCII-safe symbols for observation types ───────────
 export const TYPE_ICONS: Record<string, string> = {
-  gotcha: '[WARN]',
-  decision: 'extended',
-  'problem-solution': '*',
-  discovery: '◈',
-  'how-it-works': '◉',
-  'what-changed': '△',
-  'trade-off': '[TRADEOFF]',
-  reasoning: '◇',
-  'session-request': '▸',
-  'why-it-exists': '⊕',
+  gotcha: '!',
+  decision: 'D',
+  'problem-solution': 'S',
+  discovery: '?',
+  'how-it-works': 'i',
+  'what-changed': '~',
+  'trade-off': 'T',
+  reasoning: 'R',
+  'session-request': '>',
+  'why-it-exists': '+',
 };
 
 // ── Color palette: blue brand gradient + Tailwind Slate dark theme ──
@@ -104,43 +104,55 @@ export const COLORS = {
 
 // ── Status dots ─────────────────────────────────────────────────────
 export const STATUS_DOTS: Record<string, string> = {
-  ok:      '●',
-  warn:    '◐',
-  error:   '●',
-  off:     'community',
-  running: '●',
-  stopped: 'community',
+  ok:      '*',
+  warn:    '~',
+  error:   '!',
+  off:     '-',
+  running: '*',
+  stopped: '-',
 };
 
-// ── Unicode box-drawing characters (rounded) ────────────────────────
+// ── Box-drawing characters (ASCII-safe) ─────────────────────────────
 export const BOX = {
-  tl: '╭', tr: '╮', bl: '╰', br: '╯',
-  h: '─', v: '│',
-  hBold: '━', vBold: '┃',
-  lt: '╡', rt: '╞', tt: '╨', bt: '╥',
-  cross: '┼',
+  tl: '+', tr: '+', bl: '+', br: '+',
+  h: '-', v: '|',
+  hBold: '=', vBold: '|',
+  lt: '|', rt: '|', tt: '|', bt: '|',
+  cross: '+',
 } as const;
 
 // ── Separator characters ────────────────────────────────────────────
 export const SEP = {
-  thin: '─',
-  thick: '━',
-  dot: '╌',
-  dash: '╍',
+  thin: '-',
+  thick: '=',
+  dot: '.',
+  dash: '-',
 } as const;
 
 // ── Misc symbols ────────────────────────────────────────────────────
 export const SYMBOLS = {
-  bullet: 'extended',
+  bullet: '-',
   arrow: '>',
   check: '[OK]',
   cross: '[ERROR]',
-  info: 'ℹ',
+  info: '[i]',
   pill: (text: string) => `[${text}]`,
+} as const;
+
+// ── Graph edge symbols ─────────────────────────────────────────────
+export const EDGE_SYMBOLS: Record<string, string> = {
+  supports: '->',
+  relates_to: '<->',
+  mentions: '~>',
+  derived_from: '=>',
 } as const;
 
 export type ViewType =
   | 'home'
+  | 'knowledge'
+  | 'memory'
+  | 'workbench'
+  | 'graph'
   | 'commands'
   | 'chat'
   | 'search'

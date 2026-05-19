@@ -58,9 +58,9 @@ export function HeaderBar({ version, project, health, mode }: HeaderBarProps): R
         {project ? (
           <>
             <Text color={COLORS.muted}>{SYMBOLS.pill(mode.toLowerCase())}</Text>
-            <Text color={COLORS.border}>│</Text>
+            <Text color={COLORS.border}>|</Text>
             <Text color={colorForMode(health.searchModeLabel)}>{STATUS_DOTS.ok} {health.searchModeLabel}</Text>
-            <Text color={COLORS.border}>│</Text>
+            <Text color={COLORS.border}>|</Text>
             <Text color={COLORS.text}>{health.activeMemories} mem</Text>
           </>
         ) : (

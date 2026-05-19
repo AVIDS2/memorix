@@ -31,6 +31,10 @@ interface CommandBarProps {
   onPaletteChange?: (visible: boolean) => void;
   /** Called with palette items when they change (for overlay rendering) */
   onPaletteItems?: (items: PaletteItem[], selectedIndex: number) => void;
+  /** Characters that are view-level shortcuts for the current tab.
+   *  When the command bar is empty, these chars must not be captured
+   *  as input — they belong to the view (e.g. 'f' for Graph filter). */
+  blockedFirstChars?: string[];
 }
 
 function fit(text: string, max: number): string {
@@ -111,6 +115,7 @@ export function CommandBar({
   contentWidth = 80,
   onPaletteChange,
   onPaletteItems,
+  blockedFirstChars,
 }: CommandBarProps): React.ReactElement {
   const [input, setInput] = useState('');
   const [cursorPos, setCursorPos] = useState(0);
@@ -151,6 +156,16 @@ export function CommandBar({
       return;
     }
 
+    // View-level shortcut keys (e.g. 'f' for Graph filter, 'k' for
+    // knowledge jump) must not seed the command bar on first press.
+    // Only block these specific chars when the bar is empty; all other
+    // keys pass through so users can type normal text from an empty bar.
+    const isRegularChar = ch && ch.length === 1 && !key.ctrl && !key.meta
+      && ch.charCodeAt(0) >= 32;
+    if (isRegularChar && !hasFocus && ch !== '/' && blockedFirstChars?.includes(ch)) {
+      return;
+    }
+
     if (key.escape) {
       if (showPalette || input) {
         setInput('');
@@ -188,7 +203,7 @@ export function CommandBar({
           // Enter on palette = auto-complete command name + space
           // (like Tab), so user can type arguments before executing.
           // If only one match and it's an arg-less command, execute directly.
-          const argLessCommands = new Set(['/home', '/h', '/recent', '/v', '/doctor', '/d', '/project', '/p', '/background', '/bg', '/dashboard', '/dash', '/integrate', '/setup', '/configure', '/config', '/cleanup', '/ingest', '/help', '/?', '/exit', '/quit', '/q', '/clear', '/cc', '/new', '/cn', '/resume', '/cr']);
+          const argLessCommands = new Set(['/home', '/h', '/recent', '/v', '/doctor', '/d', '/project', '/p', '/background', '/bg', '/dashboard', '/dash', '/integrate', '/setup', '/configure', '/config', '/cleanup', '/ingest', '/help', '/?', '/exit', '/quit', '/q', '/clear', '/cc', '/new', '/cn', '/resume', '/cr', '/wiki', '/knowledge', '/memory', '/workbench', '/graph']);
           if (filteredCommands.length === 1 && argLessCommands.has(selected.name)) {
             setInput('');
             setCursorPos(0);

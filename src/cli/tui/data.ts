@@ -466,6 +466,55 @@ export function detectMode(): { mode: string; detail: string } {
   return { mode: 'CLI', detail: 'Quick mode' };
 }
 
+/** Session state for the Workbench view. */
+export interface SessionState {
+  status: 'unbound' | 'binding' | 'bound' | 'error';
+  sessionId?: string;
+  startedAt?: string;
+  agent?: string;
+  context?: string;
+  error?: string;
+}
+
+export {
+  getSessionState,
+  bindSession,
+  unbindSession,
+} from './session-service.js';
+
+export async function getKnowledgeGraph(
+  projectId?: string,
+): Promise<import('../../wiki/types.js').ProjectKnowledgeGraph | null> {
+  try {
+    const { detectProject } = await import('../../project/detector.js');
+    const { getProjectDataDir } = await import('../../store/persistence.js');
+    const { initObservationStore } = await import('../../store/obs-store.js');
+    const { initObservations, getAllObservations } = await import('../../memory/observations.js');
+    const { initMiniSkillStore, getMiniSkillStore } = await import('../../store/mini-skill-store.js');
+    const { generateKnowledgeGraph } = await import('../../wiki/knowledge-graph.js');
+
+    const proj = detectProject(process.cwd());
+    if (!proj) return null;
+
+    const effectiveProjectId = projectId || proj.id;
+    const dataDir = await getProjectDataDir(effectiveProjectId);
+    await initObservationStore(dataDir);
+    await initObservations(dataDir);
+    await initMiniSkillStore(dataDir);
+
+    const observations = getAllObservations();
+    const skills = await getMiniSkillStore().loadByProject(effectiveProjectId);
+
+    return generateKnowledgeGraph({
+      projectId: effectiveProjectId,
+      observations,
+      miniSkills: skills,
+    });
+  } catch {
+    return null;
+  }
+}
+
 export async function getKnowledgeBase(projectId?: string): Promise<import('../../wiki/types.js').ProjectKnowledgeOverview | null> {
   try {
     const { detectProject } = await import('../../project/detector.js');

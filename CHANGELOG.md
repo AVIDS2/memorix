@@ -2,6 +2,39 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.9] - 2026-05-19
+
+### Added -- Knowledge Base / LLM Wiki Foundation
+- **First-class Knowledge Base layer** -- Added a readable project knowledge layer generated from durable memory, git-backed facts, mini-skills, and project evidence. The Knowledge Base is a shared human-and-AI surface, not a replacement for raw observations and not a TUI-only feature.
+- **Knowledge graph projection** -- Added a semantic graph projection over the same eligible knowledge inputs, preserving source refs for navigation and traceability.
+- **Dashboard Knowledge foundation** -- Dashboard surfaces can consume the same generated knowledge contract as the TUI, keeping Knowledge Base and graph semantics aligned.
+
+### Added -- TUI Knowledge Workbench
+- **Tabbed terminal workbench** -- Reworked the TUI around `Home`, `Knowledge`, `Memory`, `Workbench`, and `Graph` tabs.
+- **Knowledge browsing** -- Added a Knowledge tab for generated wiki sections, item summaries, entities, and source refs.
+- **Memory browsing** -- Added a Memory tab for recent/search/detail flows with ref-focused navigation from Knowledge.
+- **Workbench session center** -- Added explicit session status, explicit bind/end actions, context source summary, and chat. Entering the tab does not auto-start a session.
+- **Graph text browser** -- Added a terminal-native Knowledge Graph tab with summary stats, cluster browsing, node detail, light filtering, and Graph -> Knowledge jumps.
+- **Cross-surface ref navigation** -- Added Knowledge -> Memory, Memory -> Knowledge, and Graph -> Knowledge navigation paths based on stable refs where available.
+
+### Changed
+- **Knowledge architecture clarified** -- Documented the memory layer as the primary input to the knowledge layer, while project evidence such as docs, source structure, and git facts act as secondary inputs.
+- **TUI scope tightened** -- The TUI now behaves as a knowledge-native workbench, not a placeholder coding-agent harness. No fake Run Task / Review controls are exposed.
+- **Session semantics preserved** -- `session_start` remains explicit and lightweight. Agent Team join remains opt-in.
+
+### Fixed
+- **TUI chat input lock** -- Fixed a regression where after a free-text chat response the bottom input bar became unresponsive because the chat overlay disabled the CommandBar. Chat overlay now keeps input active so users can continue the conversation.
+- **TUI shortcut/input conflicts** -- Fixed CommandBar conflicts with view shortcuts such as Graph `f`/`k`, Memory `k`, and Knowledge `m` while still allowing normal first-character input.
+- **Graph TypeScript build issue** -- Fixed a type-only re-export under `verbatimModuleSyntax`.
+
+### Known Limitations
+- The Knowledge Base and Knowledge Graph are read-only generated projections in 1.0.9.
+- 1.0.9 does not include a desktop app, realtime agent messaging layer, GraphRAG system, graph editing, or full coding-agent harness.
+
+### Stats
+- **Verified TUI subset:** 93 passing tests across `interaction`, `workbench`, and `graph` suites.
+- **Release gates run during cleanup:** `npm run lint`, `npm run build`, and full `npm test`.
+
 ## [1.0.8] - 2026-04-19
 
 ### Added -- Operator CLI Surface

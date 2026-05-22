@@ -67,6 +67,15 @@ import {
 // ── Types ────────────────────────────────────────────────────────
 type TabType = 'home' | 'knowledge' | 'memory' | 'workbench' | 'graph';
 
+const INPUT_BLOCKING_OVERLAYS = new Set<ViewType>([
+  'cleanup',
+  'ingest',
+  'background',
+  'dashboard',
+  'integrate',
+  'configure',
+]);
+
 interface FocusRef {
   tab: TabType;
   refId: string;
@@ -120,6 +129,8 @@ export function WorkbenchApp({ version, onExitForInteractive }: AppProps): React
   const chatAbortRef = useRef<AbortController | null>(null);
 
   const effectiveView = overlayView ?? activeTab;
+  const commandBarDisabled = overlayView ? INPUT_BLOCKING_OVERLAYS.has(overlayView) : false;
+  const canSubmitChat = !overlayView || overlayView === 'chat' || !commandBarDisabled;
 
   const handlePaletteItemsChange = useCallback((items: PaletteItem[], idx: number) => {
     setPaletteItems(items);
@@ -227,7 +238,7 @@ export function WorkbenchApp({ version, onExitForInteractive }: AppProps): React
     // Session bind/end is handled by WorkbenchView's own useInput (Enter key).
 
     // Action view keys (cleanup, ingest, background, dashboard, integrate)
-    if (overlayView) {
+    if (overlayView && INPUT_BLOCKING_OVERLAYS.has(overlayView)) {
       const av = overlayView;
       if (av === 'cleanup' && /^[1-3]$/.test(ch)) { handleCleanupAction(ch); return; }
       if (av === 'ingest' && /^[1-4]$/.test(ch)) { handleIngestAction(ch); return; }
@@ -618,11 +629,11 @@ export function WorkbenchApp({ version, onExitForInteractive }: AppProps): React
       }
     } else {
       // Free text opens or continues the chat transcript.
-      if (!overlayView || overlayView === 'chat') {
+      if (canSubmitChat) {
         await submitChatQuestion(raw);
       }
     }
-  }, [project, exit, onExitForInteractive, submitChatQuestion, activeTab, overlayView, navigateTo]);
+  }, [project, exit, onExitForInteractive, submitChatQuestion, activeTab, overlayView, navigateTo, canSubmitChat]);
 
   // ── Action handlers (unchanged from original) ──────────────────
   const handleCleanupAction = useCallback(async (action: string) => {
@@ -1078,14 +1089,14 @@ export function WorkbenchApp({ version, onExitForInteractive }: AppProps): React
         <CommandBar
           onSubmit={handleCommand}
           onExit={() => exit()}
-          disabled={!!overlayView && overlayView !== 'chat'}
+          disabled={commandBarDisabled}
           onFocusChange={setInputFocused}
           prefixLabel={activeTab === 'workbench' ? '[ask]' : '[cmd]'}
           placeholder={activeTab === 'workbench' ? 'ask Memorix about this project or use /command' : 'type a question or /command'}
           contentWidth={contentWidth}
           onPaletteChange={setPaletteVisible}
           onPaletteItems={handlePaletteItemsChange}
-          disabledHint={overlayView && overlayView !== 'chat' ? `${overlayView}: use keys shown, Esc to back` : undefined}
+          disabledHint={commandBarDisabled && overlayView ? `${overlayView}: use keys shown, Esc to back` : undefined}
           blockedFirstChars={activeTab === 'graph' ? ['f', 'k'] : activeTab === 'memory' ? ['k'] : activeTab === 'knowledge' ? ['m'] : undefined}
         />
       </Box>

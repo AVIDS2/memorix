@@ -718,6 +718,107 @@ describe('WorkbenchApp', () => {
     unmount();
   }, 10000);
 
+  it('keeps command input usable after leaving /doctor overlay', async () => {
+    mockGetProjectInfo.mockResolvedValue({
+      id: 'test/proj',
+      name: 'my-project',
+      rootPath: '/tmp/project',
+      gitRemote: 'origin',
+    });
+    mockGetDoctorSummary.mockResolvedValue({
+      sections: [
+        {
+          title: 'Project',
+          items: [
+            { label: 'Name', value: 'my-project', status: 'ok' },
+            { label: 'ID', value: 'test/proj', status: 'info' },
+          ],
+        },
+        {
+          title: 'Search',
+          items: [
+            { label: 'Search Mode', value: 'BM25 full-text', status: 'info' },
+            { label: 'Embedding', value: 'API ready', status: 'ok' },
+          ],
+        },
+      ],
+    });
+    mockAskMemoryQuestionStream.mockResolvedValueOnce({
+      question: 'after doctor',
+      answer: 'Still responsive',
+      sources: [],
+      usedLLM: true,
+      searchMode: 'fulltext',
+      llmModel: 'mock-model',
+    });
+
+    const { lastFrame, stdin, unmount } = render(
+      <WorkbenchApp version="1.0.9" onExitForInteractive={() => {}} />,
+    );
+
+    await waitForCondition(() => (lastFrame() ?? '').includes('[cmd]'));
+    stdin.write('/doctor');
+    await waitForCondition(() => (lastFrame() ?? '').includes('[cmd] > /doctor'));
+    stdin.write('\r');
+
+    await waitForCondition(() => (lastFrame() ?? '').includes('Diagnostics complete'), 30, 100);
+    expect(lastFrame()).toContain('[cmd]');
+    expect(lastFrame()).not.toContain('[action] doctor');
+
+    stdin.write('\x1B');
+    await waitForCondition(() => (lastFrame() ?? '').includes('[cmd]'), 30, 100);
+    expect(lastFrame()).toContain('type a question or /command');
+
+    stdin.write('after doctor');
+    await waitForCondition(() => (lastFrame() ?? '').includes('after doctor'), 30, 100);
+    stdin.write('\r');
+
+    await waitForCondition(() => (lastFrame() ?? '').includes('Still responsive'), 30, 100);
+    expect(mockAskMemoryQuestionStream).toHaveBeenCalledTimes(1);
+
+    unmount();
+  }, 10000);
+
+  it('keeps command input usable while /doctor overlay is open', async () => {
+    mockGetProjectInfo.mockResolvedValue({
+      id: 'test/proj',
+      name: 'my-project',
+      rootPath: '/tmp/project',
+      gitRemote: 'origin',
+    });
+    mockGetDoctorSummary.mockResolvedValue({
+      sections: [
+        {
+          title: 'Project',
+          items: [{ label: 'Name', value: 'my-project', status: 'ok' }],
+        },
+      ],
+    });
+
+    const { lastFrame, stdin, unmount } = render(
+      <WorkbenchApp version="1.0.9" onExitForInteractive={() => {}} />,
+    );
+
+    await waitForCondition(() => (lastFrame() ?? '').includes('[cmd]'));
+    stdin.write('/doctor');
+    await waitForCondition(() => (lastFrame() ?? '').includes('[cmd] > /doctor'));
+    stdin.write('\r');
+
+    await waitForCondition(() => (lastFrame() ?? '').includes('Diagnostics complete'), 30, 100);
+    expect(lastFrame()).toContain('[cmd]');
+    expect(lastFrame()).not.toContain('[action] doctor');
+
+    stdin.write('/home');
+    await waitForCondition(() => (lastFrame() ?? '').includes('[cmd] > /home'), 30, 100);
+    stdin.write('\r');
+
+    await waitForCondition(() => (lastFrame() ?? '').includes('Home'), 30, 100);
+    expect(lastFrame()).toContain('# Home');
+    expect(lastFrame()).toContain('[cmd]');
+
+    unmount();
+  }, 10000);
+
   it('shows /help in a dedicated commands view without duplicating the command list in the status area', async () => {
     const { lastFrame, stdin, unmount } = render(
       <WorkbenchApp version="1.0.8" onExitForInteractive={() => {}} />,

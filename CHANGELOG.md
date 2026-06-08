@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.10] - 2026-06-08
+
+### Added -- Low-Intrusion Handoff Diagnostics
+- **Privacy-safe handoff receipts (#95)** -- Added `memorix receipt --json` for cross-agent memory debugging. Receipts expose project identity hashes, write/search counts, recent observation ID hashes, and privacy boundaries without raw chat, raw memory text, raw search queries, tool payloads, or local file paths.
+- **Doctor receipt mode** -- Added `memorix doctor --receipt` so support/debugging can include the same receipt summary alongside normal health diagnostics.
+- **Cross-agent memory boundary docs** -- Documented the operational boundary: MCP connection success does not mean a memory was written, and shared memory means stored memories are searchable across clients in the same Git project, not that chat transcripts are mirrored.
+- **TUI Agent LLM config scope** -- Added `agent` / `MEMORIX_AGENT_LLM_*` configuration for TUI/chat agent calls. Memory formation, compression, rerank, and embedding remain on their existing `llm` / `embedding` configuration paths. If `agent` is unset, TUI chat falls back to `llm` for backward compatibility.
+
+### Changed
+- **Generated agent rules are less intrusive** -- Rules now prefer `memorix_search` when useful and treat `memorix_session_start` as optional, reserved for handoff, long-running work, session recovery, team coordination, or HTTP project binding.
+- **Agent Team wording tightened** -- Public docs now frame Agent Team as optional autonomous-agent/subagent coordination state rather than an IDE-window chat room. Existing `team_*` APIs and CLI namespaces are unchanged.
+
+### Fixed
+- **Standalone dashboard embedding config (#46 follow-up)** -- `memorix dashboard` now loads project `.env` / project YAML before dashboard status routes initialize embedding provider state, matching `status`, `doctor`, and TUI behavior.
+
+### Documentation
+- Added a small moving-between-machines note covering `memorix transfer export/import` without changing the Memorix package name or primary README structure.
+
 ## [1.0.9] - 2026-05-19
 
 ### Added -- Knowledge Base / LLM Wiki Foundation

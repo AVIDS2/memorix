@@ -26,6 +26,12 @@ export interface MemorixConfig {
     model?: string;
     baseUrl?: string;
   };
+  agent?: {
+    provider?: string;
+    apiKey?: string;
+    model?: string;
+    baseUrl?: string;
+  };
   embedding?: string;
   embeddingApi?: {
     apiKey?: string;
@@ -103,6 +109,46 @@ export function getLLMModel(providerDefault: string): string {
 /** LLM base URL: env > memorix.yml > config.json > provider default */
 export function getLLMBaseUrl(providerDefault: string): string {
   return process.env.MEMORIX_LLM_BASE_URL || loadYamlConfig().llm?.baseUrl || loadFileConfig().llm?.baseUrl || providerDefault;
+}
+
+/** TUI/chat agent LLM API key: agent env > agent config > memory LLM fallback */
+export function getAgentLLMApiKey(): string | undefined {
+  return (
+    process.env.MEMORIX_AGENT_LLM_API_KEY ||
+    loadYamlConfig().agent?.apiKey ||
+    loadFileConfig().agent?.apiKey ||
+    getLLMApiKey()
+  );
+}
+
+/** TUI/chat agent LLM provider: agent env > agent config > memory LLM fallback */
+export function getAgentLLMProvider(): string {
+  if (process.env.MEMORIX_AGENT_LLM_PROVIDER) return process.env.MEMORIX_AGENT_LLM_PROVIDER;
+  const yml = loadYamlConfig();
+  if (yml.agent?.provider) return yml.agent.provider;
+  const cfg = loadFileConfig();
+  if (cfg.agent?.provider) return cfg.agent.provider;
+  return getLLMProvider();
+}
+
+/** TUI/chat agent LLM model: agent env > agent config > memory LLM fallback */
+export function getAgentLLMModel(providerDefault: string): string {
+  return (
+    process.env.MEMORIX_AGENT_LLM_MODEL ||
+    loadYamlConfig().agent?.model ||
+    loadFileConfig().agent?.model ||
+    getLLMModel(providerDefault)
+  );
+}
+
+/** TUI/chat agent LLM base URL: agent env > agent config > memory LLM fallback */
+export function getAgentLLMBaseUrl(providerDefault: string): string {
+  return (
+    process.env.MEMORIX_AGENT_LLM_BASE_URL ||
+    loadYamlConfig().agent?.baseUrl ||
+    loadFileConfig().agent?.baseUrl ||
+    getLLMBaseUrl(providerDefault)
+  );
 }
 
 /** Embedding mode: env > memorix.yml > config.json > 'off' */

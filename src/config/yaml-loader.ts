@@ -30,6 +30,14 @@ export interface MemorixYamlConfig {
     baseUrl?: string;
   };
 
+  /** TUI / chat agent LLM provider configuration */
+  agent?: {
+    provider?: 'openai' | 'anthropic' | 'openrouter' | string;
+    model?: string;
+    apiKey?: string;
+    baseUrl?: string;
+  };
+
   /** Embedding / vector search configuration */
   embedding?: {
     provider?: 'off' | 'api' | 'fastembed' | 'transformers' | 'auto';
@@ -121,6 +129,14 @@ export function initProjectRoot(root: string): void {
 }
 
 /**
+ * Clear the global project root used by no-arg loadYamlConfig().
+ * Useful when a long-lived process switches to a project whose root is unknown.
+ */
+export function clearProjectRoot(): void {
+  globalProjectRoot = null;
+}
+
+/**
  * Load memorix.yml from project root and/or user home.
  * Project-level overrides user-level (shallow merge per top-level key).
  */
@@ -163,6 +179,7 @@ export function loadYamlConfig(projectRoot?: string | null): MemorixYamlConfig {
     ...projectConfig,
     // Deep merge for nested objects where both exist
     llm: { ...userConfig.llm, ...projectConfig.llm },
+    agent: { ...userConfig.agent, ...projectConfig.agent },
     embedding: { ...userConfig.embedding, ...projectConfig.embedding },
     git: { ...userConfig.git, ...projectConfig.git },
     behavior: { ...userConfig.behavior, ...projectConfig.behavior },

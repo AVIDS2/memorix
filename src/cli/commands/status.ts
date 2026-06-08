@@ -149,6 +149,27 @@ export default defineCommand({
         diagLines.push(`  LLM API key:   not set`);
       }
 
+      const agentProvider = process.env.MEMORIX_AGENT_LLM_PROVIDER || yml.agent?.provider || legacy.agent?.provider;
+      if (agentProvider) {
+        const src = process.env.MEMORIX_AGENT_LLM_PROVIDER ? 'env:MEMORIX_AGENT_LLM_PROVIDER' : yml.agent?.provider ? 'memorix.yml' : 'config.json';
+        diagLines.push(`  Agent LLM provider: ${agentProvider} (← ${src})`);
+      }
+      const agentModel = process.env.MEMORIX_AGENT_LLM_MODEL || yml.agent?.model || legacy.agent?.model;
+      if (agentModel) {
+        const src = process.env.MEMORIX_AGENT_LLM_MODEL ? 'env:MEMORIX_AGENT_LLM_MODEL' : yml.agent?.model ? 'memorix.yml' : 'config.json';
+        diagLines.push(`  Agent LLM model:    ${agentModel} (← ${src})`);
+      }
+      const agentKey =
+        process.env.MEMORIX_AGENT_LLM_API_KEY ||
+        yml.agent?.apiKey ||
+        legacy.agent?.apiKey;
+      if (agentKey) {
+        const src = process.env.MEMORIX_AGENT_LLM_API_KEY ? 'env:MEMORIX_AGENT_LLM_API_KEY' : yml.agent?.apiKey ? 'memorix.yml (consider moving to .env)' : 'config.json (legacy)';
+        diagLines.push(`  Agent LLM API key:  ${'*'.repeat(8)}...${agentKey.slice(-4)} (← ${src})`);
+      } else {
+        diagLines.push(`  Agent LLM:     falls back to LLM config`);
+      }
+
       // Embedding
       const embMode = process.env.MEMORIX_EMBEDDING || yml.embedding?.provider || legacy.embedding || 'off';
       const embSrc =

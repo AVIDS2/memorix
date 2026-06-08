@@ -1,11 +1,12 @@
 /**
  * Auto-Update Wiring Tests
  *
- * Proves that auto-update is truly wired into real product behavior:
+ * Proves that update checks are wired into real product behavior:
  * 1. isNewer / getCurrentVersion work via actual exports (not replicated logic)
  * 2. checkForUpdates is non-blocking (returns a promise, never throws)
  * 3. 24h rate limit skips duplicate checks
  * 4. MEMORIX_AUTO_UPDATE=off disables the check
+ * 5. Default mode is notify-only, not silent background install
  * 5. Entry points (serve-http, index.ts) contain the wiring call
  * 6. All update output goes to stderr, never stdout
  */
@@ -99,15 +100,29 @@ describe('Auto-Update', () => {
       expect(elapsed).toBeLessThan(200);
     });
 
-    it('isAutoUpdateEnabled defaults to true', () => {
+    it('parseAutoUpdateMode defaults to notify', () => {
       delete process.env.MEMORIX_AUTO_UPDATE;
-      expect(_testing.isAutoUpdateEnabled()).toBe(true);
+      expect(_testing.parseAutoUpdateMode(process.env.MEMORIX_AUTO_UPDATE)).toBe('notify');
     });
 
-    it('isAutoUpdateEnabled returns false for off/false/0/notify', () => {
-      for (const val of ['off', 'false', '0', 'notify', 'OFF', 'False']) {
+    it('parseAutoUpdateMode returns off for off/false/0', () => {
+      for (const val of ['off', 'false', '0', 'OFF', 'False']) {
         process.env.MEMORIX_AUTO_UPDATE = val;
-        expect(_testing.isAutoUpdateEnabled()).toBe(false);
+        expect(_testing.parseAutoUpdateMode(process.env.MEMORIX_AUTO_UPDATE)).toBe('off');
+      }
+    });
+
+    it('parseAutoUpdateMode returns install only for explicit install-like values', () => {
+      for (const val of ['install', 'true', '1', 'INSTALL', 'True']) {
+        process.env.MEMORIX_AUTO_UPDATE = val;
+        expect(_testing.parseAutoUpdateMode(process.env.MEMORIX_AUTO_UPDATE)).toBe('install');
+      }
+    });
+
+    it('parseAutoUpdateMode treats notify and unknown values as notify', () => {
+      for (const val of ['notify', 'maybe', 'random']) {
+        process.env.MEMORIX_AUTO_UPDATE = val;
+        expect(_testing.parseAutoUpdateMode(process.env.MEMORIX_AUTO_UPDATE)).toBe('notify');
       }
     });
   });

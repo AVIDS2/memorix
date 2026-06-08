@@ -23,21 +23,17 @@ It supports:
 - local-first project-scoped memory
 - cross-agent recall across Cursor, Claude Code, Codex, Windsurf, Gemini CLI, GitHub Copilot, Kiro, OpenCode, Antigravity, and Trae
 
-### 1.0.8 operator delta
+### 1.0.10 operator delta
 
-If you used Memorix before `1.0.8`, the operator-visible changes worth knowing are:
+If you used Memorix before `1.0.10`, the operator-visible changes worth knowing are:
 
-- session, search, detail, and timeline now expose a clearer `L1 / L2 / L3` retrieval model
-- compact evidence surfaces better distinguish repository-backed signals, synthesized analysis, and citation-lite support
-- retrieval is more task-line aware inside a single repo and less likely to surface the wrong subdomain
-- obvious credentials are sanitized on write and redacted on retrieval surfaces
-- retention, stale review, audit, and resolve now form a clearer cleanup/remediation loop
-- OpenCode compaction guidance now preserves structured continuation context without falsely implying automatic MCP tool calls
-- `memorix_session_start` is now **lightweight by default**: it binds the project, opens the session, and restores context without auto-registering a team identity
-- team participation is now explicit: use `joinTeam: true` on `memorix_session_start` or call `team_manage(join)` directly
-- Memorix is now **CLI-first for operators**: every Memorix-native operator capability has a terminal route, while MCP remains the integration protocol for IDEs and agents
-- Agent Team page is an **autonomous CLI agents status surface** (not an org backend or IDE-window chat room): shows explicitly joined autonomous agents, open tasks, handoffs, and a "Continue This Project" resume area
-- Docker now has an official HTTP control-plane deployment path; when running in a container, `projectRoot` must be visible inside that container or project-scoped semantics will fail closed
+- `memorix receipt --json` and `memorix doctor --receipt` now provide privacy-safe cross-agent memory diagnostics without raw chat, memory text, query text, tool payloads, or local file paths
+- shared memory boundaries are documented more explicitly: MCP connectivity does not prove a write happened, and searchable shared memory is project-scoped, not transcript mirroring
+- generated agent rules are less intrusive and treat `memorix_session_start` as optional unless session semantics actually matter
+- TUI chat can use its own `agent` / `MEMORIX_AGENT_LLM_*` provider/model path while formation, rerank, and embedding stay on their existing config paths
+- fresh-project retrieval failure states are explained more clearly to operators
+- auto-update now defaults to notify-only; background install is explicit opt-in
+- standalone dashboard status loads project `.env` / YAML before embedding and LLM diagnostics initialize
 
 ---
 
@@ -45,7 +41,7 @@ If you used Memorix before `1.0.8`, the operator-visible changes worth knowing a
 
 ### CLI is the primary operator surface; MCP is the integration layer
 
-For human operators, prefer `memorix ...` commands first. In 1.0.8, the CLI covers all Memorix-native operator capabilities across session, memory, reasoning, retention, formation, audit, transfer, skills, team, task, message, lock, handoff, poll, sync, and ingest workflows.
+For human operators, prefer `memorix ...` commands first. In 1.0.10, the CLI covers all Memorix-native operator capabilities across session, memory, reasoning, retention, formation, audit, transfer, skills, team, task, message, lock, handoff, poll, sync, and ingest workflows.
 
 Do not ask memory-only users to join the Agent Team. A lightweight session is enough for memory, retrieval, reasoning, and continuation. Join only for explicit task/message/lock coordination or for autonomous CLI-agent work managed by `memorix orchestrate`.
 
@@ -480,17 +476,18 @@ memorix git-hook --force
 
 In HTTP control-plane mode:
 
-1. Call `memorix_session_start`
-2. Pass:
+1. Use `memorix_search` / `memorix_detail` when prior project context would materially help the task.
+2. Call `memorix_session_start` when explicit session semantics are useful: handoff, long-running work, restoring prior session context, team coordination, or project binding in a multi-project HTTP control plane.
+3. When calling `memorix_session_start`, pass:
    - `agent` — display name (e.g. `"cursor-frontend"`)
    - `agentType` — optional agent type for Agent Team role mapping (e.g. `"windsurf"`, `"cursor"`, `"claude-code"`, `"codex"`, `"gemini-cli"`)
-   - `projectRoot` = absolute workspace path
-3. By default this only starts a lightweight session. It does **not** auto-register a team identity.
-4. If the user wants autonomous Agent Team features, either:
+   - `projectRoot` = absolute workspace path when the client knows it
+4. By default this only starts a lightweight session. It does **not** auto-register a team identity.
+5. If the user wants autonomous Agent Team / subagent features, either:
    - call `memorix_session_start` with `joinTeam: true`
    - or call `team_manage(join)` explicitly
-5. If project binding fails, stop using project-scoped tools until the path is corrected
-6. Then use:
+6. If project binding fails, stop using project-scoped tools until the path is corrected
+7. Then use:
    - `memorix_search`
    - `memorix_detail`
    - `memorix_timeline`
@@ -499,12 +496,14 @@ In HTTP control-plane mode:
 In stdio / project-bound mode:
 
 - `projectRoot` is optional if the process is already launched from the correct workspace
-- keep this path lightweight unless the user explicitly asks for team coordination
+- a session bind is optional; keep this path lightweight unless the user explicitly needs session/handoff/team semantics
 
 Important boundary:
 
 - `team_manage(join)` does not make separate Cursor, Windsurf, Codex, or TUI conversation windows magically talk to each other.
 - For real autonomous multi-agent implementation loops, use `memorix orchestrate`; it launches CLI agents, coordinates work through tasks/context, and runs verification/fix/review gates.
+- Shared memory means stored memories are searchable across clients in the same Git project. It does not mean every chat message is mirrored automatically.
+- For support/debugging, use `memorix receipt --json` or `memorix doctor --receipt`; receipts emit hashes/counts only and omit raw prompts, raw memory text, raw queries, tool payloads, and local file paths.
 
 ---
 

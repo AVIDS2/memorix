@@ -18,6 +18,11 @@ export default defineCommand({
       description: 'Output as JSON instead of human-readable text',
       default: false,
     },
+    receipt: {
+      type: 'boolean',
+      description: 'Include privacy-safe memory handoff receipt',
+      default: false,
+    },
   },
   run: async ({ args }) => {
     const { existsSync, readFileSync } = await import('node:fs');
@@ -355,14 +360,43 @@ export default defineCommand({
       } else {
         lines.push(info('No update checks recorded yet'));
       }
-      const autoEnabled = !['off', 'false', '0', 'notify'].includes(
-        (process.env.MEMORIX_AUTO_UPDATE ?? '').toLowerCase().trim(),
-      );
-      lines.push(info(`Auto-update: ${autoEnabled ? 'enabled (install)' : 'disabled'}`));
-      report.autoUpdate = { enabled: autoEnabled, currentVersion: curVer, cache };
+      const modeRaw = (process.env.MEMORIX_AUTO_UPDATE ?? '').toLowerCase().trim();
+      const autoUpdateMode = !modeRaw || modeRaw === 'notify'
+        ? 'notify'
+        : ['off', 'false', '0'].includes(modeRaw)
+          ? 'off'
+          : ['install', 'true', '1'].includes(modeRaw)
+            ? 'install'
+            : 'notify';
+      lines.push(info(
+        autoUpdateMode === 'off'
+          ? 'Auto-update: disabled'
+          : autoUpdateMode === 'install'
+            ? 'Auto-update: enabled (background install)'
+            : 'Auto-update: enabled (notify only)',
+      ));
+      report.autoUpdate = { enabled: autoUpdateMode !== 'off', mode: autoUpdateMode, currentVersion: curVer, cache };
     } catch {
       lines.push(info('Auto-update status unavailable'));
       report.autoUpdate = { enabled: false };
+    }
+
+    // ── Summary ──────────────────────────────────────────────────
+    if (args.receipt && projectId) {
+      lines.push('');
+      lines.push('┌─ Memory Handoff Receipt ─────────────────────────');
+      try {
+        const { buildHandoffReceipt } = await import('../receipt-service.js');
+        const receipt = await buildHandoffReceipt({ cwd: projectRoot || process.cwd(), transport: 'cli' });
+        lines.push(ok(`Project identity: ${receipt['project.identity_hash']}`));
+        lines.push(ok(`Stored memories: ${receipt['memory.write.count']}`));
+        lines.push(info(String(receipt.boundary)));
+        report.receipt = receipt;
+      } catch (e) {
+        const message = e instanceof Error ? e.message : String(e);
+        lines.push(warn(`Receipt unavailable: ${message}`));
+        report.receipt = { error: message };
+      }
     }
 
     // ── Summary ──────────────────────────────────────────────────

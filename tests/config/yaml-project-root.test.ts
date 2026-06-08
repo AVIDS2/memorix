@@ -9,7 +9,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { writeFileSync, unlinkSync, existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { loadYamlConfig, initProjectRoot, resetYamlConfigCache } from '../../src/config/yaml-loader.js';
+import { loadYamlConfig, initProjectRoot, clearProjectRoot, resetYamlConfigCache } from '../../src/config/yaml-loader.js';
 
 describe('Project-level memorix.yml resolution', () => {
   const testDir = join(tmpdir(), 'memorix-test-yml-' + Date.now());
@@ -72,5 +72,16 @@ describe('Project-level memorix.yml resolution', () => {
     initProjectRoot(testDir); // Should invalidate cache
     const cfg2 = loadYamlConfig();
     expect(cfg2.llm?.provider).toBe('second');
+  });
+
+  it('clearProjectRoot should stop no-arg loadYamlConfig from using previous project config', () => {
+    writeFileSync(ymlPath, 'llm:\n  provider: should-not-leak\n', 'utf-8');
+    initProjectRoot(testDir);
+    expect(loadYamlConfig().llm?.provider).toBe('should-not-leak');
+
+    clearProjectRoot();
+    resetYamlConfigCache();
+
+    expect(loadYamlConfig().llm?.provider).not.toBe('should-not-leak');
   });
 });

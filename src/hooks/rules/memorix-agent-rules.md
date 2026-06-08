@@ -2,15 +2,18 @@
 
 You have access to Memorix memory tools. Follow these rules to maintain persistent context across sessions.
 
-## Session Start — Load Context
+## Use Memory When Useful
 
-At the **beginning of every conversation**, before responding to the user:
+At the beginning of a conversation, use Memorix when prior project context would materially help the task. A session bind is not required for every conversation.
 
-1. Call `memorix_search` with query related to the user's first message or the current project
+1. Call `memorix_search` with a query related to the user's first message or the current project
 2. If results are found, use them to understand the current project state, recent decisions, and pending tasks
-3. Reference relevant memories naturally in your response — don't just list them
+3. Call `memorix_session_start` only when explicit session semantics are useful: handoff, long-running work, team coordination, restoring prior session context, or HTTP project binding
+4. Reference relevant memories naturally in your response — don't just list them
 
-This ensures you already know the project context without the user re-explaining.
+If `memorix_search` says this is a fresh project with no Memorix memories yet, treat that as a successful cold-start signal. Do not repeat `memorix_search` again in the same turn unless the user explicitly asks for history/context, or new memories were written during the turn.
+
+This keeps memory useful without forcing every agent turn through a session ritual.
 
 ## During Session — Capture Important Context
 

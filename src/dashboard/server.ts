@@ -18,6 +18,10 @@ import { getObservationStore, initObservationStore } from '../store/obs-store.js
 import { getSessionStore, initSessionStore } from '../store/session-store.js';
 import { initGraphStore, getGraphStore } from '../store/graph-store.js';
 import type { TeamStore } from '../team/team-store.js';
+import { loadDotenv } from '../config/dotenv-loader.js';
+import { resetDotenv } from '../config/dotenv-loader.js';
+import { initProjectRoot } from '../config/yaml-loader.js';
+import { clearProjectRoot } from '../config/yaml-loader.js';
 
 // MIME types for static file serving
 const MIME_TYPES: Record<string, string> = {
@@ -61,6 +65,34 @@ function isActiveStatus(status?: string): boolean {
 
 function filterActiveByProject<T extends { projectId?: string; status?: string }>(items: T[], projectId: string): T[] {
     return items.filter(item => item.projectId === projectId && isActiveStatus(item.status));
+}
+
+/**
+ * Prepare project-scoped dashboard config before any route initializes providers.
+ * This keeps standalone dashboard behavior aligned with CLI/TUI commands: project
+ * .env is visible before embedding/LLM status modules read process.env.
+ */
+let preparedDashboardProjectRoot: string | null = null;
+
+export function prepareDashboardConfig(projectRoot: string | null): void {
+    if (!projectRoot) {
+        if (preparedDashboardProjectRoot !== null) {
+            resetDotenv();
+            preparedDashboardProjectRoot = null;
+        }
+        clearProjectRoot();
+        return;
+    }
+    try {
+        if (preparedDashboardProjectRoot !== null && preparedDashboardProjectRoot !== projectRoot) {
+            resetDotenv();
+        }
+        initProjectRoot(projectRoot);
+        loadDotenv(projectRoot);
+        preparedDashboardProjectRoot = projectRoot;
+    } catch {
+        // Best effort only. Dashboard status routes must remain available even if config loading fails.
+    }
 }
 
 /**
@@ -117,6 +149,8 @@ async function handleApi(
         effectiveProjectResolved = true;
         effectiveProjectRoot = null; // root unknown for switched project
     }
+
+    prepareDashboardConfig(effectiveProjectRoot);
 
     try {
         switch (apiPath) {
@@ -445,7 +479,7 @@ async function handleApi(
                 const configProjectRoot = effectiveProjectRoot;
                 try {
                     const { loadYamlConfig } = await import('../config/yaml-loader.js');
-                    yml = loadYamlConfig();
+                    yml = configProjectRoot ? loadYamlConfig(configProjectRoot) : loadYamlConfig(null);
                 } catch { /* best effort */ }
 
                 // Load .env files so process.env reflects actual config (fixes #74, #62)
@@ -516,6 +550,22 @@ async function handleApi(
                     values.push({ key: 'llm.apiKey', value: '****' + llmKey.slice(-4), source: src, sensitive: true });
                 } else {
                     values.push({ key: 'llm.apiKey', value: 'not set', source: 'none' });
+                }
+
+                const agentProvider = process.env.MEMORIX_AGENT_LLM_PROVIDER || yml.agent?.provider;
+                if (agentProvider) values.push({ key: 'agent.llm.provider', value: agentProvider, source: await getEnvSource('MEMORIX_AGENT_LLM_PROVIDER', yml.agent?.provider ? 'memorix.yml' : undefined) });
+
+                const agentModel = process.env.MEMORIX_AGENT_LLM_MODEL || yml.agent?.model;
+                if (agentModel) values.push({ key: 'agent.llm.model', value: agentModel, source: await getEnvSource('MEMORIX_AGENT_LLM_MODEL', yml.agent?.model ? 'memorix.yml' : undefined) });
+
+                const agentKey = process.env.MEMORIX_AGENT_LLM_API_KEY || yml.agent?.apiKey;
+                if (agentKey) {
+                    let src = 'unknown';
+                    if (process.env.MEMORIX_AGENT_LLM_API_KEY) src = await getEnvSource('MEMORIX_AGENT_LLM_API_KEY');
+                    else if (yml.agent?.apiKey) src = 'memorix.yml (move to .env!)';
+                    values.push({ key: 'agent.llm.apiKey', value: '****' + agentKey.slice(-4), source: src, sensitive: true });
+                } else {
+                    values.push({ key: 'agent.llm.apiKey', value: 'fallback to llm.apiKey', source: 'default' });
                 }
 
                 // Embedding

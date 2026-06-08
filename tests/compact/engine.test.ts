@@ -66,9 +66,26 @@ describe('Compact Engine', () => {
     });
 
     it('should return empty message when no results', async () => {
+      await storeObservation({
+        entityName: 'deploy',
+        type: 'decision',
+        title: 'Use Docker for deployment',
+        narrative: 'Existing memory should keep empty search on the generic no-result path',
+        projectId: 'test/project',
+      });
+
       const result = await compactSearch({ query: 'nonexistent', projectId: 'test/project' });
       expect(result.entries).toHaveLength(0);
       expect(result.formatted).toContain('No memories found');
+      expect(result.formatted).not.toContain('fresh project');
+    });
+
+    it('should return a cold-start hint for a fresh project with no memories yet', async () => {
+      const result = await compactSearch({ query: 'auth', projectId: 'fresh/project' });
+
+      expect(result.entries).toHaveLength(0);
+      expect(result.formatted).toContain('This project does not have any Memorix memories yet.');
+      expect(result.formatted).toContain('fresh project');
     });
   });
 

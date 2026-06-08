@@ -410,7 +410,7 @@ export async function askMemoryQuestion(
   // No project + no LLM → dead end
   if (!project) {
     loadDotenv(process.cwd());
-    initLLM();
+    initLLM({ scope: 'agent' });
     if (!isLLMEnabled()) {
       return {
         question: trimmedQuestion,
@@ -445,7 +445,7 @@ export async function askMemoryQuestion(
   }
 
   loadDotenv(project.rootPath);
-  initLLM();
+  initLLM({ scope: 'agent' });
 
   const dataDir = await getProjectDataDir(project.id);
   await prepareProjectSearch(project.id, dataDir);
@@ -595,7 +595,7 @@ export async function askMemoryQuestionStream(
   // No project + no LLM → dead end
   if (!project) {
     loadDotenv(process.cwd());
-    initLLM();
+    initLLM({ scope: 'agent' });
     if (!isLLMEnabled()) {
       return {
         question: trimmedQuestion,
@@ -633,7 +633,7 @@ export async function askMemoryQuestionStream(
   }
 
   loadDotenv(project.rootPath);
-  initLLM();
+  initLLM({ scope: 'agent' });
 
   const dataDir = await getProjectDataDir(project.id);
   await prepareProjectSearch(project.id, dataDir);

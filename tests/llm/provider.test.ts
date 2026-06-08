@@ -1,5 +1,75 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { callLLMWithTools, parseLLMTimeoutMs, setLLMConfig } from '../../src/llm/provider.js';
+import { callLLMWithTools, initLLM, parseLLMTimeoutMs, setLLMConfig } from '../../src/llm/provider.js';
+
+const LLM_ENV_KEYS = [
+  'MEMORIX_AGENT_LLM_API_KEY',
+  'MEMORIX_AGENT_LLM_PROVIDER',
+  'MEMORIX_AGENT_LLM_MODEL',
+  'MEMORIX_AGENT_LLM_BASE_URL',
+  'MEMORIX_LLM_API_KEY',
+  'MEMORIX_LLM_PROVIDER',
+  'MEMORIX_LLM_MODEL',
+  'MEMORIX_LLM_BASE_URL',
+  'MEMORIX_API_KEY',
+  'OPENAI_API_KEY',
+  'ANTHROPIC_API_KEY',
+  'OPENROUTER_API_KEY',
+];
+
+function clearLLMEnv() {
+  for (const key of LLM_ENV_KEYS) delete process.env[key];
+}
+
+describe('initLLM config scopes', () => {
+  beforeEach(() => {
+    clearLLMEnv();
+    setLLMConfig(null);
+  });
+
+  afterEach(() => {
+    clearLLMEnv();
+    setLLMConfig(null);
+  });
+
+  it('uses agent-specific LLM env vars for TUI agent scope', () => {
+    process.env.MEMORIX_LLM_API_KEY = 'sk-memory';
+    process.env.MEMORIX_LLM_MODEL = 'memory-model';
+    process.env.MEMORIX_AGENT_LLM_API_KEY = 'sk-agent';
+    process.env.MEMORIX_AGENT_LLM_PROVIDER = 'openrouter';
+    process.env.MEMORIX_AGENT_LLM_MODEL = 'agent-model';
+    process.env.MEMORIX_AGENT_LLM_BASE_URL = 'https://agent.example.com/v1';
+
+    const config = initLLM({ scope: 'agent' });
+
+    expect(config).toEqual({
+      provider: 'openrouter',
+      apiKey: 'sk-agent',
+      model: 'agent-model',
+      baseUrl: 'https://agent.example.com/v1',
+    });
+  });
+
+  it('keeps memory LLM scope on existing MEMORIX_LLM_* config', () => {
+    process.env.MEMORIX_LLM_API_KEY = 'sk-memory';
+    process.env.MEMORIX_LLM_PROVIDER = 'openai';
+    process.env.MEMORIX_LLM_MODEL = 'memory-model';
+
+    const config = initLLM({ scope: 'memory' });
+
+    expect(config?.apiKey).toBe('sk-memory');
+    expect(config?.model).toBe('memory-model');
+  });
+
+  it('falls back to memory LLM config for agent scope when no agent config exists', () => {
+    process.env.MEMORIX_LLM_API_KEY = 'sk-memory';
+    process.env.MEMORIX_LLM_MODEL = 'memory-model';
+
+    const config = initLLM({ scope: 'agent' });
+
+    expect(config?.apiKey).toBe('sk-memory');
+    expect(config?.model).toBe('memory-model');
+  });
+});
 
 describe('parseLLMTimeoutMs', () => {
   it('returns default when env var is undefined', () => {

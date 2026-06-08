@@ -52,7 +52,7 @@ Most coding agents remember only the current thread. Memorix gives them a shared
 <tr><td><b>🔍 Source-Aware Retrieval</b></td><td>"What changed" queries favor Git Memory; "why" queries favor reasoning; project-scoped by default, global on demand</td></tr>
 <tr><td><b>⚙️ Memory Quality Pipeline</b></td><td>Formation (LLM-assisted evaluation), dedup, consolidation, retention with exponential decay — memory stays clean, not noisy</td></tr>
 <tr><td><b>🔄 Workspace & Rules Sync</b></td><td>One command to migrate MCP configs, workflows, rules, and skills across Cursor, Windsurf, Claude Code, Codex, Copilot, Kiro, etc.</td></tr>
-<tr><td><b>👥 Agent Team</b></td><td>Opt-in autonomous-agent state: task board with role-based claiming, inter-agent messaging, advisory file locks, situational-awareness poll</td></tr>
+<tr><td><b>👥 Agent Team</b></td><td>Opt-in autonomous-agent state: task board with role-based claiming, handoff messages, advisory file locks, situational-awareness poll</td></tr>
 <tr><td><b>🤖 Multi-Agent Orchestration</b></td><td><code>memorix orchestrate</code> runs a structured coordination loop — plan → parallel execution → verify → fix → review — with capability routing and worktree isolation</td></tr>
 <tr><td><b>📋 Session Lifecycle</b></td><td>Session start/end with handoff summaries, watermark tracking (new memories since last session), cross-session context recovery</td></tr>
 <tr><td><b>🎯 Project Skills</b></td><td>Auto-generate SKILL.md from memory patterns; promote observations to permanent mini-skills injected at session start</td></tr>
@@ -243,6 +243,7 @@ For the full IDE matrix, Windows notes, and troubleshooting, see [docs/SETUP.md]
 | Keep memory-only sessions lightweight | `memorix_session_start(projectRoot=...)` or `memorix session start` | [Agent Operator Playbook](docs/AGENT_OPERATOR_PLAYBOOK.md#8-what-an-agent-should-do-at-session-start) |
 | Join the autonomous agent team | `memorix session start --joinTeam` or `memorix team join` | [TEAM.md](TEAM.md), [API Reference](docs/API_REFERENCE.md#9-agent-team-tools) |
 | Run autonomous multi-agent work | `memorix orchestrate --goal "..."` | [API Reference](docs/API_REFERENCE.md) |
+| Debug cross-agent memory handoff | `memorix receipt --json` or `memorix doctor --receipt` | Privacy-safe hashes/counts only; no raw chat or memory text |
 | Sync agent configs/rules | `memorix sync workspace ...`, `memorix sync rules ...` | [Setup Guide](docs/SETUP.md) |
 | Use Memorix from code | `import { createMemoryClient } from 'memorix/sdk'` | [API Reference](docs/API_REFERENCE.md) |
 
@@ -262,7 +263,9 @@ HTTP MCP sessions idle out after 30 minutes by default. If your client does not 
 MEMORIX_SESSION_TIMEOUT_MS=86400000 memorix background start  # 24h
 ```
 
-Agent Team is **not** the normal memory startup path and it is **not** a chat room between IDE windows. Join only when you need tasks, messages, locks, or a structured autonomous-agent workflow. For real multi-agent execution, prefer:
+Shared memory means stored memories are searchable across clients bound to the same Git project. It does not mean every chat message is mirrored automatically. For support/debugging, `memorix receipt --json` and `memorix doctor --receipt` show project identity, write/search counts, and hashed IDs without raw prompts or memory text.
+
+Agent Team is **not** the normal memory startup path and it is **not** a chat room between IDE windows. Join only when you need tasks, handoff messages, locks, or a structured autonomous-agent/subagent workflow. For real multi-agent execution, prefer:
 
 ```bash
 memorix orchestrate --goal "Add user authentication" --agents claude-code,cursor,codex
@@ -431,17 +434,16 @@ Additional deep references:
 
 ---
 
-## What's New in 1.0.9
+## What's New in 1.0.10
 
-Version `1.0.9` adds the first readable project knowledge layer and turns the terminal UI into a knowledge-native workbench.
+Version `1.0.10` tightens Memorix's low-intrusion operator story: privacy-safe handoff diagnostics, clearer cross-agent memory boundaries, optional session semantics in generated rules, independent TUI agent LLM config, a better fresh-project cold-start path, and safer update behavior.
 
-- **Knowledge Base / LLM Wiki**: Memorix now exposes a generated, readable Knowledge Base from durable observations, git facts, mini-skills, and project evidence. Raw memory remains the source of truth; the Knowledge Base is a citable synthesis for humans and agents.
-- **Semantic Knowledge Graph**: A graph projection over the same eligible knowledge inputs preserves source refs and supports concept/module/decision exploration without claiming to be GraphRAG.
-- **Tabbed TUI Workbench**: `Home`, `Knowledge`, `Memory`, `Workbench`, and `Graph` tabs replace the old scattered view model.
-- **Cross-Reference Navigation**: Jump between Knowledge items, Memory detail, and Graph nodes through stable refs where available.
-- **Explicit Session Center**: Workbench shows session state and context sources with explicit bind/end actions. It does not auto-start sessions or auto-join Agent Team.
-- **TUI Chat Usability Fixes**: Chat input remains active after assistant responses, and view shortcuts no longer steal normal CommandBar text.
-- **Architecture Boundaries**: App, realtime agent messaging, full coding-agent harness, graph editing, and GraphRAG remain outside 1.0.9 scope.
+- **Privacy-Safe Handoff Receipt**: `memorix receipt --json` and `memorix doctor --receipt` expose hashes/counts for project identity, writes, and optional probe results without leaking raw chat, memory text, queries, tool payloads, or local paths.
+- **Lower-Intrusion Agent Guidance**: Generated rules now treat `memorix_session_start` as optional and avoid repeating `memorix_search` in the same turn after a confirmed fresh-project cold start.
+- **Separate TUI Agent LLM Config**: `agent` / `MEMORIX_AGENT_LLM_*` lets TUI chat use a different provider/model from memory formation and rerank, while preserving fallback to `llm`.
+- **Fresh-Project UX Fix**: Empty project searches now explicitly say the tool call worked but the project has no stored Memorix memories yet, instead of looking like a generic retrieval failure.
+- **Safer Update Checks**: Auto-update now defaults to notify-only; background install is explicit opt-in via `MEMORIX_AUTO_UPDATE=install`.
+- **Dashboard Config Consistency**: Standalone dashboard status now loads project `.env` and project YAML before embedding/LLM status routes initialize, matching CLI and TUI behavior.
 
 ---
 

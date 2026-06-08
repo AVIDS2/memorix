@@ -958,6 +958,7 @@ const main = defineCommand({
     lock: () => import('./commands/lock.js').then(m => m.default),
     handoff: () => import('./commands/handoff.js').then(m => m.default),
     poll: () => import('./commands/poll.js').then(m => m.default),
+    receipt: () => import('./commands/receipt.js').then(m => m.default),
     serve: () => import('./commands/serve.js').then(m => m.default),
     'serve-http': () => import('./commands/serve-http.js').then(m => m.default),
     status: () => import('./commands/status.js').then(m => m.default),
@@ -992,6 +993,7 @@ const main = defineCommand({
     const knownSubs = ['ask', 'search', 'remember', 'recent',
       'init', 'integrate', 'memory', 'reasoning', 'retention', 'formation', 'audit', 'transfer', 'skills',
       'session', 'team', 'task', 'message', 'lock', 'handoff', 'poll',
+      'receipt',
       'serve', 'serve-http', 'status', 'sync',
       'hook', 'hooks', 'ingest', 'git-hook', 'git-hook-uninstall',
       'background', 'bg', 'bs', 'doctor', 'dashboard', 'cleanup', 'uninstall', 'orchestrate'];
@@ -999,7 +1001,7 @@ const main = defineCommand({
 
     // No subcommand provided — show fullscreen workbench if in TTY, otherwise show help
     if (process.stdout.isTTY && process.stdin.isTTY) {
-      // Fire-and-forget: silent auto-update check. stderr only, never blocks TUI.
+      // Fire-and-forget: background update check. Default is notify-only; stderr only, never blocks TUI.
       import('./update-checker.js').then(m => m.checkForUpdates()).catch(() => {});
       const { startWorkbench } = await import('./workbench.js');
       await startWorkbench();
@@ -1025,6 +1027,7 @@ const main = defineCommand({
       console.error('  lock       Manage advisory file locks');
       console.error('  handoff    Create durable handoff artifacts');
       console.error('  poll       Snapshot project coordination state');
+      console.error('  receipt    Privacy-safe memory handoff diagnostic');
       console.error('  serve-http Start HTTP MCP + dashboard control plane');
       console.error('  serve      Start MCP server on stdio');
       console.error('  init       Create global defaults or project config');

@@ -15,6 +15,7 @@ import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { loadDotenv, resetDotenv } from '../../src/config/dotenv-loader.js';
+import { loadYamlConfig, resetYamlConfigCache } from '../../src/config/yaml-loader.js';
 
 const PROJECT_DIR = join(tmpdir(), 'memorix-issue46-' + Date.now());
 const USER_HOME = join(tmpdir(), 'memorix-issue46-home-' + Date.now());
@@ -42,6 +43,7 @@ beforeEach(() => {
 
 afterEach(() => {
   resetDotenv();
+  resetYamlConfigCache();
   for (const key of EMBEDDING_ENV_KEYS) {
     delete process.env[key];
   }
@@ -160,5 +162,33 @@ describe('Issue #46: .env embedding key visibility', () => {
     resetDotenv();
     expect(process.env.MEMORIX_EMBEDDING_API_KEY).toBeUndefined();
     expect(process.env.MEMORIX_EMBEDDING).toBeUndefined();
+  });
+
+  it('standalone dashboard stats preparation loads project .env before embedding status', async () => {
+    writeFileSync(
+      join(PROJECT_DIR, '.env'),
+      'MEMORIX_EMBEDDING=api\nMEMORIX_EMBEDDING_API_KEY=sk-dashboard-stats\n',
+    );
+
+    expect(process.env.MEMORIX_EMBEDDING_API_KEY).toBeUndefined();
+
+    const { prepareDashboardConfig } = await import('../../src/dashboard/server.js');
+    prepareDashboardConfig(PROJECT_DIR);
+
+    expect(process.env.MEMORIX_EMBEDDING).toBe('api');
+    expect(process.env.MEMORIX_EMBEDDING_API_KEY).toBe('sk-dashboard-stats');
+  });
+
+  it('standalone dashboard config preparation clears project YAML when root is unknown', async () => {
+    writeFileSync(join(PROJECT_DIR, 'memorix.yml'), 'llm:\n  provider: dashboard-canary\n');
+
+    const { prepareDashboardConfig } = await import('../../src/dashboard/server.js');
+    prepareDashboardConfig(PROJECT_DIR);
+    expect(loadYamlConfig().llm?.provider).toBe('dashboard-canary');
+
+    prepareDashboardConfig(null);
+    resetYamlConfigCache();
+
+    expect(loadYamlConfig().llm?.provider).not.toBe('dashboard-canary');
   });
 });

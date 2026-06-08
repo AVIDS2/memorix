@@ -181,6 +181,7 @@ export default defineCommand({
     } catch { /* notification handler setup is optional */ }
 
     deferredInit().catch(e => console.error(`[memorix] Deferred init error:`, e));
+    // Fire-and-forget: background update check. Default is notify-only.
     import('../update-checker.js').then(m => m.checkForUpdates()).catch(() => {});
   },
 });

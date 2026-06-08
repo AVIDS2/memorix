@@ -243,7 +243,7 @@ function generateKiroHookFiles(): Array<{ filename: string; content: string }> {
         when: { type: 'promptSubmit' },
         then: {
           type: 'askAgent',
-          prompt: 'Before responding, load context:\n1. Call memorix_session_start to get previous session summary and key memories\n2. Call memorix_search with a query related to the user\'s prompt for additional context\n3. If search results are found, use memorix_detail to fetch the most relevant ones\n4. Reference relevant memories naturally in your response',
+          prompt: 'Before responding, load useful project context:\n1. Call memorix_search with a query related to the user\'s prompt for relevant memories\n2. If search results are found, use memorix_detail to fetch the most relevant ones\n3. If memorix_search says this is a fresh project with no Memorix memories yet, do not repeat memorix_search again in the same turn unless the user explicitly asks for history/context or new memories were written\n4. Call memorix_session_start only when explicit session semantics are useful, such as handoff, long-running work, team coordination, or HTTP project binding\n5. Reference relevant memories naturally in your response',
         },
       }, null, 2),
     },
@@ -1003,20 +1003,18 @@ alwaysApply: true
 
 You have access to Memorix memory tools. Follow these rules to maintain persistent context across sessions.
 
-## RULE 1: Session Start — Bind Project, Then Load Context
+## RULE 1: Use Memory When Useful
 
-At the **beginning of every conversation**, BEFORE responding to the user:
+At the beginning of a conversation, use Memorix when prior project context would materially help the task. Do not require a session bind for every conversation.
 
-1. Call \`memorix_session_start\` with parameters:
-   - \`agent\`: your agent identifier (e.g. "windsurf", "codex", "antigravity")
-   - \`projectRoot\`: the **absolute path** of the current workspace or repo root
-   This binds the session to the correct project. Without \`projectRoot\`, memories may go to the wrong bucket.
-2. Then call \`memorix_search\` with a query related to the user's first message for additional context
-3. If search results are found, use \`memorix_detail\` to fetch the most relevant ones
-4. Reference relevant memories naturally — the user should feel you "remember" them
+1. Call \`memorix_search\` with a query related to the user's first message or current task.
+2. If search results are found, use \`memorix_detail\` to fetch the most relevant ones.
+3. If \`memorix_search\` says this is a fresh project with no Memorix memories yet, treat that as a successful cold-start signal. Do not repeat \`memorix_search\` again in the same turn unless the user explicitly asks for history/context or new memories were written.
+4. Call \`memorix_session_start\` only when explicit session semantics are useful: handoff, long-running work, team coordination, restoring prior session context, or HTTP project binding.
+5. Reference relevant memories naturally — the user should feel you understand the project, not that you are following a ritual.
 
 **Important:** \`projectRoot\` is a detection anchor only; Git remains the source of truth for project identity.
-In HTTP control-plane mode (\`memorix serve-http\` / \`memorix background start\`), explicit \`projectRoot\` binding is required for correct multi-project isolation.
+In HTTP control-plane mode (\`memorix serve-http\` / \`memorix background start\`), explicit \`projectRoot\` binding is recommended when the workspace path is available and required for correct multi-project isolation.
 \`memorix_session_start\` is lightweight by default: it starts memory/session context only. Do not set \`joinTeam\` unless the user explicitly needs autonomous Agent Team tasks, messages, file locks, or orchestrated CLI-agent workflows.
 
 ## RULE 2: Store Important Context

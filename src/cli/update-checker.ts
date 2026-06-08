@@ -1,12 +1,13 @@
 /**
  * Background Auto-Updater
  *
- * Checks npm registry for newer versions and silently installs updates.
+ * Checks npm registry for newer versions and can optionally install updates.
  * Non-blocking — runs entirely in the background after server/TUI starts.
  * Rate-limited to once per 24 hours via a cache file.
  *
- * Default mode: 'install' (silent auto-update).
- * Disable via MEMORIX_AUTO_UPDATE=off or memorix.yml auto-update: off.
+ * Default mode: 'notify' (check and print a restart-safe notice).
+ * Set MEMORIX_AUTO_UPDATE=install to opt into silent background install.
+ * Disable via MEMORIX_AUTO_UPDATE=off.
  */
 
 import { execFile } from 'node:child_process';
@@ -38,6 +39,8 @@ export interface UpdateCache {
   updatedFrom?: string;
   updatedTo?: string;
 }
+
+export type AutoUpdateMode = 'off' | 'notify' | 'install';
 
 /**
  * Get the current installed version from package.json.
@@ -86,13 +89,15 @@ async function writeCache(cache: UpdateCache): Promise<void> {
 }
 
 /**
- * Check if auto-update is enabled.
- * Default: true (install mode). Disable via MEMORIX_AUTO_UPDATE=off.
+ * Parse MEMORIX_AUTO_UPDATE into an explicit mode.
+ * Default: notify-only.
  */
-function isAutoUpdateEnabled(): boolean {
-  const env = process.env.MEMORIX_AUTO_UPDATE?.toLowerCase()?.trim();
-  if (env === 'off' || env === 'false' || env === '0' || env === 'notify') return false;
-  return true; // default: install
+function parseAutoUpdateMode(raw: string | undefined): AutoUpdateMode {
+  const env = raw?.toLowerCase()?.trim();
+  if (!env || env === 'notify') return 'notify';
+  if (env === 'off' || env === 'false' || env === '0') return 'off';
+  if (env === 'install' || env === 'true' || env === '1') return 'install';
+  return 'notify';
 }
 
 function parseAutoUpdateTimeoutMs(raw: string | undefined): number {
@@ -193,18 +198,20 @@ function installUpdateInBackground(targetVersion: string, currentVersion: string
 }
 
 /**
- * Run the background update check + silent auto-install.
+ * Run the background update check.
  *
  * Call this fire-and-forget from entry points (serve-http, TUI).
  * - Rate-limited to 1 check per 24h
- * - Default mode: install (silent auto-update)
+ * - Default mode: notify only
+ * - MEMORIX_AUTO_UPDATE=install enables silent background install
  * - Disable via MEMORIX_AUTO_UPDATE=off
  * - All output goes to stderr only (never stdout / MCP / TUI content)
  * - Failures never crash the caller
  */
 export async function checkForUpdates(): Promise<void> {
   try {
-    if (!isAutoUpdateEnabled()) return;
+    const mode = parseAutoUpdateMode(process.env.MEMORIX_AUTO_UPDATE);
+    if (mode === 'off') return;
 
     const cache = await readCache();
     const now = Date.now();
@@ -236,8 +243,14 @@ export async function checkForUpdates(): Promise<void> {
     await writeCache(updatedCache);
 
     if (isNewer(latestVersion, currentVersion)) {
-      console.error(`[memorix] v${latestVersion} available (current: v${currentVersion}), auto-updating...`);
-      installUpdateInBackground(latestVersion, currentVersion, updatedCache);
+      if (mode === 'install') {
+        console.error(`[memorix] v${latestVersion} available (current: v${currentVersion}), auto-updating...`);
+        installUpdateInBackground(latestVersion, currentVersion, updatedCache);
+      } else {
+        console.error(
+          `[memorix] v${latestVersion} available (current: v${currentVersion}). Run "npm install -g memorix@latest" to update, or set MEMORIX_AUTO_UPDATE=install for background install.`,
+        );
+      }
     }
   } catch {
     // Entire update check is best-effort — never crash the caller
@@ -251,7 +264,7 @@ export const _testing = {
   CACHE_FILE,
   CHECK_INTERVAL_MS,
   DEFAULT_AUTO_UPDATE_TIMEOUT_MS,
-  isAutoUpdateEnabled,
+  parseAutoUpdateMode,
   parseAutoUpdateTimeoutMs,
   describeAutoUpdateFailure,
   fetchLatestVersion,

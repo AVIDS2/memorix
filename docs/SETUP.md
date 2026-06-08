@@ -18,16 +18,16 @@ For most users, start with `memorix` or `memorix serve`. Move to HTTP only when 
 
 ## Current Release Context
 
-This guide targets the **1.0.8** working release line.
+This guide targets the **1.0.10** working release line.
 
-If you are setting up Memorix on a fresh machine or upgrading from an older install, the most visible operator-facing changes in 1.0.8 are:
+If you are setting up Memorix on a fresh machine or upgrading from an older install, the most visible operator-facing changes in 1.0.10 are:
 
-- provenance-aware memory fields and layered retrieval surfaces
-- stronger evidence semantics and citation-lite compact output
-- task-line scoping plus secret-safe storage/retrieval behavior
-- attribution auditing, retention explainability, and a cleaner remediation loop
-- OpenCode compaction using structured continuation context and `post_compact`
-- official Docker deployment for the HTTP control plane
+- privacy-safe handoff receipts for cross-agent memory debugging
+- clearer boundaries between shared project memory and normal chat transcripts
+- lighter generated agent rules that keep `memorix_session_start` optional by default
+- dedicated TUI agent LLM config via `agent` / `MEMORIX_AGENT_LLM_*`
+- safer auto-update behavior with notify-only default
+- dashboard config loading aligned with CLI/TUI status surfaces
 
 ### Support Tiers
 
@@ -129,6 +129,30 @@ Important for multi-project usage:
 - In HTTP control-plane mode, agents should call `memorix_session_start` with `projectRoot` set to the **absolute path of the current workspace or repo root** when that path is available.
 - `projectRoot` is a detection anchor only; Git remains the source of truth for the final project identity.
 - If the client cannot provide a reliable workspace path, Memorix should fail closed rather than silently inventing an `untracked/*` project.
+
+### Cross-Agent Memory Boundary
+
+MCP connection success does not prove that a memory was written. Cross-agent memory means stored memories are searchable by other clients that bind to the same Git project identity; it does not mean normal chat transcripts are mirrored across IDEs or agents.
+
+Use this when debugging handoff reports:
+
+```bash
+memorix receipt --json
+memorix doctor --receipt
+```
+
+The receipt intentionally emits hashes and counts only: project identity hash, write count, recent observation ID hashes, optional search probe hash/result count, and the write policy inferred from local memory metadata. It omits raw prompts, raw memory text, raw search queries, tool arguments/results, and local file paths.
+
+### Moving Between Machines
+
+Memorix does not require a specific IDE or agent runtime. On another laptop, cloud server, or temporary workstation, install `memorix`, make sure the target workspace is a Git repository, and connect the agent through stdio MCP or the CLI. For explicit memory snapshot moves, use:
+
+```bash
+memorix transfer export --format json
+memorix transfer import --data "<json export>"
+```
+
+This transfers stored memory artifacts, not private chat history from an IDE vendor.
 
 Recommended when:
 
@@ -375,7 +399,7 @@ There is also a standalone `memorix dashboard` command. It is a local read-mostl
 
 ## 5. Agent Team Features
 
-Agent Team features are explicit autonomous-agent coordination surfaces. Use the CLI for the normal path:
+Agent Team features are explicit autonomous-agent/subagent coordination surfaces. Use the CLI for the normal path:
 
 ```bash
 memorix team status
@@ -385,7 +409,7 @@ memorix orchestrate --goal "..."
 These features include:
 
 - agent registry
-- direct messages
+- handoff messages
 - file locks
 - task board
 

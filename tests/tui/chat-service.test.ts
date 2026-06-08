@@ -137,7 +137,7 @@ describe('askMemoryQuestion (agentic harness)', () => {
 
     const result = await askMemoryQuestion('How does auth work?');
 
-    expect(mockInitLLM).toHaveBeenCalled();
+    expect(mockInitLLM).toHaveBeenCalledWith({ scope: 'agent' });
     expect(result.usedLLM).toBe(false);
     expect(result.searchMode).toBe('hybrid');
     expect(result.sources).toHaveLength(1);

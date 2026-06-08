@@ -1083,6 +1083,38 @@ export default defineCommand({
             values.push({ key: 'llm.apiKey', value: 'not set', source: 'none' });
           }
 
+          const agentProvider = process.env.MEMORIX_AGENT_LLM_PROVIDER || yml.agent?.provider || legacy.agent?.provider;
+          if (agentProvider) {
+            values.push({
+              key: 'agent.llm.provider',
+              value: agentProvider,
+              source: process.env.MEMORIX_AGENT_LLM_PROVIDER ? 'env:MEMORIX_AGENT_LLM_PROVIDER' : yml.agent?.provider ? 'memorix.yml' : 'config.json',
+            });
+          }
+
+          const agentModel = process.env.MEMORIX_AGENT_LLM_MODEL || yml.agent?.model || legacy.agent?.model;
+          if (agentModel) {
+            values.push({
+              key: 'agent.llm.model',
+              value: agentModel,
+              source: process.env.MEMORIX_AGENT_LLM_MODEL ? 'env:MEMORIX_AGENT_LLM_MODEL' : yml.agent?.model ? 'memorix.yml' : 'config.json',
+            });
+          }
+
+          const agentKey =
+            process.env.MEMORIX_AGENT_LLM_API_KEY ||
+            yml.agent?.apiKey ||
+            legacy.agent?.apiKey;
+          if (agentKey) {
+            let src = 'unknown';
+            if (process.env.MEMORIX_AGENT_LLM_API_KEY) src = 'env:MEMORIX_AGENT_LLM_API_KEY';
+            else if (yml.agent?.apiKey) src = 'memorix.yml (move to .env!)';
+            else if (legacy.agent?.apiKey) src = 'config.json (legacy)';
+            values.push({ key: 'agent.llm.apiKey', value: '****' + agentKey.slice(-4), source: src, sensitive: true });
+          } else {
+            values.push({ key: 'agent.llm.apiKey', value: 'fallback to llm.apiKey', source: 'default' });
+          }
+
           const embProvider = process.env.MEMORIX_EMBEDDING || yml.embedding?.provider || legacy.embedding || 'off';
           values.push({
             key: 'embedding.provider',
@@ -1422,8 +1454,8 @@ export default defineCommand({
       console.error(`[memorix] Sessions at startup: ${sessions.size} (live count available at /api/team)`);
       console.error(`[memorix] Agents can connect via: { "transport": "http", "url": "http://localhost:${port}/mcp" }`);
 
-      // Fire-and-forget: silent auto-update check after server is fully started.
-      // All output goes to stderr only. Failures never affect the server.
+      // Fire-and-forget: background update check after server is fully started.
+      // Default is notify-only. All output goes to stderr only. Failures never affect the server.
       import('../update-checker.js').then(m => m.checkForUpdates()).catch(() => {});
     });
 

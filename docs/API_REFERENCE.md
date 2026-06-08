@@ -9,6 +9,7 @@ Memorix exposes:
 - maintenance and retention tools
 - workspace and rules sync tools
 - autonomous Agent Team tools
+- privacy-safe handoff diagnostics
 - dashboard and optional graph compatibility tools
 
 It also exposes a **human/operator CLI surface** for terminal workflows. The CLI is not a raw mirror of MCP tool names; it is the primary product surface for human operators, while MCP remains the integration protocol for IDEs and agents.
@@ -46,6 +47,7 @@ The current operator CLI namespaces are:
 - `memorix lock`
 - `memorix handoff`
 - `memorix poll`
+- `memorix receipt`
 - `memorix sync`
 - `memorix ingest`
 
@@ -66,9 +68,24 @@ memorix skills show --name auth-pattern
 memorix sync workspace --action scan
 memorix ingest image --path ./diagram.png
 memorix poll --agentId <agent-id>
+memorix receipt --json --probe "release blocker"
 ```
 
-The CLI is designed as an **operator control surface**, not as a 1:1 rename of MCP tools. All Memorix-native operator capabilities have a CLI path in 1.0.8. The only intentional MCP-only area is the optional graph-compatibility surface (`create_entities`, `read_graph`, and related tools) for workflows that expect the official memory-server style graph API.
+The CLI is designed as an **operator control surface**, not as a 1:1 rename of MCP tools. The only intentional MCP-only area is the optional graph-compatibility surface (`create_entities`, `read_graph`, and related tools) for workflows that expect the official memory-server style graph API.
+
+### Cross-Agent Handoff Receipt
+
+`memorix receipt` creates a privacy-safe diagnostic artifact for cross-agent memory handoff debugging.
+
+```bash
+memorix receipt --json
+memorix receipt --json --probe "query to verify"
+memorix doctor --receipt
+```
+
+The receipt helps answer whether two clients are bound to the same Git/project identity, whether any memory writes exist, and whether an optional search probe returns matching memories. It emits hashes and counts only: project identity hash, root/cwd hashes, write count, recent observation ID hashes, optional query hash, result count, and result ID hashes.
+
+It intentionally does not emit raw chat transcripts, raw memory text, raw search queries, tool arguments/results, or local file paths. Shared memory means stored memories are searchable across clients in the same project; it does not mean every chat message is mirrored across clients.
 
 ---
 
@@ -499,7 +516,7 @@ memorix orchestrate --goal "..."
 
 Use `memorix background start` or `memorix serve-http --port 3211` only when you want the HTTP control plane in the background or foreground.
 
-Agent Team is opt-in project coordination for tasks, messages, locks, and autonomous agent workflows. It is not required for normal memory use, and it should not be treated as an automatic chat room between separate IDE conversations. For production multi-agent execution, use `memorix orchestrate`; the team tools provide the coordination substrate.
+Agent Team is opt-in project coordination for tasks, handoff messages, locks, and autonomous agent/subagent workflows. It is not required for normal memory use, and it should not be treated as an automatic chat room between separate IDE conversations. For production multi-agent execution, use `memorix orchestrate`; the team tools provide the coordination substrate.
 
 Runtime environment:
 

@@ -12,16 +12,16 @@ Memorix is a TypeScript project built around:
 
 ## Current Release Baseline
 
-The current published release line is **1.0.8**.
+The current published release line is **1.0.10**.
 
 Contributors should assume the following are already part of the supported product surface:
 
-- provenance-aware memory fields and layered retrieval semantics
-- evidence-aware detail and timeline outputs
-- verification-aware and citation-lite compact output
-- task-line scoping, secret-safety, and attribution auditing
-- calibrated retention plus cleanup/remediation loop ergonomics
-- OpenCode `post_compact` support and structured continuation compaction prompt
+- privacy-safe handoff receipts and doctor receipt diagnostics
+- optional session semantics in generated agent rules
+- separate TUI agent LLM config with fallback to `llm`
+- notify-only auto-update by default with explicit install opt-in
+- dashboard config loading aligned with CLI/TUI status surfaces
+- the existing layered retrieval, retention, attribution, and compact output model
 
 ---
 

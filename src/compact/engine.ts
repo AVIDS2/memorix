@@ -31,7 +31,19 @@ export async function compactSearch(options: SearchOptions): Promise<{
   totalTokens: number;
 }> {
   const entries = await searchObservations(options);
-  const formatted = formatIndexTable(entries, options.query, !options.projectId);
+  let formatted = formatIndexTable(entries, options.query, !options.projectId);
+
+  if (entries.length === 0 && options.projectId) {
+    const allObservations = getAllObservations();
+    const projectHasStoredMemory = allObservations.some((obs) => obs.projectId === options.projectId);
+    if (!projectHasStoredMemory) {
+      formatted =
+        `This project does not have any Memorix memories yet.\n\n` +
+        `It looks like a fresh project: the tool call worked, but there is nothing stored to retrieve yet.\n\n` +
+        `Memories will start appearing after observations, session summaries, hook captures, or git-memory are written.`;
+    }
+  }
+
   const totalTokens = countTextTokens(formatted);
 
   return { entries, formatted, totalTokens };

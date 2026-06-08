@@ -105,6 +105,8 @@ export function getLoadedEnvFiles(): readonly string[] {
 //
 // MEMORIX_LLM_API_KEY      — LLM provider API key
 // MEMORIX_LLM_BASE_URL     — Custom LLM endpoint
+// MEMORIX_AGENT_LLM_API_KEY — TUI/chat agent API key (falls back to LLM key)
+// MEMORIX_AGENT_LLM_BASE_URL — TUI/chat agent endpoint (falls back to LLM URL)
 // MEMORIX_EMBEDDING_API_KEY — Embedding API key (falls back to LLM key)
 // MEMORIX_EMBEDDING_BASE_URL — Custom embedding endpoint
 // MEMORIX_API_KEY           — Unified fallback key (for both LLM + embedding)

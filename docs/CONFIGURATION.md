@@ -22,6 +22,7 @@ The recommended model is:
 Use `memorix.yml` for structured project behavior:
 
 - LLM provider and model defaults
+- TUI/chat agent provider and model overrides
 - embedding mode
 - Git-Memory settings
 - session injection behavior
@@ -98,6 +99,11 @@ llm:
   provider: openai
   model: gpt-4o-mini
 
+# Optional: only when TUI chat should use a different model/provider
+agent:
+  provider: openrouter
+  model: openai/gpt-4.1
+
 embedding:
   provider: off
 
@@ -119,8 +125,10 @@ server:
 
 ```bash
 MEMORIX_LLM_API_KEY=sk-...
+MEMORIX_AGENT_LLM_API_KEY=sk-...
 MEMORIX_EMBEDDING_API_KEY=sk-...
 MEMORIX_LLM_BASE_URL=https://api.openai.com/v1
+MEMORIX_AGENT_LLM_BASE_URL=https://openrouter.ai/api/v1
 MEMORIX_EMBEDDING_BASE_URL=https://api.openai.com/v1
 ```
 
@@ -132,7 +140,7 @@ If you do not need LLM or embedding features yet, you can leave `.env` empty and
 
 ### `llm`
 
-Used for optional LLM-enhanced behavior such as:
+Used for optional memory-intelligence behavior such as:
 
 - formation quality uplift
 - compression
@@ -144,6 +152,25 @@ Common keys:
 - `provider`
 - `model`
 - `baseUrl`
+
+### `agent`
+
+Used by TUI/chat agent flows. This is intentionally separate from `llm` so users can run memory formation/rerank on a cheap or stable model while using a different model for interactive TUI chat.
+
+Common keys:
+
+- `provider`
+- `model`
+- `baseUrl`
+
+Environment overrides:
+
+- `MEMORIX_AGENT_LLM_PROVIDER`
+- `MEMORIX_AGENT_LLM_MODEL`
+- `MEMORIX_AGENT_LLM_API_KEY`
+- `MEMORIX_AGENT_LLM_BASE_URL`
+
+If `agent` is not configured, TUI/chat falls back to the normal `llm` configuration for backward compatibility.
 
 ### `embedding`
 
@@ -203,6 +230,26 @@ Common keys:
 - `port`
 - `dashboard`
 - `dashboardPort`
+
+### `MEMORIX_AUTO_UPDATE`
+
+Controls CLI update behavior.
+
+Supported values:
+
+- `off` — disable background update checks
+- `notify` — check for new versions and print a notice only
+- `install` — check for new versions and run background `npm install -g memorix@latest`
+
+Default behavior:
+
+- if unset, Memorix uses `notify`
+
+Notes:
+
+- `notify` is the recommended default for most users because Memorix affects MCP behavior, hooks, and TUI flows
+- `install` is opt-in and should be used only if you explicitly want unattended global upgrades
+- `MEMORIX_AUTO_UPDATE_TIMEOUT_MS` controls the background install timeout when `install` mode is enabled
 
 ---
 

@@ -58,7 +58,7 @@ Memorix docs are intentionally split by **user intent**, not by a giant flat lis
 
 ## Release Truth vs Historical Reference
 
-For `1.0.8`, treat the following as the **release-truth** docs:
+For `1.0.10`, treat the following as the **release-truth** docs:
 
 - [SETUP.md](SETUP.md)
 - [DOCKER.md](DOCKER.md)

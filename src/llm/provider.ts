@@ -8,6 +8,17 @@
  * but with an LLM configured, memory quality approaches Mem0/Cipher level.
  */
 
+import {
+  getAgentLLMApiKey,
+  getAgentLLMBaseUrl,
+  getAgentLLMModel,
+  getAgentLLMProvider,
+  getLLMApiKey,
+  getLLMBaseUrl,
+  getLLMModel,
+  getLLMProvider,
+} from '../config.js';
+
 export interface LLMConfig {
   provider: 'openai' | 'anthropic' | 'openrouter' | 'custom';
   apiKey: string;
@@ -165,28 +176,32 @@ const PROVIDER_DEFAULTS: Record<string, { baseUrl: string; model: string }> = {
 
 let currentConfig: LLMConfig | null = null;
 
+export type LLMConfigScope = 'memory' | 'agent';
+
+export interface InitLLMOptions {
+  scope?: LLMConfigScope;
+}
+
 /**
  * Initialize the LLM provider from environment variables.
  * Returns null if no API key is configured — Memorix gracefully degrades.
  */
-export function initLLM(): LLMConfig | null {
-  // Unified config: env vars > config.json > defaults
-  const { getLLMApiKey, getLLMProvider, getLLMModel, getLLMBaseUrl } = require('../config.js');
-
-  const apiKey = getLLMApiKey();
+export function initLLM(options: InitLLMOptions = {}): LLMConfig | null {
+  const scope = options.scope ?? 'memory';
+  const apiKey = scope === 'agent' ? getAgentLLMApiKey() : getLLMApiKey();
   if (!apiKey) {
     currentConfig = null;
     return null;
   }
 
-  const provider = getLLMProvider() as LLMConfig['provider'];
+  const provider = (scope === 'agent' ? getAgentLLMProvider() : getLLMProvider()) as LLMConfig['provider'];
   const defaults = PROVIDER_DEFAULTS[provider] ?? PROVIDER_DEFAULTS.openai;
 
   currentConfig = {
     provider,
     apiKey,
-    model: getLLMModel(defaults.model),
-    baseUrl: getLLMBaseUrl(defaults.baseUrl),
+    model: scope === 'agent' ? getAgentLLMModel(defaults.model) : getLLMModel(defaults.model),
+    baseUrl: scope === 'agent' ? getAgentLLMBaseUrl(defaults.baseUrl) : getLLMBaseUrl(defaults.baseUrl),
   };
 
   return currentConfig;

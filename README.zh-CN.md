@@ -431,17 +431,16 @@ Memorix 不是一条单线流水线。它从多个入口接收记忆，把内容
 
 ---
 
-## 1.0.9 更新亮点
+## 1.0.10 更新亮点
 
-`1.0.9` 增加了第一版可读项目知识层，并把终端 UI 收束为 knowledge-native workbench。
+`1.0.10` 继续把 Memorix 往更低侵入、更容易排障的 operator 体验上收紧：跨 agent 交接诊断更安全、共享记忆边界更清晰、生成规则更克制、TUI agent LLM 配置更独立，同时修复了 fresh project 和更新检查里的几个易误解路径。
 
-- **Knowledge Base / LLM Wiki**：Memorix 现在可以从 durable observations、Git facts、mini-skills 和项目证据生成可读的 Knowledge Base。Raw memory 仍是事实来源；Knowledge Base 是给人和 agent 使用的可引用综合层。
-- **Semantic Knowledge Graph**：基于同一批 eligible knowledge inputs 生成语义图谱投影，保留 source refs，支持围绕概念、模块和决策探索，但不把它包装成 GraphRAG。
-- **Tabbed TUI Workbench**：`Home`、`Knowledge`、`Memory`、`Workbench`、`Graph` 五个 tab 替代旧的分散视图模型。
-- **跨引用导航**：可通过稳定 refs 在 Knowledge item、Memory detail 和 Graph node 之间跳转。
-- **显式 Session Center**：Workbench 展示 session 状态和上下文来源，bind/end 都是显式动作；进入 tab 不会自动 start session，也不会自动 join Agent Team。
-- **TUI Chat 可用性修复**：assistant 回复后输入框保持可用；Graph/Memory/Knowledge 的视图快捷键不再吞掉正常 CommandBar 输入。
-- **架构边界**：desktop app、realtime agent messaging、完整 coding-agent harness、graph editing 和 GraphRAG 都不属于 1.0.9 范围。
+- **隐私安全的交接 Receipt**：`memorix receipt --json` 和 `memorix doctor --receipt` 提供项目身份哈希、写入/检索计数、最近 observation ID 哈希和可选 probe 结果计数，用于跨 agent memory 排障；不暴露原始 chat、记忆文本、查询、tool payload 或本地路径。
+- **更低侵入的 Agent 指南**：生成规则现在把 `memorix_session_start` 视为可选动作，只在 handoff、长任务、session 恢复、team 协调或 HTTP 项目绑定时推荐使用。
+- **独立的 TUI Agent LLM 配置**：新增 `agent` / `MEMORIX_AGENT_LLM_*` 配置路径，允许 TUI chat 使用与 memory formation、rerank、embedding 不同的 provider/model；未配置时仍回退到 `llm`。
+- **Fresh Project 体验修复**：空项目搜索现在会明确说明「工具调用成功，但当前 Git 项目还没有 Memorix memories」，而不是表现得像一个泛化检索失败。
+- **更安全的更新检查**：自动更新默认切回 notify-only；后台静默安装需要显式设置 `MEMORIX_AUTO_UPDATE=install`。
+- **Dashboard 配置一致性**：独立 `memorix dashboard` 现在会在状态路由初始化 embedding/LLM 前先加载项目 `.env` 和 YAML，和 CLI、TUI、doctor/status 保持一致。
 
 ---
 

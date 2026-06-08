@@ -174,7 +174,8 @@ export function verifyToken(token: string) {
     const { observation, output } = await handleHookEvent(input);
     // SessionStart injects context, doesn't store
     expect(observation).toBeNull();
-    expect(output.systemMessage).toContain('Previous session context available');
+    expect(output.systemMessage).toContain('Previous session context may be available');
+    expect(output.systemMessage).toContain('Use memorix_search when prior project context would materially help');
   });
 
   // ─── Stop (session end) ───

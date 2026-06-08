@@ -366,10 +366,10 @@ async function handleSessionStart(input: NormalizedHookInput): Promise<{
   // Build system message based on inject mode
   let systemMessage: string;
   if (injectMode === 'full' && contextSummary) {
-    systemMessage = `Previous session context available. Use memorix_search if needed.${contextSummary}`;
+    systemMessage = `Previous session context may be available. Use memorix_search when prior project context would materially help. If search reports a fresh project with no Memorix memories yet, treat that as a cold-start signal and do not repeat the search in the same turn.${contextSummary}`;
   } else {
     // minimal: one-line hint, no memory content
-    systemMessage = 'Previous session context available. Use memorix_search if needed.';
+    systemMessage = 'Previous session context may be available. Use memorix_search when prior project context would materially help. If search reports a fresh project with no Memorix memories yet, do not repeat the search in the same turn.';
   }
 
   return {

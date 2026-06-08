@@ -15,6 +15,7 @@ All notable changes to this project will be documented in this file.
 - **Agent Team wording tightened** -- Public docs now frame Agent Team as optional autonomous-agent/subagent coordination state rather than an IDE-window chat room. Existing `team_*` APIs and CLI namespaces are unchanged.
 
 ### Fixed
+- **Release publish blocker** -- `tests/integration/release-blockers.test.ts` now reserves an ephemeral local TCP port for the real `memorix serve-http` smoke test instead of assuming port `19879` is free. This removes a CI-only `EADDRINUSE` failure that blocked the npm publish workflow.
 - **Standalone dashboard embedding config (#46 follow-up)** -- `memorix dashboard` now loads project `.env` / project YAML before dashboard status routes initialize embedding provider state, matching `status`, `doctor`, and TUI behavior.
 
 ### Documentation

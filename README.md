@@ -436,7 +436,7 @@ Additional deep references:
 
 ## What's New in 1.0.10
 
-Version `1.0.10` tightens Memorix's low-intrusion operator story: privacy-safe handoff diagnostics, clearer cross-agent memory boundaries, optional session semantics in generated rules, independent TUI agent LLM config, a better fresh-project cold-start path, and safer update behavior.
+Version `1.0.10` tightens Memorix's low-intrusion operator story: privacy-safe handoff diagnostics, clearer cross-agent memory boundaries, optional session semantics in generated rules, independent TUI agent LLM config, a better fresh-project cold-start path, safer update behavior, and a release-gate fix so the real `serve-http` smoke test no longer depends on port `19879` being free on the runner.
 
 - **Privacy-Safe Handoff Receipt**: `memorix receipt --json` and `memorix doctor --receipt` expose hashes/counts for project identity, writes, and optional probe results without leaking raw chat, memory text, queries, tool payloads, or local paths.
 - **Lower-Intrusion Agent Guidance**: Generated rules now treat `memorix_session_start` as optional and avoid repeating `memorix_search` in the same turn after a confirmed fresh-project cold start.

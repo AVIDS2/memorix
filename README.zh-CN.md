@@ -433,7 +433,7 @@ Memorix 不是一条单线流水线。它从多个入口接收记忆，把内容
 
 ## 1.0.10 更新亮点
 
-`1.0.10` 继续把 Memorix 往更低侵入、更容易排障的 operator 体验上收紧：跨 agent 交接诊断更安全、共享记忆边界更清晰、生成规则更克制、TUI agent LLM 配置更独立，同时修复了 fresh project 和更新检查里的几个易误解路径。
+`1.0.10` 继续把 Memorix 往更低侵入、更容易排障的 operator 体验上收紧：跨 agent 交接诊断更安全、共享记忆边界更清晰、生成规则更克制、TUI agent LLM 配置更独立，同时补上了一个发版阻断修复：真实 `serve-http` 冒烟测试改为运行时申请空闲本地端口，不再依赖 CI 机器上的 `19879` 端口必须空闲。
 
 - **隐私安全的交接 Receipt**：`memorix receipt --json` 和 `memorix doctor --receipt` 提供项目身份哈希、写入/检索计数、最近 observation ID 哈希和可选 probe 结果计数，用于跨 agent memory 排障；不暴露原始 chat、记忆文本、查询、tool payload 或本地路径。
 - **更低侵入的 Agent 指南**：生成规则现在把 `memorix_session_start` 视为可选动作，只在 handoff、长任务、session 恢复、team 协调或 HTTP 项目绑定时推荐使用。

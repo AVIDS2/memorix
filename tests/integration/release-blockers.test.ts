@@ -12,6 +12,7 @@
 import { describe, it, expect, beforeEach, afterEach, beforeAll, afterAll, vi } from 'vitest';
 import { writeFileSync, unlinkSync, mkdirSync, existsSync } from 'node:fs';
 import { spawn, type ChildProcess } from 'node:child_process';
+import { createServer as createNetServer } from 'node:net';
 
 vi.mock('../../src/embedding/provider.js', () => ({
   getEmbeddingProvider: async () => null,
@@ -33,6 +34,26 @@ import { loadYamlConfig, initProjectRoot, resetYamlConfigCache } from '../../src
 import { compactDetail } from '../../src/compact/engine.js';
 import { storeObservation, initObservations, getObservationCount } from '../../src/memory/observations.js';
 import { getLastSearchMode, resetDb, searchObservations } from '../../src/store/orama-store.js';
+
+async function reserveEphemeralPort(): Promise<number> {
+  const probe = createNetServer();
+  await new Promise<void>((resolve, reject) => {
+    probe.once('error', reject);
+    probe.listen(0, '127.0.0.1', () => resolve());
+  });
+  const address = probe.address();
+  if (!address || typeof address === 'string') {
+    await new Promise<void>((resolve, reject) => {
+      probe.close(err => (err ? reject(err) : resolve()));
+    });
+    throw new Error('Failed to reserve an ephemeral TCP port');
+  }
+  const { port } = address;
+  await new Promise<void>((resolve, reject) => {
+    probe.close(err => (err ? reject(err) : resolve()));
+  });
+  return port;
+}
 
 // ================================================================
 // B2: /api/config startup project YAML leak via global fallback
@@ -259,6 +280,22 @@ describe('B5: search mode is project-scoped', () => {
   });
 });
 
+describe('release-blocker test helpers', () => {
+  it('allocates a reusable local TCP port', async () => {
+    const port = await reserveEphemeralPort();
+    expect(port).toBeGreaterThan(0);
+
+    const probe = createNetServer();
+    await new Promise<void>((resolve, reject) => {
+      probe.once('error', reject);
+      probe.listen(port, '127.0.0.1', () => resolve());
+    });
+    await new Promise<void>((resolve, reject) => {
+      probe.close(err => (err ? reject(err) : resolve()));
+    });
+  });
+});
+
 // ================================================================
 // B1 + B2: Real embedded serve-http route tests
 //
@@ -269,8 +306,8 @@ describe('B5: search mode is project-scoped', () => {
 // Requires: `npm run build` must have been run first.
 // ================================================================
 describe('B1+B2: Real embedded serve-http route tests', () => {
-  const REAL_PORT = 19879;
-  const REAL_BASE = `http://127.0.0.1:${REAL_PORT}`;
+  let REAL_PORT = 0;
+  let REAL_BASE = '';
   const STARTUP_PROJECT_ID = 'test/real-http-blocker';
   const SECONDARY_PROJECT_ID = 'other/secondary';
   const originalHome = process.env.HOME;
@@ -284,6 +321,8 @@ describe('B1+B2: Real embedded serve-http route tests', () => {
     if (!existsSync(distCli)) {
       throw new Error(`dist/cli/index.js not found at ${distCli}. Run \`npm run build\` first.`);
     }
+    REAL_PORT = await reserveEphemeralPort();
+    REAL_BASE = `http://127.0.0.1:${REAL_PORT}`;
 
     // Create temp dir with fake git repo + memorix.yml containing canary values
     startupDir = await fs.mkdtemp(path.join(os.tmpdir(), 'memorix-real-http-'));

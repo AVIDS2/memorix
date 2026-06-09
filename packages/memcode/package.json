@@ -17,6 +17,9 @@
 			"import": "./dist/index.js"
 		}
 	},
+	"imports": {
+		"react-reconciler/constants": "react-reconciler/constants.js"
+	},
 	"files": [
 		"dist",
 		"docs",

@@ -3,7 +3,7 @@
 > Auto-updated by agent. New sessions: read this file first.
 
 ## Current State
-- **Phase**: TUI Phase 2 COMPLETE — agent runtime wired
+- **Phase**: TUI Phase 3-5 COMPLETE — full TUI implementation
 - **Branch**: feat/memcode-agent
 - **Last updated**: 2026-06-09
 
@@ -14,31 +14,25 @@
 - [x] Final Polish
 - [x] TUI Phase 1: OpenTUI + React foundation
 - [x] TUI Phase 2: Agent runtime wiring
-  - [x] App component accepts runtime prop
-  - [x] InputBar sends via runtime.session.prompt()
-  - [x] Agent events drive message list updates
-  - [x] StatusBar shows thinking/tool status
-  - [x] Streaming content display
-  - [x] Error handling for agent failures
-- [x] TUI Phase 3: Keyboard shortcuts & vim mode
-  - [x] keymap.ts — useKeymap() hook with vim mode state machine
-  - [x] Vim modes: INSERT, NORMAL, VISUAL, COMMAND_LINE
-  - [x] Global shortcuts: Esc, Ctrl+C, ? (help overlay)
-  - [x] Chat navigation: j/k, gg/G, PgUp/PgDn
-  - [x] Tool call: Space/Tab expand, n/N navigation
-  - [x] Memory: p to promote last response
-  - [x] Command-line: /vim toggle, extensible command registry
-  - [x] MessageList forwardRef with scroll control (useImperativeHandle)
-  - [x] StatusBar vim mode badge + command-line buffer display
-  - [x] InputBar mode-aware keyboard handling
-  - [x] Chord sequences for gg and double-Esc
+- [x] TUI Phase 3-5: Full implementation
+  - [x] ToolCallBlock — running/done/error states, expand/collapse
+  - [x] Slash commands — 30+ commands, three execution modes
+  - [x] Toast — auto-dismiss notifications
+  - [x] Dialog — confirmations and selections
+  - [x] MemoryAttribution — memory source display
+  - [x] /memory commands — stats, search, show, diff, promote, delete
+  - [x] Git integration — auto-diff context, /git commands
+  - [x] /session commands — new, load, delete, export, resume, tree, fork, clone, label
+  - [x] InputBar enhancements — history, @ picker, attachments, token count
+  - [x] Keymap & Vim mode — INSERT/NORMAL/VISUAL, j/k/g/G, Esc handling
 
-## TUI Architecture
-- OpenTUI + React rendering engine
-- AgentSession.subscribe() for event-driven UI updates
-- Events: message_start, message_update, message_end, tool_execution_start/end, turn_end, agent_end
-- Real agent runtime connected (no more mock responses)
+## TUI File Count
+15 files in packages/memcode/src/tui/
+- app.tsx, index.tsx, theme.ts, keymap.ts
+- components/: header, inputbar, messages, statusbar, toolcall, slash-commands, toast, dialog
+- commands/: memory-commands, session-commands
+- integrations/: git.ts
 
 ## Branch Status
-- feat/memcode-agent: latest commit 252efd6
+- feat/memcode-agent: latest commit 6dc4f05
 - main: untouched (v1.0.10)

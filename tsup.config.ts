@@ -48,8 +48,9 @@ export default defineConfig([
     // Bundle all dependencies into CLI for portable global install
     // ink/react externalized: they have WASM yoga-layout that can't be inlined
     // photon-node externalized: WASM native module can't be bundled by esbuild
-    noExternal: [/^(?!(fastembed|@huggingface\/transformers|better-sqlite3|ink|react|yoga-wasm-web|@silvia-odwyer\/photon-node))/],
-    external: ['fastembed', '@huggingface/transformers', 'better-sqlite3', 'ink', 'react', 'react/jsx-runtime', 'yoga-wasm-web', '@silvia-odwyer/photon-node'],
+    // @memorix/memcode externalized: has OpenTUI native deps that can't be bundled
+    noExternal: [/^(?!(fastembed|@huggingface\/transformers|better-sqlite3|ink|react|yoga-wasm-web|@silvia-odwyer\/photon-node|@memorix\/memcode))/],
+    external: ['fastembed', '@huggingface/transformers', 'better-sqlite3', 'ink', 'react', 'react/jsx-runtime', 'yoga-wasm-web', '@silvia-odwyer/photon-node', '@memorix/memcode'],
     esbuildOptions(options) {
       options.jsx = 'automatic';
     },

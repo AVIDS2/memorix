@@ -20,6 +20,34 @@ import { getCliVersion } from './version.js';
 
 const NO_GIT_MSG = 'Memorix requires a git repo to establish project identity. Run `git init` in this workspace first.';
 
+/**
+ * Set PI_PACKAGE_DIR so bundled memcode can find its theme files.
+ * When tsup bundles memcode into the CLI, __dirname points to dist/cli/,
+ * not packages/memcode/. This env var tells config.ts where to look.
+ *
+ * In dev: resolves to packages/memcode/
+ * In global npm install: packages/memcode/ won't exist; theme files
+ *   should be copied to dist/memcode/ by the build (see tsup onSuccess).
+ */
+function ensureMemcodePackageDir(): void {
+  if (process.env.PI_PACKAGE_DIR) return;
+  const { dirname, join } = require('node:path');
+  const { fileURLToPath } = require('node:url');
+  const { existsSync } = require('node:fs');
+  // Try packages/memcode/ (dev) then dist/memcode/ (global install)
+  const candidates = [
+    join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'packages', 'memcode'),
+    join(dirname(fileURLToPath(import.meta.url)), '..', 'memcode'),
+  ];
+  for (const dir of candidates) {
+    if (existsSync(join(dir, 'package.json'))) {
+      process.env.PI_PACKAGE_DIR = dir;
+      return;
+    }
+  }
+  // Silent fallback — getPackageDir() will walk up from __dirname
+}
+
 // ============================================================
 // Workbench — Terminal-native memory control plane
 // ============================================================
@@ -990,16 +1018,9 @@ const main = defineCommand({
       meta: { name: 'memcode', description: 'Enter memcode TUI — native coding agent with memory' },
       async run() {
         try {
-          // Set package dir so memcode can find its theme files when bundled
-          if (!process.env.PI_PACKAGE_DIR) {
-            const { dirname, join } = await import('node:path');
-            const { fileURLToPath } = await import('node:url');
-            const { existsSync } = await import('node:fs');
-            const pkgDir = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'packages', 'memcode');
-            if (existsSync(join(pkgDir, 'package.json'))) {
-              process.env.PI_PACKAGE_DIR = pkgDir;
-            }
-          }
+          ensureMemcodePackageDir();
+          // IMPORTANT: PI_PACKAGE_DIR must be set BEFORE this import —
+          // config.ts module-level code reads it on first load.
           const { main } = await import('@memorix/memcode');
           await main(process.argv.slice(3));
         } catch (err) {
@@ -1025,16 +1046,9 @@ const main = defineCommand({
     // No subcommand provided — enter memcode TUI (native coding agent)
     if (!firstArg) {
       try {
-        // Set package dir so memcode can find its theme files when bundled
-        if (!process.env.PI_PACKAGE_DIR) {
-          const { dirname, join } = await import('node:path');
-          const { fileURLToPath } = await import('node:url');
-          const { existsSync } = await import('node:fs');
-          const pkgDir = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'packages', 'memcode');
-          if (existsSync(join(pkgDir, 'package.json'))) {
-            process.env.PI_PACKAGE_DIR = pkgDir;
-          }
-        }
+        ensureMemcodePackageDir();
+        // IMPORTANT: PI_PACKAGE_DIR must be set BEFORE this import —
+        // config.ts module-level code reads it on first load.
         const { main } = await import('@memorix/memcode');
         await main(process.argv.slice(2));
         return;

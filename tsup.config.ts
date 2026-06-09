@@ -69,7 +69,12 @@ export default defineConfig([
     shims: true,
     define,
     tsconfig: 'packages/memcode/tsconfig.build.json',
-    external: ['fastembed', '@huggingface/transformers', 'better-sqlite3'],
+    external: ['fastembed', '@huggingface/transformers', 'better-sqlite3', './tui/*', '../tui/*'],
+    esbuildOptions(options) {
+      // Don't bundle the TUI directory — it's loaded lazily via dynamic import
+      options.external = options.external || [];
+      options.external.push('./tui/*', '../tui/*', 'packages/memcode/src/tui/*');
+    },
   },
 ]);
 

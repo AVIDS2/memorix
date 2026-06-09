@@ -1005,35 +1005,30 @@ export async function main(args: string[], options?: MainOptions) {
 		printTimings();
 		await runRpcMode(runtime);
 	} else if (appMode === "interactive") {
-		// memcode: default to quiet startup (suppress Skills/Extensions/Context panels)
-		if (!parsed.verbose) {
-			settingsManager.setQuietStartup(true);
-		}
-		const interactiveMode = new InteractiveMode(runtime, {
-			migratedProviders,
-			modelFallbackMessage,
-			autoTrustOnReloadCwd,
-			initialMessage,
-			initialImages,
-			initialMessages: parsed.messages,
-			verbose: parsed.verbose,
-		});
-		if (startupBenchmark) {
-			await interactiveMode.init();
-			time("interactiveMode.init");
-			printTimings();
-			interactiveMode.stop();
-			stopThemeWatcher();
-			if (process.stdout.writableLength > 0) {
-				await new Promise<void>((resolve) => process.stdout.once("drain", resolve));
-			}
-			if (process.stderr.writableLength > 0) {
-				await new Promise<void>((resolve) => process.stderr.once("drain", resolve));
-			}
-			return;
-		}
+		// OpenTUI + React TUI (memcode native) — lazy import to avoid bundling native deps
 		printTimings();
-		await interactiveMode.run();
+		try {
+			const { startTui } = await import("./tui/index.tsx");
+			await startTui(runtime);
+		} catch (err) {
+			// Fallback to legacy InteractiveMode if OpenTUI fails
+			console.error(chalk.yellow(`OpenTUI failed: ${err instanceof Error ? err.message : err}`));
+			console.error(chalk.yellow('Falling back to legacy interactive mode...'));
+			if (!parsed.verbose) {
+				settingsManager.setQuietStartup(true);
+			}
+			const interactiveMode = new InteractiveMode(runtime, {
+				migratedProviders,
+				modelFallbackMessage,
+				autoTrustOnReloadCwd,
+				initialMessage,
+				initialImages,
+				initialMessages: parsed.messages,
+				verbose: parsed.verbose,
+			});
+			printTimings();
+			await interactiveMode.run();
+		}
 	} else {
 		printTimings();
 		const exitCode = await runPrintMode(runtime, {

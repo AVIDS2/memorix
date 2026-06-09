@@ -990,6 +990,16 @@ const main = defineCommand({
       meta: { name: 'memcode', description: 'Enter memcode TUI — native coding agent with memory' },
       async run() {
         try {
+          // Set package dir so memcode can find its theme files when bundled
+          if (!process.env.PI_PACKAGE_DIR) {
+            const { dirname, join } = await import('node:path');
+            const { fileURLToPath } = await import('node:url');
+            const { existsSync } = await import('node:fs');
+            const pkgDir = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'packages', 'memcode');
+            if (existsSync(join(pkgDir, 'package.json'))) {
+              process.env.PI_PACKAGE_DIR = pkgDir;
+            }
+          }
           const { main } = await import('@memorix/memcode');
           await main(process.argv.slice(3));
         } catch (err) {
@@ -1015,6 +1025,16 @@ const main = defineCommand({
     // No subcommand provided — enter memcode TUI (native coding agent)
     if (!firstArg) {
       try {
+        // Set package dir so memcode can find its theme files when bundled
+        if (!process.env.PI_PACKAGE_DIR) {
+          const { dirname, join } = await import('node:path');
+          const { fileURLToPath } = await import('node:url');
+          const { existsSync } = await import('node:fs');
+          const pkgDir = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'packages', 'memcode');
+          if (existsSync(join(pkgDir, 'package.json'))) {
+            process.env.PI_PACKAGE_DIR = pkgDir;
+          }
+        }
         const { main } = await import('@memorix/memcode');
         await main(process.argv.slice(2));
         return;

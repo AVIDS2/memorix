@@ -15,18 +15,18 @@
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import fs from 'node:fs';
+import { createDatabase, loadSqlite } from './bun-sqlite-compat.js';
 
-// Dynamic require for better-sqlite3 (native module, optionalDependencies)
+// Dynamic require for SQLite (better-sqlite3 or bun:sqlite)
 let BetterSqlite3: any;
 
 export function loadBetterSqlite3(): any {
   if (BetterSqlite3) return BetterSqlite3;
   try {
-    const require = createRequire(import.meta.url);
-    BetterSqlite3 = require('better-sqlite3');
+    BetterSqlite3 = loadSqlite();
     return BetterSqlite3;
   } catch {
-    throw new Error('[memorix] better-sqlite3 is not available');
+    throw new Error('[memorix] SQLite is not available (neither better-sqlite3 nor bun:sqlite)');
   }
 }
 
@@ -264,11 +264,11 @@ export function getDatabase(dataDir: string): any {
   const existing = _dbCache.get(normalized);
   if (existing) return existing;
 
-  const DB = loadBetterSqlite3();
+  loadBetterSqlite3();
   fs.mkdirSync(dataDir, { recursive: true });
 
   const dbPath = path.join(dataDir, 'memorix.db');
-  const db = new DB(dbPath);
+  const db = createDatabase(dbPath);
 
   // WAL mode for concurrent read performance
   db.pragma('journal_mode = WAL');

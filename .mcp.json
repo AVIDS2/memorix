@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "memorix": {
+      "command": "node",
+      "args": ["E:\\my_idea_cc\\my_copilot\\memorix\\dist\\index.js"],
+      "type": "stdio",
+      "env": {}
+    }
+  }
+}

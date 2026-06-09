@@ -2,105 +2,63 @@
 
 You have access to Memorix, an open-source cross-agent memory layer for coding agents via MCP. Use it to persist and recall project knowledge across sessions, preserve reasoning, and retrieve Git-backed engineering truth when relevant.
 
-## Rule 1: Bind the project, then start with context
+## Using Memorix Memory Tools
 
-At the beginning of every conversation:
+This project has Memorix MCP tools available for persistent cross-session memory.
 
-1. Call `memorix_session_start` to load the previous session summary and recent high-value context.
-2. If you are connected to the HTTP control-plane mode (normally started with `memorix background start`; `memorix serve-http` is the foreground variant) and you know the current workspace path, pass:
-   - `agent`
-   - `projectRoot` = the absolute path of the current workspace or repo root
-3. If you are using stdio / Quick Mode and Memorix is already project-bound, calling `memorix_session_start` without `projectRoot` is acceptable.
-4. If session start fails because the project could not be resolved, retry with the correct absolute workspace path instead of continuing with project-scoped memory calls.
-5. Then call `memorix_search` with a query related to the user's first message or the current project.
-6. If results matter, use `memorix_detail` to inspect the most relevant memories.
-7. If the user is asking about "what changed", prioritize Git-backed memories when relevant.
+### When to search memory
 
-Important:
+Use `memorix_search` when prior project context would help — for example:
+- The user asks about a past decision, bug, or change
+- You need to understand why something was designed a certain way
+- You're continuing work that started in a previous session
 
-- `projectRoot` is a detection anchor only; Git remains the source of truth for project identity.
-- In HTTP control-plane mode, explicit `projectRoot` binding is the safest way to avoid cross-project drift.
+You do **not** need to search memory for simple, self-contained tasks.
 
-## Rule 2: Store meaningful knowledge, not noise
+If no memories exist yet, that's fine — just proceed normally.
 
-Use `memorix_store` when you learn something a future agent should not have to rediscover.
+### When to store memory
 
-Store:
+Use `memorix_store` when you learn something a future session should not have to rediscover:
 
-- architecture or design decisions -> `decision`
-- bug root cause + fix -> `problem-solution`
-- non-obvious pitfalls -> `gotcha`
-- implementation explanations -> `how-it-works`
-- significant code or config changes -> `what-changed`
-- trade-offs and rationale -> `trade-off`
-- session handoff summaries -> `session-request`
+| What happened | Type |
+|---|---|
+| Architecture or design decision | `decision` |
+| Bug found and fixed | `problem-solution` |
+| Non-obvious pitfall or gotcha | `gotcha` |
+| Config or dependency changed | `what-changed` |
+| Trade-off discussed with conclusion | `trade-off` |
 
-Do not store:
+**Tips:** Use concise titles (~5-10 words). Include `filesModified` when relevant. Use `topicKey` for evolving topics. For "why" decisions, use `memorix_store_reasoning`.
 
-- greetings
-- simple file reads
-- trivial shell commands
-- redundant status chatter
+**Don't store:** greetings, simple file reads, trivial commands.
 
-## Rule 3: Preserve reasoning
+### When to resolve memory
 
-When the important value is **why**, use `memorix_store_reasoning`:
+Use `memorix_resolve` when a task is done or a bug is fixed. This keeps future searches focused on active work.
 
-- alternatives considered
-- rationale
-- constraints
-- expected outcome
-- risks
+### Tools quick reference
 
-Reasoning memories are especially useful for future "why did we choose this?" questions.
+| Tool | Use when |
+|---|---|
+| `memorix_search` | Find relevant past context |
+| `memorix_detail` | Read full content of a specific memory |
+| `memorix_store` | Save something worth persisting |
+| `memorix_store_reasoning` | Save the "why" behind a decision |
+| `memorix_resolve` | Mark completed/outdated memories |
+| `memorix_session_start` | Load session context (handoff, team coordination) |
+| `memorix_timeline` | See chronological context around a memory |
+| `memorix_retention` | Check memory health and archive expired items |
+| `memorix_promote` | Turn repeated patterns into permanent skills |
+| `memorix_rules_sync` | Inspect or sync rules across agents |
+| `memorix_workspace_sync` | Inspect or migrate workspace integrations |
 
-## Rule 4: Resolve completed work
+## Dev Log (memcode Development)
 
-When a task is done or a bug is fixed, call `memorix_resolve`.
-
-This keeps default search focused on active memory instead of resurfacing already-finished work forever.
-
-## Rule 5: Respect project boundaries
-
-- Default search is current-project scoped.
-- Use global search only when the task is explicitly cross-project.
-- If a global result comes from another project, open it with project-aware refs when needed.
-
-## Rule 6: Favor structured, reusable memory
-
-Best practices:
-
-1. Use specific titles.
-2. Include structured facts.
-3. Include `filesModified` when you touched code.
-4. Include concepts for searchability.
-5. Prefer concise reusable summaries over raw transcripts.
-6. Store milestones such as releases, published versions, and important merges.
-
-## Tool Guide
-
-### Core retrieval
-
-- `memorix_session_start` - load session context; in HTTP mode, prefer passing `projectRoot`
-- `memorix_search` - search current or global memory
-- `memorix_detail` - read full memory details
-- `memorix_timeline` - inspect chronological context
-
-### Core storage
-
-- `memorix_store` - store reusable project knowledge
-- `memorix_store_reasoning` - store design reasoning and trade-offs
-- `memorix_resolve` - mark completed memories resolved
-
-### Quality and operations
-
-- `memorix_retention` - inspect decay/archive state
-- `memorix_promote` - turn important observations into mini-skills
-- `memorix_skills` - generate or inspect project skills
-- `memorix_transfer` - export/import project memory
-
-### Collaboration and platform
-
-- `memorix_rules_sync` - inspect or sync rules across agents
-- `memorix_workspace_sync` - inspect or migrate workspace integrations
-- `team_manage`, `team_file_lock`, `team_task`, `team_message` - HTTP collaboration layer
+- **Location**: `docs/memcode/dev-log/`
+- **progress.txt**: Current development state — read this first in every new session
+- **NNN-描述.md**: Per-phase detailed records (decisions, lessons, key changes)
+- Update progress.txt after completing each Phase
+- Write a new entry file for each significant milestone
+- Current project: memcode (native coding agent with Memorix memory integration)
+- Branch: `feat/memcode-agent` (never touch main)

@@ -986,144 +986,66 @@ async function installAgentRules(agent: AgentName, projectRoot: string): Promise
 function getAgentRulesContent(agent?: AgentName): string {
   let frontmatter = '';
   if (agent === 'windsurf') {
-    frontmatter = `---
-trigger: always_on
----
-
-`;
+    frontmatter = '---\ntrigger: always_on\n---\n\n';
   } else if (agent === 'cursor') {
-    frontmatter = `---
-description: Memorix automatic memory recording rules
-alwaysApply: true
----
-
-`;
+    frontmatter = '---\ndescription: Memorix memory tools \u2014 use when prior project context would help\nalwaysApply: true\n---\n\n';
   }
-  return `${frontmatter}# Memorix — Automatic Memory Rules
 
-You have access to Memorix memory tools. Follow these rules to maintain persistent context across sessions.
+  const hint = agent === 'claude'
+    ? '> If the project has a CLAUDE.md with Memorix instructions, follow those instead of these rules.\n'
+    : '';
 
-## RULE 1: Use Memory When Useful
-
-At the beginning of a conversation, use Memorix when prior project context would materially help the task. Do not require a session bind for every conversation.
-
-1. Call \`memorix_search\` with a query related to the user's first message or current task.
-2. If search results are found, use \`memorix_detail\` to fetch the most relevant ones.
-3. If \`memorix_search\` says this is a fresh project with no Memorix memories yet, treat that as a successful cold-start signal. Do not repeat \`memorix_search\` again in the same turn unless the user explicitly asks for history/context or new memories were written.
-4. Call \`memorix_session_start\` only when explicit session semantics are useful: handoff, long-running work, team coordination, restoring prior session context, or HTTP project binding.
-5. Reference relevant memories naturally — the user should feel you understand the project, not that you are following a ritual.
-
-**Important:** \`projectRoot\` is a detection anchor only; Git remains the source of truth for project identity.
-In HTTP control-plane mode (\`memorix serve-http\` / \`memorix background start\`), explicit \`projectRoot\` binding is recommended when the workspace path is available and required for correct multi-project isolation.
-\`memorix_session_start\` is lightweight by default: it starts memory/session context only. Do not set \`joinTeam\` unless the user explicitly needs autonomous Agent Team tasks, messages, file locks, or orchestrated CLI-agent workflows.
-
-## RULE 2: Store Important Context
-
-**Proactively** call \`memorix_store\` when any of the following happen:
-
-### What MUST be recorded:
-- Architecture/design decisions → type: \`decision\`
-- Bug identified and fixed → type: \`problem-solution\`
-- Unexpected behavior or gotcha → type: \`gotcha\`
-- Config changed (env vars, ports, deps) → type: \`what-changed\`
-- Feature completed or milestone → type: \`what-changed\`
-- Trade-off discussed with conclusion → type: \`trade-off\`
-
-### What should NOT be recorded:
-- Simple file reads, greetings, trivial commands (ls, pwd, git status)
-
-### Use topicKey for evolving topics:
-For decisions, architecture docs, or any topic that evolves over time, ALWAYS use \`topicKey\` parameter.
-This ensures the memory is UPDATED instead of creating duplicates.
-Use \`memorix_suggest_topic_key\` to generate a stable key.
-
-Example: \`topicKey: "architecture/auth-model"\` — subsequent stores with the same key update the existing memory.
-
-### Track progress with the progress parameter:
-When working on features or tasks, include the \`progress\` parameter:
-\`\`\`json
-{
-  "progress": {
-    "feature": "user authentication",
-    "status": "in-progress",
-    "completion": 60
-  }
-}
-\`\`\`
-Status values: \`in-progress\`, \`completed\`, \`blocked\`
-
-## RULE 3: Resolve Completed Memories
-
-When a task is completed, a bug is fixed, or information becomes outdated:
-
-1. Call \`memorix_resolve\` with the observation IDs to mark them as resolved
-2. Resolved memories are hidden from default search, preventing context pollution
-
-This is critical — without resolving, old bug reports and completed tasks will keep appearing in future searches.
-
-## RULE 4: Session End — Store Decision Chain Summary
-
-When the conversation is ending, create a **decision chain summary** (not just a checklist):
-
-1. Call \`memorix_store\` with type \`session-request\` and \`topicKey: "session/latest-summary"\`:
-
-   **Required structure:**
-   \`\`\`
-   ## Goal
-   [What we were working on — specific, not vague]
-
-   ## Key Decisions & Reasoning
-   - Chose X because Y. Rejected Z because [reason].
-   - [Every architectural/design decision with WHY]
-
-   ## What Changed
-   - [File path] — [what changed and why]
-
-   ## Current State
-   - [What works now, what's pending]
-   - [Any blockers or risks]
-
-   ## Next Steps
-   - [Concrete next actions, in priority order]
-   \`\`\`
-
-   **Critical: Include the "Key Decisions & Reasoning" section.** Without it, the next AI session will lack the context to understand WHY things were done a certain way and may suggest conflicting approaches.
-
-2. Call \`memorix_resolve\` on any memories for tasks completed in this session
-
-## RULE 5: Compact Awareness
-
-Memorix automatically compacts memories on store:
-- **With LLM API configured:** Smart dedup — extracts facts, compares with existing, merges or skips duplicates
-- **Without LLM (free mode):** Heuristic dedup — uses similarity scores to detect and merge duplicate memories
-- **You don't need to manually deduplicate.** Just store naturally and compact handles the rest.
-- If you notice excessive duplicate memories, call \`memorix_deduplicate\` for batch cleanup.
-
-## Guidelines
-
-- **Use concise titles** (~5-10 words) and structured facts
-- **Include file paths** in filesModified when relevant
-- **Include related concepts** for better searchability
-- **Always use topicKey** for recurring topics to prevent duplicates
-- **Always resolve** completed tasks and fixed bugs
-- **Always include reasoning** — "chose X because Y" is 10x more valuable than "did X"
-- Search defaults to \`status="active"\` — use \`status="all"\` to include resolved memories
-
-## Beyond These Rules
-
-This file contains the **minimum operating rules** for Memorix memory tools. It is NOT the complete truth about runtime behavior, support tiers, or team semantics.
-
-For authoritative, up-to-date details on:
-- **Support tiers** (core / extended / community) and what "installed" vs "runtime-ready" means
-- **HTTP control-plane binding** and \`projectRoot\` isolation rules
-- **Opt-in team semantics** (\`joinTeam\`, \`team_manage join\`, roles, task claim, handoff validation)
-- **Install vs runtime-ready distinction** — hook config written ≠ agent will execute it
-- **Agent-specific caveats** (Copilot project-level only, OpenCode plugin lifecycle, etc.)
-
-→ **Read \`docs/AGENT_OPERATOR_PLAYBOOK.md\`** in the Memorix source or npm package.
-
-If this file and the playbook conflict, the playbook is authoritative.
-`;
+  return [
+    frontmatter + '# Memorix \u2014 Project Memory Tools',
+    '',
+    'This project uses Memorix for persistent cross-session memory. Memory tools are available when you need context from prior sessions or when you learn something worth saving.',
+    '',
+    hint + '## When to search memory',
+    '',
+    'Use \x60memorix_search\x60 when prior project context would help \u2014 for example:',
+    '- The user asks about a past decision, bug, or change',
+    '- You need to understand why something was designed a certain way',
+    "- You're continuing work that started in a previous session",
+    '',
+    'You do **not** need to search memory for simple, self-contained tasks (e.g., "fix this typo", "what does this function do").',
+    '',
+    'If no memories exist yet, that\u2019s fine \u2014 just proceed normally.',
+    '',
+    '## When to store memory',
+    '',
+    'Use \x60memorix_store\x60 when you learn something a future session should not have to rediscover:',
+    '',
+    '| What happened | Type |',
+    '|---|---|',
+    '| Architecture or design decision | \x60decision\x60 |',
+    '| Bug found and fixed | \x60problem-solution\x60 |',
+    '| Non-obvious pitfall or gotcha | \x60gotcha\x60 |',
+    '| Config or dependency changed | \x60what-changed\x60 |',
+    '| Trade-off discussed with conclusion | \x60trade-off\x60 |',
+    '',
+    '**Tips for good memories:**',
+    '- Use concise titles (~5-10 words)',
+    '- Include \x60filesModified\x60 when relevant',
+    '- Use \x60topicKey\x60 for topics that evolve over time (prevents duplicates)',
+    '- For "why" decisions, use \x60memorix_store_reasoning\x60',
+    '',
+    "**Don't store:** greetings, simple file reads, trivial commands (ls, pwd, git status).",
+    '',
+    '## When to resolve memory',
+    '',
+    'Use \x60memorix_resolve\x60 when a task is done or a bug is fixed. This keeps future searches focused on active work instead of surfacing completed items.',
+    '',
+    '## Tools quick reference',
+    '',
+    '| Tool | Use when |',
+    '|---|---|',
+    '| \x60memorix_search\x60 | Find relevant past context |',
+    '| \x60memorix_detail\x60 | Read full content of a specific memory |',
+    '| \x60memorix_store\x60 | Save something worth persisting |',
+    '| \x60memorix_store_reasoning\x60 | Save the "why" behind a decision |',
+    '| \x60memorix_resolve\x60 | Mark completed/outdated memories |',
+    '| \x60memorix_session_start\x60 | Load session context (handoff, team coordination) |',
+  ].join('\n');
 }
 
 /**

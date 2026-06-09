@@ -1,0 +1,36 @@
+# memcode Development Progress
+
+> Auto-updated by agent. New sessions: read this file first.
+
+## Current State
+- **Phase**: Pre-Phase 1 (design complete, skeleton not started)
+- **Branch**: feat/memcode-agent
+- **Last updated**: 2026-06-09
+
+## Completed
+- [x] Pi source analysis (vendor/pi/, CodeGraph indexed, 678 files)
+- [x] Memorix source analysis (CodeGraph, 218 files)
+- [x] Reference materials digested (official docs, DeepWiki, wuu73 field guide, Alejandro AO, Medium article)
+- [x] HANDOFF.md (conversation context document)
+- [x] DESIGN.md (formal development document, 11 chapters)
+- [x] Storage design finalized (JSONL sessions + SQLite memory + optional SQLite index)
+- [x] 9 key design decisions documented
+- [x] Dev-log system created
+
+## In Progress
+- [ ] Phase 1: Skeleton — set up packages/, npm workspaces, tsup, CLI routing
+
+## Next Up
+- [ ] Phase 2: Memory integration (7 integration points)
+- [ ] Phase 3: Polish (TUI branding, embedding auto, testing)
+- [ ] Phase 4: Future (TUI customization, desktop, subagents)
+
+## Blockers
+None currently.
+
+## Key Decisions This Session
+- Package naming: `@memorix/ai`, `@memorix/agent-core`, `@memorix/tui`, `@memorix/memcode` (no "pi" in names)
+- All code must be memcode-native, zero Pi branding in output
+- Branch isolation: everything on feat/memcode-agent, main untouched
+- Each Phase gets Codex review after completion
+- Use ultracode (multi-agent parallel) for implementation

@@ -3,21 +3,32 @@
 > Auto-updated by agent. New sessions: read this file first.
 
 ## Current State
-- **Phase**: SMOKE TEST PASSED ✅
+- **Phase**: FINAL POLISH COMPLETE — ready for merge
 - **Branch**: feat/memcode-agent
 - **Last updated**: 2026-06-09
 - **Node.js**: v22.22.3
 
-## Milestone
-memcode 首次人工 smoke 测试通过。用户反馈："牛逼，简直完美，成功了，好丝滑"
-
 ## Completed
-- [x] Phase 1: Skeleton (packages/, workspaces, build, CLI routing)
-- [x] Phase 2: Memory Integration (tools, hooks, injection, storage)
-- [x] Phase 3: Polish (embedding auto, de-pi cleanup, TUI branding)
-- [x] Phase 3 Cleanup (test files, gitignore, TUI welcome)
-- [x] Smoke Test: all 7 tools working, DeepSeek LLM, memory round trip
+- [x] Phase 1: Skeleton
+- [x] Phase 2: Memory Integration
+- [x] Phase 3: Polish
+- [x] Final Polish:
+  - [x] Cross-package imports → memorix-resolve.ts with file:// URLs
+  - [x] Windows ESM path error fixed
+  - [x] 10 test files: PI_* → MEMCODE_*
+  - [x] .gitignore: packages/*/dist/
+  - [x] TUI welcome message updated
+  - [x] All builds pass
+  - [x] Smoke test passed (7 tools, memory round trip)
 
 ## Branch Status
-- feat/memcode-agent: ready for merge or continued development
+- feat/memcode-agent: latest commit 21d62a6
 - main: untouched (v1.0.10)
+- Ready for user smoke test → merge
+
+## Merge Checklist
+- [ ] User runs `node dist/cli/index.js` and verifies all features
+- [ ] git checkout main && git merge feat/memcode-agent
+- [ ] npm version minor (1.0.10 → 1.0.11)
+- [ ] npm run build
+- [ ] git push

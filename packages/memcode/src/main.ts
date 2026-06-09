@@ -45,6 +45,7 @@ import { printTimings, resetTimings, time } from "./core/timings.ts";
 import { hasProjectTrustInputs, ProjectTrustStore } from "./core/trust-manager.ts";
 import { runMigrations, showDeprecationWarnings } from "./migrations.ts";
 import { InteractiveMode, runPrintMode, runRpcMode } from "./modes/index.ts";
+import { startTui } from "./tui/index.tsx";
 import { ExtensionInputComponent } from "./modes/interactive/components/extension-input.ts";
 import { ExtensionSelectorComponent } from "./modes/interactive/components/extension-selector.ts";
 import { initTheme, stopThemeWatcher } from "./modes/interactive/theme/theme.ts";
@@ -1003,36 +1004,40 @@ export async function main(args: string[], options?: MainOptions) {
 		printTimings();
 		await runRpcMode(runtime);
 	} else if (appMode === "interactive") {
-		// memcode: default to quiet startup (suppress Skills/Extensions/Context panels)
-		if (!parsed.verbose) {
-			settingsManager.setQuietStartup(true);
-		}
-		const interactiveMode = new InteractiveMode(runtime, {
-			migratedProviders,
-			modelFallbackMessage,
-			autoTrustOnReloadCwd,
-			initialMessage,
-			initialImages,
-			initialMessages: parsed.messages,
-			verbose: parsed.verbose,
-		});
-		if (startupBenchmark) {
-			await interactiveMode.init();
-			time("interactiveMode.init");
-			printTimings();
-			interactiveMode.stop();
-			stopThemeWatcher();
-			if (process.stdout.writableLength > 0) {
-				await new Promise<void>((resolve) => process.stdout.once("drain", resolve));
-			}
-			if (process.stderr.writableLength > 0) {
-				await new Promise<void>((resolve) => process.stderr.once("drain", resolve));
-			}
-			return;
-		}
-
+		// OpenTUI + React TUI
 		printTimings();
-		await interactiveMode.run();
+		await startTui(runtime);
+
+		// --- Legacy InteractiveMode (kept as fallback) ---
+		// memcode: default to quiet startup (suppress Skills/Extensions/Context panels)
+		// if (!parsed.verbose) {
+		// 	settingsManager.setQuietStartup(true);
+		// }
+		// const interactiveMode = new InteractiveMode(runtime, {
+		// 	migratedProviders,
+		// 	modelFallbackMessage,
+		// 	autoTrustOnReloadCwd,
+		// 	initialMessage,
+		// 	initialImages,
+		// 	initialMessages: parsed.messages,
+		// 	verbose: parsed.verbose,
+		// });
+		// if (startupBenchmark) {
+		// 	await interactiveMode.init();
+		// 	time("interactiveMode.init");
+		// 	printTimings();
+		// 	interactiveMode.stop();
+		// 	stopThemeWatcher();
+		// 	if (process.stdout.writableLength > 0) {
+		// 		await new Promise<void>((resolve) => process.stdout.once("drain", resolve));
+		// 	}
+		// 	if (process.stderr.writableLength > 0) {
+		// 		await new Promise<void>((resolve) => process.stderr.once("drain", resolve));
+		// 	}
+		// 	return;
+		// }
+		// printTimings();
+		// await interactiveMode.run();
 	} else {
 		printTimings();
 		const exitCode = await runPrintMode(runtime, {

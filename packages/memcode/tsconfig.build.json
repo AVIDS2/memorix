@@ -2,6 +2,8 @@
 	"extends": "../../tsconfig.base.json",
 	"compilerOptions": {
 		"outDir": "./dist",
+		"jsx": "react-jsx",
+		"jsxImportSource": "@opentui/react",
 		"paths": {
 			"@memorix/agent-core": ["../agent-core/dist/index.d.ts"],
 			"@memorix/agent-core/*": ["../agent-core/dist/*.d.ts"],
@@ -11,6 +13,6 @@
 			"@memorix/tui/*": ["../tui/dist/*.d.ts", "../tui/dist/components/*.d.ts"]
 		}
 	},
-	"include": ["src/**/*.ts", "src/**/*.d.ts"],
+	"include": ["src/**/*.ts", "src/**/*.tsx", "src/**/*.d.ts"],
 	"exclude": ["node_modules", "dist"]
 }

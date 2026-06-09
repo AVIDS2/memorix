@@ -1,6 +1,6 @@
 {
 	"name": "@memorix/memcode",
-	"version": "0.79.0",
+	"version": "1.0.10",
 	"description": "Coding agent CLI with read, bash, edit, write tools and session management",
 	"type": "module",
 	"piConfig": {

@@ -3,7 +3,7 @@ import { copyFileSync, existsSync, mkdirSync, renameSync, rmSync } from "node:fs
 import { basename, dirname, join, relative, resolve, toNamespacedPath } from "node:path";
 import { getCwdRelativePath } from "./paths.ts";
 
-const QUARANTINE_DIR_NAME = ".pi-native-quarantine";
+const QUARANTINE_DIR_NAME = ".memcode-native-quarantine";
 
 function normalizePath(path: string): string {
 	return toNamespacedPath(resolve(path));
@@ -55,7 +55,7 @@ export function cleanupWindowsSelfUpdateQuarantine(packageDir: string): void {
 	try {
 		rmSync(quarantineRoot, { recursive: true, force: true });
 	} catch {
-		// A previous pi process may still be exiting and holding a native addon.
+		// A previous memcode process may still be exiting and holding a native addon.
 	}
 }
 

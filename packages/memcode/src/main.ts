@@ -26,6 +26,7 @@ import { AuthStorage } from "./core/auth-storage.ts";
 import { exportFromFile } from "./core/export-html/index.ts";
 import { emitProjectTrustEvent } from "./core/extensions/runner.ts";
 import type { ExtensionFactory, LoadExtensionsResult, ProjectTrustContext } from "./core/extensions/types.ts";
+import memoryExtension from "./extensions/memory-extension.ts";
 import { configureHttpDispatcher } from "./core/http-dispatcher.ts";
 import { KeybindingsManager } from "./core/keybindings.ts";
 import type { ModelRegistry } from "./core/model-registry.ts";
@@ -543,7 +544,7 @@ const PROJECT_TRUST_PROMPT_OPTIONS: Array<{ label: string; value: ProjectTrustPr
 ];
 
 function formatProjectTrustPrompt(cwd: string): string {
-	return `Trust project folder?\n${cwd}\n\nThis allows pi to read project instructions (AGENTS.md/CLAUDE.md), load .pi settings and resources, install missing project packages, and execute project extensions.`;
+	return `Trust project folder?\n${cwd}\n\nThis allows memcode to read project instructions (AGENTS.md/CLAUDE.md), load .memorix settings and resources, install missing project packages, and execute project extensions.`;
 }
 
 async function promptForProjectTrust(
@@ -690,10 +691,10 @@ export interface MainOptions {
 
 export async function main(args: string[], options?: MainOptions) {
 	resetTimings();
-	const offlineMode = args.includes("--offline") || isTruthyEnvFlag(process.env.PI_OFFLINE);
+	const offlineMode = args.includes("--offline") || isTruthyEnvFlag(process.env.MEMCODE_OFFLINE);
 	if (offlineMode) {
-		process.env.PI_OFFLINE = "1";
-		process.env.PI_SKIP_VERSION_CHECK = "1";
+		process.env.MEMCODE_OFFLINE = "1";
+		process.env.MEMCODE_SKIP_VERSION_CHECK = "1";
 	}
 
 	if (process.platform === "win32") {
@@ -867,7 +868,7 @@ export async function main(args: string[], options?: MainOptions) {
 				noContextFiles: parsed.noContextFiles,
 				systemPrompt: parsed.systemPrompt,
 				appendSystemPrompt: parsed.appendSystemPrompt,
-				extensionFactories: options?.extensionFactories,
+				extensionFactories: [memoryExtension, ...(options?.extensionFactories ?? [])],
 			},
 		});
 		const { settingsManager, modelRegistry, resourceLoader } = services;

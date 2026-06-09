@@ -8,17 +8,17 @@ Project trust controls whether pi loads project-local inputs. It is not a sandbo
 
 Pi considers a project to have trust inputs when it finds any of these from the current working directory:
 
-- `.pi/` in the current directory
+- `.memorix/` in the current directory
 - `AGENTS.md` or `CLAUDE.md` in the current directory or an ancestor directory
 - `.agents/skills` in the current directory or an ancestor directory
 
-When an interactive session starts in a project with trust inputs and no saved decision, pi asks whether to trust the project. Saved decisions are stored per canonical working directory in `~/.pi/agent/trust.json`.
+When an interactive session starts in a project with trust inputs and no saved decision, pi asks whether to trust the project. Saved decisions are stored per canonical working directory in `~/.memorix/agent/trust.json`.
 
 Trusting a project allows pi to load project-local inputs, including:
 
 - project instructions from `AGENTS.md` or `CLAUDE.md`
-- `.pi/settings.json`
-- `.pi` resources such as extensions, skills, prompt templates, themes, and system prompt files
+- `.memorix/settings.json`
+- `.memorix` resources such as extensions, skills, prompt templates, themes, and system prompt files
 - missing project packages configured through project settings
 - project-local extensions and project package-managed extensions
 
@@ -43,7 +43,7 @@ Common patterns are documented in [Containerization](containerization.md):
 - run the whole `pi` process inside OpenShell or Docker
 - run host pi while routing built-in tool execution into a Gondolin micro-VM
 - mount only the workspace paths the agent should access
-- avoid mounting host `~/.pi/agent` unless the container should access host sessions, settings, and credentials
+- avoid mounting host `~/.memorix/agent` unless the container should access host sessions, settings, and credentials
 - pass the minimum required API keys or use short-lived credentials
 - restrict network access when the task does not need it
 - review diffs and outputs before copying results back to trusted systems

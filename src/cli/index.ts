@@ -30,22 +30,21 @@ const NO_GIT_MSG = 'Memorix requires a git repo to establish project identity. R
  *   should be copied to dist/memcode/ by the build (see tsup onSuccess).
  */
 function ensureMemcodePackageDir(): void {
-  if (process.env.PI_PACKAGE_DIR) return;
-  const { dirname, join } = require('node:path');
-  const { fileURLToPath } = require('node:url');
-  const { existsSync } = require('node:fs');
-  // Try packages/memcode/ (dev) then dist/memcode/ (global install)
-  const candidates = [
-    join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'packages', 'memcode'),
-    join(dirname(fileURLToPath(import.meta.url)), '..', 'memcode'),
-  ];
-  for (const dir of candidates) {
-    if (existsSync(join(dir, 'package.json'))) {
-      process.env.PI_PACKAGE_DIR = dir;
+  if (process.env.MEMCODE_PACKAGE_DIR) return;
+  // Walk up from __dirname (dist/cli/) to find packages/memcode/package.json
+  const path = require('node:path') as typeof import('node:path');
+  const fs = require('node:fs') as typeof import('node:fs');
+  let dir: string = __dirname;
+  for (let i = 0; i < 5; i++) {
+    const candidate = path.join(dir, 'packages', 'memcode');
+    if (fs.existsSync(path.join(candidate, 'package.json'))) {
+      process.env.MEMCODE_PACKAGE_DIR = candidate;
       return;
     }
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
   }
-  // Silent fallback — getPackageDir() will walk up from __dirname
 }
 
 // ============================================================

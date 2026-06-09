@@ -57,6 +57,16 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
 			prompt += appendSection;
 		}
 
+		// Persistent memory section (Memorix)
+		prompt += `
+
+Persistent Memory:
+- You have access to a persistent memory system (Memorix) that retains knowledge across sessions.
+- Before starting work, search memory for relevant prior context using memorix_search.
+- When you discover something worth persisting, store it using memorix_store. Good candidates: architecture decisions, problem-solution pairs, non-obvious gotchas, config or dependency changes, trade-off conclusions.
+- When search results look relevant, use memorix_detail to read the full content.
+- Do not store: greetings, trivial file reads, or redundant status updates.`;
+
 		// Append project context files
 		if (contextFiles.length > 0) {
 			prompt += "\n\n<project_context>\n\n";
@@ -127,7 +137,7 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
 
 	const guidelines = guidelinesList.map((g) => `- ${g}`).join("\n");
 
-	let prompt = `You are an expert coding assistant operating inside pi, a coding agent harness. You help users by reading files, executing commands, editing code, and writing new files.
+	let prompt = `You are an expert coding assistant operating inside memcode, a coding agent harness. You help users by reading files, executing commands, editing code, and writing new files.
 
 Available tools:
 ${toolsList}
@@ -137,18 +147,28 @@ In addition to the tools above, you may have access to other custom tools depend
 Guidelines:
 ${guidelines}
 
-Pi documentation (read only when the user asks about pi itself, its SDK, extensions, themes, skills, or TUI):
+Memcode documentation (read only when the user asks about memcode itself, its SDK, extensions, themes, skills, or TUI):
 - Main documentation: ${readmePath}
 - Additional docs: ${docsPath}
 - Examples: ${examplesPath} (extensions, custom tools, SDK)
-- When reading pi docs or examples, resolve docs/... under Additional docs and examples/... under Examples, not the current working directory
-- When asked about: extensions (docs/extensions.md, examples/extensions/), themes (docs/themes.md), skills (docs/skills.md), prompt templates (docs/prompt-templates.md), TUI components (docs/tui.md), keybindings (docs/keybindings.md), SDK integrations (docs/sdk.md), custom providers (docs/custom-provider.md), adding models (docs/models.md), pi packages (docs/packages.md)
-- When working on pi topics, read the docs and examples, and follow .md cross-references before implementing
-- Always read pi .md files completely and follow links to related docs (e.g., tui.md for TUI API details)`;
+- When reading memcode docs or examples, resolve docs/... under Additional docs and examples/... under Examples, not the current working directory
+- When asked about: extensions (docs/extensions.md, examples/extensions/), themes (docs/themes.md), skills (docs/skills.md), prompt templates (docs/prompt-templates.md), TUI components (docs/tui.md), keybindings (docs/keybindings.md), SDK integrations (docs/sdk.md), custom providers (docs/custom-provider.md), adding models (docs/models.md), memcode packages (docs/packages.md)
+- When working on memcode topics, read the docs and examples, and follow .md cross-references before implementing
+- Always read memcode .md files completely and follow links to related docs (e.g., tui.md for TUI API details)`;
 
 	if (appendSection) {
 		prompt += appendSection;
 	}
+
+	// Persistent memory section (Memorix)
+	prompt += `
+
+Persistent Memory:
+- You have access to a persistent memory system (Memorix) that retains knowledge across sessions.
+- Before starting work, search memory for relevant prior context using memorix_search.
+- When you discover something worth persisting, store it using memorix_store. Good candidates: architecture decisions, problem-solution pairs, non-obvious gotchas, config or dependency changes, trade-off conclusions.
+- When search results look relevant, use memorix_detail to read the full content.
+- Do not store: greetings, trivial file reads, or redundant status updates.`;
 
 	// Append project context files
 	if (contextFiles.length > 0) {

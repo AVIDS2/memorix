@@ -900,7 +900,7 @@ describe("InteractiveMode.showLoadedResources", () => {
 		const fakeThis = createShowLoadedResourcesThis({
 			quietStartup: false,
 			cwd,
-			contextFiles: [{ path: path.join(home, ".pi", "agent", "AGENTS.md") }, { path: path.join(cwd, "AGENTS.md") }],
+			contextFiles: [{ path: path.join(home, ".memorix", "AGENTS.md") }, { path: path.join(cwd, "AGENTS.md") }],
 		});
 
 		(InteractiveMode as any).prototype.showLoadedResources.call(fakeThis, {
@@ -909,7 +909,7 @@ describe("InteractiveMode.showLoadedResources", () => {
 
 		const output = renderAll(fakeThis.chatContainer).replace(/\\/g, "/");
 		expect(output).toContain("[Context]");
-		expect(output).toContain("~/.pi/agent/AGENTS.md, AGENTS.md");
+		expect(output).toContain("~/.memorix/AGENTS.md, AGENTS.md");
 		expect(output).not.toContain(`${cwd.replace(/\\/g, "/")}/AGENTS.md`);
 	});
 
@@ -920,7 +920,7 @@ describe("InteractiveMode.showLoadedResources", () => {
 			quietStartup: false,
 			toolOutputExpanded: true,
 			cwd,
-			contextFiles: [{ path: path.join(home, ".pi", "agent", "AGENTS.md") }, { path: path.join(cwd, "AGENTS.md") }],
+			contextFiles: [{ path: path.join(home, ".memorix", "AGENTS.md") }, { path: path.join(cwd, "AGENTS.md") }],
 		});
 
 		(InteractiveMode as any).prototype.showLoadedResources.call(fakeThis, {
@@ -929,9 +929,9 @@ describe("InteractiveMode.showLoadedResources", () => {
 
 		const output = renderAll(fakeThis.chatContainer).replace(/\\/g, "/");
 		expect(output).toContain("[Context]");
-		expect(output).toContain("~/.pi/agent/AGENTS.md");
+		expect(output).toContain("~/.memorix/AGENTS.md");
 		expect(output).toContain("~/Development/pi-mono/AGENTS.md");
-		expect(output).not.toContain("~/.pi/agent/AGENTS.md, AGENTS.md");
+		expect(output).not.toContain("~/.memorix/AGENTS.md, AGENTS.md");
 	});
 
 	test("does not show verbose listing on quiet startup during reload", () => {

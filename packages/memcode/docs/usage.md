@@ -70,7 +70,7 @@ Configure delivery in [Settings](settings.md) with `steeringMode` and `followUpM
 
 ## Sessions
 
-Sessions are saved automatically to `~/.pi/agent/sessions/`, organized by working directory.
+Sessions are saved automatically to `~/.memorix/agent/sessions/`, organized by working directory.
 
 ```bash
 pi -c                  # Continue most recent session
@@ -95,7 +95,7 @@ See [Sessions](sessions.md) and [Compaction](compaction.md) for details.
 
 Pi loads `AGENTS.md` or `CLAUDE.md` at startup from:
 
-- `~/.pi/agent/AGENTS.md` for global instructions
+- `~/.memorix/AGENTS.md` for global instructions
 - parent directories, walking up from the current working directory when the project is trusted
 - the current directory when the project is trusted
 
@@ -105,20 +105,20 @@ Use context files for project conventions, commands, safety rules, and preferenc
 
 Replace the default system prompt with:
 
-- `.pi/SYSTEM.md` for a project
-- `~/.pi/agent/SYSTEM.md` globally
+- `.memorix/SYSTEM.md` for a project
+- `~/.memorix/agent/SYSTEM.md` globally
 
 Append to the default prompt without replacing it with `APPEND_SYSTEM.md` in either location.
 
 ### Project Trust
 
-On interactive startup, pi asks before trusting a project folder that contains project-local inputs and has no saved decision in `~/.pi/agent/trust.json`. Trusting a project allows pi to read project instructions (`AGENTS.md`/`CLAUDE.md`), load `.pi/settings.json` and `.pi` resources, install missing project packages, and execute project extensions.
+On interactive startup, pi asks before trusting a project folder that contains project-local inputs and has no saved decision in `~/.memorix/agent/trust.json`. Trusting a project allows pi to read project instructions (`AGENTS.md`/`CLAUDE.md`), load `.memorix/settings.json` and `.pi` resources, install missing project packages, and execute project extensions.
 
 Non-interactive modes (`-p`, `--mode json`, and `--mode rpc`) do not show a trust prompt. Without a saved trust decision, they ignore project-local inputs unless `--approve`/`-a` is passed. Use `--no-approve`/`-na` to ignore project-local inputs for one run even when the project is trusted.
 
 `pi config` assumes project trust for that command so you can view and change project resource settings before starting a session. It does not save a trust decision; starting a session in that folder still prompts. Pass `--no-approve` to hide project-local inputs in `pi config`.
 
-Use `/trust` in interactive mode to save a project trust decision for future sessions. It writes `~/.pi/agent/trust.json` only; the current session is not reloaded, so restart pi for changes to take effect.
+Use `/trust` in interactive mode to save a project trust decision for future sessions. It writes `~/.memorix/agent/trust.json` only; the current session is not reloaded, so restart pi for changes to take effect.
 
 ## Exporting and Sharing Sessions
 
@@ -282,7 +282,7 @@ pi --exclude-tools ask_question
 
 | Variable | Description |
 |----------|-------------|
-| `PI_CODING_AGENT_DIR` | Override config directory; default is `~/.pi/agent` |
+| `PI_CODING_AGENT_DIR` | Override config directory; default is `~/.memorix/agent` |
 | `PI_CODING_AGENT_SESSION_DIR` | Override session storage directory; overridden by `--session-dir` |
 | `PI_PACKAGE_DIR` | Override package directory, useful for Nix/Guix store paths |
 | `PI_OFFLINE` | Disable startup network operations, including update checks, package update checks, and install/update telemetry |

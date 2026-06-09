@@ -3,19 +3,16 @@
 > Auto-updated by agent. New sessions: read this file first.
 
 ## Current State
-- **Phase**: Phase 1 COMPLETE (skeleton built, all packages compile)
+- **Phase**: Phase 1 COMPLETE + Codex reviewed + bugs fixed
 - **Branch**: feat/memcode-agent
 - **Last updated**: 2026-06-09
+- **Node.js**: v22.22.3 (upgraded from v20.18.2)
 
 ## Completed
 - [x] Pi source analysis (vendor/pi/, CodeGraph indexed, 678 files)
 - [x] Memorix source analysis (CodeGraph, 218 files)
 - [x] Reference materials digested (official docs, DeepWiki, wuu73 field guide, Alejandro AO, Medium article)
-- [x] HANDOFF.md (conversation context document)
 - [x] DESIGN.md (formal development document, 11 chapters)
-- [x] Storage design finalized (JSONL sessions + SQLite memory + optional SQLite index)
-- [x] 9 key design decisions documented
-- [x] Dev-log system created
 - [x] Phase 1: Skeleton
   - [x] 4 packages copied from vendor/pi/ to packages/ (ai, agent-core, tui, memcode)
   - [x] All packages renamed to @memorix/* (zero Pi branding)
@@ -23,24 +20,31 @@
   - [x] tsup.config.ts updated with memcode entry
   - [x] CLI routing: bare `memorix` → memcode TUI
   - [x] tsgo → tsc (tsgo not available)
-  - [x] rootDir conflict fixed
   - [x] Full build passes (ESM + DTS, all 4 packages + root)
+- [x] Codex adversarial review (8 bugs found: 3 HIGH, 3 MEDIUM, 2 LOW)
+- [x] Bug fixes applied:
+  - [x] BUG 1: Removed erasableSyntaxOnly + emitDecoratorMetadata conflict
+  - [x] BUG 3: Added @silvia-odwyer/photon-node to CLI externals
+  - [x] BUG 4: Changed memcode tsup target from node20 to node22
+  - [x] BUG 5: Added import ordering comment for PI_PACKAGE_DIR
+  - [x] BUG 7: Extracted ensureMemcodePackageDir() helper function
+- [x] Real test: `memorix` and `memorix memcode` both start TUI and attempt LLM call (401 = API key config, not code bug)
 
 ## In Progress
-- [ ] Codex review of Phase 1 changes
-- [ ] Phase 1 commit
+- Nothing (Phase 1 complete, waiting for Phase 2 go-ahead)
 
 ## Next Up
 - [ ] Phase 2: Memory integration (7 integration points)
 - [ ] Phase 3: Polish (TUI branding, embedding auto, testing)
 - [ ] Phase 4: Future (TUI customization, desktop, subagents)
 
-## Blockers
-None.
+## Remaining Codex Issues (not fixed yet)
+- BUG 2 (HIGH): PI_PACKAGE_DIR breaks on global npm install — need to copy theme assets to dist/memcode/
+- BUG 6 (MEDIUM): Module-level side effects depend on import ordering — documented with comment, no code fix needed
+- BUG 8 (LOW): files array doesn't include packages/ — relevant for npm publish
 
-## Key Decisions This Session
+## Key Decisions
 - Package naming: @memorix/ai, @memorix/agent-core, @memorix/tui, @memorix/memcode
-- All code is memcode-native, zero Pi branding in output
-- Branch isolation: everything on feat/memcode-agent, main untouched
 - Build tool: tsc (not tsgo, which is unavailable)
-- CLI imports from @memorix/memcode workspace package
+- Node.js >= 22 required (memcode package)
+- PI_PACKAGE_DIR: dual-path resolution (packages/memcode/ for dev, dist/memcode/ for global)

@@ -2,8 +2,8 @@
  * Print mode (single-shot): Send prompts, output result, exit.
  *
  * Used for:
- * - `pi -p "prompt"` - text output
- * - `pi --mode json "prompt"` - JSON event stream
+ * - `memcode -p "prompt"` - text output
+ * - `memcode --mode json "prompt"` - JSON event stream
  */
 
 import type { AssistantMessage, ImageContent } from "@memorix/ai";

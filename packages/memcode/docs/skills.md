@@ -24,17 +24,17 @@ Pi implements the [Agent Skills standard](https://agentskills.io/specification),
 Pi loads skills from:
 
 - Global:
-  - `~/.pi/agent/skills/`
+  - `~/.memorix/agent/skills/`
   - `~/.agents/skills/`
 - Project (only after the project is trusted):
-  - `.pi/skills/`
+  - `.memorix/skills/`
   - `.agents/skills/` in `cwd` and ancestor directories (up to git repo root, or filesystem root when not in a repo)
 - Packages: `skills/` directories or `pi.skills` entries in `package.json`
 - Settings: `skills` array with files or directories
 - CLI: `--skill <path>` (repeatable, additive even with `--no-skills`)
 
 Discovery rules:
-- In `~/.pi/agent/skills/` and `.pi/skills/`, direct root `.md` files are discovered as individual skills
+- In `~/.memorix/agent/skills/` and `.memorix/skills/`, direct root `.md` files are discovered as individual skills
 - In all skill locations, directories containing `SKILL.md` are discovered recursively
 - In `~/.agents/skills/` and project `.agents/skills/`, root `.md` files are ignored
 
@@ -53,7 +53,7 @@ To use skills from Claude Code or OpenAI Codex, add their directories to setting
 }
 ```
 
-For project-level Claude Code skills, add to `.pi/settings.json`:
+For project-level Claude Code skills, add to `.memorix/settings.json`:
 
 ```json
 {

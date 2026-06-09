@@ -668,7 +668,7 @@ export class InteractiveMode {
 			);
 			const onboarding = theme.fg(
 				"dim",
-				`Pi can explain its own features and look up its docs. Ask it how to use or extend Pi.`,
+				`Memcode can explain its own features and look up its docs. Ask it how to use or extend memcode.`,
 			);
 			this.builtInHeader = new ExpandableText(
 				() => `${logo}\n${compactInstructions}\n${compactOnboarding}\n\n${onboarding}`,
@@ -820,7 +820,7 @@ export class InteractiveMode {
 	}
 
 	private async checkForPackageUpdates(): Promise<string[]> {
-		if (process.env.PI_OFFLINE) {
+		if (process.env.MEMCODE_OFFLINE) {
 			return [];
 		}
 
@@ -878,7 +878,7 @@ export class InteractiveMode {
 		}
 
 		if (extendedKeysFormat === "xterm") {
-			return "tmux extended-keys-format is xterm. Pi works best with csi-u. Add `set -g extended-keys-format csi-u` to ~/.tmux.conf and restart tmux.";
+			return "tmux extended-keys-format is xterm. Memcode works best with csi-u. Add `set -g extended-keys-format csi-u` to ~/.tmux.conf and restart tmux.";
 		}
 
 		return undefined;
@@ -916,7 +916,7 @@ export class InteractiveMode {
 	}
 
 	private reportInstallTelemetry(version: string): void {
-		if (process.env.PI_OFFLINE) {
+		if (process.env.MEMCODE_OFFLINE) {
 			return;
 		}
 
@@ -924,7 +924,7 @@ export class InteractiveMode {
 			return;
 		}
 
-		void fetch(`https://pi.dev/api/report-install?version=${encodeURIComponent(version)}`, {
+		void fetch(`https://memorix.dev/api/report-install?version=${encodeURIComponent(version)}`, {
 			headers: {
 				"User-Agent": getPiUserAgent(version),
 			},
@@ -2497,7 +2497,7 @@ export class InteractiveMode {
 			// Write to temp file
 			const tmpDir = os.tmpdir();
 			const ext = extensionForImageMimeType(image.mimeType) ?? "png";
-			const fileName = `pi-clipboard-${crypto.randomUUID()}.${ext}`;
+			const fileName = `memcode-clipboard-${crypto.randomUUID()}.${ext}`;
 			const filePath = path.join(tmpDir, fileName);
 			fs.writeFileSync(filePath, Buffer.from(image.bytes));
 
@@ -3276,7 +3276,7 @@ export class InteractiveMode {
 			new Text(
 				theme.fg(
 					"warning",
-					"This project is not trusted. Project instructions (AGENTS.md/CLAUDE.md), .pi resources, and project packages are ignored. Use /trust to save a trust decision, then restart pi.",
+					"This project is not trusted. Project instructions (AGENTS.md/CLAUDE.md), .memorix resources, and project packages are ignored. Use /trust to save a trust decision, then restart memcode.",
 				),
 				1,
 				0,
@@ -3401,7 +3401,7 @@ export class InteractiveMode {
 		try {
 			this.ui.stop();
 		} catch {}
-		console.error("pi exiting due to uncaughtException:");
+		console.error("memcode exiting due to uncaughtException:");
 		console.error(error);
 		process.exit(1);
 	}
@@ -3624,7 +3624,7 @@ export class InteractiveMode {
 		}
 
 		const currentText = this.editor.getExpandedText?.() ?? this.editor.getText();
-		const tmpFile = path.join(os.tmpdir(), `pi-editor-${Date.now()}.pi.md`);
+		const tmpFile = path.join(os.tmpdir(), `memcode-editor-${Date.now()}.memcode.md`);
 
 		try {
 			// Write current content to temp file
@@ -3636,7 +3636,7 @@ export class InteractiveMode {
 			// Split by space to support editor arguments (e.g., "code --wait")
 			const [editor, ...editorArgs] = editorCmd.split(" ");
 
-			process.stdout.write(`Launching external editor: ${editorCmd}\nPi will resume when the editor exits.\n`);
+			process.stdout.write(`Launching external editor: ${editorCmd}\nMemcode will resume when the editor exits.\n`);
 
 			// Do not use spawnSync here. On Windows, synchronous child_process calls can keep
 			// Node/libuv's console input read active after ui.stop() pauses stdin, racing
@@ -3696,7 +3696,7 @@ export class InteractiveMode {
 	showNewVersionNotification(release: LatestPiRelease): void {
 		const action = theme.fg("accent", `${APP_NAME} update`);
 		const updateInstruction = theme.fg("muted", `New version ${release.version} is available. Run `) + action;
-		const changelogUrl = "https://pi.dev/changelog";
+		const changelogUrl = "https://memorix.dev/changelog";
 		const changelogLink = getCapabilities().hyperlinks
 			? hyperlink(theme.fg("accent", "open changelog"), changelogUrl)
 			: theme.fg("accent", changelogUrl);
@@ -4222,7 +4222,7 @@ export class InteractiveMode {
 					trustStore.set(cwd, trusted);
 					done();
 					this.showStatus(
-						`Saved trust decision: ${trusted ? "trusted" : "untrusted"}. Restart pi for this to take effect.`,
+						`Saved trust decision: ${trusted ? "trusted" : "untrusted"}. Restart memcode for this to take effect.`,
 					);
 				},
 				onCancel: () => {

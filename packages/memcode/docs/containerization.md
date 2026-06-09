@@ -58,8 +58,8 @@ Use the [example extension](../examples/extensions/gondolin) when you want `pi` 
 Setup:
 
 ```bash
-cp -R packages/coding-agent/examples/extensions/gondolin ~/.pi/agent/extensions/gondolin
-cd ~/.pi/agent/extensions/gondolin
+cp -R packages/coding-agent/examples/extensions/gondolin ~/.memorix/agent/extensions/gondolin
+cd ~/.memorix/agent/extensions/gondolin
 npm install --ignore-scripts
 ```
 
@@ -67,7 +67,7 @@ Run from the project you want mounted:
 
 ```bash
 cd /path/to/project
-pi -e ~/.pi/agent/extensions/gondolin
+pi -e ~/.memorix/agent/extensions/gondolin
 ```
 
 The extension mounts the host cwd at `/workspace` in the VM and overrides `read`, `write`, `edit`, `bash`, `grep`, `find`, and `ls`.
@@ -102,10 +102,10 @@ docker build -t pi-sandbox -f Dockerfile.pi .
 docker run --rm -it \
   -e ANTHROPIC_API_KEY \
   -v "$PWD:/workspace" \
-  -v pi-agent-home:/root/.pi/agent \
+  -v pi-agent-home:/root/.memorix/agent \
   pi-sandbox
 ```
 
 The `-v "$PWD:/workspace"` mounts your current directory into the container at /workspace such that reads and writes in `/workspace` inside Docker directly affect your host files, like in the Gondolin example.
 
-Use a named volume for `/root/.pi/agent` if you want container-local settings and sessions. Mounting your host `~/.pi/agent` exposes host auth and session files to the container.
+Use a named volume for `/root/.memorix/agent` if you want container-local settings and sessions. Mounting your host `~/.memorix/agent` exposes host auth and session files to the container.

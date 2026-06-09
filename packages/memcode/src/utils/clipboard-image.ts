@@ -159,7 +159,7 @@ function isWSL(env: NodeJS.ProcessEnv = process.env): boolean {
  * directly, so we use it as a fallback.
  */
 function readClipboardImageViaPowerShell(): ClipboardImage | null {
-	const tmpFile = join(tmpdir(), `pi-wsl-clip-${randomUUID()}.png`);
+	const tmpFile = join(tmpdir(), `memcode-wsl-clip-${randomUUID()}.png`);
 
 	try {
 		const winPathResult = runCommand("wslpath", ["-w", tmpFile], { timeoutMs: DEFAULT_LIST_TIMEOUT_MS });

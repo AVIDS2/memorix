@@ -388,7 +388,7 @@ Content`,
 			mkdirSync(themesDir, { recursive: true });
 			writeFileSync(join(piDir, "SYSTEM.md"), "Project system prompt.");
 			writeFileSync(join(agentDir, "SYSTEM.md"), "Global system prompt.");
-			writeFileSync(join(agentDir, "AGENTS.md"), "Global instructions");
+			writeFileSync(join(tempDir, "AGENTS.md"), "Global instructions");
 			writeFileSync(join(cwd, "AGENTS.md"), "Project instructions");
 			writeFileSync(join(extensionsDir, "project.ts"), `throw new Error("should not load");`);
 			writeFileSync(
@@ -411,7 +411,7 @@ Project skill content`,
 			await loader.reload();
 
 			expect(loader.getSystemPrompt()).toBe("Global system prompt.");
-			expect(loader.getAgentsFiles().agentsFiles.some((file) => file.path === join(agentDir, "AGENTS.md"))).toBe(
+			expect(loader.getAgentsFiles().agentsFiles.some((file) => file.path === join(tempDir, "AGENTS.md"))).toBe(
 				true,
 			);
 			expect(loader.getAgentsFiles().agentsFiles.some((file) => file.path === join(cwd, "AGENTS.md"))).toBe(false);

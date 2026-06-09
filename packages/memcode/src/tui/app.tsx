@@ -1,8 +1,9 @@
 /**
- * Memcode TUI — opencode-style minimalist layout.
+ * Memcode TUI — opencode-style two-route layout.
  *
- * Central visual anchor (logo), centered input box, clean footer.
- * No log dumping. Status messages appear briefly then disappear.
+ * Home: centered logo + input (welcome page)
+ * Session: scrollbox messages + fixed input at bottom (conversation view)
+ * Auto-transitions from Home to Session on first message send.
  */
 
 import { useState, useCallback, useEffect, useRef } from "react";
@@ -11,10 +12,6 @@ import type { AgentSessionEvent } from "../core/agent-session.ts";
 import { theme } from "./theme.ts";
 import { InputBar } from "./components/inputbar.tsx";
 import type { Message, MemorySource } from "./components/messages.tsx";
-import {
-	getGitDiffContext,
-	createGitCommandHandlers,
-} from "./integrations/git.ts";
 import { useKeymap } from "./keymap.ts";
 
 // ---------------------------------------------------------------------------
@@ -25,38 +22,6 @@ interface AppProps {
 	runtime: AgentSessionRuntime;
 }
 
-// ---------------------------------------------------------------------------
-// Memory attribution extraction
-// ---------------------------------------------------------------------------
-
-function extractMemorySources(details: any): MemorySource[] {
-	if (!details || details.error) return [];
-	const entryCount = details.entryCount ?? 0;
-	if (entryCount === 0) return [];
-	return [{ scope: "project", name: "memory", count: entryCount }];
-}
-
-// ---------------------------------------------------------------------------
-// Git context cache
-// ---------------------------------------------------------------------------
-
-let gitContextCache: { context: string; ts: number } | null = null;
-const GIT_CONTEXT_TTL_MS = 10_000;
-
-async function getCachedGitDiffContext(cwd: string): Promise<string> {
-	const now = Date.now();
-	if (gitContextCache && now - gitContextCache.ts < GIT_CONTEXT_TTL_MS) {
-		return gitContextCache.context;
-	}
-	const context = await getGitDiffContext(cwd);
-	gitContextCache = { context, ts: now };
-	return context;
-}
-
-function invalidateGitContextCache(): void {
-	gitContextCache = null;
-}
-
 function parseGitCommand(text: string): { sub: string; arg: string } | null {
 	const trimmed = text.trim();
 	if (!trimmed.startsWith("/git")) return null;
@@ -64,6 +29,28 @@ function parseGitCommand(text: string): { sub: string; arg: string } | null {
 	const spaceIdx = rest.indexOf(" ");
 	if (spaceIdx === -1) return { sub: rest, arg: "" };
 	return { sub: rest.slice(0, spaceIdx), arg: rest.slice(spaceIdx + 1).trim() };
+}
+
+// ---------------------------------------------------------------------------
+// Message component (inline for simplicity)
+// ---------------------------------------------------------------------------
+
+function MessageItem({ msg }: { msg: Message }) {
+	return (
+		<box flexDirection="column" marginBottom={1} paddingLeft={2} paddingRight={2}>
+			<text fg={msg.role === "user" ? theme.brand : theme.textSecondary}>
+				{msg.role === "user" ? "You" : "memcode"}
+			</text>
+			<box
+				border={["left"]}
+				borderColor={theme.borderSubtle}
+				paddingLeft={1}
+				marginTop={0}
+			>
+				<text fg={theme.textPrimary} >{msg.content}</text>
+			</box>
+		</box>
+	);
 }
 
 // ---------------------------------------------------------------------------
@@ -77,29 +64,13 @@ function App({ runtime }: AppProps) {
 	const thinkingLevel = runtime.session.thinkingLevel ?? "off";
 
 	// --- State ---
+	const [view, setView] = useState<"home" | "session">("home");
 	const [messages, setMessages] = useState<Message[]>([]);
 	const [status, setStatus] = useState("");
-	const [memoryCount] = useState(0);
 	const [streamingContent, setStreamingContent] = useState("");
-	const [showMessages, setShowMessages] = useState(false);
-	const pendingAttributionRef = useRef<MemorySource[]>([]);
-
-	// --- Git command handlers ---
-	const addMessage = useCallback((role: "assistant", content: string) => {
-		setMessages((prev) => [...prev, { role, content }]);
-	}, []);
-
-	const sendMessage = useCallback(async (text: string) => {
-		await runtime.session.prompt(text);
-	}, [runtime]);
-
-	const gitHandlers = useRef(createGitCommandHandlers(cwd, addMessage, sendMessage));
-	useEffect(() => {
-		gitHandlers.current = createGitCommandHandlers(cwd, addMessage, sendMessage);
-	}, [addMessage, sendMessage, cwd]);
-
-	// --- Help overlay ---
 	const [showHelp, setShowHelp] = useState(false);
+	const scrollRef = useRef<any>(null);
+	const pendingAttributionRef = useRef<MemorySource[]>([]);
 
 	// --- Keyboard shortcuts ---
 	const keymap = useKeymap({
@@ -182,10 +153,6 @@ function App({ runtime }: AppProps) {
 					setStatus(`Using ${event.toolName}...`);
 					break;
 				case "tool_execution_end": {
-					if (event.toolName === "memorix_search" && !event.isError && event.result) {
-						const newSources = extractMemorySources(event.result.details);
-						if (newSources.length > 0) pendingAttributionRef.current.push(...newSources);
-					}
 					setStatus("");
 					break;
 				}
@@ -203,63 +170,42 @@ function App({ runtime }: AppProps) {
 	const handleSend = useCallback(async (text: string) => {
 		if (!text.trim()) return;
 
-		// Handle /git commands locally
-		const gitCmd = parseGitCommand(text);
-		if (gitCmd) {
-			const fullKey = `git ${gitCmd.sub}` as keyof typeof gitHandlers.current;
-			const handler = gitHandlers.current[fullKey];
-			if (handler) {
-				setShowMessages(true);
-				setMessages((prev) => [...prev, { role: "user", content: text }]);
-				setStatus("Running git...");
-				try {
-					const result = await handler(gitCmd.arg || undefined);
-					setMessages((prev) => [...prev, { role: "assistant", content: result }]);
-					invalidateGitContextCache();
-				} catch (err) {
-					setMessages((prev) => [...prev, { role: "assistant", content: `Error: ${err instanceof Error ? err.message : String(err)}` }]);
-				}
-				setStatus("");
-				return;
-			}
+		// Switch to session view on first message
+		if (view === "home") {
+			setView("session");
 		}
 
-		// Auto-inject git diff context
-		let promptText = text;
-		if (!text.startsWith("/")) {
-			try {
-				const gitContext = await getCachedGitDiffContext(cwd);
-				if (gitContext) promptText = `${gitContext}\n\n${text}`;
-			} catch { /* non-fatal */ }
-		}
-
-		// Show messages view and append user message
-		setShowMessages(true);
+		// Append user message
 		setMessages((prev) => [...prev, { role: "user", content: text }]);
 		setStatus("Sending...");
 
 		try {
-			await runtime.session.prompt(promptText);
+			await runtime.session.prompt(text);
 		} catch (err) {
 			setStatus("");
 			setMessages((prev) => [...prev, { role: "assistant", content: `Error: ${err instanceof Error ? err.message : String(err)}` }]);
 		}
-	}, [runtime, cwd]);
+	}, [runtime, view]);
 
-	// --- Render ---
-	return (
-		<box width="100%" height="100%" backgroundColor={theme.bgBase} flexDirection="column">
-			{/* ── Central content area ── */}
-			<box flexGrow={1} flexDirection="column" alignItems="center" justifyContent="center">
+	// --- RENDER: HOME VIEW ---
+	if (view === "home") {
+		return (
+			<box width="100%" height="100%" backgroundColor={theme.bgBase} flexDirection="column" alignItems="center">
+				{/* Spacer to center vertically */}
+				<box flexGrow={1} />
+				<box height={4} flexShrink={0} />
 
 				{/* Logo */}
-				<box flexDirection="column" alignItems="center" marginBottom={2}>
+				<box flexDirection="column" alignItems="center" flexShrink={0}>
 					<text fg={theme.brand}>{"◆ MEMCODE"}</text>
 					<text fg={theme.textMuted}>{"v1.0.10"}</text>
 				</box>
 
-				{/* Input box — centered, max 75% width */}
-				<box width="75%" maxWidth={90} flexDirection="column">
+				{/* Spacer */}
+				<box height={1} flexShrink={0} />
+
+				{/* Input box — centered */}
+				<box width="75%" maxWidth={90} flexShrink={0}>
 					<InputBar
 						onSend={handleSend}
 						vimMode={keymap.vimMode}
@@ -267,35 +213,66 @@ function App({ runtime }: AppProps) {
 					/>
 				</box>
 
-				{/* Project info — dim, below input */}
-				<box marginTop={1} flexDirection="row" alignItems="center">
+				{/* Footer */}
+				<box height={1} flexDirection="row" justifyContent="space-between" paddingLeft={2} paddingRight={2} flexShrink={0}>
+					<text fg={theme.textMuted}>{`${modelName} · ${thinkingLevel}`}</text>
+					<text fg={theme.textMuted}>{"esc  ctrl+c  ? help"}</text>
+				</box>
+			</box>
+		);
+	}
+
+	// --- RENDER: SESSION VIEW ---
+	return (
+		<box width="100%" height="100%" backgroundColor={theme.bgBase} flexDirection="column">
+			{/* Messages scrollbox — takes remaining space */}
+			<box flexGrow={1} flexDirection="column" paddingTop={1} paddingBottom={1} paddingLeft={1} paddingRight={1}>
+				{/* Project info line at top */}
+				<box flexDirection="row" justifyContent="center" marginBottom={1}>
 					<text fg={theme.textMuted}>
-						{`project: ${cwd.split(/[\\/]/).pop()} · branch: ... · session:${sessionId}`}
+						{`project: ${cwd.split(/[\\/]/).pop()} · session: ${sessionId}`}
 					</text>
 				</box>
 
-				{/* Status message — appears briefly then disappears */}
-				{status ? (
-					<box marginTop={1}>
-						<text fg={theme.textSecondary}>{status}</text>
+				{/* Messages */}
+				{messages.map((msg, i) => (
+					<MessageItem key={i} msg={msg} />
+				))}
+
+				{/* Streaming content */}
+				{streamingContent ? (
+					<box flexDirection="column" paddingLeft={2} paddingRight={2}>
+						<text fg={theme.textSecondary}>{"memcode"}</text>
+						<box border={["left"]} borderColor={theme.borderSubtle} paddingLeft={1}>
+							<text fg={theme.textPrimary} >{streamingContent.slice(0, 2000)}</text>
+						</box>
 					</box>
 				) : null}
 
-				{/* Streaming content — shows while agent is responding */}
-				{streamingContent ? (
-					<box width="75%" maxWidth={90} marginTop={1} paddingLeft={1} paddingRight={1}>
-						<text fg={theme.textPrimary}>{streamingContent.slice(0, 500)}</text>
+				{/* Status */}
+				{status ? (
+					<box flexDirection="row" justifyContent="center" marginTop={1}>
+						<text fg={theme.textSecondary}>{status}</text>
 					</box>
 				) : null}
 			</box>
 
-			{/* ── Footer — model info left, shortcuts right ── */}
-			<box height={1} flexDirection="row" justifyContent="space-between" paddingLeft={1} paddingRight={1}>
+			{/* Input bar — fixed at bottom */}
+			<box flexShrink={0} paddingLeft={1} paddingRight={1} paddingBottom={1}>
+				<InputBar
+					onSend={handleSend}
+					vimMode={keymap.vimMode}
+					onSwitchToNormal={() => keymap.setVimMode("NORMAL")}
+				/>
+			</box>
+
+			{/* Footer — fixed at very bottom */}
+			<box height={1} flexDirection="row" justifyContent="space-between" paddingLeft={2} paddingRight={2}>
 				<text fg={theme.textMuted}>{`${modelName} · ${thinkingLevel}`}</text>
 				<text fg={theme.textMuted}>{"esc  ctrl+c  ? help"}</text>
 			</box>
 
-			{/* ── Help overlay ── */}
+			{/* Help overlay */}
 			{showHelp ? (
 				<box position="absolute" top={0} left={0} width="100%" height="100%" flexDirection="column" alignItems="center" justifyContent="center" zIndex={100}>
 					<box position="absolute" top={0} left={0} width="100%" height="100%" backgroundColor={theme.bgBase} opacity={0.8} />
@@ -308,7 +285,6 @@ function App({ runtime }: AppProps) {
 						<text fg={theme.textSecondary}>{"  j/k ........ scroll down/up"}</text>
 						<text fg={theme.textSecondary}>{"  gg/G ....... top/bottom"}</text>
 						<text fg={theme.textSecondary}>{"  p .......... promote to memory"}</text>
-						<text fg={theme.textSecondary}>{"  /vim ....... toggle vim mode"}</text>
 						<text fg={theme.textMuted}>{"────────────────────────────────"}</text>
 						<text fg={theme.textMuted}>{"Press ? or Esc to close"}</text>
 					</box>

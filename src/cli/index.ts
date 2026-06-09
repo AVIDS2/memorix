@@ -5,7 +5,8 @@
  * Built with: citty (1.1K stars, zero-deps) + @clack/prompts (7.4K stars)
  *
  * Commands:
- *   memorix         — Interactive TUI menu (no args)
+ *   memorix         — Enter memcode TUI (native coding agent)
+ *   memorix memcode — Enter memcode TUI (explicit)
  *   memorix ask "q" — Single-shot chat question (pipe: echo "q" | memorix ask)
  *   memorix serve   — Start MCP Server on stdio
  *   memorix status  — Show project info + rules sync status
@@ -985,12 +986,24 @@ const main = defineCommand({
     cleanup: () => import('./commands/cleanup.js').then(m => m.default),
     uninstall: () => import('./commands/uninstall.js').then(m => m.default),
     orchestrate: () => import('./commands/orchestrate.js').then(m => m.default),
+    memcode: () => Promise.resolve(defineCommand({
+      meta: { name: 'memcode', description: 'Enter memcode TUI — native coding agent with memory' },
+      async run() {
+        try {
+          const { main } = await import('@memorix/memcode');
+          await main(process.argv.slice(3));
+        } catch (err) {
+          console.error('Failed to start memcode:', err instanceof Error ? err.message : err);
+          process.exit(1);
+        }
+      },
+    })),
   },
   async run() {
     // Guard: if citty already resolved a subcommand, its run() was called before this.
     // Detect by checking if the first CLI arg matches a registered subcommand name.
     const firstArg = process.argv[2];
-    const knownSubs = ['ask', 'search', 'remember', 'recent',
+    const knownSubs = ['ask', 'search', 'remember', 'recent', 'memcode',
       'init', 'integrate', 'memory', 'reasoning', 'retention', 'formation', 'audit', 'transfer', 'skills',
       'session', 'team', 'task', 'message', 'lock', 'handoff', 'poll',
       'receipt',
@@ -999,7 +1012,19 @@ const main = defineCommand({
       'background', 'bg', 'bs', 'doctor', 'dashboard', 'cleanup', 'uninstall', 'orchestrate'];
     if (firstArg && knownSubs.includes(firstArg)) return;
 
-    // No subcommand provided — show fullscreen workbench if in TTY, otherwise show help
+    // No subcommand provided — enter memcode TUI (native coding agent)
+    if (!firstArg) {
+      try {
+        const { main } = await import('@memorix/memcode');
+        await main(process.argv.slice(2));
+        return;
+      } catch (err) {
+        console.error('Failed to start memcode:', err instanceof Error ? err.message : err);
+        process.exit(1);
+      }
+    }
+
+    // Fallback: show usage hint
     if (process.stdout.isTTY && process.stdin.isTTY) {
       // Fire-and-forget: background update check. Default is notify-only; stderr only, never blocks TUI.
       import('./update-checker.js').then(m => m.checkForUpdates()).catch(() => {});
@@ -1010,6 +1035,7 @@ const main = defineCommand({
       console.error(`Memorix v${getCliVersion()} — Local-first memory control plane\n`);
       console.error('Usage: memorix <command>\n');
       console.error('Commands:');
+      console.error('  memcode    Enter memcode TUI (native coding agent)');
       console.error('  ask "q"    Ask Memorix a question (single-shot chat)');
       console.error('             Pipe: echo "q" | memorix ask');
       console.error('  background Start/stop/status background control plane');
@@ -1038,7 +1064,7 @@ const main = defineCommand({
       console.error('  cleanup    Remove old memories');
       console.error('  sync       Rules/workspace sync plus interactive wizard');
       console.error('  ingest     Ingest commit, log, or image knowledge');
-      console.error('\nRun `memorix` in an interactive terminal for guided menu.');
+      console.error('\nRun `memorix` in an interactive terminal for memcode TUI.');
     }
   },
 });

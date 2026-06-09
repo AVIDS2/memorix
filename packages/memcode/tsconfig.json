@@ -1,0 +1,16 @@
+{
+	"extends": "../../tsconfig.base.json",
+	"compilerOptions": {
+		"noEmit": true,
+		"paths": {
+			"@memorix/agent-core": ["../agent-core/src/index.ts"],
+			"@memorix/agent-core/*": ["../agent-core/src/*.ts"],
+			"@memorix/ai": ["../ai/src/index.ts"],
+			"@memorix/ai/*": ["../ai/src/*.ts", "../ai/src/providers/*.ts"],
+			"@memorix/tui": ["../tui/src/index.ts"],
+			"@memorix/tui/*": ["../tui/src/*.ts", "../tui/src/components/*.ts"]
+		}
+	},
+	"include": ["src/**/*.ts", "src/**/*.d.ts"],
+	"exclude": ["node_modules", "dist"]
+}

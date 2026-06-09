@@ -3,7 +3,7 @@
 > Auto-updated by agent. New sessions: read this file first.
 
 ## Current State
-- **Phase**: Pre-Phase 1 (design complete, skeleton not started)
+- **Phase**: Phase 1 COMPLETE (skeleton built, all packages compile)
 - **Branch**: feat/memcode-agent
 - **Last updated**: 2026-06-09
 
@@ -16,9 +16,19 @@
 - [x] Storage design finalized (JSONL sessions + SQLite memory + optional SQLite index)
 - [x] 9 key design decisions documented
 - [x] Dev-log system created
+- [x] Phase 1: Skeleton
+  - [x] 4 packages copied from vendor/pi/ to packages/ (ai, agent-core, tui, memcode)
+  - [x] All packages renamed to @memorix/* (zero Pi branding)
+  - [x] npm workspaces configured
+  - [x] tsup.config.ts updated with memcode entry
+  - [x] CLI routing: bare `memorix` → memcode TUI
+  - [x] tsgo → tsc (tsgo not available)
+  - [x] rootDir conflict fixed
+  - [x] Full build passes (ESM + DTS, all 4 packages + root)
 
 ## In Progress
-- [ ] Phase 1: Skeleton — set up packages/, npm workspaces, tsup, CLI routing
+- [ ] Codex review of Phase 1 changes
+- [ ] Phase 1 commit
 
 ## Next Up
 - [ ] Phase 2: Memory integration (7 integration points)
@@ -26,11 +36,11 @@
 - [ ] Phase 4: Future (TUI customization, desktop, subagents)
 
 ## Blockers
-None currently.
+None.
 
 ## Key Decisions This Session
-- Package naming: `@memorix/ai`, `@memorix/agent-core`, `@memorix/tui`, `@memorix/memcode` (no "pi" in names)
-- All code must be memcode-native, zero Pi branding in output
+- Package naming: @memorix/ai, @memorix/agent-core, @memorix/tui, @memorix/memcode
+- All code is memcode-native, zero Pi branding in output
 - Branch isolation: everything on feat/memcode-agent, main untouched
-- Each Phase gets Codex review after completion
-- Use ultracode (multi-agent parallel) for implementation
+- Build tool: tsc (not tsgo, which is unavailable)
+- CLI imports from @memorix/memcode workspace package

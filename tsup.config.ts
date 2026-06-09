@@ -55,5 +55,19 @@ export default defineConfig([
     // Copy dashboard static files after CLI build
     onSuccess: 'node scripts/copy-static.cjs',
   },
+  {
+    entry: ['packages/memcode/src/index.ts'],
+    format: ['esm'],
+    target: 'node20',
+    dts: true,
+    clean: false,
+    outDir: 'dist/memcode',
+    sourcemap: true,
+    splitting: false,
+    shims: true,
+    define,
+    tsconfig: 'packages/memcode/tsconfig.build.json',
+    external: ['fastembed', '@huggingface/transformers', 'better-sqlite3'],
+  },
 ]);
 

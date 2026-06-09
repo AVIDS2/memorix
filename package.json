@@ -4,6 +4,12 @@
   "description": "Open-source cross-agent memory layer for coding agents across Cursor, Claude Code, Codex, Windsurf, Gemini CLI, Copilot, Kiro, OpenCode, Antigravity, and Trae via MCP.",
   "type": "module",
   "sideEffects": false,
+  "workspaces": [
+    "packages/ai",
+    "packages/agent-core",
+    "packages/tui",
+    "packages/memcode"
+  ],
   "bin": {
     "memorix": "./dist/cli/index.js"
   },

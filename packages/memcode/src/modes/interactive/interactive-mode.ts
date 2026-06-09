@@ -668,7 +668,7 @@ export class InteractiveMode {
 			);
 			const onboarding = theme.fg(
 				"dim",
-				`Memcode can explain its own features and look up its docs. Ask it how to use or extend memcode.`,
+				`Your decisions, fixes, and insights are remembered across sessions via persistent memory.\nType a message to get started. Ask me to recall past context or store something worth remembering.`,
 			);
 			this.builtInHeader = new ExpandableText(
 				() => `${logo}\n${compactInstructions}\n${compactOnboarding}\n\n${onboarding}`,
@@ -725,6 +725,9 @@ export class InteractiveMode {
 
 		// Initialize available provider count for footer display
 		await this.updateAvailableProviderCount();
+
+		// Initialize memory status in footer (non-blocking — if it fails, just show "unavailable")
+		void this.initMemoryStatus();
 	}
 
 	/**
@@ -4149,6 +4152,34 @@ export class InteractiveMode {
 		const models = await this.getModelCandidates();
 		const uniqueProviders = new Set(models.map((m) => m.provider));
 		this.footerDataProvider.setAvailableProviderCount(uniqueProviders.size);
+	}
+
+	/**
+	 * Initialize memory observation count in the footer.
+	 * Non-blocking: if it fails, shows "Memory: unavailable".
+	 */
+	private async initMemoryStatus(): Promise<void> {
+		try {
+			const { detectProject } = await import("../../../../src/project/detector.js");
+			const { initObservations, getObservationCount } = await import("../../../../src/memory/observations.js");
+
+			const cwd = this.sessionManager.getCwd();
+			const project = detectProject(cwd);
+			if (!project) {
+				this.footerDataProvider.setMemoryStatus("Memory: no project detected");
+				this.ui.requestRender();
+				return;
+			}
+
+			const dataDir = path.join(os.homedir(), ".memorix", "data", project.id.replace(/\//g, path.sep));
+			await initObservations(dataDir);
+			const count = getObservationCount();
+			this.footerDataProvider.setMemoryStatus(`Memory: ${count} observations indexed`);
+			this.ui.requestRender();
+		} catch {
+			this.footerDataProvider.setMemoryStatus("Memory: unavailable");
+			this.ui.requestRender();
+		}
 	}
 
 	private async maybeWarnAboutAnthropicSubscriptionAuth(

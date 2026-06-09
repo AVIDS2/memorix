@@ -101,6 +101,7 @@ export class FooterDataProvider {
 	private static readonly WATCH_DEBOUNCE_MS = 500;
 
 	private extensionStatuses = new Map<string, string>();
+	private memoryStatus: string | undefined = undefined;
 	private cachedBranch: string | null | undefined = undefined;
 	private gitPaths: GitPaths | null | undefined = undefined;
 	private headWatcher: FSWatcher | null = null;
@@ -154,6 +155,16 @@ export class FooterDataProvider {
 	/** Internal: clear extension statuses */
 	clearExtensionStatuses(): void {
 		this.extensionStatuses.clear();
+	}
+
+	/** Memory status text (e.g. "Memory: 1496 observations indexed") */
+	getMemoryStatus(): string | undefined {
+		return this.memoryStatus;
+	}
+
+	/** Internal: set memory status */
+	setMemoryStatus(status: string | undefined): void {
+		this.memoryStatus = status;
 	}
 
 	/** Number of unique providers with available models (for footer display) */
@@ -384,5 +395,5 @@ export class FooterDataProvider {
 /** Read-only view for extensions - excludes setExtensionStatus, setAvailableProviderCount and dispose */
 export type ReadonlyFooterDataProvider = Pick<
 	FooterDataProvider,
-	"getGitBranch" | "getExtensionStatuses" | "getAvailableProviderCount" | "onBranchChange"
+	"getGitBranch" | "getExtensionStatuses" | "getMemoryStatus" | "getAvailableProviderCount" | "onBranchChange"
 >;

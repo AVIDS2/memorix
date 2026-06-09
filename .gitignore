@@ -58,6 +58,16 @@ scripts/tsconfig.json
 # Reference / cloned repos
 temple/
 
+# memcode packages (built from source)
+packages/*/dist/
+packages/*/.tsbuildinfo
+
+# CodeGraph
+.codegraph/
+
+# Session files
+*.jsonl
+
 # IDE
 .idea/
 .vscode/

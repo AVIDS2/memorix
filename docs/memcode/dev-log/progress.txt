@@ -3,43 +3,38 @@
 > Auto-updated by agent. New sessions: read this file first.
 
 ## Current State
-- **Phase**: Phase 2 COMPLETE — memory integration working
+- **Phase**: Phase 3 COMPLETE — polish done
 - **Branch**: feat/memcode-agent
 - **Last updated**: 2026-06-09
 - **Node.js**: v22.22.3
 
 ## Completed
 - [x] Phase 1: Skeleton (packages/, workspaces, build, CLI routing)
-- [x] Phase 2: Memory Integration
-  - [x] memorix_search tool — searches Memorix memory (compactSearch)
-  - [x] memorix_store tool — stores observations (storeObservation)
-  - [x] memorix_detail tool — fetches full details (compactDetail)
-  - [x] memory-extension.ts — registers tools + hooks via ExtensionAPI
-  - [x] memory-injection.ts — before_agent_start hook injects relevant memories
-  - [x] memory-storage.ts — agent_end hook stores turn summaries
-  - [x] system-prompt.ts — Persistent Memory section added
-  - [x] CONFIG_DIR_NAME → .memorix
-  - [x] APP_NAME → "memcode"
-  - [x] Codex adversarial review — 12 issues found, critical ones fixed
-  - [x] Real test: store → search round trip confirmed with DeepSeek
+- [x] Phase 2: Memory Integration (tools, hooks, injection, storage)
+- [x] Phase 3: Polish
+  - [x] Embedding default → auto (MEMORIX_EMBEDDING="auto")
+  - [x] De-Pi cleanup: 10 env vars renamed PI_* → MEMCODE_*
+  - [x] PI_* fallbacks added for backward compat
+  - [x] TUI branding: theme schema, display strings all "memcode"
+  - [x] Session path: confirmed .memorix
+  - [x] Codex review: 2 HIGH issues fixed (env var fallbacks, test files noted)
+  - [x] Real test: 7 tools working, embedding auto mode active
 
 ## Real Test Evidence
-- "use memorix_store to store: title='memcode memory tools working'" → Stored observation #1
-- "use memorix_search to find it" → Found obs:1, matched title, entity, concepts, narrative
 - 7 tools available: read, bash, edit, write, memorix_search, memorix_store, memorix_detail
+- Embedding: API text-embedding-v4, 1496 cached embeddings
+- memorix_store + memorix_search round trip confirmed
 
-## Remaining Codex Issues (not blocking)
-- Import paths use cross-package relative (../../../../src/) — fragile but works
-- `as any` casts bypass type safety — low risk for now
-- Double system prompt instruction — minor token waste
-- Entity name strips CJK characters — affects non-English content
-
-## Next Up
-- [ ] Phase 3: Polish (TUI branding, embedding auto, testing)
-- [ ] Phase 4: Future (TUI customization, desktop, subagents)
+## Remaining (Phase 4 / Future)
+- [ ] TUI customization (memory sidebar, knowledge graph visualization)
+- [ ] Desktop version (based on CLI core)
+- [ ] Observation model simplification (11 → 3-4 types)
+- [ ] Sub-agent support via extension mechanism
+- [ ] Test files need PI_* → MEMCODE_* update (8 test files)
 
 ## Key Technical Notes
-- MEMCODE_PACKAGE_DIR (not PI_PACKAGE_DIR) is the env var for package dir
-- Dynamic imports required for memorix core (tsc rootDir conflict)
-- ProjectId resolved via detectProject() (git remote → AVIDS2/memorix)
+- MEMCODE_PACKAGE_DIR with PI_PACKAGE_DIR fallback
+- MEMCODE_OFFLINE with PI_OFFLINE fallback
+- Dynamic imports for memorix core (tsc rootDir conflict)
+- ProjectId resolved via detectProject() (git remote name)
 - Memory extension registered via extensionFactories in main.ts

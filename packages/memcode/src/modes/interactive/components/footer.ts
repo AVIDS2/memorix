@@ -237,6 +237,12 @@ export class FooterComponent implements Component {
 			lines.push(truncateToWidth(statusLine, width, theme.fg("dim", "...")));
 		}
 
+		// Add memory status line if available
+		const memoryStatus = this.footerData.getMemoryStatus();
+		if (memoryStatus) {
+			lines.push(truncateToWidth(theme.fg("dim", memoryStatus), width, theme.fg("dim", "...")));
+		}
+
 		return lines;
 	}
 }

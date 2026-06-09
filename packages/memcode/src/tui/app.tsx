@@ -2,12 +2,13 @@
  * Memcode TUI root App component.
  *
  * Composes Header, MessageList, StatusBar, and InputBar into the main
- * terminal UI layout. Wires up user input to a mock agent runtime that
- * echoes messages back until the real agent is integrated.
+ * terminal UI layout. Wires up to the real agent runtime for message
+ * sending, event streaming, and status updates.
  */
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import type { AgentSessionRuntime } from "../core/agent-session-runtime.ts";
+import type { AgentSessionEvent } from "../core/agent-session.ts";
 import { theme } from "./theme.ts";
 import { Header } from "./components/header.tsx";
 import { InputBar } from "./components/inputbar.tsx";
@@ -20,27 +21,8 @@ import type { Message } from "./components/messages.tsx";
 // ---------------------------------------------------------------------------
 
 interface AppProps {
-	/** Agent runtime handle providing cwd, session info, and future agent calls. */
+	/** Agent runtime handle providing cwd, session info, and agent calls. */
 	runtime: AgentSessionRuntime;
-}
-
-// ---------------------------------------------------------------------------
-// Mock agent response
-// ---------------------------------------------------------------------------
-
-/**
- * Simulates an agent response after a short delay.
- * Returns an echo of the user's message wrapped in markdown, so the TUI
- * is fully functional for layout and interaction testing.
- */
-function mockAgentResponse(userText: string): Promise<string> {
-	return new Promise((resolve) => {
-		setTimeout(() => {
-			resolve(
-				`> ${userText}\n\nI received your message. The real agent runtime is not yet connected — this is a mock response.`,
-			);
-		}, 600);
-	});
 }
 
 // ---------------------------------------------------------------------------
@@ -52,32 +34,97 @@ function App({ runtime }: AppProps) {
 	const cwd = runtime.cwd;
 	const sessionId = runtime.session.sessionId ?? runtime.session.sessionFile ?? "local";
 
-	// --- State (signals) ---
+	// --- State ---
 	const [messages, setMessages] = useState<Message[]>([]);
 	const [status, setStatus] = useState("");
 	const [memoryCount] = useState(0);
+	const [streamingContent, setStreamingContent] = useState("");
+
+	// --- Subscribe to agent events ---
+	useEffect(() => {
+		const unsubscribe = runtime.session.subscribe((event: AgentSessionEvent) => {
+			switch (event.type) {
+				case "message_start":
+					if (event.message.role === "assistant") {
+						setStatus("Thinking...");
+						setStreamingContent("");
+					}
+					break;
+
+				case "message_update":
+					if (event.message.role === "assistant") {
+						// Extract text content from streaming message
+						const textParts = event.message.content
+							.filter((c: any) => c.type === "text")
+							.map((c: any) => c.text);
+						setStreamingContent(textParts.join(""));
+					}
+					break;
+
+				case "message_end":
+					if (event.message.role === "assistant") {
+						// Finalize assistant message
+						const textParts = event.message.content
+							.filter((c: any) => c.type === "text")
+							.map((c: any) => c.text);
+						const content = textParts.join("") || streamingContent;
+						if (content) {
+							setMessages((prev) => [
+								...prev,
+								{ role: "assistant", content },
+							]);
+						}
+						setStreamingContent("");
+						setStatus("");
+					}
+					break;
+
+				case "tool_execution_start":
+					setStatus(`Using ${event.toolName}...`);
+					break;
+
+				case "tool_execution_end":
+					setStatus("");
+					break;
+
+				case "turn_end":
+					setStatus("");
+					break;
+
+				case "agent_end":
+					setStatus("");
+					setStreamingContent("");
+					break;
+			}
+		});
+
+		return unsubscribe;
+	}, [runtime]);
 
 	// --- Handlers ---
 
 	const handleSend = useCallback(
 		async (text: string) => {
-			// 1. Append user message
+			if (!text.trim()) return;
+
+			// 1. Append user message immediately
 			setMessages((prev) => [...prev, { role: "user", content: text }]);
 
 			// 2. Show thinking status
-			setStatus("thinking...");
+			setStatus("Sending...");
 
-			// 3. Get agent response (mock for now — replace with runtime call later)
-			const reply = await mockAgentResponse(text);
-
-			// 4. Append assistant message and clear status
-			setMessages((prev) => [
-				...prev,
-				{ role: "assistant", content: reply },
-			]);
-			setStatus("");
+			// 3. Send to real agent runtime
+			try {
+				await runtime.session.prompt(text);
+			} catch (err) {
+				setStatus("");
+				setMessages((prev) => [
+					...prev,
+					{ role: "assistant", content: `Error: ${err instanceof Error ? err.message : String(err)}` },
+				]);
+			}
 		},
-		[],
+		[runtime],
 	);
 
 	// --- Render ---
@@ -100,6 +147,12 @@ function App({ runtime }: AppProps) {
 			/>
 
 			<MessageList messages={messages} />
+
+			{streamingContent && (
+				<box paddingLeft={2}>
+					<text fg={theme.textPrimary}>{streamingContent}</text>
+				</box>
+			)}
 
 			<StatusBar status={status} />
 

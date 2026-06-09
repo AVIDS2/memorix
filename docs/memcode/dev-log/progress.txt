@@ -3,40 +3,36 @@
 > Auto-updated by agent. New sessions: read this file first.
 
 ## Current State
-- **Phase**: FINAL POLISH COMPLETE — ready for user smoke test
+- **Phase**: TUI Phase 1 COMPLETE
 - **Branch**: feat/memcode-agent
 - **Last updated**: 2026-06-09
-- **Node.js**: v22.22.3
+- **Node.js**: v22.22.3, Bun 1.3.14
 
 ## Completed
 - [x] Phase 1: Skeleton (packages/, workspaces, build, CLI routing)
 - [x] Phase 2: Memory Integration (tools, hooks, injection, storage)
 - [x] Phase 3: Polish (embedding auto, de-pi cleanup, TUI branding)
-- [x] Phase 3 Cleanup (test files, gitignore, TUI welcome)
-- [x] Final Polish:
-  - [x] Cross-package imports fixed (memorix-resolve.ts helper)
-  - [x] Full test suite run (110 passed / 23 failed — pre-existing Windows issues)
-  - [x] Final build verified (ESM + DTS, all clean)
-  - [x] Smoke test passed (7 tools, DeepSeek LLM, embedding auto)
+- [x] Final Polish (cross-package imports, tests, gitignore)
+- [x] TUI Phase 1: OpenTUI + React foundation
+  - [x] OpenTUI + React dependencies installed
+  - [x] theme.ts — 20 color tokens
+  - [x] app.tsx — Main App composing all components
+  - [x] index.tsx — startTui() entry point
+  - [x] components/header.tsx — git info + memory count
+  - [x] components/inputbar.tsx — fixed bottom input
+  - [x] components/messages.tsx — MessageList + UserMessage + AssistantMessage + MemoryAttribution
+  - [x] components/statusbar.tsx — thinking status bar
+  - [x] Codex review: 6 CRITICAL issues fixed
+  - [x] Build passes clean
 
-## Test Results
-- 110 tests passed
-- 23 tests failed (pre-existing Windows ESM path issues, NOT caused by our changes)
-- Build: clean (dist/cli/index.js 15.98 MB, dist/memcode/index.js 11.68 MB)
-
-## Known Issues (non-blocking)
-- 23 pre-existing test failures (Windows ESM paths, fd not installed)
-- fd tool download fails (GitHub 403)
-- Cross-package imports now use memorix-resolve.ts helper (robust)
+## TUI Architecture
+- OpenTUI + React (not Ink, not Pi's custom TUI)
+- Theme tokens in theme.ts, all components import from there
+- Header: git branch + dirty count + memory count + session ID
+- InputBar: fixed bottom, slash commands, @ memory picker
+- Messages: OpenTUI native <markdown> rendering
+- StatusBar: agent loop event-driven thinking display
 
 ## Branch Status
-- feat/memcode-agent: latest commit d94562c
+- feat/memcode-agent: latest commit d095c8e
 - main: untouched (v1.0.10)
-- Ready for user smoke test and merge
-
-## Merge Checklist
-- [ ] User smoke test passes
-- [ ] git diff main..feat/memcode-agent reviewed
-- [ ] No sensitive data in commits
-- [ ] package.json version updated to 1.0.11
-- [ ] CHANGELOG.md updated

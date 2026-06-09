@@ -1003,6 +1003,10 @@ export async function main(args: string[], options?: MainOptions) {
 		printTimings();
 		await runRpcMode(runtime);
 	} else if (appMode === "interactive") {
+		// memcode: default to quiet startup (suppress Skills/Extensions/Context panels)
+		if (!parsed.verbose) {
+			settingsManager.setQuietStartup(true);
+		}
 		const interactiveMode = new InteractiveMode(runtime, {
 			migratedProviders,
 			modelFallbackMessage,

@@ -135,6 +135,9 @@ export class ProcessTerminal implements Terminal {
 		this.inputHandler = onInput;
 		this.resizeHandler = onResize;
 
+		// Enter alternate screen buffer (like vim/htop) — hides terminal history
+		process.stdout.write("\x1b[?1049h");
+
 		// Save previous state and enable raw mode
 		this.wasRaw = process.stdin.isRaw || false;
 		if (process.stdin.setRawMode) {
@@ -407,6 +410,9 @@ export class ProcessTerminal implements Terminal {
 		if (this.clearProgressInterval()) {
 			process.stdout.write(TERMINAL_PROGRESS_CLEAR_SEQUENCE);
 		}
+
+		// Exit alternate screen buffer — restore terminal history
+		process.stdout.write("\x1b[?1049l");
 
 		// Disable bracketed paste mode
 		process.stdout.write("\x1b[?2004l");

@@ -2692,28 +2692,36 @@ export async function createMemorixServer(
       // mechanism for HTTP/control-plane multi-project support.
       if (explicitRoot && typeof explicitRoot === 'string') {
         let bound = await switchProject(explicitRoot);
-        // Fallback: workspace root may contain a git project in a subdirectory
+        // switchProject returns false in two distinct cases that must NOT be conflated:
+        //   (a) explicitRoot IS a valid git repo, but it's the already-bound project
+        //       (a same-project no-op) — this is success, and we must NOT scan subdirs,
+        //       or we'd hijack the binding to a nested/vendored repo under explicitRoot.
+        //   (b) explicitRoot is NOT a git repo — only then may the workspace root hold a
+        //       git project in a subdirectory, so the subdir scan is the right fallback.
+        // Resolve explicitRoot's own identity first to tell (a) from (b).
         if (!bound) {
-          const { findGitInSubdirs } = await import('./project/detector.js');
-          const subGit = findGitInSubdirs(explicitRoot);
-          if (subGit) {
-            bound = await switchProject(subGit);
-          }
-        }
-        // switchProject returns false for "same project, no-op" — that's still success,
-        // but ONLY when the canonical projectId matches the currently bound project.
-        // We must NOT treat "different valid repo at a different path" as a no-op success.
-        if (!bound && projectResolved) {
           const { detectProjectWithDiagnostics: diagnose } = await import('./project/detector.js');
           const diag = diagnose(explicitRoot);
           if (diag.project) {
-            const { registerAlias: regAlias } = await import('./project/aliases.js');
-            const resolvedCanonical = await regAlias(diag.project);
-            if (resolvedCanonical === project.id) {
-              // Same canonical project — switchProject returned false because it's a no-op.
-              bound = true;
+            // (a) explicitRoot is itself a git repo. switchProject only returns false here
+            // when it's a same-project no-op; treat as success when the canonical id matches
+            // the currently bound project. (A different valid repo would have switched → true.)
+            if (projectResolved) {
+              const { registerAlias: regAlias } = await import('./project/aliases.js');
+              const resolvedCanonical = await regAlias(diag.project);
+              if (resolvedCanonical === project.id) {
+                bound = true;
+              }
             }
-            // else: different canonical project — fall through to fail-closed path below
+            // Same path, different canonical: fall through to fail-closed path below.
+            // Crucially, do NOT scan subdirs — explicitRoot is a real repo.
+          } else {
+            // (b) explicitRoot has no git repo — workspace root may contain one in a subdir.
+            const { findGitInSubdirs } = await import('./project/detector.js');
+            const subGit = findGitInSubdirs(explicitRoot);
+            if (subGit) {
+              bound = await switchProject(subGit);
+            }
           }
         }
         if (!bound) {

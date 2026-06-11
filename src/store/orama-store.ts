@@ -248,12 +248,44 @@ export async function batchGenerateEmbeddings(texts: string[]): Promise<(number[
 export async function hydrateIndex(observations: any[]): Promise<number> {
   const database = await getDb();
 
+  // ── CJK semantic-recall fix (fork patch) ─────────────────────────────
+  // Upstream hydrateIndex inserts documents WITHOUT a vector, so the served
+  // Orama index is BM25-only even when an embedding provider is configured.
+  // Pure-Chinese paraphrase queries (no character overlap) then return 0,
+  // because document vectors never reach the index.
+  //
+  // Fix: when embeddings are enabled, embed each document's searchable text and
+  // attach it as the `embedding` field the index schema expects. The embed text
+  // is the SAME canonical form used at store-time
+  // (`[title, narrative, ...facts].join(' ')`), so the warm on-disk vector cache
+  // (`.embedding-api-cache.json`, keyed by text hash) is hit for already-embedded
+  // docs — no extra API call. Uncached docs are computed once and cached.
+  // Dimension-mismatched or failed vectors are skipped (doc still indexed,
+  // BM25-only), so this never crashes hydration.
+  let docVectors: (number[] | null)[] = observations.map(() => null);
+  const activeVectorDimensions = getVectorDimensions();
+  if (embeddingEnabled && activeVectorDimensions !== null && observations.length > 0) {
+    try {
+      const texts = observations.map((obs) =>
+        [obs?.title ?? '', obs?.narrative ?? '', ...(Array.isArray(obs?.facts) ? obs.facts : [])].join(' '),
+      );
+      docVectors = await batchGenerateEmbeddings(texts);
+    } catch {
+      // Best-effort: fall back to BM25-only hydration if batch embedding fails.
+      docVectors = observations.map(() => null);
+    }
+  }
+
   let inserted = 0;
-  for (const obs of observations) {
+  for (let i = 0; i < observations.length; i++) {
+    const obs = observations[i];
     if (!obs || !obs.id || !obs.projectId) continue;
     try {
       const id = makeOramaObservationId(obs.projectId, obs.id);
       if (getByID(database, id)) continue;
+      const vec = docVectors[i];
+      const compatibleVec =
+        vec && activeVectorDimensions !== null && vec.length === activeVectorDimensions ? vec : null;
       const doc: MemorixDocument = {
         id,
         observationId: obs.id,
@@ -273,6 +305,7 @@ export async function hydrateIndex(observations: any[]): Promise<number> {
         source: obs.source || 'agent',
         documentType: 'observation',
         knowledgeLayer: resolveKnowledgeLayer('observation', obs.sourceDetail, obs.source),
+        ...(compatibleVec ? { embedding: compatibleVec } : {}),
       };
       await insert(database, doc);
       rememberObservationDoc(doc);

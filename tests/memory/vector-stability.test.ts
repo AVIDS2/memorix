@@ -280,7 +280,7 @@ describe('Vector Stability', () => {
     expect(getVectorMissingIds()).toContain(observation.id);
   });
 
-  it('reindexObservations skips synchronous batch embedding when the active provider is remote API', async () => {
+  it('reindexObservations batch embeds when the active provider is remote API', async () => {
     const oramaStore = await import('../../src/store/orama-store.js');
     const embeddingProvider = await import('../../src/embedding/provider.js');
     const persistence = await import('../../src/store/persistence.js');
@@ -319,7 +319,9 @@ describe('Vector Stability', () => {
     const count = await reindexObservations();
 
     expect(count).toBe(1);
-    expect(oramaStore.batchGenerateEmbeddings).not.toHaveBeenCalled();
+    expect(oramaStore.batchGenerateEmbeddings).toHaveBeenCalledWith([
+      'Remote API startup reindex Should not block MCP startup on remote embedding backfill',
+    ]);
     expect(getVectorMissingIds()).toContain(41);
   });
 });

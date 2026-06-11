@@ -729,11 +729,14 @@ export async function reindexObservations(): Promise<number> {
   // Batch-generate all embeddings at once (much faster than individual calls)
   let embeddings: (number[] | null)[] = observations.map(() => null);
   const provider = await getEmbeddingProvider();
-  const canBatchEmbedAtStartup = provider !== null && !provider.name.startsWith('api-');
-
-  if (provider && !canBatchEmbedAtStartup) {
-    console.error('[memorix] Startup reindex: skipping synchronous API embeddings; background backfill will hydrate vectors');
-  }
+  // ── CJK semantic-recall fix (fork patch) ─────────────────────────────
+  // Upstream skipped synchronous embedding for `api-` providers ("background
+  // backfill will hydrate vectors"), but that backfill never reaches the served
+  // index, leaving documents vector-less → Chinese paraphrase recall returns 0.
+  // We now embed for ALL providers, including `api-`. The embed text matches
+  // store-time text, so the warm on-disk vector cache is hit for already-embedded
+  // docs (no extra API call); only genuinely new docs cost a request.
+  const canBatchEmbedAtStartup = provider !== null;
 
   if (canBatchEmbedAtStartup) {
     try {

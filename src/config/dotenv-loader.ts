@@ -103,13 +103,15 @@ export function getLoadedEnvFiles(): readonly string[] {
 // These are the ONLY variables Memorix reads from .env.
 // All are secrets or endpoint URLs — no behavior config.
 //
-// MEMORIX_LLM_API_KEY      — LLM provider API key
-// MEMORIX_LLM_BASE_URL     — Custom LLM endpoint
-// MEMORIX_AGENT_LLM_API_KEY — TUI/chat agent API key (falls back to LLM key)
-// MEMORIX_AGENT_LLM_BASE_URL — TUI/chat agent endpoint (falls back to LLM URL)
-// MEMORIX_EMBEDDING_API_KEY — Embedding API key (falls back to LLM key)
+// MEMORIX_LLM_API_KEY       — Background memory LLM API key
+// MEMORIX_LLM_BASE_URL      — Background memory LLM endpoint
+// MEMORIX_AGENT_API_KEY     — TUI/chat coding agent API key
+// MEMORIX_AGENT_BASE_URL    — TUI/chat coding agent endpoint
+// MEMORIX_AGENT_LLM_API_KEY — Legacy alias for MEMORIX_AGENT_API_KEY
+// MEMORIX_AGENT_LLM_BASE_URL — Legacy alias for MEMORIX_AGENT_BASE_URL
+// MEMORIX_EMBEDDING_API_KEY — Embedding/vector API key
 // MEMORIX_EMBEDDING_BASE_URL — Custom embedding endpoint
-// MEMORIX_API_KEY           — Unified fallback key (for both LLM + embedding)
-// OPENAI_API_KEY            — OpenAI compatibility (lowest priority)
-// ANTHROPIC_API_KEY         — Anthropic compatibility
-// OPENROUTER_API_KEY        — OpenRouter compatibility
+// MEMORIX_API_KEY           — Memory LLM simple key (not used for embedding or agent)
+// OPENAI_API_KEY            — OpenAI compatibility fallback
+// ANTHROPIC_API_KEY         — Anthropic compatibility fallback
+// OPENROUTER_API_KEY        — OpenRouter compatibility fallback

@@ -48,11 +48,26 @@ afterEach(() => {
 	}
 });
 
-function createNpmPrefixInstall(template = "pi-prefix-"): { prefix: string; packageDir: string } {
+function getGlobalNpmRoot(prefix: string, mode: "inferred" | "npm-command"): string {
+	if (mode === "npm-command" && process.platform === "win32") {
+		return join(prefix, "node_modules");
+	}
+	return join(prefix, "lib", "node_modules");
+}
+
+function getPackageDirFromRoot(root: string, packageName: string): string {
+	const parts = packageName.startsWith("@") ? packageName.split("/") : [packageName];
+	return join(root, ...parts);
+}
+
+function createNpmPrefixInstall(
+	template = "pi-prefix-",
+	packageName = "@memorix/memcode",
+	rootMode: "inferred" | "npm-command" = "inferred",
+): { prefix: string; packageDir: string } {
 	const prefix = mkdtempSync(join(tmpdir(), template));
-	const root = join(prefix, "lib", "node_modules");
-	const scopeDir = join(root, "@earendil-works");
-	const packageDir = join(scopeDir, "pi-coding-agent");
+	const root = getGlobalNpmRoot(prefix, rootMode);
+	const packageDir = getPackageDirFromRoot(root, packageName);
 	mkdirSync(packageDir, { recursive: true });
 	tempDir = prefix;
 	process.env.MEMCODE_PACKAGE_DIR = packageDir;
@@ -123,7 +138,7 @@ function createBunGlobalInstall(): { packageDir: string } {
 
 function createFakePnpmScript(root: string): string {
 	if (process.platform === "win32") {
-		return `@echo off\r\nif "%1"=="root" if "%2"=="-g" echo ${root}\r\n`;
+		return `@echo off\r\nif "%~1"=="root" if "%~2"=="-g" (\r\n  echo ${root}\r\n  exit /b 0\r\n)\r\nexit /b 1\r\n`;
 	}
 	const escapedRoot = root.replaceAll("'", "'\\''");
 	return `#!/bin/sh\nif [ "$1" = "root" ] && [ "$2" = "-g" ]; then\n\tprintf '%s\\n' '${escapedRoot}'\n\texit 0\nfi\nexit 1\n`;
@@ -131,7 +146,7 @@ function createFakePnpmScript(root: string): string {
 
 function createFakeYarnScript(globalDir: string): string {
 	if (process.platform === "win32") {
-		return `@echo off\r\nif "%1"=="global" if "%2"=="dir" echo ${globalDir}\r\n`;
+		return `@echo off\r\nif "%~1"=="global" if "%~2"=="dir" (\r\n  echo ${globalDir}\r\n  exit /b 0\r\n)\r\nexit /b 1\r\n`;
 	}
 	const escapedGlobalDir = globalDir.replaceAll("'", "'\\''");
 	return `#!/bin/sh\nif [ "$1" = "global" ] && [ "$2" = "dir" ]; then\n\tprintf '%s\\n' '${escapedGlobalDir}'\n\texit 0\nfi\nexit 1\n`;
@@ -139,7 +154,7 @@ function createFakeYarnScript(globalDir: string): string {
 
 function createFakeBunScript(bunBin: string): string {
 	if (process.platform === "win32") {
-		return `@echo off\r\nif "%1"=="pm" if "%2"=="bin" if "%3"=="-g" echo ${bunBin}\r\n`;
+		return `@echo off\r\nif "%~1"=="pm" if "%~2"=="bin" if "%~3"=="-g" (\r\n  echo ${bunBin}\r\n  exit /b 0\r\n)\r\nexit /b 1\r\n`;
 	}
 	const escapedBunBin = bunBin.replaceAll("'", "'\\''");
 	return `#!/bin/sh\nif [ "$1" = "pm" ] && [ "$2" = "bin" ] && [ "$3" = "-g" ]; then\n\tprintf '%s\\n' '${escapedBunBin}'\n\texit 0\nfi\nexit 1\n`;
@@ -189,7 +204,7 @@ describe("detectInstallMethod", () => {
 	});
 
 	test("self-updates renamed packages from the current install prefix", () => {
-		const { prefix } = createNpmPrefixInstall();
+		const { prefix } = createNpmPrefixInstall("pi-prefix-", "@mariozechner/pi-coding-agent");
 
 		const command = getSelfUpdateCommand("@mariozechner/pi-coding-agent", undefined, "@new-scope/pi");
 
@@ -213,7 +228,7 @@ describe("detectInstallMethod", () => {
 	});
 
 	test("self-update respects configured npmCommand", () => {
-		const { prefix } = createNpmPrefixInstall();
+		const { prefix } = createNpmPrefixInstall("pi-prefix-", "@memorix/memcode", "npm-command");
 
 		const command = getSelfUpdateCommand("@memorix/memcode", ["npm", "--prefix", prefix]);
 
@@ -402,7 +417,9 @@ describe("detectInstallMethod", () => {
 		});
 	});
 
-	test("does not self-update when npm install path is not writable", () => {
+	const posixTest = process.platform === "win32" ? test.skip : test;
+
+	posixTest("does not self-update when npm install path is not writable", () => {
 		const { packageDir } = createNpmPrefixInstall();
 		chmodSync(packageDir, 0o500);
 

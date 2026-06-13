@@ -23,101 +23,34 @@ import {
 	useEffect,
 } from "react";
 import { useKeyboard } from "@opentui/react";
-import { readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
 import { importFromMemorix } from "../../core/memorix-resolve.ts";
 import { theme } from "../theme.ts";
+import { getSuggestionMouseProps } from "../suggestion-mouse.ts";
+import {
+	buildMemorySelectionText,
+	type InputMode,
+	type MemoryEntry,
+	fuzzyMatch,
+	getAtSuggestions,
+	getDisplayMode,
+	getReverseHistorySuggestions,
+	getSlashSuggestions,
+	type SuggestionItem,
+} from "./inputbar-logic.ts";
+import { loadHistoryFromDisk, MAX_HISTORY, saveHistoryToDisk } from "./inputbar-history.ts";
 
 // ============================================================================
 // Constants
 // ============================================================================
 
-/** Slash commands available in the TUI. */
-const SLASH_COMMANDS = [
-	{ name: "/help", desc: "Show available commands" },
-	{ name: "/clear", desc: "Clear conversation history" },
-	{ name: "/compact", desc: "Compact conversation context" },
-	{ name: "/model", desc: "Switch AI model" },
-	{ name: "/memory", desc: "Search memorix memories" },
-] as const;
-
-/** @-mention targets (static fallback when no search results). */
-const AT_SUGGESTIONS = [
-	{ name: "@file", desc: "Attach a file to context" },
-	{ name: "@codebase", desc: "Search entire codebase" },
-	{ name: "@git", desc: "Search git history" },
-] as const;
-
 import type { VimMode } from "../keymap.ts";
-
-/** Maximum history entries to persist. */
-const MAX_HISTORY = 100;
 
 /** Memory search debounce in ms. */
 const SEARCH_DEBOUNCE_MS = 300;
 
-/** Fuzzy-match a query against a text string. */
-function fuzzyMatch(query: string, text: string): boolean {
-	const q = query.toLowerCase();
-	const t = text.toLowerCase();
-	if (!q) return true;
-	if (t.includes(q)) return true;
-	const qTokens = q.split(/\s+/).filter(Boolean);
-	const tTokens = t.split(/\s+/);
-	return qTokens.every((qt) => tTokens.some((tt) => tt.includes(qt)));
-}
-
-// ============================================================================
-// File-backed history persistence
-// ============================================================================
-
-let _historyPath: string | null = null;
-
-function getHistoryPath(): string {
-	if (_historyPath) return _historyPath;
-	_historyPath = join(tmpdir(), `memcode-input-history-${process.pid}.json`);
-	return _historyPath;
-}
-
-/** Load persisted input history from disk (best-effort). */
-function loadHistoryFromDisk(): string[] {
-	try {
-		const raw = readFileSync(getHistoryPath(), "utf-8");
-		const parsed = JSON.parse(raw);
-		if (Array.isArray(parsed)) {
-			return parsed.slice(0, MAX_HISTORY);
-		}
-	} catch {
-		// First run or corrupt file — start fresh
-	}
-	return [];
-}
-
-/** Persist input history to disk (fire-and-forget, no locking). */
-function saveHistoryToDisk(history: string[]): void {
-	try {
-		writeFileSync(
-			getHistoryPath(),
-			JSON.stringify(history.slice(0, MAX_HISTORY)),
-			"utf-8",
-		);
-	} catch {
-		// Non-fatal: history just won't persist across restarts
-	}
-}
-
 // ============================================================================
 // Memory search
 // ============================================================================
-
-interface MemoryEntry {
-	id: string;
-	title: string;
-	type: string;
-	entityName?: string;
-	narrative?: string;
-}
 
 let _compactSearchFn: ((...args: any[]) => any) | null = null;
 
@@ -153,19 +86,11 @@ async function searchMemories(query: string): Promise<MemoryEntry[]> {
 // Types
 // ============================================================================
 
-/**
- * UI mode for the input bar.
- * - null:           normal typing
- * - "slash":        slash command palette
- * - "at":           @ memory search
- * - "reverse":      Ctrl+R reverse history search
- * - "history":      Up/Down history browsing
- */
-type InputMode = "slash" | "at" | "reverse" | "history" | null;
-
 export interface InputBarProps {
 	/** Called when the user submits a message. */
 	onSend: (text: string) => void;
+	/** Called on every input change (for memory prefetch). */
+	onInputChange?: (text: string) => void;
 	/** Currently attached file paths. */
 	attachments?: string[];
 	/** Current vim mode. When NORMAL/VISUAL, keyboard input is blocked. */
@@ -178,7 +103,7 @@ export interface InputBarProps {
 // InputBar
 // ============================================================================
 
-export function InputBar({ onSend, attachments = [], vimMode, onSwitchToNormal }: InputBarProps) {
+export function InputBar({ onSend, onInputChange, attachments = [], vimMode, onSwitchToNormal }: InputBarProps) {
 	// --- State ---
 
 	const [inputText, setInputText] = useState("");
@@ -195,9 +120,7 @@ export function InputBar({ onSend, attachments = [], vimMode, onSwitchToNormal }
 	const inputRef = useRef<any>(null);
 	const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const preHistoryTextRef = useRef("");
-	const filteredRef = useRef<
-		readonly { readonly name: string; readonly desc: string }[]
-	>([]);
+	const filteredRef = useRef<readonly SuggestionItem[]>([]);
 	const activeModeRef = useRef<InputMode>(null);
 	const selectedIdxRef = useRef(0);
 	const inputTextRef = useRef("");
@@ -244,30 +167,10 @@ export function InputBar({ onSend, attachments = [], vimMode, onSwitchToNormal }
 
 	const filtered = useMemo(() => {
 		if (activeMode === "slash") {
-			const q = inputText.trim().toLowerCase();
-			if (!q) return SLASH_COMMANDS;
-			return SLASH_COMMANDS.filter(
-				(c) =>
-					c.name.toLowerCase().includes(q) ||
-					c.desc.toLowerCase().includes(q),
-			);
+			return getSlashSuggestions(inputText);
 		}
 		if (activeMode === "at") {
-			// Show memory results if we have them; fall back to static suggestions
-			if (memoryResults.length > 0) {
-				return memoryResults.map((m) => ({
-					name: `@${m.title}`,
-					desc: `[${m.type}] ${(m.narrative ?? "").slice(0, 60)}`,
-				}));
-			}
-			const idx = inputText.lastIndexOf("@");
-			const q = idx >= 0 ? inputText.slice(idx).toLowerCase() : "";
-			if (!q) return AT_SUGGESTIONS;
-			return AT_SUGGESTIONS.filter(
-				(s) =>
-					s.name.toLowerCase().includes(q) ||
-					s.desc.toLowerCase().includes(q),
-			);
+			return getAtSuggestions(inputText, memoryResults);
 		}
 		return [];
 	}, [activeMode, inputText, memoryResults]);
@@ -383,22 +286,7 @@ export function InputBar({ onSend, attachments = [], vimMode, onSwitchToNormal }
 
 	const selectMemory = useCallback(
 		(name: string) => {
-			// Find the memory entry by matching "@title"
-			const entry = memoryResultsRef.current.find(
-				(m) => `@${m.title}` === name,
-			);
-
-			const text = inputTextRef.current;
-			const atIndex = text.lastIndexOf("@");
-
-			// Build memory context snippet for the LLM
-			const contextSnippet = entry
-				? `[memory: ${entry.title} (${entry.type})${entry.narrative ? ` — ${entry.narrative.slice(0, 120)}` : ""}]`
-				: name;
-
-			const before = atIndex >= 0 ? text.slice(0, atIndex) : "";
-			const after = name + " ";
-			const newText = before + after + contextSnippet;
+			const newText = buildMemorySelectionText(inputTextRef.current, name, memoryResultsRef.current);
 
 			setInputText(newText);
 			setActiveMode(null);
@@ -716,6 +604,12 @@ export function InputBar({ onSend, attachments = [], vimMode, onSwitchToNormal }
 
 	function handleInput(value: string) {
 		setInputText(value);
+
+		// Trigger memory prefetch on every input change (debounced internally)
+		if (onInputChange) {
+			onInputChange(value);
+		}
+
 		const trimmed = value.trim();
 
 		// ── Reverse search mode: filter history by query ──
@@ -771,31 +665,12 @@ export function InputBar({ onSend, attachments = [], vimMode, onSwitchToNormal }
 	// --- Derived display values ---
 
 	const displayMode =
-		activeMode === "reverse"
-			? "search"
-			: activeMode === "at"
-				? "memory"
-				: activeMode === "slash"
-					? "commands"
-					: null;
+		getDisplayMode(activeMode);
 
 	// History-aware filtered list for reverse search
 	const effectiveFiltered = useMemo(() => {
 		if (activeMode === "reverse") {
-			const q = inputText.trim().toLowerCase();
-			if (!q) {
-				return inputHistory.slice(0, 20).map((h) => ({
-					name: h,
-					desc: "(history)",
-				}));
-			}
-			return inputHistory
-				.filter((h) => fuzzyMatch(q, h))
-				.slice(0, 20)
-				.map((h) => ({
-					name: h,
-					desc: "(history)",
-				}));
+			return getReverseHistorySuggestions(inputText, inputHistory);
 		}
 		return filtered;
 	}, [activeMode, inputText, filtered, inputHistory]);
@@ -814,8 +689,7 @@ export function InputBar({ onSend, attachments = [], vimMode, onSwitchToNormal }
 			width="100%"
 			flexDirection="column"
 			flexShrink={0}
-			border={["top"]}
-			borderColor={theme.bgBorder}
+			backgroundColor={theme.bgBase}
 		>
 			{/* ── Attachment preview ── */}
 			{attachments.length > 0 ? (
@@ -891,8 +765,12 @@ export function InputBar({ onSend, attachments = [], vimMode, onSwitchToNormal }
 									? theme.brandDim
 									: undefined
 							}
-							onMouseUp={() => selectSuggestion(item.name)}
-							onMouseOver={() => setSelectedIdx(i)}
+							{...getSuggestionMouseProps({
+								index: i,
+								name: item.name,
+								selectSuggestion,
+								setSelectedIdx,
+							})}
 						>
 							<text
 								fg={
@@ -961,21 +839,7 @@ export function InputBar({ onSend, attachments = [], vimMode, onSwitchToNormal }
 				</box>
 			</box>
 
-			{/* ── Model info row — like OpenCode's agent/model metadata ── */}
-			<box
-				width="100%"
-				height={1}
-				flexDirection="row"
-				flexShrink={0}
-				justifyContent="space-between"
-				paddingLeft={2}
-				paddingRight={1}
-			>
-				<text fg={theme.brand}>memcode</text>
-				<text fg={theme.textMuted}>
-					{activeMode === "slash" ? "/ commands" : "esc interrupt"}
-				</text>
-			</box>
+			{/* InputBar now has no footer — app.tsx provides the footer */}
 		</box>
 	);
 }

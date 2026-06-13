@@ -1,7 +1,7 @@
 import { APP_NAME } from "../config.ts";
 import type { SourceInfo } from "./source-info.ts";
 
-export type SlashCommandSource = "extension" | "prompt" | "skill";
+export type SlashCommandSource = "extension" | "prompt" | "skill" | "tui-discovery";
 
 export interface SlashCommandInfo {
 	name: string;
@@ -15,8 +15,14 @@ export interface BuiltinSlashCommand {
 	description: string;
 }
 
+export interface SlashCommandDescriptor {
+	name: string;
+	description: string;
+}
+
 export const BUILTIN_SLASH_COMMANDS: ReadonlyArray<BuiltinSlashCommand> = [
 	{ name: "settings", description: "Open settings menu" },
+	{ name: "commands", description: "Show available slash commands" },
 	{ name: "model", description: "Select model (opens selector UI)" },
 	{ name: "scoped-models", description: "Enable/disable models for Ctrl+P cycling" },
 	{ name: "export", description: "Export session (HTML default, or specify path: .html/.jsonl)" },
@@ -25,6 +31,7 @@ export const BUILTIN_SLASH_COMMANDS: ReadonlyArray<BuiltinSlashCommand> = [
 	{ name: "copy", description: "Copy last agent message to clipboard" },
 	{ name: "name", description: "Set session display name" },
 	{ name: "session", description: "Show session info and stats" },
+	{ name: "memory", description: "Show Memorix memory commands" },
 	{ name: "changelog", description: "Show changelog entries" },
 	{ name: "hotkeys", description: "Show all keyboard shortcuts" },
 	{ name: "fork", description: "Create a new fork from a previous user message" },
@@ -39,3 +46,10 @@ export const BUILTIN_SLASH_COMMANDS: ReadonlyArray<BuiltinSlashCommand> = [
 	{ name: "reload", description: "Reload keybindings, extensions, skills, prompts, and themes" },
 	{ name: "quit", description: `Quit ${APP_NAME}` },
 ];
+
+export function formatBuiltinSlashCommands(): ReadonlyArray<SlashCommandDescriptor> {
+	return BUILTIN_SLASH_COMMANDS.map((command) => ({
+		name: `/${command.name}`,
+		description: command.description,
+	}));
+}

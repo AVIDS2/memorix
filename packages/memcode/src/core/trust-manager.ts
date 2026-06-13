@@ -1,4 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import lockfile from "proper-lockfile";
 import { CONFIG_DIR_NAME } from "../config.ts";
@@ -100,11 +101,15 @@ export function hasProjectConfigDir(cwd: string): boolean {
 
 export function hasProjectTrustInputs(cwd: string): boolean {
 	let currentDir = canonicalizePath(resolvePath(cwd));
+	const homeDir = canonicalizePath(resolvePath(homedir()));
 	if (hasProjectConfigDir(currentDir)) {
 		return true;
 	}
 
 	while (true) {
+		if (currentDir === homeDir) {
+			return false;
+		}
 		for (const filename of CONTEXT_FILE_NAMES) {
 			if (existsSync(join(currentDir, filename))) {
 				return true;

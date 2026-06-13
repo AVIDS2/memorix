@@ -128,26 +128,18 @@ export function getEmbeddingMode() {
     }
     return 'off';
 }
-/** Embedding API key: env > memorix.yml > config.json > LLM key fallback */
+/** Embedding API key: embedding lane only. Do not borrow memory LLM or agent keys. */
 export function getEmbeddingApiKey() {
-    return (process.env.MEMORIX_EMBEDDING_API_KEY || // Embedding-specific (优先级最高)
-        process.env.MEMORIX_API_KEY || // Unified API key (fallback)
-        process.env.MEMORIX_LLM_API_KEY ||
+    return (process.env.MEMORIX_EMBEDDING_API_KEY ||
         loadYamlConfig().embedding?.apiKey ||
         loadFileConfig().embeddingApi?.apiKey ||
-        loadYamlConfig().llm?.apiKey ||
-        loadFileConfig().llm?.apiKey ||
-        process.env.OPENAI_API_KEY ||
         undefined);
 }
-/** Embedding base URL: env > memorix.yml > config.json > LLM URL fallback */
+/** Embedding base URL: env > memorix.yml > config.json > provider default */
 export function getEmbeddingBaseUrl() {
     return (process.env.MEMORIX_EMBEDDING_BASE_URL ||
         loadYamlConfig().embedding?.baseUrl ||
         loadFileConfig().embeddingApi?.baseUrl ||
-        process.env.MEMORIX_LLM_BASE_URL ||
-        loadYamlConfig().llm?.baseUrl ||
-        loadFileConfig().llm?.baseUrl ||
         'https://api.openai.com/v1');
 }
 /** Embedding model: env > memorix.yml > config.json > default */

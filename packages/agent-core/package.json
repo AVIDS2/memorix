@@ -1,6 +1,6 @@
 {
 	"name": "@memorix/agent-core",
-	"version": "0.79.0",
+	"version": "1.0.11",
 	"description": "General-purpose agent with transport abstraction, state management, and attachment support",
 	"type": "module",
 	"main": "./dist/index.js",
@@ -29,7 +29,7 @@
 		"prepublishOnly": "npm run clean && npm run build"
 	},
 	"dependencies": {
-		"@memorix/ai": "*",
+		"@memorix/ai": "1.0.11",
 		"ignore": "7.0.5",
 		"typebox": "1.1.38",
 		"yaml": "2.9.0"
@@ -41,12 +41,12 @@
 		"transport",
 		"state-management"
 	],
-	"author": "Mario Zechner",
+	"author": "AVIDS2",
 	"license": "MIT",
 	"repository": {
 		"type": "git",
-		"url": "git+https://github.com/earendil-works/pi.git",
-		"directory": "packages/agent"
+		"url": "git+https://github.com/AVIDS2/memorix.git",
+		"directory": "packages/agent-core"
 	},
 	"engines": {
 		"node": ">=22.19.0"

@@ -1,6 +1,6 @@
 {
 	"name": "@memorix/ai",
-	"version": "0.79.0",
+	"version": "1.0.11",
 	"description": "Unified LLM API with automatic model discovery and provider configuration",
 	"type": "module",
 	"main": "./dist/index.js",
@@ -52,7 +52,7 @@
 		}
 	},
 	"bin": {
-		"pi-ai": "./dist/cli.js"
+		"memorix-ai": "./dist/cli.js"
 	},
 	"files": [
 		"dist",
@@ -88,11 +88,11 @@
 		"unified",
 		"api"
 	],
-	"author": "Mario Zechner",
+	"author": "AVIDS2",
 	"license": "MIT",
 	"repository": {
 		"type": "git",
-		"url": "git+https://github.com/earendil-works/pi.git",
+		"url": "git+https://github.com/AVIDS2/memorix.git",
 		"directory": "packages/ai"
 	},
 	"engines": {

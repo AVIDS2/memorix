@@ -217,13 +217,13 @@ export default defineCommand({
 
     if (embeddingProvider === 'api') {
       envLines.push('# Embedding API key');
-      envLines.push('# Falls back to MEMORIX_LLM_API_KEY if omitted');
+      envLines.push('# Independent from MEMORIX_LLM_API_KEY; use your embedding provider key here.');
       envLines.push('# MEMORIX_EMBEDDING_API_KEY=sk-your-key-here');
       envLines.push('# MEMORIX_EMBEDDING_BASE_URL=https://api.openai.com/v1');
       envLines.push('');
     }
 
-    envLines.push('# Optional unified key');
+    envLines.push('# Optional memory LLM simple key (does not apply to embedding or agent lanes)');
     envLines.push('# MEMORIX_API_KEY=sk-your-key-here');
     envLines.push('');
     envLines.push('# Compatibility variables (lowest priority)');

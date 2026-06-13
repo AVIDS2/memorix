@@ -1,6 +1,6 @@
 {
 	"name": "@memorix/tui",
-	"version": "0.79.0",
+	"version": "1.0.11",
 	"description": "Terminal User Interface library with differential rendering for efficient text-based applications",
 	"type": "module",
 	"main": "dist/index.js",
@@ -25,11 +25,11 @@
 		"typescript",
 		"cli"
 	],
-	"author": "Mario Zechner",
+	"author": "AVIDS2",
 	"license": "MIT",
 	"repository": {
 		"type": "git",
-		"url": "git+https://github.com/earendil-works/pi.git",
+		"url": "git+https://github.com/AVIDS2/memorix.git",
 		"directory": "packages/tui"
 	},
 	"engines": {

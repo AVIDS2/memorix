@@ -17,10 +17,12 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
+import { createRequire } from 'node:module';
 // ─── Loader ──────────────────────────────────────────────────────────
 // Per-project config cache — keyed by resolved projectRoot string.
 // null key = user-level-only config (no project root).
 const configCache = new Map();
+const require = createRequire(import.meta.url);
 /** Stored project root — set once by server init, used by all no-arg loadYamlConfig() calls */
 let globalProjectRoot = null;
 /**
@@ -114,8 +116,6 @@ function parseYaml(content) {
     // But for simplicity and reliability, use a basic YAML parser
     // that handles the flat config structure we need.
     try {
-        // Dynamic import of js-yaml through gray-matter's dependency
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
         const yaml = require('js-yaml');
         return yaml.load(content) ?? {};
     }

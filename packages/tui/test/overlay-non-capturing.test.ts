@@ -25,6 +25,20 @@ class EmptyContent implements Component {
 	invalidate(): void {}
 }
 
+class MutableLines implements Component {
+	public lines: string[];
+
+	constructor(lines: string[]) {
+		this.lines = lines;
+	}
+
+	render(): string[] {
+		return this.lines;
+	}
+
+	invalidate(): void {}
+}
+
 class FocusableOverlay implements Component, Focusable {
 	focused = false;
 	inputs: string[] = [];
@@ -51,7 +65,47 @@ async function renderAndFlush(tui: TUI, terminal: VirtualTerminal): Promise<void
 	await terminal.waitForRender();
 }
 
+function getHistoricalScrollback(terminal: VirtualTerminal): string[] {
+	const scrollBuffer = terminal.getScrollBuffer();
+	return scrollBuffer.slice(0, Math.max(0, scrollBuffer.length - terminal.rows));
+}
+
 describe("TUI overlay non-capturing", () => {
+	describe("rendering", () => {
+		it("does not capture transient overlay text in scrollback while content grows", async () => {
+			const terminal = new VirtualTerminal(30, 5);
+			const tui = new TUI(terminal);
+			const content = new MutableLines(["Line 0", "Line 1", "Line 2", "Line 3", "Line 4"]);
+			tui.addChild(content);
+			tui.start();
+			try {
+				const overlay = tui.showOverlay(new StaticOverlay(["ACTIVITY_STATUS"]), {
+					anchor: "bottom-left",
+					margin: { bottom: 1 },
+					width: "100%",
+					nonCapturing: true,
+				});
+				await renderAndFlush(tui, terminal);
+				assert.match(terminal.getViewport().join("\n"), /ACTIVITY_STATUS/);
+
+				content.lines.push("Line 5", "Line 6", "Line 7", "Line 8");
+				await renderAndFlush(tui, terminal);
+
+				const scrollback = getHistoricalScrollback(terminal).join("\n");
+				assert.ok(!scrollback.includes("ACTIVITY_STATUS"));
+				assert.match(terminal.getViewport().join("\n"), /ACTIVITY_STATUS/);
+
+				overlay.hide();
+				await renderAndFlush(tui, terminal);
+
+				assert.ok(!getHistoricalScrollback(terminal).join("\n").includes("ACTIVITY_STATUS"));
+				assert.ok(!terminal.getViewport().join("\n").includes("ACTIVITY_STATUS"));
+			} finally {
+				tui.stop();
+			}
+		});
+	});
+
 	describe("focus management", () => {
 		it("non-capturing overlay preserves focus on creation", async () => {
 			const terminal = new VirtualTerminal(80, 24);

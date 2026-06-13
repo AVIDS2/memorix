@@ -13,6 +13,7 @@ import { theme } from "./theme.ts";
 import { InputBar } from "./components/inputbar.tsx";
 import type { Message, MemorySource } from "./components/messages.tsx";
 import { useKeymap } from "./keymap.ts";
+import { getPrefetcher, disposePrefetcher } from "../memory/memory-prefetch.ts";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -72,6 +73,16 @@ function App({ runtime }: AppProps) {
 	const scrollRef = useRef<any>(null);
 	const pendingAttributionRef = useRef<MemorySource[]>([]);
 
+	// --- Memory prefetcher (searches while user types) ---
+	const prefetcherRef = useRef(getPrefetcher(cwd));
+	useEffect(() => {
+		return () => { disposePrefetcher(); };
+	}, []);
+
+	const handleInputChange = useCallback((text: string) => {
+		prefetcherRef.current.onInput(text);
+	}, []);
+
 	// --- Keyboard shortcuts ---
 	const keymap = useKeymap({
 		onInterrupt: useCallback(() => {
@@ -119,6 +130,12 @@ function App({ runtime }: AppProps) {
 	useEffect(() => {
 		const unsubscribe = runtime.session.subscribe((event: AgentSessionEvent) => {
 			switch (event.type) {
+				case "agent_start":
+					setStatus("Preparing...");
+					break;
+				case "turn_start":
+					setStatus("Processing...");
+					break;
 				case "message_start":
 					if (event.message.role === "assistant") {
 						setStatus("Thinking...");
@@ -180,7 +197,9 @@ function App({ runtime }: AppProps) {
 		setStatus("Sending...");
 
 		try {
+			const t0 = Date.now();
 			await runtime.session.prompt(text);
+			console.error(`[memcode] prompt() total: ${Date.now() - t0}ms`);
 		} catch (err) {
 			setStatus("");
 			setMessages((prev) => [...prev, { role: "assistant", content: `Error: ${err instanceof Error ? err.message : String(err)}` }]);
@@ -198,7 +217,7 @@ function App({ runtime }: AppProps) {
 				{/* Logo */}
 				<box flexDirection="column" alignItems="center" flexShrink={0}>
 					<text fg={theme.brand}>{"◆ MEMCODE"}</text>
-					<text fg={theme.textMuted}>{"v1.0.10"}</text>
+					<text fg={theme.textMuted}>{"v1.0.11"}</text>
 				</box>
 
 				{/* Spacer */}
@@ -208,6 +227,7 @@ function App({ runtime }: AppProps) {
 				<box width="75%" maxWidth={90} flexShrink={0}>
 					<InputBar
 						onSend={handleSend}
+						onInputChange={handleInputChange}
 						vimMode={keymap.vimMode}
 						onSwitchToNormal={() => keymap.setVimMode("NORMAL")}
 					/>
@@ -223,12 +243,11 @@ function App({ runtime }: AppProps) {
 	}
 
 	// --- RENDER: SESSION VIEW ---
-	// OpenCode pattern: scrollbox (flexGrow=1) for messages + flexShrink=0 bottom area
-	// containing status, then input. Input is ALWAYS at the bottom.
+	// Bottom-anchored layout: input+footer pinned to bottom, messages fill remaining space above.
 	return (
-		<box width="100%" height="100%" backgroundColor={theme.bgBase} flexDirection="column">
-			{/* Messages scrollbox — takes ALL remaining space */}
-			<scrollbox flexGrow={1} stickyScroll={true} stickyStart="bottom" flexDirection="column" paddingTop={1} paddingBottom={1} paddingLeft={1} paddingRight={1}>
+		<box width="100%" height="100%" flexDirection="column" backgroundColor={theme.bgBase}>
+			{/* Messages area — fills space above the fixed bottom zone */}
+			<box flexGrow={1} flexDirection="column" overflow="hidden" paddingTop={1} paddingLeft={1} paddingRight={1}>
 				{/* Project info line at top */}
 				<box flexDirection="row" justifyContent="center" marginBottom={1}>
 					<text fg={theme.textMuted}>
@@ -243,38 +262,37 @@ function App({ runtime }: AppProps) {
 
 				{/* Streaming content */}
 				{streamingContent ? (
-					<box flexDirection="column" paddingLeft={2} paddingRight={2}>
+					<box flexDirection="column" paddingLeft={1} paddingRight={1}>
 						<text fg={theme.textSecondary}>{"memcode"}</text>
 						<box border={["left"]} borderColor={theme.borderSubtle} paddingLeft={1}>
 							<text fg={theme.textPrimary}>{streamingContent.slice(0, 2000)}</text>
 						</box>
 					</box>
 				) : null}
-			</scrollbox>
+			</box>
 
-			{/* Bottom fixed area — status ABOVE input, then input, then footer */}
-			<box flexShrink={0} flexDirection="column">
-				{/* Status — above the input, not in the middle of messages */}
+			{/* Fixed bottom zone — never pushed off screen */}
+			<box flexShrink={0} flexDirection="column" width="100%">
+				{/* Status line — only when active */}
 				{status ? (
-					<box flexDirection="row" paddingLeft={2} paddingRight={2} paddingTop={0}>
+					<box flexDirection="row" paddingLeft={2} paddingRight={2} height={1}>
 						<text fg={theme.textSecondary}>{status}</text>
 					</box>
 				) : null}
 
 				{/* Input bar */}
-				<box paddingLeft={1} paddingRight={1} paddingBottom={1}>
-					<InputBar
-						onSend={handleSend}
-						vimMode={keymap.vimMode}
-						onSwitchToNormal={() => keymap.setVimMode("NORMAL")}
-					/>
-				</box>
-			</box>
+				<InputBar
+					onSend={handleSend}
+					onInputChange={handleInputChange}
+					vimMode={keymap.vimMode}
+					onSwitchToNormal={() => keymap.setVimMode("NORMAL")}
+				/>
 
-			{/* Footer — fixed at very bottom */}
-			<box height={1} flexDirection="row" justifyContent="space-between" paddingLeft={2} paddingRight={2}>
-				<text fg={theme.textMuted}>{`${modelName} · ${thinkingLevel}`}</text>
-				<text fg={theme.textMuted}>{"esc  ctrl+c  ? help"}</text>
+				{/* Footer — last line */}
+				<box height={1} flexDirection="row" justifyContent="space-between" paddingLeft={2} paddingRight={2}>
+					<text fg={theme.textMuted}>{`${modelName} · ${thinkingLevel}`}</text>
+					<text fg={theme.textMuted}>{"esc  ctrl+c  ? help"}</text>
+				</box>
 			</box>
 
 			{/* Help overlay */}

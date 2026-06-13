@@ -15,6 +15,21 @@ const APPLE_TERMINAL_SHIFT_ENTER_SEQUENCE = "\x1b[13;2u";
 const DESIRED_KITTY_KEYBOARD_PROTOCOL_FLAGS = 7;
 const KEYBOARD_PROTOCOL_RESPONSE_FRAGMENT_TIMEOUT_MS = 150;
 const KITTY_KEYBOARD_PROTOCOL_QUERY = `\x1b[>${DESIRED_KITTY_KEYBOARD_PROTOCOL_FLAGS}u\x1b[?u\x1b[c`;
+const ENABLE_MOUSE_REPORTING_SEQUENCE = "\x1b[?1000h\x1b[?1006h";
+const DISABLE_MOUSE_REPORTING_SEQUENCE = "\x1b[?1006l\x1b[?1000l";
+
+function isTruthyEnvFlag(value: string | undefined): boolean {
+	if (!value) return false;
+	return value === "1" || value.toLowerCase() === "true" || value.toLowerCase() === "yes";
+}
+
+export function shouldEnableMouseReporting(env: NodeJS.ProcessEnv = process.env): boolean {
+	return isTruthyEnvFlag(env.MEMCODE_TUI_MOUSE ?? env.PI_TUI_MOUSE);
+}
+
+export function shouldUseAlternateScreen(env: NodeJS.ProcessEnv = process.env): boolean {
+	return isTruthyEnvFlag(env.MEMCODE_TUI_ALT_SCREEN ?? env.PI_TUI_ALT_SCREEN) || shouldEnableMouseReporting(env);
+}
 
 export type KeyboardProtocolNegotiationSequence =
 	| { type: "kitty-flags"; flags: number }
@@ -108,6 +123,8 @@ export class ProcessTerminal implements Terminal {
 	private stdinBuffer?: StdinBuffer;
 	private stdinDataHandler?: (data: string) => void;
 	private progressInterval?: ReturnType<typeof setInterval>;
+	private mouseReportingEnabled = shouldEnableMouseReporting();
+	private alternateScreenEnabled = shouldUseAlternateScreen();
 	private writeLogPath = (() => {
 		const env = process.env.MEMCODE_TUI_WRITE_LOG || process.env.PI_TUI_WRITE_LOG || "";
 		if (!env) return "";
@@ -135,8 +152,9 @@ export class ProcessTerminal implements Terminal {
 		this.inputHandler = onInput;
 		this.resizeHandler = onResize;
 
-		// Enter alternate screen buffer (like vim/htop) — hides terminal history
-		process.stdout.write("\x1b[?1049h");
+		if (this.alternateScreenEnabled) {
+			process.stdout.write("\x1b[?1049h");
+		}
 
 		// Save previous state and enable raw mode
 		this.wasRaw = process.stdin.isRaw || false;
@@ -148,6 +166,9 @@ export class ProcessTerminal implements Terminal {
 
 		// Enable bracketed paste mode - terminal will wrap pastes in \x1b[200~ ... \x1b[201~
 		process.stdout.write("\x1b[?2004h");
+		if (this.mouseReportingEnabled) {
+			process.stdout.write(ENABLE_MOUSE_REPORTING_SEQUENCE);
+		}
 
 		// Set up resize handler immediately
 		process.stdout.on("resize", this.resizeHandler);
@@ -411,11 +432,15 @@ export class ProcessTerminal implements Terminal {
 			process.stdout.write(TERMINAL_PROGRESS_CLEAR_SEQUENCE);
 		}
 
-		// Exit alternate screen buffer — restore terminal history
-		process.stdout.write("\x1b[?1049l");
+		if (this.alternateScreenEnabled) {
+			process.stdout.write("\x1b[?1049l");
+		}
 
 		// Disable bracketed paste mode
 		process.stdout.write("\x1b[?2004l");
+		if (this.mouseReportingEnabled) {
+			process.stdout.write(DISABLE_MOUSE_REPORTING_SEQUENCE);
+		}
 
 		const shouldDisableKittyProtocol = this.keyboardProtocolPushed || this._kittyProtocolActive;
 		this.clearKeyboardProtocolNegotiationBuffer();

@@ -363,14 +363,14 @@ export class ToolExecutionComponent extends Container {
 	}
 
 	private formatToolExecution(): string {
-		let text = theme.fg("toolTitle", theme.bold(this.toolName));
+		let text = `${theme.fg("accent", "tool")} ${theme.fg("toolTitle", theme.bold(this.toolName))}`;
 		const content = JSON.stringify(this.args, null, 2);
 		if (content) {
-			text += `\n\n${content}`;
+			text += `\n${theme.fg("dim", "args")}\n${content}`;
 		}
 		const output = this.getTextOutput();
 		if (output) {
-			text += `\n${output}`;
+			text += `\n${theme.fg("dim", "result")}\n${output}`;
 		}
 		return text;
 	}

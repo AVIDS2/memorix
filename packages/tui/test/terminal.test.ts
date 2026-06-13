@@ -1,7 +1,12 @@
 import assert from "node:assert";
 import { describe, it, mock } from "node:test";
 import { setKittyProtocolActive } from "../src/keys.ts";
-import { normalizeAppleTerminalInput, ProcessTerminal } from "../src/terminal.ts";
+import {
+	normalizeAppleTerminalInput,
+	ProcessTerminal,
+	shouldEnableMouseReporting,
+	shouldUseAlternateScreen,
+} from "../src/terminal.ts";
 
 describe("normalizeAppleTerminalInput", () => {
 	it("rewrites Apple Terminal Return to CSI-u Shift+Enter when Shift is pressed", () => {
@@ -186,6 +191,124 @@ describe("ProcessTerminal Kitty keyboard protocol negotiation", () => {
 		} finally {
 			harness.cleanup();
 			mock.timers.reset();
+		}
+	});
+});
+
+describe("ProcessTerminal mouse reporting", () => {
+	it("uses an explicit opt-in environment flag", () => {
+		assert.equal(shouldEnableMouseReporting({}), false);
+		assert.equal(shouldEnableMouseReporting({ MEMCODE_TUI_MOUSE: "1" }), true);
+		assert.equal(shouldEnableMouseReporting({ MEMCODE_TUI_MOUSE: "true" }), true);
+		assert.equal(shouldEnableMouseReporting({ MEMCODE_TUI_MOUSE: "yes" }), true);
+		assert.equal(shouldEnableMouseReporting({ PI_TUI_MOUSE: "1" }), true);
+		assert.equal(shouldEnableMouseReporting({ MEMCODE_TUI_MOUSE: "0", PI_TUI_MOUSE: "1" }), false);
+	});
+
+	it("does not enable mouse reporting by default so terminal text selection still works", () => {
+		const writes: string[] = [];
+		const terminal = new ProcessTerminal();
+		const previousWrite = process.stdout.write;
+
+		try {
+			process.stdout.write = ((chunk: string | Uint8Array) => {
+				writes.push(String(chunk));
+				return true;
+			}) as typeof process.stdout.write;
+
+			(terminal as unknown as { inputHandler?: (data: string) => void }).inputHandler = () => {};
+			terminal.start(() => {}, () => {});
+
+			assert.equal(writes.includes("\x1b[?1000h\x1b[?1006h"), false);
+		} finally {
+			terminal.stop();
+			process.stdout.write = previousWrite;
+		}
+	});
+
+	it("enables mouse reporting only when explicitly requested", () => {
+		const writes: string[] = [];
+		const previousWrite = process.stdout.write;
+		const previousEnv = process.env.MEMCODE_TUI_MOUSE;
+		let terminal: ProcessTerminal | undefined;
+
+		try {
+			process.env.MEMCODE_TUI_MOUSE = "1";
+			terminal = new ProcessTerminal();
+			process.stdout.write = ((chunk: string | Uint8Array) => {
+				writes.push(String(chunk));
+				return true;
+			}) as typeof process.stdout.write;
+
+			(terminal as unknown as { inputHandler?: (data: string) => void }).inputHandler = () => {};
+			terminal.start(() => {}, () => {});
+
+			assert.equal(writes.includes("\x1b[?1000h\x1b[?1006h"), true);
+		} finally {
+			terminal?.stop();
+			process.stdout.write = previousWrite;
+			if (previousEnv === undefined) delete process.env.MEMCODE_TUI_MOUSE;
+			else process.env.MEMCODE_TUI_MOUSE = previousEnv;
+		}
+	});
+});
+
+describe("ProcessTerminal alternate screen", () => {
+	it("does not use alternate screen by default so terminal scrollback can handle wheel scrolling", () => {
+		assert.equal(shouldUseAlternateScreen({}), false);
+	});
+
+	it("uses alternate screen only for explicit fullscreen or mouse modes", () => {
+		assert.equal(shouldUseAlternateScreen({ MEMCODE_TUI_ALT_SCREEN: "1" }), true);
+		assert.equal(shouldUseAlternateScreen({ PI_TUI_ALT_SCREEN: "1" }), true);
+		assert.equal(shouldUseAlternateScreen({ MEMCODE_TUI_MOUSE: "1" }), true);
+		assert.equal(shouldUseAlternateScreen({ MEMCODE_TUI_ALT_SCREEN: "0", PI_TUI_ALT_SCREEN: "1" }), false);
+	});
+
+	it("does not enter or leave alternate screen by default", () => {
+		const writes: string[] = [];
+		const terminal = new ProcessTerminal();
+		const previousWrite = process.stdout.write;
+
+		try {
+			process.stdout.write = ((chunk: string | Uint8Array) => {
+				writes.push(String(chunk));
+				return true;
+			}) as typeof process.stdout.write;
+
+			terminal.start(() => {}, () => {});
+			terminal.stop();
+
+			assert.equal(writes.includes("\x1b[?1049h"), false);
+			assert.equal(writes.includes("\x1b[?1049l"), false);
+		} finally {
+			process.stdout.write = previousWrite;
+		}
+	});
+
+	it("enters and leaves alternate screen when explicitly requested", () => {
+		const writes: string[] = [];
+		const previousWrite = process.stdout.write;
+		const previousEnv = process.env.MEMCODE_TUI_ALT_SCREEN;
+		let terminal: ProcessTerminal | undefined;
+
+		try {
+			process.env.MEMCODE_TUI_ALT_SCREEN = "1";
+			terminal = new ProcessTerminal();
+			process.stdout.write = ((chunk: string | Uint8Array) => {
+				writes.push(String(chunk));
+				return true;
+			}) as typeof process.stdout.write;
+
+			terminal.start(() => {}, () => {});
+			terminal.stop();
+
+			assert.equal(writes.includes("\x1b[?1049h"), true);
+			assert.equal(writes.includes("\x1b[?1049l"), true);
+		} finally {
+			process.stdout.write = previousWrite;
+			if (previousEnv === undefined) delete process.env.MEMCODE_TUI_ALT_SCREEN;
+			else process.env.MEMCODE_TUI_ALT_SCREEN = previousEnv;
 		}
 	});
 });

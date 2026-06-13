@@ -11,8 +11,8 @@
  *   - MEMORIX_EMBEDDING=auto          → try configured API → fastembed → transformers → off
  *
  * API mode env vars (MEMORIX_EMBEDDING=api):
- *   - MEMORIX_EMBEDDING_API_KEY       → API key (fallback: MEMORIX_LLM_API_KEY → OPENAI_API_KEY)
- *   - MEMORIX_EMBEDDING_BASE_URL      → base URL (fallback: MEMORIX_LLM_BASE_URL)
+ *   - MEMORIX_EMBEDDING_API_KEY       → embedding API key
+ *   - MEMORIX_EMBEDDING_BASE_URL      → base URL (default: https://api.openai.com/v1)
  *   - MEMORIX_EMBEDDING_MODEL         → model (default: text-embedding-3-small)
  *   - MEMORIX_EMBEDDING_DIMENSIONS    → optional dimension override
  *
@@ -61,10 +61,7 @@ function hasAPIEmbeddingConfig() {
             getEmbeddingModel?.());
     }
     catch {
-        return Boolean(process.env.MEMORIX_EMBEDDING_API_KEY ||
-            process.env.MEMORIX_API_KEY ||
-            process.env.MEMORIX_LLM_API_KEY ||
-            process.env.OPENAI_API_KEY);
+        return Boolean(process.env.MEMORIX_EMBEDDING_API_KEY);
     }
 }
 function getProviderKind(candidate) {

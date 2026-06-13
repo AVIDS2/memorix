@@ -42,7 +42,7 @@ export declare function loadFileConfig(): MemorixConfig;
  * Reset cached config (for testing).
  */
 export declare function resetConfigCache(): void;
-/** LLM API key: env > memorix.yml > config.json > generic env fallbacks */
+/** Memory/background LLM API key: env > memorix.yml > config.json > provider env fallbacks */
 export declare function getLLMApiKey(): string | undefined;
 /** LLM provider: env > memorix.yml > config.json > auto-detect */
 export declare function getLLMProvider(): string;
@@ -60,7 +60,7 @@ export declare function getAgentLLMModel(providerDefault: string): string;
 export declare function getAgentLLMBaseUrl(providerDefault: string): string;
 /** Embedding mode: env > memorix.yml > config.json > 'off' */
 export declare function getEmbeddingMode(): 'off' | 'fastembed' | 'transformers' | 'api' | 'auto';
-/** Embedding API key: env > memorix.yml > config.json > LLM key fallback */
+/** Embedding API key: embedding lane only. Do not borrow memory LLM or agent keys. */
 export declare function getEmbeddingApiKey(): string | undefined;
 /** Embedding base URL: env > memorix.yml > config.json > LLM URL fallback */
 export declare function getEmbeddingBaseUrl(): string;

@@ -46,16 +46,28 @@ describe("buildSystemPrompt", () => {
 			expect(prompt).toContain("- write:");
 		});
 
-		test("instructs models to resolve memcode docs and examples under absolute base paths", () => {
+		test("does not assume package-installed memcode docs and examples exist", () => {
 			const prompt = buildSystemPrompt({
 				contextFiles: [],
 				skills: [],
 				cwd: process.cwd(),
 			});
 
-			expect(prompt).toContain(
-				"- When reading memcode docs or examples, resolve docs/... under Additional docs and examples/... under Examples, not the current working directory",
-			);
+			expect(prompt).toContain("Package README:");
+			expect(prompt).toContain("Do not assume package-installed docs/examples exist");
+		});
+
+		test("describes memcode as a Memorix-native agent with shared project memory", () => {
+			const prompt = buildSystemPrompt({
+				contextFiles: [],
+				skills: [],
+				cwd: process.cwd(),
+			});
+
+			expect(prompt).toContain("Memorix-native coding agent");
+			expect(prompt).toContain("same canonical project memory pool");
+			expect(prompt).toContain("memorix_status");
+			expect(prompt).toContain("embedding, search mode, rerank, retention, hooks");
 		});
 	});
 

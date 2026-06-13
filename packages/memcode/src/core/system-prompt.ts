@@ -2,7 +2,7 @@
  * System prompt construction and project context loading
  */
 
-import { getDocsPath, getExamplesPath, getReadmePath } from "../config.ts";
+import { getReadmePath } from "../config.ts";
 import { formatSkillsForPrompt, type Skill } from "./skills.ts";
 
 export interface BuildSystemPromptOptions {
@@ -61,10 +61,12 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
 		prompt += `
 
 Persistent Memory:
-- You have access to a persistent memory system (Memorix) that retains knowledge across sessions.
-- Before starting work, search memory for relevant prior context using memorix_search.
+- You are a Memorix-native coding agent. Your memory is first-party, in-process, and shared with Claude Code, Codex, and other agents through the same canonical project memory pool.
+- Use memorix_status when the user asks about Memorix itself, project memory identity, embedding, search mode, rerank, retention, hooks, fallback behavior, or what memory was injected.
+- Before starting non-trivial work, search memory for relevant prior context using memorix_search.
 - When you discover something worth persisting, store it using memorix_store. Good candidates: architecture decisions, problem-solution pairs, non-obvious gotchas, config or dependency changes, trade-off conclusions.
 - When search results look relevant, use memorix_detail to read the full content.
+- Do not create a private memcode-only memory bucket by default; separate by sourceDetail/valueCategory metadata instead of fragmenting user-facing project memory.
 - Do not store: greetings, trivial file reads, or redundant status updates.`;
 
 		// Append project context files
@@ -90,10 +92,8 @@ Persistent Memory:
 		return prompt;
 	}
 
-	// Get absolute paths to documentation and examples
+	// Get absolute path to the package README.
 	const readmePath = getReadmePath();
-	const docsPath = getDocsPath();
-	const examplesPath = getExamplesPath();
 
 	// Build tools list based on selected tools.
 	// A tool appears in Available tools only when the caller provides a one-line snippet.
@@ -147,14 +147,10 @@ In addition to the tools above, you may have access to other custom tools depend
 Guidelines:
 ${guidelines}
 
-Memcode documentation (read only when the user asks about memcode itself, its SDK, extensions, themes, skills, or TUI):
-- Main documentation: ${readmePath}
-- Additional docs: ${docsPath}
-- Examples: ${examplesPath} (extensions, custom tools, SDK)
-- When reading memcode docs or examples, resolve docs/... under Additional docs and examples/... under Examples, not the current working directory
-- When asked about: extensions (docs/extensions.md, examples/extensions/), themes (docs/themes.md), skills (docs/skills.md), prompt templates (docs/prompt-templates.md), TUI components (docs/tui.md), keybindings (docs/keybindings.md), SDK integrations (docs/sdk.md), custom providers (docs/custom-provider.md), adding models (docs/models.md), memcode packages (docs/packages.md)
-- When working on memcode topics, read the docs and examples, and follow .md cross-references before implementing
-- Always read memcode .md files completely and follow links to related docs (e.g., tui.md for TUI API details)`;
+Memcode documentation (read only when the user asks about memcode itself):
+- Package README: ${readmePath}
+- For project-internal memcode development, prefer repository docs under docs/memcode/ when they are present in the current working tree.
+- Do not assume package-installed docs/examples exist; npm releases ship the runtime and README, while detailed development notes live in the Memorix repository.`;
 
 	if (appendSection) {
 		prompt += appendSection;
@@ -164,10 +160,12 @@ Memcode documentation (read only when the user asks about memcode itself, its SD
 	prompt += `
 
 Persistent Memory:
-- You have access to a persistent memory system (Memorix) that retains knowledge across sessions.
-- Before starting work, search memory for relevant prior context using memorix_search.
+- You are a Memorix-native coding agent. Your memory is first-party, in-process, and shared with Claude Code, Codex, and other agents through the same canonical project memory pool.
+- Use memorix_status when the user asks about Memorix itself, project memory identity, embedding, search mode, rerank, retention, hooks, fallback behavior, or what memory was injected.
+- Before starting non-trivial work, search memory for relevant prior context using memorix_search.
 - When you discover something worth persisting, store it using memorix_store. Good candidates: architecture decisions, problem-solution pairs, non-obvious gotchas, config or dependency changes, trade-off conclusions.
 - When search results look relevant, use memorix_detail to read the full content.
+- Do not create a private memcode-only memory bucket by default; separate by sourceDetail/valueCategory metadata instead of fragmenting user-facing project memory.
 - Do not store: greetings, trivial file reads, or redundant status updates.`;
 
 	// Append project context files

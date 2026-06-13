@@ -22,7 +22,7 @@ function getEnv(): NodeJS.ProcessEnv {
 	}
 }
 
-import { basename, dirname, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { Readable } from "node:stream";
 import { globSync } from "glob";
 import ignore from "ignore";
@@ -111,6 +111,7 @@ interface PackageManagerOptions {
 	cwd: string;
 	agentDir: string;
 	settingsManager: SettingsManager;
+	homeDir?: string;
 }
 
 type SourceScope = "user" | "project" | "temporary";
@@ -204,6 +205,16 @@ function toPosixPath(p: string): string {
 
 function getHomeDir(): string {
 	return process.env.HOME || homedir();
+}
+
+function inferHomeDirForAgentDir(agentDir: string): string {
+	const resolvedAgentDir = resolve(agentDir);
+	const defaultAgentDir = resolve(join(homedir(), CONFIG_DIR_NAME, "agent"));
+	if (resolvedAgentDir === defaultAgentDir) {
+		return getHomeDir();
+	}
+	const parentDir = dirname(resolvedAgentDir);
+	return basename(parentDir) === CONFIG_DIR_NAME ? dirname(parentDir) : parentDir;
 }
 
 export function getExtensionTempFolder(agentDir: string): string {
@@ -426,15 +437,24 @@ function findGitRepoRoot(startDir: string): string | null {
 	}
 }
 
-function collectAncestorAgentsSkillDirs(startDir: string): string[] {
+function isPathWithinOrEqual(path: string, root: string): boolean {
+	const resolvedPath = resolve(path);
+	const resolvedRoot = resolve(root);
+	if (resolvedPath === resolvedRoot) return true;
+	const relativePath = relative(resolvedRoot, resolvedPath);
+	return !!relativePath && !relativePath.startsWith("..") && !isAbsolute(relativePath);
+}
+
+function collectAncestorAgentsSkillDirs(startDir: string, stopDir?: string): string[] {
 	const skillDirs: string[] = [];
 	const resolvedStartDir = resolve(startDir);
 	const gitRepoRoot = findGitRepoRoot(resolvedStartDir);
+	const resolvedStopDir = stopDir && isPathWithinOrEqual(resolvedStartDir, stopDir) ? resolve(stopDir) : undefined;
 
 	let dir = resolvedStartDir;
 	while (true) {
 		skillDirs.push(join(dir, ".agents", "skills"));
-		if (gitRepoRoot && dir === gitRepoRoot) {
+		if ((gitRepoRoot && dir === gitRepoRoot) || (resolvedStopDir && dir === resolvedStopDir)) {
 			break;
 		}
 		const parent = dirname(dir);
@@ -765,6 +785,7 @@ export class DefaultPackageManager implements PackageManager {
 	private cwd: string;
 	private agentDir: string;
 	private settingsManager: SettingsManager;
+	private homeDir: string;
 	private globalNpmRoot: string | undefined;
 	private globalNpmRootCommandKey: string | undefined;
 	private progressCallback: ProgressCallback | undefined;
@@ -773,6 +794,7 @@ export class DefaultPackageManager implements PackageManager {
 		this.cwd = resolvePath(options.cwd);
 		this.agentDir = resolvePath(options.agentDir);
 		this.settingsManager = options.settingsManager;
+		this.homeDir = resolvePath(options.homeDir ?? inferHomeDirForAgentDir(this.agentDir));
 	}
 
 	setProgressCallback(callback: ProgressCallback | undefined): void {
@@ -2017,11 +2039,11 @@ export class DefaultPackageManager implements PackageManager {
 	}
 
 	private resolvePath(input: string): string {
-		return resolvePath(input, this.cwd, { homeDir: getHomeDir(), trim: true });
+		return resolvePath(input, this.cwd, { homeDir: this.homeDir, trim: true });
 	}
 
 	private resolvePathFromBase(input: string, baseDir: string): string {
-		return resolvePath(input, baseDir, { homeDir: getHomeDir(), trim: true });
+		return resolvePath(input, baseDir, { homeDir: this.homeDir, trim: true });
 	}
 
 	private collectPackageResources(
@@ -2268,10 +2290,12 @@ export class DefaultPackageManager implements PackageManager {
 			prompts: join(projectBaseDir, "prompts"),
 			themes: join(projectBaseDir, "themes"),
 		};
-		const userAgentsSkillsDir = join(getHomeDir(), ".agents", "skills");
+		const userAgentsSkillsDir = join(this.homeDir, ".agents", "skills");
 		const projectTrusted = this.settingsManager.isProjectTrusted();
 		const projectAgentsSkillDirs = projectTrusted
-			? collectAncestorAgentsSkillDirs(this.cwd).filter((dir) => resolve(dir) !== resolve(userAgentsSkillsDir))
+			? collectAncestorAgentsSkillDirs(this.cwd, this.homeDir).filter(
+					(dir) => resolve(dir) !== resolve(userAgentsSkillsDir),
+				)
 			: [];
 
 		const addResources = (

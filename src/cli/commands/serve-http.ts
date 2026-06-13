@@ -1083,36 +1083,54 @@ export default defineCommand({
             values.push({ key: 'llm.apiKey', value: 'not set', source: 'none' });
           }
 
-          const agentProvider = process.env.MEMORIX_AGENT_LLM_PROVIDER || yml.agent?.provider || legacy.agent?.provider;
+          const agentProvider =
+            process.env.MEMORIX_AGENT_PROVIDER ||
+            process.env.MEMORIX_AGENT_LLM_PROVIDER ||
+            yml.agent?.provider ||
+            legacy.agent?.provider;
           if (agentProvider) {
             values.push({
-              key: 'agent.llm.provider',
+              key: 'agent.provider',
               value: agentProvider,
-              source: process.env.MEMORIX_AGENT_LLM_PROVIDER ? 'env:MEMORIX_AGENT_LLM_PROVIDER' : yml.agent?.provider ? 'memorix.yml' : 'config.json',
+              source: process.env.MEMORIX_AGENT_PROVIDER
+                ? 'env:MEMORIX_AGENT_PROVIDER'
+                : process.env.MEMORIX_AGENT_LLM_PROVIDER
+                  ? 'env:MEMORIX_AGENT_LLM_PROVIDER (legacy)'
+                  : yml.agent?.provider ? 'memorix.yml' : 'config.json',
             });
           }
 
-          const agentModel = process.env.MEMORIX_AGENT_LLM_MODEL || yml.agent?.model || legacy.agent?.model;
+          const agentModel =
+            process.env.MEMORIX_AGENT_MODEL ||
+            process.env.MEMORIX_AGENT_LLM_MODEL ||
+            yml.agent?.model ||
+            legacy.agent?.model;
           if (agentModel) {
             values.push({
-              key: 'agent.llm.model',
+              key: 'agent.model',
               value: agentModel,
-              source: process.env.MEMORIX_AGENT_LLM_MODEL ? 'env:MEMORIX_AGENT_LLM_MODEL' : yml.agent?.model ? 'memorix.yml' : 'config.json',
+              source: process.env.MEMORIX_AGENT_MODEL
+                ? 'env:MEMORIX_AGENT_MODEL'
+                : process.env.MEMORIX_AGENT_LLM_MODEL
+                  ? 'env:MEMORIX_AGENT_LLM_MODEL (legacy)'
+                  : yml.agent?.model ? 'memorix.yml' : 'config.json',
             });
           }
 
           const agentKey =
+            process.env.MEMORIX_AGENT_API_KEY ||
             process.env.MEMORIX_AGENT_LLM_API_KEY ||
             yml.agent?.apiKey ||
             legacy.agent?.apiKey;
           if (agentKey) {
             let src = 'unknown';
-            if (process.env.MEMORIX_AGENT_LLM_API_KEY) src = 'env:MEMORIX_AGENT_LLM_API_KEY';
+            if (process.env.MEMORIX_AGENT_API_KEY) src = 'env:MEMORIX_AGENT_API_KEY';
+            else if (process.env.MEMORIX_AGENT_LLM_API_KEY) src = 'env:MEMORIX_AGENT_LLM_API_KEY (legacy)';
             else if (yml.agent?.apiKey) src = 'memorix.yml (move to .env!)';
             else if (legacy.agent?.apiKey) src = 'config.json (legacy)';
-            values.push({ key: 'agent.llm.apiKey', value: '****' + agentKey.slice(-4), source: src, sensitive: true });
+            values.push({ key: 'agent.apiKey', value: '****' + agentKey.slice(-4), source: src, sensitive: true });
           } else {
-            values.push({ key: 'agent.llm.apiKey', value: 'fallback to llm.apiKey', source: 'default' });
+            values.push({ key: 'agent.apiKey', value: 'fallback to llm.apiKey', source: 'default' });
           }
 
           const embProvider = process.env.MEMORIX_EMBEDDING || yml.embedding?.provider || legacy.embedding || 'off';

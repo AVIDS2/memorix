@@ -12,6 +12,7 @@ import chalk from "chalk";
 import { type Args, type Mode, parseArgs, printHelp } from "./cli/args.ts";
 import { processFileArguments } from "./cli/file-processor.ts";
 import { buildInitialMessage } from "./cli/initial-message.ts";
+import { shouldUseExperimentalTui } from "./cli/interactive-ui-mode.ts";
 import { listModels } from "./cli/list-models.ts";
 import { selectSession } from "./cli/session-picker.ts";
 import { ENV_SESSION_DIR, expandTildePath, getAgentDir, getPackageDir, VERSION } from "./config.ts";
@@ -1005,30 +1006,50 @@ export async function main(args: string[], options?: MainOptions) {
 		printTimings();
 		await runRpcMode(runtime);
 	} else if (appMode === "interactive") {
-		// OpenTUI + React TUI (memcode native) — lazy import to avoid bundling native deps
-		printTimings();
-		try {
-			const { startTui } = await import("./tui/index.tsx");
-			await startTui(runtime);
-		} catch (err) {
-			// Fallback to legacy InteractiveMode if OpenTUI fails
-			console.error(chalk.yellow(`OpenTUI failed: ${err instanceof Error ? err.message : err}`));
-			console.error(chalk.yellow('Falling back to legacy interactive mode...'));
-			if (!parsed.verbose) {
-				settingsManager.setQuietStartup(true);
-			}
-			const interactiveMode = new InteractiveMode(runtime, {
-				migratedProviders,
-				modelFallbackMessage,
-				autoTrustOnReloadCwd,
-				initialMessage,
-				initialImages,
-				initialMessages: parsed.messages,
-				verbose: parsed.verbose,
-			});
-			printTimings();
-			await interactiveMode.run();
+		const experimentalTuiEnabled = shouldUseExperimentalTui(process.env);
+		if (experimentalTuiEnabled && startupBenchmark) {
+			console.error(chalk.yellow("Experimental TUI does not support startup benchmarking yet. Using legacy interactive mode."));
 		}
+		if (experimentalTuiEnabled && !startupBenchmark) {
+			// OpenTUI + React TUI (memcode native) — opt-in only until feature parity is restored
+			printTimings();
+			try {
+				const { startTui } = await import("./tui/index.tsx");
+				await startTui(runtime);
+				return;
+			} catch (err) {
+				console.error(chalk.yellow(`Experimental TUI failed: ${err instanceof Error ? err.message : err}`));
+				console.error(chalk.yellow("Falling back to legacy interactive mode..."));
+				if (!parsed.verbose) {
+					settingsManager.setQuietStartup(true);
+				}
+			}
+		}
+		const interactiveMode = new InteractiveMode(runtime, {
+			migratedProviders,
+			modelFallbackMessage,
+			autoTrustOnReloadCwd,
+			initialMessage,
+			initialImages,
+			initialMessages: parsed.messages,
+			verbose: parsed.verbose,
+		});
+		if (startupBenchmark) {
+			await interactiveMode.init();
+			time("interactiveMode.init");
+			printTimings();
+			interactiveMode.stop();
+			stopThemeWatcher();
+			if (process.stdout.writableLength > 0) {
+				await new Promise<void>((resolve) => process.stdout.once("drain", resolve));
+			}
+			if (process.stderr.writableLength > 0) {
+				await new Promise<void>((resolve) => process.stderr.once("drain", resolve));
+			}
+			return;
+		}
+		printTimings();
+		await interactiveMode.run();
 	} else {
 		printTimings();
 		const exitCode = await runPrintMode(runtime, {

@@ -4,33 +4,30 @@
  * Runs before each agent turn to inject relevant Memorix memories
  * into the system prompt, giving the agent persistent cross-session knowledge.
  *
+ * NOW WITH ASYNC PREFETCH: The heavy compactSearch() runs while the user
+ * is typing (via MemoryPrefetcher). At injection time, we read from cache
+ * or race against a 300ms timeout. Result: near-zero latency on cache hit.
+ *
  * Hook point: ExtensionRunner `before_agent_start` event.
  *
  * Data flow:
- *   User sends message
- *     -> agent-session.ts: emitBeforeAgentStart()
- *     -> this handler: injectMemories()
- *     -> compactSearch() [src/compact/engine.ts, direct import]
+ *   User types → MemoryPrefetcher.onInput() → debounce → compactSearch() → cache
+ *   User sends → injectMemories() → getCachedOrFetch() → instant or 300ms timeout
  *     -> format results -> append to systemPrompt
  *     -> runLoop() starts with enriched context
  */
 
 import type { ExtensionContext } from '../core/extensions/types.ts';
-import { importFromMemorix } from '../core/memorix-resolve.ts';
-
-// Dynamic import for memorix core — uses file:// URLs for Windows ESM compatibility
-async function getCompactSearch() {
-	const mod = await importFromMemorix('compact/engine.js');
-	return mod.compactSearch;
-}
+import { getPrefetcher } from './memory-prefetch.ts';
+import { recordMemorixInjectedRefs } from './memorix-runtime-context.ts';
 
 // Inline type to avoid static import from memorix core (rootDir conflict)
 interface IndexEntry {
-	id: number;
-	type?: string;
-	documentType?: string;
-	title?: string;
-	narrative?: string;
+  id: number;
+  type?: string;
+  documentType?: string;
+  title?: string;
+  narrative?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -53,18 +50,18 @@ const DEFAULT_CONFIG: MemoryInjectionConfig = {
 };
 
 // ---------------------------------------------------------------------------
-// Core injection function
+// Core injection function — now uses prefetch cache
 // ---------------------------------------------------------------------------
 
 /**
- * Search Memorix for memories relevant to the current prompt and return
- * an enriched system prompt with a "Relevant Memories" section appended.
+ * Inject memories into system prompt using the prefetch cache.
+ * Falls back to direct search with 300ms timeout if cache misses.
  *
- * @param systemPrompt - The current system prompt (may have been modified by earlier handlers).
+ * @param systemPrompt - The current system prompt.
  * @param prompt - The raw user prompt text for this turn.
  * @param projectId - Active project ID for scoped search.
  * @param config - Injection configuration.
- * @returns The system prompt with memories appended, or the original if no memories found.
+ * @returns The system prompt with memories appended, or the original if none found.
  */
 export async function injectMemories(
   systemPrompt: string,
@@ -75,25 +72,24 @@ export async function injectMemories(
   const cfg = { ...DEFAULT_CONFIG, ...config };
   if (!cfg.enabled) return systemPrompt;
 
-  // Build search query from the user's prompt (simplest strategy for now).
-  // Future: extract keywords, include recent conversation context, etc.
   const query = extractSearchQuery(prompt);
   if (!query) return systemPrompt;
 
   try {
-    const compactSearch = await getCompactSearch();
-    const { entries, formatted } = await compactSearch({
-      query,
-      projectId,
-      limit: cfg.maxResults,
-      maxTokens: cfg.maxTokens,
-    });
+    // Use prefetcher — reads cache or races against timeout
+    const prefetcher = getPrefetcher(projectId);
+    const t0 = Date.now();
+    const result = await prefetcher.getCachedOrFetch(query);
+    const elapsed = Date.now() - t0;
 
-    if (entries.length === 0) return systemPrompt;
+    if (elapsed > 50) {
+      console.error(`[memcode] memory injection: ${elapsed}ms (${result?.entries?.length ?? 0} results, ${result ? 'hit' : 'miss'})`);
+    }
 
-    // Format as a bullet-point context block
-    const memoryBlock = formatMemoryBlock(entries, formatted);
+    if (!result || result.entries.length === 0) return systemPrompt;
 
+    recordMemorixInjectedRefs(result.entries.map((entry) => ({ id: entry.id, projectId: (entry as any).projectId })));
+    const memoryBlock = formatMemoryBlock(result.entries, result.formatted);
     return `${systemPrompt}\n\n${memoryBlock}`;
   } catch {
     // Memory injection is best-effort; never break the agent turn.
@@ -105,19 +101,10 @@ export async function injectMemories(
 // Search query extraction
 // ---------------------------------------------------------------------------
 
-/**
- * Extract a search query from the user prompt.
- * Current strategy: use the full prompt text, trimmed to a reasonable length.
- * Future strategies: keyword extraction, entity detection, full-context.
- */
 function extractSearchQuery(prompt: string): string {
   const trimmed = prompt.trim();
   if (!trimmed) return '';
-
-  // Cap at ~500 chars to avoid overly broad searches
-  if (trimmed.length > 500) {
-    return trimmed.slice(0, 500);
-  }
+  if (trimmed.length > 500) return trimmed.slice(0, 500);
   return trimmed;
 }
 
@@ -125,18 +112,9 @@ function extractSearchQuery(prompt: string): string {
 // Formatting
 // ---------------------------------------------------------------------------
 
-/**
- * Format search results as a "Relevant Memories" section for the system prompt.
- *
- * Produces bullet points in the form:
- *   - [type] title — brief context...
- *
- * Falls back to the compact engine's table format when entries lack detail.
- */
 function formatMemoryBlock(entries: IndexEntry[], fallbackFormatted: string): string {
   const lines: string[] = ['## Relevant Memories', ''];
 
-  // If entries have titles (the common case), format as bullet points
   const hasTitles = entries.some((e) => e.title);
   if (hasTitles) {
     for (const entry of entries) {
@@ -146,7 +124,6 @@ function formatMemoryBlock(entries: IndexEntry[], fallbackFormatted: string): st
       lines.push(bullet);
     }
   } else {
-    // Fallback: use the compact engine's pre-formatted table
     lines.push(fallbackFormatted);
   }
 
@@ -157,21 +134,6 @@ function formatMemoryBlock(entries: IndexEntry[], fallbackFormatted: string): st
 // Extension handler factory
 // ---------------------------------------------------------------------------
 
-/**
- * Create a `before_agent_start` extension handler that injects memories.
- *
- * Usage in a Memorix extension:
- * ```ts
- * import { createMemoryInjectionHandler } from '../memory/memory-injection.js';
- *
- * export default function (pi: ExtensionAPI) {
- *   pi.on('before_agent_start', createMemoryInjectionHandler('my-project-id'));
- * }
- * ```
- *
- * @param projectId - Active project ID for scoped memory search.
- * @param config - Optional injection configuration overrides.
- */
 export function createMemoryInjectionHandler(
   projectId: string,
   config: Partial<MemoryInjectionConfig> = {},
@@ -181,7 +143,7 @@ export function createMemoryInjectionHandler(
     _ctx: ExtensionContext,
   ): Promise<{ systemPrompt: string } | undefined> => {
     const enriched = await injectMemories(event.systemPrompt, event.prompt, projectId, config);
-    if (enriched === event.systemPrompt) return undefined; // no change
+    if (enriched === event.systemPrompt) return undefined;
     return { systemPrompt: enriched };
   };
 }

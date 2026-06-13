@@ -42,6 +42,7 @@ import {
 	ProcessTerminal,
 	Spacer,
 	setKeybindings,
+	shouldEnableMouseReporting,
 	Text,
 	TruncatedText,
 	TUI,
@@ -97,6 +98,14 @@ import { getPiUserAgent } from "../../utils/pi-user-agent.ts";
 import { killTrackedDetachedChildren } from "../../utils/shell.ts";
 import { ensureTool } from "../../utils/tools-manager.ts";
 import { checkForNewPiVersion, type LatestPiRelease } from "../../utils/version-check.ts";
+import { MEMORY_COMMANDS, type MemoryCommandResult } from "../../tui/commands/memory-commands.ts";
+import { getTuiSlashCommandRows } from "../../tui/command-registry.ts";
+import { createViewportWheelInputListener } from "./mouse-wheel.ts";
+import {
+	ActivityStatus,
+	formatActivityCompletion,
+	pickActivityDoneWord,
+} from "./components/activity-status.ts";
 import { ArminComponent } from "./components/armin.ts";
 import { AssistantMessageComponent } from "./components/assistant-message.ts";
 import { BashExecutionComponent } from "./components/bash-execution.ts";
@@ -108,7 +117,6 @@ import { CustomEditor } from "./components/custom-editor.ts";
 import { CustomMessageComponent } from "./components/custom-message.ts";
 import { DaxnutsComponent } from "./components/daxnuts.ts";
 import { DynamicBorder } from "./components/dynamic-border.ts";
-import { EarendilAnnouncementComponent } from "./components/earendil-announcement.ts";
 import { ExtensionEditorComponent } from "./components/extension-editor.ts";
 import { ExtensionInputComponent } from "./components/extension-input.ts";
 import { ExtensionSelectorComponent } from "./components/extension-selector.ts";
@@ -121,6 +129,7 @@ import { ScopedModelsSelectorComponent } from "./components/scoped-models-select
 import { SessionSelectorComponent } from "./components/session-selector.ts";
 import { SettingsSelectorComponent } from "./components/settings-selector.ts";
 import { SkillInvocationMessageComponent } from "./components/skill-invocation-message.ts";
+import { StartupWelcomeCard } from "./components/startup-welcome-card.ts";
 import { ToolExecutionComponent } from "./components/tool-execution.ts";
 import { TreeSelectorComponent } from "./components/tree-selector.ts";
 import { TrustSelectorComponent } from "./components/trust-selector.ts";
@@ -284,11 +293,17 @@ export class InteractiveMode {
 	private isInitialized = false;
 	private onInputCallback?: (text: string) => void;
 	private pendingUserInputs: string[] = [];
+	private optimisticUserMessages: string[] = [];
 	private loadingAnimation: Loader | undefined = undefined;
+	private activityAnimation: ActivityStatus | undefined = undefined;
+	private activityStartedAt: number | undefined = undefined;
+	private activityHadThinking = false;
+	private activityOutputTokens = 0;
+	private activityOutputTokenEstimate = 0;
 	private workingMessage: string | undefined = undefined;
 	private workingVisible = true;
 	private workingIndicatorOptions: LoaderIndicatorOptions | undefined = undefined;
-	private readonly defaultWorkingMessage = "Working...";
+	private readonly defaultWorkingMessage = "Puttering...";
 	private readonly defaultHiddenThinkingLabel = "Thinking...";
 	private hiddenThinkingLabel = this.defaultHiddenThinkingLabel;
 
@@ -297,6 +312,9 @@ export class InteractiveMode {
 	private changelogMarkdown: string | undefined = undefined;
 	private startupNoticesShown = false;
 	private anthropicSubscriptionWarningShown = false;
+	private memorixLogRestore?: () => void;
+	private pendingMemorixWarnings = new Set<string>();
+	private shownMemorixWarnings = new Set<string>();
 
 	// Status line tracking (for mutating immediately-sequential status updates)
 	private lastStatusSpacer: Spacer | undefined = undefined;
@@ -321,6 +339,7 @@ export class InteractiveMode {
 	// Agent subscription unsubscribe function
 	private unsubscribe?: () => void;
 	private signalCleanupHandlers: Array<() => void> = [];
+	private removeViewportWheelListener?: () => void;
 
 	// Track if editor is in bash mode (text starts with !)
 	private isBashMode = false;
@@ -427,6 +446,75 @@ export class InteractiveMode {
 		// Register themes from resource loader and initialize
 		setRegisteredThemes(this.session.resourceLoader.getThemes().themes);
 		initTheme(this.settingsManager.getTheme(), true);
+		this.installMemorixLogInterceptor();
+	}
+
+	private installMemorixLogInterceptor(): void {
+		const rawStderrWrite = process.stderr.write.bind(process.stderr);
+		let pending = "";
+		const flushLine = (line: string): boolean => {
+			const trimmed = line.trim();
+			if (!trimmed.startsWith("[memorix]")) {
+				rawStderrWrite(line);
+				return false;
+			}
+
+			const warning = this.normalizeMemorixWarning(trimmed);
+			if (warning) {
+				this.pendingMemorixWarnings.add(warning);
+				if (this.isInitialized) {
+					this.flushMemorixWarnings();
+				}
+			}
+			return true;
+		};
+
+		process.stderr.write = ((chunk: string | Uint8Array, encodingOrCallback?: BufferEncoding | ((error?: Error | null) => void), callback?: (error?: Error | null) => void): boolean => {
+			const text = String(chunk);
+			pending += text;
+			const lines = pending.split(/\r?\n/);
+			pending = lines.pop() ?? "";
+			let handled = false;
+			for (const line of lines) {
+				handled = flushLine(`${line}\n`) || handled;
+			}
+			if (typeof encodingOrCallback === "function") {
+				encodingOrCallback(undefined);
+			} else if (callback) {
+				callback(undefined);
+			}
+			return handled || true;
+		}) as typeof process.stderr.write;
+
+		this.memorixLogRestore = () => {
+			if (pending.length > 0) {
+				flushLine(pending);
+				pending = "";
+			}
+			process.stderr.write = rawStderrWrite as typeof process.stderr.write;
+		};
+	}
+
+	private normalizeMemorixWarning(message: string): string | undefined {
+		if (/invalid api key|incorrect api key|unauthorized/i.test(message)) {
+			return "Memorix embedding API key is invalid right now. Semantic vector search has fallen back to BM25.";
+		}
+		if (/embedding api timeout|temporarily unavailable|provider unavailable/i.test(message)) {
+			return "Memorix embedding is temporarily unavailable. Search stays usable with BM25 fallback.";
+		}
+		if (/dimension mismatch/i.test(message)) {
+			return "Memorix embedding dimensions are out of sync. Search has fallen back to BM25 for this session.";
+		}
+		return undefined;
+	}
+
+	private flushMemorixWarnings(): void {
+		for (const warning of this.pendingMemorixWarnings) {
+			if (this.shownMemorixWarnings.has(warning)) continue;
+			this.shownMemorixWarnings.add(warning);
+			this.showWarning(warning);
+		}
+		this.pendingMemorixWarnings.clear();
 	}
 
 	private getAutocompleteSourceTag(sourceInfo?: SourceInfo): string | undefined {
@@ -597,6 +685,39 @@ export class InteractiveMode {
 		this.chatContainer.addChild(new DynamicBorder());
 	}
 
+	private formatStartupProjectLabel(): string {
+		const cwd = this.sessionManager.getCwd();
+		const projectName = path.basename(path.resolve(cwd)) || cwd;
+		const branch = this.footerDataProvider.getGitBranch();
+		return branch ? `${projectName} · ${branch}` : projectName;
+	}
+
+	private formatStartupModelLabel(): string {
+		const model = this.session.model;
+		if (!model) {
+			return "no model selected";
+		}
+		const base = `${model.provider}/${model.id}`;
+		if (!model.reasoning) {
+			return base;
+		}
+		return `${base} · thinking ${this.session.thinkingLevel || "off"}`;
+	}
+
+	private createBuiltInHeaderComponent(expandedInstructions: string, compactInstructions: string): Component {
+		const card = new StartupWelcomeCard({
+			appName: APP_NAME,
+			version: this.version,
+			getProjectLabel: () => this.formatStartupProjectLabel(),
+			getModelLabel: () => this.formatStartupModelLabel(),
+			getDetailsKey: () => keyText("app.tools.expand") || "ctrl+o",
+			compactInstructions,
+			expandedInstructions,
+		});
+		card.setExpanded(this.getStartupExpansionState());
+		return card;
+	}
+
 	async init(): Promise<void> {
 		if (this.isInitialized) return;
 
@@ -628,66 +749,44 @@ export class InteractiveMode {
 		// Add header container as first child
 		this.ui.addChild(this.headerContainer);
 
-		// Add header with keybindings from config (unless silenced)
-		if (this.options.verbose || !this.settingsManager.getQuietStartup()) {
-			const logo = theme.bold(theme.fg("accent", APP_NAME)) + theme.fg("dim", ` v${this.version}`);
+		// Build startup instructions using keybinding hint helpers. Quiet startup only collapses noisy
+		// resource details; the clean agent shell header should still orient the user.
+		const hint = (keybinding: AppKeybinding, description: string) => keyHint(keybinding, description);
 
-			// Build startup instructions using keybinding hint helpers
-			const hint = (keybinding: AppKeybinding, description: string) => keyHint(keybinding, description);
+		const expandedInstructions = [
+			hint("app.interrupt", "to interrupt"),
+			hint("app.clear", "to clear"),
+			rawKeyHint(`${keyText("app.clear")} twice`, "to exit"),
+			hint("app.exit", "to exit (empty)"),
+			hint("app.suspend", "to suspend"),
+			keyHint("tui.editor.deleteToLineEnd", "to delete to end"),
+			hint("app.thinking.cycle", "to cycle thinking level"),
+			rawKeyHint(`${keyText("app.model.cycleForward")}/${keyText("app.model.cycleBackward")}`, "to cycle models"),
+			hint("app.model.select", "to select model"),
+			hint("app.tools.expand", "to expand tools"),
+			hint("app.thinking.toggle", "to expand thinking"),
+			hint("app.editor.external", "for external editor"),
+			rawKeyHint("/", "for commands"),
+			rawKeyHint("!", "to run bash"),
+			rawKeyHint("!!", "to run bash (no context)"),
+			hint("app.message.followUp", "to queue follow-up"),
+			hint("app.message.dequeue", "to edit all queued messages"),
+			hint("app.clipboard.pasteImage", "to paste image"),
+			rawKeyHint("drop files", "to attach"),
+		].join("\n");
+		const compactInstructions = [
+			hint("app.interrupt", "interrupt"),
+			rawKeyHint(`${keyText("app.clear")}/${keyText("app.exit")}`, "clear/exit"),
+			rawKeyHint("/", "commands"),
+			rawKeyHint("!", "bash"),
+			hint("app.tools.expand", "more"),
+		].join(theme.fg("muted", " · "));
+		this.builtInHeader = this.createBuiltInHeaderComponent(expandedInstructions, compactInstructions);
 
-			const expandedInstructions = [
-				hint("app.interrupt", "to interrupt"),
-				hint("app.clear", "to clear"),
-				rawKeyHint(`${keyText("app.clear")} twice`, "to exit"),
-				hint("app.exit", "to exit (empty)"),
-				hint("app.suspend", "to suspend"),
-				keyHint("tui.editor.deleteToLineEnd", "to delete to end"),
-				hint("app.thinking.cycle", "to cycle thinking level"),
-				rawKeyHint(`${keyText("app.model.cycleForward")}/${keyText("app.model.cycleBackward")}`, "to cycle models"),
-				hint("app.model.select", "to select model"),
-				hint("app.tools.expand", "to expand tools"),
-				hint("app.thinking.toggle", "to expand thinking"),
-				hint("app.editor.external", "for external editor"),
-				rawKeyHint("/", "for commands"),
-				rawKeyHint("!", "to run bash"),
-				rawKeyHint("!!", "to run bash (no context)"),
-				hint("app.message.followUp", "to queue follow-up"),
-				hint("app.message.dequeue", "to edit all queued messages"),
-				hint("app.clipboard.pasteImage", "to paste image"),
-				rawKeyHint("drop files", "to attach"),
-			].join("\n");
-			const compactInstructions = [
-				hint("app.interrupt", "interrupt"),
-				rawKeyHint(`${keyText("app.clear")}/${keyText("app.exit")}`, "clear/exit"),
-				rawKeyHint("/", "commands"),
-				rawKeyHint("!", "bash"),
-				hint("app.tools.expand", "more"),
-			].join(theme.fg("muted", " · "));
-			const compactOnboarding = theme.fg(
-				"dim",
-				`Press ${keyText("app.tools.expand")} to show full startup help and loaded resources.`,
-			);
-			const onboarding = theme.fg(
-				"dim",
-				`Your decisions, fixes, and insights are remembered across sessions via persistent memory.\nType a message to get started. Ask me to recall past context or store something worth remembering.`,
-			);
-			this.builtInHeader = new ExpandableText(
-				() => `${logo}\n${compactInstructions}\n${compactOnboarding}\n\n${onboarding}`,
-				() => `${logo}\n${expandedInstructions}\n\n${onboarding}`,
-				this.getStartupExpansionState(),
-				1,
-				0,
-			);
-
-			// Setup UI layout
-			this.headerContainer.addChild(new Spacer(1));
-			this.headerContainer.addChild(this.builtInHeader);
-			this.headerContainer.addChild(new Spacer(1));
-		} else {
-			// Minimal header when silenced
-			this.builtInHeader = new Text("", 0, 0);
-			this.headerContainer.addChild(this.builtInHeader);
-		}
+		// Setup UI layout
+		this.headerContainer.addChild(new Spacer(1));
+		this.headerContainer.addChild(this.builtInHeader);
+		this.headerContainer.addChild(new Spacer(1));
 
 		this.ui.addChild(this.chatContainer);
 		this.ui.addChild(this.pendingMessagesContainer);
@@ -704,6 +803,9 @@ export class InteractiveMode {
 
 		// Start the UI before initializing extensions so session_start handlers can use interactive dialogs
 		this.ui.start();
+		if (shouldEnableMouseReporting()) {
+			this.removeViewportWheelListener = this.ui.addInputListener(createViewportWheelInputListener(this.ui));
+		}
 		this.isInitialized = true;
 
 		// Initialize extensions first so resources are shown before messages
@@ -815,7 +917,9 @@ export class InteractiveMode {
 		while (true) {
 			const userInput = await this.getUserInput();
 			try {
-				await this.session.prompt(userInput);
+				await this.session.prompt(userInput, {
+					onUserMessageAccepted: (message) => this.renderAcceptedUserMessage(message),
+				});
 			} catch (error: unknown) {
 				const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
 				this.showError(errorMessage);
@@ -1318,6 +1422,7 @@ export class InteractiveMode {
 		extensions?: Array<{ path: string; sourceInfo?: SourceInfo }>;
 		force?: boolean;
 		showDiagnosticsWhenQuiet?: boolean;
+		summaryOnly?: boolean;
 	}): void {
 		const showListing = options?.force || this.options.verbose || !this.settingsManager.getQuietStartup();
 		const showDiagnostics = showListing || options?.showDiagnosticsWhenQuiet === true;
@@ -1325,6 +1430,15 @@ export class InteractiveMode {
 			return;
 		}
 
+		type LoadedSection = {
+			name: string;
+			collapsedBody: string;
+			expandedBody: string;
+			color: ThemeColor;
+		};
+
+		const loadedSections: LoadedSection[] = [];
+		const summaryItems: Array<{ count: number; singular: string; plural?: string }> = [];
 		const sectionHeader = (name: string, color: ThemeColor = "mdHeading") => theme.fg(color, `[${name}]`);
 		const formatCompactList = (items: string[], options?: { sort?: boolean }): string => {
 			const labels = items.map((item) => item.trim()).filter((item) => item.length > 0);
@@ -1333,20 +1447,37 @@ export class InteractiveMode {
 			}
 			return theme.fg("dim", `  ${labels.join(", ")}`);
 		};
+		const formatSummaryCount = (count: number, singular: string, plural = `${singular}s`): string => {
+			return `${count} ${count === 1 ? singular : plural}`;
+		};
+		const formatLoadedSummary = (): string => {
+			const summary = summaryItems
+				.map((item) => formatSummaryCount(item.count, item.singular, item.plural))
+				.join(" · ");
+			const expandKey = keyText("app.tools.expand") || "ctrl+o";
+			return theme.fg("dim", `  ${summary} · ${expandKey} for details`);
+		};
 		const addLoadedSection = (
 			name: string,
 			collapsedBody: string,
 			expandedBody = collapsedBody,
 			color: ThemeColor = "mdHeading",
+			summary?: { count: number; singular: string; plural?: string },
 		): void => {
-			const section = new ExpandableText(
-				() => `${sectionHeader(name, color)}\n${collapsedBody}`,
-				() => `${sectionHeader(name, color)}\n${expandedBody}`,
+			loadedSections.push({ name, collapsedBody, expandedBody, color });
+			if (summary && summary.count > 0) {
+				summaryItems.push(summary);
+			}
+		};
+		const renderLoadedSection = (section: LoadedSection): void => {
+			const component = new ExpandableText(
+				() => `${sectionHeader(section.name, section.color)}\n${section.collapsedBody}`,
+				() => `${sectionHeader(section.name, section.color)}\n${section.expandedBody}`,
 				this.getStartupExpansionState(),
 				0,
 				0,
 			);
-			this.chatContainer.addChild(section);
+			this.chatContainer.addChild(component);
 			this.chatContainer.addChild(new Spacer(1));
 		};
 
@@ -1392,7 +1523,10 @@ export class InteractiveMode {
 					contextFiles.map((contextFile) => this.formatContextPath(contextFile.path)),
 					{ sort: false },
 				);
-				addLoadedSection("Context", contextCompactList, contextList);
+				addLoadedSection("Context", contextCompactList, contextList, "mdHeading", {
+					count: contextFiles.length,
+					singular: "context",
+				});
 			}
 
 			const skills = skillsResult.skills;
@@ -1405,7 +1539,10 @@ export class InteractiveMode {
 					formatPackagePath: (item) => this.getShortPath(item.path, item.sourceInfo),
 				});
 				const skillCompactList = formatCompactList(skills.map((skill) => skill.name));
-				addLoadedSection("Skills", skillCompactList, skillList);
+				addLoadedSection("Skills", skillCompactList, skillList, "mdHeading", {
+					count: skills.length,
+					singular: "skill",
+				});
 			}
 
 			const templates = this.session.promptTemplates;
@@ -1425,7 +1562,10 @@ export class InteractiveMode {
 					},
 				});
 				const promptCompactList = formatCompactList(templates.map((template) => `/${template.name}`));
-				addLoadedSection("Prompts", promptCompactList, templateList);
+				addLoadedSection("Prompts", promptCompactList, templateList, "mdHeading", {
+					count: templates.length,
+					singular: "prompt",
+				});
 			}
 
 			if (extensions.length > 0) {
@@ -1436,7 +1576,10 @@ export class InteractiveMode {
 						this.formatExtensionDisplayPath(this.getShortPath(item.path, item.sourceInfo)),
 				});
 				const extensionCompactList = formatCompactList(this.getCompactExtensionLabels(extensions));
-				addLoadedSection("Extensions", extensionCompactList, extList, "mdHeading");
+				addLoadedSection("Extensions", extensionCompactList, extList, "mdHeading", {
+					count: extensions.length,
+					singular: "extension",
+				});
 			}
 
 			// Show loaded themes (excluding built-in)
@@ -1459,27 +1602,41 @@ export class InteractiveMode {
 							loadedTheme.name ?? this.getCompactPathLabel(loadedTheme.sourcePath!, loadedTheme.sourceInfo),
 					),
 				);
-				addLoadedSection("Themes", themeCompactList, themeList);
+				addLoadedSection("Themes", themeCompactList, themeList, "mdHeading", {
+					count: customThemes.length,
+					singular: "theme",
+				});
+			}
+
+			if (loadedSections.length > 0) {
+				const showStartupSummary =
+					options?.summaryOnly === true && !options.force && !this.options.verbose && !this.getStartupExpansionState();
+				if (showStartupSummary) {
+					this.chatContainer.addChild(new Spacer(1));
+					const expandedDetails = loadedSections
+						.map((section) => `${sectionHeader(section.name, section.color)}\n${section.expandedBody}`)
+						.join("\n\n");
+					this.chatContainer.addChild(
+						new ExpandableText(
+							() => `${sectionHeader("Loaded", "success")}\n${formatLoadedSummary()}`,
+							() => expandedDetails,
+							this.getStartupExpansionState(),
+							0,
+							0,
+						),
+					);
+					this.chatContainer.addChild(new Spacer(1));
+				} else {
+					for (const section of loadedSections) {
+						renderLoadedSection(section);
+					}
+				}
 			}
 		}
 
 		if (showDiagnostics) {
 			const skillDiagnostics = skillsResult.diagnostics;
-			if (skillDiagnostics.length > 0) {
-				const warningLines = this.formatDiagnostics(skillDiagnostics, sourceInfos);
-				this.chatContainer.addChild(new Text(`${theme.fg("warning", "[Skill conflicts]")}\n${warningLines}`, 0, 0));
-				this.chatContainer.addChild(new Spacer(1));
-			}
-
 			const promptDiagnostics = promptsResult.diagnostics;
-			if (promptDiagnostics.length > 0) {
-				const warningLines = this.formatDiagnostics(promptDiagnostics, sourceInfos);
-				this.chatContainer.addChild(
-					new Text(`${theme.fg("warning", "[Prompt conflicts]")}\n${warningLines}`, 0, 0),
-				);
-				this.chatContainer.addChild(new Spacer(1));
-			}
-
 			const extensionDiagnostics: ResourceDiagnostic[] = [];
 			const extensionErrors = this.session.resourceLoader.getExtensions().errors;
 			if (extensionErrors.length > 0) {
@@ -1495,19 +1652,67 @@ export class InteractiveMode {
 			const shortcutDiagnostics = this.session.extensionRunner.getShortcutDiagnostics();
 			extensionDiagnostics.push(...shortcutDiagnostics);
 
-			if (extensionDiagnostics.length > 0) {
-				const warningLines = this.formatDiagnostics(extensionDiagnostics, sourceInfos);
-				this.chatContainer.addChild(
-					new Text(`${theme.fg("warning", "[Extension issues]")}\n${warningLines}`, 0, 0),
-				);
-				this.chatContainer.addChild(new Spacer(1));
-			}
-
 			const themeDiagnostics = themesResult.diagnostics;
-			if (themeDiagnostics.length > 0) {
-				const warningLines = this.formatDiagnostics(themeDiagnostics, sourceInfos);
-				this.chatContainer.addChild(new Text(`${theme.fg("warning", "[Theme conflicts]")}\n${warningLines}`, 0, 0));
-				this.chatContainer.addChild(new Spacer(1));
+			const summarizeStartupDiagnostics =
+				options?.summaryOnly === true && !options.force && !this.options.verbose && !this.getStartupExpansionState();
+
+			if (summarizeStartupDiagnostics) {
+				const diagnosticSummaryItems = [
+					{ count: skillDiagnostics.length, singular: "skill issue" },
+					{ count: promptDiagnostics.length, singular: "prompt issue" },
+					{ count: extensionDiagnostics.length, singular: "extension issue" },
+					{ count: themeDiagnostics.length, singular: "theme issue" },
+				].filter((item) => item.count > 0);
+
+				if (diagnosticSummaryItems.length > 0) {
+					const expandKey = keyText("app.tools.expand") || "ctrl+o";
+					const summary = diagnosticSummaryItems
+						.map((item) => formatSummaryCount(item.count, item.singular))
+						.join(" · ");
+					this.chatContainer.addChild(
+						new Text(
+							`${theme.fg("warning", "[Startup diagnostics]")}\n${theme.fg(
+								"dim",
+								`  ${summary} · ${expandKey} for details`,
+							)}`,
+							0,
+							0,
+						),
+					);
+					this.chatContainer.addChild(new Spacer(1));
+				}
+			} else {
+				if (skillDiagnostics.length > 0) {
+					const warningLines = this.formatDiagnostics(skillDiagnostics, sourceInfos);
+					this.chatContainer.addChild(
+						new Text(`${theme.fg("warning", "[Skill conflicts]")}\n${warningLines}`, 0, 0),
+					);
+					this.chatContainer.addChild(new Spacer(1));
+				}
+
+				if (promptDiagnostics.length > 0) {
+					const warningLines = this.formatDiagnostics(promptDiagnostics, sourceInfos);
+					this.chatContainer.addChild(
+						new Text(`${theme.fg("warning", "[Prompt conflicts]")}\n${warningLines}`, 0, 0),
+					);
+					this.chatContainer.addChild(new Spacer(1));
+				}
+
+				if (extensionDiagnostics.length > 0) {
+					const warningLines = this.formatDiagnostics(extensionDiagnostics, sourceInfos);
+					this.chatContainer.addChild(
+						new Text(`${theme.fg("warning", "[Extension issues]")}\n${warningLines}`, 0, 0),
+					);
+					this.chatContainer.addChild(new Spacer(1));
+				}
+
+				if (themeDiagnostics.length > 0) {
+					const warningLines = this.formatDiagnostics(themeDiagnostics, sourceInfos);
+					this.chatContainer.addChild(
+						new Text(`${theme.fg("warning", "[Theme conflicts]")}\n${warningLines}`, 0, 0),
+					);
+					this.chatContainer.addChild(new Spacer(1));
+				}
 			}
 		}
 	}
@@ -1598,7 +1803,7 @@ export class InteractiveMode {
 
 		const extensionRunner = this.session.extensionRunner;
 		this.setupExtensionShortcuts(extensionRunner);
-		this.showLoadedResources({ force: false, showDiagnosticsWhenQuiet: true });
+		this.showLoadedResources({ force: false, showDiagnosticsWhenQuiet: true, summaryOnly: true });
 		this.showStartupNoticesIfNeeded();
 	}
 
@@ -1646,6 +1851,7 @@ export class InteractiveMode {
 		this.streamingComponent = undefined;
 		this.streamingMessage = undefined;
 		this.pendingTools.clear();
+		this.optimisticUserMessages = [];
 		this.renderInitialMessages();
 	}
 
@@ -1728,16 +1934,115 @@ export class InteractiveMode {
 		return new Loader(
 			this.ui,
 			(spinner) => theme.fg("accent", spinner),
-			(text) => theme.fg("muted", text),
+			(text) => theme.fg("warning", text),
 			this.getWorkingLoaderMessage(),
 			this.workingIndicatorOptions,
 		);
+	}
+
+	private startWorkingActivity(): void {
+		this.statusContainer.clear();
+		this.activityStartedAt = Date.now();
+		this.activityHadThinking = false;
+		this.activityOutputTokens = 0;
+		this.activityOutputTokenEstimate = 0;
+		if (this.workingMessage || this.workingIndicatorOptions) {
+			this.loadingAnimation = this.createWorkingLoader();
+			this.statusContainer.addChild(this.loadingAnimation);
+			return;
+		}
+		this.activityAnimation = new ActivityStatus(this.ui, { startedAt: this.activityStartedAt });
+		this.statusContainer.addChild(this.activityAnimation);
+		this.activityAnimation.start();
+	}
+
+	private estimateOutputTokenDelta(delta: string): number {
+		if (!delta) {
+			return 0;
+		}
+		let cjkChars = 0;
+		let otherChars = 0;
+		for (const char of delta) {
+			if (/[\u3400-\u9fff\uf900-\ufaff]/u.test(char)) {
+				cjkChars++;
+			} else if (!/\s/u.test(char)) {
+				otherChars++;
+			}
+		}
+		return cjkChars + Math.ceil(otherChars / 4);
+	}
+
+	private updateActivityOutputTokens(event: AgentSessionEvent): void {
+		if (!this.activityAnimation || event.type !== "message_update" || event.message.role !== "assistant") {
+			return;
+		}
+
+		const streamedEvent = event.assistantMessageEvent;
+		if (
+			streamedEvent.type === "text_delta" ||
+			streamedEvent.type === "thinking_delta" ||
+			streamedEvent.type === "toolcall_delta"
+		) {
+			this.activityOutputTokenEstimate += this.estimateOutputTokenDelta(streamedEvent.delta);
+		}
+
+		const assistant = event.message as AssistantMessage;
+		const providerTokens = assistant.usage?.output ?? 0;
+		this.activityOutputTokens = Math.max(this.activityOutputTokens, providerTokens, this.activityOutputTokenEstimate);
+		this.activityAnimation.setOutputTokens(this.activityOutputTokens > 0 ? this.activityOutputTokens : undefined);
+	}
+
+	private completeWorkingActivity(messages: AgentMessage[]): void {
+		if (this.activityStartedAt === undefined) {
+			return;
+		}
+		if (!this.activityAnimation) {
+			this.activityStartedAt = undefined;
+			this.activityHadThinking = false;
+			this.activityOutputTokens = 0;
+			this.activityOutputTokenEstimate = 0;
+			return;
+		}
+		const assistants = messages.filter((message): message is AssistantMessage => message.role === "assistant");
+		if (
+			assistants.length === 0 ||
+			assistants.some((message) => message.stopReason === "error" || message.stopReason === "aborted")
+		) {
+			this.stopWorkingLoader();
+			this.activityStartedAt = undefined;
+			this.activityHadThinking = false;
+			this.activityOutputTokens = 0;
+			this.activityOutputTokenEstimate = 0;
+			return;
+		}
+
+		this.activityAnimation.stop();
+		this.activityAnimation = undefined;
+		this.statusContainer.clear();
+		this.chatContainer.addChild(
+			new Text(
+				formatActivityCompletion({
+					word: pickActivityDoneWord(),
+					durationMs: Date.now() - this.activityStartedAt,
+				}),
+				1,
+				0,
+			),
+		);
+		this.activityStartedAt = undefined;
+		this.activityHadThinking = false;
+		this.activityOutputTokens = 0;
+		this.activityOutputTokenEstimate = 0;
 	}
 
 	private stopWorkingLoader(): void {
 		if (this.loadingAnimation) {
 			this.loadingAnimation.stop();
 			this.loadingAnimation = undefined;
+		}
+		if (this.activityAnimation) {
+			this.activityAnimation.stop();
+			this.activityAnimation = undefined;
 		}
 		this.statusContainer.clear();
 	}
@@ -1749,10 +2054,8 @@ export class InteractiveMode {
 			this.ui.requestRender();
 			return;
 		}
-		if (this.session.isStreaming && !this.loadingAnimation) {
-			this.statusContainer.clear();
-			this.loadingAnimation = this.createWorkingLoader();
-			this.statusContainer.addChild(this.loadingAnimation);
+		if (this.session.isStreaming && !this.loadingAnimation && !this.activityAnimation) {
+			this.startWorkingActivity();
 		}
 		this.ui.requestRender();
 	}
@@ -2519,6 +2822,11 @@ export class InteractiveMode {
 			if (!text) return;
 
 			// Handle commands
+			if (text === "/commands" || text.startsWith("/commands ")) {
+				this.handleCommandsCommand(text);
+				this.editor.setText("");
+				return;
+			}
 			if (text === "/settings") {
 				this.showSettingsSelector();
 				this.editor.setText("");
@@ -2562,6 +2870,11 @@ export class InteractiveMode {
 			}
 			if (text === "/session") {
 				this.handleSessionCommand();
+				this.editor.setText("");
+				return;
+			}
+			if (text === "/memory" || text.startsWith("/memory ")) {
+				await this.handleMemoryCommand(text);
 				this.editor.setText("");
 				return;
 			}
@@ -2628,11 +2941,6 @@ export class InteractiveMode {
 			}
 			if (text === "/arminsayshi") {
 				this.handleArminSaysHi();
-				this.editor.setText("");
-				return;
-			}
-			if (text === "/dementedelves") {
-				this.handleDementedDelves();
 				this.editor.setText("");
 				return;
 			}
@@ -2736,8 +3044,7 @@ export class InteractiveMode {
 				}
 				this.stopWorkingLoader();
 				if (this.workingVisible) {
-					this.loadingAnimation = this.createWorkingLoader();
-					this.statusContainer.addChild(this.loadingAnimation);
+					this.startWorkingActivity();
 				}
 				this.ui.requestRender();
 				break;
@@ -2763,7 +3070,9 @@ export class InteractiveMode {
 					this.addMessageToChat(event.message);
 					this.ui.requestRender();
 				} else if (event.message.role === "user") {
-					this.addMessageToChat(event.message);
+					if (!this.consumeOptimisticUserMessage(event.message)) {
+						this.addMessageToChat(event.message);
+					}
 					this.updatePendingMessagesDisplay();
 					this.ui.requestRender();
 				} else if (event.message.role === "assistant") {
@@ -2784,6 +3093,11 @@ export class InteractiveMode {
 				if (this.streamingComponent && event.message.role === "assistant") {
 					this.streamingMessage = event.message;
 					this.streamingComponent.updateContent(this.streamingMessage);
+					if (event.assistantMessageEvent.type.startsWith("thinking_")) {
+						this.activityHadThinking = true;
+						this.activityAnimation?.setThinking(true);
+					}
+					this.updateActivityOutputTokens(event);
 
 					for (const content of this.streamingMessage.content) {
 						if (content.type === "toolCall") {
@@ -2817,8 +3131,18 @@ export class InteractiveMode {
 
 			case "message_end":
 				if (event.message.role === "user") break;
+				let finalizedAssistantMessage = false;
 				if (this.streamingComponent && event.message.role === "assistant") {
+					finalizedAssistantMessage = true;
 					this.streamingMessage = event.message;
+					if (
+						this.streamingMessage.content.some(
+							(content) => content.type === "thinking" && content.thinking.trim().length > 0,
+						)
+					) {
+						this.activityHadThinking = true;
+						this.activityAnimation?.setThinking(true);
+					}
 					let errorMessage: string | undefined;
 					if (this.streamingMessage.stopReason === "aborted") {
 						const retryAttempt = this.session.retryAttempt;
@@ -2851,7 +3175,7 @@ export class InteractiveMode {
 					this.streamingMessage = undefined;
 					this.footer.invalidate();
 				}
-				this.ui.requestRender();
+				this.ui.requestRender(finalizedAssistantMessage);
 				break;
 
 			case "tool_execution_start": {
@@ -2905,6 +3229,15 @@ export class InteractiveMode {
 					this.loadingAnimation.stop();
 					this.loadingAnimation = undefined;
 					this.statusContainer.clear();
+				}
+				if (!event.willRetry) {
+					this.completeWorkingActivity(event.messages);
+				} else {
+					this.stopWorkingLoader();
+					this.activityStartedAt = undefined;
+					this.activityHadThinking = false;
+					this.activityOutputTokens = 0;
+					this.activityOutputTokenEstimate = 0;
 				}
 				if (this.streamingComponent) {
 					this.chatContainer.removeChild(this.streamingComponent);
@@ -3053,6 +3386,28 @@ export class InteractiveMode {
 				? [{ type: "text", text: message.content }]
 				: message.content.filter((c: { type: string }) => c.type === "text");
 		return textBlocks.map((c) => (c as { text: string }).text).join("");
+	}
+
+	private renderAcceptedUserMessage(message: AgentMessage): void {
+		if (message.role !== "user") {
+			return;
+		}
+		const text = this.getUserMessageText(message).trim();
+		if (!text) {
+			return;
+		}
+		this.optimisticUserMessages.push(text);
+		this.addMessageToChat(message);
+		this.updatePendingMessagesDisplay();
+		this.ui.requestRender();
+	}
+
+	private consumeOptimisticUserMessage(message: AgentMessage): boolean {
+		if (message.role !== "user" || this.optimisticUserMessages.length === 0) {
+			return false;
+		}
+		this.optimisticUserMessages.shift();
+		return true;
 	}
 
 	/**
@@ -3669,10 +4024,11 @@ export class InteractiveMode {
 			}
 
 			// Restart TUI
-			this.ui.start();
-			// Force full re-render since external editor uses alternate screen
-			this.ui.requestRender(true);
-		}
+		this.ui.start();
+		// Force full re-render since external editor uses alternate screen
+		this.ui.requestRender(true);
+		this.flushMemorixWarnings();
+	}
 	}
 
 	// =========================================================================
@@ -5126,6 +5482,7 @@ export class InteractiveMode {
 			this.showLoadedResources({
 				force: false,
 				showDiagnosticsWhenQuiet: true,
+				summaryOnly: true,
 			});
 			const savedImplicitProjectTrust = this.maybeSaveImplicitProjectTrustAfterReload();
 			const modelsJsonError = this.session.modelRegistry.getError();
@@ -5404,6 +5761,163 @@ export class InteractiveMode {
 		this.ui.requestRender();
 	}
 
+	private getCommandRows(): Array<{ name: string; description: string; source: string }> {
+		const builtinNames = new Set(BUILTIN_SLASH_COMMANDS.map((command) => command.name));
+		const builtins = BUILTIN_SLASH_COMMANDS.map((command) => ({
+			name: `/${command.name}`,
+			description: command.description,
+			source: "built-in",
+		}));
+		const builtinFullNames = new Set(builtins.map((command) => command.name));
+		const tuiDiscovery = getTuiSlashCommandRows()
+			.filter((command) => !builtinFullNames.has(command.name))
+			.map((command) => ({
+				name: command.name,
+				description: `${command.description} (${command.mode})`,
+				source: command.source,
+			}));
+		const extensionCommands = this.session.extensionRunner
+			.getRegisteredCommands()
+			.filter((command) => !builtinNames.has(command.name))
+			.map((command) => ({
+				name: `/${command.invocationName}`,
+				description: command.description || "Extension command",
+				source: "extension",
+			}));
+		const templates = this.session.promptTemplates.map((template) => ({
+			name: `/${template.name}`,
+			description: template.description || "Prompt template",
+			source: "prompt",
+		}));
+		const skills = this.settingsManager.getEnableSkillCommands()
+			? this.session.resourceLoader.getSkills().skills.map((skill) => ({
+					name: `/skill:${skill.name}`,
+					description: skill.description || "Skill command",
+					source: "skill",
+				}))
+			: [];
+
+		return [...builtins, ...tuiDiscovery, ...extensionCommands, ...templates, ...skills].sort((a, b) =>
+			a.name.localeCompare(b.name),
+		);
+	}
+
+	private handleCommandsCommand(text: string): void {
+		const query = text.startsWith("/commands ") ? text.slice(10).trim().toLowerCase() : "";
+		const rows = this.getCommandRows().filter((row) => {
+			if (!query) return true;
+			return (
+				row.name.toLowerCase().includes(query) ||
+				row.description.toLowerCase().includes(query) ||
+				row.source.toLowerCase().includes(query)
+			);
+		});
+		const lines = [
+			`Showing ${rows.length} command${rows.length === 1 ? "" : "s"}${query ? ` matching "${query}"` : ""}.`,
+			"",
+			"| Command | Source | Description |",
+			"|---|---|---|",
+			...rows.map((row) => `| \`${row.name}\` | ${row.source} | ${row.description.replace(/\|/g, "\\|")} |`),
+			"",
+			"Tip: type `/commands memory`, `/commands model`, or `/commands skill` to filter this list.",
+		];
+
+		this.chatContainer.addChild(new Spacer(1));
+		this.chatContainer.addChild(new DynamicBorder());
+		this.chatContainer.addChild(new Text(theme.bold(theme.fg("accent", "Slash Commands")), 1, 0));
+		this.chatContainer.addChild(new Spacer(1));
+		this.chatContainer.addChild(new Markdown(lines.join("\n"), 1, 1, this.getMarkdownThemeWithSettings()));
+		this.chatContainer.addChild(new DynamicBorder());
+		this.ui.requestRender();
+	}
+
+	private appendMemoryCommandMessage(message: string): void {
+		this.chatContainer.addChild(new Spacer(1));
+		this.chatContainer.addChild(new DynamicBorder());
+		this.chatContainer.addChild(new Text(theme.bold(theme.fg("accent", "Memorix")), 1, 0));
+		this.chatContainer.addChild(new Spacer(1));
+		this.chatContainer.addChild(new Markdown(message, 1, 1, this.getMarkdownThemeWithSettings()));
+		this.chatContainer.addChild(new DynamicBorder());
+		this.ui.requestRender();
+	}
+
+	private showMemoryToast(message: string, type: "info" | "success" | "error" = "info"): void {
+		if (type === "error") {
+			this.showError(message);
+			return;
+		}
+		this.showStatus(message);
+	}
+
+	private applyMemoryCommandResult(result: MemoryCommandResult): void {
+		if (result.message) {
+			this.appendMemoryCommandMessage(result.message);
+		}
+		if (result.items && result.items.length > 0) {
+			const lines = [
+				"| ID | Memory | Detail |",
+				"|---|---|---|",
+				...result.items.map(
+					(item) =>
+						`| \`${item.id.replace(/\|/g, "\\|")}\` | ${item.label.replace(/\|/g, "\\|")} | ${item.description.replace(/\|/g, "\\|")} |`,
+				),
+			];
+			this.appendMemoryCommandMessage(lines.join("\n"));
+		}
+		if (result.toast) {
+			this.showMemoryToast(result.toast.msg, result.toast.type);
+		}
+	}
+
+	private getMemoryHelpMessage(detail?: string): string {
+		const lines = [
+			"Memorix memory commands",
+			"",
+			detail,
+			detail ? "" : undefined,
+			"| Command | Purpose |",
+			"|---|---|",
+			"| `/memory status` | Show native Memorix runtime status |",
+			"| `/memory stats` | Show memory counts and vector status |",
+			"| `/memory hooks` | Show native hook capture status |",
+			"| `/memory search <query>` | Search project memories |",
+			"| `/memory show` | List recent project memories |",
+			"| `/memory diff` | Show recent memory changes |",
+			"| `/memory promote` | Store the last assistant response as memory |",
+			"| `/memory delete` | Resolve a memory entry |",
+			"",
+			"Production path: search first to recover context, promote only durable decisions/fixes, use stats to spot stale or missing project memory.",
+		].filter((line): line is string => line !== undefined);
+		return lines.join("\n");
+	}
+
+	private async handleMemoryCommand(text: string): Promise<void> {
+		const rawArgs = text.startsWith("/memory ") ? text.slice(8).trim() : "";
+		if (!rawArgs) {
+			this.appendMemoryCommandMessage(this.getMemoryHelpMessage());
+			return;
+		}
+
+		const [commandName, ...rest] = rawArgs.split(/\s+/);
+		const handler = MEMORY_COMMANDS[commandName];
+		if (!handler) {
+			this.appendMemoryCommandMessage(this.getMemoryHelpMessage(`Unknown memory command: \`${commandName}\``));
+			return;
+		}
+
+		try {
+			const result = await handler(rest.join(" "), {
+				cwd: this.sessionManager.getCwd(),
+				runtime: this.runtimeHost,
+				toast: (message, type) => this.showMemoryToast(message, type),
+				addMessage: (message) => this.appendMemoryCommandMessage(message),
+			});
+			this.applyMemoryCommandResult(result);
+		} catch (error: unknown) {
+			this.showError(`Memory command failed: ${error instanceof Error ? error.message : String(error)}`);
+		}
+	}
+
 	private handleChangelogCommand(): void {
 		const changelogPath = getChangelogPath();
 		const allEntries = parseChangelog(changelogPath);
@@ -5613,12 +6127,6 @@ export class InteractiveMode {
 		this.ui.requestRender();
 	}
 
-	private handleDementedDelves(): void {
-		this.chatContainer.addChild(new Spacer(1));
-		this.chatContainer.addChild(new EarendilAnnouncementComponent());
-		this.ui.requestRender();
-	}
-
 	private handleDaxnuts(): void {
 		this.chatContainer.addChild(new Spacer(1));
 		this.chatContainer.addChild(new DaxnutsComponent(this.ui));
@@ -5754,6 +6262,14 @@ export class InteractiveMode {
 		this.footerDataProvider.dispose();
 		if (this.unsubscribe) {
 			this.unsubscribe();
+		}
+		if (this.removeViewportWheelListener) {
+			this.removeViewportWheelListener();
+			this.removeViewportWheelListener = undefined;
+		}
+		if (this.memorixLogRestore) {
+			this.memorixLogRestore();
+			this.memorixLogRestore = undefined;
 		}
 		if (this.isInitialized) {
 			this.ui.stop();

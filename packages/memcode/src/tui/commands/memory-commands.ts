@@ -16,6 +16,12 @@
 
 import { importFromMemorix } from "../../core/memorix-resolve.ts";
 import type { AgentSessionRuntime } from "../../core/agent-session-runtime.ts";
+import { getMemorixHookBridgeStatus } from "../../memory/memorix-hook-bridge.ts";
+import {
+	formatMemorixRuntimeStatus,
+	getMemorixRuntimeContext,
+	resolveMemorixProjectContext,
+} from "../../memory/memorix-runtime-context.ts";
 
 // ============================================================================
 // Lazy-imported memorix core functions
@@ -57,10 +63,6 @@ async function getResolveObservations() {
 	return loadFn("memory/observations.js", "resolveObservations");
 }
 
-async function getDetectProject() {
-	return loadFn("project/detector.js", "detectProject");
-}
-
 async function getGetAllObservations() {
 	return loadFn("memory/observations.js", "getAllObservations");
 }
@@ -79,9 +81,7 @@ async function getGetVectorStatus() {
 
 async function resolveProjectId(cwd: string): Promise<string> {
 	try {
-		const detectProject = await getDetectProject();
-		const project = detectProject(cwd);
-		return project?.id ?? cwd;
+		return (await resolveMemorixProjectContext(cwd)).canonicalId;
 	} catch {
 		return cwd;
 	}
@@ -378,6 +378,73 @@ async function handleDelete(_args: string, ctx: MemoryCommandContext): Promise<M
 	}
 }
 
+// ── /memory hooks ─────────────────────────────────────────────────────────
+
+async function handleHooks(_args: string, _ctx: MemoryCommandContext): Promise<MemoryCommandResult> {
+	const status = getMemorixHookBridgeStatus();
+	const counts = Object.entries(status.counts)
+		.filter(([, count]) => typeof count === "number" && count > 0)
+		.sort(([a], [b]) => a.localeCompare(b))
+		.map(([event, count]) => `  ${event}: ${count}`);
+
+	const lines: string[] = [];
+	lines.push("Memorix Native Hooks");
+	lines.push("");
+	lines.push(`Active: ${status.active ? "yes" : "no"}`);
+	lines.push(`Created: ${status.createdAt}`);
+	if (status.sessionId) lines.push(`Session: ${status.sessionId}`);
+	if (status.cwd) lines.push(`CWD: ${status.cwd}`);
+	lines.push("");
+	lines.push("Event counts:");
+	if (counts.length > 0) {
+		lines.push(...counts);
+	} else {
+		lines.push("  (no captured events yet)");
+	}
+	lines.push("");
+	if (status.lastStoredObservation) {
+		lines.push(
+			`Last stored: [${status.lastStoredObservation.type}] ${status.lastStoredObservation.title} (${status.lastStoredObservation.entityName})`,
+		);
+	}
+	if (status.lastError) {
+		lines.push(`Last error: ${status.lastError}`);
+	} else {
+		lines.push("Last error: none");
+	}
+	if (status.recentEvents.length > 0) {
+		lines.push("");
+		lines.push("Recent events:");
+		for (const event of status.recentEvents.slice(0, 5)) {
+			const flags = [
+				event.stored ? "stored" : null,
+				event.skipped ? `skipped:${event.skipped}` : null,
+			].filter((value): value is string => value !== null);
+			lines.push(`  ${event.event} — ${event.detail}${flags.length > 0 ? ` (${flags.join(", ")})` : ""}`);
+		}
+	}
+
+	return {
+		message: lines.join("\n"),
+		toast: { msg: "Native hook status ready", type: "info" },
+	};
+}
+
+// ── /memory status ────────────────────────────────────────────────────────
+
+async function handleStatus(_args: string, ctx: MemoryCommandContext): Promise<MemoryCommandResult> {
+	try {
+		const status = await getMemorixRuntimeContext(ctx.cwd);
+		return {
+			message: formatMemorixRuntimeStatus(status),
+			toast: { msg: "Memorix runtime status ready", type: "info" },
+		};
+	} catch (err) {
+		const msg = `Status failed: ${err instanceof Error ? err.message : String(err)}`;
+		return { toast: { msg, type: "error" } };
+	}
+}
+
 // ── Execute delete (called after user confirms a picker selection) ──────────
 
 export async function executeDelete(id: number, ctx: MemoryCommandContext): Promise<MemoryCommandResult> {
@@ -404,10 +471,12 @@ export async function executeDelete(id: number, ctx: MemoryCommandContext): Prom
 // ============================================================================
 
 export const MEMORY_COMMANDS: Record<string, MemoryCommandHandler> = {
+	status: handleStatus,
 	stats: handleStats,
 	search: handleSearch,
 	show: handleShow,
 	diff: handleDiff,
 	promote: handlePromote,
 	delete: handleDelete,
+	hooks: handleHooks,
 };

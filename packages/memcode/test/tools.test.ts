@@ -396,7 +396,7 @@ describe("Coding Agent Tools", () => {
 					path: testFile,
 					edits: [{ oldText: "hello", newText: "world" }],
 				}),
-			).rejects.toThrow(`Could not edit file: ${testFile}. Error code: EACCES.`);
+			).rejects.toThrow(new RegExp(`Could not edit file: ${testFile.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\. Error code: (EACCES|EPERM)\\.`));
 		});
 
 		it("should include the original error message for unknown edit access errors", async () => {
@@ -432,6 +432,11 @@ describe("Coding Agent Tools", () => {
 
 			const result = await computeEditsDiff(unreadableFile, [{ oldText: "hello", newText: "world" }], testDir);
 
+			if (process.platform === "win32") {
+				// Windows chmod does not reliably remove read access for the current user.
+				expect(result).toEqual({ diff: "-1 hello\n+1 world", firstChangedLine: 1 });
+				return;
+			}
 			expect(result).toEqual({ error: `Could not edit file: ${unreadableFile}. Error code: EACCES.` });
 		});
 	});

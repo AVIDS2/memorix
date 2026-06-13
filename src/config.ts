@@ -74,11 +74,11 @@ export function resetConfigCache(): void {
 
 // ─── Resolved Getters (env > config.json > default) ──────────────────
 
-/** LLM API key: env > memorix.yml > config.json > generic env fallbacks */
+/** Memory/background LLM API key: env > memorix.yml > config.json > provider env fallbacks */
 export function getLLMApiKey(): string | undefined {
   return (
-    process.env.MEMORIX_LLM_API_KEY ||  // LLM-specific (优先级最高)
-    process.env.MEMORIX_API_KEY ||  // Unified API key (fallback)
+    process.env.MEMORIX_LLM_API_KEY ||
+    process.env.MEMORIX_API_KEY ||
     loadYamlConfig().llm?.apiKey ||
     loadFileConfig().llm?.apiKey ||
     process.env.OPENAI_API_KEY ||
@@ -111,9 +111,10 @@ export function getLLMBaseUrl(providerDefault: string): string {
   return process.env.MEMORIX_LLM_BASE_URL || loadYamlConfig().llm?.baseUrl || loadFileConfig().llm?.baseUrl || providerDefault;
 }
 
-/** TUI/chat agent LLM API key: agent env > agent config > memory LLM fallback */
+/** TUI/chat agent API key: agent env > agent config > memory LLM fallback */
 export function getAgentLLMApiKey(): string | undefined {
   return (
+    process.env.MEMORIX_AGENT_API_KEY ||
     process.env.MEMORIX_AGENT_LLM_API_KEY ||
     loadYamlConfig().agent?.apiKey ||
     loadFileConfig().agent?.apiKey ||
@@ -121,8 +122,9 @@ export function getAgentLLMApiKey(): string | undefined {
   );
 }
 
-/** TUI/chat agent LLM provider: agent env > agent config > memory LLM fallback */
+/** TUI/chat agent provider: agent env > agent config > memory LLM fallback */
 export function getAgentLLMProvider(): string {
+  if (process.env.MEMORIX_AGENT_PROVIDER) return process.env.MEMORIX_AGENT_PROVIDER;
   if (process.env.MEMORIX_AGENT_LLM_PROVIDER) return process.env.MEMORIX_AGENT_LLM_PROVIDER;
   const yml = loadYamlConfig();
   if (yml.agent?.provider) return yml.agent.provider;
@@ -131,9 +133,10 @@ export function getAgentLLMProvider(): string {
   return getLLMProvider();
 }
 
-/** TUI/chat agent LLM model: agent env > agent config > memory LLM fallback */
+/** TUI/chat agent model: agent env > agent config > memory LLM fallback */
 export function getAgentLLMModel(providerDefault: string): string {
   return (
+    process.env.MEMORIX_AGENT_MODEL ||
     process.env.MEMORIX_AGENT_LLM_MODEL ||
     loadYamlConfig().agent?.model ||
     loadFileConfig().agent?.model ||
@@ -141,9 +144,10 @@ export function getAgentLLMModel(providerDefault: string): string {
   );
 }
 
-/** TUI/chat agent LLM base URL: agent env > agent config > memory LLM fallback */
+/** TUI/chat agent base URL: agent env > agent config > memory LLM fallback */
 export function getAgentLLMBaseUrl(providerDefault: string): string {
   return (
+    process.env.MEMORIX_AGENT_BASE_URL ||
     process.env.MEMORIX_AGENT_LLM_BASE_URL ||
     loadYamlConfig().agent?.baseUrl ||
     loadFileConfig().agent?.baseUrl ||
@@ -165,30 +169,22 @@ export function getEmbeddingMode(): 'off' | 'fastembed' | 'transformers' | 'api'
   return 'off';
 }
 
-/** Embedding API key: env > memorix.yml > config.json > LLM key fallback */
+/** Embedding API key: embedding lane only. Do not borrow memory LLM or agent keys. */
 export function getEmbeddingApiKey(): string | undefined {
   return (
-    process.env.MEMORIX_EMBEDDING_API_KEY ||  // Embedding-specific (优先级最高)
-    process.env.MEMORIX_API_KEY ||  // Unified API key (fallback)
-    process.env.MEMORIX_LLM_API_KEY ||
+    process.env.MEMORIX_EMBEDDING_API_KEY ||
     loadYamlConfig().embedding?.apiKey ||
     loadFileConfig().embeddingApi?.apiKey ||
-    loadYamlConfig().llm?.apiKey ||
-    loadFileConfig().llm?.apiKey ||
-    process.env.OPENAI_API_KEY ||
     undefined
   );
 }
 
-/** Embedding base URL: env > memorix.yml > config.json > LLM URL fallback */
+/** Embedding base URL: env > memorix.yml > config.json > provider default */
 export function getEmbeddingBaseUrl(): string {
   return (
     process.env.MEMORIX_EMBEDDING_BASE_URL ||
     loadYamlConfig().embedding?.baseUrl ||
     loadFileConfig().embeddingApi?.baseUrl ||
-    process.env.MEMORIX_LLM_BASE_URL ||
-    loadYamlConfig().llm?.baseUrl ||
-    loadFileConfig().llm?.baseUrl ||
     'https://api.openai.com/v1'
   );
 }

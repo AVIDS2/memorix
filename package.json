@@ -1,6 +1,6 @@
 {
   "name": "memorix",
-  "version": "1.0.10",
+  "version": "1.0.11",
   "description": "Open-source cross-agent memory layer for coding agents across Cursor, Claude Code, Codex, Windsurf, Gemini CLI, Copilot, Kiro, OpenCode, Antigravity, and Trae via MCP.",
   "type": "module",
   "sideEffects": false,
@@ -34,6 +34,7 @@
     "README.md",
     "README.zh-CN.md",
     "docs",
+    "!docs/superpowers",
     "TEAM.md",
     "LICENSE",
     "CHANGELOG.md",
@@ -91,9 +92,10 @@
     "url": "https://github.com/sponsors/AVIDS2"
   },
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=22.19.0"
   },
   "dependencies": {
+    "@memorix/memcode": "^1.0.11",
     "@clack/prompts": "^0.9.1",
     "@modelcontextprotocol/sdk": "^1.26.0",
     "@orama/orama": "^3.1.0",
@@ -112,7 +114,7 @@
     "ink-scroll-view": "^0.3.6",
     "ink-spinner": "^5.0.0",
     "js-yaml": "^3.13.1",
-    "react": "^19.2.4",
+    "react": "19.2.7",
     "remark": "^15.0.1",
     "remark-stringify": "^11.0.0",
     "zod": "^3.24.0"
@@ -131,7 +133,7 @@
     "@types/better-sqlite3": "^7.6.0",
     "@types/diff": "^7.0.0",
     "@types/node": "^22.0.0",
-    "@types/react": "^19.2.14",
+    "@types/react": "19.2.7",
     "ink-testing-library": "^4.0.0",
     "tsup": "^8.4.0",
     "typescript": "^5.7.0",

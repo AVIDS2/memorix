@@ -283,12 +283,14 @@ export class TUI extends Container {
 	private clearOnShrink = (process.env.MEMCODE_CLEAR_ON_SHRINK ?? process.env.PI_CLEAR_ON_SHRINK) === "1"; // Clear empty rows when content shrinks (default: off)
 	private maxLinesRendered = 0; // Track terminal's working area (max lines ever rendered)
 	private previousViewportTop = 0; // Track previous viewport top for resize-aware cursor moves
+	private viewportScrollOffset = 0; // Manual viewport offset from the live bottom
 	private fullRedrawCount = 0;
 	private stopped = false;
 
 	// Overlay stack for modal components rendered on top of base content
 	private focusOrderCounter = 0;
 	private overlayStack: OverlayStackEntry[] = [];
+	private nonCapturingOverlayRows: number[] = [];
 	private overlayFocusRestore: OverlayFocusRestoreState = { status: "inactive" };
 
 	constructor(terminal: Terminal, showHardwareCursor?: boolean) {
@@ -616,6 +618,27 @@ export class TUI extends Container {
 		};
 	}
 
+	hasVisibleOverlays(): boolean {
+		return this.hasOverlay();
+	}
+
+	isViewportScrolled(): boolean {
+		return this.viewportScrollOffset > 0;
+	}
+
+	scrollViewportBy(lines: number): void {
+		const nextOffset = Math.max(0, this.viewportScrollOffset + lines);
+		if (nextOffset === this.viewportScrollOffset) return;
+		this.viewportScrollOffset = nextOffset;
+		this.requestRender(true);
+	}
+
+	resetViewportScroll(): void {
+		if (this.viewportScrollOffset === 0) return;
+		this.viewportScrollOffset = 0;
+		this.requestRender(true);
+	}
+
 	removeInputListener(listener: InputListener): void {
 		this.inputListeners.delete(listener);
 	}
@@ -937,7 +960,7 @@ export class TUI extends Container {
 		const rendered: { overlayLines: string[]; row: number; col: number; w: number }[] = [];
 		let minLinesNeeded = result.length;
 
-		const visibleEntries = this.overlayStack.filter((e) => this.isOverlayVisible(e));
+		const visibleEntries = this.overlayStack.filter((e) => !e.options?.nonCapturing && this.isOverlayVisible(e));
 		visibleEntries.sort((a, b) => a.focusOrder - b.focusOrder);
 		for (const entry of visibleEntries) {
 			const { component, options } = entry;
@@ -988,6 +1011,65 @@ export class TUI extends Container {
 		}
 
 		return result;
+	}
+
+	private clearNonCapturingOverlays(): void {
+		if (this.nonCapturingOverlayRows.length === 0) return;
+		let buffer = "\x1b7";
+		for (const row of this.nonCapturingOverlayRows) {
+			buffer += `\x1b[${row + 1};1H\x1b[2K`;
+		}
+		buffer += "\x1b8";
+		this.terminal.write(buffer);
+		this.nonCapturingOverlayRows = [];
+	}
+
+	private drawNonCapturingOverlays(termWidth: number, termHeight: number): void {
+		const visibleEntries = this.overlayStack.filter((entry) => this.isOverlayVisible(entry));
+		const transientEntries = visibleEntries
+			.filter((entry) => entry.options?.nonCapturing)
+			.sort((a, b) => a.focusOrder - b.focusOrder);
+		if (transientEntries.length === 0) return;
+
+		const capturingRects = visibleEntries
+			.filter((entry) => !entry.options?.nonCapturing)
+			.map((entry) => {
+				const { width, maxHeight } = this.resolveOverlayLayout(entry.options, 0, termWidth, termHeight);
+				let overlayLines = entry.component.render(width);
+				if (maxHeight !== undefined && overlayLines.length > maxHeight) {
+					overlayLines = overlayLines.slice(0, maxHeight);
+				}
+				const { row, col } = this.resolveOverlayLayout(entry.options, overlayLines.length, termWidth, termHeight);
+				return { entry, row, col, width, height: overlayLines.length };
+			});
+
+		let buffer = "\x1b7";
+		const rows = new Set<number>();
+		for (const entry of transientEntries) {
+			const { width, maxHeight } = this.resolveOverlayLayout(entry.options, 0, termWidth, termHeight);
+			let overlayLines = entry.component.render(width);
+			if (maxHeight !== undefined && overlayLines.length > maxHeight) {
+				overlayLines = overlayLines.slice(0, maxHeight);
+			}
+			const { row, col } = this.resolveOverlayLayout(entry.options, overlayLines.length, termWidth, termHeight);
+			for (let i = 0; i < overlayLines.length; i++) {
+				const screenRow = row + i;
+				if (screenRow < 0 || screenRow >= termHeight) continue;
+				const isCoveredByHigherCapturingOverlay = capturingRects.some((rect) => {
+					if (rect.entry.focusOrder <= entry.focusOrder) return false;
+					if (screenRow < rect.row || screenRow >= rect.row + rect.height) return false;
+					return col < rect.col + rect.width && col + width > rect.col;
+				});
+				if (isCoveredByHigherCapturingOverlay) continue;
+				const line =
+					visibleWidth(overlayLines[i]) > width ? sliceByColumn(overlayLines[i], 0, width, true) : overlayLines[i];
+				buffer += `\x1b[${screenRow + 1};${col + 1}H\x1b[2K${line}`;
+				rows.add(screenRow);
+			}
+		}
+		buffer += "\x1b8";
+		this.terminal.write(buffer);
+		this.nonCapturingOverlayRows = [...rows];
 	}
 
 	private static readonly SEGMENT_RESET = "\x1b[0m\x1b]8;;\x07";
@@ -1139,6 +1221,9 @@ export class TUI extends Container {
 			const targetScreenRow = targetRow - viewportTop;
 			return targetScreenRow - currentScreenRow;
 		};
+		const drawTransientOverlays = (): void => this.drawNonCapturingOverlays(width, height);
+
+		this.clearNonCapturingOverlays();
 
 		// Render all components to get new lines
 		let newLines = this.render(width);
@@ -1146,6 +1231,43 @@ export class TUI extends Container {
 		// Composite overlays into the rendered lines (before differential compare)
 		if (this.overlayStack.length > 0) {
 			newLines = this.compositeOverlays(newLines, width, height);
+		}
+
+		if (this.viewportScrollOffset > 0) {
+			const maxOffset = Math.max(0, newLines.length - height);
+			this.viewportScrollOffset = Math.min(this.viewportScrollOffset, maxOffset);
+			if (this.viewportScrollOffset > 0) {
+				const viewportTop = Math.max(0, newLines.length - height - this.viewportScrollOffset);
+				const visibleLines = newLines.slice(viewportTop, viewportTop + height);
+				while (visibleLines.length < height) {
+					visibleLines.push("");
+				}
+
+				this.extractCursorPosition(visibleLines, height);
+				const finalLines = this.applyLineResets(visibleLines);
+
+				let buffer = "\x1b[?2026h";
+				buffer += this.deleteKittyImages(this.previousKittyImageIds);
+				buffer += "\x1b[2J\x1b[H\x1b[3J";
+				for (let i = 0; i < finalLines.length; i++) {
+					if (i > 0) buffer += "\r\n";
+					buffer += finalLines[i];
+				}
+				buffer += "\x1b[?2026l";
+				this.terminal.write(buffer);
+
+				this.cursorRow = Math.max(0, finalLines.length - 1);
+				this.hardwareCursorRow = this.cursorRow;
+				this.maxLinesRendered = finalLines.length;
+				this.previousViewportTop = viewportTop;
+				this.previousLines = finalLines;
+				this.previousKittyImageIds = this.collectKittyImageIds(finalLines);
+				this.previousWidth = width;
+				this.previousHeight = height;
+				this.terminal.hideCursor();
+				drawTransientOverlays();
+				return;
+			}
 		}
 
 		// Extract cursor position before applying line resets (marker must be found first)
@@ -1182,6 +1304,7 @@ export class TUI extends Container {
 			this.previousKittyImageIds = this.collectKittyImageIds(newLines);
 			this.previousWidth = width;
 			this.previousHeight = height;
+			drawTransientOverlays();
 		};
 
 		const debugRedraw = (process.env.MEMCODE_DEBUG_REDRAW ?? process.env.PI_DEBUG_REDRAW) === "1";
@@ -1256,6 +1379,7 @@ export class TUI extends Container {
 			this.positionHardwareCursor(cursorPos, newLines.length);
 			this.previousViewportTop = prevViewportTop;
 			this.previousHeight = height;
+			drawTransientOverlays();
 			return;
 		}
 
@@ -1305,6 +1429,7 @@ export class TUI extends Container {
 			this.previousWidth = width;
 			this.previousHeight = height;
 			this.previousViewportTop = prevViewportTop;
+			drawTransientOverlays();
 			return;
 		}
 
@@ -1453,6 +1578,7 @@ export class TUI extends Container {
 		this.previousKittyImageIds = this.collectKittyImageIds(newLines);
 		this.previousWidth = width;
 		this.previousHeight = height;
+		drawTransientOverlays();
 	}
 
 	/**

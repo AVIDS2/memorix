@@ -64,6 +64,11 @@ function getCellItalic(terminal: VirtualTerminal, row: number, col: number): num
 	return cell.isItalic();
 }
 
+function getHistoricalScrollback(terminal: VirtualTerminal): string[] {
+	const scrollBuffer = terminal.getScrollBuffer();
+	return scrollBuffer.slice(0, Math.max(0, scrollBuffer.length - terminal.rows));
+}
+
 describe("TUI Kitty image cleanup", () => {
 	it("deletes changed image ids before drawing moved placements", async () => {
 		const terminal = new LoggingVirtualTerminal(40, 10);
@@ -585,6 +590,28 @@ describe("TUI differential rendering", () => {
 			"Editor 1",
 			"Editor 2",
 		]);
+
+		tui.stop();
+	});
+
+	it("force redraw clears stale streaming revisions from scrollback", async () => {
+		const terminal = new VirtualTerminal(24, 3);
+		const tui = new TUI(terminal);
+		const component = new TestComponent();
+		tui.addChild(component);
+
+		component.lines = ["old prompt", "STALE_STREAM_PARTIAL", "editor"];
+		tui.start();
+		await terminal.waitForRender();
+
+		component.lines = ["final prompt", "FINAL_STREAM_TEXT", "editor"];
+		tui.requestRender(true);
+		await terminal.waitForRender();
+
+		const allBuffer = terminal.getScrollBuffer().join("\n");
+		assert.ok(!allBuffer.includes("STALE_STREAM_PARTIAL"), `stale stream text leaked:\n${allBuffer}`);
+		assert.ok(terminal.getViewport().join("\n").includes("FINAL_STREAM_TEXT"));
+		assert.strictEqual(getHistoricalScrollback(terminal).join("\n").includes("STALE_STREAM_PARTIAL"), false);
 
 		tui.stop();
 	});

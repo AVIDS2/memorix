@@ -256,21 +256,16 @@ export class APIEmbeddingProvider {
             requestedDimensions = cfg.getEmbeddingDimensions();
         }
         catch {
-            apiKey =
-                process.env.MEMORIX_EMBEDDING_API_KEY ||
-                    process.env.MEMORIX_API_KEY ||
-                    process.env.MEMORIX_LLM_API_KEY ||
-                    process.env.OPENAI_API_KEY;
+            apiKey = process.env.MEMORIX_EMBEDDING_API_KEY;
             baseUrl =
                 process.env.MEMORIX_EMBEDDING_BASE_URL ||
-                    process.env.MEMORIX_LLM_BASE_URL ||
                     'https://api.openai.com/v1';
             model = process.env.MEMORIX_EMBEDDING_MODEL || 'text-embedding-3-small';
             const dimStr = process.env.MEMORIX_EMBEDDING_DIMENSIONS;
             requestedDimensions = dimStr ? parseInt(dimStr, 10) : null;
         }
         if (!apiKey) {
-            throw new Error('No API key for embedding. Set MEMORIX_EMBEDDING_API_KEY, MEMORIX_LLM_API_KEY, or OPENAI_API_KEY, or run `memorix configure`.');
+            throw new Error('No API key for embedding. Set MEMORIX_EMBEDDING_API_KEY or configure embedding.apiKey in memorix.yml / ~/.memorix/config.json.');
         }
         baseUrl = baseUrl.replace(/\/+$/, '');
         return { apiKey, baseUrl, model, requestedDimensions };

@@ -597,7 +597,7 @@ async function runConfigure(): Promise<void> {
 
       if (embedding === 'api') {
         const apiKey = await p.password({
-          message: 'Embedding API key (leave empty to reuse LLM key):',
+          message: 'Embedding API key (leave empty to use BM25 fallback):',
         });
 
         if (p.isCancel(apiKey)) continue;

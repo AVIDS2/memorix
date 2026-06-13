@@ -370,6 +370,7 @@ Content`,
 				cwd: nestedCwd,
 				agentDir,
 				settingsManager,
+				homeDir: join(tempDir, "home"),
 			});
 
 			const result = await pm.resolve();
@@ -408,6 +409,7 @@ Content`,
 				cwd: nestedCwd,
 				agentDir,
 				settingsManager,
+				homeDir: join(tempDir, "home"),
 			});
 
 			const result = await pm.resolve();

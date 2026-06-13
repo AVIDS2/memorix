@@ -31,7 +31,7 @@ vi.mock('node:fs/promises', () => ({
   mkdir: vi.fn().mockResolvedValue(undefined),
 }));
 
-import { APIEmbeddingProvider } from '../../src/embedding/api-provider.js';
+import { APIEmbeddingProvider } from '../../src/embedding/api-provider.ts';
 
 // Helper: create a mock embedding response
 function mockEmbeddingResponse(embeddings: number[][], model = 'text-embedding-3-small') {
@@ -74,9 +74,14 @@ describe('API Embedding Provider', () => {
       MEMORIX_EMBEDDING_BASE_URL: 'https://api.test.com/v1',
       MEMORIX_EMBEDDING_MODEL: 'text-embedding-3-small',
     };
-    // Remove dimension override and unified key by default
+    // Remove dimension override and non-embedding lane keys by default
     delete process.env.MEMORIX_EMBEDDING_DIMENSIONS;
     delete process.env.MEMORIX_API_KEY;
+    delete process.env.MEMORIX_LLM_API_KEY;
+    delete process.env.MEMORIX_LLM_BASE_URL;
+    delete process.env.OPENAI_API_KEY;
+    delete process.env.DASHSCOPE_API_KEY;
+    delete process.env.ALIYUN_API_KEY;
   });
 
   afterEach(() => {
@@ -130,31 +135,26 @@ describe('API Embedding Provider', () => {
       expect(mockFetch).toHaveBeenCalledTimes(2);
     });
 
-    it('should fall back to LLM API key if embedding key not set', async () => {
+    it('should not fall back to memory LLM API key when embedding key is not set', async () => {
       delete process.env.MEMORIX_EMBEDDING_API_KEY;
       process.env.MEMORIX_LLM_API_KEY = 'llm-key-456';
 
-      const vec384 = makeVector(384);
-      mockFetch.mockResolvedValueOnce(mockEmbeddingResponse([vec384]));
-
-      const provider = await APIEmbeddingProvider.create();
-
-      const [, options] = mockFetch.mock.calls[0];
-      expect(options.headers['Authorization']).toBe('Bearer llm-key-456');
+      await expect(APIEmbeddingProvider.create()).rejects.toThrow('No API key');
     });
 
-    it('should fall back to OPENAI_API_KEY', async () => {
+    it('should not fall back to memory LLM MEMORIX_API_KEY when embedding key is not set', async () => {
+      delete process.env.MEMORIX_EMBEDDING_API_KEY;
+      process.env.MEMORIX_API_KEY = 'legacy-unified-key';
+
+      await expect(APIEmbeddingProvider.create()).rejects.toThrow('No API key');
+    });
+
+    it('should not fall back to provider OPENAI_API_KEY when embedding key is not set', async () => {
       delete process.env.MEMORIX_EMBEDDING_API_KEY;
       delete process.env.MEMORIX_LLM_API_KEY;
       process.env.OPENAI_API_KEY = 'openai-key-789';
 
-      const vec1536 = makeVector(1536);
-      mockFetch.mockResolvedValueOnce(mockEmbeddingResponse([vec1536]));
-
-      const provider = await APIEmbeddingProvider.create();
-
-      const [, options] = mockFetch.mock.calls[0];
-      expect(options.headers['Authorization']).toBe('Bearer openai-key-789');
+      await expect(APIEmbeddingProvider.create()).rejects.toThrow('No API key');
     });
 
     it('should throw if no API key available', async () => {

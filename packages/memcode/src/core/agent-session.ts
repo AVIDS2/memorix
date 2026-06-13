@@ -207,6 +207,8 @@ export interface PromptOptions {
 	source?: InputSource;
 	/** Internal hook used by RPC mode to observe prompt preflight acceptance or rejection. */
 	preflightResult?: (success: boolean) => void;
+	/** UI hook fired after the user message is accepted, before slower before_agent_start hooks run. */
+	onUserMessageAccepted?: (message: AgentMessage) => void;
 }
 
 /** Result from cycleModel() */
@@ -1084,11 +1086,13 @@ export class AgentSession {
 			if (currentImages) {
 				userContent.push(...currentImages);
 			}
-			messages.push({
+			const userMessage: AgentMessage = {
 				role: "user",
 				content: userContent,
 				timestamp: Date.now(),
-			});
+			};
+			messages.push(userMessage);
+			options?.onUserMessageAccepted?.(userMessage);
 
 			// Inject any pending "nextTurn" messages as context alongside the user message
 			for (const msg of this._pendingNextTurnMessages) {

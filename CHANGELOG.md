@@ -2,6 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.11] - 2026-06-13
+
+### Added -- memcode Native Agent Release Candidate
+- **Bundled memcode entry path** -- `memorix` with no subcommand and `memorix memcode` now launch the native memcode coding agent path, backed by the Pi-derived agent runtime under the Memorix package namespace.
+- **Native Memorix runtime awareness** -- memcode now exposes first-party runtime status through `memorix_status` and `/memory status`, including canonical project identity, shared aliases, project memory counts, source/value distribution, embedding/vector status, search mode, memory LLM lane, retention summary, native hook state, and last injected memory refs.
+- **Native hook bridge** -- memcode feeds its own prompt, tool, and assistant lifecycle events into the Memorix hook pipeline by default instead of behaving like an external MCP-only integration.
+- **Memory startup and command surface** -- restored the normal agent conversation surface with full slash-command discovery, startup diagnostics, startup card, memory commands, and native `/memory hooks` inspection.
+
+### Changed
+- **Shared project memory remains the default** -- memcode uses the same canonical project memory pool as Claude Code, Codex, and other Memorix-connected agents. memcode-specific behavior is represented with metadata rather than a separate memory bucket.
+- **API key lanes are isolated** -- memory LLM, embedding, and agent calls now use separate configuration lanes so users can mix providers without accidental cross-lane key reuse.
+- **TUI interaction model stabilized** -- mouse text selection, wheel scroll, prompt history, activity status, and input rendering were aligned with normal coding-agent TUI expectations.
+- **Runtime floor aligned with memcode** -- the package now declares Node.js `>=22.19.0`, matching the bundled native coding-agent stack.
+
+### Fixed
+- **Embedding fallback noise** -- invalid or unavailable embedding providers now fall back to BM25 with concise diagnostics instead of repeatedly deforming the TUI or spamming runtime output.
+- **Runtime config loading** -- YAML loading works in ESM contexts without relying on an unbound CommonJS `require`.
+- **Publish blocker** -- removed the stale Pi shrinkwrap path from memcode packaging so `@memorix/memcode` no longer locks installs to `@earendil-works/pi-*` packages or calls a missing shrinkwrap generator.
+
 ## [1.0.10] - 2026-06-08
 
 ### Added -- Low-Intrusion Handoff Diagnostics

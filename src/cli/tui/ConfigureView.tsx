@@ -378,7 +378,7 @@ export function ConfigureView({ onBack }: ConfigureViewProps): React.ReactElemen
       {section === 'emb-apikey' && (
         <Box flexDirection="column">
           <Text color={COLORS.text} bold>Embedding API Key</Text>
-          <InlineInput label="API key (empty = reuse LLM key)" value={inputValue} onChange={setInputValue} onSubmit={handleEmbApiKeyDone} isPassword />
+          <InlineInput label="API key (empty = BM25 fallback)" value={inputValue} onChange={setInputValue} onSubmit={handleEmbApiKeyDone} isPassword />
           <Text color={COLORS.muted}>Enter to confirm</Text>
         </Box>
       )}

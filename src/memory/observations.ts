@@ -37,6 +37,44 @@ let projectDir: string | null = null;
 // Enables observability ("how many memories lack vectors?") and backfill.
 const vectorMissingIds = new Set<number>();
 let vectorBackfillRunning = false;
+const embeddingFailureLogTimestamps = new Map<string, number>();
+const EMBEDDING_FAILURE_LOG_COOLDOWN_MS = 30_000;
+
+function logEmbeddingFailureOnce(key: string, message: string): void {
+  const now = Date.now();
+  const last = embeddingFailureLogTimestamps.get(key) ?? 0;
+  if (now - last < EMBEDDING_FAILURE_LOG_COOLDOWN_MS) return;
+  embeddingFailureLogTimestamps.set(key, now);
+  console.error(message);
+}
+
+function normalizeEmbeddingFailure(error: unknown): { key: string; message: string } {
+  const raw = error instanceof Error ? error.message : String(error);
+
+  if (
+    /embedding api error \(401\)/i.test(raw) ||
+    /invalid_api_key/i.test(raw) ||
+    /incorrect api key/i.test(raw) ||
+    /unauthorized/i.test(raw)
+  ) {
+    return {
+      key: 'embedding-auth',
+      message: 'Embedding API returned an invalid API key response; using BM25 until embedding recovers',
+    };
+  }
+
+  if (/embedding api timeout/i.test(raw)) {
+    return {
+      key: 'embedding-timeout',
+      message: 'Embedding API timed out; using BM25 until embedding recovers',
+    };
+  }
+
+  return {
+    key: raw,
+    message: raw,
+  };
+}
 
 function isVectorCompatibleWithCurrentIndex(embedding: number[] | null): boolean {
   if (!embedding) return false;
@@ -331,10 +369,17 @@ export async function storeObservation(input: {
     } else if (isEmbeddingExplicitlyDisabled()) {
       vectorMissingIds.delete(obsId);
     } else {
-      console.error(`[memorix] Embedding provider unavailable for obs-${obsId} (kept in backfill queue for retry)`);
+      logEmbeddingFailureOnce(
+        'provider-unavailable',
+        `[memorix] Embedding provider unavailable (using BM25 until embedding recovers; queued obs-${obsId} for retry)`,
+      );
     }
   }).catch((err) => {
-    console.error(`[memorix] Async embedding failed for obs-${obsId}: ${err instanceof Error ? err.message : err}`);
+    const failure = normalizeEmbeddingFailure(err);
+    logEmbeddingFailureOnce(
+      failure.key,
+      `[memorix] Async embedding failed (using BM25 until embedding recovers; queued obs-${obsId} for retry): ${failure.message}`,
+    );
   });
 
   return { observation, upserted: false };
@@ -458,7 +503,11 @@ async function upsertObservation(
       }
     }
   }).catch((err) => {
-    console.error(`[memorix] Async embedding failed for obs-${obsId}: ${err instanceof Error ? err.message : err}`);
+    const failure = normalizeEmbeddingFailure(err);
+    logEmbeddingFailureOnce(
+      failure.key,
+      `[memorix] Async embedding failed (using BM25 until embedding recovers; queued obs-${obsId} for retry): ${failure.message}`,
+    );
   });
 
   return existing;

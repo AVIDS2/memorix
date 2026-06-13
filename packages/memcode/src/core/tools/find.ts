@@ -2,6 +2,7 @@ import { createInterface } from "node:readline";
 import type { AgentTool } from "@memorix/agent-core";
 import { Text } from "@memorix/tui";
 import { spawn } from "child_process";
+import { minimatch } from "minimatch";
 import path from "path";
 import { type Static, Type } from "typebox";
 import { keyHint } from "../../modes/interactive/components/keybinding-hints.ts";
@@ -15,6 +16,24 @@ import { DEFAULT_MAX_BYTES, formatSize, type TruncationResult, truncateHead } fr
 
 function toPosixPath(value: string): string {
 	return value.split(path.sep).join("/");
+}
+
+function relativizeFdPath(rawLine: string, searchPath: string): string {
+	const line = rawLine.replace(/\r$/, "").trim();
+	const hadTrailingSlash = line.endsWith("/") || line.endsWith("\\");
+	const posixLine = line.replace(/\\/g, "/");
+	const posixSearchPath = searchPath.replace(/\\/g, "/").replace(/\/$/, "");
+	let relativePath = line;
+	if (posixLine === posixSearchPath) {
+		relativePath = "";
+	} else if (posixLine.startsWith(`${posixSearchPath}/`)) {
+		relativePath = posixLine.slice(posixSearchPath.length + 1);
+	} else {
+		relativePath = path.relative(searchPath, line);
+	}
+	relativePath = toPosixPath(relativePath);
+	if (hadTrailingSlash && relativePath && !relativePath.endsWith("/")) relativePath += "/";
+	return relativePath;
 }
 
 const findSchema = Type.Object({
@@ -224,24 +243,19 @@ export function createFindToolDefinition(
 						// Build fd arguments. --no-require-git makes fd apply hierarchical .gitignore
 						// semantics whether or not the search path is inside a git repository, without
 						// leaking sibling-directory rules the way --ignore-file (a global source) would.
-						const args: string[] = [
-							"--glob",
-							"--color=never",
-							"--hidden",
-							"--no-require-git",
-							"--max-results",
-							String(effectiveLimit),
-						];
+						const pathPattern = pattern.includes("/");
+						const args: string[] = ["--glob", "--color=never", "--hidden", "--no-require-git"];
+						if (!pathPattern) {
+							args.push("--max-results", String(effectiveLimit));
+						}
 
-						// fd --glob matches against the basename unless --full-path is set; in --full-path
-						// mode it matches against the absolute candidate path, so a path-containing
-						// pattern like 'src/**/*.spec.ts' needs a leading '**/' to match anything.
+						// fd full-path glob matching is OS-separator-sensitive on Windows. For patterns
+						// containing '/', enumerate candidates and apply a POSIX-normalized glob in Node
+						// so advertised patterns like 'src/**/*.spec.ts' behave consistently cross-platform.
 						let effectivePattern = pattern;
-						if (pattern.includes("/")) {
-							args.push("--full-path");
-							if (!pattern.startsWith("/") && !pattern.startsWith("**/") && pattern !== "**") {
-								effectivePattern = `**/${pattern}`;
-							}
+						if (pathPattern) {
+							args.push("--path-separator", "/");
+							effectivePattern = "*";
 						}
 						args.push("--", effectivePattern, searchPath);
 
@@ -249,6 +263,8 @@ export function createFindToolDefinition(
 						const rl = createInterface({ input: child.stdout });
 						let stderr = "";
 						const lines: string[] = [];
+						let resultLimitReached = false;
+						let killedDueToLimit = false;
 
 						stopChild = () => {
 							if (!child.killed) {
@@ -265,6 +281,17 @@ export function createFindToolDefinition(
 						});
 
 						rl.on("line", (line) => {
+							if (pathPattern) {
+								const relativePath = relativizeFdPath(line, searchPath);
+								if (!relativePath || !minimatch(relativePath, pattern, { dot: true })) return;
+								lines.push(line);
+								if (lines.length >= effectiveLimit) {
+									resultLimitReached = true;
+									killedDueToLimit = true;
+									stopChild?.();
+								}
+								return;
+							}
 							lines.push(line);
 						});
 
@@ -280,7 +307,7 @@ export function createFindToolDefinition(
 								return;
 							}
 							const output = lines.join("\n");
-							if (code !== 0) {
+							if (code !== 0 && !killedDueToLimit) {
 								const errorMsg = stderr.trim() || `fd exited with code ${code}`;
 								if (!output) {
 									settle(() => reject(new Error(errorMsg)));
@@ -299,20 +326,13 @@ export function createFindToolDefinition(
 
 							const relativized: string[] = [];
 							for (const rawLine of lines) {
-								const line = rawLine.replace(/\r$/, "").trim();
-								if (!line) continue;
-								const hadTrailingSlash = line.endsWith("/") || line.endsWith("\\");
-								let relativePath = line;
-								if (line.startsWith(searchPath)) {
-									relativePath = line.slice(searchPath.length + 1);
-								} else {
-									relativePath = path.relative(searchPath, line);
-								}
-								if (hadTrailingSlash && !relativePath.endsWith("/")) relativePath += "/";
-								relativized.push(toPosixPath(relativePath));
+								const relativePath = relativizeFdPath(rawLine, searchPath);
+								if (relativePath) relativized.push(relativePath);
 							}
 
-							const resultLimitReached = relativized.length >= effectiveLimit;
+							if (!pathPattern && relativized.length >= effectiveLimit) {
+								resultLimitReached = true;
+							}
 							const rawOutput = relativized.join("\n");
 							const truncation = truncateHead(rawOutput, { maxLines: Number.MAX_SAFE_INTEGER });
 							let resultOutput = truncation.content;

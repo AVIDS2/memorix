@@ -137,6 +137,176 @@ describe("InteractiveMode.setToolsExpanded", () => {
 	});
 });
 
+describe("InteractiveMode startup header", () => {
+	beforeAll(() => {
+		initTheme("dark");
+	});
+
+	function renderStartupHeader(options?: { expanded?: boolean; width?: number }): string {
+		const fakeThis: any = {
+			version: "1.0.11",
+			sessionManager: {
+				getCwd: () => "/work/memorix",
+			},
+			footerDataProvider: {
+				getGitBranch: () => "feat/ui-shell",
+			},
+			session: {
+				model: { provider: "anthropic", id: "claude-sonnet", reasoning: true },
+				thinkingLevel: "high",
+			},
+			getStartupExpansionState: () => options?.expanded ?? false,
+			formatStartupProjectLabel: () =>
+				(InteractiveMode as any).prototype.formatStartupProjectLabel.call(fakeThis),
+			formatStartupModelLabel: () => (InteractiveMode as any).prototype.formatStartupModelLabel.call(fakeThis),
+		};
+		const header = (InteractiveMode as any).prototype.createBuiltInHeaderComponent.call(
+			fakeThis,
+			"EXPANDED_KEYS",
+			"COMPACT_KEYS",
+		) as Component;
+		const container = new Container();
+		container.addChild(header);
+		return normalizeRenderedOutput(container, options?.width);
+	}
+
+	test("shows a clean agent shell summary when collapsed", () => {
+		const output = renderStartupHeader();
+
+		expect(output).toContain("╭─── memcode v1.0.11");
+		expect(output).toContain("Ready when you are");
+		expect(output).toContain("anthropic/claude-sonnet");
+		expect(output).toContain("project memorix · feat/ui-she");
+		expect(output).toContain("Start here");
+		expect(output).toContain("/model switch model");
+		expect(output).toContain("Memorix native");
+		expect(output).toContain("auto context injection");
+		expect(output).toContain("/memory hooks");
+		expect(output).not.toContain("EXPANDED_KEYS");
+	});
+
+	test("shows full startup help when expanded", () => {
+		const output = renderStartupHeader({ expanded: true });
+
+		expect(output).toContain("╭─── memcode v1.0.11");
+		expect(output).toContain("Ready when you are");
+		expect(output).toContain("Memorix native");
+		expect(output).toContain("Hotkeys");
+		expect(output).toContain("COMPACT_KEYS");
+		expect(output).toContain("EXPANDED_KEYS");
+	});
+
+	test("falls back to a single-column card on narrow terminals", () => {
+		const output = renderStartupHeader({ width: 72 });
+
+		expect(output).toContain("╭─── memcode v1.0.11");
+		expect(output).toContain("Ready when you are");
+		expect(output).toContain("Start here");
+		expect(output).toContain("Memorix native");
+	});
+});
+
+describe("InteractiveMode activity status placement", () => {
+	beforeAll(() => {
+		initTheme("dark");
+	});
+
+	test("renders running activity in the status slot and clears it on completion", () => {
+		vi.useFakeTimers();
+		vi.setSystemTime(0);
+		const fakeThis: any = {
+			statusContainer: new Container(),
+			chatContainer: new Container(),
+			ui: {
+				requestRender: vi.fn(),
+				showOverlay: vi.fn(),
+			},
+			workingMessage: undefined,
+			workingIndicatorOptions: undefined,
+			activityAnimation: undefined,
+			activityStartedAt: undefined,
+			activityHadThinking: false,
+			activityOutputTokens: 0,
+			activityOutputTokenEstimate: 0,
+		};
+
+		(InteractiveMode as any).prototype.startWorkingActivity.call(fakeThis);
+
+		expect(fakeThis.ui.showOverlay).not.toHaveBeenCalled();
+		expect(normalizeRenderedOutput(fakeThis.statusContainer)).toContain("✶");
+		expect(fakeThis.chatContainer.children).toHaveLength(0);
+
+		vi.setSystemTime(4000);
+		(InteractiveMode as any).prototype.completeWorkingActivity.call(fakeThis, [{ role: "assistant" }]);
+
+		expect(normalizeRenderedOutput(fakeThis.statusContainer)).toBe("");
+		expect(normalizeRenderedOutput(fakeThis.chatContainer)).toContain("✻");
+		expect(normalizeRenderedOutput(fakeThis.chatContainer)).toContain("for 4s");
+
+		vi.useRealTimers();
+	});
+
+	test("forces a redraw when an assistant stream is finalized", async () => {
+		const message = {
+			role: "assistant",
+			content: [{ type: "text", text: "final answer" }],
+			stopReason: "stop",
+		};
+		const streamingComponent = { updateContent: vi.fn() };
+		const fakeThis: any = {
+			isInitialized: true,
+			footer: { invalidate: vi.fn() },
+			settingsManager: { getShowTerminalProgress: vi.fn(() => false) },
+			streamingComponent,
+			streamingMessage: undefined,
+			session: { retryAttempt: 0 },
+			pendingTools: new Map(),
+			ui: { requestRender: vi.fn(), terminal: { setProgress: vi.fn() } },
+			checkShutdownRequested: vi.fn(),
+		};
+
+		await (InteractiveMode as any).prototype.handleEvent.call(fakeThis, {
+			type: "message_end",
+			message,
+		});
+
+		expect(streamingComponent.updateContent).toHaveBeenCalledWith(message);
+		expect(fakeThis.ui.requestRender).toHaveBeenCalledWith(true);
+	});
+});
+
+describe("InteractiveMode accepted user message rendering", () => {
+	beforeAll(() => {
+		initTheme("dark");
+	});
+
+	test("renders an accepted user message immediately and skips the later duplicate event", () => {
+		const message = {
+			role: "user",
+			content: [{ type: "text", text: "hello" }],
+			timestamp: 1,
+		};
+		const fakeThis: any = {
+			optimisticUserMessages: [],
+			addMessageToChat: vi.fn(),
+			updatePendingMessagesDisplay: vi.fn(),
+			ui: { requestRender: vi.fn() },
+			getUserMessageText: (msg: unknown) => (InteractiveMode as any).prototype.getUserMessageText.call(fakeThis, msg),
+		};
+
+		(InteractiveMode as any).prototype.renderAcceptedUserMessage.call(fakeThis, message);
+
+		expect(fakeThis.addMessageToChat).toHaveBeenCalledWith(message);
+		expect(fakeThis.optimisticUserMessages).toEqual(["hello"]);
+		expect(fakeThis.updatePendingMessagesDisplay).toHaveBeenCalledTimes(1);
+		expect(fakeThis.ui.requestRender).toHaveBeenCalledTimes(1);
+
+		expect((InteractiveMode as any).prototype.consumeOptimisticUserMessage.call(fakeThis, message)).toBe(true);
+		expect(fakeThis.optimisticUserMessages).toEqual([]);
+		expect((InteractiveMode as any).prototype.consumeOptimisticUserMessage.call(fakeThis, message)).toBe(false);
+	});
+});
+
 describe("InteractiveMode.createExtensionUIContext setTheme", () => {
 	test("persists theme changes to settings manager", () => {
 		initTheme("dark");
@@ -340,6 +510,7 @@ describe("InteractiveMode.showLoadedResources", () => {
 		extensions?: ExtensionFixture[];
 		skills?: Array<{ filePath: string; name: string }>;
 		skillDiagnostics?: Array<{ type: "warning" | "error" | "collision"; message: string }>;
+		summaryOnly?: boolean;
 		useRealScopeGroups?: boolean;
 	}) {
 		const fakeThis: any = {
@@ -527,6 +698,52 @@ describe("InteractiveMode.showLoadedResources", () => {
 		expect(output).toContain("[Skills]");
 		expect(output).toContain("commit");
 		expect(output).not.toContain("resource-list");
+	});
+
+	test("shows only a startup resource summary when requested and collapsed", () => {
+		const fakeThis = createShowLoadedResourcesThis({
+			quietStartup: false,
+			summaryOnly: true,
+			contextFiles: [{ path: "/tmp/project/AGENTS.md" }],
+			skills: [{ filePath: "/tmp/skill/SKILL.md", name: "commit" }],
+			extensions: [{ path: "/tmp/extensions/answer.ts" }],
+		});
+
+		(InteractiveMode as any).prototype.showLoadedResources.call(fakeThis, {
+			force: false,
+			summaryOnly: true,
+		});
+
+		const output = normalizeRenderedOutput(fakeThis.chatContainer);
+		expect(output).toContain("[Loaded]");
+		expect(output).toContain("1 context");
+		expect(output).toContain("1 skill");
+		expect(output).toContain("1 extension");
+		expect(output).toContain("ctrl+o for details");
+		expect(output).not.toContain("[Context]");
+		expect(output).not.toContain("[Skills]");
+		expect(output).not.toContain("[Extensions]");
+		expect(output).not.toContain("commit");
+		expect(output).not.toContain("answer.ts");
+	});
+
+	test("shows full startup resources when summary is requested but expanded", () => {
+		const fakeThis = createShowLoadedResourcesThis({
+			quietStartup: false,
+			summaryOnly: true,
+			toolOutputExpanded: true,
+			skills: [{ filePath: "/tmp/skill/SKILL.md", name: "commit" }],
+		});
+
+		(InteractiveMode as any).prototype.showLoadedResources.call(fakeThis, {
+			force: false,
+			summaryOnly: true,
+		});
+
+		const output = renderAll(fakeThis.chatContainer);
+		expect(output).toContain("[Skills]");
+		expect(output).toContain("resource-list");
+		expect(output).not.toContain("[Loaded]");
 	});
 
 	test("shows full resource listing when expanded", () => {
@@ -964,5 +1181,48 @@ describe("InteractiveMode.showLoadedResources", () => {
 		const output = renderAll(fakeThis.chatContainer);
 		expect(output).toContain("[Skill conflicts]");
 		expect(output).not.toContain("[Skills]");
+	});
+
+	test("summarizes startup diagnostics when collapsed", () => {
+		const fakeThis = createShowLoadedResourcesThis({
+			quietStartup: true,
+			summaryOnly: true,
+			skills: [{ filePath: "/tmp/skill/SKILL.md", name: "commit" }],
+			skillDiagnostics: [{ type: "warning", message: "duplicate skill name" }],
+		});
+
+		(InteractiveMode as any).prototype.showLoadedResources.call(fakeThis, {
+			force: false,
+			showDiagnosticsWhenQuiet: true,
+			summaryOnly: true,
+		});
+
+		const output = normalizeRenderedOutput(fakeThis.chatContainer);
+		expect(output).toContain("[Startup diagnostics]");
+		expect(output).toContain("1 skill issue");
+		expect(output).toContain("ctrl+o for details");
+		expect(output).not.toContain("[Skill conflicts]");
+		expect(output).not.toContain("duplicate skill name");
+	});
+
+	test("shows full startup diagnostics when expanded", () => {
+		const fakeThis = createShowLoadedResourcesThis({
+			quietStartup: true,
+			summaryOnly: true,
+			toolOutputExpanded: true,
+			skills: [{ filePath: "/tmp/skill/SKILL.md", name: "commit" }],
+			skillDiagnostics: [{ type: "warning", message: "duplicate skill name" }],
+		});
+
+		(InteractiveMode as any).prototype.showLoadedResources.call(fakeThis, {
+			force: false,
+			showDiagnosticsWhenQuiet: true,
+			summaryOnly: true,
+		});
+
+		const output = normalizeRenderedOutput(fakeThis.chatContainer);
+		expect(output).toContain("[Skill conflicts]");
+		expect(output).toContain("diagnostics");
+		expect(output).not.toContain("[Startup diagnostics]");
 	});
 });

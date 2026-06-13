@@ -8,6 +8,7 @@
 import { Type } from "typebox";
 import type { ToolDefinition } from "../core/extensions/types.ts";
 import { importFromMemorix } from "../core/memorix-resolve.ts";
+import { formatMemorixRuntimeStatus, getMemorixRuntimeContext, resolveMemorixProjectContext } from "../memory/memorix-runtime-context.ts";
 
 // Dynamic imports for memorix core — uses file:// URLs for Windows ESM compatibility
 async function getCompactSearch() {
@@ -22,17 +23,10 @@ async function getStoreObservation() {
 	const mod = await importFromMemorix("memory/observations.js");
 	return mod.storeObservation;
 }
-async function getDetectProject() {
-	const mod = await importFromMemorix("project/detector.js");
-	return mod.detectProject;
-}
-
 /** Resolve projectId from cwd using memorix project detection (git remote → AVIDS2/memorix) */
 async function resolveProjectId(cwd: string): Promise<string> {
 	try {
-		const detectProject = await getDetectProject();
-		const project = detectProject(cwd);
-		return project?.id ?? cwd;
+		return (await resolveMemorixProjectContext(cwd)).canonicalId;
 	} catch {
 		return cwd;
 	}
@@ -264,8 +258,52 @@ export const memorixDetailTool: ToolDefinition<typeof detailParams> = {
 };
 
 // ============================================================================
+// memorix_status — Native runtime awareness
+// ============================================================================
+
+const statusParams = Type.Object({});
+
+export const memorixStatusTool: ToolDefinition<typeof statusParams> = {
+	name: "memorix_status",
+	label: "Memory Status",
+	description:
+		"Inspect memcode's native Memorix runtime: canonical project identity, shared aliases, " +
+		"memory counts, embedding/vector status, search mode, retention posture, and native hooks.",
+	promptSnippet: "Inspect native Memorix runtime status for this project",
+	promptGuidelines: [
+		"Use memorix_status when the user asks what memory is active, which project memory is shared, or how Memorix is configured.",
+		"Use memorix_status before answering questions about embedding, BM25 fallback, rerank, retention, hooks, or memory injection state.",
+	],
+	parameters: statusParams,
+	async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
+		try {
+			const status = await getMemorixRuntimeContext(ctx.cwd);
+			return {
+				content: [{ type: "text", text: formatMemorixRuntimeStatus(status) }],
+				details: {
+					projectId: status.project.canonicalId,
+					aliases: status.project.aliases,
+					searchMode: status.search.mode,
+					embeddingProvider: status.embedding.provider,
+				},
+			};
+		} catch (err) {
+			return {
+				content: [
+					{
+						type: "text",
+						text: `Status failed: ${err instanceof Error ? err.message : String(err)}`,
+					},
+				],
+				details: { error: true },
+			};
+		}
+	},
+};
+
+// ============================================================================
 // Exports
 // ============================================================================
 
 /** All three Memorix memory tools. */
-export const memoryTools = [memorixSearchTool, memorixStoreTool, memorixDetailTool];
+export const memoryTools = [memorixSearchTool, memorixStoreTool, memorixDetailTool, memorixStatusTool];

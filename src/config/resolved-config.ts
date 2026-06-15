@@ -46,12 +46,9 @@ export interface ResolvedMemorixConfig {
   };
 }
 
-let cachedResolvedConfig: ResolvedMemorixConfig | null = null;
-
 export function getResolvedConfig(options: ResolvedLaneOptions = {}): ResolvedMemorixConfig {
   const homeDir = options.homeDir ?? homedir();
   const projectRoot = options.projectRoot === undefined ? detectProject()?.rootPath ?? null : options.projectRoot;
-  if (!options.homeDir && projectRoot === undefined && cachedResolvedConfig) return cachedResolvedConfig;
 
   const toml = loadTomlConfig({ projectRoot: projectRoot ?? null, homeDir });
   const yaml = loadYamlConfig(projectRoot ?? null);
@@ -127,7 +124,6 @@ export function getResolvedConfig(options: ResolvedLaneOptions = {}): ResolvedMe
     },
   };
 
-  if (!options.homeDir && options.projectRoot === undefined) cachedResolvedConfig = resolved;
   return resolved;
 }
 
@@ -156,7 +152,7 @@ export function getResolvedEmbeddingLane(options: ResolvedLaneOptions = {}): Res
 }
 
 export function resetResolvedConfigCache(): void {
-  cachedResolvedConfig = null;
+  // Kept as a public test helper. File-level caches live in individual loaders.
 }
 
 function first<T>(...values: Array<T | null | undefined | ''>): T | undefined {

@@ -1,0 +1,178 @@
+import { homedir } from 'node:os';
+import { detectProject } from '../project/detector.js';
+import { loadFileConfig } from './legacy-loader.js';
+import { loadTomlConfig } from './toml-loader.js';
+import { loadYamlConfig } from './yaml-loader.js';
+
+export interface ResolvedLaneOptions {
+  projectRoot?: string | null;
+  homeDir?: string;
+}
+
+export interface ResolvedMemorixConfig {
+  agent: {
+    provider?: string;
+    model?: string;
+    baseUrl?: string;
+    apiKey?: string;
+  };
+  memory: {
+    inject?: 'full' | 'minimal' | 'silent';
+    formation?: 'active' | 'shadow' | 'fallback';
+    autoCleanup?: boolean;
+    llm: {
+      provider?: string;
+      model?: string;
+      baseUrl?: string;
+      apiKey?: string;
+    };
+  };
+  embedding: {
+    provider?: 'off' | 'fastembed' | 'transformers' | 'api' | 'auto' | string;
+    model?: string;
+    baseUrl?: string;
+    apiKey?: string;
+    dimensions?: number;
+  };
+  server: {
+    transport?: 'stdio' | 'http';
+    dashboard?: boolean;
+    dashboardPort?: number;
+    port?: number;
+  };
+  sources: {
+    toml: string[];
+    legacy: string[];
+  };
+}
+
+let cachedResolvedConfig: ResolvedMemorixConfig | null = null;
+
+export function getResolvedConfig(options: ResolvedLaneOptions = {}): ResolvedMemorixConfig {
+  const homeDir = options.homeDir ?? homedir();
+  const projectRoot = options.projectRoot === undefined ? detectProject()?.rootPath ?? null : options.projectRoot;
+  if (!options.homeDir && projectRoot === undefined && cachedResolvedConfig) return cachedResolvedConfig;
+
+  const toml = loadTomlConfig({ projectRoot: projectRoot ?? null, homeDir });
+  const yaml = loadYamlConfig(projectRoot ?? null);
+  const legacy = loadFileConfig();
+
+  const resolved: ResolvedMemorixConfig = {
+    agent: {
+      provider: first(
+        process.env.MEMORIX_AGENT_PROVIDER,
+        process.env.MEMORIX_AGENT_LLM_PROVIDER,
+        toml.agent?.provider,
+        yaml.agent?.provider,
+        legacy.agent?.provider,
+      ),
+      model: first(
+        process.env.MEMORIX_AGENT_MODEL,
+        process.env.MEMORIX_AGENT_LLM_MODEL,
+        toml.agent?.model,
+        yaml.agent?.model,
+        legacy.agent?.model,
+      ),
+      baseUrl: first(
+        process.env.MEMORIX_AGENT_BASE_URL,
+        process.env.MEMORIX_AGENT_LLM_BASE_URL,
+        toml.agent?.base_url,
+        yaml.agent?.baseUrl,
+        legacy.agent?.baseUrl,
+      ),
+      apiKey: first(
+        process.env.MEMORIX_AGENT_API_KEY,
+        process.env.MEMORIX_AGENT_LLM_API_KEY,
+        toml.agent?.api_key,
+        yaml.agent?.apiKey,
+        legacy.agent?.apiKey,
+      ),
+    },
+    memory: {
+      inject: first(toml.memory?.inject, yaml.behavior?.sessionInject),
+      formation: first(toml.memory?.formation, yaml.behavior?.formationMode),
+      autoCleanup: firstBool(toml.memory?.auto_cleanup, yaml.behavior?.autoCleanup),
+      llm: {
+        provider: first(process.env.MEMORIX_LLM_PROVIDER, toml.memory?.llm?.provider, yaml.llm?.provider, legacy.llm?.provider),
+        model: first(process.env.MEMORIX_LLM_MODEL, toml.memory?.llm?.model, yaml.llm?.model, legacy.llm?.model),
+        baseUrl: first(process.env.MEMORIX_LLM_BASE_URL, toml.memory?.llm?.base_url, yaml.llm?.baseUrl, legacy.llm?.baseUrl),
+        apiKey: first(
+          process.env.MEMORIX_LLM_API_KEY,
+          process.env.MEMORIX_API_KEY,
+          toml.memory?.llm?.api_key,
+          yaml.llm?.apiKey,
+          legacy.llm?.apiKey,
+          process.env.OPENAI_API_KEY,
+          process.env.ANTHROPIC_API_KEY,
+          process.env.OPENROUTER_API_KEY,
+        ),
+      },
+    },
+    embedding: {
+      provider: first(process.env.MEMORIX_EMBEDDING, toml.embedding?.provider, yaml.embedding?.provider, legacy.embedding, 'off'),
+      model: first(process.env.MEMORIX_EMBEDDING_MODEL, toml.embedding?.model, yaml.embedding?.model, legacy.embeddingApi?.model),
+      baseUrl: first(process.env.MEMORIX_EMBEDDING_BASE_URL, toml.embedding?.base_url, yaml.embedding?.baseUrl, legacy.embeddingApi?.baseUrl),
+      apiKey: first(process.env.MEMORIX_EMBEDDING_API_KEY, toml.embedding?.api_key, yaml.embedding?.apiKey, legacy.embeddingApi?.apiKey),
+      dimensions: firstNumber(parseNumber(process.env.MEMORIX_EMBEDDING_DIMENSIONS), toml.embedding?.dimensions, yaml.embedding?.dimensions, legacy.embeddingApi?.dimensions),
+    },
+    server: {
+      transport: first(toml.server?.transport, yaml.server?.transport),
+      dashboard: firstBool(toml.server?.dashboard, yaml.server?.dashboard),
+      dashboardPort: firstNumber(toml.server?.dashboard_port, yaml.server?.dashboardPort),
+      port: firstNumber(toml.server?.port, yaml.server?.port),
+    },
+    sources: {
+      toml: [],
+      legacy: [],
+    },
+  };
+
+  if (!options.homeDir && options.projectRoot === undefined) cachedResolvedConfig = resolved;
+  return resolved;
+}
+
+export function getResolvedConfigForCwd(cwd = process.cwd()): ResolvedMemorixConfig {
+  const project = detectProject(cwd);
+  return getResolvedConfig({ projectRoot: project?.rootPath ?? null });
+}
+
+export function getResolvedAgentLane(options: ResolvedLaneOptions = {}): ResolvedMemorixConfig['agent'] {
+  const resolved = getResolvedConfig(options);
+  return {
+    ...resolved.agent,
+    provider: resolved.agent.provider ?? resolved.memory.llm.provider,
+    model: resolved.agent.model ?? resolved.memory.llm.model,
+    baseUrl: resolved.agent.baseUrl ?? resolved.memory.llm.baseUrl,
+    apiKey: resolved.agent.apiKey ?? resolved.memory.llm.apiKey,
+  };
+}
+
+export function getResolvedMemoryLane(options: ResolvedLaneOptions = {}): ResolvedMemorixConfig['memory'] {
+  return getResolvedConfig(options).memory;
+}
+
+export function getResolvedEmbeddingLane(options: ResolvedLaneOptions = {}): ResolvedMemorixConfig['embedding'] {
+  return getResolvedConfig(options).embedding;
+}
+
+export function resetResolvedConfigCache(): void {
+  cachedResolvedConfig = null;
+}
+
+function first<T>(...values: Array<T | null | undefined | ''>): T | undefined {
+  return values.find((value): value is T => value !== undefined && value !== null && value !== '');
+}
+
+function firstBool(...values: Array<boolean | undefined>): boolean | undefined {
+  return values.find((value): value is boolean => value !== undefined);
+}
+
+function firstNumber(...values: Array<number | undefined | null>): number | undefined {
+  return values.find((value): value is number => value !== undefined && value !== null && Number.isFinite(value));
+}
+
+function parseNumber(value: string | undefined): number | undefined {
+  if (!value) return undefined;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}

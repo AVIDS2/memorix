@@ -65,7 +65,13 @@ describe('memorix config commands', () => {
   afterEach(() => {
     delete process.env.MEMORIX_AGENT_MODEL;
     delete process.env.MEMORIX_AGENT_API_KEY;
+    delete process.env.MEMORIX_AGENT_BASE_URL;
     delete process.env.MEMORIX_LLM_API_KEY;
+    delete process.env.MEMORIX_LLM_MODEL;
+    delete process.env.MEMORIX_LLM_BASE_URL;
+    delete process.env.MEMORIX_EMBEDDING_API_KEY;
+    delete process.env.MEMORIX_EMBEDDING_MODEL;
+    delete process.env.MEMORIX_EMBEDDING_BASE_URL;
     if (tempDir) {
       rmSync(tempDir, { recursive: true, force: true });
       tempDir = undefined;
@@ -152,5 +158,38 @@ describe('memorix config commands', () => {
     expect(content).toContain('[memory.llm]');
     expect(content).toContain('provider = "deepseek"');
     expect(content).not.toContain('env-secret-key-that-must-not-be-written');
+  });
+
+  it('migrates environment-backed secrets into global config.toml only', async () => {
+    tempDir = mkdtempSync(join(process.env.TEMP ?? process.cwd(), 'memorix-config-global-migrate-'));
+    const homeDir = join(tempDir, 'home');
+    mkdirSync(join(homeDir, '.memorix'), { recursive: true });
+    homedirMock.mockReturnValue(homeDir);
+    detectProjectMock.mockReturnValue(null);
+    process.env.MEMORIX_AGENT_MODEL = 'agent-test-model';
+    process.env.MEMORIX_AGENT_BASE_URL = 'https://agent.example/v1';
+    process.env.MEMORIX_AGENT_API_KEY = 'agent-test-secret';
+    process.env.MEMORIX_LLM_MODEL = 'memory-test-model';
+    process.env.MEMORIX_LLM_BASE_URL = 'https://memory.example/v1';
+    process.env.MEMORIX_LLM_API_KEY = 'memory-test-secret';
+    process.env.MEMORIX_EMBEDDING_MODEL = 'embed-test-model';
+    process.env.MEMORIX_EMBEDDING_BASE_URL = 'https://embed.example/v1';
+    process.env.MEMORIX_EMBEDDING_API_KEY = 'embedding-test-secret';
+    const command = (await import('../../src/cli/commands/config-migrate.js')).default;
+
+    await command.run?.({ args: { global: true }, rawArgs: ['--global'], cmd: command } as any);
+
+    const target = join(homeDir, '.memorix', 'config.toml');
+    expect(existsSync(target)).toBe(true);
+    const content = readFileSync(target, 'utf8');
+    expect(content).toContain('[agent]');
+    expect(content).toContain('model = "agent-test-model"');
+    expect(content).toContain('api_key = "agent-test-secret"');
+    expect(content).toContain('[memory.llm]');
+    expect(content).toContain('model = "memory-test-model"');
+    expect(content).toContain('api_key = "memory-test-secret"');
+    expect(content).toContain('[embedding]');
+    expect(content).toContain('model = "embed-test-model"');
+    expect(content).toContain('api_key = "embedding-test-secret"');
   });
 });

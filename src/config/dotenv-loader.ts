@@ -1,20 +1,22 @@
 /**
  * .env Loader for Memorix
  *
- * Loads secrets from project-level .env file.
- * This is the "secrets-only" complement to memorix.yml (behavior config).
+ * Loads compatibility environment overrides from project/user .env files.
+ * The primary product configuration is TOML:
+ *   - ~/.memorix/config.toml
+ *   - <git-root>/memorix.toml
  *
  * Design principle:
- *   memorix.yml = behavior configuration (structured YAML)
- *   .env        = secrets only (API keys, base URLs, tokens)
+ *   TOML = normal user setup and structured behavior
+ *   .env = compatibility, CI, launchers, and temporary overrides
  *
  * Priority (highest wins):
  *   1. System environment variables (from MCP host `env` field or shell)
  *   2. Project .env file (./  .env in project root)
  *   3. User .env file (~/.memorix/.env) — advanced, not promoted
  *
- * Unlike Cipher which puts EVERYTHING in .env (178 lines of flat config),
- * Memorix only uses .env for sensitive values. Structured settings stay in YAML.
+ * Do not promote .env as the default product surface. Keep it as an override
+ * layer for users who need launcher-specific behavior.
  */
 
 import { existsSync, readFileSync } from 'node:fs';

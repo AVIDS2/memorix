@@ -95,6 +95,8 @@ Memorix 使用一个主要产品配置文件：
 - `~/.memorix/config.toml`：全局默认配置
 - `<git-root>/memorix.toml`：可选项目覆盖配置
 
+对大多数用户来说，一个 `~/.memorix/config.toml` 就够了：把 provider key、模型名、base URL 和记忆默认行为放在这里统一管理。项目级 `memorix.toml` 只用来覆盖某个仓库的特殊设置，不建议提交任何凭据。
+
 旧的 `memorix.yml`、`.env` 和 `config.json` 仍然兼容读取，但新的初始化和文档入口统一使用 TOML。
 
 然后按你的目标选择一条最顺手的路径：

@@ -33,16 +33,19 @@ Example `~/.memorix/config.toml`:
 provider = "deepseek"
 model = "deepseek-chat"
 base_url = "https://api.deepseek.com/v1"
-api_key = "<configured-locally>"
+api_key = "..."
 
 [memory.llm]
-provider = "deepseek"
-model = "deepseek-chat"
-base_url = "https://api.deepseek.com/v1"
-api_key = "<configured-locally>"
+provider = "openai"
+model = "qwen3.5-flash"
+base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+api_key = "..."
 
 [embedding]
-provider = "off"
+provider = "api"
+model = "text-embedding-v4"
+base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+api_key = "..."
 
 [memory]
 inject = "minimal"
@@ -54,6 +57,10 @@ transport = "stdio"
 dashboard = true
 dashboard_port = 3210
 ```
+
+Global `config.toml` is local to your machine and is the normal place to keep
+provider credentials. Project `memorix.toml` should be treated as repo config:
+override models, switches, and behavior there, but do not commit credentials.
 
 ---
 
@@ -70,6 +77,10 @@ Memorix resolves configuration in this order:
 
 Environment variables stay available for CI, MCP launchers, and temporary shell
 overrides. They are not the default user-facing setup path.
+
+If you want the simplest setup, configure `~/.memorix/config.toml` once and stop
+there. Add `<git-root>/memorix.toml` only when a repository needs different
+models, memory behavior, or server defaults.
 
 ---
 
@@ -88,6 +99,8 @@ Common keys:
 
 This lane follows memcode's agent runtime behavior. `/model`, `/login`, and
 agent auth storage still own interactive model switching and login state.
+When `[agent]` is omitted, memcode falls back to `[memory.llm]` defaults without
+changing its interactive model commands.
 
 ### `[memory.llm]`
 
@@ -105,6 +118,9 @@ Common keys:
 - `model`
 - `base_url`
 - `api_key`
+
+For OpenAI-compatible providers such as DashScope, DeepSeek-compatible gateways,
+or internal model gateways, use `provider = "openai"` and set `base_url`.
 
 ### `[embedding]`
 
@@ -171,6 +187,18 @@ Useful commands:
 memorix config path
 memorix config get agent.model
 memorix status
+```
+
+To create one global file from existing local settings:
+
+```bash
+memorix config migrate --global
+```
+
+To create a project override file without writing local credentials:
+
+```bash
+memorix config migrate
 ```
 
 `memorix status` shows the active project, search mode, and resolved

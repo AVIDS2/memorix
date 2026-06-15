@@ -95,6 +95,8 @@ Memorix uses one primary product config file:
 - `~/.memorix/config.toml` for global defaults
 - `<git-root>/memorix.toml` for optional project overrides
 
+For most users, `~/.memorix/config.toml` is enough: put your provider keys, model names, base URLs, and memory defaults there once. Use project `memorix.toml` only for repo-specific overrides, and avoid committing credentials there.
+
 Legacy `memorix.yml`, `.env`, and `config.json` files are still read for compatibility, but new setup flows use TOML.
 
 Then pick the path that matches what you want to do:

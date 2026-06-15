@@ -105,6 +105,20 @@ describe('memorix config commands', () => {
     expect(infoMock).toHaveBeenCalledWith('agent.model: test-model');
   });
 
+  it('redacts only sensitive config keys when printing dotted values', async () => {
+    process.env.MEMORIX_EMBEDDING_MODEL = 'text-embedding-v4';
+    process.env.MEMORIX_EMBEDDING_API_KEY = 'embedding-test-secret';
+    const command = (await import('../../src/cli/commands/config-get.js')).default;
+
+    await command.run?.({ args: { key: 'embedding.model' }, rawArgs: ['embedding.model'], cmd: command } as any);
+    await command.run?.({ args: { key: 'embedding.apiKey' }, rawArgs: ['embedding.apiKey'], cmd: command } as any);
+
+    expect(infoMock).toHaveBeenCalledWith('embedding.model: text-embedding-v4');
+    expect(infoMock).toHaveBeenCalledWith('embedding.apiKey: <redacted>');
+    expect(infoMock).not.toHaveBeenCalledWith(expect.stringContaining('embedding-test-secret'));
+  });
+
+
   it('shows lane-based status without leaking credentials', async () => {
     detectProjectMock.mockReturnValue({
       id: 'demo-id',

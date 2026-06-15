@@ -18,9 +18,9 @@
  */
 
 import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { parse } from 'dotenv';
+import { getGlobalDotenvPath, getProjectDotenvPath } from './config-paths.js';
 
 // ─── State ───
 
@@ -68,12 +68,12 @@ export function loadDotenv(projectRoot?: string, options: DotenvLoadOptions = {}
 
   // 1. Project-level .env — highest .env priority, load first
   if (projectRoot) {
-    loadEnvFile(join(projectRoot, '.env'));
+    loadEnvFile(getProjectDotenvPath(projectRoot));
   }
 
   // 2. User-level .env (~/.memorix/.env) — lowest .env priority, load second
   //    (override: false means it only fills in keys not already set)
-  loadEnvFile(join(options.userHomeDir ?? homedir(), '.memorix', '.env'));
+  loadEnvFile(getGlobalDotenvPath(options.userHomeDir ?? homedir()));
 
   dotenvLoaded = true;
   dotenvProjectRoot = projectRoot ?? null;

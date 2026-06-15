@@ -16,9 +16,9 @@
  */
 
 import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { createRequire } from 'node:module';
+import { getGlobalYamlPath, getProjectYamlPath } from './config-paths.js';
 
 // ─── Types ───────────────────────────────────────────────────────────
 
@@ -151,8 +151,8 @@ export function loadYamlConfig(projectRoot?: string | null): MemorixYamlConfig {
   const cached = configCache.get(resolvedRoot ?? null);
   if (cached) return cached;
 
-  const userYaml = join(homedir(), '.memorix', 'memorix.yml');
-  const projectYaml = resolvedRoot ? join(resolvedRoot, 'memorix.yml') : null;
+  const userYaml = getGlobalYamlPath(homedir());
+  const projectYaml = resolvedRoot ? getProjectYamlPath(resolvedRoot) : null;
 
   let userConfig: MemorixYamlConfig = {};
   let projectConfig: MemorixYamlConfig = {};

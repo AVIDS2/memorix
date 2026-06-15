@@ -23,3 +23,7 @@ export function getGlobalDotenvPath(homeDir: string): string {
 export function getProjectDotenvPath(projectRoot: string): string {
   return join(projectRoot, '.env');
 }
+
+export function getLegacyConfigJsonPath(homeDir: string): string {
+  return join(homeDir, '.memorix', 'config.json');
+}

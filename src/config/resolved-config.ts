@@ -1,5 +1,13 @@
 import { homedir } from 'node:os';
+import { existsSync } from 'node:fs';
 import { detectProject } from '../project/detector.js';
+import {
+  getGlobalConfigTomlPath,
+  getGlobalYamlPath,
+  getLegacyConfigJsonPath,
+  getProjectConfigTomlPath,
+  getProjectYamlPath,
+} from './config-paths.js';
 import { loadFileConfig } from './legacy-loader.js';
 import { loadTomlConfig } from './toml-loader.js';
 import { loadYamlConfig } from './yaml-loader.js';
@@ -43,6 +51,7 @@ export interface ResolvedMemorixConfig {
   sources: {
     toml: string[];
     legacy: string[];
+    env: string[];
   };
 }
 
@@ -119,8 +128,16 @@ export function getResolvedConfig(options: ResolvedLaneOptions = {}): ResolvedMe
       port: firstNumber(toml.server?.port, yaml.server?.port),
     },
     sources: {
-      toml: [],
-      legacy: [],
+      toml: getExistingConfigSources([
+        getGlobalConfigTomlPath(homeDir),
+        ...(projectRoot ? [getProjectConfigTomlPath(projectRoot)] : []),
+      ]),
+      legacy: getExistingConfigSources([
+        getGlobalYamlPath(homeDir),
+        ...(projectRoot ? [getProjectYamlPath(projectRoot)] : []),
+        getLegacyConfigJsonPath(homeDir),
+      ]),
+      env: getEnvSourceNames(),
     },
   };
 
@@ -171,4 +188,31 @@ function parseNumber(value: string | undefined): number | undefined {
   if (!value) return undefined;
   const parsed = Number.parseInt(value, 10);
   return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function getExistingConfigSources(paths: string[]): string[] {
+  return paths.filter((filePath) => existsSync(filePath));
+}
+
+function getEnvSourceNames(): string[] {
+  return [
+    'MEMORIX_AGENT_PROVIDER',
+    'MEMORIX_AGENT_MODEL',
+    'MEMORIX_AGENT_API_KEY',
+    'MEMORIX_AGENT_BASE_URL',
+    'MEMORIX_AGENT_LLM_PROVIDER',
+    'MEMORIX_AGENT_LLM_MODEL',
+    'MEMORIX_AGENT_LLM_API_KEY',
+    'MEMORIX_AGENT_LLM_BASE_URL',
+    'MEMORIX_LLM_PROVIDER',
+    'MEMORIX_LLM_MODEL',
+    'MEMORIX_LLM_API_KEY',
+    'MEMORIX_LLM_BASE_URL',
+    'MEMORIX_API_KEY',
+    'MEMORIX_EMBEDDING',
+    'MEMORIX_EMBEDDING_API_KEY',
+    'MEMORIX_EMBEDDING_BASE_URL',
+    'MEMORIX_EMBEDDING_MODEL',
+    'MEMORIX_EMBEDDING_DIMENSIONS',
+  ].filter((name) => process.env[name]);
 }

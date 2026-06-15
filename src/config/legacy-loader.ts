@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { getLegacyConfigJsonPath } from './config-paths.js';
 
 export interface MemorixConfig {
   llm?: {
@@ -29,7 +29,7 @@ let cachedConfig: MemorixConfig | null = null;
 export function loadFileConfig(): MemorixConfig {
   if (cachedConfig !== null) return cachedConfig;
 
-  const configPath = join(homedir(), '.memorix', 'config.json');
+  const configPath = getLegacyConfigJsonPath(homedir());
   try {
     if (existsSync(configPath)) {
       cachedConfig = JSON.parse(readFileSync(configPath, 'utf-8'));

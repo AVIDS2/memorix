@@ -96,4 +96,20 @@ describe('resolved config', () => {
 
     expect(getResolvedMemoryLane({ projectRoot: null, homeDir: HOME }).llm.apiKey).toBe('memory-key');
   });
+
+  it('reports active TOML, legacy, and env config sources', () => {
+    writeFileSync(join(HOME, '.memorix', 'config.toml'), '[agent]\nmodel = "global-model"\n', 'utf8');
+    writeFileSync(join(PROJECT, 'memorix.toml'), '[agent]\nmodel = "project-model"\n', 'utf8');
+    writeFileSync(join(HOME, '.memorix', 'memorix.yml'), 'llm:\n  model: yaml-model\n', 'utf8');
+    process.env.MEMORIX_AGENT_MODEL = 'env-model';
+
+    const cfg = getResolvedConfig({ projectRoot: PROJECT, homeDir: HOME });
+
+    expect(cfg.sources.toml).toEqual([
+      join(HOME, '.memorix', 'config.toml'),
+      join(PROJECT, 'memorix.toml'),
+    ]);
+    expect(cfg.sources.legacy).toContain(join(HOME, '.memorix', 'memorix.yml'));
+    expect(cfg.sources.env).toContain('MEMORIX_AGENT_MODEL');
+  });
 });

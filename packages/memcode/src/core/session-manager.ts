@@ -1177,11 +1177,38 @@ export class SessionManager {
 
 	/**
 	 * Get all session entries (excludes header). Returns a shallow copy.
-	 * The session is append-only: use appendXXX() to add entries, branch() to
-	 * change the leaf pointer. Entries cannot be modified or deleted.
+	 * The session is append-mostly: use appendXXX() to add entries, branch() to
+	 * change the leaf pointer. Internal recovery flows may retract the current
+	 * leaf when it represents a transient failed attempt that should not become
+	 * durable conversation history.
 	 */
 	getEntries(): SessionEntry[] {
 		return this.fileEntries.filter((e): e is SessionEntry => e.type !== "session");
+	}
+
+	/**
+	 * Remove the current leaf when it is a message matching the predicate.
+	 *
+	 * This is intentionally narrow: retry recovery needs to retract a transient
+	 * assistant error that has already been appended before the next attempt.
+	 * General session edits should still use branching instead of deletion.
+	 */
+	removeLeafMessageIf(predicate: (message: AgentMessage) => boolean): boolean {
+		if (!this.leafId) {
+			return false;
+		}
+		const entry = this.byId.get(this.leafId);
+		if (!entry || entry.type !== "message" || !predicate(entry.message)) {
+			return false;
+		}
+
+		this.fileEntries = this.fileEntries.filter((fileEntry) => fileEntry.type === "session" || fileEntry.id !== entry.id);
+		this.byId.delete(entry.id);
+		this.leafId = entry.parentId;
+		if (this.persist && this.sessionFile && this.flushed) {
+			this._rewriteFile();
+		}
+		return true;
 	}
 
 	/**

@@ -64,10 +64,71 @@ describe("buildSystemPrompt", () => {
 				cwd: process.cwd(),
 			});
 
-			expect(prompt).toContain("Memorix-native coding agent");
-			expect(prompt).toContain("same canonical project memory pool");
+			expect(prompt).toContain("Memorix is the native memory layer for this agent.");
+			expect(prompt).toContain("memorix_graph_context");
 			expect(prompt).toContain("memorix_status");
-			expect(prompt).toContain("embedding, search mode, rerank, retention, hooks");
+			expect(prompt).toContain("runtime memory state");
+		});
+
+		test("keeps Memorix guidance short and conditional", () => {
+			const prompt = buildSystemPrompt({
+				contextFiles: [],
+				skills: [],
+				cwd: process.cwd(),
+			});
+
+			expect(prompt).toContain("Memorix guidance:");
+			expect(prompt).toContain("Use memory when it helps the current task");
+			expect(prompt).toContain("Skip it for greetings, small talk, identity questions, jokes, and one-off replies");
+			expect(prompt).toContain("do not retry the same refs in alternate formats");
+			expect(prompt).not.toContain("Before starting non-trivial development work, search memory");
+		});
+
+		test("uses Windows-safe shell guidance on Windows", () => {
+			const prompt = buildSystemPrompt({
+				toolSnippets: {
+					bash: "Execute shell commands",
+				},
+				contextFiles: [],
+				skills: [],
+				cwd: process.cwd(),
+			});
+
+			if (process.platform === "win32") {
+				expect(prompt).toContain("PowerShell-compatible commands");
+				expect(prompt).toContain("never run Unix root scans like `find /`");
+			}
+		});
+
+		test("anchors identity to the current runtime model", () => {
+			const prompt = buildSystemPrompt({
+				contextFiles: [],
+				skills: [],
+				cwd: process.cwd(),
+				runtimeModel: {
+					provider: "deepseek",
+					id: "deepseek-v4-flash",
+					name: "DeepSeek V4 Flash",
+				},
+			});
+
+			expect(prompt).toContain("Runtime identity:");
+			expect(prompt).toContain("You are memcode, the Memorix-native coding agent.");
+			expect(prompt).toContain("Current model: deepseek/deepseek-v4-flash (DeepSeek V4 Flash).");
+			expect(prompt).toContain("Do not claim to be Claude, GPT, or another provider unless that is the current model/provider.");
+		});
+
+		test("does not duplicate Memorix guidance for custom prompts", () => {
+			const prompt = buildSystemPrompt({
+				customPrompt: "Custom base prompt.",
+				contextFiles: [],
+				skills: [],
+				cwd: process.cwd(),
+			});
+
+			expect(prompt.match(/Memorix guidance:/g)).toHaveLength(1);
+			expect(prompt).toContain("Custom base prompt.");
+			expect(prompt).toContain("Current working directory:");
 		});
 	});
 

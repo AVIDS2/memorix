@@ -284,8 +284,10 @@ export class TUI extends Container {
 	private maxLinesRendered = 0; // Track terminal's working area (max lines ever rendered)
 	private previousViewportTop = 0; // Track previous viewport top for resize-aware cursor moves
 	private viewportScrollOffset = 0; // Manual viewport offset from the live bottom
+	private viewportScrollAnchorTop: number | undefined = undefined; // Manual viewport top pinned while content grows
 	private fullRedrawCount = 0;
 	private stopped = false;
+	private started = false;
 
 	// Overlay stack for modal components rendered on top of base content
 	private focusOrderCounter = 0;
@@ -601,6 +603,11 @@ export class TUI extends Container {
 	}
 
 	start(): void {
+		if (this.started) {
+			this.requestRender();
+			return;
+		}
+		this.started = true;
 		this.stopped = false;
 		this.terminal.start(
 			(data) => this.handleInput(data),
@@ -627,16 +634,24 @@ export class TUI extends Container {
 	}
 
 	scrollViewportBy(lines: number): void {
-		const nextOffset = Math.max(0, this.viewportScrollOffset + lines);
+		const currentMaxOffset = Math.max(0, this.previousLines.length - this.terminal.rows);
+		const currentOffset = this.viewportScrollAnchorTop === undefined
+			? this.viewportScrollOffset
+			: Math.max(0, currentMaxOffset - this.viewportScrollAnchorTop);
+		const nextOffset = Math.max(0, currentOffset + lines);
 		if (nextOffset === this.viewportScrollOffset) return;
 		this.viewportScrollOffset = nextOffset;
-		this.requestRender(true);
+		this.viewportScrollAnchorTop = nextOffset > 0
+			? Math.max(0, currentMaxOffset - nextOffset)
+			: undefined;
+		this.requestRender();
 	}
 
 	resetViewportScroll(): void {
 		if (this.viewportScrollOffset === 0) return;
 		this.viewportScrollOffset = 0;
-		this.requestRender(true);
+		this.viewportScrollAnchorTop = undefined;
+		this.requestRender();
 	}
 
 	removeInputListener(listener: InputListener): void {
@@ -654,6 +669,8 @@ export class TUI extends Container {
 	}
 
 	stop(): void {
+		if (!this.started) return;
+		this.started = false;
 		this.stopped = true;
 		if (this.renderTimer) {
 			clearTimeout(this.renderTimer);
@@ -684,6 +701,9 @@ export class TUI extends Container {
 			this.hardwareCursorRow = 0;
 			this.maxLinesRendered = 0;
 			this.previousViewportTop = 0;
+			if (this.viewportScrollOffset === 0) {
+				this.viewportScrollAnchorTop = undefined;
+			}
 			if (this.renderTimer) {
 				clearTimeout(this.renderTimer);
 				this.renderTimer = undefined;
@@ -1235,9 +1255,13 @@ export class TUI extends Container {
 
 		if (this.viewportScrollOffset > 0) {
 			const maxOffset = Math.max(0, newLines.length - height);
-			this.viewportScrollOffset = Math.min(this.viewportScrollOffset, maxOffset);
+			const anchoredTop = this.viewportScrollAnchorTop === undefined
+				? Math.max(0, newLines.length - height - this.viewportScrollOffset)
+				: Math.min(this.viewportScrollAnchorTop, maxOffset);
+			this.viewportScrollOffset = Math.min(Math.max(0, maxOffset - anchoredTop), maxOffset);
+			this.viewportScrollAnchorTop = this.viewportScrollOffset > 0 ? anchoredTop : undefined;
 			if (this.viewportScrollOffset > 0) {
-				const viewportTop = Math.max(0, newLines.length - height - this.viewportScrollOffset);
+				const viewportTop = anchoredTop;
 				const visibleLines = newLines.slice(viewportTop, viewportTop + height);
 				while (visibleLines.length < height) {
 					visibleLines.push("");
@@ -1248,7 +1272,7 @@ export class TUI extends Container {
 
 				let buffer = "\x1b[?2026h";
 				buffer += this.deleteKittyImages(this.previousKittyImageIds);
-				buffer += "\x1b[2J\x1b[H\x1b[3J";
+				buffer += "\x1b[2J\x1b[H";
 				for (let i = 0; i < finalLines.length; i++) {
 					if (i > 0) buffer += "\r\n";
 					buffer += finalLines[i];
@@ -1260,7 +1284,9 @@ export class TUI extends Container {
 				this.hardwareCursorRow = this.cursorRow;
 				this.maxLinesRendered = finalLines.length;
 				this.previousViewportTop = viewportTop;
-				this.previousLines = finalLines;
+				// Keep the full rendered history for later scroll math and streaming diffs.
+				// The terminal only shows finalLines here, but future wheel ticks need newLines.length.
+				this.previousLines = newLines;
 				this.previousKittyImageIds = this.collectKittyImageIds(finalLines);
 				this.previousWidth = width;
 				this.previousHeight = height;
@@ -1278,14 +1304,16 @@ export class TUI extends Container {
 		// Helper to clear scrollback and viewport and render all new lines
 		const fullRender = (clear: boolean): void => {
 			this.fullRedrawCount += 1;
+			const renderedLines = clear ? newLines.slice(Math.max(0, newLines.length - height)) : newLines;
+			const renderedKittyImageIds = clear ? this.collectKittyImageIds(renderedLines) : this.collectKittyImageIds(newLines);
 			let buffer = "\x1b[?2026h"; // Begin synchronized output
 			if (clear) {
 				buffer += this.deleteKittyImages(this.previousKittyImageIds);
-				buffer += "\x1b[2J\x1b[H\x1b[3J"; // Clear screen, home, then clear scrollback
+				buffer += "\x1b[2J\x1b[H"; // Clear current screen and home; keep terminal scrollback usable.
 			}
-			for (let i = 0; i < newLines.length; i++) {
+			for (let i = 0; i < renderedLines.length; i++) {
 				if (i > 0) buffer += "\r\n";
-				buffer += newLines[i];
+				buffer += renderedLines[i];
 			}
 			buffer += "\x1b[?2026l"; // End synchronized output
 			this.terminal.write(buffer);
@@ -1293,7 +1321,7 @@ export class TUI extends Container {
 			this.hardwareCursorRow = this.cursorRow;
 			// Reset max lines when clearing, otherwise track growth
 			if (clear) {
-				this.maxLinesRendered = newLines.length;
+				this.maxLinesRendered = renderedLines.length;
 			} else {
 				this.maxLinesRendered = Math.max(this.maxLinesRendered, newLines.length);
 			}
@@ -1301,7 +1329,7 @@ export class TUI extends Container {
 			this.previousViewportTop = Math.max(0, bufferLength - height);
 			this.positionHardwareCursor(cursorPos, newLines.length);
 			this.previousLines = newLines;
-			this.previousKittyImageIds = this.collectKittyImageIds(newLines);
+			this.previousKittyImageIds = renderedKittyImageIds;
 			this.previousWidth = width;
 			this.previousHeight = height;
 			drawTransientOverlays();

@@ -79,11 +79,25 @@ async function getGetVectorStatus() {
 // Project resolution
 // ============================================================================
 
-async function resolveProjectId(cwd: string): Promise<string> {
+interface PreparedMemoryProject {
+	projectId: string;
+	dataDir?: string;
+}
+
+async function prepareMemoryProject(cwd: string, options: { searchIndex?: boolean } = {}): Promise<PreparedMemoryProject> {
 	try {
-		return (await resolveMemorixProjectContext(cwd)).canonicalId;
+		const project = await resolveMemorixProjectContext(cwd);
+		if (project.dataDir) {
+			const observationsMod = await importFromMemorix("memory/observations.js");
+			await observationsMod.initObservations?.(project.dataDir);
+			await observationsMod.ensureFreshObservations?.();
+			if (options.searchIndex) {
+				await observationsMod.prepareSearchIndex?.();
+			}
+		}
+		return { projectId: project.canonicalId, dataDir: project.dataDir };
 	} catch {
-		return cwd;
+		return { projectId: cwd };
 	}
 }
 
@@ -134,7 +148,7 @@ export type MemoryCommandHandler = (
 
 async function handleStats(_args: string, ctx: MemoryCommandContext): Promise<MemoryCommandResult> {
 	try {
-		const projectId = await resolveProjectId(ctx.cwd);
+		const { projectId } = await prepareMemoryProject(ctx.cwd);
 		const getObservationCount = await getGetObservationCount();
 		const getAllObservations = await getGetAllObservations();
 		const getVectorStatus = await getGetVectorStatus();
@@ -202,7 +216,7 @@ async function handleSearch(args: string, ctx: MemoryCommandContext): Promise<Me
 	}
 
 	try {
-		const projectId = await resolveProjectId(ctx.cwd);
+		const { projectId } = await prepareMemoryProject(ctx.cwd, { searchIndex: true });
 		const compactSearch = await getCompactSearch();
 		const result = await compactSearch({ query, projectId, limit: 20 });
 
@@ -224,7 +238,7 @@ async function handleSearch(args: string, ctx: MemoryCommandContext): Promise<Me
 
 async function handleShow(_args: string, ctx: MemoryCommandContext): Promise<MemoryCommandResult> {
 	try {
-		const projectId = await resolveProjectId(ctx.cwd);
+		const { projectId } = await prepareMemoryProject(ctx.cwd, { searchIndex: true });
 		const compactSearch = await getCompactSearch();
 		// Wildcard search to get all project memories, limited to recent
 		const result = await compactSearch({ query: "", projectId, limit: 30 });
@@ -254,7 +268,7 @@ async function handleShow(_args: string, ctx: MemoryCommandContext): Promise<Mem
 
 async function handleDiff(_args: string, ctx: MemoryCommandContext): Promise<MemoryCommandResult> {
 	try {
-		const projectId = await resolveProjectId(ctx.cwd);
+		const { projectId } = await prepareMemoryProject(ctx.cwd, { searchIndex: true });
 		const compactSearch = await getCompactSearch();
 
 		// Search for recently modified memories using the session's timeframe.
@@ -315,7 +329,7 @@ async function handlePromote(_args: string, ctx: MemoryCommandContext): Promise<
 			return { toast: { msg: "No AI response to promote.", type: "error" } };
 		}
 
-		const projectId = await resolveProjectId(ctx.cwd);
+		const { projectId } = await prepareMemoryProject(ctx.cwd);
 		const storeObservation = await getStoreObservation();
 
 		const title = lastAssistantText.slice(0, 100).replace(/\n/g, " ");
@@ -354,7 +368,7 @@ async function handlePromote(_args: string, ctx: MemoryCommandContext): Promise<
 
 async function handleDelete(_args: string, ctx: MemoryCommandContext): Promise<MemoryCommandResult> {
 	try {
-		const projectId = await resolveProjectId(ctx.cwd);
+		const { projectId } = await prepareMemoryProject(ctx.cwd, { searchIndex: true });
 		const compactSearch = await getCompactSearch();
 		const result = await compactSearch({ query: "", projectId, limit: 30 });
 
@@ -434,7 +448,7 @@ async function handleHooks(_args: string, _ctx: MemoryCommandContext): Promise<M
 
 async function handleStatus(_args: string, ctx: MemoryCommandContext): Promise<MemoryCommandResult> {
 	try {
-		const status = await getMemorixRuntimeContext(ctx.cwd);
+		const status = await getMemorixRuntimeContext(ctx.cwd, { mode: "full" });
 		return {
 			message: formatMemorixRuntimeStatus(status),
 			toast: { msg: "Memorix runtime status ready", type: "info" },

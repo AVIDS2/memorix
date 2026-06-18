@@ -72,6 +72,7 @@ function findInstalledDistRoot(): string | null {
 
 export function resetMemorixModuleRootForTests(): void {
 	_memorixModuleRoot = null;
+	_jiti = null;
 }
 
 export function resolveMemorixModuleRoot(): MemorixModuleRoot {

@@ -144,6 +144,17 @@ describe("AgentSession retry", () => {
 		expect(created.session.isRetrying).toBe(false);
 	});
 
+	it("removes transient retry errors from session context after retry succeeds", async () => {
+		const created = createSession({ failCount: 1 });
+
+		await created.session.prompt("Test");
+
+		const context = created.session.sessionManager.buildSessionContext();
+		const assistantMessages = context.messages.filter((message) => message.role === "assistant") as AssistantMessage[];
+		expect(assistantMessages.map((message) => message.stopReason)).toEqual(["stop"]);
+		expect(JSON.stringify(context.messages)).not.toContain("overloaded_error");
+	});
+
 	it("exhausts max retries and emits failure", async () => {
 		const created = createSession({ failCount: 99, maxRetries: 2 });
 		const events: string[] = [];

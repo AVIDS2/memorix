@@ -23,7 +23,7 @@ export default defineConfig([
     external: ['fastembed', '@huggingface/transformers', 'better-sqlite3'],
   },
   {
-    entry: { 'cli/index': 'src/cli/index.ts' },
+    entry: { 'cli/index': 'src/cli/index.ts', 'cli/memcode': 'src/cli/memcode.ts' },
     format: ['esm'],
     target: 'node20',
     dts: true,

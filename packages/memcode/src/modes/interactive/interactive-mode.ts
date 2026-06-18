@@ -78,6 +78,7 @@ import { importFromMemorix } from "../../core/memorix-resolve.ts";
 import { configureHttpDispatcher, formatHttpIdleTimeoutMs } from "../../core/http-dispatcher.ts";
 import { type AppKeybinding, KeybindingsManager } from "../../core/keybindings.ts";
 import { createCompactionSummaryMessage } from "../../core/messages.ts";
+import { formatMemcodeFooterMemoryStatus, getMemorixRuntimeContext } from "../../memory/memorix-runtime-context.ts";
 import { defaultModelPerProvider, findExactModelReferenceMatch, resolveModelScope } from "../../core/model-resolver.ts";
 import { DefaultPackageManager } from "../../core/package-manager.ts";
 import { BUILT_IN_PROVIDER_DISPLAY_NAMES } from "../../core/provider-display-names.ts";
@@ -315,6 +316,7 @@ export class InteractiveMode {
 	private memorixLogRestore?: () => void;
 	private pendingMemorixWarnings = new Set<string>();
 	private shownMemorixWarnings = new Set<string>();
+	private memoryStatusRefreshTimer: ReturnType<typeof setTimeout> | undefined = undefined;
 
 	// Status line tracking (for mutating immediately-sequential status updates)
 	private lastStatusSpacer: Spacer | undefined = undefined;
@@ -826,8 +828,8 @@ export class InteractiveMode {
 			this.ui.requestRender();
 		});
 
-		// Initialize available provider count for footer display
-		await this.updateAvailableProviderCount();
+		// Footer diagnostics are best-effort; keep the editor responsive on first paint.
+		void this.updateAvailableProviderCount();
 
 		// Initialize memory status in footer (non-blocking — if it fails, just show "unavailable")
 		void this.initMemoryStatus();
@@ -3175,7 +3177,7 @@ export class InteractiveMode {
 					this.streamingMessage = undefined;
 					this.footer.invalidate();
 				}
-				this.ui.requestRender(finalizedAssistantMessage);
+				this.ui.requestRender();
 				break;
 
 			case "tool_execution_start": {
@@ -3326,6 +3328,7 @@ export class InteractiveMode {
 				this.defaultEditor.onEscape = () => {
 					this.session.abortRetry();
 				};
+				this.rebuildChatFromMessages();
 				// Show retry indicator
 				this.statusContainer.clear();
 				this.retryCountdown?.dispose();
@@ -3606,6 +3609,8 @@ export class InteractiveMode {
 	}
 
 	renderInitialMessages(): void {
+		this.chatContainer.clear();
+		this.pendingTools.clear();
 		// Get aligned messages and entries from session context
 		const context = this.sessionManager.buildSessionContext();
 		this.renderSessionContext(context, {
@@ -4517,26 +4522,33 @@ export class InteractiveMode {
 	 */
 	private async initMemoryStatus(): Promise<void> {
 		try {
-			const { detectProject } = await importFromMemorix("project/detector.js");
-			const { initObservations, getObservationCount } = await importFromMemorix("memory/observations.js");
-
 			const cwd = this.sessionManager.getCwd();
-			const project = detectProject(cwd);
-			if (!project) {
-				this.footerDataProvider.setMemoryStatus("Memory: no project detected");
-				this.ui.requestRender();
-				return;
-			}
-
-			const dataDir = path.join(os.homedir(), ".memorix", "data", project.id.replace(/\//g, path.sep));
-			await initObservations(dataDir);
-			const count = getObservationCount();
-			this.footerDataProvider.setMemoryStatus(`Memory: ${count} observations indexed`);
+			const context = await getMemorixRuntimeContext(cwd, { mode: "footer" });
+			this.footerDataProvider.setMemoryStatus(formatMemcodeFooterMemoryStatus(context));
 			this.ui.requestRender();
+			this.scheduleMemoryStatusRefreshIfNeeded(context);
 		} catch {
 			this.footerDataProvider.setMemoryStatus("Memory: unavailable");
 			this.ui.requestRender();
 		}
+	}
+
+	private scheduleMemoryStatusRefreshIfNeeded(context: Awaited<ReturnType<typeof getMemorixRuntimeContext>>): void {
+		if (this.memoryStatusRefreshTimer) {
+			clearTimeout(this.memoryStatusRefreshTimer);
+			this.memoryStatusRefreshTimer = undefined;
+		}
+		const needsRefresh =
+			context.embedding.backfillRunning ||
+			(context.embedding.provider !== null && context.embedding.vectorMissing > 0) ||
+			(context.embedding.provider !== null && context.search.mode === "fulltext");
+		if (!needsRefresh) {
+			return;
+		}
+		this.memoryStatusRefreshTimer = setTimeout(() => {
+			this.memoryStatusRefreshTimer = undefined;
+			void this.initMemoryStatus();
+		}, 1500);
 	}
 
 	private async maybeWarnAboutAnthropicSubscriptionAuth(
@@ -6256,6 +6268,10 @@ export class InteractiveMode {
 		if (this.loadingAnimation) {
 			this.loadingAnimation.stop();
 			this.loadingAnimation = undefined;
+		}
+		if (this.memoryStatusRefreshTimer) {
+			clearTimeout(this.memoryStatusRefreshTimer);
+			this.memoryStatusRefreshTimer = undefined;
 		}
 		this.clearExtensionTerminalInputListeners();
 		this.footer.dispose();

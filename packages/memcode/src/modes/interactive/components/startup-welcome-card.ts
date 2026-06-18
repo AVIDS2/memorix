@@ -14,32 +14,30 @@ export interface StartupWelcomeCardOptions {
 const PIXEL_RESET = "\x1b[0m";
 
 const PIXEL_PALETTE: Record<string, string> = {
-	O: "#ff8c8d",
-	B: "#ff8c8d",
-	W: "#fff7f2",
-	d: "#d96b70",
+	O: "#ff8c4a",
+	B: "#ff6b3d",
+	W: "#fff7e8",
+	d: "#c94f2f",
 	E: "#111111",
 };
 
-const MEMI_PIXEL_ROWS = [
-	" OOOO      OOOO ",
-	" OBBBO    OBBBO ",
-	"OBBBOOOOOOOBBBBO",
-	"OBBBBBBBBBBBBBBO",
-	"OBBBBBBBBBBBBBBO",
-	"OBBBBBBBBBBBBBBO",
-	"OBBBBBBBBBBBBBBO",
-	"OBBEEBBBBBBEEBBO",
-	"OBBEEBBBBBBEEBBO",
-	"OBBBBBBBBBBBBBBO",
-	"OBBBBBBBBBBBBBBO",
-	"OOOOOBBBBBBOOOOO",
-	"     OBBBBO     ",
-	"     OWBBWO     ",
-	"     OBBBBO     ",
-	"     OBOBOW     ",
-	"     OdBBO      ",
-	"     OOOO       ",
+const CRAB_PIXEL_ROWS = [
+	"  OOO          OOO  ",
+	" OBBBO        OBBBO ",
+	"   OBO        OBO   ",
+	"    OBBO    OBBO    ",
+	"      OOOOOOOO      ",
+	"    OBBBBBBBBBBO    ",
+	"   OBBBWBBBBWBBBO   ",
+	"  OBBBBEBBBBEBBBBO  ",
+	"  OBBBBBBBBBBBBBBO  ",
+	" OBBBBBBBBBBBBBBBBO ",
+	"  OBBBBOBBBBBOBBBO  ",
+	"   OBBBOOOOOOBBBO   ",
+	"  OBO          OBO  ",
+	" OBO            OBO ",
+	"OBdO            OBdO",
+	" OO              OO ",
 ] as const;
 
 function ansiFg(color: string): string {
@@ -64,9 +62,9 @@ function pixelColor(pixel: string): string | undefined {
 	return PIXEL_PALETTE[pixel];
 }
 
-function renderMemiSprite(): string[] {
-	const width = Math.max(...MEMI_PIXEL_ROWS.map((row) => row.length));
-	const rows = MEMI_PIXEL_ROWS.map((row) => row.padEnd(width, " "));
+function renderCrabSprite(): string[] {
+	const width = Math.max(...CRAB_PIXEL_ROWS.map((row) => row.length));
+	const rows = CRAB_PIXEL_ROWS.map((row) => row.padEnd(width, " "));
 	const rendered: string[] = [];
 	for (let y = 0; y < rows.length; y += 2) {
 		const upper = rows[y] ?? "";
@@ -176,7 +174,7 @@ export class StartupWelcomeCard implements Component {
 			centerAnsi(theme.bold(theme.fg("text", "Ready when you are")), width),
 			centerAnsi(theme.fg("dim", "native memory inside memcode"), width),
 			"",
-			...renderMemiSprite().map((line) => centerAnsi(line, width)),
+			...renderCrabSprite().map((line) => centerAnsi(line, width)),
 			"",
 			padAnsi(formatMeta("model", this.options.getModelLabel()), width),
 			padAnsi(formatMeta("project", this.options.getProjectLabel()), width),

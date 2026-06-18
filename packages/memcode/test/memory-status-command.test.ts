@@ -30,7 +30,7 @@ describe("/memory status command", () => {
 			addMessage: () => undefined,
 		});
 
-		expect(getMemorixRuntimeContext).toHaveBeenCalledWith("E:\\project\\memorix");
+		expect(getMemorixRuntimeContext).toHaveBeenCalledWith("E:\\project\\memorix", { mode: "full" });
 		expect(result.message).toContain("Memorix Runtime Status");
 		expect(result.message).toContain("Shared aliases: AVIDS2/memorix, local/memorix");
 		expect(result.toast).toEqual({ msg: "Memorix runtime status ready", type: "info" });

@@ -2,7 +2,7 @@
  * Memorix Memory Extension
  *
  * Registers:
- * - 3 native memory tools (memorix_search, memorix_store, memorix_detail)
+ * - Native memory tools (search, store, detail, graph context, status)
  * - before_agent_start hook: injects relevant memories into system prompt
  * - agent_end hook: stores turn summary as observation
  *
@@ -10,7 +10,13 @@
  */
 
 import type { ExtensionAPI } from "../core/extensions/types.ts";
-import { memorixSearchTool, memorixStoreTool, memorixDetailTool, memorixStatusTool } from "../tools/memory-tools.ts";
+import {
+	memorixDetailTool,
+	memorixGraphContextTool,
+	memorixSearchTool,
+	memorixStatusTool,
+	memorixStoreTool,
+} from "../tools/memory-tools.ts";
 import { createMemoryInjectionHandler } from "../memory/memory-injection.ts";
 import { createMemorixHookBridge } from "../memory/memorix-hook-bridge.ts";
 import { resolveMemorixProjectContext } from "../memory/memorix-runtime-context.ts";
@@ -22,6 +28,7 @@ export default function memoryExtension(pi: ExtensionAPI): void {
 	pi.registerTool(memorixSearchTool);
 	pi.registerTool(memorixStoreTool);
 	pi.registerTool(memorixDetailTool);
+	pi.registerTool(memorixGraphContextTool);
 	pi.registerTool(memorixStatusTool);
 
 	// Resolve projectId from cwd using memorix project detection

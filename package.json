@@ -11,7 +11,8 @@
     "packages/memcode"
   ],
   "bin": {
-    "memorix": "./dist/cli/index.js"
+    "memorix": "./dist/cli/index.js",
+    "memcode": "./dist/cli/memcode.js"
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

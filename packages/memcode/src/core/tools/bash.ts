@@ -22,7 +22,7 @@ import { wrapToolDefinition } from "./tool-definition-wrapper.ts";
 import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, formatSize, type TruncationResult } from "./truncate.ts";
 
 const bashSchema = Type.Object({
-	command: Type.String({ description: "Bash command to execute" }),
+	command: Type.String({ description: "Shell command to execute" }),
 	timeout: Type.Optional(Type.Number({ description: "Timeout in seconds (optional, no default timeout)" })),
 });
 
@@ -273,11 +273,18 @@ export function createBashToolDefinition(
 	const ops = options?.operations ?? createLocalBashOperations({ shellPath: options?.shellPath });
 	const commandPrefix = options?.commandPrefix;
 	const spawnHook = options?.spawnHook;
+	const shellGuidance =
+		process.platform === "win32"
+			? "On Windows, prefer PowerShell-compatible commands, `rg`, and scoped `Get-ChildItem`/`Select-String`; quote paths and never run Unix root scans like `find /`."
+			: "Prefer scoped POSIX shell commands and `rg`; avoid broad root filesystem scans unless explicitly requested.";
 	return {
 		name: "bash",
 		label: "bash",
-		description: `Execute a bash command in the current working directory. Returns stdout and stderr. Output is truncated to last ${DEFAULT_MAX_LINES} lines or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first). If truncated, full output is saved to a temp file. Optionally provide a timeout in seconds.`,
-		promptSnippet: "Execute bash commands (ls, grep, find, etc.)",
+		description: `Execute a shell command in the current working directory. ${shellGuidance} Returns stdout and stderr. Output is truncated to last ${DEFAULT_MAX_LINES} lines or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first). If truncated, full output is saved to a temp file. Optionally provide a timeout in seconds.`,
+		promptSnippet:
+			process.platform === "win32"
+				? "Execute Windows shell commands; prefer rg/Get-ChildItem/Select-String and scoped paths"
+				: "Execute scoped shell commands; prefer rg over grep/find where available",
 		parameters: bashSchema,
 		async execute(
 			_toolCallId,

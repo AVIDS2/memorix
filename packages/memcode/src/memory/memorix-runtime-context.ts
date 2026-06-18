@@ -22,6 +22,8 @@ export interface MemorixRuntimeContext {
 	};
 	search: {
 		mode: string;
+		probed: boolean;
+		indexPrepared: boolean;
 	};
 	embedding: {
 		configuredMode: string;
@@ -31,6 +33,13 @@ export interface MemorixRuntimeContext {
 		vectorTotal: number;
 		vectorMissing: number;
 		backfillRunning: boolean;
+		lastBackfill?: {
+			attempted: number;
+			succeeded: number;
+			failed: number;
+			lastError?: string;
+			finishedAt?: string;
+		} | null;
 		explicitlyDisabled: boolean;
 	};
 	llm: {
@@ -46,6 +55,16 @@ export interface MemorixRuntimeContext {
 		immune: number;
 	};
 	hooks: MemorixHookBridgeStatus;
+}
+
+export type MemorixRuntimeContextMode = "full" | "footer";
+
+export interface MemorixRuntimeContextOptions {
+	/**
+	 * full: explicit diagnostics for /memory status, may prepare/probe indexes.
+	 * footer: fast observability snapshot for TUI startup, never triggers heavy work.
+	 */
+	mode?: MemorixRuntimeContextMode;
 }
 
 let lastInjectedRefs: string[] = [];
@@ -135,7 +154,11 @@ export async function resolveMemorixProjectContext(cwd: string): Promise<Memorix
 	};
 }
 
-export async function getMemorixRuntimeContext(cwd: string): Promise<MemorixRuntimeContext> {
+export async function getMemorixRuntimeContext(
+	cwd: string,
+	options: MemorixRuntimeContextOptions = {},
+): Promise<MemorixRuntimeContext> {
+	const mode = options.mode ?? "full";
 	const project = await resolveMemorixProjectContext(cwd);
 
 	const observationsMod = await importFromMemorix("memory/observations.js");
@@ -160,7 +183,22 @@ export async function getMemorixRuntimeContext(cwd: string): Promise<MemorixRunt
 	const configuredEmbeddingMode = configMod.getEmbeddingMode?.() ?? process.env.MEMORIX_EMBEDDING ?? "off";
 	const configuredEmbeddingModel = configMod.getEmbeddingModel?.() ?? process.env.MEMORIX_EMBEDDING_MODEL;
 	const configuredEmbeddingApiKey = configMod.getEmbeddingApiKey?.();
-	const indexVectorDimensions = oramaMod.getVectorDimensions?.() ?? null;
+	let searchIndexPrepared = false;
+	if (mode === "full" && activeObs.length > 0 && typeof observationsMod.prepareSearchIndex === "function") {
+		try {
+			await observationsMod.prepareSearchIndex();
+			searchIndexPrepared = true;
+		} catch {
+			searchIndexPrepared = false;
+		}
+	}
+	let searchIndexStatus = observationsMod.getSearchIndexStatus?.(project.canonicalId) ?? {
+		embeddingEnabled: Boolean(oramaMod.isEmbeddingEnabled?.()),
+		vectorDimensions: oramaMod.getVectorDimensions?.() ?? null,
+		lastSearchMode: oramaMod.getLastSearchMode?.(project.canonicalId) ?? "fulltext",
+		prepared: searchIndexPrepared,
+	};
+	const indexVectorDimensions = searchIndexStatus.vectorDimensions ?? null;
 	const embeddingProvider =
 		configuredEmbeddingMode === "off"
 			? null
@@ -172,16 +210,61 @@ export async function getMemorixRuntimeContext(cwd: string): Promise<MemorixRunt
 		missing: 0,
 		backfillRunning: false,
 	};
+	let backfillTriggered = false;
+	if (
+		mode === "full" &&
+		configuredEmbeddingMode !== "off" &&
+		(vectorStatus.missing ?? 0) > 0 &&
+		typeof observationsMod.backfillVectorEmbeddings === "function"
+	) {
+		backfillTriggered = true;
+		observationsMod.backfillVectorEmbeddings().catch(() => {});
+	}
+	const refreshedVectorStatus = observationsMod.getVectorStatus?.() ?? vectorStatus;
+	let searchMode = searchIndexStatus.lastSearchMode ?? "fulltext";
+	let searchProbed = false;
+	const vectorsReady = (refreshedVectorStatus.total ?? projectObs.length) > 0 && (refreshedVectorStatus.missing ?? 0) === 0;
+	const shouldProbeSearch =
+		mode === "full" &&
+		searchMode === "fulltext" &&
+		activeObs.length > 0 &&
+		configuredEmbeddingMode !== "off" &&
+		Boolean(searchIndexStatus.embeddingEnabled) &&
+		vectorsReady;
+	if (shouldProbeSearch && (typeof observationsMod.probeSearchIndex === "function" || typeof oramaMod.searchObservations === "function")) {
+		try {
+			if (typeof observationsMod.probeSearchIndex === "function") {
+				searchMode = await observationsMod.probeSearchIndex(project.canonicalId);
+			} else {
+				await oramaMod.searchObservations({
+					query: "semantic memory retrieval status",
+					projectId: project.canonicalId,
+					limit: 1,
+					status: "all",
+					trackAccess: false,
+				});
+				searchMode = oramaMod.getLastSearchMode?.(project.canonicalId) ?? searchMode;
+			}
+			searchProbed = true;
+		} catch {
+			searchIndexStatus = observationsMod.getSearchIndexStatus?.(project.canonicalId) ?? searchIndexStatus;
+			searchMode = searchIndexStatus.lastSearchMode ?? "fulltext (semantic probe failed)";
+			searchProbed = true;
+		}
+	}
+	searchIndexStatus = observationsMod.getSearchIndexStatus?.(project.canonicalId) ?? searchIndexStatus;
 
 	const llmMod = await importFromMemorix("llm/provider.js");
 	const llmConfig = llmMod.initLLM?.({ scope: "memory" }) ?? llmMod.getLLMConfig?.() ?? null;
 
 	let retention = { active: activeObs.length, stale: 0, archiveCandidates: 0, immune: 0 };
-	try {
-		const retentionMod = await importFromMemorix("memory/retention.js");
-		retention = retentionMod.getRetentionSummary(projectObs.map(toRetentionDocument));
-	} catch {
-		// Retention status is observability-only; keep the rest of the context intact.
+	if (mode === "full") {
+		try {
+			const retentionMod = await importFromMemorix("memory/retention.js");
+			retention = retentionMod.getRetentionSummary(projectObs.map(toRetentionDocument));
+		} catch {
+			// Retention status is observability-only; keep the rest of the context intact.
+		}
 	}
 
 	return {
@@ -196,16 +279,19 @@ export async function getMemorixRuntimeContext(cwd: string): Promise<MemorixRunt
 			lastInjectedRefs: getLastMemorixInjectedRefs(),
 		},
 		search: {
-			mode: oramaMod.getLastSearchMode?.(project.canonicalId) ?? "fulltext",
+			mode: searchMode,
+			probed: searchProbed,
+			indexPrepared: searchIndexPrepared,
 		},
 		embedding: {
 			configuredMode: configuredEmbeddingMode,
-			enabledInIndex: Boolean(oramaMod.isEmbeddingEnabled?.()),
+			enabledInIndex: Boolean(searchIndexStatus.embeddingEnabled),
 			provider: embeddingProvider,
 			dimensions: configMod.getEmbeddingDimensions?.() ?? indexVectorDimensions,
-			vectorTotal: vectorStatus.total ?? projectObs.length,
-			vectorMissing: vectorStatus.missing ?? 0,
-			backfillRunning: Boolean(vectorStatus.backfillRunning),
+			vectorTotal: refreshedVectorStatus.total ?? projectObs.length,
+			vectorMissing: refreshedVectorStatus.missing ?? 0,
+			backfillRunning: Boolean(refreshedVectorStatus.backfillRunning || backfillTriggered),
+			lastBackfill: refreshedVectorStatus.lastBackfill ?? null,
 			explicitlyDisabled: configuredEmbeddingMode === "off",
 		},
 		llm: llmConfig
@@ -221,71 +307,85 @@ export async function getMemorixRuntimeContext(cwd: string): Promise<MemorixRunt
 	};
 }
 
-function formatDistribution(label: string, values: Record<string, number>): string[] {
-	const entries = Object.entries(values).sort((a, b) => b[1] - a[1]);
-	if (entries.length === 0) return [`${label}: none`];
-	return [`${label}: ${entries.map(([key, count]) => `${key} ${count}`).join(", ")}`];
+function formatMemoryNextHint(context: MemorixRuntimeContext): string {
+	if (!context.embedding.explicitlyDisabled && context.embedding.enabledInIndex && context.embedding.vectorMissing > 0) {
+		return "embeddings are warming; semantic search will enable after backfill";
+	}
+
+	if (!context.embedding.provider && !context.embedding.explicitlyDisabled) {
+		return "semantic search is unavailable; configure embedding to unlock vector recall";
+	}
+
+	if (!context.hooks.active) {
+		return "native hooks are inactive; restart memcode or check the hook bridge";
+	}
+
+	return "memory runtime looks ready";
 }
 
 export function formatMemorixRuntimeStatus(context: MemorixRuntimeContext): string {
-	const lines: string[] = [];
 	const embedded = context.embedding.vectorTotal - context.embedding.vectorMissing;
-	const pct = context.embedding.vectorTotal > 0
-		? Math.round((embedded / context.embedding.vectorTotal) * 100)
-		: 0;
 
-	lines.push("Memorix Runtime Status");
-	lines.push("");
-	lines.push(`Project: ${context.project.canonicalId}`);
-	if (context.project.detectedId !== context.project.canonicalId) {
-		lines.push(`Detected as: ${context.project.detectedId}`);
-	}
-	lines.push(`Shared aliases: ${context.project.aliases.join(", ")}`);
-	if (context.project.rootPath) lines.push(`Root: ${context.project.rootPath}`);
-	if (context.project.dataDir) lines.push(`Data dir: ${context.project.dataDir}`);
-	lines.push("");
-	lines.push(`Memory pool: ${context.memory.activeCount} active / ${context.memory.totalCount} shared project memories`);
-	lines.push(...formatDistribution("Types", context.memory.byType));
-	lines.push(...formatDistribution("Sources", context.memory.bySourceDetail));
-	lines.push(...formatDistribution("Value", context.memory.byValueCategory));
-	lines.push(
-		`Last injection: ${context.memory.lastInjectedRefs.length > 0 ? context.memory.lastInjectedRefs.join(", ") : "none this process"}`,
-	);
-	lines.push("");
-	lines.push(`Search: ${context.search.mode}`);
-	lines.push(
-		`Embedding: ${
-			context.embedding.provider
-				? `${context.embedding.provider}${context.embedding.dimensions ? ` (${context.embedding.dimensions}d)` : ""}`
-				: context.embedding.explicitlyDisabled
-					? "off (BM25 fulltext)"
-					: "unavailable (BM25 fallback)"
-		}`,
-	);
-	lines.push(`Vectors: ${embedded}/${context.embedding.vectorTotal} embedded (${pct}%)${context.embedding.backfillRunning ? " · backfill running" : ""}`);
-	lines.push(
-		`Memory LLM: ${
-			context.llm.enabled
-				? `${context.llm.provider ?? "custom"}/${context.llm.model ?? "unknown"}`
-				: "off (deterministic memory pipeline)"
-		}`,
-	);
-	lines.push(
-		`Retention: ${context.retention.active} active · ${context.retention.stale} stale · ${context.retention.archiveCandidates} archive candidates · ${context.retention.immune} immune`,
-	);
-	lines.push("");
-	lines.push(`Native hooks: ${context.hooks.active ? "active" : "inactive"}`);
+	const searchModeLabel =
+		context.embedding.provider &&
+		context.embedding.enabledInIndex &&
+		context.embedding.vectorTotal > 0 &&
+		context.embedding.vectorMissing > 0
+			? "semantic warming (BM25/fulltext until vectors finish)"
+			: `${context.search.mode}${context.search.probed ? " (verified now)" : ""}`;
 	const hookCounts = Object.entries(context.hooks.counts)
 		.filter(([, count]) => (count ?? 0) > 0)
 		.map(([event, count]) => `${event} ${count}`)
 		.join(", ");
-	lines.push(`Hook events: ${hookCounts || "none"}`);
-	if (context.hooks.lastStoredObservation) {
-		lines.push(
-			`Last stored: [${context.hooks.lastStoredObservation.type}] ${context.hooks.lastStoredObservation.title}`,
-		);
+	const lines: string[] = [
+		"## Memorix Status",
+		`- Project: ${context.project.canonicalId}`,
+		`- Memory: ${context.memory.activeCount} active / ${context.memory.totalCount} shared`,
+		`- Search: ${searchModeLabel}`,
+		`- Embedding: ${
+			context.embedding.provider
+				? `${context.embedding.provider} · ${embedded}/${context.embedding.vectorTotal} vectors${context.embedding.dimensions ? ` · ${context.embedding.dimensions}d` : ""}${context.embedding.backfillRunning ? " · backfill running" : ""}`
+				: context.embedding.explicitlyDisabled
+					? "off · BM25 fulltext"
+					: "unavailable · BM25 fallback"
+		}`,
+		`- Memory LLM: ${
+			context.llm.enabled
+				? `${context.llm.provider ?? "custom"}/${context.llm.model ?? "unknown"}`
+				: "off"
+		}`,
+		`- Retention: ${context.retention.active} active · ${context.retention.stale} stale · ${context.retention.archiveCandidates} archive candidates · ${context.retention.immune} immune`,
+		`- Hooks: ${context.hooks.active ? "active" : "inactive"}${hookCounts ? ` · ${hookCounts}` : ""}`,
+		`- Injection: ${context.memory.lastInjectedRefs.length > 0 ? context.memory.lastInjectedRefs.join(", ") : "none this process"}`,
+		`- Next: ${formatMemoryNextHint(context)}`,
+	];
+
+	if (context.search.probed || context.embedding.vectorMissing > 0 || context.hooks.lastError || context.embedding.lastBackfill) {
+		lines.splice(8, 0, `- Status: ${context.search.probed ? "verified" : "observed"}`);
 	}
-	if (context.hooks.lastError) lines.push(`Last hook error: ${context.hooks.lastError}`);
 
 	return lines.join("\n");
+}
+
+export function formatMemcodeFooterMemoryStatus(context: MemorixRuntimeContext): string {
+	const embedded = context.embedding.vectorTotal - context.embedding.vectorMissing;
+	const semanticSearchActive = Boolean(context.embedding.provider) && context.embedding.enabledInIndex;
+	const searchMode = semanticSearchActive
+		? context.embedding.vectorMissing === 0 && context.embedding.vectorTotal > 0
+			? "semantic ready"
+			: "semantic warming"
+		: context.search.probed
+			? `${context.search.mode}✓`
+			: context.search.mode;
+	const embeddingStatus = context.embedding.provider
+		? `Embedding: ${embedded}/${context.embedding.vectorTotal}`
+		: context.embedding.explicitlyDisabled
+			? "Embedding: off"
+			: "Embedding: fallback";
+
+	return [
+		`Memory: ${context.memory.activeCount} active / ${context.memory.totalCount} shared`,
+		`Search: ${searchMode}`,
+		embeddingStatus,
+	].join(" · ");
 }

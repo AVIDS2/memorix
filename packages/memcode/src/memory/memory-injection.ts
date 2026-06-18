@@ -18,6 +18,7 @@
  */
 
 import type { ExtensionContext } from '../core/extensions/types.ts';
+import { importFromMemorix } from '../core/memorix-resolve.ts';
 import { getPrefetcher } from './memory-prefetch.ts';
 import { recordMemorixInjectedRefs } from './memorix-runtime-context.ts';
 
@@ -41,12 +42,15 @@ export interface MemoryInjectionConfig {
   maxResults: number;
   /** Token budget for injected memories. Default: 2000 */
   maxTokens: number;
+  /** Only inject for prompts that look like real development work. Default: true */
+  intentGate: boolean;
 }
 
 const DEFAULT_CONFIG: MemoryInjectionConfig = {
   enabled: true,
   maxResults: 5,
   maxTokens: 2000,
+  intentGate: true,
 };
 
 // ---------------------------------------------------------------------------
@@ -74,6 +78,7 @@ export async function injectMemories(
 
   const query = extractSearchQuery(prompt);
   if (!query) return systemPrompt;
+  if (cfg.intentGate && !looksLikeDevelopmentTask(query)) return systemPrompt;
 
   try {
     // Use prefetcher — reads cache or races against timeout
@@ -89,7 +94,7 @@ export async function injectMemories(
     if (!result || result.entries.length === 0) return systemPrompt;
 
     recordMemorixInjectedRefs(result.entries.map((entry) => ({ id: entry.id, projectId: (entry as any).projectId })));
-    const memoryBlock = formatMemoryBlock(result.entries, result.formatted);
+    const memoryBlock = await formatMemoryBlock(result.entries, result.formatted, projectId, query);
     return `${systemPrompt}\n\n${memoryBlock}`;
   } catch {
     // Memory injection is best-effort; never break the agent turn.
@@ -108,25 +113,60 @@ function extractSearchQuery(prompt: string): string {
   return trimmed;
 }
 
+function looksLikeDevelopmentTask(prompt: string): boolean {
+	const text = prompt.trim();
+	if (text.length < 4) return false;
+
+	const casualOnlyPatterns = [
+		/^[\u4e00-\u9fff]{1,4}$/,
+		/^(你好|哈喽|在吗|hello|hi|hey|666|1+|2+|3+|4+|5+|6+|7+|8+|9+)$/i,
+	];
+	if (casualOnlyPatterns.some((pattern) => pattern.test(text))) {
+		return false;
+	}
+
+	return /(?:\b(?:debug|review|build|run|fix|implement|refactor|search|memory|hook|model|config|state|status|bug|test|repair|patch)\b|[修改查看试测设配调命令配置状态问题])/.test(text);
+}
+
 // ---------------------------------------------------------------------------
 // Formatting
 // ---------------------------------------------------------------------------
 
-function formatMemoryBlock(entries: IndexEntry[], fallbackFormatted: string): string {
-  const lines: string[] = ['## Relevant Memories', ''];
+async function formatMemoryBlock(entries: IndexEntry[], fallbackFormatted: string, projectId: string, query: string): Promise<string> {
+  try {
+    const observationsMod = await importFromMemorix('memory/observations.js');
+    const graphContextMod = await importFromMemorix('memory/graph-context.js');
+    const allObservations = typeof observationsMod.getAllObservations === 'function'
+      ? observationsMod.getAllObservations()
+      : [];
+    if (typeof graphContextMod.buildGraphContextPacket === 'function') {
+      const packet = graphContextMod.buildGraphContextPacket(allObservations, {
+        projectId,
+        query,
+        limit: Math.max(1, Math.min(entries.length || 5, 5)),
+      });
+      if ((packet.memories?.length ?? 0) === 0 && (packet.entities?.length ?? 0) === 0) {
+        throw new Error('empty graph context packet');
+      }
+      if (typeof graphContextMod.formatGraphContextPrompt === 'function') {
+        return graphContextMod.formatGraphContextPrompt(packet);
+      }
+    }
+  } catch {
+    // Fall through to legacy presentation.
+  }
 
+  const lines: string[] = ['## Relevant Memories', ''];
   const hasTitles = entries.some((e) => e.title);
   if (hasTitles) {
     for (const entry of entries) {
       const type = entry.type ?? entry.documentType ?? 'memory';
       const title = entry.title ?? `#${entry.id}`;
-      const bullet = `- [${type}] ${title}`;
-      lines.push(bullet);
+      lines.push(`- [${type}] ${title}`);
     }
   } else {
     lines.push(fallbackFormatted);
   }
-
   return lines.join('\n');
 }
 

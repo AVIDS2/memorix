@@ -2,7 +2,7 @@ import assert from "node:assert";
 import { describe, it } from "node:test";
 import type { Terminal as XtermTerminalType } from "@xterm/headless";
 import { deleteKittyImage, encodeKitty } from "../src/terminal-image.ts";
-import { type Component, TUI } from "../src/tui.ts";
+import { CURSOR_MARKER, type Component, TUI } from "../src/tui.ts";
 import { VirtualTerminal } from "./virtual-terminal.ts";
 
 class TestComponent implements Component {
@@ -27,6 +27,21 @@ class LoggingVirtualTerminal extends VirtualTerminal {
 
 	clearWrites(): void {
 		this.writes = [];
+	}
+}
+
+class CountingVirtualTerminal extends VirtualTerminal {
+	startCount = 0;
+	stopCount = 0;
+
+	override start(onInput: (data: string) => void, onResize: () => void): void {
+		this.startCount += 1;
+		super.start(onInput, onResize);
+	}
+
+	override stop(): void {
+		this.stopCount += 1;
+		super.stop();
 	}
 }
 
@@ -594,8 +609,8 @@ describe("TUI differential rendering", () => {
 		tui.stop();
 	});
 
-	it("force redraw clears stale streaming revisions from scrollback", async () => {
-		const terminal = new VirtualTerminal(24, 3);
+	it("force redraw does not clear terminal scrollback", async () => {
+		const terminal = new LoggingVirtualTerminal(24, 3);
 		const tui = new TUI(terminal);
 		const component = new TestComponent();
 		tui.addChild(component);
@@ -603,16 +618,107 @@ describe("TUI differential rendering", () => {
 		component.lines = ["old prompt", "STALE_STREAM_PARTIAL", "editor"];
 		tui.start();
 		await terminal.waitForRender();
+		terminal.clearWrites();
 
 		component.lines = ["final prompt", "FINAL_STREAM_TEXT", "editor"];
 		tui.requestRender(true);
 		await terminal.waitForRender();
 
-		const allBuffer = terminal.getScrollBuffer().join("\n");
-		assert.ok(!allBuffer.includes("STALE_STREAM_PARTIAL"), `stale stream text leaked:\n${allBuffer}`);
+		const writes = terminal.getWrites();
+		assert.ok(writes.includes("\x1b[2J\x1b[H"), "force redraw should clear the current viewport");
+		assert.ok(!writes.includes("\x1b[3J"), "force redraw should preserve terminal scrollback");
 		assert.ok(terminal.getViewport().join("\n").includes("FINAL_STREAM_TEXT"));
-		assert.strictEqual(getHistoricalScrollback(terminal).join("\n").includes("STALE_STREAM_PARTIAL"), false);
 
 		tui.stop();
+	});
+
+	it("force redraw renders only the visible viewport to avoid duplicating transcript into scrollback", async () => {
+		const terminal = new LoggingVirtualTerminal(24, 4);
+		const tui = new TUI(terminal);
+		const component = new TestComponent();
+		tui.addChild(component);
+
+		component.lines = Array.from({ length: 10 }, (_, i) => `Line ${i}`);
+		tui.start();
+		await terminal.waitForRender();
+		terminal.clearWrites();
+
+		tui.requestRender(true);
+		await terminal.waitForRender();
+
+		const writes = terminal.getWrites();
+		assert.ok(!writes.includes("Line 0"), `full redraw replayed old transcript into scrollback:\n${writes}`);
+		assert.ok(!writes.includes("Line 5"), `full redraw should only repaint the visible viewport:\n${writes}`);
+		assert.ok(writes.includes("Line 6"));
+		assert.ok(writes.includes("Line 9"));
+		assert.deepStrictEqual(terminal.getViewport(), ["Line 6", "Line 7", "Line 8", "Line 9"]);
+
+		tui.stop();
+	});
+
+	it("keeps logical cursor state after force redraw so later appends do not corrupt the viewport", async () => {
+		const terminal = new LoggingVirtualTerminal(24, 4);
+		const tui = new TUI(terminal);
+		const component = new TestComponent();
+		tui.addChild(component);
+
+		component.lines = Array.from({ length: 10 }, (_, i) => `Line ${i}`);
+		tui.start();
+		await terminal.waitForRender();
+
+		tui.requestRender(true);
+		await terminal.waitForRender();
+		terminal.clearWrites();
+
+		component.lines = Array.from({ length: 11 }, (_, i) => `Line ${i}`);
+		tui.requestRender();
+		await terminal.waitForRender();
+
+		const viewport = terminal.getViewport();
+		assert.deepStrictEqual(viewport, ["Line 7", "Line 8", "Line 9", "Line 10"]);
+		assert.ok(!terminal.getWrites().includes("Line 0"), "append after force redraw should not replay the transcript");
+
+		tui.stop();
+	});
+
+	it("does not scroll past the viewport when positioning a cursor after force redraw", async () => {
+		const terminal = new LoggingVirtualTerminal(24, 4);
+		const tui = new TUI(terminal, true);
+		const component = new TestComponent();
+		tui.addChild(component);
+
+		component.lines = [...Array.from({ length: 9 }, (_, i) => `Line ${i}`), `Input ${CURSOR_MARKER}`];
+		tui.start();
+		await terminal.waitForRender();
+		terminal.clearWrites();
+
+		tui.requestRender(true);
+		await terminal.waitForRender();
+
+		const writes = terminal.getWrites();
+		assert.ok(!writes.includes("\x1b[6B"), `cursor positioning jumped below the visible viewport:\n${writes}`);
+		assert.deepStrictEqual(terminal.getViewport(), ["Line 6", "Line 7", "Line 8", "Input "]);
+
+		tui.stop();
+	});
+});
+
+describe("TUI lifecycle", () => {
+	it("does not restart terminal handlers when start is called repeatedly", async () => {
+		const terminal = new CountingVirtualTerminal(24, 4);
+		const tui = new TUI(terminal);
+		const component = new TestComponent();
+		tui.addChild(component);
+
+		component.lines = ["Line 0"];
+		tui.start();
+		tui.start();
+		await terminal.waitForRender();
+
+		assert.strictEqual(terminal.startCount, 1);
+
+		tui.stop();
+		tui.stop();
+		assert.strictEqual(terminal.stopCount, 1);
 	});
 });

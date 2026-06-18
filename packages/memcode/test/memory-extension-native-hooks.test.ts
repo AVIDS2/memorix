@@ -18,6 +18,7 @@ vi.mock("../src/memory/memory-injection.ts", () => ({
 }));
 
 const { default: memoryExtension } = await import("../src/extensions/memory-extension.ts");
+const { memorixGraphContextTool, memorixSearchTool, memorixStatusTool } = await import("../src/tools/memory-tools.ts");
 
 function createExtensionApi() {
 	const handlers = new Map<string, Array<(event: any, ctx: any) => unknown>>();
@@ -42,16 +43,31 @@ function createContext() {
 }
 
 describe("memoryExtension native hooks", () => {
+	test("keeps memory tool prompt guidance opt-in instead of eager", () => {
+		expect(memorixSearchTool.promptGuidelines).toContain(
+			"Use memorix_search only when prior project context would materially help the current task.",
+		);
+		expect(memorixSearchTool.promptGuidelines?.join("\n")).toContain("Skip memory search");
+		expect(memorixSearchTool.promptGuidelines?.join("\n")).toContain("Use memorix_graph_context for that");
+		expect(memorixSearchTool.promptGuidelines?.join("\n")).toContain("Do not immediately call memorix_search again");
+		expect(memorixGraphContextTool.promptGuidelines?.join("\n")).toContain("broad memory overview");
+		expect(memorixGraphContextTool.promptGuidelines?.join("\n")).toContain("background context");
+		expect(memorixStatusTool.promptGuidelines).toEqual([
+			"Use memorix_status only when the user asks about memory runtime, project identity, embedding, search mode, rerank, retention, hooks, or injection state.",
+		]);
+	});
+
 	test("keeps native memory tools and registers native hook lifecycle handlers", () => {
 		const { api, handlers } = createExtensionApi();
 
 		memoryExtension(api as any);
 
-		expect(api.registerTool).toHaveBeenCalledTimes(4);
+		expect(api.registerTool).toHaveBeenCalledTimes(5);
 		expect(api.registerTool.mock.calls.map(([tool]) => tool.name)).toEqual([
 			"memorix_search",
 			"memorix_store",
 			"memorix_detail",
+			"memorix_graph_context",
 			"memorix_status",
 		]);
 		expect(createMemorixHookBridge).toHaveBeenCalledTimes(1);

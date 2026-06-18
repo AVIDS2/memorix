@@ -14,6 +14,7 @@ export class VirtualTerminal implements Terminal {
 	private resizeHandler?: () => void;
 	private _columns: number;
 	private _rows: number;
+	private output = "";
 
 	constructor(columns = 80, rows = 24) {
 		this._columns = columns;
@@ -48,6 +49,7 @@ export class VirtualTerminal implements Terminal {
 	}
 
 	write(data: string): void {
+		this.output += data;
 		this.xterm.write(data);
 	}
 
@@ -182,6 +184,17 @@ export class VirtualTerminal implements Terminal {
 		}
 
 		return lines;
+	}
+
+	/**
+	 * Get raw terminal output written since construction.
+	 */
+	getOutput(): string {
+		return this.output;
+	}
+
+	clearOutput(): void {
+		this.output = "";
 	}
 
 	/**

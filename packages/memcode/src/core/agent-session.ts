@@ -920,6 +920,7 @@ export class AgentSession {
 
 		this._baseSystemPromptOptions = {
 			cwd: this._cwd,
+			runtimeModel: this.model ? { provider: this.model.provider, id: this.model.id, name: this.model.name } : undefined,
 			skills: loadedSkills,
 			contextFiles: loadedContextFiles,
 			customPrompt: loaderSystemPrompt,
@@ -929,6 +930,17 @@ export class AgentSession {
 			promptGuidelines,
 		};
 		return buildSystemPrompt(this._baseSystemPromptOptions);
+	}
+
+	private _refreshBaseSystemPromptRuntimeIdentity(): void {
+		if (!this._baseSystemPromptOptions) {
+			return;
+		}
+		this._baseSystemPromptOptions.runtimeModel = this.model
+			? { provider: this.model.provider, id: this.model.id, name: this.model.name }
+			: undefined;
+		this._baseSystemPrompt = buildSystemPrompt(this._baseSystemPromptOptions);
+		this.agent.state.systemPrompt = this._baseSystemPrompt;
 	}
 
 	// =========================================================================
@@ -1121,6 +1133,7 @@ export class AgentSession {
 				}
 			}
 			// Apply extension-modified system prompt, or reset to base
+			this._refreshBaseSystemPromptRuntimeIdentity();
 			if (result?.systemPrompt) {
 				this.agent.state.systemPrompt = result.systemPrompt;
 			} else {
@@ -2501,20 +2514,29 @@ export class AgentSession {
 		}
 
 		const delayMs = settings.baseDelayMs * 2 ** (this._retryAttempt - 1);
+		const retryErrorMessage = message.errorMessage || "Unknown error";
+
+		// Remove the transient error from both model context and session history.
+		// A retryable transport/provider failure is an implementation detail once
+		// the next attempt succeeds, and keeping it would pollute the conversation.
+		const messages = this.agent.state.messages;
+		if (messages.length > 0 && messages[messages.length - 1].role === "assistant") {
+			this.agent.state.messages = messages.slice(0, -1);
+		}
+		this.sessionManager.removeLeafMessageIf(
+			(candidate) =>
+				candidate.role === "assistant" &&
+				candidate.stopReason === "error" &&
+				candidate.errorMessage === message.errorMessage,
+		);
 
 		this._emit({
 			type: "auto_retry_start",
 			attempt: this._retryAttempt,
 			maxAttempts: settings.maxRetries,
 			delayMs,
-			errorMessage: message.errorMessage || "Unknown error",
+			errorMessage: retryErrorMessage,
 		});
-
-		// Remove error message from agent state (keep in session for history)
-		const messages = this.agent.state.messages;
-		if (messages.length > 0 && messages[messages.length - 1].role === "assistant") {
-			this.agent.state.messages = messages.slice(0, -1);
-		}
 
 		// Wait with exponential backoff (abortable)
 		this._retryAbortController = new AbortController();

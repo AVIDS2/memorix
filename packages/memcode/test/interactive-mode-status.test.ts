@@ -9,6 +9,18 @@ import type { SourceInfo } from "../src/core/source-info.ts";
 import { InteractiveMode } from "../src/modes/interactive/interactive-mode.ts";
 import { initTheme } from "../src/modes/interactive/theme/theme.ts";
 
+const getMemorixRuntimeContext = vi.hoisted(() => vi.fn());
+const formatMemcodeFooterMemoryStatus = vi.hoisted(() => vi.fn());
+
+vi.mock("../src/memory/memorix-runtime-context.ts", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("../src/memory/memorix-runtime-context.ts")>();
+	return {
+		...actual,
+		getMemorixRuntimeContext,
+		formatMemcodeFooterMemoryStatus,
+	};
+});
+
 function renderLastLine(container: Container, width = 120): string {
 	const last = container.children[container.children.length - 1];
 	if (!last) return "";
@@ -134,6 +146,133 @@ describe("InteractiveMode.setToolsExpanded", () => {
 		expect(header.setExpanded).toHaveBeenCalledWith(true);
 		expect(chatChild.setExpanded).toHaveBeenCalledWith(true);
 		expect(fakeThis.ui.requestRender).toHaveBeenCalledTimes(1);
+	});
+});
+
+describe("InteractiveMode.renderInitialMessages", () => {
+	beforeAll(() => {
+		initTheme("dark");
+	});
+
+	test("is idempotent and does not duplicate rendered session messages", () => {
+		const fakeThis: any = {
+			chatContainer: new Container(),
+			pendingTools: new Map(),
+			sessionManager: {
+				buildSessionContext: () => ({
+					messages: [
+						{
+							id: "user-1",
+							role: "user",
+							content: [{ type: "text", text: "hello" }],
+							timestamp: "2026-06-15T00:00:00.000Z",
+						},
+					],
+				}),
+				getEntries: () => [],
+				getCwd: () => "/work/memorix",
+			},
+			footer: { invalidate: vi.fn() },
+			updateEditorBorderColor: vi.fn(),
+			editor: { addToHistory: vi.fn() },
+			settingsManager: {
+				isProjectTrusted: () => true,
+			},
+			ui: { requestRender: vi.fn() },
+			getMarkdownThemeWithSettings: () => undefined,
+			getUserMessageText: (InteractiveMode as any).prototype.getUserMessageText,
+			renderProjectTrustWarningIfNeeded: (InteractiveMode as any).prototype.renderProjectTrustWarningIfNeeded,
+			renderSessionContext: (InteractiveMode as any).prototype.renderSessionContext,
+			addMessageToChat: (InteractiveMode as any).prototype.addMessageToChat,
+			showStatus: (InteractiveMode as any).prototype.showStatus,
+		};
+
+		(InteractiveMode as any).prototype.renderInitialMessages.call(fakeThis);
+		(InteractiveMode as any).prototype.renderInitialMessages.call(fakeThis);
+
+		const output = normalizeRenderedOutput(fakeThis.chatContainer);
+		expect(output.match(/hello/g) ?? []).toHaveLength(1);
+	});
+});
+
+describe("InteractiveMode.initMemoryStatus", () => {
+	test("uses the native runtime context instead of a hand-built project data directory", async () => {
+		getMemorixRuntimeContext.mockResolvedValue({
+			memory: { activeCount: 782, totalCount: 782 },
+			search: { mode: "hybrid", probed: true },
+			embedding: { enabledInIndex: true, provider: "api-text-embedding-v4", vectorTotal: 1240, vectorMissing: 0 },
+		});
+		formatMemcodeFooterMemoryStatus.mockReturnValue("Memory: 782 active / 782 shared · Search: semantic ready · Embedding: 1240/1240");
+		const fakeThis: any = {
+			sessionManager: {
+				getCwd: () => "E:\\my_idea_cc\\my_copilot\\memorix",
+			},
+			memoryStatusRefreshTimer: undefined,
+			footerDataProvider: {
+				setMemoryStatus: vi.fn(),
+			},
+			ui: {
+				requestRender: vi.fn(),
+			},
+			scheduleMemoryStatusRefreshIfNeeded: vi.fn(),
+		};
+
+		await (InteractiveMode as any).prototype.initMemoryStatus.call(fakeThis);
+
+		expect(getMemorixRuntimeContext).toHaveBeenCalledWith("E:\\my_idea_cc\\my_copilot\\memorix", {
+			mode: "footer",
+		});
+		expect(formatMemcodeFooterMemoryStatus).toHaveBeenCalledWith(await getMemorixRuntimeContext.mock.results[0].value);
+		expect(fakeThis.footerDataProvider.setMemoryStatus).toHaveBeenCalledWith(
+			"Memory: 782 active / 782 shared · Search: semantic ready · Embedding: 1240/1240",
+		);
+		expect(fakeThis.footerDataProvider.setMemoryStatus).not.toHaveBeenCalledWith(
+			expect.stringContaining("observations indexed"),
+		);
+		expect(fakeThis.ui.requestRender).toHaveBeenCalledTimes(1);
+		expect(fakeThis.scheduleMemoryStatusRefreshIfNeeded).toHaveBeenCalledWith(await getMemorixRuntimeContext.mock.results[0].value);
+	});
+
+	test("schedules a follow-up refresh while semantic vectors are warming", () => {
+		vi.useFakeTimers();
+		const fakeThis: any = {
+			memoryStatusRefreshTimer: undefined,
+			initMemoryStatus: vi.fn(),
+		};
+		const context: any = {
+			embedding: {
+				provider: "api-text-embedding-v4",
+				backfillRunning: true,
+				vectorMissing: 10,
+			},
+			search: { mode: "fulltext" },
+		};
+
+		(InteractiveMode as any).prototype.scheduleMemoryStatusRefreshIfNeeded.call(fakeThis, context);
+		expect(fakeThis.memoryStatusRefreshTimer).toBeDefined();
+
+		vi.advanceTimersByTime(1500);
+		expect(fakeThis.initMemoryStatus).toHaveBeenCalledTimes(1);
+		vi.useRealTimers();
+	});
+
+	test("does not schedule a follow-up refresh once semantic status is ready", () => {
+		const fakeThis: any = {
+			memoryStatusRefreshTimer: undefined,
+			initMemoryStatus: vi.fn(),
+		};
+		const context: any = {
+			embedding: {
+				provider: "api-text-embedding-v4",
+				backfillRunning: false,
+				vectorMissing: 0,
+			},
+			search: { mode: "hybrid" },
+		};
+
+		(InteractiveMode as any).prototype.scheduleMemoryStatusRefreshIfNeeded.call(fakeThis, context);
+
+		expect(fakeThis.memoryStatusRefreshTimer).toBeUndefined();
 	});
 });
 
@@ -265,13 +404,14 @@ describe("InteractiveMode activity status placement", () => {
 			checkShutdownRequested: vi.fn(),
 		};
 
-		await (InteractiveMode as any).prototype.handleEvent.call(fakeThis, {
+	await (InteractiveMode as any).prototype.handleEvent.call(fakeThis, {
 			type: "message_end",
 			message,
 		});
 
 		expect(streamingComponent.updateContent).toHaveBeenCalledWith(message);
-		expect(fakeThis.ui.requestRender).toHaveBeenCalledWith(true);
+		expect(fakeThis.ui.requestRender).toHaveBeenCalled();
+		expect(fakeThis.ui.requestRender).not.toHaveBeenCalledWith(true);
 	});
 });
 

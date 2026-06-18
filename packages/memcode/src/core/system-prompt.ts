@@ -5,6 +5,19 @@
 import { getReadmePath } from "../config.ts";
 import { formatSkillsForPrompt, type Skill } from "./skills.ts";
 
+const MEMORIX_GUIDANCE = `Memorix guidance:
+- Memorix is the native memory layer for this agent.
+- Use memory when it helps the current task: prior decisions, bugs, changes, or project context.
+- Skip it for greetings, small talk, identity questions, jokes, and one-off replies.
+- Use memorix_graph_context for broad memory overview, memory graph, or project-memory grounding questions.
+- Use memorix_status only when the user asks about Memorix itself or runtime memory state.
+- When memory is relevant, search first, then detail only what you need, and store only durable learnings.
+- If a memory detail call cannot find refs returned by search, do not retry the same refs in alternate formats or inspect storage with shell commands. Summarize what is already available and ask whether to run diagnostics.`;
+
+function formatMemorixSection(): string {
+	return `\n\n${MEMORIX_GUIDANCE}`;
+}
+
 export interface BuildSystemPromptOptions {
 	/** Custom system prompt (replaces default). */
 	customPrompt?: string;
@@ -18,6 +31,12 @@ export interface BuildSystemPromptOptions {
 	appendSystemPrompt?: string;
 	/** Working directory. */
 	cwd: string;
+	/** Current runtime model, used for factual identity answers. */
+	runtimeModel?: {
+		provider: string;
+		id: string;
+		name?: string;
+	};
 	/** Pre-loaded context files. */
 	contextFiles?: Array<{ path: string; content: string }>;
 	/** Pre-loaded skills. */
@@ -33,11 +52,13 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
 		promptGuidelines,
 		appendSystemPrompt,
 		cwd,
+		runtimeModel,
 		contextFiles: providedContextFiles,
 		skills: providedSkills,
 	} = options;
 	const resolvedCwd = cwd;
 	const promptCwd = resolvedCwd.replace(/\\/g, "/");
+	const isWindows = process.platform === "win32";
 
 	const now = new Date();
 	const year = now.getFullYear();
@@ -46,6 +67,9 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
 	const date = `${year}-${month}-${day}`;
 
 	const appendSection = appendSystemPrompt ? `\n\n${appendSystemPrompt}` : "";
+	const runtimeIdentitySection = runtimeModel
+		? `\n\nRuntime identity:\n- You are memcode, the Memorix-native coding agent.\n- Current model: ${runtimeModel.provider}/${runtimeModel.id}${runtimeModel.name ? ` (${runtimeModel.name})` : ""}.\n- If asked what model you are, answer from the current model above. Do not claim to be Claude, GPT, or another provider unless that is the current model/provider.`
+		: "\n\nRuntime identity:\n- You are memcode, the Memorix-native coding agent.\n- If asked what model you are, say the current model is not available in this prompt rather than guessing a provider identity.";
 
 	const contextFiles = providedContextFiles ?? [];
 	const skills = providedSkills ?? [];
@@ -58,16 +82,8 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
 		}
 
 		// Persistent memory section (Memorix)
-		prompt += `
-
-Persistent Memory:
-- You are a Memorix-native coding agent. Your memory is first-party, in-process, and shared with Claude Code, Codex, and other agents through the same canonical project memory pool.
-- Use memorix_status when the user asks about Memorix itself, project memory identity, embedding, search mode, rerank, retention, hooks, fallback behavior, or what memory was injected.
-- Before starting non-trivial work, search memory for relevant prior context using memorix_search.
-- When you discover something worth persisting, store it using memorix_store. Good candidates: architecture decisions, problem-solution pairs, non-obvious gotchas, config or dependency changes, trade-off conclusions.
-- When search results look relevant, use memorix_detail to read the full content.
-- Do not create a private memcode-only memory bucket by default; separate by sourceDetail/valueCategory metadata instead of fragmenting user-facing project memory.
-- Do not store: greetings, trivial file reads, or redundant status updates.`;
+		prompt += formatMemorixSection();
+		prompt += runtimeIdentitySection;
 
 		// Append project context files
 		if (contextFiles.length > 0) {
@@ -121,7 +137,11 @@ Persistent Memory:
 
 	// File exploration guidelines
 	if (hasBash && !hasGrep && !hasFind && !hasLs) {
-		addGuideline("Use bash for file operations like ls, rg, find");
+		addGuideline(
+			isWindows
+				? "Use the shell tool with Windows/PowerShell-compatible commands. Prefer `rg` and `rg --files` when available; otherwise use `Get-ChildItem` and `Select-String`. Quote Windows paths, keep searches scoped to the current project, and never run Unix root scans like `find /`."
+				: "Use bash for scoped file operations. Prefer `rg` and `rg --files` when available; keep searches inside the current project unless the user explicitly asks otherwise.",
+		);
 	}
 
 	for (const guideline of promptGuidelines ?? []) {
@@ -157,16 +177,8 @@ Memcode documentation (read only when the user asks about memcode itself):
 	}
 
 	// Persistent memory section (Memorix)
-	prompt += `
-
-Persistent Memory:
-- You are a Memorix-native coding agent. Your memory is first-party, in-process, and shared with Claude Code, Codex, and other agents through the same canonical project memory pool.
-- Use memorix_status when the user asks about Memorix itself, project memory identity, embedding, search mode, rerank, retention, hooks, fallback behavior, or what memory was injected.
-- Before starting non-trivial work, search memory for relevant prior context using memorix_search.
-- When you discover something worth persisting, store it using memorix_store. Good candidates: architecture decisions, problem-solution pairs, non-obvious gotchas, config or dependency changes, trade-off conclusions.
-- When search results look relevant, use memorix_detail to read the full content.
-- Do not create a private memcode-only memory bucket by default; separate by sourceDetail/valueCategory metadata instead of fragmenting user-facing project memory.
-- Do not store: greetings, trivial file reads, or redundant status updates.`;
+	prompt += formatMemorixSection();
+	prompt += runtimeIdentitySection;
 
 	// Append project context files
 	if (contextFiles.length > 0) {

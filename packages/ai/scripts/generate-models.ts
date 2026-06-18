@@ -2,7 +2,7 @@
 
 import { writeFileSync } from "fs";
 import { join, dirname } from "path";
-import { fileURLToPath } from "url";
+import { fileURLToPath, pathToFileURL } from "url";
 import {
 	CLOUDFLARE_AI_GATEWAY_ANTHROPIC_BASE_URL,
 	CLOUDFLARE_AI_GATEWAY_COMPAT_BASE_URL,
@@ -386,6 +386,18 @@ async function fetchNvidiaNimModelIds(): Promise<Map<string, string>> {
 	}
 }
 
+export async function loadExistingGeneratedModelsForProvider(provider: string): Promise<Model<any>[]> {
+	try {
+		const generatedUrl = pathToFileURL(join(packageRoot, "src/models.generated.ts")).href;
+		const generated = (await import(`${generatedUrl}?fallback=${Date.now()}`)) as {
+			MODELS?: Record<string, Record<string, Model<any>>>;
+		};
+		return Object.values(generated.MODELS?.[provider] ?? {});
+	} catch {
+		return [];
+	}
+}
+
 async function fetchOpenRouterModels(): Promise<Model<any>[]> {
 	try {
 		console.log("Fetching models from OpenRouter API...");
@@ -440,6 +452,11 @@ async function fetchOpenRouterModels(): Promise<Model<any>[]> {
 		return models;
 	} catch (error) {
 		console.error("Failed to fetch OpenRouter models:", error);
+		const fallbackModels = await loadExistingGeneratedModelsForProvider("openrouter");
+		if (fallbackModels.length > 0) {
+			console.warn(`Keeping ${fallbackModels.length} existing OpenRouter models from models.generated.ts`);
+			return fallbackModels;
+		}
 		return [];
 	}
 }
@@ -2152,5 +2169,7 @@ export const MODELS = {
 	}
 }
 
-// Run the generator
-generateModels().catch(console.error);
+// Run the generator when invoked as a CLI, but keep helpers importable for tests.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+	generateModels().catch(console.error);
+}

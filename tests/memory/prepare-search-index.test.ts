@@ -17,6 +17,8 @@ vi.mock('../../src/store/orama-store.js', () => ({
   hydrateIndex: mockHydrateIndex,
   isEmbeddingEnabled: mockIsEmbeddingEnabled,
   makeOramaObservationId: (projectId: string, observationId: number) => `${projectId}:${observationId}`,
+  getLastSearchMode: vi.fn(() => 'fulltext'),
+  searchObservations: vi.fn(),
 }));
 
 vi.mock('../../src/store/persistence.js', () => ({
@@ -100,13 +102,13 @@ describe('prepareSearchIndex', () => {
     mockHydrateIndex.mockResolvedValue(2);
     mockIsEmbeddingEnabled.mockReturnValue(true);
 
-    const { initObservations, prepareSearchIndex, getVectorMissingIds } = await import('../../src/memory/observations.js');
+    const { initObservations, prepareSearchIndex, getVectorMissingIds } = await import('../../src/memory/observations.ts');
 
     await initObservations('E:/tmp/project');
     const count = await prepareSearchIndex();
 
     expect(count).toBe(2);
-    expect(mockResetDb).toHaveBeenCalledOnce();
+    expect(mockResetDb).not.toHaveBeenCalled();
     expect(mockHydrateIndex).toHaveBeenCalledOnce();
     expect(mockHydrateIndex).toHaveBeenCalledWith(
       expect.arrayContaining([
@@ -140,12 +142,113 @@ describe('prepareSearchIndex', () => {
     mockHydrateIndex.mockResolvedValue(1);
     mockIsEmbeddingEnabled.mockReturnValue(false);
 
-    const { initObservations, prepareSearchIndex, getVectorMissingIds } = await import('../../src/memory/observations.js');
+    const { initObservations, prepareSearchIndex, getVectorMissingIds } = await import('../../src/memory/observations.ts');
 
     await initObservations('E:/tmp/project');
     await prepareSearchIndex();
 
     expect(mockBatchGenerateEmbeddings).not.toHaveBeenCalled();
+    expect(getVectorMissingIds()).toEqual([]);
+  });
+
+  it('does not reset an already prepared search index during status refreshes', async () => {
+    mockLoadObservationsJson.mockResolvedValue([
+      {
+        id: 9,
+        projectId: 'AVIDS2/memorix',
+        entityName: 'footer-status',
+        type: 'discovery',
+        title: 'Status should be idempotent',
+        narrative: 'Repeated status checks should not rebuild the index.',
+        facts: [],
+        filesModified: [],
+        concepts: ['status'],
+        tokens: 9,
+        createdAt: '2026-03-18T00:00:00.000Z',
+        status: 'active',
+        source: 'agent',
+      },
+    ]);
+    mockLoadIdCounter.mockResolvedValue(10);
+    mockHydrateIndex.mockResolvedValue(1);
+    mockIsEmbeddingEnabled.mockReturnValue(true);
+
+    const { initObservations, prepareSearchIndex, getVectorMissingIds } = await import('../../src/memory/observations.ts');
+
+    await initObservations('E:/tmp/project');
+    const first = await prepareSearchIndex();
+    const second = await prepareSearchIndex();
+
+    expect(first).toBe(1);
+    expect(second).toBe(0);
+    expect(mockResetDb).not.toHaveBeenCalled();
+    expect(mockHydrateIndex).toHaveBeenCalledOnce();
+    expect(getVectorMissingIds()).toEqual([9]);
+  });
+
+  it('does not mark a prepared index stale when initObservations is called again for the same data dir', async () => {
+    mockLoadObservationsJson.mockResolvedValue([
+      {
+        id: 11,
+        projectId: 'AVIDS2/memorix',
+        entityName: 'runtime-status',
+        type: 'discovery',
+        title: 'Runtime status is stable',
+        narrative: 'Repeated status reads should reuse the prepared index.',
+        facts: [],
+        filesModified: [],
+        concepts: ['status'],
+        tokens: 9,
+        createdAt: '2026-03-18T00:00:00.000Z',
+        status: 'active',
+        source: 'agent',
+      },
+    ]);
+    mockLoadIdCounter.mockResolvedValue(12);
+    mockHydrateIndex.mockResolvedValue(1);
+    mockIsEmbeddingEnabled.mockReturnValue(true);
+
+    const { initObservations, prepareSearchIndex } = await import('../../src/memory/observations.ts');
+
+    await initObservations('E:/tmp/project');
+    await prepareSearchIndex();
+    await initObservations('E:/tmp/project');
+    await prepareSearchIndex();
+
+    expect(mockResetDb).not.toHaveBeenCalled();
+    expect(mockHydrateIndex).toHaveBeenCalledOnce();
+  });
+
+  it('does not reset vectors or queue backfill when an index is already hydrated elsewhere', async () => {
+    mockLoadObservationsJson.mockResolvedValue([
+      {
+        id: 13,
+        projectId: 'AVIDS2/memorix',
+        entityName: 'split-module-graph',
+        type: 'discovery',
+        title: 'Hydrated index remains ready',
+        narrative: 'A second module graph should not force vectors back to zero.',
+        facts: [],
+        filesModified: [],
+        concepts: ['module-graph'],
+        tokens: 9,
+        createdAt: '2026-03-18T00:00:00.000Z',
+        status: 'active',
+        source: 'agent',
+      },
+    ]);
+    mockLoadIdCounter.mockResolvedValue(14);
+    mockHydrateIndex.mockResolvedValue(0);
+    mockIsEmbeddingEnabled.mockReturnValue(true);
+
+    const { initObservations, prepareSearchIndex, getVectorMissingIds } = await import('../../src/memory/observations.ts');
+
+    await initObservations('E:/tmp/project');
+    const count = await prepareSearchIndex();
+
+    expect(count).toBe(0);
+    expect(mockResetDb).not.toHaveBeenCalled();
+    expect(mockHydrateIndex).toHaveBeenCalledOnce();
     expect(getVectorMissingIds()).toEqual([]);
   });
 });

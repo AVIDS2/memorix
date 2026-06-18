@@ -18,6 +18,9 @@ import * as p from '@clack/prompts';
 import { execSync, spawn } from 'node:child_process';
 import { getCliVersion } from './version.js';
 import { ensureMemorixPackageRoot } from './memcode-bootstrap.js';
+import { installCliPipeErrorGuard } from './pipe-errors.js';
+
+installCliPipeErrorGuard();
 
 const NO_GIT_MSG = 'Memorix requires a git repo to establish project identity. Run `git init` in this workspace first.';
 

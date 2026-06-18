@@ -20,6 +20,7 @@ import { maybeExpandSearchQuery } from '../search/query-expansion.js';
 let db: AnyOrama | null = null;
 let embeddingEnabled = false;
 let embeddingDimensions: number | null = null;
+const docByObservationKey = new Map<string, MemorixDocument>();
 const NON_CJK_HYBRID_SIMILARITY = 0.45;
 const lastSearchModeByProject = new Map<string, string>();
 const SEARCH_MODE_DEFAULT_KEY = '__global__';
@@ -49,6 +50,11 @@ export function makeOramaObservationId(projectId: string, observationId: number)
 
 function makeEntryKey(projectId: string | undefined, observationId: number): string {
   return `${projectId ?? ''}::${observationId}`;
+}
+
+function rememberObservationDoc(doc: MemorixDocument): void {
+  if (!doc.projectId || typeof doc.observationId !== 'number') return;
+  docByObservationKey.set(makeEntryKey(doc.projectId, doc.observationId), doc);
 }
 
 function isCommandLikeQuery(query: string): boolean {
@@ -183,6 +189,7 @@ export async function resetDb(): Promise<void> {
   embeddingEnabled = false;
   embeddingDimensions = null;
   lastSearchModeByProject.clear();
+  docByObservationKey.clear();
 }
 
 /**
@@ -264,6 +271,7 @@ export async function hydrateIndex(observations: any[]): Promise<number> {
         knowledgeLayer: resolveKnowledgeLayer('observation', obs.sourceDetail, obs.source),
       };
       await insert(database, doc);
+      rememberObservationDoc(doc);
       inserted++;
     } catch { /* skip malformed entries */ }
   }
@@ -276,6 +284,7 @@ export async function hydrateIndex(observations: any[]): Promise<number> {
 export async function insertObservation(doc: MemorixDocument): Promise<void> {
   const database = await getDb();
   await insert(database, doc);
+  rememberObservationDoc(doc);
 }
 
 /**
@@ -284,6 +293,12 @@ export async function insertObservation(doc: MemorixDocument): Promise<void> {
 export async function removeObservation(oramaId: string): Promise<void> {
   const database = await getDb();
   await remove(database, oramaId);
+  for (const [key, doc] of docByObservationKey.entries()) {
+    if (doc.id === oramaId) {
+      docByObservationKey.delete(key);
+      break;
+    }
+  }
 }
 
 /**
@@ -786,6 +801,10 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
   // Build IndexEntry with optional match explanation
   let entries: IndexEntry[] = intermediate.map(({ rawTime: _, _isCommandLog: _c, ...rest }: any) => rest);
 
+  for (const hit of results.hits) {
+    rememberObservationDoc(hit.document as unknown as MemorixDocument);
+  }
+
   // Explainable recall: annotate entries with match reasons (O(1) lookup via Map)
   if (hasQuery && originalQuery) {
     const queryLower = originalQuery.toLowerCase();
@@ -834,9 +853,11 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
     entries = applyTokenBudget(entries, options.maxTokens);
   }
 
-  // Record access for returned results (fire-and-forget, non-blocking)
-  const hitDocs = results.hits.map((h) => ({ id: h.id, doc: h.document as unknown as MemorixDocument }));
-  recordAccessBatch(hitDocs).catch(() => {});
+  // Record access for returned results (fire-and-forget, non-blocking).
+  if (options.trackAccess !== false) {
+    const hitDocs = results.hits.map((h) => ({ id: h.id, doc: h.document as unknown as MemorixDocument }));
+    recordAccessBatch(hitDocs).catch(() => {});
+  }
 
   return entries;
 }
@@ -856,6 +877,14 @@ export async function getObservationsByIds(
   const results: MemorixDocument[] = [];
 
   for (const id of ids) {
+    if (projectId) {
+      const cached = docByObservationKey.get(makeEntryKey(projectId, id));
+      if (cached) {
+        results.push(cached);
+        continue;
+      }
+    }
+
     const searchResult = await search(database, {
       term: '',
       where: {

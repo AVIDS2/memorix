@@ -29,6 +29,7 @@ export const TOOL_PROFILES: Record<string, ReadonlyArray<ToolProfile>> = Object.
   memorix_store:              ['lite', 'team', 'full'],
   memorix_search:             ['lite', 'team', 'full'],
   memorix_detail:             ['lite', 'team', 'full'],
+  memorix_graph_context:      ['lite', 'team', 'full'],
   memorix_resolve:            ['lite', 'team', 'full'],
   memorix_timeline:           ['lite', 'team', 'full'],
   memorix_suggest_topic_key:  ['lite', 'team', 'full'],

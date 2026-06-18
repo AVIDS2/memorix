@@ -2,6 +2,7 @@ import { defineCommand } from 'citty';
 import { compactDetail, compactSearch, compactTimeline } from '../../compact/engine.js';
 import { withFreshIndex } from '../../memory/freshness.js';
 import { getAllObservations, getProjectObservations, resolveObservations, storeObservation, suggestTopicKey } from '../../memory/observations.js';
+import { buildGraphContextPacket, formatGraphContextPrompt } from '../../memory/graph-context.js';
 import { emitError, emitResult, getCliProjectContext, parseCsvList, parsePositiveInt, coerceObservationStatus, coerceObservationType } from './operator-shared.js';
 
 export default defineCommand({
@@ -24,6 +25,9 @@ export default defineCommand({
     topicKey: { type: 'string', description: 'Stable topic key override' },
     action: { type: 'string', description: 'Secondary action for advanced memory commands' },
     limit: { type: 'string', description: 'Limit for search/recent output' },
+    graphLimit: { type: 'string', description: 'Limit for graph-context output' },
+    graphQuery: { type: 'string', description: 'Query for graph-context packet' },
+    format: { type: 'string', description: 'Output format for graph-context: summary or prompt' },
     before: { type: 'string', description: 'Timeline depth before anchor' },
     after: { type: 'string', description: 'Timeline depth after anchor' },
     threshold: { type: 'string', description: 'Similarity threshold for consolidate' },
@@ -36,6 +40,7 @@ export default defineCommand({
   },
   run: async ({ args }) => {
     const action = (args._ as string[])?.[0] || '';
+    const positional = ((args._ as string[]) ?? []).slice(1);
     const asJson = !!args.json;
 
     try {
@@ -43,7 +48,7 @@ export default defineCommand({
 
       switch (action) {
         case 'search': {
-          const query = (args.query as string | undefined)?.trim();
+          const query = getStringArg(args.query as string | undefined, positional);
           if (!query) {
             emitError('query is required for "memorix memory search"', asJson);
             return;
@@ -51,6 +56,37 @@ export default defineCommand({
           const limit = parsePositiveInt(args.limit as string | undefined, 10);
           const result = await compactSearch({ query, limit, projectId: project.id });
           emitResult({ project, entries: result.entries }, result.formatted, asJson);
+          return;
+        }
+
+        case 'graph-context': {
+          const query =
+            getStringArg(args.graphQuery as string | undefined, []) ||
+            getStringArg(args.query as string | undefined, positional);
+          if (!query) {
+            emitError('query is required for "memorix memory graph-context"', asJson);
+            return;
+          }
+          const observations = getAllObservations();
+          const packet = buildGraphContextPacket(observations, {
+            projectId: project.id,
+            query,
+            limit: parsePositiveInt(args.graphLimit as string | undefined, 5),
+          });
+          const format = (args.format as string | undefined)?.trim().toLowerCase();
+          const formatted = format === 'prompt'
+            ? formatGraphContextPrompt(packet)
+            : [
+                `Graph context packet for ${project.name}`,
+                `- ${packet.summary}`,
+                '',
+                ...packet.entities.map((entity) => `* ${entity.name} (#${entity.observationIds.join(', #')})`),
+              ].join('\n');
+          emitResult(
+            { project, packet },
+            formatted,
+            asJson,
+          );
           return;
         }
 
@@ -71,7 +107,7 @@ export default defineCommand({
         }
 
         case 'store': {
-          const narrative = (args.text as string | undefined)?.trim();
+          const narrative = getStringArg(args.text as string | undefined, positional);
           if (!narrative) {
             emitError('text is required for "memorix memory store"', asJson);
             return;
@@ -119,20 +155,24 @@ export default defineCommand({
         }
 
         case 'detail': {
-          const ids = parseCsvList((args.ids as string | undefined) || (args.id as string | undefined))
-            .map((value) => Number.parseInt(value, 10))
-            .filter((value) => Number.isFinite(value));
-          if (ids.length === 0) {
-            emitError('Provide --id <n> or --ids 1,2,3 for "memorix memory detail"', asJson);
+          const refs = parseCsvList(getIdArg(args, positional));
+          if (refs.length === 0) {
+            emitError('Provide --id <n>, --ids 1,2,3, or typed refs like obs:42@org/project for "memorix memory detail"', asJson);
             return;
           }
-          const result = await compactDetail(ids.map((id) => ({ id, projectId: project.id })));
+          const scopedRefs = refs.map((ref) => {
+            const numericId = Number.parseInt(ref, 10);
+            return Number.isFinite(numericId) && String(numericId) === ref.trim()
+              ? `obs:${numericId}@${project.id}`
+              : ref;
+          });
+          const result = await compactDetail(scopedRefs);
           emitResult({ project, documents: result.documents }, result.formatted, asJson);
           return;
         }
 
         case 'timeline': {
-          const id = Number.parseInt((args.id as string | undefined) || '', 10);
+          const id = Number.parseInt((args.id as string | undefined) || positional[0] || '', 10);
           if (!Number.isFinite(id)) {
             emitError('Provide --id <n> for "memorix memory timeline"', asJson);
             return;
@@ -148,7 +188,7 @@ export default defineCommand({
         }
 
         case 'resolve': {
-          const ids = parseCsvList((args.ids as string | undefined) || (args.id as string | undefined))
+          const ids = parseCsvList(getIdArg(args, positional))
             .map((value) => Number.parseInt(value, 10))
             .filter((value) => Number.isFinite(value));
           if (ids.length === 0) {
@@ -313,7 +353,7 @@ export default defineCommand({
             return;
           }
 
-          const ids = parseCsvList((args.ids as string | undefined) || (args.id as string | undefined))
+          const ids = parseCsvList(getIdArg(args, positional))
             .map((value) => Number.parseInt(value, 10))
             .filter((value) => Number.isFinite(value));
           if (ids.length === 0) {
@@ -348,6 +388,7 @@ export default defineCommand({
           console.log('  memorix memory store --text "..." [--title "..."] [--type discovery]');
           console.log('  memorix memory suggest-topic-key --type decision --title "..."');
           console.log('  memorix memory detail --id 42');
+          console.log('  memorix memory detail obs:42@org/project');
           console.log('  memorix memory timeline --id 42 [--before 3 --after 3]');
           console.log('  memorix memory resolve --ids 42,43 [--status resolved|archived]');
           console.log('  memorix memory deduplicate [--query "..."] [--dryRun]');
@@ -359,3 +400,16 @@ export default defineCommand({
     }
   },
 });
+
+function getStringArg(named: string | undefined, positional: string[]): string | undefined {
+  const value = named?.trim() || positional.join(' ').trim();
+  return value || undefined;
+}
+
+function getIdArg(args: Record<string, unknown>, positional: string[]): string {
+  return (
+    (args.ids as string | undefined) ||
+    (args.id as string | undefined) ||
+    positional.join(',')
+  );
+}

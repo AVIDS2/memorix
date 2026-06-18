@@ -20,6 +20,8 @@ import {
   hydrateIndex,
   isEmbeddingEnabled,
   makeOramaObservationId,
+  getLastSearchMode,
+  searchObservations,
 } from '../store/orama-store.js';
 import { getObservationStore, initObservationStore } from '../store/obs-store.js';
 import { countTextTokens } from '../compact/token-budget.js';
@@ -31,12 +33,20 @@ import { sanitizeCredentials } from './secret-filter.js';
 let observations: Observation[] = [];
 let nextId = 1;
 let projectDir: string | null = null;
+let searchIndexPrepared = false;
 
 // ── Vector-missing tracking ──────────────────────────────────────
 // Tracks observation IDs whose async embedding write failed or was skipped.
 // Enables observability ("how many memories lack vectors?") and backfill.
 const vectorMissingIds = new Set<number>();
 let vectorBackfillRunning = false;
+let lastVectorBackfill: {
+  attempted: number;
+  succeeded: number;
+  failed: number;
+  lastError?: string;
+  finishedAt: string;
+} | null = null;
 const embeddingFailureLogTimestamps = new Map<string, number>();
 const EMBEDDING_FAILURE_LOG_COOLDOWN_MS = 30_000;
 
@@ -87,11 +97,13 @@ function isVectorCompatibleWithCurrentIndex(embedding: number[] | null): boolean
  * Auto-initializes the ObservationStore if not already set.
  */
 export async function initObservations(dir: string): Promise<void> {
-  projectDir = dir;
+  if (projectDir === dir) return;
   await initObservationStore(dir);
   const store = getObservationStore();
   observations = await store.loadAll();
   nextId = await store.loadIdCounter();
+  projectDir = dir;
+  searchIndexPrepared = false;
 }
 
 /**
@@ -117,6 +129,7 @@ export async function ensureFreshObservations(): Promise<boolean> {
       observations = await store.loadAll();
       nextId = await store.loadIdCounter();
       await reindexObservations();
+      searchIndexPrepared = true;
       return true;
     }
   } catch {
@@ -693,6 +706,7 @@ export async function reindexObservations(): Promise<number> {
 
   // Reset the Orama index to ensure clean reindex (idempotent)
   await resetDb();
+  searchIndexPrepared = false;
   vectorMissingIds.clear();
 
   // Batch-generate all embeddings at once (much faster than individual calls)
@@ -759,6 +773,7 @@ export async function reindexObservations(): Promise<number> {
       console.error(`[memorix] Failed to reindex observation #${obs.id}: ${err}`);
     }
   }
+  searchIndexPrepared = true;
   return count;
 }
 
@@ -771,8 +786,13 @@ export async function reindexObservations(): Promise<number> {
  * existing background backfill cycle.
  */
 export async function prepareSearchIndex(): Promise<number> {
-  await resetDb();
+  if (searchIndexPrepared) return 0;
+
   const count = await hydrateIndex(observations as unknown as any[]);
+  if (count === 0) {
+    searchIndexPrepared = true;
+    return 0;
+  }
 
   vectorMissingIds.clear();
   if (isEmbeddingEnabled()) {
@@ -784,6 +804,7 @@ export async function prepareSearchIndex(): Promise<number> {
     }
   }
 
+  searchIndexPrepared = true;
   return count;
 }
 
@@ -806,13 +827,49 @@ export function getVectorStatus(): {
   missing: number;
   missingIds: number[];
   backfillRunning: boolean;
+  lastBackfill: typeof lastVectorBackfill;
 } {
   return {
     total: observations.length,
     missing: vectorMissingIds.size,
     missingIds: [...vectorMissingIds],
     backfillRunning: vectorBackfillRunning,
+    lastBackfill: lastVectorBackfill,
   };
+}
+
+/**
+ * Return search-index state from the same module graph that owns the hydrated
+ * Orama instance. This avoids split singleton state when tools load Memorix
+ * TypeScript sources through runtime loaders.
+ */
+export function getSearchIndexStatus(projectId?: string): {
+  embeddingEnabled: boolean;
+  vectorDimensions: number | null;
+  lastSearchMode: string;
+  prepared: boolean;
+} {
+  return {
+    embeddingEnabled: isEmbeddingEnabled(),
+    vectorDimensions: getVectorDimensions(),
+    lastSearchMode: getLastSearchMode(projectId),
+    prepared: searchIndexPrepared,
+  };
+}
+
+/**
+ * Observability-only semantic probe. It intentionally disables access tracking
+ * so status checks do not mutate retention/access metadata.
+ */
+export async function probeSearchIndex(projectId: string): Promise<string> {
+  await searchObservations({
+    query: 'semantic memory retrieval status',
+    projectId,
+    limit: 1,
+    status: 'all',
+    trackAccess: false,
+  });
+  return getLastSearchMode(projectId);
 }
 
 /**
@@ -835,6 +892,7 @@ export async function backfillVectorEmbeddings(): Promise<{
   const ids = [...vectorMissingIds];
   let succeeded = 0;
   let failed = 0;
+  let lastFailure: string | undefined;
 
   try {
     for (const id of ids) {
@@ -853,6 +911,7 @@ export async function backfillVectorEmbeddings(): Promise<{
             console.error(
               `[memorix] Backfill embedding mismatch for obs-${id}: provider returned ${embedding.length}d, index expects ${vectorDimensions ?? 'unknown'}d (kept in queue)`,
             );
+            lastFailure = `dimension mismatch: provider returned ${embedding.length}d, index expects ${vectorDimensions ?? 'unknown'}d`;
             failed++;
             continue;
           }
@@ -890,14 +949,23 @@ export async function backfillVectorEmbeddings(): Promise<{
           vectorMissingIds.delete(id);
         } else {
           // Provider temporarily unavailable — keep in queue for next backfill cycle
+          lastFailure = 'embedding provider unavailable';
           failed++;
         }
-      } catch {
+      } catch (err) {
+        lastFailure = err instanceof Error ? err.message : String(err);
         failed++;
       }
     }
   } finally {
     vectorBackfillRunning = false;
+    lastVectorBackfill = {
+      attempted: ids.length,
+      succeeded,
+      failed,
+      ...(lastFailure ? { lastError: lastFailure } : {}),
+      finishedAt: new Date().toISOString(),
+    };
   }
 
   return { attempted: ids.length, succeeded, failed };

@@ -2,6 +2,7 @@ export const CLI_NATIVE_PARITY: Record<string, string> = Object.freeze({
   memorix_store: 'memorix memory store',
   memorix_search: 'memorix memory search',
   memorix_detail: 'memorix memory detail',
+  memorix_graph_context: 'memorix memory graph-context',
   memorix_resolve: 'memorix memory resolve',
   memorix_timeline: 'memorix memory timeline',
   memorix_suggest_topic_key: 'memorix memory suggest-topic-key',

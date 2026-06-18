@@ -293,13 +293,13 @@ function getTypeIcon(type: string): string {
 function getProgressiveDisclosureHint(hasProject: boolean): string {
   const lines = [
     '[TIP] **Progressive Disclosure:** This index shows WHAT exists and retrieval COST.',
-    '- Use `memorix_detail` with typed refs (obs:42, skill:3) to fetch full details',
+    '- Use `memorix_detail` with typed refs (obs:42@org/project, skill:3) to fetch full details',
     '- Use `memorix_timeline` to see chronological context around an observation',
     '- Critical types ([GOTCHA] gotcha, [DECISION] decision, [TRADEOFF] trade-off) are often worth fetching immediately',
   ];
 
   if (hasProject) {
-    lines.push('- For global results, prefer `memorix_detail refs=[{ id, projectId }]` to avoid cross-project ID ambiguity');
+    lines.push('- Project-scoped refs already include `@projectId`; copy them as-is to avoid cross-project ID ambiguity');
   }
 
   return lines.join('\n');
@@ -309,7 +309,8 @@ function getProgressiveDisclosureHint(hasProject: boolean): string {
 
 /** Format an entry reference as a canonical typed ref usable in memorix_detail */
 function formatEntryRef(entry: IndexEntry): string {
-  return (entry.documentType === 'mini-skill') ? `skill:${entry.id}` : `obs:${entry.id}`;
+  if (entry.documentType === 'mini-skill') return `skill:${entry.id}`;
+  return entry.projectId ? `obs:${entry.id}@${entry.projectId}` : `obs:${entry.id}`;
 }
 
 /** Short badge for knowledge layer */

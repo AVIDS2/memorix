@@ -224,8 +224,8 @@ describe('Vector Stability', () => {
     vi.mocked(oramaStore.generateEmbedding).mockResolvedValue(null);
     vi.mocked(embeddingProvider.isEmbeddingExplicitlyDisabled).mockReturnValue(false);
 
-    const { storeObservation, backfillVectorEmbeddings, getVectorMissingIds } =
-      await import('../../src/memory/observations.js');
+    const { storeObservation, backfillVectorEmbeddings, getVectorMissingIds, getVectorStatus } =
+      await import('../../src/memory/observations.ts');
 
     const { observation } = await storeObservation({
       entityName: 'backfill-retry-test',
@@ -258,8 +258,8 @@ describe('Vector Stability', () => {
     vi.mocked(oramaStore.generateEmbedding).mockResolvedValue([0.1, 0.2, 0.3]);
     vi.mocked(oramaStore.getVectorDimensions).mockReturnValue(4096);
 
-    const { storeObservation, backfillVectorEmbeddings, getVectorMissingIds } =
-      await import('../../src/memory/observations.js');
+    const { storeObservation, backfillVectorEmbeddings, getVectorMissingIds, getVectorStatus } =
+      await import('../../src/memory/observations.ts');
 
     const { observation } = await storeObservation({
       entityName: 'backfill-dimension-mismatch',
@@ -276,6 +276,7 @@ describe('Vector Stability', () => {
 
     expect(result.attempted).toBeGreaterThanOrEqual(1);
     expect(result.failed).toBeGreaterThanOrEqual(1);
+    expect(getVectorStatus().lastBackfill?.lastError).toContain('dimension mismatch');
     expect(getVectorMissingIds()).toContain(observation.id);
   });
 

@@ -31,6 +31,7 @@ import { checkProjectAttribution, auditProjectObservations } from './memory/attr
 import { createAutoRelations } from './memory/auto-relations.js';
 import { extractEntities } from './memory/entity-extractor.js';
 import { compactSearch, compactTimeline, compactDetail } from './compact/engine.js';
+import { buildGraphContextPacket, formatGraphContextPrompt } from './memory/graph-context.js';
 import { detectProject } from './project/detector.js';
 import { registerAlias, initAliasRegistry, resolveAliases, autoMergeByBaseName } from './project/aliases.js';
 import { getProjectDataDir } from './store/persistence.js';
@@ -383,9 +384,6 @@ export async function createMemorixServer(
     // Noisy per-probe 'awaiting binding' log was removed to reduce terminal spam.
   }
 
-  // Sync advisory variables — populated by deferredInit(), used by memorix_search
-  let syncAdvisoryShown = false;
-  let syncAdvisory: string | null = null;
   const requireResolvedProject = (action: string) => {
     if (projectResolved) return null;
     return {
@@ -1071,16 +1069,12 @@ export async function createMemorixServer(
         throw error;
       }
 
-      // Append search mode and sync advisory
+      // Append retrieval diagnostics only; do not mix workspace-sync guidance into memory results.
       let text = result.formatted;
       try {
         const { getLastSearchMode } = await import('./store/orama-store.js');
         text += `\n\n_Search mode: ${getLastSearchMode(project.id)}_`;
       } catch { /* best-effort */ }
-      if (!syncAdvisoryShown && syncAdvisory) {
-        text += syncAdvisory;
-        syncAdvisoryShown = true;
-      }
 
       return {
         content: [
@@ -1091,6 +1085,54 @@ export async function createMemorixServer(
         ],
       };
       }); // withFreshIndex
+    },
+  );
+
+  /**
+   * memorix_graph_context — Prompt-ready memory graph packet
+   *
+   * Gives agents a compact, high-signal map of relevant memories, entities,
+   * relations, and quality risks without forcing broad search/detail loops.
+   */
+  server.registerTool(
+    'memorix_graph_context',
+    {
+      title: 'Memory Graph Context',
+      description:
+        'Build a compact, prompt-ready memory graph context packet for the current project. ' +
+        'Use this for broad memory overview questions, project memory graph questions, or task-specific memory grounding. ' +
+        'Returns high-signal memories, entities, relations, and risks as background context, not instructions.',
+      inputSchema: {
+        query: z.string().describe('Current task or topic to build memory graph context for'),
+        limit: z.number().optional().describe('Max high-signal memories to include (default: 5)'),
+        format: z.enum(['prompt', 'summary']).optional().default('prompt').describe(
+          'Output format. "prompt" is agent-ready; "summary" is a compact human overview.',
+        ),
+      },
+    },
+    async ({ query, limit, format }) => {
+      const unresolved = requireResolvedProject('build graph context for the current project');
+      if (unresolved) return unresolved;
+
+      return withFreshIndex(async () => {
+        const packet = buildGraphContextPacket(getAllObservations(), {
+          projectId: project.id,
+          query,
+          limit: limit != null ? coerceNumber(limit, 5) : undefined,
+        });
+        const text = format === 'summary'
+          ? [
+              `Graph context packet for ${project.name}`,
+              `- ${packet.summary}`,
+              '',
+              ...packet.entities.map((entity) => `* ${entity.name} (#${entity.observationIds.join(', #')})`),
+            ].join('\n')
+          : formatGraphContextPrompt(packet);
+
+        return {
+          content: [{ type: 'text' as const, text }],
+        };
+      });
     },
   );
 
@@ -3842,51 +3884,21 @@ export async function createMemorixServer(
       behaviorConfig = getBehaviorConfig();
     } catch { /* defaults */ }
 
-    // Sync advisory: compute once, show on first memorix_search
+    // Sync advisory: compute for diagnostics only.
+    // Memory search results must stay pure retrieval content; injecting agent
+    // instructions here causes context pollution and tool-loop misbehavior.
     if (!behaviorConfig.syncAdvisory) {
       console.error('[memorix] Sync advisory disabled via config.');
     } else try {
       const engine = new WorkspaceSyncEngine(project.rootPath);
       const scan = await engine.scan();
-      const lines: string[] = [];
 
       const totalMCP = Object.values(scan.mcpConfigs).reduce((sum, arr) => sum + arr.length, 0);
       const totalSkills = scan.skills.length;
       const totalRules = scan.rulesCount;
       const totalWorkflows = scan.workflows.length;
-
-      if (totalMCP > 0 || totalSkills > 0 || totalRules > 0 || totalWorkflows > 0) {
-        lines.push('', '---', '[UPDATED] **Cross-Agent Sync Available**');
-        for (const [agent, servers] of Object.entries(scan.mcpConfigs)) {
-          const list = servers as MCPServerEntry[];
-          if (list.length > 0) {
-            lines.push(`- **${agent}** MCP: ${list.map(s => s.name).join(', ')}`);
-          }
-        }
-        if (totalSkills > 0) {
-          const byAgent = new Map<string, string[]>();
-          for (const sk of scan.skills) {
-            const arr = byAgent.get(sk.sourceAgent) || [];
-            arr.push(sk.name);
-            byAgent.set(sk.sourceAgent, arr);
-          }
-          for (const [agent, names] of byAgent) {
-            lines.push(`- **${agent}** skills: ${names.join(', ')}`);
-          }
-        }
-        if (scan.skillConflicts.length > 0) lines.push(`  [WARN] ${scan.skillConflicts.length} name conflict(s)`);
-        if (totalRules > 0) lines.push(`- **${totalRules} rule(s)** found`);
-        if (totalWorkflows > 0) lines.push(`- **${totalWorkflows} workflow(s)** found`);
-        lines.push('');
-        lines.push('[WARN] IMPORTANT INSTRUCTIONS FOR AI AGENT:');
-        lines.push('1. Tell the user what configs/skills are available from other agents (list them).');
-        lines.push('2. Ask which ones they want to sync.');
-        lines.push('3. DO NOT manually copy files or run shell commands to sync.');
-        lines.push('4. ONLY use `memorix_workspace_sync action="apply" target="<agent>"` to sync all,');
-        lines.push('   or add `items=["name1","name2"]` to sync specific items selectively.');
-        syncAdvisory = lines.join('\n');
-      }
-      console.error(`[memorix] Sync advisory: ${syncAdvisory ? 'available' : 'nothing to sync'}`);
+      const hasSyncTargets = totalMCP > 0 || totalSkills > 0 || totalRules > 0 || totalWorkflows > 0;
+      console.error(`[memorix] Sync advisory: ${hasSyncTargets ? 'available' : 'nothing to sync'}`);
     } catch { /* sync scan is optional */ }
 
     // ── Background retention cleanup ────────────────────────────────

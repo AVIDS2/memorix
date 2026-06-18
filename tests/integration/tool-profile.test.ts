@@ -79,6 +79,7 @@ describe('Tool profile registration', () => {
     const liteTools = getToolNames(liteServer as any);
     expect(liteTools).toContain('memorix_store');
     expect(liteTools).toContain('memorix_session_start');
+    expect(liteTools).toContain('memorix_graph_context');
     expect(liteTools).not.toContain('team_manage');
     expect(liteTools).not.toContain('memorix_poll');
     expect(liteTools).not.toContain('memorix_rules_sync');
@@ -94,6 +95,7 @@ describe('Tool profile registration', () => {
     expect(teamTools).toContain('team_manage');
     expect(teamTools).toContain('memorix_poll');
     expect(teamTools).toContain('memorix_dashboard');
+    expect(teamTools).toContain('memorix_graph_context');
     expect(teamTools).not.toContain('memorix_rules_sync');
     expect(teamTools).not.toContain('create_entities');
 
@@ -107,6 +109,7 @@ describe('Tool profile registration', () => {
     expect(fullTools).toContain('team_manage');
     expect(fullTools).toContain('memorix_rules_sync');
     expect(fullTools).toContain('create_entities');
+    expect(fullTools).toContain('memorix_graph_context');
   }, 30000);
 
   it('should keep session_start lightweight by default and require explicit joinTeam for team identity', async () => {

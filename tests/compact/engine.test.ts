@@ -62,6 +62,7 @@ describe('Compact Engine', () => {
       const result = await compactSearch({ query: 'JWT', projectId: 'test/project' });
       expect(result.formatted).toContain('| Ref |');
       expect(result.formatted).toContain('JWT');
+      expect(result.formatted).toContain(`obs:${result.entries[0].id}@test/project`);
       expect(result.formatted).toContain('Progressive Disclosure');
     });
 
@@ -77,6 +78,7 @@ describe('Compact Engine', () => {
       const result = await compactSearch({ query: 'nonexistent', projectId: 'test/project' });
       expect(result.entries).toHaveLength(0);
       expect(result.formatted).toContain('No memories found');
+      expect(result.formatted).toContain('This project does have stored Memorix memories');
       expect(result.formatted).not.toContain('fresh project');
     });
 
@@ -112,6 +114,53 @@ describe('Compact Engine', () => {
     it('should return empty for non-existent IDs', async () => {
       const result = await compactDetail([99999]);
       expect(result.documents).toHaveLength(0);
+    });
+
+    it('should fall back to persisted observations when the in-process cache is behind', async () => {
+      const persisted = {
+        id: 4242,
+        entityName: 'split-state',
+        type: 'problem-solution' as const,
+        title: 'Persisted detail fallback',
+        narrative: 'The durable store has this observation even if the current cache missed it.',
+        facts: ['Store fallback should open search refs'],
+        filesModified: [],
+        concepts: ['detail', 'freshness'],
+        tokens: 12,
+        createdAt: new Date().toISOString(),
+        projectId: 'test/project',
+        status: 'active' as const,
+        source: 'agent' as const,
+        sourceDetail: 'hook' as const,
+      };
+      const { setObservationStore } = await import('../../src/store/obs-store.js');
+      setObservationStore({
+        init: async () => {},
+        loadAll: async () => [persisted],
+        loadIdCounter: async () => persisted.id + 1,
+        insert: async () => {},
+        update: async () => {},
+        remove: async () => {},
+        bulkReplace: async () => {},
+        bulkRemoveByIds: async () => {},
+        saveIdCounter: async () => {},
+        atomic: async (fn: any) => fn({
+          loadAll: async () => [persisted],
+          loadIdCounter: async () => persisted.id + 1,
+          saveAll: async () => {},
+          saveIdCounter: async () => {},
+        }),
+        ensureFresh: async () => false,
+        getGeneration: () => 1,
+        close: () => {},
+        getBackendName: () => 'sqlite',
+      });
+
+      const result = await compactDetail([{ id: persisted.id, projectId: persisted.projectId }]);
+
+      expect(result.documents).toHaveLength(1);
+      expect(result.documents[0].title).toBe('Persisted detail fallback');
+      expect(result.formatted).toContain('durable store has this observation');
     });
 
     it('should fall back to the global index for cross-project detail lookups', async () => {

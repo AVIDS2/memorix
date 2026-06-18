@@ -34,3 +34,71 @@ bun dist/cli/index.js
 ## Branch Status
 - feat/memcode-agent: latest commit 8466d1b
 - main: untouched (v1.0.10)
+
+## Fixed — 2026-06-15 Evening
+- [x] TUI streaming scroll bug: manual scroll now stays anchored to the same viewport while assistant output grows; manual viewport redraw no longer clears terminal scrollback.
+- [x] Memorix runtime status/config gap: `/memory status` now verifies semantic search mode with a lightweight probe when embeddings are configured, vectors are ready, and the last mode is still the stale default `fulltext`.
+- [x] TUI consecutive wheel scroll bug: fixed the manual viewport path so it renders the visible slice but keeps the full rendered history internally; repeated wheel ticks no longer jump back to the welcome-card/top-of-history area.
+- [x] TUI transcript duplication bug: full redraw now repaints only the visible viewport instead of replaying the entire transcript into terminal scrollback. This preserves native scrollback without causing old startup cards or prior context to appear as a second conversation.
+- [x] TUI lifecycle duplication bug: `TUI.start()` / `TUI.stop()` are now idempotent, preventing repeated terminal input/resize handler registration after suspend, external-editor return, or accidental repeated starts.
+- [x] TUI hardware cursor bug: full redraw now keeps `hardwareCursorRow` in logical transcript coordinates, preventing cursor positioning from jumping below the visible viewport after redraws.
+- [x] Interactive message duplication guard: `renderInitialMessages()` now clears the chat/session render state before rebuilding, so repeated init/reload/navigation paths do not append duplicate conversation windows.
+- [i] Identity investigation only: memcode's core prompt says "memcode" / "Memorix-native coding agent"; the current project also injects `CLAUDE.md` as a context file, which is likely one source of model identity confusion. No identity fix has been applied yet.
+- [x] Memory detail native tool fix: `memorix_detail` now accepts typed refs such as `obs:2141` directly from `memorix_search`, and legacy numeric IDs are scoped through the canonical project id instead of failing under shared project memory.
+- [x] Visible reasoning guard: thinking blocks are hidden by default and the system prompt now explicitly forbids leaking scratchpad / "let me..." planning prose into the user-visible answer.
+- [x] Semantic warming status: `/memory status` now explains when search is temporarily `fulltext` because vectors are still being prepared, instead of implying embeddings are unused.
+- [x] memcode CLI mouse/bootstrap correction: memcode no longer opts into terminal mouse capture by default, because it breaks normal text selection and click behavior. Users can still explicitly set `MEMCODE_TUI_MOUSE=1` for app-owned mouse handling.
+- [x] Vector warming observability: `/memory status` now marks a just-triggered vector backfill as running and exposes the last backfill attempt/success/failure summary, including dimension mismatch details when vectors cannot be inserted.
+
+Verification:
+- `node --test packages/tui/test/viewport-scroll.test.ts packages/tui/test/tui-render.test.ts`
+- `npm --prefix packages/tui test`
+- `npm --prefix packages/memcode test -- test/interactive-mode-status.test.ts test/interactive-mouse-wheel.test.ts test/interactive-ui-mode.test.ts test/assistant-message.test.ts test/user-message.test.ts test/interactive-mode-startup-input.test.ts`
+- `npm --prefix packages/memcode test -- test/memorix-runtime-context-search-probe.test.ts test/memory-status-command.test.ts`
+- `npm --prefix packages/memcode test -- test/cli-bootstrap.test.ts test/memory-tools-detail.test.ts test/system-prompt.test.ts test/memorix-runtime-context-search-probe.test.ts test/memory-status-command.test.ts test/interactive-mode-status.test.ts test/suite/regressions/4167-thinking-toggle-pending-tool-render.test.ts`
+- `node --test packages/tui/test/viewport-scroll.test.ts packages/tui/test/tui-render.test.ts packages/tui/test/terminal.test.ts`
+- `npm --prefix packages/tui run build`
+- `npm --prefix packages/memcode run build`
+- `npm run build`
+
+## Fixed — 2026-06-16 Release Prep
+- [x] Retry cleanup: transient `Request timed out` / `Error: Request timed out.` messages are now removed from the active transcript after retry succeeds, so old failure text no longer stays in the conversation history.
+- [x] Memory search polish: broad requests like `检索记忆` / `查看记忆` / `show memories` now normalize to a real overview search instead of being treated as literal keywords.
+- [x] Alias-aware empty state: compact search no longer calls an alias-backed project "fresh" just because the canonical id differs; empty results now distinguish between "no memories yet" and "memories exist but none matched".
+- [x] TUI scroll regression checks: anchored scroll updates and redraw behavior remain covered by viewport regression tests.
+
+Verification:
+- `npm test -- tests/compact/engine.test.ts tests/compact/engine-fresh-project-alias.test.ts`
+- `npm --prefix packages/memcode test -- test/memory-extension-native-hooks.test.ts test/memory-tools-detail.test.ts test/agent-session-retry.test.ts test/interactive-mode-status.test.ts`
+- `node --test packages/tui/test/viewport-scroll.test.ts`
+- `npm --prefix packages/tui run build`
+- `npm --prefix packages/memcode run build`
+- `npm run build`
+
+## Fixed — 2026-06-18 Native Memory Consistency
+- [x] Native memory tool initialization: `memorix_search`, `memorix_detail`, and `memorix_graph_context` now resolve the canonical project, initialize the same observation store as runtime status, refresh cross-process writes, and prepare the search index before reads. This fixes the split-brain case where status showed hundreds of memories while search/detail claimed the project was fresh or refs were missing.
+- [x] TUI `/memory` command initialization: `/memory search`, `show`, `diff`, `delete`, `stats`, and `promote` now share the same project-store preparation path instead of reading a cold in-process observation cache.
+- [x] Broad memory overview routing: tool guidance now sends broad questions such as `搜索一下我们项目的记忆` to `memorix_graph_context` first, while reserving `memorix_search` for focused bugs, files, modules, decisions, and change history. This reduces repeated search/status loops and keeps memory as background context rather than a hard instruction stamp.
+- [x] Runtime warming copy: semantic warming status tests now match the product-facing wording (`Search: semantic warming`, `Embedding: 0/N vectors`) used in memcode status output.
+
+Verification:
+- `npm --prefix packages/memcode test -- test/memory-tools-detail.test.ts test/memory-commands-runtime.test.ts test/memory-extension-native-hooks.test.ts test/system-prompt.test.ts test/memory-injection-graph-context.test.ts test/memory-injection-intent.test.ts test/memorix-runtime-context-search-probe.test.ts test/memorix-runtime-status-format.test.ts test/memory-status-command.test.ts`
+- `npx vitest run tests/memory/graph-context.test.ts tests/memory/quality-audit.test.ts tests/memory/prepare-search-index.test.ts tests/compact/engine.test.ts tests/compact/engine-fresh-project-alias.test.ts tests/integration/tool-profile.test.ts tests/integration/serve-http.test.ts`
+- `npm run lint`
+- `npm run build`
+- `memorix memory graph-context --query "搜索一下我们项目的记忆" --graphLimit 5`
+
+## Fixed — 2026-06-18 Source Artifact Hygiene
+- [x] Removed tracked TypeScript sidecar build artifacts from `src/` (`*.js`, `*.js.map`, `*.d.ts`, `*.d.ts.map`) when a same-name `.ts` source exists. These files repeatedly caused dev/test/runtime paths to consume stale JavaScript instead of current TypeScript.
+- [x] Kept legitimate non-generated source artifacts such as `src/dashboard/static/app.js` and standalone ambient declaration files.
+- [x] Added `.gitignore` rules so source-side build sidecars do not come back after local builds.
+- [x] Added `tests/release/source-artifacts.test.ts`, which fails if a tracked source-side build sidecar exists beside a `.ts` file.
+- [x] Restored repository hygiene for reference vendors: `vendor/opencode` and `vendor/pi` are now declared in `.gitmodules` with dirty-state ignored, and local CodeGraph indexes inside those vendors are excluded from their nested Git status. This prevents VS Code/Git from expanding reference repositories as huge unrelated diffs.
+- [x] Added `.gitattributes` to normalize text files to LF and mark common binary assets, reducing Windows line-ending noise in release diffs.
+
+Verification:
+- `npx vitest run tests\release\source-artifacts.test.ts`
+- `npx vitest run tests\compact\engine.test.ts packages\memcode\test\memory-tools-detail.test.ts`
+- `npm run lint`
+- `npm run build`
+- `npm --prefix packages\memcode run build`

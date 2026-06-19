@@ -5,8 +5,8 @@
 <h1 align="center">Memorix</h1>
 
 <p align="center">
-  <strong>Local-first memory and native coding agent for AI software work.</strong><br>
-  One project memory layer for memcode, Claude Code, Codex, Cursor, Windsurf, Copilot, Gemini CLI, OpenCode, Kiro, Antigravity, Trae, and any MCP-capable agent.
+  <strong>Local-first shared memory layer for AI coding agents.</strong><br>
+  One project memory system for Claude Code, Codex, Cursor, Windsurf, Copilot, Gemini CLI, OpenCode, Kiro, Antigravity, Trae, memcode, and any MCP-capable agent.
 </p>
 
 <p align="center">
@@ -17,108 +17,37 @@
 </p>
 
 <p align="center">
-  <strong>memcode 1.1</strong> | <strong>Shared Project Memory</strong> | <strong>MCP</strong> | <strong>Git Memory</strong> | <strong>Dashboard</strong> | <strong>Agent Team</strong>
+  <strong>Shared Project Memory</strong> | <strong>MCP</strong> | <strong>Git Memory</strong> | <strong>Reasoning Memory</strong> | <strong>Dashboard</strong> | <strong>Agent Team</strong>
 </p>
 
 <p align="center">
   <a href="README.zh-CN.md">Chinese</a> |
   <a href="#install">Install</a> |
-  <a href="#memcode-11">memcode 1.1</a> |
   <a href="#works-with-your-agent">Agents</a> |
-  <a href="#quick-paths">Quick Paths</a> |
+  <a href="#quick-start">Quick Start</a> |
+  <a href="#memory-model">Memory Model</a> |
+  <a href="#memcode-first-party-memagent">memcode</a> |
   <a href="#docs">Docs</a>
 </p>
 
 ---
 
-## What It Does
+## What Memorix Is
 
-Coding agents forget what happened before the current thread. Memorix gives them a shared, searchable project memory that survives sessions, IDEs, terminals, and agent switches.
+Memorix is a memory layer for AI software work. It is not another agent you have to switch to. It gives the agents you already use a shared, searchable project memory that survives new chats, IDE switches, terminal sessions, and handoffs.
 
-The default experience in the 1.1 line is direct:
-
-```bash
-npm install -g memorix
-cd your-git-repo
-memorix
-```
-
-`memorix` opens **memcode**, the Memorix-native coding agent. It can read, edit, run commands, resume sessions, switch models, and use the same project memory that your other MCP agents use.
-
-If you already have a favorite agent, keep it. Run Memorix as the memory layer:
-
-```bash
-memorix serve
-```
-
-Then point your MCP client at `memorix serve`.
-
-## Why It Matters
+Use Claude Code today, Codex tomorrow, Cursor in the afternoon, and memcode when you want a native terminal agent. Memorix keeps the project memory under the Git project instead of trapping it inside one chat window or one tool.
 
 | Problem | What Memorix adds |
 | --- | --- |
-| The next chat forgets the last one | Project-scoped memory, session summaries, timeline, and detail retrieval |
-| Different IDEs know different things | One local memory pool shared by memcode and MCP-connected agents |
-| Commits explain what changed, not why it matters | Git Memory turns commits into searchable engineering facts |
-| Static rule files get stale | Reasoning, gotchas, fixes, and project skills evolve from real work |
+| The next session forgets what the last session learned | Project-scoped memory, session summaries, timelines, and detail retrieval |
+| Different agents know different things | One local memory pool shared through MCP, hooks, CLI, SDK, and memcode |
+| Git records what changed, but agents cannot recall it well | Git Memory turns commits into searchable engineering facts |
+| Architecture decisions disappear into old chats | Reasoning Memory stores why choices were made, with alternatives and trade-offs |
+| Static rule files drift | Gotchas, fixes, and project skills evolve from real work |
 | Multi-agent work gets messy | Optional Agent Team state for tasks, messages, handoffs, locks, and orchestration |
 
 Memorix is local-first. SQLite is the canonical store, Orama handles search, and LLM-backed formation/embedding is optional. Without model keys, Memorix still works with local full-text retrieval.
-
-## memcode 1.1
-
-memcode is the first-party coding agent that ships with Memorix.
-
-<table>
-<tr>
-<td width="50%">
-
-### Start coding
-
-```bash
-memorix
-# or
-memcode
-```
-
-Common entry points:
-
-```bash
-memcode -p "summarize this repo"
-memcode -c
-memcode -r
-memcode --model openai/gpt-4o
-memcode --tools read,grep,find,ls -p "review src/"
-```
-
-</td>
-<td width="50%">
-
-### What is native
-
-- shared Memorix project memory
-- native hook capture from prompts, tool calls, and assistant output
-- `/memory status`, `/memory search`, `/memory show`, `/memory hooks`
-- resumable and forkable sessions
-- model switching and thinking levels
-- skills, prompt templates, themes, extensions
-- text, JSON, and RPC output modes
-
-</td>
-</tr>
-</table>
-
-memcode does not create a private memory silo. It writes into the same project memory pool used by Claude Code, Codex, Cursor, Windsurf, and other agents connected through Memorix MCP. memcode-specific records are tagged with metadata instead of being split into a separate store.
-
-The main configuration lanes are intentionally separate:
-
-```toml
-[agent]       # memcode's coding model
-[memory.llm]  # background memory formation, summaries, rerank
-[embedding]   # semantic/vector search
-```
-
-See [docs/MEMCODE.md](docs/MEMCODE.md) for the memcode-specific product guide.
 
 ## Works With Your Agent
 
@@ -181,7 +110,7 @@ Memorix works with agents that can launch a local MCP server, connect to HTTP MC
 <td align="center" width="12.5%">
 <img src="https://raw.githubusercontent.com/AVIDS2/memorix/main/assets/logo.png" alt="memcode" width="48" height="48"><br>
 <strong>memcode</strong><br>
-<sub>Native: memory + hooks</sub>
+<sub>First-party memagent</sub>
 </td>
 <td align="center" width="12.5%">
 <img src="https://placehold.co/48x48/111827/ffffff?text=M" alt="Any MCP Client" width="48" height="48"><br>
@@ -198,7 +127,7 @@ Support tiers:
 | Core | Tested MCP path plus first-class rules or hooks |
 | Extended | Supported path with platform-specific caveats |
 | Community | Best-effort compatibility through MCP or hook adapters |
-| Native | Runs inside Memorix without external MCP wiring |
+| First-party | Built by this repo to prove and use Memorix memory natively |
 
 ## Install
 
@@ -211,6 +140,7 @@ Install and initialize:
 
 ```bash
 npm install -g memorix
+cd your-git-repo
 memorix init
 ```
 
@@ -221,20 +151,9 @@ memorix init
 
 Legacy `memorix.yml`, `.env`, and `~/.memorix/config.json` are still read for compatibility, but new setup flows use TOML.
 
-## Quick Paths
+## Quick Start
 
-| You want | Run |
-| --- | --- |
-| Start the native coding agent | `memorix` or `memcode` |
-| Ask once without entering the TUI | `memcode -p "explain this repo"` |
-| Resume a previous coding session | `memcode -r` |
-| Connect an IDE over stdio MCP | `memorix serve` |
-| Run a long-lived HTTP MCP control plane | `memorix background start` |
-| Open the dashboard | `memorix dashboard` or `http://localhost:3211` after background start |
-| Inspect project memory | `memorix memory search --query "release blocker"` |
-| Capture Git history | `memorix git-hook --force` or `memorix ingest log --count 20` |
-| Export/import memories | `memorix transfer export --format json` |
-| Run autonomous multi-agent work | `memorix orchestrate --goal "..."` |
+### Add memory to an existing agent
 
 Generic stdio MCP:
 
@@ -251,22 +170,39 @@ Generic stdio MCP:
 
 Generic HTTP MCP:
 
-```json
-{
-  "mcpServers": {
-    "memorix": {
-      "transport": "http",
-      "url": "http://localhost:3211/mcp"
-    }
-  }
-}
+```bash
+memorix background start
+```
+
+Then point the client at:
+
+```text
+http://localhost:3211/mcp
 ```
 
 In HTTP mode, agents should bind the active repo explicitly with `memorix_session_start(projectRoot=...)` when the client can provide the workspace path. Git remains the final source of truth for project identity.
 
-## Core Concepts
+### Work from the CLI
 
-### Three memory layers
+```bash
+memorix memory search --query "release blocker"
+memorix reasoning search --query "why sqlite"
+memorix git-hook --force
+memorix ingest log --count 20
+memorix dashboard
+```
+
+### Use the first-party memagent
+
+```bash
+memorix
+# or
+memcode
+```
+
+This opens memcode, the bundled terminal memagent. It is useful when you want an agent that already speaks Memorix memory, but it is not the center of the product. The center is the shared memory layer.
+
+## Memory Model
 
 | Layer | Stores | Best for |
 | --- | --- | --- |
@@ -274,24 +210,36 @@ In HTTP mode, agents should bind the active repo explicitly with `memorix_sessio
 | Reasoning Memory | rationale, alternatives, constraints, risks | "Why did we choose this?" |
 | Git Memory | commit-derived engineering facts | "What changed and where?" |
 
-### Source-aware retrieval
-
 Search is project-scoped by default. `scope="global"` searches across projects. Retrieval boosts Git Memory for "what changed" questions and reasoning records for "why" questions.
 
-### Local control plane
+## Runtime Modes
 
-Use `memorix serve` for a lightweight stdio MCP process. Use `memorix background start` when you intentionally want a shared HTTP MCP endpoint, dashboard, or multi-client control plane.
+| You want | Run |
+| --- | --- |
+| Give an IDE or agent shared memory over stdio MCP | `memorix serve` |
+| Run shared HTTP MCP plus dashboard | `memorix background start` |
+| Debug HTTP MCP in the foreground | `memorix serve-http --port 3211` |
+| Inspect or manage memory directly | `memorix memory`, `memorix reasoning`, `memorix session`, `memorix ingest` |
+| Use the bundled first-party memagent | `memorix` or `memcode` |
+| Run autonomous multi-agent work | `memorix orchestrate --goal "..."` |
+
+## memcode: First-Party Memagent
+
+memcode exists so Memorix can use its own memory layer natively and so users have a terminal agent that does not waste the memory already accumulated in Memorix.
+
+memcode can read, edit, run commands, resume sessions, switch models, and expose `/memory` commands. It writes into the same project memory pool used by Claude Code, Codex, Cursor, Windsurf, and other agents connected through Memorix MCP.
+
+```text
+one Git project -> one shared Memorix memory pool
+```
+
+See [docs/MEMCODE.md](docs/MEMCODE.md) for the memcode-specific guide.
 
 ## Configuration
 
 Minimal `~/.memorix/config.toml`:
 
 ```toml
-[agent]
-provider = "openai"
-model = "gpt-4o"
-api_key = "..."
-
 [memory.llm]
 provider = "openai"
 model = "gpt-4o-mini"
@@ -303,9 +251,14 @@ provider = "auto"
 [memory]
 inject = "minimal"
 formation = "active"
+
+[agent]
+provider = "openai"
+model = "gpt-4o"
+api_key = "..."
 ```
 
-Use global config for personal defaults and credentials. Use project `memorix.toml` for repo-specific model or behavior overrides. Do not commit secrets.
+Use `[memory.llm]` and `[embedding]` for Memorix memory quality and retrieval. Use `[agent]` only for memcode or other first-party agent flows. Keep credentials in global config or environment variables, and do not commit secrets.
 
 ## Docker
 
@@ -343,12 +296,11 @@ const results = await client.search({ query: 'auth decision' });
 await client.close();
 ```
 
-## What's New In 1.1
+## What's New In The 1.1 Line
 
-- **memcode is the default interactive experience**: `memorix` opens the native coding agent.
-- **Native memory in memcode**: prompts, tool events, assistant responses, runtime status, and `/memory` commands use Memorix directly.
-- **Unified TOML config**: `~/.memorix/config.toml` and project `memorix.toml` are the user-facing config model.
-- **Separate model lanes**: coding agent, memory formation, and embeddings can use different providers.
+- **TOML-first configuration**: `~/.memorix/config.toml` and project `memorix.toml` are the user-facing config model.
+- **Separate model lanes**: memory formation, embeddings, and first-party agent flows can use different providers.
+- **memcode as a first-party memagent**: a bundled terminal agent that consumes and contributes to Memorix memory without making Memorix agent-centric.
 - **Release hardening**: packaged memcode resolution, SQLite ESM loading, resume/session UI, CLI test isolation, and CI checks were tightened for the release path.
 
 ## Docs
@@ -358,10 +310,10 @@ await client.close();
 | [Docs Map](docs/README.md) | You want the shortest route to the right guide |
 | [Setup Guide](docs/SETUP.md) | Installing, choosing stdio vs HTTP, configuring IDEs |
 | [Configuration](docs/CONFIGURATION.md) | TOML config, model lanes, compatibility files |
-| [memcode](docs/MEMCODE.md) | Using the native coding agent |
 | [API Reference](docs/API_REFERENCE.md) | MCP tools and operator CLI |
 | [Git Memory](docs/GIT_MEMORY.md) | Commit ingestion and searchable engineering truth |
 | [Docker](docs/DOCKER.md) | Containerized HTTP control plane |
+| [memcode](docs/MEMCODE.md) | Using the bundled first-party memagent |
 | [Agent Operator Playbook](docs/AGENT_OPERATOR_PLAYBOOK.md) | AI-facing execution guide for install, binding, hooks, and troubleshooting |
 | [Development](docs/DEVELOPMENT.md) | Contributing, testing, release checks |
 

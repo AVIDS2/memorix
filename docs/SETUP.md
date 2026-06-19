@@ -1,17 +1,17 @@
 # Setup Guide
 
-Memorix is a local-first memory layer and native coding-agent runtime for AI software work.
+Memorix is a local-first shared memory layer for AI coding agents.
 
 In the 1.1 line, there are four common entry points:
 
 | Entry | Use it for |
 | --- | --- |
-| `memorix` / `memcode` | Native memcode coding agent in your terminal |
 | `memorix serve` | stdio MCP server for IDEs and coding agents |
 | `memorix background start` | long-lived HTTP MCP control plane plus dashboard |
 | `memorix serve-http --port 3211` | foreground HTTP MCP for debugging or supervised launches |
+| `memorix` / `memcode` | bundled first-party memagent that uses the same Memorix memory pool |
 
-Most users should start with `memorix` or `memorix serve`. Use HTTP when you intentionally want one shared background process, browser dashboard, or multiple clients using the same MCP endpoint.
+Most users should start by connecting their existing agent with `memorix serve`. Use HTTP when you intentionally want one shared background process, browser dashboard, or multiple clients using the same MCP endpoint. Use memcode when you want the bundled first-party terminal agent.
 
 ---
 
@@ -63,7 +63,30 @@ memorix config path
 
 ## 3. Choose Your Runtime
 
-### Option A: memcode native agent
+### Option A: stdio MCP for existing agents
+
+```bash
+memorix serve
+```
+
+Use this when your IDE launches Memorix as a local stdio MCP server. This is the default path for single-client setups.
+
+Generic stdio MCP config:
+
+```json
+{
+  "mcpServers": {
+    "memorix": {
+      "command": "memorix",
+      "args": ["serve"]
+    }
+  }
+}
+```
+
+Avoid `npx` in persistent MCP configs. Use the globally installed `memorix` binary so startup is predictable.
+
+### Option B: memcode first-party memagent
 
 ```bash
 memorix
@@ -71,7 +94,7 @@ memorix
 memcode
 ```
 
-Use this when you want a full terminal coding agent with native Memorix memory. memcode can read, edit, run commands, resume sessions, switch models, and search/store shared project memory.
+Use this when you want the bundled terminal agent that uses Memorix memory natively. memcode can read, edit, run commands, resume sessions, switch models, and search/store shared project memory. It is a client of the Memorix memory layer, not a replacement for the MCP memory layer.
 
 Common commands:
 
@@ -96,29 +119,6 @@ Inside the TUI:
 ```
 
 See [MEMCODE.md](MEMCODE.md).
-
-### Option B: stdio MCP
-
-```bash
-memorix serve
-```
-
-Use this when your IDE launches Memorix as a local stdio MCP server. This is the default path for single-client setups.
-
-Generic stdio MCP config:
-
-```json
-{
-  "mcpServers": {
-    "memorix": {
-      "command": "memorix",
-      "args": ["serve"]
-    }
-  }
-}
-```
-
-Avoid `npx` in persistent MCP configs. Use the globally installed `memorix` binary so startup is predictable.
 
 ### Option C: HTTP MCP + dashboard
 
@@ -341,7 +341,7 @@ What each lane does:
 
 | Lane | Used by |
 | --- | --- |
-| `[agent]` | memcode's coding agent model |
+| `[agent]` | bundled first-party agent model, mainly memcode |
 | `[memory.llm]` | memory formation, summaries, deduplication, optional rerank |
 | `[embedding]` | semantic/vector search |
 | `[memory]` | memory injection and formation behavior |

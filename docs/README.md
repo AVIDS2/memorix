@@ -5,7 +5,7 @@ Use this page as the fastest path to the right Memorix document.
 The public docs are organized by user intent:
 
 - **Start**: install, run, and connect an agent
-- **Use**: memcode, memory search, Git Memory, dashboard
+- **Use**: memory search, Git Memory, dashboard, and the optional first-party memagent
 - **Operate**: configuration, Docker, performance, troubleshooting
 - **Integrate**: MCP tools, CLI, SDK, agent rules
 - **Understand**: architecture and deeper implementation notes
@@ -18,10 +18,10 @@ The public docs are organized by user intent:
 | You want to... | Read this |
 | --- | --- |
 | Install Memorix and choose a runtime mode | [SETUP.md](SETUP.md) |
-| Use the native coding agent | [MEMCODE.md](MEMCODE.md) |
 | Configure provider keys, model lanes, and project overrides | [CONFIGURATION.md](CONFIGURATION.md) |
 | Connect an IDE or AI coding agent over MCP | [SETUP.md](SETUP.md#4-connect-an-mcp-client) |
 | Run the HTTP control plane in Docker | [DOCKER.md](DOCKER.md) |
+| Try the bundled first-party memagent | [MEMCODE.md](MEMCODE.md) |
 
 ---
 
@@ -29,13 +29,13 @@ The public docs are organized by user intent:
 
 | Topic | Document |
 | --- | --- |
-| memcode 1.1 native coding agent | [MEMCODE.md](MEMCODE.md) |
 | Operator CLI and MCP tools | [API_REFERENCE.md](API_REFERENCE.md) |
 | Git-derived engineering memory | [GIT_MEMORY.md](GIT_MEMORY.md) |
 | Memory formation and quality pipeline | [MEMORY_FORMATION_PIPELINE.md](MEMORY_FORMATION_PIPELINE.md) |
 | Performance and resource profile | [PERFORMANCE.md](PERFORMANCE.md) |
 | Optional Agent Team tasks, messages, locks, handoffs | [API_REFERENCE.md § Agent Team](API_REFERENCE.md#9-agent-team-tools) |
 | Multi-agent orchestration | [API_REFERENCE.md](API_REFERENCE.md) and `memorix orchestrate --help` |
+| Bundled first-party memagent | [MEMCODE.md](MEMCODE.md) |
 
 ---
 
@@ -43,7 +43,7 @@ The public docs are organized by user intent:
 
 | Topic | Document |
 | --- | --- |
-| Runtime selection: memcode, stdio MCP, HTTP MCP, dashboard | [SETUP.md](SETUP.md) |
+| Runtime selection: stdio MCP, HTTP MCP, dashboard, CLI, memcode | [SETUP.md](SETUP.md) |
 | TOML-first configuration | [CONFIGURATION.md](CONFIGURATION.md) |
 | Docker/compose deployment | [DOCKER.md](DOCKER.md) |
 | Resource and timeout tuning | [PERFORMANCE.md](PERFORMANCE.md) |
@@ -99,9 +99,8 @@ Historical/deep-reference documents may describe older designs. If they conflict
 
 These docs target the **1.1 release line**, where:
 
-- `memorix` opens memcode, the native coding agent
-- `memcode` and `memorix memcode` are direct agent entry points
 - `memorix serve` remains the stdio MCP server for external agents
 - `memorix background start` runs the shared HTTP MCP control plane and dashboard
+- `memorix` / `memcode` open memcode, the bundled first-party memagent that uses the same Memorix memory pool
 - `~/.memorix/config.toml` and project `memorix.toml` are the user-facing configuration model
 - legacy `memorix.yml`, `.env`, and `config.json` files are compatibility inputs, not the primary setup path

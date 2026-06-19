@@ -1,57 +1,12 @@
 # Memorix - Full AI-Facing Documentation Summary
 
-> Local-first memory layer and native coding agent for AI software work.
+> Local-first shared memory layer for AI coding agents.
 
-Memorix is a TypeScript/Node.js project that gives AI coding agents persistent, project-aware memory. It is designed for software development workflows, not generic chat memory. It works across memcode, Claude Code, Codex, Cursor, Windsurf, GitHub Copilot / VS Code MCP, Gemini CLI, OpenCode, Kiro, Antigravity, Trae, and any agent that can speak MCP over stdio or HTTP.
+Memorix is a TypeScript/Node.js project that gives AI coding agents persistent, project-aware memory. It is designed for software development workflows, not generic chat memory. It works across Claude Code, Codex, Cursor, Windsurf, GitHub Copilot / VS Code MCP, Gemini CLI, OpenCode, Kiro, Antigravity, Trae, memcode, and any agent that can speak MCP over stdio or HTTP.
 
 If you are an AI coding agent helping a user install, operate, or troubleshoot Memorix, read `docs/AGENT_OPERATOR_PLAYBOOK.md` before taking action. It is the canonical execution guide for install, runtime selection, Git/project binding, MCP integration, hooks, and troubleshooting.
 
 ## Product Surfaces
-
-### memcode
-
-`memorix` and `memcode` enter memcode, the Memorix-native terminal coding agent.
-
-memcode can:
-
-- read files, edit files, write files, run shell commands
-- resume, continue, fork, label, and export coding sessions
-- switch models and thinking levels
-- load skills, prompt templates, themes, and extensions
-- call native Memorix memory tools
-- capture prompts, tool events, assistant output, and runtime state through the Memorix hook pipeline
-
-Common commands:
-
-```bash
-memorix
-memcode
-memcode -p "summarize this repo"
-memcode -c
-memcode -r
-memcode --session <id>
-memcode --fork <id>
-memcode --model openai/gpt-4o
-memcode --tools read,grep,find,ls -p "review src/"
-```
-
-Important TUI commands:
-
-- `/memory status`
-- `/memory search`
-- `/memory show`
-- `/memory stats`
-- `/memory hooks`
-- `/model switch`
-- `/resume`
-- `/tree`
-- `/fork`
-- `/session`
-- `/git status`
-- `/git diff`
-- `/config`
-
-memcode does not create a private memory silo. It uses the same project memory pool as external MCP-connected agents.
 
 ### MCP server
 
@@ -120,6 +75,51 @@ memorix ingest log --count 20
 memorix background start
 memorix orchestrate --goal "Add authentication"
 ```
+
+### memcode
+
+`memorix` and `memcode` enter memcode, the bundled first-party memagent. memcode is a consumer and contributor of the Memorix memory layer, not the center of the product.
+
+memcode can:
+
+- read files, edit files, write files, run shell commands
+- resume, continue, fork, label, and export coding sessions
+- switch models and thinking levels
+- load skills, prompt templates, themes, and extensions
+- call native Memorix memory tools
+- capture prompts, tool events, assistant output, and runtime state through the Memorix hook pipeline
+
+Common commands:
+
+```bash
+memorix
+memcode
+memcode -p "summarize this repo"
+memcode -c
+memcode -r
+memcode --session <id>
+memcode --fork <id>
+memcode --model openai/gpt-4o
+memcode --tools read,grep,find,ls -p "review src/"
+```
+
+Important TUI commands:
+
+- `/memory status`
+- `/memory search`
+- `/memory show`
+- `/memory stats`
+- `/memory hooks`
+- `/model switch`
+- `/resume`
+- `/tree`
+- `/fork`
+- `/session`
+- `/git status`
+- `/git diff`
+- `/config`
+
+memcode does not create a private memory silo. It uses the same project memory pool as external MCP-connected agents.
 
 ## Problems Memorix Solves
 

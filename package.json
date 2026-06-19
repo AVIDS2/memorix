@@ -1,7 +1,7 @@
 {
   "name": "memorix",
   "version": "1.0.11",
-  "description": "Local-first memory layer and native coding agent for AI software work across MCP clients, memcode, Git history, and shared project context.",
+  "description": "Local-first shared memory layer for AI coding agents across MCP clients, Git history, reasoning context, and project sessions.",
   "type": "module",
   "sideEffects": false,
   "workspaces": [

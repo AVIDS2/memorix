@@ -5,7 +5,7 @@ This guide is for contributors working on Memorix itself.
 Memorix is a TypeScript project built around:
 
 - MCP server runtime
-- memcode native coding-agent runtime
+- memcode first-party memagent runtime
 - CLI workflows
 - SQLite canonical persistence with compatibility/fallback layers
 - Orama search
@@ -17,8 +17,8 @@ The current release work targets the **1.1 line** while package metadata may sti
 
 Contributors should assume the following are already part of the supported product surface:
 
-- `memorix` opens the bundled memcode native coding agent
-- memcode uses native Memorix project memory, hooks, `/memory` commands, resumable sessions, and model switching
+- shared memory remains the main product surface across MCP clients, CLI, SDK, dashboard, hooks, and memcode
+- memcode uses Memorix project memory, hooks, `/memory` commands, resumable sessions, and model switching as a first-party memagent
 - TOML-first configuration with global `~/.memorix/config.toml` and project `<git-root>/memorix.toml`
 - separate `[agent]`, `[memory.llm]`, and `[embedding]` model lanes
 - privacy-safe handoff receipts and doctor receipt diagnostics
@@ -153,7 +153,7 @@ Docs layout:
 - `README.md`: landing page and quick start
 - `docs/SETUP.md`: client setup and troubleshooting
 - `docs/CONFIGURATION.md`: TOML-first config and legacy compatibility
-- `docs/MEMCODE.md`: native coding-agent guide
+- `docs/MEMCODE.md`: first-party memagent guide
 - `docs/GIT_MEMORY.md`: Git Memory workflows
 - `docs/ARCHITECTURE.md`: system design
 - `docs/API_REFERENCE.md`: MCP tool surface

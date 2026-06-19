@@ -14,7 +14,7 @@ Current public docs:
 
 For the 1.1 release line:
 
-- `memorix` opens memcode, the Memorix-native coding agent.
+- `memorix` opens memcode, the bundled first-party memagent.
 - `memcode` is also available as the standalone binary from `@memorix/memcode`.
 - memcode writes to the same project memory pool used by MCP-connected agents.
 - Configuration is TOML-first:

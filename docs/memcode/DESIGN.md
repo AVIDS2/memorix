@@ -1,9 +1,9 @@
 # memcode Design Notes
 
-> Internal architecture notes for the Memorix-native coding agent.
+> Internal architecture notes for the bundled first-party memagent.
 > For user-facing usage, start with [../MEMCODE.md](../MEMCODE.md).
 
-memcode is the first-party coding agent that ships with Memorix. It should feel like a normal terminal coding agent while using Memorix memory natively instead of treating memory as an external MCP add-on.
+memcode is the first-party memagent that ships with Memorix. It should feel like a normal terminal coding agent while using Memorix memory natively instead of treating memory as an external MCP add-on.
 
 ---
 

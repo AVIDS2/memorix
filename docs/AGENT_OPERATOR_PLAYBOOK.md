@@ -8,7 +8,7 @@ This document is written for AI coding agents, not for human-first browsing. If 
 
 ## 1. What Memorix Is
 
-Memorix is a local-first memory layer and native coding-agent stack for AI software work.
+Memorix is a local-first shared memory layer for AI software work.
 
 It is designed for software work, not generic chat memory. Its core value is that multiple coding agents and IDEs can share:
 
@@ -18,9 +18,9 @@ It is designed for software work, not generic chat memory. Its core value is tha
 
 It supports:
 
-- memcode native terminal coding agent (`memorix` or `memcode`)
 - stdio MCP (`memorix serve`)
 - HTTP control plane + dashboard (`memorix background start` or `memorix serve-http --port 3211`)
+- first-party memagent (`memorix` or `memcode`) that uses the same shared memory pool
 - local-first project-scoped memory
 - cross-agent recall across Cursor, Claude Code, Codex, Windsurf, Gemini CLI, GitHub Copilot, Kiro, OpenCode, Antigravity, and Trae
 
@@ -28,11 +28,11 @@ It supports:
 
 For the 1.1 release line, the operator-visible shape is:
 
-- `memorix` opens memcode, the first-party terminal coding agent
 - `memorix serve` remains the stdio MCP entry for IDEs and external agents
 - `memorix background start` and `memorix serve-http --port 3211` run the HTTP control plane and dashboard
+- `memorix` / `memcode` open memcode, the bundled first-party memagent
 - configuration is TOML-first: global `~/.memorix/config.toml`, project `<git-root>/memorix.toml`
-- model lanes are separate: `[agent]` for memcode, `[memory.llm]` for formation/rerank/summaries, `[embedding]` for semantic search
+- model lanes are separate: `[memory.llm]` for formation/rerank/summaries, `[embedding]` for semantic search, `[agent]` for first-party agent flows
 - legacy `memorix.yml`, `.env`, and `~/.memorix/config.json` are compatibility inputs, not the recommended setup path
 - generated agent rules treat `memorix_session_start` as optional unless explicit session semantics matter
 - privacy-safe diagnostics and receipts avoid raw chat, memory text, query text, tool payloads, and local file paths
@@ -43,7 +43,7 @@ For the 1.1 release line, the operator-visible shape is:
 
 ### CLI is the primary operator surface; MCP is the integration layer
 
-For human operators, prefer `memorix ...` commands first. In the 1.1 line, the CLI covers the native coding agent plus Memorix operator capabilities across session, memory, reasoning, retention, formation, audit, transfer, skills, team, task, message, lock, handoff, poll, sync, and ingest workflows.
+For human operators, prefer `memorix ...` commands first. In the 1.1 line, the CLI covers Memorix operator capabilities across session, memory, reasoning, retention, formation, audit, transfer, skills, team, task, message, lock, handoff, poll, sync, ingest workflows, and the bundled first-party memagent.
 
 Do not ask memory-only users to join the Agent Team. A lightweight session is enough for memory, retrieval, reasoning, and continuation. Join only for explicit task/message/lock coordination or for autonomous CLI-agent work managed by `memorix orchestrate`.
 
@@ -84,10 +84,10 @@ Do not assume a plain folder path is enough.
 
 There are four practical operator entry points:
 
-- `memorix` for the interactive local workbench in a TTY
 - `memorix serve` for stdio MCP hosts
 - `memorix background start` for an optional long-lived HTTP control plane
 - `memorix serve-http --port 3211` for foreground HTTP control-plane work
+- `memorix` / `memcode` for the bundled first-party memagent in a TTY
 
 The two server runtime modes are:
 
@@ -113,7 +113,7 @@ when the user wants:
 - team/task/message features
 - one shared control-plane process
 
-Default recommendation: if the user just wants memory inside one IDE or terminal, start with `memorix` or `memorix serve`. Reach for HTTP only when a shared background service, multi-client MCP access, or a live dashboard endpoint is actually needed.
+Default recommendation: if the user wants memory inside an existing IDE or agent, start with `memorix serve`. Use memcode only when the user wants the bundled terminal agent. Reach for HTTP only when a shared background service, multi-client MCP access, or a live dashboard endpoint is actually needed.
 
 Use:
 
@@ -189,15 +189,21 @@ Memorix writes TOML by default:
 
 Use global config for personal provider credentials. Use project config for repo-specific model choices, memory behavior, server defaults, and Git Memory settings. Do not commit secrets.
 
-### Step 4. Start memcode or stdio MCP mode
+### Step 4. Start stdio MCP mode
 
-If the user wants the native coding agent:
+For an existing agent or IDE:
+
+```bash
+memorix serve
+```
+
+If the user wants the bundled first-party memagent:
 
 ```bash
 memorix
 ```
 
-This opens the memcode TUI. Useful slash commands include:
+This opens the memcode TUI. It uses the same Memorix memory pool as MCP-connected agents. Useful slash commands include:
 
 ```text
 /help
@@ -212,12 +218,6 @@ This opens the memcode TUI. Useful slash commands include:
 /git status
 /git diff
 /config
-```
-
-If the user wants an MCP server for another agent or IDE:
-
-```bash
-memorix serve
 ```
 
 ### Step 5. Add MCP config to the target client

@@ -1,8 +1,10 @@
 # memcode
 
-> The Memorix-native coding agent for project memory, terminal work, and resumable software sessions.
+> The first-party memagent that uses Memorix project memory natively.
 
-memcode is the first-party terminal coding agent bundled with Memorix. It keeps the familiar agent workflow from the Pi codebase and adds native Memorix memory, hook capture, project identity, runtime status, and shared recall across tools.
+memcode is the bundled first-party terminal agent for Memorix. It exists so users can work with a terminal agent that does not waste the memory already accumulated in Memorix.
+
+Memorix itself remains the main product: the shared memory layer for many agents. memcode is one client of that layer, alongside Claude Code, Codex, Cursor, Windsurf, and other MCP-connected tools.
 
 Install Memorix and open memcode:
 
@@ -22,7 +24,7 @@ Both routes enter the same TUI.
 
 ---
 
-## What You Get In 1.1
+## What memcode Adds
 
 | Capability | What it means |
 | --- | --- |
@@ -219,12 +221,11 @@ memcode update self
 
 ## Relationship To Memorix
 
-Memorix has two public surfaces:
+Memorix is the shared memory layer. memcode is a first-party memagent built on top of it.
 
-- **memcode**: native terminal coding agent
-- **Memorix MCP / CLI / Dashboard**: shared memory control plane for other agents and operator workflows
+Use Memorix when you want Claude Code, Codex, Cursor, Windsurf, Copilot, Gemini CLI, OpenCode, Kiro, Antigravity, Trae, or another MCP client to share project memory.
 
-Use memcode when you want a full coding agent. Use `memorix serve` when you want Claude Code, Codex, Cursor, Windsurf, Copilot, Gemini CLI, OpenCode, Kiro, Antigravity, Trae, or another MCP client to share the same project memory.
+Use memcode when you want a bundled terminal agent that already uses that memory layer natively.
 
 ---
 

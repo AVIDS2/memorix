@@ -1,45 +1,16 @@
 # Memorix
 
-> Local-first memory layer and native coding agent for AI software work.
+> Local-first shared memory layer for AI coding agents.
 
-Memorix gives coding agents persistent, project-aware memory across sessions, IDEs, terminals, and MCP clients. It works with memcode, Claude Code, Codex, Cursor, Windsurf, GitHub Copilot / VS Code MCP, Gemini CLI, OpenCode, Kiro, Antigravity, Trae, and other MCP-capable agents.
+Memorix gives coding agents persistent, project-aware memory across sessions, IDEs, terminals, and MCP clients. It is centered on shared memory, not on any single agent. It works with Claude Code, Codex, Cursor, Windsurf, GitHub Copilot / VS Code MCP, Gemini CLI, OpenCode, Kiro, Antigravity, Trae, memcode, and other MCP-capable agents.
 
-## Primary Product Surfaces
+## Public Surfaces
 
-- `memorix` opens memcode, the Memorix-native terminal coding agent.
-- `memcode` is the direct native coding-agent binary.
 - `memorix serve` starts the stdio MCP server for IDEs and agents.
 - `memorix background start` starts the HTTP MCP control plane and dashboard.
-- `memorix dashboard` opens the local read-mostly dashboard.
 - `memorix memory`, `reasoning`, `session`, `team`, `task`, `handoff`, `poll`, `receipt`, `sync`, `ingest`, and `orchestrate` expose the operator CLI.
-
-## memcode 1.1
-
-memcode is the first-party coding agent bundled with Memorix. It can read, edit, run commands, resume sessions, switch models, use skills/extensions/themes, and use Memorix memory natively.
-
-Common commands:
-
-```bash
-memorix
-memcode
-memcode -p "summarize this repo"
-memcode -c
-memcode -r
-memcode --model openai/gpt-4o
-```
-
-Important TUI commands:
-
-- `/memory status`
-- `/memory search`
-- `/memory show`
-- `/memory hooks`
-- `/model switch`
-- `/resume`
-- `/tree`
-- `/config`
-
-memcode uses the same project memory pool as external MCP-connected agents. It does not create a separate private memory store.
+- `memorix` and `memcode` open memcode, the bundled first-party memagent. It is a client of the Memorix memory layer, not the center of the product.
+- `memorix dashboard` opens the local read-mostly dashboard.
 
 ## Memory Model
 
@@ -51,6 +22,22 @@ Memorix combines three layers:
 
 Search is project-scoped by default. Use global scope only when cross-project recall is intentional.
 
+## memcode
+
+memcode is the first-party memagent bundled with Memorix. It exists so the project can use its own memory layer natively and so users have a terminal agent that does not waste already-accumulated Memorix memory.
+
+Common commands:
+
+```bash
+memorix
+memcode
+memcode -p "summarize this repo"
+memcode -c
+memcode -r
+```
+
+memcode uses the same project memory pool as external MCP-connected agents. It does not create a separate private memory store.
+
 ## Configuration
 
 Memorix uses TOML as the user-facing configuration model:
@@ -60,10 +47,10 @@ Memorix uses TOML as the user-facing configuration model:
 
 Core lanes:
 
-- `[agent]` for memcode's coding model
 - `[memory.llm]` for memory formation, summaries, deduplication, optional rerank
 - `[embedding]` for semantic/vector search
 - `[memory]` for injection and formation behavior
+- `[agent]` for memcode or other first-party agent flows
 
 Legacy `memorix.yml`, `.env`, and `~/.memorix/config.json` are compatibility inputs, not the primary setup path.
 
@@ -72,10 +59,10 @@ Legacy `memorix.yml`, `.env`, and `~/.memorix/config.json` are compatibility inp
 ```bash
 npm install -g memorix
 memorix init
-memorix
+memorix serve
 ```
 
-For an MCP client:
+Generic MCP client config:
 
 ```json
 {
@@ -103,7 +90,8 @@ Endpoint: `http://localhost:3211/mcp`.
 - README: https://github.com/AVIDS2/memorix/blob/main/README.md
 - Setup: https://github.com/AVIDS2/memorix/blob/main/docs/SETUP.md
 - Configuration: https://github.com/AVIDS2/memorix/blob/main/docs/CONFIGURATION.md
-- memcode: https://github.com/AVIDS2/memorix/blob/main/docs/MEMCODE.md
 - API Reference: https://github.com/AVIDS2/memorix/blob/main/docs/API_REFERENCE.md
+- Git Memory: https://github.com/AVIDS2/memorix/blob/main/docs/GIT_MEMORY.md
+- memcode: https://github.com/AVIDS2/memorix/blob/main/docs/MEMCODE.md
 - Agent Operator Playbook: https://github.com/AVIDS2/memorix/blob/main/docs/AGENT_OPERATOR_PLAYBOOK.md
 - Full AI context: https://github.com/AVIDS2/memorix/blob/main/llms-full.txt

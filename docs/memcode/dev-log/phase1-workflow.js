@@ -101,7 +101,7 @@ The key change: when process.argv has NO subcommand (just "memorix" with no args
 
 Add this logic near the top of the command routing:
 \`\`\`typescript
-// If no args provided, enter memcode TUI (native coding agent)
+// If no args provided, enter memcode TUI (first-party memagent)
 if (args.length === 0) {
   try {
     const { startMemcode } = await import('../memcode/index.js');

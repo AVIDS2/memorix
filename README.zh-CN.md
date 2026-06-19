@@ -200,7 +200,7 @@ memorix
 memcode
 ```
 
-这会打开 memcode。它是内置终端 memagent，适合你想用一个已经接好 Memorix 记忆的 Agent 时使用；但产品中心不是 memcode，产品中心是共享记忆层。
+这会打开 memcode：一个内置终端 memagent，可以直接使用 Claude Code、Codex、Cursor、Windsurf 等 Agent 共享的同一套 Memorix 项目记忆。
 
 ## 记忆模型
 
@@ -300,7 +300,7 @@ await client.close();
 
 - **TOML-first 配置**：用户面对的是 `~/.memorix/config.toml` 和项目 `memorix.toml`。
 - **模型 lane 分离**：记忆整理、embedding、first-party agent 流程可以使用不同 provider。
-- **memcode 作为 first-party memagent**：内置终端 Agent 会使用并反哺 Memorix 记忆，但 Memorix 本身仍是多 Agent 记忆层。
+- **memcode 作为 first-party memagent**：内置终端 Agent 可以直接使用并反哺 Memorix 项目记忆。
 - **发布路径加固**：修复 packaged memcode resolution、SQLite ESM loader、resume/session UI、CLI 测试隔离和 CI release gate。
 
 ## 文档

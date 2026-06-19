@@ -2,7 +2,7 @@
 
 > First-party memagent with shared Memorix project memory.
 
-memcode is the first-party terminal agent for Memorix. Memorix remains the shared memory layer for many agents; memcode is one bundled client that uses that memory natively.
+memcode is the first-party terminal agent for Memorix. It can read from and write to the same project memory used by MCP-connected agents.
 
 Install it directly:
 

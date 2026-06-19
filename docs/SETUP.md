@@ -94,7 +94,7 @@ memorix
 memcode
 ```
 
-Use this when you want the bundled terminal agent that uses Memorix memory natively. memcode can read, edit, run commands, resume sessions, switch models, and search/store shared project memory. It is a client of the Memorix memory layer, not a replacement for the MCP memory layer.
+Use this when you want the bundled terminal agent that uses Memorix memory natively. memcode can read, edit, run commands, resume sessions, switch models, and search/store shared project memory. It uses the same project memory pool as MCP-connected agents.
 
 Common commands:
 

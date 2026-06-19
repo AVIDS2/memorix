@@ -2,14 +2,14 @@
 
 > Local-first shared memory layer for AI coding agents.
 
-Memorix gives coding agents persistent, project-aware memory across sessions, IDEs, terminals, and MCP clients. It is centered on shared memory, not on any single agent. It works with Claude Code, Codex, Cursor, Windsurf, GitHub Copilot / VS Code MCP, Gemini CLI, OpenCode, Kiro, Antigravity, Trae, memcode, and other MCP-capable agents.
+Memorix gives coding agents persistent, project-aware memory across sessions, IDEs, terminals, and MCP clients. It stores project knowledge once so multiple agents can retrieve it through MCP, CLI, SDK, hooks, or memcode. It works with Claude Code, Codex, Cursor, Windsurf, GitHub Copilot / VS Code MCP, Gemini CLI, OpenCode, Kiro, Antigravity, Trae, memcode, and other MCP-capable agents.
 
 ## Public Surfaces
 
 - `memorix serve` starts the stdio MCP server for IDEs and agents.
 - `memorix background start` starts the HTTP MCP control plane and dashboard.
 - `memorix memory`, `reasoning`, `session`, `team`, `task`, `handoff`, `poll`, `receipt`, `sync`, `ingest`, and `orchestrate` expose the operator CLI.
-- `memorix` and `memcode` open memcode, the bundled first-party memagent. It is a client of the Memorix memory layer, not the center of the product.
+- `memorix` and `memcode` open memcode, the bundled first-party memagent that uses the same project memory pool.
 - `memorix dashboard` opens the local read-mostly dashboard.
 
 ## Memory Model
@@ -24,7 +24,7 @@ Search is project-scoped by default. Use global scope only when cross-project re
 
 ## memcode
 
-memcode is the first-party memagent bundled with Memorix. It exists so the project can use its own memory layer natively and so users have a terminal agent that does not waste already-accumulated Memorix memory.
+memcode is the first-party memagent bundled with Memorix. It reads from and writes to the same project memory pool used by MCP-connected coding agents.
 
 Common commands:
 

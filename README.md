@@ -200,7 +200,7 @@ memorix
 memcode
 ```
 
-This opens memcode, the bundled terminal memagent. It is useful when you want an agent that already speaks Memorix memory, but it is not the center of the product. The center is the shared memory layer.
+This opens memcode, the bundled terminal memagent for working directly with the same Memorix project memory used by MCP-connected agents.
 
 ## Memory Model
 
@@ -225,7 +225,7 @@ Search is project-scoped by default. `scope="global"` searches across projects. 
 
 ## memcode: First-Party Memagent
 
-memcode exists so Memorix can use its own memory layer natively and so users have a terminal agent that does not waste the memory already accumulated in Memorix.
+memcode is the bundled terminal memagent for Memorix. It reads from and writes to the same project memory pool used by your MCP-connected coding agents.
 
 memcode can read, edit, run commands, resume sessions, switch models, and expose `/memory` commands. It writes into the same project memory pool used by Claude Code, Codex, Cursor, Windsurf, and other agents connected through Memorix MCP.
 
@@ -300,7 +300,7 @@ await client.close();
 
 - **TOML-first configuration**: `~/.memorix/config.toml` and project `memorix.toml` are the user-facing config model.
 - **Separate model lanes**: memory formation, embeddings, and first-party agent flows can use different providers.
-- **memcode as a first-party memagent**: a bundled terminal agent that consumes and contributes to Memorix memory without making Memorix agent-centric.
+- **memcode as a first-party memagent**: a bundled terminal agent that can directly use and contribute to Memorix project memory.
 - **Release hardening**: packaged memcode resolution, SQLite ESM loading, resume/session UI, CLI test isolation, and CI checks were tightened for the release path.
 
 ## Docs

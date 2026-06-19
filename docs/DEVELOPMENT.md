@@ -17,7 +17,7 @@ The current release work targets the **1.1 line** while package metadata may sti
 
 Contributors should assume the following are already part of the supported product surface:
 
-- shared memory remains the main product surface across MCP clients, CLI, SDK, dashboard, hooks, and memcode
+- shared memory across MCP clients, CLI, SDK, dashboard, hooks, and memcode
 - memcode uses Memorix project memory, hooks, `/memory` commands, resumable sessions, and model switching as a first-party memagent
 - TOML-first configuration with global `~/.memorix/config.toml` and project `<git-root>/memorix.toml`
 - separate `[agent]`, `[memory.llm]`, and `[embedding]` model lanes
@@ -195,7 +195,7 @@ Use `memorix serve-http --port 3211` when you want the same stack in the foregro
 memorix dashboard
 ```
 
-Useful for local UI checks, but the main product dashboard is the one embedded in the HTTP control plane.
+Useful for local UI checks. The HTTP control plane also serves the embedded dashboard used in normal background mode.
 
 ---
 

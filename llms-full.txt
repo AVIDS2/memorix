@@ -78,7 +78,7 @@ memorix orchestrate --goal "Add authentication"
 
 ### memcode
 
-`memorix` and `memcode` enter memcode, the bundled first-party memagent. memcode is a consumer and contributor of the Memorix memory layer, not the center of the product.
+`memorix` and `memcode` enter memcode, the bundled first-party memagent that reads from and writes to the same Memorix project memory pool.
 
 memcode can:
 

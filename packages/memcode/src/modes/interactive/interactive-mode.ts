@@ -1846,7 +1846,7 @@ export class InteractiveMode {
 		process.exit(1);
 	}
 
-	private renderCurrentSessionState(): void {
+	private renderCurrentSessionState(options?: { clearScrollback?: boolean; restoreScrollback?: boolean }): void {
 		this.chatContainer.clear();
 		this.pendingMessagesContainer.clear();
 		this.compactionQueuedMessages = [];
@@ -1855,6 +1855,9 @@ export class InteractiveMode {
 		this.pendingTools.clear();
 		this.optimisticUserMessages = [];
 		this.renderInitialMessages();
+		if (options?.clearScrollback) {
+			this.ui.requestRenderAndClearScrollback({ restoreScrollback: options.restoreScrollback });
+		}
 	}
 
 	/**
@@ -3673,6 +3676,15 @@ export class InteractiveMode {
 	// =========================================================================
 
 	private handleCtrlC(): void {
+		if (this.session.isStreaming) {
+			this.restoreQueuedMessagesToEditor({ abort: true });
+			return;
+		}
+		if (this.session.isBashRunning) {
+			this.session.abortBash();
+			return;
+		}
+
 		const now = Date.now();
 		if (now - this.lastSigintTime < 500) {
 			void this.shutdown();
@@ -4293,7 +4305,33 @@ export class InteractiveMode {
 	 * Shows a selector component in place of the editor.
 	 * @param create Factory that receives a `done` callback and returns the component and focus target
 	 */
-	private showSelector(create: (done: () => void) => { component: Component; focus: Component }): void {
+	private showSelector(
+		create: (done: () => void) => { component: Component; focus: Component },
+		options?: { transientOverlay?: boolean },
+	): void {
+		if (options?.transientOverlay) {
+			let handle: OverlayHandle | undefined;
+			const done = () => {
+				handle?.hide();
+				this.ui.setFocus(this.editor);
+			};
+			const { component, focus } = create(done);
+			handle = this.ui.showOverlay(component, {
+				width: "100%",
+				maxHeight: "100%",
+				row: 0,
+				col: 0,
+				nonCapturing: true,
+			});
+			if (focus === component) {
+				handle.focus();
+			} else {
+				this.ui.setFocus(focus);
+			}
+			this.ui.requestRender();
+			return;
+		}
+
 		const done = () => {
 			this.editorContainer.clear();
 			this.editorContainer.addChild(this.editor);
@@ -4936,41 +4974,49 @@ export class InteractiveMode {
 	}
 
 	private showSessionSelector(): void {
-		this.showSelector((done) => {
-			const selector = new SessionSelectorComponent(
-				(onProgress) =>
-					SessionManager.list(this.sessionManager.getCwd(), this.sessionManager.getSessionDir(), onProgress),
-				(onProgress) =>
-					this.sessionManager.usesDefaultSessionDir()
-						? SessionManager.listAll(onProgress)
-						: SessionManager.listAll(this.sessionManager.getSessionDir(), onProgress),
-				async (sessionPath) => {
-					done();
-					await this.handleResumeSession(sessionPath);
-				},
-				() => {
-					done();
-					this.ui.requestRender();
-				},
-				() => {
-					void this.shutdown();
-				},
-				() => this.ui.requestRender(),
-				{
-					renameSession: async (sessionFilePath: string, nextName: string | undefined) => {
-						const next = (nextName ?? "").trim();
-						if (!next) return;
-						const mgr = SessionManager.open(sessionFilePath);
-						mgr.appendSessionInfo(next);
+		this.showSelector(
+			(done) => {
+				const selector = new SessionSelectorComponent(
+					(onProgress) =>
+						SessionManager.list(this.sessionManager.getCwd(), this.sessionManager.getSessionDir(), onProgress),
+					(onProgress) =>
+						this.sessionManager.usesDefaultSessionDir()
+							? SessionManager.listAll(onProgress)
+							: SessionManager.listAll(this.sessionManager.getSessionDir(), onProgress),
+					async (sessionPath) => {
+						const result = await this.handleResumeSession(sessionPath);
+						if (!result.cancelled) {
+							done();
+						} else {
+							selector.setDisabled(false);
+							this.ui.requestRender();
+						}
 					},
-					showRenameHint: true,
-					keybindings: this.keybindings,
-				},
+					() => {
+						done();
+						this.ui.requestRender();
+					},
+					() => {
+						void this.shutdown();
+					},
+					() => this.ui.requestRender(),
+					{
+						renameSession: async (sessionFilePath: string, nextName: string | undefined) => {
+							const next = (nextName ?? "").trim();
+							if (!next) return;
+							const mgr = SessionManager.open(sessionFilePath);
+							mgr.appendSessionInfo(next);
+						},
+						showRenameHint: true,
+						keybindings: this.keybindings,
+					},
 
-				this.sessionManager.getSessionFile(),
-			);
-			return { component: selector, focus: selector };
-		});
+					this.sessionManager.getSessionFile(),
+				);
+				return { component: selector, focus: selector };
+			},
+			{ transientOverlay: true },
+		);
 	}
 
 	private async handleResumeSession(
@@ -4990,7 +5036,7 @@ export class InteractiveMode {
 			if (result.cancelled) {
 				return result;
 			}
-			this.renderCurrentSessionState();
+			this.renderCurrentSessionState({ clearScrollback: true, restoreScrollback: true });
 			this.showStatus("Resumed session");
 			return result;
 		} catch (error: unknown) {
@@ -5008,7 +5054,7 @@ export class InteractiveMode {
 				if (result.cancelled) {
 					return result;
 				}
-				this.renderCurrentSessionState();
+				this.renderCurrentSessionState({ clearScrollback: true, restoreScrollback: true });
 				this.showStatus("Resumed session in current cwd");
 				return result;
 			}

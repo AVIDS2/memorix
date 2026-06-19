@@ -105,6 +105,38 @@ describe("session selector path/delete interactions", () => {
 		// session selector uses the global theme instance
 		initTheme("dark");
 	});
+
+	it("keeps the selector visible and locked while a selected session is resuming", async () => {
+		const sessions = [makeSession({ id: "a", path: "/tmp/a.jsonl" })];
+		const selected: string[] = [];
+		let renderCount = 0;
+
+		const selector = new SessionSelectorComponent(
+			async () => sessions,
+			async () => [],
+			(path) => selected.push(path),
+			() => selected.push("cancelled"),
+			() => {},
+			() => {
+				renderCount += 1;
+			},
+			{ keybindings },
+		);
+		await flushPromises();
+
+		const list = selector.getSessionList();
+		list.handleInput("\r");
+
+		const rendered = stripAnsi(selector.render(120).join("\n"));
+		expect(selected).toEqual(["/tmp/a.jsonl"]);
+		expect(rendered).toContain("Resuming selected session");
+		expect(renderCount).toBeGreaterThan(0);
+
+		list.handleInput("\x1b");
+		list.handleInput("\r");
+		expect(selected).toEqual(["/tmp/a.jsonl"]);
+	});
+
 	it("does not treat Ctrl+Backspace as delete when search query is non-empty", async () => {
 		const sessions = [makeSession({ id: "a" }), makeSession({ id: "b" })];
 

@@ -213,4 +213,113 @@ describe("TUI viewport scrolling", () => {
 
 		tui.stop();
 	});
+
+	it("closing a full-screen overlay after content shrinks clears the overlay in place", async () => {
+		const terminal = new VirtualTerminal(30, 6);
+		const tui = new TUI(terminal);
+		const component = new LinesComponent([
+			"Welcome card",
+			"Prompt before resume",
+			"Long response tail A",
+			"Long response tail B",
+			"Long response tail C",
+			"Long response tail D",
+			"Long response tail E",
+			"Long response tail F",
+		]);
+		const overlay = new LinesComponent([
+			"Resume Session (Current Folder)",
+			"> old session",
+			"  another session",
+			"(1/79)",
+		]);
+		tui.addChild(component);
+		tui.start();
+		await terminal.waitForRender();
+
+		const handle = tui.showOverlay(overlay, { width: "100%", row: 0, col: 0, maxHeight: "100%" });
+		await terminal.waitForRender();
+		terminal.clearOutput();
+
+		component.lines = [
+			"Resumed prompt",
+			"Resumed answer",
+			"Resumed session",
+		];
+		handle.hide();
+		await terminal.waitForRender();
+
+		const output = terminal.getOutput();
+		assert.ok(output.includes("\x1b[2J\x1b[H"), `overlay close did not clear/home first:\n${output}`);
+		assert.ok(!output.includes("Resume Session"), `overlay close replayed selector into output:\n${output}`);
+		assert.ok(!output.includes("Long response tail"), `overlay close replayed old transcript tail:\n${output}`);
+		assert.match(terminal.getViewport().join("\n"), /Resumed session/);
+
+		tui.stop();
+	});
+
+	it("discard stale queued renders after a scrollback-clearing redraw is requested", async () => {
+		const terminal = new VirtualTerminal(30, 6);
+		const tui = new TUI(terminal);
+		const component = new LinesComponent([
+			"Old session tail",
+			"Resume Session (Current Folder)",
+			"> old session",
+		]);
+		tui.addChild(component);
+		tui.start();
+
+		component.lines = [
+			"Resumed prompt",
+			"Resumed answer",
+			"Resumed session",
+		];
+		tui.requestRenderAndClearScrollback();
+		await terminal.waitForRender();
+
+		const output = terminal.getOutput();
+		assert.ok(output.includes("\x1b[3J"), `scrollback-clearing render did not clear scrollback:\n${output}`);
+		assert.ok(!output.includes("Old session tail"), `stale queued render wrote old session tail:\n${output}`);
+		assert.ok(!output.includes("Resume Session"), `stale queued render wrote resume selector:\n${output}`);
+		assert.match(terminal.getViewport().join("\n"), /Resumed session/);
+
+		tui.stop();
+	});
+
+	it("can rehydrate a resumed transcript into terminal scrollback after clearing the old session", async () => {
+		const terminal = new VirtualTerminal(30, 4);
+		const tui = new TUI(terminal);
+		const component = new LinesComponent([
+			"Old session prompt",
+			"Old session response",
+			"Resume Session (Current Folder)",
+			"> old session",
+		]);
+		tui.addChild(component);
+		tui.start();
+		await terminal.waitForRender();
+
+		terminal.clearOutput();
+		component.lines = [
+			"Resumed prompt",
+			"Resumed answer A",
+			"Resumed answer B",
+			"Resumed answer C",
+			"Resumed answer D",
+			"Resumed session",
+		];
+		tui.requestRenderAndClearScrollback({ restoreScrollback: true });
+		await terminal.waitForRender();
+
+		const output = terminal.getOutput();
+		assert.ok(output.includes("\x1b[3J"), `scrollback was not cleared:\n${output}`);
+		assert.ok(output.includes("\x1b[2J\x1b[H"), `viewport was not cleared:\n${output}`);
+		assert.ok(!output.includes("Old session"), `old session content leaked into restored output:\n${output}`);
+		assert.ok(!output.includes("Resume Session"), `selector leaked into restored output:\n${output}`);
+		assert.ok(output.includes("Resumed prompt"), `restored transcript did not include the beginning:\n${output}`);
+		assert.ok(output.includes("Resumed session"), `restored transcript did not include the end:\n${output}`);
+		assert.match(terminal.getViewport().join("\n"), /Resumed session/);
+
+		tui.stop();
+	});
 });

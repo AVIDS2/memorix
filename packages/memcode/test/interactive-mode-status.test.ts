@@ -195,6 +195,82 @@ describe("InteractiveMode.renderInitialMessages", () => {
 	});
 });
 
+describe("InteractiveMode.handleResumeSession", () => {
+	test("clears terminal scrollback when switching sessions", async () => {
+		const fakeThis: any = {
+			loadingAnimation: undefined,
+			statusContainer: { clear: vi.fn() },
+			runtimeHost: {
+				switchSession: vi.fn(async () => ({ cancelled: false })),
+			},
+			createProjectTrustContext: vi.fn(),
+			renderCurrentSessionState: vi.fn(),
+			showStatus: vi.fn(),
+		};
+
+		const result = await (InteractiveMode as any).prototype.handleResumeSession.call(fakeThis, "session.jsonl");
+
+		expect(result).toEqual({ cancelled: false });
+		expect(fakeThis.renderCurrentSessionState).toHaveBeenCalledWith({
+			clearScrollback: true,
+			restoreScrollback: true,
+		});
+		expect(fakeThis.showStatus).toHaveBeenCalledWith("Resumed session");
+	});
+});
+
+describe("InteractiveMode.showSelector", () => {
+	test("can render session-switch selectors as transient overlays", () => {
+		const component = new TestFocusableComponent("Resume Session");
+		const handle = { hide: vi.fn(), focus: vi.fn() };
+		const fakeThis: any = {
+			editor: new TestFocusableComponent("editor"),
+			editorContainer: {
+				clear: vi.fn(),
+				addChild: vi.fn(),
+			},
+			ui: {
+				showOverlay: vi.fn(() => handle),
+				setFocus: vi.fn(),
+				requestRender: vi.fn(),
+			},
+		};
+
+		(InteractiveMode as any).prototype.showSelector.call(
+			fakeThis,
+			() => ({ component, focus: component }),
+			{ transientOverlay: true },
+		);
+
+		expect(fakeThis.editorContainer.clear).not.toHaveBeenCalled();
+		expect(fakeThis.editorContainer.addChild).not.toHaveBeenCalledWith(component);
+		expect(fakeThis.ui.showOverlay).toHaveBeenCalledWith(
+			component,
+			expect.objectContaining({ nonCapturing: true }),
+		);
+		expect(handle.focus).toHaveBeenCalledTimes(1);
+	});
+});
+
+describe("InteractiveMode.handleCtrlC", () => {
+	test("aborts the active agent turn instead of clearing input while streaming", () => {
+		const fakeThis: any = {
+			session: { isStreaming: true, isBashRunning: false },
+			restoreQueuedMessagesToEditor: vi.fn(),
+			clearEditor: vi.fn(),
+			shutdown: vi.fn(),
+			lastSigintTime: 0,
+		};
+
+		(InteractiveMode as any).prototype.handleCtrlC.call(fakeThis);
+
+		expect(fakeThis.restoreQueuedMessagesToEditor).toHaveBeenCalledWith({ abort: true });
+		expect(fakeThis.clearEditor).not.toHaveBeenCalled();
+		expect(fakeThis.shutdown).not.toHaveBeenCalled();
+		expect(fakeThis.lastSigintTime).toBe(0);
+	});
+});
+
 describe("InteractiveMode.initMemoryStatus", () => {
 	test("uses the native runtime context instead of a hand-built project data directory", async () => {
 		getMemorixRuntimeContext.mockResolvedValue({

@@ -1,12 +1,14 @@
 import { describe, expect, test, vi } from "vitest";
 
 const getAllObservations = vi.hoisted(() => vi.fn());
+const ensureFreshObservations = vi.hoisted(() => vi.fn());
 const searchObservations = vi.hoisted(() => vi.fn());
 const formatIndexTable = vi.hoisted(() => vi.fn());
 const countTextTokens = vi.hoisted(() => vi.fn());
 
 vi.mock("../../src/memory/observations.js", () => ({
 	getAllObservations,
+	ensureFreshObservations,
 }));
 
 vi.mock("../../src/store/orama-store.js", () => ({
@@ -32,6 +34,7 @@ const { compactSearch } = await import("../../src/compact/engine.js");
 describe("compactSearch", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+		ensureFreshObservations.mockResolvedValue(false);
 		formatIndexTable.mockReturnValue("index");
 		countTextTokens.mockReturnValue(1);
 		searchObservations.mockResolvedValue([]);

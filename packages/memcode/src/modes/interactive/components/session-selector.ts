@@ -62,6 +62,7 @@ class SessionSelectorHeader implements Component {
 	private loadProgress: { loaded: number; total: number } | null = null;
 	private showPath = false;
 	private confirmingDeletePath: string | null = null;
+	private disabled = false;
 	private statusMessage: { type: "info" | "error"; message: string } | null = null;
 	private statusTimeout: ReturnType<typeof setTimeout> | null = null;
 	private showRenameHint = false;
@@ -105,6 +106,10 @@ class SessionSelectorHeader implements Component {
 
 	setConfirmingDeletePath(path: string | null): void {
 		this.confirmingDeletePath = path;
+	}
+
+	setDisabled(disabled: boolean): void {
+		this.disabled = disabled;
 	}
 
 	private clearStatusTimeout(): void {
@@ -162,6 +167,9 @@ class SessionSelectorHeader implements Component {
 		} else if (this.statusMessage) {
 			const color = this.statusMessage.type === "error" ? "error" : "accent";
 			hintLine1 = theme.fg(color, truncateToWidth(this.statusMessage.message, width, "…"));
+			hintLine2 = "";
+		} else if (this.disabled) {
+			hintLine1 = theme.fg("accent", truncateToWidth("Resuming selected session", width, "…"));
 			hintLine2 = "";
 		} else {
 			const pathState = this.showPath ? "(on)" : "(off)";
@@ -282,6 +290,7 @@ class SessionList implements Component, Focusable {
 	private showPath = false;
 	private confirmingDeletePath: string | null = null;
 	private currentSessionCanonicalPath?: string;
+	private disabled = false;
 	public onSelect?: (sessionPath: string) => void;
 	public onCancel?: () => void;
 	public onExit: () => void = () => {};
@@ -393,6 +402,10 @@ class SessionList implements Component, Focusable {
 	private isCurrentSessionPath(path: string): boolean {
 		if (!this.currentSessionCanonicalPath) return false;
 		return (canonicalizePath(path) ?? path) === this.currentSessionCanonicalPath;
+	}
+
+	setDisabled(disabled: boolean): void {
+		this.disabled = disabled;
 	}
 
 	invalidate(): void {}
@@ -516,6 +529,8 @@ class SessionList implements Component, Focusable {
 	}
 
 	handleInput(keyData: string): void {
+		if (this.disabled) return;
+
 		const kb = getKeybindings();
 
 		// Handle delete confirmation state first - intercept all keys
@@ -779,6 +794,8 @@ export class SessionSelectorComponent extends Container implements Focusable {
 		const clearStatusMessage = () => this.header.setStatusMessage(null);
 		this.sessionList.onSelect = (sessionPath) => {
 			clearStatusMessage();
+			this.setDisabled(true);
+			this.requestRender();
 			onSelect(sessionPath);
 		};
 		this.sessionList.onCancel = () => {
@@ -845,6 +862,11 @@ export class SessionSelectorComponent extends Container implements Focusable {
 
 		// Start loading current sessions immediately
 		this.loadCurrentSessions();
+	}
+
+	setDisabled(disabled: boolean): void {
+		this.header.setDisabled(disabled);
+		this.sessionList.setDisabled(disabled);
 	}
 
 	private loadCurrentSessions(): void {

@@ -28,6 +28,9 @@ export default defineConfig({
             'tests/hooks/opencode-compaction.test.ts',
             'tests/hooks/copilot-paths.test.ts',
             'tests/hooks/copilot-windows-compat.test.ts',
+            // CLI command tests mutate process.cwd/env and spy on console globally.
+            'tests/cli/operator-parity.test.ts',
+            'tests/cli/receipt.test.ts',
             'tests/cli/operator-surface.test.ts',
             'tests/cli/uninstall.test.ts',
           ],
@@ -48,6 +51,9 @@ export default defineConfig({
             'tests/hooks/opencode-compaction.test.ts',
             'tests/hooks/copilot-paths.test.ts',
             'tests/hooks/copilot-windows-compat.test.ts',
+            // CLI command tests mutate process.cwd/env and spy on console globally.
+            'tests/cli/operator-parity.test.ts',
+            'tests/cli/receipt.test.ts',
             'tests/cli/operator-surface.test.ts',
             'tests/cli/uninstall.test.ts',
           ],

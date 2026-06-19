@@ -18,6 +18,7 @@ import { resetSessionStore } from '../../src/store/session-store.js';
 import { resetTeamStore } from '../../src/team/team-store.js';
 import { resetMiniSkillStore } from '../../src/store/mini-skill-store.js';
 import { resetMiniSkillFreshness } from '../../src/memory/freshness.js';
+import { resetDb } from '../../src/store/orama-store.js';
 
 async function runCommand(command: any, args: Record<string, unknown>) {
   const logs: string[] = [];
@@ -65,7 +66,7 @@ describe('CLI operator surface', () => {
     process.env.MEMORIX_EMBEDDING = 'off';
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     process.chdir(originalCwd);
     if (originalDataDir === undefined) {
       delete process.env.MEMORIX_DATA_DIR;
@@ -82,6 +83,7 @@ describe('CLI operator surface', () => {
     resetTeamStore();
     resetMiniSkillStore();
     resetMiniSkillFreshness();
+    await resetDb();
     closeAllDatabases();
     rmSync(sandboxRoot, { recursive: true, force: true });
   });

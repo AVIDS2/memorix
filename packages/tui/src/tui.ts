@@ -285,6 +285,7 @@ export class TUI extends Container {
 	private previousViewportTop = 0; // Track previous viewport top for resize-aware cursor moves
 	private viewportScrollOffset = 0; // Manual viewport offset from the live bottom
 	private viewportScrollAnchorTop: number | undefined = undefined; // Manual viewport top pinned while content grows
+	private restoreScrollbackOnNextRender = false;
 	private fullRedrawCount = 0;
 	private stopped = false;
 	private started = false;
@@ -722,6 +723,27 @@ export class TUI extends Container {
 		if (this.renderRequested) return;
 		this.renderRequested = true;
 		process.nextTick(() => this.scheduleRender());
+	}
+
+	requestRenderAndClearScrollback(options?: { restoreScrollback?: boolean }): void {
+		if (this.renderTimer) {
+			clearTimeout(this.renderTimer);
+			this.renderTimer = undefined;
+		}
+		this.previousLines = [];
+		this.previousWidth = -1;
+		this.previousHeight = -1;
+		this.cursorRow = 0;
+		this.hardwareCursorRow = 0;
+		this.maxLinesRendered = 0;
+		this.previousViewportTop = 0;
+		this.viewportScrollOffset = 0;
+		this.viewportScrollAnchorTop = undefined;
+		this.restoreScrollbackOnNextRender = options?.restoreScrollback === true;
+		this.renderRequested = false;
+		this.clearNonCapturingOverlays();
+		this.terminal.write("\x1b[3J");
+		this.requestRender(true);
 	}
 
 	private scheduleRender(): void {
@@ -1302,9 +1324,10 @@ export class TUI extends Container {
 		newLines = this.applyLineResets(newLines);
 
 		// Helper to clear scrollback and viewport and render all new lines
-		const fullRender = (clear: boolean): void => {
+		const fullRender = (clear: boolean, options?: { restoreScrollback?: boolean }): void => {
 			this.fullRedrawCount += 1;
-			const renderedLines = clear ? newLines.slice(Math.max(0, newLines.length - height)) : newLines;
+			const restoreScrollback = options?.restoreScrollback === true;
+			const renderedLines = clear && !restoreScrollback ? newLines.slice(Math.max(0, newLines.length - height)) : newLines;
 			const renderedKittyImageIds = clear ? this.collectKittyImageIds(renderedLines) : this.collectKittyImageIds(newLines);
 			let buffer = "\x1b[?2026h"; // Begin synchronized output
 			if (clear) {
@@ -1342,6 +1365,13 @@ export class TUI extends Container {
 			const msg = `[${new Date().toISOString()}] fullRender: ${reason} (prev=${this.previousLines.length}, new=${newLines.length}, height=${height})\n`;
 			fs.appendFileSync(logPath, msg);
 		};
+
+		if (this.restoreScrollbackOnNextRender) {
+			this.restoreScrollbackOnNextRender = false;
+			logRedraw("restore scrollback");
+			fullRender(true, { restoreScrollback: true });
+			return;
+		}
 
 		// First render - just output everything without clearing (assumes clean screen)
 		if (this.previousLines.length === 0 && !widthChanged && !heightChanged) {

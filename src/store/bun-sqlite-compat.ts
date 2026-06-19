@@ -5,16 +5,17 @@
  * Falls back to better-sqlite3 when running under Node.js.
  */
 
+import { createRequire } from 'node:module';
+
 let Database: any;
+const requireFromHere = createRequire(import.meta.url);
 
 export function loadSqlite(): any {
   if (Database) return Database;
 
   // Try better-sqlite3 first (Node.js)
   try {
-    const { createRequire } = require('node:module');
-    const require2 = createRequire(import.meta.url);
-    Database = require2('better-sqlite3');
+    Database = requireFromHere('better-sqlite3');
     return Database;
   } catch {
     // Fall through to bun:sqlite
@@ -23,7 +24,7 @@ export function loadSqlite(): any {
   // Try bun:sqlite (Bun runtime)
   try {
     // bun:sqlite is a Bun built-in
-    const bunSqlite = require('bun:sqlite');
+    const bunSqlite = requireFromHere('bun:sqlite');
     Database = bunSqlite.Database;
     return Database;
   } catch {

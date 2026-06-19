@@ -89,7 +89,7 @@ Project-scoped features such as:
 
 - Git-root detection
 - project binding
-- project `memorix.yml`
+- project `memorix.toml`
 - project `.env`
 - Git Memory inspection
 

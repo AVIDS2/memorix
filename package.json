@@ -1,7 +1,7 @@
 {
   "name": "memorix",
   "version": "1.0.11",
-  "description": "Open-source cross-agent memory layer for coding agents across Cursor, Claude Code, Codex, Windsurf, Gemini CLI, Copilot, Kiro, OpenCode, Antigravity, and Trae via MCP.",
+  "description": "Local-first memory layer and native coding agent for AI software work across MCP clients, memcode, Git history, and shared project context.",
   "type": "module",
   "sideEffects": false,
   "workspaces": [
@@ -40,7 +40,7 @@
     "README.md",
     "README.zh-CN.md",
     "docs",
-    "!docs/memcode/dev-log",
+    "!docs/memcode",
     "!docs/superpowers",
     "TEAM.md",
     "LICENSE",
@@ -77,6 +77,9 @@
     "cross-agent-memory",
     "context-persistence",
     "agent-memory",
+    "memcode",
+    "coding-agent",
+    "terminal-agent",
     "knowledge-graph",
     "workspace-sync",
     "progressive-disclosure",

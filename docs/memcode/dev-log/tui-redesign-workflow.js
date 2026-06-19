@@ -88,7 +88,7 @@ Layout structure:
 │                                                             │
 │                                                             │
 │                    ◆ MEMCODE                                │
-│                    v1.0.10                                   │
+│                    current version                           │
 │                                                             │
 │        ┌────────────────────────────────────────┐          │
 │        │ Ask anything...                        │          │
@@ -112,7 +112,7 @@ Key changes:
 
 The logo should be simple text, not ASCII art:
   ◆ MEMCODE
-  v1.0.10
+  current version
 
 Use theme tokens from theme.ts. No hardcoded colors.
 

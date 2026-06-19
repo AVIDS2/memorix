@@ -197,8 +197,8 @@ Common keys:
 
 These files are still read when TOML is absent or incomplete:
 
-- project `memorix.yml`
-- user `~/.memorix/memorix.yml`
+- legacy project `memorix.yml`
+- legacy user `~/.memorix/memorix.yml`
 - project `.env`
 - user `~/.memorix/.env`
 - legacy `~/.memorix/config.json`

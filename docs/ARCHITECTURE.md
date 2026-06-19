@@ -334,20 +334,23 @@ Useful runtime tools and surfaces:
 
 ## 6. Configuration Model
 
-Memorix is intentionally converging on:
+Memorix uses TOML as the primary user-facing configuration model:
 
-- `memorix.yml` for behavior
-- `.env` for secrets
+- global defaults in `~/.memorix/config.toml`
+- project overrides in `<git-root>/memorix.toml`
+
+Legacy YAML, `.env`, and JSON files remain compatibility inputs for existing users.
 
 Resolution order:
 
-### Behavior settings
+### Behavior settings and model lanes
 
-1. environment variables
-2. project `memorix.yml`
-3. user `~/.memorix/memorix.yml`
-4. legacy `~/.memorix/config.json`
-5. defaults
+1. explicit CLI flags
+2. environment variables
+3. project `<git-root>/memorix.toml`
+4. global `~/.memorix/config.toml`
+5. legacy compatibility files
+6. defaults
 
 ### Secrets
 
@@ -355,7 +358,7 @@ Resolution order:
 2. project `.env`
 3. user `~/.memorix/.env`
 
-The dashboard and `memorix status` expose config provenance so the active value source is visible.
+The primary lanes are `[agent]` for memcode, `[memory.llm]` for formation/rerank/summaries, and `[embedding]` for semantic search. The dashboard and `memorix status` expose config provenance so the active value source is visible.
 
 ---
 

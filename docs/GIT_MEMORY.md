@@ -92,30 +92,26 @@ memorix ingest commit --force
 
 ## Configuration
 
-Configure Git Memory in `memorix.yml`:
+Configure Git Memory in global `~/.memorix/config.toml` or project `<git-root>/memorix.toml`:
 
-```yml
-git:
-  autoHook: true
-  ingestOnCommit: true
-  maxDiffSize: 500
-  skipMergeCommits: true
-  excludePatterns:
-    - "*.lock"
-    - "dist/**"
-  noiseKeywords:
-    - "^BOT:"
-    - "auto-deploy"
+```toml
+[git]
+auto_hook = true
+ingest_on_commit = true
+max_diff_size = 500
+skip_merge_commits = true
+exclude_patterns = ["*.lock", "dist/**"]
+noise_keywords = ["^BOT:", "auto-deploy"]
 ```
 
 Key settings:
 
-- `autoHook`: install the post-commit hook automatically on startup
-- `ingestOnCommit`: ingest `HEAD` during post-commit execution
-- `maxDiffSize`: cap how much diff content is included
-- `skipMergeCommits`: skip merge commits by default
-- `excludePatterns`: skip commits touching only matching files
-- `noiseKeywords`: skip commits whose subjects match configured patterns
+- `auto_hook`: install the post-commit hook automatically on startup
+- `ingest_on_commit`: ingest `HEAD` during post-commit execution
+- `max_diff_size`: cap how much diff content is included
+- `skip_merge_commits`: skip merge commits by default
+- `exclude_patterns`: skip commits touching only matching files
+- `noise_keywords`: skip commits whose subjects match configured patterns
 
 See [CONFIGURATION.md](CONFIGURATION.md) for the full configuration model.
 
@@ -162,8 +158,8 @@ This gives you a layered understanding:
 
 For a new project:
 
-1. create `memorix.yml`
-2. enable Git Memory config
+1. run `memorix init`
+2. enable Git Memory config in `memorix.toml` or `~/.memorix/config.toml`
 3. install the git hook
 4. optionally ingest recent history
 5. start using reasoning memory alongside Git Memory

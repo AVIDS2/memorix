@@ -1,24 +1,26 @@
 # memcode
 
-> Memorix-native coding agent with shared project memory.
+> The Memorix-native coding agent for project memory, terminal work, and resumable software sessions.
 
-memcode is the first-party terminal coding agent for Memorix. It keeps the familiar agent workflow from the Pi codebase and adds native Memorix memory, hook capture, project identity, runtime status, and shared recall across agents.
+memcode is the first-party terminal coding agent bundled with Memorix. It keeps the familiar agent workflow from the Pi codebase and adds native Memorix memory, hook capture, project identity, runtime status, and shared recall across tools.
 
-Install it directly:
-
-```bash
-npm install -g @memorix/memcode
-memcode
-```
-
-Or install Memorix and use the bundled entry:
+Install Memorix and open memcode:
 
 ```bash
 npm install -g memorix
 memorix
 ```
 
-Both routes enter the same memcode TUI.
+Or install the standalone package:
+
+```bash
+npm install -g @memorix/memcode
+memcode
+```
+
+Both routes enter the same TUI.
+
+---
 
 ## What You Get In 1.1
 
@@ -33,6 +35,8 @@ Both routes enter the same memcode TUI.
 | Extension surface | user/project skills, prompt templates, themes, and extension packages |
 | Scriptable modes | interactive TUI, print mode, JSON event stream, and RPC mode |
 
+---
+
 ## Quick Start
 
 ```bash
@@ -43,7 +47,7 @@ memcode -r                      # resume from the session picker
 memcode --help                  # full CLI reference
 ```
 
-Useful read-only review mode:
+Use a read-only review toolset:
 
 ```bash
 memcode --tools read,grep,find,ls -p "review the auth module"
@@ -61,6 +65,8 @@ Include files in the first prompt:
 ```bash
 memcode @README.md @src/index.ts "what should change before release?"
 ```
+
+---
 
 ## Inside The TUI
 
@@ -83,6 +89,8 @@ Common slash commands:
 
 The TUI is designed for normal coding-agent work: keep a session open, let the agent inspect files and run commands, then resume later without re-explaining the project.
 
+---
+
 ## Memory Model
 
 memcode does not create a separate private memory bucket.
@@ -98,6 +106,8 @@ That means:
 - memcode-specific records are distinguished by source metadata, not by a separate store
 
 Native hook capture makes this feel automatic: useful project knowledge from memcode sessions can become durable Memorix memory without forcing users to wire an external MCP server into memcode.
+
+---
 
 ## Configuration
 
@@ -136,7 +146,9 @@ OPENROUTER_API_KEY=...
 MEMCODE_OFFLINE=1
 ```
 
-See the root [Configuration Guide](https://github.com/AVIDS2/memorix/blob/main/docs/CONFIGURATION.md) for the full TOML model.
+See [Configuration](CONFIGURATION.md) for the full TOML model.
+
+---
 
 ## Sessions
 
@@ -151,6 +163,8 @@ memcode --export session.jsonl output.html
 ```
 
 Session storage lives under the Memorix agent config area by default, so memcode sessions travel with the rest of the local Memorix runtime state.
+
+---
 
 ## Tools And Safety
 
@@ -180,6 +194,8 @@ memcode --no-approve
 
 Project-local instructions, skills, prompt templates, themes, and packages are trust-sensitive. Use `--approve` for a trusted project-local run, and `--no-approve` when you want to ignore project-local resources.
 
+---
+
 ## Extensions, Skills, Themes
 
 memcode can load:
@@ -199,6 +215,8 @@ memcode config
 memcode update self
 ```
 
+---
+
 ## Relationship To Memorix
 
 Memorix has two public surfaces:
@@ -207,6 +225,8 @@ Memorix has two public surfaces:
 - **Memorix MCP / CLI / Dashboard**: shared memory control plane for other agents and operator workflows
 
 Use memcode when you want a full coding agent. Use `memorix serve` when you want Claude Code, Codex, Cursor, Windsurf, Copilot, Gemini CLI, OpenCode, Kiro, Antigravity, Trae, or another MCP client to share the same project memory.
+
+---
 
 ## Attribution
 

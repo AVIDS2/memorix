@@ -5,20 +5,24 @@ This guide is for contributors working on Memorix itself.
 Memorix is a TypeScript project built around:
 
 - MCP server runtime
+- memcode native coding-agent runtime
 - CLI workflows
 - SQLite canonical persistence with compatibility/fallback layers
 - Orama search
 - dashboard and HTTP control plane
 
-## Current Release Baseline
+## Current Development Baseline
 
-The current published release line is **1.0.10**.
+The current release work targets the **1.1 line** while package metadata may still show the last published patch version until the release commit is cut.
 
 Contributors should assume the following are already part of the supported product surface:
 
+- `memorix` opens the bundled memcode native coding agent
+- memcode uses native Memorix project memory, hooks, `/memory` commands, resumable sessions, and model switching
+- TOML-first configuration with global `~/.memorix/config.toml` and project `<git-root>/memorix.toml`
+- separate `[agent]`, `[memory.llm]`, and `[embedding]` model lanes
 - privacy-safe handoff receipts and doctor receipt diagnostics
 - optional session semantics in generated agent rules
-- separate TUI agent LLM config with fallback to `llm`
 - notify-only auto-update by default with explicit install opt-in
 - dashboard config loading aligned with CLI/TUI status surfaces
 - the existing layered retrieval, retention, attribution, and compact output model
@@ -27,7 +31,7 @@ Contributors should assume the following are already part of the supported produ
 
 ## 1. Prerequisites
 
-- Node.js `>=20`
+- Node.js `>=22.19.0`
 - npm
 - Git
 
@@ -125,7 +129,7 @@ High-level layout:
 src/
   cli/                 interactive menu and subcommands
   compact/             compact formatting and token budgeting
-  config/              YAML, dotenv, and configuration loading
+  config/              TOML-first config, dotenv/YAML compatibility, provenance
   dashboard/           dashboard server and static frontend
   embedding/           embedding providers
   git/                 Git Memory extractor, hook path, noise filter
@@ -148,7 +152,8 @@ Docs layout:
 
 - `README.md`: landing page and quick start
 - `docs/SETUP.md`: client setup and troubleshooting
-- `docs/CONFIGURATION.md`: `memorix.yml + .env`
+- `docs/CONFIGURATION.md`: TOML-first config and legacy compatibility
+- `docs/MEMCODE.md`: native coding-agent guide
 - `docs/GIT_MEMORY.md`: Git Memory workflows
 - `docs/ARCHITECTURE.md`: system design
 - `docs/API_REFERENCE.md`: MCP tool surface
@@ -239,17 +244,18 @@ See [GIT_MEMORY.md](GIT_MEMORY.md) for user-facing behavior.
 
 ## 8. Configuration Development Notes
 
-Memorix is converging on:
+Memorix uses TOML as the primary user-facing config model:
 
-- `memorix.yml` for behavior
-- `.env` for secrets
+- global `~/.memorix/config.toml`
+- project `<git-root>/memorix.toml`
 
 When touching config code, always validate:
 
-- project `memorix.yml`
-- user `~/.memorix/memorix.yml`
+- project `memorix.toml`
+- global `~/.memorix/config.toml`
 - project `.env`
 - user `~/.memorix/.env`
+- legacy project/user `memorix.yml`
 - legacy `~/.memorix/config.json`
 - env var overrides
 

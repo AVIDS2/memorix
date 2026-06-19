@@ -48,7 +48,7 @@
 ## Lessons Learned
 - CodeGraph is the right tool for symbol-level code analysis across large codebases
 - The "dynamic dev log" pattern (progress.txt + entry files) is a real, established practice in the AI agent community (Compound Engineering by Ryan Carson, AWM paper at ICML 2025)
-- Branch isolation is critical — main stays clean at v1.0.10
+- Branch isolation is critical — main stays clean at the pre-memcode release baseline
 
 ## What's Next
 Phase 1: Skeleton — copy Pi source into packages/, set up npm workspaces, configure build, get minimal LLM conversation working. Use ultracode parallel agents.

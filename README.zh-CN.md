@@ -32,7 +32,7 @@
 
 ---
 
-## Memorix 是什么
+<h2 id="memorix-是什么"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/tags/light/section-overview.svg"><img src="assets/tags/section-overview.svg" alt="Memorix" height="32" /></picture></h2>
 
 Memorix 给你已经在用的 AI 编程 Agent 加上一套共享、可检索的项目记忆，让它跨越新对话、切换 IDE、重开终端 session 和交接都不丢失。记忆归属于 Git 项目，而不是被锁在某个聊天窗口或某个工具里。
 
@@ -154,7 +154,7 @@ CLI、MCP 和 HTTP 是不同入口：
 - `memorix serve` 是给 IDE / Coding Agent 使用的 stdio MCP 桥。
 - `memorix background start` / `memorix serve-http` 是 HTTP 服务，用于共享端点、Dashboard、Docker 或多客户端。
 
-## 安装
+<h2 id="安装"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/tags/light/section-install.svg"><img src="assets/tags/section-install.svg" alt="安装" height="32" /></picture></h2>
 
 要求：
 
@@ -178,7 +178,7 @@ memorix setup --agent claude   # 也可以是 codex、copilot、cursor、pi、ge
 
 旧的 `memorix.yml`、`.env` 和 `~/.memorix/config.json` 仍兼容读取，但新文档和新初始化流程都以 TOML 为准。
 
-## 快速开始
+<h2 id="快速开始"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/tags/light/section-quick-start.svg"><img src="assets/tags/section-quick-start.svg" alt="快速开始" height="32" /></picture></h2>
 
 ### 给现有 Agent 加记忆
 
@@ -252,7 +252,7 @@ memcode
 
 这会打开 memcode：一个已经接好 Memorix 记忆的终端 Coding Agent。
 
-## 记忆模型
+<h2 id="记忆模型"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/tags/light/section-memory-model.svg"><img src="assets/tags/section-memory-model.svg" alt="记忆模型" height="32" /></picture></h2>
 
 | 层 | 存什么 | 适合回答 |
 | --- | --- | --- |
@@ -262,7 +262,7 @@ memcode
 
 默认搜索当前项目。`scope="global"` 可以跨项目搜索。“改了什么”会偏向 Git Memory，“为什么”会偏向 reasoning / decision 记录。
 
-## 运行模式
+<h2 id="运行模式"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/tags/light/section-runtime.svg"><img src="assets/tags/section-runtime.svg" alt="运行模式" height="32" /></picture></h2>
 
 | 你想做什么 | 运行 |
 | --- | --- |
@@ -276,7 +276,7 @@ memcode
 
 `memorix orchestrate` 单 worker 默认使用当前 checkout；多 worker 时会在 `.worktrees/` 下为任务创建隔离 worktree，并把成功的任务分支 merge 回来。用 `--isolated` 可强制单 worker 也隔离，用 `--no-worktree` 禁用 worktree，用 `--allow-dirty` 允许带未提交改动运行，用 `--no-auto-merge` 保留任务 worktree 方便人工 review。
 
-## memcode：内置终端 Agent
+<h2 id="memcode内置终端-agent"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/tags/light/section-memcode.svg"><img src="assets/tags/section-memcode.svg" alt="memcode" height="32" /></picture></h2>
 
 memcode 是 Memorix 内置的终端 Coding Agent。它能读文件、改代码、运行命令、恢复 session、切换模型，并提供 `/memory` 命令；读写的仍然是同一套 Memorix 项目记忆。
 
@@ -288,7 +288,7 @@ one Git project -> one shared Memorix memory pool
 
 memcode 专门说明见 [docs/MEMCODE.md](docs/MEMCODE.md)。
 
-## 配置
+<h2 id="配置"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/tags/light/section-configuration.svg"><img src="assets/tags/section-configuration.svg" alt="配置" height="32" /></picture></h2>
 
 最小 `~/.memorix/config.toml`：
 
@@ -313,7 +313,7 @@ formation = "active"
 
 `[memory.llm]` 和 `[embedding]` 服务于 Memorix 的记忆质量和检索；`[agent]` 是 memcode 编码时使用的模型。凭据放全局配置或环境变量，不要提交 secrets。
 
-## Docker
+<h2 id="docker"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/tags/light/section-docker.svg"><img src="assets/tags/section-docker.svg" alt="Docker" height="32" /></picture></h2>
 
 Docker 面向 HTTP 服务，不是 stdio MCP：
 
@@ -329,7 +329,7 @@ docker compose up --build -d
 
 如果要使用项目级 Git / 配置语义，容器必须能看到传给 `projectRoot` 的仓库路径。
 
-## SDK
+<h2 id="sdk"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/tags/light/section-sdk.svg"><img src="assets/tags/section-sdk.svg" alt="SDK" height="32" /></picture></h2>
 
 在 TypeScript 中直接使用 Memorix：
 
@@ -349,7 +349,7 @@ const results = await client.search({ query: 'auth decision' });
 await client.close();
 ```
 
-## 文档
+<h2 id="文档"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/tags/light/section-docs.svg"><img src="assets/tags/section-docs.svg" alt="文档" height="32" /></picture></h2>
 
 | 从这里开始 | 适合场景 |
 | --- | --- |
@@ -367,7 +367,7 @@ await client.close();
 
 LLM 友好摘要：[llms.txt](llms.txt) 和 [llms-full.txt](llms-full.txt)。
 
-## 开发
+<h2 id="开发"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/tags/light/section-development.svg"><img src="assets/tags/section-development.svg" alt="开发" height="32" /></picture></h2>
 
 ```bash
 git clone https://github.com/AVIDS2/memorix.git
@@ -378,10 +378,10 @@ npm test
 npm run build
 ```
 
-## 鸣谢
+<h2 id="鸣谢"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/tags/light/section-acknowledgements.svg"><img src="assets/tags/section-acknowledgements.svg" alt="鸣谢" height="32" /></picture></h2>
 
 Memorix 借鉴了 MCP 生态和 mcp-memory-service、MemCP、claude-mem、Mem0 等记忆项目的思路。memcode 基于 Pi coding-agent codebase，并将其终端 Agent 模型适配到 Memorix 生态。
 
-## License
+<h2 id="license"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/tags/light/section-license.svg"><img src="assets/tags/section-license.svg" alt="License" height="32" /></picture></h2>
 
 [Apache 2.0](LICENSE)

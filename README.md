@@ -32,7 +32,7 @@
 
 ---
 
-## What Memorix Is
+<h2 id="what-memorix-is"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/tags/light/section-overview.svg"><img src="assets/tags/section-overview.svg" alt="Memorix" height="32" /></picture></h2>
 
 Memorix gives the AI coding agents you already use a shared, searchable project memory that survives new chats, IDE switches, terminal sessions, and handoffs. The memory lives under the Git project, not inside one chat window or one tool.
 
@@ -154,7 +154,7 @@ CLI, MCP, and HTTP are different entry points:
 - `memorix serve` is the stdio MCP bridge used by IDEs and coding agents.
 - `memorix background start` / `memorix serve-http` run the HTTP service for a shared endpoint, dashboard, Docker, or multiple clients.
 
-## Install
+<h2 id="install"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/tags/light/section-install.svg"><img src="assets/tags/section-install.svg" alt="Install" height="32" /></picture></h2>
 
 Requirements:
 
@@ -178,7 +178,7 @@ memorix setup --agent claude   # or codex, copilot, cursor, pi, gemini-cli, ...
 
 Legacy `memorix.yml`, `.env`, and `~/.memorix/config.json` are still read for compatibility, but new setup flows use TOML.
 
-## Quick Start
+<h2 id="quick-start"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/tags/light/section-quick-start.svg"><img src="assets/tags/section-quick-start.svg" alt="Quick Start" height="32" /></picture></h2>
 
 ### Add memory to an existing agent
 
@@ -252,7 +252,7 @@ memcode
 
 This opens memcode, a terminal coding agent that uses the same Memorix project memory as your MCP-connected agents.
 
-## Memory Model
+<h2 id="memory-model"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/tags/light/section-memory-model.svg"><img src="assets/tags/section-memory-model.svg" alt="Memory Model" height="32" /></picture></h2>
 
 | Layer | Stores | Best for |
 | --- | --- | --- |
@@ -262,7 +262,7 @@ This opens memcode, a terminal coding agent that uses the same Memorix project m
 
 Search is project-scoped by default. `scope="global"` searches across projects. Retrieval boosts Git Memory for "what changed" questions and reasoning records for "why" questions.
 
-## Runtime Modes
+<h2 id="runtime-modes"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/tags/light/section-runtime.svg"><img src="assets/tags/section-runtime.svg" alt="Runtime Modes" height="32" /></picture></h2>
 
 | You want | Run |
 | --- | --- |
@@ -276,7 +276,7 @@ Search is project-scoped by default. `scope="global"` searches across projects. 
 
 `memorix orchestrate` uses the current checkout for single-worker runs. When running multiple workers, it creates task worktrees under `.worktrees/` and merges successful task branches back. Use `--isolated` to force worktree isolation for one worker, `--no-worktree` to disable it, `--allow-dirty` to run with uncommitted changes, and `--no-auto-merge` to preserve task worktrees for manual review.
 
-## memcode: Bundled Terminal Agent
+<h2 id="memcode-bundled-terminal-agent"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/tags/light/section-memcode.svg"><img src="assets/tags/section-memcode.svg" alt="memcode" height="32" /></picture></h2>
 
 memcode is the terminal coding agent bundled with Memorix. It can read, edit, run commands, resume sessions, switch models, and use `/memory` commands while reading and writing the same project memory pool as your MCP-connected agents.
 
@@ -288,7 +288,7 @@ one Git project -> one shared Memorix memory pool
 
 See [docs/MEMCODE.md](docs/MEMCODE.md) for the memcode-specific guide.
 
-## Configuration
+<h2 id="configuration"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/tags/light/section-configuration.svg"><img src="assets/tags/section-configuration.svg" alt="Configuration" height="32" /></picture></h2>
 
 Minimal `~/.memorix/config.toml`:
 
@@ -313,7 +313,7 @@ formation = "active"
 
 Use `[memory.llm]` and `[embedding]` for Memorix memory quality and retrieval. Use `[agent]` for the model memcode talks to while coding. Keep credentials in global config or environment variables, and do not commit secrets.
 
-## Docker
+<h2 id="docker"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/tags/light/section-docker.svg"><img src="assets/tags/section-docker.svg" alt="Docker" height="32" /></picture></h2>
 
 Docker is for the HTTP service, not stdio MCP:
 
@@ -329,7 +329,7 @@ Then open:
 
 The container must be able to see the repository path passed as `projectRoot` for project-scoped Git/config behavior.
 
-## SDK
+<h2 id="sdk"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/tags/light/section-sdk.svg"><img src="assets/tags/section-sdk.svg" alt="SDK" height="32" /></picture></h2>
 
 Use Memorix directly from TypeScript:
 
@@ -349,7 +349,7 @@ const results = await client.search({ query: 'auth decision' });
 await client.close();
 ```
 
-## Docs
+<h2 id="docs"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/tags/light/section-docs.svg"><img src="assets/tags/section-docs.svg" alt="Docs" height="32" /></picture></h2>
 
 | Start here | Use when |
 | --- | --- |
@@ -367,7 +367,7 @@ await client.close();
 
 LLM-friendly summaries: [llms.txt](llms.txt) and [llms-full.txt](llms-full.txt).
 
-## Development
+<h2 id="development"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/tags/light/section-development.svg"><img src="assets/tags/section-development.svg" alt="Development" height="32" /></picture></h2>
 
 ```bash
 git clone https://github.com/AVIDS2/memorix.git
@@ -378,10 +378,10 @@ npm test
 npm run build
 ```
 
-## Acknowledgements
+<h2 id="acknowledgements"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/tags/light/section-acknowledgements.svg"><img src="assets/tags/section-acknowledgements.svg" alt="Acknowledgements" height="32" /></picture></h2>
 
 Memorix builds on ideas from the MCP ecosystem and prior memory projects such as mcp-memory-service, MemCP, claude-mem, and Mem0. memcode is based on the Pi coding-agent codebase and adapts its terminal-agent model for the Memorix ecosystem.
 
-## License
+<h2 id="license"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/tags/light/section-license.svg"><img src="assets/tags/section-license.svg" alt="License" height="32" /></picture></h2>
 
 [Apache 2.0](LICENSE)

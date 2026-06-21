@@ -1,4 +1,4 @@
-# Memorix Agent Operator Playbook
+# Memorix Agent Playbook
 
 > Primary operating guide for coding agents that need to install, configure, bind, and use Memorix correctly.
 
@@ -18,36 +18,36 @@ It is designed for software work, not generic chat memory. Its core value is tha
 
 It supports:
 
-- host setup packages (`memorix setup --agent <agent>`)
+- agent setup packages (`memorix setup --agent <agent>`)
 - stdio MCP (`memorix serve`)
-- HTTP control plane + dashboard (`memorix background start` or `memorix serve-http --port 3211`)
-- first-party memagent (`memorix` or `memcode`) that uses the same shared memory pool
+- HTTP MCP service + dashboard (`memorix background start` or `memorix serve-http --port 3211`)
+- bundled terminal agent (`memorix` or `memcode`) that uses the same shared memory pool
 - local-first project-scoped memory
 - cross-agent recall across Cursor, Claude Code, Codex, Windsurf, Gemini CLI, GitHub Copilot, OpenCode, Pi, Kiro, Antigravity, and Trae
 
-### Current 1.1 Operator Baseline
+### Current 1.1 Baseline
 
-For the 1.1 release line, the operator-visible shape is:
+For the 1.1 release line, the visible product shape is:
 
 - `memorix setup --agent <agent>` is the default integration command for an existing coding agent or IDE
-- setup installs plugin packages where supported, MCP config, project guidance, hooks, and skills according to host capability
+- setup installs plugin packages where supported, MCP config, project guidance, hooks, and skills according to agent capability
 - `memorix serve` remains the stdio MCP entry for IDEs and external agents
-- `memorix background start` and `memorix serve-http --port 3211` run the HTTP control plane and dashboard
-- `memorix` / `memcode` open memcode, the bundled first-party memagent
+- `memorix background start` and `memorix serve-http --port 3211` run the HTTP MCP service and dashboard
+- `memorix` / `memcode` open memcode, the bundled terminal agent
 - configuration is TOML-first: global `~/.memorix/config.toml`, project `<git-root>/memorix.toml`
-- model lanes are separate: `[memory.llm]` for formation/rerank/summaries, `[embedding]` for semantic search, `[agent]` for first-party agent flows
+- model lanes are separate: `[memory.llm]` for formation/rerank/summaries, `[embedding]` for semantic search, `[agent]` for the model memcode talks to while coding
 - legacy `memorix.yml`, `.env`, and `~/.memorix/config.json` are compatibility inputs, not the recommended setup path
 - generated agent rules treat `memorix_session_start` as optional unless explicit session semantics matter
-- integration surfaces are host-specific: Claude Code, Codex, and GitHub Copilot CLI receive plugin packages; Pi receives a project-local package; Gemini CLI receives a local extension package; OpenCode receives a local plugin file and project skill; Cursor and other hosts receive MCP/rules/hooks where supported
+- integration surfaces are agent-specific: Claude Code, Codex, and GitHub Copilot CLI receive plugin packages; Pi receives a project package; Gemini CLI receives a local extension package; OpenCode receives a local plugin file and project skill; Cursor and other agents receive MCP/rules/hooks where supported
 - privacy-safe diagnostics and receipts avoid raw chat, memory text, query text, tool payloads, and local file paths
 
 ---
 
 ## 2. Operating Principles You Must Respect
 
-### CLI is the primary operator surface; MCP is the integration layer
+### CLI is the direct command surface; MCP is the integration layer
 
-For human operators, prefer `memorix ...` commands first. In the 1.1 line, the CLI covers Memorix operator capabilities across session, memory, reasoning, retention, formation, audit, transfer, skills, orchestration coordination, sync, ingest workflows, and the bundled first-party memagent.
+For direct use, prefer `memorix ...` commands first. In the 1.1 line, the CLI covers session, memory, reasoning, retention, formation, audit, transfer, skills, orchestration coordination, sync, ingest workflows, and the bundled terminal agent.
 
 Do not ask memory-only users to join coordination state. A lightweight session is enough for memory, retrieval, reasoning, and continuation. Use `joinTeam` / `team_manage(join)` only for explicit task/message/lock coordination or for CLI-agent work managed by `memorix orchestrate`.
 
@@ -86,21 +86,21 @@ Do not assume a plain folder path is enough.
 
 ### Choose one runtime model intentionally
 
-There are four practical operator entry points:
+There are four practical entry points:
 
-- `memorix setup --agent <agent>` for installing Memorix into an existing host
-- `memorix serve` for stdio MCP hosts
-- `memorix background start` for an optional long-lived HTTP control plane
-- `memorix serve-http --port 3211` for foreground HTTP control-plane work
-- `memorix` / `memcode` for the bundled first-party memagent in a TTY
+- `memorix setup --agent <agent>` for installing Memorix into an existing agent
+- `memorix serve` for stdio MCP agents
+- `memorix background start` for an optional long-lived HTTP service
+- `memorix serve-http --port 3211` for foreground HTTP service work
+- `memorix` / `memcode` for the bundled terminal agent in a TTY
 
-For most host integrations, use:
+For most agent integrations, use:
 
 ```bash
 memorix setup --agent <agent>
 ```
 
-This installs the host's best available integration package. Use raw `memorix serve` only when manually wiring an MCP client.
+This installs the recommended integration package or config for that agent. Use raw `memorix serve` only when manually wiring an MCP client.
 
 The two server runtime modes are:
 
@@ -110,7 +110,7 @@ Use:
 memorix serve
 ```
 
-when the MCP host launches Memorix directly from the current workspace and stdio transport is enough.
+when the MCP client launches Memorix directly from the current workspace and stdio transport is enough.
 
 Prefer:
 
@@ -124,9 +124,9 @@ when the user wants:
 - dashboard
 - multiple agents or sessions
 - explicit task/message/handoff/lock coordination
-- one shared control-plane process
+- one shared HTTP service process
 
-Default recommendation: if the user wants memory inside an existing IDE or agent, start with `memorix setup --agent <agent>`. Use `memorix serve` only for manual MCP wiring. Use the CLI for operator workflows and automation because it does not depend on an IDE's MCP session lifecycle. Use memcode only when the user wants the bundled terminal agent. Reach for HTTP only when a shared background service, multi-client MCP access, Docker, or a live dashboard endpoint is actually needed.
+Default recommendation: if the user wants memory inside an existing IDE or agent, start with `memorix setup --agent <agent>`. Use `memorix serve` only for manual MCP wiring. Use the CLI for direct workflows and automation because it does not depend on an IDE's MCP session lifecycle. Use memcode only when the user wants the bundled terminal agent. Reach for HTTP only when a shared background service, multi-client MCP access, Docker, or a live dashboard endpoint is actually needed.
 
 Use:
 
@@ -134,7 +134,7 @@ Use:
 memorix serve-http --port 3211
 ```
 
-when the user wants the same HTTP control plane in the foreground for debugging, manual supervision, or a custom port.
+when the user wants the same HTTP service in the foreground for debugging, manual supervision, or a custom port.
 
 ### In HTTP mode, always bind the project explicitly
 
@@ -151,9 +151,9 @@ through `memorix_session_start`.
 
 Do not assume the HTTP connection alone tells Memorix which project the user means.
 
-The HTTP control plane is normally started with `memorix background start`; the same project-binding rules apply when you run `memorix serve-http --port 3211` in the foreground.
+The HTTP service is normally started with `memorix background start`; the same project-binding rules apply when you run `memorix serve-http --port 3211` in the foreground.
 
-HTTP MCP sessions idle out after 30 minutes by default. If the user's HTTP MCP client is sensitive to stale session IDs after long idle periods, set `MEMORIX_SESSION_TIMEOUT_MS` before starting or restarting the control plane. Example: `MEMORIX_SESSION_TIMEOUT_MS=86400000` keeps sessions alive for 24 hours.
+HTTP MCP sessions idle out after 30 minutes by default. If the user's HTTP MCP client is sensitive to stale session IDs after long idle periods, set `MEMORIX_SESSION_TIMEOUT_MS` before starting or restarting the service. Example: `MEMORIX_SESSION_TIMEOUT_MS=86400000` keeps sessions alive for 24 hours.
 
 ### Do not confuse project config and global config
 
@@ -168,7 +168,7 @@ Generated guidance must match that scope:
 
 - Project guidance may say "this repository/project" because it lives in the repo or workspace.
 - Global/plugin skill guidance must not say "this project uses Memorix." It should say "use Memorix when the active workspace has Memorix tools available."
-- Do not install or document a fake plugin surface for hosts that only expose MCP/rules/config. Use the host's official entry point.
+- Do not install or document a fake plugin surface for agents that only expose MCP/rules/config. Use the agent's official entry point.
 
 ---
 
@@ -196,7 +196,7 @@ git init
 memorix init
 ```
 
-`memorix init` is a scope selector, not just a project-local generator. It lets the user choose between:
+`memorix init` is a scope selector, not just a project config generator. It lets the user choose between:
 
 - `Global defaults`
 - `Project config`
@@ -208,7 +208,7 @@ Memorix writes TOML by default:
 
 Use global config for personal provider credentials. Use project config for repo-specific model choices, memory behavior, server defaults, and Git Memory settings. Do not commit secrets.
 
-### Step 4. Install the host integration
+### Step 4. Install the agent integration
 
 For an existing agent or IDE:
 
@@ -228,18 +228,18 @@ memorix setup --agent gemini-cli
 memorix setup --agent opencode
 ```
 
-What this installs depends on the host:
+What this installs depends on the target agent:
 
 - Claude Code: local `memorix-local` marketplace plugin, best-effort `claude plugin install memorix@memorix-local`, plugin-bundled stdio MCP, hooks, skills, plus `CLAUDE.md` guidance.
 - Codex: local Personal marketplace plugin under `~/.codex/plugins/memorix`, marketplace entry at `~/.agents/plugins/marketplace.json`, best-effort `codex plugin add memorix@personal`, plugin-bundled stdio MCP, hooks, skills, plus `AGENTS.md` guidance.
 - GitHub Copilot CLI: local plugin package under `~/.copilot/plugins/local/memorix`, best-effort `copilot plugin install <local-path>`, plugin-bundled stdio MCP, hooks, and skills.
 - Cursor: Cursor MCP config, `.cursor/rules/memorix.mdc`, skills, and hook guidance through Cursor's project config surfaces.
-- Pi: project-local package under `.pi/packages/memorix`, best-effort `pi install <path> -l --approve`, extension-based hook capture, and a Memorix skill.
+- Pi: project package under `.pi/packages/memorix`, best-effort `pi install <path> -l --approve`, extension-based hook capture, and a Memorix skill.
 - Gemini CLI: local extension package under `~/.gemini/extensions/memorix`, extension-bundled stdio MCP and `GEMINI.md` context.
 - OpenCode: local plugin file, `opencode.json` MCP config, OpenCode skill, plus `AGENTS.md` guidance.
 - Windsurf, Kiro, Antigravity, Trae: MCP config plus rules/hooks where supported.
 
-If the user wants the bundled first-party memagent:
+If the user wants the bundled terminal agent:
 
 ```bash
 memorix
@@ -290,9 +290,9 @@ Generic HTTP MCP example:
 }
 ```
 
-**⚠ serverUrl mode requires the background control plane to already be running.**
+**⚠ serverUrl mode requires the background HTTP service to already be running.**
 The `serverUrl` config is a pure HTTP client — it connects to an endpoint but does NOT start the server.
-If the control plane is down, the MCP client receives `ECONNREFUSED` with no auto-recovery.
+If the service is down, the MCP client receives `ECONNREFUSED` with no auto-recovery.
 
 To guarantee the server is available before the IDE connects, use:
 
@@ -316,7 +316,7 @@ The setup path is best for:
 
 ---
 
-## 4. Full Control-Plane Setup
+## 4. Full HTTP Service Setup
 
 Use this path when the user wants the full Memorix product model.
 
@@ -335,7 +335,7 @@ If needed:
 git init
 ```
 
-### Step 3. Start HTTP control plane
+### Step 3. Start HTTP service
 
 ```bash
 memorix background start
@@ -352,15 +352,15 @@ Companion commands:
 memorix background status   # Show running state and health
 memorix background ensure   # Auto-start if not running (idempotent, silent when healthy)
 memorix background logs     # Show recent log output
-memorix background stop     # Stop the background control plane
+memorix background stop     # Stop the background HTTP service
 memorix background restart  # Stop + start
 ```
 
-### Step 3b. Make the control plane persistent (recommended)
+### Step 3b. Make the HTTP service persistent (recommended)
 
 `memorix background start` spawns a detached process that survives the terminal, but it does **not** survive system reboots or user logouts.
 
-The background control plane is a **persistent server** — it is designed to run continuously in the background, not to be auto-launched by MCP clients on demand.
+The background HTTP service is a **persistent server** — it is designed to run continuously in the background, not to be auto-launched by MCP clients on demand.
 
 To make it truly persistent:
 
@@ -378,7 +378,7 @@ memorix background ensure 2>/dev/null
 
 Or use a launchd plist / systemd user service for true boot-time persistence.
 
-**Why this matters:** IDEs that use `serverUrl` (Windsurf, Cursor HTTP mode) connect to `http://localhost:3211/mcp` but cannot start the server. If the control plane is down, the IDE shows an MCP error with no recovery path. The user must run `memorix background start` or `ensure` manually.
+**Why this matters:** IDEs that use `serverUrl` (Windsurf, Cursor HTTP mode) connect to `http://localhost:3211/mcp` but cannot start the server. If the service is down, the IDE shows an MCP error with no recovery path. The user must run `memorix background start` or `ensure` manually.
 
 At startup, `serve-http` seeds its default project root from:
 
@@ -451,7 +451,7 @@ This is the default integration package.
 
 Use `memorix integrate --agent <agent>` only when the user explicitly wants the older/manual generation path or wants to update one generated integration surface without running full setup.
 
-Setup may write plugin packages, MCP config, project rules, settings, instruction files, or host-native plugin files depending on the target. See [INTEGRATIONS.md](INTEGRATIONS.md) for the public matrix.
+Setup may write plugin packages, MCP config, project rules, settings, instruction files, or local plugin files depending on the target. See [INTEGRATIONS.md](INTEGRATIONS.md) for the public matrix.
 
 ### If the user asks for hooks
 
@@ -480,13 +480,13 @@ Important:
 
 - many `.cursor`, `.windsurf`, `.claude`, `.gemini`, `.opencode`, etc. directories are not arbitrary clutter
 - they are often part of the target IDE's own discovery protocol
-- do **not** promise that all of them can be physically merged into one folder without breaking host detection
+- do **not** promise that all of them can be physically merged into one folder without breaking agent discovery
 
 What you can say safely:
 
 - Memorix supports **on-demand generation**
 - it does **not** require generating every integration at once
-- different hosts still expect their own directory or config path
+- different agents still expect their own directory or config path
 
 ---
 
@@ -498,8 +498,8 @@ Do not confuse these.
 
 Purpose:
 
-- install the best available Memorix integration package for a specific target
-- write plugin packages, MCP config, rules, settings, instruction files, hooks, or plugin files according to host capability
+- install the recommended Memorix integration package or config for a specific target
+- write plugin packages, MCP config, rules, settings, instruction files, hooks, or plugin files according to agent capability
 
 Typical use:
 
@@ -530,7 +530,7 @@ memorix integrate --agent gemini-cli
 Purpose:
 
 - install auto-capture hooks for supported agents
-- generate a local plugin where that is the host's hook mechanism, currently OpenCode
+- generate a local plugin where that is the agent's hook mechanism, currently OpenCode
 
 Typical use:
 
@@ -556,13 +556,13 @@ memorix git-hook --force
 
 ## 8. What an Agent Should Do at Session Start
 
-In HTTP control-plane mode:
+In HTTP service mode:
 
 1. Use `memorix_search` / `memorix_detail` when prior project context would materially help the task.
-2. Call `memorix_session_start` when explicit session semantics are useful: handoff, long-running work, restoring prior session context, coordination state, or project binding in a multi-project HTTP control plane.
+2. Call `memorix_session_start` when explicit session semantics are useful: handoff, long-running work, restoring prior session context, coordination state, or project binding in a multi-project HTTP service.
 3. When calling `memorix_session_start`, pass:
    - `agent` — display name (e.g. `"cursor-frontend"`)
-   - `agentType` — optional host type for coordination role mapping (e.g. `"windsurf"`, `"cursor"`, `"claude-code"`, `"codex"`, `"gemini-cli"`)
+   - `agentType` — optional agent/client type for coordination role mapping (e.g. `"windsurf"`, `"cursor"`, `"claude-code"`, `"codex"`, `"gemini-cli"`)
    - `projectRoot` = absolute workspace path when the client knows it
 4. By default this only starts a lightweight session. It does **not** join orchestration coordination state.
 5. If the user wants orchestrated subagent coordination, either:
@@ -640,10 +640,10 @@ git init
 ### 2. Is the runtime mode correct?
 
 - stdio MCP client -> `memorix serve`
-- HTTP/dashboard/control-plane use case -> `memorix background start` by default, or `memorix serve-http --port 3211` when foreground control is required
+- HTTP/dashboard/shared-service use case -> `memorix background start` by default, or `memorix serve-http --port 3211` when foreground control is required
 - existing IDE/agent integration -> `memorix setup --agent <agent>`
 
-### 3. Is the background control plane actually running?
+### 3. Is the background HTTP service actually running?
 
 If the MCP client reports `ECONNREFUSED` on `localhost:3211`:
 
@@ -657,7 +657,7 @@ If it shows "Not running" or "dead":
 memorix background ensure
 ```
 
-If the client is connected but starts failing after roughly 30 minutes of no Memorix tool use, check for stale HTTP session expiry rather than treating it as project binding failure. Restart the control plane with a longer idle timeout:
+If the client is connected but starts failing after roughly 30 minutes of no Memorix tool use, check for stale HTTP session expiry rather than treating it as project binding failure. Restart the service with a longer idle timeout:
 
 ```powershell
 $env:MEMORIX_SESSION_TIMEOUT_MS = "86400000"
@@ -666,14 +666,14 @@ memorix background restart
 
 Common causes of the background dying:
 - System reboot or user logout (background is not a system service)
-- Unhandled error in the control plane process (now logged to `~/.memorix/background.log`)
+- Unhandled error in the service process (now logged to `~/.memorix/background.log`)
 - Terminal that started it was closed before the process fully detached (rare on Node.js v20+)
 
-The heartbeat file `~/.memorix/background.heartbeat` is updated every 30 seconds while the control plane is alive. If `status` reports a dead process with a recent heartbeat, the control plane crashed — check the log file.
+The heartbeat file `~/.memorix/background.heartbeat` is updated every 30 seconds while the service is alive. If `status` reports a dead process with a recent heartbeat, the service crashed — check the log file.
 
 ### 4. Is the MCP config pointing to the right command?
 
-On Windows, some hosts behave better with `memorix.cmd` than bare `memorix`.
+On Windows, some clients behave better with `memorix.cmd` than bare `memorix`.
 
 **serverUrl vs command mode:**
 - `serverUrl` (HTTP) requires the background to already be running — it cannot auto-start
@@ -737,9 +737,9 @@ Do not:
 - promise that all `.xxx` integration directories can be physically merged
 - tell users "auto-update is implemented" unless you mean the real wired runtime feature
 - rely on stale generated plugin files when diagnosing current behavior
-- assume `serverUrl` HTTP mode will auto-start the background control plane — it cannot
+- assume `serverUrl` HTTP mode will auto-start the background HTTP service — it cannot
 - tell users "just restart the IDE" when the fix is `memorix background ensure`
-- promise the background control plane survives reboots without OS-level startup config
+- promise the background HTTP service survives reboots without OS-level startup config
 
 ---
 
@@ -754,14 +754,14 @@ If a user asks any of these:
 - "How should I use serve vs serve-http?"
 - "What files will this create?"
 - "Why does my MCP client show ECONNREFUSED / connection refused?"
-- "Why did the background control plane disappear?"
+- "Why did the background HTTP service disappear?"
 
 read this document first, then act.
 
-This playbook is the canonical AI-facing operator guide for installation, project binding, integration, hooks, troubleshooting, and safe usage.
+This playbook is the canonical AI-facing guide for installation, project binding, integration, hooks, troubleshooting, and safe usage.
 ## Docker Note
 
-When Memorix runs in Docker, treat it as an **HTTP control-plane deployment**, not a stdio MCP process.
+When Memorix runs in Docker, treat it as an **HTTP service deployment**, not a stdio MCP process.
 
 - Connect IDEs and agents to `http://host:3211/mcp`
 - Use `memorix_session_start(projectRoot=...)` with a path that is visible **inside** the container

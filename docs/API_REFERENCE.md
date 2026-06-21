@@ -12,7 +12,7 @@ Memorix exposes:
 - privacy-safe handoff diagnostics
 - dashboard and optional graph compatibility tools
 
-It also exposes a **human/operator CLI** for terminal workflows. The CLI is not a raw mirror of MCP tool names: the CLI is what you run by hand to inspect and manage memory, while MCP is how IDEs and agents integrate.
+It also exposes a CLI for terminal workflows. The CLI is not a raw mirror of MCP tool names: the CLI is what you run by hand to inspect and manage memory, while MCP is how IDEs and agents integrate.
 
 ---
 
@@ -26,12 +26,12 @@ Use **MCP** when:
 
 Use the **CLI** when:
 
-- a human operator wants to inspect or change project state from a terminal
+- you want to inspect or change project state from a terminal
 - you are on SSH / Docker / CI / NAS and want direct commands
 - you want readable, namespaced actions instead of raw MCP tool payloads
-- you want full access to Memorix-native capabilities without depending on an MCP host
+- you want full access to Memorix CLI capabilities without depending on an MCP client
 
-The current operator CLI namespaces are:
+The current CLI namespaces are:
 
 - `memorix session`
 - `memorix memory`
@@ -71,7 +71,7 @@ memorix poll --agentId <agent-id>
 memorix receipt --json --probe "release blocker"
 ```
 
-The CLI is designed as an **operator control surface**, not as a 1:1 rename of MCP tools. The only intentional MCP-only area is the optional graph-compatibility surface (`create_entities`, `read_graph`, and related tools) for workflows that expect the official memory-server style graph API.
+The CLI is designed for direct terminal use, not as a 1:1 rename of MCP tools. The only intentional MCP-only area is the optional graph-compatibility surface (`create_entities`, `read_graph`, and related tools) for workflows that expect the official memory-server style graph API.
 
 ### Cross-Agent Handoff Receipt
 
@@ -315,7 +315,7 @@ Start a new coding session and load recent context.
 Important inputs:
 
 - optional `agent` — display name (e.g. `"cursor-frontend"`)
-- optional `agentType` — host type for optional orchestration coordination identity mapping (e.g. `"windsurf"`, `"cursor"`, `"claude-code"`, `"codex"`, `"gemini-cli"`)
+- optional `agentType` — agent/client type for optional orchestration coordination identity mapping (e.g. `"windsurf"`, `"cursor"`, `"claude-code"`, `"codex"`, `"gemini-cli"`)
 - optional `projectRoot`
 - optional `sessionId`
 - optional `instanceId`
@@ -333,7 +333,7 @@ Behavior:
 - `team_manage(join)` remains the formal explicit join entrypoint if you want to separate session start from coordination identity
 - coordination-specific outputs such as agent ID, watermark, and available tasks appear only when the session explicitly joins that coordination state
 
-In HTTP control-plane mode, pass `projectRoot` as the absolute workspace or repo root whenever the client knows it. `projectRoot` is the detection anchor; Git remains the source of truth for the final project identity.
+In HTTP service mode, pass `projectRoot` as the absolute workspace or repo root whenever the client knows it. `projectRoot` is the detection anchor; Git remains the source of truth for the final project identity.
 
 ### `memorix_session_end`
 
@@ -507,14 +507,14 @@ Typical actions:
 
 ## 9. Orchestration Coordination Tools
 
-These tools back explicit task, handoff, message, lock, and subagent-style orchestration workflows. They are available through MCP profiles that expose coordination tools and through the CLI operator surface. HTTP is optional: use it when you want a shared MCP control plane or live dashboard endpoint, not because coordination state requires HTTP.
+These tools back explicit task, handoff, message, lock, and subagent-style orchestration workflows. They are available through MCP profiles that expose coordination tools and through the CLI command surface. HTTP is optional: use it when you want a shared MCP service or live dashboard endpoint, not because coordination state requires HTTP.
 
 ```bash
 memorix team status
 memorix orchestrate --goal "..."
 ```
 
-Use `memorix background start` or `memorix serve-http --port 3211` only when you want the HTTP control plane in the background or foreground.
+Use `memorix background start` or `memorix serve-http --port 3211` only when you want the HTTP service in the background or foreground.
 
 Coordination state is opt-in project state for tasks, handoff messages, locks, and subagent workflows. It is not required for normal memory use, and it should not be treated as an automatic chat room between separate IDE conversations. For production multi-agent execution, use `memorix orchestrate`; these tools provide the coordination substrate.
 

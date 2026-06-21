@@ -1,10 +1,10 @@
 # memcode
 
-> The first-party memagent that uses Memorix project memory natively.
+> The bundled terminal agent that uses Memorix project memory.
 
-memcode is the bundled first-party terminal agent for Memorix. It is for users who want a terminal coding session that already reads from and writes to the same project memory used by MCP-connected agents.
+memcode is the terminal coding agent bundled with Memorix. It is for users who want a terminal coding session that already reads from and writes to the same project memory used by MCP-connected agents.
 
-Use it when you want terminal coding sessions, resumable history, native capture, and `/memory` commands without wiring a separate MCP client.
+Use it when you want terminal coding sessions, resumable history, automatic capture, and `/memory` commands without wiring a separate MCP client.
 
 Install Memorix and open memcode:
 
@@ -28,8 +28,8 @@ Both routes enter the same TUI.
 
 | Capability | What it means |
 | --- | --- |
-| Native project memory | memcode reads and writes the same Memorix memory pool as MCP-connected agents |
-| Native capture | prompts, tool calls, assistant output, and session lifecycle feed the Memorix memory pipeline |
+| Shared project memory | memcode reads and writes the same Memorix memory pool as MCP-connected agents |
+| Automatic capture | prompts, tool calls, assistant output, and session lifecycle feed the Memorix memory pipeline |
 | Session continuity | continue, resume, fork, name, export, and inspect coding sessions |
 | Model control | provider/model flags, `/model switch`, thinking levels, scoped model cycling |
 | Tool control | read, bash, edit, write, grep, find, ls plus allow/deny lists |
@@ -80,7 +80,7 @@ Common slash commands:
 /memory status    inspect Memorix runtime and memory health
 /memory search    search shared project memory
 /memory show      browse stored memories
-/memory hooks     inspect native hook state
+/memory hooks     inspect hook state
 /resume           resume a previous session
 /tree             navigate the session tree
 /fork             fork the current session
@@ -107,7 +107,7 @@ That means:
 - those agents can use memories captured by memcode
 - memcode-specific records are distinguished by source metadata, not by a separate store
 
-Native capture makes this feel automatic: useful project knowledge from memcode sessions can become durable Memorix memory without forcing users to wire an external MCP server into memcode.
+Automatic capture lets useful project knowledge from memcode sessions become durable Memorix memory without wiring an external MCP server into memcode.
 
 ---
 
@@ -194,7 +194,7 @@ memcode --approve
 memcode --no-approve
 ```
 
-Project-local instructions, skills, prompt templates, themes, and packages are trust-sensitive. Use `--approve` for a trusted project-local run, and `--no-approve` when you want to ignore project-local resources.
+Project instructions, skills, prompt templates, themes, and packages are trust-sensitive. Use `--approve` when you trust the local project resources, and `--no-approve` when you want to ignore them.
 
 ---
 
@@ -221,11 +221,11 @@ memcode update self
 
 ## Relationship To Memorix
 
-Memorix is the shared memory layer. memcode is a first-party memagent built on top of it.
+Memorix is the shared memory layer. memcode is the bundled terminal agent built on top of it.
 
 Use Memorix when you want Claude Code, Codex, Cursor, Windsurf, Copilot, Gemini CLI, OpenCode, Kiro, Antigravity, Trae, or another MCP client to share project memory.
 
-Use memcode when you want a bundled terminal agent that already uses that memory layer natively.
+Use memcode when you want a terminal agent that already uses that memory layer.
 
 For the broader Memorix integration matrix across MCP, rules, hooks, plugins, and skills, see [Integration Surfaces](INTEGRATIONS.md).
 

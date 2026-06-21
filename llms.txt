@@ -2,17 +2,17 @@
 
 > Local-first shared memory layer for AI coding agents.
 
-Memorix gives coding agents persistent, project-aware memory across sessions, IDEs, terminals, and MCP clients. It stores project knowledge once so multiple agents can retrieve it through host-native packages where supported, MCP, CLI, SDK, generated rules/instructions, hooks, skills, local plugins, or memcode. It works with Claude Code, Codex, Cursor, Windsurf, GitHub Copilot CLI, Gemini CLI, OpenCode, Pi, Kiro, Antigravity, Trae, memcode, and other MCP-capable agents.
+Memorix gives coding agents persistent, project-aware memory across sessions, IDEs, terminals, and MCP clients. It stores project knowledge once so multiple agents can retrieve it through plugin packages where supported, MCP, CLI, SDK, generated rules/instructions, hooks, skills, local plugins, or the bundled terminal agent. It works with Claude Code, Codex, Cursor, Windsurf, GitHub Copilot CLI, Gemini CLI, OpenCode, Pi, Kiro, Antigravity, Trae, and other MCP-capable agents.
 
 ## Entry Points
 
-- `memorix setup --agent <agent>` installs the best available host integration package.
-- `memorix setup --list` lists supported host entrypoints.
+- `memorix setup --agent <agent>` installs the recommended integration package or config.
+- `memorix setup --list` lists supported agent entry points.
 - `memorix serve` starts the manual stdio MCP server for IDEs and agents.
-- `memorix background start` starts the advanced HTTP MCP control plane and dashboard.
-- `memorix memory`, `reasoning`, `session`, `team`, `task`, `handoff`, `poll`, `receipt`, `sync`, `ingest`, and `orchestrate` expose the operator CLI.
+- `memorix background start` starts the HTTP MCP service and dashboard.
+- `memorix memory`, `reasoning`, `session`, `team`, `task`, `handoff`, `poll`, `receipt`, `sync`, `ingest`, and `orchestrate` expose the CLI command set.
 - `memorix integrate --agent <agent>` and `memorix hooks install --agent <agent>` are manual/fallback generation commands.
-- `memorix` and `memcode` open memcode, the bundled first-party memagent that uses the same project memory pool.
+- `memorix` and `memcode` open memcode, the bundled terminal agent that uses the same project memory pool.
 - `memorix dashboard` opens the local read-mostly dashboard.
 
 ## Memory Model
@@ -27,7 +27,7 @@ Search is project-scoped by default. Use global scope only when cross-project re
 
 ## memcode
 
-memcode is the first-party memagent bundled with Memorix. It reads from and writes to the same project memory pool used by MCP-connected coding agents.
+memcode is the terminal coding agent bundled with Memorix. It reads from and writes to the same project memory pool used by MCP-connected coding agents.
 
 Common commands:
 
@@ -53,7 +53,7 @@ Core lanes:
 - `[memory.llm]` for memory formation, summaries, deduplication, optional rerank
 - `[embedding]` for semantic/vector search
 - `[memory]` for injection and formation behavior
-- `[agent]` for memcode or other first-party agent flows
+- `[agent]` for the model memcode talks to while coding
 
 Legacy `memorix.yml`, `.env`, and `~/.memorix/config.json` are compatibility inputs, not the primary setup path.
 
@@ -84,7 +84,7 @@ Manual stdio MCP:
 memorix serve
 ```
 
-For advanced HTTP MCP:
+For HTTP MCP:
 
 ```bash
 memorix background start
@@ -103,5 +103,5 @@ Endpoint: `http://localhost:3211/mcp`.
 - Integration Surfaces: https://github.com/AVIDS2/memorix/blob/main/docs/INTEGRATIONS.md
 - Git Memory: https://github.com/AVIDS2/memorix/blob/main/docs/GIT_MEMORY.md
 - memcode: https://github.com/AVIDS2/memorix/blob/main/docs/MEMCODE.md
-- Agent Operator Playbook: https://github.com/AVIDS2/memorix/blob/main/docs/AGENT_OPERATOR_PLAYBOOK.md
+- Agent Playbook: https://github.com/AVIDS2/memorix/blob/main/docs/AGENT_OPERATOR_PLAYBOOK.md
 - Full AI context: https://github.com/AVIDS2/memorix/blob/main/llms-full.txt

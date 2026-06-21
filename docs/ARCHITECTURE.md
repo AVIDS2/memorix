@@ -8,13 +8,13 @@ It combines three core memory layers:
 - **Reasoning Memory** for why choices were made
 - **Git Memory** for engineering truth derived from commits
 
-These layers are exposed through MCP tools, CLI workflows, and an HTTP control plane.
+These layers are exposed through MCP tools, CLI workflows, and an HTTP service.
 
 ---
 
 ## 1. System Shape
 
-Memorix is better understood as a container-style architecture with multiple ingress surfaces, a shared runtime/control plane, several memory substrates, and parallel processing/retrieval branches.
+Memorix is better understood as a container-style architecture with multiple ingress surfaces, shared runtimes, several memory substrates, and parallel processing/retrieval branches.
 
 ```mermaid
 flowchart LR
@@ -25,9 +25,9 @@ flowchart LR
         A4["Git hooks / ingest"]
     end
 
-    subgraph Runtime["Runtime and Control Plane"]
+    subgraph Runtime["Runtime Services"]
         B1["stdio MCP runtime"]
-        B2["HTTP control plane"]
+        B2["HTTP MCP service"]
         B3["project binding + config provenance"]
     end
 
@@ -166,7 +166,7 @@ Responsibilities:
 - workspace and rule sync across agents
 - orchestration coordination state
 - mini-skills and memory-driven workflows
-- dashboard and control plane APIs
+- dashboard and HTTP service APIs
 
 ---
 
@@ -378,14 +378,14 @@ Use this for:
 
 ### `memorix background start`
 
-Starts the recommended long-lived HTTP control plane and dashboard in the background.
+Starts the recommended long-lived HTTP service and dashboard in the background.
 
 Use this when you want:
 
 - an HTTP MCP endpoint
 - one shared Memorix process for multiple agents
 - Team features
-- the control plane dashboard
+- the browser dashboard
 
 Companion commands:
 
@@ -413,13 +413,13 @@ Main URLs:
 
 Standalone dashboard mode.
 
-Useful for local inspection and debugging, but the main product mode is the dashboard embedded in the HTTP control plane.
+Useful for local inspection and debugging, but the main product mode is the dashboard embedded in the HTTP service.
 
 ---
 
-## 8. Session and Control-Plane Coordination
+## 8. Session and HTTP Coordination
 
-The HTTP control plane is not just a transport wrapper. It is the coordination layer that keeps multiple agents, multiple projects, and multiple UX surfaces from drifting apart.
+The HTTP service is not just a transport wrapper. It is the coordination layer that keeps multiple agents, multiple projects, and multiple UX surfaces from drifting apart.
 
 ```mermaid
 flowchart LR
@@ -452,11 +452,11 @@ This is the layer that gives Memorix its cross-agent behavior:
 
 ---
 
-## 9. Dashboard as Control Plane
+## 9. Dashboard
 
 The dashboard is no longer just an observation browser.
 
-It acts as a control plane for:
+It provides an operational view for:
 
 - memory source breakdown
 - Git Memory visibility
@@ -464,7 +464,7 @@ It acts as a control plane for:
 - identity health
 - sessions
 - retention state
-- read-only orchestration coordination state in the standalone dashboard and live state in HTTP control-plane mode
+- read-only orchestration coordination state in the standalone dashboard and live state in HTTP service mode
 
 This is part of Memorix's shift from a single MCP server to a broader local memory platform.
 

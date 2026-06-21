@@ -1,14 +1,14 @@
 # Performance and Resource Notes
 
-Memorix is designed to be light for everyday memory use and explicit about heavier paths. This document is a practical operator guide, not a benchmark paper.
+Memorix is designed to be light for everyday memory use and explicit about heavier paths. This document is a practical guide, not a benchmark paper.
 
 ## Runtime Shape
 
 | Mode | What Runs | Typical Use |
 | --- | --- | --- |
 | `memorix serve` | One stdio MCP process, started by the client | Lightweight IDE/agent memory access |
-| `memorix background start` | One long-lived local Node HTTP control-plane process | Dashboard, HTTP MCP, multi-session workflows |
-| `memorix serve-http` | Same HTTP control plane in the foreground | Debugging or supervised launches |
+| `memorix background start` | One long-lived local Node HTTP service process | Dashboard, HTTP MCP, multi-session workflows |
+| `memorix serve-http` | Same HTTP service in the foreground | Debugging or supervised launches |
 | `memorix` | Interactive terminal UI | Human operator workbench |
 | `memorix orchestrate` | Supervisor plus spawned CLI agent workers | Orchestrated subagent loops |
 
@@ -21,7 +21,7 @@ The default memory path uses local SQLite as the canonical store and Orama for s
 - HTTP background mode idles as a single local process.
 - LLM enrichment is optional. Without `MEMORIX_LLM_API_KEY` or `OPENAI_API_KEY`, Memorix uses local heuristic dedup/search behavior.
 
-On the release development machine used for this check, the healthy HTTP control plane was observed at about 16 MB working set after several hours idle. Treat this as a local sanity observation, not a platform-wide guarantee.
+On the release development machine used for this check, the healthy HTTP service was observed at about 16 MB working set after several hours idle. Treat this as a local sanity observation, not a platform-wide guarantee.
 
 ## What Can Be Heavier
 
@@ -50,7 +50,7 @@ On the release development machine used for this check, the healthy HTTP control
 - For memory-only use, prefer stdio MCP or a lightweight `memorix_session_start`; do not join orchestration coordination state by default.
 - For long-lived IDE sessions over HTTP, set `MEMORIX_SESSION_TIMEOUT_MS=86400000` before `memorix background start` if your client is stale-session-sensitive.
 - If LLM-backed formation is timing out against a slow proxy/provider, raise `MEMORIX_FORMATION_TIMEOUT_MS` and keep it higher than `MEMORIX_LLM_TIMEOUT_MS`, because the full pipeline can include multiple LLM-backed stages.
-- For Docker, use it when you want a managed HTTP control plane. Do not use image size alone as the runtime memory estimate.
+- For Docker, use it when you want a managed HTTP service. Do not use image size alone as the runtime memory estimate.
 - For orchestrated subagent work, expect CPU and disk activity proportional to the spawned agents and verification commands.
 - For release checks, measure build/test/pack separately from idle service cost.
 

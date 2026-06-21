@@ -5,7 +5,7 @@ Use this page as the fastest path to the right Memorix document.
 The public docs are organized by user intent:
 
 - **Start**: install Memorix and run `memorix setup` for an agent
-- **Use**: memory search, Git Memory, dashboard, and the optional first-party memagent
+- **Use**: memory search, Git Memory, dashboard, and the optional bundled terminal agent
 - **Operate**: configuration, Docker, performance, troubleshooting
 - **Integrate**: MCP tools, CLI, SDK, agent rules, hooks, plugins, skills
 - **Understand**: architecture and deeper implementation notes
@@ -21,8 +21,8 @@ The public docs are organized by user intent:
 | Configure provider keys, model lanes, and project overrides | [CONFIGURATION.md](CONFIGURATION.md) |
 | Connect an IDE or AI coding agent manually over MCP | [SETUP.md](SETUP.md#4-manual-mcp-client-setup) |
 | Understand plugin, rules, hooks, skills, and MCP support | [INTEGRATIONS.md](INTEGRATIONS.md) |
-| Run the HTTP control plane in Docker | [DOCKER.md](DOCKER.md) |
-| Try the bundled first-party memagent | [MEMCODE.md](MEMCODE.md) |
+| Run the HTTP service in Docker | [DOCKER.md](DOCKER.md) |
+| Try the bundled terminal agent | [MEMCODE.md](MEMCODE.md) |
 
 ---
 
@@ -30,13 +30,13 @@ The public docs are organized by user intent:
 
 | Topic | Document |
 | --- | --- |
-| Operator CLI and MCP tools | [API_REFERENCE.md](API_REFERENCE.md) |
+| CLI commands and MCP tools | [API_REFERENCE.md](API_REFERENCE.md) |
 | Git-derived engineering memory | [GIT_MEMORY.md](GIT_MEMORY.md) |
 | Memory formation and quality pipeline | [MEMORY_FORMATION_PIPELINE.md](MEMORY_FORMATION_PIPELINE.md) |
 | Performance and resource profile | [PERFORMANCE.md](PERFORMANCE.md) |
 | Orchestrated subagent tasks, messages, locks, handoffs | [API_REFERENCE.md § Orchestration Coordination](API_REFERENCE.md#9-orchestration-coordination-tools) |
 | Subagent orchestration | [API_REFERENCE.md](API_REFERENCE.md) and `memorix orchestrate --help` |
-| Bundled first-party memagent | [MEMCODE.md](MEMCODE.md) |
+| Bundled terminal agent | [MEMCODE.md](MEMCODE.md) |
 
 ---
 
@@ -48,7 +48,7 @@ The public docs are organized by user intent:
 | TOML-first configuration | [CONFIGURATION.md](CONFIGURATION.md) |
 | Docker/compose deployment | [DOCKER.md](DOCKER.md) |
 | Resource and timeout tuning | [PERFORMANCE.md](PERFORMANCE.md) |
-| AI-facing install and troubleshooting playbook | [AGENT_OPERATOR_PLAYBOOK.md](AGENT_OPERATOR_PLAYBOOK.md) |
+| AI-facing install and troubleshooting playbook | [Agent Playbook](AGENT_OPERATOR_PLAYBOOK.md) |
 
 ---
 
@@ -82,7 +82,7 @@ Historical/deep-reference documents may describe older designs. If they conflict
 3. [CONFIGURATION.md](CONFIGURATION.md)
 4. [MEMCODE.md](MEMCODE.md)
 5. [API_REFERENCE.md](API_REFERENCE.md)
-6. [AGENT_OPERATOR_PLAYBOOK.md](AGENT_OPERATOR_PLAYBOOK.md)
+6. [Agent Playbook](AGENT_OPERATOR_PLAYBOOK.md)
 
 ---
 
@@ -101,10 +101,10 @@ Historical/deep-reference documents may describe older designs. If they conflict
 
 These docs target the **1.1 release line**, where:
 
-- `memorix setup --agent <agent>` is the default host integration command
+- `memorix setup --agent <agent>` is the default agent integration command
 - `memorix serve` remains the manual stdio MCP server for external agents
-- `memorix background start` runs the advanced shared HTTP MCP control plane and dashboard
+- `memorix background start` runs the shared HTTP MCP service and dashboard
 - `memorix integrate --agent <agent>` and `memorix hooks install --agent <agent>` remain manual/fallback generation commands
-- `memorix` / `memcode` open memcode, the bundled first-party memagent that uses the same Memorix memory pool
+- `memorix` / `memcode` open memcode, the bundled terminal agent that uses the same Memorix memory pool
 - `~/.memorix/config.toml` and project `memorix.toml` are the user-facing configuration model
 - legacy `memorix.yml`, `.env`, and `config.json` files are compatibility inputs, not the primary setup path

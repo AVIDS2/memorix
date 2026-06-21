@@ -199,6 +199,7 @@ export const OFFICIAL_MEMORIX_SKILLS: OfficialMemorixSkill[] = [
       '',
       '- For ordinary memory, do not join coordination state.',
       '- For production multi-agent execution, prefer `memorix orchestrate` so the main process owns planning, dispatch, retries, and verification gates.',
+      '- `memorix orchestrate` uses the current checkout for single-worker runs and task worktrees for parallel runs. Use `--isolated` to force worktree isolation, `--no-worktree` to disable it, `--allow-dirty` to run with uncommitted changes, and `--no-auto-merge` to preserve task worktrees for manual review.',
       '- In worker prompts, use the worker agent ID returned by session start or team join; never use the coordinator ID as the worker identity.',
     ],
   ),

@@ -518,6 +518,8 @@ Use `memorix background start` or `memorix serve-http --port 3211` only when you
 
 Coordination state is opt-in project state for tasks, handoff messages, locks, and subagent workflows. It is not required for normal memory use, and it should not be treated as an automatic chat room between separate IDE conversations. For production multi-agent execution, use `memorix orchestrate`; these tools provide the coordination substrate.
 
+`memorix orchestrate` uses Git worktrees for parallel worker isolation. Single-worker runs use the current checkout unless `--isolated` is set. Parallel runs fail closed if a task worktree cannot be created. Dirty Git worktrees are rejected unless `--allow-dirty` is set. Successful task worktrees merge back automatically unless `--no-auto-merge` is set.
+
 Runtime environment:
 
 - `MEMORIX_SESSION_TIMEOUT_MS` — HTTP MCP session idle timeout in milliseconds. Default: `1800000` (30 minutes). Increase this for clients that do not transparently reinitialize after stale HTTP session IDs, for example `86400000` for 24 hours.

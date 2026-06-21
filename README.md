@@ -274,6 +274,8 @@ Search is project-scoped by default. `scope="global"` searches across projects. 
 | Use the bundled terminal agent | `memorix` or `memcode` |
 | Run orchestrated subagent work | `memorix orchestrate --goal "..."` |
 
+`memorix orchestrate` uses the current checkout for single-worker runs. When running multiple workers, it creates task worktrees under `.worktrees/` and merges successful task branches back. Use `--isolated` to force worktree isolation for one worker, `--no-worktree` to disable it, `--allow-dirty` to run with uncommitted changes, and `--no-auto-merge` to preserve task worktrees for manual review.
+
 ## memcode: Bundled Terminal Agent
 
 memcode is the terminal coding agent bundled with Memorix. It can read, edit, run commands, resume sessions, switch models, and use `/memory` commands while reading and writing the same project memory pool as your MCP-connected agents.

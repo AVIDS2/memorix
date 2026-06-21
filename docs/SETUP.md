@@ -480,6 +480,23 @@ memorix task list
 memorix orchestrate --goal "Add user authentication"
 ```
 
+Worktree behavior:
+
+- single-worker runs use the current checkout by default
+- multi-worker runs create task worktrees under `.worktrees/`
+- worktree creation failures stop the run instead of falling back to the shared checkout
+- dirty Git worktrees are rejected by default
+- successful task worktrees are merged back automatically unless `--no-auto-merge` is set
+
+Useful safety flags:
+
+```bash
+memorix orchestrate --goal "Add auth" --isolated
+memorix orchestrate --goal "Add auth" --no-worktree
+memorix orchestrate --goal "Add auth" --allow-dirty
+memorix orchestrate --goal "Add auth" --no-auto-merge
+```
+
 Use the `team`, `task`, `message`, `handoff`, and `lock` CLI commands when you need to inspect or operate that coordination state directly.
 
 ---

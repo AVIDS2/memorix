@@ -30,7 +30,7 @@ On the release development machine used for this check, the healthy HTTP service
 - Dashboard browsing can add browser-side memory and CPU outside the Memorix Node process.
 - Large imports, Git log ingestion, workspace sync, and skill generation can temporarily increase CPU and disk I/O.
 - LLM-backed formation, reranking, extraction, and skill generation add network latency and provider cost when enabled.
-- `memorix orchestrate` intentionally runs multiple agent workers, so its resource profile is closer to a multi-process build/test loop than a memory daemon.
+- `memorix orchestrate` can run multiple agent workers. Parallel runs also create Git worktrees under `.worktrees/`, so expect extra disk usage until successful worktrees are merged and cleaned up.
 
 ## Useful Knobs
 

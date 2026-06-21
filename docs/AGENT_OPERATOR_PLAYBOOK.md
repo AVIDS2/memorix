@@ -586,6 +586,7 @@ Important boundary:
 - For real autonomous multi-agent implementation loops, use `memorix orchestrate`; it launches CLI agents, coordinates work through tasks/context, and runs verification/fix/review gates.
 - Shared memory means stored memories are searchable across clients in the same Git project. It does not mean every chat message is mirrored automatically.
 - For support/debugging, use `memorix receipt --json` or `memorix doctor --receipt`; receipts emit hashes/counts only and omit raw prompts, raw memory text, raw queries, tool payloads, and local file paths.
+- `memorix orchestrate` runs one worker in the current checkout by default. For multiple workers it creates task worktrees under `.worktrees/`, fails closed if isolation cannot be created, rejects dirty Git state unless `--allow-dirty` is set, and auto-merges successful task branches unless `--no-auto-merge` is set.
 
 ---
 
@@ -609,6 +610,8 @@ memorix setup --agent <agent>
 memorix integrate --agent <agent>
 memorix hooks install --agent <agent>
 memorix git-hook --force
+memorix orchestrate --goal "<goal>" --isolated
+memorix orchestrate --goal "<goal>" --no-auto-merge
 ```
 
 ### Memory operations

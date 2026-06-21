@@ -359,6 +359,15 @@ Support depth differs by client:
 
 `memorix orchestrate` is the main entry point for subagent-style coordinated implementation work. The `team`, `task`, `message`, `handoff`, `lock`, and `poll` commands are the coordination state used by orchestration and explicit handoff workflows. They are not needed for ordinary memory search or memcode sessions.
 
+Worktree safety:
+
+- single-worker runs use the current checkout by default
+- parallel runs create task worktrees under `.worktrees/`
+- `--isolated` forces worktree isolation for one worker
+- `--no-worktree` disables worktree isolation
+- dirty Git worktrees are rejected unless `--allow-dirty` is set
+- successful task worktrees auto-merge unless `--no-auto-merge` is set
+
 Use it when you need:
 
 - task board

@@ -30,6 +30,7 @@ image/
 
 # Test/demo artifacts
 .pipeline/
+.worktrees/
 .playwright-mcp/
 .planning/
 output/

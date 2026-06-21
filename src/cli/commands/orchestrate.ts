@@ -46,6 +46,26 @@ export default defineCommand({
       description: 'Show what would be executed without spawning agents',
       default: false,
     },
+    isolated: {
+      type: 'boolean',
+      description: 'Use Git worktree isolation even with a single worker',
+      default: false,
+    },
+    'no-worktree': {
+      type: 'boolean',
+      description: 'Disable Git worktree isolation and run workers in the project directory',
+      default: false,
+    },
+    'allow-dirty': {
+      type: 'boolean',
+      description: 'Allow orchestration when the Git working tree has uncommitted changes',
+      default: false,
+    },
+    'no-auto-merge': {
+      type: 'boolean',
+      description: 'Preserve task worktrees instead of automatically merging successful work',
+      default: false,
+    },
     poll: {
       type: 'string',
       description: 'Poll interval in ms (default: 5000)',
@@ -190,6 +210,15 @@ export default defineCommand({
     const pollIntervalMs = parseInt(args.poll as string, 10);
     const staleTtlMs = parseInt(args['stale-ttl'] as string, 10);
     const dryRun = args['dry-run'] as boolean;
+    const isolated = args.isolated as boolean;
+    const noWorktree = args['no-worktree'] as boolean;
+    const allowDirty = args['allow-dirty'] as boolean;
+    const noAutoMerge = args['no-auto-merge'] as boolean;
+    if (isolated && noWorktree) {
+      console.error('[ERROR] Use either --isolated or --no-worktree, not both.');
+      process.exit(1);
+    }
+    const worktreeMode = noWorktree ? 'never' : isolated ? 'always' : 'auto';
     const globalTimeoutRaw = args['global-timeout'] as string | undefined;
     const globalTimeoutMs = globalTimeoutRaw ? parseInt(globalTimeoutRaw, 10) : undefined;
 
@@ -298,7 +327,13 @@ export default defineCommand({
     console.error(`[AGENT] Agents: ${agentLabel}`);
     console.error(`[CONFIG]  Parallel: ${parallel}, Retries: ${maxRetries}, Timeout: ${taskTimeoutMs}ms${globalTimeoutMs ? `, Global: ${globalTimeoutMs}ms` : ''}`);
     if (args.routing) console.error(`[ROUTE]  Routing: ${args.routing}`);
-    if (parallel >= 2) console.error(`[WORKTREE] Git worktree isolation: enabled`);
+    if (worktreeMode === 'never') {
+      console.error('[WORKTREE] Git worktree isolation: disabled');
+    } else if (worktreeMode === 'always' || parallel >= 2) {
+      console.error(`[WORKTREE] Git worktree isolation: enabled (${worktreeMode === 'always' ? 'always' : 'parallel'})`);
+    }
+    if (allowDirty) console.error('[GIT] Dirty working tree: allowed');
+    if (noAutoMerge) console.error('[WORKTREE] Auto-merge: disabled; task worktrees will be preserved');
 
     // Phase 7 config display
     const compileCommand = args['compile-command'] as string | undefined;
@@ -340,6 +375,9 @@ export default defineCommand({
       pipelineId: currentPipelineId,
       structuredPlan,
       globalTimeoutMs,
+      worktreeMode,
+      dirtyMode: allowDirty ? 'allow' : 'reject',
+      autoMergeWorktrees: !noAutoMerge,
       compileCommand,
       testCommand,
       maxFixAttempts,

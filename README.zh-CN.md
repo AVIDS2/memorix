@@ -274,6 +274,8 @@ memcode
 | 使用内置终端 Agent | `memorix` 或 `memcode` |
 | 运行编排式 subagent 工作 | `memorix orchestrate --goal "..."` |
 
+`memorix orchestrate` 单 worker 默认使用当前 checkout；多 worker 时会在 `.worktrees/` 下为任务创建隔离 worktree，并把成功的任务分支 merge 回来。用 `--isolated` 可强制单 worker 也隔离，用 `--no-worktree` 禁用 worktree，用 `--allow-dirty` 允许带未提交改动运行，用 `--no-auto-merge` 保留任务 worktree 方便人工 review。
+
 ## memcode：内置终端 Agent
 
 memcode 是 Memorix 内置的终端 Coding Agent。它能读文件、改代码、运行命令、恢复 session、切换模型，并提供 `/memory` 命令；读写的仍然是同一套 Memorix 项目记忆。

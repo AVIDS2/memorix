@@ -1,27 +1,27 @@
 # Performance and Resource Notes
 
-Memorix is designed to be light for everyday memory use and explicit about heavier paths. This document is a practical operator guide, not a benchmark paper.
+Memorix is designed to be light for everyday memory use and explicit about heavier paths. This document is a practical guide, not a benchmark paper.
 
 ## Runtime Shape
 
 | Mode | What Runs | Typical Use |
 | --- | --- | --- |
 | `memorix serve` | One stdio MCP process, started by the client | Lightweight IDE/agent memory access |
-| `memorix background start` | One long-lived local Node HTTP control-plane process | Dashboard, HTTP MCP, multi-session workflows |
-| `memorix serve-http` | Same HTTP control plane in the foreground | Debugging or supervised launches |
+| `memorix background start` | One long-lived local Node HTTP service process | Dashboard, HTTP MCP, multi-session workflows |
+| `memorix serve-http` | Same HTTP service in the foreground | Debugging or supervised launches |
 | `memorix` | Interactive terminal UI | Human operator workbench |
-| `memorix orchestrate` | Supervisor plus spawned CLI agent workers | Autonomous multi-agent loops |
+| `memorix orchestrate` | Supervisor plus spawned CLI agent workers | Orchestrated subagent loops |
 
 The default memory path uses local SQLite as the canonical store and Orama for search/indexing. No cloud service is required.
 
 ## What Is Lightweight
 
-- `memorix_session_start` is lightweight by default. It opens a memory/session context and does not join the Agent Team unless `joinTeam: true` is explicitly set.
+- `memorix_session_start` is lightweight by default. It opens a memory/session context and does not join orchestration coordination state unless `joinTeam: true` is explicitly set.
 - stdio MCP starts on demand and exits with the client.
 - HTTP background mode idles as a single local process.
 - LLM enrichment is optional. Without `MEMORIX_LLM_API_KEY` or `OPENAI_API_KEY`, Memorix uses local heuristic dedup/search behavior.
 
-On the release development machine used for this check, the healthy HTTP control plane was observed at about 16 MB working set after several hours idle. Treat this as a local sanity observation, not a platform-wide guarantee.
+On the release development machine used for this check, the healthy HTTP service was observed at about 16 MB working set after several hours idle. Treat this as a local sanity observation, not a platform-wide guarantee.
 
 ## What Can Be Heavier
 
@@ -30,7 +30,7 @@ On the release development machine used for this check, the healthy HTTP control
 - Dashboard browsing can add browser-side memory and CPU outside the Memorix Node process.
 - Large imports, Git log ingestion, workspace sync, and skill generation can temporarily increase CPU and disk I/O.
 - LLM-backed formation, reranking, extraction, and skill generation add network latency and provider cost when enabled.
-- `memorix orchestrate` intentionally runs multiple agent workers, so its resource profile is closer to a multi-process build/test loop than a memory daemon.
+- `memorix orchestrate` can run multiple agent workers. Parallel runs also create Git worktrees under `.worktrees/`, so expect extra disk usage until successful worktrees are merged and cleaned up.
 
 ## Useful Knobs
 
@@ -47,11 +47,11 @@ On the release development machine used for this check, the healthy HTTP control
 
 ## Operator Guidance
 
-- For memory-only use, prefer stdio MCP or a lightweight `memorix_session_start`; do not join the Agent Team by default.
+- For memory-only use, prefer stdio MCP or a lightweight `memorix_session_start`; do not join orchestration coordination state by default.
 - For long-lived IDE sessions over HTTP, set `MEMORIX_SESSION_TIMEOUT_MS=86400000` before `memorix background start` if your client is stale-session-sensitive.
 - If LLM-backed formation is timing out against a slow proxy/provider, raise `MEMORIX_FORMATION_TIMEOUT_MS` and keep it higher than `MEMORIX_LLM_TIMEOUT_MS`, because the full pipeline can include multiple LLM-backed stages.
-- For Docker, use it when you want a managed HTTP control plane. Do not use image size alone as the runtime memory estimate.
-- For autonomous multi-agent work, expect CPU and disk activity proportional to the spawned agents and verification commands.
+- For Docker, use it when you want a managed HTTP service. Do not use image size alone as the runtime memory estimate.
+- For orchestrated subagent work, expect CPU and disk activity proportional to the spawned agents and verification commands.
 - For release checks, measure build/test/pack separately from idle service cost.
 
 ## Current Optimization Opportunities

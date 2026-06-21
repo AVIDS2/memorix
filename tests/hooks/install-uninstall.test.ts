@@ -56,14 +56,15 @@ describe('Hooks install/uninstall lifecycle', () => {
     expect(agentsEntry!.type).toBe('rule');
   });
 
-  it('should include cold-start guidance in generated AGENTS.md (codex)', async () => {
+  it('should include memory usage guidance in generated AGENTS.md (codex)', async () => {
     const agentsMd = path.join(tmpDir, 'AGENTS.md');
 
     await installHooks('codex', tmpDir);
 
     const content = await fs.readFile(agentsMd, 'utf-8');
-    expect(content).toContain('fresh project with no Memorix memories yet');
-    expect(content).toContain('Do not repeat `memorix_search` again in the same turn');
+    expect(content).toContain('When to search memory');
+    expect(content).toContain('memorix_search');
+    expect(content).toContain('When to store memory');
   });
 
   it('should record audit entry when creating new GEMINI.md (gemini-cli)', async () => {

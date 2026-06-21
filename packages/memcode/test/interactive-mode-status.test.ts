@@ -1,0 +1,1444 @@
+import { homedir } from "node:os";
+import * as path from "node:path";
+import { type AutocompleteProvider, CombinedAutocompleteProvider } from "@memorix/tui";
+import { beforeAll, describe, expect, test, vi } from "vitest";
+import { type Component, Container, type Focusable, TUI } from "../../tui/src/tui.ts";
+import { VirtualTerminal } from "../../tui/test/virtual-terminal.ts";
+import type { AutocompleteProviderFactory } from "../src/core/extensions/types.ts";
+import type { SourceInfo } from "../src/core/source-info.ts";
+import { InteractiveMode } from "../src/modes/interactive/interactive-mode.ts";
+import { initTheme } from "../src/modes/interactive/theme/theme.ts";
+
+const getMemorixRuntimeContext = vi.hoisted(() => vi.fn());
+const formatMemcodeFooterMemoryStatus = vi.hoisted(() => vi.fn());
+
+vi.mock("../src/memory/memorix-runtime-context.ts", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("../src/memory/memorix-runtime-context.ts")>();
+	return {
+		...actual,
+		getMemorixRuntimeContext,
+		formatMemcodeFooterMemoryStatus,
+	};
+});
+
+function renderLastLine(container: Container, width = 120): string {
+	const last = container.children[container.children.length - 1];
+	if (!last) return "";
+	return last.render(width).join("\n");
+}
+
+function renderAll(container: Container, width = 120): string {
+	return container.children.flatMap((child) => child.render(width)).join("\n");
+}
+
+class TestFocusableComponent implements Component, Focusable {
+	focused = false;
+	inputs: string[] = [];
+	private readonly label: string;
+	private text = "";
+
+	constructor(label: string) {
+		this.label = label;
+	}
+
+	handleInput(data: string): void {
+		this.inputs.push(data);
+	}
+
+	getText(): string {
+		return this.text;
+	}
+
+	setText(text: string): void {
+		this.text = text;
+	}
+
+	render(): string[] {
+		return [this.label];
+	}
+
+	invalidate(): void {}
+}
+
+async function flushTui(tui: TUI, terminal: VirtualTerminal): Promise<void> {
+	tui.requestRender(true);
+	await Promise.resolve();
+	await terminal.waitForRender();
+}
+
+function normalizeRenderedOutput(container: Container, width = 220): string {
+	return renderAll(container, width)
+		.replace(/\u001b\[[0-9;]*m/g, "")
+		.replace(/\\/g, "/")
+		.split("\n")
+		.map((line) => line.replace(/\s+$/g, ""))
+		.join("\n")
+		.trim();
+}
+
+type ExtensionFixture = {
+	path: string;
+	sourceInfo?: SourceInfo;
+};
+
+describe("InteractiveMode.showStatus", () => {
+	beforeAll(() => {
+		// showStatus uses the global theme instance
+		initTheme("dark");
+	});
+
+	test("coalesces immediately-sequential status messages", () => {
+		const fakeThis: any = {
+			chatContainer: new Container(),
+			ui: { requestRender: vi.fn() },
+			lastStatusSpacer: undefined,
+			lastStatusText: undefined,
+		};
+
+		(InteractiveMode as any).prototype.showStatus.call(fakeThis, "STATUS_ONE");
+		expect(fakeThis.chatContainer.children).toHaveLength(2);
+		expect(renderLastLine(fakeThis.chatContainer)).toContain("STATUS_ONE");
+
+		(InteractiveMode as any).prototype.showStatus.call(fakeThis, "STATUS_TWO");
+		// second status updates the previous line instead of appending
+		expect(fakeThis.chatContainer.children).toHaveLength(2);
+		expect(renderLastLine(fakeThis.chatContainer)).toContain("STATUS_TWO");
+		expect(renderLastLine(fakeThis.chatContainer)).not.toContain("STATUS_ONE");
+	});
+
+	test("appends a new status line if something else was added in between", () => {
+		const fakeThis: any = {
+			chatContainer: new Container(),
+			ui: { requestRender: vi.fn() },
+			lastStatusSpacer: undefined,
+			lastStatusText: undefined,
+		};
+
+		(InteractiveMode as any).prototype.showStatus.call(fakeThis, "STATUS_ONE");
+		expect(fakeThis.chatContainer.children).toHaveLength(2);
+
+		// Something else gets added to the chat in between status updates
+		fakeThis.chatContainer.addChild({ render: () => ["OTHER"], invalidate: () => {} });
+		expect(fakeThis.chatContainer.children).toHaveLength(3);
+
+		(InteractiveMode as any).prototype.showStatus.call(fakeThis, "STATUS_TWO");
+		// adds spacer + text
+		expect(fakeThis.chatContainer.children).toHaveLength(5);
+		expect(renderLastLine(fakeThis.chatContainer)).toContain("STATUS_TWO");
+	});
+});
+
+describe("InteractiveMode.setToolsExpanded", () => {
+	test("applies expansion state to the active header and chat entries", () => {
+		const header = { setExpanded: vi.fn() };
+		const chatChild = { setExpanded: vi.fn() };
+		const fakeThis: any = {
+			toolOutputExpanded: false,
+			customHeader: undefined,
+			builtInHeader: header,
+			chatContainer: { children: [chatChild] },
+			ui: { requestRender: vi.fn() },
+		};
+
+		(InteractiveMode as any).prototype.setToolsExpanded.call(fakeThis, true);
+
+		expect(fakeThis.toolOutputExpanded).toBe(true);
+		expect(header.setExpanded).toHaveBeenCalledWith(true);
+		expect(chatChild.setExpanded).toHaveBeenCalledWith(true);
+		expect(fakeThis.ui.requestRender).toHaveBeenCalledTimes(1);
+	});
+});
+
+describe("InteractiveMode.renderInitialMessages", () => {
+	beforeAll(() => {
+		initTheme("dark");
+	});
+
+	test("is idempotent and does not duplicate rendered session messages", () => {
+		const fakeThis: any = {
+			chatContainer: new Container(),
+			pendingTools: new Map(),
+			sessionManager: {
+				buildSessionContext: () => ({
+					messages: [
+						{
+							id: "user-1",
+							role: "user",
+							content: [{ type: "text", text: "hello" }],
+							timestamp: "2026-06-15T00:00:00.000Z",
+						},
+					],
+				}),
+				getEntries: () => [],
+				getCwd: () => "/work/memorix",
+			},
+			footer: { invalidate: vi.fn() },
+			updateEditorBorderColor: vi.fn(),
+			editor: { addToHistory: vi.fn() },
+			settingsManager: {
+				isProjectTrusted: () => true,
+			},
+			ui: { requestRender: vi.fn() },
+			getMarkdownThemeWithSettings: () => undefined,
+			getUserMessageText: (InteractiveMode as any).prototype.getUserMessageText,
+			renderProjectTrustWarningIfNeeded: (InteractiveMode as any).prototype.renderProjectTrustWarningIfNeeded,
+			renderSessionContext: (InteractiveMode as any).prototype.renderSessionContext,
+			addMessageToChat: (InteractiveMode as any).prototype.addMessageToChat,
+			showStatus: (InteractiveMode as any).prototype.showStatus,
+		};
+
+		(InteractiveMode as any).prototype.renderInitialMessages.call(fakeThis);
+		(InteractiveMode as any).prototype.renderInitialMessages.call(fakeThis);
+
+		const output = normalizeRenderedOutput(fakeThis.chatContainer);
+		expect(output.match(/hello/g) ?? []).toHaveLength(1);
+	});
+});
+
+describe("InteractiveMode.handleResumeSession", () => {
+	test("clears terminal scrollback when switching sessions", async () => {
+		const fakeThis: any = {
+			loadingAnimation: undefined,
+			statusContainer: { clear: vi.fn() },
+			runtimeHost: {
+				switchSession: vi.fn(async () => ({ cancelled: false })),
+			},
+			createProjectTrustContext: vi.fn(),
+			renderCurrentSessionState: vi.fn(),
+			showStatus: vi.fn(),
+		};
+
+		const result = await (InteractiveMode as any).prototype.handleResumeSession.call(fakeThis, "session.jsonl");
+
+		expect(result).toEqual({ cancelled: false });
+		expect(fakeThis.renderCurrentSessionState).toHaveBeenCalledWith({
+			clearScrollback: true,
+			restoreScrollback: true,
+		});
+		expect(fakeThis.showStatus).toHaveBeenCalledWith("Resumed session");
+	});
+});
+
+describe("InteractiveMode.showSelector", () => {
+	test("can render session-switch selectors as transient overlays", () => {
+		const component = new TestFocusableComponent("Resume Session");
+		const handle = { hide: vi.fn(), focus: vi.fn() };
+		const fakeThis: any = {
+			editor: new TestFocusableComponent("editor"),
+			editorContainer: {
+				clear: vi.fn(),
+				addChild: vi.fn(),
+			},
+			ui: {
+				showOverlay: vi.fn(() => handle),
+				setFocus: vi.fn(),
+				requestRender: vi.fn(),
+			},
+		};
+
+		(InteractiveMode as any).prototype.showSelector.call(
+			fakeThis,
+			() => ({ component, focus: component }),
+			{ transientOverlay: true },
+		);
+
+		expect(fakeThis.editorContainer.clear).not.toHaveBeenCalled();
+		expect(fakeThis.editorContainer.addChild).not.toHaveBeenCalledWith(component);
+		expect(fakeThis.ui.showOverlay).toHaveBeenCalledWith(
+			component,
+			expect.objectContaining({ nonCapturing: true }),
+		);
+		expect(handle.focus).toHaveBeenCalledTimes(1);
+	});
+});
+
+describe("InteractiveMode.handleCtrlC", () => {
+	test("aborts the active agent turn instead of clearing input while streaming", () => {
+		const fakeThis: any = {
+			session: { isStreaming: true, isBashRunning: false },
+			restoreQueuedMessagesToEditor: vi.fn(),
+			clearEditor: vi.fn(),
+			shutdown: vi.fn(),
+			lastSigintTime: 0,
+		};
+
+		(InteractiveMode as any).prototype.handleCtrlC.call(fakeThis);
+
+		expect(fakeThis.restoreQueuedMessagesToEditor).toHaveBeenCalledWith({ abort: true });
+		expect(fakeThis.clearEditor).not.toHaveBeenCalled();
+		expect(fakeThis.shutdown).not.toHaveBeenCalled();
+		expect(fakeThis.lastSigintTime).toBe(0);
+	});
+});
+
+describe("InteractiveMode.initMemoryStatus", () => {
+	test("uses the native runtime context instead of a hand-built project data directory", async () => {
+		getMemorixRuntimeContext.mockResolvedValue({
+			memory: { activeCount: 782, totalCount: 782 },
+			search: { mode: "hybrid", probed: true },
+			embedding: { enabledInIndex: true, provider: "api-text-embedding-v4", vectorTotal: 1240, vectorMissing: 0 },
+		});
+		formatMemcodeFooterMemoryStatus.mockReturnValue("Memory: 782 active / 782 shared · Search: semantic ready · Embedding: 1240/1240");
+		const fakeThis: any = {
+			sessionManager: {
+				getCwd: () => "E:\\my_idea_cc\\my_copilot\\memorix",
+			},
+			memoryStatusRefreshTimer: undefined,
+			footerDataProvider: {
+				setMemoryStatus: vi.fn(),
+			},
+			ui: {
+				requestRender: vi.fn(),
+			},
+			scheduleMemoryStatusRefreshIfNeeded: vi.fn(),
+		};
+
+		await (InteractiveMode as any).prototype.initMemoryStatus.call(fakeThis);
+
+		expect(getMemorixRuntimeContext).toHaveBeenCalledWith("E:\\my_idea_cc\\my_copilot\\memorix", {
+			mode: "footer",
+		});
+		expect(formatMemcodeFooterMemoryStatus).toHaveBeenCalledWith(await getMemorixRuntimeContext.mock.results[0].value);
+		expect(fakeThis.footerDataProvider.setMemoryStatus).toHaveBeenCalledWith(
+			"Memory: 782 active / 782 shared · Search: semantic ready · Embedding: 1240/1240",
+		);
+		expect(fakeThis.footerDataProvider.setMemoryStatus).not.toHaveBeenCalledWith(
+			expect.stringContaining("observations indexed"),
+		);
+		expect(fakeThis.ui.requestRender).toHaveBeenCalledTimes(1);
+		expect(fakeThis.scheduleMemoryStatusRefreshIfNeeded).toHaveBeenCalledWith(await getMemorixRuntimeContext.mock.results[0].value);
+	});
+
+	test("schedules a follow-up refresh while semantic vectors are warming", () => {
+		vi.useFakeTimers();
+		const fakeThis: any = {
+			memoryStatusRefreshTimer: undefined,
+			initMemoryStatus: vi.fn(),
+		};
+		const context: any = {
+			embedding: {
+				provider: "api-text-embedding-v4",
+				backfillRunning: true,
+				vectorMissing: 10,
+			},
+			search: { mode: "fulltext" },
+		};
+
+		(InteractiveMode as any).prototype.scheduleMemoryStatusRefreshIfNeeded.call(fakeThis, context);
+		expect(fakeThis.memoryStatusRefreshTimer).toBeDefined();
+
+		vi.advanceTimersByTime(1500);
+		expect(fakeThis.initMemoryStatus).toHaveBeenCalledTimes(1);
+		vi.useRealTimers();
+	});
+
+	test("does not schedule a follow-up refresh once semantic status is ready", () => {
+		const fakeThis: any = {
+			memoryStatusRefreshTimer: undefined,
+			initMemoryStatus: vi.fn(),
+		};
+		const context: any = {
+			embedding: {
+				provider: "api-text-embedding-v4",
+				backfillRunning: false,
+				vectorMissing: 0,
+			},
+			search: { mode: "hybrid" },
+		};
+
+		(InteractiveMode as any).prototype.scheduleMemoryStatusRefreshIfNeeded.call(fakeThis, context);
+
+		expect(fakeThis.memoryStatusRefreshTimer).toBeUndefined();
+	});
+});
+
+describe("InteractiveMode startup header", () => {
+	beforeAll(() => {
+		initTheme("dark");
+	});
+
+	function renderStartupHeader(options?: { expanded?: boolean; width?: number }): string {
+		const fakeThis: any = {
+			version: "1.1.0",
+			sessionManager: {
+				getCwd: () => "/work/memorix",
+			},
+			footerDataProvider: {
+				getGitBranch: () => "feat/ui-shell",
+			},
+			session: {
+				model: { provider: "anthropic", id: "claude-sonnet", reasoning: true },
+				thinkingLevel: "high",
+			},
+			getStartupExpansionState: () => options?.expanded ?? false,
+			formatStartupProjectLabel: () =>
+				(InteractiveMode as any).prototype.formatStartupProjectLabel.call(fakeThis),
+			formatStartupModelLabel: () => (InteractiveMode as any).prototype.formatStartupModelLabel.call(fakeThis),
+		};
+		const header = (InteractiveMode as any).prototype.createBuiltInHeaderComponent.call(
+			fakeThis,
+			"EXPANDED_KEYS",
+			"COMPACT_KEYS",
+		) as Component;
+		const container = new Container();
+		container.addChild(header);
+		return normalizeRenderedOutput(container, options?.width);
+	}
+
+	test("shows a clean agent shell summary when collapsed", () => {
+		const output = renderStartupHeader();
+
+		expect(output).toContain("╭─── memcode v1.1.0");
+		expect(output).toContain("Ready when you are");
+		expect(output).toContain("anthropic/claude-sonnet");
+		expect(output).toContain("project memorix · feat/ui-she");
+		expect(output).toContain("Start here");
+		expect(output).toContain("/model switch model");
+		expect(output).toContain("Memorix native");
+		expect(output).toContain("auto context injection");
+		expect(output).toContain("/memory hooks");
+		expect(output).not.toContain("EXPANDED_KEYS");
+	});
+
+	test("shows full startup help when expanded", () => {
+		const output = renderStartupHeader({ expanded: true });
+
+		expect(output).toContain("╭─── memcode v1.1.0");
+		expect(output).toContain("Ready when you are");
+		expect(output).toContain("Memorix native");
+		expect(output).toContain("Hotkeys");
+		expect(output).toContain("COMPACT_KEYS");
+		expect(output).toContain("EXPANDED_KEYS");
+	});
+
+	test("falls back to a single-column card on narrow terminals", () => {
+		const output = renderStartupHeader({ width: 72 });
+
+		expect(output).toContain("╭─── memcode v1.1.0");
+		expect(output).toContain("Ready when you are");
+		expect(output).toContain("Start here");
+		expect(output).toContain("Memorix native");
+	});
+});
+
+describe("InteractiveMode activity status placement", () => {
+	beforeAll(() => {
+		initTheme("dark");
+	});
+
+	test("renders running activity in the status slot and clears it on completion", () => {
+		vi.useFakeTimers();
+		vi.setSystemTime(0);
+		const fakeThis: any = {
+			statusContainer: new Container(),
+			chatContainer: new Container(),
+			ui: {
+				requestRender: vi.fn(),
+				showOverlay: vi.fn(),
+			},
+			workingMessage: undefined,
+			workingIndicatorOptions: undefined,
+			activityAnimation: undefined,
+			activityStartedAt: undefined,
+			activityHadThinking: false,
+			activityOutputTokens: 0,
+			activityOutputTokenEstimate: 0,
+		};
+
+		(InteractiveMode as any).prototype.startWorkingActivity.call(fakeThis);
+
+		expect(fakeThis.ui.showOverlay).not.toHaveBeenCalled();
+		expect(normalizeRenderedOutput(fakeThis.statusContainer)).toContain("✶");
+		expect(fakeThis.chatContainer.children).toHaveLength(0);
+
+		vi.setSystemTime(4000);
+		(InteractiveMode as any).prototype.completeWorkingActivity.call(fakeThis, [{ role: "assistant" }]);
+
+		expect(normalizeRenderedOutput(fakeThis.statusContainer)).toBe("");
+		expect(normalizeRenderedOutput(fakeThis.chatContainer)).toContain("✻");
+		expect(normalizeRenderedOutput(fakeThis.chatContainer)).toContain("for 4s");
+
+		vi.useRealTimers();
+	});
+
+	test("forces a redraw when an assistant stream is finalized", async () => {
+		const message = {
+			role: "assistant",
+			content: [{ type: "text", text: "final answer" }],
+			stopReason: "stop",
+		};
+		const streamingComponent = { updateContent: vi.fn() };
+		const fakeThis: any = {
+			isInitialized: true,
+			footer: { invalidate: vi.fn() },
+			settingsManager: { getShowTerminalProgress: vi.fn(() => false) },
+			streamingComponent,
+			streamingMessage: undefined,
+			session: { retryAttempt: 0 },
+			pendingTools: new Map(),
+			ui: { requestRender: vi.fn(), terminal: { setProgress: vi.fn() } },
+			checkShutdownRequested: vi.fn(),
+		};
+
+	await (InteractiveMode as any).prototype.handleEvent.call(fakeThis, {
+			type: "message_end",
+			message,
+		});
+
+		expect(streamingComponent.updateContent).toHaveBeenCalledWith(message);
+		expect(fakeThis.ui.requestRender).toHaveBeenCalled();
+		expect(fakeThis.ui.requestRender).not.toHaveBeenCalledWith(true);
+	});
+});
+
+describe("InteractiveMode accepted user message rendering", () => {
+	beforeAll(() => {
+		initTheme("dark");
+	});
+
+	test("renders an accepted user message immediately and skips the later duplicate event", () => {
+		const message = {
+			role: "user",
+			content: [{ type: "text", text: "hello" }],
+			timestamp: 1,
+		};
+		const fakeThis: any = {
+			optimisticUserMessages: [],
+			addMessageToChat: vi.fn(),
+			updatePendingMessagesDisplay: vi.fn(),
+			ui: { requestRender: vi.fn() },
+			getUserMessageText: (msg: unknown) => (InteractiveMode as any).prototype.getUserMessageText.call(fakeThis, msg),
+		};
+
+		(InteractiveMode as any).prototype.renderAcceptedUserMessage.call(fakeThis, message);
+
+		expect(fakeThis.addMessageToChat).toHaveBeenCalledWith(message);
+		expect(fakeThis.optimisticUserMessages).toEqual(["hello"]);
+		expect(fakeThis.updatePendingMessagesDisplay).toHaveBeenCalledTimes(1);
+		expect(fakeThis.ui.requestRender).toHaveBeenCalledTimes(1);
+
+		expect((InteractiveMode as any).prototype.consumeOptimisticUserMessage.call(fakeThis, message)).toBe(true);
+		expect(fakeThis.optimisticUserMessages).toEqual([]);
+		expect((InteractiveMode as any).prototype.consumeOptimisticUserMessage.call(fakeThis, message)).toBe(false);
+	});
+});
+
+describe("InteractiveMode.createExtensionUIContext setTheme", () => {
+	test("persists theme changes to settings manager", () => {
+		initTheme("dark");
+
+		let currentTheme = "dark";
+		const settingsManager = {
+			getTheme: vi.fn(() => currentTheme),
+			setTheme: vi.fn((theme: string) => {
+				currentTheme = theme;
+			}),
+		};
+		const fakeThis: any = {
+			session: { settingsManager },
+			settingsManager,
+			ui: { requestRender: vi.fn() },
+		};
+
+		const uiContext = (InteractiveMode as any).prototype.createExtensionUIContext.call(fakeThis);
+		const result = uiContext.setTheme("light");
+
+		expect(result.success).toBe(true);
+		expect(settingsManager.setTheme).toHaveBeenCalledWith("light");
+		expect(currentTheme).toBe("light");
+		expect(fakeThis.ui.requestRender).toHaveBeenCalledTimes(1);
+	});
+
+	test("does not persist invalid theme names", () => {
+		initTheme("dark");
+
+		const settingsManager = {
+			getTheme: vi.fn(() => "dark"),
+			setTheme: vi.fn(),
+		};
+		const fakeThis: any = {
+			session: { settingsManager },
+			settingsManager,
+			ui: { requestRender: vi.fn() },
+		};
+
+		const uiContext = (InteractiveMode as any).prototype.createExtensionUIContext.call(fakeThis);
+		const result = uiContext.setTheme("__missing_theme__");
+
+		expect(result.success).toBe(false);
+		expect(settingsManager.setTheme).not.toHaveBeenCalled();
+		expect(fakeThis.ui.requestRender).not.toHaveBeenCalled();
+	});
+});
+
+describe("InteractiveMode.showExtensionCustom", () => {
+	beforeAll(() => {
+		initTheme("dark");
+	});
+
+	test("overlay custom UI reclaims input after non-overlay custom UI closes", async () => {
+		const terminal = new VirtualTerminal(80, 24);
+		const ui = new TUI(terminal);
+		const editorContainer = new Container();
+		const editor = new TestFocusableComponent("EDITOR");
+		const palette = new TestFocusableComponent("PALETTE");
+		const overlay = new TestFocusableComponent("OVERLAY");
+		const replacement = new TestFocusableComponent("REPLACEMENT");
+		let closeOverlay: (value: string) => void = () => {
+			throw new Error("closeOverlay was not initialized");
+		};
+		let closeReplacement: (value: string) => void = () => {
+			throw new Error("closeReplacement was not initialized");
+		};
+		const fakeThis = {
+			editor,
+			editorContainer,
+			keybindings: {},
+			ui,
+		};
+		const showExtensionCustom = <T>(
+			factory: (tui: TUI, theme: unknown, keybindings: unknown, done: (result: T) => void) => Component,
+			options?: { overlay?: boolean },
+		): Promise<T> =>
+			(InteractiveMode as any).prototype.showExtensionCustom.call(fakeThis, factory, options) as Promise<T>;
+
+		editorContainer.addChild(editor);
+		ui.addChild(editorContainer);
+		ui.addChild(palette);
+		ui.setFocus(palette);
+		ui.start();
+		try {
+			const overlayPromise = showExtensionCustom<string>(
+				(_tui, _theme, _keybindings, done) => {
+					closeOverlay = done;
+					return overlay;
+				},
+				{ overlay: true },
+			);
+			await flushTui(ui, terminal);
+			expect(overlay.focused).toBe(true);
+
+			const replacementPromise = showExtensionCustom<string>((_tui, _theme, _keybindings, done) => {
+				closeReplacement = done;
+				return replacement;
+			});
+			await flushTui(ui, terminal);
+			expect(replacement.focused).toBe(true);
+
+			closeReplacement("done");
+			await replacementPromise;
+			await flushTui(ui, terminal);
+			terminal.sendInput("x");
+			await flushTui(ui, terminal);
+
+			expect(overlay.inputs).toEqual(["x"]);
+			expect(editor.inputs).toEqual([]);
+			expect(overlay.focused).toBe(true);
+
+			closeOverlay("closed");
+			await overlayPromise;
+		} finally {
+			ui.stop();
+		}
+	});
+});
+
+describe("InteractiveMode.createExtensionUIContext addAutocompleteProvider", () => {
+	test("stores wrapper factories and rebuilds autocomplete immediately", () => {
+		const wrapper: AutocompleteProviderFactory = (current) => current;
+		const fakeThis = {
+			autocompleteProviderWrappers: [] as AutocompleteProviderFactory[],
+			setupAutocompleteProvider: vi.fn(),
+		};
+
+		const uiContext = (InteractiveMode as any).prototype.createExtensionUIContext.call(fakeThis);
+		uiContext.addAutocompleteProvider(wrapper);
+
+		expect(fakeThis.autocompleteProviderWrappers).toEqual([wrapper]);
+		expect(fakeThis.setupAutocompleteProvider).toHaveBeenCalledTimes(1);
+	});
+});
+
+describe("InteractiveMode.setupAutocompleteProvider", () => {
+	test("stacks wrapper factories over a fresh base provider", () => {
+		const defaultEditor = { setAutocompleteProvider: vi.fn() };
+		const customEditor = { setAutocompleteProvider: vi.fn() };
+		const calls: string[] = [];
+
+		const wrap1: AutocompleteProviderFactory = (current): AutocompleteProvider => ({
+			async getSuggestions(lines, cursorLine, cursorCol, options) {
+				calls.push("getSuggestions:wrap1");
+				return current.getSuggestions(lines, cursorLine, cursorCol, options);
+			},
+			applyCompletion(lines, cursorLine, cursorCol, item, prefix) {
+				calls.push("applyCompletion:wrap1");
+				return current.applyCompletion(lines, cursorLine, cursorCol, item, prefix);
+			},
+			shouldTriggerFileCompletion(lines, cursorLine, cursorCol) {
+				calls.push("shouldTrigger:wrap1");
+				return current.shouldTriggerFileCompletion?.(lines, cursorLine, cursorCol) ?? true;
+			},
+		});
+		const wrap2: AutocompleteProviderFactory = (current): AutocompleteProvider => ({
+			async getSuggestions(lines, cursorLine, cursorCol, options) {
+				calls.push("getSuggestions:wrap2");
+				return current.getSuggestions(lines, cursorLine, cursorCol, options);
+			},
+			applyCompletion(lines, cursorLine, cursorCol, item, prefix) {
+				calls.push("applyCompletion:wrap2");
+				return current.applyCompletion(lines, cursorLine, cursorCol, item, prefix);
+			},
+			shouldTriggerFileCompletion(lines, cursorLine, cursorCol) {
+				calls.push("shouldTrigger:wrap2");
+				return current.shouldTriggerFileCompletion?.(lines, cursorLine, cursorCol) ?? true;
+			},
+		});
+
+		const fakeThis = {
+			createBaseAutocompleteProvider: () => new CombinedAutocompleteProvider([], "/tmp/project", undefined),
+			defaultEditor,
+			editor: customEditor,
+			autocompleteProviderWrappers: [wrap1, wrap2],
+		};
+
+		(InteractiveMode as any).prototype.setupAutocompleteProvider.call(fakeThis);
+
+		expect(defaultEditor.setAutocompleteProvider).toHaveBeenCalledTimes(1);
+		expect(customEditor.setAutocompleteProvider).toHaveBeenCalledTimes(1);
+		const provider = defaultEditor.setAutocompleteProvider.mock.calls[0]?.[0] as AutocompleteProvider;
+		expect(provider).toBe(customEditor.setAutocompleteProvider.mock.calls[0]?.[0]);
+		expect(provider.shouldTriggerFileCompletion?.(["foo"], 0, 3)).toBe(true);
+		expect(calls).toEqual(["shouldTrigger:wrap2", "shouldTrigger:wrap1"]);
+	});
+});
+
+describe("InteractiveMode.showLoadedResources", () => {
+	beforeAll(() => {
+		initTheme("dark");
+	});
+
+	function createShowLoadedResourcesThis(options: {
+		quietStartup: boolean;
+		verbose?: boolean;
+		toolOutputExpanded?: boolean;
+		cwd?: string;
+		contextFiles?: Array<{ path: string; content?: string }>;
+		extensions?: ExtensionFixture[];
+		skills?: Array<{ filePath: string; name: string }>;
+		skillDiagnostics?: Array<{ type: "warning" | "error" | "collision"; message: string }>;
+		summaryOnly?: boolean;
+		useRealScopeGroups?: boolean;
+	}) {
+		const fakeThis: any = {
+			options: { verbose: options.verbose ?? false },
+			toolOutputExpanded: options.toolOutputExpanded ?? false,
+			chatContainer: new Container(),
+			settingsManager: {
+				getQuietStartup: () => options.quietStartup,
+			},
+			sessionManager: {
+				getCwd: () => options.cwd ?? "/tmp/project",
+			},
+			session: {
+				promptTemplates: [],
+				extensionRunner: {
+					getCommandDiagnostics: () => [],
+					getShortcutDiagnostics: () => [],
+				},
+				resourceLoader: {
+					getPathMetadata: () => new Map(),
+					getAgentsFiles: () => ({ agentsFiles: options.contextFiles ?? [] }),
+					getSkills: () => ({
+						skills: options.skills ?? [],
+						diagnostics: options.skillDiagnostics ?? [],
+					}),
+					getPrompts: () => ({ prompts: [], diagnostics: [] }),
+					getExtensions: () => ({ extensions: options.extensions ?? [], errors: [], runtime: {} }),
+					getThemes: () => ({ themes: [], diagnostics: [] }),
+				},
+			},
+			formatDisplayPath: (p: string) => (InteractiveMode as any).prototype.formatDisplayPath.call(fakeThis, p),
+			formatExtensionDisplayPath: (p: string) =>
+				(InteractiveMode as any).prototype.formatExtensionDisplayPath.call(fakeThis, p),
+			formatContextPath: (p: string) => (InteractiveMode as any).prototype.formatContextPath.call(fakeThis, p),
+			getStartupExpansionState: () => (InteractiveMode as any).prototype.getStartupExpansionState.call(fakeThis),
+			buildScopeGroups: () => [],
+			formatScopeGroups: () => "resource-list",
+			isPackageSource: (sourceInfo?: SourceInfo) =>
+				(InteractiveMode as any).prototype.isPackageSource.call(fakeThis, sourceInfo),
+			getShortPath: (p: string, sourceInfo?: SourceInfo) =>
+				(InteractiveMode as any).prototype.getShortPath.call(fakeThis, p, sourceInfo),
+			getCompactPathLabel: (p: string, sourceInfo?: SourceInfo) =>
+				(InteractiveMode as any).prototype.getCompactPathLabel.call(fakeThis, p, sourceInfo),
+			getCompactPackageSourceLabel: (sourceInfo?: SourceInfo) =>
+				(InteractiveMode as any).prototype.getCompactPackageSourceLabel.call(fakeThis, sourceInfo),
+			getCompactExtensionLabel: (p: string, sourceInfo?: SourceInfo) =>
+				(InteractiveMode as any).prototype.getCompactExtensionLabel.call(fakeThis, p, sourceInfo),
+			getCompactDisplayPathSegments: (p: string) =>
+				(InteractiveMode as any).prototype.getCompactDisplayPathSegments.call(fakeThis, p),
+			getCompactNonPackageExtensionLabel: (
+				p: string,
+				index: number,
+				allPaths: Array<{ path: string; segments: string[] }>,
+			) => (InteractiveMode as any).prototype.getCompactNonPackageExtensionLabel.call(fakeThis, p, index, allPaths),
+			getCompactExtensionLabels: (extensions: ExtensionFixture[]) =>
+				(InteractiveMode as any).prototype.getCompactExtensionLabels.call(fakeThis, extensions),
+			formatDiagnostics: () => "diagnostics",
+			getBuiltInCommandConflictDiagnostics: () => [],
+		};
+
+		if (options.useRealScopeGroups) {
+			fakeThis.getScopeGroup = (sourceInfo?: SourceInfo) =>
+				(InteractiveMode as any).prototype.getScopeGroup.call(fakeThis, sourceInfo);
+			fakeThis.buildScopeGroups = (items: Array<{ path: string; sourceInfo?: SourceInfo }>) =>
+				(InteractiveMode as any).prototype.buildScopeGroups.call(fakeThis, items);
+			fakeThis.formatScopeGroups = (groups: unknown, formatOptions: unknown) =>
+				(InteractiveMode as any).prototype.formatScopeGroups.call(fakeThis, groups, formatOptions);
+		}
+
+		return fakeThis;
+	}
+
+	function createSourceInfo(
+		filePath: string,
+		options: {
+			source: string;
+			scope: "user" | "project" | "temporary";
+			origin: "package" | "top-level";
+			baseDir?: string;
+		},
+	): SourceInfo {
+		return {
+			path: filePath,
+			source: options.source,
+			scope: options.scope,
+			origin: options.origin,
+			baseDir: options.baseDir,
+		};
+	}
+
+	function createExtensionFixtures(): ExtensionFixture[] {
+		return [
+			{
+				path: "/tmp/project/.pi/extensions/answer.ts",
+				sourceInfo: createSourceInfo("/tmp/project/.pi/extensions/answer.ts", {
+					source: "local",
+					scope: "project",
+					origin: "top-level",
+					baseDir: "/tmp/project/.pi/extensions",
+				}),
+			},
+			{
+				path: "/tmp/project/.pi/extensions/local-index/index.ts",
+				sourceInfo: createSourceInfo("/tmp/project/.pi/extensions/local-index/index.ts", {
+					source: "local",
+					scope: "project",
+					origin: "top-level",
+					baseDir: "/tmp/project/.pi/extensions",
+				}),
+			},
+			{
+				path: "/tmp/agent/extensions/user-index/index.ts",
+				sourceInfo: createSourceInfo("/tmp/agent/extensions/user-index/index.ts", {
+					source: "local",
+					scope: "user",
+					origin: "top-level",
+					baseDir: "/tmp/agent/extensions",
+				}),
+			},
+			{
+				path: "/tmp/project/.pi/npm/node_modules/pi-markdown-preview/extensions/index.ts",
+				sourceInfo: createSourceInfo("/tmp/project/.pi/npm/node_modules/pi-markdown-preview/extensions/index.ts", {
+					source: "npm:pi-markdown-preview",
+					scope: "project",
+					origin: "package",
+					baseDir: "/tmp/project/.pi/npm/node_modules/pi-markdown-preview",
+				}),
+			},
+			{
+				path: "/tmp/project/.pi/npm/node_modules/@scope/pi-scoped/extensions/index.ts",
+				sourceInfo: createSourceInfo("/tmp/project/.pi/npm/node_modules/@scope/pi-scoped/extensions/index.ts", {
+					source: "npm:@scope/pi-scoped",
+					scope: "project",
+					origin: "package",
+					baseDir: "/tmp/project/.pi/npm/node_modules/@scope/pi-scoped",
+				}),
+			},
+			{
+				path: "/tmp/project/.pi/git/github.com/HazAT/pi-interactive-subagents/extensions/index.ts",
+				sourceInfo: createSourceInfo(
+					"/tmp/project/.pi/git/github.com/HazAT/pi-interactive-subagents/extensions/index.ts",
+					{
+						source: "git:github.com/HazAT/pi-interactive-subagents",
+						scope: "project",
+						origin: "package",
+						baseDir: "/tmp/project/.pi/git/github.com/HazAT/pi-interactive-subagents",
+					},
+				),
+			},
+			{
+				path: "/tmp/project/.pi/git/github.com/HazAT/pi-interactive-subagents/extensions/subagents/index.ts",
+				sourceInfo: createSourceInfo(
+					"/tmp/project/.pi/git/github.com/HazAT/pi-interactive-subagents/extensions/subagents/index.ts",
+					{
+						source: "git:github.com/HazAT/pi-interactive-subagents",
+						scope: "project",
+						origin: "package",
+						baseDir: "/tmp/project/.pi/git/github.com/HazAT/pi-interactive-subagents",
+					},
+				),
+			},
+			{
+				path: "/tmp/temp/cli-extension.ts",
+				sourceInfo: createSourceInfo("/tmp/temp/cli-extension.ts", {
+					source: "cli",
+					scope: "temporary",
+					origin: "top-level",
+					baseDir: "/tmp/temp",
+				}),
+			},
+		];
+	}
+
+	test("shows a compact resource listing by default", () => {
+		const fakeThis = createShowLoadedResourcesThis({
+			quietStartup: false,
+			skills: [{ filePath: "/tmp/skill/SKILL.md", name: "commit" }],
+		});
+
+		(InteractiveMode as any).prototype.showLoadedResources.call(fakeThis, {
+			force: false,
+		});
+
+		const output = renderAll(fakeThis.chatContainer);
+		expect(output).toContain("[Skills]");
+		expect(output).toContain("commit");
+		expect(output).not.toContain("resource-list");
+	});
+
+	test("shows only a startup resource summary when requested and collapsed", () => {
+		const fakeThis = createShowLoadedResourcesThis({
+			quietStartup: false,
+			summaryOnly: true,
+			contextFiles: [{ path: "/tmp/project/AGENTS.md" }],
+			skills: [{ filePath: "/tmp/skill/SKILL.md", name: "commit" }],
+			extensions: [{ path: "/tmp/extensions/answer.ts" }],
+		});
+
+		(InteractiveMode as any).prototype.showLoadedResources.call(fakeThis, {
+			force: false,
+			summaryOnly: true,
+		});
+
+		const output = normalizeRenderedOutput(fakeThis.chatContainer);
+		expect(output).toContain("[Loaded]");
+		expect(output).toContain("1 context");
+		expect(output).toContain("1 skill");
+		expect(output).toContain("1 extension");
+		expect(output).toContain("ctrl+o for details");
+		expect(output).not.toContain("[Context]");
+		expect(output).not.toContain("[Skills]");
+		expect(output).not.toContain("[Extensions]");
+		expect(output).not.toContain("commit");
+		expect(output).not.toContain("answer.ts");
+	});
+
+	test("shows full startup resources when summary is requested but expanded", () => {
+		const fakeThis = createShowLoadedResourcesThis({
+			quietStartup: false,
+			summaryOnly: true,
+			toolOutputExpanded: true,
+			skills: [{ filePath: "/tmp/skill/SKILL.md", name: "commit" }],
+		});
+
+		(InteractiveMode as any).prototype.showLoadedResources.call(fakeThis, {
+			force: false,
+			summaryOnly: true,
+		});
+
+		const output = renderAll(fakeThis.chatContainer);
+		expect(output).toContain("[Skills]");
+		expect(output).toContain("resource-list");
+		expect(output).not.toContain("[Loaded]");
+	});
+
+	test("shows full resource listing when expanded", () => {
+		const fakeThis = createShowLoadedResourcesThis({
+			quietStartup: false,
+			toolOutputExpanded: true,
+			skills: [{ filePath: "/tmp/skill/SKILL.md", name: "commit" }],
+		});
+
+		(InteractiveMode as any).prototype.showLoadedResources.call(fakeThis, {
+			force: false,
+		});
+
+		const output = renderAll(fakeThis.chatContainer);
+		expect(output).toContain("[Skills]");
+		expect(output).toContain("resource-list");
+		expect(output).not.toContain("commit");
+	});
+
+	test("shows full resource listing on verbose startup even when tool output is collapsed", () => {
+		const fakeThis = createShowLoadedResourcesThis({
+			quietStartup: true,
+			verbose: true,
+			toolOutputExpanded: false,
+			skills: [{ filePath: "/tmp/skill/SKILL.md", name: "commit" }],
+		});
+
+		(InteractiveMode as any).prototype.showLoadedResources.call(fakeThis, {
+			force: false,
+		});
+
+		const output = renderAll(fakeThis.chatContainer);
+		expect(output).toContain("[Skills]");
+		expect(output).toContain("resource-list");
+		expect(output).not.toContain("commit");
+	});
+
+	test("abbreviates extensions in compact listing", () => {
+		const fakeThis = createShowLoadedResourcesThis({
+			quietStartup: false,
+			extensions: [{ path: "/tmp/extensions/answer.ts" }, { path: "/tmp/extensions/btw.ts" }],
+		});
+
+		(InteractiveMode as any).prototype.showLoadedResources.call(fakeThis, {
+			force: false,
+		});
+
+		const output = renderAll(fakeThis.chatContainer);
+		expect(output).toContain("[Extensions]");
+		expect(output).toContain("answer.ts, btw.ts");
+		expect(output).not.toContain("extensions/answer.ts");
+	});
+
+	test("captures mixed extension layouts in compact output", () => {
+		const fakeThis = createShowLoadedResourcesThis({
+			quietStartup: false,
+			extensions: createExtensionFixtures(),
+			useRealScopeGroups: true,
+		});
+
+		(InteractiveMode as any).prototype.showLoadedResources.call(fakeThis, {
+			force: false,
+		});
+
+		expect(normalizeRenderedOutput(fakeThis.chatContainer)).toMatchInlineSnapshot(`
+"[Extensions]
+  @scope/pi-scoped, answer.ts, cli-extension.ts, HazAT/pi-interactive-subagents, HazAT/pi-interactive-subagents:subagents, local-index, pi-markdown-preview, user-index"`);
+	});
+
+	test("adds more parent folders until local extension labels are unique", () => {
+		const extensions: ExtensionFixture[] = [
+			{
+				path: "/tmp/alpha/one/index.ts",
+				sourceInfo: createSourceInfo("/tmp/alpha/one/index.ts", {
+					source: "cli",
+					scope: "temporary",
+					origin: "top-level",
+					baseDir: "/tmp/alpha",
+				}),
+			},
+			{
+				path: "/tmp/beta/one/index.ts",
+				sourceInfo: createSourceInfo("/tmp/beta/one/index.ts", {
+					source: "cli",
+					scope: "temporary",
+					origin: "top-level",
+					baseDir: "/tmp/beta",
+				}),
+			},
+			{
+				path: "/tmp/gamma/one/index.ts",
+				sourceInfo: createSourceInfo("/tmp/gamma/one/index.ts", {
+					source: "cli",
+					scope: "temporary",
+					origin: "top-level",
+					baseDir: "/tmp/gamma",
+				}),
+			},
+		];
+
+		const fakeThis = createShowLoadedResourcesThis({
+			quietStartup: false,
+			extensions,
+			useRealScopeGroups: true,
+		});
+
+		(InteractiveMode as any).prototype.showLoadedResources.call(fakeThis, {
+			force: false,
+		});
+
+		expect(normalizeRenderedOutput(fakeThis.chatContainer)).toMatchInlineSnapshot(`
+"[Extensions]
+  alpha/one, beta/one, gamma/one"`);
+	});
+
+	test("strips index.ts from local extension label, showing parent dir", () => {
+		const extensions: ExtensionFixture[] = [
+			{
+				path: "/tmp/extensions/plan-mode/index.ts",
+				sourceInfo: createSourceInfo("/tmp/extensions/plan-mode/index.ts", {
+					source: "local",
+					scope: "project",
+					origin: "top-level",
+					baseDir: "/tmp/extensions",
+				}),
+			},
+		];
+
+		const fakeThis = createShowLoadedResourcesThis({
+			quietStartup: false,
+			extensions,
+			useRealScopeGroups: true,
+		});
+
+		(InteractiveMode as any).prototype.showLoadedResources.call(fakeThis, {
+			force: false,
+		});
+
+		expect(normalizeRenderedOutput(fakeThis.chatContainer)).toMatchInlineSnapshot(`
+"[Extensions]
+  plan-mode"`);
+	});
+
+	test("strips index.js from local extension label, showing parent dir", () => {
+		const extensions: ExtensionFixture[] = [
+			{
+				path: "/tmp/extensions/plan-mode/index.js",
+				sourceInfo: createSourceInfo("/tmp/extensions/plan-mode/index.js", {
+					source: "local",
+					scope: "project",
+					origin: "top-level",
+					baseDir: "/tmp/extensions",
+				}),
+			},
+		];
+
+		const fakeThis = createShowLoadedResourcesThis({
+			quietStartup: false,
+			extensions,
+			useRealScopeGroups: true,
+		});
+
+		(InteractiveMode as any).prototype.showLoadedResources.call(fakeThis, {
+			force: false,
+		});
+
+		expect(normalizeRenderedOutput(fakeThis.chatContainer)).toMatchInlineSnapshot(`
+"[Extensions]
+  plan-mode"`);
+	});
+
+	test("mixed single-file and subdirectory index.ts extensions strip index.ts", () => {
+		const extensions: ExtensionFixture[] = [
+			{
+				path: "/tmp/extensions/webfetch.ts",
+				sourceInfo: createSourceInfo("/tmp/extensions/webfetch.ts", {
+					source: "local",
+					scope: "project",
+					origin: "top-level",
+					baseDir: "/tmp/extensions",
+				}),
+			},
+			{
+				path: "/tmp/extensions/plan-mode/index.ts",
+				sourceInfo: createSourceInfo("/tmp/extensions/plan-mode/index.ts", {
+					source: "local",
+					scope: "project",
+					origin: "top-level",
+					baseDir: "/tmp/extensions",
+				}),
+			},
+		];
+
+		const fakeThis = createShowLoadedResourcesThis({
+			quietStartup: false,
+			extensions,
+			useRealScopeGroups: true,
+		});
+
+		(InteractiveMode as any).prototype.showLoadedResources.call(fakeThis, {
+			force: false,
+		});
+
+		expect(normalizeRenderedOutput(fakeThis.chatContainer)).toMatchInlineSnapshot(`
+"[Extensions]
+  plan-mode, webfetch.ts"`);
+	});
+
+	test("multiple index.ts with unique parent dirs need no disambiguation", () => {
+		const extensions: ExtensionFixture[] = [
+			{
+				path: "/tmp/extensions/foo/index.ts",
+				sourceInfo: createSourceInfo("/tmp/extensions/foo/index.ts", {
+					source: "local",
+					scope: "project",
+					origin: "top-level",
+					baseDir: "/tmp/extensions",
+				}),
+			},
+			{
+				path: "/tmp/extensions/bar/index.ts",
+				sourceInfo: createSourceInfo("/tmp/extensions/bar/index.ts", {
+					source: "local",
+					scope: "project",
+					origin: "top-level",
+					baseDir: "/tmp/extensions",
+				}),
+			},
+		];
+
+		const fakeThis = createShowLoadedResourcesThis({
+			quietStartup: false,
+			extensions,
+			useRealScopeGroups: true,
+		});
+
+		(InteractiveMode as any).prototype.showLoadedResources.call(fakeThis, {
+			force: false,
+		});
+
+		expect(normalizeRenderedOutput(fakeThis.chatContainer)).toMatchInlineSnapshot(`
+"[Extensions]
+  bar, foo"`);
+	});
+
+	test("multiple index.ts with same parent dir name disambiguated with grandparent", () => {
+		const extensions: ExtensionFixture[] = [
+			{
+				path: "/tmp/alpha/tools/index.ts",
+				sourceInfo: createSourceInfo("/tmp/alpha/tools/index.ts", {
+					source: "cli",
+					scope: "temporary",
+					origin: "top-level",
+					baseDir: "/tmp/alpha",
+				}),
+			},
+			{
+				path: "/tmp/beta/tools/index.ts",
+				sourceInfo: createSourceInfo("/tmp/beta/tools/index.ts", {
+					source: "cli",
+					scope: "temporary",
+					origin: "top-level",
+					baseDir: "/tmp/beta",
+				}),
+			},
+		];
+
+		const fakeThis = createShowLoadedResourcesThis({
+			quietStartup: false,
+			extensions,
+			useRealScopeGroups: true,
+		});
+
+		(InteractiveMode as any).prototype.showLoadedResources.call(fakeThis, {
+			force: false,
+		});
+
+		expect(normalizeRenderedOutput(fakeThis.chatContainer)).toMatchInlineSnapshot(`
+"[Extensions]
+  alpha/tools, beta/tools"`);
+	});
+
+	test("non-index file in subdirectory stays as filename", () => {
+		const extensions: ExtensionFixture[] = [
+			{
+				path: "/tmp/extensions/my-ext/main.ts",
+				sourceInfo: createSourceInfo("/tmp/extensions/my-ext/main.ts", {
+					source: "local",
+					scope: "project",
+					origin: "top-level",
+					baseDir: "/tmp/extensions",
+				}),
+			},
+		];
+
+		const fakeThis = createShowLoadedResourcesThis({
+			quietStartup: false,
+			extensions,
+			useRealScopeGroups: true,
+		});
+
+		(InteractiveMode as any).prototype.showLoadedResources.call(fakeThis, {
+			force: false,
+		});
+
+		expect(normalizeRenderedOutput(fakeThis.chatContainer)).toMatchInlineSnapshot(`
+"[Extensions]
+  main.ts"`);
+	});
+
+	test("package extensions still strip index.ts correctly (regression guard)", () => {
+		const extensions: ExtensionFixture[] = [
+			{
+				path: "/tmp/project/.pi/npm/node_modules/pi-markdown-preview/extensions/index.ts",
+				sourceInfo: createSourceInfo("/tmp/project/.pi/npm/node_modules/pi-markdown-preview/extensions/index.ts", {
+					source: "npm:pi-markdown-preview",
+					scope: "project",
+					origin: "package",
+					baseDir: "/tmp/project/.pi/npm/node_modules/pi-markdown-preview",
+				}),
+			},
+		];
+
+		const fakeThis = createShowLoadedResourcesThis({
+			quietStartup: false,
+			extensions,
+			useRealScopeGroups: true,
+		});
+
+		(InteractiveMode as any).prototype.showLoadedResources.call(fakeThis, {
+			force: false,
+		});
+
+		expect(normalizeRenderedOutput(fakeThis.chatContainer)).toMatchInlineSnapshot(`
+"[Extensions]
+  pi-markdown-preview"`);
+	});
+	test("captures mixed extension layouts in expanded output", () => {
+		const fakeThis = createShowLoadedResourcesThis({
+			quietStartup: false,
+			toolOutputExpanded: true,
+			extensions: createExtensionFixtures(),
+			useRealScopeGroups: true,
+		});
+
+		(InteractiveMode as any).prototype.showLoadedResources.call(fakeThis, {
+			force: false,
+		});
+
+		expect(normalizeRenderedOutput(fakeThis.chatContainer)).toMatchInlineSnapshot(`
+"[Extensions]
+  project
+    /tmp/project/.pi/extensions/answer.ts
+    /tmp/project/.pi/extensions/local-index
+    git:github.com/HazAT/pi-interactive-subagents
+      extensions
+      extensions/subagents
+    npm:@scope/pi-scoped
+      extensions
+    npm:pi-markdown-preview
+      extensions
+  user
+    /tmp/agent/extensions/user-index
+  path
+    /tmp/temp/cli-extension.ts"`);
+	});
+
+	test("shows context paths relative to cwd while preserving full external paths", () => {
+		const home = homedir();
+		const cwd = path.join(home, "Development", "pi-mono");
+		const fakeThis = createShowLoadedResourcesThis({
+			quietStartup: false,
+			cwd,
+			contextFiles: [{ path: path.join(home, ".memorix", "AGENTS.md") }, { path: path.join(cwd, "AGENTS.md") }],
+		});
+
+		(InteractiveMode as any).prototype.showLoadedResources.call(fakeThis, {
+			force: false,
+		});
+
+		const output = renderAll(fakeThis.chatContainer).replace(/\\/g, "/");
+		expect(output).toContain("[Context]");
+		expect(output).toContain("~/.memorix/AGENTS.md, AGENTS.md");
+		expect(output).not.toContain(`${cwd.replace(/\\/g, "/")}/AGENTS.md`);
+	});
+
+	test("shows full context paths when expanded", () => {
+		const home = homedir();
+		const cwd = path.join(home, "Development", "pi-mono");
+		const fakeThis = createShowLoadedResourcesThis({
+			quietStartup: false,
+			toolOutputExpanded: true,
+			cwd,
+			contextFiles: [{ path: path.join(home, ".memorix", "AGENTS.md") }, { path: path.join(cwd, "AGENTS.md") }],
+		});
+
+		(InteractiveMode as any).prototype.showLoadedResources.call(fakeThis, {
+			force: false,
+		});
+
+		const output = renderAll(fakeThis.chatContainer).replace(/\\/g, "/");
+		expect(output).toContain("[Context]");
+		expect(output).toContain("~/.memorix/AGENTS.md");
+		expect(output).toContain("~/Development/pi-mono/AGENTS.md");
+		expect(output).not.toContain("~/.memorix/AGENTS.md, AGENTS.md");
+	});
+
+	test("does not show verbose listing on quiet startup during reload", () => {
+		const fakeThis = createShowLoadedResourcesThis({
+			quietStartup: true,
+			skills: [{ filePath: "/tmp/skill/SKILL.md", name: "commit" }],
+		});
+
+		(InteractiveMode as any).prototype.showLoadedResources.call(fakeThis, {
+			extensions: [{ path: "/tmp/ext/index.ts" }],
+			force: false,
+			showDiagnosticsWhenQuiet: true,
+		});
+
+		expect(fakeThis.chatContainer.children).toHaveLength(0);
+	});
+
+	test("still shows diagnostics on quiet startup when requested", () => {
+		const fakeThis = createShowLoadedResourcesThis({
+			quietStartup: true,
+			skills: [{ filePath: "/tmp/skill/SKILL.md", name: "commit" }],
+			skillDiagnostics: [{ type: "warning", message: "duplicate skill name" }],
+		});
+
+		(InteractiveMode as any).prototype.showLoadedResources.call(fakeThis, {
+			force: false,
+			showDiagnosticsWhenQuiet: true,
+		});
+
+		const output = renderAll(fakeThis.chatContainer);
+		expect(output).toContain("[Skill conflicts]");
+		expect(output).not.toContain("[Skills]");
+	});
+
+	test("summarizes startup diagnostics when collapsed", () => {
+		const fakeThis = createShowLoadedResourcesThis({
+			quietStartup: true,
+			summaryOnly: true,
+			skills: [{ filePath: "/tmp/skill/SKILL.md", name: "commit" }],
+			skillDiagnostics: [{ type: "warning", message: "duplicate skill name" }],
+		});
+
+		(InteractiveMode as any).prototype.showLoadedResources.call(fakeThis, {
+			force: false,
+			showDiagnosticsWhenQuiet: true,
+			summaryOnly: true,
+		});
+
+		const output = normalizeRenderedOutput(fakeThis.chatContainer);
+		expect(output).toContain("[Startup diagnostics]");
+		expect(output).toContain("1 skill issue");
+		expect(output).toContain("ctrl+o for details");
+		expect(output).not.toContain("[Skill conflicts]");
+		expect(output).not.toContain("duplicate skill name");
+	});
+
+	test("shows full startup diagnostics when expanded", () => {
+		const fakeThis = createShowLoadedResourcesThis({
+			quietStartup: true,
+			summaryOnly: true,
+			toolOutputExpanded: true,
+			skills: [{ filePath: "/tmp/skill/SKILL.md", name: "commit" }],
+			skillDiagnostics: [{ type: "warning", message: "duplicate skill name" }],
+		});
+
+		(InteractiveMode as any).prototype.showLoadedResources.call(fakeThis, {
+			force: false,
+			showDiagnosticsWhenQuiet: true,
+			summaryOnly: true,
+		});
+
+		const output = normalizeRenderedOutput(fakeThis.chatContainer);
+		expect(output).toContain("[Skill conflicts]");
+		expect(output).toContain("diagnostics");
+		expect(output).not.toContain("[Startup diagnostics]");
+	});
+});

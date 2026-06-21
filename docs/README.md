@@ -1,79 +1,110 @@
-# Memorix Docs Map
+# Memorix Documentation
 
-Use this page as the shortest path to the right Memorix document.
+Use this page as the fastest path to the right Memorix document.
 
-Memorix docs are intentionally split by **user intent**, not by a giant flat list.
+The public docs are organized by user intent:
+
+- **Start**: install Memorix and run `memorix setup` for an agent
+- **Use**: memory search, Git Memory, dashboard, and the optional bundled terminal agent
+- **Operate**: configuration, Docker, performance, troubleshooting
+- **Integrate**: MCP tools, CLI, SDK, agent rules, hooks, plugins, skills
+- **Understand**: architecture and deeper implementation notes
+- **Develop**: contributor workflow and release checks
 
 ---
 
-## Start Here
+## Start
 
 | You want to... | Read this |
 | --- | --- |
-| Install Memorix and choose between stdio vs HTTP control-plane mode | [SETUP.md](SETUP.md) |
-| Run Memorix in Docker / compose as an HTTP control plane | [DOCKER.md](DOCKER.md) |
-| Understand resource usage and performance trade-offs | [PERFORMANCE.md](PERFORMANCE.md) |
-| Configure `memorix.yml`, `.env`, and project overrides | [CONFIGURATION.md](CONFIGURATION.md) |
-| Operate Memorix correctly as an AI coding agent | [AGENT_OPERATOR_PLAYBOOK.md](AGENT_OPERATOR_PLAYBOOK.md) |
-| Understand the MCP / HTTP / CLI command surface | [API_REFERENCE.md](API_REFERENCE.md) |
-| Operate sessions, memory, tasks, locks, and team state from a terminal | [API_REFERENCE.md](API_REFERENCE.md) |
+| Install Memorix and run one-command agent setup | [SETUP.md](SETUP.md) |
+| Configure provider keys, model lanes, and project overrides | [CONFIGURATION.md](CONFIGURATION.md) |
+| Connect an IDE or AI coding agent manually over MCP | [SETUP.md](SETUP.md#4-manual-mcp-client-setup) |
+| Understand plugin, rules, hooks, skills, and MCP support | [INTEGRATIONS.md](INTEGRATIONS.md) |
+| Run the HTTP service in Docker | [DOCKER.md](DOCKER.md) |
+| Try the bundled terminal agent | [MEMCODE.md](MEMCODE.md) |
 
 ---
 
-## Product and Runtime
+## Use
 
 | Topic | Document |
 | --- | --- |
-| System shape, control plane, storage, and retrieval architecture | [ARCHITECTURE.md](ARCHITECTURE.md) |
-| Resource profile, heavier paths, and tuning knobs | [PERFORMANCE.md](PERFORMANCE.md) |
-| Memory formation, enrichment, and quality pipeline | [MEMORY_FORMATION_PIPELINE.md](MEMORY_FORMATION_PIPELINE.md) |
+| CLI commands and MCP tools | [API_REFERENCE.md](API_REFERENCE.md) |
 | Git-derived engineering memory | [GIT_MEMORY.md](GIT_MEMORY.md) |
-| Agent Team: autonomous agents, tasks, messages, locks, poll | [API_REFERENCE.md §9](API_REFERENCE.md#9-agent-team-tools) |
-| Multi-agent orchestration loop | [API_REFERENCE.md](API_REFERENCE.md) — `memorix orchestrate` |
-| Workspace & rules sync across agents | [API_REFERENCE.md §8](API_REFERENCE.md#8-workspace-and-rules-tools) |
-| Project skills and mini-skill promotion | [API_REFERENCE.md §7](API_REFERENCE.md#7-skills-and-promotion-tools) |
+| Memory formation and quality pipeline | [MEMORY_FORMATION_PIPELINE.md](MEMORY_FORMATION_PIPELINE.md) |
+| Performance and resource profile | [PERFORMANCE.md](PERFORMANCE.md) |
+| Orchestrated subagent tasks, messages, locks, handoffs | [API_REFERENCE.md § Orchestration Coordination](API_REFERENCE.md#9-orchestration-coordination-tools) |
+| Subagent orchestration | [API_REFERENCE.md](API_REFERENCE.md) and `memorix orchestrate --help` |
+| Bundled terminal agent | [MEMCODE.md](MEMCODE.md) |
 
 ---
 
-## Development
+## Operate
 
 | Topic | Document |
 | --- | --- |
-| Contributor workflow and current release baseline | [DEVELOPMENT.md](DEVELOPMENT.md) |
-| Major design choices and ADR-style rationale | [DESIGN_DECISIONS.md](DESIGN_DECISIONS.md) |
-| Module-by-module implementation notes | [MODULES.md](MODULES.md) |
+| Runtime selection: setup packages, stdio MCP, HTTP MCP, dashboard, CLI, memcode | [SETUP.md](SETUP.md) |
+| TOML-first configuration | [CONFIGURATION.md](CONFIGURATION.md) |
+| Docker/compose deployment | [DOCKER.md](DOCKER.md) |
+| Resource and timeout tuning | [PERFORMANCE.md](PERFORMANCE.md) |
+| AI-facing install and troubleshooting playbook | [Agent Playbook](AGENT_OPERATOR_PLAYBOOK.md) |
 
 ---
 
-## AI-Facing Context
+## Integrate
 
 | Topic | Document |
 | --- | --- |
-| Canonical operator guidance for coding agents | [AGENT_OPERATOR_PLAYBOOK.md](AGENT_OPERATOR_PLAYBOOK.md) |
-| Compact AI context note | [AI_CONTEXT.md](AI_CONTEXT.md) |
-| LLM-friendly context bundle | [../llms.txt](../llms.txt) |
-| Extended LLM-friendly context bundle | [../llms-full.txt](../llms-full.txt) |
+| MCP / CLI command surface | [API_REFERENCE.md](API_REFERENCE.md) |
+| Plugin, rules, hooks, skills, and MCP support matrix | [INTEGRATIONS.md](INTEGRATIONS.md) |
+| TypeScript SDK | [../README.md#sdk](../README.md#sdk) |
+| Workspace and rules sync | [API_REFERENCE.md § Workspace and Rules](API_REFERENCE.md#8-workspace-and-rules-tools) |
+| Project skills and mini-skill promotion | [API_REFERENCE.md § Skills](API_REFERENCE.md#7-skills-and-promotion-tools) |
+| Hook architecture | [hooks-architecture.md](hooks-architecture.md) |
 
 ---
 
-## Release Truth vs Historical Reference
+## Understand
 
-For `1.0.10`, treat the following as the **release-truth** docs:
+| Topic | Document |
+| --- | --- |
+| System shape, data flows, memory layers | [ARCHITECTURE.md](ARCHITECTURE.md) |
+| Design decisions and rationale | [DESIGN_DECISIONS.md](DESIGN_DECISIONS.md) |
+| Module-by-module notes | [MODULES.md](MODULES.md) |
+| Historical cloud sync and multi-agent research | [CLOUD_SYNC_AND_MULTI_AGENT_RESEARCH.md](CLOUD_SYNC_AND_MULTI_AGENT_RESEARCH.md) |
+| Known issues and old roadmap notes | [KNOWN_ISSUES_AND_ROADMAP.md](KNOWN_ISSUES_AND_ROADMAP.md) |
 
-- [SETUP.md](SETUP.md)
-- [DOCKER.md](DOCKER.md)
-- [PERFORMANCE.md](PERFORMANCE.md)
-- [CONFIGURATION.md](CONFIGURATION.md)
-- [AGENT_OPERATOR_PLAYBOOK.md](AGENT_OPERATOR_PLAYBOOK.md)
-- [API_REFERENCE.md](API_REFERENCE.md)
-- [ARCHITECTURE.md](ARCHITECTURE.md)
-- [DEVELOPMENT.md](DEVELOPMENT.md)
+Historical/deep-reference documents may describe older designs. If they conflict with the current product docs, prefer:
 
-The following are still useful, but they are **deeper reference / historical context** rather than the first source of operational truth:
+1. [README.md](../README.md)
+2. [SETUP.md](SETUP.md)
+3. [CONFIGURATION.md](CONFIGURATION.md)
+4. [MEMCODE.md](MEMCODE.md)
+5. [API_REFERENCE.md](API_REFERENCE.md)
+6. [Agent Playbook](AGENT_OPERATOR_PLAYBOOK.md)
 
-- [DESIGN_DECISIONS.md](DESIGN_DECISIONS.md)
-- [MODULES.md](MODULES.md)
-- [KNOWN_ISSUES_AND_ROADMAP.md](KNOWN_ISSUES_AND_ROADMAP.md)
-- [CLOUD_SYNC_AND_MULTI_AGENT_RESEARCH.md](CLOUD_SYNC_AND_MULTI_AGENT_RESEARCH.md)
+---
 
-If any deep reference conflicts with the release-truth docs above, prefer the release-truth docs.
+## Develop
+
+| Topic | Document |
+| --- | --- |
+| Contributor workflow, tests, build, release checks | [DEVELOPMENT.md](DEVELOPMENT.md) |
+| AI-facing project context note | [AI_CONTEXT.md](AI_CONTEXT.md) |
+| LLM-friendly short summary | [../llms.txt](../llms.txt) |
+| LLM-friendly full summary | [../llms-full.txt](../llms-full.txt) |
+
+---
+
+## Current Product Line
+
+These docs target the **1.1 release line**, where:
+
+- `memorix setup --agent <agent>` is the default agent integration command
+- `memorix serve` remains the manual stdio MCP server for external agents
+- `memorix background start` runs the shared HTTP MCP service and dashboard
+- `memorix integrate --agent <agent>` and `memorix hooks install --agent <agent>` remain manual/fallback generation commands
+- `memorix` / `memcode` open memcode, the bundled terminal agent that uses the same Memorix memory pool
+- `~/.memorix/config.toml` and project `memorix.toml` are the user-facing configuration model
+- legacy `memorix.yml`, `.env`, and `config.json` files are compatibility inputs, not the primary setup path

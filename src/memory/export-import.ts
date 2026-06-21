@@ -1,7 +1,7 @@
 /**
  * Export/Import Engine
  *
- * Enables Agent Team continuity by exporting and importing Memorix data.
+ * Enables coordination continuity by exporting and importing Memorix data.
  *
  * Export formats:
  * - JSON: Full fidelity, machine-readable

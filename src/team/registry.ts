@@ -1,5 +1,5 @@
 /**
- * Agent Registry — Tracks agents in a multi-agent team
+ * Agent Registry — Tracks agents in orchestration coordination state
  *
  * In-memory registry shared across all MCP sessions on the same HTTP server.
  * Each agent joins with a name, optional role, and capabilities.

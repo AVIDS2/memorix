@@ -15,18 +15,18 @@
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import fs from 'node:fs';
+import { createDatabase, loadSqlite } from './bun-sqlite-compat.js';
 
-// Dynamic require for better-sqlite3 (native module, optionalDependencies)
+// Dynamic require for SQLite (better-sqlite3 or bun:sqlite)
 let BetterSqlite3: any;
 
 export function loadBetterSqlite3(): any {
   if (BetterSqlite3) return BetterSqlite3;
   try {
-    const require = createRequire(import.meta.url);
-    BetterSqlite3 = require('better-sqlite3');
+    BetterSqlite3 = loadSqlite();
     return BetterSqlite3;
   } catch {
-    throw new Error('[memorix] better-sqlite3 is not available');
+    throw new Error('[memorix] SQLite is not available (neither better-sqlite3 nor bun:sqlite)');
   }
 }
 
@@ -96,7 +96,7 @@ CREATE TABLE IF NOT EXISTS meta (
 );
 `;
 
-// ── Phase 4a: Autonomous Agent Team Tables ──────────────────────────
+// ── Phase 4a: Orchestration Coordination Tables ─────────────────────
 
 const CREATE_TEAM_AGENTS_TABLE = `
 CREATE TABLE IF NOT EXISTS team_agents (
@@ -176,7 +176,7 @@ CREATE TABLE IF NOT EXISTS team_locks (
 );
 `;
 
-// ── Phase 4d: Role-based Agent Team Tables ────────────────────────────
+// ── Phase 4d: Role-based Coordination Tables ─────────────────────────
 
 const CREATE_TEAM_ROLES_TABLE = `
 CREATE TABLE IF NOT EXISTS team_roles (
@@ -264,11 +264,11 @@ export function getDatabase(dataDir: string): any {
   const existing = _dbCache.get(normalized);
   if (existing) return existing;
 
-  const DB = loadBetterSqlite3();
+  loadBetterSqlite3();
   fs.mkdirSync(dataDir, { recursive: true });
 
   const dbPath = path.join(dataDir, 'memorix.db');
-  const db = new DB(dbPath);
+  const db = createDatabase(dbPath);
 
   // WAL mode for concurrent read performance
   db.pragma('journal_mode = WAL');
@@ -280,7 +280,7 @@ export function getDatabase(dataDir: string): any {
   db.exec(CREATE_MINI_SKILLS_TABLE);
   db.exec(CREATE_SESSIONS_TABLE);
   db.exec(CREATE_META_TABLE);
-  // Phase 4a: Agent Team tables (order matters for FK references)
+  // Phase 4a: coordination tables (order matters for FK references)
   db.exec(CREATE_TEAM_AGENTS_TABLE);
   db.exec(CREATE_TEAM_TASKS_TABLE);
   db.exec(CREATE_TEAM_TASK_DEPS_TABLE);
@@ -301,7 +301,7 @@ export function getDatabase(dataDir: string): any {
   try { db.exec(`ALTER TABLE observations ADD COLUMN createdByAgentId TEXT`); } catch { /* already exists */ }
   try { db.exec(`ALTER TABLE observations ADD COLUMN writeGeneration INTEGER DEFAULT 0`); } catch { /* already exists */ }
 
-  // Phase 4d: role-based Agent Team columns
+  // Phase 4d: role-based coordination columns
   try { db.exec(`ALTER TABLE team_tasks ADD COLUMN required_role TEXT`); } catch { /* already exists */ }
   try { db.exec(`ALTER TABLE team_tasks ADD COLUMN preferred_role TEXT`); } catch { /* already exists */ }
   try { db.exec(`ALTER TABLE team_messages ADD COLUMN to_role TEXT`); } catch { /* already exists */ }

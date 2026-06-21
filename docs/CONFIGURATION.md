@@ -1,312 +1,230 @@
 # Memorix Configuration Guide
 
-Memorix is designed around one simple idea:
+Memorix now uses one primary product configuration model:
 
-- `memorix.yml` controls behavior
-- `.env` stores secrets
+- global defaults: `~/.memorix/config.toml`
+- project overrides: `<git-root>/memorix.toml`
 
-Everything else exists for compatibility or advanced overrides.
+The project file is loaded only after Memorix has resolved the real project root
+from `.git`. Config files do not decide project identity.
 
-The recommended model is:
-
-- keep your day-to-day defaults in `~/.memorix`
-- add project files only when a repo needs overrides
-- let project config override global defaults instead of treating every repo as a fresh setup
-
----
-
-## Two Files, Two Roles
-
-### `memorix.yml`
-
-Use `memorix.yml` for structured project behavior:
-
-- LLM provider and model defaults
-- TUI/chat agent provider and model overrides
-- embedding mode
-- Git-Memory settings
-- session injection behavior
-- server and dashboard settings
-- team or hub-mode options
-
-Default location:
-
-- user defaults: `~/.memorix/memorix.yml`
-
-Optional override location:
-
-- project root: `./memorix.yml`
-
-### `.env`
-
-Use `.env` for secrets only:
-
-- API keys
-- base URLs
-- provider tokens
-
-Default location:
-
-- user defaults: `~/.memorix/.env`
-
-Optional override location:
-
-- project root: `./.env`
-
----
-
-## Resolution Order
-
-### Behavior settings
-
-For normal configuration values, Memorix resolves in this order:
-
-1. environment variables
-2. project `memorix.yml` overrides
-3. user `~/.memorix/memorix.yml` defaults
-4. legacy `~/.memorix/config.json`
-5. hardcoded defaults
-
-### Secrets
-
-For secrets loaded through dotenv, Memorix resolves in this order:
-
-1. system environment variables from the shell or MCP host config
-2. project `.env` overrides
-3. user `~/.memorix/.env` defaults
-
-This means host-provided env vars always win.
+Legacy `memorix.yml`, `.env`, and `~/.memorix/config.json` files are still read
+for compatibility, but new setup flows and docs use TOML.
 
 ---
 
 ## Minimal Example
 
-If you want to initialize these files interactively, run:
+Run:
 
 ```bash
 memorix init
 ```
 
-The init wizard now lets you choose between:
+The init wizard lets you choose:
 
 - `Global defaults` for personal multi-project workflows
 - `Project config` for repo-specific overrides
 
-`memorix.yml`
+Example `~/.memorix/config.toml`:
 
-```yml
-llm:
-  provider: openai
-  model: gpt-4o-mini
+```toml
+[agent]
+provider = "deepseek"
+model = "deepseek-chat"
+base_url = "https://api.deepseek.com/v1"
+api_key = "..."
 
-# Optional: only when TUI chat should use a different model/provider
-agent:
-  provider: openrouter
-  model: openai/gpt-4.1
+[memory.llm]
+provider = "openai"
+model = "qwen3.5-flash"
+base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+api_key = "..."
 
-embedding:
-  provider: off
+[embedding]
+provider = "api"
+model = "text-embedding-v4"
+base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+api_key = "..."
 
-git:
-  autoHook: true
-  ingestOnCommit: true
-  skipMergeCommits: true
+[memory]
+inject = "minimal"
+formation = "active"
+auto_cleanup = true
 
-behavior:
-  formationMode: active
-  sessionInject: minimal
+[git]
+auto_hook = false
+ingest_on_commit = true
+max_diff_size = 500
+skip_merge_commits = true
+exclude_patterns = ["*.lock", "dist/**"]
+noise_keywords = ["format", "typo"]
 
-server:
-  transport: stdio
-  dashboard: true
+[server]
+transport = "stdio"
+dashboard = true
+dashboard_port = 3210
 ```
 
-`.env`
-
-```bash
-MEMORIX_LLM_API_KEY=sk-...
-MEMORIX_AGENT_LLM_API_KEY=sk-...
-MEMORIX_EMBEDDING_API_KEY=sk-...
-MEMORIX_LLM_BASE_URL=https://api.openai.com/v1
-MEMORIX_AGENT_LLM_BASE_URL=https://openrouter.ai/api/v1
-MEMORIX_EMBEDDING_BASE_URL=https://api.openai.com/v1
-```
-
-If you do not need LLM or embedding features yet, you can leave `.env` empty and Memorix will still work.
+Global `config.toml` is local to your machine and is the normal place to keep
+provider credentials. Project `memorix.toml` should be treated as repo config:
+override models, switches, and behavior there, but do not commit credentials.
 
 ---
 
-## Key Sections in `memorix.yml`
+## Resolution Order
 
-### `llm`
+Memorix resolves configuration in this order:
 
-Used for optional memory-intelligence behavior such as:
+1. explicit CLI flags
+2. process environment variables
+3. project `<git-root>/memorix.toml`
+4. global `~/.memorix/config.toml`
+5. legacy compatibility files
+6. built-in defaults
 
-- formation quality uplift
-- compression
-- reranking
-- smarter deduplication
+Environment variables stay available for CI, MCP launchers, and temporary shell
+overrides. They are not the default user-facing setup path.
+
+If you want the simplest setup, configure `~/.memorix/config.toml` once and stop
+there. Add `<git-root>/memorix.toml` only when a repository needs different
+models, memory behavior, or server defaults.
+
+---
+
+## Configuration Lanes
+
+### `[agent]`
+
+Used by memcode's interactive coding agent.
 
 Common keys:
 
 - `provider`
 - `model`
-- `baseUrl`
+- `base_url`
+- `api_key`
 
-### `agent`
+This lane follows memcode's agent runtime behavior. `/model`, `/login`, and
+agent auth storage still own interactive model switching and login state.
+When `[agent]` is omitted, memcode falls back to `[memory.llm]` defaults without
+changing its interactive model commands.
 
-Used by TUI/chat agent flows. This is intentionally separate from `llm` so users can run memory formation/rerank on a cheap or stable model while using a different model for interactive TUI chat.
+### `[memory.llm]`
+
+Used by Memorix background memory intelligence:
+
+- memory formation
+- summarization
+- deduplication
+- optional reranking
+- cleanup assistance
 
 Common keys:
 
 - `provider`
 - `model`
-- `baseUrl`
+- `base_url`
+- `api_key`
 
-Environment overrides:
+For OpenAI-compatible providers such as DashScope, DeepSeek-compatible gateways,
+or internal model gateways, use `provider = "openai"` and set `base_url`.
 
-- `MEMORIX_AGENT_LLM_PROVIDER`
-- `MEMORIX_AGENT_LLM_MODEL`
-- `MEMORIX_AGENT_LLM_API_KEY`
-- `MEMORIX_AGENT_LLM_BASE_URL`
+### `[embedding]`
 
-If `agent` is not configured, TUI/chat falls back to the normal `llm` configuration for backward compatibility.
+Used by semantic/vector search. This lane is intentionally separate from
+`[agent]` and `[memory.llm]`.
 
-### `embedding`
+Common keys:
 
-Controls semantic search mode.
+- `provider`
+- `model`
+- `base_url`
+- `api_key`
+- `dimensions`
 
-Common values:
+Provider values:
 
 - `off`
 - `api`
+- `auto`
 - `fastembed`
 - `transformers`
-- `auto`
 
-`auto` now prefers a configured remote embedding API first.
+If embedding is unavailable, Memorix falls back to BM25/full-text search.
 
-- if `MEMORIX_EMBEDDING_API_KEY` or another supported API key is present, Memorix will use the remote `/v1/embeddings` provider first
-- only if API embedding is unavailable will it fall back to local `fastembed`, then `transformers`
-- this keeps semantic search on the API path by default while preserving local fallback behavior
+### `[memory]`
 
-When using API embeddings with optional dimension shortening:
-
-- `MEMORIX_EMBEDDING_DIMENSIONS` is treated as part of the embedding configuration identity
-- Memorix keeps API embedding cache entries and probed dimension metadata isolated per `baseUrl + model + requestedDimensions`
-- changing from shortened dimensions back to native dimensions no longer reuses stale cached vectors or stale probe results
-
-### `git`
-
-Controls Git-Memory behavior.
+Runtime memory behavior.
 
 Common keys:
 
-- `autoHook`
-- `ingestOnCommit`
-- `maxDiffSize`
-- `skipMergeCommits`
-- `excludePatterns`
-- `noiseKeywords`
+- `inject = "minimal"` (`full`, `minimal`, `silent`)
+- `formation = "active"` (`active`, `shadow`, `fallback`)
+- `auto_cleanup = true`
 
-### `behavior`
+### `[git]`
 
-Controls runtime behavior.
+Git-memory and hook behavior.
 
 Common keys:
 
-- `sessionInject`
-- `syncAdvisory`
-- `autoCleanup`
-- `formationMode`
+- `auto_hook = false`
+- `ingest_on_commit = true`
+- `max_diff_size = 500`
+- `skip_merge_commits = true`
+- `exclude_patterns = ["*.lock", "dist/**"]`
+- `noise_keywords = ["format", "typo"]`
 
-### `server`
+Project identity is still resolved from the real `.git` root. A project
+`memorix.toml` is an override file under that root; it does not create or rename
+the Memorix project ID.
 
-Controls transport and dashboard behavior.
+### `[server]`
+
+Server and dashboard behavior.
 
 Common keys:
 
-- `transport`
-- `port`
-- `dashboard`
-- `dashboardPort`
-
-### `MEMORIX_AUTO_UPDATE`
-
-Controls CLI update behavior.
-
-Supported values:
-
-- `off` — disable background update checks
-- `notify` — check for new versions and print a notice only
-- `install` — check for new versions and run background `npm install -g memorix@latest`
-
-Default behavior:
-
-- if unset, Memorix uses `notify`
-
-Notes:
-
-- `notify` is the recommended default for most users because Memorix affects MCP behavior, hooks, and TUI flows
-- `install` is opt-in and should be used only if you explicitly want unattended global upgrades
-- `MEMORIX_AUTO_UPDATE_TIMEOUT_MS` controls the background install timeout when `install` mode is enabled
+- `transport = "stdio"`
+- `port = 37850`
+- `dashboard = true`
+- `dashboard_port = 3210`
 
 ---
 
-## Diagnosing Active Config
+## Compatibility
 
-Run:
+These files are still read when TOML is absent or incomplete:
+
+- legacy project `memorix.yml`
+- legacy user `~/.memorix/memorix.yml`
+- project `.env`
+- user `~/.memorix/.env`
+- legacy `~/.memorix/config.json`
+
+New commands should create TOML. Existing users do not need to migrate
+immediately.
+
+Useful commands:
 
 ```bash
+memorix config path
+memorix config get agent.model
 memorix status
 ```
 
-`memorix status` shows:
+To create one global file from existing local settings:
 
-- which config files exist
-- which `.env` files were loaded
-- where important values came from
-- whether env vars overrode YAML
+```bash
+memorix config migrate --global
+```
 
-This is the fastest way to debug “why is Memorix using this value?”
+To create a project override file without writing local credentials:
 
----
+```bash
+memorix config migrate
+```
 
-## Legacy Config
-
-Memorix still supports:
-
-- `~/.memorix/config.json`
-
-This exists mainly for backward compatibility with older TUI-based configuration flows.
-
-For new setups, prefer:
-
-- `memorix.yml`
-- `.env`
-
----
-
-## Recommended Team Conventions
-
-For most teams, keep it simple:
-
-- keep your personal defaults in `~/.memorix/memorix.yml`
-- commit `memorix.yml` only when the repo needs shared overrides
-- do **not** commit `.env`
-- reserve project-level config for shared behavior or repo-specific overrides
-
-This gives you:
-
-- reproducible project behavior
-- local secret isolation
-- cleaner onboarding for new contributors
-
----
-
-## Related Docs
-
-- [Setup Guide](SETUP.md)
-- [Git Memory Guide](GIT_MEMORY.md)
-- [Architecture](ARCHITECTURE.md)
-- [Development Guide](DEVELOPMENT.md)
+`memorix status` shows the active project, search mode, and resolved
+configuration lanes with sensitive values redacted.

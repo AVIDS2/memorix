@@ -33,11 +33,11 @@ describe('Core structure stability', () => {
     ];
     const output = formatIndexTable(entries, 'auth');
 
-    expect(output).toContain('obs:12');
-    expect(output).toContain('obs:34');
+    expect(output).toContain('obs:12@test/project');
+    expect(output).toContain('obs:34@test/project');
     // IDs are in table rows as typed refs
-    expect(output).toMatch(/\| obs:12 \|/);
-    expect(output).toMatch(/\| obs:34 \|/);
+    expect(output).toMatch(/\| obs:12@test\/project \|/);
+    expect(output).toMatch(/\| obs:34@test\/project \|/);
   });
 
   it('title is preserved in output', () => {

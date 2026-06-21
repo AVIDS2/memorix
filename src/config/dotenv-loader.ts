@@ -1,26 +1,28 @@
 /**
  * .env Loader for Memorix
  *
- * Loads secrets from project-level .env file.
- * This is the "secrets-only" complement to memorix.yml (behavior config).
+ * Loads compatibility environment overrides from project/user .env files.
+ * The primary product configuration is TOML:
+ *   - ~/.memorix/config.toml
+ *   - <git-root>/memorix.toml
  *
  * Design principle:
- *   memorix.yml = behavior configuration (structured YAML)
- *   .env        = secrets only (API keys, base URLs, tokens)
+ *   TOML = normal user setup and structured behavior
+ *   .env = compatibility, CI, launchers, and temporary overrides
  *
  * Priority (highest wins):
  *   1. System environment variables (from MCP host `env` field or shell)
  *   2. Project .env file (./  .env in project root)
  *   3. User .env file (~/.memorix/.env) — advanced, not promoted
  *
- * Unlike Cipher which puts EVERYTHING in .env (178 lines of flat config),
- * Memorix only uses .env for sensitive values. Structured settings stay in YAML.
+ * Do not promote .env as the default product surface. Keep it as an override
+ * layer for users who need launcher-specific behavior.
  */
 
 import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { parse } from 'dotenv';
+import { getGlobalDotenvPath, getProjectDotenvPath } from './config-paths.js';
 
 // ─── State ───
 
@@ -68,12 +70,12 @@ export function loadDotenv(projectRoot?: string, options: DotenvLoadOptions = {}
 
   // 1. Project-level .env — highest .env priority, load first
   if (projectRoot) {
-    loadEnvFile(join(projectRoot, '.env'));
+    loadEnvFile(getProjectDotenvPath(projectRoot));
   }
 
   // 2. User-level .env (~/.memorix/.env) — lowest .env priority, load second
   //    (override: false means it only fills in keys not already set)
-  loadEnvFile(join(options.userHomeDir ?? homedir(), '.memorix', '.env'));
+  loadEnvFile(getGlobalDotenvPath(options.userHomeDir ?? homedir()));
 
   dotenvLoaded = true;
   dotenvProjectRoot = projectRoot ?? null;
@@ -103,13 +105,15 @@ export function getLoadedEnvFiles(): readonly string[] {
 // These are the ONLY variables Memorix reads from .env.
 // All are secrets or endpoint URLs — no behavior config.
 //
-// MEMORIX_LLM_API_KEY      — LLM provider API key
-// MEMORIX_LLM_BASE_URL     — Custom LLM endpoint
-// MEMORIX_AGENT_LLM_API_KEY — TUI/chat agent API key (falls back to LLM key)
-// MEMORIX_AGENT_LLM_BASE_URL — TUI/chat agent endpoint (falls back to LLM URL)
-// MEMORIX_EMBEDDING_API_KEY — Embedding API key (falls back to LLM key)
+// MEMORIX_LLM_API_KEY       — Background memory LLM API key
+// MEMORIX_LLM_BASE_URL      — Background memory LLM endpoint
+// MEMORIX_AGENT_API_KEY     — TUI/chat coding agent API key
+// MEMORIX_AGENT_BASE_URL    — TUI/chat coding agent endpoint
+// MEMORIX_AGENT_LLM_API_KEY — Legacy alias for MEMORIX_AGENT_API_KEY
+// MEMORIX_AGENT_LLM_BASE_URL — Legacy alias for MEMORIX_AGENT_BASE_URL
+// MEMORIX_EMBEDDING_API_KEY — Embedding/vector API key
 // MEMORIX_EMBEDDING_BASE_URL — Custom embedding endpoint
-// MEMORIX_API_KEY           — Unified fallback key (for both LLM + embedding)
-// OPENAI_API_KEY            — OpenAI compatibility (lowest priority)
-// ANTHROPIC_API_KEY         — Anthropic compatibility
-// OPENROUTER_API_KEY        — OpenRouter compatibility
+// MEMORIX_API_KEY           — Memory LLM simple key (not used for embedding or agent)
+// OPENAI_API_KEY            — OpenAI compatibility fallback
+// ANTHROPIC_API_KEY         — Anthropic compatibility fallback
+// OPENROUTER_API_KEY        — OpenRouter compatibility fallback

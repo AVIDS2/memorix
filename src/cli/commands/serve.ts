@@ -23,7 +23,7 @@ export default defineCommand({
     },
     mode: {
       type: 'string',
-      description: 'Tool profile to expose (lite, team, full; default: lite; Agent Team join remains explicit)',
+      description: 'Tool profile to expose (lite, team, full; default: lite; coordination join remains explicit)',
       required: false,
     },
   },

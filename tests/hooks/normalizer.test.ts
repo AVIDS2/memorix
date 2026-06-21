@@ -193,6 +193,43 @@ describe('Hook Normalizer', () => {
       expect(input.aiResponse).toBe('Finished implementing the fix and updated the tests.');
     });
 
+    it('should normalize Pi package extension tool_result events', () => {
+      const input = normalizeHookInput({
+        agent: 'pi',
+        hook_event_name: 'pi.tool_result',
+        session_id: 'pi-1',
+        cwd: '/project',
+        tool_name: 'write',
+        tool_input: { path: '/project/src/app.ts' },
+        tool_result: { content: [{ type: 'text', text: 'wrote file' }] },
+      });
+      expect(input.agent).toBe('pi');
+      expect(input.event).toBe('post_tool');
+      expect(input.toolName).toBe('write');
+      expect(input.filePath).toBe('/project/src/app.ts');
+      expect(input.toolResult).toContain('wrote file');
+    });
+
+    it('should normalize Pi package extension prompt and response events', () => {
+      const prompt = normalizeHookInput({
+        agent: 'pi',
+        hook_event_name: 'pi.before_agent_start',
+        prompt: 'continue the plugin integration',
+        cwd: '/project',
+      });
+      expect(prompt.event).toBe('user_prompt');
+      expect(prompt.userPrompt).toBe('continue the plugin integration');
+
+      const response = normalizeHookInput({
+        agent: 'pi',
+        hook_event_name: 'pi.agent_end',
+        ai_response: 'Implemented the Pi package and verified setup.',
+        cwd: '/project',
+      });
+      expect(response.event).toBe('post_response');
+      expect(response.aiResponse).toBe('Implemented the Pi package and verified setup.');
+    });
+
     it('should normalize Windsurf MCP tool use', () => {
       const input = normalizeHookInput({
         agent_action_name: 'post_mcp_tool_use',

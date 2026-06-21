@@ -5,7 +5,8 @@
  * Built with: citty (1.1K stars, zero-deps) + @clack/prompts (7.4K stars)
  *
  * Commands:
- *   memorix         — Interactive TUI menu (no args)
+ *   memorix         — Enter memcode TUI (native coding agent)
+ *   memorix memcode — Enter memcode TUI (explicit)
  *   memorix ask "q" — Single-shot chat question (pipe: echo "q" | memorix ask)
  *   memorix serve   — Start MCP Server on stdio
  *   memorix status  — Show project info + rules sync status
@@ -16,8 +17,39 @@ import { defineCommand, runMain } from 'citty';
 import * as p from '@clack/prompts';
 import { execSync, spawn } from 'node:child_process';
 import { getCliVersion } from './version.js';
+import { importBundledMemcode } from './memcode-bootstrap.js';
+import { installCliPipeErrorGuard } from './pipe-errors.js';
+
+installCliPipeErrorGuard();
 
 const NO_GIT_MSG = 'Memorix requires a git repo to establish project identity. Run `git init` in this workspace first.';
+
+/**
+ * Set PI_PACKAGE_DIR so bundled memcode can find its theme files.
+ * When tsup bundles memcode into the CLI, __dirname points to dist/cli/,
+ * not packages/memcode/. This env var tells config.ts where to look.
+ *
+ * In dev: resolves to packages/memcode/
+ * In global npm install: packages/memcode/ won't exist; theme files
+ *   should be copied to dist/memcode/ by the build (see tsup onSuccess).
+ */
+function ensureMemcodePackageDir(): void {
+  if (process.env.MEMCODE_PACKAGE_DIR) return;
+  // Walk up from __dirname (dist/cli/) to find packages/memcode/package.json
+  const path = require('node:path') as typeof import('node:path');
+  const fs = require('node:fs') as typeof import('node:fs');
+  let dir: string = __dirname;
+  for (let i = 0; i < 5; i++) {
+    const candidate = path.join(dir, 'packages', 'memcode');
+    if (fs.existsSync(path.join(candidate, 'package.json'))) {
+      process.env.MEMCODE_PACKAGE_DIR = candidate;
+      return;
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+}
 
 // ============================================================
 // Workbench — Terminal-native memory control plane
@@ -569,7 +601,7 @@ async function runConfigure(): Promise<void> {
 
       if (embedding === 'api') {
         const apiKey = await p.password({
-          message: 'Embedding API key (leave empty to reuse LLM key):',
+          message: 'Embedding API key (leave empty to use BM25 fallback):',
         });
 
         if (p.isCancel(apiKey)) continue;
@@ -943,6 +975,15 @@ const main = defineCommand({
     })),
     // Infrastructure commands
     init: () => import('./commands/init.js').then(m => m.default),
+    setup: () => import('./commands/setup.js').then(m => m.default),
+    config: () => Promise.resolve(defineCommand({
+      meta: { name: 'config', description: 'Inspect Memorix TOML configuration' },
+      subCommands: {
+        path: () => import('./commands/config-path.js').then(m => m.default),
+        get: () => import('./commands/config-get.js').then(m => m.default),
+        migrate: () => import('./commands/config-migrate.js').then(m => m.default),
+      },
+    })),
     integrate: () => import('./commands/integrate.js').then(m => m.default),
     memory: () => import('./commands/memory.js').then(m => m.default),
     reasoning: () => import('./commands/reasoning.js').then(m => m.default),
@@ -985,13 +1026,25 @@ const main = defineCommand({
     cleanup: () => import('./commands/cleanup.js').then(m => m.default),
     uninstall: () => import('./commands/uninstall.js').then(m => m.default),
     orchestrate: () => import('./commands/orchestrate.js').then(m => m.default),
+    memcode: () => Promise.resolve(defineCommand({
+      meta: { name: 'memcode', description: 'Enter memcode TUI — native coding agent with memory' },
+      async run() {
+        try {
+          const { runCli } = await importBundledMemcode();
+          await runCli(process.argv.slice(3));
+        } catch (err) {
+          console.error('Failed to start memcode:', err instanceof Error ? err.message : err);
+          process.exit(1);
+        }
+      },
+    })),
   },
   async run() {
     // Guard: if citty already resolved a subcommand, its run() was called before this.
     // Detect by checking if the first CLI arg matches a registered subcommand name.
     const firstArg = process.argv[2];
-    const knownSubs = ['ask', 'search', 'remember', 'recent',
-      'init', 'integrate', 'memory', 'reasoning', 'retention', 'formation', 'audit', 'transfer', 'skills',
+    const knownSubs = ['ask', 'search', 'remember', 'recent', 'memcode', 'config',
+      'init', 'setup', 'integrate', 'memory', 'reasoning', 'retention', 'formation', 'audit', 'transfer', 'skills',
       'session', 'team', 'task', 'message', 'lock', 'handoff', 'poll',
       'receipt',
       'serve', 'serve-http', 'status', 'sync',
@@ -999,7 +1052,19 @@ const main = defineCommand({
       'background', 'bg', 'bs', 'doctor', 'dashboard', 'cleanup', 'uninstall', 'orchestrate'];
     if (firstArg && knownSubs.includes(firstArg)) return;
 
-    // No subcommand provided — show fullscreen workbench if in TTY, otherwise show help
+    // No subcommand provided — enter memcode TUI (native coding agent)
+    if (!firstArg) {
+      try {
+        const { runCli } = await importBundledMemcode();
+        await runCli(process.argv.slice(2));
+        return;
+      } catch (err) {
+        console.error('Failed to start memcode:', err instanceof Error ? err.message : err);
+        process.exit(1);
+      }
+    }
+
+    // Fallback: show usage hint
     if (process.stdout.isTTY && process.stdin.isTTY) {
       // Fire-and-forget: background update check. Default is notify-only; stderr only, never blocks TUI.
       import('./update-checker.js').then(m => m.checkForUpdates()).catch(() => {});
@@ -1010,6 +1075,7 @@ const main = defineCommand({
       console.error(`Memorix v${getCliVersion()} — Local-first memory control plane\n`);
       console.error('Usage: memorix <command>\n');
       console.error('Commands:');
+      console.error('  memcode    Enter memcode TUI (native coding agent)');
       console.error('  ask "q"    Ask Memorix a question (single-shot chat)');
       console.error('             Pipe: echo "q" | memorix ask');
       console.error('  background Start/stop/status background control plane');
@@ -1021,7 +1087,7 @@ const main = defineCommand({
       console.error('  audit      Audit trail and project attribution checks');
       console.error('  transfer   Export/import memory snapshots');
       console.error('  skills     List/generate/show project skills');
-      console.error('  team       Join/status/role operations for autonomous agent teams');
+      console.error('  team       Join/status/role operations for coordination state');
       console.error('  task       Create/claim/complete/list team tasks');
       console.error('  message    Send/broadcast/read team messages');
       console.error('  lock       Manage advisory file locks');
@@ -1031,6 +1097,8 @@ const main = defineCommand({
       console.error('  serve-http Start HTTP MCP + dashboard control plane');
       console.error('  serve      Start MCP server on stdio');
       console.error('  init       Create global defaults or project config');
+      console.error('  setup      Install Memorix plugin/MCP/rules/hooks for an agent');
+      console.error('  config     Show TOML config paths and resolved values');
       console.error('  integrate  Install one IDE integration into the current repo');
       console.error('  status     Show project info + stats');
       console.error('  dashboard  Open standalone dashboard (read-mostly)');
@@ -1038,7 +1106,7 @@ const main = defineCommand({
       console.error('  cleanup    Remove old memories');
       console.error('  sync       Rules/workspace sync plus interactive wizard');
       console.error('  ingest     Ingest commit, log, or image knowledge');
-      console.error('\nRun `memorix` in an interactive terminal for guided menu.');
+      console.error('\nRun `memorix` in an interactive terminal for memcode TUI.');
     }
   },
 });

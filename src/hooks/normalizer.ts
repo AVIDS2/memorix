@@ -78,6 +78,16 @@ const EVENT_MAP: Record<string, HookEvent> = {
   'file.edited': 'post_edit',
   'command.executed': 'post_command',
   'message.updated': 'post_response',
+
+  // Pi coding agent package extension events
+  'pi.session_start': 'session_start',
+  'pi.before_agent_start': 'user_prompt',
+  'pi.tool_result': 'post_tool',
+  'pi.tool_execution_end': 'post_tool',
+  'pi.agent_end': 'post_response',
+  'pi.session_before_compact': 'pre_compact',
+  'pi.session_compact': 'post_compact',
+  'pi.session_shutdown': 'session_end',
 };
 
 /**
@@ -100,8 +110,9 @@ function detectAgent(payload: Record<string, unknown>): AgentName {
   // Gemini CLI / Antigravity: uses hook_event_name but has GEMINI env vars or gemini-specific fields
   if ('gemini_session_id' in payload || 'gemini_project_dir' in payload) return 'antigravity';
 
-  // OpenCode plugin sends agent: 'opencode' (must check BEFORE hook_event_name catch-all)
+  // Package/plugin bridges send explicit agent names (must check BEFORE hook_event_name catch-all)
   if (payload.agent === 'opencode') return 'opencode';
+  if (payload.agent === 'pi') return 'pi';
 
   // Claude Code uses hook_event_name + session_id
   if ('hook_event_name' in payload && 'session_id' in payload) return 'claude';
@@ -143,6 +154,9 @@ function extractEventName(payload: Record<string, unknown>, agent: AgentName): s
       return inferCopilotEvent(payload);
     case 'opencode':
       // OpenCode plugin sends hook_event_name (e.g. 'session.created', 'tool.execute.after')
+      return (payload.hook_event_name as string) ?? '';
+    case 'pi':
+      // Pi package extension sends normalized bridge event names.
       return (payload.hook_event_name as string) ?? '';
     case 'kiro':
       return (payload.event_type as string) ?? '';
@@ -410,6 +424,50 @@ function normalizeOpenCode(payload: Record<string, unknown>, event: HookEvent): 
 }
 
 /**
+ * Normalize a Pi coding agent package-extension payload.
+ */
+function normalizePi(payload: Record<string, unknown>, event: HookEvent): Partial<NormalizedHookInput> {
+  const result: Partial<NormalizedHookInput> = {
+    sessionId: (payload.session_id as string) ?? (payload.sessionId as string) ?? '',
+    cwd: (payload.cwd as string) ?? '',
+  };
+
+  const toolName = (payload.tool_name as string) ?? '';
+  if (toolName) {
+    result.toolName = toolName;
+    result.toolInput = payload.tool_input as Record<string, unknown> | undefined;
+    const toolResult = payload.tool_result;
+    if (typeof toolResult === 'string') {
+      result.toolResult = toolResult;
+    } else if (toolResult && typeof toolResult === 'object') {
+      result.toolResult = JSON.stringify(toolResult);
+    }
+  }
+
+  if (event === 'user_prompt') {
+    result.userPrompt = (payload.prompt as string) ?? '';
+  }
+  if (event === 'post_response') {
+    result.aiResponse = (payload.ai_response as string) ?? '';
+  }
+  if (event === 'post_command') {
+    result.command = (payload.command as string) ?? '';
+  }
+
+  if (result.toolInput && typeof result.toolInput === 'object') {
+    const filePath =
+      (result.toolInput.file_path as string | undefined) ??
+      (result.toolInput.filePath as string | undefined) ??
+      (result.toolInput.path as string | undefined);
+    if (filePath) result.filePath = filePath;
+    const command = result.toolInput.command as string | undefined;
+    if (command) result.command = command;
+  }
+
+  return result;
+}
+
+/**
  * Main normalizer: convert any agent's stdin payload → NormalizedHookInput.
  */
 export function normalizeHookInput(payload: Record<string, unknown>): NormalizedHookInput {
@@ -442,6 +500,9 @@ export function normalizeHookInput(payload: Record<string, unknown>): Normalized
       break;
     case 'opencode':
       agentSpecific = normalizeOpenCode(payload, event);
+      break;
+    case 'pi':
+      agentSpecific = normalizePi(payload, event);
       break;
     case 'codex':
       // Codex hooks use the same payload format as Claude Code

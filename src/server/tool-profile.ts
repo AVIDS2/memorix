@@ -8,7 +8,7 @@
  * We provide three profiles:
  *   - "lite" (stdio default): Core memory CRUD, sessions, reasoning, retention,
  *     backup — 13 tools. Suitable for solo users who just want cross-agent memory.
- *   - "team" (HTTP default): lite + autonomous agent team tools + dashboard — 20 tools.
+ *   - "team" (HTTP default): lite + orchestration coordination tools + dashboard — 20 tools.
  *     Suitable when an operator explicitly wants task/message/lock surfaces.
  *   - "full": Everything, including niche / advanced tools (consolidate, dedup,
  *     formation metrics, skills, rules/workspace sync, KG-official, image ingest).
@@ -29,6 +29,7 @@ export const TOOL_PROFILES: Record<string, ReadonlyArray<ToolProfile>> = Object.
   memorix_store:              ['lite', 'team', 'full'],
   memorix_search:             ['lite', 'team', 'full'],
   memorix_detail:             ['lite', 'team', 'full'],
+  memorix_graph_context:      ['lite', 'team', 'full'],
   memorix_resolve:            ['lite', 'team', 'full'],
   memorix_timeline:           ['lite', 'team', 'full'],
   memorix_suggest_topic_key:  ['lite', 'team', 'full'],
@@ -40,7 +41,7 @@ export const TOOL_PROFILES: Record<string, ReadonlyArray<ToolProfile>> = Object.
   memorix_transfer:           ['lite', 'team', 'full'],
   memorix_retention:          ['lite', 'team', 'full'],
 
-  // ── team: autonomous agent team surfaces — HTTP default ───────────
+  // ── team: orchestration coordination surfaces — HTTP default ──────
   memorix_dashboard:          ['team', 'full'],
   memorix_handoff:            ['team', 'full'],
   memorix_poll:               ['team', 'full'],
@@ -126,7 +127,7 @@ export function resolveToolProfile(opts: ResolveToolProfileOpts): ToolProfile {
 export function describeProfile(profile: ToolProfile): string {
   switch (profile) {
     case 'lite': return 'lite (core memory + sessions, ~13 tools)';
-    case 'team': return 'team (lite + agent team tools + dashboard, ~20 tools)';
+    case 'team': return 'team (lite + coordination tools + dashboard, ~20 tools)';
     case 'full': return 'full (all tools including advanced / KG-compat)';
   }
 }

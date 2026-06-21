@@ -14,6 +14,7 @@ import type { AgentAdapter, AgentProcess, SpawnOptions, AgentProcessResult } fro
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { execSync } from 'node:child_process';
 
 function makeTmpDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'memorix-coord-test-'));
@@ -22,6 +23,14 @@ function makeTmpDir(): string {
 function cleanup(dir: string): void {
   closeDatabase(dir);
   fs.rmSync(dir, { recursive: true, force: true });
+}
+
+function initGitRepo(dir: string): void {
+  execSync('git init', { cwd: dir, encoding: 'utf-8' });
+  execSync('git config user.email "test@example.com"', { cwd: dir, encoding: 'utf-8' });
+  execSync('git config user.name "Test User"', { cwd: dir, encoding: 'utf-8' });
+  fs.writeFileSync(path.join(dir, 'README.md'), '# test\n');
+  execSync('git add README.md && git commit -m "init"', { cwd: dir, encoding: 'utf-8' });
 }
 
 /**
@@ -185,6 +194,7 @@ describe('Coordinator', () => {
       adapters: [createMockAdapter({ name: 'agent1' })],
       teamStore: store,
       parallel: 2,
+      worktreeMode: 'never',
       pollIntervalMs: 50,
       taskTimeoutMs: 5_000,
       onProgress: (e) => {
@@ -195,6 +205,172 @@ describe('Coordinator', () => {
     expect(result.completed).toBe(2);
     expect(result.failed).toBe(0);
   });
+
+  it('should reject a dirty git worktree unless dirty state is explicitly allowed', async () => {
+    const projectDir = makeTmpDir();
+    const dataDir = makeTmpDir();
+    const dirtyStore = new TeamStore();
+    await dirtyStore.init(dataDir);
+    try {
+      initGitRepo(projectDir);
+      fs.writeFileSync(path.join(projectDir, 'dirty.txt'), 'uncommitted change');
+      dirtyStore.createTask({ projectId: 'proj1', description: 'Task A' });
+
+      await expect(runCoordinationLoop({
+        projectDir,
+        projectId: 'proj1',
+        adapters: [createMockAdapter({})],
+        teamStore: dirtyStore,
+        pollIntervalMs: 50,
+        taskTimeoutMs: 5_000,
+      })).rejects.toThrow('working tree has uncommitted changes');
+    } finally {
+      closeDatabase(dataDir);
+      cleanup(dataDir);
+      fs.rmSync(projectDir, { recursive: true, force: true });
+    }
+  });
+
+  it('should allow orchestration in a dirty git worktree when dirty mode is allow', async () => {
+    const projectDir = makeTmpDir();
+    const dataDir = makeTmpDir();
+    const dirtyStore = new TeamStore();
+    await dirtyStore.init(dataDir);
+    try {
+      initGitRepo(projectDir);
+      fs.writeFileSync(path.join(projectDir, 'dirty.txt'), 'uncommitted change');
+      dirtyStore.createTask({ projectId: 'proj1', description: 'Task A' });
+
+      const result = await runCoordinationLoop({
+        projectDir,
+        projectId: 'proj1',
+        adapters: [createMockAdapter({})],
+        teamStore: dirtyStore,
+        dirtyMode: 'allow',
+        pollIntervalMs: 50,
+        taskTimeoutMs: 5_000,
+      });
+
+      expect(result.completed).toBe(1);
+      expect(result.failed).toBe(0);
+    } finally {
+      closeDatabase(dataDir);
+      cleanup(dataDir);
+      fs.rmSync(projectDir, { recursive: true, force: true });
+    }
+  });
+
+  it('should fail closed when parallel worktree creation fails', async () => {
+    store.createTask({ projectId: 'proj1', description: 'Task A' });
+
+    const events: CoordinatorEvent[] = [];
+    await expect(runCoordinationLoop({
+      projectDir: tmpDir,
+      projectId: 'proj1',
+      adapters: [createMockAdapter({})],
+      teamStore: store,
+      parallel: 2,
+      pollIntervalMs: 50,
+      taskTimeoutMs: 5_000,
+      pipelineId: 'test-pipe-123',
+      onProgress: (e) => events.push(e),
+    })).rejects.toThrow('Worktree creation failed');
+
+    expect(events.some(e => e.type === 'error' && e.message.includes('Worktree creation failed'))).toBe(true);
+  });
+
+  it('should create a worktree for a single worker when worktree mode is always', async () => {
+    const projectDir = makeTmpDir();
+    const dataDir = makeTmpDir();
+    const isolatedStore = new TeamStore();
+    await isolatedStore.init(dataDir);
+    try {
+      initGitRepo(projectDir);
+      isolatedStore.createTask({ projectId: 'proj1', description: 'Task A' });
+      const spawnCwds: string[] = [];
+      const adapter: AgentAdapter = {
+        name: 'isolated',
+        async available() { return true; },
+        spawn(_prompt: string, opts: SpawnOptions): AgentProcess {
+          spawnCwds.push(opts.cwd);
+          return {
+            pid: 99999,
+            completion: Promise.resolve({ exitCode: 0, signal: null, tailOutput: 'done', killed: false }),
+            abort() {},
+          };
+        },
+      };
+
+      const result = await runCoordinationLoop({
+        projectDir,
+        projectId: 'proj1',
+        adapters: [adapter],
+        teamStore: isolatedStore,
+        parallel: 1,
+        pollIntervalMs: 50,
+        taskTimeoutMs: 5_000,
+        pipelineId: 'test-pipe-123',
+        worktreeMode: 'always',
+      });
+
+      expect(result.completed).toBe(1);
+      expect(spawnCwds[0]).toContain(path.join(projectDir, '.worktrees'));
+    } finally {
+      closeDatabase(dataDir);
+      cleanup(dataDir);
+      fs.rmSync(projectDir, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  it('should preserve the task worktree when auto merge is disabled', async () => {
+    const projectDir = makeTmpDir();
+    const dataDir = makeTmpDir();
+    const preserveStore = new TeamStore();
+    await preserveStore.init(dataDir);
+    try {
+      initGitRepo(projectDir);
+      preserveStore.createTask({ projectId: 'proj1', description: 'Task A' });
+      let workerCwd = '';
+      const adapter: AgentAdapter = {
+        name: 'preserve',
+        async available() { return true; },
+        spawn(_prompt: string, opts: SpawnOptions): AgentProcess {
+          workerCwd = opts.cwd;
+          fs.writeFileSync(path.join(workerCwd, 'worker.txt'), 'from worker');
+          return {
+            pid: 99999,
+            completion: Promise.resolve({ exitCode: 0, signal: null, tailOutput: 'done', killed: false }),
+            abort() {},
+          };
+        },
+      };
+
+      const events: CoordinatorEvent[] = [];
+      const result = await runCoordinationLoop({
+        projectDir,
+        projectId: 'proj1',
+        adapters: [adapter],
+        teamStore: preserveStore,
+        parallel: 1,
+        pollIntervalMs: 50,
+        taskTimeoutMs: 5_000,
+        pipelineId: 'test-pipe-123',
+        worktreeMode: 'always',
+        autoMergeWorktrees: false,
+        onProgress: (e) => events.push(e),
+      });
+
+      expect(result.completed).toBe(1);
+      expect(fs.existsSync(workerCwd)).toBe(true);
+      expect(fs.existsSync(path.join(workerCwd, 'worker.txt'))).toBe(true);
+      expect(fs.existsSync(path.join(projectDir, 'worker.txt'))).toBe(false);
+      expect(events.some(e => e.type === 'worktree:preserve')).toBe(true);
+    } finally {
+      closeDatabase(dataDir);
+      cleanup(dataDir);
+      fs.rmSync(projectDir, { recursive: true, force: true });
+    }
+  }, 30_000);
 
   it('should show plan in dry-run mode without spawning', async () => {
     store.createTask({ projectId: 'proj1', description: 'Task DryRun' });
@@ -670,13 +846,13 @@ describe('Coordinator', () => {
         try {
           if (worktreeCwd && worktreeCwd !== tmpDir) {
             fs.writeFileSync(path.join(worktreeCwd, 'conflict.txt'), 'from worktree branch');
-            execSync('git add . && git commit -m "worktree change"', {
+            execSync('git add conflict.txt && git commit -m "worktree change"', {
               cwd: worktreeCwd,
               encoding: 'utf-8',
             });
             // Write conflicting change on main branch
             fs.writeFileSync(path.join(tmpDir, 'conflict.txt'), 'from main branch');
-            execSync('git add . && git commit -m "main change"', {
+            execSync('git add conflict.txt && git commit -m "main change"', {
               cwd: tmpDir,
               encoding: 'utf-8',
             });
@@ -705,6 +881,7 @@ describe('Coordinator', () => {
       taskTimeoutMs: 5_000,
       maxRetries: 0,
       pipelineId: 'test-pipe-123',
+      dirtyMode: 'allow',
       onProgress: (e) => events.push(e),
     });
 

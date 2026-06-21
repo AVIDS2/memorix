@@ -4,6 +4,8 @@ import { describe, expect, it } from 'vitest';
 import {
   getInitScopeDescription,
   getInitTargetDir,
+  getInitConfigFilename,
+  getInitProjectConfigFilename,
   resolveInitScope,
   shouldOfferDotenv,
 } from '../../src/cli/commands/init-shared.js';
@@ -52,5 +54,52 @@ describe('init-shared', () => {
   it('offers dotenv files in both supported scopes', () => {
     expect(shouldOfferDotenv('global')).toBe(true);
     expect(shouldOfferDotenv('project')).toBe(true);
+  });
+
+  it('uses TOML config filenames for new init flows', () => {
+    expect(getInitConfigFilename()).toBe('config.toml');
+    expect(getInitProjectConfigFilename()).toBe('memorix.toml');
+  });
+});
+
+describe('init TOML templates', () => {
+  it('shows agent, memory, and embedding lanes in global config with local key slots', async () => {
+    const { buildInitTomlConfig } = await import('../../src/cli/commands/init.js');
+
+    const content = buildInitTomlConfig({
+      scope: 'global',
+      llmProvider: 'custom',
+      embeddingProvider: 'api',
+      gitAutoHook: false,
+      sessionInject: 'minimal',
+      date: '2026-06-15',
+    });
+
+    expect(content).toContain('[agent]');
+    expect(content).toContain('# api_key = "..."');
+    expect(content).toContain('[memory.llm]');
+    expect(content).toContain('provider = "openai"');
+    expect(content).toContain('[embedding]');
+    expect(content).toContain('# api_key = "..."');
+    expect(content).toContain('Global config may store local credentials');
+  });
+
+  it('keeps project config templates secret-free by default', async () => {
+    const { buildInitTomlConfig } = await import('../../src/cli/commands/init.js');
+
+    const content = buildInitTomlConfig({
+      scope: 'project',
+      llmProvider: 'openai',
+      embeddingProvider: 'api',
+      gitAutoHook: true,
+      sessionInject: 'full',
+      date: '2026-06-15',
+    });
+
+    expect(content).toContain('[agent]');
+    expect(content).toContain('[memory.llm]');
+    expect(content).toContain('[embedding]');
+    expect(content).toContain('Project config should not store credentials');
+    expect(content).not.toContain('api_key');
   });
 });

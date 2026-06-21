@@ -346,6 +346,7 @@ describe('HTTP Transport', () => {
     expect(toolNames).toContain('memorix_store');
     expect(toolNames).toContain('memorix_search');
     expect(toolNames).toContain('memorix_detail');
+    expect(toolNames).toContain('memorix_graph_context');
     expect(toolNames.length).toBeGreaterThanOrEqual(20);
   });
 

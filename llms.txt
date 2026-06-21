@@ -1,42 +1,71 @@
 # Memorix
 
-> Open-source cross-agent memory layer for coding agents via MCP.
+> Local-first shared memory layer for AI coding agents.
 
-Memorix is an open-source MCP server that gives coding agents persistent, project-aware memory across IDEs and sessions. It is compatible with Cursor, Claude Code, Codex, Windsurf, Gemini CLI, GitHub Copilot, Kiro, OpenCode, Antigravity, and Trae through MCP. It combines three layers in one system:
+Memorix gives coding agents persistent, project-aware memory across sessions, IDEs, terminals, and MCP clients. It stores project knowledge once so multiple agents can retrieve it through plugin packages where supported, MCP, CLI, SDK, generated rules/instructions, hooks, skills, local plugins, or the bundled terminal agent. It works with Claude Code, Codex, Cursor, Windsurf, GitHub Copilot CLI, Gemini CLI, OpenCode, Pi, Kiro, Antigravity, Trae, and other MCP-capable agents.
 
-- **Git Memory** for engineering truth from commits
-- **Reasoning Memory** for why decisions were made
-- **Cross-Agent Recall** so multiple IDEs and agents can share the same local memory base
+## Entry Points
 
-## What Memorix Is Best At
+- `memorix setup --agent <agent>` installs the recommended integration package or config.
+- `memorix setup --list` lists supported agent entry points.
+- `memorix serve` starts the manual stdio MCP server for IDEs and agents.
+- `memorix background start` starts the HTTP MCP service and dashboard.
+- `memorix memory`, `reasoning`, `session`, `team`, `task`, `handoff`, `poll`, `receipt`, `sync`, `ingest`, and `orchestrate` expose the CLI command set.
+- `memorix integrate --agent <agent>` and `memorix hooks install --agent <agent>` are manual/fallback generation commands.
+- `memorix` and `memcode` open memcode, the bundled terminal agent that uses the same project memory pool.
+- `memorix dashboard` opens the local read-mostly dashboard.
 
-- Turning `git commit` history into searchable memory with commit provenance and noise filtering
-- Preserving architecture decisions, bug fixes, gotchas, and reasoning across sessions
-- Sharing memory across Cursor, Windsurf, Claude Code, Codex, Copilot, Kiro, Antigravity, OpenCode, Trae, and Gemini CLI
-- Running a local memory control plane with search, detail, timeline, dashboard, retention, and team workflows
+## Memory Model
 
-## Quick Start
+Memorix combines three layers:
+
+- **Observation Memory**: facts, gotchas, fixes, implementation notes, what changed
+- **Reasoning Memory**: why decisions were made, alternatives, constraints, risks
+- **Git Memory**: commit-derived engineering facts with source provenance
+
+Search is project-scoped by default. Use global scope only when cross-project recall is intentional.
+
+## memcode
+
+memcode is the terminal coding agent bundled with Memorix. It reads from and writes to the same project memory pool used by MCP-connected coding agents.
+
+Common commands:
+
+```bash
+memorix
+memcode
+memcode -p "summarize this repo"
+memcode -c
+memcode -r
+```
+
+memcode uses the same project memory pool as external MCP-connected agents. It does not create a separate private memory store.
+
+## Configuration
+
+Memorix uses TOML as the user-facing configuration model:
+
+- `~/.memorix/config.toml` for global defaults
+- `<git-root>/memorix.toml` for optional project overrides
+
+Core lanes:
+
+- `[memory.llm]` for memory formation, summaries, deduplication, optional rerank
+- `[embedding]` for semantic/vector search
+- `[memory]` for injection and formation behavior
+- `[agent]` for the model memcode talks to while coding
+
+Legacy `memorix.yml`, `.env`, and `~/.memorix/config.json` are compatibility inputs, not the primary setup path.
+
+## Quick Setup
 
 ```bash
 npm install -g memorix
 memorix init
-memorix serve
+memorix setup --agent claude
 ```
 
-Memorix uses:
-
-- `memorix.yml` for behavior and project settings
-- `.env` for secrets such as API keys
-
-For the normal HTTP MCP + dashboard experience:
-
-```bash
-memorix background start
-```
-
-Use `memorix serve-http --port 3211` only when you want the same HTTP control plane in the foreground for debugging, manual supervision, or a custom port.
-
-Generic stdio MCP config:
+Generic MCP client config:
 
 ```json
 {
@@ -49,27 +78,30 @@ Generic stdio MCP config:
 }
 ```
 
-Generic HTTP MCP config:
+Manual stdio MCP:
 
-```json
-{
-  "mcpServers": {
-    "memorix": {
-      "transport": "http",
-      "url": "http://localhost:3211/mcp"
-    }
-  }
-}
+```bash
+memorix serve
 ```
 
-In HTTP control-plane mode, agents should call `memorix_session_start` with `projectRoot` set to the **absolute path of the current workspace or repo root** when that path is available. Git remains the source of truth for the final project identity; `projectRoot` is the detection anchor that prevents cross-project drift.
+For HTTP MCP:
+
+```bash
+memorix background start
+```
+
+Endpoint: `http://localhost:3211/mcp`.
 
 ## Core Links
 
-- Primary AI operator guide: [docs/AGENT_OPERATOR_PLAYBOOK.md](https://github.com/AVIDS2/memorix/blob/main/docs/AGENT_OPERATOR_PLAYBOOK.md)
-- GitHub: [AVIDS2/memorix](https://github.com/AVIDS2/memorix)
-- npm: [memorix](https://www.npmjs.com/package/memorix)
-- Full AI-facing docs: [llms-full.txt](https://github.com/AVIDS2/memorix/blob/main/llms-full.txt)
-- Setup: [docs/SETUP.md](https://github.com/AVIDS2/memorix/blob/main/docs/SETUP.md)
-- Configuration: [docs/CONFIGURATION.md](https://github.com/AVIDS2/memorix/blob/main/docs/CONFIGURATION.md)
-- Git Memory: [docs/GIT_MEMORY.md](https://github.com/AVIDS2/memorix/blob/main/docs/GIT_MEMORY.md)
+- GitHub: https://github.com/AVIDS2/memorix
+- npm: https://www.npmjs.com/package/memorix
+- README: https://github.com/AVIDS2/memorix/blob/main/README.md
+- Setup: https://github.com/AVIDS2/memorix/blob/main/docs/SETUP.md
+- Configuration: https://github.com/AVIDS2/memorix/blob/main/docs/CONFIGURATION.md
+- API Reference: https://github.com/AVIDS2/memorix/blob/main/docs/API_REFERENCE.md
+- Integration Surfaces: https://github.com/AVIDS2/memorix/blob/main/docs/INTEGRATIONS.md
+- Git Memory: https://github.com/AVIDS2/memorix/blob/main/docs/GIT_MEMORY.md
+- memcode: https://github.com/AVIDS2/memorix/blob/main/docs/MEMCODE.md
+- Agent Playbook: https://github.com/AVIDS2/memorix/blob/main/docs/AGENT_OPERATOR_PLAYBOOK.md
+- Full AI context: https://github.com/AVIDS2/memorix/blob/main/llms-full.txt

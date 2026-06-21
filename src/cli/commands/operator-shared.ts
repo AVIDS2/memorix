@@ -11,8 +11,8 @@ export interface CliProjectContext {
   teamStore: TeamStore;
 }
 
-export async function getCliProjectContext(options?: { searchIndex?: boolean }): Promise<CliProjectContext> {
-  const detection = detectProjectWithDiagnostics(process.cwd());
+export async function getCliProjectContext(options?: { searchIndex?: boolean; projectRoot?: string }): Promise<CliProjectContext> {
+  const detection = detectProjectWithDiagnostics(options?.projectRoot ?? process.cwd());
   if (!detection.project) {
     const detail = detection.failure?.detail ?? 'No git repository found in the current directory.';
     throw new Error(detail);

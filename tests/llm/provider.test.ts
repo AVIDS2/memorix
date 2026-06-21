@@ -1,7 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { callLLMWithTools, initLLM, parseLLMTimeoutMs, setLLMConfig } from '../../src/llm/provider.js';
+import { callLLMWithTools, initLLM, parseLLMTimeoutMs, setLLMConfig } from '../../src/llm/provider.ts';
 
 const LLM_ENV_KEYS = [
+  'MEMORIX_AGENT_API_KEY',
+  'MEMORIX_AGENT_PROVIDER',
+  'MEMORIX_AGENT_MODEL',
+  'MEMORIX_AGENT_BASE_URL',
   'MEMORIX_AGENT_LLM_API_KEY',
   'MEMORIX_AGENT_LLM_PROVIDER',
   'MEMORIX_AGENT_LLM_MODEL',
@@ -46,6 +50,44 @@ describe('initLLM config scopes', () => {
       apiKey: 'sk-agent',
       model: 'agent-model',
       baseUrl: 'https://agent.example.com/v1',
+    });
+  });
+
+  it('uses short MEMORIX_AGENT_* env aliases for TUI agent scope', () => {
+    process.env.MEMORIX_LLM_API_KEY = 'sk-memory';
+    process.env.MEMORIX_LLM_MODEL = 'memory-model';
+    process.env.MEMORIX_AGENT_API_KEY = 'sk-agent-short';
+    process.env.MEMORIX_AGENT_PROVIDER = 'openrouter';
+    process.env.MEMORIX_AGENT_MODEL = 'agent-short-model';
+    process.env.MEMORIX_AGENT_BASE_URL = 'https://agent-short.example.com/v1';
+
+    const config = initLLM({ scope: 'agent' });
+
+    expect(config).toEqual({
+      provider: 'openrouter',
+      apiKey: 'sk-agent-short',
+      model: 'agent-short-model',
+      baseUrl: 'https://agent-short.example.com/v1',
+    });
+  });
+
+  it('prefers short MEMORIX_AGENT_* aliases over legacy MEMORIX_AGENT_LLM_* aliases', () => {
+    process.env.MEMORIX_AGENT_API_KEY = 'sk-agent-short';
+    process.env.MEMORIX_AGENT_LLM_API_KEY = 'sk-agent-legacy';
+    process.env.MEMORIX_AGENT_PROVIDER = 'openrouter';
+    process.env.MEMORIX_AGENT_LLM_PROVIDER = 'openai';
+    process.env.MEMORIX_AGENT_MODEL = 'agent-short-model';
+    process.env.MEMORIX_AGENT_LLM_MODEL = 'agent-legacy-model';
+    process.env.MEMORIX_AGENT_BASE_URL = 'https://agent-short.example.com/v1';
+    process.env.MEMORIX_AGENT_LLM_BASE_URL = 'https://agent-legacy.example.com/v1';
+
+    const config = initLLM({ scope: 'agent' });
+
+    expect(config).toEqual({
+      provider: 'openrouter',
+      apiKey: 'sk-agent-short',
+      model: 'agent-short-model',
+      baseUrl: 'https://agent-short.example.com/v1',
     });
   });
 

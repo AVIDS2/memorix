@@ -5,20 +5,24 @@ This guide is for contributors working on Memorix itself.
 Memorix is a TypeScript project built around:
 
 - MCP server runtime
+- memcode bundled terminal-agent runtime
 - CLI workflows
 - SQLite canonical persistence with compatibility/fallback layers
 - Orama search
-- dashboard and HTTP control plane
+- dashboard and HTTP service
 
-## Current Release Baseline
+## Current Development Baseline
 
-The current published release line is **1.0.10**.
+The current release work targets the **1.1 line** while package metadata may still show the last published patch version until the release commit is cut.
 
-Contributors should assume the following are already part of the supported product surface:
+Contributors should assume the following areas are part of the 1.1 release line:
 
+- shared memory across MCP clients, CLI, SDK, dashboard, hooks, and memcode
+- memcode uses Memorix project memory, hooks, `/memory` commands, resumable sessions, and model switching as the bundled terminal agent
+- TOML-first configuration with global `~/.memorix/config.toml` and project `<git-root>/memorix.toml`
+- separate `[agent]`, `[memory.llm]`, and `[embedding]` model lanes
 - privacy-safe handoff receipts and doctor receipt diagnostics
 - optional session semantics in generated agent rules
-- separate TUI agent LLM config with fallback to `llm`
 - notify-only auto-update by default with explicit install opt-in
 - dashboard config loading aligned with CLI/TUI status surfaces
 - the existing layered retrieval, retention, attribution, and compact output model
@@ -27,7 +31,7 @@ Contributors should assume the following are already part of the supported produ
 
 ## 1. Prerequisites
 
-- Node.js `>=20`
+- Node.js `>=22.19.0`
 - npm
 - Git
 
@@ -125,7 +129,7 @@ High-level layout:
 src/
   cli/                 interactive menu and subcommands
   compact/             compact formatting and token budgeting
-  config/              YAML, dotenv, and configuration loading
+  config/              TOML-first config, dotenv/YAML compatibility, provenance
   dashboard/           dashboard server and static frontend
   embedding/           embedding providers
   git/                 Git Memory extractor, hook path, noise filter
@@ -137,7 +141,7 @@ src/
   search/              intent-aware retrieval helpers
   skills/              memory-driven skills generation
   store/               Orama index and persistence
-  team/                autonomous Agent Team registry, tasks, locks, messages
+  team/                orchestration coordination registry, tasks, locks, messages
   workspace/           MCP and workflow sync across agents
 
 tests/
@@ -148,7 +152,8 @@ Docs layout:
 
 - `README.md`: landing page and quick start
 - `docs/SETUP.md`: client setup and troubleshooting
-- `docs/CONFIGURATION.md`: `memorix.yml + .env`
+- `docs/CONFIGURATION.md`: TOML-first config and legacy compatibility
+- `docs/MEMCODE.md`: bundled terminal-agent guide
 - `docs/GIT_MEMORY.md`: Git Memory workflows
 - `docs/ARCHITECTURE.md`: system design
 - `docs/API_REFERENCE.md`: MCP tool surface
@@ -190,7 +195,7 @@ Use `memorix serve-http --port 3211` when you want the same stack in the foregro
 memorix dashboard
 ```
 
-Useful for local UI checks, but the main product dashboard is the one embedded in the HTTP control plane.
+Useful for local UI checks. The HTTP service also serves the embedded dashboard used in normal background mode.
 
 ---
 
@@ -217,7 +222,7 @@ over only unit tests.
 
 ## 7. Git Memory Development Notes
 
-Git Memory is one of Memorix's most important product differentiators.
+Git Memory turns commit history into searchable engineering memory, so changes here directly affect how well agents can recall what changed in a codebase.
 
 When working in this area, validate:
 
@@ -239,17 +244,18 @@ See [GIT_MEMORY.md](GIT_MEMORY.md) for user-facing behavior.
 
 ## 8. Configuration Development Notes
 
-Memorix is converging on:
+Memorix uses TOML as the primary user-facing config model:
 
-- `memorix.yml` for behavior
-- `.env` for secrets
+- global `~/.memorix/config.toml`
+- project `<git-root>/memorix.toml`
 
 When touching config code, always validate:
 
-- project `memorix.yml`
-- user `~/.memorix/memorix.yml`
+- project `memorix.toml`
+- global `~/.memorix/config.toml`
 - project `.env`
 - user `~/.memorix/.env`
+- legacy project/user `memorix.yml`
 - legacy `~/.memorix/config.json`
 - env var overrides
 
@@ -283,12 +289,31 @@ npm test
 - Git Memory
 - config diagnostics
 
-4. commit and push
-5. publish manually when ready
+4. inspect package contents:
+
+```bash
+npm pack --dry-run --json
+npm pack --workspace @memorix/ai --dry-run --json
+npm pack --workspace @memorix/agent-core --dry-run --json
+npm pack --workspace @memorix/tui --dry-run --json
+npm pack --workspace @memorix/memcode --dry-run --json
+```
+
+5. commit and push
+6. publish manually when ready, in dependency order:
+
+```bash
+npm publish --workspace @memorix/ai --access public
+npm publish --workspace @memorix/agent-core --access public
+npm publish --workspace @memorix/tui --access public
+npm publish --workspace @memorix/memcode --access public
+npm publish --access public
+```
 
 Notes:
 
 - `prepublishOnly` already runs build + test
+- `memorix` depends on `@memorix/memcode`; `@memorix/memcode` depends on `@memorix/ai`, `@memorix/agent-core`, and `@memorix/tui`, so publish workspaces before the root package
 - npm publish is usually manual, especially when 2FA is enabled
 - GitHub release automation should not be treated as a substitute for manual runtime validation
 
@@ -304,7 +329,7 @@ When contributing to Memorix:
 - validate MCP behavior with real calls when changing server logic
 - keep Git Memory, reasoning memory, and retrieval semantics coherent
 
-Memorix is strongest when its engineering truth layer, reasoning layer, and local control plane all stay in sync.
+Memorix is strongest when its engineering truth layer, reasoning layer, and local service runtime all stay in sync.
 
 ---
 

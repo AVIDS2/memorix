@@ -552,20 +552,33 @@ async function handleApi(
                     values.push({ key: 'llm.apiKey', value: 'not set', source: 'none' });
                 }
 
-                const agentProvider = process.env.MEMORIX_AGENT_LLM_PROVIDER || yml.agent?.provider;
-                if (agentProvider) values.push({ key: 'agent.llm.provider', value: agentProvider, source: await getEnvSource('MEMORIX_AGENT_LLM_PROVIDER', yml.agent?.provider ? 'memorix.yml' : undefined) });
+                const agentProvider = process.env.MEMORIX_AGENT_PROVIDER || process.env.MEMORIX_AGENT_LLM_PROVIDER || yml.agent?.provider;
+                if (agentProvider) {
+                    let source: string;
+                    if (process.env.MEMORIX_AGENT_PROVIDER) source = await getEnvSource('MEMORIX_AGENT_PROVIDER');
+                    else if (process.env.MEMORIX_AGENT_LLM_PROVIDER) source = `${await getEnvSource('MEMORIX_AGENT_LLM_PROVIDER')} (legacy)`;
+                    else source = yml.agent?.provider ? 'memorix.yml' : 'default';
+                    values.push({ key: 'agent.provider', value: agentProvider, source });
+                }
 
-                const agentModel = process.env.MEMORIX_AGENT_LLM_MODEL || yml.agent?.model;
-                if (agentModel) values.push({ key: 'agent.llm.model', value: agentModel, source: await getEnvSource('MEMORIX_AGENT_LLM_MODEL', yml.agent?.model ? 'memorix.yml' : undefined) });
+                const agentModel = process.env.MEMORIX_AGENT_MODEL || process.env.MEMORIX_AGENT_LLM_MODEL || yml.agent?.model;
+                if (agentModel) {
+                    let source: string;
+                    if (process.env.MEMORIX_AGENT_MODEL) source = await getEnvSource('MEMORIX_AGENT_MODEL');
+                    else if (process.env.MEMORIX_AGENT_LLM_MODEL) source = `${await getEnvSource('MEMORIX_AGENT_LLM_MODEL')} (legacy)`;
+                    else source = yml.agent?.model ? 'memorix.yml' : 'default';
+                    values.push({ key: 'agent.model', value: agentModel, source });
+                }
 
-                const agentKey = process.env.MEMORIX_AGENT_LLM_API_KEY || yml.agent?.apiKey;
+                const agentKey = process.env.MEMORIX_AGENT_API_KEY || process.env.MEMORIX_AGENT_LLM_API_KEY || yml.agent?.apiKey;
                 if (agentKey) {
                     let src = 'unknown';
-                    if (process.env.MEMORIX_AGENT_LLM_API_KEY) src = await getEnvSource('MEMORIX_AGENT_LLM_API_KEY');
+                    if (process.env.MEMORIX_AGENT_API_KEY) src = await getEnvSource('MEMORIX_AGENT_API_KEY');
+                    else if (process.env.MEMORIX_AGENT_LLM_API_KEY) src = `${await getEnvSource('MEMORIX_AGENT_LLM_API_KEY')} (legacy)`;
                     else if (yml.agent?.apiKey) src = 'memorix.yml (move to .env!)';
-                    values.push({ key: 'agent.llm.apiKey', value: '****' + agentKey.slice(-4), source: src, sensitive: true });
+                    values.push({ key: 'agent.apiKey', value: '****' + agentKey.slice(-4), source: src, sensitive: true });
                 } else {
-                    values.push({ key: 'agent.llm.apiKey', value: 'fallback to llm.apiKey', source: 'default' });
+                    values.push({ key: 'agent.apiKey', value: 'fallback to llm.apiKey', source: 'default' });
                 }
 
                 // Embedding
@@ -822,7 +835,7 @@ interface DashboardState {
     port: number;
 }
 
-/** Optional Agent Team instances passed from MCP server */
+/** Optional coordination instances passed from MCP server */
 export interface TeamInstances {
     registry: { listAgents: (filter?: any) => any[]; getActiveCount: () => number; getAgent: (id: string) => any };
     fileLocks: { listLocks: (agentId?: string) => any[]; cleanExpired: () => void };

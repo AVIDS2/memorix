@@ -1,7 +1,7 @@
 /**
  * Team Agent Registry Tests (TDD — RED phase)
  *
- * Tests for agent join/leave/status in a multi-agent team.
+ * Tests for agent join/leave/status in coordination state.
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';

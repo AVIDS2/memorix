@@ -214,6 +214,8 @@ export interface SearchOptions {
   status?: ObservationStatus | 'all';
   /** Filter by observation source: 'agent', 'git', 'manual', or undefined for all */
   source?: 'agent' | 'git' | 'manual';
+  /** Internal observability probes can disable access tracking without affecting normal search behavior. */
+  trackAccess?: boolean;
 }
 
 /** Topic key family heuristics for suggesting stable topic keys */

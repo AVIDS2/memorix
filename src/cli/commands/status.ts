@@ -15,8 +15,8 @@ export default defineCommand({
     const { RulesSyncer } = await import('../../rules/syncer.js');
     const { getProjectDataDir } = await import('../../store/persistence.js');
     const { getEmbeddingProvider } = await import('../../embedding/provider.js');
+    const { getResolvedConfig, getResolvedAgentLane } = await import('../../config/resolved-config.js');
     const { existsSync, readFileSync } = await import('node:fs');
-    const { join } = await import('node:path');
 
     p.intro('memorix status');
 
@@ -86,107 +86,30 @@ export default defineCommand({
       'Search Engine',
     );
 
-    // ── Config Provenance Diagnostics ──
-    // Shows WHERE each config value comes from (the key "排错" improvement)
+    // ── TOML-first Config Snapshot ──
     try {
-      const { loadYamlConfig } = await import('../../config/yaml-loader.js');
-      const { loadFileConfig } = await import('../../config.js');
       const { getLoadedEnvFiles } = await import('../../config/dotenv-loader.js');
-      const os = await import('node:os');
-      const yml = loadYamlConfig(project.rootPath);
-      const legacy = loadFileConfig();
-
+      const resolved = getResolvedConfig({ projectRoot: project.rootPath });
+      const agent = getResolvedAgentLane({ projectRoot: project.rootPath });
       const diagLines: string[] = [];
-
-      // File existence check
-      const projectYml = join(project.rootPath, 'memorix.yml');
-      const userYml = join(os.homedir(), '.memorix', 'memorix.yml');
-      const projectEnv = join(project.rootPath, '.env');
-      const userEnv = join(os.homedir(), '.memorix', '.env');
-      const legacyJson = join(os.homedir(), '.memorix', 'config.json');
-
-      diagLines.push('Config files:');
-      diagLines.push(`  memorix.yml (project): ${existsSync(projectYml) ? '[OK] ' + projectYml : '[ERROR] not found'}`);
-      diagLines.push(`  memorix.yml (user):    ${existsSync(userYml) ? '[OK] ' + userYml : '— not found'}`);
-      diagLines.push(`  .env (project):        ${existsSync(projectEnv) ? '[OK] ' + projectEnv : '— not found'}`);
-      diagLines.push(`  .env (user):           ${existsSync(userEnv) ? '[OK] ' + userEnv : '— not found'}`);
-      diagLines.push(`  config.json (legacy):  ${existsSync(legacyJson) ? '[WARN]  ' + legacyJson : '— not found'}`);
+      diagLines.push('Active config sources:');
+      diagLines.push(`  TOML:        ${formatSourceList(resolved.sources.toml)}`);
+      diagLines.push(`  Compatibility: ${formatSourceList(resolved.sources.legacy)}`);
       const loadedEnv = getLoadedEnvFiles();
       if (loadedEnv.length > 0) {
-        diagLines.push(`  Loaded .env files:     ${loadedEnv.join(', ')}`);
+        diagLines.push(`  Loaded .env: ${loadedEnv.join(', ')}`);
       }
-
-      // Config value provenance
+      if (resolved.sources.env.length > 0) {
+        diagLines.push(`  Env overrides: ${resolved.sources.env.join(', ')}`);
+      }
       diagLines.push('');
-      diagLines.push('Active config values:');
-
-      // LLM
-      const llmProvider = process.env.MEMORIX_LLM_PROVIDER || yml.llm?.provider || legacy.llm?.provider;
-      if (llmProvider) {
-        const src = process.env.MEMORIX_LLM_PROVIDER ? 'env' : yml.llm?.provider ? 'memorix.yml' : 'config.json';
-        diagLines.push(`  LLM provider:  ${llmProvider} (← ${src})`);
-      }
-      const llmModel = process.env.MEMORIX_LLM_MODEL || yml.llm?.model || legacy.llm?.model;
-      if (llmModel) {
-        const src = process.env.MEMORIX_LLM_MODEL ? 'env' : yml.llm?.model ? 'memorix.yml' : 'config.json';
-        diagLines.push(`  LLM model:     ${llmModel} (← ${src})`);
-      }
-      const llmKey =
-        process.env.MEMORIX_LLM_API_KEY ||
-        process.env.MEMORIX_API_KEY ||
-        yml.llm?.apiKey ||
-        legacy.llm?.apiKey ||
-        process.env.OPENAI_API_KEY;
-      if (llmKey) {
-        let src = 'unknown';
-        if (process.env.MEMORIX_LLM_API_KEY) src = 'env:MEMORIX_LLM_API_KEY';
-        else if (process.env.MEMORIX_API_KEY) src = 'env:MEMORIX_API_KEY';
-        else if (yml.llm?.apiKey) src = 'memorix.yml (consider moving to .env)';
-        else if (legacy.llm?.apiKey) src = 'config.json (legacy)';
-        else if (process.env.OPENAI_API_KEY) src = 'env:OPENAI_API_KEY';
-        diagLines.push(`  LLM API key:   ${'*'.repeat(8)}...${llmKey.slice(-4)} (← ${src})`);
-      } else {
-        diagLines.push(`  LLM API key:   not set`);
-      }
-
-      const agentProvider = process.env.MEMORIX_AGENT_LLM_PROVIDER || yml.agent?.provider || legacy.agent?.provider;
-      if (agentProvider) {
-        const src = process.env.MEMORIX_AGENT_LLM_PROVIDER ? 'env:MEMORIX_AGENT_LLM_PROVIDER' : yml.agent?.provider ? 'memorix.yml' : 'config.json';
-        diagLines.push(`  Agent LLM provider: ${agentProvider} (← ${src})`);
-      }
-      const agentModel = process.env.MEMORIX_AGENT_LLM_MODEL || yml.agent?.model || legacy.agent?.model;
-      if (agentModel) {
-        const src = process.env.MEMORIX_AGENT_LLM_MODEL ? 'env:MEMORIX_AGENT_LLM_MODEL' : yml.agent?.model ? 'memorix.yml' : 'config.json';
-        diagLines.push(`  Agent LLM model:    ${agentModel} (← ${src})`);
-      }
-      const agentKey =
-        process.env.MEMORIX_AGENT_LLM_API_KEY ||
-        yml.agent?.apiKey ||
-        legacy.agent?.apiKey;
-      if (agentKey) {
-        const src = process.env.MEMORIX_AGENT_LLM_API_KEY ? 'env:MEMORIX_AGENT_LLM_API_KEY' : yml.agent?.apiKey ? 'memorix.yml (consider moving to .env)' : 'config.json (legacy)';
-        diagLines.push(`  Agent LLM API key:  ${'*'.repeat(8)}...${agentKey.slice(-4)} (← ${src})`);
-      } else {
-        diagLines.push(`  Agent LLM:     falls back to LLM config`);
-      }
-
-      // Embedding
-      const embMode = process.env.MEMORIX_EMBEDDING || yml.embedding?.provider || legacy.embedding || 'off';
-      const embSrc =
-        process.env.MEMORIX_EMBEDDING ? 'env' : yml.embedding?.provider ? 'memorix.yml' : legacy.embedding ? 'config.json' : 'default';
-      diagLines.push(`  Embedding:     ${embMode} (← ${embSrc})`);
-
-      // Git
-      diagLines.push(`  Git autoHook:  ${yml.git?.autoHook ?? false} (← ${yml.git?.autoHook !== undefined ? 'memorix.yml' : 'default'})`);
-      diagLines.push(`  Git noise:     skipMerge=${yml.git?.skipMergeCommits ?? true}, excludePatterns=${(yml.git?.excludePatterns ?? []).length}, noiseKeywords=${(yml.git?.noiseKeywords ?? []).length}`);
-
-      // Behavior
-      if (yml.behavior?.formationMode) {
-        diagLines.push(`  Formation:     ${yml.behavior.formationMode} (← memorix.yml)`);
-      }
-      if (yml.behavior?.sessionInject) {
-        diagLines.push(`  Session inject: ${yml.behavior.sessionInject} (← memorix.yml)`);
-      }
+      diagLines.push('Resolved lanes:');
+      diagLines.push(`  Agent lane:      ${formatLane(agent.provider, agent.model, agent.baseUrl, agent.apiKey)}`);
+      diagLines.push(`  Memory LLM lane: ${formatLane(resolved.memory.llm.provider, resolved.memory.llm.model, resolved.memory.llm.baseUrl, resolved.memory.llm.apiKey)}`);
+      diagLines.push(`  Embedding lane:  ${formatLane(resolved.embedding.provider, resolved.embedding.model, resolved.embedding.baseUrl, resolved.embedding.apiKey)}`);
+      diagLines.push(`  Memory behavior: inject=${resolved.memory.inject ?? 'default'}, formation=${resolved.memory.formation ?? 'default'}, autoCleanup=${resolved.memory.autoCleanup ?? 'default'}`);
+      diagLines.push(`  Git behavior:    autoHook=${resolved.git.autoHook ?? 'default'}, ingestOnCommit=${resolved.git.ingestOnCommit ?? 'default'}, maxDiffSize=${resolved.git.maxDiffSize ?? 'default'}, skipMergeCommits=${resolved.git.skipMergeCommits ?? 'default'}`);
+      diagLines.push(`  Server:          transport=${resolved.server.transport ?? 'default'}, dashboard=${resolved.server.dashboard ?? 'default'}, dashboardPort=${resolved.server.dashboardPort ?? 'default'}`);
 
       // Git hook status (worktree-safe)
       try {
@@ -199,17 +122,17 @@ export default defineCommand({
           } else {
             diagLines.push(`  Git hook:      not installed (run "memorix git-hook")`);
           }
-        } else if (!yml.git?.autoHook) {
+        } else {
           diagLines.push(`  Git hook:      not installed (run "memorix git-hook")`);
         }
       } catch { /* best effort */ }
 
-      if (!existsSync(projectYml)) {
+      if (resolved.sources.toml.length === 0) {
         diagLines.push('');
-        diagLines.push('[TIP] Run "memorix init" to create memorix.yml + .env');
+        diagLines.push('[TIP] Run "memorix init" to create TOML config');
       }
 
-      p.note(diagLines.join('\n'), 'Configuration Diagnostics');
+      p.note(diagLines.join('\n'), 'Configuration');
     } catch { /* best effort */ }
 
     const syncer = new RulesSyncer(project.rootPath);
@@ -256,3 +179,17 @@ export default defineCommand({
     p.outro('Done');
   },
 });
+
+function formatSourceList(paths: string[]): string {
+  return paths.length > 0 ? paths.join(', ') : 'none';
+}
+
+function formatLane(provider?: string, model?: string, baseUrl?: string, apiKey?: string): string {
+  const parts = [
+    provider ?? 'unset',
+    model ?? 'unset',
+  ];
+  if (baseUrl) parts.push(`baseUrl=${baseUrl}`);
+  parts.push(`apiKey=${apiKey ? '<redacted>' : 'not set'}`);
+  return parts.join(' / ');
+}

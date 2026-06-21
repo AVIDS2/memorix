@@ -12,6 +12,7 @@
 
 import type { TeamStore, TeamTaskRow } from '../team/team-store.js';
 import type { AgentAdapter, AgentProcess, AgentMessage, TokenUsage } from './adapters/types.js';
+import { execSync } from 'node:child_process';
 import { buildAgentPrompt, type HandoffContext } from './prompt-builder.js';
 import { isPlannerTask, materializeTaskGraph, extractPipelineId } from './planner.js';
 import { createLedger, appendEntry, ledgerToPromptSection, type PipelineLedger } from './ledger.js';
@@ -75,12 +76,19 @@ export interface CoordinatorConfig {
   enableEvidence?: boolean;
   /** Phase 7: Verification mode — 'command' (default), 'goals', or 'both' */
   verifyMode?: 'command' | 'goals' | 'both';
+  /** Worktree isolation policy. 'auto' uses worktrees when parallel >= 2. */
+  worktreeMode?: 'auto' | 'always' | 'never';
+  /** Dirty working tree policy before dispatch. Default is 'reject'. */
+  dirtyMode?: 'reject' | 'allow';
+  /** Merge task worktrees back automatically after success. Default true. */
+  autoMergeWorktrees?: boolean;
 }
 
 export type CoordinatorEventType =
   | 'started' | 'task:dispatched' | 'task:completed' | 'task:failed'
   | 'task:retry' | 'task:timeout' | 'agent:stale' | 'finished' | 'error'
   | 'plan:materialized' | 'plan:failed' | 'worktree:create' | 'worktree:merge'
+  | 'worktree:preserve'
   | 'agent:tool_use' | 'agent:message';
 
 export interface CoordinatorEvent {
@@ -142,6 +150,9 @@ export async function runCoordinationLoop(config: CoordinatorConfig): Promise<Co
     pipelineId,
     structuredPlan = true,
     globalTimeoutMs,
+    worktreeMode = 'auto',
+    dirtyMode = 'reject',
+    autoMergeWorktrees = true,
   } = config;
 
   // ── Defensive validation (guards npm import path too) ──────────
@@ -183,7 +194,20 @@ export async function runCoordinationLoop(config: CoordinatorConfig): Promise<Co
     testCommand: config.testCommand,
   };
   const hasGates = !!(config.compileCommand || config.testCommand);
-  const useWorktrees = parallel >= 2 && !dryRun;
+  if (!['auto', 'always', 'never'].includes(worktreeMode)) {
+    throw new Error(`coordinator: worktreeMode must be auto, always, or never, got ${worktreeMode}`);
+  }
+  if (!['reject', 'allow'].includes(dirtyMode)) {
+    throw new Error(`coordinator: dirtyMode must be reject or allow, got ${dirtyMode}`);
+  }
+  const useWorktrees = !dryRun && worktreeMode !== 'never' && (worktreeMode === 'always' || parallel >= 2);
+
+  if (!dryRun && dirtyMode === 'reject' && isGitRepository(projectDir)) {
+    const status = getGitStatus(projectDir);
+    if (status) {
+      throw new Error('working tree has uncommitted changes; commit/stash them or pass --allow-dirty');
+    }
+  }
 
   // Phase 7: Bridge config, evidence tracking, tool trackers
   const bridgeConfig: BridgeConfig = {
@@ -484,7 +508,7 @@ export async function runCoordinationLoop(config: CoordinatorConfig): Promise<Co
           goals,
         });
 
-        // Phase 6i: Create worktree for parallel mode
+        // Phase 6i: Create worktree for isolated mode
         let worktreePath: string | undefined;
         let worktreeBranch: string | undefined;
         let spawnCwd = projectDir;
@@ -499,10 +523,12 @@ export async function runCoordinationLoop(config: CoordinatorConfig): Promise<Co
               taskId: task.task_id,
             });
           } catch (e) {
-            // Worktree creation failed — fall back to shared directory
-            emit('error', `Worktree creation failed, using shared dir: ${(e as Error).message}`, {
+            const message = `Worktree creation failed: ${(e as Error).message}`;
+            emit('error', message, {
               taskId: task.task_id,
             });
+            try { teamStore.releaseTask(task.task_id, orchAgentId); } catch { /* best-effort */ }
+            throw new Error(message);
           }
         }
 
@@ -902,26 +928,32 @@ export async function runCoordinationLoop(config: CoordinatorConfig): Promise<Co
             let mergeConflict = false;
             if (dispatch.worktreePath && dispatch.worktreeBranch) {
               try {
-                const mergeResult = mergeWorktree(projectDir, dispatch.worktreeBranch, dispatch.worktreePath);
-                if (mergeResult.success) {
-                  emit('worktree:merge', `Merged worktree ${dispatch.worktreeBranch}`, {
+                if (!autoMergeWorktrees) {
+                  emit('worktree:preserve', `Preserved worktree ${dispatch.worktreePath}`, {
                     taskId: dispatch.taskId,
                   });
-                  // Success → safe to clean up worktree and branch
-                  try { removeWorktree(projectDir, dispatch.worktreePath, dispatch.worktreeBranch); } catch { /* best-effort */ }
                 } else {
-                  mergeConflict = true;
-                  // Revert task to failed — merge conflict means work did not integrate
-                  try {
-                    teamStore.getDb().prepare(
-                      'UPDATE team_tasks SET status = ?, result = ?, updated_at = ? WHERE task_id = ?',
-                    ).run('failed', `Merge conflict — manual recovery required. Worktree preserved at ${dispatch.worktreePath}. Conflicts: ${mergeResult.conflicts?.slice(0, 200)}`, Date.now(), dispatch.taskId);
-                  } catch { /* best-effort */ }
-                  // Conflict → PRESERVE worktree+branch for manual recovery
-                  emit('task:failed', `Worktree merge conflict for "${taskDesc}" — preserving ${dispatch.worktreePath} for manual recovery`, {
-                    taskId: dispatch.taskId,
-                    agentName: dispatch.adapterName,
-                  });
+                  const mergeResult = mergeWorktree(projectDir, dispatch.worktreeBranch, dispatch.worktreePath);
+                  if (mergeResult.success) {
+                    emit('worktree:merge', `Merged worktree ${dispatch.worktreeBranch}`, {
+                      taskId: dispatch.taskId,
+                    });
+                    // Success → safe to clean up worktree and branch
+                    try { removeWorktree(projectDir, dispatch.worktreePath, dispatch.worktreeBranch); } catch { /* best-effort */ }
+                  } else {
+                    mergeConflict = true;
+                    // Revert task to failed — merge conflict means work did not integrate
+                    try {
+                      teamStore.getDb().prepare(
+                        'UPDATE team_tasks SET status = ?, result = ?, updated_at = ? WHERE task_id = ?',
+                      ).run('failed', `Merge conflict — manual recovery required. Worktree preserved at ${dispatch.worktreePath}. Conflicts: ${mergeResult.conflicts?.slice(0, 200)}`, Date.now(), dispatch.taskId);
+                    } catch { /* best-effort */ }
+                    // Conflict → PRESERVE worktree+branch for manual recovery
+                    emit('task:failed', `Worktree merge conflict for "${taskDesc}" — preserving ${dispatch.worktreePath} for manual recovery`, {
+                      taskId: dispatch.taskId,
+                      agentName: dispatch.adapterName,
+                    });
+                  }
                 }
               } catch { /* best-effort */ }
             }
@@ -1128,4 +1160,31 @@ export async function runCoordinationLoop(config: CoordinatorConfig): Promise<Co
 
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function isGitRepository(projectDir: string): boolean {
+  try {
+    execSync('git rev-parse --is-inside-work-tree', {
+      cwd: projectDir,
+      encoding: 'utf-8',
+      timeout: 5_000,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function getGitStatus(projectDir: string): string {
+  try {
+    return execSync('git status --porcelain', {
+      cwd: projectDir,
+      encoding: 'utf-8',
+      timeout: 5_000,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+  } catch {
+    return '';
+  }
 }

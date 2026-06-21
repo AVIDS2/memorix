@@ -122,7 +122,7 @@ export async function runConfigureInline(): Promise<void> {
       if (p.isCancel(embedding)) continue;
 
       if (embedding === 'api') {
-        const apiKey = await p.password({ message: 'Embedding API key (empty = reuse LLM key):' });
+        const apiKey = await p.password({ message: 'Embedding API key (empty = BM25 fallback):' });
         if (p.isCancel(apiKey)) continue;
 
         const baseUrl = await p.text({

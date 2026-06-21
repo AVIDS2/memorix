@@ -31,6 +31,7 @@ import { checkProjectAttribution, auditProjectObservations } from './memory/attr
 import { createAutoRelations } from './memory/auto-relations.js';
 import { extractEntities } from './memory/entity-extractor.js';
 import { compactSearch, compactTimeline, compactDetail } from './compact/engine.js';
+import { buildGraphContextPacket, formatGraphContextPrompt } from './memory/graph-context.js';
 import { detectProject } from './project/detector.js';
 import { registerAlias, initAliasRegistry, resolveAliases, autoMergeByBaseName } from './project/aliases.js';
 import { getProjectDataDir } from './store/persistence.js';
@@ -243,7 +244,7 @@ export async function createMemorixServer(
   let projectResolved = true;
   let projectResolutionError: string | null = null;
     let explicitProjectBound = false; // Set true when memorix_session_start binds via projectRoot
-    let currentAgentId: string | undefined; // Session-scoped Agent Team identity for attribution after explicit join
+    let currentAgentId: string | undefined; // Session-scoped coordination identity for attribution after explicit join
   if (detectedProject) {
     rawProject = detectedProject;
   } else {
@@ -383,9 +384,6 @@ export async function createMemorixServer(
     // Noisy per-probe 'awaiting binding' log was removed to reduce terminal spam.
   }
 
-  // Sync advisory variables — populated by deferredInit(), used by memorix_search
-  let syncAdvisoryShown = false;
-  let syncAdvisory: string | null = null;
   const requireResolvedProject = (action: string) => {
     if (projectResolved) return null;
     return {
@@ -1071,16 +1069,12 @@ export async function createMemorixServer(
         throw error;
       }
 
-      // Append search mode and sync advisory
+      // Append retrieval diagnostics only; do not mix workspace-sync guidance into memory results.
       let text = result.formatted;
       try {
         const { getLastSearchMode } = await import('./store/orama-store.js');
         text += `\n\n_Search mode: ${getLastSearchMode(project.id)}_`;
       } catch { /* best-effort */ }
-      if (!syncAdvisoryShown && syncAdvisory) {
-        text += syncAdvisory;
-        syncAdvisoryShown = true;
-      }
 
       return {
         content: [
@@ -1091,6 +1085,54 @@ export async function createMemorixServer(
         ],
       };
       }); // withFreshIndex
+    },
+  );
+
+  /**
+   * memorix_graph_context — Prompt-ready memory graph packet
+   *
+   * Gives agents a compact, high-signal map of relevant memories, entities,
+   * relations, and quality risks without forcing broad search/detail loops.
+   */
+  server.registerTool(
+    'memorix_graph_context',
+    {
+      title: 'Memory Graph Context',
+      description:
+        'Build a compact, prompt-ready memory graph context packet for the current project. ' +
+        'Use this for broad memory overview questions, project memory graph questions, or task-specific memory grounding. ' +
+        'Returns high-signal memories, entities, relations, and risks as background context, not instructions.',
+      inputSchema: {
+        query: z.string().describe('Current task or topic to build memory graph context for'),
+        limit: z.number().optional().describe('Max high-signal memories to include (default: 5)'),
+        format: z.enum(['prompt', 'summary']).optional().default('prompt').describe(
+          'Output format. "prompt" is agent-ready; "summary" is a compact human overview.',
+        ),
+      },
+    },
+    async ({ query, limit, format }) => {
+      const unresolved = requireResolvedProject('build graph context for the current project');
+      if (unresolved) return unresolved;
+
+      return withFreshIndex(async () => {
+        const packet = buildGraphContextPacket(getAllObservations(), {
+          projectId: project.id,
+          query,
+          limit: limit != null ? coerceNumber(limit, 5) : undefined,
+        });
+        const text = format === 'summary'
+          ? [
+              `Graph context packet for ${project.name}`,
+              `- ${packet.summary}`,
+              '',
+              ...packet.entities.map((entity) => `* ${entity.name} (#${entity.observationIds.join(', #')})`),
+            ].join('\n')
+          : formatGraphContextPrompt(packet);
+
+        return {
+          content: [{ type: 'text' as const, text }],
+        };
+      });
     },
   );
 
@@ -2663,7 +2705,7 @@ export async function createMemorixServer(
         'Call this at the beginning of a session to track activity and get injected context. ' +
         'Any previous active session for this project will be auto-closed. ' +
         'By default this is lightweight: it binds the project, opens a session, and injects context only. ' +
-        'Team identity is opt-in via `joinTeam: true` or a separate `team_manage` join call.\n\n' +
+        'Coordination identity is opt-in via `joinTeam: true` or a separate `team_manage` join call.\n\n' +
         'IMPORTANT for HTTP/control-plane mode: pass `projectRoot` with the absolute path to your ' +
         'workspace root (e.g., the directory open in your IDE). Memorix uses this to detect the git ' +
         'project and bind this session to the correct project context. Without it, project-scoped ' +
@@ -2671,9 +2713,9 @@ export async function createMemorixServer(
       inputSchema: {
         sessionId: z.string().optional().describe('Custom session ID (auto-generated if omitted)'),
         agent: z.string().optional().describe('Agent/IDE name (e.g., "cursor", "windsurf", "claude-code")'),
-        agentType: z.string().optional().describe('Agent type used for optional Agent Team identity mapping (e.g., "windsurf", "cursor").'),
-        instanceId: z.string().optional().describe('Stable instance ID for optional Agent Team identity across restarts. If omitted with joinTeam=true, Memorix derives a deterministic fallback from the project and agent identity.'),
-        joinTeam: z.boolean().optional().describe('If true, also join the autonomous agent team for this session. Defaults to false.'),
+        agentType: z.string().optional().describe('Agent type used for optional coordination identity mapping (e.g., "windsurf", "cursor").'),
+        instanceId: z.string().optional().describe('Stable instance ID for optional coordination identity across restarts. If omitted with joinTeam=true, Memorix derives a deterministic fallback from the project and agent identity.'),
+        joinTeam: z.boolean().optional().describe('If true, also join orchestration coordination state for this session. Defaults to false.'),
         role: z.string().optional().describe('Explicit role override used only when joinTeam=true.'),
         projectRoot: z.string().optional().describe(
           'Absolute path to the workspace/project root directory (e.g., the folder open in your IDE). ' +
@@ -2762,7 +2804,7 @@ export async function createMemorixServer(
       let teamJoinNotice = '';
       try {
         if (!teamFeaturesEnabled && shouldJoinTeam) {
-          teamJoinNotice = 'Team join skipped: the current tool profile does not expose Agent Team tools.';
+          teamJoinNotice = 'Coordination join skipped: the current tool profile does not expose coordination tools.';
         } else if (shouldJoinTeam && typeof teamStore !== 'undefined' && (agent || agentType)) {
           // Auto-derive role from agentType using AGENT_TYPE_ROLE_MAP
           const { AGENT_TYPE_ROLE_MAP } = await import('./team/team-store.js');
@@ -2817,7 +2859,7 @@ export async function createMemorixServer(
             rescueInfo += `[TASK] ${availableTasks.length} task(s) available to claim. Use memorix_poll for details.`;
           }
         } else if (shouldJoinTeam) {
-          teamJoinNotice = 'Team join skipped: pass `agent` or `agentType` to create an Agent Team identity.';
+          teamJoinNotice = 'Coordination join skipped: pass `agent` or `agentType` to create a coordination identity.';
         }
       } catch { /* team auto-registration is best-effort */ }
 
@@ -2826,7 +2868,7 @@ export async function createMemorixServer(
         `Project: ${project.name} (${project.id})`,
         result.session.agent ? `Agent: ${result.session.agent}` : '',
         registeredAgent ? `Agent ID: ${registeredAgent.agent_id} (instance: ${registeredAgent.instance_id})` : '',
-        !registeredAgent ? 'Team identity: not joined (memory/session context only)' : '',
+        !registeredAgent ? 'Coordination identity: not joined (memory/session context only)' : '',
         llmStatus,
         teamJoinNotice,
         registeredAgent ? watermarkInfo : '',
@@ -3227,7 +3269,7 @@ export async function createMemorixServer(
   );
 
   // ================================================================
-  // Autonomous Agent Team Tools (Multi-Agent) - SQLite-backed
+  // Orchestration Coordination Tools (Multi-Agent) - SQLite-backed
   // ================================================================
 
   // Use shared TeamStore (from HTTP server) or create new one (stdio mode).
@@ -3255,9 +3297,9 @@ export async function createMemorixServer(
   server.registerTool(
     'team_manage',
     {
-      title: 'Team Management',
+      title: 'Coordination Management',
       description:
-        'Register, unregister, or list agents in the team. ' +
+        'Register, unregister, or list agents in the project coordination state. ' +
         'Action "join": register this agent (returns agent ID and instance ID for reactivation). ' +
         'Action "leave": mark agent inactive, release locks. ' +
         'Action "status": list all agents with roles and capabilities, plus role occupancy. ' +
@@ -3298,7 +3340,7 @@ export async function createMemorixServer(
         return {
           content: [{
             type: 'text' as const,
-            text: `Joined Agent Team as "${agent.name}" (ID: ${agent.agent_id})\nInstance ID: ${agent.instance_id}\nRole: ${agent.role}\nThis session now attributes Agent Team activity to that identity.\nActive agents: ${teamStore.getActiveCount(project.id)}`,
+            text: `Joined project coordination state as "${agent.name}" (ID: ${agent.agent_id})\nInstance ID: ${agent.instance_id}\nRole: ${agent.role}\nThis session now attributes coordination activity to that identity.\nActive agents: ${teamStore.getActiveCount(project.id)}`,
           }],
         };
       }
@@ -3583,7 +3625,7 @@ export async function createMemorixServer(
     {
       title: 'Team Poll — Situational Awareness',
       description:
-        'Get a full snapshot of your team coordination state in one call. ' +
+        'Get a full snapshot of your project coordination state in one call. ' +
         'Returns: your agent info, watermark (new observations since last session), ' +
         'inbox (unread messages), tasks (your in-progress, available to claim, completed, failed), ' +
         'and team roster (active agents). Use this to decide what to work on next.',
@@ -3842,51 +3884,21 @@ export async function createMemorixServer(
       behaviorConfig = getBehaviorConfig();
     } catch { /* defaults */ }
 
-    // Sync advisory: compute once, show on first memorix_search
+    // Sync advisory: compute for diagnostics only.
+    // Memory search results must stay pure retrieval content; injecting agent
+    // instructions here causes context pollution and tool-loop misbehavior.
     if (!behaviorConfig.syncAdvisory) {
       console.error('[memorix] Sync advisory disabled via config.');
     } else try {
       const engine = new WorkspaceSyncEngine(project.rootPath);
       const scan = await engine.scan();
-      const lines: string[] = [];
 
       const totalMCP = Object.values(scan.mcpConfigs).reduce((sum, arr) => sum + arr.length, 0);
       const totalSkills = scan.skills.length;
       const totalRules = scan.rulesCount;
       const totalWorkflows = scan.workflows.length;
-
-      if (totalMCP > 0 || totalSkills > 0 || totalRules > 0 || totalWorkflows > 0) {
-        lines.push('', '---', '[UPDATED] **Cross-Agent Sync Available**');
-        for (const [agent, servers] of Object.entries(scan.mcpConfigs)) {
-          const list = servers as MCPServerEntry[];
-          if (list.length > 0) {
-            lines.push(`- **${agent}** MCP: ${list.map(s => s.name).join(', ')}`);
-          }
-        }
-        if (totalSkills > 0) {
-          const byAgent = new Map<string, string[]>();
-          for (const sk of scan.skills) {
-            const arr = byAgent.get(sk.sourceAgent) || [];
-            arr.push(sk.name);
-            byAgent.set(sk.sourceAgent, arr);
-          }
-          for (const [agent, names] of byAgent) {
-            lines.push(`- **${agent}** skills: ${names.join(', ')}`);
-          }
-        }
-        if (scan.skillConflicts.length > 0) lines.push(`  [WARN] ${scan.skillConflicts.length} name conflict(s)`);
-        if (totalRules > 0) lines.push(`- **${totalRules} rule(s)** found`);
-        if (totalWorkflows > 0) lines.push(`- **${totalWorkflows} workflow(s)** found`);
-        lines.push('');
-        lines.push('[WARN] IMPORTANT INSTRUCTIONS FOR AI AGENT:');
-        lines.push('1. Tell the user what configs/skills are available from other agents (list them).');
-        lines.push('2. Ask which ones they want to sync.');
-        lines.push('3. DO NOT manually copy files or run shell commands to sync.');
-        lines.push('4. ONLY use `memorix_workspace_sync action="apply" target="<agent>"` to sync all,');
-        lines.push('   or add `items=["name1","name2"]` to sync specific items selectively.');
-        syncAdvisory = lines.join('\n');
-      }
-      console.error(`[memorix] Sync advisory: ${syncAdvisory ? 'available' : 'nothing to sync'}`);
+      const hasSyncTargets = totalMCP > 0 || totalSkills > 0 || totalRules > 0 || totalWorkflows > 0;
+      console.error(`[memorix] Sync advisory: ${hasSyncTargets ? 'available' : 'nothing to sync'}`);
     } catch { /* sync scan is optional */ }
 
     // ── Background retention cleanup ────────────────────────────────
@@ -4102,7 +4114,7 @@ export async function createMemorixServer(
         // Stdio mode: always reinitialize
         teamStore = await initTeamStoreForProject(canonicalProjectDir);
       }
-    } catch { /* best-effort - Agent Team features degrade gracefully */ }
+    } catch { /* best-effort - coordination features degrade gracefully */ }
 
     await initializeProjectRuntime('switch');
     return true;

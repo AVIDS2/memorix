@@ -26,16 +26,16 @@ vi.mock('../../src/embedding/api-provider.js', () => ({
     create: mockApiProviderCreate,
   },
 }));
-import { getEmbeddingProvider, isVectorSearchAvailable, resetProvider } from '../../src/embedding/provider.js';
+import { getEmbeddingProvider, isVectorSearchAvailable, resetProvider } from '../../src/embedding/provider.ts';
 import { resetDb, isEmbeddingEnabled, generateEmbedding, getDb } from '../../src/store/orama-store.js';
-import { resetConfigCache } from '../../src/config.js';
+import { resetConfigCache } from '../../src/config.ts';
 
 // Save and clear embedding-related env vars to prevent real API provider initialization
 const savedEnv: Record<string, string | undefined> = {};
 const EMBEDDING_ENV_KEYS = [
   'MEMORIX_API_KEY', 'MEMORIX_EMBEDDING', 'MEMORIX_EMBEDDING_API_KEY',
   'MEMORIX_EMBEDDING_BASE_URL', 'MEMORIX_EMBEDDING_MODEL',
-  'MEMORIX_LLM_API_KEY', 'OPENAI_API_KEY',
+  'MEMORIX_LLM_API_KEY', 'OPENAI_API_KEY', 'DASHSCOPE_API_KEY', 'ALIYUN_API_KEY',
 ];
 
 beforeEach(() => {
@@ -125,6 +125,20 @@ describe('Embedding Provider', () => {
   });
 
   describe('auto mode with API config present', () => {
+    it('does not treat provider aliases as embedding API config', async () => {
+      process.env.MEMORIX_EMBEDDING = 'auto';
+      process.env.MEMORIX_API_KEY = 'memory-llm-key';
+      process.env.MEMORIX_LLM_API_KEY = 'scoped-memory-llm-key';
+      process.env.OPENAI_API_KEY = 'openai-provider-key';
+      process.env.DASHSCOPE_API_KEY = 'dashscope-provider-key';
+      process.env.ALIYUN_API_KEY = 'aliyun-provider-key';
+
+      const provider = await getEmbeddingProvider();
+
+      expect(provider).toBeNull();
+      expect(mockApiProviderCreate).not.toHaveBeenCalled();
+    });
+
     it('should prefer API embeddings before local fallback providers', async () => {
       process.env.MEMORIX_EMBEDDING = 'auto';
       process.env.MEMORIX_EMBEDDING_API_KEY = 'api-key';

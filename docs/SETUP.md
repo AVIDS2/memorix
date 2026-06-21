@@ -1,83 +1,127 @@
 # Setup Guide
 
-Memorix is an open-source cross-agent memory layer for coding agents via MCP, with tiered support for Cursor, Claude Code, Windsurf (★ core), GitHub Copilot, Kiro, Codex (◆ extended), and Gemini CLI, OpenCode, Antigravity, Trae (○ community).
+Memorix is a local-first shared memory layer for AI coding agents.
 
-Memorix has four common operator entry points:
+In the 1.1 line, the normal path is:
 
-- `memorix` for the interactive local workbench in a TTY
-- `memorix serve` for the default stdio MCP path used by most IDE integrations
-- `memorix background start` for an optional long-lived HTTP control plane
-- `memorix serve-http --port 3211` for foreground HTTP MCP, debugging, and manual supervision
+```bash
+npm install -g memorix
+cd your-git-repo
+memorix init
+memorix setup --agent <agent>
+```
 
-The two server runtime modes are:
+`memorix setup` installs the recommended Memorix integration for the target agent: plugin packages where supported, MCP config, project guidance, hooks, and skills.
 
-- `memorix serve` for stdio MCP integrations
-- `memorix background start` or `memorix serve-http --port 3211` for HTTP MCP, shared access, and a live dashboard endpoint
+Common runtime entry points:
 
-For most users, start with `memorix` or `memorix serve`. Move to HTTP only when you explicitly want one shared background control plane, multi-client MCP access, or a live dashboard endpoint.
+| Entry | Use it for |
+| --- | --- |
+| `memorix setup --agent <agent>` | one-command agent integration |
+| `memorix` CLI commands | direct workflows: setup, search/store, Git Memory, import/export, dashboard, diagnostics, orchestration, and automation |
+| `memorix serve` | stdio MCP server for IDEs and coding agents |
+| `memorix background start` | long-lived HTTP MCP service plus dashboard |
+| `memorix serve-http --port 3211` | foreground HTTP MCP for debugging or supervised launches |
+| `memorix` / `memcode` | bundled terminal agent that uses the same Memorix memory pool |
 
-## Current Release Context
+Most users should start with `memorix setup --agent <agent>`. Use raw `memorix serve` only when you are wiring an MCP client manually. Use HTTP when you intentionally want one shared background process, browser dashboard, Docker deployment, or multiple clients using the same MCP endpoint. Use the CLI for manual operation and automation. Use memcode when you want the bundled terminal agent.
 
-This guide targets the **1.0.10** working release line.
-
-If you are setting up Memorix on a fresh machine or upgrading from an older install, the most visible operator-facing changes in 1.0.10 are:
-
-- privacy-safe handoff receipts for cross-agent memory debugging
-- clearer boundaries between shared project memory and normal chat transcripts
-- lighter generated agent rules that keep `memorix_session_start` optional by default
-- dedicated TUI agent LLM config via `agent` / `MEMORIX_AGENT_LLM_*`
-- safer auto-update behavior with notify-only default
-- dashboard config loading aligned with CLI/TUI status surfaces
-
-### Support Tiers
-
-| Tier | Clients | Meaning |
-|------|---------|---------|
-| ★ Core | Claude Code, Cursor, Windsurf | Full hook integration + tested MCP + rules sync |
-| ◆ Extended | GitHub Copilot, Kiro, Codex | Hook integration with platform caveats |
-| ○ Community | Gemini CLI, OpenCode, Antigravity, Trae | Best-effort hooks, community-reported compatibility |
-
-**Install ≠ runtime-ready.** `memorix hooks install` succeeds when config files are written to disk; whether the agent actually loads and executes those hooks at runtime depends on the agent's own behavior. Core-tier agents are verified end-to-end; extended/community may have gaps.
+For agent-specific plugin, rules, hooks, and skills support, see [INTEGRATIONS.md](INTEGRATIONS.md).
 
 ---
 
-## 1. Install and Initialize
+## 1. Requirements
 
-Install Memorix globally:
+- Node.js `>=22.19.0`
+- npm
+- Git
+
+Memorix project identity comes from Git. Open or initialize a real Git repository before expecting project-scoped memory to work:
+
+```bash
+git init
+```
+
+`projectRoot` and current working directory are detection anchors. The final project identity is derived from the real Git root and remote metadata.
+
+---
+
+## 2. Install
 
 ```bash
 npm install -g memorix
 ```
 
-Initialize Memorix:
+Initialize global or project configuration:
 
 ```bash
 memorix init
 ```
 
-The init wizard lets you choose between:
+Install an agent integration:
 
-- `Global defaults` for personal multi-project workflows
-- `Project config` for repo-specific overrides
+```bash
+memorix setup --agent claude
+memorix setup --agent codex
+memorix setup --agent copilot
+memorix setup --agent cursor
+memorix setup --agent pi
+memorix setup --agent gemini-cli
+memorix setup --agent opencode
+```
 
-Memorix then creates the two-file setup it is built around:
+What this does:
 
-- `memorix.yml` for behavior and project settings
-- `.env` for secrets only
+- Claude Code: installs a local marketplace plugin, attempts `claude plugin install memorix@memorix-local`, and writes `CLAUDE.md` guidance.
+- Codex: installs a local Personal marketplace plugin, attempts `codex plugin add memorix@personal`, and writes `AGENTS.md` guidance.
+- GitHub Copilot CLI: installs a local plugin package and attempts `copilot plugin install <local-path>`.
+- Cursor: writes Cursor MCP config, rules, skills, and hook guidance.
+- Pi: installs a project Pi package under `.pi/packages/memorix` and attempts `pi install <path> -l --approve`.
+- Gemini CLI: installs a local extension package under `~/.gemini/extensions/memorix`.
+- OpenCode: installs a local plugin file, OpenCode skill, MCP config, and `AGENTS.md` guidance.
+- Other supported agents: writes their MCP/rules/hooks files according to agent support.
 
-See [CONFIGURATION.md](CONFIGURATION.md) for the full model.
+Memorix uses TOML as the user-facing configuration model:
+
+- `~/.memorix/config.toml` for global defaults
+- `<git-root>/memorix.toml` for optional project overrides
+
+Legacy `memorix.yml`, `.env`, and `~/.memorix/config.json` are still read for compatibility, but new setup flows use TOML.
+
+Useful checks:
+
+```bash
+memorix --version
+memcode --version
+memorix status
+memorix config path
+```
 
 ---
 
-## 2. Choose a Runtime Mode
+## 3. Choose Your Runtime
 
-### Option A: stdio MCP
+### Option A: setup for existing agents
+
+```bash
+memorix setup --agent <agent>
+```
+
+Use this for Claude Code, Codex, Cursor, Windsurf, Copilot, Gemini CLI, OpenCode, Pi, Kiro, Antigravity, Trae, or any supported agent. It is the default user-facing install path.
+
+To see the current setup matrix:
+
+```bash
+memorix setup --list
+```
+
+### Option B: manual stdio MCP
 
 ```bash
 memorix serve
 ```
 
-Use this when your IDE launches Memorix as a local stdio MCP server. This is the default MCP path for most single-IDE setups.
+Use this when your agent only needs a raw local stdio MCP process or you are debugging a manual config. The agent starts `memorix serve` and communicates with it over stdio.
 
 Generic stdio MCP config:
 
@@ -92,20 +136,55 @@ Generic stdio MCP config:
 }
 ```
 
-### Option B: HTTP MCP + Dashboard
+Avoid `npx` in persistent MCP configs. Use the globally installed `memorix` binary so startup is predictable.
+
+### Option C: memcode terminal agent
+
+```bash
+memorix
+# or
+memcode
+```
+
+Use this when you want a terminal coding agent with Memorix memory already wired in. memcode can read, edit, run commands, resume sessions, switch models, and search/store shared project memory. It uses the same project memory pool as MCP-connected agents.
+
+Common commands:
+
+```bash
+memcode -p "summarize this repo"
+memcode -c
+memcode -r
+memcode --model openai/gpt-4o
+```
+
+Inside the TUI:
+
+```text
+/memory status
+/memory search
+/memory show
+/memory hooks
+/model switch
+/resume
+/tree
+/config
+```
+
+See [MEMCODE.md](MEMCODE.md).
+
+### Option D: HTTP MCP + dashboard
 
 ```bash
 memorix background start
 ```
 
-This mode gives you:
+This starts a local background service:
 
-- HTTP MCP endpoint at `http://localhost:3211/mcp`
-- dashboard at `http://localhost:3211`
-- live dashboard with autonomous Agent Team state
-- a single long-lived Memorix process shared by multiple agents
+- dashboard: `http://localhost:3211`
+- MCP endpoint: `http://localhost:3211/mcp`
+- health: `http://localhost:3211/health`
 
-Choose this mode when you intentionally want a shared control plane. It is not the default starting point for normal single-IDE memory use.
+HTTP mode is for a shared process. It is useful when multiple clients should connect to one Memorix endpoint, when you want the browser dashboard, or when running Memorix through Docker. It is not needed for the normal one-agent stdio MCP setup.
 
 Companion commands:
 
@@ -115,50 +194,11 @@ memorix background logs
 memorix background stop
 ```
 
-Startup note:
-
-- `serve-http` seeds its default project root from `--cwd` -> `MEMORIX_PROJECT_ROOT` -> `~/.memorix/last-project-root` -> `process.cwd()`
-- this helps the dashboard and control plane start in a sensible project even before any agent binds explicitly
-- in multi-session workflows, agents should still call `memorix_session_start(projectRoot=...)` to avoid cross-project drift
-- HTTP MCP sessions idle out after 30 minutes by default. For clients that do not transparently recover from stale HTTP session IDs, set `MEMORIX_SESSION_TIMEOUT_MS` before starting the control plane, for example `MEMORIX_SESSION_TIMEOUT_MS=86400000` for 24 hours.
-
-Use `memorix serve-http --port 3211` when you want the same HTTP control plane in the foreground for debugging, manual supervision, or a custom port.
-
-Important for multi-project usage:
-
-- In HTTP control-plane mode, agents should call `memorix_session_start` with `projectRoot` set to the **absolute path of the current workspace or repo root** when that path is available.
-- `projectRoot` is a detection anchor only; Git remains the source of truth for the final project identity.
-- If the client cannot provide a reliable workspace path, Memorix should fail closed rather than silently inventing an `untracked/*` project.
-
-### Cross-Agent Memory Boundary
-
-MCP connection success does not prove that a memory was written. Cross-agent memory means stored memories are searchable by other clients that bind to the same Git project identity; it does not mean normal chat transcripts are mirrored across IDEs or agents.
-
-Use this when debugging handoff reports:
+Use foreground HTTP mode for debugging or custom launch supervision:
 
 ```bash
-memorix receipt --json
-memorix doctor --receipt
+memorix serve-http --port 3211
 ```
-
-The receipt intentionally emits hashes and counts only: project identity hash, write count, recent observation ID hashes, optional search probe hash/result count, and the write policy inferred from local memory metadata. It omits raw prompts, raw memory text, raw search queries, tool arguments/results, and local file paths.
-
-### Moving Between Machines
-
-Memorix does not require a specific IDE or agent runtime. On another laptop, cloud server, or temporary workstation, install `memorix`, make sure the target workspace is a Git repository, and connect the agent through stdio MCP or the CLI. For explicit memory snapshot moves, use:
-
-```bash
-memorix transfer export --format json
-memorix transfer import --data "<json export>"
-```
-
-This transfers stored memory artifacts, not private chat history from an IDE vendor.
-
-Recommended when:
-
-- you want to use the dashboard regularly
-- you want Team tools to work
-- you want multiple IDEs or agents to talk to one Memorix instance
 
 Generic HTTP MCP config:
 
@@ -173,52 +213,32 @@ Generic HTTP MCP config:
 }
 ```
 
-Some clients use a different key than `transport`. The per-client examples below show the exact shape where that differs.
+For multi-project HTTP usage, agents should call `memorix_session_start(projectRoot=...)` with the absolute workspace path when available. This prevents cross-project drift when the background service is shared.
 
-### Option C: Dockerized HTTP Control Plane
+HTTP sessions idle out after 30 minutes by default. For clients that do not recover gracefully from stale HTTP session IDs:
 
-If you want Memorix as a long-lived containerized control plane:
+```powershell
+$env:MEMORIX_SESSION_TIMEOUT_MS = "86400000"
+memorix background restart
+```
+
+### Option E: Docker HTTP service
 
 ```bash
 docker compose up --build -d
 ```
 
-This repo now ships:
+Docker support is for `serve-http`, dashboard, and HTTP MCP. It is not a containerized version of stdio MCP.
 
-- an official `Dockerfile`
-- an example `compose.yaml`
-- a healthchecked HTTP deployment on port `3211`
-
-Docker mode is for:
-
-- `memorix serve-http`
-- dashboard access
-- HTTP MCP clients pointing at `http://localhost:3211/mcp`
-
-It is not a containerized form of stdio MCP.
-
-Important path truth:
-
-- project-scoped Git/config behavior only works when the container can see the repo path it is asked to bind
-- if you run Memorix in Docker on a different machine than your IDE, you must mount the relevant repos into the container or accept reduced project-scoped semantics
-
-See [DOCKER.md](DOCKER.md) for the full deployment guide.
+See [DOCKER.md](DOCKER.md).
 
 ---
 
-## 3. MCP Config by Client
+## 4. Manual MCP Client Setup
 
-If you want Memorix to generate IDE-specific dot files, install them explicitly:
+Use this section when `memorix setup --agent <agent>` is not available for the target agent, or when you intentionally want to manage MCP configuration yourself.
 
-```bash
-memorix integrate --agent cursor
-memorix integrate --agent windsurf
-memorix integrate --agent opencode
-```
-
-This keeps the default experience MCP-first and zero-write until you opt into a specific IDE integration.
-
-### Claude Code
+### Claude Code fallback
 
 Recommended:
 
@@ -226,7 +246,7 @@ Recommended:
 claude mcp add memorix -- memorix serve
 ```
 
-Manual config example:
+Manual stdio shape:
 
 ```json
 {
@@ -238,21 +258,6 @@ Manual config example:
   }
 }
 ```
-
-HTTP example:
-
-```json
-{
-  "mcpServers": {
-    "memorix": {
-      "transport": "http",
-      "url": "http://localhost:3211/mcp"
-    }
-  }
-}
-```
-
-If you use the HTTP control plane and your client supports workspace-aware prompts or rules, make sure it calls `memorix_session_start` with the current workspace absolute path as `projectRoot`.
 
 ### Cursor
 
@@ -284,7 +289,7 @@ Config file: `~/.codeium/windsurf/mcp_config.json`
 }
 ```
 
-HTTP example:
+HTTP variants in Windsurf-like clients may use `serverUrl`:
 
 ```json
 {
@@ -296,9 +301,7 @@ HTTP example:
 }
 ```
 
-For Windsurf-like HTTP clients, pair the MCP URL with agent instructions that pass the current workspace absolute path as `projectRoot` when starting a Memorix session.
-
-### Codex
+### Codex fallback
 
 Config file: `~/.codex/config.toml`
 
@@ -309,14 +312,14 @@ args = ["serve"]
 startup_timeout_sec = 30
 ```
 
-HTTP example:
+HTTP:
 
 ```toml
 [mcp_servers.memorix]
 url = "http://localhost:3211/mcp"
 ```
 
-For Codex-like HTTP clients, the transport URL alone is not enough for multi-project parallel work. The agent should also call `memorix_session_start` with the current workspace absolute path as `projectRoot`.
+For HTTP, pair the URL with agent instructions that call `memorix_session_start(projectRoot=...)` when the current workspace path is known.
 
 ### GitHub Copilot / VS Code
 
@@ -348,13 +351,31 @@ Project config: `.kiro/settings/mcp.json`
 }
 ```
 
-### OpenCode
+### Pi
 
-OpenCode integration is usually file-based and managed through Memorix hook installers or workspace sync. If you use stdio MCP directly, the same `memorix serve` command applies.
+Pi uses its package system instead of a separate Memorix MCP config lane:
 
-### Gemini CLI and similar clients
+```bash
+memorix setup --agent pi
+```
 
-If the client supports stdio MCP:
+This writes `.pi/packages/memorix`, registers it with:
+
+```bash
+pi install .pi/packages/memorix -l --approve
+```
+
+Check the loaded package resources with:
+
+```bash
+pi config --approve
+```
+
+You should see the Memorix extension and the official Memorix skills listed under the project package.
+
+### Gemini CLI, OpenCode, Antigravity, Trae, and other MCP clients
+
+If the client supports stdio MCP, use:
 
 ```json
 {
@@ -367,258 +388,217 @@ If the client supports stdio MCP:
 }
 ```
 
-If it supports HTTP MCP, prefer:
+If it supports HTTP MCP, use `http://localhost:3211/mcp`.
 
-- `http://localhost:3211/mcp`
-
----
-
-## 4. Dashboard
-
-Recommended dashboard entry:
-
-- `http://localhost:3211`
-
-This is the dashboard served by the HTTP control plane. In normal use, start it with `memorix background start`; use `memorix serve-http` when you want the same service in the foreground.
-
-It includes:
-
-- Overview
-- Git Memory
-- Graph
-- Observations
-- Retention
-- Sessions
-- Team
-- Config
-- Identity Health
-
-There is also a standalone `memorix dashboard` command. It is a local read-mostly dashboard that includes memory, sessions, and autonomous Agent Team state from SQLite. HTTP is optional and only needed for shared MCP access or a live control-plane endpoint.
-
----
-
-## 5. Agent Team Features
-
-Agent Team features are explicit autonomous-agent/subagent coordination surfaces. Use the CLI for the normal path:
+OpenCode can also use a local Memorix plugin generated by setup:
 
 ```bash
-memorix team status
-memorix orchestrate --goal "..."
+memorix setup --agent opencode
 ```
 
-These features include:
-
-- agent registry
-- handoff messages
-- file locks
-- task board
-
-The standalone dashboard can show this state read-only. Start HTTP only when you also want a shared MCP control plane or a live dashboard endpoint.
+This writes `.opencode/plugins/memorix.js` for event capture, `.opencode/skills/*/SKILL.md` for OpenCode skill discovery, and pairs both with `AGENTS.md` guidance.
 
 ---
 
-## 6. Common Setup Flows
+## 5. Configure Models And Memory
 
-### Minimal local setup
+Minimal `~/.memorix/config.toml`:
 
-```bash
-npm install -g memorix
-memorix init
-memorix serve
+```toml
+[agent]
+provider = "openai"
+model = "gpt-4o"
+api_key = "..."
+
+[memory.llm]
+provider = "openai"
+model = "gpt-4o-mini"
+api_key = "..."
+
+[embedding]
+provider = "auto"
+
+[memory]
+inject = "minimal"
+formation = "active"
 ```
 
-### Recommended full setup
+What each lane does:
+
+| Lane | Used by |
+| --- | --- |
+| `[agent]` | model used by memcode while coding |
+| `[memory.llm]` | memory formation, summaries, deduplication, optional rerank |
+| `[embedding]` | semantic/vector search |
+| `[memory]` | memory injection and formation behavior |
+| `[git]` | Git Memory hook and ingestion behavior |
+| `[server]` | server, dashboard, and port defaults |
+
+See [CONFIGURATION.md](CONFIGURATION.md) for the full model and compatibility behavior.
+
+---
+
+## 6. Common Workflows
+
+### Terminal coding with memory
 
 ```bash
-npm install -g memorix
-memorix init
+cd your-repo
+memorix
+/memory status
+```
+
+### Store and search a memory from the CLI
+
+```bash
+memorix memory store --text "Auth tokens expire after 24h" --title "Auth token TTL" --entity auth --type decision
+memorix memory search --query "auth token ttl"
+```
+
+### Capture Git Memory
+
+```bash
 memorix git-hook --force
-memorix background start
+memorix ingest log --count 20
 ```
 
-Then:
+### Move memory between machines
 
-- point your IDE MCP client to `memorix serve` or `http://localhost:3211/mcp`
-- open the dashboard at `http://localhost:3211`
+```bash
+memorix transfer export --format json
+memorix transfer import --data "<json export>"
+```
+
+This transfers stored memory artifacts, not private chat history from an IDE vendor.
+
+### Run orchestrated subagent work
+
+`memorix orchestrate` coordinates task context, handoffs, advisory locks, verification, and review loops for subagent-style work. It is not required for normal memory use.
+
+```bash
+memorix task list
+memorix orchestrate --goal "Add user authentication"
+```
+
+Worktree behavior:
+
+- single-worker runs use the current checkout by default
+- multi-worker runs create task worktrees under `.worktrees/`
+- worktree creation failures stop the run instead of falling back to the shared checkout
+- dirty Git worktrees are rejected by default
+- successful task worktrees are merged back automatically unless `--no-auto-merge` is set
+
+Useful safety flags:
+
+```bash
+memorix orchestrate --goal "Add auth" --isolated
+memorix orchestrate --goal "Add auth" --no-worktree
+memorix orchestrate --goal "Add auth" --allow-dirty
+memorix orchestrate --goal "Add auth" --no-auto-merge
+```
+
+Use the `team`, `task`, `message`, `handoff`, and `lock` CLI commands when you need to inspect or operate that coordination state directly.
 
 ---
 
 ## 7. Troubleshooting
 
-### Avoid `npx`
+### `memorix` opens memcode
 
-Do not launch Memorix with `npx` in normal MCP configs. It adds startup cost and can cause handshake timeouts.
+That is expected in the 1.1 line. Use `memorix --help` to see the full CLI and `memorix serve` for MCP.
 
-Prefer:
-
-```bash
-memorix serve
-```
-
-Not:
-
-```bash
-npx memorix serve
-```
-
-### Windsurf says the MCP config file has invalid JSON
-
-On Windows, `~/.codeium/windsurf/mcp_config.json` must be valid JSON encoded as UTF-8 **without BOM**. A BOM at the start of the file can make Windsurf reject otherwise valid JSON.
-
-### Codex handshake timeout
-
-If Codex reports MCP startup timeouts, increase:
-
-```toml
-startup_timeout_sec = 30
-```
-
-or higher on slower Windows machines.
-
-### Codex stale HTTP session after idle time
-
-If Codex is connected to `http://localhost:3211/mcp` and fails after a long idle period with a transport/body decoding error, the HTTP session may have expired server-side. Memorix defaults to a 30-minute HTTP session idle timeout. Increase it before starting the background control plane:
-
-```powershell
-$env:MEMORIX_SESSION_TIMEOUT_MS = "86400000" # 24h
-memorix background restart
-```
-
-This keeps the default safe for normal users while giving long-running Codex HTTP sessions a practical recovery knob.
-
-### Project detection is wrong
-
-Memorix identifies projects from Git. If an IDE launches from a system directory or does not pass the workspace root correctly:
-
-- prefer opening the repository root in the IDE
-- if needed, set `MEMORIX_PROJECT_ROOT`
-- use `memorix status` to inspect the active project identity
-
-### Dashboard Agent Team page is empty
-
-That usually means no autonomous agent workflow has created tasks, locks, messages, or explicit agent identities for this project yet.
-
-Use:
-
-```bash
-memorix team status
-memorix task list
-```
-
-To create autonomous work, use:
-
-```bash
-memorix orchestrate --goal "..."
-```
-
-If you specifically want shared HTTP MCP or a live dashboard endpoint, then start:
-
-```bash
-memorix background start
-```
-
-### Git hook installed but commits are not appearing as memory
+### No project memory appears
 
 Check:
 
-- the repository has Git initialized
-- the hook file exists
-- the commit was not filtered as noise
-- the active project identity is correct
+```bash
+git status
+memorix status
+memorix receipt --json
+```
 
-Use:
+Shared memory means stored memories are searchable by clients bound to the same Git project. It does not mean raw chat transcripts are mirrored.
+
+### Codex handshake timeout
+
+Increase startup timeout:
+
+```toml
+[mcp_servers.memorix]
+command = "memorix"
+args = ["serve"]
+startup_timeout_sec = 30
+```
+
+### Codex stale HTTP session after idle time
+
+Set a longer timeout before starting the background service:
+
+```powershell
+$env:MEMORIX_SESSION_TIMEOUT_MS = "86400000"
+memorix background restart
+```
+
+### Windsurf rejects MCP JSON on Windows
+
+Ensure `~/.codeium/windsurf/mcp_config.json` is valid UTF-8 JSON without BOM.
+
+### Project detection is wrong
+
+- open the real repository root in your IDE
+- avoid launching the agent from a system directory
+- set `MEMORIX_PROJECT_ROOT` only when the client cannot pass cwd reliably
+- run `memorix status` to inspect the active project identity
+
+### Git hook installed but commits are missing
+
+Check:
 
 ```bash
 memorix status
+memorix ingest commit --force
 ```
 
-and see [GIT_MEMORY.md](GIT_MEMORY.md).
+The commit may have been filtered as noise. See [GIT_MEMORY.md](GIT_MEMORY.md).
 
 ---
 
 ## 8. Uninstall
 
-Memorix provides a safe, guided uninstall flow. It does **not** run `npm uninstall` — that remains a manual step.
-
-### Quick uninstall
+Preview:
 
 ```bash
-# Preview what would happen
 memorix uninstall --dry-run
+```
 
-# Stop background + remove hooks
+Stop background service and remove hooks:
+
+```bash
 memorix uninstall --background --hooks
+```
 
-# Then remove the package
+Then remove the npm package:
+
+```bash
 npm uninstall -g memorix
 ```
 
-### Full purge (delete all local data)
+Full local data purge:
 
 ```bash
-# Preview first
 memorix uninstall --dry-run --purge-data
-
-# Full cleanup with confirmation
-memorix uninstall --background --hooks --purge-data
-
-# Skip prompts
 memorix uninstall --yes --background --hooks --purge-data
-
-# Then remove the package
 npm uninstall -g memorix
 ```
 
-### Windows PowerShell equivalent
+`--purge-data` deletes local Memorix data under `~/.memorix`, including memories, sessions, mini-skills, logs, and config. Use `--dry-run` first.
 
-```powershell
-# Preview
-memorix uninstall --dry-run
+Memorix does not silently edit all MCP config files during uninstall. It reports remaining entries and shows where to remove them manually.
 
-# Stop background + remove hooks
-memorix uninstall --background --hooks
-
-# Full purge
-memorix uninstall --yes --background --hooks --purge-data
-
-# Remove package
-npm uninstall -g memorix
-```
-
-### What each flag does
-
-| Flag | Effect |
-|------|--------|
-| `--dry-run` | Preview only, no changes |
-| `--background` | Stop the background control plane |
-| `--hooks` | Remove agent hook configuration files |
-| `--purge-data` | Delete `~/.memorix` directory |
-| `--yes` | Skip all confirmation prompts |
-
-### What memorix uninstall does NOT do
-
-- Does **not** run `npm uninstall -g memorix` — you must run this yourself.
-- Does **not** silently delete or modify MCP config files (`.claude.json`, `.cursor/mcp.json`, `.codex/config.toml`, etc.). It reports which files contain memorix entries and provides per-file cleanup instructions.
-- Does **not** delete `~/.memorix` unless `--purge-data` is explicitly passed and confirmed (or `--yes --purge-data`).
-
-### Warning: deleting `~/.memorix`
-
-Passing `--purge-data` permanently deletes:
-
-- all stored memories (observations)
-- all mini-skills
-- all session records
-- background service logs
-- local configuration and cached state
-
-This operation is irreversible. Use `--dry-run` first to see what would happen.
-
-### MCP config manual cleanup
-
-After running `memorix uninstall`, you may still have memorix entries in your agent MCP config files. Memorix reports these but does not modify them. Common locations:
+Common MCP config locations:
 
 | Agent | Config file |
-|-------|------------|
+| --- | --- |
 | Claude Code | `~/.claude.json` or `.claude/settings.json` |
 | Cursor | `~/.cursor/mcp.json` or `.cursor/mcp.json` |
 | Windsurf | `~/.codeium/windsurf/mcp_config.json` |
@@ -626,16 +606,16 @@ After running `memorix uninstall`, you may still have memorix entries in your ag
 | VS Code / Copilot | `.vscode/mcp.json` |
 | Kiro | `~/.kiro/settings/mcp.json` or `.kiro/settings/mcp.json` |
 | Gemini CLI / Antigravity | `~/.gemini/settings.json` |
-| Trae | `%APPDATA%/Trae/User/mcp.json` (Windows) |
-
-Remove the `"memorix"` entry from the `mcpServers` (or equivalent) section in each file.
+| Trae | `%APPDATA%/Trae/User/mcp.json` on Windows |
 
 ---
 
 ## 9. Related Docs
 
 - [Configuration Guide](CONFIGURATION.md)
-- [Git Memory Guide](GIT_MEMORY.md)
-- [Architecture](ARCHITECTURE.md)
+- [Integration Surfaces](INTEGRATIONS.md)
+- [memcode](MEMCODE.md)
 - [API Reference](API_REFERENCE.md)
-- [Development Guide](DEVELOPMENT.md)
+- [Git Memory Guide](GIT_MEMORY.md)
+- [Docker Guide](DOCKER.md)
+- [Agent Playbook](AGENT_OPERATOR_PLAYBOOK.md)

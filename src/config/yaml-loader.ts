@@ -16,8 +16,9 @@
  */
 
 import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { homedir } from 'node:os';
+import { createRequire } from 'node:module';
+import { getGlobalYamlPath, getProjectYamlPath } from './config-paths.js';
 
 // ─── Types ───────────────────────────────────────────────────────────
 
@@ -87,9 +88,9 @@ export interface MemorixYamlConfig {
     dashboardPort?: number;
   };
 
-  /** Autonomous Agent Team settings */
+  /** Orchestration coordination settings */
   team?: {
-    /** Enable autonomous Agent Team features */
+    /** Enable orchestration coordination features */
     enabled?: boolean;
     /** Shared workspace memory collection */
     workspaceCollection?: string;
@@ -110,6 +111,7 @@ export interface MemorixYamlConfig {
 // Per-project config cache — keyed by resolved projectRoot string.
 // null key = user-level-only config (no project root).
 const configCache = new Map<string | null, MemorixYamlConfig>();
+const require = createRequire(import.meta.url);
 
 /** Stored project root — set once by server init, used by all no-arg loadYamlConfig() calls */
 let globalProjectRoot: string | null = null;
@@ -149,8 +151,8 @@ export function loadYamlConfig(projectRoot?: string | null): MemorixYamlConfig {
   const cached = configCache.get(resolvedRoot ?? null);
   if (cached) return cached;
 
-  const userYaml = join(homedir(), '.memorix', 'memorix.yml');
-  const projectYaml = resolvedRoot ? join(resolvedRoot, 'memorix.yml') : null;
+  const userYaml = getGlobalYamlPath(homedir());
+  const projectYaml = resolvedRoot ? getProjectYamlPath(resolvedRoot) : null;
 
   let userConfig: MemorixYamlConfig = {};
   let projectConfig: MemorixYamlConfig = {};
@@ -212,8 +214,6 @@ function parseYaml(content: string): MemorixYamlConfig {
   // But for simplicity and reliability, use a basic YAML parser
   // that handles the flat config structure we need.
   try {
-    // Dynamic import of js-yaml through gray-matter's dependency
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const yaml = require('js-yaml');
     return yaml.load(content) as MemorixYamlConfig ?? {};
   } catch {

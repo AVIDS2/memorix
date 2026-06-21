@@ -8,11 +8,11 @@ Memorix exposes:
 - reasoning and session tools
 - maintenance and retention tools
 - workspace and rules sync tools
-- autonomous Agent Team tools
+- orchestration coordination tools
 - privacy-safe handoff diagnostics
 - dashboard and optional graph compatibility tools
 
-It also exposes a **human/operator CLI surface** for terminal workflows. The CLI is not a raw mirror of MCP tool names; it is the primary product surface for human operators, while MCP remains the integration protocol for IDEs and agents.
+It also exposes a CLI for terminal workflows. The CLI is not a raw mirror of MCP tool names: the CLI is what you run by hand to inspect and manage memory, while MCP is how IDEs and agents integrate.
 
 ---
 
@@ -26,12 +26,12 @@ Use **MCP** when:
 
 Use the **CLI** when:
 
-- a human operator wants to inspect or change project state from a terminal
+- you want to inspect or change project state from a terminal
 - you are on SSH / Docker / CI / NAS and want direct commands
 - you want readable, namespaced actions instead of raw MCP tool payloads
-- you want full access to Memorix-native capabilities without depending on an MCP host
+- you want full access to Memorix CLI capabilities without depending on an MCP client
 
-The current operator CLI namespaces are:
+The current CLI namespaces are:
 
 - `memorix session`
 - `memorix memory`
@@ -71,7 +71,7 @@ memorix poll --agentId <agent-id>
 memorix receipt --json --probe "release blocker"
 ```
 
-The CLI is designed as an **operator control surface**, not as a 1:1 rename of MCP tools. The only intentional MCP-only area is the optional graph-compatibility surface (`create_entities`, `read_graph`, and related tools) for workflows that expect the official memory-server style graph API.
+The CLI is designed for direct terminal use, not as a 1:1 rename of MCP tools. The only intentional MCP-only area is the optional graph-compatibility surface (`create_entities`, `read_graph`, and related tools) for workflows that expect the official memory-server style graph API.
 
 ### Cross-Agent Handoff Receipt
 
@@ -315,7 +315,7 @@ Start a new coding session and load recent context.
 Important inputs:
 
 - optional `agent` — display name (e.g. `"cursor-frontend"`)
-- optional `agentType` — agent type for optional Agent Team identity mapping (e.g. `"windsurf"`, `"cursor"`, `"claude-code"`, `"codex"`, `"gemini-cli"`)
+- optional `agentType` — agent/client type for optional orchestration coordination identity mapping (e.g. `"windsurf"`, `"cursor"`, `"claude-code"`, `"codex"`, `"gemini-cli"`)
 - optional `projectRoot`
 - optional `sessionId`
 - optional `instanceId`
@@ -327,13 +327,13 @@ Behavior:
 - opens a session for the current project
 - can auto-close any previous active session for that project
 - returns recent session context and project binding state
-- **does not join the team by default**
-- if you only need memory/search/reasoning/session recovery, stop here; no team identity is required
-- when `joinTeam=true`, it also registers an Agent Team identity using the default role derived from `agentType` via `AGENT_TYPE_ROLE_MAP`
-- `team_manage(join)` remains the formal explicit join entrypoint if you want to separate session start from Agent Team identity
-- team-specific outputs such as agent ID, watermark, and available tasks appear only when the session explicitly joins the Agent Team
+- **does not join orchestration coordination state by default**
+- if you only need memory/search/reasoning/session recovery, stop here; no coordination identity is required
+- when `joinTeam=true`, it also registers a coordination identity using the default role derived from `agentType` via `AGENT_TYPE_ROLE_MAP`
+- `team_manage(join)` remains the formal explicit join entrypoint if you want to separate session start from coordination identity
+- coordination-specific outputs such as agent ID, watermark, and available tasks appear only when the session explicitly joins that coordination state
 
-In HTTP control-plane mode, pass `projectRoot` as the absolute workspace or repo root whenever the client knows it. `projectRoot` is the detection anchor; Git remains the source of truth for the final project identity.
+In HTTP service mode, pass `projectRoot` as the absolute workspace or repo root whenever the client knows it. `projectRoot` is the detection anchor; Git remains the source of truth for the final project identity.
 
 ### `memorix_session_end`
 
@@ -505,18 +505,20 @@ Typical actions:
 
 ---
 
-## 9. Agent Team Tools
+## 9. Orchestration Coordination Tools
 
-These tools are the explicit autonomous-agent coordination surface. They are available through MCP profiles that expose team tools and through the CLI operator surface. HTTP is optional: use it when you want a shared MCP control plane or live dashboard endpoint, not because Agent Team state requires HTTP.
+These tools back explicit task, handoff, message, lock, and subagent-style orchestration workflows. They are available through MCP profiles that expose coordination tools and through the CLI command surface. HTTP is optional: use it when you want a shared MCP service or live dashboard endpoint, not because coordination state requires HTTP.
 
 ```bash
 memorix team status
 memorix orchestrate --goal "..."
 ```
 
-Use `memorix background start` or `memorix serve-http --port 3211` only when you want the HTTP control plane in the background or foreground.
+Use `memorix background start` or `memorix serve-http --port 3211` only when you want the HTTP service in the background or foreground.
 
-Agent Team is opt-in project coordination for tasks, handoff messages, locks, and autonomous agent/subagent workflows. It is not required for normal memory use, and it should not be treated as an automatic chat room between separate IDE conversations. For production multi-agent execution, use `memorix orchestrate`; the team tools provide the coordination substrate.
+Coordination state is opt-in project state for tasks, handoff messages, locks, and subagent workflows. It is not required for normal memory use, and it should not be treated as an automatic chat room between separate IDE conversations. For production multi-agent execution, use `memorix orchestrate`; these tools provide the coordination substrate.
+
+`memorix orchestrate` uses Git worktrees for parallel worker isolation. Single-worker runs use the current checkout unless `--isolated` is set. Parallel runs fail closed if a task worktree cannot be created. Dirty Git worktrees are rejected unless `--allow-dirty` is set. Successful task worktrees merge back automatically unless `--no-auto-merge` is set.
 
 Runtime environment:
 
@@ -574,7 +576,7 @@ Important inputs:
 
 ### `memorix_poll`
 
-Return a compact situational-awareness snapshot for an explicitly joined autonomous agent.
+Return a compact situational-awareness snapshot for an explicitly joined coordination participant.
 
 Important inputs:
 
@@ -582,7 +584,7 @@ Important inputs:
 
 Use it for:
 
-- active autonomous agent overview
+- active coordination participant overview
 - available tasks
 - unread messages
 - active file locks
@@ -592,7 +594,7 @@ If `agentId` is omitted, it returns a project-level overview only.
 
 ### `memorix_handoff`
 
-Create, claim, complete, or inspect handoff artifacts between autonomous agents.
+Create, claim, complete, or inspect handoff artifacts between coordination participants.
 
 Important inputs:
 
@@ -690,7 +692,7 @@ For most agents, the best working pattern is:
 3. `memorix_timeline` for chronological context
 4. `memorix_store` or `memorix_store_reasoning` to write back important new context
 
-Git Memory, retention, skills, and team tools sit on top of that core loop.
+Git Memory, retention, skills, and orchestration coordination tools sit on top of that core loop.
 
 ---
 

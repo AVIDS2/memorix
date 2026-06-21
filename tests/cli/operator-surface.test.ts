@@ -11,12 +11,14 @@ import messageCommand from '../../src/cli/commands/message.js';
 import lockCommand from '../../src/cli/commands/lock.js';
 import pollCommand from '../../src/cli/commands/poll.js';
 import memoryCommand from '../../src/cli/commands/memory.js';
+import auditCommand from '../../src/cli/commands/audit.js';
 import { closeAllDatabases } from '../../src/store/sqlite-db.js';
 import { resetObservationStore } from '../../src/store/obs-store.js';
 import { resetSessionStore } from '../../src/store/session-store.js';
 import { resetTeamStore } from '../../src/team/team-store.js';
 import { resetMiniSkillStore } from '../../src/store/mini-skill-store.js';
 import { resetMiniSkillFreshness } from '../../src/memory/freshness.js';
+import { resetDb } from '../../src/store/orama-store.js';
 
 async function runCommand(command: any, args: Record<string, unknown>) {
   const logs: string[] = [];
@@ -64,7 +66,7 @@ describe('CLI operator surface', () => {
     process.env.MEMORIX_EMBEDDING = 'off';
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     process.chdir(originalCwd);
     if (originalDataDir === undefined) {
       delete process.env.MEMORIX_DATA_DIR;
@@ -81,11 +83,12 @@ describe('CLI operator surface', () => {
     resetTeamStore();
     resetMiniSkillStore();
     resetMiniSkillFreshness();
+    await resetDb();
     closeAllDatabases();
     rmSync(sandboxRoot, { recursive: true, force: true });
   });
 
-  it('session start is lightweight by default and only joins the team when requested', async () => {
+  it('session start is lightweight by default and only joins coordination state when requested', async () => {
     const result = await runCommand(sessionCommand, {
       _: ['start'],
       agent: 'codex-main',
@@ -111,6 +114,25 @@ describe('CLI operator surface', () => {
     const joinedParsed = JSON.parse(joined.stdout);
     expect(joinedParsed.agent.role).toBe('engineer');
     expect(joinedParsed.agent.agentType).toBe('codex');
+  });
+
+  it('session start can bind to an explicit projectRoot outside the current cwd', async () => {
+    const outsideCwd = path.join(sandboxRoot, 'outside');
+    mkdirSync(outsideCwd, { recursive: true });
+    process.chdir(outsideCwd);
+
+    const result = await runCommand(sessionCommand, {
+      _: ['start'],
+      agent: 'codex-main',
+      projectRoot: repoDir,
+      json: true,
+    });
+
+    expect(result.exitCode).toBe(0);
+    const parsed = JSON.parse(result.stdout);
+    expect(parsed.project.rootPath).toBe(repoDir);
+    expect(parsed.project.id).toBe('local/repo');
+    expect(parsed.session.projectId).toBe('local/repo');
   });
 
   it('team status keeps historical agents out of the default agent list', async () => {
@@ -300,5 +322,109 @@ describe('CLI operator surface', () => {
     });
     const resolvedJson = JSON.parse(resolved.stdout);
     expect(resolvedJson.result.resolved).toContain(obsId);
+  });
+
+  it('accepts positional arguments for common memory commands', async () => {
+    const stored = await runCommand(memoryCommand, {
+      _: ['store', 'Positional memory text should be accepted.'],
+      title: 'Positional memory',
+      entity: 'cli-memory',
+      type: 'discovery',
+      json: true,
+    });
+    const obsId = JSON.parse(stored.stdout).observation.id;
+
+    const search = await runCommand(memoryCommand, {
+      _: ['search', 'Positional memory'],
+      json: true,
+    });
+    expect(search.exitCode).toBe(0);
+    expect(JSON.parse(search.stdout).entries[0].title).toBe('Positional memory');
+
+    const detail = await runCommand(memoryCommand, {
+      _: ['detail', String(obsId)],
+      json: true,
+    });
+    expect(detail.exitCode).toBe(0);
+    expect(JSON.parse(detail.stdout).documents[0].title).toBe('Positional memory');
+
+    const typedDetail = await runCommand(memoryCommand, {
+      _: ['detail', `obs:${obsId}@${JSON.parse(stored.stdout).project.id}`],
+      json: true,
+    });
+    expect(typedDetail.exitCode).toBe(0);
+    expect(JSON.parse(typedDetail.stdout).documents[0].title).toBe('Positional memory');
+  });
+
+  it('audits project memory quality from the audit namespace', async () => {
+    await runCommand(memoryCommand, {
+      _: ['store'],
+      text: 'Use the native control plane for memcode memory diagnostics.',
+      title: 'Native diagnostics path',
+      entity: 'memcode-memory',
+      type: 'decision',
+      facts: 'Diagnostics should be explicit',
+      json: true,
+    });
+
+    const result = await runCommand(auditCommand, {
+      _: ['memory'],
+      json: true,
+    });
+
+    expect(result.exitCode).toBe(0);
+    const parsed = JSON.parse(result.stdout);
+    expect(parsed.report.summary.active).toBeGreaterThanOrEqual(1);
+    expect(parsed.report.issues).toHaveProperty('duplicateClusters');
+    expect(parsed.report.recommendations.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('builds a graph context packet from project memories', async () => {
+    await runCommand(memoryCommand, {
+      _: ['store'],
+      text: 'memcode should use graph context packets before broad memory injection.',
+      title: 'Graph context packet first',
+      entity: 'memcode-memory',
+      type: 'decision',
+      concepts: 'graph-context,injection',
+      json: true,
+    });
+
+    const result = await runCommand(memoryCommand, {
+      _: ['graph-context'],
+      query: 'memcode memory injection',
+      json: true,
+    });
+
+    expect(result.exitCode).toBe(0);
+    const parsed = JSON.parse(result.stdout);
+    expect(parsed.packet.summary).toContain('high-signal memories');
+    expect(parsed.packet.entities[0].name).toBe('memcode-memory');
+    expect(parsed.packet.memories[0].title).toBe('Graph context packet first');
+  });
+
+  it('renders a prompt-ready graph context packet format', async () => {
+    await runCommand(memoryCommand, {
+      _: ['store'],
+      text: 'Memory injection should be background context, not instructions.',
+      title: 'Prompt format contract',
+      entity: 'memcode-memory',
+      type: 'decision',
+      concepts: 'prompt,graph-context',
+      json: true,
+    });
+
+    const result = await runCommand(memoryCommand, {
+      _: ['graph-context'],
+      query: 'memcode prompt format',
+      format: 'prompt',
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('## Memory Context Packet');
+    expect(result.stdout).toContain('Use this as background context');
+    expect(result.stdout).toContain('### High-signal memories');
+    expect(result.stdout).toContain('### Entities');
+    expect(result.stdout).toContain('### Risks');
   });
 });

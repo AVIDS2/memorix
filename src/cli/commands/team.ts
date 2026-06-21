@@ -5,7 +5,7 @@ import { emitError, emitResult, getCliProjectContext, parseCsvList, parsePositiv
 export default defineCommand({
   meta: {
     name: 'team',
-    description: 'Manage project-scoped autonomous agent team state',
+    description: 'Manage project-scoped orchestration coordination state',
   },
   args: {
     name: { type: 'string', description: 'Agent display name' },
@@ -46,7 +46,7 @@ export default defineCommand({
           });
           emitResult(
             { project, agent },
-            `Joined project agent team as ${agent.name} (${agent.role})`,
+            `Joined project coordination state as ${agent.name} (${agent.role})`,
             asJson,
           );
           return;
@@ -146,7 +146,7 @@ export default defineCommand({
               historicalCount: historicalAgents.length,
             },
             [
-              `Project agent team: ${activeAgents.length} active agent(s) / ${historicalAgents.length} historical or inactive`,
+              `Project coordination: ${activeAgents.length} active agent(s) / ${historicalAgents.length} historical or inactive`,
               '',
               occupancy.length > 0
                 ? `Role occupancy:\n${occupancy
@@ -170,7 +170,7 @@ export default defineCommand({
         }
 
         default:
-          console.log('Memorix Team Commands');
+          console.log('Memorix Coordination Commands');
           console.log('');
           console.log('Usage:');
           console.log('  memorix team status [--all]');

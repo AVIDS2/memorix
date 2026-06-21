@@ -23,7 +23,7 @@ export default defineConfig([
     external: ['fastembed', '@huggingface/transformers', 'better-sqlite3'],
   },
   {
-    entry: { 'cli/index': 'src/cli/index.ts' },
+    entry: { 'cli/index': 'src/cli/index.ts', 'cli/memcode': 'src/cli/memcode.ts' },
     format: ['esm'],
     target: 'node20',
     dts: true,
@@ -47,13 +47,40 @@ export default defineConfig([
     },
     // Bundle all dependencies into CLI for portable global install
     // ink/react externalized: they have WASM yoga-layout that can't be inlined
-    noExternal: [/^(?!(fastembed|@huggingface\/transformers|better-sqlite3|ink|react|yoga-wasm-web))/],
-    external: ['fastembed', '@huggingface/transformers', 'better-sqlite3', 'ink', 'react', 'react/jsx-runtime', 'yoga-wasm-web'],
+    // photon-node externalized: WASM native module can't be bundled by esbuild
+    // @memorix/memcode externalized: has OpenTUI native deps that can't be bundled
+    noExternal: [/^(?!(fastembed|@huggingface\/transformers|better-sqlite3|ink|react|yoga-wasm-web|@silvia-odwyer\/photon-node|@memorix\/memcode))/],
+    external: ['fastembed', '@huggingface/transformers', 'better-sqlite3', 'ink', 'react', 'react/jsx-runtime', 'yoga-wasm-web', '@silvia-odwyer/photon-node', '@memorix/memcode'],
     esbuildOptions(options) {
       options.jsx = 'automatic';
     },
-    // Copy dashboard static files after CLI build
-    onSuccess: 'node scripts/copy-static.cjs',
+    // Copy dashboard and bundled memcode runtime assets after CLI build.
+    onSuccess: 'node scripts/copy-static.cjs && node scripts/copy-memcode-runtime.cjs',
+  },
+  {
+    entry: ['packages/memcode/src/index.ts'],
+    format: ['esm'],
+    target: 'node22',
+    dts: true,
+    clean: false,
+    outDir: 'dist/memcode',
+    sourcemap: true,
+    splitting: false,
+    shims: true,
+    define,
+    tsconfig: 'packages/memcode/tsconfig.build.json',
+    banner: {
+      js: [
+        'import {createRequire as __memorix_memcode_cjsRequire} from "module";',
+        'const require = __memorix_memcode_cjsRequire(import.meta.url);',
+      ].join('\n'),
+    },
+    external: ['fastembed', '@huggingface/transformers', 'better-sqlite3', './tui/*', '../tui/*'],
+    esbuildOptions(options) {
+      // Don't bundle the TUI directory — it's loaded lazily via dynamic import
+      options.external = options.external || [];
+      options.external.push('./tui/*', '../tui/*', 'packages/memcode/src/tui/*');
+    },
   },
 ]);
 

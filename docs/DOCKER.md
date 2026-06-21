@@ -1,10 +1,10 @@
 # Docker Deployment
 
-Memorix supports Docker as an **HTTP control-plane deployment path**.
+Memorix supports Docker as an **HTTP service deployment path**.
 
 This Docker flow is for:
 
-- a long-lived `serve-http` control plane
+- a long-lived `serve-http` service
 - the dashboard on port `3211`
 - IDEs and agents that connect over `http://host:3211/mcp`
 
@@ -71,7 +71,7 @@ The official Docker artifacts in this repo provide:
 - an example `compose.yaml`
 - a healthchecked HTTP deployment
 
-Docker support is for the **HTTP control plane**:
+Docker support is for the **HTTP service**:
 
 - `memorix serve-http`
 - dashboard access
@@ -89,11 +89,11 @@ Project-scoped features such as:
 
 - Git-root detection
 - project binding
-- project `memorix.yml`
+- project `memorix.toml`
 - project `.env`
 - Git Memory inspection
 
-depend on the control plane being able to access the repository path.
+depend on the HTTP service being able to access the repository path.
 
 ### Good fit
 

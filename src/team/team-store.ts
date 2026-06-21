@@ -1,5 +1,5 @@
 /**
- * TeamStore - SQLite-backed persistence for autonomous Agent Team state.
+ * TeamStore - SQLite-backed persistence for orchestration coordination state.
  *
  * Phase 4a: Replaces the file-based team-state.json persistence with
  * SQLite prepared statements on the shared DB handle (memorix.db).

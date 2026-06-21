@@ -1,11 +1,18 @@
 {
   "name": "memorix",
-  "version": "1.0.10",
-  "description": "Open-source cross-agent memory layer for coding agents across Cursor, Claude Code, Codex, Windsurf, Gemini CLI, Copilot, Kiro, OpenCode, Antigravity, and Trae via MCP.",
+  "version": "1.1.0",
+  "description": "Local-first shared memory layer for AI coding agents across MCP clients, Git history, reasoning context, and project sessions.",
   "type": "module",
   "sideEffects": false,
+  "workspaces": [
+    "packages/ai",
+    "packages/agent-core",
+    "packages/tui",
+    "packages/memcode"
+  ],
   "bin": {
-    "memorix": "./dist/cli/index.js"
+    "memorix": "./dist/cli/index.js",
+    "memcode": "./dist/cli/memcode.js"
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -25,9 +32,18 @@
   },
   "files": [
     "dist",
+    "src",
+    "!src/**/*.js",
+    "!src/**/*.js.map",
+    "!src/**/*.d.ts",
+    "!src/**/*.d.ts.map",
     "README.md",
     "README.zh-CN.md",
+    "assets",
     "docs",
+    "!docs/memcode",
+    "!docs/superpowers",
+    "plugins",
     "TEAM.md",
     "LICENSE",
     "CHANGELOG.md",
@@ -36,7 +52,8 @@
     "llms-full.txt"
   ],
   "scripts": {
-    "build": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && tsup",
+    "build:workspaces": "npm --workspaces --if-present run build",
+    "build": "npm run build:workspaces && node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && tsup",
     "dev": "tsup --watch",
     "start": "node dist/index.js",
     "test": "vitest run",
@@ -62,6 +79,9 @@
     "cross-agent-memory",
     "context-persistence",
     "agent-memory",
+    "memcode",
+    "coding-agent",
+    "terminal-agent",
     "knowledge-graph",
     "workspace-sync",
     "progressive-disclosure",
@@ -85,18 +105,18 @@
     "url": "https://github.com/sponsors/AVIDS2"
   },
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=22.19.0"
   },
   "dependencies": {
     "@clack/prompts": "^0.9.1",
-    "@modelcontextprotocol/sdk": "^1.26.0",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@orama/orama": "^3.1.0",
     "@orama/plugin-data-persistence": "^3.1.0",
     "citty": "^0.1.6",
     "cytoscape": "^3.33.1",
     "cytoscape-dagre": "^2.5.0",
     "dagre": "^0.8.5",
-    "diff": "^7.0.0",
+    "diff": "^9.0.0",
     "dotenv": "^17.3.1",
     "gpt-tokenizer": "^2.8.0",
     "gray-matter": "^4.0.3",
@@ -106,7 +126,7 @@
     "ink-scroll-view": "^0.3.6",
     "ink-spinner": "^5.0.0",
     "js-yaml": "^3.13.1",
-    "react": "^19.2.4",
+    "react": "19.2.7",
     "remark": "^15.0.1",
     "remark-stringify": "^11.0.0",
     "zod": "^3.24.0"
@@ -117,16 +137,26 @@
     "fastembed": "^1.14.4"
   },
   "overrides": {
-    "tar": "^7.0.0"
+    "tar": "^7.5.16",
+    "react": "19.2.7",
+    "@types/react": "19.2.7",
+    "protobufjs": "^7.6.4",
+    "lodash": "^4.18.1",
+    "hono": "^4.12.26",
+    "@hono/node-server": "^1.19.14",
+    "express-rate-limit": "^8.5.2",
+    "path-to-regexp": "^8.4.2",
+    "ajv": "^8.20.0",
+    "fast-uri": "^3.1.2"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.0",
     "@types/diff": "^7.0.0",
     "@types/node": "^22.0.0",
-    "@types/react": "^19.2.14",
+    "@types/react": "19.2.7",
     "ink-testing-library": "^4.0.0",
     "tsup": "^8.4.0",
     "typescript": "^5.7.0",
-    "vitest": "^3.0.0"
+    "vitest": "3.2.6"
   }
 }

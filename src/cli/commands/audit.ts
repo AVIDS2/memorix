@@ -2,6 +2,7 @@ import { defineCommand } from 'citty';
 import { getAllAuditEntries, getProjectId } from '../../audit/index.js';
 import { auditProjectObservations } from '../../memory/attribution-guard.js';
 import { getAllObservations } from '../../memory/observations.js';
+import { auditMemoryQuality } from '../../memory/quality-audit.js';
 import { emitError, emitResult, getCliProjectContext } from './operator-shared.js';
 
 export default defineCommand({
@@ -20,6 +21,34 @@ export default defineCommand({
 
     try {
       switch (action) {
+        case 'memory': {
+          const { project } = await getCliProjectContext();
+          const report = auditMemoryQuality(getAllObservations(), {
+            projectId: project.id,
+          });
+          emitResult(
+            { project, report },
+            [
+              `Memory quality audit for ${project.name}`,
+              `- Total: ${report.summary.total}`,
+              `- Active: ${report.summary.active}`,
+              `- Archived: ${report.summary.archived}`,
+              `- Core: ${report.summary.core}`,
+              `- Contextual: ${report.summary.contextual}`,
+              `- Ephemeral: ${report.summary.ephemeral}`,
+              `- Duplicate clusters: ${report.issues.duplicateClusters.length}`,
+              `- Hook noise: ${report.issues.hookNoise.length}`,
+              `- Low evidence: ${report.issues.lowEvidence.length}`,
+              `- Orphans: ${report.issues.orphans.length}`,
+              `- Retention candidates: ${report.issues.retentionCandidates.length}`,
+              '',
+              ...report.recommendations.map((line) => `* ${line}`),
+            ].join('\n'),
+            asJson,
+          );
+          return;
+        }
+
         case 'list': {
           const entries = await getAllAuditEntries();
           const projectFilter = args.project ? getProjectId(String(args.project)) : undefined;
@@ -58,6 +87,7 @@ export default defineCommand({
           console.log('Memorix Audit Commands');
           console.log('');
           console.log('Usage:');
+          console.log('  memorix audit memory');
           console.log('  memorix audit list [--project /abs/path]');
           console.log('  memorix audit project [--threshold 2]');
       }

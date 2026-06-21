@@ -17,9 +17,47 @@ import { formatIndexTable, formatTimeline, formatObservationDetail } from './ind
 import { countTextTokens } from './token-budget.js';
 import { resolveAliases } from '../project/aliases.js';
 import { parseMemoryRef } from '../memory/refs.js';
+import { getObservationStore } from '../store/obs-store.js';
 import { getMiniSkillStore } from '../store/mini-skill-store.js';
 import { miniSkillToDocument, resolveProvenanceStatus, type ProvenanceStatus } from '../skills/mini-skills.js';
 import { redactCredentials } from '../memory/secret-filter.js';
+
+export function normalizeMemoryBrowseQuery(query: string): string {
+  const trimmed = query.trim();
+  if (!trimmed) return '';
+
+  const compact = trimmed.toLowerCase().replace(/\s+/g, '');
+  const broadMemoryRequests = new Set([
+    '检索记忆',
+    '搜索记忆',
+    '查看记忆',
+    '看看记忆',
+    '列出记忆',
+    '有哪些记忆',
+    '有那些记忆',
+    '我们有哪些记忆',
+    '我们有那些记忆',
+    '我们有什么记忆',
+    '有什么记忆',
+    '所有记忆',
+    '全部记忆',
+    '记忆概览',
+    '记忆总览',
+    '记忆列表',
+    '记忆',
+    '项目记忆',
+    'memory',
+    'memories',
+    'showmemory',
+    'showmemories',
+    'listmemory',
+    'listmemories',
+    'recentmemory',
+    'recentmemories',
+  ]);
+
+  return broadMemoryRequests.has(compact) ? '' : query;
+}
 
 /**
  * Layer 1: Search and return a compact index.
@@ -30,17 +68,27 @@ export async function compactSearch(options: SearchOptions): Promise<{
   formatted: string;
   totalTokens: number;
 }> {
-  const entries = await searchObservations(options);
-  let formatted = formatIndexTable(entries, options.query, !options.projectId);
+  await ensureFreshIndex();
+  const searchOptions = { ...options, query: normalizeMemoryBrowseQuery(options.query) };
+  const entries = (await searchObservations(searchOptions)).map((entry) =>
+    entry.projectId || !options.projectId ? entry : { ...entry, projectId: options.projectId },
+  );
+  let formatted = formatIndexTable(entries, searchOptions.query, !options.projectId);
 
   if (entries.length === 0 && options.projectId) {
     const allObservations = getAllObservations();
-    const projectHasStoredMemory = allObservations.some((obs) => obs.projectId === options.projectId);
+    const projectAliases = new Set(await resolveAliases(options.projectId).catch(() => [options.projectId]));
+    const projectHasStoredMemory = allObservations.some((obs) => obs.projectId && projectAliases.has(obs.projectId));
     if (!projectHasStoredMemory) {
       formatted =
         `This project does not have any Memorix memories yet.\n\n` +
         `It looks like a fresh project: the tool call worked, but there is nothing stored to retrieve yet.\n\n` +
         `Memories will start appearing after observations, session summaries, hook captures, or git-memory are written.`;
+    } else {
+      formatted =
+        `No memories found matching "${options.query}".\n\n` +
+        `This project does have stored Memorix memories, but none matched the current query/filter. ` +
+        `Try a more specific topic, use /memory status for runtime diagnostics, or ask for recent memory if you want a broad overview.`;
     }
   }
 
@@ -196,6 +244,11 @@ export async function compactDetail(
       const doc = fallbackDocs[0];
       if (doc) {
         documentMap.set(toRefKey(ref), doc);
+        continue;
+      }
+      const stored = await getPersistedObservation(ref);
+      if (stored) {
+        documentMap.set(toRefKey(ref), observationToDocument(stored));
       }
     }
   }
@@ -316,6 +369,39 @@ export async function compactDetail(
   const totalTokens = countTextTokens(formatted);
 
   return { documents: allDocuments, formatted, totalTokens };
+}
+
+async function getPersistedObservation(ref: ObservationRef) {
+  try {
+    const store = getObservationStore();
+    const all = await store.loadAll();
+    return all.find((obs) => obs.id === ref.id && (ref.projectId ? obs.projectId === ref.projectId : true));
+  } catch {
+    return undefined;
+  }
+}
+
+function observationToDocument(obs: ReturnType<typeof getAllObservations>[number]): MemorixDocument {
+  return {
+    id: makeOramaObservationId(obs.projectId, obs.id),
+    observationId: obs.id,
+    entityName: obs.entityName,
+    type: obs.type,
+    title: obs.title,
+    narrative: obs.narrative,
+    facts: obs.facts.join('\n'),
+    filesModified: obs.filesModified.join('\n'),
+    concepts: obs.concepts.join(', '),
+    tokens: obs.tokens,
+    createdAt: obs.createdAt,
+    projectId: obs.projectId,
+    accessCount: 0,
+    lastAccessedAt: '',
+    status: obs.status ?? 'active',
+    source: obs.source ?? 'agent',
+    sourceDetail: obs.sourceDetail ?? '',
+    valueCategory: obs.valueCategory ?? '',
+  };
 }
 
 /**

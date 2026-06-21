@@ -1,0 +1,39 @@
+{
+  "name": "memorix",
+  "version": "1.1.0",
+  "description": "Shared workspace memory for Codex and other AI coding agents.",
+  "author": {
+    "name": "AVIDS2",
+    "url": "https://github.com/AVIDS2"
+  },
+  "homepage": "https://github.com/AVIDS2/memorix#readme",
+  "repository": "https://github.com/AVIDS2/memorix",
+  "license": "Apache-2.0",
+  "keywords": [
+    "memory",
+    "mcp",
+    "codex",
+    "coding-agents"
+  ],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Memorix",
+    "shortDescription": "Shared local memory for coding agents.",
+    "longDescription": "Memorix gives Codex durable workspace memory through MCP tools, lightweight usage guidance, and optional lifecycle capture.",
+    "developerName": "AVIDS2",
+    "category": "Developer Tools",
+    "capabilities": [
+      "MCP",
+      "Skills",
+      "Hooks"
+    ],
+    "websiteURL": "https://github.com/AVIDS2/memorix",
+    "brandColor": "#2563EB",
+    "defaultPrompt": [
+      "Use Memorix to recover prior workspace context.",
+      "Store the key decision from this session in Memorix.",
+      "Search Memorix before continuing previous work."
+    ]
+  }
+}

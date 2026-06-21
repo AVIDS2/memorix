@@ -52,3 +52,11 @@ export function getEnvTemplateTarget(
     : '.env.example';
   return path.join(targetDir, filename);
 }
+
+export function getInitConfigFilename(): string {
+  return 'config.toml';
+}
+
+export function getInitProjectConfigFilename(): string {
+  return 'memorix.toml';
+}

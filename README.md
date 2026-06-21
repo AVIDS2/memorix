@@ -51,7 +51,7 @@ Use Claude Code today, Codex tomorrow, Cursor in the afternoon, and memcode when
 
 Memorix is local-first. SQLite is the canonical store, Orama handles search, and LLM-backed formation/embedding is optional. Without model keys, Memorix still works with local full-text retrieval.
 
-## Works With Your Agent
+<h2 id="works-with-your-agent"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/tags/light/section-agents.svg"><img src="assets/tags/section-agents.svg" alt="Works with every agent" height="32" /></picture></h2>
 
 Memorix meets each agent through the integration surfaces that agent already understands: plugin packages, MCP servers, project rules, hooks, skills, or a first-party terminal agent. `memorix setup` installs the best available package for the target host and keeps stdio MCP as the default transport.
 
@@ -60,12 +60,17 @@ Memorix meets each agent through the integration surfaces that agent already und
 <td align="center" width="12.5%">
 <a href="https://claude.com/product/claude-code"><img src="https://github.com/anthropics.png?size=120" alt="Claude Code" width="48" height="48"></a><br>
 <strong>Claude Code</strong><br>
-<sub>local marketplace plugin + MCP + hooks</sub>
+<sub>official plugin + MCP + hooks + skills</sub>
 </td>
 <td align="center" width="12.5%">
-<a href="https://openai.com/codex"><img src="https://github.com/openai.png?size=120" alt="Codex" width="48" height="48"></a><br>
-<strong>Codex</strong><br>
-<sub>plugin marketplace + MCP + AGENTS.md</sub>
+<a href="https://github.com/openai/codex"><img src="https://github.com/openai.png?size=120" alt="Codex CLI" width="48" height="48"></a><br>
+<strong>Codex CLI</strong><br>
+<sub>official plugin + MCP + AGENTS.md</sub>
+</td>
+<td align="center" width="12.5%">
+<a href="https://github.com/features/copilot"><img src="https://github.githubassets.com/images/modules/site/copilot/copilot.png" alt="GitHub Copilot CLI" width="48" height="48"></a><br>
+<strong>GitHub Copilot CLI</strong><br>
+<sub>plugin + MCP + hooks + skills</sub>
 </td>
 <td align="center" width="12.5%">
 <a href="https://cursor.com"><picture><source media="(prefers-color-scheme: dark)" srcset="https://svgl.app/library/cursor_dark.svg"><img src="https://svgl.app/library/cursor_light.svg" alt="Cursor" width="48" height="48"></picture></a><br>
@@ -76,11 +81,6 @@ Memorix meets each agent through the integration surfaces that agent already und
 <a href="https://windsurf.com"><picture><source media="(prefers-color-scheme: dark)" srcset="https://svgl.app/library/windsurf-dark.svg"><img src="https://svgl.app/library/windsurf-light.svg" alt="Windsurf" width="48" height="48"></picture></a><br>
 <strong>Windsurf</strong><br>
 <sub>MCP + rules + hooks</sub>
-</td>
-<td align="center" width="12.5%">
-<a href="https://github.com/features/copilot"><img src="https://github.githubassets.com/images/modules/site/copilot/copilot.png" alt="GitHub Copilot" width="48" height="48"></a><br>
-<strong>Copilot</strong><br>
-<sub>CLI plugin + MCP + hooks</sub>
 </td>
 <td align="center" width="12.5%">
 <a href="https://github.com/google-gemini/gemini-cli"><img src="https://github.com/google-gemini.png?size=120" alt="Gemini CLI" width="48" height="48"></a><br>
@@ -95,22 +95,22 @@ Memorix meets each agent through the integration surfaces that agent already und
 <sub>local plugin + MCP + skills + AGENTS.md</sub>
 </td>
 <td align="center" width="12.5%">
-<a href="https://pi.dev"><img src="https://placehold.co/48x48/111827/ffffff?text=Pi" alt="Pi" width="48" height="48"></a><br>
-<strong>Pi</strong><br>
+<a href="https://pi.dev"><img src="https://pi.dev/favicon.svg" alt="pi coding agent" width="48" height="48"></a><br>
+<strong>pi coding agent</strong><br>
 <sub>package + extension + skill</sub>
 </td>
 <td align="center" width="12.5%">
-<img src="https://placehold.co/48x48/111827/ffffff?text=K" alt="Kiro" width="48" height="48"><br>
+<a href="https://kiro.dev"><img src="https://kiro.dev/icon.svg" alt="Kiro" width="48" height="48"></a><br>
 <strong>Kiro</strong><br>
 <sub>MCP + steering + hooks</sub>
 </td>
 <td align="center" width="12.5%">
-<img src="https://placehold.co/48x48/111827/ffffff?text=A" alt="Antigravity" width="48" height="48"><br>
+<a href="https://antigravity.google"><img src="https://antigravity.google/favicon.ico" alt="Antigravity" width="48" height="48"></a><br>
 <strong>Antigravity</strong><br>
 <sub>MCP + GEMINI.md</sub>
 </td>
 <td align="center" width="12.5%">
-<img src="https://placehold.co/48x48/111827/ffffff?text=T" alt="Trae" width="48" height="48"><br>
+<a href="https://www.trae.ai"><img src="https://github.com/Trae-AI.png?size=120" alt="Trae" width="48" height="48"></a><br>
 <strong>Trae</strong><br>
 <sub>MCP + project rules</sub>
 </td>
@@ -119,15 +119,17 @@ Memorix meets each agent through the integration surfaces that agent already und
 <strong>memcode</strong><br>
 <sub>first-party terminal agent</sub>
 </td>
-</tr>
-<tr>
 <td align="center" width="12.5%">
-<img src="https://placehold.co/48x48/111827/ffffff?text=M" alt="Any MCP Client" width="48" height="48"><br>
+<a href="https://modelcontextprotocol.io"><img src="https://github.com/modelcontextprotocol.png?size=120" alt="Any MCP Client" width="48" height="48"></a><br>
 <strong>Any MCP Client</strong><br>
 <sub>stdio or HTTP MCP</sub>
 </td>
 </tr>
 </table>
+
+<p align="center">
+  <sub>Works with agents that speak MCP, expose hooks/rules, or support plugin/package entries. One local-first memory layer shared across all of them.</sub>
+</p>
 
 Integration surfaces:
 

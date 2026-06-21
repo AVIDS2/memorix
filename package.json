@@ -39,6 +39,7 @@
     "!src/**/*.d.ts.map",
     "README.md",
     "README.zh-CN.md",
+    "assets",
     "docs",
     "!docs/memcode",
     "!docs/superpowers",

@@ -1,0 +1,136 @@
+<svg width="1600" height="540" viewBox="0 0 1600 540" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">Memorix</title>
+  <desc id="desc">Local-first shared memory layer for AI coding agents.</desc>
+  <defs>
+    <linearGradient id="paper" x1="0" y1="0" x2="1600" y2="540" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F7F5FA"/>
+      <stop offset="0.48" stop-color="#ECE8F4"/>
+      <stop offset="1" stop-color="#D3D3D3"/>
+    </linearGradient>
+    <linearGradient id="lilacWash" x1="160" y1="52" x2="1180" y2="560" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#B19CD9" stop-opacity="0.86"/>
+      <stop offset="0.42" stop-color="#BDAEE1" stop-opacity="0.54"/>
+      <stop offset="1" stop-color="#D3D3D3" stop-opacity="0.24"/>
+    </linearGradient>
+    <linearGradient id="word" x1="116" y1="134" x2="616" y2="258" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#4D455F"/>
+      <stop offset="0.62" stop-color="#746497"/>
+      <stop offset="1" stop-color="#9B88C6"/>
+    </linearGradient>
+    <linearGradient id="thread" x1="204" y1="0" x2="1178" y2="0" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#B19CD9" stop-opacity="0"/>
+      <stop offset="0.14" stop-color="#B19CD9" stop-opacity="0.72"/>
+      <stop offset="0.48" stop-color="#8F7CC2" stop-opacity="0.36"/>
+      <stop offset="0.77" stop-color="#D3D3D3" stop-opacity="0.85"/>
+      <stop offset="1" stop-color="#D3D3D3" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="cardA" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#EEEAF5"/>
+    </linearGradient>
+    <linearGradient id="cardB" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#B19CD9"/>
+      <stop offset="1" stop-color="#D5CAE9"/>
+    </linearGradient>
+    <filter id="paperShadow" x="-30%" y="-30%" width="160%" height="180%" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="18" stdDeviation="24" flood-color="#75668F" flood-opacity="0.2"/>
+      <feDropShadow dx="0" dy="2" stdDeviation="2" flood-color="#FFFFFF" flood-opacity="0.7"/>
+    </filter>
+    <filter id="smallShadow" x="-30%" y="-30%" width="160%" height="180%" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="10" stdDeviation="14" flood-color="#75668F" flood-opacity="0.16"/>
+    </filter>
+    <filter id="grain" x="0" y="0" width="100%" height="100%" color-interpolation-filters="sRGB">
+      <feTurbulence type="fractalNoise" baseFrequency="0.85" numOctaves="3" seed="37"/>
+      <feColorMatrix type="saturate" values="0"/>
+      <feComponentTransfer>
+        <feFuncA type="table" tableValues="0 0.055"/>
+      </feComponentTransfer>
+    </filter>
+  </defs>
+
+  <rect width="1600" height="540" fill="url(#paper)"/>
+  <path d="M0 0H1600V238C1390 267 1248 257 1072 213C806 147 684 96 442 139C252 173 126 155 0 112V0Z" fill="url(#lilacWash)"/>
+  <path d="M0 404C148 384 255 394 418 431C628 479 767 469 961 414C1195 347 1368 356 1600 420V540H0V404Z" fill="#D3D3D3" fill-opacity="0.34"/>
+  <rect width="1600" height="540" fill="url(#grain)" opacity="0.42"/>
+
+  <g opacity="0.5">
+    <path d="M76 86H500" stroke="#FFFFFF" stroke-width="1.2"/>
+    <path d="M70 108H706" stroke="#FFFFFF" stroke-width="1.2" stroke-opacity="0.58"/>
+    <path d="M904 72H1508" stroke="#FFFFFF" stroke-width="1.2" stroke-opacity="0.5"/>
+    <path d="M88 470H772" stroke="#FFFFFF" stroke-width="1.2" stroke-opacity="0.55"/>
+  </g>
+
+  <g transform="translate(110 112)">
+    <text x="0" y="112" fill="url(#word)" font-family="Aptos Display, Segoe UI, system-ui, sans-serif" font-size="118" font-weight="620" letter-spacing="0">memorix</text>
+    <text x="4" y="180" fill="#766E82" font-family="Aptos, Segoe UI, system-ui, sans-serif" font-size="34" font-weight="400" letter-spacing="0">Shared project memory for the agents you already use</text>
+    <rect x="5" y="218" width="590" height="5" rx="2.5" fill="url(#thread)"/>
+
+    <g transform="translate(6 270)">
+      <rect x="0" y="0" width="154" height="40" rx="20" fill="#FFFFFF" fill-opacity="0.58" stroke="#FFFFFF"/>
+      <circle cx="24" cy="20" r="8" fill="#B19CD9"/>
+      <text x="42" y="25" fill="#655A78" font-family="Aptos, Segoe UI, system-ui, sans-serif" font-size="18" font-weight="600">local-first</text>
+      <rect x="176" y="0" width="180" height="40" rx="20" fill="#FFFFFF" fill-opacity="0.5" stroke="#FFFFFF"/>
+      <circle cx="200" cy="20" r="8" fill="#D3D3D3"/>
+      <text x="218" y="25" fill="#655A78" font-family="Aptos, Segoe UI, system-ui, sans-serif" font-size="18" font-weight="600">MCP + CLI</text>
+      <rect x="378" y="0" width="190" height="40" rx="20" fill="#FFFFFF" fill-opacity="0.5" stroke="#FFFFFF"/>
+      <circle cx="402" cy="20" r="8" fill="#B19CD9"/>
+      <text x="420" y="25" fill="#655A78" font-family="Aptos, Segoe UI, system-ui, sans-serif" font-size="18" font-weight="600">agent-neutral</text>
+    </g>
+  </g>
+
+  <g transform="translate(800 76)">
+    <path d="M32 352C154 292 251 309 356 250C456 194 520 124 658 91" stroke="#A391C8" stroke-width="2" stroke-opacity="0.34" stroke-linecap="round"/>
+    <path d="M42 284C169 274 255 238 361 163C445 103 535 99 668 133" stroke="#FFFFFF" stroke-width="2" stroke-opacity="0.62" stroke-linecap="round"/>
+    <path d="M136 72C234 122 331 112 428 78C507 50 575 48 692 72" stroke="#D3D3D3" stroke-width="2" stroke-opacity="0.75" stroke-linecap="round"/>
+
+    <g filter="url(#paperShadow)" transform="rotate(-5 164 224)">
+      <rect x="76" y="72" width="220" height="286" rx="26" fill="url(#cardA)" stroke="#FFFFFF" stroke-width="2"/>
+      <rect x="104" y="108" width="96" height="18" rx="9" fill="#B19CD9" fill-opacity="0.48"/>
+      <rect x="104" y="146" width="148" height="12" rx="6" fill="#D3D3D3"/>
+      <rect x="104" y="172" width="116" height="12" rx="6" fill="#D3D3D3" fill-opacity="0.72"/>
+      <rect x="104" y="224" width="164" height="72" rx="18" fill="#F6F2FB" stroke="#E4DDF0"/>
+      <circle cx="130" cy="260" r="12" fill="#B19CD9"/>
+      <rect x="154" y="246" width="72" height="10" rx="5" fill="#8F7CC2" fill-opacity="0.64"/>
+      <rect x="154" y="268" width="92" height="8" rx="4" fill="#D3D3D3"/>
+      <text x="104" y="332" fill="#817391" font-family="Aptos, Segoe UI, system-ui, sans-serif" font-size="15" font-weight="700" letter-spacing="0.08em">SESSION</text>
+    </g>
+
+    <g filter="url(#paperShadow)">
+      <rect x="286" y="118" width="260" height="318" rx="30" fill="url(#cardB)" stroke="#FFFFFF" stroke-width="2"/>
+      <rect x="322" y="156" width="104" height="20" rx="10" fill="#FFFFFF" fill-opacity="0.62"/>
+      <rect x="322" y="198" width="176" height="14" rx="7" fill="#FFFFFF" fill-opacity="0.54"/>
+      <rect x="322" y="228" width="142" height="14" rx="7" fill="#FFFFFF" fill-opacity="0.42"/>
+      <rect x="322" y="274" width="188" height="78" rx="20" fill="#FFFFFF" fill-opacity="0.22" stroke="#FFFFFF" stroke-opacity="0.52"/>
+      <path d="M348 316H484" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round" stroke-opacity="0.8"/>
+      <path d="M348 334H446" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round" stroke-opacity="0.42"/>
+      <text x="322" y="390" fill="#FFFFFF" fill-opacity="0.9" font-family="Aptos, Segoe UI, system-ui, sans-serif" font-size="15" font-weight="750" letter-spacing="0.08em">PROJECT MEMORY</text>
+    </g>
+
+    <g filter="url(#smallShadow)" transform="rotate(4 613 231)">
+      <rect x="554" y="92" width="196" height="266" rx="25" fill="#F2F0F4" stroke="#FFFFFF" stroke-width="2"/>
+      <rect x="582" y="130" width="82" height="18" rx="9" fill="#B19CD9" fill-opacity="0.48"/>
+      <rect x="582" y="172" width="122" height="12" rx="6" fill="#C9C6CD"/>
+      <rect x="582" y="198" width="96" height="12" rx="6" fill="#C9C6CD" fill-opacity="0.72"/>
+      <rect x="582" y="250" width="126" height="54" rx="16" fill="#FFFFFF" fill-opacity="0.58"/>
+      <text x="582" y="332" fill="#867A99" font-family="Aptos, Segoe UI, system-ui, sans-serif" font-size="15" font-weight="700" letter-spacing="0.08em">HANDOFF</text>
+    </g>
+
+    <g>
+      <circle cx="62" cy="353" r="10" fill="#B19CD9"/>
+      <circle cx="154" cy="294" r="7" fill="#FFFFFF"/>
+      <circle cx="319" cy="244" r="9" fill="#FFFFFF"/>
+      <circle cx="416" cy="118" r="10" fill="#B19CD9"/>
+      <circle cx="615" cy="97" r="8" fill="#FFFFFF"/>
+      <circle cx="686" cy="72" r="9" fill="#B19CD9"/>
+    </g>
+
+    <g opacity="0.92">
+      <rect x="34" y="374" width="132" height="36" rx="18" fill="#FFFFFF" fill-opacity="0.74" stroke="#FFFFFF"/>
+      <text x="100" y="397" text-anchor="middle" fill="#655A78" font-family="Aptos, Segoe UI, system-ui, sans-serif" font-size="15" font-weight="700">Claude</text>
+      <rect x="188" y="388" width="112" height="36" rx="18" fill="#FFFFFF" fill-opacity="0.66" stroke="#FFFFFF"/>
+      <text x="244" y="411" text-anchor="middle" fill="#655A78" font-family="Aptos, Segoe UI, system-ui, sans-serif" font-size="15" font-weight="700">Codex</text>
+      <rect x="558" y="376" width="126" height="36" rx="18" fill="#FFFFFF" fill-opacity="0.66" stroke="#FFFFFF"/>
+      <text x="621" y="399" text-anchor="middle" fill="#655A78" font-family="Aptos, Segoe UI, system-ui, sans-serif" font-size="15" font-weight="700">Cursor</text>
+    </g>
+  </g>
+</svg>

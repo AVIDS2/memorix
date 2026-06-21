@@ -88,9 +88,9 @@ export interface MemorixYamlConfig {
     dashboardPort?: number;
   };
 
-  /** Autonomous Agent Team settings */
+  /** Orchestration coordination settings */
   team?: {
-    /** Enable autonomous Agent Team features */
+    /** Enable orchestration coordination features */
     enabled?: boolean;
     /** Shared workspace memory collection */
     workspaceCollection?: string;

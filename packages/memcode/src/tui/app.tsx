@@ -14,6 +14,7 @@ import { InputBar } from "./components/inputbar.tsx";
 import type { Message, MemorySource } from "./components/messages.tsx";
 import { useKeymap } from "./keymap.ts";
 import { getPrefetcher, disposePrefetcher } from "../memory/memory-prefetch.ts";
+import { VERSION } from "../config.ts";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -217,7 +218,7 @@ function App({ runtime }: AppProps) {
 				{/* Logo */}
 				<box flexDirection="column" alignItems="center" flexShrink={0}>
 					<text fg={theme.brand}>{"◆ MEMCODE"}</text>
-					<text fg={theme.textMuted}>{"v1.0.11"}</text>
+					<text fg={theme.textMuted}>{`v${VERSION}`}</text>
 				</box>
 
 				{/* Spacer */}

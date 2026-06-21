@@ -88,7 +88,7 @@ describe('CLI operator surface', () => {
     rmSync(sandboxRoot, { recursive: true, force: true });
   });
 
-  it('session start is lightweight by default and only joins the team when requested', async () => {
+  it('session start is lightweight by default and only joins coordination state when requested', async () => {
     const result = await runCommand(sessionCommand, {
       _: ['start'],
       agent: 'codex-main',
@@ -114,6 +114,25 @@ describe('CLI operator surface', () => {
     const joinedParsed = JSON.parse(joined.stdout);
     expect(joinedParsed.agent.role).toBe('engineer');
     expect(joinedParsed.agent.agentType).toBe('codex');
+  });
+
+  it('session start can bind to an explicit projectRoot outside the current cwd', async () => {
+    const outsideCwd = path.join(sandboxRoot, 'outside');
+    mkdirSync(outsideCwd, { recursive: true });
+    process.chdir(outsideCwd);
+
+    const result = await runCommand(sessionCommand, {
+      _: ['start'],
+      agent: 'codex-main',
+      projectRoot: repoDir,
+      json: true,
+    });
+
+    expect(result.exitCode).toBe(0);
+    const parsed = JSON.parse(result.stdout);
+    expect(parsed.project.rootPath).toBe(repoDir);
+    expect(parsed.project.id).toBe('local/repo');
+    expect(parsed.session.projectId).toBe('local/repo');
   });
 
   it('team status keeps historical agents out of the default agent list', async () => {

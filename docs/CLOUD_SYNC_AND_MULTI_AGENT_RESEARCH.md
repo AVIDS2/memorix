@@ -1,6 +1,6 @@
 # Historical Cross-IDE Collaboration Research
 
-> Historical note: this document records early research. Memorix 1.0.8 product semantics do not promise an automatic chat room between unrelated IDE conversation windows. The supported Agent Team path is explicit autonomous CLI-agent orchestration plus task/message/lock state.
+> Historical note: this document records early research. Memorix 1.0.8 product semantics do not promise an automatic chat room between unrelated IDE conversation windows. The supported coordination path is explicit CLI-agent orchestration plus task/message/lock state.
 
 ---
 
@@ -165,7 +165,7 @@ The MCP spec (2025-03-26) defines Streamable HTTP transport:
 
 ---
 
-## 4. Proposed Architecture: Memorix Agent Teams
+## 4. Proposed Architecture: Memorix Coordination
 
 ### 4.1 Core Insight
 
@@ -417,10 +417,10 @@ Given user constraints (VPS unstable, shared resources):
 | **Cloudflare D1** | Free, 99.99% uptime, SQLite-compat, zero ops | Vendor lock-in | **Best for memory sync** |
 | **Turso** (libSQL) | Native SQLite sync, 9GB free, edge replicas | Newer | Good alternative |
 | **Supabase** | Real-time WebSocket, PostgreSQL, auth built-in | Schema conversion needed | Good for real-time features |
-| **GitHub** | Free, version history, PRs | Not real-time, merge conflicts | Too slow for agent teams |
+| **GitHub** | Free, version history, PRs | Not real-time, merge conflicts | Too slow for live coordination |
 | **Self-hosted VPS** | Full control | Unstable, shared resources | **Not recommended** |
 
-**Recommendation**: Cloudflare D1 for memory/observation sync (proven by mcp-memory-service). For agent team real-time state (messages, tasks, locks), keep everything **local** on the shared Memorix HTTP server — no cloud needed for same-machine coordination.
+**Recommendation**: Cloudflare D1 for memory/observation sync (proven by mcp-memory-service). For real-time coordination state (messages, tasks, locks), keep everything **local** on the shared Memorix HTTP server — no cloud needed for same-machine coordination.
 
 ---
 
@@ -456,7 +456,7 @@ Given user constraints (VPS unstable, shared resources):
 | Contract sharing | No formal system | Typed contract exchange |
 | Cost | Anthropic API only | Any LLM provider |
 
-**Memorix's unique value proposition**: "Claude Code agent teams, but for ANY IDE and ANY LLM."
+**Memorix's unique value proposition**: "A shared memory and coordination layer for coding agents across IDEs and CLIs."
 
 ---
 

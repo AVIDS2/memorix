@@ -1,6 +1,6 @@
 {
   "name": "memorix",
-  "version": "1.0.11",
+  "version": "1.1.0",
   "description": "Local-first shared memory layer for AI coding agents across MCP clients, Git history, reasoning context, and project sessions.",
   "type": "module",
   "sideEffects": false,
@@ -42,6 +42,7 @@
     "docs",
     "!docs/memcode",
     "!docs/superpowers",
+    "plugins",
     "TEAM.md",
     "LICENSE",
     "CHANGELOG.md",
@@ -106,16 +107,16 @@
     "node": ">=22.19.0"
   },
   "dependencies": {
-    "@memorix/memcode": "^1.0.11",
+    "@memorix/memcode": "^1.1.0",
     "@clack/prompts": "^0.9.1",
-    "@modelcontextprotocol/sdk": "^1.26.0",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@orama/orama": "^3.1.0",
     "@orama/plugin-data-persistence": "^3.1.0",
     "citty": "^0.1.6",
     "cytoscape": "^3.33.1",
     "cytoscape-dagre": "^2.5.0",
     "dagre": "^0.8.5",
-    "diff": "^7.0.0",
+    "diff": "^9.0.0",
     "dotenv": "^17.3.1",
     "gpt-tokenizer": "^2.8.0",
     "gray-matter": "^4.0.3",
@@ -136,9 +137,17 @@
     "fastembed": "^1.14.4"
   },
   "overrides": {
-    "tar": "^7.0.0",
+    "tar": "^7.5.16",
     "react": "19.2.7",
-    "@types/react": "19.2.7"
+    "@types/react": "19.2.7",
+    "protobufjs": "^7.6.4",
+    "lodash": "^4.18.1",
+    "hono": "^4.12.26",
+    "@hono/node-server": "^1.19.14",
+    "express-rate-limit": "^8.5.2",
+    "path-to-regexp": "^8.4.2",
+    "ajv": "^8.20.0",
+    "fast-uri": "^3.1.2"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.0",
@@ -148,6 +157,6 @@
     "ink-testing-library": "^4.0.0",
     "tsup": "^8.4.0",
     "typescript": "^5.7.0",
-    "vitest": "^3.0.0"
+    "vitest": "3.2.6"
   }
 }

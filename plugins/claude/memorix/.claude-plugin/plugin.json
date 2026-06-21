@@ -1,0 +1,21 @@
+{
+  "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
+  "name": "memorix",
+  "version": "1.1.0",
+  "description": "Shared workspace memory for Claude Code and other AI coding agents.",
+  "author": {
+    "name": "AVIDS2",
+    "url": "https://github.com/AVIDS2"
+  },
+  "homepage": "https://github.com/AVIDS2/memorix#readme",
+  "skills": [
+    "./",
+    "./skills/memorix-memory",
+    "./skills/memorix-reasoning",
+    "./skills/memorix-sessions",
+    "./skills/memorix-git-memory",
+    "./skills/memorix-mini-skills",
+    "./skills/memorix-orchestrate",
+    "./skills/memorix-troubleshooting"
+  ]
+}

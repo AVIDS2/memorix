@@ -16,7 +16,8 @@ export default defineCommand({
     agent: { type: 'string', description: 'Agent/client name (for example codex or windsurf)' },
     agentType: { type: 'string', description: 'Stable agent type used for role mapping' },
     instanceId: { type: 'string', description: 'Stable instance identity across restarts' },
-    joinTeam: { type: 'boolean', description: 'Explicitly join the autonomous agent team for this session' },
+    projectRoot: { type: 'string', description: 'Absolute project root used to bind the session context' },
+    joinTeam: { type: 'boolean', description: 'Explicitly join orchestration coordination state for this session' },
     role: { type: 'string', description: 'Explicit role override used only when --joinTeam is set' },
     sessionId: { type: 'string', description: 'Custom session ID (optional)' },
     summary: { type: 'string', description: 'Structured session summary for session end' },
@@ -28,7 +29,9 @@ export default defineCommand({
     const asJson = !!args.json;
 
     try {
-      const { project, dataDir, teamStore } = await getCliProjectContext();
+      const { project, dataDir, teamStore } = await getCliProjectContext({
+        projectRoot: args.projectRoot as string | undefined,
+      });
 
       switch (action) {
         case 'start': {
@@ -55,7 +58,7 @@ export default defineCommand({
               role: resolvedRole,
             });
           } else if (shouldJoinTeam) {
-            teamJoinNotice = 'Team join skipped: provide --agent or --agentType to create an Agent Team identity.';
+            teamJoinNotice = 'Coordination join skipped: provide --agent or --agentType to create a coordination identity.';
           }
 
           let watermark = computeWatermark(0, 0, 0);
@@ -104,13 +107,13 @@ export default defineCommand({
 
           const textLines = [
             shouldJoinTeam && agentRecord
-              ? `Session started with agent team identity: ${result.session.id}`
+              ? `Session started with coordination identity: ${result.session.id}`
               : `Lightweight session started: ${result.session.id}`,
             `Project: ${project.name} (${project.id})`,
             agentRecord
               ? `Agent: ${agentRecord.name} [${agentRecord.agent_type}] as ${agentRecord.role} (${agentRecord.agent_id})`
               : '',
-            !agentRecord ? 'Team identity: not joined (memory/session context only)' : '',
+            !agentRecord ? 'Coordination identity: not joined (memory/session context only)' : '',
             teamJoinNotice ?? '',
             agentRecord && watermark.newObservationCount > 0
               ? `${watermark.newObservationCount} new observation(s) since your last session`
@@ -170,13 +173,13 @@ export default defineCommand({
           console.log('Memorix Session Commands');
           console.log('');
           console.log('Usage:');
-          console.log('  memorix session start [--agent codex --agentType codex --instanceId abc] [--joinTeam]');
+          console.log('  memorix session start [--agent codex --agentType codex --instanceId abc] [--projectRoot <path>] [--joinTeam]');
           console.log('  memorix session end --sessionId <id> [--summary "..."]');
           console.log('  memorix session context [--limit 3]');
           console.log('');
           console.log('Options:');
           console.log('  --json              Emit JSON output');
-          console.log('  --joinTeam          Explicitly join the autonomous agent team');
+          console.log('  --joinTeam          Explicitly join orchestration coordination state');
           console.log('  --role <role>       Override default role when joining the team');
       }
     } catch (error) {

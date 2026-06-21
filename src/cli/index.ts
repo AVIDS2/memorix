@@ -975,6 +975,7 @@ const main = defineCommand({
     })),
     // Infrastructure commands
     init: () => import('./commands/init.js').then(m => m.default),
+    setup: () => import('./commands/setup.js').then(m => m.default),
     config: () => Promise.resolve(defineCommand({
       meta: { name: 'config', description: 'Inspect Memorix TOML configuration' },
       subCommands: {
@@ -1044,7 +1045,7 @@ const main = defineCommand({
     // Detect by checking if the first CLI arg matches a registered subcommand name.
     const firstArg = process.argv[2];
     const knownSubs = ['ask', 'search', 'remember', 'recent', 'memcode', 'config',
-      'init', 'integrate', 'memory', 'reasoning', 'retention', 'formation', 'audit', 'transfer', 'skills',
+      'init', 'setup', 'integrate', 'memory', 'reasoning', 'retention', 'formation', 'audit', 'transfer', 'skills',
       'session', 'team', 'task', 'message', 'lock', 'handoff', 'poll',
       'receipt',
       'serve', 'serve-http', 'status', 'sync',
@@ -1088,7 +1089,7 @@ const main = defineCommand({
       console.error('  audit      Audit trail and project attribution checks');
       console.error('  transfer   Export/import memory snapshots');
       console.error('  skills     List/generate/show project skills');
-      console.error('  team       Join/status/role operations for autonomous agent teams');
+      console.error('  team       Join/status/role operations for coordination state');
       console.error('  task       Create/claim/complete/list team tasks');
       console.error('  message    Send/broadcast/read team messages');
       console.error('  lock       Manage advisory file locks');
@@ -1098,6 +1099,7 @@ const main = defineCommand({
       console.error('  serve-http Start HTTP MCP + dashboard control plane');
       console.error('  serve      Start MCP server on stdio');
       console.error('  init       Create global defaults or project config');
+      console.error('  setup      Install Memorix plugin/MCP/rules/hooks for an agent');
       console.error('  config     Show TOML config paths and resolved values');
       console.error('  integrate  Install one IDE integration into the current repo');
       console.error('  status     Show project info + stats');

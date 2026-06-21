@@ -835,7 +835,7 @@ interface DashboardState {
     port: number;
 }
 
-/** Optional Agent Team instances passed from MCP server */
+/** Optional coordination instances passed from MCP server */
 export interface TeamInstances {
     registry: { listAgents: (filter?: any) => any[]; getActiveCount: () => number; getAgent: (id: string) => any };
     fileLocks: { listLocks: (agentId?: string) => any[]; cleanExpired: () => void };

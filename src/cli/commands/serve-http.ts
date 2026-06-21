@@ -3,8 +3,8 @@
  *
  * Starts the Memorix Control Plane: a single HTTP server that provides:
  *   - MCP endpoint at /mcp (shared, multi-session access)
- *   - Web Dashboard at / (project browser, graph, agent team, config)
- *   - Team API at /api/team (autonomous agents, locks, tasks, messages)
+ *   - Web Dashboard at / (project browser, graph, coordination state, config)
+ *   - Coordination API at /api/team (workers, locks, tasks, messages)
  *
  * Mode semantics:
  *   - "Control Plane" = HTTP MCP + multi-session live dashboard (this command, default port 3211)
@@ -57,7 +57,7 @@ export default defineCommand({
     },
     mode: {
       type: 'string',
-      description: 'Tool profile to expose (lite, team, full; default: team; Agent Team join remains explicit)',
+      description: 'Tool profile to expose (lite, team, full; default: team; coordination join remains explicit)',
       required: false,
     },
   },
@@ -1466,7 +1466,7 @@ export default defineCommand({
       console.error(`[memorix] Mode: Control Plane (HTTP MCP + multi-session live dashboard)`);
       console.error(`[memorix] MCP Server listening on http://${host}:${port}/mcp`);
       console.error(`[memorix] Dashboard:     http://${host}:${port}/`);
-      console.error(`[memorix] Agent Team:    http://${host}:${port}/api/team`);
+      console.error(`[memorix] Coordination:  http://${host}:${port}/api/team`);
       console.error(`[memorix] Port:          ${port}`);
       console.error(`[memorix] ═══════════════════════════════════════════════════`);
       console.error(`[memorix] Sessions at startup: ${sessions.size} (live count available at /api/team)`);

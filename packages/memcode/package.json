@@ -1,6 +1,6 @@
 {
 	"name": "@memorix/memcode",
-	"version": "1.0.11",
+	"version": "1.1.0",
 	"description": "Memorix-native coding agent CLI with terminal chat, project memory, hooks, and session management",
 	"type": "module",
 	"piConfig": {
@@ -34,16 +34,16 @@
 		"prepublishOnly": "npm run clean && npm run build"
 	},
 	"dependencies": {
-		"@memorix/agent-core": "1.0.11",
-		"@memorix/ai": "1.0.11",
-		"@memorix/tui": "1.0.11",
+		"@memorix/agent-core": "1.1.0",
+		"@memorix/ai": "1.1.0",
+		"@memorix/tui": "1.1.0",
 		"@opentui/core": "^0.3.4",
 		"@opentui/react": "^0.3.4",
 		"@silvia-odwyer/photon-node": "0.3.4",
 		"@types/react": "19.2.17",
 		"chalk": "5.6.2",
 		"cross-spawn": "7.0.6",
-		"diff": "8.0.4",
+		"diff": "^9.0.0",
 		"glob": "13.0.6",
 		"highlight.js": "10.7.3",
 		"hosted-git-info": "9.0.3",
@@ -55,7 +55,7 @@
 		"react": "19.2.7",
 		"simple-git": "^3.36.0",
 		"typebox": "1.1.38",
-		"undici": "8.3.0",
+		"undici": "8.5.0",
 		"yaml": "2.9.0"
 	},
 	"overrides": {
@@ -76,7 +76,7 @@
 		"@types/proper-lockfile": "4.1.4",
 		"shx": "0.4.0",
 		"typescript": "5.9.3",
-		"vitest": "3.2.4"
+		"vitest": "3.2.6"
 	},
 	"keywords": [
 		"coding-agent",

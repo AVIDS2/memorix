@@ -2,9 +2,9 @@
 
 > The first-party memagent that uses Memorix project memory natively.
 
-memcode is the bundled first-party terminal agent for Memorix. It gives users a terminal agent that can read from and write to the same project memory used by MCP-connected agents.
+memcode is the bundled first-party terminal agent for Memorix. It is for users who want a terminal coding session that already reads from and writes to the same project memory used by MCP-connected agents.
 
-Use it when you want terminal coding sessions, resumable history, native hooks, and `/memory` commands without wiring a separate MCP client.
+Use it when you want terminal coding sessions, resumable history, native capture, and `/memory` commands without wiring a separate MCP client.
 
 Install Memorix and open memcode:
 
@@ -29,7 +29,7 @@ Both routes enter the same TUI.
 | Capability | What it means |
 | --- | --- |
 | Native project memory | memcode reads and writes the same Memorix memory pool as MCP-connected agents |
-| Hook capture | prompts, tool calls, assistant output, and session lifecycle feed the Memorix hook pipeline |
+| Native capture | prompts, tool calls, assistant output, and session lifecycle feed the Memorix memory pipeline |
 | Session continuity | continue, resume, fork, name, export, and inspect coding sessions |
 | Model control | provider/model flags, `/model switch`, thinking levels, scoped model cycling |
 | Tool control | read, bash, edit, write, grep, find, ls plus allow/deny lists |
@@ -107,7 +107,7 @@ That means:
 - those agents can use memories captured by memcode
 - memcode-specific records are distinguished by source metadata, not by a separate store
 
-Native hook capture makes this feel automatic: useful project knowledge from memcode sessions can become durable Memorix memory without forcing users to wire an external MCP server into memcode.
+Native capture makes this feel automatic: useful project knowledge from memcode sessions can become durable Memorix memory without forcing users to wire an external MCP server into memcode.
 
 ---
 
@@ -200,7 +200,7 @@ Project-local instructions, skills, prompt templates, themes, and packages are t
 
 ## Extensions, Skills, Themes
 
-memcode can load:
+memcode also has its own extension surface for terminal-agent workflows. It can load:
 
 - extension files via `--extension`
 - skills via `--skill`
@@ -226,6 +226,8 @@ Memorix is the shared memory layer. memcode is a first-party memagent built on t
 Use Memorix when you want Claude Code, Codex, Cursor, Windsurf, Copilot, Gemini CLI, OpenCode, Kiro, Antigravity, Trae, or another MCP client to share project memory.
 
 Use memcode when you want a bundled terminal agent that already uses that memory layer natively.
+
+For the broader Memorix integration matrix across MCP, rules, hooks, plugins, and skills, see [Integration Surfaces](INTEGRATIONS.md).
 
 ---
 

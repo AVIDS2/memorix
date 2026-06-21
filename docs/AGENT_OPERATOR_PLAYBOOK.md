@@ -18,16 +18,19 @@ It is designed for software work, not generic chat memory. Its core value is tha
 
 It supports:
 
+- host setup packages (`memorix setup --agent <agent>`)
 - stdio MCP (`memorix serve`)
 - HTTP control plane + dashboard (`memorix background start` or `memorix serve-http --port 3211`)
 - first-party memagent (`memorix` or `memcode`) that uses the same shared memory pool
 - local-first project-scoped memory
-- cross-agent recall across Cursor, Claude Code, Codex, Windsurf, Gemini CLI, GitHub Copilot, Kiro, OpenCode, Antigravity, and Trae
+- cross-agent recall across Cursor, Claude Code, Codex, Windsurf, Gemini CLI, GitHub Copilot, OpenCode, Pi, Kiro, Antigravity, and Trae
 
 ### Current 1.1 Operator Baseline
 
 For the 1.1 release line, the operator-visible shape is:
 
+- `memorix setup --agent <agent>` is the default integration command for an existing coding agent or IDE
+- setup installs plugin packages where supported, MCP config, project guidance, hooks, and skills according to host capability
 - `memorix serve` remains the stdio MCP entry for IDEs and external agents
 - `memorix background start` and `memorix serve-http --port 3211` run the HTTP control plane and dashboard
 - `memorix` / `memcode` open memcode, the bundled first-party memagent
@@ -35,6 +38,7 @@ For the 1.1 release line, the operator-visible shape is:
 - model lanes are separate: `[memory.llm]` for formation/rerank/summaries, `[embedding]` for semantic search, `[agent]` for first-party agent flows
 - legacy `memorix.yml`, `.env`, and `~/.memorix/config.json` are compatibility inputs, not the recommended setup path
 - generated agent rules treat `memorix_session_start` as optional unless explicit session semantics matter
+- integration surfaces are host-specific: Claude Code, Codex, and GitHub Copilot CLI receive plugin packages; Pi receives a project-local package; Gemini CLI receives a local extension package; OpenCode receives a local plugin file and project skill; Cursor and other hosts receive MCP/rules/hooks where supported
 - privacy-safe diagnostics and receipts avoid raw chat, memory text, query text, tool payloads, and local file paths
 
 ---
@@ -43,9 +47,9 @@ For the 1.1 release line, the operator-visible shape is:
 
 ### CLI is the primary operator surface; MCP is the integration layer
 
-For human operators, prefer `memorix ...` commands first. In the 1.1 line, the CLI covers Memorix operator capabilities across session, memory, reasoning, retention, formation, audit, transfer, skills, team, task, message, lock, handoff, poll, sync, ingest workflows, and the bundled first-party memagent.
+For human operators, prefer `memorix ...` commands first. In the 1.1 line, the CLI covers Memorix operator capabilities across session, memory, reasoning, retention, formation, audit, transfer, skills, orchestration coordination, sync, ingest workflows, and the bundled first-party memagent.
 
-Do not ask memory-only users to join the Agent Team. A lightweight session is enough for memory, retrieval, reasoning, and continuation. Join only for explicit task/message/lock coordination or for autonomous CLI-agent work managed by `memorix orchestrate`.
+Do not ask memory-only users to join coordination state. A lightweight session is enough for memory, retrieval, reasoning, and continuation. Use `joinTeam` / `team_manage(join)` only for explicit task/message/lock coordination or for CLI-agent work managed by `memorix orchestrate`.
 
 Use MCP when:
 
@@ -84,10 +88,19 @@ Do not assume a plain folder path is enough.
 
 There are four practical operator entry points:
 
+- `memorix setup --agent <agent>` for installing Memorix into an existing host
 - `memorix serve` for stdio MCP hosts
 - `memorix background start` for an optional long-lived HTTP control plane
 - `memorix serve-http --port 3211` for foreground HTTP control-plane work
 - `memorix` / `memcode` for the bundled first-party memagent in a TTY
+
+For most host integrations, use:
+
+```bash
+memorix setup --agent <agent>
+```
+
+This installs the host's best available integration package. Use raw `memorix serve` only when manually wiring an MCP client.
 
 The two server runtime modes are:
 
@@ -110,10 +123,10 @@ when the user wants:
 - HTTP MCP transport
 - dashboard
 - multiple agents or sessions
-- team/task/message features
+- explicit task/message/handoff/lock coordination
 - one shared control-plane process
 
-Default recommendation: if the user wants memory inside an existing IDE or agent, start with `memorix serve`. Use memcode only when the user wants the bundled terminal agent. Reach for HTTP only when a shared background service, multi-client MCP access, or a live dashboard endpoint is actually needed.
+Default recommendation: if the user wants memory inside an existing IDE or agent, start with `memorix setup --agent <agent>`. Use `memorix serve` only for manual MCP wiring. Use the CLI for operator workflows and automation because it does not depend on an IDE's MCP session lifecycle. Use memcode only when the user wants the bundled terminal agent. Reach for HTTP only when a shared background service, multi-client MCP access, Docker, or a live dashboard endpoint is actually needed.
 
 Use:
 
@@ -150,6 +163,12 @@ Memorix intentionally supports both:
 - **global-level** defaults
 
 Your job as an agent is to choose the smallest scope that matches the user's goal.
+
+Generated guidance must match that scope:
+
+- Project guidance may say "this repository/project" because it lives in the repo or workspace.
+- Global/plugin skill guidance must not say "this project uses Memorix." It should say "use Memorix when the active workspace has Memorix tools available."
+- Do not install or document a fake plugin surface for hosts that only expose MCP/rules/config. Use the host's official entry point.
 
 ---
 
@@ -189,13 +208,36 @@ Memorix writes TOML by default:
 
 Use global config for personal provider credentials. Use project config for repo-specific model choices, memory behavior, server defaults, and Git Memory settings. Do not commit secrets.
 
-### Step 4. Start stdio MCP mode
+### Step 4. Install the host integration
 
 For an existing agent or IDE:
 
 ```bash
-memorix serve
+memorix setup --agent <agent>
 ```
+
+Examples:
+
+```bash
+memorix setup --agent claude
+memorix setup --agent codex
+memorix setup --agent copilot
+memorix setup --agent cursor
+memorix setup --agent pi
+memorix setup --agent gemini-cli
+memorix setup --agent opencode
+```
+
+What this installs depends on the host:
+
+- Claude Code: local `memorix-local` marketplace plugin, best-effort `claude plugin install memorix@memorix-local`, plugin-bundled stdio MCP, hooks, skills, plus `CLAUDE.md` guidance.
+- Codex: local Personal marketplace plugin under `~/.codex/plugins/memorix`, marketplace entry at `~/.agents/plugins/marketplace.json`, best-effort `codex plugin add memorix@personal`, plugin-bundled stdio MCP, hooks, skills, plus `AGENTS.md` guidance.
+- GitHub Copilot CLI: local plugin package under `~/.copilot/plugins/local/memorix`, best-effort `copilot plugin install <local-path>`, plugin-bundled stdio MCP, hooks, and skills.
+- Cursor: Cursor MCP config, `.cursor/rules/memorix.mdc`, skills, and hook guidance through Cursor's project config surfaces.
+- Pi: project-local package under `.pi/packages/memorix`, best-effort `pi install <path> -l --approve`, extension-based hook capture, and a Memorix skill.
+- Gemini CLI: local extension package under `~/.gemini/extensions/memorix`, extension-bundled stdio MCP and `GEMINI.md` context.
+- OpenCode: local plugin file, `opencode.json` MCP config, OpenCode skill, plus `AGENTS.md` guidance.
+- Windsurf, Kiro, Antigravity, Trae: MCP config plus rules/hooks where supported.
 
 If the user wants the bundled first-party memagent:
 
@@ -220,7 +262,7 @@ This opens the memcode TUI. It uses the same Memorix memory pool as MCP-connecte
 /config
 ```
 
-### Step 5. Add MCP config to the target client
+### Step 5. Manual MCP config only when setup is not enough
 
 Generic stdio MCP example:
 
@@ -265,7 +307,7 @@ For those, the background must be started manually or via OS startup (see §4 St
 
 If you choose HTTP mode, do not stop at the URL. The agent must also bind each project session with `memorix_session_start(projectRoot=ABSOLUTE_WORKSPACE_PATH)` when the workspace path is available.
 
-This is the best path for:
+The setup path is best for:
 
 - one workspace
 - one agent/IDE
@@ -364,7 +406,7 @@ This is the right path for:
 
 - dashboard users
 - multi-agent workflows
-- team/task/message usage
+- explicit task/message/handoff/lock coordination
 - multiple concurrent sessions
 - debugging project binding and config provenance
 
@@ -382,8 +424,8 @@ Use this routing logic when helping a user.
 
 Choose:
 
-- `memorix serve`
-- simple stdio MCP config
+- `memorix setup --agent <agent>`
+- stdio MCP as the default transport
 
 ### If the user says:
 
@@ -402,10 +444,14 @@ Choose:
 Use:
 
 ```bash
-memorix integrate --agent <agent>
+memorix setup --agent <agent>
 ```
 
-This is explicit, opt-in generation.
+This is the default integration package.
+
+Use `memorix integrate --agent <agent>` only when the user explicitly wants the older/manual generation path or wants to update one generated integration surface without running full setup.
+
+Setup may write plugin packages, MCP config, project rules, settings, instruction files, or host-native plugin files depending on the target. See [INTEGRATIONS.md](INTEGRATIONS.md) for the public matrix.
 
 ### If the user asks for hooks
 
@@ -417,7 +463,7 @@ memorix hooks install --agent <agent>
 
 This is also explicit and opt-in.
 
-Do not assume the user wants every supported IDE directory generated.
+Use it as a fallback when the user only wants hook capture files. Do not assume the user wants every supported IDE directory generated.
 
 ---
 
@@ -448,12 +494,28 @@ What you can say safely:
 
 Do not confuse these.
 
+### `memorix setup`
+
+Purpose:
+
+- install the best available Memorix integration package for a specific target
+- write plugin packages, MCP config, rules, settings, instruction files, hooks, or plugin files according to host capability
+
+Typical use:
+
+```bash
+memorix setup --agent claude
+memorix setup --agent codex
+memorix setup --agent cursor
+memorix setup --agent opencode
+```
+
 ### `memorix integrate`
 
 Purpose:
 
-- generate IDE/agent integration files
-- write MCP config, rules, settings, or plugin files for a specific target
+- fallback/manual generation for IDE/agent integration files
+- update rules, settings, instruction files, or plugin files for a specific target without the full setup package
 
 Typical use:
 
@@ -468,6 +530,7 @@ memorix integrate --agent gemini-cli
 Purpose:
 
 - install auto-capture hooks for supported agents
+- generate a local plugin where that is the host's hook mechanism, currently OpenCode
 
 Typical use:
 
@@ -496,13 +559,13 @@ memorix git-hook --force
 In HTTP control-plane mode:
 
 1. Use `memorix_search` / `memorix_detail` when prior project context would materially help the task.
-2. Call `memorix_session_start` when explicit session semantics are useful: handoff, long-running work, restoring prior session context, team coordination, or project binding in a multi-project HTTP control plane.
+2. Call `memorix_session_start` when explicit session semantics are useful: handoff, long-running work, restoring prior session context, coordination state, or project binding in a multi-project HTTP control plane.
 3. When calling `memorix_session_start`, pass:
    - `agent` — display name (e.g. `"cursor-frontend"`)
-   - `agentType` — optional agent type for Agent Team role mapping (e.g. `"windsurf"`, `"cursor"`, `"claude-code"`, `"codex"`, `"gemini-cli"`)
+   - `agentType` — optional host type for coordination role mapping (e.g. `"windsurf"`, `"cursor"`, `"claude-code"`, `"codex"`, `"gemini-cli"`)
    - `projectRoot` = absolute workspace path when the client knows it
-4. By default this only starts a lightweight session. It does **not** auto-register a team identity.
-5. If the user wants autonomous Agent Team / subagent features, either:
+4. By default this only starts a lightweight session. It does **not** join orchestration coordination state.
+5. If the user wants orchestrated subagent coordination, either:
    - call `memorix_session_start` with `joinTeam: true`
    - or call `team_manage(join)` explicitly
 6. If project binding fails, stop using project-scoped tools until the path is corrected
@@ -515,7 +578,7 @@ In HTTP control-plane mode:
 In stdio / project-bound mode:
 
 - `projectRoot` is optional if the process is already launched from the correct workspace
-- a session bind is optional; keep this path lightweight unless the user explicitly needs session/handoff/team semantics
+- a session bind is optional; keep this path lightweight unless the user explicitly needs session, handoff, or orchestration coordination semantics
 
 Important boundary:
 
@@ -542,6 +605,7 @@ memorix status
 
 ```bash
 memorix init
+memorix setup --agent <agent>
 memorix integrate --agent <agent>
 memorix hooks install --agent <agent>
 memorix git-hook --force
@@ -577,6 +641,7 @@ git init
 
 - stdio MCP client -> `memorix serve`
 - HTTP/dashboard/control-plane use case -> `memorix background start` by default, or `memorix serve-http --port 3211` when foreground control is required
+- existing IDE/agent integration -> `memorix setup --agent <agent>`
 
 ### 3. Is the background control plane actually running?
 
@@ -612,7 +677,7 @@ On Windows, some hosts behave better with `memorix.cmd` than bare `memorix`.
 
 **serverUrl vs command mode:**
 - `serverUrl` (HTTP) requires the background to already be running — it cannot auto-start
-- `command` (stdio) launches `memorix serve` on demand — no background needed; use `memorix dashboard` for a standalone read-mostly dashboard and CLI/team tools for autonomous agent workflows
+- `command` (stdio) launches `memorix serve` on demand — no background needed; use `memorix dashboard` for a standalone read-mostly dashboard and CLI orchestration tools for coordinated subagent workflows
 
 If using `serverUrl` and the background keeps disappearing, consider switching to stdio mode as a fallback.
 
@@ -625,9 +690,10 @@ If not, the agent may drift into the wrong project bucket or fail closed.
 Use:
 
 ```bash
-memorix integrate --agent <agent>
-memorix hooks install --agent <agent>
+memorix setup --agent <agent>
 ```
+
+Use `memorix integrate --agent <agent>` or `memorix hooks install --agent <agent>` only for fallback/manual updates of one surface.
 
 ### 7. Is the generated plugin/hook stale?
 

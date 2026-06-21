@@ -1,0 +1,22 @@
+{
+  "name": "memorix",
+  "version": "1.1.0",
+  "description": "Shared local workspace memory for GitHub Copilot CLI and other AI coding agents.",
+  "author": {
+    "name": "AVIDS2",
+    "url": "https://github.com/AVIDS2"
+  },
+  "homepage": "https://github.com/AVIDS2/memorix#readme",
+  "repository": "https://github.com/AVIDS2/memorix",
+  "license": "Apache-2.0",
+  "keywords": [
+    "memory",
+    "mcp",
+    "copilot-cli",
+    "coding-agents"
+  ],
+  "category": "Developer Tools",
+  "skills": "skills/",
+  "hooks": "hooks/hooks.json",
+  "mcpServers": ".mcp.json"
+}

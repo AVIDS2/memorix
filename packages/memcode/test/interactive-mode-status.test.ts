@@ -359,7 +359,7 @@ describe("InteractiveMode startup header", () => {
 
 	function renderStartupHeader(options?: { expanded?: boolean; width?: number }): string {
 		const fakeThis: any = {
-			version: "1.0.11",
+			version: "1.1.0",
 			sessionManager: {
 				getCwd: () => "/work/memorix",
 			},
@@ -388,7 +388,7 @@ describe("InteractiveMode startup header", () => {
 	test("shows a clean agent shell summary when collapsed", () => {
 		const output = renderStartupHeader();
 
-		expect(output).toContain("╭─── memcode v1.0.11");
+		expect(output).toContain("╭─── memcode v1.1.0");
 		expect(output).toContain("Ready when you are");
 		expect(output).toContain("anthropic/claude-sonnet");
 		expect(output).toContain("project memorix · feat/ui-she");
@@ -403,7 +403,7 @@ describe("InteractiveMode startup header", () => {
 	test("shows full startup help when expanded", () => {
 		const output = renderStartupHeader({ expanded: true });
 
-		expect(output).toContain("╭─── memcode v1.0.11");
+		expect(output).toContain("╭─── memcode v1.1.0");
 		expect(output).toContain("Ready when you are");
 		expect(output).toContain("Memorix native");
 		expect(output).toContain("Hotkeys");
@@ -414,7 +414,7 @@ describe("InteractiveMode startup header", () => {
 	test("falls back to a single-column card on narrow terminals", () => {
 		const output = renderStartupHeader({ width: 72 });
 
-		expect(output).toContain("╭─── memcode v1.0.11");
+		expect(output).toContain("╭─── memcode v1.1.0");
 		expect(output).toContain("Ready when you are");
 		expect(output).toContain("Start here");
 		expect(output).toContain("Memorix native");

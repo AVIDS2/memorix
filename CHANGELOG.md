@@ -2,6 +2,30 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.1.0] - 2026-06-21
+
+### Added -- Official Agent Integration Packages
+- **One-command setup** -- Added `memorix setup` as the main installer for Claude Code, Codex, GitHub Copilot CLI, Cursor, Windsurf, Gemini CLI, OpenCode, Pi, Kiro, Antigravity, Trae, and generic MCP clients.
+- **Official plugin/package templates** -- Added first-party integration packages under `plugins/` for Claude Code, Codex, GitHub Copilot CLI, Gemini CLI, Pi, and Cursor package assets. Setup installs each host through its closest native entry point instead of asking users to assemble MCP, rules, skills, and hooks by hand.
+- **Official Memorix skills** -- Added seven practical agent skills: memory search/store, reasoning memory, sessions and handoff, Git Memory, mini-skills, orchestration, and troubleshooting. The skills prefer MCP tools when available and document CLI fallbacks for operator use.
+- **Integration matrix docs** -- Added `docs/INTEGRATIONS.md` and updated README/setup docs to explain plugin packages, MCP, project guidance, hooks, skills, memcode, and when HTTP MCP is actually useful.
+
+### Changed
+- **CLI as the operator surface** -- The `memorix` CLI now documents and exposes the operator path for setup, memory, reasoning, sessions, Git Memory, transfer, retention, dashboard, orchestration, sync, ingest, skills, and diagnostics. MCP remains the agent-tool entry point.
+- **Stdio MCP stays the default** -- Normal agent setup uses `memorix serve`. HTTP MCP is documented as an advanced control-plane path for dashboard, Docker, shared endpoint, or multiple clients.
+- **Agent Team wording tightened** -- User-facing docs now frame orchestration as subagent/task coordination through `memorix orchestrate`, not a separate “agents team” product.
+- **memcode enters the 1.1 line** -- The bundled first-party memagent remains available through `memorix`, `memorix memcode`, and `memcode`, with shared Memorix project memory and updated setup/docs.
+
+### Fixed
+- **Release packaging coverage** -- npm package contents now include official plugin templates, skills, hooks, and integration docs so published installs can generate the same setup files tested in the repository.
+- **Claude marketplace version drift** -- The generated Claude local marketplace now uses the current CLI package version instead of a hard-coded release number.
+- **Session CLI fallback** -- `memorix session start` supports `--projectRoot`, matching the official sessions/troubleshooting skill guidance for CLI fallback use.
+- **Windows publish workflow alignment** -- GitHub npm publish workflow now uses Node.js 22, matching the package engine floor.
+
+### Verification
+- Targeted setup, hook, skill, CLI, and operator-surface tests passed during release preparation.
+- `npm run lint`, `npm run build`, and npm pack inspection were used to verify TypeScript, bundled CLI output, and published package contents.
+
 ## [1.0.11] - 2026-06-13
 
 ### Added -- memcode Native Agent Release Candidate

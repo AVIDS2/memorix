@@ -164,7 +164,7 @@ Responsibilities:
 - IDE hook capture
 - Git Memory ingestion
 - workspace and rule sync across agents
-- autonomous Agent Team state
+- orchestration coordination state
 - mini-skills and memory-driven workflows
 - dashboard and control plane APIs
 
@@ -464,7 +464,7 @@ It acts as a control plane for:
 - identity health
 - sessions
 - retention state
-- read-only autonomous Agent Team state in the standalone dashboard and live state in HTTP control-plane mode
+- read-only orchestration coordination state in the standalone dashboard and live state in HTTP control-plane mode
 
 This is part of Memorix's shift from a single MCP server to a broader local memory platform.
 

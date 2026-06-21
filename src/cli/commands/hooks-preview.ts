@@ -166,7 +166,7 @@ function getRulesPath(agent: string, cwd: string, global: boolean): string {
       case 'codex':
         return path.join(home, '.codex', 'AGENTS.md');
       case 'opencode':
-        return path.join(home, '.opencode', 'AGENTS.md');
+        return path.join(home, '.config', 'opencode', 'AGENTS.md');
       case 'antigravity':
         return path.join(home, '.gemini', 'GEMINI.md');
       case 'trae':
@@ -179,11 +179,11 @@ function getRulesPath(agent: string, cwd: string, global: boolean): string {
       case 'cursor':
         return path.join(cwd, '.cursor', 'rules', 'memorix.mdc');
       case 'codex':
-        return path.join(cwd, '.codex', 'AGENTS.md');
+        return path.join(cwd, 'AGENTS.md');
       case 'opencode':
-        return path.join(cwd, '.opencode', 'AGENTS.md');
+        return path.join(cwd, 'AGENTS.md');
       case 'antigravity':
-        return path.join(cwd, '.gemini', 'GEMINI.md');
+        return path.join(cwd, 'GEMINI.md');
       case 'trae':
         return path.join(cwd, '.trae', 'rules', 'project_rules.md');
       default:

@@ -17,7 +17,7 @@ export type HookEvent =
   | 'post_response';
 
 /** Supported agent identifiers */
-export type AgentName = 'claude' | 'copilot' | 'windsurf' | 'cursor' | 'kiro' | 'codex' | 'antigravity' | 'gemini-cli' | 'opencode' | 'trae';
+export type AgentName = 'claude' | 'copilot' | 'windsurf' | 'cursor' | 'kiro' | 'codex' | 'antigravity' | 'gemini-cli' | 'opencode' | 'trae' | 'pi';
 
 /** Support tier for hook agents */
 export type SupportTier = 'core' | 'extended' | 'community';
@@ -33,6 +33,7 @@ export const AGENT_SUPPORT_TIER: Record<AgentName, SupportTier> = {
   'gemini-cli': 'community',
   opencode: 'community',
   trae: 'community',
+  pi: 'community',
   antigravity: 'community',
 };
 

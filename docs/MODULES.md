@@ -63,7 +63,7 @@ const schema = {
 ├── relations.jsonl        # 知识图谱边 (每行一个 JSON)
 ├── sessions.json          # 会话历史
 ├── mini-skills.json       # 永久技能
-└── team-state.json        # 自主 Agent Team 状态
+└── team-state.json        # 编排协调状态
 ```
 
 ### JSONL 格式 (MCP 兼容)

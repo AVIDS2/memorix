@@ -112,7 +112,7 @@ describe('Tool profile registration', () => {
     expect(fullTools).toContain('memorix_graph_context');
   }, 30000);
 
-  it('should keep session_start lightweight by default and require explicit joinTeam for team identity', async () => {
+  it('should keep session_start lightweight by default and require explicit joinTeam for coordination identity', async () => {
     const liteDir = await createGitProjectDir('memorix-profile-lite-session-');
     const teamDir = await createGitProjectDir('memorix-profile-team-session-');
 
@@ -127,7 +127,7 @@ describe('Tool profile registration', () => {
     expect(liteText).not.toContain('Agent ID:');
     const liteJoinText = getText(await liteStart({ agent: 'solo-user', agentType: 'windsurf', joinTeam: true }));
     expect(liteJoinText).not.toContain('Agent ID:');
-    expect(liteJoinText).toContain('Team join skipped');
+    expect(liteJoinText).toContain('Coordination join skipped');
 
     const { server: teamServer } = await createMemorixServer(
       teamDir,

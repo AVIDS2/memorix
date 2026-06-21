@@ -2,7 +2,7 @@
  * memorix dashboard - Launch the Memorix Web Dashboard (Standalone mode)
  *
  * Starts a read-mostly project dashboard with memory, sessions, and
- * autonomous agent team state. For shared MCP access, use `memorix serve-http`.
+ * orchestration coordination state. For shared MCP access, use `memorix serve-http`.
  *
  * Mode semantics:
  *   - "Standalone" = Local read-mostly dashboard (this command, default port 3210)

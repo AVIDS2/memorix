@@ -244,7 +244,7 @@ export async function createMemorixServer(
   let projectResolved = true;
   let projectResolutionError: string | null = null;
     let explicitProjectBound = false; // Set true when memorix_session_start binds via projectRoot
-    let currentAgentId: string | undefined; // Session-scoped Agent Team identity for attribution after explicit join
+    let currentAgentId: string | undefined; // Session-scoped coordination identity for attribution after explicit join
   if (detectedProject) {
     rawProject = detectedProject;
   } else {
@@ -2705,7 +2705,7 @@ export async function createMemorixServer(
         'Call this at the beginning of a session to track activity and get injected context. ' +
         'Any previous active session for this project will be auto-closed. ' +
         'By default this is lightweight: it binds the project, opens a session, and injects context only. ' +
-        'Team identity is opt-in via `joinTeam: true` or a separate `team_manage` join call.\n\n' +
+        'Coordination identity is opt-in via `joinTeam: true` or a separate `team_manage` join call.\n\n' +
         'IMPORTANT for HTTP/control-plane mode: pass `projectRoot` with the absolute path to your ' +
         'workspace root (e.g., the directory open in your IDE). Memorix uses this to detect the git ' +
         'project and bind this session to the correct project context. Without it, project-scoped ' +
@@ -2713,9 +2713,9 @@ export async function createMemorixServer(
       inputSchema: {
         sessionId: z.string().optional().describe('Custom session ID (auto-generated if omitted)'),
         agent: z.string().optional().describe('Agent/IDE name (e.g., "cursor", "windsurf", "claude-code")'),
-        agentType: z.string().optional().describe('Agent type used for optional Agent Team identity mapping (e.g., "windsurf", "cursor").'),
-        instanceId: z.string().optional().describe('Stable instance ID for optional Agent Team identity across restarts. If omitted with joinTeam=true, Memorix derives a deterministic fallback from the project and agent identity.'),
-        joinTeam: z.boolean().optional().describe('If true, also join the autonomous agent team for this session. Defaults to false.'),
+        agentType: z.string().optional().describe('Agent type used for optional coordination identity mapping (e.g., "windsurf", "cursor").'),
+        instanceId: z.string().optional().describe('Stable instance ID for optional coordination identity across restarts. If omitted with joinTeam=true, Memorix derives a deterministic fallback from the project and agent identity.'),
+        joinTeam: z.boolean().optional().describe('If true, also join orchestration coordination state for this session. Defaults to false.'),
         role: z.string().optional().describe('Explicit role override used only when joinTeam=true.'),
         projectRoot: z.string().optional().describe(
           'Absolute path to the workspace/project root directory (e.g., the folder open in your IDE). ' +
@@ -2804,7 +2804,7 @@ export async function createMemorixServer(
       let teamJoinNotice = '';
       try {
         if (!teamFeaturesEnabled && shouldJoinTeam) {
-          teamJoinNotice = 'Team join skipped: the current tool profile does not expose Agent Team tools.';
+          teamJoinNotice = 'Coordination join skipped: the current tool profile does not expose coordination tools.';
         } else if (shouldJoinTeam && typeof teamStore !== 'undefined' && (agent || agentType)) {
           // Auto-derive role from agentType using AGENT_TYPE_ROLE_MAP
           const { AGENT_TYPE_ROLE_MAP } = await import('./team/team-store.js');
@@ -2859,7 +2859,7 @@ export async function createMemorixServer(
             rescueInfo += `[TASK] ${availableTasks.length} task(s) available to claim. Use memorix_poll for details.`;
           }
         } else if (shouldJoinTeam) {
-          teamJoinNotice = 'Team join skipped: pass `agent` or `agentType` to create an Agent Team identity.';
+          teamJoinNotice = 'Coordination join skipped: pass `agent` or `agentType` to create a coordination identity.';
         }
       } catch { /* team auto-registration is best-effort */ }
 
@@ -2868,7 +2868,7 @@ export async function createMemorixServer(
         `Project: ${project.name} (${project.id})`,
         result.session.agent ? `Agent: ${result.session.agent}` : '',
         registeredAgent ? `Agent ID: ${registeredAgent.agent_id} (instance: ${registeredAgent.instance_id})` : '',
-        !registeredAgent ? 'Team identity: not joined (memory/session context only)' : '',
+        !registeredAgent ? 'Coordination identity: not joined (memory/session context only)' : '',
         llmStatus,
         teamJoinNotice,
         registeredAgent ? watermarkInfo : '',
@@ -3269,7 +3269,7 @@ export async function createMemorixServer(
   );
 
   // ================================================================
-  // Autonomous Agent Team Tools (Multi-Agent) - SQLite-backed
+  // Orchestration Coordination Tools (Multi-Agent) - SQLite-backed
   // ================================================================
 
   // Use shared TeamStore (from HTTP server) or create new one (stdio mode).
@@ -3297,9 +3297,9 @@ export async function createMemorixServer(
   server.registerTool(
     'team_manage',
     {
-      title: 'Team Management',
+      title: 'Coordination Management',
       description:
-        'Register, unregister, or list agents in the team. ' +
+        'Register, unregister, or list agents in the project coordination state. ' +
         'Action "join": register this agent (returns agent ID and instance ID for reactivation). ' +
         'Action "leave": mark agent inactive, release locks. ' +
         'Action "status": list all agents with roles and capabilities, plus role occupancy. ' +
@@ -3340,7 +3340,7 @@ export async function createMemorixServer(
         return {
           content: [{
             type: 'text' as const,
-            text: `Joined Agent Team as "${agent.name}" (ID: ${agent.agent_id})\nInstance ID: ${agent.instance_id}\nRole: ${agent.role}\nThis session now attributes Agent Team activity to that identity.\nActive agents: ${teamStore.getActiveCount(project.id)}`,
+            text: `Joined project coordination state as "${agent.name}" (ID: ${agent.agent_id})\nInstance ID: ${agent.instance_id}\nRole: ${agent.role}\nThis session now attributes coordination activity to that identity.\nActive agents: ${teamStore.getActiveCount(project.id)}`,
           }],
         };
       }
@@ -3625,7 +3625,7 @@ export async function createMemorixServer(
     {
       title: 'Team Poll — Situational Awareness',
       description:
-        'Get a full snapshot of your team coordination state in one call. ' +
+        'Get a full snapshot of your project coordination state in one call. ' +
         'Returns: your agent info, watermark (new observations since last session), ' +
         'inbox (unread messages), tasks (your in-progress, available to claim, completed, failed), ' +
         'and team roster (active agents). Use this to decide what to work on next.',
@@ -4114,7 +4114,7 @@ export async function createMemorixServer(
         // Stdio mode: always reinitialize
         teamStore = await initTeamStoreForProject(canonicalProjectDir);
       }
-    } catch { /* best-effort - Agent Team features degrade gracefully */ }
+    } catch { /* best-effort - coordination features degrade gracefully */ }
 
     await initializeProjectRuntime('switch');
     return true;

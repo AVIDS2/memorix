@@ -1,0 +1,23 @@
+{
+  "name": "memorix-pi-package",
+  "version": "1.1.0",
+  "description": "Memorix shared workspace memory package for Pi coding agent.",
+  "license": "Apache-2.0",
+  "keywords": [
+    "pi-package",
+    "memorix",
+    "agent-memory",
+    "coding-agent"
+  ],
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "pi": {
+    "extensions": [
+      "./extensions"
+    ],
+    "skills": [
+      "./skills"
+    ]
+  }
+}

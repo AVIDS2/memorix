@@ -2,16 +2,31 @@
 
 Memorix is a local-first shared memory layer for AI coding agents.
 
-In the 1.1 line, there are four common entry points:
+In the 1.1 line, the normal path is:
+
+```bash
+npm install -g memorix
+cd your-git-repo
+memorix init
+memorix setup --agent <agent>
+```
+
+`memorix setup` installs the best available Memorix integration for the target host: plugin packages where supported, MCP config, project guidance, hooks, and skills.
+
+Common runtime entry points:
 
 | Entry | Use it for |
 | --- | --- |
+| `memorix setup --agent <agent>` | one-command host integration |
+| `memorix` CLI commands | operator workflows: setup, search/store, Git Memory, import/export, dashboard, diagnostics, orchestration, and automation |
 | `memorix serve` | stdio MCP server for IDEs and coding agents |
 | `memorix background start` | long-lived HTTP MCP control plane plus dashboard |
 | `memorix serve-http --port 3211` | foreground HTTP MCP for debugging or supervised launches |
 | `memorix` / `memcode` | bundled first-party memagent that uses the same Memorix memory pool |
 
-Most users should start by connecting their existing agent with `memorix serve`. Use HTTP when you intentionally want one shared background process, browser dashboard, or multiple clients using the same MCP endpoint. Use memcode when you want the bundled first-party terminal agent.
+Most users should start with `memorix setup --agent <agent>`. Use raw `memorix serve` only when you are wiring an MCP client manually. Use HTTP when you intentionally want one shared background process, browser dashboard, Docker deployment, or multiple clients using the same MCP endpoint. Use the CLI for manual operation and automation; it is the most direct surface because it does not depend on an IDE's MCP session lifecycle. Use memcode when you want the bundled first-party terminal agent.
+
+For host-specific plugin, rules, hooks, and skills support, see [INTEGRATIONS.md](INTEGRATIONS.md).
 
 ---
 
@@ -43,6 +58,29 @@ Initialize global or project configuration:
 memorix init
 ```
 
+Install an agent integration:
+
+```bash
+memorix setup --agent claude
+memorix setup --agent codex
+memorix setup --agent copilot
+memorix setup --agent cursor
+memorix setup --agent pi
+memorix setup --agent gemini-cli
+memorix setup --agent opencode
+```
+
+What this does:
+
+- Claude Code: installs a local marketplace plugin, attempts `claude plugin install memorix@memorix-local`, and writes `CLAUDE.md` guidance.
+- Codex: installs a local Personal marketplace plugin, attempts `codex plugin add memorix@personal`, and writes `AGENTS.md` guidance.
+- GitHub Copilot CLI: installs a local plugin package and attempts `copilot plugin install <local-path>`.
+- Cursor: writes Cursor MCP config, rules, skills, and hook guidance through Cursor's project config surfaces.
+- Pi: installs a project-local Pi package under `.pi/packages/memorix` and attempts `pi install <path> -l --approve`.
+- Gemini CLI: installs a local extension package under `~/.gemini/extensions/memorix`.
+- OpenCode: installs a local plugin file, OpenCode skill, MCP config, and `AGENTS.md` guidance.
+- Other supported hosts: writes their MCP/rules/hooks files according to host support.
+
 Memorix uses TOML as the user-facing configuration model:
 
 - `~/.memorix/config.toml` for global defaults
@@ -63,13 +101,27 @@ memorix config path
 
 ## 3. Choose Your Runtime
 
-### Option A: stdio MCP for existing agents
+### Option A: setup package for existing agents
+
+```bash
+memorix setup --agent <agent>
+```
+
+Use this for Claude Code, Codex, Cursor, Windsurf, Copilot, Gemini CLI, OpenCode, Pi, Kiro, Antigravity, Trae, or any supported host. It is the default user-facing install path.
+
+To see the current setup matrix:
+
+```bash
+memorix setup --list
+```
+
+### Option B: manual stdio MCP
 
 ```bash
 memorix serve
 ```
 
-Use this when your IDE launches Memorix as a local stdio MCP server. This is the default path for single-client setups.
+Use this when your host only needs a raw local stdio MCP process or you are debugging a manual config. The host starts `memorix serve` and communicates with it over stdio.
 
 Generic stdio MCP config:
 
@@ -86,7 +138,7 @@ Generic stdio MCP config:
 
 Avoid `npx` in persistent MCP configs. Use the globally installed `memorix` binary so startup is predictable.
 
-### Option B: memcode first-party memagent
+### Option C: memcode first-party memagent
 
 ```bash
 memorix
@@ -120,7 +172,7 @@ Inside the TUI:
 
 See [MEMCODE.md](MEMCODE.md).
 
-### Option C: HTTP MCP + dashboard
+### Option D: HTTP MCP + dashboard
 
 ```bash
 memorix background start
@@ -131,6 +183,8 @@ This starts a local background control plane:
 - dashboard: `http://localhost:3211`
 - MCP endpoint: `http://localhost:3211/mcp`
 - health: `http://localhost:3211/health`
+
+HTTP mode is for a shared process. It is useful when multiple clients should connect to one Memorix endpoint, when you want the browser dashboard, or when running Memorix through Docker. It is not needed for the normal one-agent stdio MCP setup.
 
 Companion commands:
 
@@ -168,7 +222,7 @@ $env:MEMORIX_SESSION_TIMEOUT_MS = "86400000"
 memorix background restart
 ```
 
-### Option D: Docker HTTP control plane
+### Option E: Docker HTTP control plane
 
 ```bash
 docker compose up --build -d
@@ -180,9 +234,11 @@ See [DOCKER.md](DOCKER.md).
 
 ---
 
-## 4. Connect An MCP Client
+## 4. Manual MCP Client Setup
 
-### Claude Code
+Use this section when `memorix setup --agent <agent>` is not available for the target host, or when you intentionally want to manage MCP configuration yourself.
+
+### Claude Code fallback
 
 Recommended:
 
@@ -245,7 +301,7 @@ HTTP variants in Windsurf-like clients may use `serverUrl`:
 }
 ```
 
-### Codex
+### Codex fallback
 
 Config file: `~/.codex/config.toml`
 
@@ -295,6 +351,28 @@ Project config: `.kiro/settings/mcp.json`
 }
 ```
 
+### Pi
+
+Pi uses its package system instead of a separate Memorix MCP config lane:
+
+```bash
+memorix setup --agent pi
+```
+
+This writes `.pi/packages/memorix`, registers it with:
+
+```bash
+pi install .pi/packages/memorix -l --approve
+```
+
+Check the loaded package resources with:
+
+```bash
+pi config --approve
+```
+
+You should see the Memorix extension and the official Memorix skills listed under the project package.
+
 ### Gemini CLI, OpenCode, Antigravity, Trae, and other MCP clients
 
 If the client supports stdio MCP, use:
@@ -311,6 +389,14 @@ If the client supports stdio MCP, use:
 ```
 
 If it supports HTTP MCP, use `http://localhost:3211/mcp`.
+
+OpenCode can also use a local Memorix plugin generated by setup:
+
+```bash
+memorix setup --agent opencode
+```
+
+This writes `.opencode/plugins/memorix.js` for event capture, `.opencode/skills/*/SKILL.md` for OpenCode skill discovery, and pairs both with `AGENTS.md` guidance.
 
 ---
 
@@ -385,17 +471,16 @@ memorix transfer import --data "<json export>"
 
 This transfers stored memory artifacts, not private chat history from an IDE vendor.
 
-### Run optional Agent Team workflows
+### Run orchestrated subagent work
 
-Agent Team is explicit autonomous-agent/subagent coordination state. It is not required for normal memory use.
+`memorix orchestrate` coordinates task context, handoffs, advisory locks, verification, and review loops for subagent-style work. It is not required for normal memory use.
 
 ```bash
-memorix team status
 memorix task list
 memorix orchestrate --goal "Add user authentication"
 ```
 
-Join the team only when you need tasks, handoff messages, advisory locks, or a structured autonomous-agent workflow.
+Use the `team`, `task`, `message`, `handoff`, and `lock` CLI commands when you need to inspect or operate that coordination state directly.
 
 ---
 
@@ -511,6 +596,7 @@ Common MCP config locations:
 ## 9. Related Docs
 
 - [Configuration Guide](CONFIGURATION.md)
+- [Integration Surfaces](INTEGRATIONS.md)
 - [memcode](MEMCODE.md)
 - [API Reference](API_REFERENCE.md)
 - [Git Memory Guide](GIT_MEMORY.md)

@@ -7,7 +7,7 @@ function renderCard(width = 110): string {
 	initTheme("dark");
 	const card = new StartupWelcomeCard({
 		appName: "memcode",
-		version: "1.0.11",
+		version: "1.1.0",
 		getProjectLabel: () => "E:\\project\\memorix",
 		getModelLabel: () => "deepseek/deepseek-v4-pro · thinking high",
 		getDetailsKey: () => "ctrl+o",

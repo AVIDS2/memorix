@@ -6,7 +6,7 @@
 
 <p align="center">
   <strong>Local-first shared memory layer for AI coding agents.</strong><br>
-  One project memory system for Claude Code, Codex, Cursor, Windsurf, Copilot, Gemini CLI, OpenCode, Kiro, Antigravity, Trae, memcode, and any MCP-capable agent.
+  One project memory system for Claude Code, Codex, Cursor, Windsurf, Copilot, Gemini CLI, OpenCode, Pi, Kiro, Antigravity, Trae, memcode, and any MCP-capable agent.
 </p>
 
 <p align="center">
@@ -17,7 +17,7 @@
 </p>
 
 <p align="center">
-  <strong>Shared Project Memory</strong> | <strong>MCP</strong> | <strong>Git Memory</strong> | <strong>Reasoning Memory</strong> | <strong>Dashboard</strong> | <strong>Agent Team</strong>
+  <strong>Shared Project Memory</strong> | <strong>MCP</strong> | <strong>Git Memory</strong> | <strong>Reasoning Memory</strong> | <strong>Plugins</strong> | <strong>Orchestration</strong>
 </p>
 
 <p align="center">
@@ -47,73 +47,80 @@ Use Claude Code today, Codex tomorrow, Cursor in the afternoon, and memcode when
 | Git records what changed, but agents cannot recall it well | Git Memory turns commits into searchable engineering facts |
 | Architecture decisions disappear into old chats | Reasoning Memory stores why choices were made, with alternatives and trade-offs |
 | Static rule files drift | Gotchas, fixes, and project skills evolve from real work |
-| Multi-agent work gets messy | Optional Agent Team state for tasks, messages, handoffs, locks, and orchestration |
+| Parallel agent work gets messy | `memorix orchestrate` coordinates task context, handoffs, locks, verification, and review loops |
 
 Memorix is local-first. SQLite is the canonical store, Orama handles search, and LLM-backed formation/embedding is optional. Without model keys, Memorix still works with local full-text retrieval.
 
 ## Works With Your Agent
 
-Memorix works with agents that can launch a local MCP server, connect to HTTP MCP, or run hooks. The exact integration depth differs by client.
+Memorix meets each agent through the integration surfaces that agent already understands: plugin packages, MCP servers, project rules, hooks, skills, or a first-party terminal agent. `memorix setup` installs the best available package for the target host and keeps stdio MCP as the default transport.
 
 <table>
 <tr>
 <td align="center" width="12.5%">
 <a href="https://claude.com/product/claude-code"><img src="https://github.com/anthropics.png?size=120" alt="Claude Code" width="48" height="48"></a><br>
 <strong>Claude Code</strong><br>
-<sub>Core: MCP + hooks + rules</sub>
+<sub>local marketplace plugin + MCP + hooks</sub>
 </td>
 <td align="center" width="12.5%">
 <a href="https://openai.com/codex"><img src="https://github.com/openai.png?size=120" alt="Codex" width="48" height="48"></a><br>
 <strong>Codex</strong><br>
-<sub>Extended: MCP + rules</sub>
+<sub>plugin marketplace + MCP + AGENTS.md</sub>
 </td>
 <td align="center" width="12.5%">
 <a href="https://cursor.com"><picture><source media="(prefers-color-scheme: dark)" srcset="https://svgl.app/library/cursor_dark.svg"><img src="https://svgl.app/library/cursor_light.svg" alt="Cursor" width="48" height="48"></picture></a><br>
 <strong>Cursor</strong><br>
-<sub>Core: MCP + rules</sub>
+<sub>MCP + rules + skills</sub>
 </td>
 <td align="center" width="12.5%">
 <a href="https://windsurf.com"><picture><source media="(prefers-color-scheme: dark)" srcset="https://svgl.app/library/windsurf-dark.svg"><img src="https://svgl.app/library/windsurf-light.svg" alt="Windsurf" width="48" height="48"></picture></a><br>
 <strong>Windsurf</strong><br>
-<sub>Core: MCP + hooks</sub>
+<sub>MCP + rules + hooks</sub>
 </td>
 <td align="center" width="12.5%">
 <a href="https://github.com/features/copilot"><img src="https://github.githubassets.com/images/modules/site/copilot/copilot.png" alt="GitHub Copilot" width="48" height="48"></a><br>
 <strong>Copilot</strong><br>
-<sub>Extended: VS Code MCP</sub>
+<sub>CLI plugin + MCP + hooks</sub>
 </td>
 <td align="center" width="12.5%">
 <a href="https://github.com/google-gemini/gemini-cli"><img src="https://github.com/google-gemini.png?size=120" alt="Gemini CLI" width="48" height="48"></a><br>
 <strong>Gemini CLI</strong><br>
-<sub>Community: MCP</sub>
+<sub>extension + MCP + GEMINI.md</sub>
 </td>
 </tr>
 <tr>
 <td align="center" width="12.5%">
 <a href="https://github.com/opencode-ai/opencode"><picture><source media="(prefers-color-scheme: dark)" srcset="https://svgl.app/library/opencode-dark.svg"><img src="https://svgl.app/library/opencode.svg" alt="OpenCode" width="48" height="48"></picture></a><br>
 <strong>OpenCode</strong><br>
-<sub>Community: hooks + MCP</sub>
+<sub>local plugin + MCP + skills + AGENTS.md</sub>
+</td>
+<td align="center" width="12.5%">
+<a href="https://pi.dev"><img src="https://placehold.co/48x48/111827/ffffff?text=Pi" alt="Pi" width="48" height="48"></a><br>
+<strong>Pi</strong><br>
+<sub>package + extension + skill</sub>
 </td>
 <td align="center" width="12.5%">
 <img src="https://placehold.co/48x48/111827/ffffff?text=K" alt="Kiro" width="48" height="48"><br>
 <strong>Kiro</strong><br>
-<sub>Extended: MCP + hooks</sub>
+<sub>MCP + steering + hooks</sub>
 </td>
 <td align="center" width="12.5%">
 <img src="https://placehold.co/48x48/111827/ffffff?text=A" alt="Antigravity" width="48" height="48"><br>
 <strong>Antigravity</strong><br>
-<sub>Community: MCP</sub>
+<sub>MCP + GEMINI.md</sub>
 </td>
 <td align="center" width="12.5%">
 <img src="https://placehold.co/48x48/111827/ffffff?text=T" alt="Trae" width="48" height="48"><br>
 <strong>Trae</strong><br>
-<sub>Community: MCP</sub>
+<sub>MCP + project rules</sub>
 </td>
 <td align="center" width="12.5%">
 <img src="https://raw.githubusercontent.com/AVIDS2/memorix/main/assets/logo.png" alt="memcode" width="48" height="48"><br>
 <strong>memcode</strong><br>
-<sub>First-party memagent</sub>
+<sub>first-party terminal agent</sub>
 </td>
+</tr>
+<tr>
 <td align="center" width="12.5%">
 <img src="https://placehold.co/48x48/111827/ffffff?text=M" alt="Any MCP Client" width="48" height="48"><br>
 <strong>Any MCP Client</strong><br>
@@ -122,14 +129,28 @@ Memorix works with agents that can launch a local MCP server, connect to HTTP MC
 </tr>
 </table>
 
-Support tiers:
+Integration surfaces:
 
-| Tier | Meaning |
-| --- | --- |
-| Core | Tested MCP path plus first-class rules or hooks |
-| Extended | Supported path with platform-specific caveats |
-| Community | Best-effort compatibility through MCP or hook adapters |
-| First-party | Bundled in this repo and uses Memorix memory natively |
+| Surface | What it does | Memorix entry |
+| --- | --- | --- |
+| Setup package | Installs the host's best Memorix integration in one step | `memorix setup --agent <agent>` |
+| MCP | Gives an agent Memorix tools for search, detail retrieval, storage, reasoning, and coordination | bundled in setup packages or `memorix serve` |
+| Project instructions | Teaches an agent when and how to use Memorix without forcing memory lookup on every prompt | bundled or generated by `memorix setup` |
+| Hooks | Captures useful prompts, tool events, file edits, and session lifecycle events where the host exposes hooks | bundled or generated by `memorix setup` |
+| Plugin package | Installs host-native plugin files for plugin-capable clients | Claude Code, Codex, GitHub Copilot CLI |
+| Package or extension | Installs host-native package files where the host uses packages or extensions | Pi, Gemini CLI |
+| Local project plugin | Installs project-local plugin files where the host loads them directly | OpenCode |
+| MCP/rules package | Writes MCP, rules, steering, guidance, or hook config for IDEs and agents that expose those surfaces | Cursor, Windsurf, Kiro, Antigravity, Trae |
+| Skills | Turns durable project knowledge into reusable task guidance | `memorix skills` and `memorix_promote` |
+| memcode | Opens the bundled terminal agent that uses Memorix memory natively | `memorix` or `memcode` |
+
+See [Integration Surfaces](docs/INTEGRATIONS.md) for the current support matrix and what each generated file means.
+
+CLI, MCP, and HTTP are different entry points:
+
+- `memorix` CLI is the operator surface for install, setup, memory search/store, Git Memory, import/export, dashboard, orchestration, diagnostics, and automation.
+- `memorix serve` is the stdio MCP bridge used by IDEs and coding agents.
+- `memorix background start` / `memorix serve-http` run the advanced HTTP control plane for a shared endpoint, dashboard, Docker, or multiple clients.
 
 ## Install
 
@@ -144,6 +165,8 @@ Install and initialize:
 npm install -g memorix
 cd your-git-repo
 memorix init
+memorix setup --list
+memorix setup --agent claude   # or codex, copilot, cursor, pi, gemini-cli, ...
 ```
 
 `memorix init` creates or updates TOML configuration:
@@ -157,7 +180,30 @@ Legacy `memorix.yml`, `.env`, and `~/.memorix/config.json` are still read for co
 
 ### Add memory to an existing agent
 
-Generic stdio MCP:
+Use the setup command first. It installs the best available integration for the target host:
+
+```bash
+memorix setup --agent claude
+memorix setup --agent codex
+memorix setup --agent copilot
+memorix setup --agent cursor
+memorix setup --agent pi
+memorix setup --agent gemini-cli
+memorix setup --agent opencode
+```
+
+What it installs:
+
+- Claude Code: local marketplace plugin with MCP, hooks, and skills, plus `CLAUDE.md` guidance.
+- Codex: local Personal marketplace plugin with MCP, hooks, and skills, plus `AGENTS.md` guidance.
+- GitHub Copilot CLI: Copilot CLI plugin package with MCP, hooks, and official Memorix skills.
+- Pi: project-local Pi package with a Memorix extension and official skills, registered with `pi install`.
+- Cursor: MCP config, Cursor rules, skills, and hook guidance through Cursor's project config surfaces.
+- Gemini CLI: extension package with MCP and `GEMINI.md` context.
+- OpenCode: local plugin file, `opencode.json` MCP config, OpenCode skills, plus `AGENTS.md` guidance.
+- Windsurf, Kiro, Antigravity, Trae: MCP/rules/hooks files according to host support.
+
+If your agent only needs a manual MCP entry, use stdio:
 
 ```json
 {
@@ -170,7 +216,7 @@ Generic stdio MCP:
 }
 ```
 
-Generic HTTP MCP:
+HTTP is not required for normal setup. Use it only when you intentionally want a shared background control plane, dashboard, Docker, or multiple clients using the same endpoint:
 
 ```bash
 memorix background start
@@ -218,12 +264,13 @@ Search is project-scoped by default. `scope="global"` searches across projects. 
 
 | You want | Run |
 | --- | --- |
-| Give an IDE or agent shared memory over stdio MCP | `memorix serve` |
+| Install an agent integration package | `memorix setup --agent <agent>` |
+| Manually expose stdio MCP | `memorix serve` |
 | Run shared HTTP MCP plus dashboard | `memorix background start` |
 | Debug HTTP MCP in the foreground | `memorix serve-http --port 3211` |
 | Inspect or manage memory directly | `memorix memory`, `memorix reasoning`, `memorix session`, `memorix ingest` |
 | Use the bundled first-party memagent | `memorix` or `memcode` |
-| Run autonomous multi-agent work | `memorix orchestrate --goal "..."` |
+| Run orchestrated subagent work | `memorix orchestrate --goal "..."` |
 
 ## memcode: First-Party Memagent
 
@@ -303,7 +350,8 @@ await client.close();
 | Start here | Use when |
 | --- | --- |
 | [Docs Map](docs/README.md) | You want the shortest route to the right guide |
-| [Setup Guide](docs/SETUP.md) | Installing, choosing stdio vs HTTP, configuring IDEs |
+| [Setup Guide](docs/SETUP.md) | Installing, using `memorix setup`, choosing stdio vs HTTP |
+| [Integration Surfaces](docs/INTEGRATIONS.md) | Plugin packages, MCP, project rules, hooks, and skills support |
 | [Configuration](docs/CONFIGURATION.md) | TOML config, model lanes, compatibility files |
 | [API Reference](docs/API_REFERENCE.md) | MCP tools and operator CLI |
 | [Git Memory](docs/GIT_MEMORY.md) | Commit ingestion and searchable engineering truth |

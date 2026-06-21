@@ -141,7 +141,7 @@ src/
   search/              intent-aware retrieval helpers
   skills/              memory-driven skills generation
   store/               Orama index and persistence
-  team/                autonomous Agent Team registry, tasks, locks, messages
+  team/                orchestration coordination registry, tasks, locks, messages
   workspace/           MCP and workflow sync across agents
 
 tests/
@@ -289,12 +289,31 @@ npm test
 - Git Memory
 - config diagnostics
 
-4. commit and push
-5. publish manually when ready
+4. inspect package contents:
+
+```bash
+npm pack --dry-run --json
+npm pack --workspace @memorix/ai --dry-run --json
+npm pack --workspace @memorix/agent-core --dry-run --json
+npm pack --workspace @memorix/tui --dry-run --json
+npm pack --workspace @memorix/memcode --dry-run --json
+```
+
+5. commit and push
+6. publish manually when ready, in dependency order:
+
+```bash
+npm publish --workspace @memorix/ai --access public
+npm publish --workspace @memorix/agent-core --access public
+npm publish --workspace @memorix/tui --access public
+npm publish --workspace @memorix/memcode --access public
+npm publish --access public
+```
 
 Notes:
 
 - `prepublishOnly` already runs build + test
+- `memorix` depends on `@memorix/memcode`; `@memorix/memcode` depends on `@memorix/ai`, `@memorix/agent-core`, and `@memorix/tui`, so publish workspaces before the root package
 - npm publish is usually manual, especially when 2FA is enabled
 - GitHub release automation should not be treated as a substitute for manual runtime validation
 

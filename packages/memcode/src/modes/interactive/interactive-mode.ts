@@ -4307,41 +4307,18 @@ export class InteractiveMode {
 	 */
 	private showSelector(
 		create: (done: () => void) => { component: Component; focus: Component },
-		options?: { transientOverlay?: boolean },
 	): void {
-		if (options?.transientOverlay) {
-			let handle: OverlayHandle | undefined;
-			const done = () => {
-				handle?.hide();
-				this.ui.setFocus(this.editor);
-			};
-			const { component, focus } = create(done);
-			handle = this.ui.showOverlay(component, {
-				width: "100%",
-				maxHeight: "100%",
-				row: 0,
-				col: 0,
-				nonCapturing: true,
-			});
-			if (focus === component) {
-				handle.focus();
-			} else {
-				this.ui.setFocus(focus);
-			}
-			this.ui.requestRender();
-			return;
-		}
-
 		const done = () => {
 			this.editorContainer.clear();
 			this.editorContainer.addChild(this.editor);
 			this.ui.setFocus(this.editor);
+			this.ui.requestRenderAndClearScrollback();
 		};
 		const { component, focus } = create(done);
 		this.editorContainer.clear();
 		this.editorContainer.addChild(component);
 		this.ui.setFocus(focus);
-		this.ui.requestRender();
+		this.ui.requestRenderAndClearScrollback();
 	}
 
 	private showSettingsSelector(): void {
@@ -4974,49 +4951,45 @@ export class InteractiveMode {
 	}
 
 	private showSessionSelector(): void {
-		this.showSelector(
-			(done) => {
-				const selector = new SessionSelectorComponent(
-					(onProgress) =>
-						SessionManager.list(this.sessionManager.getCwd(), this.sessionManager.getSessionDir(), onProgress),
-					(onProgress) =>
-						this.sessionManager.usesDefaultSessionDir()
-							? SessionManager.listAll(onProgress)
-							: SessionManager.listAll(this.sessionManager.getSessionDir(), onProgress),
-					async (sessionPath) => {
-						const result = await this.handleResumeSession(sessionPath);
-						if (!result.cancelled) {
-							done();
-						} else {
-							selector.setDisabled(false);
-							this.ui.requestRender();
-						}
-					},
-					() => {
+		this.showSelector((done) => {
+			const selector = new SessionSelectorComponent(
+				(onProgress) => SessionManager.list(this.sessionManager.getCwd(), this.sessionManager.getSessionDir(), onProgress),
+				(onProgress) =>
+					this.sessionManager.usesDefaultSessionDir()
+						? SessionManager.listAll(onProgress)
+						: SessionManager.listAll(this.sessionManager.getSessionDir(), onProgress),
+				async (sessionPath) => {
+					const result = await this.handleResumeSession(sessionPath);
+					if (!result.cancelled) {
 						done();
+					} else {
+						selector.setDisabled(false);
 						this.ui.requestRender();
+					}
+				},
+				() => {
+					done();
+					this.ui.requestRender();
+				},
+				() => {
+					void this.shutdown();
+				},
+				() => this.ui.requestRender(),
+				{
+					renameSession: async (sessionFilePath: string, nextName: string | undefined) => {
+						const next = (nextName ?? "").trim();
+						if (!next) return;
+						const mgr = SessionManager.open(sessionFilePath);
+						mgr.appendSessionInfo(next);
 					},
-					() => {
-						void this.shutdown();
-					},
-					() => this.ui.requestRender(),
-					{
-						renameSession: async (sessionFilePath: string, nextName: string | undefined) => {
-							const next = (nextName ?? "").trim();
-							if (!next) return;
-							const mgr = SessionManager.open(sessionFilePath);
-							mgr.appendSessionInfo(next);
-						},
-						showRenameHint: true,
-						keybindings: this.keybindings,
-					},
+					showRenameHint: true,
+					keybindings: this.keybindings,
+				},
 
-					this.sessionManager.getSessionFile(),
-				);
-				return { component: selector, focus: selector };
-			},
-			{ transientOverlay: true },
-		);
+				this.sessionManager.getSessionFile(),
+			);
+			return { component: selector, focus: selector };
+		});
 	}
 
 	private async handleResumeSession(

@@ -14,30 +14,27 @@ export interface StartupWelcomeCardOptions {
 const PIXEL_RESET = "\x1b[0m";
 
 const PIXEL_PALETTE: Record<string, string> = {
-	O: "#ff8c4a",
-	B: "#ff6b3d",
-	W: "#fff7e8",
-	d: "#c94f2f",
-	E: "#111111",
+	n: "#5b4a7a",
+	N: "#7a68a0",
+	P: "#d7cbe8",
+	p: "#e8dff5",
+	M: "#c8c4cf",
+	m: "#a09baa",
+	W: "#eae8f0",
+	O: "#e8a050",
+	B: "#d08838",
 };
 
-const CRAB_PIXEL_ROWS = [
-	"  OOO          OOO  ",
-	" OBBBO        OBBBO ",
-	"   OBO        OBO   ",
-	"    OBBO    OBBO    ",
-	"      OOOOOOOO      ",
-	"    OBBBBBBBBBBO    ",
-	"   OBBBWBBBBWBBBO   ",
-	"  OBBBBEBBBBEBBBBO  ",
-	"  OBBBBBBBBBBBBBBO  ",
-	" OBBBBBBBBBBBBBBBBO ",
-	"  OBBBBOBBBBBOBBBO  ",
-	"   OBBBOOOOOOBBBO   ",
-	"  OBO          OBO  ",
-	" OBO            OBO ",
-	"OBdO            OBdO",
-	" OO              OO ",
+const MEMORY_DRIVE_PIXEL_ROWS = [
+	"     NPPPPPPPPPPPPPPPN",
+	"     NPpppppppppppppPN",
+	"MWWWmNPpppppppppppppPN",
+	"MWWWmNPppppppppOppppPN",
+	"MmmmmNPpppppppppppppPN",
+	"MmmmmNPpppppppppppppPN",
+	"     NPpppppppppppppPN",
+	"     NPpppppppppppppPN",
+	"     NPPPPPPPPPPPPPPPN",
 ] as const;
 
 function ansiFg(color: string): string {
@@ -62,9 +59,9 @@ function pixelColor(pixel: string): string | undefined {
 	return PIXEL_PALETTE[pixel];
 }
 
-function renderCrabSprite(): string[] {
-	const width = Math.max(...CRAB_PIXEL_ROWS.map((row) => row.length));
-	const rows = CRAB_PIXEL_ROWS.map((row) => row.padEnd(width, " "));
+function renderMemoryDriveSprite(): string[] {
+	const width = Math.max(...MEMORY_DRIVE_PIXEL_ROWS.map((row) => row.length));
+	const rows = MEMORY_DRIVE_PIXEL_ROWS.map((row) => row.padEnd(width, " "));
 	const rendered: string[] = [];
 	for (let y = 0; y < rows.length; y += 2) {
 		const upper = rows[y] ?? "";
@@ -174,7 +171,7 @@ export class StartupWelcomeCard implements Component {
 			centerAnsi(theme.bold(theme.fg("text", "Ready when you are")), width),
 			centerAnsi(theme.fg("dim", "native memory inside memcode"), width),
 			"",
-			...renderCrabSprite().map((line) => centerAnsi(line, width)),
+			...renderMemoryDriveSprite().map((line) => centerAnsi(line, width)),
 			"",
 			padAnsi(formatMeta("model", this.options.getModelLabel()), width),
 			padAnsi(formatMeta("project", this.options.getProjectLabel()), width),

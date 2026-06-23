@@ -220,9 +220,9 @@ describe("InteractiveMode.handleResumeSession", () => {
 });
 
 describe("InteractiveMode.showSelector", () => {
-	test("can render session-switch selectors as transient overlays", () => {
-		const component = new TestFocusableComponent("Resume Session");
-		const handle = { hide: vi.fn(), focus: vi.fn() };
+	test("renders selectors inline and clears terminal scrollback on enter and exit", () => {
+		const component = new TestFocusableComponent("Theme");
+		let done!: () => void;
 		const fakeThis: any = {
 			editor: new TestFocusableComponent("editor"),
 			editorContainer: {
@@ -230,25 +230,30 @@ describe("InteractiveMode.showSelector", () => {
 				addChild: vi.fn(),
 			},
 			ui: {
-				showOverlay: vi.fn(() => handle),
 				setFocus: vi.fn(),
-				requestRender: vi.fn(),
+				requestRenderAndClearScrollback: vi.fn(),
 			},
 		};
 
 		(InteractiveMode as any).prototype.showSelector.call(
 			fakeThis,
-			() => ({ component, focus: component }),
-			{ transientOverlay: true },
+			(doneCallback: () => void) => {
+				done = doneCallback;
+				return { component, focus: component };
+			},
 		);
 
-		expect(fakeThis.editorContainer.clear).not.toHaveBeenCalled();
-		expect(fakeThis.editorContainer.addChild).not.toHaveBeenCalledWith(component);
-		expect(fakeThis.ui.showOverlay).toHaveBeenCalledWith(
-			component,
-			expect.objectContaining({ nonCapturing: true }),
-		);
-		expect(handle.focus).toHaveBeenCalledTimes(1);
+		expect(fakeThis.editorContainer.clear).toHaveBeenCalledTimes(1);
+		expect(fakeThis.editorContainer.addChild).toHaveBeenCalledWith(component);
+		expect(fakeThis.ui.setFocus).toHaveBeenLastCalledWith(component);
+		expect(fakeThis.ui.requestRenderAndClearScrollback).toHaveBeenCalledTimes(1);
+
+		done();
+
+		expect(fakeThis.editorContainer.clear).toHaveBeenCalledTimes(2);
+		expect(fakeThis.editorContainer.addChild).toHaveBeenLastCalledWith(fakeThis.editor);
+		expect(fakeThis.ui.setFocus).toHaveBeenLastCalledWith(fakeThis.editor);
+		expect(fakeThis.ui.requestRenderAndClearScrollback).toHaveBeenCalledTimes(2);
 	});
 });
 

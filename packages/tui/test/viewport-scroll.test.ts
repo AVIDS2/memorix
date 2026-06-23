@@ -214,6 +214,37 @@ describe("TUI viewport scrolling", () => {
 		tui.stop();
 	});
 
+	it("first render clears in place and renders only the visible viewport", async () => {
+		const terminal = new VirtualTerminal(20, 4);
+		const tui = new TUI(terminal);
+		const component = new LinesComponent([
+			"Welcome card",
+			"Startup diagnostics",
+			"Prompt 1",
+			"Response 1",
+			"Prompt 2",
+			"Response 2",
+			"Editor",
+			"Footer",
+		]);
+		tui.addChild(component);
+		tui.start();
+		await terminal.waitForRender();
+
+		const output = terminal.getOutput();
+		assert.ok(output.includes("\x1b[2J\x1b[H"), `first render did not clear/home first:\n${output}`);
+		assert.ok(!output.includes("Welcome card"), `first render appended hidden startup content:\n${output}`);
+		assert.ok(!output.includes("Startup diagnostics"), `first render appended hidden startup diagnostics:\n${output}`);
+		assert.deepStrictEqual(terminal.getViewport(), [
+			"Prompt 2",
+			"Response 2",
+			"Editor",
+			"Footer",
+		]);
+
+		tui.stop();
+	});
+
 	it("closing a full-screen overlay after content shrinks clears the overlay in place", async () => {
 		const terminal = new VirtualTerminal(30, 6);
 		const tui = new TUI(terminal);

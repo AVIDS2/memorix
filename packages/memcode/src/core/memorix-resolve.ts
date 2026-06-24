@@ -120,7 +120,7 @@ export async function importFromMemorix(subpath: string): Promise<any> {
 	const fullPath = resolveMemorixModulePath(moduleRoot, subpath);
 	if (fullPath.endsWith(".ts")) {
 		if (!_jiti) {
-			const { createJiti } = await import("jiti");
+			const { createJiti } = await import("jiti/static");
 			_jiti = createJiti(import.meta.url);
 		}
 		return _jiti.import(pathToFileURL(fullPath).href);

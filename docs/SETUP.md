@@ -11,7 +11,7 @@ memorix setup --agent <agent> --global
 ```
 
 `memorix setup` installs the recommended Memorix integration for the target agent: plugin packages where supported, MCP config, usage guidance, hooks, and skills.
-With `--global`, it writes the user-level surfaces the host supports. Run the same command inside a repo without `--global` only when you intentionally want repo-local guidance, rules, or hooks for that project.
+With `--global`, it writes the user-level integrations the host supports. Run the same command inside a repo without `--global` only when you intentionally want repo-local guidance, rules, or hooks for that project.
 
 Common runtime entry points:
 
@@ -81,7 +81,7 @@ What this does:
 - OpenCode: installs a local plugin file, OpenCode skill, MCP config, and `AGENTS.md` guidance.
 - Other supported agents: writes their MCP/rules/hooks files according to agent support.
 
-Global setup writes user-level plugin, config, and hook surfaces where the host supports them. Use the same command without `--global` only when you explicitly want repo-local guidance, rules, or hooks for the current project.
+Global setup writes user-level plugin, config, and hook files where the host supports them. Use the same command without `--global` only when you explicitly want repo-local guidance, rules, or hooks for the current project.
 
 Memorix uses TOML as the user-facing configuration model:
 
@@ -475,7 +475,7 @@ This transfers stored memory artifacts, not private chat history from an IDE ven
 
 ### Run orchestrated subagent work
 
-`memorix orchestrate` coordinates task context, handoffs, advisory locks, verification, and review loops for subagent-style work. It is not required for normal memory use.
+`memorix orchestrate` coordinates task context, handoffs, advisory locks, verification, and review loops for subagent-style work. You don't need it for normal memory use.
 
 ```bash
 memorix task list

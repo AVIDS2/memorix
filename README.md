@@ -39,7 +39,7 @@ Memorix gives the AI coding agents you already use a shared, searchable project 
 
 Use Claude Code today, Codex tomorrow, and Cursor in the afternoon. The agent can change; the project memory stays the same.
 
-**Reach for Memorix when** you keep re-explaining the same project to a new agent session: the last session figured something out, another IDE cannot see it, or a design decision is buried in a chat you cannot find anymore.
+**Use Memorix when** you keep re-explaining the same project to a new agent session: the last session already figured something out, another IDE cannot see it, or a design decision is buried in a chat you cannot find anymore.
 
 | Problem | What Memorix adds |
 | --- | --- |
@@ -290,7 +290,7 @@ This opens memcode, a terminal coding agent that uses the same Memorix project m
 | Reasoning Memory | rationale, alternatives, constraints, risks | "Why did we choose this?" |
 | Git Memory | commit-derived engineering facts | "What changed and where?" |
 
-Search is project-scoped by default. `scope="global"` searches across projects. Retrieval boosts Git Memory for "what changed" questions and reasoning records for "why" questions.
+Search is project-scoped by default. `scope="global"` searches across projects. The search boosts Git Memory for "what changed" questions and reasoning records for "why" questions.
 
 <h2 id="runtime-modes"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/tags/light/section-runtime.svg"><img src="assets/tags/section-runtime.svg" alt="Runtime Modes" height="32" /></picture></h2>
 
@@ -308,7 +308,7 @@ Search is project-scoped by default. `scope="global"` searches across projects. 
 
 <h2 id="memcode-bundled-terminal-agent"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/tags/light/section-memcode.svg"><img src="assets/tags/section-memcode.svg" alt="memcode" height="32" /></picture></h2>
 
-memcode is the terminal coding agent bundled with Memorix. It can read, edit, run commands, resume sessions, switch models, and use `/memory` commands while reading and writing the same project memory pool as your MCP-connected agents.
+memcode is the terminal coding agent bundled with Memorix. It can read, edit, run commands, resume sessions, switch models, and use `/memory` commands — all backed by the same project memory as your MCP-connected agents.
 
 Use it when you want a terminal agent with memory already wired in.
 
@@ -357,7 +357,7 @@ Then open:
 - MCP: `http://localhost:3211/mcp`
 - health: `http://localhost:3211/health`
 
-The container must be able to see the repository path passed as `projectRoot` for project-scoped Git/config behavior.
+The container must be able to access the repository path passed as `projectRoot` for project-scoped Git and config behavior.
 
 <h2 id="sdk"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/tags/light/section-sdk.svg"><img src="assets/tags/section-sdk.svg" alt="SDK" height="32" /></picture></h2>
 
@@ -410,7 +410,7 @@ npm run build
 
 <h2 id="acknowledgements"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/tags/light/section-acknowledgements.svg"><img src="assets/tags/section-acknowledgements.svg" alt="Acknowledgements" height="32" /></picture></h2>
 
-Memorix builds on ideas from the MCP ecosystem and prior memory projects such as mcp-memory-service, MemCP, claude-mem, and Mem0. memcode is based on the Pi coding-agent codebase and adapts its terminal-agent model for the Memorix ecosystem.
+Memorix draws from the MCP ecosystem and prior memory projects such as mcp-memory-service, MemCP, claude-mem, and Mem0. memcode is based on the Pi coding-agent codebase and adapts its terminal-agent model for the Memorix ecosystem.
 
 <h2 id="license"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/tags/light/section-license.svg"><img src="assets/tags/section-license.svg" alt="License" height="32" /></picture></h2>
 

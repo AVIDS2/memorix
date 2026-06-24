@@ -56,7 +56,7 @@ The public docs are organized by user intent:
 
 | Topic | Document |
 | --- | --- |
-| MCP / CLI command surface | [API_REFERENCE.md](API_REFERENCE.md) |
+| MCP / CLI commands | [API_REFERENCE.md](API_REFERENCE.md) |
 | Plugin, rules, hooks, skills, and MCP support matrix | [INTEGRATIONS.md](INTEGRATIONS.md) |
 | TypeScript SDK | [../README.md#sdk](../README.md#sdk) |
 | Workspace and rules sync | [API_REFERENCE.md § Workspace and Rules](API_REFERENCE.md#8-workspace-and-rules-tools) |
@@ -102,9 +102,9 @@ Historical/deep-reference documents may describe older designs. If they conflict
 These docs target the **1.1 release line**, where:
 
 - `memorix setup --agent <agent> --global` is the default agent integration command
-- `memorix serve` remains the manual stdio MCP server for external agents
+- `memorix serve` is the manual stdio MCP server for external agents
 - `memorix background start` runs the shared HTTP MCP service and dashboard
 - `memorix integrate --agent <agent>` and `memorix hooks install --agent <agent>` remain manual/fallback generation commands
 - `memorix` / `memcode` open memcode, the bundled terminal agent that uses the same Memorix memory pool
 - `~/.memorix/config.toml` and project `memorix.toml` are the user-facing configuration model
-- legacy `memorix.yml`, `.env`, and `config.json` files are compatibility inputs, not the primary setup path
+- legacy `memorix.yml`, `.env`, and `config.json` files are still read for compatibility, but new setups should use TOML

@@ -34,7 +34,7 @@ Both routes enter the same TUI.
 | Model control | provider/model flags, `/model switch`, thinking levels, scoped model cycling |
 | Tool control | read, bash, edit, write, grep, find, ls plus allow/deny lists |
 | Memory commands | `/memory status`, `/memory search`, `/memory show`, `/memory stats`, `/memory hooks` |
-| Extension surface | user/project skills, prompt templates, themes, and extension packages |
+| Extensions | user/project skills, prompt templates, themes, and extension packages |
 | Scriptable modes | interactive TUI, print mode, JSON event stream, and RPC mode |
 
 ---
@@ -200,7 +200,7 @@ Project instructions, skills, prompt templates, themes, and packages are trust-s
 
 ## Extensions, Skills, Themes
 
-memcode also has its own extension surface for terminal-agent workflows. It can load:
+memcode also has its own extension support for terminal-agent workflows. It can load:
 
 - extension files via `--extension`
 - skills via `--skill`

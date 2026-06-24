@@ -21,7 +21,7 @@ It also exposes a CLI for terminal workflows. The CLI is not a raw mirror of MCP
 Use **MCP** when:
 
 - an IDE or agent needs tool calls
-- you want the full fine-grained API surface
+- you want the full API
 - you are integrating Memorix into an MCP-capable client
 
 Use the **CLI** when:
@@ -71,7 +71,7 @@ memorix poll --agentId <agent-id>
 memorix receipt --json --probe "release blocker"
 ```
 
-The CLI is designed for direct terminal use, not as a 1:1 rename of MCP tools. The only intentional MCP-only area is the optional graph-compatibility surface (`create_entities`, `read_graph`, and related tools) for workflows that expect the official memory-server style graph API.
+The CLI is for direct terminal use, not a 1:1 mirror of MCP tool names. The only MCP-only area is the optional graph-compatibility tools (`create_entities`, `read_graph`, and related tools) for workflows that expect the official memory-server style graph API.
 
 ### Cross-Agent Handoff Receipt
 
@@ -330,10 +330,10 @@ Behavior:
 - **does not join orchestration coordination state by default**
 - if you only need memory/search/reasoning/session recovery, stop here; no coordination identity is required
 - when `joinTeam=true`, it also registers a coordination identity using the default role derived from `agentType` via `AGENT_TYPE_ROLE_MAP`
-- `team_manage(join)` remains the formal explicit join entrypoint if you want to separate session start from coordination identity
+- `team_manage(join)` is the explicit join entrypoint if you want to separate session start from coordination identity
 - coordination-specific outputs such as agent ID, watermark, and available tasks appear only when the session explicitly joins that coordination state
 
-In HTTP service mode, pass `projectRoot` as the absolute workspace or repo root whenever the client knows it. `projectRoot` is the detection anchor; Git remains the source of truth for the final project identity.
+In HTTP service mode, pass `projectRoot` as the absolute workspace or repo root whenever the client knows it. `projectRoot` is the detection anchor; project identity still comes from Git.
 
 ### `memorix_session_end`
 
@@ -507,7 +507,7 @@ Typical actions:
 
 ## 9. Orchestration Coordination Tools
 
-These tools back explicit task, handoff, message, lock, and subagent-style orchestration workflows. They are available through MCP profiles that expose coordination tools and through the CLI command surface. HTTP is optional: use it when you want a shared MCP service or live dashboard endpoint, not because coordination state requires HTTP.
+These tools support task, handoff, message, lock, and subagent-style orchestration workflows. They are available through MCP profiles that include coordination tools and through the CLI. HTTP is optional: use it when you want a shared MCP service or live dashboard endpoint, not because coordination state requires HTTP.
 
 ```bash
 memorix team status
@@ -516,7 +516,7 @@ memorix orchestrate --goal "..."
 
 Use `memorix background start` or `memorix serve-http --port 3211` only when you want the HTTP service in the background or foreground.
 
-Coordination state is opt-in project state for tasks, handoff messages, locks, and subagent workflows. It is not required for normal memory use, and it should not be treated as an automatic chat room between separate IDE conversations. For production multi-agent execution, use `memorix orchestrate`; these tools provide the coordination substrate.
+Coordination state is opt-in project state for tasks, handoff messages, locks, and subagent workflows. You don't need it for normal memory use, and it is not an automatic chat room between separate IDE conversations. For production multi-agent execution, use `memorix orchestrate`; these tools provide the coordination layer.
 
 `memorix orchestrate` uses Git worktrees for parallel worker isolation. Single-worker runs use the current checkout unless `--isolated` is set. Parallel runs fail closed if a task worktree cannot be created. Dirty Git worktrees are rejected unless `--allow-dirty` is set. Successful task worktrees merge back automatically unless `--no-auto-merge` is set.
 

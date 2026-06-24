@@ -2,9 +2,9 @@
 
 > Local-first shared memory layer for AI coding agents.
 
-Memorix is a TypeScript/Node.js project that gives AI coding agents persistent, project-aware memory. It is designed for software development workflows, not generic chat memory. It works across Claude Code, Codex, Cursor, Windsurf, GitHub Copilot CLI, Gemini CLI, OpenCode, Pi, Kiro, Antigravity, Trae, and any agent that can speak MCP over stdio or HTTP. Integrations usually start with `memorix setup --agent <agent> --global`, which installs the recommended user-level package or config for that agent: plugin packages where supported, package or extension entries, MCP config, generated guidance, hooks, skills, or the bundled terminal agent.
+Memorix is a TypeScript/Node.js project that gives AI coding agents persistent, project-aware memory. It targets software development workflows, not generic chat. It works across Claude Code, Codex, Cursor, Windsurf, GitHub Copilot CLI, Gemini CLI, OpenCode, Pi, Kiro, Antigravity, Trae, and any agent that can speak MCP over stdio or HTTP. Integrations usually start with `memorix setup --agent <agent> --global`, which installs the recommended user-level package or config for that agent: plugin packages when supported, package or extension entries, MCP config, generated guidance, hooks, skills, or the bundled terminal agent.
 
-If you are an AI coding agent helping a user install, operate, or troubleshoot Memorix, read `docs/AGENT_OPERATOR_PLAYBOOK.md` before taking action. It is the canonical execution guide for install, runtime selection, Git/project binding, MCP integration, hooks, and troubleshooting.
+If you are an AI coding agent helping a user install, operate, or troubleshoot Memorix, read `docs/AGENT_OPERATOR_PLAYBOOK.md` before taking action. It is the main reference for install, runtime selection, Git/project binding, MCP integration, hooks, and troubleshooting.
 
 ## Entry Points
 
@@ -17,7 +17,7 @@ It installs the recommended Memorix integration for the target agent:
 - Claude Code: local `memorix-local` marketplace plugin, plugin-bundled MCP, hooks, skills, plus `CLAUDE.md` guidance.
 - Codex: local Personal marketplace plugin, plugin-bundled MCP, hooks, skills, plus `AGENTS.md` guidance. Setup also attempts `codex plugin add memorix@personal`.
 - GitHub Copilot CLI: local Copilot CLI plugin package with MCP, hooks, and a Memorix skill. Setup attempts `copilot plugin install <local-path>`.
-- Cursor: Cursor MCP config, `.cursor/rules/memorix.mdc`, skills, and hook guidance through Cursor's project config surfaces.
+- Cursor: Cursor MCP config, `.cursor/rules/memorix.mdc`, skills, and hook guidance through Cursor's project config.
 - Pi: user Pi package with a Memorix extension and skill. Setup also attempts `pi install <path> --approve`; project-local setup uses `-l`.
 - Gemini CLI: local Gemini extension package with MCP and `GEMINI.md` context.
 - OpenCode: local plugin file, `opencode.json` MCP config, OpenCode skill, and `AGENTS.md` guidance.
@@ -37,7 +37,7 @@ memorix setup --agent gemini-cli --global
 memorix setup --agent opencode --global
 ```
 
-Manual `memorix integrate --agent <agent>` and `memorix hooks install --agent <agent>` remain fallback commands for updating one generated surface without running the full setup package. Run setup without `--global` only when repo-local guidance, rules, or hooks are intentionally desired for one project.
+Manual `memorix integrate --agent <agent>` and `memorix hooks install --agent <agent>` are fallback commands for updating one generated integration without running the full setup package. Run setup without `--global` only when you intentionally want repo-local guidance, rules, or hooks for one project.
 
 ### MCP server
 
@@ -66,13 +66,13 @@ Endpoints:
 - dashboard: `http://localhost:3211`
 - health: `http://localhost:3211/health`
 
-Use HTTP for a shared service, dashboard, Docker, or multiple-client setup. It is not required for normal one-agent setup. Use `memorix serve-http --port 3211` for foreground/debug mode.
+Use HTTP for a shared service, dashboard, Docker, or multiple-client setup. You don't need it for a single-agent setup. Use `memorix serve-http --port 3211` for foreground/debug mode.
 
-Agents using HTTP in multi-project workflows should call `memorix_session_start(projectRoot=...)` with the absolute workspace path when available. Git remains the final project identity source.
+Agents using HTTP in multi-project workflows should call `memorix_session_start(projectRoot=...)` with the absolute workspace path when available. Project identity still comes from Git.
 
 ### CLI
 
-The CLI is the direct command surface:
+The CLI is for direct terminal use:
 
 - `memorix memory`
 - `memorix reasoning`
@@ -107,9 +107,9 @@ memorix setup --agent cursor --global
 memorix orchestrate --goal "Add authentication"
 ```
 
-### Integration surfaces
+### Integration
 
-`memorix setup` chooses the agent integration surface. MCP is the common tool layer; agent-specific surfaces add guidance or capture:
+`memorix setup` picks the right integration for the target agent. MCP is the common tool layer; agent-specific integrations add guidance or capture:
 
 - plugin packages: Claude Code, Codex, and GitHub Copilot CLI
 - package or extension entries: Pi package and Gemini CLI extension package
@@ -251,7 +251,7 @@ Primary MCP tools:
 
 ## Configuration
 
-Memorix uses TOML as the primary user-facing configuration model:
+Memorix uses TOML as the main configuration model:
 
 - global defaults: `~/.memorix/config.toml`
 - project overrides: `<git-root>/memorix.toml`
@@ -344,7 +344,7 @@ Best for a shared service, dashboard, Docker, multiple clients, or long-running 
 docker compose up --build -d
 ```
 
-Docker is for the HTTP service. The container must be able to see the repositories it is asked to bind for project-scoped Git/config behavior.
+Docker is for the HTTP service. The container must have access to the repositories it is asked to bind for project-scoped Git and config behavior.
 
 ## Supported Clients
 
@@ -363,7 +363,7 @@ Support depth differs by client:
 
 ## Orchestration Coordination
 
-`memorix orchestrate` is the main entry point for subagent-style coordinated implementation work. The `team`, `task`, `message`, `handoff`, `lock`, and `poll` commands are the coordination state used by orchestration and explicit handoff workflows. They are not needed for ordinary memory search or memcode sessions.
+`memorix orchestrate` is the main entry point for subagent-style coordinated implementation work. The `team`, `task`, `message`, `handoff`, `lock`, and `poll` commands are the coordination state used by orchestration and explicit handoff workflows. You don't need them for ordinary memory search or memcode sessions.
 
 Worktree safety:
 

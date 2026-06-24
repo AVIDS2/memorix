@@ -30,7 +30,7 @@ Both routes enter the same memcode TUI.
 | Model control | provider/model flags, `/model switch`, thinking levels, scoped model cycling |
 | Tool control | read, bash, edit, write, grep, find, ls plus allow/deny lists |
 | Memory commands | `/memory status`, `/memory search`, `/memory show`, `/memory stats`, `/memory hooks` |
-| Extension surface | user/project skills, prompt templates, themes, and extension packages |
+| Extensions | user/project skills, prompt templates, themes, and extension packages |
 | Scriptable modes | interactive TUI, print mode, JSON event stream, and RPC mode |
 
 ## Quick Start
@@ -81,7 +81,7 @@ Common slash commands:
 /config           open configuration
 ```
 
-The TUI is designed for normal coding-agent work: keep a session open, let the agent inspect files and run commands, then resume later without re-explaining the project.
+The TUI works like a normal coding agent: keep a session open, let the agent inspect files and run commands, then resume later without re-explaining the project.
 
 ## Memory Model
 

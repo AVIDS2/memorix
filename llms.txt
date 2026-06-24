@@ -2,7 +2,7 @@
 
 > Local-first shared memory layer for AI coding agents.
 
-Memorix gives coding agents persistent, project-aware memory across sessions, IDEs, terminals, and MCP clients. It stores project knowledge once so multiple agents can retrieve it through plugin packages where supported, MCP, CLI, SDK, generated rules/instructions, hooks, skills, local plugins, or the bundled terminal agent. It works with Claude Code, Codex, Cursor, Windsurf, GitHub Copilot CLI, Gemini CLI, OpenCode, Pi, Kiro, Antigravity, Trae, and other MCP-capable agents.
+Memorix gives coding agents persistent, project-aware memory across sessions, IDEs, terminals, and MCP clients. It stores project knowledge once so multiple agents can retrieve it — through plugin packages, MCP, CLI, SDK, generated rules/instructions, hooks, skills, local plugins, or the bundled terminal agent. It works with Claude Code, Codex, Cursor, Windsurf, GitHub Copilot CLI, Gemini CLI, OpenCode, Pi, Kiro, Antigravity, Trae, and other MCP-capable agents.
 
 ## Entry Points
 
@@ -55,7 +55,7 @@ Core lanes:
 - `[memory]` for injection and formation behavior
 - `[agent]` for the model memcode talks to while coding
 
-Legacy `memorix.yml`, `.env`, and `~/.memorix/config.json` are compatibility inputs, not the primary setup path.
+Legacy `memorix.yml`, `.env`, and `~/.memorix/config.json` are still read for compatibility, but new setups should use TOML.
 
 ## Quick Setup
 

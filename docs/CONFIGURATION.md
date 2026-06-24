@@ -1,6 +1,6 @@
 # Memorix Configuration Guide
 
-Memorix now uses one primary product configuration model:
+Memorix uses TOML as its main configuration model:
 
 - global defaults: `~/.memorix/config.toml`
 - project overrides: `<git-root>/memorix.toml`

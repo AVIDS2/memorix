@@ -1373,7 +1373,7 @@ export class TUI extends Container {
 			return;
 		}
 
-		// First render - just output everything without clearing (assumes clean screen)
+		// First render clears first so hidden history does not leak into scrollback.
 		if (this.previousLines.length === 0 && !widthChanged && !heightChanged) {
 			logRedraw("first render");
 			fullRender(true);

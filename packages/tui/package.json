@@ -1,6 +1,6 @@
 {
 	"name": "@memorix/tui",
-	"version": "1.1.0",
+	"version": "1.1.1",
 	"description": "Terminal User Interface library with differential rendering for efficient text-based applications",
 	"type": "module",
 	"main": "dist/index.js",
@@ -33,7 +33,7 @@
 		"directory": "packages/tui"
 	},
 	"engines": {
-		"node": ">=22.19.0"
+		"node": ">=22.18.0"
 	},
 	"types": "./dist/index.d.ts",
 	"dependencies": {

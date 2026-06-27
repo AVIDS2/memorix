@@ -161,14 +161,40 @@ function getMCPConfigEntries(home: string, cwd: string): MCPConfigEntry[] {
     note: 'Remove the "memorix" key from mcpServers in this file.',
   });
 
-  // Gemini CLI / Antigravity
+  // Gemini CLI
   entries.push({
-    agent: 'Gemini CLI / Antigravity',
+    agent: 'Gemini CLI',
     path: path.join(home, '.gemini', 'settings.json'),
     kind: 'global',
     format: 'json',
     detected: checkJSON(path.join(home, '.gemini', 'settings.json')),
     note: 'Remove the "memorix" key from mcpServers in this file.',
+  });
+
+  // Antigravity
+  entries.push({
+    agent: 'Antigravity',
+    path: path.join(home, '.gemini', 'config', 'mcp_config.json'),
+    kind: 'global',
+    format: 'json',
+    detected: checkJSON(path.join(home, '.gemini', 'config', 'mcp_config.json')),
+    note: 'Remove the "memorix" key from mcpServers in this file.',
+  });
+  entries.push({
+    agent: 'Antigravity',
+    path: path.join(home, '.gemini', 'config', 'hooks.json'),
+    kind: 'global',
+    format: 'json',
+    detected: exists(path.join(home, '.gemini', 'config', 'hooks.json')),
+    note: 'Remove the "memorix" hook group from this file.',
+  });
+  entries.push({
+    agent: 'Antigravity',
+    path: path.join(home, '.gemini', 'config', 'plugins', 'memorix', 'plugin.json'),
+    kind: 'global',
+    format: 'json',
+    detected: exists(path.join(home, '.gemini', 'config', 'plugins', 'memorix', 'plugin.json')),
+    note: 'Delete the containing ~/.gemini/config/plugins/memorix plugin directory if you want to remove the Antigravity plugin package.',
   });
 
   // Trae

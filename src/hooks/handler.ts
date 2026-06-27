@@ -486,7 +486,7 @@ export async function handleHookEvent(input: NormalizedHookInput): Promise<{
  * Main entry point: read stdin, process, write stdout.
  * Called by the CLI: `memorix hook`
  */
-export async function runHook(agentOverride?: string): Promise<void> {
+export async function runHook(agentOverride?: string, eventOverride?: string): Promise<void> {
   // Read stdin with a timeout — some hosts (e.g. Gemini CLI) may not close
   // stdin promptly, causing `for await` to hang until the process is killed.
   const rawInput = await new Promise<string>((resolve) => {
@@ -522,6 +522,9 @@ export async function runHook(agentOverride?: string): Promise<void> {
   // so the normalizer can reliably identify the source agent.
   if (agentOverride) {
     payload._memorix_agent = agentOverride;
+  }
+  if (eventOverride) {
+    payload._memorix_event = eventOverride;
   }
 
   const input = normalizeHookInput(payload);
@@ -644,10 +647,16 @@ export async function runHook(agentOverride?: string): Promise<void> {
   //   PreToolUse, UserPromptSubmit, PostToolUse
   // Other events (SessionStart, Stop, PreCompact) must NOT include hookSpecificOutput.
   // Claude Code sends hook_event_name (snake_case), Copilot sends hookEventName (camelCase)
-  const rawEventName = (payload.hook_event_name as string)
+  const rawEventName = (payload._memorix_event as string)
+    ?? (payload.hook_event_name as string)
     ?? (payload.hookEventName as string)
     ?? '';
   const finalOutput: Record<string, unknown> = { ...output };
+  if (input.agent === 'antigravity') {
+    process.stdout.write(JSON.stringify(toAntigravityHookOutput(rawEventName, output)));
+    return;
+  }
+
   const HSO_EVENTS = new Set(['PreToolUse', 'UserPromptSubmit', 'PostToolUse', 'postToolUse', 'preToolUse', 'userPromptSubmitted']);
   if (rawEventName && HSO_EVENTS.has(rawEventName)) {
     const hso: Record<string, unknown> = { hookEventName: rawEventName };
@@ -660,4 +669,29 @@ export async function runHook(agentOverride?: string): Promise<void> {
     finalOutput.hookSpecificOutput = hso;
   }
   process.stdout.write(JSON.stringify(finalOutput));
+}
+
+function toAntigravityHookOutput(rawEventName: string, output: HookOutput): Record<string, unknown> {
+  switch (rawEventName) {
+    case 'PreToolUse':
+      return {
+        decision: output.continue === false ? 'deny' : 'allow',
+        ...(output.stopReason ? { reason: output.stopReason } : {}),
+      };
+    case 'PostToolUse':
+      return {};
+    case 'PreInvocation':
+      return output.systemMessage
+        ? { injectSteps: [{ ephemeralMessage: output.systemMessage }] }
+        : { injectSteps: [] };
+    case 'PostInvocation':
+      return {
+        injectSteps: output.systemMessage ? [{ ephemeralMessage: output.systemMessage }] : [],
+        terminationBehavior: output.continue === false ? 'terminate' : '',
+      };
+    case 'Stop':
+      return { decision: '' };
+    default:
+      return {};
+  }
 }

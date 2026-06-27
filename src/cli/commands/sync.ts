@@ -12,7 +12,7 @@ const SOURCE_LABELS: Record<string, string> = {
   'claude-code': 'Claude Code (CLAUDE.md, .claude/rules/*.md)',
   codex: 'Codex (SKILL.md, AGENTS.md)',
   windsurf: 'Windsurf (.windsurfrules, .windsurf/rules/*.md)',
-  antigravity: 'Antigravity (.agent/rules/*.md, GEMINI.md)',
+  antigravity: 'Antigravity (.agents/rules/*.md, GEMINI.md)',
   'gemini-cli': 'Gemini CLI (.gemini/rules/*.md, GEMINI.md)',
   kiro: 'Kiro (.kiro/steering/*.md, AGENTS.md)',
 };
@@ -30,7 +30,7 @@ export default defineCommand({
     },
     target: {
       type: 'string',
-      description: 'Target agent format (cursor, claude-code, codex, windsurf, antigravity, gemini-cli, kiro)',
+      description: 'Target agent format (cursor, claude-code, codex, windsurf, antigravity, gemini-cli, openclaw, hermes, omp, kiro, opencode, trae)',
       required: false,
     },
     items: {

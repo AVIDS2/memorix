@@ -3,16 +3,15 @@
  *
  * Parses and generates rules in Antigravity's formats:
  * - GEMINI.md (global rules, similar to CLAUDE.md)
- * - .agent/rules/*.md (workspace rules, Markdown with optional frontmatter)
- * - .agent/skills/[name]/SKILL.md (skills, Markdown + YAML frontmatter)
+ * - .agents/rules/*.md (workspace rules, Markdown with optional frontmatter)
+ * - .agents/skills/[name]/SKILL.md (skills, Markdown + YAML frontmatter)
  *
- * Source: Antigravity official documentation (https://antigravity.google/docs/agent/rules)
+ * Source: https://antigravity.google/docs/rules
  *
  * Note: Antigravity is Google's agent-first IDE, a VS Code fork.
  * Global rules: ~/.gemini/GEMINI.md
- * Workspace rules: <project>/.agent/rules/*.md
- * Skills: <project>/.agent/skills/[name]/SKILL.md
- * Workflows: <project>/.agent/workflows/*.md
+ * Workspace rules: <project>/.agents/rules/*.md
+ * Skills: <project>/.agents/skills/[name]/SKILL.md
  */
 
 import matter from 'gray-matter';
@@ -24,17 +23,19 @@ export class AntigravityAdapter implements RuleFormatAdapter {
 
   readonly filePatterns = [
     'GEMINI.md',
+    '.agents/rules/*.md',
+    '.agents/skills/*/SKILL.md',
     '.agent/rules/*.md',
     '.agent/skills/*/SKILL.md',
   ];
 
   parse(filePath: string, content: string): UnifiedRule[] {
-    // .agent/skills/*/SKILL.md — skill files with frontmatter
+    // .agents/skills/*/SKILL.md — skill files with frontmatter
     if (filePath.includes('SKILL.md')) {
       return this.parseSkillMd(filePath, content);
     }
-    // .agent/rules/*.md — workspace rules
-    if (filePath.includes('.agent/rules/')) {
+    // .agents/rules/*.md — workspace rules
+    if (filePath.includes('.agents/rules/') || filePath.includes('.agent/rules/')) {
       return this.parseAgentRule(filePath, content);
     }
     // GEMINI.md — global project-level rules
@@ -50,7 +51,7 @@ export class AntigravityAdapter implements RuleFormatAdapter {
 
     const files: { filePath: string; content: string }[] = [];
 
-    // Generate workspace rules as .agent/rules/*.md
+    // Generate workspace rules as .agents/rules/*.md
     for (const rule of [...projectRules, ...pathRules]) {
       const fm: Record<string, unknown> = {};
       if (rule.description) fm.description = rule.description;
@@ -65,7 +66,7 @@ export class AntigravityAdapter implements RuleFormatAdapter {
         : rule.content;
 
       files.push({
-        filePath: `.agent/rules/${fileName}.md`,
+        filePath: `.agents/rules/${fileName}.md`,
         content: body,
       });
     }

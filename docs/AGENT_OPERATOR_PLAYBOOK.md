@@ -23,7 +23,7 @@ It supports:
 - HTTP MCP service + dashboard (`memorix background start` or `memorix serve-http --port 3211`)
 - bundled terminal agent (`memorix` or `memcode`) that uses the same shared memory pool
 - local-first project-scoped memory
-- cross-agent recall across Cursor, Claude Code, Codex, Windsurf, Gemini CLI, GitHub Copilot, OpenCode, Pi, Kiro, Antigravity, and Trae
+- cross-agent recall across Cursor, Claude Code, Codex, Windsurf, Gemini CLI, GitHub Copilot, OpenCode, OpenClaw, Hermes Agent, Oh-my-Pi, Pi, Kiro, Antigravity, and Trae
 
 ### Current 1.1 Baseline
 
@@ -38,7 +38,7 @@ For the 1.1 release line, the visible product shape is:
 - model lanes are separate: `[memory.llm]` for formation/rerank/summaries, `[embedding]` for semantic search, `[agent]` for the model memcode talks to while coding
 - legacy `memorix.yml`, `.env`, and `~/.memorix/config.json` are compatibility inputs, not the recommended setup path
 - generated agent rules treat `memorix_session_start` as optional unless explicit session semantics matter
-- integration surfaces are agent-specific: Claude Code, Codex, and GitHub Copilot CLI receive plugin packages; Pi receives a user-level package when setup runs with `--global`; Gemini CLI receives an extension package; OpenCode receives a plugin file and skill; Cursor and other agents receive MCP/rules/hooks where supported
+- integration surfaces are agent-specific: Claude Code, Codex, GitHub Copilot CLI, Antigravity, and Hermes receive plugin packages; OpenClaw receives a compatible bundle; Pi and Oh-my-Pi receive package entries; Gemini CLI receives an extension package; OpenCode receives a plugin file and skill; Cursor and other agents receive MCP/rules/hooks where supported
 - privacy-safe diagnostics and receipts avoid raw chat, memory text, query text, tool payloads, and local file paths
 
 ---
@@ -226,6 +226,9 @@ memorix setup --agent cursor --global
 memorix setup --agent pi --global
 memorix setup --agent gemini-cli --global
 memorix setup --agent opencode --global
+memorix setup --agent openclaw --global
+memorix setup --agent hermes --global
+memorix setup --agent omp --global
 ```
 
 What this installs depends on the target agent:
@@ -235,9 +238,13 @@ What this installs depends on the target agent:
 - GitHub Copilot CLI: local plugin package under `~/.copilot/plugins/local/memorix`, best-effort `copilot plugin install <local-path>`, plugin-bundled stdio MCP, hooks, and skills.
 - Cursor: Cursor MCP config, `.cursor/rules/memorix.mdc`, skills, and hook guidance through Cursor's project config surfaces.
 - Pi: user Pi package with extension-based hook capture and a Memorix skill, registered through `pi install <path> --approve`; project-local setup uses `-l`.
-- Gemini CLI: local extension package under `~/.gemini/extensions/memorix`, extension-bundled stdio MCP and `GEMINI.md` context.
+- Gemini CLI: local extension package under `~/.gemini/extensions/memorix`, extension-bundled stdio MCP, `GEMINI.md` context, hooks, commands, and skills. Antigravity CLI has an official Gemini CLI migration path, but Gemini CLI remains a separate target.
 - OpenCode: local plugin file, `opencode.json` MCP config, OpenCode skill, plus `AGENTS.md` guidance.
-- Windsurf, Kiro, Antigravity, Trae: MCP config plus rules/hooks where supported.
+- Antigravity: native plugin under `~/.gemini/config/plugins/memorix` or `.agents/plugins/memorix`, with `plugin.json`, `mcp_config.json`, `hooks.json`, rules, and skills.
+- OpenClaw: OpenClaw-compatible bundle under `~/.openclaw/extensions/memorix`, bundled `.mcp.json`, skills, and OpenClaw `HOOK.md`/`handler.ts` hook pack.
+- Hermes Agent: Hermes plugin under Hermes home (`%LOCALAPPDATA%\hermes` on native Windows, `~/.hermes` elsewhere, or `HERMES_HOME`), enabled in `config.yaml`, with plugin hooks, slash command, CLI command, skills, and MCP config.
+- Oh-my-Pi: `omp.extensions` package linked through `omp plugin link <path>` when available, with extension hook events, a `memorix` command, skills, and MCP config.
+- Windsurf, Kiro, Trae: MCP config plus rules/hooks where supported.
 
 Run the same setup command without `--global` only when you intentionally want repo-local guidance, rules, or hooks for a single Git project.
 

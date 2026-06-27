@@ -127,7 +127,7 @@ function getAgentHint(agent: string): string {
     opencode: 'plugin + AGENTS.md',
     kiro: 'hook files + steering',
     codex: 'AGENTS.md',
-    antigravity: 'settings + GEMINI.md',
+    antigravity: 'plugin + MCP + hooks + skills',
     'gemini-cli': 'settings + GEMINI.md',
     trae: 'rules',
   };

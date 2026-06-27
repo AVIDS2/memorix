@@ -15,6 +15,8 @@ import path from 'node:path';
 import os from 'node:os';
 import { resetObservationStore } from '../../src/store/obs-store.js';
 import { initTeamStore, resetTeamStore } from '../../src/team/team-store.js';
+import { resetProvider } from '../../src/embedding/provider.js';
+import { resetConfigCache } from '../../src/config.js';
 
 // ── Test setup ────────────────────────────────────────────────────
 
@@ -26,6 +28,37 @@ let dataDir: string;
 let dashboardServer: Server | null = null;
 const originalHome = process.env.HOME;
 const originalUserProfile = process.env.USERPROFILE;
+const EMBEDDING_ENV_KEYS = [
+  'MEMORIX_EMBEDDING',
+  'MEMORIX_EMBEDDING_API_KEY',
+  'MEMORIX_EMBEDDING_BASE_URL',
+  'MEMORIX_EMBEDDING_MODEL',
+  'MEMORIX_EMBEDDING_DIMENSIONS',
+];
+let savedEmbeddingEnv: Record<string, string | undefined> = {};
+
+function forceEmbeddingOffForTest(): void {
+  savedEmbeddingEnv = {};
+  for (const key of EMBEDDING_ENV_KEYS) {
+    savedEmbeddingEnv[key] = process.env[key];
+    delete process.env[key];
+  }
+  process.env.MEMORIX_EMBEDDING = 'off';
+  resetConfigCache();
+  resetProvider();
+}
+
+function restoreEmbeddingEnv(): void {
+  resetProvider();
+  for (const key of EMBEDDING_ENV_KEYS) {
+    if (savedEmbeddingEnv[key] === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = savedEmbeddingEnv[key];
+    }
+  }
+  resetConfigCache();
+}
 
 async function fetchJson(urlPath: string, init?: RequestInit): Promise<{ status: number; body: any }> {
   const res = await fetch(`${DASH_BASE}${urlPath}`, init);
@@ -40,6 +73,8 @@ describe('Standalone Dashboard Project Scope', () => {
   const PROJECT_B = 'test-org/project-b';
 
   beforeAll(async () => {
+    forceEmbeddingOffForTest();
+
     tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'memorix-dash-test-'));
     dataDir = path.join(tempDir, '.memorix', 'data');
     await fs.mkdir(dataDir, { recursive: true });
@@ -102,6 +137,7 @@ describe('Standalone Dashboard Project Scope', () => {
   afterAll(async () => {
     resetObservationStore();
     resetTeamStore();
+    restoreEmbeddingEnv();
     process.env.HOME = originalHome;
     process.env.USERPROFILE = originalUserProfile;
     // The dashboard server doesn't expose a close method, but the process cleanup will handle it

@@ -2,9 +2,9 @@
 //
 // Covers:
 // - GEMINI.md parsing (global rules)
-// - .agent/rules/ parsing (workspace rules with/without frontmatter)
+// - .agents/rules/ parsing (workspace rules with/without frontmatter)
 // - SKILL.md parsing (skills with YAML frontmatter)
-// - Rule generation (unified to .agent/rules/)
+// - Rule generation (unified to .agents/rules/)
 
 import { describe, it, expect } from 'vitest';
 import { AntigravityAdapter } from '../../src/rules/adapters/antigravity.js';
@@ -23,6 +23,8 @@ describe('AntigravityAdapter', () => {
 
     it('should have correct file patterns', () => {
         expect(adapter.filePatterns).toContain('GEMINI.md');
+        expect(adapter.filePatterns).toContain('.agents/rules/*.md');
+        expect(adapter.filePatterns).toContain('.agents/skills/*/SKILL.md');
         expect(adapter.filePatterns).toContain('.agent/rules/*.md');
         expect(adapter.filePatterns).toContain('.agent/skills/*/SKILL.md');
     });
@@ -54,16 +56,16 @@ describe('AntigravityAdapter', () => {
     });
 
     // ============================================================
-    // .agent/rules/*.md parsing
+    // .agents/rules/*.md parsing
     // ============================================================
 
-    describe('.agent/rules/*.md parsing', () => {
+    describe('.agents/rules/*.md parsing', () => {
         it('should parse plain markdown workspace rule', () => {
             const content = `# Coding Standards
 Always use TypeScript strict mode.
 No any types allowed.`;
 
-            const rules = adapter.parse('.agent/rules/coding-standards.md', content);
+            const rules = adapter.parse('.agents/rules/coding-standards.md', content);
             expect(rules).toHaveLength(1);
             expect(rules[0].source).toBe('antigravity');
             expect(rules[0].scope).toBe('project');
@@ -78,20 +80,26 @@ description: Code review guidelines
 Always review PRs within 24 hours.
 Check for security vulnerabilities.`;
 
-            const rules = adapter.parse('.agent/rules/review.md', content);
+            const rules = adapter.parse('.agents/rules/review.md', content);
             expect(rules).toHaveLength(1);
             expect(rules[0].description).toBe('Code review guidelines');
             expect(rules[0].content).toContain('Always review PRs within 24 hours');
         });
 
         it('should return empty for empty workspace rule', () => {
-            const rules = adapter.parse('.agent/rules/empty.md', '---\ndescription: test\n---\n   ');
+            const rules = adapter.parse('.agents/rules/empty.md', '---\ndescription: test\n---\n   ');
             expect(rules).toHaveLength(0);
+        });
+
+        it('should still parse legacy .agent/rules files', () => {
+            const rules = adapter.parse('.agent/rules/legacy.md', 'legacy rule');
+            expect(rules).toHaveLength(1);
+            expect(rules[0].source).toBe('antigravity');
         });
     });
 
     // ============================================================
-    // .agent/skills/*/SKILL.md parsing
+    // .agents/skills/*/SKILL.md parsing
     // ============================================================
 
     describe('SKILL.md parsing', () => {
@@ -107,7 +115,7 @@ description: Use when writing tests - establishes TDD workflow
 2. Implement minimum code to pass
 3. Refactor`;
 
-            const rules = adapter.parse('.agent/skills/test-driven-development/SKILL.md', content);
+            const rules = adapter.parse('.agents/skills/test-driven-development/SKILL.md', content);
             expect(rules).toHaveLength(1);
             expect(rules[0].source).toBe('antigravity');
             expect(rules[0].description).toBe('Use when writing tests - establishes TDD workflow');
@@ -122,7 +130,7 @@ name: quick-skill
 
 Just do it.`;
 
-            const rules = adapter.parse('.agent/skills/quick-skill/SKILL.md', content);
+            const rules = adapter.parse('.agents/skills/quick-skill/SKILL.md', content);
             expect(rules).toHaveLength(1);
             expect(rules[0].description).toBeUndefined();
             expect(rules[0].content).toBe('Just do it.');
@@ -134,7 +142,7 @@ name: empty-skill
 description: This skill has no body
 ---
 `;
-            const rules = adapter.parse('.agent/skills/empty-skill/SKILL.md', content);
+            const rules = adapter.parse('.agents/skills/empty-skill/SKILL.md', content);
             expect(rules).toHaveLength(0);
         });
     });
@@ -146,7 +154,7 @@ description: This skill has no body
     describe('hash consistency', () => {
         it('should produce same hash for same content', () => {
             const rules1 = adapter.parse('GEMINI.md', 'use strict mode');
-            const rules2 = adapter.parse('.agent/rules/strict.md', 'use strict mode');
+            const rules2 = adapter.parse('.agents/rules/strict.md', 'use strict mode');
             expect(rules1[0].hash).toBe(rules2[0].hash);
         });
 
@@ -162,7 +170,7 @@ description: This skill has no body
     // ============================================================
 
     describe('generate()', () => {
-        it('should generate .agent/rules/*.md files', () => {
+        it('should generate .agents/rules/*.md files', () => {
             const rules: UnifiedRule[] = [
                 {
                     id: 'antigravity:coding-standards',
@@ -176,7 +184,7 @@ description: This skill has no body
 
             const files = adapter.generate(rules);
             expect(files).toHaveLength(1);
-            expect(files[0].filePath).toMatch(/^\.agent\/rules\/.+\.md$/);
+            expect(files[0].filePath).toMatch(/^\.agents\/rules\/.+\.md$/);
             expect(files[0].content).toContain('Always use TypeScript strict mode');
         });
 
@@ -222,9 +230,9 @@ description: This skill has no body
 
             const files = adapter.generate(rules);
             expect(files).toHaveLength(2);
-            // All should go to .agent/rules/
+            // All should go to .agents/rules/
             for (const f of files) {
-                expect(f.filePath).toMatch(/^\.agent\/rules\/.+\.md$/);
+                expect(f.filePath).toMatch(/^\.agents\/rules\/.+\.md$/);
             }
         });
 

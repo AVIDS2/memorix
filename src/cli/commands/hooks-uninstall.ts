@@ -14,7 +14,7 @@ export default defineCommand({
   args: {
     agent: {
       type: 'string',
-      description: 'Target agent (claude|copilot|windsurf|cursor|kiro|codex)',
+      description: 'Target agent (standalone hooks only; package-owned targets return SKIP)',
       required: false,
     },
     global: {

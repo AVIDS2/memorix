@@ -1,0 +1,40 @@
+{
+  "name": "memorix",
+  "version": "1.1.1",
+  "description": "Shared workspace memory for OpenClaw and other AI coding agents.",
+  "author": {
+    "name": "AVIDS2",
+    "url": "https://github.com/AVIDS2"
+  },
+  "homepage": "https://github.com/AVIDS2/memorix#readme",
+  "repository": "https://github.com/AVIDS2/memorix",
+  "license": "Apache-2.0",
+  "keywords": [
+    "memory",
+    "mcp",
+    "openclaw",
+    "coding-agents"
+  ],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "hooks": "./hooks/",
+  "interface": {
+    "displayName": "Memorix",
+    "shortDescription": "Shared local memory for OpenClaw.",
+    "longDescription": "Memorix gives OpenClaw durable workspace memory through MCP tools, bundled skills, and an OpenClaw hook pack.",
+    "developerName": "AVIDS2",
+    "category": "Developer Tools",
+    "capabilities": [
+      "MCP",
+      "Skills",
+      "Hooks"
+    ],
+    "websiteURL": "https://github.com/AVIDS2/memorix",
+    "brandColor": "#2563EB",
+    "defaultPrompt": [
+      "Use Memorix to recover prior workspace context.",
+      "Store the key decision from this session in Memorix.",
+      "Search Memorix before continuing previous work."
+    ]
+  }
+}

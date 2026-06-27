@@ -3,20 +3,18 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 
 /**
- * Antigravity IDE MCP Configuration Adapter.
+ * Antigravity MCP Configuration Adapter.
  *
- * Antigravity uses two JSON config files for MCP servers:
- * 1. Global MCP: ~/.gemini/antigravity/mcp_config.json
- *    Format: { "mcpServers": { "name": { command, args, env? } } }
+ * Antigravity 2.0 / IDE / CLI use dedicated MCP config files:
+ * - Global:    ~/.gemini/config/mcp_config.json
+ * - Workspace: .agents/mcp_config.json
  *
- * 2. Global settings: ~/.gemini/settings.json
- *    Format: { "mcpServers": { "name": { command, args, env? } } }
+ * Legacy Gemini CLI settings.json and the older
+ * ~/.gemini/antigravity/mcp_config.json location are read by workspace
+ * scanning for compatibility, but new writes should use the official
+ * dedicated mcp_config.json profiles.
  *
- * The mcp_config.json format is the primary config, same JSON structure
- * as Windsurf but at a different path. Also supports HTTP transport via url.
- *
- * Source: Antigravity official documentation (https://antigravity.google/docs/agent/mcp)
- * Verified on local machine: C:\Users\<USER>\.gemini\antigravity\mcp_config.json
+ * Source: https://antigravity.google/docs/mcp
  */
 export class AntigravityMCPAdapter implements MCPConfigAdapter {
     readonly source = 'antigravity' as const;
@@ -68,7 +66,7 @@ export class AntigravityMCPAdapter implements MCPConfigAdapter {
 
             if (s.url) {
                 // HTTP transport
-                entry.url = s.url;
+                entry.serverUrl = s.url;
                 if (s.headers && Object.keys(s.headers).length > 0) {
                     entry.headers = s.headers;
                 }
@@ -93,10 +91,10 @@ export class AntigravityMCPAdapter implements MCPConfigAdapter {
 
     getConfigPath(projectRoot?: string): string {
         if (projectRoot) {
-            // Project-level: .gemini/settings.json (shared with hooks)
-            return join(projectRoot, '.gemini', 'settings.json');
+            // Workspace-level Antigravity MCP profile.
+            return join(projectRoot, '.agents', 'mcp_config.json');
         }
-        // Global: ~/.gemini/settings.json
-        return join(homedir(), '.gemini', 'settings.json');
+        // Global Antigravity MCP profile.
+        return join(homedir(), '.gemini', 'config', 'mcp_config.json');
     }
 }

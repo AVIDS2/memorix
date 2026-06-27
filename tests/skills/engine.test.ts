@@ -81,7 +81,7 @@ describe('SkillsEngine', () => {
             expect(skills[0].sourceAgent).toBe('codex');
         });
 
-        it('should discover from .agent/skills (antigravity)', () => {
+        it('should discover from legacy .agent/skills (antigravity)', () => {
             const skillDir = join(tmpDir, '.agent', 'skills', 'code-review');
             mkdirSync(skillDir, { recursive: true });
             writeFileSync(join(skillDir, 'SKILL.md'), [
@@ -329,7 +329,7 @@ describe('SkillsEngine', () => {
 
             const result = engine.writeSkill(skill, 'antigravity');
             expect(result).not.toBeNull();
-            expect(result!.replace(/\\/g, '/')).toContain('.agent/skills/test-skill/SKILL.md');
+            expect(result!.replace(/\\/g, '/')).toContain('.agents/skills/test-skill/SKILL.md');
         });
     });
 });

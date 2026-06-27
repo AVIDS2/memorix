@@ -223,7 +223,7 @@ memcode update self
 
 Memorix is the shared memory layer. memcode is the bundled terminal agent built on top of it.
 
-Use Memorix when you want Claude Code, Codex, Cursor, Windsurf, Copilot, Gemini CLI, OpenCode, Kiro, Antigravity, Trae, or another MCP client to share project memory.
+Use Memorix when you want Claude Code, Codex, Cursor, Windsurf, Copilot, Gemini CLI, OpenCode, OpenClaw, Hermes Agent, Oh-my-Pi, Kiro, Antigravity, Trae, or another MCP client to share project memory.
 
 Use memcode when you want a terminal agent that already uses that memory layer.
 

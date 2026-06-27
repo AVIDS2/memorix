@@ -311,7 +311,7 @@ confidence = baseConfidence + matchCount × 0.05
 | Claude Code | JSON (`claude_desktop_config.json`) | 平台特定 |
 | Codex | TOML | `codex.toml` |
 | Copilot | JSON | `.github/copilot/mcp.json` |
-| Antigravity | JSON | `~/.gemini/antigravity/mcp_config.json` |
+| Antigravity | JSON | `~/.gemini/config/mcp_config.json` or `.agents/mcp_config.json` |
 
 ### Workflow 同步
 - 扫描 Windsurf 的 `.windsurf/workflows/` 目录

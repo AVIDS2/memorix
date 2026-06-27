@@ -16,7 +16,7 @@ export default defineCommand({
   args: {
     agent: {
       type: 'string',
-      description: 'Target agent (skip TUI selection)',
+      description: 'Target agent (skip TUI selection; package-owned targets point to setup)',
       required: false,
     },
     global: {
@@ -149,6 +149,9 @@ function getAgentLabel(agent: string): string {
     kiro: 'Kiro',
     antigravity: 'Antigravity',
     'gemini-cli': 'Gemini CLI',
+    openclaw: 'OpenClaw',
+    hermes: 'Hermes Agent',
+    omp: 'Oh-my-Pi',
     trae: 'Trae',
   };
   return labels[agent] || agent;
@@ -162,8 +165,11 @@ function getAgentHint(agent: string): string {
     copilot: '.github/hooks/memorix.json (project-only, no global)',
     opencode: '.opencode/plugins/memorix.js',
     kiro: '.kiro/hooks/memorix-agent-stop.kiro.hook',
-    antigravity: '.gemini/settings.json',
+    antigravity: '.agents/hooks.json or ~/.gemini/config/hooks.json',
     'gemini-cli': '.gemini/settings.json',
+    openclaw: 'OpenClaw bundle hooks; use `memorix setup --agent openclaw`',
+    hermes: 'Hermes plugin hooks; use `memorix setup --agent hermes`',
+    omp: 'Oh-my-Pi package hooks; use `memorix setup --agent omp`',
     trae: '.trae/rules/project_rules.md (rules only, no hooks system)',
     codex: 'AGENTS.md (rules only, hooks are experimental)',
   };

@@ -1,0 +1,22 @@
+{
+  "name": "memorix-omp-package",
+  "version": "1.1.1",
+  "description": "Memorix shared workspace memory package for Oh-my-Pi.",
+  "license": "Apache-2.0",
+  "keywords": [
+    "oh-my-pi",
+    "omp-plugin",
+    "memorix",
+    "agent-memory",
+    "coding-agent"
+  ],
+  "type": "module",
+  "peerDependencies": {
+    "oh-my-pi": "*"
+  },
+  "omp": {
+    "extensions": [
+      "./extensions/memorix.js"
+    ]
+  }
+}

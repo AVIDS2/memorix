@@ -18,6 +18,9 @@ import { ClaudeCodeMCPAdapter } from './mcp-adapters/claude-code.js';
 import { CopilotMCPAdapter } from './mcp-adapters/copilot.js';
 import { AntigravityMCPAdapter } from './mcp-adapters/antigravity.js';
 import { GeminiCLIMCPAdapter } from './mcp-adapters/gemini-cli.js';
+import { OpenClawMCPAdapter } from './mcp-adapters/openclaw.js';
+import { HermesMCPAdapter } from './mcp-adapters/hermes.js';
+import { OmpMCPAdapter } from './mcp-adapters/omp.js';
 import { KiroMCPAdapter } from './mcp-adapters/kiro.js';
 import { OpenCodeMCPAdapter } from './mcp-adapters/opencode.js';
 import { TraeMCPAdapter } from './mcp-adapters/trae.js';
@@ -57,6 +60,9 @@ export class WorkspaceSyncEngine {
       ['copilot', new CopilotMCPAdapter()],
       ['antigravity', new AntigravityMCPAdapter()],
       ['gemini-cli', new GeminiCLIMCPAdapter()],
+      ['openclaw', new OpenClawMCPAdapter()],
+      ['hermes', new HermesMCPAdapter()],
+      ['omp', new OmpMCPAdapter()],
       ['kiro', new KiroMCPAdapter()],
       ['opencode', new OpenCodeMCPAdapter()],
       ['trae', new TraeMCPAdapter()],
@@ -77,6 +83,9 @@ export class WorkspaceSyncEngine {
       copilot: [],
       antigravity: [],
       'gemini-cli': [],
+      openclaw: [],
+      hermes: [],
+      omp: [],
       kiro: [],
       opencode: [],
       trae: [],
@@ -89,8 +98,11 @@ export class WorkspaceSyncEngine {
 
       const pathsToCheck = [configPath, globalPath];
 
-      // Antigravity has an additional config at ~/.gemini/antigravity/mcp_config.json
+      // Antigravity 2.0 writes dedicated profiles; keep old Gemini paths readable
+      // so existing users do not disappear from scans after upgrading.
       if (target === 'antigravity') {
+        pathsToCheck.push(join(this.projectRoot, '.gemini', 'settings.json'));
+        pathsToCheck.push(join(homedir(), '.gemini', 'settings.json'));
         pathsToCheck.push(join(homedir(), '.gemini', 'antigravity', 'mcp_config.json'));
       }
 
@@ -229,8 +241,11 @@ export class WorkspaceSyncEngine {
     windsurf: ['.windsurf/skills'],
     'claude-code': ['.claude/skills'],
     copilot: ['.github/skills', '.copilot/skills'],
-    antigravity: ['.agent/skills', '.gemini/skills', '.gemini/antigravity/skills'],
+    antigravity: ['.agents/skills', '.agent/skills', '.gemini/antigravity-cli/skills', '.gemini/skills', '.gemini/antigravity/skills'],
     'gemini-cli': [],
+    openclaw: [],
+    hermes: [],
+    omp: [],
     kiro: ['.kiro/skills'],
     opencode: ['.opencode/skills'],
     trae: ['.trae/skills'],
@@ -446,7 +461,7 @@ export class WorkspaceSyncEngine {
   // ---- Private helpers ----
 
   private agentToRuleSource(target: AgentTarget): RuleSource | null {
-    const map: Record<AgentTarget, RuleSource> = {
+    const map: Partial<Record<AgentTarget, RuleSource>> = {
       cursor: 'cursor',
       'claude-code': 'claude-code',
       codex: 'codex',

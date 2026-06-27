@@ -7,8 +7,12 @@ import path from 'node:path';
 import {
   buildSetupPlan,
   getSetupIntegrationRows,
+  installAntigravityPluginPackage,
   installMcpConfig,
   installGeminiExtensionPackage,
+  installHermesPluginPackage,
+  installOmpPackage,
+  installOpenClawBundlePackage,
   installPiPackage,
   installPluginPackage,
   getSetupAgentTargets,
@@ -62,6 +66,9 @@ describe('setup command planning', () => {
     expect(getSetupAgentTargets()).toContain('copilot');
     expect(getSetupAgentTargets()).toContain('cursor');
     expect(getSetupAgentTargets()).toContain('gemini-cli');
+    expect(getSetupAgentTargets()).toContain('openclaw');
+    expect(getSetupAgentTargets()).toContain('hermes');
+    expect(getSetupAgentTargets()).toContain('omp');
     expect(getSetupAgentTargets()).toContain('opencode');
     expect(getSetupAgentTargets()).toContain('pi');
   });
@@ -73,6 +80,20 @@ describe('setup command planning', () => {
     expect(buildSetupPlan({ agent: 'opencode', mcp: 'stdio' }).actions).toContain('opencode-local-plugin');
     expect(buildSetupPlan({ agent: 'pi', mcp: 'none' }).actions).toContain('pi-package');
     expect(buildSetupPlan({ agent: 'windsurf', mcp: 'stdio' }).actions).not.toContain('plugin-package');
+  });
+
+  it('uses native package lanes for Antigravity, OpenClaw, Hermes, and Oh-my-Pi', () => {
+    expect(buildSetupPlan({ agent: 'antigravity', mcp: 'stdio' }).actions).toContain('antigravity-plugin');
+    expect(buildSetupPlan({ agent: 'openclaw', mcp: 'stdio' }).actions).toContain('openclaw-bundle');
+    expect(buildSetupPlan({ agent: 'hermes', mcp: 'stdio' }).actions).toContain('hermes-plugin');
+    expect(buildSetupPlan({ agent: 'omp', mcp: 'stdio' }).actions).toContain('omp-package');
+
+    for (const agent of ['antigravity', 'openclaw', 'hermes', 'omp'] as const) {
+      const plan = buildSetupPlan({ agent, mcp: 'stdio' });
+      expect(plan.actions).toContain('mcp-stdio');
+      expect(plan.actions).not.toContain('project-guidance');
+      expect(plan.actions).not.toContain('hooks');
+    }
   });
 
   it('exposes a user-facing setup integration matrix', () => {
@@ -89,7 +110,23 @@ describe('setup command planning', () => {
       entry: 'official-extension',
       status: 'ready',
     });
+    expect(rows.find((row) => row.agent === 'antigravity')).toMatchObject({
+      entry: 'official-plugin',
+      status: 'ready',
+    });
     expect(rows.find((row) => row.agent === 'pi')).toMatchObject({
+      entry: 'official-package',
+      status: 'ready',
+    });
+    expect(rows.find((row) => row.agent === 'openclaw')).toMatchObject({
+      entry: 'official-bundle',
+      status: 'ready',
+    });
+    expect(rows.find((row) => row.agent === 'hermes')).toMatchObject({
+      entry: 'official-plugin',
+      status: 'ready',
+    });
+    expect(rows.find((row) => row.agent === 'omp')).toMatchObject({
       entry: 'official-package',
       status: 'ready',
     });
@@ -221,6 +258,51 @@ describe('plugin package installer', () => {
 });
 
 describe('extension package installer', () => {
+  it('installs the Antigravity plugin package into the official plugin folder', async () => {
+    const tmpDir = makeTmpDir();
+    try {
+      const result = await installAntigravityPluginPackage({
+        homeDir: tmpDir,
+        global: true,
+      });
+      const pluginPath = path.join(tmpDir, '.gemini', 'config', 'plugins', 'memorix');
+      const hooks = JSON.parse(await fs.readFile(path.join(pluginPath, 'hooks.json'), 'utf-8'));
+
+      expect(result.pluginPath).toBe(pluginPath);
+      expect(JSON.parse(await fs.readFile(path.join(pluginPath, 'plugin.json'), 'utf-8'))).toMatchObject({
+        name: 'memorix',
+      });
+      expect(JSON.parse(await fs.readFile(path.join(pluginPath, 'mcp_config.json'), 'utf-8')).mcpServers.memorix).toMatchObject({
+        command: 'memorix',
+        args: ['serve'],
+      });
+      expect(hooks.memorix.PreInvocation[0].command).toContain('--event PreInvocation');
+      expect(hooks.memorix.PreToolUse[0].hooks[0].command).toContain('--event PreToolUse');
+      expect(await fs.readFile(path.join(pluginPath, 'rules', 'memorix.md'), 'utf-8')).toContain('memorix_search');
+      await expectOfficialSkills(path.join(pluginPath, 'skills'));
+    } finally {
+      await cleanup(tmpDir);
+    }
+  });
+
+  it('installs the Antigravity plugin package into the workspace plugin folder', async () => {
+    const tmpDir = makeTmpDir();
+    try {
+      const result = await installAntigravityPluginPackage({
+        projectRoot: tmpDir,
+        global: false,
+        includeHooks: false,
+      });
+      const pluginPath = path.join(tmpDir, '.agents', 'plugins', 'memorix');
+
+      expect(result.pluginPath).toBe(pluginPath);
+      await expect(fs.access(path.join(pluginPath, 'hooks.json'))).rejects.toThrow();
+      await expectOfficialSkills(path.join(pluginPath, 'skills'));
+    } finally {
+      await cleanup(tmpDir);
+    }
+  });
+
   it('installs the Gemini CLI extension package into the official extension folder', async () => {
     const tmpDir = makeTmpDir();
     try {
@@ -265,6 +347,92 @@ describe('extension package installer', () => {
       expect(await fs.readFile(extension, 'utf-8')).toContain("hook_event_name: 'pi.tool_result'");
       expect(await fs.readFile(skill, 'utf-8')).toContain('name: memorix-memory');
       await expectOfficialSkills(skillsRoot);
+    } finally {
+      await cleanup(tmpDir);
+    }
+  });
+
+  it('installs the OpenClaw-compatible bundle package', async () => {
+    const tmpDir = makeTmpDir();
+    try {
+      const result = await installOpenClawBundlePackage({ homeDir: tmpDir });
+      const bundlePath = path.join(tmpDir, '.openclaw', 'extensions', 'memorix');
+      const manifest = JSON.parse(await fs.readFile(path.join(bundlePath, '.codex-plugin', 'plugin.json'), 'utf-8'));
+      const hookMetadata = await fs.readFile(path.join(bundlePath, 'hooks', 'memorix', 'HOOK.md'), 'utf-8');
+      const hookHandler = await fs.readFile(path.join(bundlePath, 'hooks', 'memorix', 'handler.ts'), 'utf-8');
+
+      expect(result.bundlePath).toBe(bundlePath);
+      expect(manifest.name).toBe('memorix');
+      expect(manifest.interface.capabilities).toContain('Hooks');
+      expect(hookMetadata).toContain('name: memorix');
+      expect(hookMetadata).toContain('agent:bootstrap');
+      expect(hookHandler).toContain("memorix hook --agent openclaw");
+      await expectOfficialSkills(path.join(bundlePath, 'skills'));
+      expect(JSON.parse(await fs.readFile(path.join(bundlePath, '.mcp.json'), 'utf-8')).mcpServers.memorix).toMatchObject({
+        command: 'memorix',
+        args: ['serve'],
+      });
+    } finally {
+      await cleanup(tmpDir);
+    }
+  });
+
+  it('can install the OpenClaw-compatible bundle without hook capture files', async () => {
+    const tmpDir = makeTmpDir();
+    try {
+      const result = await installOpenClawBundlePackage({ homeDir: tmpDir, includeHooks: false });
+      const manifest = JSON.parse(await fs.readFile(path.join(result.bundlePath, '.codex-plugin', 'plugin.json'), 'utf-8'));
+
+      expect(manifest.interface.capabilities).not.toContain('Hooks');
+      await expect(fs.access(path.join(result.bundlePath, 'hooks'))).rejects.toThrow();
+      await expectOfficialSkills(path.join(result.bundlePath, 'skills'));
+    } finally {
+      await cleanup(tmpDir);
+    }
+  });
+
+  it('installs the Hermes plugin package and enables it in config.yaml', async () => {
+    const tmpDir = makeTmpDir();
+    try {
+      const result = await installHermesPluginPackage({ homeDir: tmpDir });
+      const pluginPath = path.join(tmpDir, '.hermes', 'plugins', 'memorix');
+      const manifest = await fs.readFile(path.join(pluginPath, 'plugin.yaml'), 'utf-8');
+      const pluginCode = await fs.readFile(path.join(pluginPath, '__init__.py'), 'utf-8');
+      const config = await fs.readFile(path.join(tmpDir, '.hermes', 'config.yaml'), 'utf-8');
+
+      expect(result.pluginPath).toBe(pluginPath);
+      expect(manifest).toContain('name: memorix');
+      expect(manifest).toContain('provides_hooks:');
+      expect(pluginCode).toContain('ctx.register_hook("pre_llm_call"');
+      expect(pluginCode).toContain('ctx.register_command("memorix"');
+      expect(pluginCode).toContain('ctx.register_cli_command("memorix"');
+      expect(pluginCode).toContain('ctx.register_skill(child.name, skill_md)');
+      expect(config).toContain('enabled:');
+      expect(config).toContain('- memorix');
+      await expectOfficialSkills(path.join(pluginPath, 'skills'));
+    } finally {
+      await cleanup(tmpDir);
+    }
+  });
+
+  it('installs the Oh-my-Pi extension package template with omp manifest fields', async () => {
+    const tmpDir = makeTmpDir();
+    try {
+      const packageDir = path.join(tmpDir, 'memorix-omp-package');
+      const result = await installOmpPackage({ packageDir });
+      const manifest = JSON.parse(await fs.readFile(path.join(packageDir, 'package.json'), 'utf-8'));
+      const extension = await fs.readFile(path.join(packageDir, 'extensions', 'memorix.js'), 'utf-8');
+
+      expect(result.packagePath).toBe(packageDir);
+      expect(manifest).toMatchObject({
+        name: 'memorix-omp-package',
+        omp: {
+          extensions: ['./extensions/memorix.js'],
+        },
+      });
+      expect(extension).toContain("hook_event_name: 'omp.tool_result'");
+      expect(extension).toContain("pi.registerCommand('memorix'");
+      await expectOfficialSkills(path.join(packageDir, 'skills'));
     } finally {
       await cleanup(tmpDir);
     }

@@ -17,7 +17,21 @@ export type HookEvent =
   | 'post_response';
 
 /** Supported agent identifiers */
-export type AgentName = 'claude' | 'copilot' | 'windsurf' | 'cursor' | 'kiro' | 'codex' | 'antigravity' | 'gemini-cli' | 'opencode' | 'trae' | 'pi';
+export type AgentName =
+  | 'claude'
+  | 'copilot'
+  | 'windsurf'
+  | 'cursor'
+  | 'kiro'
+  | 'codex'
+  | 'antigravity'
+  | 'gemini-cli'
+  | 'openclaw'
+  | 'hermes'
+  | 'opencode'
+  | 'trae'
+  | 'pi'
+  | 'omp';
 
 /** Support tier for hook agents */
 export type SupportTier = 'core' | 'extended' | 'community';
@@ -31,9 +45,12 @@ export const AGENT_SUPPORT_TIER: Record<AgentName, SupportTier> = {
   kiro: 'extended',
   codex: 'extended',
   'gemini-cli': 'community',
+  openclaw: 'community',
+  hermes: 'community',
   opencode: 'community',
   trae: 'community',
   pi: 'community',
+  omp: 'community',
   antigravity: 'community',
 };
 

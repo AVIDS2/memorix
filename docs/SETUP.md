@@ -68,6 +68,9 @@ memorix setup --agent cursor --global
 memorix setup --agent pi --global
 memorix setup --agent gemini-cli --global
 memorix setup --agent opencode --global
+memorix setup --agent openclaw --global
+memorix setup --agent hermes --global
+memorix setup --agent omp --global
 ```
 
 What this does:
@@ -77,8 +80,12 @@ What this does:
 - GitHub Copilot CLI: installs a local plugin package and attempts `copilot plugin install <local-path>`.
 - Cursor: writes Cursor MCP config, rules, skills, and hook guidance.
 - Pi: installs the user-level Memorix Pi package and attempts `pi install <path> --approve`.
-- Gemini CLI: installs a local extension package under `~/.gemini/extensions/memorix`.
+- Gemini CLI: installs a local extension package under `~/.gemini/extensions/memorix` with MCP, `GEMINI.md`, hooks, commands, and skills. Antigravity CLI has an official Gemini CLI migration path, but Memorix keeps Gemini CLI as its own active standalone target.
 - OpenCode: installs a local plugin file, OpenCode skill, MCP config, and `AGENTS.md` guidance.
+- Antigravity: installs a native plugin under `~/.gemini/config/plugins/memorix` for global setup or `.agents/plugins/memorix` for workspace setup. The plugin bundles `plugin.json`, `mcp_config.json`, `hooks.json`, rules, and skills.
+- OpenClaw: installs `~/.openclaw/extensions/memorix` as an OpenClaw-compatible bundle with bundled stdio MCP, skills, and an OpenClaw `HOOK.md`/`handler.ts` hook pack.
+- Hermes Agent: installs into Hermes home (`%LOCALAPPDATA%\hermes` on native Windows, `~/.hermes` elsewhere, or `HERMES_HOME`), enables it in `config.yaml`, registers plugin hooks, a slash command, a CLI command, skills, and writes MCP config in `mcp_servers`.
+- Oh-my-Pi: installs an `omp.extensions` package, links it with `omp plugin link <path>` when available, and writes `.omp/mcp.json` or `~/.omp/agent/mcp.json` for MCP.
 - Other supported agents: writes their MCP/rules/hooks files according to agent support.
 
 Global setup writes user-level plugin, config, and hook files where the host supports them. Use the same command without `--global` only when you explicitly want repo-local guidance, rules, or hooks for the current project.
@@ -109,7 +116,7 @@ memorix config path
 memorix setup --agent <agent> --global
 ```
 
-Use this for Claude Code, Codex, Cursor, Windsurf, Copilot, Gemini CLI, OpenCode, Pi, Kiro, Antigravity, Trae, or any supported agent. It is the default user-facing install path.
+Use this for Claude Code, Codex, Cursor, Windsurf, Copilot, Gemini CLI, OpenCode, OpenClaw, Hermes Agent, Oh-my-Pi, Pi, Kiro, Antigravity, Trae, or any supported agent. It is the default user-facing install path.
 
 To see the current setup matrix:
 
@@ -375,7 +382,7 @@ pi config --approve
 
 You should see the Memorix extension and the official Memorix skills listed under the Pi package.
 
-### Gemini CLI, OpenCode, Antigravity, Trae, and other MCP clients
+### Gemini CLI, OpenCode, Antigravity, Trae, OpenClaw, Hermes Agent, Oh-my-Pi, and other MCP clients
 
 If the client supports stdio MCP, use:
 
@@ -399,6 +406,30 @@ memorix setup --agent opencode --global
 ```
 
 This writes the OpenCode plugin, skills, MCP config, and `AGENTS.md` guidance in the selected scope.
+
+Antigravity setup installs a native plugin at `~/.gemini/config/plugins/memorix` for global setup or `.agents/plugins/memorix` for workspace setup. The plugin includes stdio MCP, official hooks, rules, and skills:
+
+```bash
+memorix setup --agent antigravity --global
+```
+
+OpenClaw setup installs a compatible bundle at `~/.openclaw/extensions/memorix`, then best-effort runs `openclaw plugins install <path> --force` and `openclaw hooks enable memorix`. The bundle includes stdio MCP, skills, and an OpenClaw `HOOK.md`/`handler.ts` hook pack:
+
+```bash
+memorix setup --agent openclaw --global
+```
+
+Hermes Agent setup installs `plugins/memorix` under Hermes home (`%LOCALAPPDATA%\hermes` on native Windows, `~/.hermes` elsewhere, or `HERMES_HOME`), enables it in `config.yaml`, registers hooks/commands/skills through the plugin, and writes `mcp_servers.memorix`:
+
+```bash
+memorix setup --agent hermes --global
+```
+
+Oh-my-Pi setup installs an `omp.extensions` package, best-effort runs `omp plugin link <path>`, and writes `.omp/mcp.json` for repo-local setup or `~/.omp/agent/mcp.json` with `--global`:
+
+```bash
+memorix setup --agent omp --global
+```
 
 ---
 
@@ -607,7 +638,11 @@ Common MCP config locations:
 | Codex | `~/.codex/config.toml` |
 | VS Code / Copilot | `.vscode/mcp.json` |
 | Kiro | `~/.kiro/settings/mcp.json` or `.kiro/settings/mcp.json` |
-| Gemini CLI / Antigravity | `~/.gemini/settings.json` |
+| Gemini CLI | `~/.gemini/settings.json` |
+| Antigravity | `~/.gemini/config/mcp_config.json`, `~/.gemini/config/hooks.json`, or plugin files under `~/.gemini/config/plugins/memorix` |
+| OpenClaw | `~/.openclaw/openclaw.json` |
+| Hermes Agent | `%LOCALAPPDATA%\hermes\config.yaml` on native Windows, `~/.hermes/config.yaml` elsewhere, or `HERMES_HOME\config.yaml` |
+| Oh-my-Pi | `.omp/mcp.json` or `~/.omp/agent/mcp.json` |
 | Trae | `%APPDATA%/Trae/User/mcp.json` on Windows |
 
 ---

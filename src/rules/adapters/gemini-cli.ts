@@ -8,7 +8,7 @@
  * - .gemini/rules/*.md (workspace rules, Gemini CLI specific path)
  *
  * Distinction from Antigravity:
- * - Antigravity uses `.agent/rules/*.md` for workspace rules
+ * - Antigravity uses `.agents/rules/*.md` for workspace rules
  * - Gemini CLI uses `.gemini/rules/*.md` for workspace rules
  * - Both share `GEMINI.md` as the top-level context file
  *

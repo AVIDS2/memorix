@@ -115,7 +115,7 @@ function detectPwsh(): boolean {
 }
 
 /**
- * Generate Gemini CLI / Antigravity hook config.
+ * Generate legacy Gemini-style hook config.
  * Format: .gemini/settings.json — PascalCase events, timeout in milliseconds
  * See: https://geminicli.com/docs/hooks/
  */
@@ -139,6 +139,36 @@ function generateGeminiConfig(): Record<string, unknown> {
       AfterTool: [entry('memorix-after-tool', 'Record tool usage in memorix')],
       AfterAgent: [entry('memorix-after-agent', 'Record agent response in memorix')],
       PreCompress: [entry('memorix-pre-compress', 'Save context before compression')],
+    },
+  };
+}
+
+/**
+ * Generate Antigravity official hooks.json config.
+ *
+ * Source: https://antigravity.google/docs/hooks
+ */
+function generateAntigravityConfig(): Record<string, unknown> {
+  const command = `${resolveHookCommand()} hook --agent antigravity`;
+
+  function toolEvent(event: string) {
+    return [{
+      matcher: '*',
+      hooks: [{ type: 'command', command: `${command} --event ${event}`, timeout: 10 }],
+    }];
+  }
+
+  function lifecycleEvent(event: string) {
+    return [{ type: 'command', command: `${command} --event ${event}`, timeout: 10 }];
+  }
+
+  return {
+    memorix: {
+      PreInvocation: lifecycleEvent('PreInvocation'),
+      PreToolUse: toolEvent('PreToolUse'),
+      PostToolUse: toolEvent('PostToolUse'),
+      PostInvocation: lifecycleEvent('PostInvocation'),
+      Stop: lifecycleEvent('Stop'),
     },
   };
 }
@@ -297,6 +327,19 @@ const AGENT_SKILL_DIRS: Partial<Record<AgentName, { project: string; global?: st
   opencode: { project: path.join('.opencode', 'skills'), global: path.join('.config', 'opencode', 'skills') },
   trae: { project: path.join('.trae', 'skills'), global: path.join('.trae', 'skills') },
 };
+
+const PACKAGE_OWNED_HOOK_AGENTS = new Set<AgentName>(['openclaw', 'hermes', 'omp']);
+
+function isPackageOwnedHookAgent(agent: AgentName): boolean {
+  return PACKAGE_OWNED_HOOK_AGENTS.has(agent);
+}
+
+function getPackageOwnedHookLabel(agent: AgentName): string {
+  if (agent === 'openclaw') return 'OpenClaw-compatible bundle';
+  if (agent === 'hermes') return 'Hermes plugin';
+  if (agent === 'omp') return 'Oh-my-Pi package';
+  return 'agent package';
+}
 
 async function installOfficialSkillsForAgent(
   agent: AgentName,
@@ -542,8 +585,14 @@ export function getProjectConfigPath(agent: AgentName, projectRoot: string): str
     case 'pi':
       // Pi receives hooks through the Pi package installed by setup.
       return path.join(projectRoot, '.pi', 'packages', 'memorix', 'extensions', 'memorix.js');
+    case 'openclaw':
+      return path.join(os.homedir(), '.openclaw', 'extensions', 'memorix', 'hooks', 'memorix', 'HOOK.md');
+    case 'hermes':
+      return path.join(os.homedir(), '.hermes', 'plugins', 'memorix', 'plugin.yaml');
+    case 'omp':
+      return path.join(projectRoot, '.omp', 'packages', 'memorix', 'extensions', 'memorix.js');
     case 'antigravity':
-      return path.join(projectRoot, '.gemini', 'settings.json');
+      return path.join(projectRoot, '.agents', 'hooks.json');
     case 'gemini-cli':
       return path.join(projectRoot, '.gemini', 'settings.json');
     default:
@@ -573,13 +622,19 @@ export function getGlobalConfigPath(agent: AgentName): string {
     case 'cursor':
       return path.join(home, '.cursor', 'hooks.json');
     case 'antigravity':
-      return path.join(home, '.gemini', 'settings.json');
+      return path.join(home, '.gemini', 'config', 'hooks.json');
     case 'gemini-cli':
       return path.join(home, '.gemini', 'settings.json');
     case 'opencode':
       return path.join(home, '.config', 'opencode', 'plugins', 'memorix.js');
     case 'pi':
       return path.join(home, '.pi', 'agent', 'packages', 'memorix', 'extensions', 'memorix.js');
+    case 'openclaw':
+      return path.join(home, '.openclaw', 'extensions', 'memorix', 'hooks', 'memorix', 'HOOK.md');
+    case 'hermes':
+      return path.join(home, '.hermes', 'plugins', 'memorix', 'plugin.yaml');
+    case 'omp':
+      return path.join(home, '.omp', 'agent', 'packages', 'memorix', 'extensions', 'memorix.js');
     case 'trae':
       return path.join(home, '.trae', 'rules', 'project_rules.md');
     default:
@@ -710,9 +765,8 @@ export async function detectInstalledAgents(): Promise<AgentName[]> {
     agents.push('codex');
   } catch { /* not installed */ }
 
-  // Check for Antigravity (Google's AI IDE)
-  // Antigravity creates ~/.gemini/antigravity/ for its own configs (mcp_config.json, etc.)
-  const antigravityDir = path.join(home, '.gemini', 'antigravity');
+  // Check for Antigravity (Google's AI IDE/CLI)
+  const antigravityDir = path.join(home, '.gemini', 'config');
   try {
     await fs.access(antigravityDir);
     agents.push('antigravity');
@@ -752,6 +806,17 @@ export async function installHooks(
   projectRoot: string,
   global = false,
 ): Promise<AgentHookConfig> {
+  if (isPackageOwnedHookAgent(agent)) {
+    return {
+      agent,
+      configPath: global ? getGlobalConfigPath(agent) : getProjectConfigPath(agent, projectRoot),
+      events: [],
+      generated: {
+        note: `${agent} hooks are provided by the ${getPackageOwnedHookLabel(agent)} installed with \`memorix setup --agent ${agent}\`; no fallback hook files were written.`,
+      },
+    };
+  }
+
   // Guard: reject global install for agents that don't support it
   if (global && getGlobalConfigPath(agent) === '') {
     return {
@@ -805,7 +870,7 @@ export async function installHooks(
       generated = generateCursorConfig();
       break;
     case 'antigravity':
-      generated = generateGeminiConfig();
+      generated = generateAntigravityConfig();
       break;
     case 'gemini-cli':
       generated = generateGeminiCLIConfig();
@@ -922,6 +987,11 @@ export async function installHooks(
         ? existing.hooks as Record<string, unknown>
         : {};
       merged.hooks = { ...existingHooks, ...(gen.hooks as Record<string, unknown>) };
+    }
+
+    // Antigravity official hooks.json maps hook names at the top level.
+    if (agent === 'antigravity' && gen.memorix && typeof gen.memorix === 'object') {
+      merged.memorix = gen.memorix;
     }
 
     // Merge 'tools' key (preserve any user-defined tools config)
@@ -1150,6 +1220,10 @@ export async function uninstallHooks(
   projectRoot: string,
   global = false,
 ): Promise<boolean> {
+  if (isPackageOwnedHookAgent(agent)) {
+    return false;
+  }
+
   // Pi hook capture is owned by the Pi package. Removing it safely requires
   // package removal from Pi settings, not deleting a single hook file.
   if (agent === 'pi') {

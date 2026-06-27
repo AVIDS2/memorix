@@ -17,7 +17,8 @@ import { join } from 'node:path';
  *
  * Format: { "mcpServers": { "name": { command, args, env? } } }
  *
- * Unlike Antigravity, Gemini CLI does NOT use ~/.gemini/antigravity/mcp_config.json.
+ * Unlike Antigravity, Gemini CLI keeps MCP servers in settings.json instead
+ * of dedicated mcp_config.json profiles.
  *
  * Source: https://googlegemini.wiki/gemini-cli/configuration
  */

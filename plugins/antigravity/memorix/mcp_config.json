@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "memorix": {
+      "command": "memorix",
+      "args": [
+        "serve"
+      ]
+    }
+  }
+}

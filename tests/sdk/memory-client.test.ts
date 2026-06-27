@@ -3,6 +3,8 @@ import { MemoryClient, createMemoryClient } from '../../src/sdk.js';
 import { initObservationStore, resetObservationStore } from '../../src/store/obs-store.js';
 import { initObservations, prepareSearchIndex, getAllObservations, getObservation } from '../../src/memory/observations.js';
 import { resetDb } from '../../src/store/orama-store.js';
+import { resetProvider } from '../../src/embedding/provider.js';
+import { resetConfigCache } from '../../src/config.js';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -11,6 +13,38 @@ import { execSync } from 'node:child_process';
 // Shared test data dir
 let testDir: string;
 let dataDir: string;
+
+const EMBEDDING_ENV_KEYS = [
+  'MEMORIX_EMBEDDING',
+  'MEMORIX_EMBEDDING_API_KEY',
+  'MEMORIX_EMBEDDING_BASE_URL',
+  'MEMORIX_EMBEDDING_MODEL',
+  'MEMORIX_EMBEDDING_DIMENSIONS',
+];
+let savedEmbeddingEnv: Record<string, string | undefined> = {};
+
+function forceEmbeddingOffForTest(): void {
+  savedEmbeddingEnv = {};
+  for (const key of EMBEDDING_ENV_KEYS) {
+    savedEmbeddingEnv[key] = process.env[key];
+    delete process.env[key];
+  }
+  process.env.MEMORIX_EMBEDDING = 'off';
+  resetConfigCache();
+  resetProvider();
+}
+
+function restoreEmbeddingEnv(): void {
+  resetProvider();
+  for (const key of EMBEDDING_ENV_KEYS) {
+    if (savedEmbeddingEnv[key] === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = savedEmbeddingEnv[key];
+    }
+  }
+  resetConfigCache();
+}
 
 function createTestGitRepo(): string {
   const dir = mkdtempSync(join(tmpdir(), 'memorix-sdk-test-'));
@@ -23,6 +57,8 @@ function createTestGitRepo(): string {
 
 describe('MemoryClient (unit)', () => {
   beforeEach(async () => {
+    forceEmbeddingOffForTest();
+
     testDir = mkdtempSync(join(tmpdir(), 'memorix-sdk-unit-'));
     dataDir = join(testDir, 'data');
     // Initialize stores for direct MemoryClient construction
@@ -34,6 +70,7 @@ describe('MemoryClient (unit)', () => {
   afterEach(async () => {
     resetObservationStore();
     await resetDb();
+    restoreEmbeddingEnv();
     try { rmSync(testDir, { recursive: true, force: true }); } catch { /* best effort */ }
   });
 
@@ -172,12 +209,14 @@ describe('createMemoryClient (integration)', () => {
   let repoDir: string;
 
   beforeEach(() => {
+    forceEmbeddingOffForTest();
     repoDir = createTestGitRepo();
   });
 
   afterEach(async () => {
     resetObservationStore();
     await resetDb();
+    restoreEmbeddingEnv();
     try { rmSync(repoDir, { recursive: true, force: true }); } catch { /* best effort */ }
   });
 

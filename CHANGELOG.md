@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.1.1] - 2026-06-26
+
+### Added
+- **OpenClaw compatible bundle** -- Added `memorix setup --agent openclaw` support for an OpenClaw-compatible bundle with bundled `.mcp.json`, official skills, and an OpenClaw `HOOK.md`/`handler.ts` hook pack, plus workspace MCP sync support for OpenClaw's `~/.openclaw/openclaw.json` `mcp.servers` format.
+- **Hermes Agent plugin** -- Added `memorix setup --agent hermes` support for a Hermes plugin under `~/.hermes/plugins/memorix`, plugin enablement in `~/.hermes/config.yaml`, plugin hooks, a slash command, a CLI command, official skills, and `mcp_servers` MCP config.
+- **Oh-my-Pi package** -- Added `memorix setup --agent omp` support for an `omp.extensions` package with extension hook events, a `memorix` command, official skills, and Oh-my-Pi `.omp/mcp.json` / `~/.omp/agent/mcp.json` MCP config.
+
+### Changed
+- **Gemini CLI and Antigravity positioning** -- Documented Google's current Gemini CLI to Antigravity CLI transition while keeping `gemini-cli` and `antigravity` as separate Memorix targets because their supported install/config lanes are still distinct.
+- **OpenClaw/Hermes/Oh-my-Pi setup lanes** -- These targets now use their official package/plugin/bundle extension points instead of being treated as MCP-only fallback clients.
+
+### Fixed
+- **MCP config merging** -- Setup now deep-merges nested `mcp.servers` JSON configs and preserves existing Hermes YAML keys when adding the Memorix server.
+- **Workspace tool schemas** -- `memorix_workspace_sync` now accepts `gemini-cli`, `openclaw`, `hermes`, and `omp` targets; `memorix_rules_sync` now exposes the existing Gemini CLI rules adapter.
+- **Hook fallback guard** -- Direct `memorix hooks install --agent openclaw|hermes|omp` no longer writes fallback hook files and instead points users to the package-owned setup lane.
+
 ## [1.1.0] - 2026-06-21
 
 ### Added -- Official Agent Integration Packages

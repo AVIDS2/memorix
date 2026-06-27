@@ -315,7 +315,7 @@ Start a new coding session and load recent context.
 Important inputs:
 
 - optional `agent` — display name (e.g. `"cursor-frontend"`)
-- optional `agentType` — agent/client type for optional orchestration coordination identity mapping (e.g. `"windsurf"`, `"cursor"`, `"claude-code"`, `"codex"`, `"gemini-cli"`)
+- optional `agentType` — agent/client type for optional orchestration coordination identity mapping (e.g. `"windsurf"`, `"cursor"`, `"claude-code"`, `"codex"`, `"gemini-cli"`, `"openclaw"`, `"hermes"`, `"omp"`)
 - optional `projectRoot`
 - optional `sessionId`
 - optional `instanceId`

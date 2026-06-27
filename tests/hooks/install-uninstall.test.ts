@@ -81,6 +81,17 @@ describe('Hooks install/uninstall lifecycle', () => {
     expect(entry!.agent).toBe('gemini-cli');
   });
 
+  it('should write official Antigravity hooks.json for project installs', async () => {
+    const result = await installHooks('antigravity', tmpDir);
+    const hooksPath = path.join(tmpDir, '.agents', 'hooks.json');
+    const config = JSON.parse(await fs.readFile(hooksPath, 'utf-8'));
+
+    expect(result.configPath).toBe(hooksPath);
+    expect(config.memorix.PreInvocation[0].command).toContain('--event PreInvocation');
+    expect(config.memorix.PreToolUse[0].hooks[0].command).toContain('--event PreToolUse');
+    expect(config.memorix.PostToolUse[0].hooks[0].command).toContain('--event PostToolUse');
+  });
+
   it('should remove only Memorix block from shared file on uninstall', async () => {
     const agentsMd = path.join(tmpDir, 'AGENTS.md');
 
@@ -184,6 +195,15 @@ describe('Hooks install/uninstall lifecycle', () => {
 
     const result = await uninstallHooks('gemini-cli', tmpDir);
     expect(result).toBe(true);
+  });
+
+  it('should not install fallback hooks for package-owned hook agents', async () => {
+    const result = await installHooks('openclaw', tmpDir);
+
+    expect(result.events).toEqual([]);
+    expect(String((result.generated as Record<string, unknown>).note)).toContain('setup --agent openclaw');
+    expect(String((result.generated as Record<string, unknown>).note)).toContain('OpenClaw-compatible bundle');
+    await expect(fs.access(path.join(tmpDir, '.memorix', 'hooks.json'))).rejects.toThrow();
   });
 
   it('should recover audit entry when ledger is lost and re-install is called (codex)', async () => {

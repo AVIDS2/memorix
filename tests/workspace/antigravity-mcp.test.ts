@@ -188,7 +188,7 @@ describe('AntigravityMCPAdapter', () => {
             const output = adapter.generate(servers);
             const parsed = JSON.parse(output);
 
-            expect(parsed.mcpServers.remote.url).toBe('https://api.example.com/mcp');
+            expect(parsed.mcpServers.remote.serverUrl).toBe('https://api.example.com/mcp');
             expect(parsed.mcpServers.remote.headers).toEqual({ 'X-Api-Key': 'key123' });
             expect(parsed.mcpServers.remote.command).toBeUndefined();
         });
@@ -247,16 +247,17 @@ describe('AntigravityMCPAdapter', () => {
     // ============================================================
 
     describe('getConfigPath()', () => {
-        it('should return global ~/.gemini/settings.json when no projectRoot', () => {
+        it('should return global ~/.gemini/config/mcp_config.json when no projectRoot', () => {
             const configPath = adapter.getConfigPath();
             expect(configPath).toContain('.gemini');
-            expect(configPath.endsWith('settings.json')).toBe(true);
+            expect(configPath).toContain('config');
+            expect(configPath.endsWith('mcp_config.json')).toBe(true);
         });
 
-        it('should return project-level .gemini/settings.json when projectRoot given', () => {
+        it('should return project-level .agents/mcp_config.json when projectRoot given', () => {
             const configPath = adapter.getConfigPath('/my/project');
-            expect(configPath).toContain('.gemini');
-            expect(configPath.endsWith('settings.json')).toBe(true);
+            expect(configPath).toContain('.agents');
+            expect(configPath.endsWith('mcp_config.json')).toBe(true);
             expect(configPath).toContain('my');
             expect(configPath).toContain('project');
         });

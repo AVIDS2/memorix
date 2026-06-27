@@ -6,12 +6,14 @@ import {
 	detectInstallMethod,
 	getSelfUpdateCommand,
 	getSelfUpdateUnavailableInstruction,
+	getShareViewerUrl,
 	getUpdateInstruction,
 } from "../src/config.ts";
 
 const execPathDescriptor = Object.getOwnPropertyDescriptor(process, "execPath");
 const originalPath = process.env.PATH;
 const originalMemcodePackageDir = process.env.MEMCODE_PACKAGE_DIR;
+const originalShareViewerUrl = process.env.MEMCODE_SHARE_VIEWER_URL;
 const originalArgv1 = process.argv[1];
 let tempDir: string | undefined;
 
@@ -36,6 +38,11 @@ afterEach(() => {
 	} else {
 		process.env.MEMCODE_PACKAGE_DIR = originalMemcodePackageDir;
 	}
+	if (originalShareViewerUrl === undefined) {
+		delete process.env.MEMCODE_SHARE_VIEWER_URL;
+	} else {
+		process.env.MEMCODE_SHARE_VIEWER_URL = originalShareViewerUrl;
+	}
 	if (originalArgv1 === undefined) {
 		process.argv.splice(1, 1);
 	} else {
@@ -46,6 +53,24 @@ afterEach(() => {
 		rmSync(tempDir, { recursive: true, force: true });
 		tempDir = undefined;
 	}
+});
+
+describe("getShareViewerUrl", () => {
+	test("defaults to the GitHub gist URL returned by gh", () => {
+		delete process.env.MEMCODE_SHARE_VIEWER_URL;
+
+		expect(getShareViewerUrl("abc123", "https://gist.github.com/user/abc123")).toBe(
+			"https://gist.github.com/user/abc123",
+		);
+	});
+
+	test("uses an explicit custom viewer URL when configured", () => {
+		process.env.MEMCODE_SHARE_VIEWER_URL = "https://viewer.example/session/";
+
+		expect(getShareViewerUrl("abc123", "https://gist.github.com/user/abc123")).toBe(
+			"https://viewer.example/session/#abc123",
+		);
+	});
 });
 
 function getGlobalNpmRoot(prefix: string, mode: "inferred" | "npm-command"): string {

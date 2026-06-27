@@ -1,6 +1,6 @@
 {
 	"name": "@memorix/agent-core",
-	"version": "1.1.1",
+	"version": "1.1.2",
 	"description": "General-purpose agent with transport abstraction, state management, and attachment support",
 	"type": "module",
 	"main": "./dist/index.js",
@@ -29,7 +29,7 @@
 		"prepublishOnly": "npm run clean && npm run build"
 	},
 	"dependencies": {
-		"@memorix/ai": "1.1.1",
+		"@memorix/ai": "1.1.2",
 		"ignore": "7.0.5",
 		"typebox": "1.1.38",
 		"yaml": "2.9.0"

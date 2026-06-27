@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.1.2] - 2026-06-27
+
+### Fixed
+- **Removed unowned product-domain defaults** -- Removed hardcoded unowned product-domain references from memcode defaults, tests, and generated help text. Version checks now use the official npm registry endpoint, changelog links point to GitHub releases, OpenRouter attribution uses the GitHub repository URL, and `/share` falls back to the GitHub gist URL unless the user explicitly sets `MEMCODE_SHARE_VIEWER_URL`.
+- **Disabled default install report endpoint** -- memcode no longer sends install/update pings to any default product-domain endpoint. A report endpoint is used only when `MEMCODE_INSTALL_REPORT_URL` is explicitly configured by the user.
+
 ## [1.1.1] - 2026-06-26
 
 ### Added

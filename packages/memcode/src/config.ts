@@ -475,11 +475,10 @@ export function expandTildePath(path: string): string {
 	return normalizePath(path);
 }
 
-const DEFAULT_SHARE_VIEWER_URL = "https://memorix.dev/session/";
-
 /** Get the share viewer URL for a gist ID */
-export function getShareViewerUrl(gistId: string): string {
-	const baseUrl = process.env.MEMCODE_SHARE_VIEWER_URL || DEFAULT_SHARE_VIEWER_URL;
+export function getShareViewerUrl(gistId: string, gistUrl?: string): string {
+	const baseUrl = process.env.MEMCODE_SHARE_VIEWER_URL;
+	if (!baseUrl) return gistUrl ?? `https://gist.github.com/${gistId}`;
 	return `${baseUrl}#${gistId}`;
 }
 

@@ -1034,7 +1034,21 @@ export class InteractiveMode {
 			return;
 		}
 
-		void fetch(`https://memorix.dev/api/report-install?version=${encodeURIComponent(version)}`, {
+		const endpoint = process.env.MEMCODE_INSTALL_REPORT_URL?.trim();
+		if (!endpoint) {
+			return;
+		}
+
+		let url: string;
+		try {
+			const parsed = new URL(endpoint);
+			parsed.searchParams.set("version", version);
+			url = parsed.toString();
+		} catch {
+			return;
+		}
+
+		void fetch(url, {
 			headers: {
 				"User-Agent": getPiUserAgent(version),
 			},
@@ -4073,7 +4087,7 @@ export class InteractiveMode {
 	showNewVersionNotification(release: LatestPiRelease): void {
 		const action = theme.fg("accent", `${APP_NAME} update`);
 		const updateInstruction = theme.fg("muted", `New version ${release.version} is available. Run `) + action;
-		const changelogUrl = "https://memorix.dev/changelog";
+		const changelogUrl = "https://github.com/AVIDS2/memorix/releases/latest";
 		const changelogLink = getCapabilities().hyperlinks
 			? hyperlink(theme.fg("accent", "open changelog"), changelogUrl)
 			: theme.fg("accent", changelogUrl);
@@ -5709,8 +5723,7 @@ export class InteractiveMode {
 				return;
 			}
 
-			// Create the preview URL
-			const previewUrl = getShareViewerUrl(gistId);
+			const previewUrl = getShareViewerUrl(gistId, gistUrl);
 			this.showStatus(`Share URL: ${previewUrl}\nGist: ${gistUrl}`);
 		} catch (error: unknown) {
 			if (!loader.signal.aborted) {

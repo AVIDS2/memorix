@@ -120,11 +120,6 @@ Memorix connects through the interfaces each agent already supports: plugin pack
 <strong>memcode</strong><br>
 <sub>bundled terminal agent</sub>
 </td>
-<td align="center" width="12.5%">
-<a href="https://modelcontextprotocol.io"><img src="https://github.com/modelcontextprotocol.png?size=120" alt="Any MCP Client" width="48" height="48"></a><br>
-<strong>Any MCP Client</strong><br>
-<sub>stdio or HTTP MCP</sub>
-</td>
 </tr>
 <tr>
 <td align="center" width="12.5%">
@@ -133,14 +128,19 @@ Memorix connects through the interfaces each agent already supports: plugin pack
 <sub>bundle + MCP + hooks + skills</sub>
 </td>
 <td align="center" width="12.5%">
-<a href="https://hermes-agent.nousresearch.com"><img src="https://raw.githubusercontent.com/NousResearch/hermes-agent/main/acp_registry/icon.svg" alt="Hermes Agent" width="48" height="48"></a><br>
+<a href="https://hermes-agent.nousresearch.com"><img src="https://hermes-agent.nousresearch.com/icon.png" alt="Hermes Agent" width="48" height="48"></a><br>
 <strong>Hermes Agent</strong><br>
 <sub>plugin + MCP + hooks + skills</sub>
 </td>
 <td align="center" width="12.5%">
-<a href="https://github.com/can1357/oh-my-pi"><img src="https://raw.githubusercontent.com/can1357/oh-my-pi/main/assets/icon.svg" alt="Oh-my-Pi" width="48" height="48"></a><br>
+<a href="https://omp.sh"><img src="https://omp.sh/favicon.png" alt="Oh-my-Pi" width="48" height="48"></a><br>
 <strong>Oh-my-Pi</strong><br>
 <sub>package + MCP + hooks + skills</sub>
+</td>
+<td align="center" width="12.5%">
+<a href="https://modelcontextprotocol.io"><img src="https://github.com/modelcontextprotocol.png?size=120" alt="Any MCP Client" width="48" height="48"></a><br>
+<strong>Any MCP Client</strong><br>
+<sub>stdio or HTTP MCP</sub>
 </td>
 </tr>
 </table>

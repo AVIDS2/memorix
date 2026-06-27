@@ -120,11 +120,6 @@ Memorix connects through the interfaces each agent already supports: plugin pack
 <strong>memcode</strong><br>
 <sub>bundled terminal agent</sub>
 </td>
-<td align="center" width="12.5%">
-<a href="https://modelcontextprotocol.io"><img src="https://github.com/modelcontextprotocol.png?size=120" alt="Any MCP Client" width="48" height="48"></a><br>
-<strong>Any MCP Client</strong><br>
-<sub>stdio or HTTP MCP</sub>
-</td>
 </tr>
 <tr>
 <td align="center" width="12.5%">
@@ -141,6 +136,11 @@ Memorix connects through the interfaces each agent already supports: plugin pack
 <a href="https://omp.sh"><img src="https://omp.sh/favicon.png" alt="Oh-my-Pi" width="48" height="48"></a><br>
 <strong>Oh-my-Pi</strong><br>
 <sub>package + MCP + hooks + skills</sub>
+</td>
+<td align="center" width="12.5%">
+<a href="https://modelcontextprotocol.io"><img src="https://github.com/modelcontextprotocol.png?size=120" alt="Any MCP Client" width="48" height="48"></a><br>
+<strong>Any MCP Client</strong><br>
+<sub>stdio or HTTP MCP</sub>
 </td>
 </tr>
 </table>

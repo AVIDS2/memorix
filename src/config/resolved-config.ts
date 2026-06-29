@@ -11,6 +11,7 @@ import {
 import { loadFileConfig } from './legacy-loader.js';
 import { loadTomlConfig } from './toml-loader.js';
 import { loadYamlConfig } from './yaml-loader.js';
+import { loadDotenv } from './dotenv-loader.js';
 
 export interface ResolvedLaneOptions {
   projectRoot?: string | null;
@@ -66,6 +67,13 @@ export interface ResolvedMemorixConfig {
 export function getResolvedConfig(options: ResolvedLaneOptions = {}): ResolvedMemorixConfig {
   const homeDir = options.homeDir ?? homedir();
   const projectRoot = options.projectRoot === undefined ? detectProject()?.rootPath ?? null : options.projectRoot;
+
+  // Make .env a first-class config source so every consumer of this resolved
+  // config (embedding API key, LLM base URL, etc.) sees values from
+  // ~/.memorix/.env / <project>/.env. loadDotenv() is idempotent — guarded by
+  // a module-level `dotenvLoaded` flag — so repeat calls within one process
+  // are essentially free, and it never overrides an already-set process env.
+  loadDotenv(projectRoot === null ? undefined : projectRoot ?? undefined, { userHomeDir: homeDir });
 
   const toml = loadTomlConfig({ projectRoot: projectRoot ?? null, homeDir });
   const yaml = loadYamlConfig(projectRoot ?? null);

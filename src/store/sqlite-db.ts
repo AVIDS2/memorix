@@ -226,6 +226,73 @@ CREATE TABLE IF NOT EXISTS graph_relations (
 );
 `;
 
+// ── CodeGraph Memory Tables ─────────────────────────────────────────
+
+const CREATE_CODE_FILES_TABLE = `
+CREATE TABLE IF NOT EXISTS code_files (
+  id              TEXT PRIMARY KEY,
+  projectId       TEXT NOT NULL,
+  path            TEXT NOT NULL,
+  language        TEXT,
+  contentHash     TEXT NOT NULL,
+  mtimeMs         INTEGER,
+  sizeBytes       INTEGER,
+  indexedAt       TEXT NOT NULL,
+  gitCommit       TEXT,
+  UNIQUE(projectId, path)
+);
+`;
+
+const CREATE_CODE_SYMBOLS_TABLE = `
+CREATE TABLE IF NOT EXISTS code_symbols (
+  id              TEXT PRIMARY KEY,
+  projectId       TEXT NOT NULL,
+  fileId          TEXT NOT NULL,
+  path            TEXT NOT NULL,
+  name            TEXT NOT NULL,
+  qualifiedName   TEXT NOT NULL,
+  kind            TEXT NOT NULL,
+  startLine       INTEGER,
+  endLine         INTEGER,
+  signature       TEXT,
+  contentHash     TEXT,
+  indexedAt       TEXT NOT NULL,
+  stale           INTEGER NOT NULL DEFAULT 0,
+  UNIQUE(projectId, fileId, qualifiedName, kind)
+);
+`;
+
+const CREATE_CODE_EDGES_TABLE = `
+CREATE TABLE IF NOT EXISTS code_edges (
+  id              TEXT PRIMARY KEY,
+  projectId       TEXT NOT NULL,
+  fromSymbolId    TEXT,
+  toSymbolId      TEXT,
+  fromFileId      TEXT,
+  toFileId        TEXT,
+  type            TEXT NOT NULL,
+  confidence      REAL NOT NULL DEFAULT 1.0,
+  evidence        TEXT,
+  indexedAt       TEXT NOT NULL
+);
+`;
+
+const CREATE_OBSERVATION_CODE_REFS_TABLE = `
+CREATE TABLE IF NOT EXISTS observation_code_refs (
+  id                 TEXT PRIMARY KEY,
+  projectId          TEXT NOT NULL,
+  observationId      INTEGER NOT NULL,
+  fileId             TEXT,
+  symbolId           TEXT,
+  capturedFileHash   TEXT,
+  capturedSymbolHash TEXT,
+  status             TEXT NOT NULL,
+  reason             TEXT,
+  createdAt          TEXT NOT NULL,
+  updatedAt          TEXT
+);
+`;
+
 const CREATE_INDEXES = `
 CREATE INDEX IF NOT EXISTS idx_observations_projectId ON observations(projectId);
 CREATE INDEX IF NOT EXISTS idx_observations_topicKey ON observations(projectId, topicKey);
@@ -245,6 +312,12 @@ CREATE INDEX IF NOT EXISTS idx_team_messages_role ON team_messages(to_role);
 CREATE INDEX IF NOT EXISTS idx_graph_relations_from ON graph_relations(from_entity);
 CREATE INDEX IF NOT EXISTS idx_graph_relations_to ON graph_relations(to_entity);
 CREATE INDEX IF NOT EXISTS idx_chat_transcript_project ON chat_transcript(project_id, thread_id);
+CREATE INDEX IF NOT EXISTS idx_code_files_project ON code_files(projectId);
+CREATE INDEX IF NOT EXISTS idx_code_symbols_project_name ON code_symbols(projectId, name);
+CREATE INDEX IF NOT EXISTS idx_code_symbols_file ON code_symbols(fileId);
+CREATE INDEX IF NOT EXISTS idx_code_edges_project ON code_edges(projectId, type);
+CREATE INDEX IF NOT EXISTS idx_observation_code_refs_obs ON observation_code_refs(projectId, observationId);
+CREATE INDEX IF NOT EXISTS idx_observation_code_refs_status ON observation_code_refs(projectId, status);
 `;
 
 // ── Singleton cache ─────────────────────────────────────────────────
@@ -290,6 +363,10 @@ export function getDatabase(dataDir: string): any {
   db.exec(CREATE_GRAPH_ENTITIES_TABLE);
   db.exec(CREATE_GRAPH_RELATIONS_TABLE);
   db.exec(CREATE_CHAT_TRANSCRIPT_TABLE);
+  db.exec(CREATE_CODE_FILES_TABLE);
+  db.exec(CREATE_CODE_SYMBOLS_TABLE);
+  db.exec(CREATE_CODE_EDGES_TABLE);
+  db.exec(CREATE_OBSERVATION_CODE_REFS_TABLE);
 
   // Phase 3a migration: add sourceSnapshot + updatedAt to mini_skills
   // Idempotent — ALTER TABLE ADD COLUMN throws if column already exists

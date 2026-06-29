@@ -1713,5 +1713,4 @@ git commit -m "docs: document codegraph memory mvp"
 - Spec coverage: schema/store, provider, Lite fallback, codeRefs, freshness, context pack, CLI/MCP, tests, and docs are covered.
 - Scope intentionally excludes full external provider implementation from the MVP execution path; the interface remains in the design and can be implemented after Lite and context packs stabilize.
 - No new runtime dependency is required in the first vertical slice.
-- The plan keeps context pack output simple first; later tasks can replace the temporary MCP composition with ranked memory search and code fact retrieval.
-
+- Context pack output stays intentionally compact while using task-ranked memory selection before code-ref and freshness filtering.

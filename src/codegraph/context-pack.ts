@@ -1,5 +1,6 @@
 import { evaluateCodeRefFreshness } from './freshness.js';
 import type { CodeFile, CodeRefStatus, CodeSymbol, ObservationCodeRef } from './types.js';
+import type { CodeGraphStore } from './store.js';
 
 export interface ContextPackMemory {
   id: number;
@@ -36,6 +37,12 @@ export interface ContextPackObservation {
   id: number;
   title: string;
   type: string;
+  narrative?: string;
+  facts?: string[];
+  filesModified?: string[];
+  concepts?: string[];
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface AssembleContextPackInput {
@@ -51,6 +58,82 @@ function uniq<T>(items: T[]): T[] {
   return [...new Set(items)];
 }
 
+function tokenize(text: string): string[] {
+  return (text.toLowerCase().match(/[a-z0-9_./-]+|[\u4e00-\u9fff]+/g) ?? [])
+    .map(token => token.trim())
+    .filter(token => token.length > 1);
+}
+
+function timestampOf(observation: ContextPackObservation): number {
+  return Date.parse(observation.updatedAt ?? observation.createdAt ?? '') || 0;
+}
+
+function relevanceScore(observation: ContextPackObservation, taskTokens: string[]): number {
+  if (taskTokens.length === 0) return 0;
+  const title = observation.title.toLowerCase();
+  const files = (observation.filesModified ?? []).join('\n').toLowerCase();
+  const concepts = (observation.concepts ?? []).join('\n').toLowerCase();
+  const body = [
+    observation.narrative ?? '',
+    ...(observation.facts ?? []),
+  ].join('\n').toLowerCase();
+
+  let score = 0;
+  for (const token of taskTokens) {
+    if (title.includes(token)) score += 5;
+    if (files.includes(token)) score += 4;
+    if (concepts.includes(token)) score += 3;
+    if (body.includes(token)) score += 2;
+  }
+  return score;
+}
+
+export function selectRelevantObservations<T extends ContextPackObservation>(
+  observations: T[],
+  task: string,
+  limit: number,
+): T[] {
+  const safeLimit = Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : 20;
+  const taskTokens = tokenize(task);
+  const ranked = observations.map((observation, index) => ({
+    observation,
+    index,
+    score: relevanceScore(observation, taskTokens),
+    time: timestampOf(observation),
+  }));
+
+  const positives = ranked.filter(item => item.score > 0);
+  const pool = positives.length > 0 ? positives : ranked;
+  return pool
+    .sort((a, b) => b.score - a.score || b.time - a.time || b.index - a.index)
+    .slice(0, safeLimit)
+    .map(item => item.observation);
+}
+
+export function assembleContextPackForTask(input: {
+  store: CodeGraphStore;
+  projectId: string;
+  task: string;
+  observations: ContextPackObservation[];
+  limit?: number;
+  suggestedVerification?: string[];
+}): ContextPack {
+  const selected = selectRelevantObservations(input.observations, input.task, input.limit ?? 20);
+  const refs = selected.flatMap(obs => input.store.listObservationRefs(input.projectId, obs.id));
+  const fileIds = new Set(refs.map(ref => ref.fileId).filter(Boolean));
+  const files = input.store.listFiles(input.projectId).filter(file => fileIds.has(file.id));
+  const symbols = files.flatMap(file => input.store.listSymbolsForFile(file.id));
+
+  return assembleContextPack({
+    task: input.task,
+    observations: selected,
+    refs,
+    files,
+    symbols,
+    suggestedVerification: input.suggestedVerification,
+  });
+}
+
 export function assembleContextPack(input: AssembleContextPackInput): ContextPack {
   const observations = new Map(input.observations.map((obs) => [obs.id, obs]));
   const files = new Map(input.files.map((file) => [file.id, file]));
@@ -59,6 +142,7 @@ export function assembleContextPack(input: AssembleContextPackInput): ContextPac
   const codeFacts: ContextPackCodeFact[] = [];
   const warnings: ContextPackWarning[] = [];
   const suggestedReads: string[] = [];
+  const memoryKeys = new Set<string>();
 
   for (const ref of input.refs) {
     const observation = observations.get(ref.observationId);
@@ -69,13 +153,17 @@ export function assembleContextPack(input: AssembleContextPackInput): ContextPac
     const freshness = evaluateCodeRefFreshness(ref, file, symbol);
 
     if (freshness.status === 'current') {
-      memories.push({
-        id: observation.id,
-        title: observation.title,
-        type: observation.type,
-        status: freshness.status,
-        reason: freshness.reason,
-      });
+      const memoryKey = `${observation.id}:${freshness.status}:${freshness.reason}`;
+      if (!memoryKeys.has(memoryKey)) {
+        memoryKeys.add(memoryKey);
+        memories.push({
+          id: observation.id,
+          title: observation.title,
+          type: observation.type,
+          status: freshness.status,
+          reason: freshness.reason,
+        });
+      }
       if (file) suggestedReads.push(file.path);
       if (file) {
         codeFacts.push({

@@ -1,7 +1,8 @@
 import { defineCommand } from 'citty';
 import { CodeGraphStore } from '../../codegraph/store.js';
 import { indexProjectLite } from '../../codegraph/lite-provider.js';
-import { assembleContextPack, buildContextPackPrompt } from '../../codegraph/context-pack.js';
+import { assembleContextPackForTask, buildContextPackPrompt } from '../../codegraph/context-pack.js';
+import { backfillMissingObservationCodeRefs } from '../../codegraph/binder.js';
 import { getAllObservations } from '../../memory/observations.js';
 import { emitError, emitResult, getCliProjectContext, parsePositiveInt } from './operator-shared.js';
 
@@ -49,11 +50,21 @@ export default defineCommand({
             projectId: project.id,
             projectRoot: project.rootPath,
           });
-          store.upsertFiles(indexed.files);
-          store.upsertSymbols(indexed.symbols);
-          store.upsertEdges(indexed.edges);
+          store.replaceProjectIndex(project.id, indexed);
+          const activeObservations = getAllObservations()
+            .filter(obs => obs.projectId === project.id && (obs.status ?? 'active') === 'active');
+          const backfill = await backfillMissingObservationCodeRefs(store, activeObservations);
           const status = store.status(project.id);
-          emitResult({ project, status }, `CodeGraph Memory refreshed.\n${formatStatus(status)}`, asJson);
+          emitResult(
+            { project, status, backfill },
+            [
+              'CodeGraph Memory refreshed.',
+              formatStatus(status),
+              `- Backfilled memories: ${backfill.observationsBackfilled}`,
+              `- Backfilled refs: ${backfill.refsBackfilled}`,
+            ].join('\n'),
+            asJson,
+          );
           return;
         }
 
@@ -63,20 +74,16 @@ export default defineCommand({
             emitError('task is required for "memorix codegraph context-pack"', asJson);
             return;
           }
+          const limit = parsePositiveInt(args.limit as string | undefined, 20);
           const observations = getAllObservations()
             .filter(obs => obs.projectId === project.id && (obs.status ?? 'active') === 'active')
-            .slice(-parsePositiveInt(args.limit as string | undefined, 20))
             .reverse();
-          const refs = observations.flatMap(obs => store.listObservationRefs(project.id, obs.id));
-          const fileIds = new Set(refs.map(ref => ref.fileId).filter(Boolean));
-          const files = store.listFiles(project.id).filter(file => fileIds.has(file.id));
-          const symbols = files.flatMap(file => store.listSymbolsForFile(file.id));
-          const pack = assembleContextPack({
+          const pack = assembleContextPackForTask({
+            store,
+            projectId: project.id,
             task,
-            observations: observations.map(obs => ({ id: obs.id, title: obs.title, type: obs.type })),
-            refs,
-            files,
-            symbols,
+            observations,
+            limit,
           });
           emitResult({ project, pack }, buildContextPackPrompt(pack), asJson);
           return;

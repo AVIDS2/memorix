@@ -1082,6 +1082,7 @@ const main = defineCommand({
       console.error('  background Start/stop/status background control plane');
       console.error('  session    Start/end/context for coding sessions');
       console.error('  memory     Search/store/detail/timeline/resolve observations');
+      console.error('  codegraph  Refresh/status/context-pack for CodeGraph Memory');
       console.error('  reasoning  Store/search decision rationale');
       console.error('  retention  Inspect stale/archive status');
       console.error('  formation  Inspect Memory Formation metrics');

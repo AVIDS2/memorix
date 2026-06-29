@@ -155,6 +155,88 @@ export class CodeGraphStore {
     tx(edges);
   }
 
+  replaceProjectIndex(
+    projectId: string,
+    index: { files: CodeFile[]; symbols: CodeSymbol[]; edges: CodeEdge[] },
+  ): void {
+    const deleteEdges = this.db.prepare(`DELETE FROM code_edges WHERE projectId = ?`);
+    const staleSymbols = this.db.prepare(`UPDATE code_symbols SET stale = 1 WHERE projectId = ?`);
+    const deleteFiles = this.db.prepare(`DELETE FROM code_files WHERE projectId = ?`);
+    const insertFile = this.db.prepare(`
+      INSERT OR REPLACE INTO code_files
+        (id, projectId, path, language, contentHash, mtimeMs, sizeBytes, indexedAt, gitCommit)
+      VALUES
+        (@id, @projectId, @path, @language, @contentHash, @mtimeMs, @sizeBytes, @indexedAt, @gitCommit)
+    `);
+    const insertSymbol = this.db.prepare(`
+      INSERT OR REPLACE INTO code_symbols
+        (id, projectId, fileId, path, name, qualifiedName, kind, startLine, endLine, signature, contentHash, indexedAt, stale)
+      VALUES
+        (@id, @projectId, @fileId, @path, @name, @qualifiedName, @kind, @startLine, @endLine, @signature, @contentHash, @indexedAt, @stale)
+    `);
+    const insertEdge = this.db.prepare(`
+      INSERT OR REPLACE INTO code_edges
+        (id, projectId, fromSymbolId, toSymbolId, fromFileId, toFileId, type, confidence, evidence, indexedAt)
+      VALUES
+        (@id, @projectId, @fromSymbolId, @toSymbolId, @fromFileId, @toFileId, @type, @confidence, @evidence, @indexedAt)
+    `);
+
+    const tx = this.db.transaction(() => {
+      deleteEdges.run(projectId);
+      staleSymbols.run(projectId);
+      deleteFiles.run(projectId);
+
+      for (const file of index.files) {
+        insertFile.run({
+          id: file.id,
+          projectId: file.projectId,
+          path: normalizeCodePath(file.path),
+          language: file.language ?? null,
+          contentHash: file.contentHash,
+          mtimeMs: file.mtimeMs ?? null,
+          sizeBytes: file.sizeBytes ?? null,
+          indexedAt: file.indexedAt,
+          gitCommit: file.gitCommit ?? null,
+        });
+      }
+
+      for (const symbol of index.symbols) {
+        insertSymbol.run({
+          id: symbol.id,
+          projectId: symbol.projectId,
+          fileId: symbol.fileId,
+          path: normalizeCodePath(symbol.path),
+          name: symbol.name,
+          qualifiedName: symbol.qualifiedName,
+          kind: symbol.kind,
+          startLine: symbol.startLine ?? null,
+          endLine: symbol.endLine ?? null,
+          signature: symbol.signature ?? null,
+          contentHash: symbol.contentHash ?? null,
+          indexedAt: symbol.indexedAt,
+          stale: 0,
+        });
+      }
+
+      for (const edge of index.edges) {
+        insertEdge.run({
+          id: edge.id,
+          projectId: edge.projectId,
+          fromSymbolId: edge.fromSymbolId ?? null,
+          toSymbolId: edge.toSymbolId ?? null,
+          fromFileId: edge.fromFileId ?? null,
+          toFileId: edge.toFileId ?? null,
+          type: edge.type,
+          confidence: edge.confidence,
+          evidence: edge.evidence ?? null,
+          indexedAt: edge.indexedAt,
+        });
+      }
+    });
+
+    tx();
+  }
+
   upsertObservationRefs(refs: ObservationCodeRef[]): void {
     if (refs.length === 0) return;
     const stmt = this.db.prepare(`
@@ -181,6 +263,38 @@ export class CodeGraphStore {
       }
     });
     tx(refs);
+  }
+
+  replaceObservationRefs(projectId: string, observationId: number, refs: ObservationCodeRef[]): void {
+    const deleteRefs = this.db.prepare(`
+      DELETE FROM observation_code_refs
+      WHERE projectId = ? AND observationId = ?
+    `);
+    const insertRef = this.db.prepare(`
+      INSERT OR REPLACE INTO observation_code_refs
+        (id, projectId, observationId, fileId, symbolId, capturedFileHash, capturedSymbolHash, status, reason, createdAt, updatedAt)
+      VALUES
+        (@id, @projectId, @observationId, @fileId, @symbolId, @capturedFileHash, @capturedSymbolHash, @status, @reason, @createdAt, @updatedAt)
+    `);
+    const tx = this.db.transaction(() => {
+      deleteRefs.run(projectId, observationId);
+      for (const ref of refs) {
+        insertRef.run({
+          id: ref.id,
+          projectId: ref.projectId,
+          observationId: ref.observationId,
+          fileId: ref.fileId ?? null,
+          symbolId: ref.symbolId ?? null,
+          capturedFileHash: ref.capturedFileHash ?? null,
+          capturedSymbolHash: ref.capturedSymbolHash ?? null,
+          status: ref.status,
+          reason: ref.reason ?? null,
+          createdAt: ref.createdAt,
+          updatedAt: ref.updatedAt ?? null,
+        });
+      }
+    });
+    tx();
   }
 
   getFile(projectId: string, path: string): CodeFile | null {

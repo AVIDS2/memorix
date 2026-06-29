@@ -1,12 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { execSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import codegraphCommand from '../../src/cli/commands/codegraph.js';
 import { initObservations, storeObservation } from '../../src/memory/observations.js';
 import { closeAllDatabases } from '../../src/store/sqlite-db.js';
 import { initObservationStore, resetObservationStore } from '../../src/store/obs-store.js';
+import { resetDb } from '../../src/store/orama-store.js';
 import { resetSessionStore } from '../../src/store/session-store.js';
 import { resetTeamStore } from '../../src/team/team-store.js';
 
@@ -53,7 +54,7 @@ describe('codegraph CLI command', () => {
     process.env.MEMORIX_EMBEDDING = 'off';
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     process.chdir(originalCwd);
     if (originalDataDir === undefined) {
       delete process.env.MEMORIX_DATA_DIR;
@@ -68,6 +69,7 @@ describe('codegraph CLI command', () => {
     resetObservationStore();
     resetSessionStore();
     resetTeamStore();
+    await resetDb();
     closeAllDatabases();
     rmSync(sandboxRoot, { recursive: true, force: true });
   });
@@ -110,5 +112,76 @@ describe('codegraph CLI command', () => {
     expect(result.stdout).toContain('## Task');
     expect(result.stdout).toContain('authMiddleware');
     expect(result.stdout).toContain('src/auth.ts');
+  });
+
+  it('backfills existing memories during refresh before building a context pack', async () => {
+    await initObservationStore(dataDir);
+    await initObservations(dataDir);
+    await storeObservation({
+      entityName: 'auth',
+      type: 'decision',
+      title: 'authMiddleware uses jose',
+      narrative: 'Keep authMiddleware in src/auth.ts.',
+      filesModified: ['src/auth.ts'],
+      projectId: 'local/repo',
+    });
+
+    await runCommand({ _: ['refresh'], json: true });
+    const result = await runCommand({ _: ['context-pack'], task: 'continue authMiddleware bug' });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('#1 current');
+    expect(result.stdout).toContain('src/auth.ts');
+  });
+
+  it('keeps old refs stale after a file disappears on refresh', async () => {
+    await runCommand({ _: ['refresh'], json: true });
+    await initObservationStore(dataDir);
+    await initObservations(dataDir);
+    await storeObservation({
+      entityName: 'auth',
+      type: 'decision',
+      title: 'authMiddleware uses jose',
+      narrative: 'Keep authMiddleware in src/auth.ts.',
+      filesModified: ['src/auth.ts'],
+      projectId: 'local/repo',
+    });
+
+    unlinkSync(path.join(repoDir, 'src', 'auth.ts'));
+    await runCommand({ _: ['refresh'], json: true });
+    const result = await runCommand({ _: ['context-pack'], task: 'continue authMiddleware bug' });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('## Freshness Warnings');
+    expect(result.stdout).toContain('#1 stale');
+    expect(result.stdout).toContain('referenced file is no longer indexed');
+  });
+
+  it('chooses task-relevant memories before recent unrelated memories', async () => {
+    await runCommand({ _: ['refresh'], json: true });
+    await initObservationStore(dataDir);
+    await initObservations(dataDir);
+    await storeObservation({
+      entityName: 'auth',
+      type: 'decision',
+      title: 'authMiddleware uses jose',
+      narrative: 'Keep authMiddleware in src/auth.ts.',
+      filesModified: ['src/auth.ts'],
+      projectId: 'local/repo',
+    });
+    await storeObservation({
+      entityName: 'dashboard',
+      type: 'decision',
+      title: 'Dashboard stays simple',
+      narrative: 'Keep the dashboard route boring.',
+      filesModified: [],
+      projectId: 'local/repo',
+    });
+
+    const result = await runCommand({ _: ['context-pack'], task: 'continue authMiddleware bug', limit: '1' });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('authMiddleware');
+    expect(result.stdout).not.toContain('Dashboard stays simple');
   });
 });

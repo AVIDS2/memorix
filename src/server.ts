@@ -1167,7 +1167,10 @@ export async function createMemorixServer(
         'Combines relevant memories, CodeGraph Memory facts, freshness warnings, suggested reads, and verification hints.',
       inputSchema: {
         task: z.string().describe('Current coding task or question'),
-        limit: z.number().optional().describe('Max active memories to inspect before code-ref filtering (default: 20)'),
+        limit: z.preprocess(
+          value => (typeof value === 'string' && value.trim() !== '' ? Number(value) : value),
+          z.number().int().positive().max(100),
+        ).optional().describe('Max active memories to inspect before code-ref filtering (default: 20)'),
       },
     },
     async ({ task, limit }) => {
@@ -1176,24 +1179,19 @@ export async function createMemorixServer(
 
       return withFreshIndex(async () => {
         const { CodeGraphStore } = await import('./codegraph/store.js');
-        const { assembleContextPack, buildContextPackPrompt } = await import('./codegraph/context-pack.js');
+        const { assembleContextPackForTask, buildContextPackPrompt } = await import('./codegraph/context-pack.js');
         const store = new CodeGraphStore();
         await store.init(projectDir);
 
         const observations = getAllObservations()
           .filter(obs => obs.projectId === project.id && (obs.status ?? 'active') === 'active')
-          .slice(-coerceNumber(limit, 20))
           .reverse();
-        const refs = observations.flatMap(obs => store.listObservationRefs(project.id, obs.id));
-        const fileIds = new Set(refs.map(ref => ref.fileId).filter(Boolean));
-        const files = store.listFiles(project.id).filter(file => fileIds.has(file.id));
-        const symbols = files.flatMap(file => store.listSymbolsForFile(file.id));
-        const pack = assembleContextPack({
+        const pack = assembleContextPackForTask({
+          store,
+          projectId: project.id,
           task,
-          observations: observations.map(obs => ({ id: obs.id, title: obs.title, type: obs.type })),
-          refs,
-          files,
-          symbols,
+          observations,
+          limit: typeof limit === 'number' ? limit : 20,
         });
         const text = buildContextPackPrompt(pack);
 

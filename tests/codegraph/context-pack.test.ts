@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { assembleContextPack, buildContextPackPrompt } from '../../src/codegraph/context-pack.js';
+import { assembleContextPack, buildContextPackPrompt, selectRelevantObservations } from '../../src/codegraph/context-pack.js';
 
 describe('buildContextPackPrompt', () => {
   it('renders memories, code facts, freshness warnings, reads, and verification', () => {
@@ -102,5 +102,28 @@ describe('buildContextPackPrompt', () => {
       expect.objectContaining({ id: 2, status: 'stale' }),
     ]);
     expect(pack.suggestedReads).toEqual(['src/auth.ts']);
+  });
+
+  it('selects task-relevant observations before falling back to recency', () => {
+    const selected = selectRelevantObservations([
+      {
+        id: 1,
+        title: 'Recent unrelated dashboard memory',
+        type: 'decision',
+        narrative: 'Keep the dashboard route small.',
+        filesModified: ['src/dashboard.ts'],
+        createdAt: '2026-06-29T00:03:00.000Z',
+      },
+      {
+        id: 2,
+        title: 'Older authMiddleware memory',
+        type: 'decision',
+        narrative: 'authMiddleware owns JWT validation.',
+        filesModified: ['src/auth.ts'],
+        createdAt: '2026-06-29T00:01:00.000Z',
+      },
+    ], 'continue authMiddleware bug', 1);
+
+    expect(selected.map(obs => obs.id)).toEqual([2]);
   });
 });

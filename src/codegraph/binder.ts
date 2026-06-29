@@ -12,6 +12,12 @@ export interface BindableObservation {
   createdAt: string;
 }
 
+export interface CodeRefBackfillResult {
+  observationsScanned: number;
+  observationsBackfilled: number;
+  refsBackfilled: number;
+}
+
 function observationText(obs: BindableObservation): string {
   return [obs.title, obs.narrative, ...(obs.facts ?? [])].join('\n');
 }
@@ -76,6 +82,28 @@ export async function bindObservationToCode(
   }
 
   const result = [...refs.values()];
-  store.upsertObservationRefs(result);
+  store.replaceObservationRefs(obs.projectId, obs.id, result);
   return result;
+}
+
+export async function backfillMissingObservationCodeRefs(
+  store: CodeGraphStore,
+  observations: BindableObservation[],
+): Promise<CodeRefBackfillResult> {
+  let observationsBackfilled = 0;
+  let refsBackfilled = 0;
+
+  for (const observation of observations) {
+    if (store.listObservationRefs(observation.projectId, observation.id).length > 0) continue;
+    const refs = await bindObservationToCode(store, observation);
+    if (refs.length === 0) continue;
+    observationsBackfilled += 1;
+    refsBackfilled += refs.length;
+  }
+
+  return {
+    observationsScanned: observations.length,
+    observationsBackfilled,
+    refsBackfilled,
+  };
 }

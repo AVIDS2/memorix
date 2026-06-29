@@ -83,4 +83,76 @@ describe('CodeGraphStore', () => {
 
     expect(store.getFile('org/repo', 'src/a.ts')?.contentHash).toBe('new');
   });
+
+  it('reconciles the current project index without leaving removed files current', async () => {
+    const store = new CodeGraphStore();
+    await store.init(tempDir());
+
+    store.replaceProjectIndex('org/repo', {
+      files: [
+        { id: 'file:a', projectId: 'org/repo', path: 'src/a.ts', contentHash: 'hash-a', indexedAt: '2026-06-29T00:00:00.000Z' },
+        { id: 'file:b', projectId: 'org/repo', path: 'src/b.ts', contentHash: 'hash-b', indexedAt: '2026-06-29T00:00:00.000Z' },
+      ],
+      symbols: [
+        {
+          id: 'symbol:a',
+          projectId: 'org/repo',
+          fileId: 'file:a',
+          path: 'src/a.ts',
+          name: 'oldFunction',
+          qualifiedName: 'oldFunction',
+          kind: 'function',
+          contentHash: 'sym-old',
+          indexedAt: '2026-06-29T00:00:00.000Z',
+        },
+      ],
+      edges: [
+        { id: 'edge:old', projectId: 'org/repo', fromFileId: 'file:a', type: 'imports', confidence: 0.7, indexedAt: '2026-06-29T00:00:00.000Z' },
+      ],
+    });
+
+    store.replaceProjectIndex('org/repo', {
+      files: [
+        { id: 'file:b', projectId: 'org/repo', path: 'src/b.ts', contentHash: 'hash-b2', indexedAt: '2026-06-29T00:01:00.000Z' },
+      ],
+      symbols: [],
+      edges: [],
+    });
+
+    expect(store.getFile('org/repo', 'src/a.ts')).toBeNull();
+    expect(store.getFile('org/repo', 'src/b.ts')?.contentHash).toBe('hash-b2');
+    expect(store.findSymbols('org/repo', 'oldFunction')).toHaveLength(0);
+    expect(store.listEdges('org/repo')).toHaveLength(0);
+    expect(store.status('org/repo')).toMatchObject({ files: 1, symbols: 0, edges: 0 });
+  });
+
+  it('replaces observation refs atomically for an observation', async () => {
+    const store = new CodeGraphStore();
+    await store.init(tempDir());
+
+    store.replaceObservationRefs('org/repo', 42, [
+      {
+        id: 'coderef:old',
+        projectId: 'org/repo',
+        observationId: 42,
+        fileId: 'file:old',
+        status: 'current',
+        createdAt: '2026-06-29T00:00:00.000Z',
+      },
+    ]);
+    store.replaceObservationRefs('org/repo', 42, [
+      {
+        id: 'coderef:new',
+        projectId: 'org/repo',
+        observationId: 42,
+        fileId: 'file:new',
+        status: 'current',
+        createdAt: '2026-06-29T00:01:00.000Z',
+      },
+    ]);
+
+    expect(store.listObservationRefs('org/repo', 42)).toEqual([
+      expect.objectContaining({ id: 'coderef:new', fileId: 'file:new' }),
+    ]);
+  });
 });

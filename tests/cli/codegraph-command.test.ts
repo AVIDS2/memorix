@@ -4,8 +4,9 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import codegraphCommand from '../../src/cli/commands/codegraph.js';
+import { initObservations, storeObservation } from '../../src/memory/observations.js';
 import { closeAllDatabases } from '../../src/store/sqlite-db.js';
-import { resetObservationStore } from '../../src/store/obs-store.js';
+import { initObservationStore, resetObservationStore } from '../../src/store/obs-store.js';
 import { resetSessionStore } from '../../src/store/session-store.js';
 import { resetTeamStore } from '../../src/team/team-store.js';
 
@@ -34,6 +35,7 @@ async function runCommand(args: Record<string, unknown>) {
 describe('codegraph CLI command', () => {
   const originalCwd = process.cwd();
   const originalDataDir = process.env.MEMORIX_DATA_DIR;
+  const originalEmbedding = process.env.MEMORIX_EMBEDDING;
   let sandboxRoot = '';
   let repoDir = '';
   let dataDir = '';
@@ -48,6 +50,7 @@ describe('codegraph CLI command', () => {
     execSync('git init', { cwd: repoDir, stdio: 'ignore' });
     process.chdir(repoDir);
     process.env.MEMORIX_DATA_DIR = dataDir;
+    process.env.MEMORIX_EMBEDDING = 'off';
   });
 
   afterEach(() => {
@@ -56,6 +59,11 @@ describe('codegraph CLI command', () => {
       delete process.env.MEMORIX_DATA_DIR;
     } else {
       process.env.MEMORIX_DATA_DIR = originalDataDir;
+    }
+    if (originalEmbedding === undefined) {
+      delete process.env.MEMORIX_EMBEDDING;
+    } else {
+      process.env.MEMORIX_EMBEDDING = originalEmbedding;
     }
     resetObservationStore();
     resetSessionStore();
@@ -81,5 +89,26 @@ describe('codegraph CLI command', () => {
       symbols: 2,
       edges: 1,
     });
+  });
+
+  it('builds a context pack from code-bound memories', async () => {
+    await runCommand({ _: ['refresh'], json: true });
+    await initObservationStore(dataDir);
+    await initObservations(dataDir);
+    await storeObservation({
+      entityName: 'auth',
+      type: 'decision',
+      title: 'authMiddleware uses jose',
+      narrative: 'Keep authMiddleware in src/auth.ts.',
+      filesModified: ['src/auth.ts'],
+      projectId: 'local/repo',
+    });
+
+    const result = await runCommand({ _: ['context-pack'], task: 'continue auth bug' });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('## Task');
+    expect(result.stdout).toContain('authMiddleware');
+    expect(result.stdout).toContain('src/auth.ts');
   });
 });

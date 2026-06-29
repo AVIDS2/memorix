@@ -29,7 +29,7 @@ The first vertical slice is implemented with no new runtime dependency:
 - CodeGraph Lite indexing for TypeScript/JavaScript files, symbols, and import edges.
 - Best-effort binding from newly stored observations to indexed files/symbols.
 - Freshness evaluation for `current`, `suspect`, and `stale` code-bound memories.
-- CLI commands: `memorix codegraph refresh` and `memorix codegraph status`.
+- CLI commands: `memorix codegraph refresh`, `memorix codegraph status`, and `memorix codegraph context-pack`.
 - MCP tools: `memorix_codegraph_status` and `memorix_context_pack`.
 - Context pack rendering that separates memories, current code facts, freshness warnings, suggested reads, and verification hints.
 

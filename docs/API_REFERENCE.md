@@ -87,6 +87,7 @@ CLI:
 memorix codegraph refresh
 memorix codegraph status
 memorix codegraph status --json
+memorix codegraph context-pack --task "continue auth bug"
 ```
 
 MCP:

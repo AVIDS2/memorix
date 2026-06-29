@@ -8,7 +8,7 @@ All notable changes to this project will be documented in this file.
 - **CodeGraph Memory MVP** -- Added a SQLite-backed code structure plane with project-scoped files, symbols, import edges, and observation-to-code references. This lets Memorix store structured code facts beside text observations instead of treating memory as text-only context.
 - **CodeGraph Lite provider** -- Added a built-in TypeScript/JavaScript indexer for file hashes, basic symbol extraction, and import edges, with no new runtime dependency. Richer external CodeGraph providers can be added later against the same store and context-pack contract.
 - **Freshness-aware context packs** -- Added code-ref freshness evaluation and context pack rendering so agents can distinguish current code-bound memories from suspect or stale ones, then inspect suggested files/symbols.
-- **CodeGraph operator surface** -- Added `memorix codegraph refresh` and `memorix codegraph status`, plus MCP tools `memorix_codegraph_status` and `memorix_context_pack`.
+- **CodeGraph operator surface** -- Added `memorix codegraph refresh`, `memorix codegraph status`, and `memorix codegraph context-pack`, plus MCP tools `memorix_codegraph_status` and `memorix_context_pack`.
 
 ### Changed
 - **Memory writes attach to code refs** -- New observations now best-effort bind to indexed files and symbols after they are stored, without blocking ordinary memory writes if CodeGraph Memory is unavailable.

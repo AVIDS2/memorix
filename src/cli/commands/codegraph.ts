@@ -1,7 +1,9 @@
 import { defineCommand } from 'citty';
 import { CodeGraphStore } from '../../codegraph/store.js';
 import { indexProjectLite } from '../../codegraph/lite-provider.js';
-import { emitError, emitResult, getCliProjectContext } from './operator-shared.js';
+import { assembleContextPack, buildContextPackPrompt } from '../../codegraph/context-pack.js';
+import { getAllObservations } from '../../memory/observations.js';
+import { emitError, emitResult, getCliProjectContext, parsePositiveInt } from './operator-shared.js';
 
 function formatStatus(status: ReturnType<CodeGraphStore['status']>): string {
   return [
@@ -20,11 +22,14 @@ export default defineCommand({
     description: 'Inspect and refresh CodeGraph Memory for the current project',
   },
   args: {
-    action: { type: 'string', description: 'Action: status or refresh' },
+    action: { type: 'string', description: 'Action: status, refresh, or context-pack' },
+    task: { type: 'string', description: 'Task text for context-pack' },
+    limit: { type: 'string', description: 'Max active memories to inspect for context-pack' },
     json: { type: 'boolean', description: 'Emit machine-readable JSON output' },
   },
   run: async ({ args }) => {
-    const action = ((args._ as string[])?.[0] || (args.action as string | undefined) || 'status').toLowerCase();
+    const positional = (args._ as string[]) ?? [];
+    const action = (positional[0] || (args.action as string | undefined) || 'status').toLowerCase();
     const asJson = !!args.json;
 
     try {
@@ -52,8 +57,33 @@ export default defineCommand({
           return;
         }
 
+        case 'context-pack': {
+          const task = (args.task as string | undefined)?.trim() || positional.slice(1).join(' ').trim();
+          if (!task) {
+            emitError('task is required for "memorix codegraph context-pack"', asJson);
+            return;
+          }
+          const observations = getAllObservations()
+            .filter(obs => obs.projectId === project.id && (obs.status ?? 'active') === 'active')
+            .slice(-parsePositiveInt(args.limit as string | undefined, 20))
+            .reverse();
+          const refs = observations.flatMap(obs => store.listObservationRefs(project.id, obs.id));
+          const fileIds = new Set(refs.map(ref => ref.fileId).filter(Boolean));
+          const files = store.listFiles(project.id).filter(file => fileIds.has(file.id));
+          const symbols = files.flatMap(file => store.listSymbolsForFile(file.id));
+          const pack = assembleContextPack({
+            task,
+            observations: observations.map(obs => ({ id: obs.id, title: obs.title, type: obs.type })),
+            refs,
+            files,
+            symbols,
+          });
+          emitResult({ project, pack }, buildContextPackPrompt(pack), asJson);
+          return;
+        }
+
         default:
-          emitError(`unknown codegraph action "${action}". Use "status" or "refresh".`, asJson);
+          emitError(`unknown codegraph action "${action}". Use "status", "refresh", or "context-pack".`, asJson);
       }
     } catch (error) {
       emitError(error instanceof Error ? error.message : String(error), asJson);

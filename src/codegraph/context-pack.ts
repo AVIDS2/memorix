@@ -153,7 +153,7 @@ export function assembleContextPack(input: AssembleContextPackInput): ContextPac
     const freshness = evaluateCodeRefFreshness(ref, file, symbol);
 
     if (freshness.status === 'current') {
-      const memoryKey = `${observation.id}:${freshness.status}:${freshness.reason}`;
+      const memoryKey = `${observation.id}:${freshness.status}`;
       if (!memoryKeys.has(memoryKey)) {
         memoryKeys.add(memoryKey);
         memories.push({

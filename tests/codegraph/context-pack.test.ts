@@ -57,6 +57,16 @@ describe('buildContextPackPrompt', () => {
           createdAt: '2026-06-29T00:00:00.000Z',
         },
         {
+          id: 'coderef:file-current',
+          projectId: 'org/repo',
+          observationId: 1,
+          fileId: 'file:auth',
+          capturedFileHash: 'file-hash',
+          status: 'current',
+          reason: 'bound by file path',
+          createdAt: '2026-06-29T00:00:00.000Z',
+        },
+        {
           id: 'coderef:stale',
           projectId: 'org/repo',
           observationId: 2,
@@ -95,8 +105,10 @@ describe('buildContextPackPrompt', () => {
     expect(pack.memories).toEqual([
       expect.objectContaining({ id: 1, status: 'current' }),
     ]);
+    expect(pack.memories).toHaveLength(1);
     expect(pack.codeFacts).toEqual([
       expect.objectContaining({ path: 'src/auth.ts', symbol: 'authMiddleware', line: 3 }),
+      expect.objectContaining({ path: 'src/auth.ts' }),
     ]);
     expect(pack.warnings).toEqual([
       expect.objectContaining({ id: 2, status: 'stale' }),

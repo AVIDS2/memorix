@@ -85,14 +85,21 @@ function createMockAdapter(opts: {
 describe('Coordinator', () => {
   let store: TeamStore;
   let tmpDir: string;
+  const originalEmbedding = process.env.MEMORIX_EMBEDDING;
 
   beforeEach(async () => {
+    process.env.MEMORIX_EMBEDDING = 'off';
     tmpDir = makeTmpDir();
     store = new TeamStore();
     await store.init(tmpDir);
   });
 
   afterEach(() => {
+    if (originalEmbedding === undefined) {
+      delete process.env.MEMORIX_EMBEDDING;
+    } else {
+      process.env.MEMORIX_EMBEDDING = originalEmbedding;
+    }
     cleanup(tmpDir);
   });
 

@@ -1137,6 +1137,55 @@ export async function createMemorixServer(
   );
 
   server.registerTool(
+    'memorix_project_context',
+    {
+      title: 'Project Context',
+      description:
+        'Build a compact, agent-ready project context packet for the current coding task. ' +
+        'Automatically refreshes Code Memory when needed, includes suggested files to read first, ' +
+        'active code-bound memories, and freshness cautions. Use this at the start of a new coding turn or after switching tasks.',
+      inputSchema: {
+        task: z.string().optional().describe('Current coding task or question'),
+        refresh: z.enum(['auto', 'always', 'never']).optional().default('auto').describe(
+          'Code Memory refresh policy. auto refreshes only when missing or stale.',
+        ),
+        format: z.enum(['prompt', 'summary', 'json']).optional().default('prompt').describe(
+          'Output format. "prompt" is agent-ready; "summary" is human-readable; "json" is structured.',
+        ),
+        limit: z.number().optional().describe('Reserved for future source limits; current prompt stays compact by default.'),
+      },
+    },
+    async ({ task, refresh, format }) => {
+      const unresolved = requireResolvedProject('build project context for the current project');
+      if (unresolved) return unresolved;
+
+      return withFreshIndex(async () => {
+        const {
+          buildAutoProjectContext,
+          formatAutoProjectContextPrompt,
+          formatAutoProjectContextSummary,
+        } = await import('./codegraph/auto-context.js');
+        const context = await buildAutoProjectContext({
+          project,
+          dataDir: projectDir,
+          observations: getAllObservations(),
+          task,
+          refresh: refresh ?? 'auto',
+        });
+        const text = format === 'json'
+          ? JSON.stringify(context, null, 2)
+          : format === 'summary'
+            ? formatAutoProjectContextSummary(context)
+            : formatAutoProjectContextPrompt(context);
+
+        return {
+          content: [{ type: 'text' as const, text }],
+        };
+      });
+    },
+  );
+
+  server.registerTool(
     'memorix_codegraph_status',
     {
       title: 'CodeGraph Memory Status',

@@ -1,6 +1,6 @@
 {
   "name": "memorix",
-  "version": "1.1.2",
+  "version": "1.1.3",
   "description": "Local-first shared memory layer for AI coding agents across MCP clients, Git history, reasoning context, and project sessions.",
   "type": "module",
   "sideEffects": false,

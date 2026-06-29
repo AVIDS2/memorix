@@ -7,15 +7,49 @@
  * This directly validates the fix for: "hooks never auto-store during development"
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { afterEach, describe, it, expect, beforeEach, vi } from 'vitest';
+import { execSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { normalizeHookInput } from '../../src/hooks/normalizer.js';
 import { handleHookEvent, resetCooldowns } from '../../src/hooks/handler.js';
+import { initObservations, storeObservation } from '../../src/memory/observations.js';
+import { closeAllDatabases } from '../../src/store/sqlite-db.js';
+import { resetObservationStore } from '../../src/store/obs-store.js';
+import { resetDb } from '../../src/store/orama-store.js';
+import { resetSessionStore } from '../../src/store/session-store.js';
+import { resetTeamStore } from '../../src/team/team-store.js';
 
 describe('Claude Code Hook Handler E2E', () => {
+  const originalCwd = process.cwd();
+  const originalDataDir = process.env.MEMORIX_DATA_DIR;
+  const originalEmbedding = process.env.MEMORIX_EMBEDDING;
+
   // Each `memorix hook` call is a separate process in production,
   // so cooldowns never persist. Reset between tests to simulate this.
   beforeEach(() => {
     resetCooldowns();
+  });
+
+  afterEach(async () => {
+    process.chdir(originalCwd);
+    if (originalDataDir === undefined) {
+      delete process.env.MEMORIX_DATA_DIR;
+    } else {
+      process.env.MEMORIX_DATA_DIR = originalDataDir;
+    }
+    if (originalEmbedding === undefined) {
+      delete process.env.MEMORIX_EMBEDDING;
+    } else {
+      process.env.MEMORIX_EMBEDDING = originalEmbedding;
+    }
+    vi.doUnmock('../../src/config/behavior.js');
+    resetObservationStore();
+    resetSessionStore();
+    resetTeamStore();
+    await resetDb();
+    closeAllDatabases();
   });
   // ─── PostToolUse: Write (most common during development) ───
   it('should auto-store for Write tool (file creation)', async () => {
@@ -176,6 +210,55 @@ export function verifyToken(token: string) {
     expect(observation).toBeNull();
     expect(output.systemMessage).toContain('Previous session context may be available');
     expect(output.systemMessage).toContain('Use memorix_search when prior project context would materially help');
+  });
+
+  it('should inject auto project context on SessionStart when full injection is enabled', async () => {
+    const sandboxRoot = mkdtempSync(path.join(tmpdir(), 'memorix-hook-auto-context-'));
+    const repoDir = path.join(sandboxRoot, 'repo');
+    const dataDir = path.join(sandboxRoot, 'data');
+    try {
+      mkdirSync(path.join(repoDir, 'src'), { recursive: true });
+      writeFileSync(path.join(repoDir, 'src', 'auth.ts'), 'export function authMiddleware(token: string) { return token.length > 0; }\n', 'utf8');
+      writeFileSync(path.join(repoDir, 'src', 'worker.py'), 'def dispatch_job(name: str):\n    return name.upper()\n', 'utf8');
+      execSync('git init', { cwd: repoDir, stdio: 'ignore' });
+      process.chdir(repoDir);
+      process.env.MEMORIX_DATA_DIR = dataDir;
+      process.env.MEMORIX_EMBEDDING = 'off';
+      vi.doMock('../../src/config/behavior.js', () => ({
+        getBehaviorConfig: () => ({
+          sessionInject: 'full',
+          syncAdvisory: true,
+          autoCleanup: true,
+          formationMode: 'active',
+        }),
+      }));
+      await initObservations(dataDir);
+      await storeObservation({
+        entityName: 'auth',
+        type: 'decision',
+        title: 'authMiddleware owns token verification',
+        narrative: 'When editing login behavior, start with src/auth.ts.',
+        filesModified: ['src/auth.ts'],
+        projectId: 'local/repo',
+      });
+
+      const input = normalizeHookInput({
+        hook_event_name: 'SessionStart',
+        session_id: 'sess-claude-auto-context',
+        cwd: repoDir,
+      });
+      const { observation, output } = await handleHookEvent(input);
+
+      expect(observation).toBeNull();
+      expect(output.systemMessage).toContain('Memorix project context for repo');
+      expect(output.systemMessage).toContain('src/auth.ts');
+      expect(output.systemMessage).toContain('python 1');
+      expect(output.systemMessage).not.toContain('SQLite');
+    } finally {
+      process.chdir(originalCwd);
+      closeAllDatabases();
+      rmSync(sandboxRoot, { recursive: true, force: true });
+    }
   });
 
   // ─── Stop (session end) ───

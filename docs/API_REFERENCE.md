@@ -7,7 +7,7 @@ Memorix exposes:
 - core memory tools
 - reasoning and session tools
 - maintenance and retention tools
-- CodeGraph Memory and context pack tools
+- CodeGraph Memory, project context, and context pack tools
 - workspace and rules sync tools
 - orchestration coordination tools
 - privacy-safe handoff diagnostics
@@ -58,6 +58,7 @@ Typical examples:
 ```bash
 memorix session start --agent codex-main --agentType codex
 memorix memory search --query "release blocker"
+memorix context --task "continue auth bug"
 memorix codegraph refresh
 memorix codegraph status --json
 memorix reasoning search --query "why sqlite"
@@ -87,15 +88,23 @@ CLI:
 memorix codegraph refresh
 memorix codegraph status
 memorix codegraph status --json
+memorix context
+memorix context --task "continue auth bug"
+memorix explain
 memorix codegraph context-pack --task "continue auth bug"
 ```
 
 MCP:
 
+- `memorix_project_context` builds the default agent-ready project context packet. It can auto-refresh CodeGraph Memory when the index is missing or stale, then returns suggested first reads, code-bound memory sources, and freshness cautions.
 - `memorix_codegraph_status` returns provider/index counts for the current project.
 - `memorix_context_pack` builds a prompt-ready packet with relevant code-bound memories, current code facts, freshness warnings, and suggested reads.
 
-The first implementation uses the built-in Lite provider for TypeScript/JavaScript files and import edges. Future providers can feed richer graph data into the same store and context-pack API.
+`memorix context` defaults to `--refresh auto`, so first use can seed CodeGraph Memory without a separate manual `memorix codegraph refresh`. Use `--refresh never` for read-only inspection and `--refresh always` when you want to force a fresh scan.
+
+SessionStart hooks keep the default minimal hint lightweight. When memory behavior is configured with `sessionInject=full`, Memorix injects the compact project context packet at session start instead of only listing recent text memories.
+
+The built-in Lite provider indexes common code files with lightweight file, symbol, and import facts. Future providers can feed richer graph data into the same store and context APIs.
 
 ### Cross-Agent Handoff Receipt
 

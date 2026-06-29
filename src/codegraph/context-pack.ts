@@ -1,4 +1,5 @@
-import type { CodeRefStatus } from './types.js';
+import { evaluateCodeRefFreshness } from './freshness.js';
+import type { CodeFile, CodeRefStatus, CodeSymbol, ObservationCodeRef } from './types.js';
 
 export interface ContextPackMemory {
   id: number;
@@ -29,6 +30,77 @@ export interface ContextPack {
   warnings: ContextPackWarning[];
   suggestedReads: string[];
   suggestedVerification: string[];
+}
+
+export interface ContextPackObservation {
+  id: number;
+  title: string;
+  type: string;
+}
+
+export interface AssembleContextPackInput {
+  task: string;
+  observations: ContextPackObservation[];
+  refs: ObservationCodeRef[];
+  files: CodeFile[];
+  symbols: CodeSymbol[];
+  suggestedVerification?: string[];
+}
+
+function uniq<T>(items: T[]): T[] {
+  return [...new Set(items)];
+}
+
+export function assembleContextPack(input: AssembleContextPackInput): ContextPack {
+  const observations = new Map(input.observations.map((obs) => [obs.id, obs]));
+  const files = new Map(input.files.map((file) => [file.id, file]));
+  const symbols = new Map(input.symbols.map((symbol) => [symbol.id, symbol]));
+  const memories: ContextPackMemory[] = [];
+  const codeFacts: ContextPackCodeFact[] = [];
+  const warnings: ContextPackWarning[] = [];
+  const suggestedReads: string[] = [];
+
+  for (const ref of input.refs) {
+    const observation = observations.get(ref.observationId);
+    if (!observation) continue;
+
+    const file = ref.fileId ? files.get(ref.fileId) : undefined;
+    const symbol = ref.symbolId ? symbols.get(ref.symbolId) : undefined;
+    const freshness = evaluateCodeRefFreshness(ref, file, symbol);
+
+    if (freshness.status === 'current') {
+      memories.push({
+        id: observation.id,
+        title: observation.title,
+        type: observation.type,
+        status: freshness.status,
+        reason: freshness.reason,
+      });
+      if (file) suggestedReads.push(file.path);
+      if (file) {
+        codeFacts.push({
+          path: file.path,
+          ...(symbol ? { symbol: symbol.name, kind: symbol.kind, line: symbol.startLine } : {}),
+        });
+      }
+    } else {
+      warnings.push({
+        id: observation.id,
+        title: observation.title,
+        status: freshness.status,
+        reason: freshness.reason,
+      });
+    }
+  }
+
+  return {
+    task: input.task,
+    memories,
+    codeFacts,
+    warnings,
+    suggestedReads: uniq(suggestedReads),
+    suggestedVerification: input.suggestedVerification ?? [],
+  };
 }
 
 export function buildContextPackPrompt(pack: ContextPack): string {

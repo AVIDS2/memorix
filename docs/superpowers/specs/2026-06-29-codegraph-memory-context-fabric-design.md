@@ -2,7 +2,7 @@
 
 Date: 2026-06-29
 Branch: `codex/1.1.3-codegraph-memory`
-Status: proposed
+Status: 1.1.3 MVP implemented
 
 ## Summary
 
@@ -19,6 +19,26 @@ This design turns Memorix from a session-memory system into a context fabric:
 The product promise is:
 
 > Coding agents do not need more memory. They need trustworthy working context.
+
+## 1.1.3 MVP Status
+
+The first vertical slice is implemented with no new runtime dependency:
+
+- SQLite tables for files, symbols, edges, and observation-code references.
+- Deterministic project-scoped IDs for code facts.
+- CodeGraph Lite indexing for TypeScript/JavaScript files, symbols, and import edges.
+- Best-effort binding from newly stored observations to indexed files/symbols.
+- Freshness evaluation for `current`, `suspect`, and `stale` code-bound memories.
+- CLI commands: `memorix codegraph refresh` and `memorix codegraph status`.
+- MCP tools: `memorix_codegraph_status` and `memorix_context_pack`.
+- Context pack rendering that separates memories, current code facts, freshness warnings, suggested reads, and verification hints.
+
+Deferred follow-up work:
+
+- External CodeGraph provider selection and richer call/impact graph support.
+- Watch/incremental indexing.
+- Ranking that combines memory search, git recency, code refs, and task intent.
+- Wider language coverage beyond the Lite provider's initial TypeScript/JavaScript scope.
 
 ## Background
 
@@ -576,4 +596,3 @@ and Memorix returns:
 - and suggested verification commands.
 
 The agent should need fewer broad repo scans and fewer memory follow-up searches to begin useful work.
-

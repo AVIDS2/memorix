@@ -47,6 +47,7 @@ export default defineCommand({
     let projectName = '';
     let dataDir = '';
     let projectRoot = '';
+    let projectObservations: any[] = [];
     try {
       const { detectProjectWithDiagnostics } = await import('../../project/detector.js');
       const { getProjectDataDir } = await import('../../store/persistence.js');
@@ -234,6 +235,7 @@ export default defineCommand({
         const store = getObservationStore();
         backendName = store.getBackendName();
         const obs = await store.loadAll();
+        projectObservations = obs;
         obsCount = obs.length;
         activeCount = obs.filter((o: any) => (o.status ?? 'active') === 'active').length;
         ranCount = obs.filter((o: any) => /^Ran:\s/i.test(o.title ?? '')).length;
@@ -285,7 +287,67 @@ export default defineCommand({
       }
     }
 
-    // ── 5. Conflict Check ────────────────────────────────────────
+    // ── 5. Project Context ───────────────────────────────────────
+    lines.push('');
+    lines.push('┌─ Project Context ─────────────────────────────────');
+
+    if (projectId && dataDir) {
+      try {
+        const { CodeGraphStore } = await import('../../codegraph/store.js');
+        const { buildProjectContextOverview } = await import('../../codegraph/project-context.js');
+        const codeStore = new CodeGraphStore();
+        await codeStore.init(dataDir);
+        const overview = buildProjectContextOverview({
+          project: {
+            id: projectId,
+            name: projectName || basename(projectRoot || process.cwd()),
+            rootPath: projectRoot || process.cwd(),
+          },
+          store: codeStore,
+          observations: projectObservations,
+        });
+        const languageText = overview.code.languages.length > 0
+          ? overview.code.languages.map((item: any) => `${item.language} ${item.files}`).join(', ')
+          : 'none indexed yet';
+
+        if (overview.code.files > 0) {
+          lines.push(ok(`Code memory: ${overview.code.files} files, ${overview.code.symbols} symbols, ${overview.code.refs} memory links`));
+          lines.push(info(`Languages: ${languageText}`));
+        } else {
+          lines.push(warn('Code memory: no project scan found yet'));
+          tips.push('Run `memorix codegraph refresh` once to seed project context.');
+        }
+
+        if (overview.freshness.stale > 0 || overview.freshness.suspect > 0) {
+          lines.push(warn(`Freshness: ${overview.freshness.current} current, ${overview.freshness.suspect} suspect, ${overview.freshness.stale} stale`));
+        } else {
+          lines.push(ok(`Freshness: ${overview.freshness.current} current memory link(s)`));
+        }
+
+        if (overview.suggestedReads.length > 0) {
+          lines.push(info(`Suggested reads: ${overview.suggestedReads.slice(0, 5).join(', ')}`));
+        }
+
+        report.codeMemory = {
+          provider: overview.code.provider,
+          files: overview.code.files,
+          symbols: overview.code.symbols,
+          edges: overview.code.edges,
+          refs: overview.code.refs,
+          languages: overview.code.languages,
+          freshness: overview.freshness,
+          ...(overview.code.indexedAt ? { indexedAt: overview.code.indexedAt } : {}),
+        };
+      } catch (e) {
+        const message = e instanceof Error ? e.message : String(e);
+        lines.push(warn(`Code memory unavailable: ${message}`));
+        report.codeMemory = { error: message };
+      }
+    } else {
+      lines.push(info('Project context unavailable without a detected project.'));
+    }
+
+    // ── 6. Conflict Check ────────────────────────────────────────
     lines.push('');
     lines.push('┌─ Conflict Check ──────────────────────────────────');
 
@@ -315,7 +377,7 @@ export default defineCommand({
     }
     report.conflicts = { found: conflictsFound };
 
-    // ── 6. LLM Status ────────────────────────────────────────────
+    // ── 7. LLM Status ────────────────────────────────────────────
     lines.push('');
     lines.push('┌─ LLM Enhanced Mode ───────────────────────────────');
 
@@ -339,7 +401,7 @@ export default defineCommand({
       report.llm = { enabled: false };
     }
 
-    // ── 7. Auto-Update Status ──────────────────────────────────
+    // ── 8. Auto-Update Status ──────────────────────────────────
     lines.push('');
     lines.push('┌─ Auto-Update ─────────────────────────────────────');
 

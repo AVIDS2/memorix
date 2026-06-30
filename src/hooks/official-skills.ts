@@ -31,6 +31,7 @@ export const OFFICIAL_MEMORIX_SKILLS: OfficialMemorixSkill[] = [
       '',
       '| Situation | Prefer | CLI fallback |',
       '|---|---|---|',
+      '| Starting or continuing a coding task and needing the best project map | `memorix_project_context` | `memorix context --task "<task>"` |',
       '| Broad continuation, memory overview, or "what do we know?" | `memorix_graph_context` | `memorix memory graph-context --query "<topic>"` |',
       '| Specific past decision, bug, file, or change | `memorix_search` | `memorix memory search --query "<topic>"` |',
       '| Need the full source for a search hit | `memorix_detail` | `memorix memory detail --id <id>` |',

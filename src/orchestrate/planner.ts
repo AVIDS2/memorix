@@ -139,6 +139,14 @@ export interface SeedOptions {
   collectContext?: boolean;
   /** Use structured JSON output (default: true). Set false for P5 legacy mode. */
   structuredPlan?: boolean;
+  /** Project directory for file/dependency/git context */
+  projectDir?: string;
+  /** Agent names available to the orchestrator */
+  agents?: string[];
+  /** Memorix data directory for CodeGraph Memory context */
+  dataDir?: string;
+  /** Project display name for CodeGraph Memory context */
+  projectName?: string;
 }
 
 /**
@@ -149,7 +157,7 @@ export function seedAutonomousPipeline(
   teamStore: TeamStore,
   projectId: string,
   config: PlannerConfig,
-  opts?: SeedOptions & { projectDir?: string; agents?: string[] },
+  opts?: SeedOptions,
 ): { planningTaskId: string; pipelineId: string } {
   const maxIterations = config.maxIterations ?? 3;
   const taskBudget = config.taskBudget ?? 15;
@@ -173,6 +181,9 @@ export function seedAutonomousPipeline(
       const ctx = collectPlanningContext({
         projectDir: opts.projectDir,
         agents: opts.agents ?? [],
+        projectId,
+        projectName: opts.projectName,
+        dataDir: opts.dataDir,
       });
       contextSection = contextToPromptSection(ctx);
     } catch { /* best-effort */ }

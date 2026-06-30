@@ -273,94 +273,37 @@ async function handleSessionStart(input: NormalizedHookInput): Promise<{
   }
 
   let contextSummary = '';
-  try {
-    const { detectProject } = await import('../project/detector.js');
-    const { getProjectDataDir } = await import('../store/persistence.js');
-    const { initObservationStore, getObservationStore: getStore } = await import('../store/obs-store.js');
-    const { initMiniSkillStore } = await import('../store/mini-skill-store.js');
-    const { initSessionStore } = await import('../store/session-store.js');
-    const { initAliasRegistry, registerAlias } = await import('../project/aliases.js');
-    const { calculateProjectAffinity, extractProjectKeywords } = await import('../store/project-affinity.js');
+  if (injectMode === 'full') {
+    try {
+      const { detectProject } = await import('../project/detector.js');
+      const { getProjectDataDir } = await import('../store/persistence.js');
+      const { initObservationStore, getObservationStore: getStore } = await import('../store/obs-store.js');
+      const { initMiniSkillStore } = await import('../store/mini-skill-store.js');
+      const { initSessionStore } = await import('../store/session-store.js');
+      const { initAliasRegistry, registerAlias } = await import('../project/aliases.js');
+      const { buildAutoProjectContext, formatAutoProjectContextPrompt } = await import('../codegraph/auto-context.js');
 
-    const rawProject = detectProject(input.cwd || process.cwd());
-    if (!rawProject) throw new Error('No .git found');
-    const dataDir = await getProjectDataDir(rawProject.id);
-    
-    // Resolve to canonical project ID (same as server.ts does)
-    initAliasRegistry(dataDir);
-    const canonicalId = await registerAlias(rawProject);
-    await initObservationStore(dataDir);
-    await initMiniSkillStore(dataDir);
-    await initSessionStore(dataDir);
-    const allObs = await getStore().loadAll() as Array<{
-      type?: string; title?: string; narrative?: string;
-      facts?: string[]; timestamp?: string; entityName?: string;
-      concepts?: string[]; filesModified?: string[];
-    }>;
+      const rawProject = detectProject(input.cwd || process.cwd());
+      if (!rawProject) throw new Error('No .git found');
+      const dataDir = await getProjectDataDir(rawProject.id);
 
-    if (allObs.length > 0) {
-      const PRIORITY_ORDER: Record<string, number> = {
-        'gotcha': 6, 'decision': 5, 'problem-solution': 4,
-        'trade-off': 3, 'discovery': 2, 'how-it-works': 1,
-      };
-      const LOW_QUALITY_PATTERNS = [
-        /^Session activity/i,
-        /^Updated \S+\.\w+$/i,
-        /^Created \S+\.\w+$/i,
-        /^Deleted \S+\.\w+$/i,
-        /^Modified \S+\.\w+$/i,
-      ];
-      const isLowQuality = (title: string) =>
-        LOW_QUALITY_PATTERNS.some(p => p.test(title));
-
-      // Project Affinity context for filtering cross-project pollution
-      const affinityContext = {
-        projectName: rawProject.name,
-        projectId: canonicalId,
-        projectKeywords: extractProjectKeywords(rawProject.name, canonicalId),
-      };
-
-      const scored = allObs
-        .map((obs, i) => {
-          const title = obs.title ?? '';
-          const hasFacts = (obs.facts?.length ?? 0) > 0;
-          const hasSubstance = title.length > 20 || hasFacts;
-          const quality = isLowQuality(title) ? 0.1 : hasSubstance ? 1.0 : 0.5;
-          
-          // Apply Project Affinity scoring to filter cross-project memories
-          const { score: affinity } = calculateProjectAffinity({
-            title,
-            narrative: obs.narrative,
-            facts: obs.facts,
-            concepts: obs.concepts,
-            entityName: obs.entityName,
-            filesModified: obs.filesModified,
-          }, affinityContext);
-          
-          return { obs, priority: PRIORITY_ORDER[obs.type ?? ''] ?? 0, quality, affinity, recency: i };
-        })
-        // Filter out low-affinity memories (likely cross-project pollution)
-        .filter(item => item.affinity >= 0.5)
-        .sort((a, b) => {
-          const scoreA = a.priority * a.quality * a.affinity;
-          const scoreB = b.priority * b.quality * b.affinity;
-          if (scoreB !== scoreA) return scoreB - scoreA;
-          return b.recency - a.recency;
-        });
-
-      const top = scored.slice(0, 5);
-      const lines = top.map(({ obs }) => {
-        const emoji = TYPE_EMOJI[obs.type ?? ''] ?? '[PIN]';
-        const title = obs.title ?? '(untitled)';
-        const fact = obs.facts?.[0] ? ` — ${obs.facts[0]}` : '';
-        return `${emoji} ${title}${fact}`;
+      initAliasRegistry(dataDir);
+      const canonicalId = await registerAlias(rawProject);
+      await initObservationStore(dataDir);
+      await initMiniSkillStore(dataDir);
+      await initSessionStore(dataDir);
+      const allObs = await getStore().loadAll();
+      const context = await buildAutoProjectContext({
+        project: { ...rawProject, id: canonicalId },
+        dataDir,
+        observations: allObs,
+        refresh: 'auto',
       });
-
-      contextSummary = `\n\nRecent project memories (${rawProject.name}):\n${lines.join('\n')}`;
+      contextSummary = `\n\n${formatAutoProjectContextPrompt(context)}`;
+    } catch (sessErr) {
+      // Diagnostic log — session start context injection failed
+      console.error('[memorix] session start context failed:', (sessErr as Error)?.message ?? sessErr);
     }
-  } catch (sessErr) {
-    // Diagnostic log — session start context injection failed
-    console.error('[memorix] session start context failed:', (sessErr as Error)?.message ?? sessErr);
   }
 
   // Build system message based on inject mode

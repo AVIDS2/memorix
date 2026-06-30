@@ -4,6 +4,8 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { isPlannerTask, seedAutonomousPipeline, buildReviewIterationHint, extractPipelineId } from '../../src/orchestrate/planner.js';
 import { initTeamStore, type TeamStore } from '../../src/team/team-store.js';
+import { CodeGraphStore } from '../../src/codegraph/store.js';
+import { closeAllDatabases } from '../../src/store/sqlite-db.js';
 
 describe('Planner — Phase 5', () => {
   // ── isPlannerTask ──────────────────────────────────────────────
@@ -67,7 +69,8 @@ describe('Planner — Phase 5', () => {
     });
 
     afterEach(() => {
-      try { rmSync(tmpDir, { recursive: true }); } catch { /* ignore */ }
+      closeAllDatabases();
+      try { rmSync(tmpDir, { recursive: true, force: true }); } catch { /* ignore */ }
     });
 
     it('creates a planning task with correct metadata and pipelineId', () => {
@@ -126,6 +129,53 @@ describe('Planner — Phase 5', () => {
       expect(task!.description).toContain('2');         // maxIterations
       expect(task!.description).toContain('Quality Gate');
       expect(task!.description).toContain('team_task');
+    });
+
+    it('planning prompt includes CodeGraph Memory when available', async () => {
+      const codeStore = new CodeGraphStore();
+      await codeStore.init(tmpDir);
+      codeStore.replaceProjectIndex('test/proj', {
+        files: [
+          {
+            id: 'file:src/auth.ts',
+            projectId: 'test/proj',
+            path: 'src/auth.ts',
+            language: 'typescript',
+            contentHash: 'auth-file',
+            indexedAt: '2026-06-29T00:00:00.000Z',
+          },
+        ],
+        symbols: [
+          {
+            id: 'symbol:authMiddleware',
+            projectId: 'test/proj',
+            fileId: 'file:src/auth.ts',
+            path: 'src/auth.ts',
+            name: 'authMiddleware',
+            qualifiedName: 'authMiddleware',
+            kind: 'function',
+            startLine: 7,
+            contentHash: 'auth-symbol',
+            indexedAt: '2026-06-29T00:00:00.000Z',
+          },
+        ],
+        edges: [],
+      });
+
+      const { planningTaskId } = seedAutonomousPipeline(teamStore, 'test/proj', {
+        goal: 'Improve auth flow',
+      }, {
+        projectDir: process.cwd(),
+        agents: ['claude'],
+        dataDir: tmpDir,
+        projectName: 'proj',
+      });
+
+      const task = teamStore.getTask(planningTaskId);
+      expect(task!.description).toContain('## Code Memory');
+      expect(task!.description).toContain('Code memory for proj: 1 files / 1 symbols');
+      expect(task!.description).toContain('Suggested reads');
+      expect(task!.description).toContain('src/auth.ts');
     });
   });
 
@@ -257,7 +307,8 @@ describe('Planner — Phase 5', () => {
     });
 
     afterEach(() => {
-      try { rmSync(tmpDir, { recursive: true }); } catch { /* ignore */ }
+      closeAllDatabases();
+      try { rmSync(tmpDir, { recursive: true, force: true }); } catch { /* ignore */ }
     });
 
     it('seedAutonomousPipeline writes to DB (non-dry-run baseline)', () => {

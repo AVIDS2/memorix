@@ -9,6 +9,7 @@
 import { execSync } from 'node:child_process';
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { CodeGraphStore } from '../codegraph/store.js';
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -19,6 +20,8 @@ export interface PlanningContext {
   dependencies: string;
   /** Recent git log (last 10 commits, one-line) */
   gitLog: string;
+  /** Existing CodeGraph Memory summary, if available */
+  codeMemory: string;
   /** Available agent names */
   agents: string[];
 }
@@ -26,6 +29,12 @@ export interface PlanningContext {
 export interface ContextCollectorOpts {
   projectDir: string;
   agents: string[];
+  /** Project ID for CodeGraph Memory lookup */
+  projectId?: string;
+  /** Project display name for CodeGraph Memory summary */
+  projectName?: string;
+  /** Memorix data directory containing the CodeGraph tables */
+  dataDir?: string;
   /** Max entries in file tree (default: 80) */
   maxFileTreeEntries?: number;
   /** Max git log entries (default: 10) */
@@ -50,6 +59,7 @@ export function collectPlanningContext(opts: ContextCollectorOpts): PlanningCont
     fileTree: collectFileTree(projectDir, maxFileTreeEntries),
     dependencies: collectDependencies(projectDir),
     gitLog: collectGitLog(projectDir, maxGitLogEntries),
+    codeMemory: collectCodeMemory(opts),
     agents,
   };
 }
@@ -68,6 +78,9 @@ export function contextToPromptSection(ctx: PlanningContext): string {
   }
   if (ctx.gitLog) {
     sections.push(`## Recent Git History\n\`\`\`\n${ctx.gitLog}\n\`\`\``);
+  }
+  if (ctx.codeMemory) {
+    sections.push(`## Code Memory\n${ctx.codeMemory}`);
   }
   if (ctx.agents.length > 0) {
     sections.push(`## Available Agents\n${ctx.agents.join(', ')}`);
@@ -127,6 +140,45 @@ function collectGitLog(projectDir: string, maxEntries: number): string {
       encoding: 'utf-8',
       timeout: 5_000,
     }).trim();
+  } catch {
+    return '';
+  }
+}
+
+function collectCodeMemory(opts: ContextCollectorOpts): string {
+  if (!opts.projectId || !opts.dataDir) return '';
+
+  try {
+    const store = new CodeGraphStore();
+    // init() keeps an async signature for store API consistency, but opens SQLite synchronously today.
+    void store.init(opts.dataDir);
+
+    const status = store.status(opts.projectId);
+    if (status.files === 0) return '';
+
+    const files = store.listFiles(opts.projectId);
+    const languages = [...files.reduce((map, file) => {
+      const language = file.language ?? 'unknown';
+      map.set(language, (map.get(language) ?? 0) + 1);
+      return map;
+    }, new Map<string, number>()).entries()]
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([language, count]) => `${language} ${count}`)
+      .join(', ');
+    const suggestedReads = files
+      .slice(0, 8)
+      .map(file => file.path);
+
+    const lines = [
+      `Code memory for ${opts.projectName ?? opts.projectId}: ${status.files} files / ${status.symbols} symbols / ${status.edges} relationships / ${status.refs} memory links`,
+      `Languages: ${languages || 'none indexed yet'}`,
+    ];
+    if (status.indexedAt) lines.push(`Last scan: ${status.indexedAt}`);
+    if (suggestedReads.length > 0) {
+      lines.push('Suggested reads:');
+      suggestedReads.forEach((path, index) => lines.push(`${index + 1}. ${path}`));
+    }
+    return lines.join('\n');
   } catch {
     return '';
   }

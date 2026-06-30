@@ -153,6 +153,19 @@ Provider values:
 
 If embedding is unavailable, Memorix falls back to BM25/full-text search.
 
+OpenRouter embeddings can use the official OpenRouter environment variable:
+
+```toml
+[embedding]
+provider = "api"
+model = "qwen/qwen3-embedding-8b"
+base_url = "https://openrouter.ai/api/v1"
+```
+
+Then set `OPENROUTER_API_KEY` in your shell, user environment, or `.env`. You
+can still set `MEMORIX_EMBEDDING_API_KEY` when you want an explicit embedding
+key override; it takes priority over `OPENROUTER_API_KEY`.
+
 ### `[memory]`
 
 Runtime memory behavior.

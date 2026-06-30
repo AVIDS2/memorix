@@ -304,6 +304,8 @@ export default defineCommand({
           structuredPlan,
           projectDir,
           agents: agentNames,
+          dataDir,
+          projectName: proj.name,
         });
         currentPipelineId = pipelineId;
         console.error(`\n[REASONING] Autonomous mode: goal → "${goal}"`);

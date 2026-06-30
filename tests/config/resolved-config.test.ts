@@ -85,6 +85,16 @@ describe('resolved config', () => {
     expect(getResolvedAgentLane({ projectRoot: null, homeDir: HOME }).model).toBe('env-model');
   });
 
+  it('loads dotenv before resolving lanes and switches project dotenv cleanly', () => {
+    const projectB = join(TMP, 'project-b');
+    mkdirSync(projectB, { recursive: true });
+    writeFileSync(join(PROJECT, '.env'), 'MEMORIX_EMBEDDING_API_KEY=project-a-key\n', 'utf8');
+    writeFileSync(join(projectB, '.env'), 'MEMORIX_EMBEDDING_API_KEY=project-b-key\n', 'utf8');
+
+    expect(getResolvedEmbeddingLane({ projectRoot: PROJECT, homeDir: HOME }).apiKey).toBe('project-a-key');
+    expect(getResolvedEmbeddingLane({ projectRoot: projectB, homeDir: HOME }).apiKey).toBe('project-b-key');
+  });
+
   it('keeps embedding lane isolated from memory and agent credentials', () => {
     process.env.MEMORIX_API_KEY = 'memory-key';
     process.env.MEMORIX_AGENT_API_KEY = 'agent-key';

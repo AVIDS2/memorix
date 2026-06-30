@@ -1136,6 +1136,121 @@ export async function createMemorixServer(
     },
   );
 
+  server.registerTool(
+    'memorix_project_context',
+    {
+      title: 'Project Context',
+      description:
+        'Build a compact, agent-ready project context packet for the current coding task. ' +
+        'Automatically refreshes Code Memory when needed, includes suggested files to read first, ' +
+        'active code-bound memories, and freshness cautions. Use this at the start of a new coding turn or after switching tasks.',
+      inputSchema: {
+        task: z.string().optional().describe('Current coding task or question'),
+        refresh: z.enum(['auto', 'always', 'never']).optional().default('auto').describe(
+          'Code Memory refresh policy. auto refreshes only when missing or stale.',
+        ),
+        format: z.enum(['prompt', 'summary', 'json']).optional().default('prompt').describe(
+          'Output format. "prompt" is agent-ready; "summary" is human-readable; "json" is structured.',
+        ),
+        limit: z.number().optional().describe('Reserved for future source limits; current prompt stays compact by default.'),
+      },
+    },
+    async ({ task, refresh, format }) => {
+      const unresolved = requireResolvedProject('build project context for the current project');
+      if (unresolved) return unresolved;
+
+      return withFreshIndex(async () => {
+        const {
+          buildAutoProjectContext,
+          formatAutoProjectContextPrompt,
+          formatAutoProjectContextSummary,
+        } = await import('./codegraph/auto-context.js');
+        const context = await buildAutoProjectContext({
+          project,
+          dataDir: projectDir,
+          observations: getAllObservations(),
+          task,
+          refresh: refresh ?? 'auto',
+        });
+        const text = format === 'json'
+          ? JSON.stringify(context, null, 2)
+          : format === 'summary'
+            ? formatAutoProjectContextSummary(context)
+            : formatAutoProjectContextPrompt(context);
+
+        return {
+          content: [{ type: 'text' as const, text }],
+        };
+      });
+    },
+  );
+
+  server.registerTool(
+    'memorix_codegraph_status',
+    {
+      title: 'CodeGraph Memory Status',
+      description: 'Show CodeGraph Memory provider and index status for the current project.',
+      inputSchema: {},
+    },
+    async () => {
+      const unresolved = requireResolvedProject('show CodeGraph Memory status for the current project');
+      if (unresolved) return unresolved;
+
+      const { CodeGraphStore } = await import('./codegraph/store.js');
+      const store = new CodeGraphStore();
+      await store.init(projectDir);
+      const status = store.status(project.id);
+
+      return {
+        content: [{ type: 'text' as const, text: JSON.stringify(status, null, 2) }],
+      };
+    },
+  );
+
+  server.registerTool(
+    'memorix_context_pack',
+    {
+      title: 'Context Pack',
+      description:
+        'Build a prompt-ready working context pack for a coding task. ' +
+        'Combines relevant memories, CodeGraph Memory facts, freshness warnings, suggested reads, and verification hints.',
+      inputSchema: {
+        task: z.string().describe('Current coding task or question'),
+        limit: z.preprocess(
+          value => (typeof value === 'string' && value.trim() !== '' ? Number(value) : value),
+          z.number().int().positive().max(100),
+        ).optional().describe('Max active memories to inspect before code-ref filtering (default: 20)'),
+      },
+    },
+    async ({ task, limit }) => {
+      const unresolved = requireResolvedProject('build a context pack for the current project');
+      if (unresolved) return unresolved;
+
+      return withFreshIndex(async () => {
+        const { CodeGraphStore } = await import('./codegraph/store.js');
+        const { assembleContextPackForTask, buildContextPackPrompt } = await import('./codegraph/context-pack.js');
+        const store = new CodeGraphStore();
+        await store.init(projectDir);
+
+        const observations = getAllObservations()
+          .filter(obs => obs.projectId === project.id && (obs.status ?? 'active') === 'active')
+          .reverse();
+        const pack = assembleContextPackForTask({
+          store,
+          projectId: project.id,
+          task,
+          observations,
+          limit: typeof limit === 'number' ? limit : 20,
+        });
+        const text = buildContextPackPrompt(pack);
+
+        return {
+          content: [{ type: 'text' as const, text }],
+        };
+      });
+    },
+  );
+
   /**
    * memorix_resolve — Mark memories as resolved/completed
    *
@@ -2734,28 +2849,26 @@ export async function createMemorixServer(
       // mechanism for HTTP/control-plane multi-project support.
       if (explicitRoot && typeof explicitRoot === 'string') {
         let bound = await switchProject(explicitRoot);
-        // Fallback: workspace root may contain a git project in a subdirectory
+        // switchProject returns false for both "same project, no-op" and "no git repo".
+        // Only scan subdirectories when explicitRoot is not itself a git repo; otherwise
+        // a same-project no-op can be hijacked by the first nested/vendored repo.
         if (!bound) {
-          const { findGitInSubdirs } = await import('./project/detector.js');
-          const subGit = findGitInSubdirs(explicitRoot);
-          if (subGit) {
-            bound = await switchProject(subGit);
-          }
-        }
-        // switchProject returns false for "same project, no-op" — that's still success,
-        // but ONLY when the canonical projectId matches the currently bound project.
-        // We must NOT treat "different valid repo at a different path" as a no-op success.
-        if (!bound && projectResolved) {
           const { detectProjectWithDiagnostics: diagnose } = await import('./project/detector.js');
           const diag = diagnose(explicitRoot);
           if (diag.project) {
-            const { registerAlias: regAlias } = await import('./project/aliases.js');
-            const resolvedCanonical = await regAlias(diag.project);
-            if (resolvedCanonical === project.id) {
-              // Same canonical project — switchProject returned false because it's a no-op.
-              bound = true;
+            if (projectResolved) {
+              const { registerAlias: regAlias } = await import('./project/aliases.js');
+              const resolvedCanonical = await regAlias(diag.project);
+              if (resolvedCanonical === project.id) {
+                bound = true;
+              }
             }
-            // else: different canonical project — fall through to fail-closed path below
+          } else {
+            const { findGitInSubdirs } = await import('./project/detector.js');
+            const subGit = findGitInSubdirs(explicitRoot);
+            if (subGit) {
+              bound = await switchProject(subGit);
+            }
           }
         }
         if (!bound) {

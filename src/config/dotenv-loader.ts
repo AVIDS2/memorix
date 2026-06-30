@@ -63,6 +63,10 @@ interface DotenvLoadOptions {
 export function loadDotenv(projectRoot?: string, options: DotenvLoadOptions = {}): void {
   if (dotenvLoaded && dotenvProjectRoot === (projectRoot ?? null)) return;
 
+  if (dotenvLoaded && dotenvProjectRoot !== (projectRoot ?? null)) {
+    resetDotenv();
+  }
+
   loadedEnvFiles.length = 0;
 
   // Loading order = priority order (with override: false, first value wins).

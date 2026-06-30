@@ -11,6 +11,7 @@ import {
 import { loadFileConfig } from './legacy-loader.js';
 import { loadTomlConfig } from './toml-loader.js';
 import { loadYamlConfig } from './yaml-loader.js';
+import { loadDotenv } from './dotenv-loader.js';
 
 export interface ResolvedLaneOptions {
   projectRoot?: string | null;
@@ -67,9 +68,18 @@ export function getResolvedConfig(options: ResolvedLaneOptions = {}): ResolvedMe
   const homeDir = options.homeDir ?? homedir();
   const projectRoot = options.projectRoot === undefined ? detectProject()?.rootPath ?? null : options.projectRoot;
 
+  // Make .env a first-class config source so every consumer of this resolved
+  // config (embedding API key, LLM base URL, etc.) sees values from
+  // ~/.memorix/.env / <project>/.env. loadDotenv() is idempotent — guarded by
+  // a module-level `dotenvLoaded` flag — so repeat calls within one process
+  // are essentially free, and it never overrides an already-set process env.
+  loadDotenv(projectRoot === null ? undefined : projectRoot ?? undefined, { userHomeDir: homeDir });
+
   const toml = loadTomlConfig({ projectRoot: projectRoot ?? null, homeDir });
   const yaml = loadYamlConfig(projectRoot ?? null);
   const legacy = loadFileConfig();
+  const embeddingBaseUrl = first(process.env.MEMORIX_EMBEDDING_BASE_URL, toml.embedding?.base_url, yaml.embedding?.baseUrl, legacy.embeddingApi?.baseUrl);
+  const openRouterEmbeddingApiKey = isOpenRouterUrl(embeddingBaseUrl) ? process.env.OPENROUTER_API_KEY : undefined;
 
   const resolved: ResolvedMemorixConfig = {
     agent: {
@@ -125,8 +135,8 @@ export function getResolvedConfig(options: ResolvedLaneOptions = {}): ResolvedMe
     embedding: {
       provider: first(process.env.MEMORIX_EMBEDDING, toml.embedding?.provider, yaml.embedding?.provider, legacy.embedding, 'off'),
       model: first(process.env.MEMORIX_EMBEDDING_MODEL, toml.embedding?.model, yaml.embedding?.model, legacy.embeddingApi?.model),
-      baseUrl: first(process.env.MEMORIX_EMBEDDING_BASE_URL, toml.embedding?.base_url, yaml.embedding?.baseUrl, legacy.embeddingApi?.baseUrl),
-      apiKey: first(process.env.MEMORIX_EMBEDDING_API_KEY, toml.embedding?.api_key, yaml.embedding?.apiKey, legacy.embeddingApi?.apiKey),
+      baseUrl: embeddingBaseUrl,
+      apiKey: first(process.env.MEMORIX_EMBEDDING_API_KEY, toml.embedding?.api_key, yaml.embedding?.apiKey, legacy.embeddingApi?.apiKey, openRouterEmbeddingApiKey),
       dimensions: firstNumber(parseNumber(process.env.MEMORIX_EMBEDDING_DIMENSIONS), toml.embedding?.dimensions, yaml.embedding?.dimensions, legacy.embeddingApi?.dimensions),
     },
     git: {
@@ -234,5 +244,16 @@ function getEnvSourceNames(): string[] {
     'MEMORIX_EMBEDDING_BASE_URL',
     'MEMORIX_EMBEDDING_MODEL',
     'MEMORIX_EMBEDDING_DIMENSIONS',
+    'OPENROUTER_API_KEY',
   ].filter((name) => process.env[name]);
+}
+
+function isOpenRouterUrl(value: string | undefined): boolean {
+  if (!value) return false;
+  try {
+    const url = new URL(value);
+    return url.hostname.toLowerCase() === 'openrouter.ai' || url.hostname.toLowerCase().endsWith('.openrouter.ai');
+  } catch {
+    return /(^|\.)openrouter\.ai(?::|\/|$)/i.test(value);
+  }
 }

@@ -86,6 +86,19 @@ function normalizeEmbeddingFailure(error: unknown): { key: string; message: stri
   };
 }
 
+async function bindObservationCodeRefsBestEffort(observation: Observation): Promise<void> {
+  if (!projectDir) return;
+  try {
+    const { CodeGraphStore } = await import('../codegraph/store.js');
+    const { bindObservationToCode } = await import('../codegraph/binder.js');
+    const codeStore = new CodeGraphStore();
+    await codeStore.init(projectDir);
+    await bindObservationToCode(codeStore, observation);
+  } catch {
+    // Code refs enrich memory retrieval, but memory writes must remain durable without them.
+  }
+}
+
 function isVectorCompatibleWithCurrentIndex(embedding: number[] | null): boolean {
   if (!embedding) return false;
   const vectorDimensions = getVectorDimensions();
@@ -357,6 +370,8 @@ export async function storeObservation(input: {
     return { observation: await upsertObservation(observation, input, now), upserted: true };
   }
 
+  await bindObservationCodeRefsBestEffort(observation);
+
   // Generate embedding async (fire-and-forget) — never blocks MCP response
   // Track in vectorMissingIds until embedding is successfully written.
   const obsId = observation.id;
@@ -501,6 +516,8 @@ async function upsertObservation(
     const store = getObservationStore();
     await store.update(existing);
   }
+
+  await bindObservationCodeRefsBestEffort(existing);
 
   // Generate embedding async (fire-and-forget) — never blocks MCP response
   const searchableText = [input.title, input.narrative, ...(input.facts ?? [])].join(' ');

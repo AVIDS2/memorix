@@ -2849,28 +2849,26 @@ export async function createMemorixServer(
       // mechanism for HTTP/control-plane multi-project support.
       if (explicitRoot && typeof explicitRoot === 'string') {
         let bound = await switchProject(explicitRoot);
-        // Fallback: workspace root may contain a git project in a subdirectory
+        // switchProject returns false for both "same project, no-op" and "no git repo".
+        // Only scan subdirectories when explicitRoot is not itself a git repo; otherwise
+        // a same-project no-op can be hijacked by the first nested/vendored repo.
         if (!bound) {
-          const { findGitInSubdirs } = await import('./project/detector.js');
-          const subGit = findGitInSubdirs(explicitRoot);
-          if (subGit) {
-            bound = await switchProject(subGit);
-          }
-        }
-        // switchProject returns false for "same project, no-op" — that's still success,
-        // but ONLY when the canonical projectId matches the currently bound project.
-        // We must NOT treat "different valid repo at a different path" as a no-op success.
-        if (!bound && projectResolved) {
           const { detectProjectWithDiagnostics: diagnose } = await import('./project/detector.js');
           const diag = diagnose(explicitRoot);
           if (diag.project) {
-            const { registerAlias: regAlias } = await import('./project/aliases.js');
-            const resolvedCanonical = await regAlias(diag.project);
-            if (resolvedCanonical === project.id) {
-              // Same canonical project — switchProject returned false because it's a no-op.
-              bound = true;
+            if (projectResolved) {
+              const { registerAlias: regAlias } = await import('./project/aliases.js');
+              const resolvedCanonical = await regAlias(diag.project);
+              if (resolvedCanonical === project.id) {
+                bound = true;
+              }
             }
-            // else: different canonical project — fall through to fail-closed path below
+          } else {
+            const { findGitInSubdirs } = await import('./project/detector.js');
+            const subGit = findGitInSubdirs(explicitRoot);
+            if (subGit) {
+              bound = await switchProject(subGit);
+            }
           }
         }
         if (!bound) {

@@ -15,6 +15,9 @@ All notable changes to this project will be documented in this file.
 - **Documentation updated for multi-dimensional memory** -- API docs and design notes now document CodeGraph Memory as the first context-fabric layer beyond pure text memory.
 - **OpenRouter embedding key support** -- The embedding lane now accepts `OPENROUTER_API_KEY` when `[embedding].base_url` points to OpenRouter, while keeping `MEMORIX_EMBEDDING_API_KEY` as the explicit highest-priority embedding key.
 
+### Fixed
+- **Session project binding** -- `memorix_session_start({ projectRoot })` no longer hijacks an already-bound parent repo to the first nested git repository under that path. Based on #98 by @Tom-Ma-Ming.
+
 ## [1.1.2] - 2026-06-27
 
 ### Fixed

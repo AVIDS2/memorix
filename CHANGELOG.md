@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Changed
+- **Contributor attribution** -- Added post-release credit metadata for the 1.1.3 fixes accepted from #105 and #98 so GitHub can associate the accepted work with the contributing accounts.
+
 ## [1.1.3] - 2026-06-29
 
 ### Added

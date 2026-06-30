@@ -25,10 +25,13 @@ llm:
 
 # ── Embedding / Vector Search ──────────────────────────────
 # Enables semantic search alongside BM25 fulltext.
-# API key goes in .env as MEMORIX_EMBEDDING_API_KEY
+# API key goes in .env as MEMORIX_EMBEDDING_API_KEY.
+# For OpenRouter embedding endpoints, OPENROUTER_API_KEY is also accepted.
 embedding:
   provider: off             # off (default), api, fastembed, transformers, auto
   # model: text-embedding-3-small
+  # baseUrl: https://openrouter.ai/api/v1
+  # model: qwen/qwen3-embedding-8b
   # dimensions: 1024        # Override auto-detected dimensions
 
 # ── Git-Memory Pipeline ──────────────────────────────────────

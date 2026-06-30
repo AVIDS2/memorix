@@ -372,6 +372,8 @@ formation = "active"
 
 `[memory.llm]` 和 `[embedding]` 负责记忆质量和检索；`[agent]` 是 memcode 编码时使用的模型。凭据放全局配置或环境变量，不要提交 secrets。
 
+如果使用 OpenRouter embedding，可以设置 `provider = "api"`、`base_url = "https://openrouter.ai/api/v1"`、`model = "qwen/qwen3-embedding-8b"`。这个 endpoint 下 Memorix 会读取官方 `OPENROUTER_API_KEY`；需要单独覆盖 embedding key 时仍可用 `MEMORIX_EMBEDDING_API_KEY`。
+
 <h2 id="docker"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/tags/light/section-docker.svg"><img src="assets/tags/section-docker.svg" alt="Docker" height="32" /></picture></h2>
 
 Docker 用于 HTTP 服务，不是 stdio MCP：

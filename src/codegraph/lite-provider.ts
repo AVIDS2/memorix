@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { readdirSync, readFileSync, statSync, type Dirent } from 'node:fs';
 import { join, relative } from 'node:path';
 import type { CodeEdge, CodeFile, CodeSymbol } from './types.js';
 import { makeCodeEdgeId, makeCodeFileId, makeCodeSymbolId, normalizeCodePath } from './ids.js';
@@ -186,7 +186,7 @@ function walk(root: string, exclude: string[], maxFiles: number): string[] {
   const out: string[] = [];
   const visit = (dir: string) => {
     if (out.length >= maxFiles) return;
-    let entries: ReturnType<typeof readdirSync>;
+    let entries: Dirent<string>[];
     try {
       entries = readdirSync(dir, { withFileTypes: true });
     } catch {

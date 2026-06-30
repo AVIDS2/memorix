@@ -13,6 +13,7 @@ All notable changes to this project will be documented in this file.
 ### Changed
 - **Memory writes attach to code refs** -- New observations now best-effort bind to indexed files and symbols after they are stored, without blocking ordinary memory writes if CodeGraph Memory is unavailable.
 - **Documentation updated for multi-dimensional memory** -- API docs and design notes now document CodeGraph Memory as the first context-fabric layer beyond pure text memory.
+- **OpenRouter embedding key support** -- The embedding lane now accepts `OPENROUTER_API_KEY` when `[embedding].base_url` points to OpenRouter, while keeping `MEMORIX_EMBEDDING_API_KEY` as the explicit highest-priority embedding key.
 
 ## [1.1.2] - 2026-06-27
 

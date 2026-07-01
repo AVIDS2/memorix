@@ -62,10 +62,13 @@
 
   <g transform="translate(110 112)">
     <text x="0" y="112" fill="url(#word)" font-family="Aptos Display, Segoe UI, system-ui, sans-serif" font-size="118" font-weight="620" letter-spacing="0">memorix</text>
-    <text x="4" y="180" fill="#766E82" font-family="Aptos, Segoe UI, system-ui, sans-serif" font-size="34" font-weight="400" letter-spacing="0">Shared project memory for the agents you already use</text>
-    <rect x="5" y="218" width="590" height="5" rx="2.5" fill="url(#thread)"/>
+    <text fill="#766E82" font-family="Aptos, Segoe UI, system-ui, sans-serif" font-size="32" font-weight="400" letter-spacing="0">
+      <tspan x="4" y="174">Shared project memory</tspan>
+      <tspan x="4" y="214">for the agents you already use</tspan>
+    </text>
+    <rect x="5" y="250" width="520" height="5" rx="2.5" fill="url(#thread)"/>
 
-    <g transform="translate(6 270)">
+    <g transform="translate(6 300)">
       <rect x="0" y="0" width="154" height="40" rx="20" fill="#FFFFFF" fill-opacity="0.58" stroke="#FFFFFF"/>
       <circle cx="24" cy="20" r="8" fill="#B19CD9"/>
       <text x="42" y="25" fill="#655A78" font-family="Aptos, Segoe UI, system-ui, sans-serif" font-size="18" font-weight="600">local-first</text>

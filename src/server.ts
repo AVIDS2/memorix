@@ -209,6 +209,12 @@ export interface SharedTeamInstances {
 export interface CreateMemorixServerOptions {
   allowUntrackedFallback?: boolean;
   deferProjectInitUntilBound?: boolean;
+  /**
+   * Register tools and return before loading the full project memory runtime.
+   * Intended for stdio clients and registries where MCP initialize/tools/list must
+   * complete quickly even when the local memory corpus is large.
+   */
+  deferProjectRuntimeInit?: boolean;
   dashboardMode?: 'standalone' | 'control-plane';
   dashboardPort?: number;
   toolProfile?: ToolProfile;
@@ -231,6 +237,7 @@ export async function createMemorixServer(
   // Detect current project — strict .git-based detection
   const allowUntrackedFallback = options.allowUntrackedFallback ?? true;
   const deferProjectInitUntilBound = options.deferProjectInitUntilBound ?? false;
+  const deferProjectRuntimeInit = options.deferProjectRuntimeInit ?? false;
   const dashboardMode = options.dashboardMode ?? (sharedTeam ? 'control-plane' : 'standalone');
   const configuredDashboardPort = options.dashboardPort ?? (dashboardMode === 'control-plane' ? 3211 : 3210);
   const toolProfile = resolveToolProfile({
@@ -298,7 +305,9 @@ export async function createMemorixServer(
     loadDotenv(project.rootPath);
   } catch { /* config init is best-effort */ }
 
-  // Initialize components
+  // Initialize lightweight components. Full observation/graph indexing can be
+  // deferred for stdio so MCP initialize/tools/list are not blocked by a large
+  // local memory corpus or embedding provider startup.
   await initObservationStore(projectDir);
   await initMiniSkillStore(projectDir);
   await initSessionStore(projectDir);
@@ -307,10 +316,13 @@ export async function createMemorixServer(
     console.error(`[memorix] ObservationStore backend: ${store.getBackendName()}, generation: ${store.getGeneration()}`);
   }
   let graphManager = new KnowledgeGraphManager(projectDir);
-  await graphManager.init();
-  await initObservations(projectDir);
+  if (!deferProjectRuntimeInit) {
+    await graphManager.init();
+    await initObservations(projectDir);
+  }
 
   const lightweightUnresolvedSession = !projectResolved && deferProjectInitUntilBound;
+  let projectRuntimeInitPromise: Promise<void> | null = null;
 
   const initializeProjectRuntime = async (logPrefix: 'startup' | 'switch'): Promise<void> => {
     await initObservationStore(projectDir);
@@ -345,7 +357,7 @@ export async function createMemorixServer(
     }
   };
 
-  if (!lightweightUnresolvedSession) {
+  if (!lightweightUnresolvedSession && !deferProjectRuntimeInit) {
   // Auto-merge obvious alias groups by scanning observed projectIds in data.
   // This detects splits like local/foo + user/foo (legacy data migration)
   try {
@@ -384,6 +396,50 @@ export async function createMemorixServer(
     // Noisy per-probe 'awaiting binding' log was removed to reduce terminal spam.
   }
 
+  const ensureProjectRuntimeInitialized = async (): Promise<void> => {
+    if (lightweightUnresolvedSession || !deferProjectRuntimeInit) return;
+    if (!projectRuntimeInitPromise) {
+      projectRuntimeInitPromise = (async () => {
+        // Auto-merge obvious alias groups by scanning observed projectIds in data.
+        try {
+          const { getAllObservations } = await import('./memory/observations.js');
+          await initObservations(projectDir);
+          const allObs = getAllObservations();
+          const observedIds = [...new Set(allObs.map(o => o.projectId))];
+          const merged = await autoMergeByBaseName(observedIds);
+          if (merged > 0) {
+            console.error(`[memorix] Auto-merged ${merged} alias group(s) by base name`);
+          }
+        } catch { /* auto-merge is optional */ }
+
+        // Migrate existing observations to canonical project ID for ALL alias groups.
+        try {
+          const { getAllAliasGroups } = await import('./project/aliases.js');
+          const groups = await getAllAliasGroups();
+          let totalMigrated = 0;
+          for (const group of groups) {
+            if (group.aliases.length > 1) {
+              const migrated = await migrateProjectIds(group.aliases, group.canonical);
+              if (migrated > 0) {
+                console.error(`[memorix] Migrated ${migrated} observations → ${group.canonical}`);
+                totalMigrated += migrated;
+              }
+            }
+          }
+          if (totalMigrated > 0) {
+            console.error(`[memorix] Total migrated: ${totalMigrated} observations across ${groups.filter(g => g.aliases.length > 1).length} project(s)`);
+          }
+        } catch { /* migration is optional */ }
+
+        await initializeProjectRuntime('startup');
+      })().catch((err) => {
+        projectRuntimeInitPromise = null;
+        throw err;
+      });
+    }
+    await projectRuntimeInitPromise;
+  };
+
   const requireResolvedProject = (action: string) => {
     if (projectResolved) return null;
     return {
@@ -410,6 +466,15 @@ export async function createMemorixServer(
   server.registerTool = ((name: string, ...args: unknown[]) => {
     if (!isToolInProfile(name, toolProfile)) {
       return undefined as never;
+    }
+    const maybeConfig = args[0];
+    const maybeHandler = args[1];
+    if (typeof maybeHandler === 'function' && typeof maybeConfig === 'object' && maybeConfig !== null) {
+      const wrappedHandler = async (...handlerArgs: unknown[]) => {
+        await ensureProjectRuntimeInitialized();
+        return await maybeHandler(...handlerArgs);
+      };
+      return (originalRegisterTool as (...innerArgs: unknown[]) => unknown)(name, maybeConfig, wrappedHandler, ...args.slice(2)) as never;
     }
     return (originalRegisterTool as (...innerArgs: unknown[]) => unknown)(name, ...args) as never;
   }) as typeof server.registerTool;
@@ -3948,6 +4013,8 @@ export async function createMemorixServer(
   // Deferred initialization — runs AFTER transport connect so MCP handshake isn't blocked.
   // Sync advisory scan and file watcher are non-essential for tool functionality.
   const deferredInit = async () => {
+    await ensureProjectRuntimeInitialized();
+
     // Check hook installation status and guide user
     try {
       const { getHookStatus } = await import('./hooks/installers/index.js');

@@ -159,4 +159,21 @@ describe('Tool profile registration', () => {
     const statusText = getText(await teamStatus({ action: 'status' }));
     expect(statusText).toContain('1 active / 1 total');
   }, 30000);
+
+  it('should register tools before deferred stdio runtime initialization', async () => {
+    const fastDir = await createGitProjectDir('memorix-profile-fast-start-');
+    const { server } = await createMemorixServer(
+      fastDir,
+      undefined,
+      undefined,
+      { toolProfile: 'lite', deferProjectRuntimeInit: true } as any,
+    );
+
+    const tools = getToolNames(server as any);
+    expect(tools).toContain('memorix_codegraph_status');
+    expect(tools).toContain('memorix_project_context');
+
+    const status = await getHandler(server as any, 'memorix_codegraph_status')({});
+    expect(getText(status)).toContain('"provider"');
+  }, 30000);
 });

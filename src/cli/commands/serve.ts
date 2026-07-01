@@ -100,8 +100,8 @@ export default defineCommand({
     const allowUntracked = args['allow-untracked'] ?? false;
     const toolProfile = resolveToolProfile({ explicit: args.mode, envValue: process.env.MEMORIX_MODE, fallback: 'lite' });
     const serverOptions = detected
-      ? { toolProfile }
-      : { allowUntrackedFallback: allowUntracked, deferProjectInitUntilBound: !allowUntracked, toolProfile };
+      ? { toolProfile, deferProjectRuntimeInit: true }
+      : { allowUntrackedFallback: allowUntracked, deferProjectInitUntilBound: !allowUntracked, deferProjectRuntimeInit: true, toolProfile };
     const { server, projectId, deferredInit, switchProject } = await createMemorixServer(projectRoot, undefined, undefined, serverOptions);
     const transport = new StdioServerTransport();
     await server.connect(transport);
@@ -180,7 +180,10 @@ export default defineCommand({
       });
     } catch { /* notification handler setup is optional */ }
 
-    deferredInit().catch(e => console.error(`[memorix] Deferred init error:`, e));
+    const deferredInitTimer = setTimeout(() => {
+      deferredInit().catch(e => console.error(`[memorix] Deferred init error:`, e));
+    }, 5_000);
+    deferredInitTimer.unref?.();
     // Fire-and-forget: background update check. Default is notify-only.
     import('../update-checker.js').then(m => m.checkForUpdates()).catch(() => {});
   },

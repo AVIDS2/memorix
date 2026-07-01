@@ -2,10 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [1.1.4] - 2026-07-01
 
 ### Changed
 - **Contributor attribution** -- Added post-release credit metadata for the 1.1.3 fixes accepted from #105 and #98 so GitHub can associate the accepted work with the contributing accounts.
+
+### Fixed
+- **Stdio MCP startup latency** -- `memorix serve` now registers MCP tools before loading the full project memory runtime, then warms the runtime in the background. This keeps `initialize` / `tools/list` fast for IDEs and registries even when the local memory corpus is large, while real tool calls still wait for project runtime readiness before executing.
 
 ## [1.1.3] - 2026-06-29
 

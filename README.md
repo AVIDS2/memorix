@@ -178,7 +178,7 @@ CLI, MCP, and HTTP are different entry points:
 
 Requirements:
 
-- Node.js `>=22.19.0`
+- Node.js `>=22.18.0`
 - Git, because project identity is derived from the real Git root
 
 Install and initialize:

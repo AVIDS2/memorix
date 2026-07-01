@@ -1,4 +1,4 @@
-FROM node:20-bookworm-slim AS deps
+FROM node:22-bookworm-slim AS deps
 
 WORKDIR /app
 
@@ -14,7 +14,7 @@ FROM deps AS build
 COPY . .
 RUN npm run build
 
-FROM node:20-bookworm-slim AS prod-deps
+FROM node:22-bookworm-slim AS prod-deps
 
 WORKDIR /app
 
@@ -25,7 +25,7 @@ RUN apt-get update \
 COPY package*.json ./
 RUN npm ci --omit=dev
 
-FROM node:20-bookworm-slim AS runtime
+FROM node:22-bookworm-slim AS runtime
 
 ENV NODE_ENV=production
 ENV HOME=/data

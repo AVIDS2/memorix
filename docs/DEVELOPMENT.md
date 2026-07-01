@@ -31,7 +31,7 @@ Contributors should assume the following areas are part of the 1.1 release line:
 
 ## 1. Prerequisites
 
-- Node.js `>=22.19.0`
+- Node.js `>=22.18.0`
 - npm
 - Git
 

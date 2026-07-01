@@ -32,7 +32,7 @@ For agent-specific plugin, rules, hooks, and skills support, see [INTEGRATIONS.m
 
 ## 1. Requirements
 
-- Node.js `>=22.19.0`
+- Node.js `>=22.18.0`
 - npm
 - Git
 

@@ -3,7 +3,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: memorix:1.0.8-local
+    image: memorix:1.1.4-local
     init: true
     restart: unless-stopped
     ports:

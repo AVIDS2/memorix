@@ -1,6 +1,6 @@
 {
 	"name": "@memorix/ai",
-	"version": "1.1.4",
+	"version": "1.1.5",
 	"description": "Unified LLM API with automatic model discovery and provider configuration",
 	"type": "module",
 	"main": "./dist/index.js",

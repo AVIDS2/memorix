@@ -152,6 +152,10 @@ Provider values:
 - `transformers`
 
 If embedding is unavailable, Memorix falls back to BM25/full-text search.
+`transformers` is installed as an optional dependency. `fastembed` remains a
+supported local provider, but it is no longer installed by default; install it
+explicitly in the project or global prefix where Memorix runs if you choose that
+provider.
 
 OpenRouter embeddings can use the official OpenRouter environment variable:
 

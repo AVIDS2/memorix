@@ -128,7 +128,7 @@
     "ink-gradient": "^4.0.0",
     "ink-scroll-view": "^0.3.6",
     "ink-spinner": "^5.0.0",
-    "js-yaml": "^3.13.1",
+    "js-yaml": "^3.15.0",
     "react": "19.2.7",
     "remark": "^15.0.1",
     "remark-stringify": "^11.0.0",
@@ -136,8 +136,7 @@
   },
   "optionalDependencies": {
     "@huggingface/transformers": "^3.0.0",
-    "better-sqlite3": "^11.0.0",
-    "fastembed": "^1.14.4"
+    "better-sqlite3": "^11.0.0"
   },
   "overrides": {
     "tar": "^7.5.16",
@@ -149,6 +148,7 @@
     "@hono/node-server": "^1.19.14",
     "express-rate-limit": "^8.5.2",
     "path-to-regexp": "^8.4.2",
+    "js-yaml": "^3.15.0",
     "ajv": "^8.20.0",
     "fast-uri": "^3.1.2"
   },

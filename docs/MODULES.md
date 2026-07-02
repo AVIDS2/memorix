@@ -225,12 +225,15 @@ FastEmbedProvider (实现)
 ### 优雅降级
 ```
 getEmbeddingProvider()
-  ├── 尝试 import('fastembed') → 成功 → 返回 FastEmbedProvider
-  └── 失败 → 返回 null → Orama 退化为纯 BM25 搜索
+  ├── MEMORIX_EMBEDDING=off → 返回 null → Orama 使用 BM25
+  ├── MEMORIX_EMBEDDING=api → OpenAI-compatible embedding provider
+  ├── MEMORIX_EMBEDDING=fastembed → import('fastembed')
+  ├── MEMORIX_EMBEDDING=transformers → import('@huggingface/transformers')
+  └── MEMORIX_EMBEDDING=auto → API config first, then local fallback
 ```
 
 ### ⚠️ 注意事项
-- `fastembed` 是**可选依赖** — 不在 `dependencies` 中
+- `fastembed` 是**显式可选能力** — 不随默认安装拉取；需要时由用户安装
 - Singleton 模式: 全局只有一个 provider 实例
 - `resetProvider()` 仅用于测试
 - Float32Array → number[] 转换是必要的 (Orama 需要 plain array)

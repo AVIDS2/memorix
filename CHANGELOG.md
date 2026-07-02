@@ -16,6 +16,8 @@ All notable changes to this project will be documented in this file.
 - **Agent tool allowlist auditability** -- Agent-core now has explicit turn allowlist lookup and regression coverage proving a tool absent from the active turn context cannot execute.
 - **Session selector search safety** -- memcode session search no longer executes user-provided `re:` input as a regular expression; regex-shaped input is treated as literal search text.
 - **Autopilot current-truth grounding** -- `memorix context` and `memorix_project_context` now put live package, changelog, Git branch/commit, and stale progress-note warnings before memory hints so agents do not mistake old dev-log files for the current project state.
+- **Default install audit surface** -- The published package no longer installs `fastembed` by default because its current releases still pull vulnerable `tar` versions for downstream consumers. The FastEmbed provider remains available when users install `fastembed` explicitly.
+- **YAML parser advisory** -- Updated the pinned `js-yaml` 3.x line to the patched 3.15 release while keeping compatibility with existing gray-matter workflow parsing.
 
 ## [1.1.4] - 2026-07-01
 

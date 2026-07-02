@@ -73,11 +73,11 @@ export default defineCommand({
         if (embeddingMode === 'api') {
           embeddingHint = '\n  WARN: API embedding configured but failed to connect — check API key/URL';
         } else {
-          embeddingHint = '\n  Hint: Set MEMORIX_EMBEDDING=api for best quality, or install fastembed for local';
+          embeddingHint = '\n  Hint: Set MEMORIX_EMBEDDING=api for best quality, or install @huggingface/transformers or fastembed for local';
         }
       }
     } catch {
-      embeddingHint = '\n  Hint: Set MEMORIX_EMBEDDING=api for best quality, or install fastembed for local';
+      embeddingHint = '\n  Hint: Set MEMORIX_EMBEDDING=api for best quality, or install @huggingface/transformers or fastembed for local';
     }
 
     p.note(

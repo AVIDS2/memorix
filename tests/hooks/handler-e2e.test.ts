@@ -250,7 +250,8 @@ export function verifyToken(token: string) {
       const { observation, output } = await handleHookEvent(input);
 
       expect(observation).toBeNull();
-      expect(output.systemMessage).toContain('Memorix project context for repo');
+      expect(output.systemMessage).toContain('Memorix Autopilot Brief for repo');
+      expect(output.systemMessage).toContain('Start here');
       expect(output.systemMessage).toContain('src/auth.ts');
       expect(output.systemMessage).toContain('python 1');
       expect(output.systemMessage).not.toContain('SQLite');

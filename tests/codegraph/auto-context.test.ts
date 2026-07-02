@@ -82,7 +82,10 @@ describe('auto project context', () => {
     });
 
     const text = formatAutoProjectContextPrompt(context);
-    expect(text).toContain('Memorix project context');
+    expect(text).toContain('Memorix Autopilot Brief');
+    expect(text).toContain('Start here');
+    expect(text).toContain('Reliable memory');
+    expect(text).toContain('How to use this');
     expect(text).toContain('continue auth work');
     expect(text).toContain('src/auth.ts');
     expect(text).toContain('python 1');

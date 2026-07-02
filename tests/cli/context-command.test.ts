@@ -123,11 +123,12 @@ describe('project context CLI commands', () => {
     const result = await runCommand(contextCommand, {});
 
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain('Project context for repo');
+    expect(result.stdout).toContain('Memorix Autopilot Brief for repo');
     expect(result.stdout).toContain('Code memory');
     expect(result.stdout).toContain('typescript');
     expect(result.stdout).toContain('python');
     expect(result.stdout).toContain('1 active');
+    expect(result.stdout).toContain('Start here');
     expect(result.stdout).toContain('src/auth.ts');
     expect(result.stdout).not.toContain('SQLite');
   });

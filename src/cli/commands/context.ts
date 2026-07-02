@@ -1,7 +1,7 @@
 import { defineCommand } from 'citty';
 import {
   buildAutoProjectContext,
-  formatAutoProjectContextSummary,
+  formatAutoProjectContextPrompt,
   type AutoContextRefreshMode,
 } from '../../codegraph/auto-context.js';
 import { getAllObservations } from '../../memory/observations.js';
@@ -43,7 +43,7 @@ export default defineCommand({
           refresh: context.refresh,
           ...(context.task ? { task: context.task } : {}),
         },
-        formatAutoProjectContextSummary(context),
+        formatAutoProjectContextPrompt(context),
         asJson,
       );
     } catch (error) {

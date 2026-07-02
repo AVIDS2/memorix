@@ -31,7 +31,7 @@ For the 1.1 release line, the visible product shape is:
 
 - `memorix setup --agent <agent> --global` is the default integration command for an existing coding agent or IDE
 - setup installs plugin packages where supported, MCP config, usage guidance, hooks, and skills according to agent capability
-- `memorix serve` remains the stdio MCP entry for IDEs and external agents
+- `memorix serve` remains the stdio MCP entry for IDEs and external agents; it defaults to the compact `micro` tool profile to avoid flooding agent context
 - `memorix background start` and `memorix serve-http --port 3211` run the HTTP MCP service and dashboard
 - `memorix` / `memcode` open memcode, the bundled terminal agent
 - configuration is TOML-first: global `~/.memorix/config.toml`, project `<git-root>/memorix.toml`
@@ -111,6 +111,8 @@ memorix serve
 ```
 
 when the MCP client launches Memorix directly from the current workspace and stdio transport is enough.
+
+Stdio MCP defaults to `--mode micro` and exposes only the core project-context/search/detail/store tools. Use `--mode lite` for sessions, timeline, reasoning, transfer, and retention tools; `--mode team` for coordination tools; and `--mode full` only for advanced or compatibility surfaces.
 
 Prefer:
 

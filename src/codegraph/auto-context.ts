@@ -141,58 +141,103 @@ function formatLanguages(overview: ProjectContextOverview): string {
     : 'none indexed yet';
 }
 
+function dedupeSourcesByObservation(
+  sources: ProjectContextExplain['sources'],
+): ProjectContextExplain['sources'] {
+  const byObservation = new Map<number, ProjectContextExplain['sources'][number]>();
+  for (const source of sources) {
+    const existing = byObservation.get(source.observationId);
+    if (!existing || (!existing.symbol && source.symbol)) {
+      byObservation.set(source.observationId, source);
+    }
+  }
+  return [...byObservation.values()];
+}
+
 export function formatAutoProjectContextSummary(context: AutoProjectContext): string {
+  const reliableSources = dedupeSourcesByObservation(context.explain.sources.filter(source => source.status === 'current'));
   const lines = [
-    `Project context for ${context.project.name}`,
+    `Memorix Autopilot Brief for ${context.project.name}`,
+    context.task ? `Task: ${context.task}` : '',
     `- Code memory: ${context.overview.code.files} files / ${context.overview.code.symbols} symbols / ${context.overview.code.refs} memory links`,
     `- Languages: ${formatLanguages(context.overview)}`,
     `- Memories: ${context.overview.memory.active} active / ${context.overview.memory.total} total`,
     `- Freshness: ${context.overview.freshness.current} current, ${context.overview.freshness.suspect} suspect, ${context.overview.freshness.stale} stale`,
     `- Refresh: ${context.refresh.message}`,
-  ];
+    '',
+    'Start here',
+  ].filter(Boolean);
 
   if (context.overview.suggestedReads.length > 0) {
-    lines.push(`- Suggested reads: ${context.overview.suggestedReads.slice(0, 8).join(', ')}`);
+    context.overview.suggestedReads.slice(0, 8).forEach((path, index) => lines.push(`${index + 1}. ${path}`));
+  } else {
+    lines.push('- no code-bound reads yet; inspect the task-relevant files directly');
   }
+
+  lines.push(
+    '',
+    'Reliable memory',
+    reliableSources.length > 0
+      ? `- ${reliableSources.length} current code-bound memory link(s)`
+      : '- none yet',
+  );
 
   return lines.join('\n');
 }
 
 export function formatAutoProjectContextPrompt(context: AutoProjectContext): string {
   const lines = [
-    `Memorix project context for ${context.project.name}`,
+    `Memorix Autopilot Brief for ${context.project.name}`,
     context.task ? `Task: ${context.task}` : '',
     '',
     'Project state',
     `- Code memory: ${context.overview.code.files} files, ${context.overview.code.symbols} symbols, ${context.overview.code.refs} memory links`,
     `- Languages: ${formatLanguages(context.overview)}`,
-    `- Active memories: ${context.overview.memory.active}`,
+    `- Memories: ${context.overview.memory.active} active / ${context.overview.memory.total} total`,
     `- Refresh: ${context.refresh.message}`,
     '',
-    'Suggested first reads',
+    'Start here',
   ].filter(Boolean);
 
   if (context.overview.suggestedReads.length === 0) {
-    lines.push('- none yet; inspect the task-relevant code directly');
+    lines.push('- no code-bound reads yet; inspect the task-relevant code directly');
   } else {
-    context.overview.suggestedReads.slice(0, 8).forEach(path => lines.push(`- ${path}`));
+    context.overview.suggestedReads.slice(0, 8).forEach((path, index) => lines.push(`${index + 1}. ${path}`));
   }
 
-  lines.push('', 'Code-bound memory sources');
-  if (context.explain.sources.length === 0) {
+  const reliableSources = dedupeSourcesByObservation(context.explain.sources.filter(source => source.status === 'current'));
+  const cautionSources = dedupeSourcesByObservation(context.explain.sources.filter(source => source.status !== 'current'));
+
+  lines.push('', 'Reliable memory');
+  if (reliableSources.length === 0) {
     lines.push('- none yet');
   } else {
-    for (const source of context.explain.sources.slice(0, 8)) {
+    for (const source of reliableSources.slice(0, 8)) {
       const location = source.path ? `${source.path}${source.symbol ? `#${source.symbol}` : ''}` : 'missing code location';
-      lines.push(`- #${source.observationId} ${source.type}: ${source.title} (${source.status}, ${location})`);
+      lines.push(`- #${source.observationId} ${source.type}: ${source.title} (${location})`);
     }
   }
 
-  if (context.overview.freshness.suspect > 0 || context.overview.freshness.stale > 0) {
-    lines.push('', 'Freshness cautions');
-    lines.push(`- ${context.overview.freshness.suspect} suspect and ${context.overview.freshness.stale} stale memory link(s); verify code before relying on them.`);
+  lines.push('', 'Verify before trusting');
+  if (cautionSources.length === 0 && context.overview.freshness.suspect === 0 && context.overview.freshness.stale === 0) {
+    lines.push('- no stale or suspect memory links detected');
+  } else {
+    lines.push(`- ${context.overview.freshness.suspect} suspect and ${context.overview.freshness.stale} stale memory link(s); verify current code before relying on them.`);
+    for (const source of cautionSources.slice(0, 5)) {
+      const location = source.path ? `${source.path}${source.symbol ? `#${source.symbol}` : ''}` : 'missing code location';
+      lines.push(`- #${source.observationId} ${source.status}: ${source.title} (${location})`);
+    }
   }
 
-  lines.push('', 'Use this as a starting map, not as a substitute for reading the current code.');
+  lines.push(
+    '',
+    'Suggested verification',
+    '- inspect the Start here files before editing',
+    '- run the smallest relevant test or smoke command after changes',
+    '',
+    'How to use this',
+    '- Treat current code-bound memory as a map, not proof.',
+    '- Store durable fixes, decisions, and gotchas after the work changes the project.',
+  );
   return lines.join('\n');
 }

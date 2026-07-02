@@ -1204,11 +1204,11 @@ export async function createMemorixServer(
   server.registerTool(
     'memorix_project_context',
     {
-      title: 'Project Context',
+      title: 'Memory Autopilot Project Context',
       description:
-        'Build a compact, agent-ready project context packet for the current coding task. ' +
-        'Automatically refreshes Code Memory when needed, includes suggested files to read first, ' +
-        'active code-bound memories, and freshness cautions. Use this at the start of a new coding turn or after switching tasks.',
+        'Build a compact Memory Autopilot brief for the current coding task. ' +
+        'Automatically refreshes Code Memory when needed, includes Start here files, ' +
+        'reliable code-bound memories, stale/suspect cautions, and verification hints. Use this at the start of a new coding turn or after switching tasks.',
       inputSchema: {
         task: z.string().optional().describe('Current coding task or question'),
         refresh: z.enum(['auto', 'always', 'never']).optional().default('auto').describe(

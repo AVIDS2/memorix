@@ -92,6 +92,18 @@ function relevanceScore(observation: ContextPackObservation, taskTokens: string[
   return score;
 }
 
+function addDefaultVerificationHints(input: {
+  existing?: string[];
+  hasWarnings: boolean;
+  hasUnboundMemories: boolean;
+}): string[] {
+  const hints = [...(input.existing ?? [])];
+  if ((input.hasWarnings || input.hasUnboundMemories) && !hints.includes('Inspect the suggested files before trusting stale or unbound memories.')) {
+    hints.push('Inspect the suggested files before trusting stale or unbound memories.');
+  }
+  return uniq(hints);
+}
+
 export function selectRelevantObservations<T extends ContextPackObservation>(
   observations: T[],
   task: string,
@@ -147,10 +159,12 @@ export function assembleContextPack(input: AssembleContextPackInput): ContextPac
   const warnings: ContextPackWarning[] = [];
   const suggestedReads: string[] = [];
   const memoryKeys = new Set<string>();
+  const observationIdsWithRefs = new Set<number>();
 
   for (const ref of input.refs) {
     const observation = observations.get(ref.observationId);
     if (!observation) continue;
+    observationIdsWithRefs.add(ref.observationId);
 
     const file = ref.fileId ? files.get(ref.fileId) : undefined;
     const symbol = ref.symbolId ? symbols.get(ref.symbolId) : undefined;
@@ -185,23 +199,61 @@ export function assembleContextPack(input: AssembleContextPackInput): ContextPac
     }
   }
 
+  const taskTokens = tokenize(input.task);
+  const unboundMemories = input.observations
+    .filter(observation => !observationIdsWithRefs.has(observation.id))
+    .map((observation, index) => ({
+      observation,
+      index,
+      score: relevanceScore(observation, taskTokens),
+      time: timestampOf(observation),
+    }))
+    .filter(item => item.score > 0)
+    .sort((a, b) => b.score - a.score || b.time - a.time || b.index - a.index)
+    .slice(0, 5);
+
+  for (const item of unboundMemories) {
+    const memoryKey = `${item.observation.id}:unbound`;
+    if (memoryKeys.has(memoryKey)) continue;
+    memoryKeys.add(memoryKey);
+    memories.push({
+      id: item.observation.id,
+      title: item.observation.title,
+      type: item.observation.type,
+      status: 'unbound',
+      reason: 'task-relevant memory with no current code reference',
+    });
+  }
+
   return {
     task: input.task,
     memories,
     codeFacts,
     warnings,
     suggestedReads: uniq(suggestedReads),
-    suggestedVerification: input.suggestedVerification ?? [],
+    suggestedVerification: addDefaultVerificationHints({
+      existing: input.suggestedVerification,
+      hasWarnings: warnings.length > 0,
+      hasUnboundMemories: unboundMemories.length > 0,
+    }),
   };
 }
 
 export function buildContextPackPrompt(pack: ContextPack): string {
-  const lines: string[] = ['## Task', pack.task, '', '## Relevant Memories'];
+  const reliableMemories = pack.memories.filter(memory => memory.status === 'current');
+  const unboundMemories = pack.memories.filter(memory => memory.status === 'unbound');
+  const lines: string[] = ['## Task', pack.task, '', '## Reliable Memories'];
   const visibleCodeFacts = pack.codeFacts.filter(fact => !isGeneratedPath(fact.path)).slice(0, 5);
   const visibleSuggestedReads = pack.suggestedReads.filter(path => !isGeneratedPath(path)).slice(0, 5);
 
-  if (pack.memories.length === 0) lines.push('- none');
-  for (const memory of pack.memories) {
+  if (reliableMemories.length === 0) lines.push('- none');
+  for (const memory of reliableMemories) {
+    lines.push(`- #${memory.id} ${memory.status}: [${memory.type}] ${memory.title} (${memory.reason})`);
+  }
+
+  lines.push('', '## Useful Unbound Memories');
+  if (unboundMemories.length === 0) lines.push('- none');
+  for (const memory of unboundMemories) {
     lines.push(`- #${memory.id} ${memory.status}: [${memory.type}] ${memory.title} (${memory.reason})`);
   }
 

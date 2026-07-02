@@ -6,11 +6,8 @@ export type SortMode = "threaded" | "recent" | "relevance";
 export type NameFilter = "all" | "named";
 
 export interface ParsedSearchQuery {
-	mode: "tokens" | "regex";
+	mode: "tokens";
 	tokens: { kind: "fuzzy" | "phrase"; value: string }[];
-	regex: RegExp | null;
-	/** If set, parsing failed and we should treat query as non-matching. */
-	error?: string;
 }
 
 export interface MatchResult {
@@ -39,21 +36,7 @@ function matchesNameFilter(session: SessionInfo, filter: NameFilter): boolean {
 export function parseSearchQuery(query: string): ParsedSearchQuery {
 	const trimmed = query.trim();
 	if (!trimmed) {
-		return { mode: "tokens", tokens: [], regex: null };
-	}
-
-	// Regex mode: re:<pattern>
-	if (trimmed.startsWith("re:")) {
-		const pattern = trimmed.slice(3).trim();
-		if (!pattern) {
-			return { mode: "regex", tokens: [], regex: null, error: "Empty regex" };
-		}
-		try {
-			return { mode: "regex", tokens: [], regex: new RegExp(pattern, "i") };
-		} catch (err) {
-			const msg = err instanceof Error ? err.message : String(err);
-			return { mode: "regex", tokens: [], regex: null, error: msg };
-		}
+		return { mode: "tokens", tokens: [] };
 	}
 
 	// Token mode with quote support.
@@ -104,26 +87,16 @@ export function parseSearchQuery(query: string): ParsedSearchQuery {
 				.map((t) => t.trim())
 				.filter((t) => t.length > 0)
 				.map((t) => ({ kind: "fuzzy" as const, value: t })),
-			regex: null,
 		};
 	}
 
 	flush(inQuote ? "phrase" : "fuzzy");
 
-	return { mode: "tokens", tokens, regex: null };
+	return { mode: "tokens", tokens };
 }
 
 export function matchSession(session: SessionInfo, parsed: ParsedSearchQuery): MatchResult {
 	const text = getSessionSearchText(session);
-
-	if (parsed.mode === "regex") {
-		if (!parsed.regex) {
-			return { matches: false, score: 0 };
-		}
-		const idx = text.search(parsed.regex);
-		if (idx < 0) return { matches: false, score: 0 };
-		return { matches: true, score: idx * 0.1 };
-	}
 
 	if (parsed.tokens.length === 0) {
 		return { matches: true, score: 0 };
@@ -165,7 +138,6 @@ export function filterAndSortSessions(
 	if (!trimmed) return nameFiltered;
 
 	const parsed = parseSearchQuery(query);
-	if (parsed.error) return [];
 
 	// Recent mode: filter only, keep incoming order.
 	if (sortMode === "recent") {

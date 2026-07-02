@@ -559,6 +559,10 @@ function prepareToolCallArguments(tool: AgentTool<any>, toolCall: AgentToolCall)
 	};
 }
 
+function findAllowedTurnTool(currentContext: AgentContext, toolName: string): AgentTool<any> | undefined {
+	return currentContext.tools?.find((tool) => tool.name === toolName);
+}
+
 async function prepareToolCall(
 	currentContext: AgentContext,
 	assistantMessage: AssistantMessage,
@@ -566,11 +570,11 @@ async function prepareToolCall(
 	config: AgentLoopConfig,
 	signal: AbortSignal | undefined,
 ): Promise<PreparedToolCall | ImmediateToolCallOutcome> {
-	const tool = currentContext.tools?.find((t) => t.name === toolCall.name);
+	const tool = findAllowedTurnTool(currentContext, toolCall.name);
 	if (!tool) {
 		return {
 			kind: "immediate",
-			result: createErrorToolResult(`Tool ${toolCall.name} not found`),
+			result: createErrorToolResult(`Tool ${toolCall.name} is not allowed in this turn`),
 			isError: true,
 		};
 	}

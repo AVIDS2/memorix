@@ -31,7 +31,7 @@ The public docs are organized by user intent:
 | Topic | Document |
 | --- | --- |
 | CLI commands and MCP tools | [API_REFERENCE.md](API_REFERENCE.md) |
-| CodeGraph Memory, project context, and context packs | [API_REFERENCE.md § CodeGraph Memory and Context Packs](API_REFERENCE.md#codegraph-memory-and-context-packs), [context fabric design](superpowers/specs/2026-06-29-codegraph-memory-context-fabric-design.md), and [auto context design](superpowers/specs/2026-06-29-auto-context-layer-design.md) |
+| Memory Autopilot, CodeGraph Memory, and context packs | [API_REFERENCE.md § Memory Autopilot, CodeGraph Memory, and Context Packs](API_REFERENCE.md#memory-autopilot-codegraph-memory-and-context-packs), [context fabric design](superpowers/specs/2026-06-29-codegraph-memory-context-fabric-design.md), and [auto context design](superpowers/specs/2026-06-29-auto-context-layer-design.md) |
 | Git-derived engineering memory | [GIT_MEMORY.md](GIT_MEMORY.md) |
 | Memory formation and quality pipeline | [MEMORY_FORMATION_PIPELINE.md](MEMORY_FORMATION_PIPELINE.md) |
 | Performance and resource profile | [PERFORMANCE.md](PERFORMANCE.md) |

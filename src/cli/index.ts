@@ -1084,7 +1084,7 @@ const main = defineCommand({
       console.error('  background Start/stop/status background control plane');
       console.error('  session    Start/end/context for coding sessions');
       console.error('  memory     Search/store/detail/timeline/resolve observations');
-      console.error('  context    Show the current project context Memorix can safely use');
+      console.error('  context    Show the Memory Autopilot brief for this project');
       console.error('  explain    Explain where Memorix project context comes from');
       console.error('  codegraph  Refresh/status/context-pack for CodeGraph Memory');
       console.error('  reasoning  Store/search decision rationale');

@@ -57,7 +57,7 @@ export default defineCommand({
     },
     mode: {
       type: 'string',
-      description: 'Tool profile to expose (lite, team, full; default: team; coordination join remains explicit)',
+      description: 'Tool profile to expose (micro, lite, team, full; default: team; coordination join remains explicit)',
       required: false,
     },
   },

@@ -66,9 +66,27 @@ async function createGitProjectDir(prefix: string): Promise<string> {
 
 describe('Tool profile registration', () => {
   it('should register built-in tools according to the selected profile', async () => {
+    const microDir = await createGitProjectDir('memorix-profile-micro-');
     const liteDir = await createGitProjectDir('memorix-profile-lite-');
     const teamDir = await createGitProjectDir('memorix-profile-team-');
     const fullDir = await createGitProjectDir('memorix-profile-full-');
+
+    const { server: microServer } = await createMemorixServer(
+      microDir,
+      undefined,
+      undefined,
+      { toolProfile: 'micro' } as any,
+    );
+    const microTools = getToolNames(microServer as any);
+    expect(microTools).toEqual([
+      'memorix_codegraph_status',
+      'memorix_context_pack',
+      'memorix_detail',
+      'memorix_project_context',
+      'memorix_resolve',
+      'memorix_search',
+      'memorix_store',
+    ]);
 
     const { server: liteServer } = await createMemorixServer(
       liteDir,

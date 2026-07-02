@@ -23,7 +23,7 @@ export default defineCommand({
     },
     mode: {
       type: 'string',
-      description: 'Tool profile to expose (lite, team, full; default: lite; coordination join remains explicit)',
+      description: 'Tool profile to expose (micro, lite, team, full; default: micro; coordination join remains explicit)',
       required: false,
     },
   },
@@ -98,7 +98,7 @@ export default defineCommand({
     // This ensures tools/list returns the full tool set immediately on connect.
     // When no project detected, use deferred binding (allowUntrackedFallback=false, deferProjectInitUntilBound=true)
     const allowUntracked = args['allow-untracked'] ?? false;
-    const toolProfile = resolveToolProfile({ explicit: args.mode, envValue: process.env.MEMORIX_MODE, fallback: 'lite' });
+    const toolProfile = resolveToolProfile({ explicit: args.mode, envValue: process.env.MEMORIX_MODE, fallback: 'micro' });
     const serverOptions = detected
       ? { toolProfile, deferProjectRuntimeInit: true }
       : { allowUntrackedFallback: allowUntracked, deferProjectInitUntilBound: !allowUntracked, deferProjectRuntimeInit: true, toolProfile };

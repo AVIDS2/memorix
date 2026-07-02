@@ -9,6 +9,7 @@ import {
   formatProjectContextExplain,
   formatProjectContextOverview,
 } from '../../src/codegraph/project-context.js';
+import type { CodeFile, ObservationCodeRef } from '../../src/codegraph/types.js';
 import { closeAllDatabases } from '../../src/store/sqlite-db.js';
 
 let dir: string | null = null;
@@ -16,6 +17,29 @@ let dir: string | null = null;
 function tempDir(): string {
   dir = mkdtempSync(join(tmpdir(), 'memorix-project-context-'));
   return dir;
+}
+
+function makeFile(id: string, path: string): CodeFile {
+  return {
+    id,
+    projectId: 'org/repo',
+    path,
+    language: path.endsWith('.ts') ? 'typescript' : 'javascript',
+    contentHash: `${id}-hash`,
+    indexedAt: '2026-06-29T00:00:00.000Z',
+  };
+}
+
+function makeRef(observationId: number, fileId: string): ObservationCodeRef {
+  return {
+    id: `ref:${observationId}`,
+    projectId: 'org/repo',
+    observationId,
+    fileId,
+    capturedFileHash: `${fileId}-hash`,
+    status: 'current',
+    createdAt: '2026-06-29T00:01:00.000Z',
+  };
 }
 
 afterEach(() => {
@@ -179,5 +203,67 @@ describe('project context service', () => {
     expect(text).toContain('#1 decision: Auth decision');
     expect(text).toContain('src/auth.ts');
     expect(text).not.toContain('SQLite');
+  });
+
+  it('keeps suggested reads compact and filters generated paths in overview data', async () => {
+    const store = new CodeGraphStore();
+    await store.init(tempDir());
+    store.replaceProjectIndex('org/repo', {
+      files: [
+        makeFile('file:dist', 'dist/auth.js'),
+        makeFile('file:runtime-dist', 'packages/agent-core/dist/agent.js'),
+        makeFile('file:docs', 'docs/notes.md'),
+        makeFile('file:auth', 'src/auth.ts'),
+        makeFile('file:router', 'src/router.ts'),
+        makeFile('file:session', 'src/session.ts'),
+        makeFile('file:worker', 'src/worker.ts'),
+        makeFile('file:store', 'src/store.ts'),
+        makeFile('file:test', 'tests/auth.test.ts'),
+        makeFile('file:extra1', 'src/extra1.ts'),
+        makeFile('file:extra2', 'src/extra2.ts'),
+      ],
+      symbols: [],
+      edges: [],
+    });
+    store.upsertObservationRefs([
+      makeRef(1, 'file:dist'),
+      makeRef(2, 'file:runtime-dist'),
+      makeRef(3, 'file:docs'),
+      makeRef(4, 'file:auth'),
+      makeRef(5, 'file:router'),
+      makeRef(6, 'file:session'),
+      makeRef(7, 'file:worker'),
+      makeRef(8, 'file:store'),
+      makeRef(9, 'file:test'),
+      makeRef(10, 'file:extra1'),
+      makeRef(11, 'file:extra2'),
+    ]);
+
+    const observations = Array.from({ length: 11 }, (_, index) => ({
+      id: index + 1,
+      projectId: 'org/repo',
+      title: `Memory ${index + 1}`,
+      type: 'decision',
+      status: 'active',
+      createdAt: '2026-06-29T00:01:00.000Z',
+    }));
+
+    const overview = buildProjectContextOverview({
+      project: { id: 'org/repo', name: 'repo', rootPath: 'C:/repo' },
+      store,
+      observations,
+    });
+
+    expect(overview.suggestedReads).toHaveLength(8);
+    expect(overview.suggestedReads).toEqual([
+      'src/auth.ts',
+      'src/router.ts',
+      'src/session.ts',
+      'src/worker.ts',
+      'src/store.ts',
+      'tests/auth.test.ts',
+      'src/extra1.ts',
+      'src/extra2.ts',
+    ]);
   });
 });

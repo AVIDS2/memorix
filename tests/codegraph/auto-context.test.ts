@@ -75,6 +75,7 @@ describe('auto project context', () => {
       { language: 'typescript', files: 1 },
     ]);
     expect(context.overview.suggestedReads).toContain('src/auth.ts');
+    expect(context.overview.suggestedReads.length).toBeLessThanOrEqual(8);
     expect(context.explain.sources[0]).toMatchObject({
       title: 'authMiddleware owns token verification',
       path: 'src/auth.ts',
@@ -82,7 +83,10 @@ describe('auto project context', () => {
     });
 
     const text = formatAutoProjectContextPrompt(context);
-    expect(text).toContain('Memorix project context');
+    expect(text).toContain('Memorix Autopilot Brief');
+    expect(text).toContain('Start here');
+    expect(text).toContain('Reliable memory');
+    expect(text).toContain('How to use this');
     expect(text).toContain('continue auth work');
     expect(text).toContain('src/auth.ts');
     expect(text).toContain('python 1');

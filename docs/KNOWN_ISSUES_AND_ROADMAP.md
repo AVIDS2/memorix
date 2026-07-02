@@ -28,7 +28,7 @@
 | # | 问题 | 影响 | 状态 |
 |---|------|------|------|
 | 8 | ~~**Kiro/Trae Agent hooks 未实现**~~ | 功能缺失 | ✅ v0.9.12+ (Kiro/Trae/OpenCode/Gemini CLI 全部支持) |
-| 9 | **fastembed 首次使用需下载模型** — ~30MB，可能在网络不好时超时 | 用户体验 | npm 可选依赖 |
+| 9 | **fastembed 首次使用需下载模型** — ~30MB，可能在网络不好时超时 | 用户体验 | 需用户显式安装 |
 | 10 | **npx 缓存可能损坏** — 见 `MODULE_NOT_FOUND chownr` 问题 | 安装体验 | 需文档说明 |
 
 ---
@@ -106,7 +106,7 @@
 ### 可选依赖
 | 包 | 版本 | 用途 |
 |---|------|------|
-| `fastembed` | ^latest | 本地 ONNX embedding (384d) |
+| `fastembed` | ^latest | 本地 ONNX embedding (384d)，需用户显式安装 |
 
 ### 开发依赖
 | 包 | 版本 | 用途 |

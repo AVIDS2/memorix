@@ -307,6 +307,86 @@ describe("agentLoop with AgentMessage", () => {
 		}
 	});
 
+	it("should reject tool calls that are not in the current turn allowlist", async () => {
+		const toolSchema = Type.Object({ value: Type.String() });
+		let dangerousExecuted = false;
+		const safeTool: AgentTool<typeof toolSchema, { value: string }> = {
+			name: "safe",
+			label: "Safe",
+			description: "Allowed tool",
+			parameters: toolSchema,
+			async execute(_toolCallId, params) {
+				return {
+					content: [{ type: "text", text: params.value }],
+				};
+			},
+		};
+		const dangerousTool: AgentTool<typeof toolSchema, { value: string }> = {
+			name: "dangerous",
+			label: "Dangerous",
+			description: "Registered elsewhere but not allowed for this turn",
+			parameters: toolSchema,
+			async execute(_toolCallId, params) {
+				dangerousExecuted = true;
+				return {
+					content: [{ type: "text", text: params.value }],
+				};
+			},
+		};
+
+		const context: AgentContext = {
+			systemPrompt: "",
+			messages: [],
+			tools: [safeTool],
+		};
+
+		const userPrompt: AgentMessage = createUserMessage("try dangerous");
+		const config: AgentLoopConfig = {
+			model: createModel(),
+			convertToLlm: identityConverter,
+		};
+
+		let callIndex = 0;
+		const streamFn = () => {
+			const stream = new MockAssistantStream();
+			queueMicrotask(() => {
+				if (callIndex === 0) {
+					const message = createAssistantMessage(
+						[{ type: "toolCall", id: "tool-1", name: dangerousTool.name, arguments: { value: "boom" } }],
+						"toolUse",
+					);
+					stream.push({ type: "done", reason: "toolUse", message });
+				} else {
+					stream.push({
+						type: "done",
+						reason: "stop",
+						message: createAssistantMessage([{ type: "text", text: "done" }]),
+					});
+				}
+				callIndex++;
+			});
+			return stream;
+		};
+
+		const events: AgentEvent[] = [];
+		const stream = agentLoop([userPrompt], context, config, undefined, streamFn);
+
+		for await (const event of stream) {
+			events.push(event);
+		}
+
+		expect(dangerousExecuted).toBe(false);
+		const toolEnd = events.find(
+			(event): event is Extract<AgentEvent, { type: "tool_execution_end" }> =>
+				event.type === "tool_execution_end",
+		);
+		expect(toolEnd?.isError).toBe(true);
+		expect(toolEnd?.result.content[0]).toMatchObject({
+			type: "text",
+			text: "Tool dangerous is not allowed in this turn",
+		});
+	});
+
 	it("should execute mutated beforeToolCall args without revalidation", async () => {
 		const toolSchema = Type.Object({ value: Type.String() });
 		const executed: Array<string | number> = [];

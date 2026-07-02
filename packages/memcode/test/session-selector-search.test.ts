@@ -37,12 +37,12 @@ describe("session selector search", () => {
 		expect(result.map((s) => s.id)).toEqual(["a"]);
 	});
 
-	it("filters by regex (re:) and is case-insensitive", () => {
+	it("treats re: input as literal search text instead of executing user regex", () => {
 		const sessions: SessionInfo[] = [
 			makeSession({
 				id: "a",
 				modified: new Date("2026-01-02T00:00:00.000Z"),
-				allMessagesText: "Brave is great",
+				allMessagesText: "literal re:\\bbrave\\b note",
 			}),
 			makeSession({
 				id: "b",
@@ -112,17 +112,17 @@ describe("session selector search", () => {
 		expect(result2.map((s) => s.id)).toEqual(["newer", "older"]);
 	});
 
-	it("returns empty list for invalid regex", () => {
+	it("does not fail closed on invalid regex-shaped input", () => {
 		const sessions: SessionInfo[] = [
 			makeSession({
 				id: "a",
 				modified: new Date("2026-01-01T00:00:00.000Z"),
-				allMessagesText: "brave",
+				allMessagesText: "notes include re:(",
 			}),
 		];
 
 		const result = filterAndSortSessions(sessions, "re:(", "recent");
-		expect(result).toEqual([]);
+		expect(result.map((s) => s.id)).toEqual(["a"]);
 	});
 
 	describe("name filter", () => {

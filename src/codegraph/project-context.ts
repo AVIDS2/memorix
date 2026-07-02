@@ -77,6 +77,29 @@ function countLanguages(files: CodeFile[]): LanguageSummary[] {
     .sort((a, b) => a.language.localeCompare(b.language));
 }
 
+function normalizePath(path: string): string {
+  return path.replace(/\\/g, '/');
+}
+
+function isGeneratedPath(path: string): boolean {
+  return /(^|\/)(dist|build|coverage|\.next|\.turbo|node_modules)\//i.test(normalizePath(path));
+}
+
+function suggestedReadRank(path: string): number {
+  const normalized = normalizePath(path);
+  if (normalized.startsWith('src/')) return 0;
+  if (normalized.startsWith('tests/') || normalized.startsWith('test/')) return 0;
+  if (normalized.startsWith('packages/') && normalized.includes('/src/')) return 2;
+  return 3;
+}
+
+function compactSuggestedReads(paths: string[], limit = 8): string[] {
+  return uniq(paths)
+    .filter(path => !isGeneratedPath(path))
+    .sort((a, b) => suggestedReadRank(a) - suggestedReadRank(b))
+    .slice(0, limit);
+}
+
 function collectGraph(
   store: CodeGraphStore,
   projectId: string,
@@ -130,7 +153,7 @@ function collectGraph(
     refs,
     freshness,
     sources,
-    suggestedReads: uniq(suggestedReads),
+    suggestedReads: compactSuggestedReads(suggestedReads),
   };
 }
 

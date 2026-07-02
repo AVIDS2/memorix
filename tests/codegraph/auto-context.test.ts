@@ -75,6 +75,7 @@ describe('auto project context', () => {
       { language: 'typescript', files: 1 },
     ]);
     expect(context.overview.suggestedReads).toContain('src/auth.ts');
+    expect(context.overview.suggestedReads.length).toBeLessThanOrEqual(8);
     expect(context.explain.sources[0]).toMatchObject({
       title: 'authMiddleware owns token verification',
       path: 'src/auth.ts',

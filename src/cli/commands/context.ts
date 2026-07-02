@@ -39,6 +39,7 @@ export default defineCommand({
       emitResult(
         {
           project,
+          currentFacts: context.currentFacts,
           overview: context.overview,
           refresh: context.refresh,
           ...(context.task ? { task: context.task } : {}),

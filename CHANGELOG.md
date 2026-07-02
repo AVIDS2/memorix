@@ -15,6 +15,7 @@ All notable changes to this project will be documented in this file.
 ### Fixed
 - **Agent tool allowlist auditability** -- Agent-core now has explicit turn allowlist lookup and regression coverage proving a tool absent from the active turn context cannot execute.
 - **Session selector search safety** -- memcode session search no longer executes user-provided `re:` input as a regular expression; regex-shaped input is treated as literal search text.
+- **Autopilot current-truth grounding** -- `memorix context` and `memorix_project_context` now put live package, changelog, Git branch/commit, and stale progress-note warnings before memory hints so agents do not mistake old dev-log files for the current project state.
 
 ## [1.1.4] - 2026-07-01
 

@@ -92,4 +92,60 @@ describe('auto project context', () => {
     expect(text).toContain('python 1');
     expect(text).not.toContain('SQLite');
   });
+
+  it('puts current project facts ahead of stale progress notes', async () => {
+    mkdirSync(path.join(repoDir, 'docs', 'memcode', 'dev-log'), { recursive: true });
+    writeFileSync(
+      path.join(repoDir, 'package.json'),
+      JSON.stringify({ name: 'repo', version: '9.9.9' }, null, 2),
+      'utf8',
+    );
+    writeFileSync(
+      path.join(repoDir, 'CHANGELOG.md'),
+      '# Changelog\n\n## [9.9.9] - 2026-07-02\n\n### Fixed\n- Current release facts.\n',
+      'utf8',
+    );
+    writeFileSync(
+      path.join(repoDir, 'docs', 'memcode', 'dev-log', 'progress.txt'),
+      [
+        '# memcode Development Progress',
+        '',
+        '> Auto-updated by agent. New sessions: read this file first.',
+        '',
+        '## Current State',
+        '- **Phase**: Release hardening',
+        '- **Branch**: feat/memcode-agent',
+        '- **Last updated**: 2026-06-18',
+        '',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const context = await buildAutoProjectContext({
+      project: { id: 'local/repo', name: 'repo', rootPath: repoDir },
+      dataDir,
+      observations: getAllObservations(),
+      refresh: 'auto',
+      task: 'continue release work',
+      now: new Date('2026-07-02T12:00:00Z'),
+    });
+
+    expect(context.currentFacts.packageVersion).toBe('9.9.9');
+    expect(context.currentFacts.latestChangelog).toEqual({ version: '9.9.9', date: '2026-07-02' });
+    expect(context.currentFacts.staleNotes[0]).toMatchObject({
+      path: 'docs/memcode/dev-log/progress.txt',
+      lastUpdated: '2026-06-18',
+      branchHint: 'feat/memcode-agent',
+    });
+
+    const text = formatAutoProjectContextPrompt(context);
+    expect(text).toContain('Current project facts');
+    expect(text).toContain('Package version: 9.9.9');
+    expect(text).toContain('Latest changelog: 9.9.9 (2026-07-02)');
+    expect(text).toContain('Historical/stale project notes');
+    expect(text).toContain('docs/memcode/dev-log/progress.txt');
+    expect(text).toContain('feat/memcode-agent');
+    expect(text).toContain('Current facts above outrank progress/dev-log files when they conflict.');
+    expect(text.indexOf('Current project facts')).toBeLessThan(text.indexOf('Start here'));
+  });
 });

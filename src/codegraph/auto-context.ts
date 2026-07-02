@@ -1,5 +1,6 @@
 import type { ProjectInfo } from '../types.js';
 import { backfillMissingObservationCodeRefs, type CodeRefBackfillResult } from './binder.js';
+import { collectCurrentProjectFacts, type CurrentProjectFacts } from './current-facts.js';
 import { indexProjectLite } from './lite-provider.js';
 import {
   buildProjectContextExplain,
@@ -23,6 +24,7 @@ export interface AutoContextRefreshResult {
 export interface AutoProjectContext {
   project: Pick<ProjectInfo, 'id' | 'name' | 'rootPath'>;
   task?: string;
+  currentFacts: CurrentProjectFacts;
   overview: ProjectContextOverview;
   explain: ProjectContextExplain;
   refresh: AutoContextRefreshResult;
@@ -77,6 +79,7 @@ export async function buildAutoProjectContext(input: {
   now?: Date;
 }): Promise<AutoProjectContext> {
   const refreshMode = input.refresh ?? 'auto';
+  const now = input.now ?? new Date();
   const store = new CodeGraphStore();
   await store.init(input.dataDir);
 
@@ -85,7 +88,7 @@ export async function buildAutoProjectContext(input: {
     mode: refreshMode,
     status: initialStatus,
     maxAgeMs: input.maxAgeMs ?? DEFAULT_MAX_AGE_MS,
-    nowMs: (input.now ?? new Date()).getTime(),
+    nowMs: now.getTime(),
   });
 
   let refresh: AutoContextRefreshResult = {
@@ -129,6 +132,7 @@ export async function buildAutoProjectContext(input: {
   return {
     project: input.project,
     ...(input.task?.trim() ? { task: input.task.trim() } : {}),
+    currentFacts: collectCurrentProjectFacts({ project: input.project, now }),
     overview,
     explain,
     refresh,
@@ -154,11 +158,48 @@ function dedupeSourcesByObservation(
   return [...byObservation.values()];
 }
 
+function formatCurrentFactsLines(facts: CurrentProjectFacts): string[] {
+  const lines = ['Current project facts'];
+  if (facts.packageVersion) lines.push(`- Package version: ${facts.packageVersion}`);
+  if (facts.latestChangelog) {
+    lines.push(`- Latest changelog: ${facts.latestChangelog.version}${facts.latestChangelog.date ? ` (${facts.latestChangelog.date})` : ''}`);
+  }
+
+  const gitParts: string[] = [];
+  if (facts.git.detached) {
+    gitParts.push('detached HEAD');
+  } else if (facts.git.branch) {
+    gitParts.push(`branch ${facts.git.branch}`);
+  }
+  if (facts.git.commit) gitParts.push(`commit ${facts.git.commit}`);
+  gitParts.push(facts.git.dirty ? 'dirty worktree' : 'clean worktree');
+  lines.push(`- Git: ${gitParts.join(', ')}`);
+  if (facts.git.latestCommit) lines.push(`- Latest commit: ${facts.git.latestCommit}`);
+  lines.push('- Current facts above outrank progress/dev-log files when they conflict.');
+
+  if (facts.staleNotes.length > 0) {
+    lines.push('', 'Historical/stale project notes');
+    for (const note of facts.staleNotes.slice(0, 3)) {
+      const details = [
+        note.lastUpdated ? `last updated ${note.lastUpdated}` : undefined,
+        note.branchHint ? `branch hint ${note.branchHint}` : undefined,
+        note.reason,
+      ].filter(Boolean).join('; ');
+      lines.push(`- ${note.path}${details ? ` (${details})` : ''}; treat as historical unless the task specifically asks for it.`);
+    }
+  }
+
+  return lines;
+}
+
 export function formatAutoProjectContextSummary(context: AutoProjectContext): string {
   const reliableSources = dedupeSourcesByObservation(context.explain.sources.filter(source => source.status === 'current'));
   const lines = [
     `Memorix Autopilot Brief for ${context.project.name}`,
     context.task ? `Task: ${context.task}` : '',
+    '',
+    ...formatCurrentFactsLines(context.currentFacts),
+    '',
     `- Code memory: ${context.overview.code.files} files / ${context.overview.code.symbols} symbols / ${context.overview.code.refs} memory links`,
     `- Languages: ${formatLanguages(context.overview)}`,
     `- Memories: ${context.overview.memory.active} active / ${context.overview.memory.total} total`,
@@ -189,6 +230,8 @@ export function formatAutoProjectContextPrompt(context: AutoProjectContext): str
   const lines = [
     `Memorix Autopilot Brief for ${context.project.name}`,
     context.task ? `Task: ${context.task}` : '',
+    '',
+    ...formatCurrentFactsLines(context.currentFacts),
     '',
     'Project state',
     `- Code memory: ${context.overview.code.files} files, ${context.overview.code.symbols} symbols, ${context.overview.code.refs} memory links`,

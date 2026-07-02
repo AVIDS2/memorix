@@ -96,11 +96,11 @@ memorix codegraph context-pack --task "continue auth bug"
 
 MCP:
 
-- `memorix_project_context` builds the default Memory Autopilot brief. It can auto-refresh CodeGraph Memory when the index is missing or stale, then returns Start here files, reliable code-bound memories, stale/suspect cautions, and verification hints.
+- `memorix_project_context` builds the default Memory Autopilot brief. It can auto-refresh CodeGraph Memory when the index is missing or stale, then returns current project facts, Start here files, reliable code-bound memories, stale/suspect cautions, and verification hints.
 - `memorix_codegraph_status` returns provider/index counts for the current project.
 - `memorix_context_pack` builds a task-specific packet with reliable current memories, lower-trust unbound memories, current code facts, freshness warnings, suggested reads, and suggested verification.
 
-`memorix context` defaults to `--refresh auto`, so first use can seed CodeGraph Memory without a separate manual `memorix codegraph refresh`. Use `--refresh never` for read-only inspection and `--refresh always` when you want to force a fresh scan.
+`memorix context` defaults to `--refresh auto`, so first use can seed CodeGraph Memory without a separate manual `memorix codegraph refresh`. Its brief puts live package/changelog/Git facts before memory hints and flags old `progress.txt` / dev-log notes as historical when they predate the latest changelog, so agents should treat current facts as the source of truth when files disagree. Use `--refresh never` for read-only inspection and `--refresh always` when you want to force a fresh scan.
 
 SessionStart hooks keep the default minimal hint lightweight. When memory behavior is configured with `sessionInject=full`, Memorix injects the compact Memory Autopilot brief at session start instead of only listing recent text memories.
 

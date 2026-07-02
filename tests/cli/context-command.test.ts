@@ -134,6 +134,16 @@ describe('project context CLI commands', () => {
   });
 
   it('emits structured project context JSON', async () => {
+    writeFileSync(
+      path.join(repoDir, 'package.json'),
+      JSON.stringify({ name: 'repo', version: '9.9.9' }, null, 2),
+      'utf8',
+    );
+    writeFileSync(
+      path.join(repoDir, 'CHANGELOG.md'),
+      '# Changelog\n\n## [9.9.9] - 2026-07-02\n',
+      'utf8',
+    );
     await seedProjectContext();
 
     const result = await runCommand(contextCommand, { json: true });
@@ -147,6 +157,8 @@ describe('project context CLI commands', () => {
     ]);
     expect(parsed.overview.memory.active).toBe(1);
     expect(parsed.overview.suggestedReads).toContain('src/auth.ts');
+    expect(parsed.currentFacts.packageVersion).toBe('9.9.9');
+    expect(parsed.currentFacts.latestChangelog).toEqual({ version: '9.9.9', date: '2026-07-02' });
   });
 
   it('explains where the context came from without exposing storage internals', async () => {

@@ -1,14 +1,16 @@
 /**
  * Tool Profile System — Progressive Disclosure for MCP tools
  *
- * The full Memorix tool set contains 30+ tools, but most users only ever
+ * The full Memorix tool set contains 40+ tools, but most users only ever
  * use a small subset (store / search / detail). Exposing all of them at
  * tools/list time causes cognitive overload.
  *
- * We provide three profiles:
- *   - "lite" (stdio default): Core memory CRUD, sessions, reasoning, retention,
- *     backup — 13 tools. Suitable for solo users who just want cross-agent memory.
- *   - "team" (HTTP default): lite + orchestration coordination tools + dashboard — 20 tools.
+ * We provide four profiles:
+ *   - "micro" (stdio default): Agent-ready project context + basic memory CRUD — 7 tools.
+ *     Suitable for normal MCP clients where every tool schema costs context tokens.
+ *   - "lite": Core memory CRUD, sessions, reasoning, retention, backup — 17 tools.
+ *     Suitable for solo users who want the full memory surface without team tools.
+ *   - "team" (HTTP default): lite + orchestration coordination tools + dashboard — 24 tools.
  *     Suitable when an operator explicitly wants task/message/lock surfaces.
  *   - "full": Everything, including niche / advanced tools (consolidate, dedup,
  *     formation metrics, skills, rules/workspace sync, KG-official, image ingest).
@@ -18,22 +20,24 @@
  * CLI flag, or programmatically via `createMemorixServer({ toolProfile: ... })`.
  */
 
-export type ToolProfile = 'lite' | 'team' | 'full';
+export type ToolProfile = 'micro' | 'lite' | 'team' | 'full';
 
 /**
  * Canonical tool name → which profile(s) include it.
  * Every `registerTool` call in server.ts MUST consult this map.
  */
 export const TOOL_PROFILES: Record<string, ReadonlyArray<ToolProfile>> = Object.freeze({
-  // ── lite: core cross-agent memory — always available ──────────────
-  memorix_store:              ['lite', 'team', 'full'],
-  memorix_search:             ['lite', 'team', 'full'],
-  memorix_detail:             ['lite', 'team', 'full'],
+  // ── micro: default agent-facing surface — keep tools/list tiny ────
+  memorix_store:              ['micro', 'lite', 'team', 'full'],
+  memorix_search:             ['micro', 'lite', 'team', 'full'],
+  memorix_detail:             ['micro', 'lite', 'team', 'full'],
+  memorix_project_context:    ['micro', 'lite', 'team', 'full'],
+  memorix_context_pack:       ['micro', 'lite', 'team', 'full'],
+  memorix_codegraph_status:   ['micro', 'lite', 'team', 'full'],
+  memorix_resolve:            ['micro', 'lite', 'team', 'full'],
+
+  // ── lite: extended solo memory surface ────────────────────────────
   memorix_graph_context:      ['lite', 'team', 'full'],
-  memorix_project_context:    ['lite', 'team', 'full'],
-  memorix_context_pack:       ['lite', 'team', 'full'],
-  memorix_codegraph_status:   ['lite', 'team', 'full'],
-  memorix_resolve:            ['lite', 'team', 'full'],
   memorix_timeline:           ['lite', 'team', 'full'],
   memorix_suggest_topic_key:  ['lite', 'team', 'full'],
   memorix_session_start:      ['lite', 'team', 'full'],
@@ -113,7 +117,7 @@ export function resolveToolProfile(opts: ResolveToolProfileOpts): ToolProfile {
   const normalize = (v: string | null | undefined): ToolProfile | null => {
     if (!v) return null;
     const s = String(v).trim().toLowerCase();
-    if (s === 'lite' || s === 'team' || s === 'full') return s;
+    if (s === 'micro' || s === 'lite' || s === 'team' || s === 'full') return s;
     return null;
   };
 
@@ -129,8 +133,9 @@ export function resolveToolProfile(opts: ResolveToolProfileOpts): ToolProfile {
  */
 export function describeProfile(profile: ToolProfile): string {
   switch (profile) {
-    case 'lite': return 'lite (core memory + sessions, ~13 tools)';
-    case 'team': return 'team (lite + coordination tools + dashboard, ~20 tools)';
+    case 'micro': return 'micro (agent-ready context + basic memory, ~7 tools)';
+    case 'lite': return 'lite (core memory + sessions, ~17 tools)';
+    case 'team': return 'team (lite + coordination tools + dashboard, ~24 tools)';
     case 'full': return 'full (all tools including advanced / KG-compat)';
   }
 }

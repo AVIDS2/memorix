@@ -19,7 +19,7 @@ Common runtime entry points:
 | --- | --- |
 | `memorix setup --agent <agent> --global` | one-command user-level agent integration |
 | `memorix` CLI commands | direct workflows: setup, search/store, Git Memory, import/export, dashboard, diagnostics, orchestration, and automation |
-| `memorix serve` | stdio MCP server for IDEs and coding agents |
+| `memorix serve` | stdio MCP server for IDEs and coding agents; defaults to a compact `micro` tool profile |
 | `memorix background start` | long-lived HTTP MCP service plus dashboard |
 | `memorix serve-http --port 3211` | foreground HTTP MCP for debugging or supervised launches |
 | `memorix` / `memcode` | bundled terminal agent that uses the same Memorix memory pool |
@@ -131,6 +131,8 @@ memorix serve
 ```
 
 Use this when your agent only needs a raw local stdio MCP process or you are debugging a manual config. The agent starts `memorix serve` and communicates with it over stdio.
+
+The stdio server defaults to `--mode micro`, which exposes 7 high-signal tools so agent context is not crowded by rarely used schemas. Use `memorix serve --mode lite` for the extended solo memory surface, `--mode team` for coordination tools, or `--mode full` for advanced and MCP Memory compatibility tools.
 
 Generic stdio MCP config:
 

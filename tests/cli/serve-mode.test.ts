@@ -269,7 +269,21 @@ describe('serve command mode support', () => {
 
     expect(args).toHaveProperty('mode');
     expect(args?.mode?.type).toBe('string');
+    expect(args?.mode?.description).toContain('micro');
     expect(args?.mode?.description).toContain('lite');
+  });
+
+  it('defaults stdio mode to micro to keep agent tool lists compact', async () => {
+    const run = serveCommand.run as ((input: any) => Promise<void>) | undefined;
+
+    await run?.({
+      args: {
+        cwd: project.rootPath,
+        'allow-untracked': false,
+      },
+    } as any);
+
+    expect(createMemorixServerMock.mock.calls[0]?.[3]).toMatchObject({ toolProfile: 'micro' });
   });
 
   it('passes an explicit stdio mode through to createMemorixServer', async () => {

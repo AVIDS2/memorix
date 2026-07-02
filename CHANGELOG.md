@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.1.5] - 2026-07-02
+
+### Added
+- **Memory Autopilot brief** -- `memorix context` and `memorix_project_context` now present a compact agent-ready brief with Start here files, reliable code-bound memories, stale/suspect cautions, verification hints, and usage guidance.
+- **Unbound memory tier** -- `memorix_context_pack` now includes task-relevant memories that do not yet have current code refs as lower-trust unbound context instead of silently dropping them.
+
+### Changed
+- **Context ranking policy** -- Context packs now separate reliable current memories from stale warnings and unbound leads, so agents can use memory as an action map rather than a raw text dump.
+- **Agent guidance loop** -- Generated rules and official Memorix skills now teach agents to get project context, inspect suggested files, store durable outcomes, and resolve stale/completed memories.
+
+### Fixed
+- **Agent tool allowlist auditability** -- Agent-core now has explicit turn allowlist lookup and regression coverage proving a tool absent from the active turn context cannot execute.
+- **Session selector search safety** -- memcode session search no longer executes user-provided `re:` input as a regular expression; regex-shaped input is treated as literal search text.
+
 ## [1.1.4] - 2026-07-01
 
 ### Changed

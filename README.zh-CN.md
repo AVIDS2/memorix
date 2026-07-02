@@ -294,6 +294,7 @@ npm uninstall -g memorix
 ### 从 CLI 管理记忆
 
 ```bash
+memorix context --task "continue release blocker"
 memorix memory search --query "release blocker"
 memorix reasoning search --query "why sqlite"
 memorix git-hook --force
@@ -318,8 +319,11 @@ memcode
 | Observation Memory | 事实、坑点、修复、实现说明 | “这里是怎么工作的？” |
 | Reasoning Memory | 原因、替代方案、约束、风险 | “当时为什么这么选？” |
 | Git Memory | 从 commit 提炼出的工程事实 | “最近改了什么，在哪些文件？” |
+| Code Memory | 文件、符号、import 关系、记忆到代码的新鲜度 | “现在应该先看哪些代码？” |
 
 默认搜索当前项目。`scope="global"` 可以跨项目搜索。“改了什么”优先匹配 Git Memory，“为什么”优先匹配 reasoning / decision 记录。
+
+`memorix context --task "..."` 是默认的 Memory Autopilot 入口。它会给 Agent 生成一份紧凑 brief：先读哪些文件、哪些记忆绑定到当前代码、哪些记忆已经 stale/unbound、以及该怎么验证。Agent 应该先读 suggested files，再相信历史记忆。
 
 <h2 id="运行模式"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/tags/light/section-runtime.svg"><img src="assets/tags/section-runtime.svg" alt="运行模式" height="32" /></picture></h2>
 

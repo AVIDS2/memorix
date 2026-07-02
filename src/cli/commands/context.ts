@@ -16,7 +16,7 @@ function coerceRefreshMode(input?: string): AutoContextRefreshMode {
 export default defineCommand({
   meta: {
     name: 'context',
-    description: 'Show the current project context Memorix can safely use',
+    description: 'Show the Memory Autopilot brief for the current project',
   },
   args: {
     task: { type: 'string', description: 'Current task for context shaping' },

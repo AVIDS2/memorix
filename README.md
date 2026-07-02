@@ -294,6 +294,7 @@ npm uninstall -g memorix
 ### Work from the CLI
 
 ```bash
+memorix context --task "continue release blocker"
 memorix memory search --query "release blocker"
 memorix reasoning search --query "why sqlite"
 memorix git-hook --force
@@ -318,8 +319,11 @@ This opens memcode, a terminal coding agent that uses the same Memorix project m
 | Observation Memory | facts, gotchas, fixes, implementation notes | "How does this work?" |
 | Reasoning Memory | rationale, alternatives, constraints, risks | "Why did we choose this?" |
 | Git Memory | commit-derived engineering facts | "What changed and where?" |
+| Code Memory | files, symbols, import edges, and memory-to-code freshness | "Which current code should I inspect first?" |
 
 Search is project-scoped by default. `scope="global"` searches across projects. The search boosts Git Memory for "what changed" questions and reasoning records for "why" questions.
+
+`memorix context --task "..."` is the default Memory Autopilot entry. It builds a compact brief for agents: start-here files, reliable code-bound memories, stale/unbound memory warnings, and verification hints. Agents should read the suggested files before trusting stored memory.
 
 <h2 id="runtime-modes"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/tags/light/section-runtime.svg"><img src="assets/tags/section-runtime.svg" alt="Runtime Modes" height="32" /></picture></h2>
 

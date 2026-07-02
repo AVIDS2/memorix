@@ -78,9 +78,9 @@ memorix receipt --json --probe "release blocker"
 
 The CLI is for direct terminal use, not a 1:1 mirror of MCP tool names. The only MCP-only area is the optional graph-compatibility tools (`create_entities`, `read_graph`, and related tools) for workflows that expect the official memory-server style graph API.
 
-### CodeGraph Memory and Context Packs
+### Memory Autopilot, CodeGraph Memory, and Context Packs
 
-CodeGraph Memory stores structured file, symbol, import-edge, and memory-to-code reference facts in the same local SQLite database as project memory. It is not a replacement for normal file reads. Its job is to help agents decide which memories still point at current code, which ones are stale, and which files/symbols deserve inspection next.
+Memory Autopilot is the default agent-facing path for coding context. It uses CodeGraph Memory, project observations, and freshness labels to produce a compact brief instead of dumping raw old chat text. CodeGraph Memory stores structured file, symbol, import-edge, and memory-to-code reference facts in the same local SQLite database as project memory. It is not a replacement for normal file reads. Its job is to help agents decide which memories still point at current code, which ones are stale, and which files/symbols deserve inspection next.
 
 CLI:
 
@@ -96,13 +96,15 @@ memorix codegraph context-pack --task "continue auth bug"
 
 MCP:
 
-- `memorix_project_context` builds the default agent-ready project context packet. It can auto-refresh CodeGraph Memory when the index is missing or stale, then returns suggested first reads, code-bound memory sources, and freshness cautions.
+- `memorix_project_context` builds the default Memory Autopilot brief. It can auto-refresh CodeGraph Memory when the index is missing or stale, then returns Start here files, reliable code-bound memories, stale/suspect cautions, and verification hints.
 - `memorix_codegraph_status` returns provider/index counts for the current project.
-- `memorix_context_pack` builds a prompt-ready packet with relevant code-bound memories, current code facts, freshness warnings, and suggested reads.
+- `memorix_context_pack` builds a task-specific packet with reliable current memories, lower-trust unbound memories, current code facts, freshness warnings, suggested reads, and suggested verification.
 
 `memorix context` defaults to `--refresh auto`, so first use can seed CodeGraph Memory without a separate manual `memorix codegraph refresh`. Use `--refresh never` for read-only inspection and `--refresh always` when you want to force a fresh scan.
 
-SessionStart hooks keep the default minimal hint lightweight. When memory behavior is configured with `sessionInject=full`, Memorix injects the compact project context packet at session start instead of only listing recent text memories.
+SessionStart hooks keep the default minimal hint lightweight. When memory behavior is configured with `sessionInject=full`, Memorix injects the compact Memory Autopilot brief at session start instead of only listing recent text memories.
+
+The intended loop for agents is: get the project brief when it helps, inspect the suggested current files, use stale or unbound memory only as a lead, store durable outcomes after the work changes the project, and resolve obsolete memories.
 
 The built-in Lite provider indexes common code files with lightweight file, symbol, and import facts. Future providers can feed richer graph data into the same store and context APIs.
 

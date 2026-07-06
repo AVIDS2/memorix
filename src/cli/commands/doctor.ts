@@ -235,10 +235,10 @@ export default defineCommand({
         const store = getObservationStore();
         backendName = store.getBackendName();
         const obs = await store.loadAll();
-        projectObservations = obs;
-        obsCount = obs.length;
-        activeCount = obs.filter((o: any) => (o.status ?? 'active') === 'active').length;
-        ranCount = obs.filter((o: any) => /^Ran:\s/i.test(o.title ?? '')).length;
+        projectObservations = obs.filter((o: any) => o.projectId === projectId);
+        obsCount = projectObservations.length;
+        activeCount = projectObservations.filter((o: any) => (o.status ?? 'active') === 'active').length;
+        ranCount = projectObservations.filter((o: any) => /^Ran:\s/i.test(o.title ?? '')).length;
       } catch { /* ignore */ }
 
       if (backendName === 'degraded') {

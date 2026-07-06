@@ -1,0 +1,39 @@
+# Memorix Development Progress
+
+> Current handoff note for new agent sessions. Older package-specific notes may
+> exist under subdirectories; prefer this file for the repository-wide state.
+
+## Current State
+- Phase: 1.1.6 release hardening
+- Branch: codex/1.1.6-release-hardening
+- Last updated: 2026-07-06
+- Goal: keep release/publish builds deterministic by separating live model catalog refresh from normal build and prepublish flows.
+
+## Completed In This Branch
+- Bumped root and workspace package versions to 1.1.6.
+- Added root `npm run update-models` and `@memorix/ai` `update-models` scripts for intentional model catalog maintenance.
+- Changed `@memorix/ai` build to run TypeScript compilation only; normal build/prepublish no longer contacts live model catalog APIs.
+- Added model and image catalog shrink guards. Live refresh now refuses unexpectedly small generated catalogs unless `MEMORIX_ALLOW_MODEL_CATALOG_SHRINK=1` is set intentionally.
+- Updated generated catalog headers, release docs, changelog, and lockfiles.
+- Added release regression tests for model catalog publish safety.
+- Fixed `memorix doctor` observation counts so diagnostics match the current project scope instead of reporting global flat-store totals.
+
+## Verification Snapshot
+- `bun install --frozen-lockfile`
+- `git diff --check`
+- `npx vitest run tests/release/model-catalog-publish.test.ts tests/release/source-artifacts.test.ts`
+- `npm run lint`
+- `npm run build`
+- `npm test`
+- `npm pack --json`
+- Clean tarball install from `memorix-1.1.6.tgz`
+- Installed CLI smoke: `memorix --version`, `memorix status`, `memorix doctor`, `memorix codegraph status`, `memorix context --task ...`
+- Real MCP SDK smoke: stdio profiles `micro`, `lite`, `team`, and `full` listed tools and returned `memorix_project_context`.
+
+## Known UX Notes
+- Claude Code print-mode smoke with the existing local `npx memorix serve` MCP config showed the MCP server as `pending` at turn start, so the agent naturally fell back to file/git reads. Direct MCP SDK smoke passes; this looks like a Claude Code startup timing/local config issue rather than a server protocol failure.
+- The default stdio MCP profile is intentionally compact (`micro`, 7 tools). Use `memorix serve --mode lite|team|full` only when the agent needs the larger surface.
+
+## Next Steps
+- Re-run the focused tests touched by the doctor-count fix.
+- Stage, commit, push, and open a PR for 1.1.6 after verification remains green.

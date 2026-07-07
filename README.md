@@ -24,6 +24,7 @@
 <p align="center">
   <a href="README.zh-CN.md">Chinese</a> |
   <a href="#install">Install</a> |
+  <a href="#capabilities">Capabilities</a> |
   <a href="#works-with-your-agent">Agents</a> |
   <a href="#quick-start">Quick Start</a> |
   <a href="#memory-model">Memory Model</a> |
@@ -51,6 +52,24 @@ Use Claude Code today, Codex tomorrow, and Cursor in the afternoon. The agent ca
 | Parallel agent work gets messy | `memorix orchestrate` coordinates task context, handoffs, locks, verification, and review loops |
 
 Memorix is local-first. SQLite is the canonical store, Orama handles search, and LLM-backed formation/embedding is optional. Without model keys, Memorix still works with local full-text retrieval.
+
+### Capabilities
+
+Memorix is more than a memory store. It also installs agent integrations, keeps useful work events, turns commits into project facts, exposes a local control plane, and can coordinate multi-agent work when a task needs it.
+
+| Capability | What you get | Entry point |
+| --- | --- | --- |
+| Memory Autopilot | A task-shaped project brief for a new agent session, with start files, trusted memories, cautions, and verification hints | `memorix context --task "..."`, `memorix_project_context` |
+| Observation Memory | Searchable facts, fixes, gotchas, session summaries, and implementation notes scoped to the current Git project | `memorix memory`, MCP memory tools |
+| Code Memory | File/symbol links and freshness checks so old memories point to current code or show up as suspect/stale | `memorix codegraph`, automatic context refresh |
+| Git Memory | Commit-derived engineering facts that answer what changed, where, and why it matters | `memorix ingest commit`, git hook |
+| Reasoning Memory | Design rationale, alternatives, trade-offs, and risks that should survive beyond one chat | `memorix reasoning`, memory formation |
+| Agent setup | One setup path for MCP, rules, hooks, skills, plugins, bundles, or extensions depending on the agent | `memorix setup --agent <agent>` |
+| Hooks and skills | Optional capture from supported agents, plus reusable project skills promoted from durable knowledge | `memorix hooks`, `memorix skills` |
+| Dashboard and HTTP | A local web UI and shared MCP endpoint for browsing memory, project state, teams, and diagnostics | `memorix dashboard`, `memorix background start` |
+| Orchestration and team work | Task planning, worker handoffs, file locks, messages, verification gates, and review loops | `memorix orchestrate`, `memorix team`, `memorix lock` |
+| memcode | A bundled terminal coding agent that already reads and writes the same project memory | `memorix`, `memcode` |
+| CLI and SDK | Scriptable access for automation, imports/exports, diagnostics, and custom integrations | `memorix ...`, `createMemoryClient()` |
 
 <h2 id="works-with-your-agent"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/tags/light/section-agents.svg"><img src="assets/tags/section-agents.svg" alt="Works with every agent" height="32" /></picture></h2>
 

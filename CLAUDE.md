@@ -10,14 +10,18 @@ For broad continuation or a fresh handoff, start with Memory Autopilot before
 ad-hoc file reads:
 
 - MCP: `memorix_project_context` with the current task
-- Claude Code headless/print-mode: if the MCP tool is not directly visible in
-  the first tool list, run `memorix context --task "<current task>"` from the
-  shell instead of waiting or hand-writing tool calls
+- Claude Code exposes MCP tools through dynamic tool loading. If the tool is not
+  directly visible in the first tool list, search/select the Memorix project
+  context tool before using shell fallback.
+- CLI fallback: only after MCP is confirmed unavailable, run
+  `memorix context --task "<current task>"` from the shell instead of skipping
+  memory or hand-writing tool calls
 - Do not skip project memory just because the initial MCP status says `pending`
 
 Claude Code starts MCP servers asynchronously. An initial `pending` MCP status is
 not a failure by itself; the tools may appear through dynamic tool loading after
-startup. The reliable user-facing fallback is the `memorix context` CLI command.
+startup. The reliable user-facing fallback is the `memorix context` CLI command,
+but fallback should come after the MCP-first attempt.
 
 ### When to search memory
 

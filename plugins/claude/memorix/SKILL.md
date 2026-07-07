@@ -25,11 +25,14 @@ Memorix is a shared memory layer for the active workspace when Memorix tools are
 2. Search only when more prior context would materially help.
 3. Fetch detail before relying on a specific memory.
 4. Store decisions, fixes, gotchas, and handoff context that future sessions should not rediscover.
-5. Use CLI fallbacks when MCP tools are unavailable.
+5. Use CLI fallbacks only after MCP tools are confirmed unavailable.
 
 Claude Code can report MCP servers as `pending` during print-mode startup. That
-is not a failure by itself. In headless/print-mode, if Memorix tools are not in
-the first visible tool list, run `memorix context --task "<task>"` from the
-shell instead of waiting, skipping memory, or hand-writing tool-call syntax.
+is not a failure by itself. Claude Code supports MCP tool search, and the
+Memorix Claude plugin asks Claude to eagerly load its small core tool set. In
+headless/print-mode, if Memorix tools are not in the first visible tool list,
+search/select `memorix_project_context` before using shell fallback. Run
+`memorix context --task "<task>"` only after MCP is unavailable, disabled, or
+not discoverable.
 
 Do not store secrets, credentials, raw private transcripts, or trivial one-off actions. Treat memory as context, not as a substitute for reading code and verifying behavior.

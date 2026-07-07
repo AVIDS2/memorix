@@ -43,6 +43,7 @@ describe('Claude integration guidance path', () => {
       expect(content).toContain('# Memorix');
       expect(content).toContain('memorix_project_context');
       expect(content).toContain('memorix context --task "<task>"');
+      expect(content).toContain('MCP is unavailable, disabled, or not discoverable');
       await expect(fs.access(copilotInstructions)).rejects.toThrow();
     } finally {
       await fs.rm(tmpDir, { recursive: true, force: true });
@@ -88,6 +89,7 @@ describe('global guidance scope', () => {
       expect(content).toContain('active workspace');
       expect(content).toContain('memorix_project_context');
       expect(content).toContain('memorix context --task "<task>"');
+      expect(content).toContain('MCP is unavailable, disabled, or not discoverable');
       expect(content).not.toContain('This project uses Memorix');
       await expect(fs.access(path.join(projectDir, '.codex', 'AGENTS.md'))).rejects.toThrow();
     } finally {

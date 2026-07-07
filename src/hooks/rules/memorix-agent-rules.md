@@ -7,7 +7,7 @@ You have access to Memorix memory tools. Follow these rules to maintain persiste
 At the beginning of a coding task, use Memorix when prior project context would materially help the task. A session bind is not required for every conversation.
 
 1. For starting or continuing code work, call `memorix_project_context` first. Treat its "Start here" files as the first code to inspect.
-2. If the MCP tool is not visible yet but shell commands are available, run `memorix context --task "<task>"` instead of skipping memory, waiting on MCP startup, or hand-writing tool-call syntax.
+2. If the MCP tool is not visible yet but the client supports tool discovery or dynamic loading, search/select `memorix_project_context` first. Run `memorix context --task "<task>"` only after MCP is unavailable, disabled, or not discoverable. Do not skip memory, wait indefinitely on MCP startup, or hand-write tool-call syntax.
 3. Use `memorix_context_pack` when you need structured refs and freshness for code-bound memories.
 4. For broad memory graph questions, call `memorix_graph_context` to get a compact background packet.
 5. For specific past decisions, bugs, files, or changes, call `memorix_search` with a focused query.

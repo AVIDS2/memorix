@@ -1171,7 +1171,7 @@ function getAgentRulesContent(agent?: AgentName, scope: 'project' | 'global' = '
     '',
     `For starting or continuing code work, use \x60memorix_project_context\x60 before ad-hoc file reads, dev-log reads, or git archaeology. Treat its "Start here" files as the first ${contextNoun} files to inspect.`,
     '',
-    'If the MCP tool is not visible yet but shell commands are available, run \x60memorix context --task "<task>"\x60 instead of skipping memory, waiting on MCP startup, or hand-writing tool-call syntax.',
+    'If the MCP tool is not visible yet but the client supports tool discovery or dynamic loading, search/select \x60memorix_project_context\x60 first. Run \x60memorix context --task "<task>"\x60 only after MCP is unavailable, disabled, or not discoverable. Do not skip memory, wait indefinitely on MCP startup, or hand-write tool-call syntax.',
     '',
     'Use \x60memorix_context_pack\x60 when you need structured refs and freshness for code-bound memories.',
     '',

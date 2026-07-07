@@ -27,7 +27,7 @@ Use Memorix as the shared memory layer for the active workspace when Memorix too
 - Treat memory as background context. Still read the current code and verify behavior.
 - Skip memory lookup for greetings, tiny one-off edits, or questions fully answered by the current file.
 - If a fresh project has no memories, proceed normally and do not repeat the same empty search in the same turn.
-- If Claude Code print-mode shows Memorix MCP as pending and the tools are not visible yet, run `memorix context --task "<task>"` from the shell. Do not skip memory, wait on `pending`, or hand-write tool-call syntax.
+- If Claude Code print-mode shows Memorix MCP as pending and the tools are not visible yet, first use Claude Code's MCP tool search/dynamic loading to find `memorix_project_context`. Run `memorix context --task "<task>"` from the shell only after MCP is unavailable, disabled, or not discoverable. Do not skip memory, wait indefinitely on `pending`, or hand-write tool-call syntax.
 
 ## Store Rules
 

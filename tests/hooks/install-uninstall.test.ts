@@ -65,6 +65,7 @@ describe('Hooks install/uninstall lifecycle', () => {
     expect(content).toContain('When to search memory');
     expect(content).toContain('memorix_project_context');
     expect(content).toContain('memorix context --task "<task>"');
+    expect(content).toContain('MCP is unavailable, disabled, or not discoverable');
     expect(content).toContain('memorix_search');
     expect(content).toContain('When to store memory');
   });
@@ -191,6 +192,7 @@ describe('Hooks install/uninstall lifecycle', () => {
     expect(afterInstall).toContain('Keep this section too.');
     expect(afterInstall).toContain('memorix_project_context');
     expect(afterInstall).toContain('memorix context --task "<task>"');
+    expect(afterInstall).toContain('MCP is unavailable, disabled, or not discoverable');
     expect(afterInstall).not.toContain('Some old rules here.');
 
     // Audit should now have an entry

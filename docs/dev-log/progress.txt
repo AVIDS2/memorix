@@ -34,12 +34,14 @@
 - Real MCP SDK smoke: stdio profiles `micro`, `lite`, `team`, and `full` listed tools and returned `memorix_project_context`.
 - Headless Claude Code product smoke with a temporary empty MCP config: natural prompt asked Claude to "use Memorix"; it used the `memorix context --task` fallback, did not write files, and did not leak literal `<tool_call>` text.
 - GitHub CI for PR #114 is green: `typecheck`, `test (ubuntu-latest, 22)`, and `test (windows-latest, 22)` succeeded. Merge remains blocked only by required review.
+- Official Claude Code MCP docs checked: MCP tools use dynamic tool search by default, and small always-needed tool sets can opt into `alwaysLoad: true`. Claude plugin/setup now prefer MCP-first discovery and set `alwaysLoad: true` for the Memorix stdio server; CLI fallback remains only for unavailable/disabled/undiscoverable MCP.
+- Local verification after the MCP-first refinement: focused MCP/setup/hooks tests passed, `npm run lint` passed, `npm run build` passed, and headless Claude Code smoke with temporary `alwaysLoad` MCP config called `mcp__memorix__memorix_project_context` without shell or subagents. A full `npm test` long run failed on unrelated/flaky `release-blockers` non-git prompt and TUI Graph assertions; both failing files passed when re-run independently.
 
 ## Known UX Notes
-- Claude Code print-mode reports MCP servers as `pending` during async startup. Natural UX smoke showed a generic continuation prompt may read `docs/dev-log/progress.txt` and git before using Memorix unless the guidance is explicit. Diagnostic smoke confirmed Claude Code can discover and call `mcp__memorix__memorix_project_context` after the registry finishes loading, but natural UX smoke with the current `opus4.8` proxy mapping was more reliable when guidance used the `memorix context` CLI fallback instead of asking the model to discover deferred MCP tools itself. Product fix belongs in setup-installed rules/skills, not user-local Claude config mutation.
+- Claude Code print-mode can report MCP servers as `pending` during async startup because tools may be dynamically discovered. Tests show Claude Code can call both a probe MCP tool and `mcp__memorix__memorix_project_context`. The product guidance now follows official Claude Code behavior: prefer MCP/tool discovery first, and use `memorix context --task` only as the fallback when MCP is actually unavailable, disabled, or not discoverable. Product fixes belong in setup-installed rules/skills and plugin MCP config, not user-local Claude config mutation.
 - The default stdio MCP profile is intentionally compact (`micro`, 7 tools). Use `memorix serve --mode lite|team|full` only when the agent needs the larger surface.
 
 ## Next Steps
-- Commit and push this progress-file refresh so future agents do not follow the stale "open PR" handoff.
+- Commit and push the Claude Code MCP-first / `alwaysLoad` refinement into PR #114.
 - After review approval, merge PR #114.
 - Publish 1.1.6 only after the merged main branch is verified clean.

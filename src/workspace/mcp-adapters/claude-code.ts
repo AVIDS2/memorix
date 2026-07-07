@@ -20,6 +20,7 @@ export class ClaudeCodeMCPAdapter implements MCPConfigAdapter {
         args: entry.args ?? [],
         ...(entry.env && Object.keys(entry.env).length > 0 ? { env: entry.env } : {}),
         ...(entry.url ? { url: entry.url } : {}),
+        ...(entry.alwaysLoad === true ? { alwaysLoad: true } : {}),
       }));
     } catch {
       return [];
@@ -38,6 +39,9 @@ export class ClaudeCodeMCPAdapter implements MCPConfigAdapter {
       }
       if (s.env && Object.keys(s.env).length > 0) {
         entry.env = s.env;
+      }
+      if (s.alwaysLoad === true) {
+        entry.alwaysLoad = true;
       }
       mcpServers[s.name] = entry;
     }

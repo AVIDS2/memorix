@@ -642,7 +642,7 @@ export function getGlobalConfigPath(agent: AgentName): string {
   }
 }
 
-function getAgentRulesPath(agent: AgentName, root: string, global = false): string {
+export function getAgentRulesPath(agent: AgentName, root: string, global = false): string {
   if (global) {
     switch (agent) {
       case 'windsurf':
@@ -1153,8 +1153,8 @@ function getAgentRulesContent(agent?: AgentName, scope: 'project' | 'global' = '
     ? '# Memorix — Memory Tools for Active Workspaces'
     : '# Memorix — Project Memory Tools';
   const intro = scope === 'global'
-    ? 'Use Memorix when the active workspace has Memorix tools available and prior context would materially help. Do not assume every workspace is configured for Memorix.'
-    : 'This repository is configured to use Memorix for persistent cross-session memory. Memory tools are available when you need context from prior sessions or when you learn something worth saving.';
+    ? 'Use Memorix when the active workspace has Memorix tools available and prior context would materially help. For non-trivial coding work, Memory Autopilot is the default entry point before local progress notes or broad file exploration. Do not assume every workspace is configured for Memorix.'
+    : 'This repository is configured to use Memorix for persistent cross-session memory. For non-trivial coding work, Memory Autopilot is the default entry point before local progress notes or broad file exploration.';
 
   if (agent === 'windsurf') {
     frontmatter = '---\ntrigger: always_on\n---\n\n';
@@ -1169,7 +1169,7 @@ function getAgentRulesContent(agent?: AgentName, scope: 'project' | 'global' = '
     '',
     '## Start with Memory Autopilot',
     '',
-    `For starting or continuing code work, use \x60memorix_project_context\x60 with the user's actual task before ad-hoc file reads, dev-log reads, or git archaeology. Memorix will choose a task-lensed brief (bugfix, feature, release, onboarding, refactor, docs, test, or general). Treat its "Start here" files as the first ${contextNoun} files to inspect.`,
+    `Default first step for non-trivial coding work: call \x60memorix_project_context\x60 with the user's actual task before progress files, dev-log reads, ad-hoc file reads, or git archaeology. Memorix will choose a task-lensed brief (bugfix, feature, release, onboarding, refactor, docs, test, or general). Treat its "Start here" files as the first ${contextNoun} files to inspect.`,
     '',
     'If the MCP tool is not visible yet but the client supports tool discovery or dynamic loading, search/select \x60memorix_project_context\x60 first. Run \x60memorix context --task "<task>"\x60 only after MCP is unavailable, disabled, or not discoverable, and pass the user\'s real task text. Do not skip memory, wait indefinitely on MCP startup, or hand-write tool-call syntax.',
     '',

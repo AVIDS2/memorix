@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.1.8] - 2026-07-07
+
+### Added
+- **Agent integration doctor and repair** -- Added `memorix doctor agents` and `memorix repair agents` to inspect and repair Memorix-owned agent integration files. The doctor flags stale MCP command paths, missing Claude `alwaysLoad`, missing `memorix` MCP entries, and outdated Memory Autopilot guidance without printing environment secrets.
+
+### Changed
+- **Memory Autopilot adoption** -- Setup-generated agent guidance now makes `memorix_project_context` the default first step for non-trivial coding work before progress files, dev logs, broad file reads, or git archaeology.
+
 ## [1.1.7] - 2026-07-07
 
 ### Added

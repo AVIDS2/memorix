@@ -69,6 +69,42 @@ describe('Claude integration guidance path', () => {
       await fs.rm(tmpDir, { recursive: true, force: true });
     }
   });
+
+  it('upgrades older Claude guidance that only mentions memorix_search', async () => {
+    const tmpDir = makeTmpDir();
+    try {
+      const claudeMd = path.join(tmpDir, 'CLAUDE.md');
+      await fs.writeFile(claudeMd, [
+        '# Memorix - Agent Instructions for Claude Code',
+        '',
+        'You have access to Memorix, an open-source cross-agent memory layer for coding agents via MCP.',
+        '',
+        '## Using Memorix Memory Tools',
+        '',
+        'Use `memorix_search` when prior project context would help.',
+        '',
+        '## Dev Log (memcode Development)',
+        '',
+        '- progress.txt: Current development state — read this first in every new session',
+        '- Branch: `feat/memcode-agent` (never touch main)',
+        '',
+      ].join('\n'), 'utf-8');
+
+      await installHooks('claude', tmpDir);
+
+      const content = await fs.readFile(claudeMd, 'utf-8');
+      expect(content).toContain('# Memorix — Project Memory Tools');
+      expect(content).toContain('Default first step for non-trivial coding work');
+      expect(content).toContain('memorix_project_context');
+      expect(content).toContain('before progress files, dev-log reads, ad-hoc file reads, or git archaeology');
+      expect(content).toContain('tool discovery or dynamic loading');
+      expect(content).not.toContain('Using Memorix Memory Tools');
+      expect(content).not.toContain('read this first in every new session');
+      expect(content).not.toContain('feat/memcode-agent');
+    } finally {
+      await fs.rm(tmpDir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('global guidance scope', () => {

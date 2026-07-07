@@ -1025,6 +1025,7 @@ const main = defineCommand({
       },
     })),
     doctor: () => import('./commands/doctor.js').then(m => m.default),
+    repair: () => import('./commands/repair.js').then(m => m.default),
     dashboard: () => import('./commands/dashboard.js').then(m => m.default),
     cleanup: () => import('./commands/cleanup.js').then(m => m.default),
     uninstall: () => import('./commands/uninstall.js').then(m => m.default),
@@ -1052,7 +1053,7 @@ const main = defineCommand({
       'receipt',
       'serve', 'serve-http', 'status', 'sync',
       'hook', 'hooks', 'ingest', 'git-hook', 'git-hook-uninstall',
-      'background', 'bg', 'bs', 'doctor', 'dashboard', 'cleanup', 'uninstall', 'orchestrate'];
+      'background', 'bg', 'bs', 'doctor', 'repair', 'dashboard', 'cleanup', 'uninstall', 'orchestrate'];
     if (firstArg && knownSubs.includes(firstArg)) return;
 
     // No subcommand provided — enter memcode TUI (native coding agent)
@@ -1104,6 +1105,7 @@ const main = defineCommand({
       console.error('  serve      Start MCP server on stdio');
       console.error('  init       Create global defaults or project config');
       console.error('  setup      Install Memorix plugin/MCP/rules/hooks for an agent');
+      console.error('  repair     Repair Memorix-owned agent integration files');
       console.error('  config     Show TOML config paths and resolved values');
       console.error('  integrate  Install one IDE integration into the current repo');
       console.error('  status     Show project info + stats');

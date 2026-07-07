@@ -13,6 +13,14 @@ export default defineCommand({
     description: 'Diagnose Memorix health — project identity, embedding, data, conflicts',
   },
   args: {
+    agent: {
+      type: 'string',
+      description: 'Agent to inspect for "doctor agents" (default: all)',
+    },
+    scope: {
+      type: 'string',
+      description: 'Scope for "doctor agents": project, global, or all',
+    },
     json: {
       type: 'boolean',
       description: 'Output as JSON instead of human-readable text',
@@ -25,6 +33,21 @@ export default defineCommand({
     },
   },
   run: async ({ args }) => {
+    const positional = (args._ as string[]) ?? [];
+    if (positional[0] === 'agents') {
+      const { inspectAgentIntegrations, formatAgentIntegrationReport } = await import('./agent-integrations.js');
+      const report = await inspectAgentIntegrations({
+        agent: args.agent as string | undefined,
+        scope: args.scope as string | undefined,
+      });
+      if (args.json) {
+        console.log(JSON.stringify({ agents: report }, null, 2));
+      } else {
+        console.log(formatAgentIntegrationReport(report));
+      }
+      return;
+    }
+
     const { existsSync, readFileSync } = await import('node:fs');
     const { join, basename } = await import('node:path');
     const { homedir } = await import('node:os');

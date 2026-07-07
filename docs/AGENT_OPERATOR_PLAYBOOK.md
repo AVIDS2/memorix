@@ -612,6 +612,7 @@ memorix serve
 memorix background start
 memorix serve-http --port 3211
 memorix doctor
+memorix doctor agents --agent <agent>
 memorix status
 ```
 
@@ -620,6 +621,7 @@ memorix status
 ```bash
 memorix init --global
 memorix setup --agent <agent> --global
+memorix repair agents --agent <agent>
 memorix integrate --agent <agent>
 memorix hooks install --agent <agent>
 memorix git-hook --force
@@ -644,6 +646,22 @@ Use MCP tools:
 ## 10. Installation and Troubleshooting Checklist
 
 If Memorix "doesn't work", check these in order.
+
+### 0. Is the agent integration stale?
+
+Run:
+
+```bash
+memorix doctor agents --agent <agent>
+```
+
+If it reports stale MCP command paths, missing `memorix` MCP entries, missing Claude `alwaysLoad`, or outdated Memory Autopilot guidance, run:
+
+```bash
+memorix repair agents --agent <agent>
+```
+
+Repair only rewrites Memorix-owned MCP entries and Memorix-owned guidance blocks. It should not edit unrelated user config.
 
 ### 1. Is the workspace a Git repo?
 

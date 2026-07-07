@@ -65,6 +65,7 @@ Memorix is more than a memory store. It also installs agent integrations, keeps 
 | Git Memory | Commit-derived engineering facts that answer what changed, where, and why it matters | `memorix ingest commit`, git hook |
 | Reasoning Memory | Design rationale, alternatives, trade-offs, and risks that should survive beyond one chat | `memorix reasoning`, memory formation |
 | Agent setup | One setup path for MCP, rules, hooks, skills, plugins, bundles, or extensions depending on the agent | `memorix setup --agent <agent>` |
+| Agent doctor | Checks whether agent MCP config and guidance are current, then repairs Memorix-owned entries when needed | `memorix doctor agents`, `memorix repair agents` |
 | Hooks and skills | Optional capture from supported agents, plus reusable project skills promoted from durable knowledge | `memorix hooks`, `memorix skills` |
 | Dashboard and HTTP | A local web UI and shared MCP endpoint for browsing memory, project state, teams, and diagnostics | `memorix dashboard`, `memorix background start` |
 | Orchestration and team work | Task planning, worker handoffs, file locks, messages, verification gates, and review loops | `memorix orchestrate`, `memorix team`, `memorix lock` |
@@ -349,6 +350,7 @@ Search is project-scoped by default. `scope="global"` searches across projects. 
 | You want | Run |
 | --- | --- |
 | Install an agent integration package | `memorix setup --agent <agent> --global` |
+| Check or repair an agent integration | `memorix doctor agents --agent <agent>`, `memorix repair agents --agent <agent>` |
 | Manually expose stdio MCP | `memorix serve` |
 | Run shared HTTP MCP plus dashboard | `memorix background start` |
 | Debug HTTP MCP in the foreground | `memorix serve-http --port 3211` |

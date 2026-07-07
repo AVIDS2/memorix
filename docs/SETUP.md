@@ -104,6 +104,7 @@ memorix --version
 memcode --version
 memorix status
 memorix config path
+memorix doctor agents --agent <agent>
 ```
 
 ---
@@ -123,6 +124,15 @@ To see the current setup matrix:
 ```bash
 memorix setup --list
 ```
+
+If an agent does not naturally see or use Memorix after setup, inspect the integration layer:
+
+```bash
+memorix doctor agents --agent <agent>
+memorix repair agents --agent <agent>
+```
+
+The doctor checks Memorix-owned MCP entries and guidance files for stale command paths, missing `memorix` MCP servers, missing Claude `alwaysLoad`, and outdated Memory Autopilot rules.
 
 ### Option B: manual stdio MCP
 

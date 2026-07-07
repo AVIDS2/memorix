@@ -210,4 +210,31 @@ describe('project context CLI commands', () => {
       },
     });
   });
+
+  it('scopes doctor observation counts to the current project', async () => {
+    await initObservations(dataDir);
+    await storeObservation({
+      entityName: 'current-project',
+      type: 'decision',
+      title: 'Current project memory',
+      narrative: 'This should be counted by doctor for local/repo.',
+      projectId: 'local/repo',
+    });
+    await storeObservation({
+      entityName: 'other-project',
+      type: 'decision',
+      title: 'Other project memory',
+      narrative: 'This should not affect current project diagnostics.',
+      projectId: 'other/project',
+    });
+
+    const result = await runCommand(doctorCommand, { json: true });
+
+    expect(result.exitCode).toBe(0);
+    const parsed = JSON.parse(result.stdout);
+    expect(parsed.data).toMatchObject({
+      observations: 1,
+      active: 1,
+    });
+  });
 });

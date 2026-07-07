@@ -1,6 +1,6 @@
 {
   "name": "memorix",
-  "version": "1.1.5",
+  "version": "1.1.6",
   "description": "Local-first shared memory layer for AI coding agents across MCP clients, Git history, reasoning context, and project sessions.",
   "type": "module",
   "sideEffects": false,
@@ -55,6 +55,7 @@
     "build:workspaces": "npm --workspaces --if-present run build",
     "build": "npm run build:workspaces && node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && tsup",
     "dev": "tsup --watch",
+    "update-models": "npm --workspace @memorix/ai run update-models",
     "start": "node dist/index.js",
     "test": "vitest run --no-file-parallelism --maxWorkers=1 --minWorkers=1",
     "test:watch": "vitest",

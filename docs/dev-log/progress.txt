@@ -1,0 +1,47 @@
+# Memorix Development Progress
+
+> Current handoff note for new agent sessions. Older package-specific notes may
+> exist under subdirectories; prefer this file for the repository-wide state.
+
+## Current State
+- Phase: 1.1.6 release hardening
+- Branch: codex/1.1.6-release-hardening
+- PR: https://github.com/AVIDS2/memorix/pull/114
+- Last updated: 2026-07-07
+- Goal: keep release/publish builds deterministic and make fresh agent sessions start from Memorix context without mutating user-local Claude Code configuration during testing.
+
+## Completed In This Branch
+- Bumped root and workspace package versions to 1.1.6.
+- Added root `npm run update-models` and `@memorix/ai` `update-models` scripts for intentional model catalog maintenance.
+- Changed `@memorix/ai` build to run TypeScript compilation only; normal build/prepublish no longer contacts live model catalog APIs.
+- Added model and image catalog shrink guards. Live refresh now refuses unexpectedly small generated catalogs unless `MEMORIX_ALLOW_MODEL_CATALOG_SHRINK=1` is set intentionally.
+- Updated generated catalog headers, release docs, changelog, and lockfiles.
+- Added release regression tests for model catalog publish safety.
+- Fixed `memorix doctor` observation counts so diagnostics match the current project scope instead of reporting global flat-store totals.
+- Updated Claude Code project/plugin guidance so fresh sessions use `memorix_project_context` before ad-hoc file/dev-log reads, and use `memorix context` as the reliable headless fallback when MCP tools are still hidden behind async startup.
+
+## Verification Snapshot
+- `bun install --frozen-lockfile`
+- `git diff --check`
+- `npx vitest run tests/release/model-catalog-publish.test.ts tests/release/source-artifacts.test.ts`
+- `npm run lint`
+- `npm run build`
+- `npm test`
+- Focused setup guidance tests: `npx vitest run tests/hooks/install-uninstall.test.ts tests/hooks/claude-rules-path.test.ts tests/cli/setup-command.test.ts`
+- `npm pack --json`
+- Clean tarball install from `memorix-1.1.6.tgz`
+- Installed CLI smoke: `memorix --version`, `memorix status`, `memorix doctor`, `memorix codegraph status`, `memorix context --task ...`
+- Real MCP SDK smoke: stdio profiles `micro`, `lite`, `team`, and `full` listed tools and returned `memorix_project_context`.
+- Headless Claude Code product smoke with a temporary empty MCP config: natural prompt asked Claude to "use Memorix"; it used the `memorix context --task` fallback, did not write files, and did not leak literal `<tool_call>` text.
+- GitHub CI for PR #114 is green: `typecheck`, `test (ubuntu-latest, 22)`, and `test (windows-latest, 22)` succeeded. Merge remains blocked only by required review.
+- Official Claude Code MCP docs checked: MCP tools use dynamic tool search by default, and small always-needed tool sets can opt into `alwaysLoad: true`. Claude plugin/setup now prefer MCP-first discovery and set `alwaysLoad: true` for the Memorix stdio server; CLI fallback remains only for unavailable/disabled/undiscoverable MCP.
+- Local verification after the MCP-first refinement: focused MCP/setup/hooks tests passed, `npm run lint` passed, `npm run build` passed, and headless Claude Code smoke with temporary `alwaysLoad` MCP config called `mcp__memorix__memorix_project_context` without shell or subagents. A full `npm test` long run failed on unrelated/flaky `release-blockers` non-git prompt and TUI Graph assertions; both failing files passed when re-run independently.
+
+## Known UX Notes
+- Claude Code print-mode can report MCP servers as `pending` during async startup because tools may be dynamically discovered. Tests show Claude Code can call both a probe MCP tool and `mcp__memorix__memorix_project_context`. The product guidance now follows official Claude Code behavior: prefer MCP/tool discovery first, and use `memorix context --task` only as the fallback when MCP is actually unavailable, disabled, or not discoverable. Product fixes belong in setup-installed rules/skills and plugin MCP config, not user-local Claude config mutation.
+- The default stdio MCP profile is intentionally compact (`micro`, 7 tools). Use `memorix serve --mode lite|team|full` only when the agent needs the larger surface.
+
+## Next Steps
+- Commit and push the Claude Code MCP-first / `alwaysLoad` refinement into PR #114.
+- After review approval, merge PR #114.
+- Publish 1.1.6 only after the merged main branch is verified clean.

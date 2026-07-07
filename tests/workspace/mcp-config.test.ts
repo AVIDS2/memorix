@@ -245,6 +245,7 @@ describe('ClaudeCodeMCPAdapter', () => {
         command: 'npx',
         args: ['-y', 'memorix-mcp'],
         env: { MEMORIX_PROJECT: 'my-project' },
+        alwaysLoad: true,
       },
     },
   });
@@ -257,12 +258,14 @@ describe('ClaudeCodeMCPAdapter', () => {
     const servers = adapter.parse(claudeConfig);
     expect(servers).toHaveLength(1);
     expect(servers[0].name).toBe('memorix');
+    expect(servers[0].alwaysLoad).toBe(true);
   });
 
   it('generate should produce valid config', () => {
-    const output = adapter.generate(sampleServers.slice(0, 1));
+    const output = adapter.generate([{ ...sampleServers[0], alwaysLoad: true }]);
     const parsed = JSON.parse(output);
     expect(parsed.mcpServers.memorix).toBeDefined();
+    expect(parsed.mcpServers.memorix.alwaysLoad).toBe(true);
   });
 });
 

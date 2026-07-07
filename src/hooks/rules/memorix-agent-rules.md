@@ -7,11 +7,13 @@ You have access to Memorix memory tools. Follow these rules to maintain persiste
 At the beginning of a coding task, use Memorix when prior project context would materially help the task. A session bind is not required for every conversation.
 
 1. For starting or continuing code work, call `memorix_project_context` first. Treat its "Start here" files as the first code to inspect.
-2. For broad memory overview or memory graph questions, call `memorix_graph_context` to get a compact background packet.
-3. For specific past decisions, bugs, files, or changes, call `memorix_search` with a focused query.
-4. If search results are found, use `memorix_detail` only for the few refs you actually need.
-5. Call `memorix_session_start` only when explicit session semantics are useful: handoff, long-running work, orchestration coordination, restoring prior session context, or HTTP project binding.
-6. Reference relevant memories naturally in your response; do not just list them.
+2. If the MCP tool is not visible yet but the client supports tool discovery or dynamic loading, search/select `memorix_project_context` first. Run `memorix context --task "<task>"` only after MCP is unavailable, disabled, or not discoverable. Do not skip memory, wait indefinitely on MCP startup, or hand-write tool-call syntax.
+3. Use `memorix_context_pack` when you need structured refs and freshness for code-bound memories.
+4. For broad memory graph questions, call `memorix_graph_context` to get a compact background packet.
+5. For specific past decisions, bugs, files, or changes, call `memorix_search` with a focused query.
+6. If search results are found, use `memorix_detail` only for the few refs you actually need.
+7. Call `memorix_session_start` only when explicit session semantics are useful: handoff, long-running work, orchestration coordination, restoring prior session context, or HTTP project binding.
+8. Reference relevant memories naturally in your response; do not just list them.
 
 If `memorix_search` says this is a fresh project with no Memorix memories yet, treat that as a successful cold-start signal. Do not repeat `memorix_search` again in the same turn unless the user explicitly asks for history/context, or new memories were written during the turn.
 

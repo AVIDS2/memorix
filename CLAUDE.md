@@ -6,6 +6,23 @@ You have access to Memorix, an open-source cross-agent memory layer for coding a
 
 This project has Memorix MCP tools available for persistent cross-session memory.
 
+For broad continuation or a fresh handoff, start with Memory Autopilot before
+ad-hoc file reads:
+
+- MCP: `memorix_project_context` with the current task
+- Claude Code exposes MCP tools through dynamic tool loading. If the tool is not
+  directly visible in the first tool list, search/select the Memorix project
+  context tool before using shell fallback.
+- CLI fallback: only after MCP is confirmed unavailable, run
+  `memorix context --task "<current task>"` from the shell instead of skipping
+  memory or hand-writing tool calls
+- Do not skip project memory just because the initial MCP status says `pending`
+
+Claude Code starts MCP servers asynchronously. An initial `pending` MCP status is
+not a failure by itself; the tools may appear through dynamic tool loading after
+startup. The reliable user-facing fallback is the `memorix context` CLI command,
+but fallback should come after the MCP-first attempt.
+
 ### When to search memory
 
 Use `memorix_search` when prior project context would help — for example:
@@ -43,6 +60,8 @@ Use `memorix_resolve` when a task is done or a bug is fixed. This keeps future s
 |---|---|
 | `memorix_search` | Find relevant past context |
 | `memorix_detail` | Read full content of a specific memory |
+| `memorix_project_context` | Get the compact Memory Autopilot brief for a fresh task |
+| `memorix_context_pack` | Get structured context when the agent needs refs/freshness |
 | `memorix_store` | Save something worth persisting |
 | `memorix_store_reasoning` | Save the "why" behind a decision |
 | `memorix_resolve` | Mark completed/outdated memories |
@@ -53,12 +72,12 @@ Use `memorix_resolve` when a task is done or a bug is fixed. This keeps future s
 | `memorix_rules_sync` | Inspect or sync rules across agents |
 | `memorix_workspace_sync` | Inspect or migrate workspace integrations |
 
-## Dev Log (memcode Development)
+## Dev Log
 
-- **Location**: `docs/memcode/dev-log/`
-- **progress.txt**: Current development state — read this first in every new session
-- **NNN-描述.md**: Per-phase detailed records (decisions, lessons, key changes)
-- Update progress.txt after completing each Phase
-- Write a new entry file for each significant milestone
-- Current project: memcode (native coding agent with Memorix memory integration)
-- Branch: `feat/memcode-agent` (never touch main)
+- **Repository-wide current state**: `docs/dev-log/progress.txt`
+- Read that root progress file after the Memory Autopilot step for long-running
+  release/development work.
+- Package-specific historical notes may live under subdirectories such as
+  `docs/memcode/dev-log/`; treat them as historical unless the current task is
+  explicitly about that package.
+- Update the root progress file when completing substantial cross-session work.

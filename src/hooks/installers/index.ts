@@ -1084,17 +1084,7 @@ async function installAgentRules(agent: AgentName, projectRoot: string, global =
       // For shared context files (CLAUDE.md / AGENTS.md / GEMINI.md), append rather than overwrite.
       try {
         const existing = await fs.readFile(rulesPath, 'utf-8');
-        if (existing.includes('Memorix')) {
-          // Already contains memorix rules — but still record audit entry
-          // in case audit.json was lost/corrupted and we're re-installing
-          try {
-            const { recordFile } = await import('../../audit/index.js');
-            await recordFile(projectRoot, 'rule', rulesPath, agent);
-          } catch { /* audit is optional */ }
-          return rulesPath;
-        }
-        // Append to existing file
-        await fs.writeFile(rulesPath, existing + '\n\n' + rulesContent, 'utf-8');
+        await fs.writeFile(rulesPath, mergeMemorixRulesContent(existing, rulesContent), 'utf-8');
         
         // Record audit entry (non-critical)
         try {
@@ -1135,6 +1125,22 @@ export async function installAgentGuidance(agent: AgentName, projectRoot: string
   return installAgentRules(agent, projectRoot, global);
 }
 
+function mergeMemorixRulesContent(existing: string, rulesContent: string): string {
+  const nextRules = rulesContent.trim();
+  const memorixHeading = existing.match(/^# Memorix[^\r\n]*(?:\r?\n|$)/m);
+  if (!memorixHeading || memorixHeading.index == null) {
+    return `${existing.trimEnd()}\n\n${nextRules}\n`;
+  }
+
+  const start = memorixHeading.index;
+  const before = existing.slice(0, start).trimEnd();
+  const memorixAndAfter = existing.slice(start);
+  const nextHeadingIndex = memorixAndAfter.search(/\r?\n(?=# [^#])/);
+  const after = nextHeadingIndex >= 0 ? memorixAndAfter.slice(nextHeadingIndex).trimStart() : '';
+
+  return [before, nextRules, after].filter(Boolean).join('\n\n') + '\n';
+}
+
 /**
  * Get the memorix agent rules content.
  * Windsurf requires YAML frontmatter with trigger mode.
@@ -1161,9 +1167,17 @@ function getAgentRulesContent(agent?: AgentName, scope: 'project' | 'global' = '
     '',
     intro,
     '',
+    '## Start with Memory Autopilot',
+    '',
+    `For starting or continuing code work, use \x60memorix_project_context\x60 before ad-hoc file reads, dev-log reads, or git archaeology. Treat its "Start here" files as the first ${contextNoun} files to inspect.`,
+    '',
+    'If the MCP tool is not visible yet but the client supports tool discovery or dynamic loading, search/select \x60memorix_project_context\x60 first. Run \x60memorix context --task "<task>"\x60 only after MCP is unavailable, disabled, or not discoverable. Do not skip memory, wait indefinitely on MCP startup, or hand-write tool-call syntax.',
+    '',
+    'Use \x60memorix_context_pack\x60 when you need structured refs and freshness for code-bound memories.',
+    '',
     '## When to search memory',
     '',
-    'Use \x60memorix_graph_context\x60 for broad memory overview or memory graph questions.',
+    'Use \x60memorix_graph_context\x60 for explicit memory graph questions or broad graph overview after the autopilot brief is not enough.',
     '',
     `Use \x60memorix_search\x60 when prior ${contextNoun} context would help — for example:`,
     '- The user asks about a past decision, bug, or change',
@@ -1202,7 +1216,9 @@ function getAgentRulesContent(agent?: AgentName, scope: 'project' | 'global' = '
     '',
     '| Tool | Use when |',
     '|---|---|',
-    '| \x60memorix_graph_context\x60 | Build a compact memory graph packet |',
+    '| \x60memorix_project_context\x60 | Start or continue coding work with the Memory Autopilot brief |',
+    '| \x60memorix_context_pack\x60 | Get structured refs/freshness for code-bound memories |',
+    '| \x60memorix_graph_context\x60 | Build a compact memory graph packet for graph-specific questions |',
     '| \x60memorix_search\x60 | Find relevant past context |',
     '| \x60memorix_detail\x60 | Read full content of a specific memory |',
     '| \x60memorix_store\x60 | Save something worth persisting |',

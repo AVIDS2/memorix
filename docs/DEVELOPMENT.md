@@ -282,6 +282,18 @@ npm run build
 npm test
 ```
 
+Model catalog refresh is a separate maintenance step, not part of the release
+build. Run it only when intentionally updating generated provider snapshots:
+
+```bash
+npm run update-models
+git diff -- packages/ai/src/models.generated.ts packages/ai/src/image-models.generated.ts
+```
+
+The generators refuse unexpectedly shrunken live results by default. If a shrink
+is intentional after reviewing the diff, rerun with
+`MEMORIX_ALLOW_MODEL_CATALOG_SHRINK=1`.
+
 3. validate key live flows:
 
 - MCP store/search/detail
@@ -312,7 +324,7 @@ npm publish --access public
 
 Notes:
 
-- `prepublishOnly` already runs build + test
+- `prepublishOnly` runs build + test, but does not contact live model catalog APIs
 - `memorix` depends on `@memorix/memcode`; `@memorix/memcode` depends on `@memorix/ai`, `@memorix/agent-core`, and `@memorix/tui`, so publish workspaces before the root package
 - npm publish is usually manual, especially when 2FA is enabled
 - GitHub release automation should not be treated as a substitute for manual runtime validation

@@ -405,6 +405,8 @@ export interface MCPServerEntry {
   headers?: Record<string, string>;
   /** Whether this server is disabled */
   disabled?: boolean;
+  /** Claude Code: force small core tool sets to load before the first prompt */
+  alwaysLoad?: boolean;
 }
 
 /** Unified workflow entry */

@@ -522,6 +522,9 @@ export async function installMcpConfig(options: {
   const projectRoot = options.global ? undefined : (options.projectRoot ?? process.cwd());
   const configPath = adapter.getConfigPath(projectRoot);
   const server = buildMemorixServer(options.mcp);
+  if (options.agent === 'claude' && options.mcp === 'stdio') {
+    server.alwaysLoad = true;
+  }
 
   let existingContent: string | null = null;
   try {

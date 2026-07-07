@@ -180,6 +180,7 @@ describe('plugin package installer', () => {
       const marketplaceRoot = path.join(tmpDir, '.claude', 'plugins', 'marketplaces', 'memorix-local');
       const marketplace = path.join(marketplaceRoot, '.claude-plugin', 'marketplace.json');
       const manifest = path.join(marketplaceRoot, 'plugins', 'memorix', '.claude-plugin', 'plugin.json');
+      const mcpConfig = path.join(marketplaceRoot, 'plugins', 'memorix', '.mcp.json');
       const skillsRoot = path.join(marketplaceRoot, 'plugins', 'memorix', 'skills');
 
       expect(result.pluginPath).toBe(path.join(marketplaceRoot, 'plugins', 'memorix'));
@@ -188,6 +189,11 @@ describe('plugin package installer', () => {
       const pluginManifest = JSON.parse(await fs.readFile(manifest, 'utf-8'));
       expect(pluginManifest.name).toBe('memorix');
       expect(pluginManifest.skills).toContain('./skills/memorix-troubleshooting');
+      expect(JSON.parse(await fs.readFile(mcpConfig, 'utf-8')).mcpServers.memorix).toMatchObject({
+        command: 'memorix',
+        args: ['serve'],
+        alwaysLoad: true,
+      });
       await expectOfficialSkills(skillsRoot);
 
       const catalog = JSON.parse(await fs.readFile(marketplace, 'utf-8'));
@@ -456,6 +462,23 @@ describe('extension package installer', () => {
 });
 
 describe('setup MCP config installer', () => {
+  it('writes Claude stdio MCP config with official eager tool loading', async () => {
+    const tmpDir = makeTmpDir();
+    try {
+      const result = await installMcpConfig({ agent: 'claude', projectRoot: tmpDir, mcp: 'stdio' });
+      const config = JSON.parse(await fs.readFile(result.configPath, 'utf-8'));
+
+      expect(result.configPath).toBe(path.join(tmpDir, '.claude', 'settings.json'));
+      expect(config.mcpServers.memorix).toMatchObject({
+        command: 'memorix',
+        args: ['serve'],
+        alwaysLoad: true,
+      });
+    } finally {
+      await cleanup(tmpDir);
+    }
+  });
+
   it('writes Cursor stdio MCP config without removing existing servers', async () => {
     const tmpDir = makeTmpDir();
     try {

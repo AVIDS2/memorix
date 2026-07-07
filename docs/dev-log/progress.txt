@@ -6,8 +6,9 @@
 ## Current State
 - Phase: 1.1.6 release hardening
 - Branch: codex/1.1.6-release-hardening
-- Last updated: 2026-07-06
-- Goal: keep release/publish builds deterministic by separating live model catalog refresh from normal build and prepublish flows.
+- PR: https://github.com/AVIDS2/memorix/pull/114
+- Last updated: 2026-07-07
+- Goal: keep release/publish builds deterministic and make fresh agent sessions start from Memorix context without mutating user-local Claude Code configuration during testing.
 
 ## Completed In This Branch
 - Bumped root and workspace package versions to 1.1.6.
@@ -31,11 +32,14 @@
 - Clean tarball install from `memorix-1.1.6.tgz`
 - Installed CLI smoke: `memorix --version`, `memorix status`, `memorix doctor`, `memorix codegraph status`, `memorix context --task ...`
 - Real MCP SDK smoke: stdio profiles `micro`, `lite`, `team`, and `full` listed tools and returned `memorix_project_context`.
+- Headless Claude Code product smoke with a temporary empty MCP config: natural prompt asked Claude to "use Memorix"; it used the `memorix context --task` fallback, did not write files, and did not leak literal `<tool_call>` text.
+- GitHub CI for PR #114 is green: `typecheck`, `test (ubuntu-latest, 22)`, and `test (windows-latest, 22)` succeeded. Merge remains blocked only by required review.
 
 ## Known UX Notes
 - Claude Code print-mode reports MCP servers as `pending` during async startup. Natural UX smoke showed a generic continuation prompt may read `docs/dev-log/progress.txt` and git before using Memorix unless the guidance is explicit. Diagnostic smoke confirmed Claude Code can discover and call `mcp__memorix__memorix_project_context` after the registry finishes loading, but natural UX smoke with the current `opus4.8` proxy mapping was more reliable when guidance used the `memorix context` CLI fallback instead of asking the model to discover deferred MCP tools itself. Product fix belongs in setup-installed rules/skills, not user-local Claude config mutation.
 - The default stdio MCP profile is intentionally compact (`micro`, 7 tools). Use `memorix serve --mode lite|team|full` only when the agent needs the larger surface.
 
 ## Next Steps
-- Re-run the focused tests and Claude Code MCP smoke after guidance updates.
-- Stage, commit, push, and open a PR for 1.1.6 after verification remains green.
+- Commit and push this progress-file refresh so future agents do not follow the stale "open PR" handoff.
+- After review approval, merge PR #114.
+- Publish 1.1.6 only after the merged main branch is verified clean.

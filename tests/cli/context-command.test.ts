@@ -129,6 +129,7 @@ describe('project context CLI commands', () => {
     expect(result.stdout).toContain('python');
     expect(result.stdout).toContain('1 active');
     expect(result.stdout).toContain('Start here');
+    expect(result.stdout).toContain('Task lens: general');
     expect(result.stdout).toContain('src/auth.ts');
     expect(result.stdout).not.toContain('SQLite');
   });
@@ -146,10 +147,21 @@ describe('project context CLI commands', () => {
     );
     await seedProjectContext();
 
-    const result = await runCommand(contextCommand, { json: true });
+    const result = await runCommand(contextCommand, { json: true, task: 'prepare release 9.9.9' });
 
     expect(result.exitCode).toBe(0);
     const parsed = JSON.parse(result.stdout);
+    expect(parsed.lens).toMatchObject({
+      id: 'release',
+      description: expect.stringContaining('release'),
+    });
+    expect(parsed.brief).toMatchObject({
+      lens: 'release',
+      startHere: expect.arrayContaining(['CHANGELOG.md', 'package.json']),
+      suggestedVerification: expect.arrayContaining([
+        expect.stringContaining('package metadata'),
+      ]),
+    });
     expect(parsed.overview.code.files).toBe(3);
     expect(parsed.overview.code.languages).toEqual([
       { language: 'python', files: 1 },

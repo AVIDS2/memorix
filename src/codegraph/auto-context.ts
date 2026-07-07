@@ -1,3 +1,5 @@
+import { existsSync, statSync } from 'node:fs';
+import path from 'node:path';
 import type { ProjectInfo } from '../types.js';
 import { backfillMissingObservationCodeRefs, type CodeRefBackfillResult } from './binder.js';
 import { collectCurrentProjectFacts, type CurrentProjectFacts } from './current-facts.js';
@@ -10,6 +12,15 @@ import {
   type ProjectContextOverview,
 } from './project-context.js';
 import { CodeGraphStore } from './store.js';
+import {
+  lensPathCandidates,
+  lensVerificationHints,
+  rankLensPaths,
+  rankLensSources,
+  resolveTaskLens,
+  shouldShowLensSource,
+  type TaskLens,
+} from './task-lens.js';
 
 export type AutoContextRefreshMode = 'auto' | 'always' | 'never';
 
@@ -24,10 +35,22 @@ export interface AutoContextRefreshResult {
 export interface AutoProjectContext {
   project: Pick<ProjectInfo, 'id' | 'name' | 'rootPath'>;
   task?: string;
+  lens: TaskLens;
   currentFacts: CurrentProjectFacts;
   overview: ProjectContextOverview;
   explain: ProjectContextExplain;
   refresh: AutoContextRefreshResult;
+}
+
+export interface AutoProjectBrief {
+  lens: TaskLens['id'];
+  lensDescription: string;
+  startHere: string[];
+  reliableMemoryIds: number[];
+  visibleCautionIds: number[];
+  hiddenReliableCount: number;
+  hiddenCautionCount: number;
+  suggestedVerification: string[];
 }
 
 const DEFAULT_MAX_AGE_MS = 10 * 60 * 1000;
@@ -80,6 +103,8 @@ export async function buildAutoProjectContext(input: {
 }): Promise<AutoProjectContext> {
   const refreshMode = input.refresh ?? 'auto';
   const now = input.now ?? new Date();
+  const task = input.task?.trim();
+  const lens = resolveTaskLens(task);
   const store = new CodeGraphStore();
   await store.init(input.dataDir);
 
@@ -131,7 +156,8 @@ export async function buildAutoProjectContext(input: {
 
   return {
     project: input.project,
-    ...(input.task?.trim() ? { task: input.task.trim() } : {}),
+    ...(task ? { task } : {}),
+    lens,
     currentFacts: collectCurrentProjectFacts({ project: input.project, now }),
     overview,
     explain,
@@ -156,6 +182,83 @@ function dedupeSourcesByObservation(
     }
   }
   return [...byObservation.values()];
+}
+
+function existingLensCandidates(rootPath: string, lens: TaskLens): string[] {
+  const out: string[] = [];
+  for (const candidate of lensPathCandidates(lens)) {
+    const absolute = path.join(rootPath, candidate);
+    try {
+      if (!existsSync(absolute)) continue;
+      const stat = statSync(absolute);
+      if (stat.isFile()) out.push(candidate);
+      if (stat.isDirectory()) out.push(candidate.replace(/\\/g, '/'));
+    } catch {
+      // Best-effort hints only; unreadable files should not break context.
+    }
+  }
+  return out;
+}
+
+function rankedStartHere(context: AutoProjectContext, limit = 8): string[] {
+  const candidates = [
+    ...existingLensCandidates(context.project.rootPath, context.lens),
+    ...context.overview.suggestedReads,
+  ];
+  return rankLensPaths(candidates, context.lens, context.task).slice(0, limit);
+}
+
+function lensLine(context: AutoProjectContext): string {
+  return `Task lens: ${context.lens.id} - ${context.lens.description}`;
+}
+
+function lensSourceSets(context: AutoProjectContext): {
+  reliableSources: ProjectContextExplain['sources'];
+  cautionSources: ProjectContextExplain['sources'];
+  hiddenReliableCount: number;
+  hiddenCautionCount: number;
+} {
+  const allReliableSources = rankLensSources(
+    dedupeSourcesByObservation(context.explain.sources.filter(source => source.status === 'current')),
+    context.lens,
+    context.task,
+  );
+  const reliableSources = context.lens.hideUnrelatedReliableDetails
+    ? allReliableSources.filter(source => shouldShowLensSource(source, context.lens, context.task))
+    : allReliableSources;
+  const allCautionSources = rankLensSources(
+    dedupeSourcesByObservation(context.explain.sources.filter(source => source.status !== 'current')),
+    context.lens,
+    context.task,
+  );
+  const cautionSources = context.lens.hideUnrelatedCautionDetails
+    ? allCautionSources.filter(source => shouldShowLensSource(source, context.lens, context.task))
+    : allCautionSources;
+
+  return {
+    reliableSources,
+    cautionSources,
+    hiddenReliableCount: allReliableSources.length - reliableSources.length,
+    hiddenCautionCount: allCautionSources.length - cautionSources.length,
+  };
+}
+
+export function buildAutoProjectBrief(context: AutoProjectContext): AutoProjectBrief {
+  const { reliableSources, cautionSources, hiddenReliableCount, hiddenCautionCount } = lensSourceSets(context);
+  return {
+    lens: context.lens.id,
+    lensDescription: context.lens.description,
+    startHere: rankedStartHere(context),
+    reliableMemoryIds: reliableSources
+      .slice(0, context.lens.sourceLimit)
+      .map(source => source.observationId),
+    visibleCautionIds: cautionSources
+      .slice(0, context.lens.cautionLimit)
+      .map(source => source.observationId),
+    hiddenReliableCount,
+    hiddenCautionCount,
+    suggestedVerification: lensVerificationHints(context.lens),
+  };
 }
 
 function formatCurrentFactsLines(facts: CurrentProjectFacts): string[] {
@@ -193,10 +296,16 @@ function formatCurrentFactsLines(facts: CurrentProjectFacts): string[] {
 }
 
 export function formatAutoProjectContextSummary(context: AutoProjectContext): string {
-  const reliableSources = dedupeSourcesByObservation(context.explain.sources.filter(source => source.status === 'current'));
+  const reliableSources = rankLensSources(
+    dedupeSourcesByObservation(context.explain.sources.filter(source => source.status === 'current')),
+    context.lens,
+    context.task,
+  );
+  const startHere = rankedStartHere(context);
   const lines = [
     `Memorix Autopilot Brief for ${context.project.name}`,
     context.task ? `Task: ${context.task}` : '',
+    lensLine(context),
     '',
     ...formatCurrentFactsLines(context.currentFacts),
     '',
@@ -209,8 +318,8 @@ export function formatAutoProjectContextSummary(context: AutoProjectContext): st
     'Start here',
   ].filter(Boolean);
 
-  if (context.overview.suggestedReads.length > 0) {
-    context.overview.suggestedReads.slice(0, 8).forEach((path, index) => lines.push(`${index + 1}. ${path}`));
+  if (startHere.length > 0) {
+    startHere.forEach((path, index) => lines.push(`${index + 1}. ${path}`));
   } else {
     lines.push('- no code-bound reads yet; inspect the task-relevant files directly');
   }
@@ -230,6 +339,7 @@ export function formatAutoProjectContextPrompt(context: AutoProjectContext): str
   const lines = [
     `Memorix Autopilot Brief for ${context.project.name}`,
     context.task ? `Task: ${context.task}` : '',
+    lensLine(context),
     '',
     ...formatCurrentFactsLines(context.currentFacts),
     '',
@@ -242,23 +352,26 @@ export function formatAutoProjectContextPrompt(context: AutoProjectContext): str
     'Start here',
   ].filter(Boolean);
 
-  if (context.overview.suggestedReads.length === 0) {
+  const startHere = rankedStartHere(context);
+  if (startHere.length === 0) {
     lines.push('- no code-bound reads yet; inspect the task-relevant code directly');
   } else {
-    context.overview.suggestedReads.slice(0, 8).forEach((path, index) => lines.push(`${index + 1}. ${path}`));
+    startHere.forEach((path, index) => lines.push(`${index + 1}. ${path}`));
   }
 
-  const reliableSources = dedupeSourcesByObservation(context.explain.sources.filter(source => source.status === 'current'));
-  const cautionSources = dedupeSourcesByObservation(context.explain.sources.filter(source => source.status !== 'current'));
+  const { reliableSources, cautionSources, hiddenReliableCount, hiddenCautionCount } = lensSourceSets(context);
 
   lines.push('', 'Reliable memory');
   if (reliableSources.length === 0) {
     lines.push('- none yet');
   } else {
-    for (const source of reliableSources.slice(0, 8)) {
+    for (const source of reliableSources.slice(0, context.lens.sourceLimit)) {
       const location = source.path ? `${source.path}${source.symbol ? `#${source.symbol}` : ''}` : 'missing code location';
       lines.push(`- #${source.observationId} ${source.type}: ${source.title} (${location})`);
     }
+  }
+  if (hiddenReliableCount > 0) {
+    lines.push(`- ${hiddenReliableCount} current memory link(s) hidden because they did not match this ${context.lens.id} task.`);
   }
 
   lines.push('', 'Verify before trusting');
@@ -266,7 +379,10 @@ export function formatAutoProjectContextPrompt(context: AutoProjectContext): str
     lines.push('- no stale or suspect memory links detected');
   } else {
     lines.push(`- ${context.overview.freshness.suspect} suspect and ${context.overview.freshness.stale} stale memory link(s); verify current code before relying on them.`);
-    for (const source of cautionSources.slice(0, 5)) {
+    if (hiddenCautionCount > 0) {
+      lines.push('- Only task-relevant warning details are shown.');
+    }
+    for (const source of cautionSources.slice(0, context.lens.cautionLimit)) {
       const location = source.path ? `${source.path}${source.symbol ? `#${source.symbol}` : ''}` : 'missing code location';
       lines.push(`- #${source.observationId} ${source.status}: ${source.title} (${location})`);
     }
@@ -275,8 +391,7 @@ export function formatAutoProjectContextPrompt(context: AutoProjectContext): str
   lines.push(
     '',
     'Suggested verification',
-    '- inspect the Start here files before editing',
-    '- run the smallest relevant test or smoke command after changes',
+    ...lensVerificationHints(context.lens).map(hint => `- ${hint}`),
     '',
     'How to use this',
     '- Treat current code-bound memory as a map, not proof.',

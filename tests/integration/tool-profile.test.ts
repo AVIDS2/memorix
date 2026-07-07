@@ -194,4 +194,22 @@ describe('Tool profile registration', () => {
     const status = await getHandler(server as any, 'memorix_codegraph_status')({});
     expect(getText(status)).toContain('"provider"');
   }, 30000);
+
+  it('should return task-lensed project context through the MCP handler', async () => {
+    const dir = await createGitProjectDir('memorix-profile-project-context-');
+    await fs.writeFile(path.join(dir, 'README.md'), '# Test project\n', 'utf8');
+    const { server } = await createMemorixServer(
+      dir,
+      undefined,
+      undefined,
+      { toolProfile: 'micro' } as any,
+    );
+
+    const projectContext = getHandler(server as any, 'memorix_project_context');
+    const text = getText(await projectContext({ task: 'fix failing startup smoke', refresh: 'never' }));
+
+    expect(text).toContain('Memorix Autopilot Brief');
+    expect(text).toContain('Task lens: bugfix');
+    expect(text).toContain('run the smallest failing test or repro first');
+  }, 30000);
 });

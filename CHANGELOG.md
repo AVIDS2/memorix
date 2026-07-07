@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.1.7] - 2026-07-07
+
+### Added
+- **Task-lensed Memory Autopilot** -- `memorix context --task ...` and MCP `memorix_project_context` now infer a task lens (`bugfix`, `feature`, `release`, `onboarding`, `refactor`, `docs`, `test`, or `general`) and shape Start here files, reliable memories, cautions, and verification hints for that task.
+
+### Changed
+- **Brief noise control** -- Release/onboarding/docs-shaped briefs now keep unrelated stale or suspect memory details out of the main prompt while preserving counts and warnings, so agents see less old-context noise.
+- **Agent guidance** -- Generated rules and official skills now tell agents to pass the user's actual task into `memorix_project_context` or the CLI fallback, making natural-language continuation the default product path.
+
 ## [1.1.6] - 2026-07-06
 
 ### Changed

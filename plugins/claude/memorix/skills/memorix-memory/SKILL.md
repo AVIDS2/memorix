@@ -11,7 +11,7 @@ Use Memorix as the shared memory layer for the active workspace when Memorix too
 
 | Situation | Prefer | CLI fallback |
 |---|---|---|
-| Broad continuation, fresh handoff, or "what do we know?" | `memorix_project_context` | `memorix context --task "<topic>"` |
+| Broad continuation, fresh handoff, or "what do we know?" | `memorix_project_context` with the user's task | `memorix context --task "<topic>"` |
 | Need structured refs/freshness for code-bound memories | `memorix_context_pack` | `memorix codegraph context-pack --task "<topic>"` |
 | Specific past decision, bug, file, or change | `memorix_search` | `memorix memory search --query "<topic>"` |
 | Need the full source for a search hit | `memorix_detail` | `memorix memory detail --id <id>` |
@@ -22,12 +22,12 @@ Use Memorix as the shared memory layer for the active workspace when Memorix too
 ## Search Rules
 
 - Search before broad continuation work, before changing unfamiliar code, or when the user asks about prior work.
-- For a fresh coding session, use `memorix_project_context` before ad-hoc file reads or dev-log reads.
+- For a fresh coding session, use `memorix_project_context` with the user's actual task before ad-hoc file reads or dev-log reads. Memorix will choose a task-lensed brief.
 - Fetch detail before relying on a specific memory.
 - Treat memory as background context. Still read the current code and verify behavior.
 - Skip memory lookup for greetings, tiny one-off edits, or questions fully answered by the current file.
 - If a fresh project has no memories, proceed normally and do not repeat the same empty search in the same turn.
-- If Claude Code print-mode shows Memorix MCP as pending and the tools are not visible yet, first use Claude Code's MCP tool search/dynamic loading to find `memorix_project_context`. Run `memorix context --task "<task>"` from the shell only after MCP is unavailable, disabled, or not discoverable. Do not skip memory, wait indefinitely on `pending`, or hand-write tool-call syntax.
+- If Claude Code print-mode shows Memorix MCP as pending and the tools are not visible yet, first use Claude Code's MCP tool search/dynamic loading to find `memorix_project_context`. Run `memorix context --task "<task>"` from the shell only after MCP is unavailable, disabled, or not discoverable, and pass the user's real task text. Do not skip memory, wait indefinitely on `pending`, or hand-write tool-call syntax.
 
 ## Store Rules
 

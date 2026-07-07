@@ -64,6 +64,7 @@ describe('Hooks install/uninstall lifecycle', () => {
     const content = await fs.readFile(agentsMd, 'utf-8');
     expect(content).toContain('When to search memory');
     expect(content).toContain('memorix_project_context');
+    expect(content).toContain('task-lensed brief');
     expect(content).toContain('memorix context --task "<task>"');
     expect(content).toContain('MCP is unavailable, disabled, or not discoverable');
     expect(content).toContain('memorix_search');
@@ -191,6 +192,7 @@ describe('Hooks install/uninstall lifecycle', () => {
     expect(afterInstall).toContain('# After Memorix');
     expect(afterInstall).toContain('Keep this section too.');
     expect(afterInstall).toContain('memorix_project_context');
+    expect(afterInstall).toContain('task-lensed brief');
     expect(afterInstall).toContain('memorix context --task "<task>"');
     expect(afterInstall).toContain('MCP is unavailable, disabled, or not discoverable');
     expect(afterInstall).not.toContain('Some old rules here.');

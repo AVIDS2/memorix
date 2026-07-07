@@ -642,7 +642,7 @@ export function getGlobalConfigPath(agent: AgentName): string {
   }
 }
 
-function getAgentRulesPath(agent: AgentName, root: string, global = false): string {
+export function getAgentRulesPath(agent: AgentName, root: string, global = false): string {
   if (global) {
     switch (agent) {
       case 'windsurf':

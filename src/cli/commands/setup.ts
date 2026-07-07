@@ -357,9 +357,9 @@ function relativePosix(from: string, to: string): string {
   return rel;
 }
 
-type McpConfigAgent = Exclude<AgentName, 'pi'>;
+export type McpConfigAgent = Exclude<AgentName, 'pi'>;
 
-function getMcpAdapter(agent: McpConfigAgent): MCPConfigAdapter {
+export function getMcpAdapter(agent: McpConfigAgent): MCPConfigAdapter {
   const adapters: Record<McpConfigAgent, MCPConfigAdapter> = {
     claude: new ClaudeCodeMCPAdapter(),
     codex: new CodexMCPAdapter(),
@@ -378,7 +378,7 @@ function getMcpAdapter(agent: McpConfigAgent): MCPConfigAdapter {
   return adapters[agent];
 }
 
-function buildMemorixServer(mcp: Exclude<SetupMcpTransport, 'none'>): MCPServerEntry {
+export function buildMemorixServer(mcp: Exclude<SetupMcpTransport, 'none'>): MCPServerEntry {
   if (mcp === 'http') {
     return {
       name: 'memorix',

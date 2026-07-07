@@ -42,7 +42,7 @@ export const OFFICIAL_MEMORIX_SKILLS: OfficialMemorixSkill[] = [
       '',
       '## Search Rules',
       '',
-      '- Use `memorix_project_context` before broad continuation work, unfamiliar code changes, ad-hoc file reads, or dev-log reads. Pass the user\'s actual task so Memorix can choose a bugfix, feature, release, onboarding, refactor, docs, test, or general brief. Start by reading its suggested files.',
+      '- Default first step for non-trivial coding work: call `memorix_project_context` before progress files, dev-log reads, ad-hoc file reads, or git archaeology. Pass the user\'s actual task so Memorix can choose a bugfix, feature, release, onboarding, refactor, docs, test, or general brief. Start by reading its suggested files.',
       '- In Claude Code headless/print-mode, an initial MCP `pending` status is not a failure by itself. Prefer MCP first: use the client\'s tool discovery/dynamic loading to find `memorix_project_context` when it is not in the first visible tool list.',
       '- Run `memorix context --task "<task>"` from the shell only after MCP is unavailable, disabled, or not discoverable, and pass the user\'s real task text. Do not skip memory, wait indefinitely on `pending`, or hand-write tool-call syntax.',
       '- Use `memorix_search` for a specific decision, bug, file, or prior change that the project context did not answer.',

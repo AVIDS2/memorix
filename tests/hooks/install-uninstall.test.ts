@@ -63,6 +63,8 @@ describe('Hooks install/uninstall lifecycle', () => {
 
     const content = await fs.readFile(agentsMd, 'utf-8');
     expect(content).toContain('When to search memory');
+    expect(content).toContain('memorix_project_context');
+    expect(content).toContain('memorix context --task "<task>"');
     expect(content).toContain('memorix_search');
     expect(content).toContain('When to store memory');
   });
@@ -154,23 +156,42 @@ describe('Hooks install/uninstall lifecycle', () => {
     expect(entry).toBeDefined();
   });
 
-  it('should record audit entry when AGENTS.md already contains Memorix and audit is empty', async () => {
+  it('should refresh existing Memorix block while preserving user content when audit is empty', async () => {
     const agentsMd = path.join(tmpDir, 'AGENTS.md');
 
-    // Pre-create AGENTS.md with Memorix content (simulating manual edit or previous install)
-    const memorixContent = '# Memorix — Automatic Memory Rules\n\nSome rules here.\n';
+    // Pre-create AGENTS.md with older Memorix content (simulating a previous install)
+    const memorixContent = [
+      '# My Project',
+      '',
+      'Keep these user instructions.',
+      '',
+      '# Memorix — Automatic Memory Rules',
+      '',
+      'Some old rules here.',
+      '',
+      '# After Memorix',
+      '',
+      'Keep this section too.',
+      '',
+    ].join('\n');
     await fs.writeFile(agentsMd, memorixContent, 'utf-8');
 
     // Verify audit is empty (no entries for this file)
     const beforeInstall = await getProjectFiles(tmpDir);
     expect(beforeInstall.find(e => e.path === agentsMd)).toBeUndefined();
 
-    // Install codex hooks — should NOT rewrite the file, but SHOULD record audit
+    // Install codex hooks — should refresh the Memorix block and record audit
     await installHooks('codex', tmpDir);
 
-    // File content should be unchanged
+    // User content should remain, stale Memorix content should be replaced
     const afterInstall = await fs.readFile(agentsMd, 'utf-8');
-    expect(afterInstall).toBe(memorixContent);
+    expect(afterInstall).toContain('# My Project');
+    expect(afterInstall).toContain('Keep these user instructions.');
+    expect(afterInstall).toContain('# After Memorix');
+    expect(afterInstall).toContain('Keep this section too.');
+    expect(afterInstall).toContain('memorix_project_context');
+    expect(afterInstall).toContain('memorix context --task "<task>"');
+    expect(afterInstall).not.toContain('Some old rules here.');
 
     // Audit should now have an entry
     const files = await getProjectFiles(tmpDir);

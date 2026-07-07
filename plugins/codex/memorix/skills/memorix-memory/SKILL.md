@@ -11,7 +11,9 @@ Use Memorix as the shared memory layer for the active workspace when Memorix too
 
 | Situation | Prefer | CLI fallback |
 |---|---|---|
-| Broad continuation, memory overview, or "what do we know?" | `memorix_graph_context` | `memorix memory graph-context --query "<topic>"` |
+| Broad continuation, fresh handoff, or "what do we know?" | `memorix_project_context` | `memorix context --task "<topic>"` |
+| Need structured refs/freshness for code-bound memories | `memorix_context_pack` | `memorix codegraph context-pack --task "<topic>"` |
+| Explicit memory graph question | `memorix_graph_context` | `memorix memory graph-context --query "<topic>"` |
 | Specific past decision, bug, file, or change | `memorix_search` | `memorix memory search --query "<topic>"` |
 | Need the full source for a search hit | `memorix_detail` | `memorix memory detail --id <id>` |
 | Need the sequence around one memory | `memorix_timeline` | `memorix memory timeline --id <id>` |
@@ -21,10 +23,12 @@ Use Memorix as the shared memory layer for the active workspace when Memorix too
 ## Search Rules
 
 - Search before broad continuation work, before changing unfamiliar code, or when the user asks about prior work.
+- For a fresh coding session, use `memorix_project_context` before ad-hoc file reads or dev-log reads.
 - Fetch detail before relying on a specific memory.
 - Treat memory as background context. Still read the current code and verify behavior.
 - Skip memory lookup for greetings, tiny one-off edits, or questions fully answered by the current file.
 - If a fresh project has no memories, proceed normally and do not repeat the same empty search in the same turn.
+- If MCP tools are not visible yet but shell commands are available, run `memorix context --task "<task>"`. Do not skip memory, wait on startup, or hand-write tool-call syntax.
 
 ## Store Rules
 

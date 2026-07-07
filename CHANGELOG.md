@@ -10,6 +10,8 @@ All notable changes to this project will be documented in this file.
 ### Fixed
 - **Live catalog shrink guard** -- Model catalog generators now refuse to overwrite the checked-in catalog when a live API returns an unexpectedly small result set, unless `MEMORIX_ALLOW_MODEL_CATALOG_SHRINK=1` is set intentionally.
 - **Project-scoped diagnostics** -- `memorix doctor` now reports observation totals for the current project instead of mixing in unrelated flat-store project records.
+- **Claude Code handoff guidance** -- Project and plugin instructions now point fresh Claude Code sessions at `memorix_project_context`, the `memorix context` CLI fallback during headless MCP startup, and the repository-wide dev log instead of stale package-specific memcode notes.
+- **Setup-installed rules refresh** -- Re-running setup now refreshes the Memorix-owned block in shared `CLAUDE.md` / `AGENTS.md` / `GEMINI.md` files while preserving user-authored content, so upgraded guidance actually reaches existing installs.
 
 ## [1.1.5] - 2026-07-02
 

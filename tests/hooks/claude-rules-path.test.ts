@@ -41,6 +41,8 @@ describe('Claude integration guidance path', () => {
 
       const content = await fs.readFile(claudeMd, 'utf-8');
       expect(content).toContain('# Memorix');
+      expect(content).toContain('memorix_project_context');
+      expect(content).toContain('memorix context --task "<task>"');
       await expect(fs.access(copilotInstructions)).rejects.toThrow();
     } finally {
       await fs.rm(tmpDir, { recursive: true, force: true });
@@ -60,6 +62,7 @@ describe('Claude integration guidance path', () => {
       expect(content).toContain('Keep replies concise.');
       expect(content).toContain('# Memorix');
       expect(content).toContain('memorix_search');
+      expect(content).toContain('memorix_project_context');
     } finally {
       await fs.rm(tmpDir, { recursive: true, force: true });
     }
@@ -83,6 +86,8 @@ describe('global guidance scope', () => {
       const content = await fs.readFile(agentsMd, 'utf-8');
       expect(content).toContain('# Memorix — Memory Tools for Active Workspaces');
       expect(content).toContain('active workspace');
+      expect(content).toContain('memorix_project_context');
+      expect(content).toContain('memorix context --task "<task>"');
       expect(content).not.toContain('This project uses Memorix');
       await expect(fs.access(path.join(projectDir, '.codex', 'AGENTS.md'))).rejects.toThrow();
     } finally {
@@ -106,6 +111,7 @@ describe('OpenCode integration files', () => {
       expect(plugin).toContain('export const MemorixPlugin');
       expect(plugin).toContain("shell: process.platform === 'win32'");
       expect(await fs.readFile(agentsMd, 'utf-8')).toContain('memorix_search');
+      expect(await fs.readFile(agentsMd, 'utf-8')).toContain('memorix_project_context');
       const skill = await fs.readFile(skillPath, 'utf-8');
       expect(skill).toContain('name: memorix-memory');
       expect(skill).toContain('active workspace');

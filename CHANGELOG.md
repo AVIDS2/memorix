@@ -2,13 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
-## [1.1.8] - 2026-07-07
+## [1.1.8] - 2026-07-08
 
 ### Added
 - **Agent integration doctor and repair** -- Added `memorix doctor agents` and `memorix repair agents` to inspect and repair Memorix-owned agent integration files. The doctor flags stale MCP command paths, missing Claude `alwaysLoad`, missing `memorix` MCP entries, and outdated Memory Autopilot guidance without printing environment secrets.
 
 ### Changed
 - **Memory Autopilot adoption** -- Setup-generated agent guidance now makes `memorix_project_context` the default first step for non-trivial coding work before progress files, dev logs, broad file reads, or git archaeology.
+
+### Fixed
+- **Claude Code local MCP repair** -- `memorix doctor agents` and `memorix repair agents` now inspect and repair Claude Code 2.x project-private local MCP entries in `~/.claude.json`, replacing stale worktree commands with `memorix serve` and `alwaysLoad: true`.
+- **Cleaner CodeGraph Memory briefs** -- CodeGraph Lite and Memory Autopilot now ignore `.tmp`, nested `.worktrees`, and `.claude/worktrees` directories, so suggested reads point at the real project instead of local caches or agent scratch worktrees.
+- **All-scope doctor noise** -- Agent doctor now treats one healthy local, project, or global scope as sufficient in all-scope mode, while still flagging genuinely stale or repairable configs.
 
 ## [1.1.7] - 2026-07-07
 

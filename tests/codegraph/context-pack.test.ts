@@ -230,6 +230,9 @@ describe('buildContextPackPrompt', () => {
         { path: 'dist/auth.js', symbol: 'authMiddleware', kind: 'function', line: 3 },
         { path: 'packages/agent-core/dist/index.js', symbol: 'status', kind: 'function', line: 1 },
         { path: 'packages\\agent-core\\dist\\index.js', symbol: 'statusWin', kind: 'function', line: 2 },
+        { path: '.tmp/release-smoke/cache.ts', symbol: 'cachedSmoke', kind: 'function', line: 1 },
+        { path: '.worktrees/release/src/release.ts', symbol: 'releaseSmoke', kind: 'function', line: 1 },
+        { path: '.claude/worktrees/release/src/release.ts', symbol: 'claudeReleaseSmoke', kind: 'function', line: 1 },
         { path: 'src/config.ts', symbol: 'configureAuth', kind: 'function', line: 8 },
         { path: 'src/router.ts', symbol: 'routeAuth', kind: 'function', line: 12 },
         { path: 'src/session.ts', symbol: 'sessionAuth', kind: 'function', line: 20 },
@@ -242,6 +245,9 @@ describe('buildContextPackPrompt', () => {
         'dist/auth.js',
         'packages/agent-core/dist/index.js',
         'packages\\agent-core\\dist\\index.js',
+        '.tmp/release-smoke/cache.ts',
+        '.worktrees/release/src/release.ts',
+        '.claude/worktrees/release/src/release.ts',
         'src/config.ts',
         'src/router.ts',
         'src/session.ts',
@@ -256,6 +262,9 @@ describe('buildContextPackPrompt', () => {
     expect(text).not.toContain('dist/auth.js');
     expect(text).not.toContain('packages/agent-core/dist/index.js');
     expect(text).not.toContain('packages\\agent-core\\dist\\index.js');
+    expect(text).not.toContain('.tmp/release-smoke/cache.ts');
+    expect(text).not.toContain('.worktrees/release/src/release.ts');
+    expect(text).not.toContain('.claude/worktrees/release/src/release.ts');
     expect(text).toContain('src/extra.ts');
     expect(text).not.toContain('src/overflow.ts');
   });

@@ -1,18 +1,19 @@
 import { existsSync } from 'node:fs';
-import { readFile } from 'node:fs/promises';
-import { basename } from 'node:path';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { basename, dirname, resolve } from 'node:path';
 import { homedir } from 'node:os';
 import type { MCPServerEntry } from '../../types.js';
 import type { AgentName } from '../../hooks/types.js';
 import { getAgentRulesPath, installAgentGuidance } from '../../hooks/installers/index.js';
 import {
+  buildMemorixServer,
   getMcpAdapter,
   getSetupAgentTargets,
   installMcpConfig,
   type McpConfigAgent,
 } from './setup.js';
 
-export type AgentIntegrationScope = 'project' | 'global' | 'all';
+export type AgentIntegrationScope = 'local' | 'project' | 'global' | 'all';
 export type AgentIntegrationStatus = 'ok' | 'missing' | 'repairable' | 'skipped';
 
 export interface AgentMcpCheck {
@@ -88,14 +89,24 @@ const GUIDANCE_AGENTS = new Set<AgentName>([
   'trae',
 ]);
 
+type ConcreteAgentIntegrationScope = Exclude<AgentIntegrationScope, 'all'>;
+type JsonRecord = Record<string, unknown>;
+
 function requestedAgents(agent?: string): AgentName[] {
   const all = getSetupAgentTargets();
   if (!agent || agent === 'all') return all;
   return all.includes(agent as AgentName) ? [agent as AgentName] : [];
 }
 
-function requestedScopes(scope?: string): Array<Exclude<AgentIntegrationScope, 'all'>> {
+function requestedMcpScopes(agent: AgentName, scope?: string): ConcreteAgentIntegrationScope[] {
+  if (scope === 'local') return agent === 'claude' ? ['local'] : [];
   if (scope === 'project' || scope === 'global') return [scope];
+  return agent === 'claude' ? ['local', 'project', 'global'] : ['project', 'global'];
+}
+
+function requestedGuidanceScopes(scope?: string): ConcreteAgentIntegrationScope[] {
+  if (scope === 'project' || scope === 'global') return [scope];
+  if (scope === 'local') return [];
   return ['project', 'global'];
 }
 
@@ -112,6 +123,60 @@ function worstStatus(statuses: AgentIntegrationStatus[]): AgentIntegrationStatus
 
 function isMcpConfigAgent(agent: AgentName): agent is McpConfigAgent {
   return agent !== 'pi';
+}
+
+function isActionableMcpRepairIssue(issue: string): boolean {
+  return issue !== 'memorix-server-missing';
+}
+
+function aggregateMcpStatus(checks: AgentMcpCheck[]): AgentIntegrationStatus {
+  const actionableRepair = checks.some((check) =>
+    check.status === 'repairable' && check.issues.some(isActionableMcpRepairIssue)
+  );
+  if (actionableRepair) return 'repairable';
+  if (checks.some((check) => check.status === 'ok')) return 'ok';
+  if (checks.some((check) => check.status === 'repairable')) return 'repairable';
+  if (checks.some((check) => check.status === 'missing')) return 'missing';
+  return 'skipped';
+}
+
+function aggregateMcpIssues(checks: AgentMcpCheck[]): string[] {
+  const status = aggregateMcpStatus(checks);
+  if (status === 'repairable') {
+    return unique(checks
+      .filter((check) => check.status === 'repairable')
+      .flatMap((check) => check.issues.filter(isActionableMcpRepairIssue)));
+  }
+  if (status === 'missing') {
+    return unique(checks.filter((check) => check.status === 'missing').flatMap((check) => check.issues));
+  }
+  return [];
+}
+
+function aggregateGuidanceStatus(checks: AgentGuidanceCheck[]): AgentIntegrationStatus {
+  const projectCheck = checks.find((check) => check.scope === 'project');
+  if (projectCheck?.status === 'repairable') return 'repairable';
+  if (checks.some((check) => check.status === 'ok')) return 'ok';
+  if (checks.some((check) => check.status === 'repairable')) return 'repairable';
+  if (checks.some((check) => check.status === 'missing')) return 'missing';
+  return 'skipped';
+}
+
+function aggregateGuidanceIssues(checks: AgentGuidanceCheck[]): string[] {
+  const status = aggregateGuidanceStatus(checks);
+  if (status === 'repairable') {
+    const projectCheck = checks.find((check) => check.scope === 'project');
+    if (projectCheck?.status === 'repairable') return projectCheck.issues;
+    return unique(checks.filter((check) => check.status === 'repairable').flatMap((check) => check.issues));
+  }
+  if (status === 'missing') {
+    return unique(checks.filter((check) => check.status === 'missing').flatMap((check) => check.issues));
+  }
+  return [];
+}
+
+function asRecord(value: unknown): JsonRecord | null {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as JsonRecord : null;
 }
 
 function looksLikeStaleMemorixCommand(server: MCPServerEntry): boolean {
@@ -141,6 +206,139 @@ function sanitizeServer(server: MCPServerEntry): AgentMcpCheck['server'] {
   };
 }
 
+function normalizeProjectKey(projectRoot: string): string {
+  return resolve(projectRoot).replace(/\\/g, '/').toLowerCase();
+}
+
+function defaultClaudeProjectKey(projectRoot: string): string {
+  return resolve(projectRoot).replace(/\\/g, '/');
+}
+
+function getClaudeLocalConfigPath(): string {
+  return `${homedir()}/.claude.json`;
+}
+
+function coerceClaudeLocalServer(name: string, value: unknown): MCPServerEntry | null {
+  const entry = asRecord(value);
+  if (!entry) return null;
+  const args = Array.isArray(entry.args) ? entry.args.map(String) : [];
+  return {
+    name,
+    command: typeof entry.command === 'string' ? entry.command : '',
+    args,
+    ...(asRecord(entry.env) ? { env: entry.env as Record<string, string> } : {}),
+    ...(typeof entry.url === 'string' ? { url: entry.url } : {}),
+    ...(entry.alwaysLoad === true ? { alwaysLoad: true } : {}),
+  };
+}
+
+function findClaudeLocalProject(config: JsonRecord, projectRoot: string): { key: string; project: JsonRecord } | null {
+  const projects = asRecord(config.projects);
+  if (!projects) return null;
+  const target = normalizeProjectKey(projectRoot);
+  for (const [key, value] of Object.entries(projects)) {
+    if (normalizeProjectKey(key) !== target) continue;
+    const project = asRecord(value);
+    return project ? { key, project } : null;
+  }
+  return null;
+}
+
+async function inspectClaudeLocalMcp(projectRoot: string): Promise<AgentMcpCheck> {
+  const configPath = getClaudeLocalConfigPath();
+  if (!existsSync(configPath)) {
+    return {
+      scope: 'local',
+      path: configPath,
+      exists: false,
+      status: 'missing',
+      issues: ['mcp-config-missing'],
+    };
+  }
+
+  let config: JsonRecord = {};
+  try {
+    config = JSON.parse(await readFile(configPath, 'utf-8')) as JsonRecord;
+  } catch {
+    return {
+      scope: 'local',
+      path: configPath,
+      exists: true,
+      status: 'repairable',
+      issues: ['mcp-config-unreadable'],
+    };
+  }
+
+  const localProject = findClaudeLocalProject(config, projectRoot);
+  const pathLabel = localProject ? `${configPath}#projects[${localProject.key}]` : configPath;
+  if (!localProject) {
+    return {
+      scope: 'local',
+      path: pathLabel,
+      exists: true,
+      status: 'missing',
+      issues: ['mcp-config-missing'],
+    };
+  }
+
+  const servers = asRecord(localProject.project.mcpServers);
+  const server = coerceClaudeLocalServer('memorix', servers?.memorix);
+  if (!server) {
+    return {
+      scope: 'local',
+      path: pathLabel,
+      exists: true,
+      status: 'repairable',
+      issues: ['memorix-server-missing'],
+    };
+  }
+
+  const issues: string[] = [];
+  if (!server.url && looksLikeStaleMemorixCommand(server)) issues.push('stale-command-path');
+  if (!server.url && !isRecommendedStdioServer(server)) issues.push('nonstandard-mcp-command');
+  if (server.alwaysLoad !== true) issues.push('claude-always-load-missing');
+
+  return {
+    scope: 'local',
+    path: pathLabel,
+    exists: true,
+    status: issues.length > 0 ? 'repairable' : 'ok',
+    issues,
+    server: sanitizeServer(server),
+  };
+}
+
+async function installClaudeLocalMcpConfig(projectRoot: string): Promise<void> {
+  const configPath = getClaudeLocalConfigPath();
+  let config: JsonRecord = {};
+  try {
+    config = JSON.parse(await readFile(configPath, 'utf-8')) as JsonRecord;
+  } catch {
+    config = {};
+  }
+
+  const projects = asRecord(config.projects) ?? {};
+  const existing = findClaudeLocalProject({ ...config, projects }, projectRoot);
+  const projectKey = existing?.key ?? defaultClaudeProjectKey(projectRoot);
+  const project = existing?.project ?? asRecord(projects[projectKey]) ?? {};
+  const mcpServers = asRecord(project.mcpServers) ?? {};
+  const server = buildMemorixServer('stdio');
+  server.alwaysLoad = true;
+
+  mcpServers.memorix = {
+    type: 'stdio',
+    command: server.command,
+    args: server.args,
+    alwaysLoad: true,
+  };
+  project.mcpServers = mcpServers;
+  projects[projectKey] = project;
+  config.projects = projects;
+
+  await mkdir(dirname(configPath), { recursive: true });
+  await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf-8');
+}
+
 async function inspectMcp(agent: AgentName, projectRoot: string, scope: AgentIntegrationScope): Promise<AgentIntegrationEntry['mcp']> {
   if (!isMcpConfigAgent(agent)) {
     return { status: 'skipped', issues: ['mcp-managed-by-package'], checks: [] };
@@ -149,7 +347,12 @@ async function inspectMcp(agent: AgentName, projectRoot: string, scope: AgentInt
   const adapter = getMcpAdapter(agent);
   const checks: AgentMcpCheck[] = [];
 
-  for (const targetScope of requestedScopes(scope)) {
+  for (const targetScope of requestedMcpScopes(agent, scope)) {
+    if (agent === 'claude' && targetScope === 'local') {
+      checks.push(await inspectClaudeLocalMcp(projectRoot));
+      continue;
+    }
+
     const configPath = adapter.getConfigPath(targetScope === 'project' ? projectRoot : undefined);
     if (targetScope === 'global' && configPath === adapter.getConfigPath(projectRoot)) continue;
 
@@ -165,6 +368,31 @@ async function inspectMcp(agent: AgentName, projectRoot: string, scope: AgentInt
     }
 
     const content = await readFile(configPath, 'utf-8');
+    if (agent === 'claude' && targetScope === 'global') {
+      try {
+        const parsed = JSON.parse(content) as JsonRecord;
+        if (asRecord(parsed.projects) && !asRecord(parsed.mcpServers)) {
+          checks.push({
+            scope: targetScope,
+            path: configPath,
+            exists: true,
+            status: 'missing',
+            issues: ['mcp-config-missing'],
+          });
+          continue;
+        }
+      } catch {
+        checks.push({
+          scope: targetScope,
+          path: configPath,
+          exists: true,
+          status: 'repairable',
+          issues: ['mcp-config-unreadable'],
+        });
+        continue;
+      }
+    }
+
     const servers = adapter.parse(content);
     const server = servers.find((entry) => entry.name === 'memorix');
     if (!server) {
@@ -194,8 +422,8 @@ async function inspectMcp(agent: AgentName, projectRoot: string, scope: AgentInt
   }
 
   return {
-    status: worstStatus(checks.map((check) => check.status)),
-    issues: unique(checks.flatMap((check) => check.issues)),
+    status: aggregateMcpStatus(checks),
+    issues: aggregateMcpIssues(checks),
     checks,
   };
 }
@@ -214,7 +442,7 @@ async function inspectGuidance(agent: AgentName, projectRoot: string, scope: Age
   }
 
   const checks: AgentGuidanceCheck[] = [];
-  for (const targetScope of requestedScopes(scope)) {
+  for (const targetScope of requestedGuidanceScopes(scope)) {
     const root = targetScope === 'project' ? projectRoot : homedir();
     const rulesPath = getAgentRulesPath(agent, root, targetScope === 'global');
 
@@ -241,8 +469,8 @@ async function inspectGuidance(agent: AgentName, projectRoot: string, scope: Age
   }
 
   return {
-    status: worstStatus(checks.map((check) => check.status)),
-    issues: unique(checks.flatMap((check) => check.issues)),
+    status: aggregateGuidanceStatus(checks),
+    issues: aggregateGuidanceIssues(checks),
     checks,
   };
 }
@@ -253,7 +481,7 @@ export async function inspectAgentIntegrations(options: {
   scope?: string;
 } = {}): Promise<AgentIntegrationReport> {
   const projectRoot = options.projectRoot ?? process.cwd();
-  const scope = (options.scope === 'project' || options.scope === 'global' || options.scope === 'all')
+  const scope = (options.scope === 'local' || options.scope === 'project' || options.scope === 'global' || options.scope === 'all')
     ? options.scope
     : 'all';
   const agents = requestedAgents(options.agent);
@@ -309,7 +537,7 @@ export async function repairAgentIntegrations(options: {
   dry?: boolean;
 } = {}): Promise<AgentRepairResult> {
   const projectRoot = options.projectRoot ?? process.cwd();
-  const scope = (options.scope === 'project' || options.scope === 'global' || options.scope === 'all')
+  const scope = (options.scope === 'local' || options.scope === 'project' || options.scope === 'global' || options.scope === 'all')
     ? options.scope
     : 'all';
   const before = await inspectAgentIntegrations({ projectRoot, agent: options.agent, scope });
@@ -326,12 +554,16 @@ export async function repairAgentIntegrations(options: {
           continue;
         }
         if (!options.dry) {
-          await installMcpConfig({
-            agent: entry.agent,
-            projectRoot,
-            global: check.scope === 'global',
-            mcp: 'stdio',
-          });
+          if (entry.agent === 'claude' && check.scope === 'local') {
+            await installClaudeLocalMcpConfig(projectRoot);
+          } else {
+            await installMcpConfig({
+              agent: entry.agent,
+              projectRoot,
+              global: check.scope === 'global',
+              mcp: 'stdio',
+            });
+          }
         }
         changed.push(`${entry.agent}:mcp:${check.scope}`);
       }

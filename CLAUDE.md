@@ -7,9 +7,14 @@ You have access to Memorix, an open-source cross-agent memory layer for coding a
 This project has Memorix MCP tools available for persistent cross-session memory.
 
 For broad continuation or a fresh handoff, start with Memory Autopilot before
-ad-hoc file reads:
+progress files, dev-log reads, ad-hoc file reads, or git archaeology:
 
 - MCP: `memorix_project_context` with the current task
+- Default first step for non-trivial coding work: call
+  `memorix_project_context` with the user's actual task. Memorix will choose a
+  task-lensed brief (bugfix, feature, release, onboarding, refactor, docs, test,
+  or general). Treat its "Start here" files as the first project files to
+  inspect.
 - Claude Code exposes MCP tools through dynamic tool loading. If the tool is not
   directly visible in the first tool list, search/select the Memorix project
   context tool before using shell fallback.

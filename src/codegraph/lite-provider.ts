@@ -198,7 +198,8 @@ function walk(root: string, exclude: string[], maxFiles: number): string[] {
       const rel = normalizeCodePath(relative(root, abs));
       if (isExcluded(rel, exclude)) continue;
       if (entry.isDirectory()) {
-        if (entry.name === '.git' || entry.name === 'node_modules') continue;
+        if (entry.name === '.git' || entry.name === '.worktrees' || entry.name === '.tmp' || entry.name === 'node_modules') continue;
+        if (rel === '.claude/worktrees' || rel.startsWith('.claude/worktrees/')) continue;
         visit(abs);
         if (out.length >= maxFiles) return;
         continue;
@@ -297,6 +298,9 @@ export async function indexProjectLite(options: LiteIndexOptions): Promise<LiteI
     '.next/**',
     '.turbo/**',
     '.git/**',
+    '.tmp/**',
+    '.worktrees/**',
+    '.claude/worktrees/**',
   ];
   const maxFiles = options.maxFiles ?? 5000;
   const indexedAt = new Date().toISOString();

@@ -69,7 +69,11 @@ function timestampOf(observation: ContextPackObservation): number {
 }
 
 function isGeneratedPath(path: string): boolean {
-  return /(^|\/)(dist|build|coverage|\.next|\.turbo|node_modules)\//i.test(path.replace(/\\/g, '/'));
+  const normalized = path.replace(/\\/g, '/');
+  return (
+    /(^|\/)(dist|build|coverage|\.next|\.turbo|node_modules|\.git|\.tmp|\.worktrees)(\/|$)/i.test(normalized) ||
+    /(^|\/)\.claude\/worktrees(\/|$)/i.test(normalized)
+  );
 }
 
 function relevanceScore(observation: ContextPackObservation, taskTokens: string[]): number {

@@ -16,7 +16,7 @@ export default defineCommand({
     },
     scope: {
       type: 'string',
-      description: 'Scope: project, global, or all',
+      description: 'Scope: local, project, global, or all',
     },
     dry: {
       type: 'boolean',
@@ -34,7 +34,7 @@ export default defineCommand({
     const action = positional[0] || 'agents';
 
     if (action !== 'agents') {
-      const message = 'Usage: memorix repair agents [--agent <agent>] [--scope project|global|all] [--dry]';
+      const message = 'Usage: memorix repair agents [--agent <agent>] [--scope local|project|global|all] [--dry]';
       if (args.json) {
         console.log(JSON.stringify({ error: message }, null, 2));
       } else {

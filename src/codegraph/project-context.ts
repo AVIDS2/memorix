@@ -82,7 +82,11 @@ function normalizePath(path: string): string {
 }
 
 function isGeneratedPath(path: string): boolean {
-  return /(^|\/)(dist|build|coverage|\.next|\.turbo|node_modules)\//i.test(normalizePath(path));
+  const normalized = normalizePath(path);
+  return (
+    /(^|\/)(dist|build|coverage|\.next|\.turbo|node_modules|\.git|\.tmp|\.worktrees)(\/|$)/i.test(normalized) ||
+    /(^|\/)\.claude\/worktrees(\/|$)/i.test(normalized)
+  );
 }
 
 function suggestedReadRank(path: string): number {

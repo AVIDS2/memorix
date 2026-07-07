@@ -129,10 +129,12 @@ describe('CodeGraph Lite provider', () => {
     mkdirSync(join(dir, 'src'), { recursive: true });
     writeFileSync(join(dir, 'src', 'main.ts'), 'export function main() {}\n');
 
-    for (const generatedDir of ['dist', 'build', 'coverage', '.next', '.turbo', 'node_modules']) {
+    for (const generatedDir of ['dist', 'build', 'coverage', '.next', '.turbo', 'node_modules', '.git', '.tmp', '.worktrees']) {
       mkdirSync(join(dir, generatedDir), { recursive: true });
       writeFileSync(join(dir, generatedDir, 'generated.ts'), 'export function generated() {}\n');
     }
+    mkdirSync(join(dir, '.claude', 'worktrees', 'release-smoke'), { recursive: true });
+    writeFileSync(join(dir, '.claude', 'worktrees', 'release-smoke', 'generated.ts'), 'export function generated() {}\n');
 
     const result = await indexProjectLite({ projectId: 'org/repo', projectRoot: dir });
 

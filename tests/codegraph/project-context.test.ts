@@ -212,6 +212,9 @@ describe('project context service', () => {
       files: [
         makeFile('file:dist', 'dist/auth.js'),
         makeFile('file:runtime-dist', 'packages/agent-core/dist/agent.js'),
+        makeFile('file:tmp', '.tmp/release-smoke/cache.ts'),
+        makeFile('file:worktree', '.worktrees/release/src/release.ts'),
+        makeFile('file:claude-worktree', '.claude/worktrees/release/src/release.ts'),
         makeFile('file:docs', 'docs/notes.md'),
         makeFile('file:auth', 'src/auth.ts'),
         makeFile('file:router', 'src/router.ts'),
@@ -228,6 +231,9 @@ describe('project context service', () => {
     store.upsertObservationRefs([
       makeRef(1, 'file:dist'),
       makeRef(2, 'file:runtime-dist'),
+      makeRef(12, 'file:tmp'),
+      makeRef(13, 'file:worktree'),
+      makeRef(14, 'file:claude-worktree'),
       makeRef(3, 'file:docs'),
       makeRef(4, 'file:auth'),
       makeRef(5, 'file:router'),
@@ -239,7 +245,7 @@ describe('project context service', () => {
       makeRef(11, 'file:extra2'),
     ]);
 
-    const observations = Array.from({ length: 11 }, (_, index) => ({
+    const observations = Array.from({ length: 14 }, (_, index) => ({
       id: index + 1,
       projectId: 'org/repo',
       title: `Memory ${index + 1}`,

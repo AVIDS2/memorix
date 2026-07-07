@@ -19,7 +19,7 @@ export default defineCommand({
     },
     scope: {
       type: 'string',
-      description: 'Scope for "doctor agents": project, global, or all',
+      description: 'Scope for "doctor agents": local, project, global, or all',
     },
     json: {
       type: 'boolean',

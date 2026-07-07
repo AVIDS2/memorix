@@ -31,12 +31,16 @@ async function runCommand(command: any, args: Record<string, unknown>) {
 
 describe('agent doctor and repair', () => {
   const originalCwd = process.cwd();
+  const originalHome = process.env.HOME;
+  const originalUserProfile = process.env.USERPROFILE;
   let sandboxRoot = '';
   let repoDir = '';
 
   beforeEach(() => {
     sandboxRoot = mkdtempSync(path.join(tmpdir(), 'memorix-agent-doctor-'));
     repoDir = path.join(sandboxRoot, 'repo');
+    process.env.HOME = sandboxRoot;
+    process.env.USERPROFILE = sandboxRoot;
     mkdirSync(path.join(repoDir, '.claude'), { recursive: true });
     execSync('git init', { cwd: repoDir, stdio: 'ignore' });
     process.chdir(repoDir);
@@ -44,6 +48,10 @@ describe('agent doctor and repair', () => {
 
   afterEach(() => {
     process.chdir(originalCwd);
+    if (originalHome === undefined) delete process.env.HOME;
+    else process.env.HOME = originalHome;
+    if (originalUserProfile === undefined) delete process.env.USERPROFILE;
+    else process.env.USERPROFILE = originalUserProfile;
     rmSync(sandboxRoot, { recursive: true, force: true });
   });
 
@@ -69,6 +77,65 @@ describe('agent doctor and repair', () => {
             '--mode',
             'micro',
           ],
+        },
+      },
+    }, null, 2), 'utf-8');
+  }
+
+  function writeStaleClaudeLocalMcpSetup() {
+    writeFileSync(path.join(sandboxRoot, '.claude.json'), JSON.stringify({
+      projects: {
+        [repoDir.replace(/\\/g, '/')]: {
+          mcpServers: {
+            memorix: {
+              type: 'stdio',
+              command: 'node',
+              args: [
+                path.join(repoDir, '.worktrees', '1.1.6-release-hardening', 'dist', 'cli', 'index.js'),
+                'serve',
+                '--mode',
+                'micro',
+              ],
+            },
+          },
+        },
+      },
+    }, null, 2), 'utf-8');
+  }
+
+  function writeCurrentClaudeGuidance() {
+    writeFileSync(path.join(repoDir, 'CLAUDE.md'), [
+      '# Memorix - Agent Instructions for Claude Code',
+      '',
+      '## Memory Autopilot',
+      '',
+      '- Default first step for non-trivial coding work: call `memorix_project_context` with the user task.',
+      '',
+    ].join('\n'), 'utf-8');
+  }
+
+  function writeOutdatedGlobalClaudeGuidance() {
+    mkdirSync(path.join(sandboxRoot, '.claude'), { recursive: true });
+    writeFileSync(path.join(sandboxRoot, '.claude', 'CLAUDE.md'), [
+      '# Old Claude instructions',
+      '',
+      '- read progress.txt first in every new session',
+      '',
+    ].join('\n'), 'utf-8');
+  }
+
+  function writeCurrentClaudeLocalMcpSetup() {
+    writeFileSync(path.join(sandboxRoot, '.claude.json'), JSON.stringify({
+      projects: {
+        [repoDir.replace(/\\/g, '/')]: {
+          mcpServers: {
+            memorix: {
+              type: 'stdio',
+              command: 'memorix',
+              args: ['serve'],
+              alwaysLoad: true,
+            },
+          },
         },
       },
     }, null, 2), 'utf-8');
@@ -122,5 +189,73 @@ describe('agent doctor and repair', () => {
     expect(guidance).toContain('Default first step for non-trivial coding work');
     expect(guidance).toContain('memorix_project_context');
     expect(guidance).not.toContain('read this first in every new session');
+  });
+
+  it('doctor agents detects stale Claude local MCP config', async () => {
+    writeStaleClaudeLocalMcpSetup();
+
+    const result = await runCommand(doctorCommand, {
+      _: ['agents'],
+      agent: 'claude',
+      scope: 'local',
+      json: true,
+    });
+
+    expect(result.exitCode).toBe(0);
+    const parsed = JSON.parse(result.stdout);
+    const claude = parsed.agents.entries.find((entry: any) => entry.agent === 'claude');
+
+    expect(claude.mcp.status).toBe('repairable');
+    expect(claude.mcp.issues).toContain('stale-command-path');
+    expect(claude.mcp.issues).toContain('nonstandard-mcp-command');
+    expect(claude.mcp.issues).toContain('claude-always-load-missing');
+    expect(claude.mcp.checks[0].scope).toBe('local');
+  });
+
+  it('doctor agents treats one healthy scope as enough in all-scope mode', async () => {
+    writeCurrentClaudeGuidance();
+    writeCurrentClaudeLocalMcpSetup();
+    writeOutdatedGlobalClaudeGuidance();
+
+    const result = await runCommand(doctorCommand, {
+      _: ['agents'],
+      agent: 'claude',
+      scope: 'all',
+      json: true,
+    });
+
+    expect(result.exitCode).toBe(0);
+    const parsed = JSON.parse(result.stdout);
+    const claude = parsed.agents.entries.find((entry: any) => entry.agent === 'claude');
+
+    expect(claude.mcp.status).toBe('ok');
+    expect(claude.mcp.issues).toEqual([]);
+    expect(claude.guidance.status).toBe('ok');
+    expect(claude.guidance.issues).toEqual([]);
+    expect(parsed.agents.summary.ok).toBe(1);
+  });
+
+  it('repair agents rewrites Claude local MCP config to memorix serve', async () => {
+    writeStaleClaudeLocalMcpSetup();
+
+    const result = await runCommand(repairCommand, {
+      _: ['agents'],
+      agent: 'claude',
+      scope: 'local',
+      json: true,
+    });
+
+    expect(result.exitCode).toBe(0);
+    const parsed = JSON.parse(result.stdout);
+    expect(parsed.repair.changed).toContain('claude:mcp:local');
+
+    const config = JSON.parse(readFileSync(path.join(sandboxRoot, '.claude.json'), 'utf-8'));
+    const project = config.projects[repoDir.replace(/\\/g, '/')];
+    expect(project.mcpServers.memorix).toEqual({
+      type: 'stdio',
+      command: 'memorix',
+      args: ['serve'],
+      alwaysLoad: true,
+    });
   });
 });

@@ -1,42 +1,51 @@
 # Memorix Development Progress
 
 > Current handoff note for new agent sessions. Older package-specific notes may
-> exist under subdirectories; prefer this file for the repository-wide state.
+> exist under subdirectories; prefer this file for repository-wide state.
 
 ## Current State
-- Phase: 1.1.7 task-lensed Memory Autopilot
-- Branch: codex/1.1.7-task-lensed-brief
-- PR: pending
-- Last updated: 2026-07-07
-- Goal: make `memorix_project_context` and `memorix context --task ...` shape the first context packet to the user's actual coding task instead of returning one generic project brief.
+- Phase: 1.1.8 release finalization
+- Branch: main
+- PR: #118 merged
+- Last updated: 2026-07-08
+- Goal: publish 1.1.8 after committing the final Claude local MCP repair and CodeGraph noise-control patch.
 
-## Completed In This Branch
-- Added a deterministic task-lens policy module for `bugfix`, `feature`, `release`, `onboarding`, `refactor`, `docs`, `test`, and `general`.
-- Wired the selected lens into `buildAutoProjectContext`, CLI JSON, MCP prompt/summary/json, and Memory Autopilot formatting.
-- Made Start here ranking lens-aware. Release briefs now surface `CHANGELOG.md`, `package.json`, lockfiles, CI, and README ahead of generic code memory. Onboarding/docs briefs prefer docs and entry points.
-- Added lens-specific verification hints, such as smallest failing repro for bugfix work and build/tests/package smoke for release work.
-- Added noise control for release/onboarding/docs briefs: unrelated current/suspect memory details are hidden while counts and warnings remain visible.
-- Updated generated rules, official skills, and static plugin skills so agents pass the user's actual task into `memorix_project_context` or the CLI fallback.
-- Bumped root and workspace package versions to 1.1.7 and updated `CHANGELOG.md`, README files, API docs, and lockfile.
+## Completed Recently
+- Merged PR #118: `fix(setup): make Memory Autopilot self-checking`.
+- Added `memorix doctor agents` and `memorix repair agents` so users can detect and repair stale agent MCP/rules setup.
+- Strengthened generated agent guidance so `memorix_project_context` is the default first step for non-trivial coding work.
+- Verified main at `8567f5e` after merge; GitHub CI passed before merge.
+- Confirmed local OpenRouter embedding lane resolves to `qwen/qwen3-embedding-8b` without printing secrets.
+- Fixed Claude Code 2.x local MCP repair: doctor/repair now inspect `~/.claude.json` project-private entries and rewrite stale worktree commands to `memorix serve` with `alwaysLoad: true`.
+- Fixed all-scope doctor noise: one healthy local, project, or global scope is enough in all-scope mode unless a stale actionable config is present.
+- Fixed CodeGraph Memory noise: `.tmp`, `.worktrees`, and `.claude/worktrees` are ignored by the lite scan and Autopilot suggested reads.
+- Bumped root and workspace package versions to `1.1.8` and updated lockfile/internal workspace dependencies.
+
+## Current Follow-Up
+- The release patch is implemented and verified locally, but not committed or pushed yet.
+- Two unrelated local changes were temporarily stashed before final verification so they do not enter the release package: `packages/ai/src/models.generated.ts` and `packages/memcode/docs/images/exy.png`.
 
 ## Verification Snapshot
 - `git diff --check`
-- `npx vitest run tests/codegraph/auto-context.test.ts tests/cli/context-command.test.ts tests/integration/tool-profile.test.ts tests/server/context-pack-tool-profile.test.ts tests/hooks/install-uninstall.test.ts tests/hooks/claude-rules-path.test.ts`
+- `npm test -- tests/cli/agent-doctor.test.ts tests/codegraph/lite-provider.test.ts tests/codegraph/project-context.test.ts tests/codegraph/context-pack.test.ts`
 - `npm run lint`
 - `npm run build`
-- `npm pack --dry-run`
 - `npm test`
-- Built CLI smoke: `node .\dist\cli\index.js context --task "fix failing startup smoke" --refresh never`
-- Built CLI smoke: `node .\dist\cli\index.js context --task "prepare 1.1.7 release" --refresh never`
-- Built CLI JSON smoke: `node .\dist\cli\index.js context --task "prepare 1.1.7 release" --refresh never --json`
-- Real MCP SDK smoke: stdio `micro` profile listed 7 tools, exposed `memorix_project_context`, and returned a prompt containing `Task lens: bugfix`.
+- `npm pack --dry-run --json` -> `memorix@1.1.8`, about 14.1 MB packed / 60.3 MB unpacked
+- `node dist/cli/index.js doctor agents --agent claude --scope local`
+- `node dist/cli/index.js doctor agents --agent claude --scope all`
+- `node dist/cli/index.js codegraph refresh --json`
+- `node dist/cli/index.js context --refresh never --task "准备发布 1.1.8：判断当前进度、风险和下一步"`
+- `claude mcp get memorix`
+- `claude mcp list`
+- Claude Code user-style smoke: a short print-mode handoff correctly blocked release because local changes were not committed yet; longer print-mode smoke can still time out.
 
 ## Known UX Notes
-- Claude Code print-mode with `claude-fable-5` and a temporary `--mcp-config` reached tool-use behavior in one run but exceeded the low budget before a final answer; a later full run timed out. Deterministic SDK MCP smoke passes, so this is tracked as CC print-mode/model runtime instability rather than a Memorix MCP failure.
-- The default stdio MCP profile is intentionally compact (`micro`, 7 tools). Use `memorix serve --mode lite|team|full` only when the agent needs the larger surface.
-- Task lenses are local heuristics, not LLM classification. Current code and verification still outrank stored memory.
+- Claude Code print-mode can be slow or fail to finish under budget during full user-style smoke. Use tool traces plus deterministic CLI/MCP smoke to distinguish product failures from model/runtime drift.
+- `memorix context --refresh never --task "<task>"` is fast and stable for first-contact context. `--refresh auto` can take longer on this repository.
+- Current code and release facts outrank stale handoff notes or older dev logs when they conflict.
 
 ## Next Steps
-- Commit and push `codex/1.1.7-task-lensed-brief`.
-- Open the 1.1.7 PR and wait for CI/review.
-- Publish 1.1.7 only after the merged main branch is verified clean.
+- Commit and push the 1.1.8 release patch.
+- Publish `memorix@1.1.8` to npm, then tag and push `v1.1.8`.
+- Restore the temporary local stash after publishing if those local model/image changes are still needed.

@@ -51,6 +51,9 @@ export interface ResolvedMemorixConfig {
     excludePatterns?: string[];
     noiseKeywords?: string[];
   };
+  codegraph: {
+    excludePatterns?: string[];
+  };
   server: {
     transport?: 'stdio' | 'http';
     dashboard?: boolean;
@@ -146,6 +149,9 @@ export function getResolvedConfig(options: ResolvedLaneOptions = {}): ResolvedMe
       skipMergeCommits: firstBool(toml.git?.skip_merge_commits, yaml.git?.skipMergeCommits),
       excludePatterns: firstArray(toml.git?.exclude_patterns, yaml.git?.excludePatterns),
       noiseKeywords: firstArray(toml.git?.noise_keywords, yaml.git?.noiseKeywords),
+    },
+    codegraph: {
+      excludePatterns: firstArray(toml.codegraph?.exclude_patterns, yaml.codegraph?.excludePatterns),
     },
     server: {
       transport: first(toml.server?.transport, yaml.server?.transport),

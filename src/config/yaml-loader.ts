@@ -64,6 +64,12 @@ export interface MemorixYamlConfig {
     noiseKeywords?: string[];
   };
 
+  /** CodeGraph / Project Context configuration */
+  codegraph?: {
+    /** File patterns to exclude from CodeGraph indexing and context suggestions */
+    excludePatterns?: string[];
+  };
+
   /** Behavior settings */
   behavior?: {
     /** Session start injection mode */
@@ -184,6 +190,7 @@ export function loadYamlConfig(projectRoot?: string | null): MemorixYamlConfig {
     agent: { ...userConfig.agent, ...projectConfig.agent },
     embedding: { ...userConfig.embedding, ...projectConfig.embedding },
     git: { ...userConfig.git, ...projectConfig.git },
+    codegraph: { ...userConfig.codegraph, ...projectConfig.codegraph },
     behavior: { ...userConfig.behavior, ...projectConfig.behavior },
     server: { ...userConfig.server, ...projectConfig.server },
     team: { ...userConfig.team, ...projectConfig.team },

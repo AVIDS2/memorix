@@ -39,6 +39,9 @@ export interface MemorixTomlConfig {
     exclude_patterns?: string[];
     noise_keywords?: string[];
   };
+  codegraph?: {
+    exclude_patterns?: string[];
+  };
   server?: {
     transport?: 'stdio' | 'http';
     dashboard?: boolean;
@@ -91,6 +94,7 @@ function mergeTomlConfig(base: MemorixTomlConfig, override: MemorixTomlConfig): 
     embedding: { ...base.embedding, ...override.embedding },
     hooks: { ...base.hooks, ...override.hooks },
     git: { ...base.git, ...override.git },
+    codegraph: { ...base.codegraph, ...override.codegraph },
     server: { ...base.server, ...override.server },
   };
 }

@@ -164,6 +164,22 @@ describe('resolved config', () => {
     expect(cfg.git.excludePatterns).toEqual(['dist/**', '*.lock']);
   });
 
+  it('resolves CodeGraph exclude patterns from TOML above legacy YAML', () => {
+    writeFileSync(join(HOME, '.memorix', 'config.toml'), [
+      '[codegraph]',
+      'exclude_patterns = ["vendor/**", "**/generated/**"]',
+    ].join('\n'), 'utf8');
+    writeFileSync(join(HOME, '.memorix', 'memorix.yml'), [
+      'codegraph:',
+      '  excludePatterns:',
+      '    - ignored-from-yaml/**',
+    ].join('\n'), 'utf8');
+
+    const cfg = getResolvedConfig({ projectRoot: null, homeDir: HOME });
+
+    expect(cfg.codegraph.excludePatterns).toEqual(['vendor/**', '**/generated/**']);
+  });
+
   it('uses git TOML settings in runtime getGitConfig after project root detection', () => {
     writeFileSync(join(PROJECT, 'memorix.toml'), [
       '[git]',

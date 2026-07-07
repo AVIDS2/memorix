@@ -3,6 +3,7 @@ import { CodeGraphStore } from '../../codegraph/store.js';
 import { indexProjectLite } from '../../codegraph/lite-provider.js';
 import { assembleContextPackForTask, buildContextPackPrompt } from '../../codegraph/context-pack.js';
 import { backfillMissingObservationCodeRefs } from '../../codegraph/binder.js';
+import { getResolvedConfig } from '../../config/resolved-config.js';
 import { getAllObservations } from '../../memory/observations.js';
 import { emitError, emitResult, getCliProjectContext, parsePositiveInt } from './operator-shared.js';
 
@@ -49,6 +50,7 @@ export default defineCommand({
       const store = new CodeGraphStore();
       await store.init(dataDir);
       const explicitAction = Boolean(positional[0] || (args.action as string | undefined));
+      const exclude = getResolvedConfig({ projectRoot: project.rootPath }).codegraph.excludePatterns;
 
       switch (action) {
         case 'status': {
@@ -64,6 +66,7 @@ export default defineCommand({
           const indexed = await indexProjectLite({
             projectId: project.id,
             projectRoot: project.rootPath,
+            exclude,
           });
           store.replaceProjectIndex(project.id, indexed);
           const activeObservations = getAllObservations()
@@ -99,6 +102,7 @@ export default defineCommand({
             task,
             observations,
             limit,
+            exclude,
           });
           emitResult({ project, pack }, buildContextPackPrompt(pack), asJson);
           return;

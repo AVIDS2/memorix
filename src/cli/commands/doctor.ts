@@ -318,8 +318,10 @@ export default defineCommand({
       try {
         const { CodeGraphStore } = await import('../../codegraph/store.js');
         const { buildProjectContextOverview } = await import('../../codegraph/project-context.js');
+        const { getResolvedConfig } = await import('../../config/resolved-config.js');
         const codeStore = new CodeGraphStore();
         await codeStore.init(dataDir);
+        const exclude = getResolvedConfig({ projectRoot: projectRoot || process.cwd() }).codegraph.excludePatterns;
         const overview = buildProjectContextOverview({
           project: {
             id: projectId,
@@ -328,6 +330,7 @@ export default defineCommand({
           },
           store: codeStore,
           observations: projectObservations,
+          exclude,
         });
         const languageText = overview.code.languages.length > 0
           ? overview.code.languages.map((item: any) => `${item.language} ${item.files}`).join(', ')

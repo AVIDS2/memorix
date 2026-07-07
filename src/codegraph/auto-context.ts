@@ -1,5 +1,6 @@
 import { existsSync, statSync } from 'node:fs';
 import path from 'node:path';
+import { getResolvedConfig } from '../config/resolved-config.js';
 import type { ProjectInfo } from '../types.js';
 import { backfillMissingObservationCodeRefs, type CodeRefBackfillResult } from './binder.js';
 import { collectCurrentProjectFacts, type CurrentProjectFacts } from './current-facts.js';
@@ -100,11 +101,13 @@ export async function buildAutoProjectContext(input: {
   refresh?: AutoContextRefreshMode;
   maxAgeMs?: number;
   now?: Date;
+  exclude?: string[];
 }): Promise<AutoProjectContext> {
   const refreshMode = input.refresh ?? 'auto';
   const now = input.now ?? new Date();
   const task = input.task?.trim();
   const lens = resolveTaskLens(task);
+  const exclude = input.exclude ?? getResolvedConfig({ projectRoot: input.project.rootPath }).codegraph.excludePatterns;
   const store = new CodeGraphStore();
   await store.init(input.dataDir);
 
@@ -126,6 +129,7 @@ export async function buildAutoProjectContext(input: {
       const indexed = await indexProjectLite({
         projectId: input.project.id,
         projectRoot: input.project.rootPath,
+        exclude,
       });
       store.replaceProjectIndex(input.project.id, indexed);
       const backfill = await backfillMissingObservationCodeRefs(
@@ -147,11 +151,13 @@ export async function buildAutoProjectContext(input: {
     project: input.project,
     store,
     observations: input.observations,
+    exclude,
   });
   const explain = buildProjectContextExplain({
     project: input.project,
     store,
     observations: input.observations,
+    exclude,
   });
 
   return {

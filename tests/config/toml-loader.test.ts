@@ -62,6 +62,9 @@ describe('loadTomlConfig', () => {
       'max_diff_size = 2048',
       'skip_merge_commits = false',
       'exclude_patterns = ["dist/**", "*.lock"]',
+      '',
+      '[codegraph]',
+      'exclude_patterns = ["vendor/**", "**/generated/**"]',
     ].join('\n'), 'utf8');
 
     const cfg = loadTomlConfig({ projectRoot: null, homeDir: HOME });
@@ -75,5 +78,6 @@ describe('loadTomlConfig', () => {
     expect(cfg.git?.max_diff_size).toBe(2048);
     expect(cfg.git?.skip_merge_commits).toBe(false);
     expect(cfg.git?.exclude_patterns).toEqual(['dist/**', '*.lock']);
+    expect(cfg.codegraph?.exclude_patterns).toEqual(['vendor/**', '**/generated/**']);
   });
 });

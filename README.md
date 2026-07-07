@@ -57,7 +57,7 @@ Memorix is local-first. SQLite is the canonical store, Orama handles search, and
 
 Memorix is more than a memory store. It also installs agent integrations, keeps useful work events, turns commits into project facts, exposes a local control plane, and can coordinate multi-agent work when a task needs it.
 
-| Capability | What you get | Entry point |
+| Capability | What it does | Entry point |
 | --- | --- | --- |
 | Memory Autopilot | A task-shaped project brief for a new agent session, with start files, trusted memories, cautions, and verification hints | `memorix context --task "..."`, `memorix_project_context` |
 | Observation Memory | Searchable facts, fixes, gotchas, session summaries, and implementation notes scoped to the current Git project | `memorix memory`, MCP memory tools |

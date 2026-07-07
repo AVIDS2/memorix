@@ -148,4 +148,155 @@ describe('auto project context', () => {
     expect(text).toContain('Current facts above outrank progress/dev-log files when they conflict.');
     expect(text.indexOf('Current project facts')).toBeLessThan(text.indexOf('Start here'));
   });
+
+  it('shapes bugfix tasks toward failing tests and focused verification', async () => {
+    mkdirSync(path.join(repoDir, 'tests'), { recursive: true });
+    writeFileSync(
+      path.join(repoDir, 'tests', 'auth.test.ts'),
+      "import { authMiddleware } from '../src/auth';\nit('rejects empty tokens', () => expect(authMiddleware('')).toBe(false));\n",
+      'utf8',
+    );
+    await storeObservation({
+      entityName: 'auth',
+      type: 'gotcha',
+      title: 'auth regression is covered by auth.test.ts',
+      narrative: 'When fixing auth regressions, reproduce the failing auth test before changing middleware.',
+      filesModified: ['tests/auth.test.ts'],
+      projectId: 'local/repo',
+    });
+    await storeObservation({
+      entityName: 'auth',
+      type: 'decision',
+      title: 'authMiddleware owns token verification',
+      narrative: 'Auth fixes usually land in src/auth.ts.',
+      filesModified: ['src/auth.ts'],
+      projectId: 'local/repo',
+    });
+
+    const context = await buildAutoProjectContext({
+      project: { id: 'local/repo', name: 'repo', rootPath: repoDir },
+      dataDir,
+      observations: getAllObservations(),
+      refresh: 'auto',
+      task: 'fix failing auth regression test',
+    });
+
+    const text = formatAutoProjectContextPrompt(context);
+    expect(text).toContain('Task lens: bugfix');
+    expect(text).toContain('run the smallest failing test or repro first');
+    expect(text.indexOf('tests/auth.test.ts')).toBeLessThan(text.indexOf('src/auth.ts'));
+  });
+
+  it('shapes release tasks toward package metadata, changelog, and build verification', async () => {
+    writeFileSync(
+      path.join(repoDir, 'package.json'),
+      JSON.stringify({ name: 'repo', version: '1.1.7', scripts: { build: 'tsc' } }, null, 2),
+      'utf8',
+    );
+    writeFileSync(
+      path.join(repoDir, 'CHANGELOG.md'),
+      '# Changelog\n\n## [1.1.7] - 2026-07-07\n\n### Changed\n- Task-lensed briefs.\n',
+      'utf8',
+    );
+
+    const context = await buildAutoProjectContext({
+      project: { id: 'local/repo', name: 'repo', rootPath: repoDir },
+      dataDir,
+      observations: getAllObservations(),
+      refresh: 'auto',
+      task: 'prepare 1.1.7 release',
+      now: new Date('2026-07-07T12:00:00Z'),
+    });
+
+    const text = formatAutoProjectContextPrompt(context);
+    expect(text).toContain('Task lens: release');
+    expect(text).toContain('Package version: 1.1.7');
+    expect(text).toContain('CHANGELOG.md');
+    expect(text).toContain('package.json');
+    expect(text).toContain('run build, tests, package smoke, and publish dry-run where available');
+    expect(text.indexOf('Current project facts')).toBeLessThan(text.indexOf('Start here'));
+  });
+
+  it('shapes onboarding tasks toward docs and hides unrelated suspect details', async () => {
+    writeFileSync(path.join(repoDir, 'README.md'), '# Repo\n\nStart with this overview.\n', 'utf8');
+    await storeObservation({
+      entityName: 'auth',
+      type: 'gotcha',
+      title: 'authMiddleware bug workaround changed login flow',
+      narrative: 'This old auth workaround is unrelated to onboarding.',
+      filesModified: ['src/auth.ts'],
+      projectId: 'local/repo',
+    });
+
+    await buildAutoProjectContext({
+      project: { id: 'local/repo', name: 'repo', rootPath: repoDir },
+      dataDir,
+      observations: getAllObservations(),
+      refresh: 'auto',
+      task: 'fix auth bug',
+    });
+    writeFileSync(path.join(repoDir, 'src', 'auth.ts'), 'export function authMiddleware(token: string) { return token.trim().length > 0; }\n', 'utf8');
+
+    const context = await buildAutoProjectContext({
+      project: { id: 'local/repo', name: 'repo', rootPath: repoDir },
+      dataDir,
+      observations: getAllObservations(),
+      refresh: 'always',
+      task: 'understand and onboard onto this project',
+    });
+
+    const text = formatAutoProjectContextPrompt(context);
+    expect(text).toContain('Task lens: onboarding');
+    expect(text).toContain('README.md');
+    expect(text).toContain('1 suspect');
+    expect(text).toContain('Only task-relevant warning details are shown.');
+    expect(text).not.toContain('authMiddleware bug workaround changed login flow');
+  });
+
+  it('keeps explicitly mentioned suspect source details visible under onboarding', async () => {
+    writeFileSync(path.join(repoDir, 'README.md'), '# Repo\n\nStart with this overview.\n', 'utf8');
+    await storeObservation({
+      entityName: 'auth',
+      type: 'gotcha',
+      title: 'authMiddleware changed login flow',
+      narrative: 'Inspect src/auth.ts before relying on the old auth behavior.',
+      filesModified: ['src/auth.ts'],
+      projectId: 'local/repo',
+    });
+
+    await buildAutoProjectContext({
+      project: { id: 'local/repo', name: 'repo', rootPath: repoDir },
+      dataDir,
+      observations: getAllObservations(),
+      refresh: 'auto',
+      task: 'fix auth bug',
+    });
+    writeFileSync(path.join(repoDir, 'src', 'auth.ts'), 'export function authMiddleware(token: string) { return token.trim().length > 0; }\n', 'utf8');
+
+    const context = await buildAutoProjectContext({
+      project: { id: 'local/repo', name: 'repo', rootPath: repoDir },
+      dataDir,
+      observations: getAllObservations(),
+      refresh: 'always',
+      task: 'understand src/auth.ts before onboarding',
+    });
+
+    const text = formatAutoProjectContextPrompt(context);
+    expect(text).toContain('Task lens: onboarding');
+    expect(text).toContain('#1 suspect: authMiddleware changed login flow');
+  });
+
+  it('classifies plural test tasks as test lens instead of feature lens', async () => {
+    const context = await buildAutoProjectContext({
+      project: { id: 'local/repo', name: 'repo', rootPath: repoDir },
+      dataDir,
+      observations: getAllObservations(),
+      refresh: 'auto',
+      task: 'add tests for auth',
+    });
+
+    const text = formatAutoProjectContextPrompt(context);
+    expect(text).toContain('Task lens: test');
+    expect(text).toContain('run the exact focused test file or test name first');
+  });
 });

@@ -6,8 +6,8 @@ You have access to Memorix memory tools. Follow these rules to maintain persiste
 
 At the beginning of a coding task, use Memorix when prior project context would materially help the task. A session bind is not required for every conversation.
 
-1. For starting or continuing code work, call `memorix_project_context` first. Treat its "Start here" files as the first code to inspect.
-2. If the MCP tool is not visible yet but the client supports tool discovery or dynamic loading, search/select `memorix_project_context` first. Run `memorix context --task "<task>"` only after MCP is unavailable, disabled, or not discoverable. Do not skip memory, wait indefinitely on MCP startup, or hand-write tool-call syntax.
+1. For starting or continuing code work, call `memorix_project_context` with the user's actual task. Memorix will choose a task-lensed brief (bugfix, feature, release, onboarding, refactor, docs, test, or general). Treat its "Start here" files as the first code or docs to inspect.
+2. If the MCP tool is not visible yet but the client supports tool discovery or dynamic loading, search/select `memorix_project_context` first. Run `memorix context --task "<task>"` only after MCP is unavailable, disabled, or not discoverable, and pass the user's real task text. Do not skip memory, wait indefinitely on MCP startup, or hand-write tool-call syntax.
 3. Use `memorix_context_pack` when you need structured refs and freshness for code-bound memories.
 4. For broad memory graph questions, call `memorix_graph_context` to get a compact background packet.
 5. For specific past decisions, bugs, files, or changes, call `memorix_search` with a focused query.
@@ -25,7 +25,7 @@ This keeps memory useful without forcing every agent turn through a session ritu
 
 For substantial coding work, follow this loop:
 
-1. Get `memorix_project_context` when it would help.
+1. Get `memorix_project_context` with the user's current task when it would help.
 2. Read the suggested files or symbols before acting on memory.
 3. Use stale/suspect/unbound memory as a warning or lead, not proof.
 4. After the work changes durable project knowledge, store the outcome with `memorix_store`.

@@ -323,7 +323,7 @@ memcode
 
 默认搜索当前项目。`scope="global"` 可以跨项目搜索。“改了什么”优先匹配 Git Memory，“为什么”优先匹配 reasoning / decision 记录。
 
-`memorix context --task "..."` 是默认的 Memory Autopilot 入口。它会给 Agent 生成一份紧凑 brief：先读哪些文件、哪些记忆绑定到当前代码、哪些记忆已经 stale/unbound、以及该怎么验证。Agent 应该先读 suggested files，再相信历史记忆。
+`memorix context --task "..."` 是默认的 Memory Autopilot 入口。它会按任务生成紧凑 brief：修 bug 时偏向测试和复现，发版时偏向 package/changelog/build 检查，接手项目时偏向文档和入口文件；过期或不相关的记忆只作为 warning，不会一股脑塞进 prompt。Agent 应该先读 suggested files，再相信历史记忆。
 
 <h2 id="运行模式"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/tags/light/section-runtime.svg"><img src="assets/tags/section-runtime.svg" alt="运行模式" height="32" /></picture></h2>
 

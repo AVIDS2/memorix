@@ -1226,6 +1226,7 @@ export async function createMemorixServer(
 
       return withFreshIndex(async () => {
         const {
+          buildAutoProjectBrief,
           buildAutoProjectContext,
           formatAutoProjectContextPrompt,
           formatAutoProjectContextSummary,
@@ -1238,7 +1239,7 @@ export async function createMemorixServer(
           refresh: refresh ?? 'auto',
         });
         const text = format === 'json'
-          ? JSON.stringify(context, null, 2)
+          ? JSON.stringify({ ...context, brief: buildAutoProjectBrief(context) }, null, 2)
           : format === 'summary'
             ? formatAutoProjectContextSummary(context)
             : formatAutoProjectContextPrompt(context);

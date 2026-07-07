@@ -1,5 +1,6 @@
 import { defineCommand } from 'citty';
 import {
+  buildAutoProjectBrief,
   buildAutoProjectContext,
   formatAutoProjectContextPrompt,
   type AutoContextRefreshMode,
@@ -39,6 +40,8 @@ export default defineCommand({
       emitResult(
         {
           project,
+          lens: context.lens,
+          brief: buildAutoProjectBrief(context),
           currentFacts: context.currentFacts,
           overview: context.overview,
           refresh: context.refresh,

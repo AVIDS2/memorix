@@ -42,6 +42,7 @@ describe('Claude integration guidance path', () => {
       const content = await fs.readFile(claudeMd, 'utf-8');
       expect(content).toContain('# Memorix');
       expect(content).toContain('memorix_project_context');
+      expect(content).toContain('task-lensed brief');
       expect(content).toContain('memorix context --task "<task>"');
       expect(content).toContain('MCP is unavailable, disabled, or not discoverable');
       await expect(fs.access(copilotInstructions)).rejects.toThrow();
@@ -88,6 +89,7 @@ describe('global guidance scope', () => {
       expect(content).toContain('# Memorix — Memory Tools for Active Workspaces');
       expect(content).toContain('active workspace');
       expect(content).toContain('memorix_project_context');
+      expect(content).toContain('task-lensed brief');
       expect(content).toContain('memorix context --task "<task>"');
       expect(content).toContain('MCP is unavailable, disabled, or not discoverable');
       expect(content).not.toContain('This project uses Memorix');

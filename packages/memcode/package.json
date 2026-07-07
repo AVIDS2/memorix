@@ -1,6 +1,6 @@
 {
 	"name": "@memorix/memcode",
-	"version": "1.1.6",
+	"version": "1.1.7",
 	"description": "Memorix-native coding agent CLI with terminal chat, project memory, hooks, and session management",
 	"type": "module",
 	"piConfig": {
@@ -34,9 +34,9 @@
 		"prepublishOnly": "npm run clean && npm run build"
 	},
 	"dependencies": {
-		"@memorix/agent-core": "1.1.6",
-		"@memorix/ai": "1.1.6",
-		"@memorix/tui": "1.1.6",
+		"@memorix/agent-core": "1.1.7",
+		"@memorix/ai": "1.1.7",
+		"@memorix/tui": "1.1.7",
 		"@opentui/core": "^0.3.4",
 		"@opentui/react": "^0.3.4",
 		"@silvia-odwyer/photon-node": "0.3.4",

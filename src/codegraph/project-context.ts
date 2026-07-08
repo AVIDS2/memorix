@@ -2,6 +2,7 @@ import type { ProjectInfo } from '../types.js';
 import { evaluateCodeRefFreshness } from './freshness.js';
 import type { CodeFile, CodeRefStatus, CodeSymbol, ObservationCodeRef } from './types.js';
 import type { CodeGraphStore } from './store.js';
+import { isCodeGraphExcludedPath } from './exclude.js';
 
 export interface ProjectContextObservation {
   id: number;
@@ -77,29 +78,17 @@ function countLanguages(files: CodeFile[]): LanguageSummary[] {
     .sort((a, b) => a.language.localeCompare(b.language));
 }
 
-function normalizePath(path: string): string {
-  return path.replace(/\\/g, '/');
-}
-
-function isGeneratedPath(path: string): boolean {
-  const normalized = normalizePath(path);
-  return (
-    /(^|\/)(dist|build|coverage|\.next|\.turbo|node_modules|\.git|\.tmp|\.worktrees)(\/|$)/i.test(normalized) ||
-    /(^|\/)\.claude\/worktrees(\/|$)/i.test(normalized)
-  );
-}
-
 function suggestedReadRank(path: string): number {
-  const normalized = normalizePath(path);
+  const normalized = path.replace(/\\/g, '/');
   if (normalized.startsWith('src/')) return 0;
   if (normalized.startsWith('tests/') || normalized.startsWith('test/')) return 0;
   if (normalized.startsWith('packages/') && normalized.includes('/src/')) return 2;
   return 3;
 }
 
-function compactSuggestedReads(paths: string[], limit = 8): string[] {
+function compactSuggestedReads(paths: string[], limit = 8, exclude?: string[]): string[] {
   return uniq(paths)
-    .filter(path => !isGeneratedPath(path))
+    .filter(path => !isCodeGraphExcludedPath(path, exclude))
     .sort((a, b) => suggestedReadRank(a) - suggestedReadRank(b))
     .slice(0, limit);
 }
@@ -108,6 +97,7 @@ function collectGraph(
   store: CodeGraphStore,
   projectId: string,
   observations: ProjectContextObservation[],
+  exclude?: string[],
 ): {
   files: CodeFile[];
   symbols: CodeSymbol[];
@@ -139,7 +129,9 @@ function collectGraph(
 
     const observation = observationsById.get(ref.observationId);
     if (!observation) continue;
-    if (result.status === 'current' && file) suggestedReads.push(file.path);
+    const excluded = file ? isCodeGraphExcludedPath(file.path, exclude) : false;
+    if (result.status === 'current' && file && !excluded) suggestedReads.push(file.path);
+    if (excluded) continue;
     sources.push({
       observationId: observation.id,
       title: observation.title,
@@ -157,7 +149,7 @@ function collectGraph(
     refs,
     freshness,
     sources,
-    suggestedReads: compactSuggestedReads(suggestedReads),
+    suggestedReads: compactSuggestedReads(suggestedReads, 8, exclude),
   };
 }
 
@@ -165,9 +157,10 @@ export function buildProjectContextOverview(input: {
   project: Pick<ProjectInfo, 'id' | 'name' | 'rootPath'>;
   store: CodeGraphStore;
   observations: ProjectContextObservation[];
+  exclude?: string[];
 }): ProjectContextOverview {
   const active = activeObservations(input.observations, input.project.id);
-  const graph = collectGraph(input.store, input.project.id, active);
+  const graph = collectGraph(input.store, input.project.id, active, input.exclude);
   const status = input.store.status(input.project.id);
 
   return {
@@ -194,10 +187,11 @@ export function buildProjectContextExplain(input: {
   project: Pick<ProjectInfo, 'id' | 'name' | 'rootPath'>;
   store: CodeGraphStore;
   observations: ProjectContextObservation[];
+  exclude?: string[];
 }): ProjectContextExplain {
   const overview = buildProjectContextOverview(input);
   const active = activeObservations(input.observations, input.project.id);
-  const graph = collectGraph(input.store, input.project.id, active);
+  const graph = collectGraph(input.store, input.project.id, active, input.exclude);
   return {
     project: input.project,
     sources: graph.sources.sort((a, b) => a.observationId - b.observationId || (a.path ?? '').localeCompare(b.path ?? '')),

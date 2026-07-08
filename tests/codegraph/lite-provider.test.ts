@@ -142,6 +142,27 @@ describe('CodeGraph Lite provider', () => {
     expect(result.symbols.map(symbol => symbol.name)).toEqual(['main']);
   });
 
+  it('extends default excludes with user CodeGraph exclude patterns', async () => {
+    const dir = makeRoot();
+    mkdirSync(join(dir, 'src'), { recursive: true });
+    mkdirSync(join(dir, 'vendor'), { recursive: true });
+    mkdirSync(join(dir, 'packages', 'app', 'generated'), { recursive: true });
+    mkdirSync(join(dir, 'dist'), { recursive: true });
+    writeFileSync(join(dir, 'src', 'main.ts'), 'export function main() {}\n');
+    writeFileSync(join(dir, 'vendor', 'vendored.ts'), 'export function vendored() {}\n');
+    writeFileSync(join(dir, 'packages', 'app', 'generated', 'schema.ts'), 'export function generatedSchema() {}\n');
+    writeFileSync(join(dir, 'dist', 'generated.ts'), 'export function generated() {}\n');
+
+    const result = await indexProjectLite({
+      projectId: 'org/repo',
+      projectRoot: dir,
+      exclude: ['vendor/**', '**/generated/**'],
+    });
+
+    expect(result.files.map(file => file.path)).toEqual(['src/main.ts']);
+    expect(result.symbols.map(symbol => symbol.name)).toEqual(['main']);
+  });
+
   it('continues indexing when a discovered file cannot be read', async () => {
     vi.resetModules();
     vi.doMock('node:fs', () => ({

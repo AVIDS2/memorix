@@ -7,6 +7,8 @@ import codegraphCommand from '../../src/cli/commands/codegraph.js';
 import contextCommand from '../../src/cli/commands/context.js';
 import doctorCommand from '../../src/cli/commands/doctor.js';
 import explainCommand from '../../src/cli/commands/explain.js';
+import { resetResolvedConfigCache } from '../../src/config/resolved-config.js';
+import { resetTomlConfigCache } from '../../src/config/toml-loader.js';
 import { initObservations, storeObservation } from '../../src/memory/observations.js';
 import { closeAllDatabases } from '../../src/store/sqlite-db.js';
 import { resetObservationStore } from '../../src/store/obs-store.js';
@@ -56,6 +58,8 @@ describe('project context CLI commands', () => {
     process.chdir(repoDir);
     process.env.MEMORIX_DATA_DIR = dataDir;
     process.env.MEMORIX_EMBEDDING = 'off';
+    resetTomlConfigCache();
+    resetResolvedConfigCache();
   });
 
   afterEach(async () => {
@@ -73,6 +77,8 @@ describe('project context CLI commands', () => {
     resetObservationStore();
     resetSessionStore();
     resetTeamStore();
+    resetTomlConfigCache();
+    resetResolvedConfigCache();
     await resetDb();
     closeAllDatabases();
     rmSync(sandboxRoot, { recursive: true, force: true });
@@ -221,6 +227,38 @@ describe('project context CLI commands', () => {
         stale: 0,
       },
     });
+  });
+
+  it('applies CodeGraph excludes to doctor suggested reads', async () => {
+    mkdirSync(path.join(repoDir, 'vendor', 'cache'), { recursive: true });
+    writeFileSync(path.join(repoDir, 'vendor', 'cache', 'tool.ts'), 'export function cachedTool() { return true; }\n', 'utf8');
+    await runCommand(codegraphCommand, { _: ['refresh'], json: true });
+    await initObservations(dataDir);
+    await storeObservation({
+      entityName: 'cache',
+      type: 'decision',
+      title: 'Vendor cache tool',
+      narrative: 'Keep vendor/cache/tool.ts for cache behavior.',
+      filesModified: ['vendor/cache/tool.ts'],
+      projectId: 'local/repo',
+    });
+    await storeObservation({
+      entityName: 'auth',
+      type: 'decision',
+      title: 'Auth middleware',
+      narrative: 'Continue edits in src/auth.ts when changing login verification.',
+      filesModified: ['src/auth.ts'],
+      projectId: 'local/repo',
+    });
+    writeFileSync(path.join(repoDir, 'memorix.toml'), '[codegraph]\nexclude_patterns = ["vendor/**"]\n', 'utf8');
+    resetTomlConfigCache();
+    resetResolvedConfigCache();
+
+    const result = await runCommand(doctorCommand, {});
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('src/auth.ts');
+    expect(result.stdout).not.toContain('vendor/cache/tool.ts');
   });
 
   it('scopes doctor observation counts to the current project', async () => {

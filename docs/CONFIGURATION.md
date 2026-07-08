@@ -60,6 +60,9 @@ skip_merge_commits = true
 exclude_patterns = ["*.lock", "dist/**"]
 noise_keywords = ["format", "typo"]
 
+[codegraph]
+exclude_patterns = ["vendor/**", "third_party/**", "generated/**"]
+
 [server]
 transport = "stdio"
 dashboard = true
@@ -196,6 +199,21 @@ Common keys:
 Project identity is still resolved from the real `.git` root. A project
 `memorix.toml` is an override file under that root; it does not create or rename
 the Memorix project ID.
+
+### `[codegraph]`
+
+CodeGraph Memory and Project Context path filtering.
+
+Common keys:
+
+- `exclude_patterns = ["vendor/**", "third_party/**", "generated/**"]`
+
+Legacy YAML uses `codegraph.excludePatterns` for the same setting.
+
+These patterns extend Memorix's built-in CodeGraph excludes (`node_modules`,
+build outputs, worktrees, and similar generated directories). Matching paths are
+skipped during CodeGraph indexing and hidden from Project Context / Context Pack
+suggested reads.
 
 ### `[server]`
 

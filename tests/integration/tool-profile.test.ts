@@ -25,7 +25,14 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { createMemorixServer } from '../../src/server.js';
+import { CodeGraphStore } from '../../src/codegraph/store.js';
+import { resetResolvedConfigCache } from '../../src/config/resolved-config.js';
+import { resetTomlConfigCache } from '../../src/config/toml-loader.js';
+import { storeObservation } from '../../src/memory/observations.js';
+import { getProjectDataDir } from '../../src/store/persistence.js';
 import { resetDb } from '../../src/store/orama-store.js';
+import { resetObservationStore } from '../../src/store/obs-store.js';
+import { closeAllDatabases } from '../../src/store/sqlite-db.js';
 
 let testDir: string;
 
@@ -211,5 +218,85 @@ describe('Tool profile registration', () => {
     expect(text).toContain('Memorix Autopilot Brief');
     expect(text).toContain('Task lens: bugfix');
     expect(text).toContain('run the smallest failing test or repro first');
+  }, 30000);
+
+  it('should apply CodeGraph exclude patterns to the MCP context pack handler', async () => {
+    const dir = await createGitProjectDir('memorix-profile-context-pack-exclude-');
+    const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'memorix-profile-context-pack-data-'));
+    const previousDataDir = process.env.MEMORIX_DATA_DIR;
+    process.env.MEMORIX_DATA_DIR = dataDir;
+    resetTomlConfigCache();
+    resetResolvedConfigCache();
+
+    try {
+      await fs.writeFile(path.join(dir, 'memorix.toml'), [
+        '[codegraph]',
+        'exclude_patterns = ["vendor/**"]',
+      ].join('\n'), 'utf8');
+
+      const { server, projectId } = await createMemorixServer(
+        dir,
+        undefined,
+        undefined,
+        { toolProfile: 'micro' } as any,
+      );
+      const projectDataDir = await getProjectDataDir(projectId);
+      const codeStore = new CodeGraphStore();
+      await codeStore.init(projectDataDir);
+      const indexedAt = '2026-07-07T00:00:00.000Z';
+      codeStore.upsertFiles([
+        {
+          id: 'file:vendor-cache',
+          projectId,
+          path: 'vendor/cache/tool.ts',
+          contentHash: 'vendor-cache-hash',
+          indexedAt,
+        },
+        {
+          id: 'file:auth',
+          projectId,
+          path: 'src/auth.ts',
+          contentHash: 'auth-hash',
+          indexedAt,
+        },
+      ]);
+
+      await storeObservation({
+        entityName: 'cache',
+        type: 'decision',
+        title: 'Vendor cache decision',
+        narrative: 'Keep vendor/cache/tool.ts for cache behavior.',
+        filesModified: ['vendor/cache/tool.ts'],
+        projectId,
+      });
+      await storeObservation({
+        entityName: 'auth',
+        type: 'decision',
+        title: 'Auth source decision',
+        narrative: 'Keep src/auth.ts for auth behavior.',
+        filesModified: ['src/auth.ts'],
+        projectId,
+      });
+
+      const contextPack = getHandler(server as any, 'memorix_context_pack');
+      const text = getText(await contextPack({ task: 'continue auth cache bug' }));
+
+      expect(text).toContain('Auth source decision');
+      expect(text).toContain('src/auth.ts');
+      expect(text).not.toContain('Vendor cache decision');
+      expect(text).not.toContain('vendor/cache/tool.ts');
+    } finally {
+      if (previousDataDir === undefined) {
+        delete process.env.MEMORIX_DATA_DIR;
+      } else {
+        process.env.MEMORIX_DATA_DIR = previousDataDir;
+      }
+      resetTomlConfigCache();
+      resetResolvedConfigCache();
+      resetObservationStore();
+      await resetDb();
+      closeAllDatabases();
+      await fs.rm(dataDir, { recursive: true, force: true });
+    }
   }, 30000);
 });

@@ -272,4 +272,43 @@ describe('project context service', () => {
       'src/extra2.ts',
     ]);
   });
+
+  it('filters user-excluded CodeGraph paths from suggested reads', async () => {
+    const store = new CodeGraphStore();
+    await store.init(tempDir());
+    store.replaceProjectIndex('org/repo', {
+      files: [
+        makeFile('file:cache', 'vendor/cache/tool.ts'),
+        makeFile('file:auth', 'src/auth.ts'),
+      ],
+      symbols: [],
+      edges: [],
+    });
+    store.upsertObservationRefs([
+      makeRef(1, 'file:cache'),
+      makeRef(2, 'file:auth'),
+    ]);
+
+    const observations = [
+      { id: 1, projectId: 'org/repo', title: 'Cache memory', type: 'decision', status: 'active' },
+      { id: 2, projectId: 'org/repo', title: 'Auth memory', type: 'decision', status: 'active' },
+    ];
+
+    const overview = buildProjectContextOverview({
+      project: { id: 'org/repo', name: 'repo', rootPath: 'C:/repo' },
+      store,
+      observations,
+      exclude: ['vendor/**'],
+    });
+    const explain = buildProjectContextExplain({
+      project: { id: 'org/repo', name: 'repo', rootPath: 'C:/repo' },
+      store,
+      observations,
+      exclude: ['vendor/**'],
+    });
+
+    expect(overview.suggestedReads).toEqual(['src/auth.ts']);
+    expect(overview.freshness.current).toBe(2);
+    expect(explain.sources.map(source => source.path)).toEqual(['src/auth.ts']);
+  });
 });

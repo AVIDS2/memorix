@@ -198,6 +198,64 @@ describe('buildContextPackPrompt', () => {
     expect(pack.suggestedReads).toEqual(['src/auth.ts']);
   });
 
+  it('filters user-excluded CodeGraph paths from code facts and suggested reads', () => {
+    const pack = assembleContextPack({
+      task: 'continue auth bug',
+      observations: [
+        { id: 1, title: 'Cache auth memory', type: 'decision' },
+        { id: 2, title: 'Source auth memory', type: 'decision' },
+      ],
+      refs: [
+        {
+          id: 'coderef:cache',
+          projectId: 'org/repo',
+          observationId: 1,
+          fileId: 'file:cache',
+          capturedFileHash: 'cache-hash',
+          status: 'current',
+          reason: 'bound by file path',
+          createdAt: '2026-06-29T00:00:00.000Z',
+        },
+        {
+          id: 'coderef:auth',
+          projectId: 'org/repo',
+          observationId: 2,
+          fileId: 'file:auth',
+          capturedFileHash: 'auth-hash',
+          status: 'current',
+          reason: 'bound by file path',
+          createdAt: '2026-06-29T00:00:00.000Z',
+        },
+      ],
+      files: [
+        {
+          id: 'file:cache',
+          projectId: 'org/repo',
+          path: 'vendor/cache/tool.ts',
+          contentHash: 'cache-hash',
+          indexedAt: '2026-06-29T00:01:00.000Z',
+        },
+        {
+          id: 'file:auth',
+          projectId: 'org/repo',
+          path: 'src/auth.ts',
+          contentHash: 'auth-hash',
+          indexedAt: '2026-06-29T00:01:00.000Z',
+        },
+      ],
+      symbols: [],
+      exclude: ['vendor/**'],
+    });
+
+    expect(pack.memories).toEqual([
+      expect.objectContaining({ id: 2, status: 'current' }),
+    ]);
+    expect(pack.codeFacts).toEqual([
+      expect.objectContaining({ path: 'src/auth.ts' }),
+    ]);
+    expect(pack.suggestedReads).toEqual(['src/auth.ts']);
+  });
+
   it('selects task-relevant observations before falling back to recency', () => {
     const selected = selectRelevantObservations([
       {

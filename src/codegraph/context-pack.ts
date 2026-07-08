@@ -1,6 +1,7 @@
 import { evaluateCodeRefFreshness } from './freshness.js';
 import type { CodeFile, CodeRefStatus, CodeSymbol, ObservationCodeRef } from './types.js';
 import type { CodeGraphStore } from './store.js';
+import { isCodeGraphExcludedPath } from './exclude.js';
 
 export interface ContextPackMemory {
   id: number;
@@ -52,6 +53,7 @@ export interface AssembleContextPackInput {
   files: CodeFile[];
   symbols: CodeSymbol[];
   suggestedVerification?: string[];
+  exclude?: string[];
 }
 
 function uniq<T>(items: T[]): T[] {
@@ -66,14 +68,6 @@ function tokenize(text: string): string[] {
 
 function timestampOf(observation: ContextPackObservation): number {
   return Date.parse(observation.updatedAt ?? observation.createdAt ?? '') || 0;
-}
-
-function isGeneratedPath(path: string): boolean {
-  const normalized = path.replace(/\\/g, '/');
-  return (
-    /(^|\/)(dist|build|coverage|\.next|\.turbo|node_modules|\.git|\.tmp|\.worktrees)(\/|$)/i.test(normalized) ||
-    /(^|\/)\.claude\/worktrees(\/|$)/i.test(normalized)
-  );
 }
 
 function relevanceScore(observation: ContextPackObservation, taskTokens: string[]): number {
@@ -137,6 +131,7 @@ export function assembleContextPackForTask(input: {
   observations: ContextPackObservation[];
   limit?: number;
   suggestedVerification?: string[];
+  exclude?: string[];
 }): ContextPack {
   const selected = selectRelevantObservations(input.observations, input.task, input.limit ?? 20);
   const refs = selected.flatMap(obs => input.store.listObservationRefs(input.projectId, obs.id));
@@ -151,6 +146,7 @@ export function assembleContextPackForTask(input: {
     files,
     symbols,
     suggestedVerification: input.suggestedVerification,
+    exclude: input.exclude,
   });
 }
 
@@ -172,6 +168,7 @@ export function assembleContextPack(input: AssembleContextPackInput): ContextPac
 
     const file = ref.fileId ? files.get(ref.fileId) : undefined;
     const symbol = ref.symbolId ? symbols.get(ref.symbolId) : undefined;
+    if (file && isCodeGraphExcludedPath(file.path, input.exclude)) continue;
     const freshness = evaluateCodeRefFreshness(ref, file, symbol);
 
     if (freshness.status === 'current') {
@@ -247,8 +244,8 @@ export function buildContextPackPrompt(pack: ContextPack): string {
   const reliableMemories = pack.memories.filter(memory => memory.status === 'current');
   const unboundMemories = pack.memories.filter(memory => memory.status === 'unbound');
   const lines: string[] = ['## Task', pack.task, '', '## Reliable Memories'];
-  const visibleCodeFacts = pack.codeFacts.filter(fact => !isGeneratedPath(fact.path)).slice(0, 5);
-  const visibleSuggestedReads = pack.suggestedReads.filter(path => !isGeneratedPath(path)).slice(0, 5);
+  const visibleCodeFacts = pack.codeFacts.filter(fact => !isCodeGraphExcludedPath(fact.path)).slice(0, 5);
+  const visibleSuggestedReads = pack.suggestedReads.filter(path => !isCodeGraphExcludedPath(path)).slice(0, 5);
 
   if (reliableMemories.length === 0) lines.push('- none');
   for (const memory of reliableMemories) {

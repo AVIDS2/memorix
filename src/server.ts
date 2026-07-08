@@ -1295,8 +1295,10 @@ export async function createMemorixServer(
       return withFreshIndex(async () => {
         const { CodeGraphStore } = await import('./codegraph/store.js');
         const { assembleContextPackForTask, buildContextPackPrompt } = await import('./codegraph/context-pack.js');
+        const { getResolvedConfig } = await import('./config/resolved-config.js');
         const store = new CodeGraphStore();
         await store.init(projectDir);
+        const exclude = getResolvedConfig({ projectRoot: project.rootPath }).codegraph.excludePatterns;
 
         const observations = getAllObservations()
           .filter(obs => obs.projectId === project.id && (obs.status ?? 'active') === 'active')
@@ -1307,6 +1309,7 @@ export async function createMemorixServer(
           task,
           observations,
           limit: typeof limit === 'number' ? limit : 20,
+          exclude,
         });
         const text = buildContextPackPrompt(pack);
 

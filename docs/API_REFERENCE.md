@@ -103,6 +103,8 @@ MCP:
 
 `memorix context` defaults to `--refresh auto`, so first use can seed CodeGraph Memory without a separate manual `memorix codegraph refresh`. Its brief puts live package/changelog/Git facts before memory hints and flags old `progress.txt` / dev-log notes as historical when they predate the latest changelog, so agents should treat current facts as the source of truth when files disagree. Task lenses keep the packet shaped to the work: bugfix briefs prefer failing tests and repros, release briefs prefer metadata/changelog/package checks, and onboarding briefs prefer docs and entry points while hiding unrelated suspect details. Use `--refresh never` for read-only inspection and `--refresh always` when you want to force a fresh scan.
 
+Project-specific generated, vendored, or cache paths can be excluded from CodeGraph Memory with `[codegraph].exclude_patterns` in `memorix.toml` or `~/.memorix/config.toml` (`codegraph.excludePatterns` in legacy YAML). User patterns extend the built-in excludes and are applied to indexing, Project Context suggested reads, and Context Pack suggested reads.
+
 SessionStart hooks keep the default minimal hint lightweight. When memory behavior is configured with `sessionInject=full`, Memorix injects the compact Memory Autopilot brief at session start instead of only listing recent text memories.
 
 The intended loop for agents is: get the project brief when it helps, inspect the suggested current files, use stale or unbound memory only as a lead, store durable outcomes after the work changes the project, and resolve obsolete memories.

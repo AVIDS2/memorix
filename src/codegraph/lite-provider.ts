@@ -3,6 +3,7 @@ import { readdirSync, readFileSync, statSync, type Dirent } from 'node:fs';
 import { join, relative } from 'node:path';
 import type { CodeEdge, CodeFile, CodeSymbol } from './types.js';
 import { makeCodeEdgeId, makeCodeFileId, makeCodeSymbolId, normalizeCodePath } from './ids.js';
+import { isCodeGraphExcludedPath, normalizeCodeGraphExcludePatterns } from './exclude.js';
 
 export interface LiteIndexOptions {
   projectId: string;
@@ -169,19 +170,6 @@ function languageForPath(path: string): string {
   return LANGUAGE_BY_EXTENSION.get(ext) ?? 'unknown';
 }
 
-function isExcluded(path: string, exclude: string[]): boolean {
-  const normalized = normalizeCodePath(path);
-  return exclude.some((pattern) => {
-    const p = normalizeCodePath(pattern);
-    if (p.endsWith('/**')) {
-      const base = p.slice(0, -3);
-      return normalized === base || normalized.startsWith(`${base}/`);
-    }
-    if (p.startsWith('**/')) return normalized.endsWith(p.slice(3));
-    return normalized === p || normalized.startsWith(`${p}/`);
-  });
-}
-
 function walk(root: string, exclude: string[], maxFiles: number): string[] {
   const out: string[] = [];
   const visit = (dir: string) => {
@@ -196,7 +184,7 @@ function walk(root: string, exclude: string[], maxFiles: number): string[] {
     for (const entry of entries) {
       const abs = join(dir, entry.name);
       const rel = normalizeCodePath(relative(root, abs));
-      if (isExcluded(rel, exclude)) continue;
+      if (isCodeGraphExcludedPath(rel, exclude)) continue;
       if (entry.isDirectory()) {
         if (entry.name === '.git' || entry.name === '.worktrees' || entry.name === '.tmp' || entry.name === 'node_modules') continue;
         if (rel === '.claude/worktrees' || rel.startsWith('.claude/worktrees/')) continue;
@@ -290,18 +278,7 @@ function extractImportEdges(projectId: string, file: CodeFile, text: string, ind
 }
 
 export async function indexProjectLite(options: LiteIndexOptions): Promise<LiteIndexResult> {
-  const exclude = options.exclude ?? [
-    'node_modules/**',
-    'dist/**',
-    'build/**',
-    'coverage/**',
-    '.next/**',
-    '.turbo/**',
-    '.git/**',
-    '.tmp/**',
-    '.worktrees/**',
-    '.claude/worktrees/**',
-  ];
+  const exclude = normalizeCodeGraphExcludePatterns(options.exclude);
   const maxFiles = options.maxFiles ?? 5000;
   const indexedAt = new Date().toISOString();
   const paths = walk(options.projectRoot, exclude, maxFiles);

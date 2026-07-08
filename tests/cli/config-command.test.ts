@@ -105,6 +105,26 @@ describe('memorix config commands', () => {
     expect(infoMock).toHaveBeenCalledWith('agent.model: test-model');
   });
 
+  it('accepts TOML-style snake_case dotted keys for resolved config values', async () => {
+    tempDir = mkdtempSync(join(process.env.TEMP ?? process.cwd(), 'memorix-config-get-snake-'));
+    const homeDir = join(tempDir, 'home');
+    mkdirSync(join(homeDir, '.memorix'), { recursive: true });
+    homedirMock.mockReturnValue(homeDir);
+    writeFileSync(join(homeDir, '.memorix', 'config.toml'), [
+      '[codegraph]',
+      'exclude_patterns = ["vendor/**", "generated/**"]',
+    ].join('\n'), 'utf8');
+    const command = (await import('../../src/cli/commands/config-get.js')).default;
+
+    await command.run?.({
+      args: { key: 'codegraph.exclude_patterns' },
+      rawArgs: ['codegraph.exclude_patterns'],
+      cmd: command,
+    } as any);
+
+    expect(infoMock).toHaveBeenCalledWith('codegraph.exclude_patterns: ["vendor/**","generated/**"]');
+  });
+
   it('redacts only sensitive config keys when printing dotted values', async () => {
     process.env.MEMORIX_EMBEDDING_MODEL = 'text-embedding-v4';
     process.env.MEMORIX_EMBEDDING_API_KEY = 'embedding-test-secret';

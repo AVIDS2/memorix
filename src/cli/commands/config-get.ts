@@ -29,10 +29,17 @@ export default defineCommand({
 function readDotted(source: Record<string, unknown>, key: string): unknown {
   let cursor: unknown = source;
   for (const part of key.split('.')) {
-    if (!cursor || typeof cursor !== 'object' || !(part in cursor)) return undefined;
-    cursor = (cursor as Record<string, unknown>)[part];
+    if (!cursor || typeof cursor !== 'object') return undefined;
+    const record = cursor as Record<string, unknown>;
+    const normalizedPart = part in record ? part : snakeToCamel(part);
+    if (!(normalizedPart in record)) return undefined;
+    cursor = record[normalizedPart];
   }
   return cursor;
+}
+
+function snakeToCamel(value: string): string {
+  return value.replace(/_([a-z])/g, (_, char: string) => char.toUpperCase());
 }
 
 function formatValue(value: unknown, key: string): string {

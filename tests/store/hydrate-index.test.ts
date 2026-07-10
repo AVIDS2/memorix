@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { resetDb, hydrateIndex, makeOramaObservationId } from '../../src/store/orama-store.js';
-import { count, search } from '@orama/orama';
+import { getByID, insert, search } from '@orama/orama';
 
 // Minimal observation shape matching what hydrateIndex expects
 function makeObs(id: number, status: string, title: string) {
@@ -75,20 +75,44 @@ describe('hydrateIndex – status handling', () => {
     expect(inserted).toBe(2);
   });
 
-  it('is idempotent – second call is a no-op', async () => {
+  it('hydrates missing observations when a mini-skill already populated the index', async () => {
     const observations = [
       makeObs(30, 'active', 'First hydration'),
       makeObs(31, 'resolved', 'First hydration resolved'),
     ];
 
+    const { getDb } = await import('../../src/store/orama-store.js');
+    const db = await getDb();
+    await insert(db, {
+      id: 'skill:test%2Fhydrate-project:1',
+      observationId: 1,
+      entityName: 'test-skill',
+      type: 'mini-skill',
+      title: 'Preloaded mini-skill',
+      narrative: 'This document makes the shared index non-empty.',
+      facts: '',
+      filesModified: '',
+      concepts: 'hydration',
+      tokens: 10,
+      createdAt: new Date().toISOString(),
+      projectId: 'test/hydrate-project',
+      accessCount: 0,
+      lastAccessedAt: '',
+      status: 'active',
+      source: 'agent',
+      sourceDetail: 'explicit',
+      valueCategory: 'core',
+      documentType: 'mini-skill',
+      knowledgeLayer: 'promoted',
+    });
+
     const first = await hydrateIndex(observations);
     expect(first).toBe(2);
 
-    // Second call with more observations should return 0 (already hydrated)
-    const second = await hydrateIndex([
-      ...observations,
-      makeObs(32, 'archived', 'Late arrival'),
-    ]);
+    const second = await hydrateIndex(observations);
     expect(second).toBe(0);
+
+    expect(getByID(db, makeOramaObservationId('test/hydrate-project', 30))).toBeDefined();
+    expect(getByID(db, makeOramaObservationId('test/hydrate-project', 31))).toBeDefined();
   });
 });

@@ -4,41 +4,26 @@
 > exist under subdirectories; prefer this file for repository-wide state.
 
 ## Current State
-- Phase: 1.1.8 release finalization
+- Phase: 1.1.9 release finalization
 - Branch: main
-- PR: #118 merged
-- Last updated: 2026-07-08
-- Goal: publish 1.1.8 after committing the final Claude local MCP repair and CodeGraph noise-control patch.
+- PR: #120, #121, and #123 merged
+- Last updated: 2026-07-12
+- Goal: publish 1.1.9 after accepting the latest contributor fixes and closing local release hygiene gaps.
 
 ## Completed Recently
-- Merged PR #118: `fix(setup): make Memory Autopilot self-checking`.
-- Added `memorix doctor agents` and `memorix repair agents` so users can detect and repair stale agent MCP/rules setup.
-- Strengthened generated agent guidance so `memorix_project_context` is the default first step for non-trivial coding work.
-- Verified main at `8567f5e` after merge; GitHub CI passed before merge.
-- Confirmed local OpenRouter embedding lane resolves to `qwen/qwen3-embedding-8b` without printing secrets.
-- Fixed Claude Code 2.x local MCP repair: doctor/repair now inspect `~/.claude.json` project-private entries and rewrite stale worktree commands to `memorix serve` with `alwaysLoad: true`.
-- Fixed all-scope doctor noise: one healthy local, project, or global scope is enough in all-scope mode unless a stale actionable config is present.
-- Fixed CodeGraph Memory noise: `.tmp`, `.worktrees`, and `.claude/worktrees` are ignored by the lite scan and Autopilot suggested reads.
-- Bumped root and workspace package versions to `1.1.8` and updated lockfile/internal workspace dependencies.
+- Merged PR #120: configurable CodeGraph exclude patterns for indexing, Project Context, context packs, diagnostics, and docs.
+- Merged PR #121: `memorix config get` accepts TOML-style snake_case dotted keys against resolved camelCase config.
+- Merged PR #123: Orama search access tracking preserves vector-backed documents, public/detail cache results strip embeddings, and hydration reconciles exact observation IDs even when mini-skills already populate the shared index.
+- Cleaned the unrelated local model catalog refresh and deleted memcode image from the main working tree before release prep.
+- Bumped root and workspace package versions to `1.1.9` and updated lockfile/internal workspace dependencies.
 
 ## Current Follow-Up
-- The release patch is implemented and verified locally, but not committed or pushed yet.
-- Two unrelated local changes were temporarily stashed before final verification so they do not enter the release package: `packages/ai/src/models.generated.ts` and `packages/memcode/docs/images/exy.png`.
+- Publish `1.1.9`, create the GitHub release, and confirm npm resolves the new root package version.
 
 ## Verification Snapshot
-- `git diff --check`
-- `npm test -- tests/cli/agent-doctor.test.ts tests/codegraph/lite-provider.test.ts tests/codegraph/project-context.test.ts tests/codegraph/context-pack.test.ts`
-- `npm run lint`
-- `npm run build`
-- `npm test`
-- `npm pack --dry-run --json` -> `memorix@1.1.8`, about 14.1 MB packed / 60.3 MB unpacked
-- `node dist/cli/index.js doctor agents --agent claude --scope local`
-- `node dist/cli/index.js doctor agents --agent claude --scope all`
-- `node dist/cli/index.js codegraph refresh --json`
-- `node dist/cli/index.js context --refresh never --task "准备发布 1.1.8：判断当前进度、风险和下一步"`
-- `claude mcp get memorix`
-- `claude mcp list`
-- Claude Code user-style smoke: a short print-mode handoff correctly blocked release because local changes were not committed yet; longer print-mode smoke can still time out.
+- Latest main CI for `cd3f024` passed on Ubuntu and Windows before release prep.
+- Targeted Orama/config/CodeGraph checks passed during PR review for #120, #121, and #123.
+- Final 1.1.9 release verification is run from the release commit before publishing: `git diff --check`, `npm run lint`, `npm run build`, `npm test`, and package dry-runs.
 
 ## Known UX Notes
 - Claude Code print-mode can be slow or fail to finish under budget during full user-style smoke. Use tool traces plus deterministic CLI/MCP smoke to distinguish product failures from model/runtime drift.
@@ -46,6 +31,5 @@
 - Current code and release facts outrank stale handoff notes or older dev logs when they conflict.
 
 ## Next Steps
-- Commit and push the 1.1.8 release patch.
-- Publish `memorix@1.1.8` to npm, then tag and push `v1.1.8`.
-- Restore the temporary local stash after publishing if those local model/image changes are still needed.
+- Commit and push the 1.1.9 release patch.
+- Tag and publish `memorix@1.1.9` plus workspaces in dependency order.

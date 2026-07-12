@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.1.9] - 2026-07-12
+
+### Added
+- **Configurable CodeGraph excludes** -- Added `[codegraph].exclude_patterns` / YAML `codegraph.excludePatterns` support so CodeGraph, Project Context suggested reads, context packs, diagnostics, and related CLI flows can skip project-specific generated or vendor paths while keeping the built-in defaults.
+
+### Fixed
+- **Config inspection aliases** -- `memorix config get` now accepts TOML-style snake_case dotted keys such as `codegraph.exclude_patterns` when reading resolved camelCase config values.
+- **Orama search index consistency** -- Search access tracking now preserves internally stored vector-backed documents, public/detail cache results continue to strip embeddings, and hydration reconciles persisted observations by exact composite ID instead of skipping observation hydration when a shared index already contains mini-skills.
+
 ## [1.1.8] - 2026-07-08
 
 ### Added

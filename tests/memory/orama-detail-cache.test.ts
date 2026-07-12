@@ -1,9 +1,19 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { getByID, insert } from '@orama/orama';
 
-import { getObservationsByIds, insertObservation, resetDb } from '../../src/store/orama-store.js';
+import { getDb, getObservationsByIds, resetDb } from '../../src/store/orama-store.js';
+
+vi.mock('../../src/embedding/provider.js', () => ({
+	getEmbeddingProvider: vi.fn(async () => ({
+		name: 'test',
+		dimensions: 2,
+		embed: async () => [0.6, 0.8],
+		embedBatch: async () => [[0.6, 0.8]],
+	})),
+}));
 
 describe('Orama detail cache', () => {
-	it('returns a cached observation document by id even after in-memory observation state is cleared', async () => {
+	it('returns vector-free detail without damaging a cache-miss document', async () => {
 		const projectId = 'AVIDS2/memorix';
 
 		const doc = {
@@ -25,15 +35,20 @@ describe('Orama detail cache', () => {
 			source: 'agent',
 			sourceDetail: 'explicit',
 			valueCategory: 'contextual',
+			embedding: [0.6, 0.8],
 		};
 
 		await resetDb();
-		await insertObservation(doc as any);
+		const db = await getDb();
+		await insert(db, doc);
 
-		const docs = await getObservationsByIds([42], projectId);
+		const first = await getObservationsByIds([42], projectId);
+		const second = await getObservationsByIds([42], projectId);
 
-		expect(docs).toHaveLength(1);
-		expect(docs[0]?.title).toBe('Cached detail lookup');
-		expect(docs[0]?.projectId).toBe(projectId);
+		expect(first).toHaveLength(1);
+		expect(second).toHaveLength(1);
+		expect(first[0]).not.toHaveProperty('embedding');
+		expect(second[0]).not.toHaveProperty('embedding');
+		expect(getByID(db, doc.id)).toMatchObject({ embedding: [0.6, 0.8] });
 	});
 });

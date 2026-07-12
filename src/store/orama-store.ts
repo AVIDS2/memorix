@@ -8,7 +8,7 @@
  * Vector search (embeddings) will be added in P1 phase.
  */
 
-import { create, insert, search, remove, update, count, type AnyOrama } from '@orama/orama';
+import { create, insert, search, remove, update, count, getByID, type AnyOrama } from '@orama/orama';
 import type { MemorixDocument, SearchOptions, IndexEntry, KnowledgeLayer } from '../types.js';
 import { OBSERVATION_ICONS, type ObservationType } from '../types.js';
 import { resolveKnowledgeLayer } from '../skills/mini-skills.js';
@@ -52,9 +52,13 @@ function makeEntryKey(projectId: string | undefined, observationId: number): str
   return `${projectId ?? ''}::${observationId}`;
 }
 
-function rememberObservationDoc(doc: MemorixDocument): void {
-  if (!doc.projectId || typeof doc.observationId !== 'number') return;
-  docByObservationKey.set(makeEntryKey(doc.projectId, doc.observationId), doc);
+function rememberObservationDoc(doc: MemorixDocument): MemorixDocument {
+  const publicDoc = { ...doc };
+  delete publicDoc.embedding;
+  if (doc.projectId && typeof doc.observationId === 'number') {
+    docByObservationKey.set(makeEntryKey(doc.projectId, doc.observationId), publicDoc);
+  }
+  return publicDoc;
 }
 
 function isCommandLikeQuery(query: string): boolean {
@@ -243,15 +247,15 @@ export async function batchGenerateEmbeddings(texts: string[]): Promise<(number[
  */
 export async function hydrateIndex(observations: any[]): Promise<number> {
   const database = await getDb();
-  const currentCount = await count(database);
-  if (currentCount > 0) return 0; // already hydrated
 
   let inserted = 0;
   for (const obs of observations) {
     if (!obs || !obs.id || !obs.projectId) continue;
     try {
+      const id = makeOramaObservationId(obs.projectId, obs.id);
+      if (getByID(database, id)) continue;
       const doc: MemorixDocument = {
-        id: makeOramaObservationId(obs.projectId, obs.id),
+        id,
         observationId: obs.id,
         entityName: obs.entityName || '',
         type: obs.type || 'discovery',
@@ -376,6 +380,7 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
   let searchParams: Record<string, unknown> = {
     term: originalQuery,
     limit: requestLimit,
+    includeVectors: true,
     ...(Object.keys(filters).length > 0 ? { where: filters } : {}),
     // Search specific fields (not tokens, accessCount, etc.)
     properties: ['title', 'entityName', 'narrative', 'facts', 'concepts', 'filesModified'],
@@ -458,6 +463,7 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
       const vectorOnlyParams: Record<string, unknown> = {
         term: '',
         limit: requestLimit,
+        includeVectors: true,
         ...(Object.keys(filters).length > 0 ? { where: filters } : {}),
         mode: 'vector',
         vector: {
@@ -887,6 +893,7 @@ export async function getObservationsByIds(
 
     const searchResult = await search(database, {
       term: '',
+      includeVectors: true,
       where: {
         observationId: { eq: id },
         ...(projectId ? { projectId } : {}),
@@ -895,7 +902,7 @@ export async function getObservationsByIds(
     });
 
     if (searchResult.hits.length > 0) {
-      results.push(searchResult.hits[0].document as unknown as MemorixDocument);
+      results.push(rememberObservationDoc(searchResult.hits[0].document as unknown as MemorixDocument));
     }
   }
 

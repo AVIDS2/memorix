@@ -106,6 +106,49 @@ describe('orama-store semantic hybrid search', () => {
     expect(entries[0]?.title).toContain('vector gate');
   });
 
+  it('keeps a vector-backed observation searchable after access tracking', async () => {
+    const {
+      getObservationsByIds,
+      insertObservation,
+      makeOramaObservationId,
+      searchObservations,
+    } = await import('../../src/store/orama-store.js');
+
+    const now = new Date().toISOString();
+    await insertObservation({
+      id: makeOramaObservationId('AVIDS2/memorix', 3),
+      observationId: 3,
+      entityName: 'search-stability',
+      type: 'problem-solution',
+      title: 'Search survivor observation',
+      narrative: 'Access tracking must not remove this document from Orama.',
+      facts: 'The observation has a valid vector.',
+      filesModified: 'src/store/orama-store.ts',
+      concepts: 'search-stability',
+      tokens: 20,
+      createdAt: now,
+      projectId: 'AVIDS2/memorix',
+      accessCount: 0,
+      lastAccessedAt: now,
+      status: 'active',
+      source: 'agent',
+      embedding: [0.6, 0.8],
+    });
+
+    const options = {
+      query: 'survivor',
+      projectId: 'AVIDS2/memorix',
+      limit: 5,
+    };
+    const first = await searchObservations(options);
+    const second = await searchObservations(options);
+    const detail = await getObservationsByIds([3], 'AVIDS2/memorix');
+
+    expect(first.map((entry) => entry.id)).toContain(3);
+    expect(second.map((entry) => entry.id)).toContain(3);
+    expect(detail[0]).not.toHaveProperty('embedding');
+  });
+
   it('keeps vector/hybrid results inside the requested project', async () => {
     const {
       insertObservation,

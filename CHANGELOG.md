@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.1.10] - 2026-07-13
+
+### Fixed
+- **Large-project Memory Autopilot timeouts** -- `memorix_project_context` now reuses one CodeGraph snapshot per request and performs first-use code-ref backfill in memory with one batched write instead of per-memory database scans and transactions. Prose-only and ambiguous symbol mentions no longer create large volumes of noisy code references, keeping first-use context generation responsive with thousands of active memories.
+- **Ruby CodeGraph symbol fidelity** -- Ruby namespaces and punctuated method names such as `Foo::Bar`, `save!`, `valid?`, and `name=` now remain intact through Lite indexing and memory-to-code binding.
+
 ## [1.1.9] - 2026-07-12
 
 ### Added

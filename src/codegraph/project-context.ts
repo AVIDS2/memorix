@@ -107,11 +107,13 @@ function collectGraph(
   suggestedReads: string[];
 } {
   const files = store.listFiles(projectId);
-  const symbols = files.flatMap(file => store.listSymbolsForFile(file.id));
+  const symbols = store.listReferencedSymbols(projectId);
   const filesById = new Map(files.map(file => [file.id, file]));
   const symbolsById = new Map(symbols.map(symbol => [symbol.id, symbol]));
   const observationsById = new Map(observations.map(obs => [obs.id, obs]));
-  const refs = observations.flatMap(obs => store.listObservationRefs(projectId, obs.id));
+  const activeObservationIds = new Set(observations.map(obs => obs.id));
+  const refs = store.listProjectObservationRefs(projectId)
+    .filter(ref => activeObservationIds.has(ref.observationId));
   const freshness: ProjectContextOverview['freshness'] = {
     current: 0,
     suspect: 0,
@@ -153,16 +155,14 @@ function collectGraph(
   };
 }
 
-export function buildProjectContextOverview(input: {
+function overviewFromGraph(input: {
   project: Pick<ProjectInfo, 'id' | 'name' | 'rootPath'>;
   store: CodeGraphStore;
   observations: ProjectContextObservation[];
-  exclude?: string[];
+  active: ProjectContextObservation[];
+  graph: ReturnType<typeof collectGraph>;
 }): ProjectContextOverview {
-  const active = activeObservations(input.observations, input.project.id);
-  const graph = collectGraph(input.store, input.project.id, active, input.exclude);
   const status = input.store.status(input.project.id);
-
   return {
     project: input.project,
     code: {
@@ -172,15 +172,32 @@ export function buildProjectContextOverview(input: {
       edges: status.edges,
       refs: status.refs,
       ...(status.indexedAt ? { indexedAt: status.indexedAt } : {}),
-      languages: countLanguages(graph.files),
+      languages: countLanguages(input.graph.files),
     },
     memory: {
       total: input.observations.filter(obs => obs.projectId === input.project.id).length,
-      active: active.length,
+      active: input.active.length,
     },
-    freshness: graph.freshness,
-    suggestedReads: graph.suggestedReads,
+    freshness: input.graph.freshness,
+    suggestedReads: input.graph.suggestedReads,
   };
+}
+
+export function buildProjectContextOverview(input: {
+  project: Pick<ProjectInfo, 'id' | 'name' | 'rootPath'>;
+  store: CodeGraphStore;
+  observations: ProjectContextObservation[];
+  exclude?: string[];
+}): ProjectContextOverview {
+  const active = activeObservations(input.observations, input.project.id);
+  const graph = collectGraph(input.store, input.project.id, active, input.exclude);
+  return overviewFromGraph({
+    project: input.project,
+    store: input.store,
+    observations: input.observations,
+    active,
+    graph,
+  });
 }
 
 export function buildProjectContextExplain(input: {
@@ -189,9 +206,15 @@ export function buildProjectContextExplain(input: {
   observations: ProjectContextObservation[];
   exclude?: string[];
 }): ProjectContextExplain {
-  const overview = buildProjectContextOverview(input);
   const active = activeObservations(input.observations, input.project.id);
   const graph = collectGraph(input.store, input.project.id, active, input.exclude);
+  const overview = overviewFromGraph({
+    project: input.project,
+    store: input.store,
+    observations: input.observations,
+    active,
+    graph,
+  });
   return {
     project: input.project,
     sources: graph.sources.sort((a, b) => a.observationId - b.observationId || (a.path ?? '').localeCompare(b.path ?? '')),

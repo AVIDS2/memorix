@@ -124,6 +124,30 @@ describe('CodeGraph Lite provider', () => {
     ]));
   });
 
+  it('preserves Ruby namespace and method punctuation in symbol names', async () => {
+    const dir = makeRoot();
+    mkdirSync(join(dir, 'lib'), { recursive: true });
+    writeFileSync(join(dir, 'lib', 'record.rb'), [
+      'class Foo::Bar',
+      'end',
+      'def save!',
+      'end',
+      'def valid?',
+      'end',
+      'def name=',
+      'end',
+    ].join('\n'));
+
+    const result = await indexProjectLite({ projectId: 'org/repo', projectRoot: dir });
+
+    expect(result.symbols.map(symbol => symbol.name)).toEqual(expect.arrayContaining([
+      'Foo::Bar',
+      'save!',
+      'valid?',
+      'name=',
+    ]));
+  });
+
   it('skips common generated output directories by default', async () => {
     const dir = makeRoot();
     mkdirSync(join(dir, 'src'), { recursive: true });

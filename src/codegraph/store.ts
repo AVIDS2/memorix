@@ -316,6 +316,47 @@ export class CodeGraphStore {
     `).all(projectId, like, like, like, limit).map(rowToSymbol);
   }
 
+  listSymbols(projectId: string): CodeSymbol[] {
+    return this.db.prepare(`
+      SELECT * FROM code_symbols
+      WHERE projectId = ? AND stale = 0
+      ORDER BY path, startLine
+    `).all(projectId).map(rowToSymbol);
+  }
+
+  findSymbolsByNames(projectId: string, names: string[], fileIds: string[] = []): CodeSymbol[] {
+    const candidates = [...new Set(names.map(name => name.trim()).filter(Boolean))];
+    if (candidates.length === 0) return [];
+    const candidateJson = JSON.stringify(candidates);
+    const hintedFiles = [...new Set(fileIds.map(fileId => fileId.trim()).filter(Boolean))];
+    if (hintedFiles.length > 0) {
+      return this.db.prepare(`
+        SELECT * FROM code_symbols
+        WHERE projectId = ?
+          AND stale = 0
+          AND name IN (SELECT value FROM json_each(?))
+          AND fileId IN (SELECT value FROM json_each(?))
+        ORDER BY path, startLine
+      `).all(projectId, candidateJson, JSON.stringify(hintedFiles)).map(rowToSymbol);
+    }
+
+    return this.db.prepare(`
+      SELECT symbols.*
+      FROM code_symbols AS symbols
+      INNER JOIN (
+        SELECT name
+        FROM code_symbols
+        WHERE projectId = ?
+          AND stale = 0
+          AND name IN (SELECT value FROM json_each(?))
+        GROUP BY name
+        HAVING COUNT(*) = 1
+      ) AS unambiguous ON unambiguous.name = symbols.name
+      WHERE symbols.projectId = ? AND symbols.stale = 0
+      ORDER BY symbols.path, symbols.startLine
+    `).all(projectId, candidateJson, projectId).map(rowToSymbol);
+  }
+
   listSymbolsForFile(fileId: string): CodeSymbol[] {
     return this.db.prepare(`SELECT * FROM code_symbols WHERE fileId = ? AND stale = 0 ORDER BY startLine`).all(fileId).map(rowToSymbol);
   }
@@ -330,6 +371,24 @@ export class CodeGraphStore {
       WHERE projectId = ? AND observationId = ?
       ORDER BY status, id
     `).all(projectId, observationId).map(rowToRef);
+  }
+
+  listProjectObservationRefs(projectId: string): ObservationCodeRef[] {
+    return this.db.prepare(`
+      SELECT * FROM observation_code_refs
+      WHERE projectId = ?
+      ORDER BY observationId, status, id
+    `).all(projectId).map(rowToRef);
+  }
+
+  listReferencedSymbols(projectId: string): CodeSymbol[] {
+    return this.db.prepare(`
+      SELECT DISTINCT symbols.*
+      FROM code_symbols AS symbols
+      INNER JOIN observation_code_refs AS refs ON refs.symbolId = symbols.id
+      WHERE refs.projectId = ? AND symbols.projectId = ? AND symbols.stale = 0
+      ORDER BY symbols.path, symbols.startLine
+    `).all(projectId, projectId).map(rowToSymbol);
   }
 
   status(projectId: string): CodeGraphStatus {

@@ -7,7 +7,6 @@ import { collectCurrentProjectFacts, type CurrentProjectFacts } from './current-
 import { indexProjectLite } from './lite-provider.js';
 import {
   buildProjectContextExplain,
-  buildProjectContextOverview,
   type ProjectContextExplain,
   type ProjectContextObservation,
   type ProjectContextOverview,
@@ -147,18 +146,13 @@ export async function buildAutoProjectContext(input: {
     }
   }
 
-  const overview = buildProjectContextOverview({
-    project: input.project,
-    store,
-    observations: input.observations,
-    exclude,
-  });
   const explain = buildProjectContextExplain({
     project: input.project,
     store,
     observations: input.observations,
     exclude,
   });
+  const overview = explain.overview;
 
   return {
     project: input.project,

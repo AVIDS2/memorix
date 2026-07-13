@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CodeGraphStore } from '../../src/codegraph/store.js';
 import {
   buildProjectContextExplain,
@@ -177,6 +177,11 @@ describe('project context service', () => {
       createdAt: '2026-06-29T00:01:00.000Z',
     }]);
 
+    const listFiles = vi.spyOn(store, 'listFiles');
+    const listSymbolsForFile = vi.spyOn(store, 'listSymbolsForFile');
+    const listObservationRefs = vi.spyOn(store, 'listObservationRefs');
+    const listProjectObservationRefs = vi.spyOn(store, 'listProjectObservationRefs');
+    const listReferencedSymbols = vi.spyOn(store, 'listReferencedSymbols');
     const explain = buildProjectContextExplain({
       project: { id: 'org/repo', name: 'repo', rootPath: 'C:/repo' },
       store,
@@ -203,6 +208,53 @@ describe('project context service', () => {
     expect(text).toContain('#1 decision: Auth decision');
     expect(text).toContain('src/auth.ts');
     expect(text).not.toContain('SQLite');
+    expect(listFiles).toHaveBeenCalledTimes(1);
+    expect(listProjectObservationRefs).toHaveBeenCalledTimes(1);
+    expect(listReferencedSymbols).toHaveBeenCalledTimes(1);
+    expect(listSymbolsForFile).not.toHaveBeenCalled();
+    expect(listObservationRefs).not.toHaveBeenCalled();
+  });
+
+  it('marks refs to removed symbols as stale after reindex', async () => {
+    const store = new CodeGraphStore();
+    await store.init(tempDir());
+    const file = makeFile('file:auth', 'src/auth.ts');
+    store.replaceProjectIndex('org/repo', {
+      files: [file],
+      symbols: [{
+        id: 'symbol:removed',
+        projectId: 'org/repo',
+        fileId: file.id,
+        path: file.path,
+        name: 'removedHandler',
+        qualifiedName: 'removedHandler',
+        kind: 'function',
+        contentHash: 'removed-hash',
+        indexedAt: '2026-06-29T00:00:00.000Z',
+      }],
+      edges: [],
+    });
+    store.upsertObservationRefs([{
+      id: 'ref:removed-symbol',
+      projectId: 'org/repo',
+      observationId: 1,
+      fileId: file.id,
+      symbolId: 'symbol:removed',
+      capturedFileHash: file.contentHash,
+      capturedSymbolHash: 'removed-hash',
+      status: 'current',
+      createdAt: '2026-06-29T00:01:00.000Z',
+    }]);
+    store.replaceProjectIndex('org/repo', { files: [file], symbols: [], edges: [] });
+
+    const overview = buildProjectContextOverview({
+      project: { id: 'org/repo', name: 'repo', rootPath: 'C:/repo' },
+      store,
+      observations: [{ id: 1, projectId: 'org/repo', title: 'Removed handler', type: 'gotcha', status: 'active' }],
+    });
+
+    expect(overview.freshness).toMatchObject({ current: 0, stale: 1 });
+    expect(overview.suggestedReads).toEqual([]);
   });
 
   it('keeps suggested reads compact and filters generated paths in overview data', async () => {

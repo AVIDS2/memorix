@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { execSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -7,6 +7,7 @@ import {
   buildAutoProjectContext,
   formatAutoProjectContextPrompt,
 } from '../../src/codegraph/auto-context.js';
+import { CodeGraphStore } from '../../src/codegraph/store.js';
 import { getAllObservations, initObservations, storeObservation } from '../../src/memory/observations.js';
 import { closeAllDatabases } from '../../src/store/sqlite-db.js';
 import { initObservationStore, resetObservationStore } from '../../src/store/obs-store.js';
@@ -91,6 +92,29 @@ describe('auto project context', () => {
     expect(text).toContain('src/auth.ts');
     expect(text).toContain('python 1');
     expect(text).not.toContain('SQLite');
+  });
+
+  it('collects the project graph once per context request', async () => {
+    const store = new CodeGraphStore();
+    await store.init(dataDir);
+    store.replaceProjectIndex('local/repo', {
+      files: [],
+      symbols: [],
+      edges: [],
+    });
+    const listProjectObservationRefs = vi.spyOn(CodeGraphStore.prototype, 'listProjectObservationRefs');
+    const listReferencedSymbols = vi.spyOn(CodeGraphStore.prototype, 'listReferencedSymbols');
+
+    await buildAutoProjectContext({
+      project: { id: 'local/repo', name: 'repo', rootPath: repoDir },
+      dataDir,
+      observations: getAllObservations(),
+      refresh: 'never',
+      task: 'inspect project context performance',
+    });
+
+    expect(listProjectObservationRefs).toHaveBeenCalledTimes(1);
+    expect(listReferencedSymbols).toHaveBeenCalledTimes(1);
   });
 
   it('puts current project facts ahead of stale progress notes', async () => {

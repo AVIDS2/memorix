@@ -72,6 +72,90 @@ describe('CodeGraphStore', () => {
     expect(store.status('org/repo')).toMatchObject({ files: 1, symbols: 1, edges: 1, refs: 1 });
   });
 
+  it('loads exact symbol candidates and project refs in bulk', async () => {
+    const store = new CodeGraphStore();
+    await store.init(tempDir());
+    store.upsertFiles([{
+      id: 'file:a',
+      projectId: 'org/repo',
+      path: 'src/auth.ts',
+      contentHash: 'hash-a',
+      indexedAt: '2026-06-29T00:00:00.000Z',
+    }]);
+    store.upsertSymbols([
+      {
+        id: 'symbol:auth',
+        projectId: 'org/repo',
+        fileId: 'file:a',
+        path: 'src/auth.ts',
+        name: 'authMiddleware',
+        qualifiedName: 'authMiddleware',
+        kind: 'function',
+        contentHash: 'auth-symbol-hash',
+        indexedAt: '2026-06-29T00:00:00.000Z',
+      },
+      {
+        id: 'symbol:other',
+        projectId: 'org/repo',
+        fileId: 'file:a',
+        path: 'src/auth.ts',
+        name: 'otherFunction',
+        qualifiedName: 'otherFunction',
+        kind: 'function',
+        contentHash: 'other-symbol-hash',
+        indexedAt: '2026-06-29T00:00:00.000Z',
+      },
+    ]);
+    store.upsertObservationRefs([{
+      id: 'coderef:auth',
+      projectId: 'org/repo',
+      observationId: 42,
+      fileId: 'file:a',
+      symbolId: 'symbol:auth',
+      capturedFileHash: 'hash-a',
+      capturedSymbolHash: 'auth-symbol-hash',
+      status: 'current',
+      createdAt: '2026-06-29T00:00:00.000Z',
+    }]);
+
+    expect(store.findSymbolsByNames('org/repo', ['missing', 'authMiddleware'])).toEqual([
+      expect.objectContaining({ id: 'symbol:auth', name: 'authMiddleware' }),
+    ]);
+    expect(store.findSymbolsByNames('org/repo', [])).toEqual([]);
+    expect(store.listProjectObservationRefs('org/repo')).toEqual([
+      expect.objectContaining({ id: 'coderef:auth', observationId: 42 }),
+    ]);
+    expect(store.listReferencedSymbols('org/repo')).toEqual([
+      expect.objectContaining({ id: 'symbol:auth', name: 'authMiddleware' }),
+    ]);
+  });
+
+  it('does not let a high-frequency name hide an unambiguous candidate', async () => {
+    const store = new CodeGraphStore();
+    await store.init(tempDir());
+    const crowdedFiles = Array.from({ length: 501 }, (_, index) => ({
+      id: `file:crowded:${index}`,
+      projectId: 'org/repo',
+      path: `src/crowded-${String(index).padStart(3, '0')}.ts`,
+      contentHash: `file-hash-${index}`,
+      indexedAt: '2026-06-29T00:00:00.000Z',
+    }));
+    const targetFile = {
+      id: 'file:target', projectId: 'org/repo', path: 'src/zz-target.ts', contentHash: 'target-file-hash', indexedAt: '2026-06-29T00:00:00.000Z',
+    };
+    store.upsertFiles([...crowdedFiles, targetFile]);
+    store.upsertSymbols([
+      ...crowdedFiles.map((file, index) => ({
+        id: `symbol:crowded:${index}`, projectId: 'org/repo', fileId: file.id, path: file.path, name: 'crowdedName', qualifiedName: 'crowdedName', kind: 'function' as const, startLine: 1, contentHash: `crowded-hash-${index}`, indexedAt: '2026-06-29T00:00:00.000Z',
+      })),
+      { id: 'symbol:target', projectId: 'org/repo', fileId: targetFile.id, path: targetFile.path, name: 'targetName', qualifiedName: 'targetName', kind: 'function', startLine: 1, contentHash: 'target-hash', indexedAt: '2026-06-29T00:00:00.000Z' },
+    ]);
+
+    expect(store.findSymbolsByNames('org/repo', ['crowdedName', 'targetName'])).toEqual([
+      expect.objectContaining({ id: 'symbol:target' }),
+    ]);
+  });
+
   it('replaces file rows by id', async () => {
     const store = new CodeGraphStore();
     await store.init(tempDir());

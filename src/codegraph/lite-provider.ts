@@ -141,8 +141,8 @@ const languageProfiles: Record<string, LanguageProfile> = {
   },
   ruby: {
     symbols: [
-      { kind: 'class', re: /^class\s+([A-Za-z_][\w:]*?)\b/gm },
-      { kind: 'function', re: /^def\s+([A-Za-z_][\w!?=]*)\b/gm },
+      { kind: 'class', re: /^class\s+([A-Za-z_][\w]*(?:::[A-Za-z_][\w]*)*)/gm },
+      { kind: 'function', re: /^def\s+([A-Za-z_][\w]*[!?=]?)/gm },
     ],
     imports: [/require\s+['"]([^'"]+)['"]/g],
   },

@@ -17,14 +17,12 @@
  */
 
 import { createHash } from 'node:crypto';
-import { watchFile } from 'node:fs';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { KnowledgeGraphManager } from './memory/graph.js';
 import { initObservations, storeObservation, prepareSearchIndex, migrateProjectIds, getObservation, getAllObservations } from './memory/observations.js';
 import { withFreshIndex } from './memory/freshness.js';
 import { initObservationStore, getObservationStore } from './store/obs-store.js';
-import { resetDb } from './store/orama-store.js';
 import { initMiniSkillStore } from './store/mini-skill-store.js';
 import { initSessionStore } from './store/session-store.js';
 import { checkProjectAttribution, auditProjectObservations } from './memory/attribution-guard.js';
@@ -55,7 +53,6 @@ import { parseFormationTimeoutMs } from './server/formation-timeout.js';
 const FORMATION_TIMEOUT_MS = parseFormationTimeoutMs(process.env.MEMORIX_FORMATION_TIMEOUT_MS); // Formation pipeline (extract+resolve+evaluate)
 const COMPACT_ON_WRITE_TIMEOUT_MS = 12_000; // Legacy compact-on-write fallback path
 const COMPRESSION_TIMEOUT_MS = 5_000;  // Narrative compression
-const DEDUP_PER_PAIR_TIMEOUT_MS = 5_000; // Per-pair dedup LLM call
 
 /** Race a promise against a timeout. Rejects with a descriptive Error on timeout. */
 function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
@@ -75,10 +72,6 @@ function formatFormationStageDurations(stageDurationsMs: Partial<Record<Formatio
     .map(stage => `${stage}=${stageDurationsMs[stage]}ms`);
   return parts.join(', ');
 }
-
-/** Timestamp of last MCP-initiated write — hot-reload skips changes within 10s */
-let lastInternalWriteMs = 0;
-const markInternalWrite = () => { lastInternalWriteMs = Date.now(); };
 
 /** Valid observation types for input validation */
 const OBSERVATION_TYPES: [string, ...string[]] = [
@@ -220,6 +213,23 @@ export interface CreateMemorixServerOptions {
   toolProfile?: ToolProfile;
 }
 
+/**
+ * These read-only tools operate directly on the project-scoped SQLite stores.
+ * They are safe before the in-memory observation/Orama runtime is hydrated,
+ * which keeps the first MCP request from turning deferred initialization into
+ * a hidden synchronous barrier.
+ */
+export const BOOTSTRAP_SAFE_TOOL_NAMES = new Set([
+  'memorix_project_context',
+  'memorix_codegraph_status',
+  'memorix_graph_context',
+  'memorix_context_pack',
+]);
+
+export function shouldAwaitProjectRuntime(toolName: string): boolean {
+  return !BOOTSTRAP_SAFE_TOOL_NAMES.has(toolName);
+}
+
 export async function createMemorixServer(
   cwd?: string,
   existingServer?: McpServer,
@@ -294,6 +304,22 @@ export async function createMemorixServer(
       console.error(`[memorix] Alias resolved: ${rawProject.id} -> ${canonicalId}`);
     }
   }
+
+  const registerMaintenanceTarget = async (): Promise<void> => {
+    if (!projectResolved) return;
+    try {
+      const { MaintenanceTargetStore } = await import('./runtime/maintenance-targets.js');
+      new MaintenanceTargetStore(projectDir).register({
+        projectId: project.id,
+        projectRoot: project.rootPath,
+        dataDir: projectDir,
+      });
+    } catch {
+      // Maintenance target registration is optional until an isolated worker
+      // needs it; normal MCP tools must remain usable without it.
+    }
+  };
+  await registerMaintenanceTarget();
 
   // Initialize project root for YAML config resolution — ensures all config getters
   // (getLLMApiKey, getGitConfig, etc.) pick up project-level memorix.yml, not just user-level.
@@ -440,6 +466,78 @@ export async function createMemorixServer(
     await projectRuntimeInitPromise;
   };
 
+  let maintenanceWorker: { stop(): void } | null = null;
+  const startProjectMaintenanceWorker = async (autoCleanup = false): Promise<void> => {
+    maintenanceWorker?.stop();
+    const [{ MaintenanceJobStore, MaintenanceJobWorker }, maintenance, observations] = await Promise.all([
+      import('./runtime/maintenance-jobs.js'),
+      import('./runtime/project-maintenance.js'),
+      import('./memory/observations.js'),
+    ]);
+    const queue = new MaintenanceJobStore(projectDir);
+    const vectorStatus = observations.getVectorStatus(project.id);
+    if (vectorStatus.missing > 0) {
+      queue.enqueue({
+        projectId: project.id,
+        kind: 'vector-backfill',
+        dedupeKey: 'vector-backfill',
+        payload: { limit: 12 },
+      });
+    }
+    if (autoCleanup) {
+      queue.enqueue({
+        projectId: project.id,
+        kind: 'retention-archive',
+        dedupeKey: 'startup-retention',
+      });
+      queue.enqueue({
+        projectId: project.id,
+        kind: 'consolidation',
+        dedupeKey: 'startup-consolidation',
+      });
+    }
+
+    // This check is only a small SQLite metadata query. The actual directory
+    // walk runs in the isolated maintenance process below.
+    try {
+      const { CodeGraphStore } = await import('./codegraph/store.js');
+      const codeStore = new CodeGraphStore();
+      await codeStore.init(projectDir);
+      const status = codeStore.status(project.id);
+      const indexedAt = status.indexedAt ? Date.parse(status.indexedAt) : Number.NaN;
+      const needsRefresh = status.files === 0
+        || !Number.isFinite(indexedAt)
+        || Date.now() - indexedAt > 10 * 60_000;
+      if (needsRefresh) {
+        queue.enqueue({
+          projectId: project.id,
+          kind: 'codegraph-refresh',
+          dedupeKey: 'startup-codegraph-refresh',
+          payload: { maxFiles: 5_000 },
+        });
+      }
+    } catch {
+      // Code Memory is optional; a failed metadata probe must not affect MCP.
+    }
+
+    const worker = options.dashboardMode === 'control-plane'
+      // Vector embeddings live in this process's Orama index, so a control
+      // plane session may only run vector recovery for its own project. The
+      // shared HTTP worker handles the other job kinds in isolated processes.
+      ? new MaintenanceJobWorker(
+        queue,
+        maintenance.createProjectMaintenanceHandler(project.id, projectDir, project.rootPath),
+        { projectId: project.id, kinds: ['vector-backfill'], pollIntervalMs: 2_000 },
+      )
+      : new MaintenanceJobWorker(
+        queue,
+        maintenance.createProjectMaintenanceDispatcher(project.id, projectDir, project.rootPath),
+        { projectId: project.id, pollIntervalMs: 2_000 },
+      );
+    worker.start();
+    maintenanceWorker = worker;
+  };
+
   const requireResolvedProject = (action: string) => {
     if (projectResolved) return null;
     return {
@@ -467,11 +565,13 @@ export async function createMemorixServer(
     if (!isToolInProfile(name, toolProfile)) {
       return undefined as never;
     }
-    const maybeConfig = args[0];
-    const maybeHandler = args[1];
-    if (typeof maybeHandler === 'function' && typeof maybeConfig === 'object' && maybeConfig !== null) {
-      const wrappedHandler = async (...handlerArgs: unknown[]) => {
-        await ensureProjectRuntimeInitialized();
+      const maybeConfig = args[0];
+      const maybeHandler = args[1];
+      if (typeof maybeHandler === 'function' && typeof maybeConfig === 'object' && maybeConfig !== null) {
+        const wrappedHandler = async (...handlerArgs: unknown[]) => {
+        if (shouldAwaitProjectRuntime(name)) {
+          await ensureProjectRuntimeInitialized();
+        }
         return await maybeHandler(...handlerArgs);
       };
       return (originalRegisterTool as (...innerArgs: unknown[]) => unknown)(name, maybeConfig, wrappedHandler, ...args.slice(2)) as never;
@@ -547,7 +647,7 @@ export async function createMemorixServer(
       } else {
         try {
           const { getBehaviorConfig } = await import('./config/behavior.js');
-          formationMode = getBehaviorConfig().formationMode;
+          formationMode = getBehaviorConfig({ projectRoot: project.rootPath }).formationMode;
         } catch { /* default to active */ }
       }
       const useFormation = formationMode === 'active';
@@ -651,7 +751,6 @@ export async function createMemorixServer(
           // Merge into existing observation
           const targetObs = getObservation(targetId);
           if (targetObs) {
-            markInternalWrite();
             await storeObservation({
               entityName: targetObs.entityName,
               type: targetObs.type,
@@ -677,7 +776,6 @@ export async function createMemorixServer(
           // Evolve existing observation
           const targetObs = getObservation(targetId);
           if (targetObs) {
-            markInternalWrite();
             await storeObservation({
               entityName: targetObs.entityName,
               type: targetObs.type,
@@ -750,7 +848,6 @@ export async function createMemorixServer(
               // Merge into existing memory (Mem0-style UPDATE)
               const targetObs = getObservation(decision.targetId);
               if (targetObs) {
-                markInternalWrite();
                 await storeObservation({
                   entityName: targetObs.entityName,
                   type: targetObs.type,
@@ -872,7 +969,6 @@ export async function createMemorixServer(
       } catch { /* guard is best-effort — never blocks the write */ }
 
       // Store the observation (may upsert if topicKey matches existing)
-      markInternalWrite();
       const { observation: obs, upserted } = await storeObservation({
         entityName,
         type: type as ObservationType,
@@ -1179,25 +1275,25 @@ export async function createMemorixServer(
       const unresolved = requireResolvedProject('build graph context for the current project');
       if (unresolved) return unresolved;
 
-      return withFreshIndex(async () => {
-        const packet = buildGraphContextPacket(getAllObservations(), {
-          projectId: project.id,
-          query,
-          limit: limit != null ? coerceNumber(limit, 5) : undefined,
-        });
-        const text = format === 'summary'
-          ? [
-              `Graph context packet for ${project.name}`,
-              `- ${packet.summary}`,
-              '',
-              ...packet.entities.map((entity) => `* ${entity.name} (#${entity.observationIds.join(', #')})`),
-            ].join('\n')
-          : formatGraphContextPrompt(packet);
-
-        return {
-          content: [{ type: 'text' as const, text }],
-        };
+      const { getObservationStore } = await import('./store/obs-store.js');
+      const observations = await getObservationStore().loadByProject(project.id);
+      const packet = buildGraphContextPacket(observations, {
+        projectId: project.id,
+        query,
+        limit: limit != null ? coerceNumber(limit, 5) : undefined,
       });
+      const text = format === 'summary'
+        ? [
+            `Graph context packet for ${project.name}`,
+            `- ${packet.summary}`,
+            '',
+            ...packet.entities.map((entity) => `* ${entity.name} (#${entity.observationIds.join(', #')})`),
+          ].join('\n')
+        : formatGraphContextPrompt(packet);
+
+      return {
+        content: [{ type: 'text' as const, text }],
+      };
     },
   );
 
@@ -1207,7 +1303,7 @@ export async function createMemorixServer(
       title: 'Memory Autopilot Project Context',
       description:
         'Build a compact Memory Autopilot brief for the current coding task. ' +
-        'Automatically refreshes Code Memory when needed, includes Start here files, ' +
+        'Schedules Code Memory refresh when needed, includes Start here files, ' +
         'reliable code-bound memories, stale/suspect cautions, and verification hints. Use this at the start of a new coding turn or after switching tasks.',
       inputSchema: {
         task: z.string().optional().describe('Current coding task or question'),
@@ -1224,30 +1320,45 @@ export async function createMemorixServer(
       const unresolved = requireResolvedProject('build project context for the current project');
       if (unresolved) return unresolved;
 
-      return withFreshIndex(async () => {
-        const {
+      const [
+        {
           buildAutoProjectBrief,
           buildAutoProjectContext,
           formatAutoProjectContextPrompt,
           formatAutoProjectContextSummary,
-        } = await import('./codegraph/auto-context.js');
-        const context = await buildAutoProjectContext({
-          project,
-          dataDir: projectDir,
-          observations: getAllObservations(),
-          task,
-          refresh: refresh ?? 'auto',
-        });
-        const text = format === 'json'
-          ? JSON.stringify({ ...context, brief: buildAutoProjectBrief(context) }, null, 2)
-          : format === 'summary'
-            ? formatAutoProjectContextSummary(context)
-            : formatAutoProjectContextPrompt(context);
-
-        return {
-          content: [{ type: 'text' as const, text }],
-        };
+        },
+        { getObservationStore },
+        { MaintenanceJobStore },
+      ] = await Promise.all([
+        import('./codegraph/auto-context.js'),
+        import('./store/obs-store.js'),
+        import('./runtime/maintenance-jobs.js'),
+      ]);
+      const observations = await getObservationStore().loadByProject(project.id, { status: 'active' });
+      const context = await buildAutoProjectContext({
+        project,
+        dataDir: projectDir,
+        observations,
+        task,
+        refresh: refresh ?? 'auto',
+        enqueueRefresh: () => {
+          new MaintenanceJobStore(projectDir).enqueue({
+            projectId: project.id,
+            kind: 'codegraph-refresh',
+            dedupeKey: 'context-codegraph-refresh',
+            payload: { maxFiles: 5_000 },
+          });
+        },
       });
+      const text = format === 'json'
+        ? JSON.stringify({ ...context, brief: buildAutoProjectBrief(context) }, null, 2)
+        : format === 'summary'
+          ? formatAutoProjectContextSummary(context)
+          : formatAutoProjectContextPrompt(context);
+
+      return {
+        content: [{ type: 'text' as const, text }],
+      };
     },
   );
 
@@ -1292,31 +1403,35 @@ export async function createMemorixServer(
       const unresolved = requireResolvedProject('build a context pack for the current project');
       if (unresolved) return unresolved;
 
-      return withFreshIndex(async () => {
-        const { CodeGraphStore } = await import('./codegraph/store.js');
-        const { assembleContextPackForTask, buildContextPackPrompt } = await import('./codegraph/context-pack.js');
-        const { getResolvedConfig } = await import('./config/resolved-config.js');
-        const store = new CodeGraphStore();
-        await store.init(projectDir);
-        const exclude = getResolvedConfig({ projectRoot: project.rootPath }).codegraph.excludePatterns;
-
-        const observations = getAllObservations()
-          .filter(obs => obs.projectId === project.id && (obs.status ?? 'active') === 'active')
-          .reverse();
-        const pack = assembleContextPackForTask({
-          store,
-          projectId: project.id,
-          task,
-          observations,
-          limit: typeof limit === 'number' ? limit : 20,
-          exclude,
-        });
-        const text = buildContextPackPrompt(pack);
-
-        return {
-          content: [{ type: 'text' as const, text }],
-        };
+      const [
+        { CodeGraphStore },
+        { assembleContextPackForTask, buildContextPackPrompt },
+        { getResolvedConfig },
+        { getObservationStore },
+      ] = await Promise.all([
+        import('./codegraph/store.js'),
+        import('./codegraph/context-pack.js'),
+        import('./config/resolved-config.js'),
+        import('./store/obs-store.js'),
+      ]);
+      const store = new CodeGraphStore();
+      await store.init(projectDir);
+      const exclude = getResolvedConfig({ projectRoot: project.rootPath }).codegraph.excludePatterns;
+      const observations = await getObservationStore().loadByProject(project.id, { status: 'active' });
+      observations.reverse();
+      const pack = assembleContextPackForTask({
+        store,
+        projectId: project.id,
+        task,
+        observations,
+        limit: typeof limit === 'number' ? limit : 20,
+        exclude,
       });
+      const text = buildContextPackPrompt(pack);
+
+      return {
+        content: [{ type: 'text' as const, text }],
+      };
     },
   );
 
@@ -1435,7 +1550,6 @@ export async function createMemorixServer(
         }
       } catch { /* guard is best-effort — never blocks the write */ }
 
-      markInternalWrite();
       const { observation: obs } = await storeObservation({
         entityName,
         type: 'reasoning' as ObservationType,
@@ -1875,7 +1989,7 @@ export async function createMemorixServer(
 
       // Handle archive action
       if (action === 'archive') {
-        const result = await archiveExpired(projectDir, undefined, accessMap);
+        const result = await archiveExpired(projectDir, undefined, accessMap, project.id);
         if (result.archived === 0) {
           return {
             content: [{ type: 'text' as const, text: '[OK] No expired observations to archive. All memories are within their retention period.' }],
@@ -3984,7 +4098,6 @@ export async function createMemorixServer(
         const { analyzeImage } = await import('./multimodal/image-loader.js');
         const analysis = await analyzeImage(args);
         const entityName = args.filename?.replace(/\.[^.]+$/, '') ?? `image-${Date.now()}`;
-        markInternalWrite();
         const { observation } = await storeObservation({
           entityName,
           type: 'discovery',
@@ -4065,7 +4178,7 @@ export async function createMemorixServer(
     let behaviorConfig: { syncAdvisory: boolean; autoCleanup: boolean } = { syncAdvisory: true, autoCleanup: true };
     try {
       const { getBehaviorConfig } = await import('./config/behavior.js');
-      behaviorConfig = getBehaviorConfig();
+      behaviorConfig = getBehaviorConfig({ projectRoot: project.rootPath });
     } catch { /* defaults */ }
 
     // Sync advisory: compute for diagnostics only.
@@ -4085,153 +4198,18 @@ export async function createMemorixServer(
       console.error(`[memorix] Sync advisory: ${hasSyncTargets ? 'available' : 'nothing to sync'}`);
     } catch { /* sync scan is optional */ }
 
-    // ── Background retention cleanup ────────────────────────────────
-    // Archive expired memories automatically so users never need to run it manually.
-    // Respects behavior.autoCleanup config (defaults to true).
     if (!behaviorConfig.autoCleanup) {
       console.error('[memorix] Auto-cleanup disabled via config.');
-    } else {
-    try {
-      const { archiveExpired } = await import('./memory/retention.js');
-      const archiveResult = await archiveExpired(projectDir);
-      if (archiveResult.archived > 0) {
-        console.error(`[memorix] Auto-archived ${archiveResult.archived} expired observation(s)`);
-      }
-    } catch { /* retention cleanup is optional */ }
-
-    // ── Background consolidation ─────────────────────────────────────
-    // With LLM: semantic dedup (higher quality). Without: Jaccard similarity.
-    // Users who configure an API key want quality — each call is only ~500 tokens.
-    try {
-      if (isLLMEnabled()) {
-        const { getAllObservations, resolveObservations } = await import('./memory/observations.js');
-        const { deduplicateMemory } = await import('./llm/memory-manager.js');
-        const allObs = await withFreshIndex(() => getAllObservations().filter(o => (o.status ?? 'active') === 'active' && o.projectId === project.id));
-        if (allObs.length > 10) {
-          const grouped = new Map<string, typeof allObs>();
-          for (const obs of allObs) {
-            const key = `${obs.entityName}::${obs.type}`;
-            if (!grouped.has(key)) grouped.set(key, []);
-            grouped.get(key)!.push(obs);
-          }
-          const toResolve: number[] = [];
-          // Cap total LLM dedup calls per session to avoid runaway API usage
-          const MAX_DEDUP_CALLS = 15;
-          let dedupCalls = 0;
-          for (const [, group] of grouped) {
-            if (group.length < 2 || dedupCalls >= MAX_DEDUP_CALLS) continue;
-            group.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
-            for (let i = 0; i < group.length - 1 && i < 3 && dedupCalls < MAX_DEDUP_CALLS; i++) {
-              try {
-                dedupCalls++;
-                const older = group[i], newer = group[i + 1];
-                const decision = await withTimeout(
-                  deduplicateMemory(
-                    { title: newer.title, narrative: newer.narrative, facts: newer.facts },
-                    [{ id: older.id, title: older.title, narrative: older.narrative, facts: older.facts.join('\n') }],
-                  ),
-                  DEDUP_PER_PAIR_TIMEOUT_MS,
-                  `Dedup pair #${older.id}↔#${newer.id}`,
-                );
-                if (decision && (decision.action === 'UPDATE' || decision.action === 'NONE')) {
-                  toResolve.push(decision.action === 'UPDATE' ? older.id : newer.id);
-                } else if (decision?.action === 'DELETE' && decision.targetId) {
-                  toResolve.push(decision.targetId);
-                }
-              } catch { /* skip individual comparison errors or timeouts */ }
-            }
-          }
-          if (toResolve.length > 0) {
-            await resolveObservations([...new Set(toResolve)], 'resolved');
-            console.error(`[memorix] Auto-dedup (LLM): resolved ${toResolve.length} redundant observation(s)`);
-          }
-        }
-      } else {
-        const { executeConsolidation } = await import('./memory/consolidation.js');
-        const result = await executeConsolidation(projectDir, project.id, { threshold: 0.55 });
-        if (result.observationsMerged > 0) {
-          console.error(`[memorix] Auto-consolidated: merged ${result.observationsMerged} duplicate(s) across ${result.clustersFound} cluster(s)`);
-        }
-      }
-    } catch { /* consolidation is optional */ }
-    } // end autoCleanup
-
-    // ── Vector-missing observability & background backfill ──────────
-    // Log how many observations are missing embeddings (search quality degradation).
-    // If any are missing and embedding is available, attempt background backfill.
-    // A periodic timer retries every 60s so provider recovery actually helps.
-    try {
-      const { getVectorStatus, backfillVectorEmbeddings } = await import('./memory/observations.js');
-      const { isEmbeddingExplicitlyDisabled } = await import('./embedding/provider.js');
-
-      const runBackfill = async (label: string) => {
-        const vs = getVectorStatus();
-        if (vs.missing === 0 || isEmbeddingExplicitlyDisabled()) return;
-        if (label === 'init') {
-          console.error(`[memorix] Vector status: ${vs.missing}/${vs.total} observations missing embeddings`);
-        }
-        try {
-          const result = await backfillVectorEmbeddings();
-          if (result.succeeded > 0) {
-            console.error(`[memorix] Vector backfill (${label}): ${result.succeeded}/${result.attempted} embeddings recovered`);
-          }
-          if (result.failed > 0 && label === 'init') {
-            console.error(`[memorix] Vector backfill: ${result.failed} failed (periodic retry active)`);
-          }
-        } catch { /* best-effort */ }
-      };
-
-      // Initial backfill attempt (non-blocking)
-      runBackfill('init');
-
-      // Periodic retry: every 60s, check if there are still missing vectors
-      // Stops automatically when all vectors are backfilled or embedding is disabled
-      const BACKFILL_INTERVAL_MS = 60_000;
-      const backfillTimer = setInterval(async () => {
-        const vs = getVectorStatus();
-        if (vs.missing === 0 || isEmbeddingExplicitlyDisabled()) {
-          clearInterval(backfillTimer);
-          return;
-        }
-        await runBackfill('periodic');
-      }, BACKFILL_INTERVAL_MS);
-      // Don't keep the process alive just for backfill
-      if (backfillTimer.unref) backfillTimer.unref();
-    } catch { /* vector observability is optional */ }
-
-    // Watch for external writes (e.g., from hook processes) and hot-reload.
-    // Uses watchFile (polling) instead of watch because atomicWriteFile uses
-    // rename(), which changes the file inode — fs.watch loses track on Windows.
-    const observationsFile = projectDir + '/observations.json';
-    let reloadDebounce: ReturnType<typeof setTimeout> | null = null;
-    let reloading = false; // guard: skip if a reload is already in progress
-    // lastInternalWriteMs + markInternalWrite are module-level (see top of file)
-    try {
-      watchFile(observationsFile, { interval: 5000 }, (curr, prev) => {
-        if (curr.mtimeMs === prev.mtimeMs) return; // no actual change
-        // Skip reload if a MCP tool wrote recently — data is already in memory
-        if (Date.now() - lastInternalWriteMs < 10_000) return;
-        if (reloading) return; // skip — previous reload still running
-        if (reloadDebounce) clearTimeout(reloadDebounce);
-        reloadDebounce = setTimeout(async () => {
-          if (reloading) return;
-          reloading = true;
-          try {
-            await resetDb();
-            await initObservationStore(projectDir);
-            await initObservations(projectDir);
-            const count = await prepareSearchIndex();
-            if (count > 0) {
-              console.error(`[memorix] Hot-reloaded search index for ${count} observations (external write detected)`);
-            }
-          } catch { /* silent */ }
-          reloading = false;
-        }, 3000);
-      });
-      console.error(`[memorix] Watching for external writes (hooks hot-reload enabled)`);
-    } catch {
-      console.error(`[memorix] Warning: could not watch observations file for hot-reload`);
     }
+
+    // Maintenance is durable and leased: retention, consolidation, and vector
+    // recovery run outside the MCP request path and survive process restarts.
+    try {
+      await startProjectMaintenanceWorker(behaviorConfig.autoCleanup);
+    } catch {
+      // Lexical memory remains available when optional maintenance cannot start.
+    }
+
   };
 
   // Runtime project switch — called when MCP roots change, projectRoot binding, or new workspace detected.
@@ -4246,6 +4224,8 @@ export async function createMemorixServer(
       return false;
     }
     const newDetected = result.project;
+    maintenanceWorker?.stop();
+    maintenanceWorker = null;
 
     // Resolve data dir FIRST (was buggy: used before declaration)
     const newProjectDir = await getProjectDataDir(newDetected.id);
@@ -4270,6 +4250,7 @@ export async function createMemorixServer(
     projectResolutionError = null;
     project = { ...newDetected, id: newCanonicalId };
     projectDir = canonicalProjectDir;
+    await registerMaintenanceTarget();
 
     // Update YAML config root and reload .env for the new project
     try {
@@ -4301,10 +4282,17 @@ export async function createMemorixServer(
     } catch { /* best-effort - coordination features degrade gracefully */ }
 
     await initializeProjectRuntime('switch');
+    try {
+      await startProjectMaintenanceWorker();
+    } catch {
+      // Switching projects must not fail because optional maintenance is unavailable.
+    }
     return true;
   };
 
   const handleTransportClose = (): void => {
+    maintenanceWorker?.stop();
+    maintenanceWorker = null;
     const agentId = currentAgentId;
     currentAgentId = undefined;
     if (!teamFeaturesEnabled || !agentId) return;

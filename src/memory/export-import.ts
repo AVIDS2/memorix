@@ -167,6 +167,7 @@ export async function importFromJson(
         .filter(o => o.topicKey)
         .map(o => `${o.projectId}::${o.topicKey}`),
     );
+    const observationsToInsert: Observation[] = [];
 
     // Import observations
     for (const obs of data.observations) {
@@ -178,6 +179,7 @@ export async function importFromJson(
 
       const newObs = { ...obs, id: nextId++ };
       existingObs.push(newObs);
+      observationsToInsert.push(newObs);
       imported++;
     }
 
@@ -190,7 +192,7 @@ export async function importFromJson(
       }
     }
 
-    await tx.saveAll(existingObs);
+    await Promise.all(observationsToInsert.map((observation) => tx.insert(observation)));
     await tx.saveIdCounter(nextId);
     // Persist imported sessions via store
     for (const session of data.sessions) {

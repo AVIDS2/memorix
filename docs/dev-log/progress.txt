@@ -1,38 +1,65 @@
 # Memorix Development Progress
 
-> Current handoff note for new agent sessions. Older package-specific notes may
-> exist under subdirectories; prefer this file for repository-wide state.
+> Current handoff note for new agent sessions. Code and release facts outrank
+> older notes when they conflict.
 
 ## Current State
-- Phase: 1.1.10 emergency patch release
-- Branch: codex/issue-124-project-context-timeout
-- Issue: #124
-- Last updated: 2026-07-13
-- Goal: release the large-project `memorix_project_context` timeout fix and follow up with the reporter.
+- Phase: 1.1.11 runtime integrity, release-ready pending branch promotion
+- Branch: `codex/1.1.11-runtime-integrity`
+- Last updated: 2026-07-16
+- Goal: make normal memory writes, first-turn context, Code Memory refresh,
+  lifecycle maintenance, and operator diagnostics predictable as data grows.
 
 ## Completed Recently
-- Reproduced #124 with 3308 active memories and confirmed the old refresh path exceeded the MCP 60-second timeout.
-- Replaced broad per-observation symbol scans with indexed exact-name lookup and bulk existing-ref reads.
-- Changed first-use backfill to load one project graph snapshot, match all missing observations in memory, and persist refs in one transaction.
-- Reused one graph snapshot per project-context request and batched project refs/referenced symbols.
-- Prevented prose-only and ambiguous symbol mentions from creating large volumes of noisy code refs.
-- Preserved Ruby namespace and punctuated method names through Lite indexing and both binding paths.
-- Bumped root and workspace metadata to `1.1.10`.
-
-## Current Follow-Up
-- Commit, publish `memorix@1.1.10`, create the GitHub release, and reply to #124 with the upgrade path.
+- Replaced normal observation write/cleanup full-table persistence with targeted
+  SQLite mutations while preserving topic-key and generation safety.
+- Made retention and consolidation project-scoped, bounded, cursor-resumable
+  maintenance jobs.
+- Added a durable SQLite maintenance queue with leases, retries, heartbeat
+  renewal, credential-redacted failure records, and completed-history pruning.
+- Added a real compiled child-process runner for retention, consolidation, and
+  Code Memory refresh; vector recovery remains in the owning Orama process.
+- Made CodeGraph Lite incremental, multi-language, dependency-aware, and safe
+  against oversized generated files. `codegraph.max_file_bytes` / TOML
+  `max_file_bytes` controls the per-file limit.
+- Let the project context, context pack, graph context, and Code Memory status
+  tools answer directly from project-scoped SQLite before full Orama hydration.
+- Added control-plane maintenance target registration and dashboard maintenance
+  diagnostics without crossing HTTP session runtime state.
+- Removed the obsolete JSON file watcher; SQLite generation checks now own
+  cross-process freshness.
+- Unified behavior settings with resolved TOML/YAML configuration so injection,
+  formation, auto-cleanup, and sync advisory do not silently fall back to a
+  separate legacy JSON path.
+- Updated dashboard System Status with maintenance state and made dashboard
+  navigation/content work on a 390px mobile viewport.
+- Added a non-root Docker regression check.
+- Made completed-job pruning part of the enqueue transaction, so a failed
+  enqueue cannot leave partially-pruned operator history behind.
 
 ## Verification Snapshot
-- TDD regression coverage passes for CodeGraph store, binder, project context, and auto context.
-- A copied real database with all refs removed improved from 57.9 seconds for 173 active memories to 12.4 seconds.
-- A scaled 3308-active first-use refresh completed in 13.3 seconds, including a forced code scan and full code-ref backfill.
-- Built stdio MCP smoke returned `memorix_project_context` successfully in 5.79 seconds.
-- Final release verification: `git diff --check`, `npm run lint`, `npm run build`, `npm test`, package dry-run, and clean-install npm smoke.
+- The full test suite passes, including runtime, CodeGraph, configuration,
+  server, dashboard, Docker, and cross-process freshness coverage.
+- `npm run lint` passes.
+- `npm run build` passes and emits `dist/maintenance-runner.js`.
+- Built runner smoke completed a real retention job through stdin/stdout.
+- Built stdio MCP smoke connected in about one second, listed 17 lite tools,
+  and called project context, context pack, graph context, and Code Memory
+  status successfully in a fresh temporary Git project.
+- Dashboard was checked in a real browser at 1440x900 and 390x844; maintenance
+  status is visible and no text is clipped by the mobile layout.
+- `npm pack --dry-run`, an actual `npm pack`, a clean temporary install, and a
+  built stdio MCP smoke all pass. Production dependency audit reports zero
+  vulnerabilities.
+- A read-only local Claude Code release review found no P0 issues; its one
+  confirmed queue transaction finding has a regression test and is fixed.
 
-## Known UX Notes
-- Before 1.1.10, `refresh: "never"` is a temporary workaround for very large active-memory corpora.
-- Current code and release facts outrank stale handoff notes or older dev logs when they conflict.
+## Known Boundary
+- Orama remains process-local. Search and stateful write/session tools still
+  wait for full runtime hydration; bootstrap-safe context tools do not.
+- CodeGraph Lite is an incremental local structural map, not a replacement for
+  an AST/language-server intelligence product.
 
 ## Next Steps
-- Commit and push the 1.1.10 release patch.
-- Tag, publish the root package, create the GitHub release, and reply to #124.
+- Commit the verified 1.1.11 change set, promote it through the normal `main`
+  branch flow, tag `v1.1.11`, and publish the already-verified npm package.

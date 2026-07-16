@@ -103,8 +103,18 @@ export class SqliteBackend implements ObservationStore {
   // Prepared statements (lazy-initialized after db open)
   private stmtInsert: any = null;
   private stmtUpdate: any = null;
+  private stmtSetStatus: any = null;
+  private stmtSetStatusIfCurrent: any = null;
   private stmtDelete: any = null;
   private stmtSelectAll: any = null;
+  private stmtSelectById: any = null;
+  private stmtSelectByProject: any = null;
+  private stmtSelectByProjectStatus: any = null;
+  private stmtSelectByProjectAfterId: any = null;
+  private stmtSelectByProjectStatusAfterId: any = null;
+  private stmtCountByProject: any = null;
+  private stmtCountByProjectStatus: any = null;
+  private stmtSelectByTopicKey: any = null;
   private stmtSelectGeneration: any = null;
   private stmtBumpGeneration: any = null;
   private stmtGetMeta: any = null;
@@ -130,8 +140,38 @@ export class SqliteBackend implements ObservationStore {
          @sourceDetail, @valueCategory, @createdByAgentId, @writeGeneration)
     `);
     this.stmtUpdate = this.stmtInsert; // INSERT OR REPLACE works for both
+    this.stmtSetStatus = this.db.prepare(`UPDATE observations SET status = ? WHERE id = ?`);
+    this.stmtSetStatusIfCurrent = this.db.prepare(
+      `UPDATE observations SET status = ? WHERE id = ? AND status = ?`,
+    );
     this.stmtDelete = this.db.prepare(`DELETE FROM observations WHERE id = ?`);
     this.stmtSelectAll = this.db.prepare(`SELECT * FROM observations`);
+    this.stmtSelectById = this.db.prepare(`SELECT * FROM observations WHERE id = ?`);
+    this.stmtSelectByProject = this.db.prepare(`
+      SELECT * FROM observations WHERE projectId = ?
+      ORDER BY id ASC LIMIT ? OFFSET ?
+    `);
+    this.stmtSelectByProjectStatus = this.db.prepare(`
+      SELECT * FROM observations WHERE projectId = ? AND status = ?
+      ORDER BY id ASC LIMIT ? OFFSET ?
+    `);
+    this.stmtSelectByProjectAfterId = this.db.prepare(`
+      SELECT * FROM observations WHERE projectId = ? AND id > ?
+      ORDER BY id ASC LIMIT ?
+    `);
+    this.stmtSelectByProjectStatusAfterId = this.db.prepare(`
+      SELECT * FROM observations WHERE projectId = ? AND status = ? AND id > ?
+      ORDER BY id ASC LIMIT ?
+    `);
+    this.stmtCountByProject = this.db.prepare(
+      `SELECT COUNT(*) AS count FROM observations WHERE projectId = ?`,
+    );
+    this.stmtCountByProjectStatus = this.db.prepare(
+      `SELECT COUNT(*) AS count FROM observations WHERE projectId = ? AND status = ?`,
+    );
+    this.stmtSelectByTopicKey = this.db.prepare(
+      `SELECT * FROM observations WHERE projectId = ? AND topicKey = ? ORDER BY id ASC LIMIT 1`,
+    );
     this.stmtSelectGeneration = this.db.prepare(`SELECT value FROM meta WHERE key = 'storage_generation'`);
     this.stmtBumpGeneration = this.db.prepare(`UPDATE meta SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT) WHERE key = 'storage_generation'`);
     this.stmtGetMeta = this.db.prepare(`SELECT value FROM meta WHERE key = ?`);
@@ -159,6 +199,16 @@ export class SqliteBackend implements ObservationStore {
   private rawLoadAll(): Observation[] {
     const rows = this.stmtSelectAll.all();
     return rows.map(rowToObs);
+  }
+
+  private rawGetById(id: number): Observation | undefined {
+    const row = this.stmtSelectById.get(id);
+    return row ? rowToObs(row) : undefined;
+  }
+
+  private rawFindByTopicKey(projectId: string, topicKey: string): Observation | undefined {
+    const row = this.stmtSelectByTopicKey.get(projectId, topicKey);
+    return row ? rowToObs(row) : undefined;
   }
 
   private rawLoadIdCounter(): number {
@@ -224,6 +274,34 @@ export class SqliteBackend implements ObservationStore {
     return this.rawLoadAll();
   }
 
+  async loadByProject(
+    projectId: string,
+    options: { status?: string; limit?: number; offset?: number; afterId?: number } = {},
+  ): Promise<Observation[]> {
+    const limit = options.limit == null ? -1 : Math.max(1, Math.floor(options.limit));
+    const offset = options.offset == null ? 0 : Math.max(0, Math.floor(options.offset));
+    const afterId = options.afterId == null ? null : Math.max(0, Math.floor(options.afterId));
+    const rows = afterId === null
+      ? (options.status
+        ? this.stmtSelectByProjectStatus.all(projectId, options.status, limit, offset)
+        : this.stmtSelectByProject.all(projectId, limit, offset))
+      : (options.status
+        ? this.stmtSelectByProjectStatusAfterId.all(projectId, options.status, afterId, limit)
+        : this.stmtSelectByProjectAfterId.all(projectId, afterId, limit));
+    return rows.map(rowToObs);
+  }
+
+  async getById(id: number): Promise<Observation | undefined> {
+    return this.rawGetById(id);
+  }
+
+  async countByProject(projectId: string, options: { status?: string } = {}): Promise<number> {
+    const row = options.status
+      ? this.stmtCountByProjectStatus.get(projectId, options.status)
+      : this.stmtCountByProject.get(projectId);
+    return Number(row?.count ?? 0);
+  }
+
   async loadIdCounter(): Promise<number> {
     return this.rawLoadIdCounter();
   }
@@ -284,7 +362,18 @@ export class SqliteBackend implements ObservationStore {
         try {
           const tx: StoreTransaction = {
             loadAll: async () => this.rawLoadAll(),
+            getById: async (id) => this.rawGetById(id),
+            findByTopicKey: async (projectId, topicKey) => this.rawFindByTopicKey(projectId, topicKey),
             loadIdCounter: async () => this.rawLoadIdCounter(),
+            insert: async (obs) => { this.stmtInsert.run(obsToRow(obs)); },
+            update: async (obs) => { this.stmtUpdate.run(obsToRow(obs)); },
+            setStatus: async (id, status, expectedStatus) => {
+              const result = expectedStatus === undefined
+                ? this.stmtSetStatus.run(status, id)
+                : this.stmtSetStatusIfCurrent.run(status, id, expectedStatus);
+              return Number(result.changes) > 0;
+            },
+            remove: async (id) => { this.stmtDelete.run(id); },
             saveAll: async (obs) => {
               this.db.prepare(`DELETE FROM observations`).run();
               for (const o of obs) {
@@ -292,6 +381,7 @@ export class SqliteBackend implements ObservationStore {
               }
             },
             saveIdCounter: async (nextId) => this.rawSaveIdCounter(nextId),
+            getGeneration: async () => this.readGeneration(),
           };
           const result = await fn(tx);
           this.bumpGeneration();

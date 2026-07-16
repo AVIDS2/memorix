@@ -3582,3 +3582,181 @@ mark {
 .stat-card[data-accent="red"]::before {
   background: var(--accent-red);
 }
+
+/* Mobile navigation keeps the app usable instead of squeezing the content
+ * beside a desktop-width sidebar. */
+@media (max-width: 768px) {
+  html,
+  body {
+    height: auto;
+    min-height: 100%;
+    overflow: auto;
+  }
+
+  body {
+    display: block;
+  }
+
+  #sidebar {
+    width: 100%;
+    height: auto;
+    min-height: 0;
+    padding: 10px 12px;
+    border-right: none;
+    border-bottom: 1px solid var(--border-subtle);
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    overflow: visible;
+  }
+
+  .sidebar-brand {
+    gap: 8px;
+    padding: 0;
+    margin: 0;
+  }
+
+  .brand-text {
+    font-size: 14px;
+  }
+
+  .mode-badge {
+    display: none !important;
+  }
+
+  .project-switcher {
+    flex: 1 1 150px;
+    min-width: 0;
+    padding: 0;
+  }
+
+  .project-trigger {
+    min-width: 0;
+    min-height: 38px;
+    padding: 8px 10px;
+  }
+
+  .sidebar-section-label,
+  .sidebar-spacer {
+    display: none;
+  }
+
+  .sidebar-nav {
+    display: contents;
+  }
+
+  .nav-btn {
+    width: 40px;
+    height: 40px;
+    flex: 0 0 40px;
+    justify-content: center;
+    padding: 0;
+    border-radius: var(--radius-sm);
+  }
+
+  .nav-label,
+  .action-label {
+    display: none;
+  }
+
+  .sidebar-footer {
+    display: contents;
+    padding: 0;
+  }
+
+  .sidebar-action-btn {
+    width: 40px;
+    height: 40px;
+    flex: 0 0 40px;
+    justify-content: center;
+    padding: 0;
+    border-radius: var(--radius-sm);
+  }
+
+  #app {
+    height: auto;
+    min-height: 0;
+    overflow: visible;
+    scrollbar-gutter: auto;
+  }
+
+  .page {
+    min-height: 0;
+    padding: 20px 16px;
+  }
+
+  .page-header {
+    margin-bottom: 20px;
+  }
+
+  .page-title {
+    font-size: 24px;
+    line-height: 1.2;
+    overflow-wrap: anywhere;
+  }
+
+  .page-subtitle {
+    line-height: 1.45;
+    overflow-wrap: anywhere;
+  }
+
+  .overview-row {
+    flex-direction: column;
+  }
+
+  .overview-row > .panel {
+    min-width: 0;
+  }
+
+  .type-distribution {
+    flex-direction: column;
+    align-items: stretch !important;
+    gap: 16px !important;
+  }
+
+  .type-distribution canvas {
+    align-self: center;
+  }
+
+  .type-distribution-list {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .activity-item {
+    display: grid;
+    grid-template-columns: auto auto minmax(0, 1fr);
+    gap: 4px 8px;
+    align-items: start;
+    padding: 10px 0;
+  }
+
+  .activity-id {
+    grid-row: 1 / span 2;
+    align-self: center;
+  }
+
+  .activity-item .type-badge {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .activity-title,
+  .activity-entity {
+    grid-column: 3;
+    min-width: 0;
+    overflow: visible;
+    text-overflow: clip;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .activity-title {
+    grid-row: 1;
+  }
+
+  .activity-entity {
+    grid-row: 2;
+  }
+}

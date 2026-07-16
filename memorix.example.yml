@@ -45,9 +45,16 @@ git:
   # excludePatterns:        # File glob patterns — commits touching ONLY these are skipped
   #   - "*.lock"
   #   - "dist/**"
-  # noiseKeywords:          # Regex patterns — commits matching these subjects are skipped
-  #   - "^BOT:"             # Skip bot-generated commits
+  # noiseKeywords:          # Literal phrases (case-insensitive) — matching commits are skipped
+  #   - "bot:"              # Skip bot-generated commits
   #   - "auto-deploy"       # Skip CI deploy commits
+
+# ── CodeGraph Memory ──────────────────────────────────────────
+# Build an incremental local code map for task context. Large generated files
+# are skipped by default; lower this only when a repository needs it.
+# codegraph:
+#   # excludePatterns: ["vendor/**", "generated/**"]
+#   maxFileBytes: 2097152   # 2 MiB default per source file
 
 # ── Behavior Settings ────────────────────────────────────────
 behavior:

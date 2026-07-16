@@ -60,7 +60,7 @@ export interface MemorixYamlConfig {
     skipMergeCommits?: boolean;
     /** File patterns to exclude from git memory (glob) */
     excludePatterns?: string[];
-    /** Additional commit message patterns to treat as noise (regex strings) */
+    /** Additional commit message phrases to treat as noise (literal, case-insensitive) */
     noiseKeywords?: string[];
   };
 
@@ -68,6 +68,8 @@ export interface MemorixYamlConfig {
   codegraph?: {
     /** File patterns to exclude from CodeGraph indexing and context suggestions */
     excludePatterns?: string[];
+    /** Maximum source file size to parse into CodeGraph Memory */
+    maxFileBytes?: number;
   };
 
   /** Behavior settings */

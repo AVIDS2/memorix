@@ -101,7 +101,7 @@ ingest_on_commit = true
 max_diff_size = 500
 skip_merge_commits = true
 exclude_patterns = ["*.lock", "dist/**"]
-noise_keywords = ["^BOT:", "auto-deploy"]
+noise_keywords = ["bot:", "auto-deploy"]
 ```
 
 Key settings:
@@ -111,7 +111,7 @@ Key settings:
 - `max_diff_size`: cap how much diff content is included
 - `skip_merge_commits`: skip merge commits by default
 - `exclude_patterns`: skip commits touching only matching files
-- `noise_keywords`: skip commits whose subjects match configured patterns
+- `noise_keywords`: skip commits containing configured literal phrases (case-insensitive)
 
 See [CONFIGURATION.md](CONFIGURATION.md) for the full configuration model.
 

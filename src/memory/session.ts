@@ -100,6 +100,26 @@ async function resolveProjectIds(projectId: string): Promise<Set<string>> {
   }
 }
 
+async function loadAliasSessions(projectIds: Set<string>): Promise<Session[]> {
+  const store = getSessionStore();
+  const groups = await Promise.all([...projectIds].map((projectId) => store.loadByProject(projectId)));
+  return groups.flat();
+}
+
+async function loadAliasActiveSessions(projectIds: Set<string>): Promise<Session[]> {
+  const store = getSessionStore();
+  const groups = await Promise.all([...projectIds].map((projectId) => store.loadActive(projectId)));
+  return groups.flat();
+}
+
+async function loadAliasActiveObservations(projectIds: Set<string>): Promise<Observation[]> {
+  const store = getObservationStore();
+  const groups = await Promise.all(
+    [...projectIds].map((projectId) => store.loadByProject(projectId, { status: 'active' })),
+  );
+  return groups.flat();
+}
+
 /**
  * Generate a unique session ID.
  */
@@ -262,8 +282,7 @@ export async function endSession(
   summary?: string,
 ): Promise<Session | null> {
   const sessionStore = getSessionStore();
-  const sessions = await sessionStore.loadAll();
-  const session = sessions.find((entry) => entry.id === sessionId);
+  const session = await sessionStore.getById(sessionId);
 
   if (!session) return null;
 
@@ -292,10 +311,11 @@ export async function getSessionContext(
   projectId: string,
   limit: number = 3,
 ): Promise<string> {
-  const sessions = await getSessionStore().loadAll();
-  const allObs = await getObservationStore().loadAll();
-
   const aliasSet = await resolveProjectIds(projectId);
+  const [sessions, allObs] = await Promise.all([
+    loadAliasSessions(aliasSet),
+    loadAliasActiveObservations(aliasSet),
+  ]);
   /** Check if a session summary contains noise/system-self content */
   const isNoisySummary = (summary: string | undefined): boolean => {
     if (!summary) return false;
@@ -303,7 +323,7 @@ export async function getSessionContext(
   };
 
   const projectSessions = sessions
-    .filter((session) => aliasSet.has(session.projectId) && session.status === 'completed')
+    .filter((session) => session.status === 'completed')
     .filter((session) => !isNoisySummary(session.summary))
     .sort((a, b) => new Date(b.endedAt || b.startedAt).getTime() - new Date(a.endedAt || a.startedAt).getTime())
     .slice(0, limit);
@@ -317,7 +337,6 @@ export async function getSessionContext(
 
   // ── Partition project observations by disclosure layer ─────────────
   const projectObs = allObs
-    .filter((obs) => aliasSet.has(obs.projectId) && (obs.status ?? 'active') === 'active')
     .filter((obs) => !isNoiseObservation(obs) && !isSystemSelfObservation(obs));
 
   // L2: durable working context (explicit/undefined/core), priority types only
@@ -503,8 +522,7 @@ export async function listSessions(
   const sessionStore = getSessionStore();
   if (projectId) {
     const aliasSet = await resolveProjectIds(projectId);
-    const all = await sessionStore.loadAll();
-    return all.filter((session) => aliasSet.has(session.projectId));
+    return loadAliasSessions(aliasSet);
   }
   return sessionStore.loadAll();
 }
@@ -516,8 +534,9 @@ export async function getActiveSession(
   projectDir: string,
   projectId: string,
 ): Promise<Session | null> {
-  const sessionStore = getSessionStore();
-  const sessions = await sessionStore.loadAll();
   const aliasSet = await resolveProjectIds(projectId);
-  return sessions.find((session) => aliasSet.has(session.projectId) && session.status === 'active') || null;
+  const sessions = await loadAliasActiveSessions(aliasSet);
+  return sessions
+    .sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime())[0]
+    ?? null;
 }

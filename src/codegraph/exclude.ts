@@ -9,6 +9,16 @@ export const DEFAULT_CODEGRAPH_EXCLUDES = [
   '.tmp/**',
   '.worktrees/**',
   '.claude/worktrees/**',
+  'vendor/**',
+  '.venv/**',
+  'venv/**',
+  '.tox/**',
+  'target/**',
+  '.gradle/**',
+  '.mvn/**',
+  'obj/**',
+  'Pods/**',
+  'DerivedData/**',
 ];
 
 export function normalizeCodeGraphExcludePatterns(exclude?: string[]): string[] {

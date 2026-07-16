@@ -65,7 +65,7 @@ export default defineCommand({
         }
 
         case 'archive': {
-          const result = await archiveExpired(dataDir);
+          const result = await archiveExpired(dataDir, undefined, undefined, project.id);
           emitResult(
             { project, result },
             result.archived === 0
@@ -105,4 +105,3 @@ export default defineCommand({
     }
   },
 });
-

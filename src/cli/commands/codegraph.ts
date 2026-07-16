@@ -1,6 +1,6 @@
 import { defineCommand } from 'citty';
 import { CodeGraphStore } from '../../codegraph/store.js';
-import { indexProjectLite } from '../../codegraph/lite-provider.js';
+import { refreshProjectLite } from '../../codegraph/lite-provider.js';
 import { assembleContextPackForTask, buildContextPackPrompt } from '../../codegraph/context-pack.js';
 import { backfillMissingObservationCodeRefs } from '../../codegraph/binder.js';
 import { getResolvedConfig } from '../../config/resolved-config.js';
@@ -50,7 +50,8 @@ export default defineCommand({
       const store = new CodeGraphStore();
       await store.init(dataDir);
       const explicitAction = Boolean(positional[0] || (args.action as string | undefined));
-      const exclude = getResolvedConfig({ projectRoot: project.rootPath }).codegraph.excludePatterns;
+      const codegraphConfig = getResolvedConfig({ projectRoot: project.rootPath }).codegraph;
+      const exclude = codegraphConfig.excludePatterns;
 
       switch (action) {
         case 'status': {
@@ -63,21 +64,22 @@ export default defineCommand({
         }
 
         case 'refresh': {
-          const indexed = await indexProjectLite({
+          const refresh = await refreshProjectLite(store, {
             projectId: project.id,
             projectRoot: project.rootPath,
             exclude,
+            maxFileBytes: codegraphConfig.maxFileBytes,
           });
-          store.replaceProjectIndex(project.id, indexed);
           const activeObservations = getAllObservations()
             .filter(obs => obs.projectId === project.id && (obs.status ?? 'active') === 'active');
           const backfill = await backfillMissingObservationCodeRefs(store, activeObservations);
           const status = store.status(project.id);
           emitResult(
-            { project, status, backfill },
+            { project, status, refresh, backfill },
             [
               'CodeGraph Memory refreshed.',
               formatStatus(status),
+              `- Files: ${refresh.changedFiles} changed, ${refresh.unchangedFiles} unchanged, ${refresh.removedFiles} removed`,
               `- Backfilled memories: ${backfill.observationsBackfilled}`,
               `- Backfilled refs: ${backfill.refsBackfilled}`,
             ].join('\n'),

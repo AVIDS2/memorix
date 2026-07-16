@@ -220,6 +220,11 @@ const i18n = {
     providerUnavailable: 'Unavailable',
     providerDisabled: 'Disabled (BM25 only)',
     degradedHint: 'Search is degraded — no vector similarity',
+    maintenance: 'Maintenance',
+    maintenanceIdle: 'No work queued',
+    maintenanceQueued: 'queued',
+    maintenanceRunning: 'running',
+    maintenanceNeedsAttention: 'needs attention',
 
     // Project states
     noProjects: 'No projects',
@@ -642,6 +647,11 @@ const i18n = {
     providerUnavailable: '不可用',
     providerDisabled: '已禁用 (仅 BM25)',
     degradedHint: '搜索已降级 — 无向量相似性',
+    maintenance: '维护任务',
+    maintenanceIdle: '无待处理任务',
+    maintenanceQueued: '项排队',
+    maintenanceRunning: '项运行中',
+    maintenanceNeedsAttention: '项需要处理',
 
     // Project states
     noProjects: '无项目',
@@ -1320,6 +1330,17 @@ async function loadDashboard() {
   const totalObs = stats.observations || 0;
   const gs = stats.gitSummary || { total: 0, recentWeek: 0, recentMemories: [] };
   const rs = stats.retentionSummary || { active: 0, stale: 0, archive: 0, immune: 0 };
+  const maintenance = stats.maintenance || { pending: 0, running: 0, retrying: 0, failed: 0 };
+  const queuedMaintenance = (maintenance.pending || 0) + (maintenance.retrying || 0);
+  const activeMaintenance = maintenance.running || 0;
+  const failedMaintenance = maintenance.failed || 0;
+  const maintenanceState = failedMaintenance > 0
+    ? { color: 'var(--accent-red)', text: `${failedMaintenance} ${t('maintenanceNeedsAttention')}` }
+    : activeMaintenance > 0
+      ? { color: 'var(--accent-blue)', text: `${activeMaintenance} ${t('maintenanceRunning')}` }
+      : queuedMaintenance > 0
+        ? { color: 'var(--accent-amber)', text: `${queuedMaintenance} ${t('maintenanceQueued')}` }
+        : { color: 'var(--accent-green)', text: t('maintenanceIdle') };
 
   const typeIcons = {
     'session-request': '<span class="iconify" data-icon="lucide:target" style="color:#f87171;"></span>', gotcha: '<span class="iconify" data-icon="lucide:alert-octagon" style="color:#ef4444;"></span>', 'problem-solution': '<span class="iconify" data-icon="lucide:lightbulb" style="color:#fbbf24;"></span>',
@@ -1371,7 +1392,7 @@ async function loadDashboard() {
       <div class="panel" style="flex:1;">
         <div class="panel-header"><span class="panel-title">${t('systemStatus')}</span></div>
         <div class="panel-body">
-          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;">
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:16px;">
             <div>
               <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">${t('embeddingProvider')}</div>
               <div style="font-size:14px;font-weight:600;color:${stats.embedding?.enabled ? 'var(--accent-green)' : stats.embedding?.provider ? 'var(--accent-amber)' : 'var(--text-muted)'};">
@@ -1395,6 +1416,11 @@ async function loadDashboard() {
                 ${stats.searchMode || (stats.embedding?.enabled ? 'hybrid' : 'fulltext')}
               </div>
               ${stats.embeddingProviderState === 'temporarily_unavailable' ? `<div style="font-size:11px;color:var(--accent-amber);margin-top:2px;">${t('degradedHint')}</div>` : ''}
+            </div>
+            <div>
+              <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">${t('maintenance')}</div>
+              <div style="font-size:14px;font-weight:600;color:${maintenanceState.color};">${maintenanceState.text}</div>
+              ${queuedMaintenance > 0 && activeMaintenance > 0 ? `<div style="font-size:11px;color:var(--text-secondary);margin-top:2px;">${queuedMaintenance} ${t('maintenanceQueued')}</div>` : ''}
             </div>
           </div>
         </div>
@@ -1440,9 +1466,9 @@ async function loadDashboard() {
         <div class="panel-header"><span class="panel-title">${t('observationTypes')}</span></div>
         <div class="panel-body">
           ${typeEntries.length > 0 ? `
-            <div style="display: flex; gap: 20px; align-items: flex-start;">
+            <div class="type-distribution" style="display: flex; gap: 20px; align-items: flex-start;">
               <canvas id="type-pie-chart" width="140" height="140" style="flex-shrink: 0;"></canvas>
-              <div style="flex: 1;">
+              <div class="type-distribution-list" style="flex: 1;">
                 ${typeEntries.map(([type, count]) => `
                   <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
                     <span style="width: 18px; text-align: center; font-size: 13px;">${typeIcons[type] || '[UNKNOWN]'}</span>

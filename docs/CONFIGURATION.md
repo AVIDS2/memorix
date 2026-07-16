@@ -51,6 +51,7 @@ api_key = "..."
 inject = "minimal"
 formation = "active"
 auto_cleanup = true
+sync_advisory = true
 
 [git]
 auto_hook = false
@@ -62,6 +63,7 @@ noise_keywords = ["format", "typo"]
 
 [codegraph]
 exclude_patterns = ["vendor/**", "third_party/**", "generated/**"]
+max_file_bytes = 2097152
 
 [server]
 transport = "stdio"
@@ -182,6 +184,11 @@ Common keys:
 - `inject = "minimal"` (`full`, `minimal`, `silent`)
 - `formation = "active"` (`active`, `shadow`, `fallback`)
 - `auto_cleanup = true`
+- `sync_advisory = true`
+
+The same values are available in legacy YAML under `behavior.*`. Existing
+`~/.memorix/config.json` behavior settings are retained only as a fallback for
+older installs.
 
 ### `[git]`
 
@@ -194,7 +201,7 @@ Common keys:
 - `max_diff_size = 500`
 - `skip_merge_commits = true`
 - `exclude_patterns = ["*.lock", "dist/**"]`
-- `noise_keywords = ["format", "typo"]`
+- `noise_keywords = ["format", "typo"]` (literal phrases, case-insensitive)
 
 Project identity is still resolved from the real `.git` root. A project
 `memorix.toml` is an override file under that root; it does not create or rename
@@ -202,18 +209,22 @@ the Memorix project ID.
 
 ### `[codegraph]`
 
-CodeGraph Memory and Project Context path filtering.
+CodeGraph Memory and Project Context scan limits.
 
 Common keys:
 
 - `exclude_patterns = ["vendor/**", "third_party/**", "generated/**"]`
+- `max_file_bytes = 2097152` (2 MiB per source file by default)
 
-Legacy YAML uses `codegraph.excludePatterns` for the same setting.
+Legacy YAML uses `codegraph.excludePatterns` and `codegraph.maxFileBytes` for
+the same settings.
 
 These patterns extend Memorix's built-in CodeGraph excludes (`node_modules`,
 build outputs, worktrees, and similar generated directories). Matching paths are
 skipped during CodeGraph indexing and hidden from Project Context / Context Pack
-suggested reads.
+suggested reads. Files larger than `max_file_bytes` are also skipped so a
+generated or minified source file cannot monopolize an incremental scan. Raise
+the limit only for a repository where that file is intentional source.
 
 ### `[server]`
 

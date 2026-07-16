@@ -94,6 +94,36 @@ describe('auto project context', () => {
     expect(text).not.toContain('SQLite');
   });
 
+  it('queues an MCP-style refresh instead of scanning code inside the request', async () => {
+    await storeObservation({
+      entityName: 'auth',
+      type: 'decision',
+      title: 'auth memory has a file hint',
+      narrative: 'Start from src/auth.ts.',
+      filesModified: ['src/auth.ts'],
+      projectId: 'local/repo',
+    });
+    const enqueueRefresh = vi.fn();
+
+    const context = await buildAutoProjectContext({
+      project: { id: 'local/repo', name: 'repo', rootPath: repoDir },
+      dataDir,
+      observations: getAllObservations(),
+      refresh: 'auto',
+      enqueueRefresh,
+      task: 'inspect the cold project without blocking on indexing',
+    });
+
+    expect(enqueueRefresh).toHaveBeenCalledTimes(1);
+    expect(context.refresh).toMatchObject({ performed: false, reason: 'queued' });
+    expect(context.overview.code.files).toBe(0);
+    expect(context.overview.suggestedReads).toContain('src/auth.ts');
+    expect(context.explain.sources[0]).toMatchObject({
+      path: 'src/auth.ts',
+      status: 'unbound',
+    });
+  });
+
   it('collects the project graph once per context request', async () => {
     const store = new CodeGraphStore();
     await store.init(dataDir);

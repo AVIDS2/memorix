@@ -293,10 +293,42 @@ CREATE TABLE IF NOT EXISTS observation_code_refs (
 );
 `;
 
+// ── Runtime maintenance jobs ───────────────────────────────────────
+
+const CREATE_MAINTENANCE_JOBS_TABLE = `
+CREATE TABLE IF NOT EXISTS maintenance_jobs (
+  id               TEXT PRIMARY KEY,
+  project_id       TEXT NOT NULL,
+  kind             TEXT NOT NULL,
+  dedupe_key       TEXT NOT NULL,
+  payload_json     TEXT NOT NULL DEFAULT '{}',
+  status           TEXT NOT NULL DEFAULT 'pending',
+  attempts         INTEGER NOT NULL DEFAULT 0,
+  max_attempts     INTEGER NOT NULL DEFAULT 8,
+  run_after        INTEGER NOT NULL,
+  lease_owner      TEXT,
+  lease_expires_at INTEGER,
+  last_error       TEXT,
+  created_at       INTEGER NOT NULL,
+  updated_at       INTEGER NOT NULL,
+  completed_at     INTEGER
+);
+`;
+
+const CREATE_MAINTENANCE_TARGETS_TABLE = `
+CREATE TABLE IF NOT EXISTS maintenance_targets (
+  project_id   TEXT PRIMARY KEY,
+  project_root TEXT NOT NULL,
+  data_dir     TEXT NOT NULL,
+  updated_at   INTEGER NOT NULL
+);
+`;
+
 const CREATE_INDEXES = `
 CREATE INDEX IF NOT EXISTS idx_observations_projectId ON observations(projectId);
 CREATE INDEX IF NOT EXISTS idx_observations_topicKey ON observations(projectId, topicKey);
 CREATE INDEX IF NOT EXISTS idx_observations_status ON observations(status);
+CREATE INDEX IF NOT EXISTS idx_observations_project_status_id ON observations(projectId, status, id);
 CREATE INDEX IF NOT EXISTS idx_mini_skills_projectId ON mini_skills(projectId);
 CREATE INDEX IF NOT EXISTS idx_sessions_projectId ON sessions(projectId);
 CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(projectId, status);
@@ -318,6 +350,12 @@ CREATE INDEX IF NOT EXISTS idx_code_symbols_file ON code_symbols(fileId);
 CREATE INDEX IF NOT EXISTS idx_code_edges_project ON code_edges(projectId, type);
 CREATE INDEX IF NOT EXISTS idx_observation_code_refs_obs ON observation_code_refs(projectId, observationId);
 CREATE INDEX IF NOT EXISTS idx_observation_code_refs_status ON observation_code_refs(projectId, status);
+CREATE INDEX IF NOT EXISTS idx_maintenance_jobs_ready ON maintenance_jobs(status, run_after);
+CREATE INDEX IF NOT EXISTS idx_maintenance_jobs_project ON maintenance_jobs(project_id, status, run_after);
+CREATE INDEX IF NOT EXISTS idx_maintenance_targets_updated ON maintenance_targets(updated_at);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_maintenance_jobs_active_dedupe
+  ON maintenance_jobs(project_id, kind, dedupe_key)
+  WHERE status IN ('pending', 'running', 'retry');
 `;
 
 // ── Singleton cache ─────────────────────────────────────────────────
@@ -367,6 +405,8 @@ export function getDatabase(dataDir: string): any {
   db.exec(CREATE_CODE_SYMBOLS_TABLE);
   db.exec(CREATE_CODE_EDGES_TABLE);
   db.exec(CREATE_OBSERVATION_CODE_REFS_TABLE);
+  db.exec(CREATE_MAINTENANCE_JOBS_TABLE);
+  db.exec(CREATE_MAINTENANCE_TARGETS_TABLE);
 
   // Phase 3a migration: add sourceSnapshot + updatedAt to mini_skills
   // Idempotent — ALTER TABLE ADD COLUMN throws if column already exists

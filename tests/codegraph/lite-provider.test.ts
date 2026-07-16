@@ -2,7 +2,9 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { indexProjectLite } from '../../src/codegraph/lite-provider.js';
+import { indexProjectLite, refreshProjectLite } from '../../src/codegraph/lite-provider.js';
+import { CodeGraphStore } from '../../src/codegraph/store.js';
+import { closeAllDatabases } from '../../src/store/sqlite-db.js';
 
 let root: string | null = null;
 
@@ -13,11 +15,35 @@ function makeRoot(): string {
 }
 
 afterEach(() => {
+  closeAllDatabases();
   if (root) rmSync(root, { recursive: true, force: true });
   root = null;
 });
 
 describe('CodeGraph Lite provider', () => {
+  it('refreshes only changed files and removes deleted files without replacing the project graph', async () => {
+    const dir = makeRoot();
+    mkdirSync(join(dir, 'src'), { recursive: true });
+    writeFileSync(join(dir, 'src', 'stable.ts'), 'export function stable() { return 1; }\n');
+    writeFileSync(join(dir, 'src', 'changed.ts'), 'export function beforeChange() {}\n');
+
+    const store = new CodeGraphStore();
+    await store.init(dir);
+    const first = await refreshProjectLite(store, { projectId: 'org/repo', projectRoot: dir });
+    expect(first.changedFiles).toBe(2);
+    expect(store.findSymbols('org/repo', 'beforeChange')).toHaveLength(1);
+
+    writeFileSync(join(dir, 'src', 'changed.ts'), 'export function afterChangeWithMoreBytes() { return true; }\n');
+    rmSync(join(dir, 'src', 'stable.ts'));
+
+    const second = await refreshProjectLite(store, { projectId: 'org/repo', projectRoot: dir });
+    expect(second.changedFiles).toBe(1);
+    expect(second.removedFiles).toBe(1);
+    expect(store.findSymbols('org/repo', 'beforeChange')).toHaveLength(0);
+    expect(store.findSymbols('org/repo', 'afterChangeWithMoreBytes')).toHaveLength(1);
+    expect(store.getFile('org/repo', 'src/stable.ts')).toBeNull();
+  });
+
   it('indexes TS files, imports, exports, and top-level symbols', async () => {
     const dir = makeRoot();
     mkdirSync(join(dir, 'src'), { recursive: true });
@@ -153,7 +179,10 @@ describe('CodeGraph Lite provider', () => {
     mkdirSync(join(dir, 'src'), { recursive: true });
     writeFileSync(join(dir, 'src', 'main.ts'), 'export function main() {}\n');
 
-    for (const generatedDir of ['dist', 'build', 'coverage', '.next', '.turbo', 'node_modules', '.git', '.tmp', '.worktrees']) {
+    for (const generatedDir of [
+      'dist', 'build', 'coverage', '.next', '.turbo', 'node_modules', '.git', '.tmp', '.worktrees',
+      'vendor', '.venv', 'venv', '.tox', 'target', '.gradle', '.mvn', 'obj', 'Pods', 'DerivedData',
+    ]) {
       mkdirSync(join(dir, generatedDir), { recursive: true });
       writeFileSync(join(dir, generatedDir, 'generated.ts'), 'export function generated() {}\n');
     }
@@ -185,6 +214,49 @@ describe('CodeGraph Lite provider', () => {
 
     expect(result.files.map(file => file.path)).toEqual(['src/main.ts']);
     expect(result.symbols.map(symbol => symbol.name)).toEqual(['main']);
+  });
+
+  it('skips oversized source files instead of parsing unbounded generated content', async () => {
+    const dir = makeRoot();
+    mkdirSync(join(dir, 'src'), { recursive: true });
+    writeFileSync(join(dir, 'src', 'small.ts'), 'export function small() {}\n');
+    writeFileSync(join(dir, 'src', 'large.ts'), `export const payload = '${'x'.repeat(4_096)}';\n`);
+
+    const result = await indexProjectLite({
+      projectId: 'org/repo',
+      projectRoot: dir,
+      maxFileBytes: 1_024,
+    });
+
+    expect(result.files.map(file => file.path)).toEqual(['src/small.ts']);
+    expect(result.skippedOversizedFiles).toBe(1);
+  });
+
+  it('removes an existing graph entry when a source file grows beyond the safety limit', async () => {
+    const dir = makeRoot();
+    mkdirSync(join(dir, 'src'), { recursive: true });
+    const file = join(dir, 'src', 'worker.ts');
+    writeFileSync(file, 'export function worker() {}\n');
+
+    const store = new CodeGraphStore();
+    await store.init(dir);
+    await refreshProjectLite(store, {
+      projectId: 'org/repo',
+      projectRoot: dir,
+      maxFileBytes: 1_024,
+    });
+    expect(store.getFile('org/repo', 'src/worker.ts')).not.toBeNull();
+
+    writeFileSync(file, `export const generated = '${'x'.repeat(4_096)}';\n`);
+    const refresh = await refreshProjectLite(store, {
+      projectId: 'org/repo',
+      projectRoot: dir,
+      maxFileBytes: 1_024,
+    });
+
+    expect(refresh.skippedOversizedFiles).toBe(1);
+    expect(refresh.removedFiles).toBe(1);
+    expect(store.getFile('org/repo', 'src/worker.ts')).toBeNull();
   });
 
   it('continues indexing when a discovered file cannot be read', async () => {

@@ -86,6 +86,23 @@ function normalizeEmbeddingFailure(error: unknown): { key: string; message: stri
   };
 }
 
+function queueVectorBackfill(projectId: string): void {
+  const dataDir = projectDir;
+  if (!dataDir) return;
+  void import('../runtime/maintenance-jobs.js')
+    .then(({ MaintenanceJobStore }) => {
+      new MaintenanceJobStore(dataDir).enqueue({
+        projectId,
+        kind: 'vector-backfill',
+        dedupeKey: 'vector-backfill',
+        payload: { limit: 12 },
+      });
+    })
+    .catch(() => {
+      // Memory writes remain durable even when the optional maintenance queue is unavailable.
+    });
+}
+
 async function bindObservationCodeRefsBestEffort(observation: Observation): Promise<void> {
   if (!projectDir) return;
   try {
@@ -199,6 +216,10 @@ export async function storeObservation(input: {
   // Covers all write paths: hooks, git-ingest, CLI, reasoning, compact-on-write, etc.
   input = { ...input, title: sanitizeCredentials(input.title), narrative: sanitizeCredentials(input.narrative), facts: input.facts?.map(sanitizeCredentials) };
 
+  // Sync the local cache before using it as the topicKey fast path. This costs a
+  // generation read in the normal case and only reloads when another process wrote.
+  await ensureFreshObservations();
+
   // Topic key upsert: fast-path check in-memory (optimistic, may be stale).
   // A second authoritative check happens inside the file lock to prevent TOCTOU races
   // where two concurrent calls with the same topicKey both miss this check.
@@ -235,26 +256,29 @@ export async function storeObservation(input: {
   let doc!: MemorixDocument;
 
   let upsertedInsideLock = false;
+  let reloadCacheAfterCommit = false;
   const assignAndPersist = async () => {
     if (projectDir) {
       const store = getObservationStore();
+      const cachedGeneration = store.getGeneration();
       await store.atomic(async (tx) => {
-        // Re-read from store to get the authoritative nextId and observation list
-        const diskObs = await tx.loadAll();
+        const transactionGeneration = await tx.getGeneration();
         const diskNextId = await tx.loadIdCounter();
+
+        // A different writer committed after the cache freshness check but before
+        // this transaction acquired its lock. Keep the cache coherent after commit.
+        reloadCacheAfterCommit = transactionGeneration !== cachedGeneration;
 
         // ── Atomic topicKey re-check inside lock (prevents TOCTOU race) ──
         // Two concurrent calls with the same topicKey may both pass the fast-path
         // check above, but here we re-check against the authoritative disk state.
         if (input.topicKey) {
-          const diskExisting = diskObs.find(
-            o => o.topicKey === input.topicKey && o.projectId === input.projectId,
-          );
+          const diskExisting = await tx.findByTopicKey(input.projectId, input.topicKey);
           if (diskExisting) {
-            // Switch to upsert path — update the existing observation in-place
-            observations = diskObs;
+            // Switch to upsert path — update the existing observation after this
+            // short transaction has released its lock.
             upsertedInsideLock = true;
-            observation = diskExisting as Observation;
+            observation = diskExisting;
             return; // Exit atomic — upsert will be handled after assignAndPersist
           }
         }
@@ -287,21 +311,29 @@ export async function storeObservation(input: {
           sourceDetail: input.sourceDetail,
           valueCategory: input.valueCategory,
           createdByAgentId: input.createdByAgentId,
-          // Phase 4a: predict writeGeneration before saveAll so it gets persisted to SQLite.
+          // Predict the generation that atomic() will commit after this callback.
           // bumpGeneration() runs after fn(tx) returns, incrementing by 1.
-          writeGeneration: store.getGeneration() + 1,
+          writeGeneration: transactionGeneration + 1,
         };
 
-        diskObs.push(observation);
-        nextId = id + 1;
-        observations = diskObs;
-
-        await tx.saveAll(observations);
-        await tx.saveIdCounter(nextId);
+        await tx.insert(observation);
+        await tx.saveIdCounter(id + 1);
       });
 
       // Phase 4a: confirm writeGeneration matches actual post-bump value
       observation.writeGeneration = store.getGeneration();
+
+      if (upsertedInsideLock || reloadCacheAfterCommit) {
+        observations = await store.loadAll();
+        nextId = await store.loadIdCounter();
+        if (upsertedInsideLock) {
+          observation = observations.find((candidate) => candidate.id === observation.id)
+            ?? observation;
+        }
+      } else {
+        observations.push(observation);
+        nextId = observation.id + 1;
+      }
 
       // If the atomic block detected a topicKey duplicate, skip Orama insert — upsert handles it
       if (upsertedInsideLock) return;
@@ -384,6 +416,7 @@ export async function storeObservation(input: {
         console.error(
           `[memorix] Embedding dimension mismatch for obs-${obsId}: provider returned ${embedding.length}d, index expects ${vectorDimensions ?? 'unknown'}d (kept in backfill queue)`,
         );
+        queueVectorBackfill(input.projectId);
         return;
       }
       try {
@@ -393,16 +426,19 @@ export async function storeObservation(input: {
         vectorMissingIds.delete(obsId);
       } catch {
         console.error(`[memorix] Embedding index update failed for obs-${obsId} (kept in backfill queue)`);
+        queueVectorBackfill(input.projectId);
       }
     } else if (isEmbeddingExplicitlyDisabled()) {
       vectorMissingIds.delete(obsId);
     } else {
+      queueVectorBackfill(input.projectId);
       logEmbeddingFailureOnce(
         'provider-unavailable',
         `[memorix] Embedding provider unavailable (using BM25 until embedding recovers; queued obs-${obsId} for retry)`,
       );
     }
   }).catch((err) => {
+    queueVectorBackfill(input.projectId);
     const failure = normalizeEmbeddingFailure(err);
     logEmbeddingFailureOnce(
       failure.key,
@@ -522,17 +558,25 @@ async function upsertObservation(
   // Generate embedding async (fire-and-forget) — never blocks MCP response
   const searchableText = [input.title, input.narrative, ...(input.facts ?? [])].join(' ');
   const obsId = existing.id;
+  vectorMissingIds.add(obsId);
   generateEmbedding(searchableText).then(async (embedding) => {
     if (embedding) {
       try {
         const { removeObservation: removeObs } = await import('../store/orama-store.js');
         await removeObs(makeOramaObservationId(existing.projectId, obsId));
         await insertObservation(Object.assign({}, doc, { embedding }));
+        vectorMissingIds.delete(obsId);
       } catch {
         // Embedding index update failed — observation still persisted without vector
+        queueVectorBackfill(existing.projectId);
       }
+    } else if (isEmbeddingExplicitlyDisabled()) {
+      vectorMissingIds.delete(obsId);
+    } else {
+      queueVectorBackfill(existing.projectId);
     }
   }).catch((err) => {
+    queueVectorBackfill(existing.projectId);
     const failure = normalizeEmbeddingFailure(err);
     logEmbeddingFailureOnce(
       failure.key,
@@ -560,6 +604,7 @@ export async function resolveObservations(
 ): Promise<{ resolved: number[]; notFound: number[] }> {
   const resolved: number[] = [];
   const notFound: number[] = [];
+  const changed: Observation[] = [];
   const now = new Date().toISOString();
 
   for (const id of ids) {
@@ -574,6 +619,7 @@ export async function resolveObservations(
       obs.progress.status = status === 'resolved' ? 'completed' : obs.progress.status;
     }
     resolved.push(id);
+    changed.push(obs);
 
     // Update Orama index (without blocking on embedding)
     try {
@@ -616,7 +662,9 @@ export async function resolveObservations(
   // Persist via ObservationStore
   if (projectDir && resolved.length > 0) {
     const store = getObservationStore();
-    await store.bulkReplace(observations);
+    await store.atomic(async (tx) => {
+      await Promise.all(changed.map((observation) => tx.update(observation)));
+    });
   }
 
   return { resolved, notFound };
@@ -652,16 +700,20 @@ export async function migrateProjectIds(
   if (nonCanonical.size === 0) return 0;
 
   let migrated = 0;
+  const changed: Observation[] = [];
   for (const obs of observations) {
     if (nonCanonical.has(obs.projectId)) {
       obs.projectId = canonicalId;
       migrated++;
+      changed.push(obs);
     }
   }
 
   if (migrated > 0 && projectDir) {
     const store = getObservationStore();
-    await store.bulkReplace(observations);
+    await store.atomic(async (tx) => {
+      await Promise.all(changed.map((observation) => tx.update(observation)));
+    });
   }
 
   return migrated;
@@ -831,25 +883,28 @@ export async function prepareSearchIndex(): Promise<number> {
  * Get the current set of observation IDs that are missing vector embeddings.
  * Useful for dashboards, health checks, and monitoring search quality degradation.
  */
-export function getVectorMissingIds(): number[] {
-  return [...vectorMissingIds];
+export function getVectorMissingIds(projectId?: string): number[] {
+  if (!projectId) return [...vectorMissingIds];
+  const observationById = new Map(observations.map((observation) => [observation.id, observation]));
+  return [...vectorMissingIds].filter((id) => observationById.get(id)?.projectId === projectId);
 }
 
 /**
  * Get a summary of vector embedding status.
  * Returns total observations, how many have vectors, and how many are missing.
  */
-export function getVectorStatus(): {
+export function getVectorStatus(projectId?: string): {
   total: number;
   missing: number;
   missingIds: number[];
   backfillRunning: boolean;
   lastBackfill: typeof lastVectorBackfill;
 } {
+  const missingIds = getVectorMissingIds(projectId);
   return {
-    total: observations.length,
-    missing: vectorMissingIds.size,
-    missingIds: [...vectorMissingIds],
+    total: projectId ? observations.filter((observation) => observation.projectId === projectId).length : observations.length,
+    missing: missingIds.length,
+    missingIds,
     backfillRunning: vectorBackfillRunning,
     lastBackfill: lastVectorBackfill,
   };
@@ -896,7 +951,10 @@ export async function probeSearchIndex(projectId: string): Promise<string> {
  *
  * Safe to call concurrently — only one backfill runs at a time.
  */
-export async function backfillVectorEmbeddings(): Promise<{
+export async function backfillVectorEmbeddings(options: {
+  projectId?: string;
+  limit?: number;
+} = {}): Promise<{
   attempted: number;
   succeeded: number;
   failed: number;
@@ -906,14 +964,20 @@ export async function backfillVectorEmbeddings(): Promise<{
   }
   vectorBackfillRunning = true;
 
-  const ids = [...vectorMissingIds];
+  const observationById = new Map(observations.map((observation) => [observation.id, observation]));
+  const limit = Number.isFinite(options.limit)
+    ? Math.max(1, Math.floor(options.limit!))
+    : Number.POSITIVE_INFINITY;
+  const ids = [...vectorMissingIds]
+    .filter((id) => !options.projectId || observationById.get(id)?.projectId === options.projectId)
+    .slice(0, limit);
   let succeeded = 0;
   let failed = 0;
   let lastFailure: string | undefined;
 
   try {
     for (const id of ids) {
-      const obs = observations.find(o => o.id === id);
+      const obs = observationById.get(id);
       if (!obs) {
         vectorMissingIds.delete(id);
         continue;

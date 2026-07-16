@@ -183,12 +183,29 @@ describe('Standalone Dashboard Project Scope', () => {
     expect(ids).toEqual([1, 2]);
   });
 
+  it('does not expose standalone dashboard JSON to arbitrary origins', async () => {
+    const response = await fetch(`${DASH_BASE}/api/project`, {
+      headers: { Origin: 'https://evil.example' },
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('access-control-allow-origin')).toBeNull();
+  });
+
   it('GET /api/stats counts only active project observations', async () => {
     const { status, body } = await fetchJson('/api/stats');
     expect(status).toBe(200);
 
     expect(body.observations).toBe(2);
     expect(body.nextId).toBe(7);
+  });
+
+  it('GET /api/maintenance exposes project-scoped background work state', async () => {
+    const { status, body } = await fetchJson('/api/maintenance');
+
+    expect(status).toBe(200);
+    expect(body.summary).toMatchObject({ total: 0, pending: 0, running: 0 });
+    expect(body.jobs).toEqual([]);
   });
 
   it('GET /api/knowledge returns project-scoped Knowledge Base overview', async () => {

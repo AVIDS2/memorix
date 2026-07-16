@@ -363,6 +363,89 @@ export function explainRetention(
 
 // ── Auto-Archive ────────────────────────────────────────────────────
 
+export interface ArchiveExpiredBatchOptions {
+  projectId: string;
+  afterId?: number;
+  limit?: number;
+  referenceTime?: Date;
+  accessMap?: Map<number, { accessCount: number; lastAccessedAt: string }>;
+}
+
+export interface ArchiveExpiredBatchResult {
+  archived: number;
+  scanned: number;
+  nextCursor?: number;
+}
+
+function toRetentionDocument(
+  obs: Observation,
+  accessMap?: Map<number, { accessCount: number; lastAccessedAt: string }>,
+): MemorixDocument {
+  const access = accessMap?.get(obs.id);
+  return {
+    id: `obs-${obs.id}`,
+    observationId: obs.id,
+    entityName: obs.entityName,
+    type: obs.type,
+    title: obs.title,
+    narrative: obs.narrative,
+    facts: obs.facts.join('\n'),
+    filesModified: obs.filesModified.join('\n'),
+    concepts: obs.concepts.join(', '),
+    tokens: obs.tokens,
+    createdAt: obs.createdAt,
+    projectId: obs.projectId,
+    accessCount: access?.accessCount ?? 0,
+    lastAccessedAt: access?.lastAccessedAt ?? '',
+    status: obs.status ?? 'active',
+    source: obs.source ?? 'agent',
+    sourceDetail: obs.sourceDetail ?? '',
+    valueCategory: obs.valueCategory ?? '',
+  };
+}
+
+/**
+ * Archive one bounded page of a project's active memories. The caller owns the
+ * cursor, which makes the operation safe to run from a durable maintenance job.
+ */
+export async function archiveExpiredBatch(
+  _projectDir: string,
+  options: ArchiveExpiredBatchOptions,
+): Promise<ArchiveExpiredBatchResult> {
+  const store = getObservationStore();
+  const limit = Math.min(500, Math.max(1, Math.floor(options.limit ?? 100)));
+  const afterId = Math.max(0, Math.floor(options.afterId ?? 0));
+  const page = await store.loadByProject(options.projectId, {
+    status: 'active',
+    afterId,
+    limit: limit + 1,
+  });
+  const hasMore = page.length > limit;
+  const scanned = hasMore ? page.slice(0, limit) : page;
+  const candidateIds = scanned
+    .filter((observation) => getRetentionZone(
+      toRetentionDocument(observation, options.accessMap),
+      options.referenceTime,
+    ) === 'archive-candidate')
+    .map((observation) => observation.id);
+
+  const archived = candidateIds.length === 0
+    ? 0
+    : await store.atomic(async (tx) => {
+      const updates = await Promise.all(
+        candidateIds.map((id) => tx.setStatus(id, 'archived', 'active')),
+      );
+      return updates.filter(Boolean).length;
+    });
+
+  const nextCursor = hasMore && scanned.length > 0
+    ? scanned[scanned.length - 1].id
+    : undefined;
+  return nextCursor === undefined
+    ? { archived, scanned: scanned.length }
+    : { archived, scanned: scanned.length, nextCursor };
+}
+
 /**
  * Archive expired observations by setting status='archived' in-place.
  *
@@ -377,57 +460,52 @@ export async function archiveExpired(
   projectDir: string,
   referenceTime?: Date,
   accessMap?: Map<number, { accessCount: number; lastAccessedAt: string }>,
+  projectId?: string,
 ): Promise<{ archived: number; remaining: number }> {
   const store = getObservationStore();
+  if (projectId) {
+    let afterId: number | undefined;
+    let archived = 0;
+    do {
+      const batch = await archiveExpiredBatch(projectDir, {
+        projectId,
+        afterId,
+        referenceTime,
+        accessMap,
+      });
+      archived += batch.archived;
+      afterId = batch.nextCursor;
+    } while (afterId !== undefined);
+
+    const remaining = await store.countByProject(projectId, { status: 'active' });
+    return { archived, remaining };
+  }
+
   return await store.atomic(async (tx) => {
     const allObs = await tx.loadAll();
 
-    // Convert to MemorixDocument-like shape for zone calculation
-    // Use accessMap (from Orama index) when available for accurate immunity checks
-    const toDoc = (obs: Observation): MemorixDocument => {
-      const access = accessMap?.get(obs.id);
-      return {
-        id: `obs-${obs.id}`,
-        observationId: obs.id,
-        entityName: obs.entityName,
-        type: obs.type,
-        title: obs.title,
-        narrative: obs.narrative,
-        facts: obs.facts.join('\n'),
-        filesModified: obs.filesModified.join('\n'),
-        concepts: obs.concepts.join(', '),
-        tokens: obs.tokens,
-        createdAt: obs.createdAt,
-        projectId: obs.projectId,
-        accessCount: access?.accessCount ?? 0,
-        lastAccessedAt: access?.lastAccessedAt ?? '',
-        status: obs.status ?? 'active',
-        source: obs.source ?? 'agent',
-        sourceDetail: obs.sourceDetail ?? '',
-        valueCategory: obs.valueCategory ?? '',
-      };
-    };
-
     // Only consider active observations for archiving
-    const activeObs = allObs.filter(o => (o.status ?? 'active') === 'active');
-    let archivedCount = 0;
+    const activeObs = allObs.filter((observation) =>
+      (observation.status ?? 'active') === 'active' &&
+      (!projectId || observation.projectId === projectId),
+    );
+    const archivedIds: number[] = [];
 
     for (const obs of activeObs) {
-      const doc = toDoc(obs);
+      const doc = toRetentionDocument(obs, accessMap);
       const zone = getRetentionZone(doc, referenceTime);
       if (zone === 'archive-candidate') {
-        obs.status = 'archived';
-        archivedCount++;
+        archivedIds.push(obs.id);
       }
     }
 
-    if (archivedCount === 0) {
+    if (archivedIds.length === 0) {
       return { archived: 0, remaining: activeObs.length };
     }
 
-    // Persist all observations with updated statuses
-    await tx.saveAll(allObs);
+    const updates = await Promise.all(archivedIds.map((id) => tx.setStatus(id, 'archived', 'active')));
+    const archived = updates.filter(Boolean).length;
 
-    return { archived: archivedCount, remaining: activeObs.length - archivedCount };
+    return { archived, remaining: activeObs.length - archived };
   });
 }

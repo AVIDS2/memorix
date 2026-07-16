@@ -2,6 +2,12 @@ import { getDatabase } from '../store/sqlite-db.js';
 import type { CodeEdge, CodeFile, CodeGraphStatus, CodeSymbol, ObservationCodeRef } from './types.js';
 import { normalizeCodePath } from './ids.js';
 
+export interface CodeGraphFileDelta {
+  file: CodeFile;
+  symbols: CodeSymbol[];
+  edges: CodeEdge[];
+}
+
 function rowToFile(row: any): CodeFile {
   return {
     id: row.id,
@@ -234,6 +240,123 @@ export class CodeGraphStore {
       }
     });
 
+    tx();
+  }
+
+  /**
+   * Reconcile only files whose source changed plus files that disappeared.
+   * Refs tied to replaced sources become stale instead of being silently kept.
+   */
+  applyFileDeltas(
+    projectId: string,
+    input: {
+      changed: CodeGraphFileDelta[];
+      metadataOnly?: CodeFile[];
+      removedFileIds?: string[];
+    },
+  ): void {
+    const changed = input.changed.filter((delta) => delta.file.projectId === projectId);
+    const metadataOnly = (input.metadataOnly ?? []).filter((file) => file.projectId === projectId);
+    const removedFileIds = input.removedFileIds ?? [];
+    if (changed.length === 0 && metadataOnly.length === 0 && removedFileIds.length === 0) return;
+
+    const staleRefsForFile = this.db.prepare(`
+      UPDATE observation_code_refs
+      SET status = 'stale', updatedAt = ?
+      WHERE projectId = ? AND (
+        fileId = ? OR symbolId IN (
+          SELECT id FROM code_symbols WHERE projectId = ? AND fileId = ?
+        )
+      )
+    `);
+    const deleteEdgesForFile = this.db.prepare(`
+      DELETE FROM code_edges
+      WHERE projectId = ? AND (fromFileId = ? OR toFileId = ?)
+    `);
+    const deleteSymbolsForFile = this.db.prepare(`DELETE FROM code_symbols WHERE projectId = ? AND fileId = ?`);
+    const deleteFile = this.db.prepare(`DELETE FROM code_files WHERE projectId = ? AND id = ?`);
+    const upsertFile = this.db.prepare(`
+      INSERT OR REPLACE INTO code_files
+        (id, projectId, path, language, contentHash, mtimeMs, sizeBytes, indexedAt, gitCommit)
+      VALUES
+        (@id, @projectId, @path, @language, @contentHash, @mtimeMs, @sizeBytes, @indexedAt, @gitCommit)
+    `);
+    const upsertSymbol = this.db.prepare(`
+      INSERT OR REPLACE INTO code_symbols
+        (id, projectId, fileId, path, name, qualifiedName, kind, startLine, endLine, signature, contentHash, indexedAt, stale)
+      VALUES
+        (@id, @projectId, @fileId, @path, @name, @qualifiedName, @kind, @startLine, @endLine, @signature, @contentHash, @indexedAt, @stale)
+    `);
+    const upsertEdge = this.db.prepare(`
+      INSERT OR REPLACE INTO code_edges
+        (id, projectId, fromSymbolId, toSymbolId, fromFileId, toFileId, type, confidence, evidence, indexedAt)
+      VALUES
+        (@id, @projectId, @fromSymbolId, @toSymbolId, @fromFileId, @toFileId, @type, @confidence, @evidence, @indexedAt)
+    `);
+    const writeFile = (file: CodeFile) => upsertFile.run({
+      id: file.id,
+      projectId: file.projectId,
+      path: normalizeCodePath(file.path),
+      language: file.language ?? null,
+      contentHash: file.contentHash,
+      mtimeMs: file.mtimeMs ?? null,
+      sizeBytes: file.sizeBytes ?? null,
+      indexedAt: file.indexedAt,
+      gitCommit: file.gitCommit ?? null,
+    });
+
+    const tx = this.db.transaction(() => {
+      const staleAt = new Date().toISOString();
+      for (const fileId of removedFileIds) {
+        staleRefsForFile.run(staleAt, projectId, fileId, projectId, fileId);
+        deleteEdgesForFile.run(projectId, fileId, fileId);
+        deleteSymbolsForFile.run(projectId, fileId);
+        deleteFile.run(projectId, fileId);
+      }
+
+      for (const delta of changed) {
+        const fileId = delta.file.id;
+        staleRefsForFile.run(staleAt, projectId, fileId, projectId, fileId);
+        deleteEdgesForFile.run(projectId, fileId, fileId);
+        deleteSymbolsForFile.run(projectId, fileId);
+        writeFile(delta.file);
+
+        for (const symbol of delta.symbols) {
+          upsertSymbol.run({
+            id: symbol.id,
+            projectId: symbol.projectId,
+            fileId: symbol.fileId,
+            path: normalizeCodePath(symbol.path),
+            name: symbol.name,
+            qualifiedName: symbol.qualifiedName,
+            kind: symbol.kind,
+            startLine: symbol.startLine ?? null,
+            endLine: symbol.endLine ?? null,
+            signature: symbol.signature ?? null,
+            contentHash: symbol.contentHash ?? null,
+            indexedAt: symbol.indexedAt,
+            stale: symbol.stale ? 1 : 0,
+          });
+        }
+
+        for (const edge of delta.edges) {
+          upsertEdge.run({
+            id: edge.id,
+            projectId: edge.projectId,
+            fromSymbolId: edge.fromSymbolId ?? null,
+            toSymbolId: edge.toSymbolId ?? null,
+            fromFileId: edge.fromFileId ?? null,
+            toFileId: edge.toFileId ?? null,
+            type: edge.type,
+            confidence: edge.confidence,
+            evidence: edge.evidence ?? null,
+            indexedAt: edge.indexedAt,
+          });
+        }
+      }
+
+      for (const file of metadataOnly) writeFile(file);
+    });
     tx();
   }
 

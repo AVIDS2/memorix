@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 import {
   MAINTENANCE_RESULT_PREFIX,
@@ -44,8 +45,11 @@ async function createRunner(source: string): Promise<string> {
 
 describe('isolated maintenance runner', () => {
   it('resolves the compiled runner from both library and CLI bundles', () => {
-    expect(resolveMaintenanceRunnerPath('file:///C:/pkg/dist/index.js')).toBe('C:\\pkg\\dist\\maintenance-runner.js');
-    expect(resolveMaintenanceRunnerPath('file:///C:/pkg/dist/cli/index.js')).toBe('C:\\pkg\\dist\\maintenance-runner.js');
+    const distDir = path.resolve('pkg', 'dist');
+    const expected = path.join(distDir, 'maintenance-runner.js');
+
+    expect(resolveMaintenanceRunnerPath(pathToFileURL(path.join(distDir, 'index.js')).href)).toBe(expected);
+    expect(resolveMaintenanceRunnerPath(pathToFileURL(path.join(distDir, 'cli', 'index.js')).href)).toBe(expected);
   });
 
   it('parses only the explicit runner result line, ignoring ordinary child output', () => {

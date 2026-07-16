@@ -201,6 +201,10 @@ function extractEventName(payload: Record<string, unknown>, agent: AgentName): s
       return (payload.hook_event_name as string) ?? inferCursorEvent(payload);
     case 'claude':
       return (payload.hook_event_name as string) ?? '';
+    case 'codex':
+      // Codex uses the same lifecycle event field names as Claude Code, but
+      // the bundled plugin supplies an explicit agent identity.
+      return (payload.hook_event_name as string) ?? '';
     case 'antigravity':
     case 'gemini-cli':
       // Gemini CLI uses hook_event_name; Antigravity hooks.json commands pass
@@ -270,6 +274,17 @@ function normalizeClaude(payload: Record<string, unknown>, event: HookEvent): Pa
   // Extract prompt if present (UserPromptSubmit, PreCompact, etc.)
   if (payload.prompt) {
     result.userPrompt = payload.prompt as string;
+  }
+
+  // Codex Stop provides the final response under last_assistant_message.
+  // Accept the adjacent field name too so hosts with the same payload shape
+  // can preserve the useful end-of-turn summary.
+  const assistantMessage = firstString(
+    payload.last_assistant_message,
+    payload.assistant_message,
+  );
+  if (assistantMessage) {
+    result.aiResponse = assistantMessage;
   }
 
   return result;

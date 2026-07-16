@@ -245,7 +245,7 @@ memorix setup --agent omp --global
 它会做的事情取决于目标 Agent，但目标是一致的：你以后在哪里打开这个 Agent，Memorix 就可以在哪里被使用，而不是让你一个仓库一个仓库重复配置。
 
 - Claude Code：安装 Memorix 插件包，写入 `CLAUDE.md` 使用规范；不加 `--noHooks` 时会启用自动捕获。
-- Codex：安装 Memorix 插件包，写入 `AGENTS.md` 使用规范；不加 `--noHooks` 时会启用自动捕获。
+- Codex：安装包含 stdio MCP、skills 和生命周期 hooks 的 Memorix 插件包，并写入 `AGENTS.md` 使用规范。Codex 首次要求时，在 `/hooks` 中审核一次插件 hook；使用 `--noHooks` 可跳过自动捕获。
 - GitHub Copilot CLI：安装 Copilot 插件包和官方 Memorix skills。
 - Pi：安装用户级 Pi package 和官方 skills。
 - Cursor：写入 Cursor 的 MCP / rules / 配置。

@@ -17,6 +17,7 @@
   ],
   "skills": "./skills/",
   "mcpServers": "./.mcp.json",
+  "hooks": "./hooks/hooks.json",
   "interface": {
     "displayName": "Memorix",
     "shortDescription": "Shared local memory for coding agents.",

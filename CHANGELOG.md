@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Added
+- **Codex lifecycle hook capture** -- The Memorix Codex plugin now bundles the documented `SessionStart`, `UserPromptSubmit`, `PostToolUse`, `PreCompact`, and `Stop` hook events, with a Windows-safe `commandWindows` command override.
+
+### Fixed
+- **Codex hook normalization and injection** -- Codex lifecycle payloads now preserve their event names, `SessionStart` returns Codex-native `hookSpecificOutput.additionalContext`, and capture-only events stay quiet instead of filling the agent context with save-status messages.
+
 ## [1.1.11] - 2026-07-16
 
 ### Added

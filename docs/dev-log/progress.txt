@@ -4,55 +4,34 @@
 > older notes when they conflict.
 
 ## Current State
-- Phase: 1.1.11 runtime integrity, release-ready pending branch promotion
-- Branch: `codex/1.1.11-runtime-integrity`
+- Phase: 1.1.12 release hardening
+- Branch: `codex/1.1.12-runtime-hygiene`
 - Last updated: 2026-07-16
-- Goal: make normal memory writes, first-turn context, Code Memory refresh,
-  lifecycle maintenance, and operator diagnostics predictable as data grows.
+- Goal: ship the verified Codex lifecycle hooks, repair OpenCode Windows hook
+  delivery, and preserve semantic vector recall without blocking MCP startup.
 
 ## Completed Recently
-- Replaced normal observation write/cleanup full-table persistence with targeted
-  SQLite mutations while preserving topic-key and generation safety.
-- Made retention and consolidation project-scoped, bounded, cursor-resumable
-  maintenance jobs.
-- Added a durable SQLite maintenance queue with leases, retries, heartbeat
-  renewal, credential-redacted failure records, and completed-history pruning.
-- Added a real compiled child-process runner for retention, consolidation, and
-  Code Memory refresh; vector recovery remains in the owning Orama process.
-- Made CodeGraph Lite incremental, multi-language, dependency-aware, and safe
-  against oversized generated files. `codegraph.max_file_bytes` / TOML
-  `max_file_bytes` controls the per-file limit.
-- Let the project context, context pack, graph context, and Code Memory status
-  tools answer directly from project-scoped SQLite before full Orama hydration.
-- Added control-plane maintenance target registration and dashboard maintenance
-  diagnostics without crossing HTTP session runtime state.
-- Removed the obsolete JSON file watcher; SQLite generation checks now own
-  cross-process freshness.
-- Unified behavior settings with resolved TOML/YAML configuration so injection,
-  formation, auto-cleanup, and sync advisory do not silently fall back to a
-  separate legacy JSON path.
-- Updated dashboard System Status with maintenance state and made dashboard
-  navigation/content work on a 390px mobile viewport.
-- Added a non-root Docker regression check.
-- Made completed-job pruning part of the enqueue transaction, so a failed
-  enqueue cannot leave partially-pruned operator history behind.
+- Released `memorix@1.1.11`, tagged `v1.1.11`, with durable maintenance,
+  bounded lifecycle work, incremental Code Memory, and first-turn SQLite
+  readiness.
+- Added Codex plugin lifecycle hooks for `SessionStart`, `UserPromptSubmit`,
+  `PostToolUse`, `PreCompact`, and `Stop`, including native SessionStart
+  context injection, quiet capture events, Windows command overrides, and
+  compact-session startup coverage.
+- Confirmed issue #124's project-context timeout fix with the reporter.
+- Triaged issue #125 as an OpenCode Windows PATH resolution failure and
+  reviewed PR #126's semantic vector-recall diagnosis.
+
+## Current Follow-Up
+- Resolve OpenCode hook delivery from a stable executable path and keep
+  best-effort failures out of the OpenCode conversation UI.
+- Rework PR #126 as cache-first vector hydration with bounded background
+  recovery, preserving 1.1.11's non-blocking startup boundary.
 
 ## Verification Snapshot
-- The full test suite passes, including runtime, CodeGraph, configuration,
-  server, dashboard, Docker, and cross-process freshness coverage.
-- `npm run lint` passes.
-- `npm run build` passes and emits `dist/maintenance-runner.js`.
-- Built runner smoke completed a real retention job through stdin/stdout.
-- Built stdio MCP smoke connected in about one second, listed 17 lite tools,
-  and called project context, context pack, graph context, and Code Memory
-  status successfully in a fresh temporary Git project.
-- Dashboard was checked in a real browser at 1440x900 and 390x844; maintenance
-  status is visible and no text is clipped by the mobile layout.
-- `npm pack --dry-run`, an actual `npm pack`, a clean temporary install, and a
-  built stdio MCP smoke all pass. Production dependency audit reports zero
-  vulnerabilities.
-- A read-only local Claude Code release review found no P0 issues; its one
-  confirmed queue transaction finding has a regression test and is fixed.
+- Codex hook focused tests and TypeScript lint pass before 1.1.12 integration.
+- The v1.1.11 release CI, package smoke, built stdio MCP smoke, and dashboard
+  checks passed before release.
 
 ## Known Boundary
 - Orama remains process-local. Search and stateful write/session tools still
@@ -61,5 +40,5 @@
   an AST/language-server intelligence product.
 
 ## Next Steps
-- Commit the verified 1.1.11 change set, promote it through the normal `main`
-  branch flow, tag `v1.1.11`, and publish the already-verified npm package.
+- Complete focused and full 1.1.12 verification, publish the patch release,
+  and close or update the linked GitHub issues with the evidence.

@@ -147,12 +147,22 @@ describe('plugin package installer', () => {
       });
 
       const pluginManifest = path.join(tmpDir, '.codex', 'plugins', 'memorix', '.codex-plugin', 'plugin.json');
+      const hooksConfig = path.join(tmpDir, '.codex', 'plugins', 'memorix', 'hooks', 'hooks.json');
       const marketplace = path.join(tmpDir, '.agents', 'plugins', 'marketplace.json');
       const skillsRoot = path.join(tmpDir, '.codex', 'plugins', 'memorix', 'skills');
 
       expect(result.pluginPath).toBe(path.join(tmpDir, '.codex', 'plugins', 'memorix'));
       expect(result.marketplacePath).toBe(marketplace);
-      expect(JSON.parse(await fs.readFile(pluginManifest, 'utf-8')).name).toBe('memorix');
+      const manifest = JSON.parse(await fs.readFile(pluginManifest, 'utf-8'));
+      const hooks = JSON.parse(await fs.readFile(hooksConfig, 'utf-8'));
+      expect(manifest.name).toBe('memorix');
+      expect(manifest.hooks).toBe('./hooks/hooks.json');
+      expect(hooks.hooks.SessionStart[0].hooks[0]).toMatchObject({
+        command: 'memorix hook --agent codex',
+        commandWindows: 'memorix.cmd hook --agent codex',
+      });
+      expect(hooks.hooks).toHaveProperty('PreCompact');
+      expect(hooks.hooks).toHaveProperty('Stop');
       await expectOfficialSkills(skillsRoot);
       expect(await fs.readFile(path.join(skillsRoot, 'memorix-git-memory', 'SKILL.md'), 'utf-8')).toContain('Git Memory');
 

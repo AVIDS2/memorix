@@ -142,6 +142,7 @@ async function installSingleAgent(agent: string, cwd: string, global: boolean): 
 function getAgentLabel(agent: string): string {
   const labels: Record<string, string> = {
     claude: 'Claude Code',
+    codex: 'Codex',
     windsurf: 'Windsurf',
     cursor: 'Cursor',
     copilot: 'VS Code Copilot',
@@ -171,7 +172,7 @@ function getAgentHint(agent: string): string {
     hermes: 'Hermes plugin hooks; use `memorix setup --agent hermes`',
     omp: 'Oh-my-Pi package hooks; use `memorix setup --agent omp`',
     trae: '.trae/rules/project_rules.md (rules only, no hooks system)',
-    codex: 'AGENTS.md (rules only, hooks are experimental)',
+    codex: 'Codex plugin hooks; use `memorix setup --agent codex`',
   };
   return hints[agent] || '';
 }

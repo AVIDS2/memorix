@@ -4,7 +4,7 @@ import { getResolvedConfig } from '../config/resolved-config.js';
 import type { ProjectInfo } from '../types.js';
 import { backfillMissingObservationCodeRefs, type CodeRefBackfillResult } from './binder.js';
 import { collectCurrentProjectFacts, type CurrentProjectFacts } from './current-facts.js';
-import { indexProjectLite } from './lite-provider.js';
+import { refreshProjectLite } from './lite-provider.js';
 import {
   buildProjectContextExplain,
   type ProjectContextExplain,
@@ -27,7 +27,7 @@ export type AutoContextRefreshMode = 'auto' | 'always' | 'never';
 export interface AutoContextRefreshResult {
   mode: AutoContextRefreshMode;
   performed: boolean;
-  reason: 'forced' | 'empty-index' | 'missing-scan-time' | 'stale-index' | 'fresh-enough' | 'disabled' | 'failed';
+  reason: 'forced' | 'empty-index' | 'missing-scan-time' | 'stale-index' | 'fresh-enough' | 'disabled' | 'queued' | 'failed';
   message: string;
   backfill?: CodeRefBackfillResult;
 }
@@ -101,12 +101,20 @@ export async function buildAutoProjectContext(input: {
   maxAgeMs?: number;
   now?: Date;
   exclude?: string[];
+  maxFileBytes?: number;
+  /**
+   * When supplied, a needed refresh is queued instead of running in this
+   * request. MCP and hook callers use this to keep their response path fast.
+   */
+  enqueueRefresh?: () => void | Promise<void>;
 }): Promise<AutoProjectContext> {
   const refreshMode = input.refresh ?? 'auto';
   const now = input.now ?? new Date();
   const task = input.task?.trim();
   const lens = resolveTaskLens(task);
-  const exclude = input.exclude ?? getResolvedConfig({ projectRoot: input.project.rootPath }).codegraph.excludePatterns;
+  const codegraphConfig = getResolvedConfig({ projectRoot: input.project.rootPath }).codegraph;
+  const exclude = input.exclude ?? codegraphConfig.excludePatterns;
+  const maxFileBytes = input.maxFileBytes ?? codegraphConfig.maxFileBytes;
   const store = new CodeGraphStore();
   await store.init(input.dataDir);
 
@@ -124,25 +132,44 @@ export async function buildAutoProjectContext(input: {
   };
 
   if (decision.performed) {
-    try {
-      const indexed = await indexProjectLite({
-        projectId: input.project.id,
-        projectRoot: input.project.rootPath,
-        exclude,
-      });
-      store.replaceProjectIndex(input.project.id, indexed);
-      const backfill = await backfillMissingObservationCodeRefs(
-        store,
-        activeProjectObservations(input.observations, input.project.id) as any,
-      );
-      refresh = { ...refresh, backfill };
-    } catch (error) {
-      refresh = {
-        mode: refreshMode,
-        performed: false,
-        reason: 'failed',
-        message: `Project scan failed: ${error instanceof Error ? error.message : String(error)}`,
-      };
+    if (input.enqueueRefresh) {
+      try {
+        await input.enqueueRefresh();
+        refresh = {
+          mode: refreshMode,
+          performed: false,
+          reason: 'queued',
+          message: 'Code Memory refresh queued; this brief uses the latest completed scan.',
+        };
+      } catch (error) {
+        refresh = {
+          mode: refreshMode,
+          performed: false,
+          reason: 'failed',
+          message: `Could not queue Code Memory refresh: ${error instanceof Error ? error.message : String(error)}`,
+        };
+      }
+    } else {
+      try {
+        await refreshProjectLite(store, {
+          projectId: input.project.id,
+          projectRoot: input.project.rootPath,
+          exclude,
+          maxFileBytes,
+        });
+        const backfill = await backfillMissingObservationCodeRefs(
+          store,
+          activeProjectObservations(input.observations, input.project.id) as any,
+        );
+        refresh = { ...refresh, backfill };
+      } catch (error) {
+        refresh = {
+          mode: refreshMode,
+          performed: false,
+          reason: 'failed',
+          message: `Project scan failed: ${error instanceof Error ? error.message : String(error)}`,
+        };
+      }
     }
   }
 

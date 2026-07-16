@@ -172,6 +172,21 @@ describe('SqliteBackend CRUD', () => {
     expect(loaded.sourceDetail).toBe('git-ingest');
     expect(loaded.valueCategory).toBe('core');
   });
+
+  it('loads one project without scanning observations from other projects', async () => {
+    await store.insert(makeObs({ id: 1, entityName: 'a-active', projectId: 'project-a', status: 'active' }));
+    await store.insert(makeObs({ id: 2, entityName: 'a-archived', projectId: 'project-a', status: 'archived' }));
+    await store.insert(makeObs({ id: 3, entityName: 'b-active', projectId: 'project-b', status: 'active' }));
+
+    const rawLoadAll = vi.spyOn(store as any, 'rawLoadAll');
+    const active = await store.loadByProject('project-a', { status: 'active' });
+
+    expect(rawLoadAll).not.toHaveBeenCalled();
+    expect(active.map((observation) => observation.id)).toEqual([1]);
+    expect(await store.getById(3)).toMatchObject({ projectId: 'project-b' });
+    expect(await store.countByProject('project-a', { status: 'active' })).toBe(1);
+    expect(await store.countByProject('project-a')).toBe(2);
+  });
 });
 
 // ── Atomic transactions ───────────────────────────────────────────
@@ -205,6 +220,48 @@ describe('SqliteBackend atomic()', () => {
     const all = await store.loadAll();
     expect(all).toHaveLength(2);
     expect(await store.loadIdCounter()).toBe(3);
+  });
+
+  it('supports targeted writes without loading or replacing all observations', async () => {
+    await store.insert(makeObs({ id: 1, entityName: 'auth', projectId: 'p', topicKey: 'decision/auth' }));
+    await store.insert(makeObs({ id: 2, entityName: 'cache', projectId: 'p', topicKey: 'decision/cache' }));
+    await store.saveIdCounter(3);
+
+    const rawLoadAll = vi.spyOn(store as any, 'rawLoadAll');
+    const generationBeforeWrite = await store.atomic(async (tx) => {
+      const existing = await tx.findByTopicKey('p', 'decision/auth');
+      expect(existing?.id).toBe(1);
+      expect(await tx.getGeneration()).toBe(2);
+
+      await tx.insert(makeObs({ id: 3, entityName: 'queue', projectId: 'p', topicKey: 'decision/jobs' }));
+      await tx.saveIdCounter(4);
+      return await tx.getGeneration();
+    });
+
+    expect(generationBeforeWrite).toBe(2);
+    expect(rawLoadAll).not.toHaveBeenCalled();
+
+    const all = await store.loadAll();
+    expect(all.map((obs) => obs.id).sort()).toEqual([1, 2, 3]);
+    expect(await store.loadIdCounter()).toBe(4);
+  });
+
+  it('updates and removes selected observations without loading all rows', async () => {
+    await store.insert(makeObs({ id: 1, entityName: 'keep-updated', projectId: 'p', title: 'before' }));
+    await store.insert(makeObs({ id: 2, entityName: 'remove', projectId: 'p' }));
+    await store.insert(makeObs({ id: 3, entityName: 'keep-untouched', projectId: 'p' }));
+
+    const rawLoadAll = vi.spyOn(store as any, 'rawLoadAll');
+    await store.atomic(async (tx) => {
+      await tx.update(makeObs({ id: 1, entityName: 'keep-updated', projectId: 'p', title: 'after' }));
+      await tx.remove(2);
+    });
+
+    expect(rawLoadAll).not.toHaveBeenCalled();
+    const all = await store.loadAll();
+    expect(all.map((obs) => obs.id).sort()).toEqual([1, 3]);
+    expect(all.find((obs) => obs.id === 1)?.title).toBe('after');
+    expect(all.find((obs) => obs.id === 3)?.entityName).toBe('keep-untouched');
   });
 
   it('atomic rolls back on error', async () => {

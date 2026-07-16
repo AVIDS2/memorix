@@ -20,8 +20,8 @@ import os from 'node:os';
 import { startSession, endSession, getSessionContext, listSessions, getActiveSession } from '../../src/memory/session.js';
 import { storeObservation, initObservations, resolveObservations } from '../../src/memory/observations.js';
 import { resetDb } from '../../src/store/orama-store.js';
-import { initObservationStore, resetObservationStore } from '../../src/store/obs-store.js';
-import { initSessionStore, resetSessionStore } from '../../src/store/session-store.js';
+import { getObservationStore, initObservationStore, resetObservationStore } from '../../src/store/obs-store.js';
+import { getSessionStore, initSessionStore, resetSessionStore } from '../../src/store/session-store.js';
 
 let testDir: string;
 const PROJECT_ID = 'test/session-lifecycle';
@@ -115,6 +115,34 @@ describe('Session Lifecycle', () => {
   });
 
   describe('getSessionContext', () => {
+    it('loads only the current project aliases instead of scanning global sessions and observations', async () => {
+      await storeObservation({
+        entityName: 'current',
+        type: 'decision',
+        title: 'Current project decision',
+        narrative: 'Keep this in the current session context.',
+        projectId: PROJECT_ID,
+      });
+      await storeObservation({
+        entityName: 'other',
+        type: 'decision',
+        title: 'Other project decision',
+        narrative: 'Do not load this for the current project.',
+        projectId: 'other-project',
+      });
+      await startSession(testDir, 'other-project', { sessionId: 'other-session' });
+      await endSession(testDir, 'other-session', 'Other project handoff');
+
+      const observationLoadAll = vi.spyOn(getObservationStore(), 'loadAll');
+      const sessionLoadAll = vi.spyOn(getSessionStore(), 'loadAll');
+      const context = await getSessionContext(testDir, PROJECT_ID);
+
+      expect(context).toContain('Current project decision');
+      expect(context).not.toContain('Other project decision');
+      expect(observationLoadAll).not.toHaveBeenCalled();
+      expect(sessionLoadAll).not.toHaveBeenCalled();
+    });
+
     it('should return previous session summary in context', async () => {
       // Create and end a session with summary
       await startSession(testDir, PROJECT_ID, { sessionId: 'ctx-test', agent: 'cursor' });

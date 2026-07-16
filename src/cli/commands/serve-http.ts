@@ -512,6 +512,15 @@ export default defineCommand({
     const defaultDataDir = await getProjectDataDir(defaultProject.id);
     const baseDir = getBaseDataDir();
 
+    // HTTP sessions intentionally keep their own runtime globals. This worker
+    // only claims jobs that can run in an isolated process; vector recovery
+    // stays with the owning MCP session because Orama is process-local.
+    const { createControlPlaneMaintenanceWorker } = await import('../../runtime/control-plane-maintenance.js');
+    const controlPlaneMaintenanceWorker = createControlPlaneMaintenanceWorker(defaultDataDir, {
+      pollIntervalMs: 2_000,
+    });
+    controlPlaneMaintenanceWorker.start();
+
     // Cache resolved project data dirs to avoid repeated fs lookups
     const projectDataDirCache = new Map<string, string>();
     projectDataDirCache.set(defaultProject.id, defaultDataDir);
@@ -549,6 +558,15 @@ export default defineCommand({
     async function loadDashboardObservations(dataDir: string) {
       const store = await getDashboardObservationStore(dataDir);
       return store.loadAll();
+    }
+
+    async function loadDashboardProjectObservations(
+      dataDir: string,
+      projectId: string,
+      status?: string,
+    ) {
+      const store = await getDashboardObservationStore(dataDir);
+      return store.loadByProject(projectId, status ? { status } : undefined);
     }
 
     // Resolve static directory (dist/dashboard/static)
@@ -737,8 +755,7 @@ export default defineCommand({
           await initGraphStore(statsDataDir);
           const graph = { entities: getGraphStore().loadEntities(), relations: getGraphStore().loadRelations() };
 
-          const allObs = await loadDashboardObservations(statsDataDir) as Array<{
-            projectId?: string;
+          const observations = await loadDashboardProjectObservations(statsDataDir, statsProjectId, 'active') as Array<{
             type?: string;
             id?: number;
             title?: string;
@@ -751,7 +768,6 @@ export default defineCommand({
             importance?: number;
             accessCount?: number;
           }>;
-          const observations = allObs.filter(o => o.projectId === statsProjectId && (o.status ?? 'active') === 'active');
           const statsStore = await getDashboardObservationStore(statsDataDir);
           const nextId = await statsStore.loadIdCounter();
           const typeCounts: Record<string, number> = {};
@@ -820,7 +836,7 @@ export default defineCommand({
           let vectorStatus = { total: 0, missing: 0, missingIds: [] as number[], backfillRunning: false };
           try {
             const { getVectorStatus } = await import('../../memory/observations.js');
-            vectorStatus = getVectorStatus();
+            vectorStatus = getVectorStatus(statsProjectId);
           } catch { /* best effort */ }
 
           // Real search mode from the last actual search execution
@@ -851,6 +867,12 @@ export default defineCommand({
           const projectEntitySet = new Set(projectEntities.map((e: any) => e.name));
           const projectRelations = graph.relations.filter((r: any) => projectEntitySet.has(r.from) && projectEntitySet.has(r.to));
 
+          let maintenance = { total: 0, pending: 0, running: 0, retrying: 0, completed: 0, failed: 0 };
+          try {
+            const { MaintenanceJobStore } = await import('../../runtime/maintenance-jobs.js');
+            maintenance = new MaintenanceJobStore(statsDataDir).summary(statsProjectId);
+          } catch { /* optional maintenance diagnostics */ }
+
           sendJson({
             entities: projectEntities.length,
             relations: projectRelations.length,
@@ -869,14 +891,25 @@ export default defineCommand({
               recentMemories: recentGitMemories,
             },
             retentionSummary,
+            maintenance,
+          });
+          return;
+        }
+
+        if (apiPath === '/maintenance') {
+          const { projectId: maintenanceProjectId, dataDir: maintenanceDataDir } = await resolveRequestProject(url);
+          const { MaintenanceJobStore } = await import('../../runtime/maintenance-jobs.js');
+          const queue = new MaintenanceJobStore(maintenanceDataDir);
+          sendJson({
+            summary: queue.summary(maintenanceProjectId),
+            jobs: queue.list({ projectId: maintenanceProjectId, limit: 50 }),
           });
           return;
         }
 
         if (apiPath === '/observations') {
           const { projectId: obsProjectId, dataDir: obsDataDir } = await resolveRequestProject(url);
-          const allObs = await loadDashboardObservations(obsDataDir) as Array<{ projectId?: string; status?: string }>;
-          sendJson(allObs.filter(o => o.projectId === obsProjectId && (o.status ?? 'active') === 'active'));
+          sendJson(await loadDashboardProjectObservations(obsDataDir, obsProjectId, 'active'));
           return;
         }
 
@@ -887,10 +920,10 @@ export default defineCommand({
           const fullGraph = { entities: getGraphStore().loadEntities(), relations: getGraphStore().loadRelations() };
 
           // Project-scope the graph: only include entities that have observations in this project
-          const allObs = await loadDashboardObservations(graphDataDir) as Array<{ projectId?: string; entityName?: string; status?: string }>;
+          const allObs = await loadDashboardProjectObservations(graphDataDir, graphProjectId, 'active') as Array<{ entityName?: string }>;
           const projectEntityNames = new Set(
             allObs
-              .filter(o => o.projectId === graphProjectId && (o.status ?? 'active') === 'active' && o.entityName)
+              .filter(o => o.entityName)
               .map(o => o.entityName!)
           );
 
@@ -913,8 +946,7 @@ export default defineCommand({
 
         if (apiPath === '/retention') {
           const { projectId: retProjectId, dataDir: retDataDir } = await resolveRequestProject(url);
-          const allObs = await loadDashboardObservations(retDataDir) as Array<{ projectId?: string; id?: number; title?: string; type?: string; importance?: number; accessCount?: number; lastAccessedAt?: string; createdAt?: string; entityName?: string; status?: string }>;
-          const observations = allObs.filter(o => o.projectId === retProjectId && (o.status ?? 'active') === 'active');
+          const observations = await loadDashboardProjectObservations(retDataDir, retProjectId, 'active') as Array<{ id?: number; title?: string; type?: string; importance?: number; accessCount?: number; lastAccessedAt?: string; createdAt?: string; entityName?: string }>;
           const now = Date.now();
           const scored = observations.map(obs => {
             const age = now - new Date(obs.createdAt || now).getTime();
@@ -940,13 +972,11 @@ export default defineCommand({
         if (apiPath === '/knowledge') {
           const { projectId: kbProjectId, dataDir: kbDataDir } = await resolveRequestProject(url);
           const { generateKnowledgeBase } = await import('../../wiki/generator.js');
-          const { initObservations, getAllObservations } = await import('../../memory/observations.js');
           const { initMiniSkillStore, getMiniSkillStore } = await import('../../store/mini-skill-store.js');
 
-          await initObservations(kbDataDir);
           await initMiniSkillStore(kbDataDir);
 
-          const allObs = getAllObservations();
+          const allObs = await loadDashboardProjectObservations(kbDataDir, kbProjectId, 'active');
           const skills = await getMiniSkillStore().loadByProject(kbProjectId);
 
           const overview = generateKnowledgeBase({
@@ -962,23 +992,21 @@ export default defineCommand({
         if (apiPath === '/knowledge-graph') {
           const { projectId: kgProjectId, dataDir: kgDataDir } = await resolveRequestProject(url);
           const { generateKnowledgeGraph } = await import('../../wiki/knowledge-graph.js');
-          const { initObservations, getAllObservations } = await import('../../memory/observations.js');
           const { initMiniSkillStore, getMiniSkillStore } = await import('../../store/mini-skill-store.js');
           const { initGraphStore, getGraphStore } = await import('../../store/graph-store.js');
 
-          await initObservations(kgDataDir);
           await initMiniSkillStore(kgDataDir);
           await initGraphStore(kgDataDir);
 
-          const allObs = getAllObservations();
+          const allObs = await loadDashboardProjectObservations(kgDataDir, kgProjectId, 'active');
           const skills = await getMiniSkillStore().loadByProject(kgProjectId);
 
           // Project-scope graph store (same logic as /api/graph)
           const fullGraph = { entities: getGraphStore().loadEntities(), relations: getGraphStore().loadRelations() };
-          const graphObs = await loadDashboardObservations(kgDataDir) as Array<{ projectId?: string; entityName?: string; status?: string }>;
+          const graphObs = await loadDashboardProjectObservations(kgDataDir, kgProjectId, 'active') as Array<{ entityName?: string }>;
           const projectEntityNames = new Set(
             graphObs
-              .filter(o => o.projectId === kgProjectId && (o.status ?? 'active') === 'active' && o.entityName)
+              .filter(o => o.entityName)
               .map(o => o.entityName!)
           );
           const scopedEntities = fullGraph.entities.filter(e => projectEntityNames.has(e.name));
@@ -1299,8 +1327,7 @@ export default defineCommand({
           const obsId = parseInt(deleteMatch[1], 10);
           const { projectId: delProjectId, dataDir: delDataDir } = await resolveRequestProject(url);
           const store = await getDashboardObservationStore(delDataDir);
-          const allObs = await store.loadAll();
-          const matchObs = allObs.find((o: any) => o.id === obsId);
+          const matchObs = await store.getById(obsId);
           if (!matchObs) {
             sendJson({ error: 'Observation not found' }, 404);
           } else if ((matchObs as any).projectId !== delProjectId) {
@@ -1331,8 +1358,7 @@ export default defineCommand({
           const { initGraphStore, getGraphStore } = await import('../../store/graph-store.js');
           await initGraphStore(expDataDir);
           const fullGraph = { entities: getGraphStore().loadEntities(), relations: getGraphStore().loadRelations() };
-          const allObs = await loadDashboardObservations(expDataDir) as Array<{ projectId?: string; entityName?: string; status?: string }>;
-          const observations = allObs.filter(o => o.projectId === expProjectId && (o.status ?? 'active') === 'active');
+          const observations = await loadDashboardProjectObservations(expDataDir, expProjectId, 'active') as Array<{ entityName?: string }>;
           const expStore = await getDashboardObservationStore(expDataDir);
           const nextId = await expStore.loadIdCounter();
           const exportEntityNames = new Set(
@@ -1502,6 +1528,7 @@ export default defineCommand({
         console.error(`[memorix] ${suppressedProbeCount} probe connection(s) suppressed during this session`);
       }
       console.error('[memorix] Shutting down HTTP server...');
+      controlPlaneMaintenanceWorker.stop();
       // Clean up readiness and heartbeat files
       try {
         const memorixDir = (process.env.HOME || process.env.USERPROFILE || '').replace(/\\/g, '/') + '/.memorix';

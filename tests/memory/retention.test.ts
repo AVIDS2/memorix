@@ -5,7 +5,7 @@
  * Patterns from mcp-memory-service + MemCP.
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -18,6 +18,7 @@ import {
   getRetentionSummary,
   getImportanceLevel,
   archiveExpired,
+  archiveExpiredBatch,
 } from '../../src/memory/retention.js';
 import { initObservationStore, resetObservationStore, getObservationStore } from '../../src/store/obs-store.js';
 import { closeAllDatabases } from '../../src/store/sqlite-db.js';
@@ -325,6 +326,75 @@ describe('Retention & Decay', () => {
       const result = await archiveExpired(tmpDir, now, accessMap);
       expect(result.archived).toBe(0);
       expect(result.remaining).toBe(1);
+    });
+
+    it('archives only the requested project in a shared flat store', async () => {
+      const now = new Date();
+      const expiredDate = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000).toISOString();
+      const observations = [
+        { id: 1, entityName: 'a', type: 'session-request', title: 'A expired', narrative: '', facts: [], filesModified: [], concepts: [], tokens: 10, createdAt: expiredDate, projectId: 'project-a' },
+        { id: 2, entityName: 'b', type: 'session-request', title: 'B expired', narrative: '', facts: [], filesModified: [], concepts: [], tokens: 10, createdAt: expiredDate, projectId: 'project-b' },
+      ];
+      await fs.writeFile(path.join(tmpDir, 'observations.json'), JSON.stringify(observations));
+      await initObservationStore(tmpDir);
+
+      const result = await archiveExpired(tmpDir, now, undefined, 'project-a');
+
+      expect(result).toEqual({ archived: 1, remaining: 0 });
+      const all = await getObservationStore().loadAll();
+      expect(all.find((observation) => observation.id === 1)?.status).toBe('archived');
+      expect(all.find((observation) => observation.id === 2)?.status ?? 'active').toBe('active');
+    });
+
+    it('archives a project in bounded ID-cursor batches without loading the shared table', async () => {
+      const now = new Date();
+      const expiredDate = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000).toISOString();
+      const observations = [
+        { id: 1, entityName: 'a', type: 'decision', title: 'Recent A', narrative: '', facts: [], filesModified: [], concepts: [], tokens: 10, createdAt: now.toISOString(), projectId: 'project-a' },
+        { id: 2, entityName: 'b', type: 'session-request', title: 'Expired A one', narrative: '', facts: [], filesModified: [], concepts: [], tokens: 10, createdAt: expiredDate, projectId: 'project-a' },
+        { id: 3, entityName: 'c', type: 'decision', title: 'Recent A two', narrative: '', facts: [], filesModified: [], concepts: [], tokens: 10, createdAt: now.toISOString(), projectId: 'project-a' },
+        { id: 4, entityName: 'd', type: 'session-request', title: 'Expired A two', narrative: '', facts: [], filesModified: [], concepts: [], tokens: 10, createdAt: expiredDate, projectId: 'project-a' },
+        { id: 5, entityName: 'e', type: 'session-request', title: 'Expired B', narrative: '', facts: [], filesModified: [], concepts: [], tokens: 10, createdAt: expiredDate, projectId: 'project-b' },
+      ];
+      await fs.writeFile(path.join(tmpDir, 'observations.json'), JSON.stringify(observations));
+      await initObservationStore(tmpDir);
+
+      const rawLoadAll = vi.spyOn(getObservationStore() as any, 'rawLoadAll');
+      const first = await archiveExpiredBatch(tmpDir, {
+        projectId: 'project-a',
+        limit: 2,
+        referenceTime: now,
+      });
+      const second = await archiveExpiredBatch(tmpDir, {
+        projectId: 'project-a',
+        limit: 2,
+        afterId: first.nextCursor,
+        referenceTime: now,
+      });
+
+      expect(first).toEqual({ archived: 1, scanned: 2, nextCursor: 2 });
+      expect(second).toEqual({ archived: 1, scanned: 2 });
+      expect(rawLoadAll).not.toHaveBeenCalled();
+
+      const all = await getObservationStore().loadAll();
+      expect(all.find((observation) => observation.id === 2)?.status).toBe('archived');
+      expect(all.find((observation) => observation.id === 4)?.status).toBe('archived');
+      expect(all.find((observation) => observation.id === 5)?.status ?? 'active').toBe('active');
+    });
+
+    it('does not advance storage generation for a scanned page with no archive candidates', async () => {
+      const now = new Date();
+      const observations = [
+        { id: 1, entityName: 'a', type: 'decision', title: 'Recent', narrative: '', facts: [], filesModified: [], concepts: [], tokens: 10, createdAt: now.toISOString(), projectId: 'project-a' },
+      ];
+      await fs.writeFile(path.join(tmpDir, 'observations.json'), JSON.stringify(observations));
+      await initObservationStore(tmpDir);
+
+      const generationBefore = getObservationStore().getGeneration();
+      const result = await archiveExpiredBatch(tmpDir, { projectId: 'project-a', referenceTime: now });
+
+      expect(result).toEqual({ archived: 0, scanned: 1 });
+      expect(getObservationStore().getGeneration()).toBe(generationBefore);
     });
   });
 });

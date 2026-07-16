@@ -14,6 +14,20 @@ Memorix is designed to be light for everyday memory use and explicit about heavi
 
 The default memory path uses local SQLite as the canonical store and Orama for search/indexing. No cloud service is required.
 
+## Interactive and Maintenance Boundaries
+
+MCP transport readiness is separate from full search-index readiness. The first
+project-scoped tools (`memorix_project_context`, `memorix_context_pack`,
+`memorix_graph_context`, and `memorix_codegraph_status`) read SQLite and
+CodeGraph Memory directly, so a new agent can get a useful brief without
+waiting for unrelated historical records to hydrate into Orama.
+
+Search, writes, and session operations still wait for the in-process retrieval
+runtime when they need it. Corpus-scale retention, consolidation, and Code
+Memory refresh are queued durably and run in an isolated child process. Vector
+backfill stays with the owning process because the Orama index is local to that
+process.
+
 ## What Is Lightweight
 
 - `memorix_session_start` is lightweight by default. It opens a memory/session context and does not join orchestration coordination state unless `joinTeam: true` is explicitly set.
@@ -29,6 +43,9 @@ On the release development machine used for this check, the healthy HTTP service
 - Docker image size mostly comes from Node, npm dependencies, build artifacts, and image layers. The container runtime should be judged separately from image size.
 - Dashboard browsing can add browser-side memory and CPU outside the Memorix Node process.
 - Large imports, Git log ingestion, workspace sync, and skill generation can temporarily increase CPU and disk I/O.
+- Code Memory refresh walks the project tree. It is incremental, skips common
+  dependency/build directories, caps files by count, and skips files over 2
+  MiB by default, but very large source trees still need time to scan.
 - LLM-backed formation, reranking, extraction, and skill generation add network latency and provider cost when enabled.
 - `memorix orchestrate` can run multiple agent workers. Parallel runs also create Git worktrees under `.worktrees/`, so expect extra disk usage until successful worktrees are merged and cleaned up.
 
@@ -41,6 +58,7 @@ On the release development machine used for this check, the healthy HTTP service
 | `MEMORIX_LLM_API_KEY` / `OPENAI_API_KEY` | unset | Enable LLM-backed enrichment, extraction, rerank, or skill generation |
 | `MEMORIX_LLM_TIMEOUT_MS` | `30000` (30 s) | Bound a single LLM-backed extraction/resolve call |
 | `MEMORIX_RERANK_TIMEOUT_MS` | provider default | Bound slow LLM rerank calls |
+| `[codegraph].max_file_bytes` | `2097152` | Raise only when a large file is intentional source that should enter Code Memory |
 | `memorix retention status` | report only | Inspect whether memory growth needs cleanup |
 | `memorix retention archive` | explicit | Archive expired memories when the project gets noisy |
 | `memorix memory deduplicate` / `consolidate` | explicit | Reduce duplicate or scattered memory records |
@@ -53,6 +71,9 @@ On the release development machine used for this check, the healthy HTTP service
 - For Docker, use it when you want a managed HTTP service. Do not use image size alone as the runtime memory estimate.
 - For orchestrated subagent work, expect CPU and disk activity proportional to the spawned agents and verification commands.
 - For release checks, measure build/test/pack separately from idle service cost.
+- When Dashboard shows queued or failed maintenance work, inspect
+  `/api/maintenance` on that local dashboard before assuming a Code Memory scan
+  or lifecycle task completed.
 
 ## Current Optimization Opportunities
 
@@ -61,4 +82,6 @@ These are not release blockers, but they are reasonable future improvements:
 - Add a lightweight benchmark command that reports startup time, index size, SQLite size, and search latency.
 - Add dashboard-side performance telemetry for API latency and payload sizes.
 - Document recommended retention schedules for large projects.
+- Evaluate a persistent cross-process retrieval index only as a major-version
+  architecture change; Orama is intentionally process-local today.
 - Explore slimmer Docker layers if image size becomes a common pain point.

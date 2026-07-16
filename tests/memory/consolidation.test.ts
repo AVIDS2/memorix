@@ -16,6 +16,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { findConsolidationCandidates, executeConsolidation } from '../../src/memory/consolidation.js';
 import { storeObservation, initObservations, getObservationCount } from '../../src/memory/observations.js';
+import { getObservationStore } from '../../src/store/obs-store.js';
 import { resetDb } from '../../src/store/orama-store.js';
 
 let testDir: string;
@@ -127,6 +128,41 @@ describe('Memory Consolidation', () => {
   });
 
   describe('executeConsolidation', () => {
+    it('scans a bounded active project page without reading the shared observation table', async () => {
+      for (const title of ['First isolated note', 'Second isolated note', 'Third isolated note']) {
+        await storeObservation({
+          entityName: 'bounded',
+          type: 'discovery',
+          title,
+          narrative: `${title} has distinct content.`,
+          projectId: PROJECT_ID,
+        });
+      }
+      await storeObservation({
+        entityName: 'other-project',
+        type: 'discovery',
+        title: 'Other project must not be scanned',
+        narrative: 'This is unrelated.',
+        projectId: 'other/project',
+      });
+
+      const store = getObservationStore();
+      const loadAll = vi.spyOn(store, 'loadAll');
+      const loadByProject = vi.spyOn(store, 'loadByProject');
+
+      const result = await executeConsolidation(testDir, PROJECT_ID, { limit: 2, threshold: 0.99 });
+
+      expect(loadAll).not.toHaveBeenCalled();
+      expect(loadByProject).toHaveBeenCalledWith(PROJECT_ID, {
+        status: 'active',
+        afterId: 0,
+        limit: 3,
+      });
+      expect(result.scanned).toBe(2);
+      expect(result.nextCursor).toBe(2);
+      expect(result.observationsAfter).toBe(3);
+    });
+
     it('should merge similar observations and reduce count', async () => {
       // Uses 'discovery' type — high-value types (gotcha/decision) require 0.85 similarity
       await storeObservation({

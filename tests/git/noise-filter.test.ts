@@ -136,15 +136,21 @@ describe('shouldFilterCommit', () => {
       { noiseKeywords: ['auto-deploy'] },
     );
     expect(result.skip).toBe(true);
-    expect(result.reason).toContain('user noise pattern');
+    expect(result.reason).toContain('user noise keyword');
   });
 
-  it('should handle regex in noiseKeywords', () => {
-    const result = shouldFilterCommit(
+  it('treats noiseKeywords as literal text instead of executable regex', () => {
+    const regexLike = shouldFilterCommit(
       makeCommit({ subject: 'BOT: automated PR merge #42' }),
       { noiseKeywords: ['^BOT:'] },
     );
-    expect(result.skip).toBe(true);
+    expect(regexLike.skip).toBe(false);
+
+    const literal = shouldFilterCommit(
+      makeCommit({ subject: '^BOT: automated PR merge #42' }),
+      { noiseKeywords: ['^BOT:'] },
+    );
+    expect(literal.skip).toBe(true);
   });
 
   // ─── excludePatterns for files ───

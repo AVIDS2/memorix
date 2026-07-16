@@ -12,6 +12,8 @@ export interface ProjectContextObservation {
   status?: string;
   createdAt?: string;
   updatedAt?: string;
+  /** Explicit file paths recorded with a memory, used only before Code Memory exists. */
+  filesModified?: string[];
 }
 
 export interface LanguageSummary {
@@ -143,6 +145,27 @@ function collectGraph(
       status: result.status,
       reason: result.reason,
     });
+  }
+
+  // A cold project has no parsed graph yet. Do not make the first agent brief
+  // empty while a refresh is queued: surface only file paths the memory itself
+  // explicitly recorded, and label them unbound so callers know to verify.
+  if (files.length === 0) {
+    for (const observation of observations) {
+      for (const path of observation.filesModified ?? []) {
+        if (!path || isCodeGraphExcludedPath(path, exclude)) continue;
+        suggestedReads.push(path);
+        sources.push({
+          observationId: observation.id,
+          title: observation.title,
+          type: observation.type,
+          path,
+          status: 'unbound',
+          reason: 'Recorded file hint; Code Memory refresh is pending.',
+        });
+        freshness.unbound++;
+      }
+    }
   }
 
   return {

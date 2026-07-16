@@ -20,6 +20,7 @@ import fs from 'node:fs';
 export interface SessionStoreInterface {
   init(dataDir: string): Promise<void>;
   loadAll(): Promise<Session[]>;
+  getById(id: string): Promise<Session | undefined>;
   loadByProject(projectId: string): Promise<Session[]>;
   loadActive(projectId: string): Promise<Session[]>;
   insert(session: Session): Promise<void>;
@@ -68,6 +69,7 @@ export class SessionSqliteStore implements SessionStoreInterface {
 
   private stmtInsert: any = null;
   private stmtSelectAll: any = null;
+  private stmtSelectById: any = null;
   private stmtSelectByProject: any = null;
   private stmtSelectActive: any = null;
   private _stmtCompleteActive: any = null;
@@ -84,6 +86,7 @@ export class SessionSqliteStore implements SessionStoreInterface {
         (@id, @projectId, @startedAt, @endedAt, @status, @summary, @agent)
     `);
     this.stmtSelectAll = this.db.prepare(`SELECT * FROM sessions ORDER BY startedAt DESC`);
+    this.stmtSelectById = this.db.prepare(`SELECT * FROM sessions WHERE id = ?`);
     this.stmtSelectByProject = this.db.prepare(`SELECT * FROM sessions WHERE projectId = ? ORDER BY startedAt DESC`);
     this.stmtSelectActive = this.db.prepare(`SELECT * FROM sessions WHERE projectId = ? AND status = 'active' ORDER BY startedAt DESC`);
 
@@ -124,6 +127,11 @@ export class SessionSqliteStore implements SessionStoreInterface {
 
   async loadAll(): Promise<Session[]> {
     return this.stmtSelectAll.all().map(rowToSession);
+  }
+
+  async getById(id: string): Promise<Session | undefined> {
+    const row = this.stmtSelectById.get(id);
+    return row ? rowToSession(row) : undefined;
   }
 
   async loadByProject(projectId: string): Promise<Session[]> {
@@ -205,6 +213,7 @@ export class SessionGracefulDegrade implements SessionStoreInterface {
   }
 
   async loadAll(): Promise<Session[]> { return []; }
+  async getById(_id: string): Promise<Session | undefined> { return undefined; }
   async loadByProject(_projectId: string): Promise<Session[]> { return []; }
   async loadActive(_projectId: string): Promise<Session[]> { return []; }
 

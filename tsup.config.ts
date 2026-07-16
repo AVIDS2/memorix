@@ -8,7 +8,15 @@ export default defineConfig([
   {
     // Phase 4b: types entry added for memorix/types SDK subpath export
     // SDK entry added for memorix/sdk programmatic API
-    entry: { index: 'src/index.ts', types: 'src/types.ts', sdk: 'src/sdk.ts' },
+    entry: {
+      index: 'src/index.ts',
+      types: 'src/types.ts',
+      sdk: 'src/sdk.ts',
+      // Hidden process entry used by the durable maintenance queue. Keeping it
+      // separate from the MCP host prevents graph scans and consolidation from
+      // blocking an agent request on the main event loop.
+      'maintenance-runner': 'src/runtime/maintenance-runner.ts',
+    },
     format: ['esm'],
     target: 'node20',
     dts: true,
@@ -83,4 +91,3 @@ export default defineConfig([
     },
   },
 ]);
-

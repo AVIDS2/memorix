@@ -22,7 +22,7 @@ export interface NoiseFilterConfig {
   skipMergeCommits?: boolean;
   /** File glob patterns to exclude (default: lockfiles, generated files) */
   excludePatterns?: string[];
-  /** Additional commit message patterns to skip (regex strings) */
+  /** Additional commit message phrases to skip (literal, case-insensitive) */
   noiseKeywords?: string[];
 }
 
@@ -112,23 +112,39 @@ function isMergeCommit(commit: CommitInfo): boolean {
 function isAllFilesNoise(files: string[], extraPatterns?: string[]): boolean {
   if (files.length === 0) return false;
 
-  const allPatterns = [...NOISE_FILE_PATTERNS];
-  if (extraPatterns) {
-    for (const p of extraPatterns) {
-      try {
-        // Convert glob-like patterns to regex: *.lock → \.lock$, dist/* → ^dist\/
-        const escaped = p
-          .replace(/[.+^${}()|[\]\\]/g, '\\$&')
-          .replace(/\*/g, '.*')
-          .replace(/\?/g, '.');
-        allPatterns.push(new RegExp(escaped));
-      } catch { /* invalid pattern — skip */ }
-    }
-  }
-
-  return files.every(file =>
-    allPatterns.some(pattern => pattern.test(file)),
+  return files.every((file) =>
+    NOISE_FILE_PATTERNS.some((pattern) => pattern.test(file)) ||
+    (extraPatterns ?? []).some((pattern) => matchesGlob(file, pattern)),
   );
+}
+
+/**
+ * Glob matching without compiling user configuration into a JavaScript regex.
+ * `*` matches any sequence and `?` matches one character, including `/`, which
+ * preserves the old file-pattern semantics while bounding work to O(m*n).
+ */
+function matchesGlob(file: string, pattern: string): boolean {
+  const text = file.replace(/\\/g, '/');
+  const glob = pattern.replace(/\\/g, '/');
+  if (!glob) return false;
+
+  let previous = new Array<boolean>(text.length + 1).fill(false);
+  previous[0] = true;
+  for (const token of glob) {
+    const current = new Array<boolean>(text.length + 1).fill(false);
+    if (token === '*') {
+      current[0] = previous[0];
+      for (let index = 1; index <= text.length; index++) {
+        current[index] = previous[index] || current[index - 1];
+      }
+    } else {
+      for (let index = 1; index <= text.length; index++) {
+        current[index] = previous[index - 1] && (token === '?' || token === text[index - 1]);
+      }
+    }
+    previous = current;
+  }
+  return previous[text.length];
 }
 
 /**
@@ -156,15 +172,15 @@ export function shouldFilterCommit(
     }
   }
 
-  // 3. User-defined noise keywords from memorix.yml
+  // 3. User-defined literal noise keywords from memorix.yml
   if (config?.noiseKeywords) {
     for (const keyword of config.noiseKeywords) {
-      try {
-        const re = new RegExp(keyword, 'i');
-        if (re.test(commit.subject) || re.test(commit.body)) {
-          return { skip: true, reason: `user noise pattern: ${keyword}` };
-        }
-      } catch { /* invalid regex — skip */ }
+      const needle = keyword.trim().toLocaleLowerCase();
+      if (!needle) continue;
+      const message = `${commit.subject}\n${commit.body}`.toLocaleLowerCase();
+      if (message.includes(needle)) {
+        return { skip: true, reason: `user noise keyword: ${keyword}` };
+      }
     }
   }
 

@@ -23,12 +23,26 @@ import type { Observation } from '../types.js';
 export interface StoreTransaction {
   /** Load all observations (raw, no lock). */
   loadAll(): Promise<Observation[]>;
+  /** Load one observation by its globally unique ID (raw, no lock). */
+  getById(id: number): Promise<Observation | undefined>;
+  /** Find one observation by its project-scoped topic key (raw, no lock). */
+  findByTopicKey(projectId: string, topicKey: string): Promise<Observation | undefined>;
   /** Load the ID counter (raw, no lock). */
   loadIdCounter(): Promise<number>;
+  /** Insert one observation without independently acquiring a lock. */
+  insert(obs: Observation): Promise<void>;
+  /** Update one observation without independently acquiring a lock. */
+  update(obs: Observation): Promise<void>;
+  /** Change only an observation's lifecycle status without replacing its other fields. */
+  setStatus(id: number, status: string, expectedStatus?: string): Promise<boolean>;
+  /** Remove one observation without independently acquiring a lock. */
+  remove(id: number): Promise<void>;
   /** Save all observations (raw, no lock). */
   saveAll(obs: Observation[]): Promise<void>;
   /** Save the ID counter (raw, no lock). */
   saveIdCounter(nextId: number): Promise<void>;
+  /** Read the storage generation visible to this transaction. */
+  getGeneration(): Promise<number>;
 }
 
 export interface ObservationStore {
@@ -41,6 +55,18 @@ export interface ObservationStore {
 
   /** Load all observations into memory. Called at startup after init(). */
   loadAll(): Promise<Observation[]>;
+
+  /** Load one project's observations without scanning the shared flat store. */
+  loadByProject(
+    projectId: string,
+    options?: { status?: string; limit?: number; offset?: number; afterId?: number },
+  ): Promise<Observation[]>;
+
+  /** Count one project's observations without materializing the rows. */
+  countByProject(projectId: string, options?: { status?: string }): Promise<number>;
+
+  /** Load one observation by its globally unique ID. */
+  getById(id: number): Promise<Observation | undefined>;
 
   /** Load the current next-ID counter value. */
   loadIdCounter(): Promise<number>;
@@ -60,7 +86,7 @@ export interface ObservationStore {
 
   /**
    * Replace the entire observation set atomically.
-   * Used by consolidation, cleanup, and project-ID migration.
+   * Reserved for explicit full-state imports or recovery operations.
    */
   bulkReplace(obs: Observation[]): Promise<void>;
 
@@ -203,6 +229,18 @@ export class DegradedBackend implements ObservationStore {
 
   async loadAll(): Promise<Observation[]> {
     return [];
+  }
+
+  async loadByProject(_projectId: string, _options?: { status?: string; limit?: number; offset?: number; afterId?: number }): Promise<Observation[]> {
+    return [];
+  }
+
+  async countByProject(_projectId: string, _options?: { status?: string }): Promise<number> {
+    return 0;
+  }
+
+  async getById(_id: number): Promise<Observation | undefined> {
+    return undefined;
   }
 
   async loadIdCounter(): Promise<number> {

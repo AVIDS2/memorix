@@ -4,19 +4,36 @@ import { join, relative } from 'node:path';
 import type { CodeEdge, CodeFile, CodeSymbol } from './types.js';
 import { makeCodeEdgeId, makeCodeFileId, makeCodeSymbolId, normalizeCodePath } from './ids.js';
 import { isCodeGraphExcludedPath, normalizeCodeGraphExcludePatterns } from './exclude.js';
+import { CodeGraphStore, type CodeGraphFileDelta } from './store.js';
 
 export interface LiteIndexOptions {
   projectId: string;
   projectRoot: string;
   exclude?: string[];
   maxFiles?: number;
+  maxFileBytes?: number;
 }
 
 export interface LiteIndexResult {
   files: CodeFile[];
   symbols: CodeSymbol[];
   edges: CodeEdge[];
+  skippedOversizedFiles: number;
 }
+
+export interface LiteRefreshResult {
+  scannedFiles: number;
+  changedFiles: number;
+  unchangedFiles: number;
+  metadataOnlyFiles: number;
+  removedFiles: number;
+  indexedSymbols: number;
+  indexedEdges: number;
+  skippedOversizedFiles: number;
+  removalScanDeferred: boolean;
+}
+
+export const DEFAULT_CODEGRAPH_MAX_FILE_BYTES = 2 * 1024 * 1024;
 
 const LANGUAGE_BY_EXTENSION = new Map<string, string>([
   ['.ts', 'typescript'],
@@ -170,6 +187,11 @@ function languageForPath(path: string): string {
   return LANGUAGE_BY_EXTENSION.get(ext) ?? 'unknown';
 }
 
+function resolveMaxFileBytes(value: number | undefined): number {
+  if (!Number.isFinite(value)) return DEFAULT_CODEGRAPH_MAX_FILE_BYTES;
+  return Math.max(1, Math.floor(value!));
+}
+
 function walk(root: string, exclude: string[], maxFiles: number): string[] {
   const out: string[] = [];
   const visit = (dir: string) => {
@@ -277,39 +299,147 @@ function extractImportEdges(projectId: string, file: CodeFile, text: string, ind
   return edges;
 }
 
+function indexFileLite(
+  projectId: string,
+  projectRoot: string,
+  abs: string,
+  indexedAt: string,
+  fileStat?: ReturnType<typeof statSync>,
+): CodeGraphFileDelta | undefined {
+  const rel = normalizeCodePath(relative(projectRoot, abs));
+  try {
+    const text = readFileSync(abs, 'utf-8');
+    const stat = fileStat ?? statSync(abs);
+    const file: CodeFile = {
+      id: makeCodeFileId(projectId, rel),
+      projectId,
+      path: rel,
+      language: languageForPath(rel),
+      contentHash: hashText(text),
+      mtimeMs: Math.round(Number(stat.mtimeMs)),
+      sizeBytes: Number(stat.size),
+      indexedAt,
+    };
+    return {
+      file,
+      symbols: extractSymbols(projectId, file, text, indexedAt),
+      edges: extractImportEdges(projectId, file, text, indexedAt),
+    };
+  } catch {
+    return undefined;
+  }
+}
+
 export async function indexProjectLite(options: LiteIndexOptions): Promise<LiteIndexResult> {
   const exclude = normalizeCodeGraphExcludePatterns(options.exclude);
   const maxFiles = options.maxFiles ?? 5000;
+  const maxFileBytes = resolveMaxFileBytes(options.maxFileBytes);
   const indexedAt = new Date().toISOString();
   const paths = walk(options.projectRoot, exclude, maxFiles);
   const files: CodeFile[] = [];
   const symbols: CodeSymbol[] = [];
   const edges: CodeEdge[] = [];
+  let skippedOversizedFiles = 0;
 
   for (const abs of paths) {
-    const rel = normalizeCodePath(relative(options.projectRoot, abs));
-    let text: string;
     let stat: ReturnType<typeof statSync>;
     try {
-      text = readFileSync(abs, 'utf-8');
       stat = statSync(abs);
     } catch {
       continue;
     }
-    const file: CodeFile = {
-      id: makeCodeFileId(options.projectId, rel),
-      projectId: options.projectId,
-      path: rel,
-      language: languageForPath(rel),
-      contentHash: hashText(text),
-      mtimeMs: Math.round(stat.mtimeMs),
-      sizeBytes: stat.size,
-      indexedAt,
-    };
-    files.push(file);
-    symbols.push(...extractSymbols(options.projectId, file, text, indexedAt));
-    edges.push(...extractImportEdges(options.projectId, file, text, indexedAt));
+    if (Number(stat.size) > maxFileBytes) {
+      skippedOversizedFiles++;
+      continue;
+    }
+    const delta = indexFileLite(options.projectId, options.projectRoot, abs, indexedAt, stat);
+    if (!delta) continue;
+    files.push(delta.file);
+    symbols.push(...delta.symbols);
+    edges.push(...delta.edges);
   }
 
-  return { files, symbols, edges };
+  return { files, symbols, edges, skippedOversizedFiles };
+}
+
+/**
+ * Refresh the Lite graph incrementally. A directory walk is still necessary to
+ * discover deletes, but unchanged files are not read, hashed, or reparsed.
+ */
+export async function refreshProjectLite(
+  store: CodeGraphStore,
+  options: LiteIndexOptions,
+): Promise<LiteRefreshResult> {
+  const exclude = normalizeCodeGraphExcludePatterns(options.exclude);
+  const maxFiles = options.maxFiles ?? 5000;
+  const maxFileBytes = resolveMaxFileBytes(options.maxFileBytes);
+  const indexedAt = new Date().toISOString();
+  const paths = walk(options.projectRoot, exclude, maxFiles);
+  const existingByPath = new Map(store.listFiles(options.projectId).map((file) => [file.path, file]));
+  const changed: CodeGraphFileDelta[] = [];
+  const metadataOnly: CodeFile[] = [];
+  const seenPaths = new Set<string>();
+  const oversizedExistingFileIds = new Set<string>();
+  let unchangedFiles = 0;
+  let skippedOversizedFiles = 0;
+
+  for (const abs of paths) {
+    const rel = normalizeCodePath(relative(options.projectRoot, abs));
+    let stat: ReturnType<typeof statSync>;
+    try {
+      stat = statSync(abs);
+    } catch {
+      continue;
+    }
+    seenPaths.add(rel);
+    const existing = existingByPath.get(rel);
+    const roundedMtime = Math.round(Number(stat.mtimeMs));
+    const sizeBytes = Number(stat.size);
+    if (sizeBytes > maxFileBytes) {
+      skippedOversizedFiles++;
+      if (existing) oversizedExistingFileIds.add(existing.id);
+      continue;
+    }
+    if (existing && existing.mtimeMs === roundedMtime && existing.sizeBytes === sizeBytes) {
+      unchangedFiles++;
+      continue;
+    }
+
+    const delta = indexFileLite(options.projectId, options.projectRoot, abs, indexedAt, stat);
+    if (!delta) continue;
+    if (existing?.contentHash === delta.file.contentHash) {
+      metadataOnly.push(delta.file);
+      unchangedFiles++;
+    } else {
+      changed.push(delta);
+    }
+  }
+
+  // At the file cap, absence from this partial walk is not proof of deletion.
+  const removalScanDeferred = paths.length >= maxFiles;
+  const removedFileIds = [...new Set([
+    ...oversizedExistingFileIds,
+    ...(removalScanDeferred
+      ? []
+      : [...existingByPath.values()]
+        .filter((file) => !seenPaths.has(file.path))
+        .map((file) => file.id)),
+  ])];
+  store.applyFileDeltas(options.projectId, {
+    changed,
+    metadataOnly,
+    removedFileIds,
+  });
+
+  return {
+    scannedFiles: paths.length,
+    changedFiles: changed.length,
+    unchangedFiles,
+    metadataOnlyFiles: metadataOnly.length,
+    removedFiles: removedFileIds.length,
+    indexedSymbols: changed.reduce((total, delta) => total + delta.symbols.length, 0),
+    indexedEdges: changed.reduce((total, delta) => total + delta.edges.length, 0),
+    skippedOversizedFiles,
+    removalScanDeferred,
+  };
 }

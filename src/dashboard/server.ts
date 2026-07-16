@@ -40,7 +40,6 @@ const MIME_TYPES: Record<string, string> = {
 function sendJson(res: ServerResponse, data: unknown, status = 200) {
     res.writeHead(status, {
         'Content-Type': 'application/json; charset=utf-8',
-        'Access-Control-Allow-Origin': '*',
     });
     res.end(JSON.stringify(data));
 }
@@ -61,10 +60,6 @@ function filterByProject<T extends { projectId?: string }>(items: T[], projectId
 
 function isActiveStatus(status?: string): boolean {
     return (status ?? 'active') === 'active';
-}
-
-function filterActiveByProject<T extends { projectId?: string; status?: string }>(items: T[], projectId: string): T[] {
-    return items.filter(item => item.projectId === projectId && isActiveStatus(item.status));
 }
 
 /**
@@ -216,10 +211,10 @@ async function handleApi(
                 const gStore = getGraphStore();
                 const graph = { entities: gStore.loadEntities(), relations: gStore.loadRelations() };
                 // Project-scope the graph: only include entities that have observations in this project
-                const graphObs = await getObservationStore().loadAll() as Array<{ projectId?: string; entityName?: string; status?: string }>;
+                const graphObs = await getObservationStore().loadByProject(effectiveProjectId, { status: 'active' }) as Array<{ entityName?: string }>;
                 const projectEntityNames = new Set(
                     graphObs
-                        .filter(o => o.projectId === effectiveProjectId && (o.status ?? 'active') === 'active' && o.entityName)
+                        .filter(o => o.entityName)
                         .map(o => o.entityName!),
                 );
                 const entities = graph.entities.filter((e: any) => projectEntityNames.has(e.name));
@@ -230,8 +225,7 @@ async function handleApi(
             }
 
             case '/observations': {
-                const allObs = await getObservationStore().loadAll();
-                const observations = filterActiveByProject(allObs as Array<{ projectId?: string; status?: string }>, effectiveProjectId);
+                const observations = await getObservationStore().loadByProject(effectiveProjectId, { status: 'active' });
                 sendJson(res, observations);
                 break;
             }
@@ -246,11 +240,7 @@ async function handleApi(
             case '/stats': {
                 await initGraphStore(effectiveDataDir);
                 const graph = { entities: getGraphStore().loadEntities(), relations: getGraphStore().loadRelations() };
-                const allObs = await getObservationStore().loadAll();
-                const observations = filterActiveByProject(
-                    allObs as Array<{ projectId?: string; status?: string; type?: string; id?: number; createdAt?: string; title?: string; entityName?: string }>,
-                    effectiveProjectId,
-                );
+                const observations = await getObservationStore().loadByProject(effectiveProjectId, { status: 'active' }) as Array<{ type?: string; id?: number; createdAt?: string; title?: string; entityName?: string; status?: string }>;
                 const nextId = await getObservationStore().loadIdCounter();
 
                 // Project-scoped graph counts (must match /api/graph and /api/export)
@@ -331,6 +321,12 @@ async function handleApi(
                     generation: store.getGeneration(),
                 };
 
+                let maintenance = { total: 0, pending: 0, running: 0, retrying: 0, completed: 0, failed: 0 };
+                try {
+                    const { MaintenanceJobStore } = await import('../runtime/maintenance-jobs.js');
+                    maintenance = new MaintenanceJobStore(effectiveDataDir).summary(effectiveProjectId);
+                } catch { /* optional maintenance diagnostics */ }
+
                 sendJson(res, {
                     entities: projectGraphCounts.entities,
                     relations: projectGraphCounts.relations,
@@ -341,6 +337,7 @@ async function handleApi(
                     recentObservations: sorted,
                     embedding: embeddingStatus,
                     storage: storageInfo,
+                    maintenance,
                     gitSummary: {
                         total: gitMemories.length,
                         recentWeek: recentGitCount,
@@ -351,8 +348,21 @@ async function handleApi(
                 break;
             }
 
+            case '/maintenance': {
+                const { MaintenanceJobStore } = await import('../runtime/maintenance-jobs.js');
+                const jobs = new MaintenanceJobStore(effectiveDataDir).list({
+                    projectId: effectiveProjectId,
+                    limit: 50,
+                });
+                sendJson(res, {
+                    summary: new MaintenanceJobStore(effectiveDataDir).summary(effectiveProjectId),
+                    jobs,
+                });
+                break;
+            }
+
             case '/retention': {
-                const allObs = await getObservationStore().loadAll() as Array<{
+                const observations = await getObservationStore().loadByProject(effectiveProjectId, { status: 'active' }) as Array<{
                     id?: number;
                     title?: string;
                     type?: string;
@@ -361,10 +371,7 @@ async function handleApi(
                     lastAccessedAt?: string;
                     createdAt?: string;
                     entityName?: string;
-                    projectId?: string;
-                    status?: string;
                 }>;
-                const observations = filterActiveByProject(allObs, effectiveProjectId);
 
                 const now = Date.now();
                 // Exclude probe from retention display -- not durable knowledge
@@ -412,13 +419,11 @@ async function handleApi(
 
             case '/knowledge': {
                 const { generateKnowledgeBase } = await import('../wiki/generator.js');
-                const { initObservations, getAllObservations } = await import('../memory/observations.js');
                 const { initMiniSkillStore, getMiniSkillStore } = await import('../store/mini-skill-store.js');
 
-                await initObservations(effectiveDataDir);
                 await initMiniSkillStore(effectiveDataDir);
 
-                const allObs = getAllObservations();
+                const allObs = await getObservationStore().loadByProject(effectiveProjectId, { status: 'active' });
                 const skills = await getMiniSkillStore().loadByProject(effectiveProjectId);
 
                 const overview = generateKnowledgeBase({
@@ -433,23 +438,21 @@ async function handleApi(
 
             case '/knowledge-graph': {
                 const { generateKnowledgeGraph } = await import('../wiki/knowledge-graph.js');
-                const { initObservations, getAllObservations } = await import('../memory/observations.js');
                 const { initMiniSkillStore, getMiniSkillStore } = await import('../store/mini-skill-store.js');
                 const { initGraphStore, getGraphStore } = await import('../store/graph-store.js');
 
-                await initObservations(effectiveDataDir);
                 await initMiniSkillStore(effectiveDataDir);
                 await initGraphStore(effectiveDataDir);
 
-                const allObs = getAllObservations();
+                const allObs = await getObservationStore().loadByProject(effectiveProjectId, { status: 'active' });
                 const skills = await getMiniSkillStore().loadByProject(effectiveProjectId);
 
                 // Project-scope graph store (same logic as /api/graph)
                 const fullGraph = { entities: getGraphStore().loadEntities(), relations: getGraphStore().loadRelations() };
-                const graphObs = await getObservationStore().loadAll() as Array<{ projectId?: string; entityName?: string; status?: string }>;
+                const graphObs = await getObservationStore().loadByProject(effectiveProjectId, { status: 'active' }) as Array<{ entityName?: string }>;
                 const projectEntityNames = new Set(
                     graphObs
-                        .filter(o => o.projectId === effectiveProjectId && (o.status ?? 'active') === 'active' && o.entityName)
+                        .filter(o => o.entityName)
                         .map(o => o.entityName!),
                 );
                 const scopedEntities = fullGraph.entities.filter((e: any) => projectEntityNames.has(e.name));
@@ -698,8 +701,7 @@ async function handleApi(
                 if (deleteMatch && req.method === 'DELETE') {
                     const obsId = parseInt(deleteMatch[1], 10);
                     const obsStore = getObservationStore();
-                    const allObs = await obsStore.loadAll();
-                    const matchObs = allObs.find(o => o.id === obsId);
+                    const matchObs = await obsStore.getById(obsId);
                     if (!matchObs) {
                         sendError(res, 'Observation not found', 404);
                     } else if (matchObs.projectId !== effectiveProjectId) {
@@ -729,8 +731,7 @@ async function handleApi(
                 if (apiPath === '/export') {
                     await initGraphStore(effectiveDataDir);
                     const fullGraph = { entities: getGraphStore().loadEntities(), relations: getGraphStore().loadRelations() };
-                    const allObs = await getObservationStore().loadAll();
-                    const observations = filterActiveByProject(allObs as Array<{ projectId?: string; entityName?: string; status?: string }>, effectiveProjectId);
+                    const observations = await getObservationStore().loadByProject(effectiveProjectId, { status: 'active' });
                     const nextId = await getObservationStore().loadIdCounter();
                     // Project-scope the graph: only entities referenced by this project's observations
                     const exportEntityNames = new Set(

@@ -29,6 +29,7 @@ export interface ResolvedMemorixConfig {
     inject?: 'full' | 'minimal' | 'silent';
     formation?: 'active' | 'shadow' | 'fallback';
     autoCleanup?: boolean;
+    syncAdvisory?: boolean;
     llm: {
       provider?: string;
       model?: string;
@@ -53,6 +54,7 @@ export interface ResolvedMemorixConfig {
   };
   codegraph: {
     excludePatterns?: string[];
+    maxFileBytes?: number;
   };
   server: {
     transport?: 'stdio' | 'http';
@@ -119,6 +121,7 @@ export function getResolvedConfig(options: ResolvedLaneOptions = {}): ResolvedMe
       inject: first(toml.memory?.inject, yaml.behavior?.sessionInject),
       formation: first(toml.memory?.formation, yaml.behavior?.formationMode),
       autoCleanup: firstBool(toml.memory?.auto_cleanup, yaml.behavior?.autoCleanup),
+      syncAdvisory: firstBool(toml.memory?.sync_advisory, yaml.behavior?.syncAdvisory),
       llm: {
         provider: first(process.env.MEMORIX_LLM_PROVIDER, toml.memory?.llm?.provider, yaml.llm?.provider, legacy.llm?.provider),
         model: first(process.env.MEMORIX_LLM_MODEL, toml.memory?.llm?.model, yaml.llm?.model, legacy.llm?.model),
@@ -152,6 +155,7 @@ export function getResolvedConfig(options: ResolvedLaneOptions = {}): ResolvedMe
     },
     codegraph: {
       excludePatterns: firstArray(toml.codegraph?.exclude_patterns, yaml.codegraph?.excludePatterns),
+      maxFileBytes: firstNumber(toml.codegraph?.max_file_bytes, yaml.codegraph?.maxFileBytes),
     },
     server: {
       transport: first(toml.server?.transport, yaml.server?.transport),

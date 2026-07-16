@@ -13,6 +13,7 @@ export interface MemorixTomlConfig {
     inject?: 'full' | 'minimal' | 'silent';
     formation?: 'active' | 'shadow' | 'fallback';
     auto_cleanup?: boolean;
+    sync_advisory?: boolean;
     llm?: {
       provider?: string;
       model?: string;
@@ -41,6 +42,7 @@ export interface MemorixTomlConfig {
   };
   codegraph?: {
     exclude_patterns?: string[];
+    max_file_bytes?: number;
   };
   server?: {
     transport?: 'stdio' | 'http';

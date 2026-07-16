@@ -2,6 +2,28 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.1.11] - 2026-07-16
+
+### Added
+- **Durable runtime maintenance** -- Added a SQLite-backed maintenance ledger for vector recovery, retention, consolidation, and Code Memory refresh. Jobs use dedupe keys, leases, heartbeats, retry backoff, resumable cursors, and operator-visible state.
+- **Isolated maintenance runner** -- Retention, consolidation, and Code Memory scans now run through a compiled child-process runner instead of sharing an MCP request/event loop. Vector recovery stays with the owning process because its Orama index is process-local.
+- **Code Memory scan safeguards** -- CodeGraph Lite now skips common dependency/build directories and source files larger than 2 MiB by default. Configure the limit with `[codegraph].max_file_bytes` or YAML `codegraph.maxFileBytes`.
+- **Maintenance diagnostics** -- Dashboard APIs and System Status now show queued/running/failed maintenance state without mixing projects.
+
+### Changed
+- **First-turn MCP readiness** -- `memorix_project_context`, `memorix_context_pack`, `memorix_graph_context`, and `memorix_codegraph_status` now read the current project's SQLite state directly before full Orama hydration. Search, writes, and sessions retain their full-runtime boundary.
+- **Bounded memory lifecycle** -- Automatic retention and consolidation process one project page at a time and resume through durable cursors, avoiding corpus-sized work in an interactive request.
+- **Incremental Code Memory** -- Changed files are reparsed, unchanged files keep their metadata, and removed/oversized files are removed from the graph without replacing the entire project graph.
+- **Mobile dashboard navigation** -- The desktop sidebar becomes a compact mobile navigation layout so dashboard content remains readable on narrow screens.
+
+### Fixed
+- **Cross-process refresh model** -- Removed the obsolete JSON-file polling watcher. SQLite generation checks are now the sole authoritative mechanism for cross-process observation freshness.
+- **Maintenance history and diagnostics** -- Completed maintenance records expire after a retention window; persisted failure messages redact credential values.
+- **Maintenance enqueue atomicity** -- History pruning now runs inside the enqueue transaction, so a failed enqueue cannot discard completed diagnostic history.
+- **Dashboard project scope** -- Knowledge, graph, retention, observation, and export reads use project-scoped SQLite queries instead of loading and filtering the full flat memory store.
+- **Behavior configuration alignment** -- TOML/YAML memory behavior settings now drive runtime injection, formation, auto-cleanup, and sync advisory behavior; legacy `config.json` is a fallback rather than a separate source of truth.
+- **Container runtime privilege** -- The official HTTP control-plane image is explicitly verified to run as the non-root `node` user.
+
 ## [1.1.10] - 2026-07-13
 
 ### Fixed

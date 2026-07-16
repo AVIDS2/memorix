@@ -14,8 +14,10 @@
  */
 
 import { defineCommand } from 'citty';
+import type { Observation } from '../../types.js';
 import { detectProject } from '../../project/detector.js';
 import { getProjectDataDir } from '../../store/persistence.js';
+import type { ObservationStore } from '../../store/obs-store.js';
 import { getObservationStore, initObservationStore } from '../../store/obs-store.js';
 
 /** Patterns that indicate auto-generated, low-value observations */
@@ -62,6 +64,39 @@ function isNoisePollution(obs: { title?: string; narrative?: string; entityName?
         if (p.test(text)) return { isNoise: true, reason: 'demo/test/noise' };
     }
     return { isNoise: false, reason: '' };
+}
+
+function requireObservationIds(observations: Observation[], action: string): number[] {
+    const ids = observations.map((observation) => observation.id);
+    if (ids.some((id) => typeof id !== 'number')) {
+        throw new Error(`Cannot ${action}: an observation has no persisted ID.`);
+    }
+    return ids as number[];
+}
+
+/**
+ * Apply cleanup mutations without replacing the shared observation table.
+ * Keeping lifecycle updates targeted prevents a cleanup in one project from
+ * overwriting observations written concurrently by another project.
+ */
+export async function applyCleanupMutations(
+    store: ObservationStore,
+    toArchive: Observation[],
+    toRemove: Observation[],
+): Promise<{ archived: number; removed: number }> {
+    const archiveIds = requireObservationIds(toArchive, 'archive');
+    const removeIds = requireObservationIds(toRemove, 'delete');
+    const removals = new Set(removeIds);
+    if (archiveIds.some((id) => removals.has(id))) {
+        throw new Error('Cleanup cannot archive and delete the same observation.');
+    }
+
+    await store.atomic(async (tx) => {
+        await Promise.all(archiveIds.map((id) => tx.setStatus(id, 'archived')));
+        await Promise.all(removeIds.map((id) => tx.remove(id)));
+    });
+
+    return { archived: archiveIds.length, removed: removeIds.length };
 }
 
 export default defineCommand({
@@ -112,7 +147,8 @@ export default defineCommand({
 
         const dataDir = await getProjectDataDir(projectId);
         await initObservationStore(dataDir);
-        const allObs = await getObservationStore().loadAll() as Array<{
+        const store = getObservationStore();
+        const projectObs = await store.loadByProject(projectId, { status: 'active' }) as Array<{
             id?: number;
             type?: string;
             title?: string;
@@ -125,13 +161,10 @@ export default defineCommand({
             status?: string;
         }>;
 
-        if (allObs.length === 0) {
+        if (projectObs.length === 0) {
             console.log('[OK] No observations found - nothing to clean up.');
             return;
         }
-
-        // Filter to project-scoped observations only
-        const projectObs = allObs.filter(o => o.projectId === projectId && (o.status ?? 'active') === 'active');
 
         // Categorize: low-quality
         const lowQuality = projectObs.filter(o => isLowQuality(o.title ?? ''));
@@ -231,25 +264,16 @@ export default defineCommand({
             }
         }
 
-        // Archive noise observations (set status to 'archived' instead of deleting)
-        const archiveIds = new Set(toArchive.map(o => o.id));
-        let archivedCount = 0;
-        for (const obs of allObs) {
-            if (archiveIds.has(obs.id)) {
-                (obs as any).status = 'archived';
-                archivedCount++;
-            }
-        }
-
-        // Delete low-quality/duplicate observations
-        const removeIds = new Set(toRemove.map(o => JSON.stringify(o)));
-        const remaining = allObs.filter(o => !removeIds.has(JSON.stringify(o)));
-
-        await getObservationStore().bulkReplace(remaining as any);
+        const mutation = await applyCleanupMutations(
+            store,
+            toArchive as Observation[],
+            toRemove as Observation[],
+        );
+        const remainingActive = projectObs.length - mutation.archived - mutation.removed;
 
         const parts: string[] = [];
-        if (toRemove.length > 0) parts.push(`deleted ${toRemove.length}`);
-        if (archivedCount > 0) parts.push(`archived ${archivedCount}`);
-        console.log(`[OK] ${parts.join(', ')}. ${remaining.length} observations remaining.`);
+        if (mutation.removed > 0) parts.push(`deleted ${mutation.removed}`);
+        if (mutation.archived > 0) parts.push(`archived ${mutation.archived}`);
+        console.log(`[OK] ${parts.join(', ')}. ${remainingActive} active observations remain in ${projectId}.`);
     },
 });

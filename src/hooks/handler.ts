@@ -292,12 +292,20 @@ async function handleSessionStart(input: NormalizedHookInput): Promise<{
       await initObservationStore(dataDir);
       await initMiniSkillStore(dataDir);
       await initSessionStore(dataDir);
-      const allObs = await getStore().loadAll();
+      const activeObservations = await getStore().loadByProject(canonicalId, { status: 'active' });
       const context = await buildAutoProjectContext({
         project: { ...rawProject, id: canonicalId },
         dataDir,
-        observations: allObs,
+        observations: activeObservations,
         refresh: 'auto',
+        enqueueRefresh: () => import('../runtime/maintenance-jobs.js').then(({ MaintenanceJobStore }) => {
+            new MaintenanceJobStore(dataDir).enqueue({
+              projectId: canonicalId,
+              kind: 'codegraph-refresh',
+              dedupeKey: 'hook-codegraph-refresh',
+              payload: { maxFiles: 5_000 },
+            });
+          }),
       });
       contextSummary = `\n\n${formatAutoProjectContextPrompt(context)}`;
     } catch (sessErr) {

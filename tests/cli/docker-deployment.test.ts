@@ -15,6 +15,7 @@ describe('official Docker deployment artifacts', () => {
     expect(dockerfile).toContain('serve-http');
     expect(dockerfile).toContain('0.0.0.0');
     expect(dockerfile).toContain('3211');
+    expect(dockerfile).toMatch(/^USER\s+node\s*$/m);
   });
 
   it('ships a compose file with port 3211 and a healthcheck', () => {

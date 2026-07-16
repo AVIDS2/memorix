@@ -18,6 +18,7 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { storeObservation, initObservations, getObservation, getObservationCount, suggestTopicKey } from '../../src/memory/observations.js';
+import { getObservationStore } from '../../src/store/obs-store.js';
 import { resetDb } from '../../src/store/orama-store.js';
 
 let testDir: string;
@@ -30,6 +31,22 @@ beforeEach(async () => {
 });
 
 describe('Topic Key Upsert', () => {
+  it('stores a new topic without loading all persisted observations', async () => {
+    const store = getObservationStore();
+    const rawLoadAll = vi.spyOn(store as any, 'rawLoadAll');
+
+    await storeObservation({
+      entityName: 'runtime',
+      type: 'decision',
+      title: 'Keep normal writes targeted',
+      narrative: 'A new observation should not rewrite the whole SQLite table.',
+      topicKey: 'runtime/targeted-write',
+      projectId: PROJECT_ID,
+    });
+
+    expect(rawLoadAll).not.toHaveBeenCalled();
+  });
+
   it('should create new observation when topicKey is new', async () => {
     const { observation, upserted } = await storeObservation({
       entityName: 'auth',
@@ -74,6 +91,26 @@ describe('Topic Key Upsert', () => {
     expect(second.revisionCount).toBe(2);
     expect(second.updatedAt).toBeTruthy();
     expect(getObservationCount()).toBe(1); // no duplicate created
+  });
+
+  it('serializes concurrent writes for the same new topicKey', async () => {
+    const input = {
+      entityName: 'runtime',
+      type: 'decision' as const,
+      narrative: 'Only one canonical runtime decision should remain.',
+      topicKey: 'runtime/concurrent-topic',
+      projectId: PROJECT_ID,
+    };
+
+    const [first, second] = await Promise.all([
+      storeObservation({ ...input, title: 'Runtime decision v1' }),
+      storeObservation({ ...input, title: 'Runtime decision v2' }),
+    ]);
+
+    expect(first.observation.id).toBe(second.observation.id);
+    expect([first.upserted, second.upserted].filter(Boolean)).toHaveLength(1);
+    expect(getObservationCount()).toBe(1);
+    expect(getObservation(first.observation.id, PROJECT_ID)?.revisionCount).toBe(2);
   });
 
   it('should increment revisionCount on each upsert', async () => {

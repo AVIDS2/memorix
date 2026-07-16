@@ -31,6 +31,8 @@ const mkdirSyncMock = vi.fn();
 const createServerMock = vi.fn();
 const httpServerListenMock = vi.fn();
 const httpServerCloseMock = vi.fn();
+const createControlPlaneMaintenanceWorkerMock = vi.fn();
+const maintenanceWorkerStartMock = vi.fn();
 
 let capturedHttpHandler: ((req: any, res: any) => Promise<void>) | undefined;
 
@@ -113,6 +115,10 @@ vi.mock('node:fs', async () => {
 
 vi.mock('../../src/server.js', () => ({
   createMemorixServer: createMemorixServerMock,
+}));
+
+vi.mock('../../src/runtime/control-plane-maintenance.js', () => ({
+  createControlPlaneMaintenanceWorker: createControlPlaneMaintenanceWorkerMock,
 }));
 
 vi.mock('../../src/cli/commands/serve-shared.js', () => ({
@@ -333,6 +339,7 @@ describe('serve-http command mode support', () => {
     initTeamStoreMock.mockResolvedValue({});
     getProjectDataDirMock.mockResolvedValue('E:/memorix-data');
     getBaseDataDirMock.mockReturnValue('E:/memorix-base');
+    createControlPlaneMaintenanceWorkerMock.mockReturnValue({ start: maintenanceWorkerStartMock });
     createMemorixServerMock.mockResolvedValue(makeServerResult());
     createServerMock.mockImplementation((handler: any) => {
       capturedHttpHandler = handler;
@@ -396,6 +403,8 @@ describe('serve-http command mode support', () => {
 
     expect(createMemorixServerMock).toHaveBeenCalledTimes(1);
     expect(createMemorixServerMock.mock.calls[0]?.[3]).toMatchObject({ toolProfile: 'full' });
+    expect(createControlPlaneMaintenanceWorkerMock).toHaveBeenCalledWith('E:/memorix-data', { pollIntervalMs: 2_000 });
+    expect(maintenanceWorkerStartMock).toHaveBeenCalledTimes(1);
   });
 
   it('uses MEMORIX_MODE as the HTTP fallback when mode is omitted', async () => {

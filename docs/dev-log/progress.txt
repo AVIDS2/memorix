@@ -29,6 +29,9 @@
   establishes Knowledge Workspace and Workflow Inheritance as 1.2 core product
   layers, with an explicit boundary against claiming the existing memory map is
   already a semantic graph or maintained LLM Wiki.
+- The [1.2 Implementation Plan](../1.2.0-IMPLEMENTATION-PLAN.md) is the
+  execution contract for the single complete 1.2 goal. All phases are internal
+  gates in one continuous delivery path, not separate user approval points.
 - Use the [1.2 Development Charter](../1.2.0-DEVELOPMENT-CHARTER.md) as the
   working product contract.
 - Keep the current SQLite CodeGraph tables and incremental refresh as the base;

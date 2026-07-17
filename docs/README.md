@@ -77,6 +77,7 @@ The public docs are organized by user intent:
 | Auto Context Layer design | [2026-06-29-auto-context-layer-design.md](superpowers/specs/2026-06-29-auto-context-layer-design.md) |
 | 1.2 product direction and user journey | [1.2 Product Story](1.2.0-PRODUCT-STORY.md) |
 | 1.2 knowledge base and workflow inheritance research | [Knowledge and Workflow Research](1.2.0-KNOWLEDGE-WORKFLOW-RESEARCH.md) |
+| 1.2 execution contract and phase gates | [1.2 Implementation Plan](1.2.0-IMPLEMENTATION-PLAN.md) |
 | Active 1.2 multi-dimensional memory work | [1.2.0 Development Charter](1.2.0-DEVELOPMENT-CHARTER.md) |
 | Historical cloud sync and multi-agent research | [CLOUD_SYNC_AND_MULTI_AGENT_RESEARCH.md](CLOUD_SYNC_AND_MULTI_AGENT_RESEARCH.md) |
 | Known issues and old roadmap notes | [KNOWN_ISSUES_AND_ROADMAP.md](KNOWN_ISSUES_AND_ROADMAP.md) |

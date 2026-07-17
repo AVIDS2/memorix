@@ -21,6 +21,9 @@
   and Ubuntu/Windows CI all passed before release.
 
 ## 1.2 Accepted Direction
+- The [1.2 Product Story](../1.2.0-PRODUCT-STORY.md) is the canonical
+  user-facing narrative; the Development Charter is its implementation
+  contract.
 - Use the [1.2 Development Charter](../1.2.0-DEVELOPMENT-CHARTER.md) as the
   working product contract.
 - Keep the current SQLite CodeGraph tables and incremental refresh as the base;

@@ -12,6 +12,7 @@ const mockStoreObservation = vi.fn();
 const mockResolveObservations = vi.fn();
 const mockGetObservation = vi.fn();
 const mockGetAllObservations = vi.fn();
+const mockPrepareSearchIndex = vi.fn();
 const mockGetProjectDataDir = vi.fn();
 const mockInitObservationStore = vi.fn();
 const mockLoadAll = vi.fn();
@@ -44,6 +45,7 @@ vi.mock('../../src/memory/observations.js', () => ({
   resolveObservations: mockResolveObservations,
   getObservation: mockGetObservation,
   getAllObservations: mockGetAllObservations,
+  prepareSearchIndex: mockPrepareSearchIndex,
 }));
 
 vi.mock('../../src/store/persistence.js', () => ({
@@ -83,6 +85,7 @@ describe('askMemoryQuestion (agentic harness)', () => {
     mockLoadAll.mockResolvedValue([]);
     mockGetDb.mockResolvedValue({});
     mockHydrateIndex.mockResolvedValue(undefined);
+    mockPrepareSearchIndex.mockResolvedValue(0);
     mockCompactSearch.mockResolvedValue({
       entries: [
         { id: 11, score: 0.93 },
@@ -143,6 +146,17 @@ describe('askMemoryQuestion (agentic harness)', () => {
     expect(result.sources).toHaveLength(1);
     expect(result.answer).toContain('LLM chat is not configured');
     expect(result.answer).toContain('[obs:11]');
+  });
+
+  it('prepares chat search through the non-blocking startup path', async () => {
+    mockIsLLMEnabled.mockReturnValue(false);
+    const { askMemoryQuestion } = await import('../../src/cli/tui/chat-service.js');
+
+    await askMemoryQuestion('How does auth work?');
+
+    expect(mockPrepareSearchIndex).toHaveBeenCalledOnce();
+    expect(mockGetDb).not.toHaveBeenCalled();
+    expect(mockHydrateIndex).not.toHaveBeenCalled();
   });
 
   it('handles casual chat without calling any tools (agentic harness)', async () => {

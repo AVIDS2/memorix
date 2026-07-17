@@ -2,11 +2,10 @@ import { compactDetail, compactSearch } from '../../compact/engine.js';
 import { loadDotenv } from '../../config/dotenv-loader.js';
 import { initLLM, isLLMEnabled, getLLMConfig, callLLMWithTools } from '../../llm/provider.js';
 import type { ChatMessage, ToolDefinition, ToolCall } from '../../llm/provider.js';
-import { initObservations, storeObservation, resolveObservations, getObservation, getAllObservations } from '../../memory/observations.js';
+import { initObservations, prepareSearchIndex, storeObservation, resolveObservations, getObservation, getAllObservations } from '../../memory/observations.js';
 import type { ObservationType } from '../../types.js';
 import { detectProject } from '../../project/detector.js';
-import { initObservationStore } from '../../store/obs-store.js';
-import { getDb, getLastSearchMode, hydrateIndex } from '../../store/orama-store.js';
+import { getLastSearchMode } from '../../store/orama-store.js';
 import { getProjectDataDir } from '../../store/persistence.js';
 import type { MemorixDocument } from '../../types.js';
 
@@ -200,13 +199,8 @@ const preparedProjects = new Set<string>();
 async function prepareProjectSearch(projectId: string, dataDir: string): Promise<void> {
   if (preparedProjects.has(projectId)) return;
 
-  await initObservationStore(dataDir);
   await initObservations(dataDir);      // loads observations into memory once
-  await getDb();
-  // Use the already-loaded in-memory observations (from initObservations)
-  // instead of calling loadAll() a second time.
-  const allObs = getAllObservations() as any[];
-  await hydrateIndex(allObs);           // idempotent: skips if index already populated
+  await prepareSearchIndex();            // lexical-ready now; vector recovery stays in the background
   preparedProjects.add(projectId);
 }
 

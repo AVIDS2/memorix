@@ -2,11 +2,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockResetDb = vi.fn();
 const mockBatchGenerateEmbeddings = vi.fn();
-const mockHydrateIndex = vi.fn();
+const mockHydrateIndexForStartup = vi.fn();
 const mockInsertObservation = vi.fn();
 const mockLoadObservationsJson = vi.fn();
 const mockLoadIdCounter = vi.fn();
 const mockIsEmbeddingEnabled = vi.fn();
+const mockHasObservationVector = vi.fn();
+const mockDeferredCachedVectorHydration = vi.fn();
+const mockIsEmbeddingExplicitlyDisabled = vi.fn();
 
 vi.mock('../../src/store/orama-store.js', () => ({
   insertObservation: mockInsertObservation,
@@ -14,8 +17,12 @@ vi.mock('../../src/store/orama-store.js', () => ({
   resetDb: mockResetDb,
   generateEmbedding: vi.fn(),
   batchGenerateEmbeddings: mockBatchGenerateEmbeddings,
-  hydrateIndex: mockHydrateIndex,
+  getDb: vi.fn(),
+  hydrateIndex: vi.fn(),
+  hydrateIndexForStartup: mockHydrateIndexForStartup,
+  getDeferredCachedVectorHydration: mockDeferredCachedVectorHydration,
   isEmbeddingEnabled: mockIsEmbeddingEnabled,
+  hasObservationVector: mockHasObservationVector,
   makeOramaObservationId: (projectId: string, observationId: number) => `${projectId}:${observationId}`,
   getLastSearchMode: vi.fn(() => 'fulltext'),
   searchObservations: vi.fn(),
@@ -53,16 +60,27 @@ vi.mock('../../src/memory/entity-extractor.js', () => ({
   enrichConcepts: (concepts: string[]) => concepts,
 }));
 
+vi.mock('../../src/embedding/provider.js', () => ({
+  getEmbeddingProvider: vi.fn(),
+  isEmbeddingExplicitlyDisabled: mockIsEmbeddingExplicitlyDisabled,
+}));
+
 describe('prepareSearchIndex', () => {
   beforeEach(() => {
     vi.resetModules();
     mockResetDb.mockReset();
     mockBatchGenerateEmbeddings.mockReset();
-    mockHydrateIndex.mockReset();
+    mockHydrateIndexForStartup.mockReset();
     mockInsertObservation.mockReset();
     mockLoadObservationsJson.mockReset();
     mockLoadIdCounter.mockReset();
     mockIsEmbeddingEnabled.mockReset();
+    mockHasObservationVector.mockReset();
+    mockHasObservationVector.mockReturnValue(false);
+    mockDeferredCachedVectorHydration.mockReset();
+    mockDeferredCachedVectorHydration.mockReturnValue(null);
+    mockIsEmbeddingExplicitlyDisabled.mockReset();
+    mockIsEmbeddingExplicitlyDisabled.mockReturnValue(false);
   });
 
   it('hydrates the lexical index without triggering batch embeddings and queues active docs for backfill', async () => {
@@ -99,7 +117,7 @@ describe('prepareSearchIndex', () => {
       },
     ]);
     mockLoadIdCounter.mockResolvedValue(3);
-    mockHydrateIndex.mockResolvedValue(2);
+    mockHydrateIndexForStartup.mockResolvedValue(2);
     mockIsEmbeddingEnabled.mockReturnValue(true);
 
     const { initObservations, prepareSearchIndex, getVectorMissingIds } = await import('../../src/memory/observations.ts');
@@ -109,8 +127,8 @@ describe('prepareSearchIndex', () => {
 
     expect(count).toBe(2);
     expect(mockResetDb).not.toHaveBeenCalled();
-    expect(mockHydrateIndex).toHaveBeenCalledOnce();
-    expect(mockHydrateIndex).toHaveBeenCalledWith(
+    expect(mockHydrateIndexForStartup).toHaveBeenCalledOnce();
+    expect(mockHydrateIndexForStartup).toHaveBeenCalledWith(
       expect.arrayContaining([
         expect.objectContaining({ id: 1, title: 'Prepared startup index' }),
         expect.objectContaining({ id: 2, title: 'Resolved old note' }),
@@ -139,8 +157,9 @@ describe('prepareSearchIndex', () => {
       },
     ]);
     mockLoadIdCounter.mockResolvedValue(8);
-    mockHydrateIndex.mockResolvedValue(1);
+    mockHydrateIndexForStartup.mockResolvedValue(1);
     mockIsEmbeddingEnabled.mockReturnValue(false);
+    mockIsEmbeddingExplicitlyDisabled.mockReturnValue(true);
 
     const { initObservations, prepareSearchIndex, getVectorMissingIds } = await import('../../src/memory/observations.ts');
 
@@ -170,7 +189,7 @@ describe('prepareSearchIndex', () => {
       },
     ]);
     mockLoadIdCounter.mockResolvedValue(10);
-    mockHydrateIndex.mockResolvedValue(1);
+    mockHydrateIndexForStartup.mockResolvedValue(1);
     mockIsEmbeddingEnabled.mockReturnValue(true);
 
     const { initObservations, prepareSearchIndex, getVectorMissingIds } = await import('../../src/memory/observations.ts');
@@ -182,7 +201,7 @@ describe('prepareSearchIndex', () => {
     expect(first).toBe(1);
     expect(second).toBe(0);
     expect(mockResetDb).not.toHaveBeenCalled();
-    expect(mockHydrateIndex).toHaveBeenCalledOnce();
+    expect(mockHydrateIndexForStartup).toHaveBeenCalledOnce();
     expect(getVectorMissingIds()).toEqual([9]);
   });
 
@@ -205,7 +224,7 @@ describe('prepareSearchIndex', () => {
       },
     ]);
     mockLoadIdCounter.mockResolvedValue(12);
-    mockHydrateIndex.mockResolvedValue(1);
+    mockHydrateIndexForStartup.mockResolvedValue(1);
     mockIsEmbeddingEnabled.mockReturnValue(true);
 
     const { initObservations, prepareSearchIndex } = await import('../../src/memory/observations.ts');
@@ -216,7 +235,7 @@ describe('prepareSearchIndex', () => {
     await prepareSearchIndex();
 
     expect(mockResetDb).not.toHaveBeenCalled();
-    expect(mockHydrateIndex).toHaveBeenCalledOnce();
+    expect(mockHydrateIndexForStartup).toHaveBeenCalledOnce();
   });
 
   it('does not reset vectors or queue backfill when an index is already hydrated elsewhere', async () => {
@@ -238,7 +257,7 @@ describe('prepareSearchIndex', () => {
       },
     ]);
     mockLoadIdCounter.mockResolvedValue(14);
-    mockHydrateIndex.mockResolvedValue(0);
+    mockHydrateIndexForStartup.mockResolvedValue(0);
     mockIsEmbeddingEnabled.mockReturnValue(true);
 
     const { initObservations, prepareSearchIndex, getVectorMissingIds } = await import('../../src/memory/observations.ts');
@@ -248,7 +267,7 @@ describe('prepareSearchIndex', () => {
 
     expect(count).toBe(0);
     expect(mockResetDb).not.toHaveBeenCalled();
-    expect(mockHydrateIndex).toHaveBeenCalledOnce();
+    expect(mockHydrateIndexForStartup).toHaveBeenCalledOnce();
     expect(getVectorMissingIds()).toEqual([]);
   });
 });

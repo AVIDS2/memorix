@@ -15,6 +15,7 @@ vi.mock('../../src/store/orama-store.js', () => ({
   resetDb: mockResetDb,
   generateEmbedding: vi.fn(),
   batchGenerateEmbeddings: mockBatchGenerateEmbeddings,
+  getDb: vi.fn().mockResolvedValue({}),
   getVectorDimensions: mockGetVectorDimensions,
   makeOramaObservationId: (projectId: string, observationId: number) => `${projectId}:${observationId}`,
 }));
@@ -87,7 +88,7 @@ describe('reindexObservations', () => {
     mockGetVectorDimensions.mockReset();
     mockGetEmbeddingProvider.mockReset();
     mockIsEmbeddingExplicitlyDisabled.mockReset();
-    mockGetVectorDimensions.mockReturnValue(null);
+    mockGetVectorDimensions.mockReturnValue(2);
     mockGetEmbeddingProvider.mockResolvedValue({
       name: 'fastembed-bge-small-en-v1.5',
       dimensions: 384,

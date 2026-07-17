@@ -36,6 +36,13 @@ export interface EmbeddingProvider {
   embed(text: string): Promise<number[]>;
   /** Generate embeddings for multiple texts (batch) */
   embedBatch(texts: string[]): Promise<number[][]>;
+  /** Return already-persisted embeddings without generating new vectors. */
+  getCachedEmbeddings?(texts: string[]): Promise<(number[] | null)[]>;
+}
+
+export interface GetEmbeddingProviderOptions {
+  /** Avoid remote API dimension probes while preparing a startup index. */
+  allowNetworkProbe?: boolean;
 }
 
 /** Singleton provider instance (null = not available) */
@@ -172,10 +179,10 @@ async function createTransformersProvider(): Promise<EmbeddingProvider | null> {
   }
 }
 
-async function createAPIProvider(): Promise<EmbeddingProvider | null> {
+async function createAPIProvider(options?: GetEmbeddingProviderOptions): Promise<EmbeddingProvider | null> {
   try {
     const { APIEmbeddingProvider } = await import('./api-provider.js');
-    return await APIEmbeddingProvider.create();
+    return await APIEmbeddingProvider.create(options ?? {});
   } catch (e) {
     warnOnce(`[memorix] Failed to init API embedding: ${e instanceof Error ? e.message : e}`);
     return null;
@@ -238,6 +245,13 @@ function wrapProvider(candidate: EmbeddingProvider): EmbeddingProvider {
         throw error;
       }
     },
+    ...(candidate.getCachedEmbeddings
+      ? {
+          async getCachedEmbeddings(texts: string[]): Promise<(number[] | null)[]> {
+            return candidate.getCachedEmbeddings!(texts);
+          },
+        }
+      : {}),
   };
 }
 
@@ -256,9 +270,23 @@ let lastFailureTimestamp = 0;
  *
  * Controlled by MEMORIX_EMBEDDING environment variable (default: off).
  */
-export async function getEmbeddingProvider(): Promise<EmbeddingProvider | null> {
+export async function getEmbeddingProvider(
+  options: GetEmbeddingProviderOptions = {},
+): Promise<EmbeddingProvider | null> {
   // If we already have a successfully initialized provider, return it immediately
   if (provider) return provider;
+
+  // Startup hydration is allowed to use API vectors already described by local
+  // dimension metadata, but it must never turn a missing cache into a network
+  // probe. A normal retrieval/write path will initialize the provider later.
+  if (options.allowNetworkProbe === false) {
+    const mode = getEmbeddingMode();
+    if (mode !== 'api' && !(mode === 'auto' && hasAPIEmbeddingConfig())) {
+      return null;
+    }
+    const cached = await createAPIProvider({ allowNetworkProbe: false });
+    return cached ? wrapProvider(cached) : null;
+  }
 
   // If a previous attempt failed temporarily, allow retry after cooldown
   if (lastInitWasTemporaryFailure) {

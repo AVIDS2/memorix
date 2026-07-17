@@ -18,8 +18,12 @@ import { detectQueryIntent, applyIntentBoost } from '../search/intent-detector.j
 import { maybeExpandSearchQuery } from '../search/query-expansion.js';
 
 let db: AnyOrama | null = null;
+let dbInitPromise: Promise<AnyOrama> | null = null;
+let dbGeneration = 0;
 let embeddingEnabled = false;
 let embeddingDimensions: number | null = null;
+let indexEmbeddingProvider: EmbeddingProvider | null = null;
+let deferredCachedVectorHydration: Promise<void> | null = null;
 const docByObservationKey = new Map<string, MemorixDocument>();
 const NON_CJK_HYBRID_SIMILARITY = 0.45;
 const lastSearchModeByProject = new Map<string, string>();
@@ -143,13 +147,14 @@ function stripVectorSearchParams(params: Record<string, unknown>): Record<string
  * Schema conditionally includes vector field based on embedding provider.
  * Graceful degradation: no provider → fulltext only, provider → hybrid.
  */
-export async function getDb(): Promise<AnyOrama> {
-  if (db) return db;
-
-  // Check if embedding provider is available
-  const provider = await getEmbeddingProvider();
-  embeddingEnabled = provider !== null;
-  embeddingDimensions = provider?.dimensions ?? null;
+async function initializeDb(
+  options: { allowNetworkProbe?: boolean },
+  generation: number,
+): Promise<AnyOrama> {
+  // Check if embedding provider is available.
+  const provider = await getEmbeddingProvider({ allowNetworkProbe: options.allowNetworkProbe });
+  const nextEmbeddingEnabled = provider !== null;
+  const nextEmbeddingDimensions = provider?.dimensions ?? null;
 
   const baseSchema = {
     id: 'string' as const,
@@ -175,23 +180,54 @@ export async function getDb(): Promise<AnyOrama> {
   };
 
   // Dynamic vector dimensions based on provider (384 for local, 1024+ for API)
-  const dims = embeddingDimensions ?? 384;
-  const schema = embeddingEnabled
+  const dims = nextEmbeddingDimensions ?? 384;
+  const schema = nextEmbeddingEnabled
     ? { ...baseSchema, embedding: `vector[${dims}]` as const }
     : baseSchema;
 
-  db = await create({ schema });
+  const nextDb = await create({ schema });
 
-  return db;
+  // resetDb() may have started a new lifecycle while the provider was loading.
+  // Discard this obsolete instance rather than letting it overwrite the new one.
+  if (generation !== dbGeneration) {
+    return getDb(options);
+  }
+
+  indexEmbeddingProvider = provider;
+  embeddingEnabled = nextEmbeddingEnabled;
+  embeddingDimensions = nextEmbeddingDimensions;
+  db = nextDb;
+
+  return nextDb;
+}
+
+export async function getDb(options: { allowNetworkProbe?: boolean } = {}): Promise<AnyOrama> {
+  if (db) return db;
+  if (dbInitPromise) return dbInitPromise;
+
+  const initPromise = initializeDb(options, dbGeneration);
+  dbInitPromise = initPromise;
+
+  try {
+    return await initPromise;
+  } finally {
+    if (dbInitPromise === initPromise) {
+      dbInitPromise = null;
+    }
+  }
 }
 
 /**
  * Reset the database instance (useful for testing).
  */
 export async function resetDb(): Promise<void> {
+  dbGeneration++;
   db = null;
+  dbInitPromise = null;
   embeddingEnabled = false;
   embeddingDimensions = null;
+  indexEmbeddingProvider = null;
+  deferredCachedVectorHydration = null;
   lastSearchModeByProject.clear();
   docByObservationKey.clear();
 }
@@ -240,20 +276,103 @@ export async function batchGenerateEmbeddings(texts: string[]): Promise<(number[
   }
 }
 
+async function getCachedEmbeddings(texts: string[]): Promise<(number[] | null)[]> {
+  if (!embeddingEnabled || texts.length === 0) return texts.map(() => null);
+  const provider = indexEmbeddingProvider;
+  if (!provider?.getCachedEmbeddings) return texts.map(() => null);
+  try {
+    return await provider.getCachedEmbeddings(texts);
+  } catch {
+    // Cached vectors are an optimization. Missing entries use background recovery.
+    return texts.map(() => null);
+  }
+}
+
 /**
  * Hydrate the Orama index from persisted observations.
  * Must be called before searching if the index was freshly created (TUI / CLI startup).
  * Skips observations already in the index (idempotent).
  */
-export async function hydrateIndex(observations: any[]): Promise<number> {
-  const database = await getDb();
+export interface HydrateIndexOptions {
+  /** Do not issue an API dimension probe while building the startup index. */
+  allowNetworkProbe?: boolean;
+  /** Attach cached vectors after lexical hydration instead of awaiting cache I/O. */
+  deferCachedVectors?: boolean;
+}
+
+type HydrationCandidate = { observation: any; id: string };
+
+function observationEmbeddingText(observation: any): string {
+  return [
+    observation.title ?? '',
+    observation.narrative ?? '',
+    ...(Array.isArray(observation.facts) ? observation.facts : []),
+  ].join(' ');
+}
+
+function documentEmbeddingText(document: Pick<MemorixDocument, 'title' | 'narrative' | 'facts'>): string {
+  return [document.title ?? '', document.narrative ?? '', document.facts ?? ''].join(' ');
+}
+
+function isCompatibleCachedVector(vector: number[] | null): vector is number[] {
+  return Boolean(
+    vector &&
+    embeddingDimensions !== null &&
+    vector.length === embeddingDimensions &&
+    vector.every(Number.isFinite),
+  );
+}
+
+async function attachCachedVectors(
+  database: AnyOrama,
+  candidates: HydrationCandidate[],
+): Promise<void> {
+  const cachedVectors = await getCachedEmbeddings(
+    candidates.map(({ observation }) => observationEmbeddingText(observation)),
+  );
+
+  // A reset or project switch created a new index while the cache was loading.
+  // Do not attach stale vectors to that new index.
+  if (db !== database) return;
+
+  for (let index = 0; index < candidates.length; index++) {
+    const vector = cachedVectors[index];
+    if (!isCompatibleCachedVector(vector)) continue;
+    const existing = getByID(database, candidates[index].id) as MemorixDocument | undefined;
+    if (!existing || documentEmbeddingText(existing) !== observationEmbeddingText(candidates[index].observation)) continue;
+    try {
+      await update(database, candidates[index].id, { ...existing, embedding: vector });
+    } catch {
+      // Vector cache hydration is best-effort. The normal backfill lane owns misses.
+    }
+  }
+}
+
+export async function hydrateIndex(
+  observations: any[],
+  options: HydrateIndexOptions = {},
+): Promise<number> {
+  const database = await getDb({ allowNetworkProbe: options.allowNetworkProbe });
+
+  const candidates: HydrationCandidate[] = [];
+  for (const observation of observations) {
+    if (!observation || !observation.id || !observation.projectId) continue;
+    const id = makeOramaObservationId(observation.projectId, observation.id);
+    if (getByID(database, id)) continue;
+    candidates.push({ observation, id });
+  }
+
+  const deferCachedVectors = options.deferCachedVectors === true && Boolean(indexEmbeddingProvider?.getCachedEmbeddings);
+  const cachedVectors = deferCachedVectors
+    ? candidates.map(() => null)
+    : await getCachedEmbeddings(candidates.map(({ observation }) => observationEmbeddingText(observation)));
 
   let inserted = 0;
-  for (const obs of observations) {
-    if (!obs || !obs.id || !obs.projectId) continue;
+  for (let index = 0; index < candidates.length; index++) {
+    const { observation: obs, id } = candidates[index];
     try {
-      const id = makeOramaObservationId(obs.projectId, obs.id);
-      if (getByID(database, id)) continue;
+      const vector = cachedVectors[index];
+      const compatibleVector = isCompatibleCachedVector(vector) ? vector : null;
       const doc: MemorixDocument = {
         id,
         observationId: obs.id,
@@ -273,13 +392,46 @@ export async function hydrateIndex(observations: any[]): Promise<number> {
         source: obs.source || 'agent',
         documentType: 'observation',
         knowledgeLayer: resolveKnowledgeLayer('observation', obs.sourceDetail, obs.source),
+        ...(compatibleVector ? { embedding: compatibleVector } : {}),
       };
       await insert(database, doc);
       rememberObservationDoc(doc);
       inserted++;
     } catch { /* skip malformed entries */ }
   }
+
+  deferredCachedVectorHydration = deferCachedVectors
+    ? attachCachedVectors(database, candidates).catch(() => {})
+    : null;
   return inserted;
+}
+
+/**
+ * Prepare the lexical index without probing a remote embedding API. Cached
+ * vectors attach after the disk cache is ready, outside the startup path.
+ */
+export async function hydrateIndexForStartup(observations: any[]): Promise<number> {
+  return hydrateIndex(observations, {
+    allowNetworkProbe: false,
+    deferCachedVectors: true,
+  });
+}
+
+/**
+ * Returns the background cache-only hydration started by the most recent
+ * startup index pass. It never makes an embedding API call.
+ */
+export function getDeferredCachedVectorHydration(): Promise<void> | null {
+  return deferredCachedVectorHydration;
+}
+
+/** Return whether the current in-memory index already has a usable vector. */
+export function hasObservationVector(projectId: string, observationId: number): boolean {
+  if (!db || !embeddingEnabled || embeddingDimensions === null) return false;
+  const document = getByID(db, makeOramaObservationId(projectId, observationId)) as MemorixDocument | undefined;
+  return Array.isArray(document?.embedding) &&
+    document.embedding.length === embeddingDimensions &&
+    document.embedding.every(Number.isFinite);
 }
 
 /**

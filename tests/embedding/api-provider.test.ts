@@ -6,12 +6,14 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { readFile } from 'node:fs/promises';
 
 // Mock fetch globally
 const mockFetch = vi.fn();
 vi.stubGlobal('fetch', mockFetch);
 
 const mockDiskFiles = new Map<string, string>();
+let cacheMetadataPayload: string | undefined;
 
 // Mock Headers for consistent behavior
 function mockHeaders(entries: [string, string][] = []): { get: (key: string) => string | null } {
@@ -22,6 +24,7 @@ function mockHeaders(entries: [string, string][] = []): { get: (key: string) => 
 // Mock fs for disk cache
 vi.mock('node:fs/promises', () => ({
   readFile: vi.fn(async (path: string) => {
+    if (cacheMetadataPayload && path.endsWith('.embedding-api-cache-meta.json')) return cacheMetadataPayload;
     if (!mockDiskFiles.has(path)) throw new Error('no cache');
     return mockDiskFiles.get(path);
   }),
@@ -67,6 +70,7 @@ describe('API Embedding Provider', () => {
     vi.resetAllMocks();
     vi.stubGlobal('fetch', mockFetch);
     mockDiskFiles.clear();
+    cacheMetadataPayload = undefined;
     process.env = {
       ...originalEnv,
       MEMORIX_EMBEDDING: 'api',
@@ -89,6 +93,29 @@ describe('API Embedding Provider', () => {
   });
 
   describe('initialization', () => {
+    it('does not probe remotely when cache-only initialization has no cached dimensions', async () => {
+      const provider = await APIEmbeddingProvider.create({ allowNetworkProbe: false });
+
+      expect(provider).toBeNull();
+      expect(mockFetch).not.toHaveBeenCalled();
+      const readPaths = vi.mocked(readFile).mock.calls.map(([path]) => String(path));
+      expect(readPaths.some((path) => path.endsWith('.embedding-api-cache.json'))).toBe(false);
+    });
+
+    it('restores cache-only dimensions from matching vector-cache metadata when dims metadata is missing', async () => {
+      const namespace = 'v2|https://api.test.com/v1|text-embedding-3-small|native';
+      cacheMetadataPayload = JSON.stringify({
+        version: 1,
+        entries: [{ namespace, dimensions: 3, ts: Date.now() }],
+      });
+
+      const provider = await APIEmbeddingProvider.create({ allowNetworkProbe: false });
+
+      expect(provider).not.toBeNull();
+      expect(provider?.dimensions).toBe(3);
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
     it('should probe API and detect dimensions', async () => {
       const vec1536 = makeVector(1536);
       mockFetch.mockResolvedValueOnce(mockEmbeddingResponse([vec1536]));

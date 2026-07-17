@@ -30,6 +30,35 @@ function resolveHookCommand(): string {
   return 'memorix';
 }
 
+function resolveWindowsMemorixShim(): string | null {
+  try {
+    const output = String(execSync('where.exe memorix.cmd', {
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+      windowsHide: true,
+    }));
+    return output
+      .split(/\r?\n/)
+      .map((candidate) => candidate.trim())
+      .find((candidate) => path.isAbsolute(candidate)) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * OpenCode starts plugins with its own environment on Windows. Resolve the npm
+ * shim while setup still has the user's normal PATH, then embed that stable
+ * path in the generated plugin instead of assuming OpenCode inherited it.
+ */
+export function resolveOpenCodeHookCommand(
+  platform = process.platform,
+  resolveWindowsShim: () => string | null = resolveWindowsMemorixShim,
+): string {
+  if (platform !== 'win32') return 'memorix';
+  return resolveWindowsShim() ?? 'memorix.cmd';
+}
+
 /**
  * Generate Claude Code hook config.
  * Format: .claude/settings.json
@@ -318,7 +347,7 @@ function generateKiroHookFiles(): Array<{ filename: string; content: string }> {
  * protocol used by all agents. spawnSync works in both Node.js and Bun
  * runtimes (OpenCode may fall back to Node.js on Windows).
  */
-const OPENCODE_PLUGIN_VERSION = 6;
+const OPENCODE_PLUGIN_VERSION = 7;
 
 const AGENT_SKILL_DIRS: Partial<Record<AgentName, { project: string; global?: string }>> = {
   cursor: { project: path.join('.cursor', 'skills'), global: path.join('.cursor', 'skills') },
@@ -368,6 +397,7 @@ async function installOfficialSkillsForAgent(
 }
 
 function generateOpenCodePlugin(): string {
+  const hookCommand = JSON.stringify(resolveOpenCodeHookCommand());
   return `/**
  * Memorix - Cross-Agent Memory Bridge Plugin for OpenCode
  * @generated-version ${OPENCODE_PLUGIN_VERSION}
@@ -386,6 +416,16 @@ export const MemorixPlugin = async ({ project, client, $, directory, worktree })
   const sessionId = \`opencode-\${Date.now().toString(36)}-\${Math.random().toString(36).slice(2, 8)}\`;
   let pendingAssistantResponse = null;
   let lastDeliveredAssistantKey = '';
+  let hookFailureReported = false;
+  const hookCommand = ${hookCommand};
+
+  function reportHookFailure(eventName, detail) {
+    // OpenCode renders console.error output inside the conversation. Delivery is
+    // best-effort, so keep normal sessions quiet while retaining opt-in diagnostics.
+    if (process.env.MEMORIX_HOOK_DEBUG !== '1' || hookFailureReported) return;
+    hookFailureReported = true;
+    console.error('[memorix-plugin] hook delivery failed:', eventName, detail);
+  }
 
   /**
    * Send event JSON to \`memorix hook\` via child_process.spawnSync.
@@ -401,8 +441,7 @@ export const MemorixPlugin = async ({ project, client, $, directory, worktree })
     const data = JSON.stringify(payload);
     const eventName = payload.hook_event_name || 'unknown';
     try {
-      const cmd = process.platform === 'win32' ? 'memorix.cmd' : 'memorix';
-      const result = spawnSync(cmd, ['hook'], {
+      const result = spawnSync(hookCommand, ['hook'], {
         input: data,
         timeout: 10_000,
         encoding: 'utf-8',
@@ -410,12 +449,14 @@ export const MemorixPlugin = async ({ project, client, $, directory, worktree })
         shell: process.platform === 'win32',
       });
       if (result.status !== 0) {
-        console.error('[memorix-plugin] hook failed:', eventName,
-          'exit=', result.status,
-          'stderr=', (result.stderr || '').slice(0, 200));
+        reportHookFailure(eventName, {
+          exit: result.status,
+          stderr: (result.stderr || '').slice(0, 200),
+          error: result.error?.message,
+        });
       }
     } catch (e) {
-      console.error('[memorix-plugin] hook delivery failed:', eventName, e?.message ?? e);
+      reportHookFailure(eventName, e?.message ?? e);
     }
   }
 

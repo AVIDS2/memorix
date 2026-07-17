@@ -46,12 +46,19 @@ async function expectOfficialSkills(skillsRoot: string): Promise<void> {
 }
 
 describe('setup command planning', () => {
-  it('defaults to stdio MCP and no HTTP control plane', () => {
+  it('defaults to project-scoped stdio MCP without changing user plugins', () => {
     const plan = buildSetupPlan({ agent: 'codex', mcp: 'stdio' });
     expect(plan.mcp).toBe('stdio');
-    expect(plan.actions).toContain('plugin-package');
+    expect(plan.actions).not.toContain('plugin-package');
     expect(plan.actions).toContain('project-guidance');
     expect(plan.actions).not.toContain('http-control-plane');
+  });
+
+  it('uses the user-level plugin package only when --global is requested', () => {
+    for (const agent of ['claude', 'codex', 'copilot'] as const) {
+      expect(buildSetupPlan({ agent, mcp: 'stdio', global: true }).actions).toContain('plugin-package');
+      expect(buildSetupPlan({ agent, mcp: 'stdio', global: false }).actions).not.toContain('plugin-package');
+    }
   });
 
   it('treats HTTP as an explicit advanced transport', () => {
@@ -74,7 +81,7 @@ describe('setup command planning', () => {
   });
 
   it('uses official package or extension lanes where supported', () => {
-    expect(buildSetupPlan({ agent: 'copilot', mcp: 'stdio' }).actions).toContain('plugin-package');
+    expect(buildSetupPlan({ agent: 'copilot', mcp: 'stdio', global: true }).actions).toContain('plugin-package');
     expect(buildSetupPlan({ agent: 'cursor', mcp: 'stdio' }).actions).not.toContain('plugin-package');
     expect(buildSetupPlan({ agent: 'gemini-cli', mcp: 'stdio' }).actions).toContain('extension-package');
     expect(buildSetupPlan({ agent: 'opencode', mcp: 'stdio' }).actions).toContain('opencode-local-plugin');

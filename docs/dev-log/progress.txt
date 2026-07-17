@@ -4,9 +4,9 @@
 > older notes when they conflict.
 
 ## Current State
-- Phase: 1.1.12 release hardening
+- Phase: 1.1.12 ready to publish
 - Branch: `codex/1.1.12-runtime-hygiene`
-- Last updated: 2026-07-16
+- Last updated: 2026-07-17
 - Goal: ship the verified Codex lifecycle hooks, repair OpenCode Windows hook
   delivery, and preserve semantic vector recall without blocking MCP startup.
 
@@ -22,16 +22,46 @@
 - Triaged issue #125 as an OpenCode Windows PATH resolution failure and
   reviewed PR #126's semantic vector-recall diagnosis.
 
-## Current Follow-Up
-- Resolve OpenCode hook delivery from a stable executable path and keep
-  best-effort failures out of the OpenCode conversation UI.
-- Rework PR #126 as cache-first vector hydration with bounded background
-  recovery, preserving 1.1.11's non-blocking startup boundary.
+## Completed In This Release Candidate
+- OpenCode's generated Windows plugin now embeds the npm `memorix.cmd` shim
+  resolved during setup. It no longer assumes OpenCode inherits the user's
+  npm path, and delivery diagnostics are opt-in through `MEMORIX_HOOK_DEBUG=1`.
+- Project setup no longer writes Claude, Codex, or Copilot plugin bundles into
+  the user home; those bundles require an explicit `--global` installation.
+- API embedding hydration restores compatible local cache entries after lexical
+  readiness. Startup never makes a remote embedding request; cache misses stay
+  in the bounded background lane, and the first successful vector upgrades a
+  cache-less lexical index in the same process. Namespace-scoped cache metadata
+  provides a recovery path when the separate dimensions cache is missing.
+- TUI health, chat, and quick-search paths now use the same lexical-ready
+  initializer, so a first TUI render or search never probes the embedding API.
+- Orama initialization is serialized across cache-only startup and normal
+  callers, preventing a late vector-schema instance from replacing a hydrated
+  lexical index. Resetting the store also invalidates any obsolete in-flight
+  initializer.
+- Cache-only API initialization now avoids parsing the large vector-cache file
+  unless local dimensions metadata proves that cached vectors can be attached.
+- Added regressions for cache hits, cache misses, invalid vectors, stale index
+  changes, delayed cache I/O, concurrent index initialization, schema upgrade
+  after a first vector, and setup scope isolation.
 
 ## Verification Snapshot
-- Codex hook focused tests and TypeScript lint pass before 1.1.12 integration.
-- The v1.1.11 release CI, package smoke, built stdio MCP smoke, and dashboard
-  checks passed before release.
+- Focused hook/vector tests pass, including a Windows child-process smoke with
+  the npm bin directory removed from the child `PATH`.
+- Full `npm test` passes, along with `npm run lint` and `npm run build` after
+  the final initialization-race and lazy-cache regressions were added.
+- Real stdio MCP smoke with an unreachable API endpoint confirms that an empty
+  cache does not issue a startup embedding probe. A second local API smoke
+  confirms first-vector schema upgrade reaches hybrid search without restart.
+- A cross-process cache smoke deletes the dimensions cache after populating
+  vectors, then verifies offline hybrid retrieval restores from the redundant
+  namespace metadata without another API request.
+- An isolated Windows home smoke confirms project setup leaves the user Codex
+  plugin untouched and `--global` installs the native SessionStart hook.
+- `npm pack --dry-run` succeeds. A clean normal installation of the generated
+  `memorix-1.1.12.tgz` loaded the `better-sqlite3` native binding, completed
+  MCP `initialize` and `tools/list`, and exposed the expected 7-tool micro
+  profile with `memorix_project_context` present.
 
 ## Known Boundary
 - Orama remains process-local. Search and stateful write/session tools still
@@ -40,5 +70,5 @@
   an AST/language-server intelligence product.
 
 ## Next Steps
-- Complete focused and full 1.1.12 verification, publish the patch release,
-  and close or update the linked GitHub issues with the evidence.
+- Commit and publish `1.1.12`, then update issue #124, issue #125, and PR #126
+  with the release evidence and credit.

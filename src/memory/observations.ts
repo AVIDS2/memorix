@@ -16,8 +16,11 @@ import {
   resetDb,
   generateEmbedding,
   batchGenerateEmbeddings,
+  getDb,
+  getDeferredCachedVectorHydration,
   getVectorDimensions,
-  hydrateIndex,
+  hydrateIndexForStartup,
+  hasObservationVector,
   isEmbeddingEnabled,
   makeOramaObservationId,
   getLastSearchMode,
@@ -40,6 +43,7 @@ let searchIndexPrepared = false;
 // Enables observability ("how many memories lack vectors?") and backfill.
 const vectorMissingIds = new Set<number>();
 let vectorBackfillRunning = false;
+let vectorSchemaUpgradePromise: Promise<boolean> | null = null;
 let lastVectorBackfill: {
   attempted: number;
   succeeded: number;
@@ -119,7 +123,30 @@ async function bindObservationCodeRefsBestEffort(observation: Observation): Prom
 function isVectorCompatibleWithCurrentIndex(embedding: number[] | null): boolean {
   if (!embedding) return false;
   const vectorDimensions = getVectorDimensions();
-  return vectorDimensions === null || embedding.length === vectorDimensions;
+  return vectorDimensions !== null &&
+    embedding.length === vectorDimensions &&
+    embedding.every(Number.isFinite);
+}
+
+/**
+ * A cache-less API startup deliberately creates a lexical index so MCP can
+ * answer immediately. Once the background lane obtains its first vector, the
+ * in-memory index must be rebuilt with a vector field in this same process.
+ */
+async function upgradeVectorSchemaAfterFirstEmbedding(embedding: number[]): Promise<boolean> {
+  if (isVectorCompatibleWithCurrentIndex(embedding)) return true;
+  if (getVectorDimensions() !== null || !embedding.every(Number.isFinite)) return false;
+
+  const targetProjectDir = projectDir;
+  if (!vectorSchemaUpgradePromise) {
+    vectorSchemaUpgradePromise = reindexObservations()
+      .then(() => projectDir === targetProjectDir && isVectorCompatibleWithCurrentIndex(embedding))
+      .catch(() => false)
+      .finally(() => {
+        vectorSchemaUpgradePromise = null;
+      });
+  }
+  return vectorSchemaUpgradePromise;
 }
 
 /**
@@ -134,6 +161,7 @@ export async function initObservations(dir: string): Promise<void> {
   nextId = await store.loadIdCounter();
   projectDir = dir;
   searchIndexPrepared = false;
+  vectorSchemaUpgradePromise = null;
 }
 
 /**
@@ -412,6 +440,9 @@ export async function storeObservation(input: {
   generateEmbedding(searchableText).then(async (embedding) => {
     if (embedding) {
       if (!isVectorCompatibleWithCurrentIndex(embedding)) {
+        await upgradeVectorSchemaAfterFirstEmbedding(embedding);
+      }
+      if (!isVectorCompatibleWithCurrentIndex(embedding)) {
         const vectorDimensions = getVectorDimensions();
         console.error(
           `[memorix] Embedding dimension mismatch for obs-${obsId}: provider returned ${embedding.length}d, index expects ${vectorDimensions ?? 'unknown'}d (kept in backfill queue)`,
@@ -561,6 +592,13 @@ async function upsertObservation(
   vectorMissingIds.add(obsId);
   generateEmbedding(searchableText).then(async (embedding) => {
     if (embedding) {
+      if (!isVectorCompatibleWithCurrentIndex(embedding)) {
+        await upgradeVectorSchemaAfterFirstEmbedding(embedding);
+      }
+      if (!isVectorCompatibleWithCurrentIndex(embedding)) {
+        queueVectorBackfill(existing.projectId);
+        return;
+      }
       try {
         const { removeObservation: removeObs } = await import('../store/orama-store.js');
         await removeObs(makeOramaObservationId(existing.projectId, obsId));
@@ -778,20 +816,36 @@ export async function reindexObservations(): Promise<number> {
   searchIndexPrepared = false;
   vectorMissingIds.clear();
 
-  // Batch-generate all embeddings at once (much faster than individual calls)
+  // Prefer already-persisted vectors for remote providers. This restores semantic
+  // recall after a restart without waiting on the network; cache misses remain
+  // in the existing bounded background recovery lane.
   let embeddings: (number[] | null)[] = observations.map(() => null);
   const provider = await getEmbeddingProvider();
   const canBatchEmbedAtStartup = provider !== null && !provider.name.startsWith('api-');
 
+  // This is an explicit rebuild path. Establish the current Orama schema before
+  // accepting cached vectors so a stale cache entry cannot make an observation
+  // disappear from the lexical index on insert.
+  await getDb();
+
+  const texts = observations.map(obs =>
+    [obs.title, obs.narrative, ...obs.facts].join(' '),
+  );
+
+  if (provider?.getCachedEmbeddings) {
+    try {
+      embeddings = await provider.getCachedEmbeddings(texts);
+    } catch {
+      // Cache lookup is optional; remote cache misses continue to background recovery.
+    }
+  }
+
   if (provider && !canBatchEmbedAtStartup) {
-    console.error('[memorix] Startup reindex: skipping synchronous API embeddings; background backfill will hydrate vectors');
+    console.error('[memorix] Startup reindex: restored cached API embeddings; uncached vectors stay in background recovery');
   }
 
   if (canBatchEmbedAtStartup) {
     try {
-      const texts = observations.map(obs =>
-        [obs.title, obs.narrative, ...obs.facts].join(' '),
-      );
       embeddings = await batchGenerateEmbeddings(texts);
       // Batch embedding failed — fall back to no embeddings
     } catch {
@@ -857,20 +911,38 @@ export async function reindexObservations(): Promise<number> {
 export async function prepareSearchIndex(): Promise<number> {
   if (searchIndexPrepared) return 0;
 
-  const count = await hydrateIndex(observations as unknown as any[]);
+  const count = await hydrateIndexForStartup(observations as unknown as any[]);
   if (count === 0) {
     searchIndexPrepared = true;
     return 0;
   }
 
-  vectorMissingIds.clear();
-  if (isEmbeddingEnabled()) {
-    for (const obs of observations) {
-      // Queue ALL statuses for vector backfill — status filtering happens at query time,
-      // not at index time. Omitting non-active observations here would permanently
-      // exclude resolved/archived memories from hybrid search after restart.
-      vectorMissingIds.add(obs.id);
+  const hydratedProjectDir = projectDir;
+  const queueMissingVectors = () => {
+    if (projectDir !== hydratedProjectDir) return;
+    vectorMissingIds.clear();
+    if (!isEmbeddingExplicitlyDisabled()) {
+      const projectsWithMissingVectors = new Set<string>();
+      for (const obs of observations) {
+        // Queue ALL statuses for vector backfill — status filtering happens at query time,
+        // not at index time. Omitting non-active observations here would permanently
+        // exclude resolved/archived memories from hybrid search after restart.
+        if (!hasObservationVector(obs.projectId, obs.id)) {
+          vectorMissingIds.add(obs.id);
+          projectsWithMissingVectors.add(obs.projectId);
+        }
+      }
+      for (const projectId of projectsWithMissingVectors) queueVectorBackfill(projectId);
     }
+  };
+
+  const cacheHydration = getDeferredCachedVectorHydration();
+  if (cacheHydration) {
+    // Let the disk cache finish outside the interactive startup path. Misses are
+    // queued only after it has had a chance to restore compatible vectors.
+    void cacheHydration.finally(queueMissingVectors);
+  } else {
+    queueMissingVectors();
   }
 
   searchIndexPrepared = true;
@@ -987,6 +1059,9 @@ export async function backfillVectorEmbeddings(options: {
       try {
         const embedding = await generateEmbedding(text);
         if (embedding) {
+          if (!isVectorCompatibleWithCurrentIndex(embedding)) {
+            await upgradeVectorSchemaAfterFirstEmbedding(embedding);
+          }
           if (!isVectorCompatibleWithCurrentIndex(embedding)) {
             const vectorDimensions = getVectorDimensions();
             console.error(

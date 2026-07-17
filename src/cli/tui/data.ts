@@ -15,7 +15,7 @@ export interface ProjectInfo {
 }
 
 export interface HealthInfo {
-  embeddingProvider: 'ready' | 'unavailable' | 'disabled';
+  embeddingProvider: 'ready' | 'pending' | 'unavailable' | 'disabled';
   embeddingProviderName?: string;
   embeddingLabel: string;
   searchMode: string;
@@ -84,6 +84,7 @@ function formatEmbeddingLabel(
   providerName?: string,
 ): string {
   if (status === 'disabled') return 'Disabled';
+  if (status === 'pending') return 'On demand';
   if (status === 'unavailable') return 'Unavailable';
   if ((providerName || '').startsWith('api-')) return 'API ready';
   if (providerName) return 'Local ready';
@@ -165,8 +166,8 @@ export async function getHealthInfo(projectId?: string): Promise<HealthInfo> {
       if (isEmbeddingExplicitlyDisabled()) {
         defaults.embeddingProvider = 'disabled';
       } else {
-        const provider = await getEmbeddingProvider();
-        defaults.embeddingProvider = provider ? 'ready' : 'unavailable';
+        const provider = await getEmbeddingProvider({ allowNetworkProbe: false });
+        defaults.embeddingProvider = provider ? 'ready' : 'pending';
         defaults.embeddingProviderName = provider?.name;
       }
       defaults.embeddingLabel = formatEmbeddingLabel(
@@ -197,6 +198,8 @@ export async function getHealthInfo(projectId?: string): Promise<HealthInfo> {
         defaults.searchDiagnostic = 'Vector index ready';
       } else if (defaults.embeddingProvider === 'ready' && !vectorActive) {
         defaults.searchDiagnostic = 'Provider ready, no index yet';
+      } else if (defaults.embeddingProvider === 'pending') {
+        defaults.searchDiagnostic = 'BM25 ready; embeddings initialize on demand';
       } else if (defaults.embeddingProvider === 'unavailable') {
         defaults.searchDiagnostic = 'BM25 only (no provider)';
       } else {
@@ -247,22 +250,17 @@ export async function getRecentMemories(limit = 8, projectId?: string): Promise<
 
 export async function searchMemories(query: string, limit = 10): Promise<SearchResult[]> {
   try {
-    const { searchObservations, getDb, hydrateIndex } = await import('../../store/orama-store.js');
+    const { searchObservations } = await import('../../store/orama-store.js');
     const { getProjectDataDir } = await import('../../store/persistence.js');
     const { detectProject } = await import('../../project/detector.js');
-    const { initObservations } = await import('../../memory/observations.js');
-    const { initObservationStore, getObservationStore: getStore } = await import('../../store/obs-store.js');
+    const { initObservations, prepareSearchIndex } = await import('../../memory/observations.js');
 
     const proj = detectProject(process.cwd());
     if (!proj) return [];
 
     const dataDir = await getProjectDataDir(proj.id);
-    await initObservationStore(dataDir);
     await initObservations(dataDir);
-    await getDb();
-
-    const allObs = (await getStore().loadAll()) as any[];
-    await hydrateIndex(allObs);
+    await prepareSearchIndex();
 
     const results = await searchObservations({ query, limit, projectId: proj.id });
 

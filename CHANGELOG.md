@@ -4,11 +4,19 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.1.12] - 2026-07-17
+
 ### Added
 - **Codex lifecycle hook capture** -- The Memorix Codex plugin now bundles the documented `SessionStart`, `UserPromptSubmit`, `PostToolUse`, `PreCompact`, and `Stop` hook events, with a Windows-safe `commandWindows` command override.
 
 ### Fixed
 - **Codex hook normalization and injection** -- Codex lifecycle payloads now preserve their event names, `SessionStart` returns Codex-native `hookSpecificOutput.additionalContext`, and capture-only events stay quiet instead of filling the agent context with save-status messages.
+- **OpenCode hooks on Windows** -- The generated plugin resolves the installed npm `memorix.cmd` shim while setup runs and uses that stable path inside OpenCode, instead of relying on OpenCode's inherited `PATH`. Hook delivery stays quiet unless `MEMORIX_HOOK_DEBUG=1` is explicitly set. Fixes #125.
+- **Setup scope isolation** -- Project-level setup no longer installs Claude, Codex, or Copilot plugin bundles in the user home. Use `--global` for user-level plugins, skills, and lifecycle hooks.
+- **TUI embedding startup** -- TUI health, chat, and quick-search paths now use the same lexical-ready startup flow as MCP instead of making a remote dimension probe during the first screen or search.
+- **Semantic recall after restart** -- API-backed embeddings now restore compatible vectors from the local cache during index hydration, without placing remote embedding calls on the MCP startup path. Redundant namespace-scoped cache metadata survives a lost dimensions cache; cache misses enter the existing bounded background recovery lane, and the first successful vector upgrades a cache-less lexical index in the same process. Based on the diagnosis in #126 by @Tom-Ma-Ming.
+- **Concurrent index startup** -- Cache-only startup and ordinary database callers now share one Orama initialization, so a later vector-schema attempt cannot replace an already hydrated lexical index. Resets also discard obsolete in-flight instances.
+- **Lazy API vector-cache I/O** -- A cache-only start with no trusted dimension metadata now skips parsing the potentially large API vector cache entirely; the cache is loaded only after compatible local metadata or a normal embedding initialization establishes its dimensions.
 
 ## [1.1.11] - 2026-07-16
 

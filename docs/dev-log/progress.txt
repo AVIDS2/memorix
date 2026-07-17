@@ -54,9 +54,9 @@
 - The current Auto Context path is smoke-tested against real local TypeScript
   and dirty-worktree fixtures with embeddings disabled. The candidate budget is
   180 tokens; the current baseline budget is 320 tokens.
-- A formal Claim Ledger does not exist yet. Phase 2 owns claim provenance,
-  conflict, and supersession semantics; Phase 0 only prevents the old views
-  from being mislabeled as those future capabilities.
+- The former memory map remains separate from the formal Claim Ledger. Phase 2
+  owns claim provenance, conflict, and supersession semantics; Phase 0 only
+  prevents the old views from being mislabeled as those capabilities.
 
 ## Phase 1 Code State
 - Lite refresh now appends a Code State Snapshot with bounded Git revision and
@@ -69,9 +69,24 @@
   status output expose the latest snapshot. A non-Git directory reports
   unavailable instead of clean.
 
+## Phase 2 Claim Ledger
+- SQLite now has additive, transactional tables for claims, evidence
+  references, and lifecycle events. Every stored claim requires at least one
+  source reference and credential values are sanitized before durable writes.
+- Exact normalized assertions reuse their record and attach more evidence;
+  competing approved assertions remain disputed rather than being overwritten.
+  Evidence-aware supersession preserves an audit trail.
+- Explicit memories and Git-ingested facts can derive conservative claims.
+  Hook/model output does not become approved knowledge automatically.
+- Observation code references inherit the latest Code State Snapshot when they
+  are created. CodeGraph refresh requalifies bound claims: changed or deleted
+  symbols become unknown, and incomplete scans force review instead of false
+  certainty.
+- Unit and integration tests cover evidence validation, redaction, conflict,
+  supersession, model-review policy, snapshot binding, changed-symbol
+  requalification, and compact task selection.
+
 ## Next Steps
-1. Add the `CodeStateSnapshot` schema and migration with clean/dirty revision
-   coverage and explicit scan completeness.
-2. Add the source-backed claim contract before a wiki compiler or workflow
-   inheritance runtime.
+1. Compile approved claims into a reviewable local Markdown knowledge workspace.
+2. Add canonical workflow inheritance on top of source-backed claims and pages.
 3. Define parser-provider benchmarks before selecting runtime dependencies.

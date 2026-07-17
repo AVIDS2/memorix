@@ -120,6 +120,31 @@ async function bindObservationCodeRefsBestEffort(observation: Observation): Prom
   }
 }
 
+async function deriveObservationClaimsBestEffort(observation: Observation): Promise<void> {
+  const dataDir = projectDir;
+  const isExplicit = observation.sourceDetail === 'explicit';
+  const isGit = observation.source === 'git' || observation.sourceDetail === 'git-ingest';
+  if (!dataDir || (!isExplicit && !isGit)) return;
+  try {
+    const [
+      { ClaimStore },
+      { CodeGraphStore },
+      { deriveLowRiskClaimsFromObservation },
+    ] = await Promise.all([
+      import('../knowledge/claim-store.js'),
+      import('../codegraph/store.js'),
+      import('../knowledge/claims.js'),
+    ]);
+    const claimStore = new ClaimStore();
+    const codeStore = new CodeGraphStore();
+    await Promise.all([claimStore.init(dataDir), codeStore.init(dataDir)]);
+    deriveLowRiskClaimsFromObservation(claimStore, observation, codeStore);
+  } catch (error) {
+    const label = error instanceof Error ? error.name : 'unknown error';
+    console.error('[memorix] Claim derivation skipped (memory was stored safely: ' + label + ')');
+  }
+}
+
 function isVectorCompatibleWithCurrentIndex(embedding: number[] | null): boolean {
   if (!embedding) return false;
   const vectorDimensions = getVectorDimensions();
@@ -431,6 +456,7 @@ export async function storeObservation(input: {
   }
 
   await bindObservationCodeRefsBestEffort(observation);
+  await deriveObservationClaimsBestEffort(observation);
 
   // Generate embedding async (fire-and-forget) — never blocks MCP response
   // Track in vectorMissingIds until embedding is successfully written.
@@ -585,6 +611,7 @@ async function upsertObservation(
   }
 
   await bindObservationCodeRefsBestEffort(existing);
+  await deriveObservationClaimsBestEffort(existing);
 
   // Generate embedding async (fire-and-forget) — never blocks MCP response
   const searchableText = [input.title, input.narrative, ...(input.facts ?? [])].join(' ');

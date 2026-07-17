@@ -134,9 +134,17 @@ function rowToSnapshot(row: any): CodeStateSnapshot {
 
 export class CodeGraphStore {
   private db: any = null;
+  private dataDir: string | null = null;
 
   async init(dataDir: string): Promise<void> {
+    this.dataDir = dataDir;
     this.db = getDatabase(dataDir);
+  }
+
+  /** Data directory shared with the rest of the local project evidence stores. */
+  getDataDir(): string {
+    if (!this.dataDir) throw new Error('CodeGraphStore is not initialized');
+    return this.dataDir;
   }
 
   upsertFiles(files: CodeFile[]): void {
@@ -425,9 +433,9 @@ export class CodeGraphStore {
     if (refs.length === 0) return;
     const stmt = this.db.prepare(`
       INSERT OR REPLACE INTO observation_code_refs
-        (id, projectId, observationId, fileId, symbolId, capturedFileHash, capturedSymbolHash, status, reason, createdAt, updatedAt)
+        (id, projectId, observationId, fileId, symbolId, capturedFileHash, capturedSymbolHash, status, reason, createdAt, updatedAt, snapshotId)
       VALUES
-        (@id, @projectId, @observationId, @fileId, @symbolId, @capturedFileHash, @capturedSymbolHash, @status, @reason, @createdAt, @updatedAt)
+        (@id, @projectId, @observationId, @fileId, @symbolId, @capturedFileHash, @capturedSymbolHash, @status, @reason, @createdAt, @updatedAt, @snapshotId)
     `);
     const tx = this.db.transaction((items: ObservationCodeRef[]) => {
       for (const ref of items) {
@@ -443,6 +451,7 @@ export class CodeGraphStore {
           reason: ref.reason ?? null,
           createdAt: ref.createdAt,
           updatedAt: ref.updatedAt ?? null,
+          snapshotId: ref.snapshotId ?? this.latestSnapshot(ref.projectId)?.id ?? null,
         });
       }
     });
@@ -456,9 +465,9 @@ export class CodeGraphStore {
     `);
     const insertRef = this.db.prepare(`
       INSERT OR REPLACE INTO observation_code_refs
-        (id, projectId, observationId, fileId, symbolId, capturedFileHash, capturedSymbolHash, status, reason, createdAt, updatedAt)
+        (id, projectId, observationId, fileId, symbolId, capturedFileHash, capturedSymbolHash, status, reason, createdAt, updatedAt, snapshotId)
       VALUES
-        (@id, @projectId, @observationId, @fileId, @symbolId, @capturedFileHash, @capturedSymbolHash, @status, @reason, @createdAt, @updatedAt)
+        (@id, @projectId, @observationId, @fileId, @symbolId, @capturedFileHash, @capturedSymbolHash, @status, @reason, @createdAt, @updatedAt, @snapshotId)
     `);
     const tx = this.db.transaction(() => {
       deleteRefs.run(projectId, observationId);
@@ -475,6 +484,7 @@ export class CodeGraphStore {
           reason: ref.reason ?? null,
           createdAt: ref.createdAt,
           updatedAt: ref.updatedAt ?? null,
+          snapshotId: ref.snapshotId ?? this.latestSnapshot(ref.projectId)?.id ?? null,
         });
       }
     });

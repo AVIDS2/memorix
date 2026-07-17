@@ -317,6 +317,63 @@ const CREATE_CODE_STATE_SNAPSHOTS_TABLE = [
   ');',
 ].join('\n');
 
+// ── 1.2 Knowledge Claim Ledger ──────────────────────────────────────
+
+const CREATE_KNOWLEDGE_CLAIMS_TABLE = `
+CREATE TABLE IF NOT EXISTS knowledge_claims (
+  id              TEXT PRIMARY KEY,
+  projectId       TEXT NOT NULL,
+  subject         TEXT NOT NULL,
+  predicate       TEXT NOT NULL,
+  objectValue     TEXT NOT NULL,
+  scope           TEXT NOT NULL,
+  claimKey        TEXT NOT NULL,
+  conflictKey     TEXT NOT NULL,
+  status          TEXT NOT NULL,
+  confidence      REAL NOT NULL,
+  observedAt      TEXT NOT NULL,
+  validFrom       TEXT,
+  validTo         TEXT,
+  supersededBy    TEXT,
+  reviewState     TEXT NOT NULL,
+  origin          TEXT NOT NULL,
+  createdAt       TEXT NOT NULL,
+  updatedAt       TEXT NOT NULL
+);
+`;
+
+const CREATE_KNOWLEDGE_CLAIM_EVIDENCE_TABLE = `
+CREATE TABLE IF NOT EXISTS knowledge_claim_evidence (
+  id              TEXT PRIMARY KEY,
+  claimId         TEXT NOT NULL,
+  evidenceKind    TEXT NOT NULL,
+  evidenceId      TEXT NOT NULL,
+  relation        TEXT NOT NULL,
+  snapshotId      TEXT,
+  locator         TEXT,
+  capturedHash    TEXT,
+  evidenceKey     TEXT NOT NULL,
+  createdAt       TEXT NOT NULL,
+  UNIQUE(claimId, evidenceKey),
+  FOREIGN KEY (claimId) REFERENCES knowledge_claims(id) ON DELETE CASCADE
+);
+`;
+
+const CREATE_KNOWLEDGE_CLAIM_EVENTS_TABLE = `
+CREATE TABLE IF NOT EXISTS knowledge_claim_events (
+  id              TEXT PRIMARY KEY,
+  projectId       TEXT NOT NULL,
+  claimId         TEXT NOT NULL,
+  kind            TEXT NOT NULL,
+  fromStatus      TEXT,
+  toStatus        TEXT,
+  relatedClaimId  TEXT,
+  detail          TEXT,
+  createdAt       TEXT NOT NULL,
+  FOREIGN KEY (claimId) REFERENCES knowledge_claims(id) ON DELETE CASCADE
+);
+`;
+
 // ── Runtime maintenance jobs ───────────────────────────────────────
 
 const CREATE_MAINTENANCE_JOBS_TABLE = `
@@ -378,6 +435,11 @@ CREATE INDEX IF NOT EXISTS idx_code_symbols_snapshot ON code_symbols(projectId, 
 CREATE INDEX IF NOT EXISTS idx_code_edges_snapshot ON code_edges(projectId, snapshotId);
 CREATE INDEX IF NOT EXISTS idx_observation_code_refs_obs ON observation_code_refs(projectId, observationId);
 CREATE INDEX IF NOT EXISTS idx_observation_code_refs_status ON observation_code_refs(projectId, status);
+CREATE INDEX IF NOT EXISTS idx_knowledge_claims_project_status ON knowledge_claims(projectId, status, updatedAt DESC);
+CREATE INDEX IF NOT EXISTS idx_knowledge_claims_project_conflict ON knowledge_claims(projectId, conflictKey, status);
+CREATE INDEX IF NOT EXISTS idx_knowledge_claims_project_key ON knowledge_claims(projectId, claimKey, status);
+CREATE INDEX IF NOT EXISTS idx_knowledge_claim_evidence_claim ON knowledge_claim_evidence(claimId, createdAt);
+CREATE INDEX IF NOT EXISTS idx_knowledge_claim_events_claim ON knowledge_claim_events(claimId, createdAt);
 CREATE INDEX IF NOT EXISTS idx_maintenance_jobs_ready ON maintenance_jobs(status, run_after);
 CREATE INDEX IF NOT EXISTS idx_maintenance_jobs_project ON maintenance_jobs(project_id, status, run_after);
 CREATE INDEX IF NOT EXISTS idx_maintenance_targets_updated ON maintenance_targets(updated_at);
@@ -418,6 +480,19 @@ const SCHEMA_MIGRATIONS: SchemaMigration[] = [
       db.exec('CREATE INDEX IF NOT EXISTS idx_code_files_snapshot ON code_files(projectId, snapshotId)');
       db.exec('CREATE INDEX IF NOT EXISTS idx_code_symbols_snapshot ON code_symbols(projectId, snapshotId)');
       db.exec('CREATE INDEX IF NOT EXISTS idx_code_edges_snapshot ON code_edges(projectId, snapshotId)');
+    },
+  },
+  {
+    id: '1.2-knowledge-claim-ledger',
+    apply: (db) => {
+      db.exec(CREATE_KNOWLEDGE_CLAIMS_TABLE);
+      db.exec(CREATE_KNOWLEDGE_CLAIM_EVIDENCE_TABLE);
+      db.exec(CREATE_KNOWLEDGE_CLAIM_EVENTS_TABLE);
+      db.exec('CREATE INDEX IF NOT EXISTS idx_knowledge_claims_project_status ON knowledge_claims(projectId, status, updatedAt DESC)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_knowledge_claims_project_conflict ON knowledge_claims(projectId, conflictKey, status)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_knowledge_claims_project_key ON knowledge_claims(projectId, claimKey, status)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_knowledge_claim_evidence_claim ON knowledge_claim_evidence(claimId, createdAt)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_knowledge_claim_events_claim ON knowledge_claim_events(claimId, createdAt)');
     },
   },
 ];

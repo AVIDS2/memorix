@@ -454,6 +454,45 @@ const CREATE_KNOWLEDGE_PROPOSALS_TABLE = [
   ');',
 ].join('\n');
 
+// ── 1.2 Workflow inheritance ────────────────────────────────────────
+
+const CREATE_KNOWLEDGE_WORKFLOWS_TABLE = [
+  'CREATE TABLE IF NOT EXISTS knowledge_workflows (',
+  '  id            TEXT PRIMARY KEY,',
+  '  workspaceId   TEXT NOT NULL,',
+  '  sourcePath    TEXT NOT NULL,',
+  '  title         TEXT NOT NULL,',
+  '  status        TEXT NOT NULL,',
+  '  version       INTEGER NOT NULL,',
+  '  sourceHash    TEXT NOT NULL,',
+  '  contentHash   TEXT NOT NULL,',
+  '  specJson      TEXT NOT NULL,',
+  '  importedFrom  TEXT,',
+  '  createdAt     TEXT NOT NULL,',
+  '  updatedAt     TEXT NOT NULL,',
+  '  UNIQUE(workspaceId, sourcePath),',
+  '  FOREIGN KEY (workspaceId) REFERENCES knowledge_workspaces(id) ON DELETE CASCADE',
+  ');',
+].join('\n');
+
+const CREATE_KNOWLEDGE_WORKFLOW_RUNS_TABLE = [
+  'CREATE TABLE IF NOT EXISTS knowledge_workflow_runs (',
+  '  id                    TEXT PRIMARY KEY,',
+  '  workflowId            TEXT NOT NULL,',
+  '  projectId             TEXT NOT NULL,',
+  '  task                  TEXT NOT NULL,',
+  '  startingSnapshotId    TEXT,',
+  "  selectedEvidenceJson  TEXT NOT NULL DEFAULT '[]',",
+  "  phaseStateJson        TEXT NOT NULL DEFAULT '{}',",
+  '  outcome               TEXT NOT NULL,',
+  '  verificationVerdict   TEXT NOT NULL,',
+  '  failureReason         TEXT,',
+  '  startedAt             TEXT NOT NULL,',
+  '  completedAt           TEXT,',
+  '  FOREIGN KEY (workflowId) REFERENCES knowledge_workflows(id) ON DELETE CASCADE',
+  ');',
+].join('\n');
+
 // ── Runtime maintenance jobs ───────────────────────────────────────
 
 const CREATE_MAINTENANCE_JOBS_TABLE = `
@@ -524,6 +563,8 @@ CREATE INDEX IF NOT EXISTS idx_knowledge_workspaces_project ON knowledge_workspa
 CREATE INDEX IF NOT EXISTS idx_knowledge_pages_workspace_status ON knowledge_pages(workspaceId, status, updatedAt DESC);
 CREATE INDEX IF NOT EXISTS idx_knowledge_page_claims_claim ON knowledge_page_claims(claimId);
 CREATE INDEX IF NOT EXISTS idx_knowledge_proposals_workspace_status ON knowledge_proposals(workspaceId, status, createdAt DESC);
+CREATE INDEX IF NOT EXISTS idx_knowledge_workflows_workspace_status ON knowledge_workflows(workspaceId, status, updatedAt DESC);
+CREATE INDEX IF NOT EXISTS idx_knowledge_workflow_runs_project_workflow ON knowledge_workflow_runs(projectId, workflowId, startedAt DESC);
 CREATE INDEX IF NOT EXISTS idx_maintenance_jobs_ready ON maintenance_jobs(status, run_after);
 CREATE INDEX IF NOT EXISTS idx_maintenance_jobs_project ON maintenance_jobs(project_id, status, run_after);
 CREATE INDEX IF NOT EXISTS idx_maintenance_targets_updated ON maintenance_targets(updated_at);
@@ -591,6 +632,15 @@ const SCHEMA_MIGRATIONS: SchemaMigration[] = [
       db.exec('CREATE INDEX IF NOT EXISTS idx_knowledge_pages_workspace_status ON knowledge_pages(workspaceId, status, updatedAt DESC)');
       db.exec('CREATE INDEX IF NOT EXISTS idx_knowledge_page_claims_claim ON knowledge_page_claims(claimId)');
       db.exec('CREATE INDEX IF NOT EXISTS idx_knowledge_proposals_workspace_status ON knowledge_proposals(workspaceId, status, createdAt DESC)');
+    },
+  },
+  {
+    id: '1.2-workflow-inheritance',
+    apply: (db) => {
+      db.exec(CREATE_KNOWLEDGE_WORKFLOWS_TABLE);
+      db.exec(CREATE_KNOWLEDGE_WORKFLOW_RUNS_TABLE);
+      db.exec('CREATE INDEX IF NOT EXISTS idx_knowledge_workflows_workspace_status ON knowledge_workflows(workspaceId, status, updatedAt DESC)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_knowledge_workflow_runs_project_workflow ON knowledge_workflow_runs(projectId, workflowId, startedAt DESC)');
     },
   },
 ];

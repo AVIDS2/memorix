@@ -1,6 +1,7 @@
 import { existsSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { getResolvedConfig } from '../config/resolved-config.js';
+import { buildTaskWorkset, type TaskWorkset } from '../knowledge/workset.js';
 import type { ProjectInfo } from '../types.js';
 import { backfillMissingObservationCodeRefs, type CodeRefBackfillResult } from './binder.js';
 import { collectCurrentProjectFacts, type CurrentProjectFacts } from './current-facts.js';
@@ -40,6 +41,7 @@ export interface AutoProjectContext {
   overview: ProjectContextOverview;
   explain: ProjectContextExplain;
   refresh: AutoContextRefreshResult;
+  workset: TaskWorkset;
 }
 
 export interface AutoProjectBrief {
@@ -180,15 +182,69 @@ export async function buildAutoProjectContext(input: {
     exclude,
   });
   const overview = explain.overview;
+  const currentFacts = collectCurrentProjectFacts({ project: input.project, now });
+  const latestSnapshot = overview.code.latestSnapshot;
+  const sourceSets = lensSourceSets({ task, lens, explain });
+  const workset = await buildTaskWorkset({
+    projectId: input.project.id,
+    dataDir: input.dataDir,
+    ...(task ? { task } : {}),
+    lens: lens.id,
+    startHere: rankLensPaths([
+      ...existingLensCandidates(input.project.rootPath, lens),
+      ...overview.suggestedReads,
+    ], lens, task).slice(0, 5),
+    currentFacts: worksetFactLines(currentFacts),
+    codeState: codeStateLine(overview),
+    reliableMemory: sourceSets.reliableSources
+      .slice(0, lens.sourceLimit)
+      .map(source => ({
+        id: source.observationId,
+        title: source.title,
+        type: source.type,
+        status: source.status,
+        ...(source.path ? { path: source.path } : {}),
+        ...(source.symbol ? { symbol: source.symbol } : {}),
+      })),
+    cautionMemory: sourceSets.cautionSources
+      .slice(0, lens.cautionLimit)
+      .map(source => ({
+        id: source.observationId,
+        title: source.title,
+        type: source.type,
+        status: source.status,
+        ...(source.path ? { path: source.path } : {}),
+        ...(source.symbol ? { symbol: source.symbol } : {}),
+      })),
+    hiddenCautionMemoryCount: sourceSets.hiddenCautionCount,
+    verificationHints: lensVerificationHints(lens),
+    worktreeDirty: currentFacts.git.dirty,
+    ...(latestSnapshot
+      ? {
+        snapshot: {
+          id: latestSnapshot.id,
+          sourceEpoch: latestSnapshot.sourceEpoch,
+          worktreeState: latestSnapshot.worktreeState,
+          incomplete: latestSnapshot.completeness.skippedOversizedFiles > 0
+            || latestSnapshot.completeness.removalScanDeferred,
+        },
+      }
+      : {}),
+    freshness: {
+      suspect: overview.freshness.suspect,
+      stale: overview.freshness.stale,
+    },
+  });
 
   return {
     project: input.project,
     ...(task ? { task } : {}),
     lens,
-    currentFacts: collectCurrentProjectFacts({ project: input.project, now }),
+    currentFacts,
     overview,
     explain,
     refresh,
+    workset,
   };
 }
 
@@ -253,7 +309,7 @@ function lensLine(context: AutoProjectContext): string {
   return `Task lens: ${context.lens.id} - ${context.lens.description}`;
 }
 
-function lensSourceSets(context: AutoProjectContext): {
+function lensSourceSets(context: Pick<AutoProjectContext, 'task' | 'lens' | 'explain'>): {
   reliableSources: ProjectContextExplain['sources'];
   cautionSources: ProjectContextExplain['sources'];
   hiddenReliableCount: number;
@@ -289,7 +345,7 @@ export function buildAutoProjectBrief(context: AutoProjectContext): AutoProjectB
   return {
     lens: context.lens.id,
     lensDescription: context.lens.description,
-    startHere: rankedStartHere(context),
+    startHere: context.workset.startHere,
     reliableMemoryIds: reliableSources
       .slice(0, context.lens.sourceLimit)
       .map(source => source.observationId),
@@ -298,7 +354,7 @@ export function buildAutoProjectBrief(context: AutoProjectContext): AutoProjectB
       .map(source => source.observationId),
     hiddenReliableCount,
     hiddenCautionCount,
-    suggestedVerification: lensVerificationHints(context.lens),
+    suggestedVerification: context.workset.verification,
   };
 }
 
@@ -333,6 +389,27 @@ function formatCurrentFactsLines(facts: CurrentProjectFacts): string[] {
     }
   }
 
+  return lines;
+}
+
+function worksetFactLines(facts: CurrentProjectFacts): string[] {
+  const lines: string[] = [];
+  if (facts.packageVersion) lines.push('Package version: ' + facts.packageVersion);
+  if (facts.latestChangelog) {
+    lines.push('Latest changelog: ' + facts.latestChangelog.version
+      + (facts.latestChangelog.date ? ' (' + facts.latestChangelog.date + ')' : ''));
+  }
+  const gitParts: string[] = [];
+  if (facts.git.branch) gitParts.push('branch ' + facts.git.branch);
+  if (facts.git.commit) gitParts.push('commit ' + facts.git.commit);
+  gitParts.push(facts.git.dirty ? 'dirty worktree' : 'clean worktree');
+  lines.push('Git: ' + gitParts.join(', '));
+  for (const note of facts.staleNotes.slice(0, 1)) {
+    lines.push(
+      'Historical note: ' + note.path
+      + (note.branchHint ? ' (branch hint ' + note.branchHint + '; ' + note.reason + ')' : ' (' + note.reason + ')'),
+    );
+  }
   return lines;
 }
 
@@ -377,6 +454,10 @@ export function formatAutoProjectContextSummary(context: AutoProjectContext): st
 }
 
 export function formatAutoProjectContextPrompt(context: AutoProjectContext): string {
+  return context.workset.prompt;
+}
+
+export function formatLegacyAutoProjectContextPrompt(context: AutoProjectContext): string {
   const lines = [
     `Memorix Autopilot Brief for ${context.project.name}`,
     context.task ? `Task: ${context.task}` : '',

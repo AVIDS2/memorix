@@ -448,21 +448,25 @@ export function requalifyClaimsForCodeState(
   return { requalified, incompleteSnapshot: incompleteSnapshot(snapshot) };
 }
 
+function normalizedTokens(value: string): Set<string> {
+  const raw = sanitizeCredentials(value)
+    .toLocaleLowerCase('en-US')
+    .match(TOKEN_PATTERN)
+    ?? [];
+  return new Set(raw
+    .map(token => token.replace(/^[,;:!?]+|[,;:!?.]+$/g, ''))
+    .filter(token => token.length > 1));
+}
+
 function taskTokens(task: string): Set<string> {
-  return new Set(
-    sanitizeCredentials(task)
-      .toLocaleLowerCase('en-US')
-      .match(TOKEN_PATTERN)
-      ?.filter(token => token.length > 1)
-      ?? [],
-  );
+  return normalizedTokens(task);
 }
 
 function scoreClaim(claim: KnowledgeClaim, tokens: Set<string>): number {
   const text = [claim.subject, claim.predicate, claim.objectValue]
     .join(' ')
     .toLocaleLowerCase('en-US');
-  const words = new Set(text.match(TOKEN_PATTERN) ?? []);
+  const words = normalizedTokens(text);
   let matches = 0;
   for (const token of tokens) {
     if (words.has(token)) matches += 1;

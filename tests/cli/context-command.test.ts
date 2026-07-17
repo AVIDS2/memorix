@@ -129,11 +129,9 @@ describe('project context CLI commands', () => {
     const result = await runCommand(contextCommand, {});
 
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain('Memorix Autopilot Brief for repo');
-    expect(result.stdout).toContain('Code memory');
-    expect(result.stdout).toContain('typescript');
-    expect(result.stdout).toContain('python');
-    expect(result.stdout).toContain('1 active');
+    expect(result.stdout).toContain('Memorix Autopilot Brief');
+    expect(result.stdout).toContain('Project state');
+    expect(result.stdout).toContain('Reliable memory');
     expect(result.stdout).toContain('Start here');
     expect(result.stdout).toContain('Task lens: general');
     expect(result.stdout).toContain('src/auth.ts');
@@ -177,6 +175,12 @@ describe('project context CLI commands', () => {
     expect(parsed.overview.suggestedReads).toContain('src/auth.ts');
     expect(parsed.currentFacts.packageVersion).toBe('9.9.9');
     expect(parsed.currentFacts.latestChangelog).toEqual({ version: '9.9.9', date: '2026-07-02' });
+    expect(parsed.workset).toMatchObject({
+      version: '1.2',
+      lens: 'release',
+      startHere: expect.arrayContaining(['CHANGELOG.md', 'package.json']),
+    });
+    expect(parsed.workset.budget.tokenCount).toBeLessThanOrEqual(parsed.workset.budget.maxTokens);
   });
 
   it('explains where the context came from without exposing storage internals', async () => {

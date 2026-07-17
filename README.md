@@ -59,7 +59,7 @@ Memorix is more than a memory store. It also installs agent integrations, keeps 
 
 | Capability | What it does | Entry point |
 | --- | --- | --- |
-| Memory Autopilot | A task-shaped project brief for a new agent session, with start files, trusted memories, cautions, and verification hints | `memorix context --task "..."`, `memorix_project_context` |
+| Memory Autopilot | A bounded task Workset with start files, current memory, source-backed knowledge, workflow starts, cautions, and verification | `memorix context --task "..."`, `memorix_project_context` |
 | Observation Memory | Searchable facts, fixes, gotchas, session summaries, and implementation notes scoped to the current Git project | `memorix memory`, MCP memory tools |
 | Code Memory | File/symbol links and freshness checks so old memories point to current code or show up as suspect/stale | `memorix codegraph`, automatic context refresh |
 | Git Memory | Commit-derived engineering facts that answer what changed, where, and why it matters | `memorix ingest commit`, git hook |

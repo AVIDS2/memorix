@@ -1405,27 +1405,67 @@ export async function createMemorixServer(
 
       const [
         { CodeGraphStore },
-        { assembleContextPackForTask, buildContextPackPrompt },
+        { assembleContextPackForTask, attachTaskWorkset, buildContextPackPrompt },
         { getResolvedConfig },
         { getObservationStore },
+        { collectCurrentProjectFacts },
+        { resolveTaskLens },
       ] = await Promise.all([
         import('./codegraph/store.js'),
         import('./codegraph/context-pack.js'),
         import('./config/resolved-config.js'),
         import('./store/obs-store.js'),
+        import('./codegraph/current-facts.js'),
+        import('./codegraph/task-lens.js'),
       ]);
       const store = new CodeGraphStore();
       await store.init(projectDir);
       const exclude = getResolvedConfig({ projectRoot: project.rootPath }).codegraph.excludePatterns;
       const observations = await getObservationStore().loadByProject(project.id, { status: 'active' });
       observations.reverse();
-      const pack = assembleContextPackForTask({
+      const basePack = assembleContextPackForTask({
         store,
         projectId: project.id,
         task,
         observations,
         limit: typeof limit === 'number' ? limit : 20,
         exclude,
+      });
+      const status = store.status(project.id);
+      const currentFacts = collectCurrentProjectFacts({ project, now: new Date() });
+      const snapshot = status.latestSnapshot;
+      const worksetFacts: string[] = [];
+      if (currentFacts.packageVersion) worksetFacts.push('Package version: ' + currentFacts.packageVersion);
+      if (currentFacts.latestChangelog) {
+        worksetFacts.push('Latest changelog: ' + currentFacts.latestChangelog.version
+          + (currentFacts.latestChangelog.date ? ' (' + currentFacts.latestChangelog.date + ')' : ''));
+      }
+      worksetFacts.push('Git: ' + (currentFacts.git.branch ? 'branch ' + currentFacts.git.branch + ', ' : '')
+        + (currentFacts.git.dirty ? 'dirty worktree' : 'clean worktree'));
+      const codeState = snapshot
+        ? '- Code state: ' + (snapshot.baseRevision ? snapshot.baseRevision.slice(0, 12) : 'Git unavailable')
+          + ', ' + snapshot.worktreeState + ' worktree'
+          + ', epoch ' + snapshot.sourceEpoch
+        : '- Code state: no completed snapshot yet';
+      const pack = await attachTaskWorkset({
+        pack: basePack,
+        projectId: project.id,
+        dataDir: projectDir,
+        lens: resolveTaskLens(task).id,
+        worktreeDirty: currentFacts.git.dirty,
+        currentFacts: worksetFacts,
+        codeState,
+        ...(snapshot
+          ? {
+            snapshot: {
+              id: snapshot.id,
+              sourceEpoch: snapshot.sourceEpoch,
+              worktreeState: snapshot.worktreeState,
+              incomplete: snapshot.completeness.skippedOversizedFiles > 0
+                || snapshot.completeness.removalScanDeferred,
+            },
+          }
+          : {}),
       });
       const text = buildContextPackPrompt(pack);
 

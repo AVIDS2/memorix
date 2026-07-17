@@ -93,11 +93,11 @@ describe('auto project context', () => {
     expect(text).toContain('Start here');
     expect(text).toContain('Reliable memory');
     expect(text).toContain('Code state:');
-    expect(text).toContain('How to use this');
     expect(text).toContain('continue auth work');
     expect(text).toContain('src/auth.ts');
-    expect(text).toContain('python 1');
     expect(text).not.toContain('SQLite');
+    expect(text).toBe(context.workset.prompt);
+    expect(context.workset.budget.tokenCount).toBeLessThanOrEqual(context.workset.budget.maxTokens);
   });
 
   it('queues an MCP-style refresh instead of scanning code inside the request', async () => {
@@ -202,10 +202,8 @@ describe('auto project context', () => {
     expect(text).toContain('Current project facts');
     expect(text).toContain('Package version: 9.9.9');
     expect(text).toContain('Latest changelog: 9.9.9 (2026-07-02)');
-    expect(text).toContain('Historical/stale project notes');
+    expect(text).toContain('Historical note:');
     expect(text).toContain('docs/memcode/dev-log/progress.txt');
-    expect(text).toContain('feat/memcode-agent');
-    expect(text).toContain('Current facts above outrank progress/dev-log files when they conflict.');
     expect(text.indexOf('Current project facts')).toBeLessThan(text.indexOf('Start here'));
   });
 
@@ -309,7 +307,7 @@ describe('auto project context', () => {
     expect(text).toContain('Task lens: onboarding');
     expect(text).toContain('README.md');
     expect(text).toContain('1 suspect');
-    expect(text).toContain('Only task-relevant warning details are shown.');
+    expect(text).toContain('Other unrelated warning details are hidden for this task.');
     expect(text).not.toContain('authMiddleware bug workaround changed login flow');
   });
 

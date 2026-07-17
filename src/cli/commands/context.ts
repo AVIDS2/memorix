@@ -45,6 +45,7 @@ export default defineCommand({
           currentFacts: context.currentFacts,
           overview: context.overview,
           refresh: context.refresh,
+          workset: context.workset,
           ...(context.task ? { task: context.task } : {}),
         },
         formatAutoProjectContextPrompt(context),

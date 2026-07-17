@@ -1,8 +1,10 @@
 import { defineCommand } from 'citty';
 import { CodeGraphStore } from '../../codegraph/store.js';
 import { refreshProjectLite } from '../../codegraph/lite-provider.js';
-import { assembleContextPackForTask, buildContextPackPrompt } from '../../codegraph/context-pack.js';
+import { assembleContextPackForTask, attachTaskWorkset, buildContextPackPrompt } from '../../codegraph/context-pack.js';
 import { backfillMissingObservationCodeRefs } from '../../codegraph/binder.js';
+import { collectCurrentProjectFacts } from '../../codegraph/current-facts.js';
+import { resolveTaskLens } from '../../codegraph/task-lens.js';
 import { getResolvedConfig } from '../../config/resolved-config.js';
 import { getAllObservations } from '../../memory/observations.js';
 import { emitError, emitResult, getCliProjectContext, parsePositiveInt } from './operator-shared.js';
@@ -47,6 +49,19 @@ function formatUsageHint(): string {
     '',
     'Tip: use `memorix context --task "..."` for the default agent-ready project context.',
   ].join('\n');
+}
+
+function compactFacts(project: { rootPath: string }): { facts: string[]; dirty: boolean } {
+  const current = collectCurrentProjectFacts({ project, now: new Date() });
+  const facts: string[] = [];
+  if (current.packageVersion) facts.push('Package version: ' + current.packageVersion);
+  if (current.latestChangelog) {
+    facts.push('Latest changelog: ' + current.latestChangelog.version
+      + (current.latestChangelog.date ? ' (' + current.latestChangelog.date + ')' : ''));
+  }
+  facts.push('Git: ' + (current.git.branch ? 'branch ' + current.git.branch + ', ' : '')
+    + (current.git.dirty ? 'dirty worktree' : 'clean worktree'));
+  return { facts, dirty: current.git.dirty };
 }
 
 export default defineCommand({
@@ -118,13 +133,36 @@ export default defineCommand({
           const observations = getAllObservations()
             .filter(obs => obs.projectId === project.id && (obs.status ?? 'active') === 'active')
             .reverse();
-          const pack = assembleContextPackForTask({
+          const basePack = assembleContextPackForTask({
             store,
             projectId: project.id,
             task,
             observations,
             limit,
             exclude,
+          });
+          const status = store.status(project.id);
+          const facts = compactFacts(project);
+          const snapshot = status.latestSnapshot;
+          const pack = await attachTaskWorkset({
+            pack: basePack,
+            projectId: project.id,
+            dataDir,
+            lens: resolveTaskLens(task).id,
+            worktreeDirty: facts.dirty,
+            currentFacts: facts.facts,
+            codeState: formatSnapshotStatus(status).join(' '),
+            ...(snapshot
+              ? {
+                snapshot: {
+                  id: snapshot.id,
+                  sourceEpoch: snapshot.sourceEpoch,
+                  worktreeState: snapshot.worktreeState,
+                  incomplete: snapshot.completeness.skippedOversizedFiles > 0
+                    || snapshot.completeness.removalScanDeferred,
+                },
+              }
+              : {}),
           });
           emitResult({ project, pack }, buildContextPackPrompt(pack), asJson);
           return;

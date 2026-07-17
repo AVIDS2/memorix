@@ -449,19 +449,6 @@ export async function refreshProjectLite(
     indexedAt,
     completeness,
   }));
-  try {
-    const [{ ClaimStore }, { requalifyClaimsForCodeState }] = await Promise.all([
-      import('../knowledge/claim-store.js'),
-      import('../knowledge/claims.js'),
-    ]);
-    const claimStore = new ClaimStore();
-    await claimStore.init(store.getDataDir());
-    requalifyClaimsForCodeState(claimStore, store, options.projectId);
-  } catch (error) {
-    const label = error instanceof Error ? error.name : 'unknown error';
-    console.error('[memorix] Claim requalification skipped after CodeGraph refresh (' + label + ')');
-  }
-
   return {
     scannedFiles: paths.length,
     changedFiles: changed.length,

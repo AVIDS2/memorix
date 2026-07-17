@@ -231,6 +231,12 @@ describe('project context CLI commands', () => {
         stale: 0,
       },
     });
+    expect(parsed.lifecycle).toMatchObject({
+      maintenance: { summary: expect.any(Object) },
+      claims: { total: expect.any(Number) },
+      workspaces: expect.any(Array),
+      workflows: expect.any(Object),
+    });
   });
 
   it('applies CodeGraph excludes to doctor suggested reads', async () => {

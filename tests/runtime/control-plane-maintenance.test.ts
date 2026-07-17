@@ -86,6 +86,7 @@ describe('control-plane maintenance', () => {
 
   it('claims only isolated job kinds and leaves vector work for the live MCP runtime', async () => {
     expect(CONTROL_PLANE_MAINTENANCE_KINDS).not.toContain('vector-backfill');
+    expect(CONTROL_PLANE_MAINTENANCE_KINDS).toContain('claim-derive');
     const targets = new MaintenanceTargetStore(dataDir);
     targets.register({ projectId: 'project-a', projectRoot: 'C:/workspace/project-a', dataDir });
     const queue = new MaintenanceJobStore(dataDir);

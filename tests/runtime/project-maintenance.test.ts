@@ -9,14 +9,24 @@ const backfillVectorEmbeddings = vi.fn();
 const getVectorStatus = vi.fn();
 const archiveExpiredBatch = vi.fn();
 const codeStoreInit = vi.fn();
+const latestSnapshot = vi.fn();
 const CodeGraphStore = vi.fn(function CodeGraphStoreMock() {
-  return { init: codeStoreInit };
+  return { init: codeStoreInit, latestSnapshot };
 });
 const refreshProjectLite = vi.fn();
 const backfillMissingObservationCodeRefs = vi.fn();
 const getResolvedConfig = vi.fn();
 const loadByProject = vi.fn();
-const getObservationStore = vi.fn(() => ({ loadByProject }));
+const getById = vi.fn();
+const getObservationStore = vi.fn(() => ({ loadByProject, getById }));
+const claimStoreInit = vi.fn();
+const ClaimStore = vi.fn(function ClaimStoreMock() {
+  return { init: claimStoreInit };
+});
+const bindObservationToCode = vi.fn();
+const deriveLowRiskClaimsFromObservation = vi.fn();
+const requalifyClaimsForCodeState = vi.fn();
+const queueEnqueue = vi.fn();
 
 vi.mock('../../src/embedding/provider.js', () => ({
   isEmbeddingExplicitlyDisabled,
@@ -33,10 +43,18 @@ vi.mock('../../src/memory/retention.js', () => ({
 
 vi.mock('../../src/codegraph/store.js', () => ({ CodeGraphStore }));
 vi.mock('../../src/codegraph/lite-provider.js', () => ({ refreshProjectLite }));
-vi.mock('../../src/codegraph/binder.js', () => ({ backfillMissingObservationCodeRefs }));
+vi.mock('../../src/codegraph/binder.js', () => ({
+  backfillMissingObservationCodeRefs,
+  bindObservationToCode,
+}));
 vi.mock('../../src/store/obs-store.js', () => ({ getObservationStore }));
 vi.mock('../../src/config/resolved-config.js', () => ({ getResolvedConfig }));
 vi.mock('../../src/runtime/isolated-maintenance.js', () => ({ runMaintenanceInChildProcess }));
+vi.mock('../../src/knowledge/claim-store.js', () => ({ ClaimStore }));
+vi.mock('../../src/knowledge/claims.js', () => ({
+  deriveLowRiskClaimsFromObservation,
+  requalifyClaimsForCodeState,
+}));
 
 import { createProjectMaintenanceDispatcher, createProjectMaintenanceHandler } from '../../src/runtime/project-maintenance.js';
 import type { MaintenanceJob } from '../../src/runtime/maintenance-jobs.js';
@@ -63,7 +81,9 @@ describe('createProjectMaintenanceHandler', () => {
     vi.clearAllMocks();
     isEmbeddingExplicitlyDisabled.mockReturnValue(false);
     getResolvedConfig.mockReturnValue({ codegraph: { excludePatterns: ['generated/**'] } });
-    getObservationStore.mockReturnValue({ loadByProject });
+    getObservationStore.mockReturnValue({ loadByProject, getById });
+    latestSnapshot.mockReturnValue({ id: 'snapshot-a' });
+    queueEnqueue.mockReset();
   });
 
   it('processes vector work in the requested bounded batch and reschedules remaining work', async () => {
@@ -124,6 +144,7 @@ describe('createProjectMaintenanceHandler', () => {
       'project-a',
       'C:/memorix-data',
       'C:/workspace/project-a',
+      { maintenanceQueue: { enqueue: queueEnqueue } },
     )(makeJob({ kind: 'codegraph-refresh', payload: { maxFiles: 250 } }));
 
     expect(codeStoreInit).toHaveBeenCalledWith('C:/memorix-data');
@@ -138,6 +159,50 @@ describe('createProjectMaintenanceHandler', () => {
       [observations[0]],
     );
     expect(loadByProject).toHaveBeenCalledWith('project-a', { status: 'active' });
+    expect(queueEnqueue).toHaveBeenCalledWith(expect.objectContaining({
+      kind: 'claim-requalification',
+      projectId: 'project-a',
+    }));
+    expect(result).toEqual({ action: 'complete' });
+  });
+
+  it('derives an eligible observation through a durable maintenance job, then schedules reviewable knowledge updates', async () => {
+    const observation = {
+      id: 42,
+      projectId: 'project-a',
+      entityName: 'auth',
+      type: 'decision',
+      title: 'Use signed sessions',
+      narrative: 'The auth service uses signed sessions.',
+      facts: [],
+      filesModified: ['src/auth.ts'],
+      source: 'manual',
+      sourceDetail: 'explicit',
+      status: 'active',
+      createdAt: '2026-07-17T00:00:00.000Z',
+    };
+    getById.mockResolvedValue(observation);
+    bindObservationToCode.mockResolvedValue([]);
+    deriveLowRiskClaimsFromObservation.mockReturnValue([{ id: 'claim-1' }]);
+
+    const result = await createProjectMaintenanceHandler(
+      'project-a',
+      'C:/memorix-data',
+      'C:/workspace/project-a',
+      { maintenanceQueue: { enqueue: queueEnqueue } },
+    )(makeJob({
+      kind: 'claim-derive' as any,
+      payload: { observationId: 42 },
+    }));
+
+    expect(claimStoreInit).toHaveBeenCalledWith('C:/memorix-data');
+    expect(bindObservationToCode).toHaveBeenCalledWith(expect.anything(), observation);
+    expect(deriveLowRiskClaimsFromObservation).toHaveBeenCalledWith(
+      expect.anything(),
+      observation,
+      expect.anything(),
+    );
+    expect(queueEnqueue).toHaveBeenCalledWith(expect.objectContaining({ kind: 'knowledge-compile' }));
     expect(result).toEqual({ action: 'complete' });
   });
 
@@ -158,5 +223,22 @@ describe('createProjectMaintenanceHandler', () => {
       dataDir: 'C:/memorix-data',
     });
     expect(refreshProjectLite).not.toHaveBeenCalled();
+  });
+
+  it('moves claim derivation into the isolated maintenance lane too', async () => {
+    runMaintenanceInChildProcess.mockResolvedValue({ action: 'complete' });
+    const dispatcher = createProjectMaintenanceDispatcher(
+      'project-a',
+      'C:/memorix-data',
+      'C:/workspace/project-a',
+    );
+    const claimJob = makeJob({ kind: 'claim-derive' as any, payload: { observationId: 42 } });
+
+    await expect(dispatcher(claimJob)).resolves.toEqual({ action: 'complete' });
+    expect(runMaintenanceInChildProcess).toHaveBeenCalledWith({
+      job: claimJob,
+      projectRoot: 'C:/workspace/project-a',
+      dataDir: 'C:/memorix-data',
+    });
   });
 });

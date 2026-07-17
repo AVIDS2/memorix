@@ -868,9 +868,12 @@ export default defineCommand({
           const projectRelations = graph.relations.filter((r: any) => projectEntitySet.has(r.from) && projectEntitySet.has(r.to));
 
           let maintenance = { total: 0, pending: 0, running: 0, retrying: 0, completed: 0, failed: 0 };
+          let lifecycle: unknown;
           try {
             const { MaintenanceJobStore } = await import('../../runtime/maintenance-jobs.js');
             maintenance = new MaintenanceJobStore(statsDataDir).summary(statsProjectId);
+            const { collectLifecycleDiagnostics } = await import('../../runtime/lifecycle-status.js');
+            lifecycle = await collectLifecycleDiagnostics({ dataDir: statsDataDir, projectId: statsProjectId });
           } catch { /* optional maintenance diagnostics */ }
 
           sendJson({
@@ -892,17 +895,25 @@ export default defineCommand({
             },
             retentionSummary,
             maintenance,
+            ...(lifecycle ? { lifecycle } : {}),
           });
           return;
         }
 
         if (apiPath === '/maintenance') {
           const { projectId: maintenanceProjectId, dataDir: maintenanceDataDir } = await resolveRequestProject(url);
-          const { MaintenanceJobStore } = await import('../../runtime/maintenance-jobs.js');
+          const [{ MaintenanceJobStore }, { collectLifecycleDiagnostics }] = await Promise.all([
+            import('../../runtime/maintenance-jobs.js'),
+            import('../../runtime/lifecycle-status.js'),
+          ]);
           const queue = new MaintenanceJobStore(maintenanceDataDir);
           sendJson({
             summary: queue.summary(maintenanceProjectId),
             jobs: queue.list({ projectId: maintenanceProjectId, limit: 50 }),
+            lifecycle: await collectLifecycleDiagnostics({
+              dataDir: maintenanceDataDir,
+              projectId: maintenanceProjectId,
+            }),
           });
           return;
         }

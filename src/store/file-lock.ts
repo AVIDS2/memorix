@@ -9,6 +9,7 @@
  */
 
 import { promises as fs } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 
 /** Lock is considered stale after 10 seconds (process crash recovery) */
@@ -17,6 +18,7 @@ const LOCK_STALE_MS = 10_000;
 const RETRY_INTERVAL_MS = 50;
 /** Maximum retries before giving up (50ms × 60 = 3 seconds) */
 const MAX_RETRIES = 60;
+const atomicWriteTails = new Map<string, Promise<void>>();
 
 /**
  * Acquire a lock file atomically.
@@ -93,8 +95,26 @@ export async function withFileLock<T>(projectDir: string, fn: () => Promise<T>):
  * On most filesystems, rename() is atomic within the same directory,
  * so readers always see either the old complete file or the new complete file.
  */
-export async function atomicWriteFile(filePath: string, data: string): Promise<void> {
-  const tmpPath = filePath + `.tmp.${process.pid}`;
-  await fs.writeFile(tmpPath, data, 'utf-8');
-  await fs.rename(tmpPath, filePath);
+async function atomicWriteFileOnce(filePath: string, data: string): Promise<void> {
+  const tmpPath = filePath + `.tmp.${process.pid}.${randomUUID()}`;
+  try {
+    await fs.writeFile(tmpPath, data, 'utf-8');
+    await fs.rename(tmpPath, filePath);
+  } catch (error) {
+    await fs.unlink(tmpPath).catch(() => {});
+    throw error;
+  }
+}
+
+/**
+ * Serialize same-process writes to one target. Windows refuses concurrent
+ * replacements of the same path even when each writer has its own temp file.
+ */
+export function atomicWriteFile(filePath: string, data: string): Promise<void> {
+  const previous = atomicWriteTails.get(filePath) ?? Promise.resolve();
+  const next = previous.catch(() => undefined).then(() => atomicWriteFileOnce(filePath, data));
+  atomicWriteTails.set(filePath, next);
+  return next.finally(() => {
+    if (atomicWriteTails.get(filePath) === next) atomicWriteTails.delete(filePath);
+  });
 }

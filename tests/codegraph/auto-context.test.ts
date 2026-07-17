@@ -124,6 +124,7 @@ describe('auto project context', () => {
     expect(context.refresh).toMatchObject({ performed: false, reason: 'queued' });
     expect(context.overview.code.files).toBe(0);
     expect(context.overview.suggestedReads).toContain('src/auth.ts');
+    expect(context.workset.prompt).toContain('Code Memory refresh queued');
     expect(context.explain.sources[0]).toMatchObject({
       path: 'src/auth.ts',
       status: 'unbound',

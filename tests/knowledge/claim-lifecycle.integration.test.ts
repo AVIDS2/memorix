@@ -14,6 +14,8 @@ import { refreshProjectLite } from '../../src/codegraph/lite-provider.js';
 import { CodeGraphStore } from '../../src/codegraph/store.js';
 import { ClaimStore } from '../../src/knowledge/claim-store.js';
 import { initObservations, storeObservation } from '../../src/memory/observations.js';
+import { MaintenanceJobStore, MaintenanceJobWorker } from '../../src/runtime/maintenance-jobs.js';
+import { createProjectMaintenanceHandler } from '../../src/runtime/project-maintenance.js';
 import { resetObservationStore } from '../../src/store/obs-store.js';
 import { resetDb } from '../../src/store/orama-store.js';
 import { closeAllDatabases } from '../../src/store/sqlite-db.js';
@@ -44,7 +46,7 @@ afterEach(async () => {
 });
 
 describe('claim lifecycle integration', () => {
-  it('creates a claim from an explicit memory, records its current snapshot, and downgrades it after a bound symbol changes', async () => {
+  it('creates a claim from an explicit memory in a recoverable background job, records its current snapshot, and downgrades it after a bound symbol changes', async () => {
     const code = new CodeGraphStore();
     await code.init(dataDir);
     const first = await refreshProjectLite(code, {
@@ -64,6 +66,23 @@ describe('claim lifecycle integration', () => {
     });
     const claims = new ClaimStore();
     await claims.init(dataDir);
+    const queue = new MaintenanceJobStore(dataDir);
+    const pendingDerivation = queue.list({ projectId: 'org/repo' })
+      .find(job => job.kind === 'claim-derive');
+
+    expect(claims.listClaims('org/repo')).toEqual([]);
+    expect(pendingDerivation).toMatchObject({
+      kind: 'claim-derive',
+      payload: { observationId: observation.id },
+    });
+
+    const worker = new MaintenanceJobWorker(
+      queue,
+      createProjectMaintenanceHandler('org/repo', dataDir, projectRoot),
+      { workerId: 'claim-lifecycle-test' },
+    );
+    await worker.runOnce();
+
     const claim = claims.listClaims('org/repo')[0];
     const evidence = claims.listEvidence(claim.id);
 
@@ -89,10 +108,17 @@ describe('claim lifecycle integration', () => {
       'export function createToken() { return "new"; }\n',
       'utf8',
     );
-    await refreshProjectLite(code, {
-      projectId: 'org/repo',
-      projectRoot,
+    await createProjectMaintenanceHandler('org/repo', dataDir, projectRoot)({
+      ...pendingDerivation!,
+      id: 'codegraph-refresh-job',
+      kind: 'codegraph-refresh',
+      dedupeKey: 'codegraph-refresh',
+      payload: {},
     });
+    const requalification = queue.list({ projectId: 'org/repo' })
+      .find(job => job.kind === 'claim-requalification');
+    expect(requalification).toBeDefined();
+    await createProjectMaintenanceHandler('org/repo', dataDir, projectRoot)(requalification!);
 
     expect(claims.getClaim(claim.id)).toMatchObject({
       status: 'unknown',

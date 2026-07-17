@@ -225,6 +225,10 @@ const i18n = {
     maintenanceQueued: 'queued',
     maintenanceRunning: 'running',
     maintenanceNeedsAttention: 'needs attention',
+    knowledgeLifecycle: 'Knowledge Lifecycle',
+    claimsNeedReview: 'claims need review',
+    pendingProposals: 'pending proposals',
+    knowledgeReady: 'Knowledge current',
 
     // Project states
     noProjects: 'No projects',
@@ -652,6 +656,10 @@ const i18n = {
     maintenanceQueued: '项排队',
     maintenanceRunning: '项运行中',
     maintenanceNeedsAttention: '项需要处理',
+    knowledgeLifecycle: '知识生命周期',
+    claimsNeedReview: '条 claim 待复核',
+    pendingProposals: '个提案待审',
+    knowledgeReady: '知识状态正常',
 
     // Project states
     noProjects: '无项目',
@@ -1331,6 +1339,9 @@ async function loadDashboard() {
   const gs = stats.gitSummary || { total: 0, recentWeek: 0, recentMemories: [] };
   const rs = stats.retentionSummary || { active: 0, stale: 0, archive: 0, immune: 0 };
   const maintenance = stats.maintenance || { pending: 0, running: 0, retrying: 0, failed: 0 };
+  const lifecycle = stats.lifecycle || {};
+  const lifecycleClaims = lifecycle.claims || { needsReview: 0, conflicts: 0 };
+  const pendingProposals = (lifecycle.workspaces || []).reduce((total, workspace) => total + (workspace.pendingProposals || 0), 0);
   const queuedMaintenance = (maintenance.pending || 0) + (maintenance.retrying || 0);
   const activeMaintenance = maintenance.running || 0;
   const failedMaintenance = maintenance.failed || 0;
@@ -1341,6 +1352,11 @@ async function loadDashboard() {
       : queuedMaintenance > 0
         ? { color: 'var(--accent-amber)', text: `${queuedMaintenance} ${t('maintenanceQueued')}` }
         : { color: 'var(--accent-green)', text: t('maintenanceIdle') };
+  const knowledgeState = lifecycleClaims.conflicts > 0 || lifecycleClaims.needsReview > 0
+    ? { color: 'var(--accent-amber)', text: `${lifecycleClaims.conflicts || lifecycleClaims.needsReview} ${t('claimsNeedReview')}` }
+    : pendingProposals > 0
+      ? { color: 'var(--accent-blue)', text: `${pendingProposals} ${t('pendingProposals')}` }
+      : { color: 'var(--accent-green)', text: t('knowledgeReady') };
 
   const typeIcons = {
     'session-request': '<span class="iconify" data-icon="lucide:target" style="color:#f87171;"></span>', gotcha: '<span class="iconify" data-icon="lucide:alert-octagon" style="color:#ef4444;"></span>', 'problem-solution': '<span class="iconify" data-icon="lucide:lightbulb" style="color:#fbbf24;"></span>',
@@ -1421,6 +1437,10 @@ async function loadDashboard() {
               <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">${t('maintenance')}</div>
               <div style="font-size:14px;font-weight:600;color:${maintenanceState.color};">${maintenanceState.text}</div>
               ${queuedMaintenance > 0 && activeMaintenance > 0 ? `<div style="font-size:11px;color:var(--text-secondary);margin-top:2px;">${queuedMaintenance} ${t('maintenanceQueued')}</div>` : ''}
+            </div>
+            <div>
+              <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">${t('knowledgeLifecycle')}</div>
+              <div style="font-size:14px;font-weight:600;color:${knowledgeState.color};">${knowledgeState.text}</div>
             </div>
           </div>
         </div>

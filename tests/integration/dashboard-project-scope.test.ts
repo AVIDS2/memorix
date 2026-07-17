@@ -206,6 +206,12 @@ describe('Standalone Dashboard Project Scope', () => {
     expect(status).toBe(200);
     expect(body.summary).toMatchObject({ total: 0, pending: 0, running: 0 });
     expect(body.jobs).toEqual([]);
+    expect(body.lifecycle).toMatchObject({
+      maintenance: { summary: { total: 0 } },
+      claims: { total: expect.any(Number) },
+      workspaces: expect.any(Array),
+      workflows: expect.any(Object),
+    });
   });
 
   it('GET /api/knowledge returns a project-scoped read-only memory overview', async () => {

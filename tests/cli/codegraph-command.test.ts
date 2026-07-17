@@ -135,7 +135,7 @@ describe('codegraph CLI command', () => {
     const result = await runCommand({ _: ['context-pack'], task: 'continue auth bug' });
 
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain('## Task');
+    expect(result.stdout).toContain('Memorix Autopilot Brief');
     expect(result.stdout).toContain('authMiddleware');
     expect(result.stdout).toContain('src/auth.ts');
   });
@@ -156,7 +156,8 @@ describe('codegraph CLI command', () => {
     const result = await runCommand({ _: ['context-pack'], task: 'continue authMiddleware bug' });
 
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain('#1 current');
+    expect(result.stdout).toContain('Reliable memory');
+    expect(result.stdout).toContain('authMiddleware');
     expect(result.stdout).toContain('src/auth.ts');
   });
 
@@ -178,7 +179,7 @@ describe('codegraph CLI command', () => {
     const result = await runCommand({ _: ['context-pack'], task: 'continue authMiddleware bug' });
 
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain('## Freshness Warnings');
+    expect(result.stdout).toContain('Cautions');
     expect(result.stdout).toContain('#1 stale');
     expect(result.stdout).toContain('referenced file is no longer indexed');
   });

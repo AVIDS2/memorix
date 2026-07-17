@@ -469,10 +469,11 @@ export async function createMemorixServer(
   let maintenanceWorker: { stop(): void } | null = null;
   const startProjectMaintenanceWorker = async (autoCleanup = false): Promise<void> => {
     maintenanceWorker?.stop();
-    const [{ MaintenanceJobStore, MaintenanceJobWorker }, maintenance, observations] = await Promise.all([
+    const [{ MaintenanceJobStore, MaintenanceJobWorker }, maintenance, observations, lifecycle] = await Promise.all([
       import('./runtime/maintenance-jobs.js'),
       import('./runtime/project-maintenance.js'),
       import('./memory/observations.js'),
+      import('./runtime/lifecycle.js'),
     ]);
     const queue = new MaintenanceJobStore(projectDir);
     const vectorStatus = observations.getVectorStatus(project.id);
@@ -509,11 +510,12 @@ export async function createMemorixServer(
         || !Number.isFinite(indexedAt)
         || Date.now() - indexedAt > 10 * 60_000;
       if (needsRefresh) {
-        queue.enqueue({
+        lifecycle.enqueueCodegraphRefresh({
+          dataDir: projectDir,
           projectId: project.id,
-          kind: 'codegraph-refresh',
-          dedupeKey: 'startup-codegraph-refresh',
-          payload: { maxFiles: 5_000 },
+          source: 'startup',
+          maxFiles: 5_000,
+          queue,
         });
       }
     } catch {
@@ -1329,10 +1331,12 @@ export async function createMemorixServer(
         },
         { getObservationStore },
         { MaintenanceJobStore },
+        { enqueueCodegraphRefresh },
       ] = await Promise.all([
         import('./codegraph/auto-context.js'),
         import('./store/obs-store.js'),
         import('./runtime/maintenance-jobs.js'),
+        import('./runtime/lifecycle.js'),
       ]);
       const observations = await getObservationStore().loadByProject(project.id, { status: 'active' });
       const context = await buildAutoProjectContext({
@@ -1342,11 +1346,12 @@ export async function createMemorixServer(
         task,
         refresh: refresh ?? 'auto',
         enqueueRefresh: () => {
-          new MaintenanceJobStore(projectDir).enqueue({
+          enqueueCodegraphRefresh({
+            dataDir: projectDir,
             projectId: project.id,
-            kind: 'codegraph-refresh',
-            dedupeKey: 'context-codegraph-refresh',
-            payload: { maxFiles: 5_000 },
+            source: 'project-context',
+            maxFiles: 5_000,
+            queue: new MaintenanceJobStore(projectDir),
           });
         },
       });

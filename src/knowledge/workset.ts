@@ -17,7 +17,9 @@ export type WorksetCautionKind =
   | 'stale-code-memory'
   | 'claim-conflict'
   | 'claim-needs-review'
-  | 'workflow-failed-verification';
+  | 'workflow-failed-verification'
+  | 'codegraph-refresh-queued'
+  | 'codegraph-refresh-failed';
 
 export interface WorksetCaution {
   kind: WorksetCautionKind;
@@ -62,6 +64,7 @@ export interface WorksetMemorySource {
   status: 'current' | 'suspect' | 'stale' | 'unbound';
   path?: string;
   symbol?: string;
+  reason?: string;
 }
 
 export interface TaskWorkset {
@@ -116,6 +119,7 @@ export interface BuildTaskWorksetInput {
     suspect: number;
     stale: number;
   };
+  runtimeCautions?: WorksetCaution[];
   maxTokens?: number;
 }
 
@@ -251,9 +255,10 @@ export function renderTaskWorksetPrompt(input: Omit<TaskWorkset, 'prompt' | 'bud
       const location = memory.path
         ? memory.path + (memory.symbol ? '#' + memory.symbol : '')
         : 'no current code location';
+      const reason = memory.reason ? '; ' + short(memory.reason, 14) : '';
       appendLine(
         lines,
-        '- #' + memory.id + ' ' + memory.status + ': ' + short(memory.title, 18) + ' (' + location + ')',
+        '- #' + memory.id + ' ' + memory.status + ': ' + short(memory.title, 18) + ' (' + location + reason + ')',
         maxTokens,
         omitted,
         'caution-memory',
@@ -351,7 +356,7 @@ export function renderTaskWorksetPrompt(input: Omit<TaskWorkset, 'prompt' | 'bud
 export async function buildTaskWorkset(input: BuildTaskWorksetInput): Promise<TaskWorkset> {
   const task = input.task?.trim() ?? '';
   const maxTokens = Math.max(96, Math.min(Math.floor(input.maxTokens ?? 180), 320));
-  const cautions = snapshotCautions(input);
+  const cautions = [...(input.runtimeCautions ?? []), ...snapshotCautions(input)];
   const claimStore = new ClaimStore();
   await claimStore.init(input.dataDir);
   const selection = task

@@ -10,6 +10,8 @@ export interface ContextPackMemory {
   type: string;
   status: CodeRefStatus | 'unbound';
   reason: string;
+  path?: string;
+  symbol?: string;
 }
 
 export interface ContextPackCodeFact {
@@ -184,6 +186,8 @@ export function assembleContextPack(input: AssembleContextPackInput): ContextPac
           type: observation.type,
           status: freshness.status,
           reason: freshness.reason,
+          ...(file ? { path: file.path } : {}),
+          ...(symbol ? { symbol: symbol.name } : {}),
         });
       }
       if (file) suggestedReads.push(file.path);
@@ -278,12 +282,16 @@ export async function attachTaskWorkset(input: {
         title: memory.title,
         type: memory.type,
         status: memory.status,
+        ...(memory.path ? { path: memory.path } : {}),
+        ...(memory.symbol ? { symbol: memory.symbol } : {}),
+        ...(memory.reason ? { reason: memory.reason } : {}),
       })),
     cautionMemory: input.pack.warnings.map(warning => ({
       id: warning.id,
       title: warning.title,
       type: 'memory',
       status: warning.status,
+      reason: warning.reason,
     })),
     verificationHints: input.pack.suggestedVerification,
     worktreeDirty: input.worktreeDirty,

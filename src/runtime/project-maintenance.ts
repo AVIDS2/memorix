@@ -3,11 +3,17 @@ import type {
   MaintenanceJobRunResult,
 } from './maintenance-jobs.js';
 import { runMaintenanceInChildProcess } from './isolated-maintenance.js';
+import {
+  enqueueClaimRequalification,
+  enqueueKnowledgeFollowups,
+  type MaintenanceQueue,
+} from './lifecycle.js';
 
 const DEFAULT_VECTOR_BATCH_SIZE = 12;
 const DEFAULT_RETENTION_BATCH_SIZE = 100;
 const DEFAULT_CONSOLIDATION_BATCH_SIZE = 200;
 const DEFAULT_CODEGRAPH_MAX_FILES = 5_000;
+const DEFAULT_CLAIM_DERIVATION_BATCH_SIZE = 100;
 const VECTOR_RETRY_DELAY_MS = 5_000;
 const DEDUP_PER_PAIR_TIMEOUT_MS = 5_000;
 
@@ -47,6 +53,46 @@ function codeGraphMaxFiles(payload: Record<string, unknown>): number {
   const value = payload.maxFiles;
   if (typeof value !== 'number' || !Number.isFinite(value)) return DEFAULT_CODEGRAPH_MAX_FILES;
   return Math.min(20_000, Math.max(1, Math.floor(value)));
+}
+
+function claimDerivationBatchSize(payload: Record<string, unknown>): number {
+  const value = payload.limit;
+  if (typeof value !== 'number' || !Number.isFinite(value)) return DEFAULT_CLAIM_DERIVATION_BATCH_SIZE;
+  return Math.min(500, Math.max(1, Math.floor(value)));
+}
+
+function claimDerivationCursor(payload: Record<string, unknown>): number {
+  const value = payload.cursor;
+  return typeof value === 'number' && Number.isFinite(value)
+    ? Math.max(0, Math.floor(value))
+    : 0;
+}
+
+function observationId(payload: Record<string, unknown>): number | undefined {
+  const value = payload.observationId;
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0
+    ? value
+    : undefined;
+}
+
+function workspaceMode(payload: Record<string, unknown>): 'local' | 'versioned' | undefined {
+  return payload.workspaceMode === 'local' || payload.workspaceMode === 'versioned'
+    ? payload.workspaceMode
+    : undefined;
+}
+
+async function loadWorkspaceForMaintenance(
+  projectId: string,
+  projectDir: string,
+  mode?: 'local' | 'versioned',
+) {
+  const { loadKnowledgeWorkspace } = await import('../knowledge/workspace.js');
+  if (mode) return loadKnowledgeWorkspace({ projectId, dataDir: projectDir, mode });
+  const [versioned, local] = await Promise.all([
+    loadKnowledgeWorkspace({ projectId, dataDir: projectDir, mode: 'versioned' }),
+    loadKnowledgeWorkspace({ projectId, dataDir: projectDir, mode: 'local' }),
+  ]);
+  return versioned ?? local;
 }
 
 /**
@@ -149,6 +195,7 @@ export function createProjectMaintenanceHandler(
   projectId: string,
   projectDir: string,
   projectRoot?: string,
+  options: { maintenanceQueue?: MaintenanceQueue } = {},
 ): MaintenanceJobHandler {
   return async (job): Promise<MaintenanceJobRunResult> => {
     if (job.projectId !== projectId) {
@@ -220,6 +267,149 @@ export function createProjectMaintenanceHandler(
       });
       const activeObservations = await getObservationStore().loadByProject(projectId, { status: 'active' });
       await backfillMissingObservationCodeRefs(store, activeObservations);
+      const snapshot = store.latestSnapshot(projectId);
+      enqueueClaimRequalification({
+        projectId,
+        dataDir: projectDir,
+        source: 'codegraph-refresh',
+        ...(snapshot?.id ? { snapshotId: snapshot.id } : {}),
+        ...(options.maintenanceQueue ? { queue: options.maintenanceQueue } : {}),
+      });
+      return { action: 'complete' };
+    }
+
+    if (job.kind === 'claim-derive') {
+      const id = observationId(job.payload);
+      if (!id) throw new Error('Claim derivation requires a positive observationId');
+      const [
+        { CodeGraphStore },
+        { ClaimStore },
+        { bindObservationToCode },
+        { deriveLowRiskClaimsFromObservation },
+        { getObservationStore },
+      ] = await Promise.all([
+        import('../codegraph/store.js'),
+        import('../knowledge/claim-store.js'),
+        import('../codegraph/binder.js'),
+        import('../knowledge/claims.js'),
+        import('../store/obs-store.js'),
+      ]);
+      const observation = await getObservationStore().getById(id);
+      if (!observation || observation.projectId !== projectId) return { action: 'complete' };
+      const codeStore = new CodeGraphStore();
+      const claimStore = new ClaimStore();
+      await Promise.all([codeStore.init(projectDir), claimStore.init(projectDir)]);
+      await bindObservationToCode(codeStore, observation);
+      const derived = deriveLowRiskClaimsFromObservation(claimStore, observation, codeStore);
+      if (derived.length > 0) {
+        enqueueKnowledgeFollowups({
+          projectId,
+          dataDir: projectDir,
+          source: 'claim-derive:' + id,
+          includeCompile: true,
+          ...(options.maintenanceQueue ? { queue: options.maintenanceQueue } : {}),
+        });
+      }
+      return { action: 'complete' };
+    }
+
+    if (job.kind === 'claim-requalification') {
+      const [
+        { CodeGraphStore },
+        { ClaimStore },
+        { bindObservationToCode },
+        { deriveLowRiskClaimsFromObservation, requalifyClaimsForCodeState },
+        { getObservationStore },
+      ] = await Promise.all([
+        import('../codegraph/store.js'),
+        import('../knowledge/claim-store.js'),
+        import('../codegraph/binder.js'),
+        import('../knowledge/claims.js'),
+        import('../store/obs-store.js'),
+      ]);
+      const codeStore = new CodeGraphStore();
+      const claimStore = new ClaimStore();
+      await Promise.all([codeStore.init(projectDir), claimStore.init(projectDir)]);
+      const limit = claimDerivationBatchSize(job.payload);
+      const observations = await getObservationStore().loadByProject(projectId, {
+        status: 'active',
+        afterId: claimDerivationCursor(job.payload),
+        limit,
+      });
+      let derivedCount = 0;
+      for (const observation of observations) {
+        await bindObservationToCode(codeStore, observation);
+        derivedCount += deriveLowRiskClaimsFromObservation(claimStore, observation, codeStore).length;
+      }
+      requalifyClaimsForCodeState(claimStore, codeStore, projectId);
+      if (observations.length === limit) {
+        return {
+          action: 'reschedule',
+          delayMs: 0,
+          resetAttempts: true,
+          payload: {
+            ...job.payload,
+            cursor: observations[observations.length - 1].id,
+            limit,
+          },
+        };
+      }
+      enqueueKnowledgeFollowups({
+        projectId,
+        dataDir: projectDir,
+        source: 'claim-requalification',
+        includeCompile: derivedCount > 0,
+        ...(options.maintenanceQueue ? { queue: options.maintenanceQueue } : {}),
+      });
+      return { action: 'complete' };
+    }
+
+    if (job.kind === 'knowledge-compile') {
+      const workspace = await loadWorkspaceForMaintenance(projectId, projectDir, workspaceMode(job.payload));
+      if (!workspace) return { action: 'complete' };
+      if (workspace.mode === 'versioned' && job.payload.allowVersionedWrite !== true) {
+        return { action: 'complete' };
+      }
+      const [{ ClaimStore }, { compileKnowledgeWorkspace }] = await Promise.all([
+        import('../knowledge/claim-store.js'),
+        import('../knowledge/wiki.js'),
+      ]);
+      const claims = new ClaimStore();
+      await claims.init(projectDir);
+      await compileKnowledgeWorkspace({ workspace, claims });
+      enqueueKnowledgeFollowups({
+        projectId,
+        dataDir: projectDir,
+        source: 'knowledge-compile',
+        ...(options.maintenanceQueue ? { queue: options.maintenanceQueue } : {}),
+      });
+      return { action: 'complete' };
+    }
+
+    if (job.kind === 'workflow-index') {
+      const workspace = await loadWorkspaceForMaintenance(projectId, projectDir, workspaceMode(job.payload));
+      if (!workspace) return { action: 'complete' };
+      const { syncCanonicalWorkflows } = await import('../knowledge/workflows.js');
+      await syncCanonicalWorkflows(workspace);
+      return { action: 'complete' };
+    }
+
+    if (job.kind === 'knowledge-lint') {
+      const workspace = await loadWorkspaceForMaintenance(projectId, projectDir, workspaceMode(job.payload));
+      if (!workspace) return { action: 'complete' };
+      const [
+        { ClaimStore },
+        { CodeGraphStore },
+        { lintKnowledgeWorkspace },
+      ] = await Promise.all([
+        import('../knowledge/claim-store.js'),
+        import('../codegraph/store.js'),
+        import('../knowledge/wiki.js'),
+      ]);
+      const claims = new ClaimStore();
+      const codeStore = new CodeGraphStore();
+      await Promise.all([claims.init(projectDir), codeStore.init(projectDir)]);
+      await lintKnowledgeWorkspace({ workspace, claims, codeStore });
       return { action: 'complete' };
     }
 

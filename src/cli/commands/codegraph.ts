@@ -108,6 +108,13 @@ export default defineCommand({
           const activeObservations = getAllObservations()
             .filter(obs => obs.projectId === project.id && (obs.status ?? 'active') === 'active');
           const backfill = await backfillMissingObservationCodeRefs(store, activeObservations);
+          const { enqueueClaimRequalification } = await import('../../runtime/lifecycle.js');
+          enqueueClaimRequalification({
+            dataDir,
+            projectId: project.id,
+            source: 'manual-codegraph-refresh',
+            snapshotId: refresh.snapshot.id,
+          });
           const status = store.status(project.id);
           emitResult(
             { project, status, refresh, backfill },

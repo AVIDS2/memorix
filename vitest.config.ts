@@ -17,6 +17,9 @@ export default defineConfig({
           include: ['tests/**/*.test.ts', 'tests/**/*.test.tsx'],
           exclude: [
             'tests/e2e/**',
+            // Fixture repositories intentionally contain files such as
+            // tests/auth.test.ts; they are indexed as source, not executed.
+            'tests/fixtures/**',
             'tests/integration/formation-llm-quality.test.ts',
             // Heavy tests run in the "sequential" project instead
             'tests/integration/release-blockers.test.ts',

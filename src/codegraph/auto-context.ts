@@ -163,6 +163,17 @@ export async function buildAutoProjectContext(input: {
           store,
           activeProjectObservations(input.observations, input.project.id) as any,
         );
+        try {
+          const { enqueueClaimRequalification } = await import('../runtime/lifecycle.js');
+          enqueueClaimRequalification({
+            dataDir: input.dataDir,
+            projectId: input.project.id,
+            source: 'foreground-refresh',
+            snapshotId: store.latestSnapshot(input.project.id)?.id,
+          });
+        } catch {
+          // The completed scan remains useful even if its later maintenance cannot queue.
+        }
         refresh = { ...refresh, backfill };
       } catch (error) {
         refresh = {
@@ -234,6 +245,17 @@ export async function buildAutoProjectContext(input: {
       suspect: overview.freshness.suspect,
       stale: overview.freshness.stale,
     },
+    runtimeCautions: refresh.reason === 'queued'
+      ? [{
+        kind: 'codegraph-refresh-queued' as const,
+        message: refresh.message,
+      }]
+      : refresh.reason === 'failed'
+        ? [{
+          kind: 'codegraph-refresh-failed' as const,
+          message: refresh.message,
+        }]
+        : [],
   });
 
   return {

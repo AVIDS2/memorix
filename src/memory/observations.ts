@@ -31,6 +31,7 @@ import { countTextTokens } from '../compact/token-budget.js';
 import { extractEntities, enrichConcepts } from './entity-extractor.js';
 import { getEmbeddingProvider, isEmbeddingExplicitlyDisabled } from '../embedding/provider.js';
 import { sanitizeCredentials } from './secret-filter.js';
+import { enqueueClaimDerivation } from '../runtime/lifecycle.js';
 
 /** In-memory observation list (loaded from persistence on init) */
 let observations: Observation[] = [];
@@ -120,28 +121,19 @@ async function bindObservationCodeRefsBestEffort(observation: Observation): Prom
   }
 }
 
-async function deriveObservationClaimsBestEffort(observation: Observation): Promise<void> {
+function queueClaimDerivation(observation: Observation): void {
   const dataDir = projectDir;
   const isExplicit = observation.sourceDetail === 'explicit';
   const isGit = observation.source === 'git' || observation.sourceDetail === 'git-ingest';
   if (!dataDir || (!isExplicit && !isGit)) return;
   try {
-    const [
-      { ClaimStore },
-      { CodeGraphStore },
-      { deriveLowRiskClaimsFromObservation },
-    ] = await Promise.all([
-      import('../knowledge/claim-store.js'),
-      import('../codegraph/store.js'),
-      import('../knowledge/claims.js'),
-    ]);
-    const claimStore = new ClaimStore();
-    const codeStore = new CodeGraphStore();
-    await Promise.all([claimStore.init(dataDir), codeStore.init(dataDir)]);
-    deriveLowRiskClaimsFromObservation(claimStore, observation, codeStore);
-  } catch (error) {
-    const label = error instanceof Error ? error.name : 'unknown error';
-    console.error('[memorix] Claim derivation skipped (memory was stored safely: ' + label + ')');
+    enqueueClaimDerivation({
+      dataDir,
+      projectId: observation.projectId,
+      observationId: observation.id,
+    });
+  } catch {
+    // The observation remains durable; a later scan can recover its claim.
   }
 }
 
@@ -456,7 +448,7 @@ export async function storeObservation(input: {
   }
 
   await bindObservationCodeRefsBestEffort(observation);
-  await deriveObservationClaimsBestEffort(observation);
+  queueClaimDerivation(observation);
 
   // Generate embedding async (fire-and-forget) — never blocks MCP response
   // Track in vectorMissingIds until embedding is successfully written.
@@ -611,7 +603,7 @@ async function upsertObservation(
   }
 
   await bindObservationCodeRefsBestEffort(existing);
-  await deriveObservationClaimsBestEffort(existing);
+  queueClaimDerivation(existing);
 
   // Generate embedding async (fire-and-forget) — never blocks MCP response
   const searchableText = [input.title, input.narrative, ...(input.facts ?? [])].join(' ');

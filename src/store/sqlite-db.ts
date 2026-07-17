@@ -293,6 +293,30 @@ CREATE TABLE IF NOT EXISTS observation_code_refs (
 );
 `;
 
+const CREATE_SCHEMA_MIGRATIONS_TABLE = [
+  'CREATE TABLE IF NOT EXISTS schema_migrations (',
+  '  id TEXT PRIMARY KEY,',
+  '  applied_at TEXT NOT NULL',
+  ');',
+].join('\n');
+
+const CREATE_CODE_STATE_SNAPSHOTS_TABLE = [
+  'CREATE TABLE IF NOT EXISTS code_state_snapshots (',
+  '  id                   TEXT PRIMARY KEY,',
+  '  projectId            TEXT NOT NULL,',
+  '  provider             TEXT NOT NULL,',
+  '  baseRevision         TEXT,',
+  '  worktreeFingerprint  TEXT NOT NULL,',
+  '  worktreeState        TEXT NOT NULL,',
+  '  changedPathCount     INTEGER NOT NULL DEFAULT 0,',
+  '  indexedAt            TEXT NOT NULL,',
+  '  sourceEpoch          INTEGER NOT NULL,',
+  "  completenessJson     TEXT NOT NULL DEFAULT '{}',",
+  '  previousSnapshotId   TEXT,',
+  '  UNIQUE(projectId, sourceEpoch)',
+  ');',
+].join('\n');
+
 // ── Runtime maintenance jobs ───────────────────────────────────────
 
 const CREATE_MAINTENANCE_JOBS_TABLE = `
@@ -348,6 +372,10 @@ CREATE INDEX IF NOT EXISTS idx_code_files_project ON code_files(projectId);
 CREATE INDEX IF NOT EXISTS idx_code_symbols_project_name ON code_symbols(projectId, name);
 CREATE INDEX IF NOT EXISTS idx_code_symbols_file ON code_symbols(fileId);
 CREATE INDEX IF NOT EXISTS idx_code_edges_project ON code_edges(projectId, type);
+CREATE INDEX IF NOT EXISTS idx_code_snapshots_project_epoch ON code_state_snapshots(projectId, sourceEpoch DESC);
+CREATE INDEX IF NOT EXISTS idx_code_files_snapshot ON code_files(projectId, snapshotId);
+CREATE INDEX IF NOT EXISTS idx_code_symbols_snapshot ON code_symbols(projectId, snapshotId);
+CREATE INDEX IF NOT EXISTS idx_code_edges_snapshot ON code_edges(projectId, snapshotId);
 CREATE INDEX IF NOT EXISTS idx_observation_code_refs_obs ON observation_code_refs(projectId, observationId);
 CREATE INDEX IF NOT EXISTS idx_observation_code_refs_status ON observation_code_refs(projectId, status);
 CREATE INDEX IF NOT EXISTS idx_maintenance_jobs_ready ON maintenance_jobs(status, run_after);
@@ -357,6 +385,58 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_maintenance_jobs_active_dedupe
   ON maintenance_jobs(project_id, kind, dedupe_key)
   WHERE status IN ('pending', 'running', 'retry');
 `;
+
+interface SchemaMigration {
+  id: string;
+  apply: (db: any) => void;
+}
+
+function hasColumn(db: any, table: string, column: string): boolean {
+  return db.prepare('PRAGMA table_info(' + table + ')')
+    .all()
+    .some((row: { name?: string }) => row.name === column);
+}
+
+function addColumnIfMissing(db: any, table: string, column: string, definition: string): void {
+  if (hasColumn(db, table, column)) return;
+  db.exec('ALTER TABLE ' + table + ' ADD COLUMN ' + definition);
+}
+
+const SCHEMA_MIGRATIONS: SchemaMigration[] = [
+  {
+    id: '1.2-code-state-snapshots',
+    apply: (db) => {
+      db.exec(CREATE_CODE_STATE_SNAPSHOTS_TABLE);
+      addColumnIfMissing(db, 'code_files', 'snapshotId', 'snapshotId TEXT');
+      addColumnIfMissing(db, 'code_files', 'sourceEpoch', 'sourceEpoch INTEGER');
+      addColumnIfMissing(db, 'code_symbols', 'snapshotId', 'snapshotId TEXT');
+      addColumnIfMissing(db, 'code_symbols', 'sourceEpoch', 'sourceEpoch INTEGER');
+      addColumnIfMissing(db, 'code_edges', 'snapshotId', 'snapshotId TEXT');
+      addColumnIfMissing(db, 'code_edges', 'sourceEpoch', 'sourceEpoch INTEGER');
+      addColumnIfMissing(db, 'observation_code_refs', 'snapshotId', 'snapshotId TEXT');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_code_snapshots_project_epoch ON code_state_snapshots(projectId, sourceEpoch DESC)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_code_files_snapshot ON code_files(projectId, snapshotId)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_code_symbols_snapshot ON code_symbols(projectId, snapshotId)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_code_edges_snapshot ON code_edges(projectId, snapshotId)');
+    },
+  },
+];
+
+function applySchemaMigrations(db: any): void {
+  db.exec(CREATE_SCHEMA_MIGRATIONS_TABLE);
+  for (const migration of SCHEMA_MIGRATIONS) {
+    const applied = db.prepare('SELECT 1 FROM schema_migrations WHERE id = ?').get(migration.id);
+    if (applied) continue;
+    const apply = db.transaction(() => {
+      migration.apply(db);
+      db.prepare('INSERT INTO schema_migrations (id, applied_at) VALUES (?, ?)').run(
+        migration.id,
+        new Date().toISOString(),
+      );
+    });
+    apply();
+  }
+}
 
 // ── Singleton cache ─────────────────────────────────────────────────
 
@@ -423,6 +503,10 @@ export function getDatabase(dataDir: string): any {
   try { db.exec(`ALTER TABLE team_tasks ADD COLUMN preferred_role TEXT`); } catch { /* already exists */ }
   try { db.exec(`ALTER TABLE team_messages ADD COLUMN to_role TEXT`); } catch { /* already exists */ }
   try { db.exec(`ALTER TABLE team_messages ADD COLUMN handoff_status TEXT`); } catch { /* already exists */ }
+
+  // New migrations are transactional and tracked. Older idempotent migrations
+  // remain untouched for backwards compatibility with existing local stores.
+  applySchemaMigrations(db);
 
   // Create indexes AFTER all ALTER TABLE migrations so referenced columns exist
   db.exec(CREATE_INDEXES);

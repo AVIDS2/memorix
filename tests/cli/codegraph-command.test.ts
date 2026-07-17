@@ -81,6 +81,10 @@ describe('codegraph CLI command', () => {
     expect(refreshJson.status.files).toBe(2);
     expect(refreshJson.status.symbols).toBe(2);
     expect(refreshJson.status.edges).toBe(1);
+    expect(refreshJson.refresh.snapshot).toMatchObject({
+      sourceEpoch: 1,
+      worktreeState: 'dirty',
+    });
 
     const status = await runCommand({ _: ['status'], json: true });
     expect(status.exitCode).toBe(0);
@@ -90,6 +94,10 @@ describe('codegraph CLI command', () => {
       files: 2,
       symbols: 2,
       edges: 1,
+    });
+    expect(statusJson.status.latestSnapshot).toMatchObject({
+      sourceEpoch: 1,
+      worktreeState: 'dirty',
     });
   });
 
@@ -107,6 +115,7 @@ describe('codegraph CLI command', () => {
 
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain('CodeGraph Memory: lite');
+    expect(result.stdout).toContain('Code state:');
     expect(result.stdout).not.toContain('Usage:');
   });
 

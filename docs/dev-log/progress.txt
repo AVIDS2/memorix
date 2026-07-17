@@ -58,6 +58,17 @@
   conflict, and supersession semantics; Phase 0 only prevents the old views
   from being mislabeled as those future capabilities.
 
+## Phase 1 Code State
+- Lite refresh now appends a Code State Snapshot with bounded Git revision and
+  worktree metadata, a source epoch, a prior-snapshot link, and explicit scan
+  completeness.
+- Current files, symbols, edges, and current observation-code refs are marked
+  with the latest completed snapshot. Existing CodeGraph rows survive the
+  additive schema migration.
+- Project Context, the CodeGraph MCP status payload, and the codegraph CLI
+  status output expose the latest snapshot. A non-Git directory reports
+  unavailable instead of clean.
+
 ## Next Steps
 1. Add the `CodeStateSnapshot` schema and migration with clean/dirty revision
    coverage and explicit scan completeness.

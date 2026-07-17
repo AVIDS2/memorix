@@ -198,6 +198,20 @@ function formatLanguages(overview: ProjectContextOverview): string {
     : 'none indexed yet';
 }
 
+function codeStateLine(overview: ProjectContextOverview): string {
+  const snapshot = overview.code.latestSnapshot;
+  if (!snapshot) return '- Code state: no completed snapshot yet';
+  const revision = snapshot.baseRevision ? snapshot.baseRevision.slice(0, 12) : 'Git unavailable';
+  const scanState = snapshot.completeness.skippedOversizedFiles > 0 || snapshot.completeness.removalScanDeferred
+    ? 'incomplete scan'
+    : 'complete scan';
+  return '- Code state: ' + revision
+    + ', ' + snapshot.worktreeState + ' worktree'
+    + ', ' + snapshot.changedPathCount + ' changed path(s)'
+    + ', epoch ' + snapshot.sourceEpoch
+    + ', ' + scanState;
+}
+
 function dedupeSourcesByObservation(
   sources: ProjectContextExplain['sources'],
 ): ProjectContextExplain['sources'] {
@@ -371,6 +385,7 @@ export function formatAutoProjectContextPrompt(context: AutoProjectContext): str
     ...formatCurrentFactsLines(context.currentFacts),
     '',
     'Project state',
+    codeStateLine(context.overview),
     `- Code memory: ${context.overview.code.files} files, ${context.overview.code.symbols} symbols, ${context.overview.code.refs} memory links`,
     `- Languages: ${formatLanguages(context.overview)}`,
     `- Memories: ${context.overview.memory.active} active / ${context.overview.memory.total} total`,

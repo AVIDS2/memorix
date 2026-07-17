@@ -32,6 +32,8 @@ export interface CodeFile {
   sizeBytes?: number;
   indexedAt: string;
   gitCommit?: string;
+  snapshotId?: string;
+  sourceEpoch?: number;
 }
 
 export interface CodeSymbol {
@@ -48,6 +50,8 @@ export interface CodeSymbol {
   contentHash?: string;
   indexedAt: string;
   stale?: boolean;
+  snapshotId?: string;
+  sourceEpoch?: number;
 }
 
 export interface CodeEdge {
@@ -61,6 +65,8 @@ export interface CodeEdge {
   confidence: number;
   evidence?: string;
   indexedAt: string;
+  snapshotId?: string;
+  sourceEpoch?: number;
 }
 
 export interface ObservationCodeRef {
@@ -75,6 +81,37 @@ export interface ObservationCodeRef {
   reason?: string;
   createdAt: string;
   updatedAt?: string;
+  snapshotId?: string;
+}
+
+export type CodeStateWorktreeState = 'clean' | 'dirty' | 'unavailable';
+
+export interface CodeStateScanCompleteness {
+  scannedFiles: number;
+  maxFiles: number;
+  changedFiles: number;
+  unchangedFiles: number;
+  metadataOnlyFiles: number;
+  removedFiles: number;
+  skippedOversizedFiles: number;
+  removalScanDeferred: boolean;
+}
+
+export interface CodeStateSnapshotInput {
+  projectId: string;
+  provider: CodeGraphProviderKind;
+  baseRevision?: string;
+  worktreeFingerprint: string;
+  worktreeState: CodeStateWorktreeState;
+  changedPathCount: number;
+  indexedAt: string;
+  completeness: CodeStateScanCompleteness;
+}
+
+export interface CodeStateSnapshot extends CodeStateSnapshotInput {
+  id: string;
+  sourceEpoch: number;
+  previousSnapshotId?: string;
 }
 
 export interface CodeGraphStatus {
@@ -84,4 +121,5 @@ export interface CodeGraphStatus {
   edges: number;
   refs: number;
   indexedAt?: string;
+  latestSnapshot?: CodeStateSnapshot;
 }

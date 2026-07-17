@@ -77,6 +77,11 @@ describe('auto project context', () => {
     ]);
     expect(context.overview.suggestedReads).toContain('src/auth.ts');
     expect(context.overview.suggestedReads.length).toBeLessThanOrEqual(8);
+    expect(context.overview.code.latestSnapshot).toMatchObject({
+      provider: 'lite',
+      sourceEpoch: 1,
+      worktreeState: 'dirty',
+    });
     expect(context.explain.sources[0]).toMatchObject({
       title: 'authMiddleware owns token verification',
       path: 'src/auth.ts',
@@ -87,6 +92,7 @@ describe('auto project context', () => {
     expect(text).toContain('Memorix Autopilot Brief');
     expect(text).toContain('Start here');
     expect(text).toContain('Reliable memory');
+    expect(text).toContain('Code state:');
     expect(text).toContain('How to use this');
     expect(text).toContain('continue auth work');
     expect(text).toContain('src/auth.ts');

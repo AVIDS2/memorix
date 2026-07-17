@@ -7,8 +7,28 @@ import { getResolvedConfig } from '../../config/resolved-config.js';
 import { getAllObservations } from '../../memory/observations.js';
 import { emitError, emitResult, getCliProjectContext, parsePositiveInt } from './operator-shared.js';
 
+function formatSnapshotStatus(status: ReturnType<CodeGraphStore['status']>): string[] {
+  const snapshot = status.latestSnapshot;
+  if (!snapshot) return ['- Code state: no completed snapshot yet'];
+  const revision = snapshot.baseRevision ? snapshot.baseRevision.slice(0, 12) : 'Git unavailable';
+  const completeness = snapshot.completeness;
+  const scanState = completeness.skippedOversizedFiles > 0 || completeness.removalScanDeferred
+    ? 'incomplete'
+    : 'complete';
+  return [
+    '- Code state: ' + revision
+      + ', ' + snapshot.worktreeState + ' worktree'
+      + ', ' + snapshot.changedPathCount + ' changed path(s)'
+      + ', epoch ' + snapshot.sourceEpoch,
+    '- Scan completeness: ' + scanState
+      + ' (' + completeness.scannedFiles + '/' + completeness.maxFiles + ' paths'
+      + ', ' + completeness.skippedOversizedFiles + ' oversized skipped)',
+  ];
+}
+
 function formatStatus(status: ReturnType<CodeGraphStore['status']>): string {
   return [
+    ...formatSnapshotStatus(status),
     `CodeGraph Memory: ${status.provider}`,
     `- Files: ${status.files}`,
     `- Symbols: ${status.symbols}`,

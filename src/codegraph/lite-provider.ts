@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync, statSync, type Dirent } from 'node:fs';
 import { join, relative } from 'node:path';
-import type { CodeEdge, CodeFile, CodeSymbol } from './types.js';
+import type { CodeEdge, CodeFile, CodeStateSnapshot, CodeSymbol } from './types.js';
+import { collectCodeStateSnapshot } from './code-state.js';
 import { makeCodeEdgeId, makeCodeFileId, makeCodeSymbolId, normalizeCodePath } from './ids.js';
 import { isCodeGraphExcludedPath, normalizeCodeGraphExcludePatterns } from './exclude.js';
 import { CodeGraphStore, type CodeGraphFileDelta } from './store.js';
@@ -31,6 +32,7 @@ export interface LiteRefreshResult {
   indexedEdges: number;
   skippedOversizedFiles: number;
   removalScanDeferred: boolean;
+  snapshot: CodeStateSnapshot;
 }
 
 export const DEFAULT_CODEGRAPH_MAX_FILE_BYTES = 2 * 1024 * 1024;
@@ -430,6 +432,23 @@ export async function refreshProjectLite(
     metadataOnly,
     removedFileIds,
   });
+  const completeness = {
+    scannedFiles: paths.length,
+    maxFiles,
+    changedFiles: changed.length,
+    unchangedFiles,
+    metadataOnlyFiles: metadataOnly.length,
+    removedFiles: removedFileIds.length,
+    skippedOversizedFiles,
+    removalScanDeferred,
+  };
+  const snapshot = store.recordCodeStateSnapshot(await collectCodeStateSnapshot({
+    projectId: options.projectId,
+    projectRoot: options.projectRoot,
+    provider: 'lite',
+    indexedAt,
+    completeness,
+  }));
 
   return {
     scannedFiles: paths.length,
@@ -441,5 +460,6 @@ export async function refreshProjectLite(
     indexedEdges: changed.reduce((total, delta) => total + delta.edges.length, 0),
     skippedOversizedFiles,
     removalScanDeferred,
+    snapshot,
   };
 }

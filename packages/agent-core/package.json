@@ -1,6 +1,7 @@
 {
 	"name": "@memorix/agent-core",
 	"version": "1.1.12",
+	"private": true,
 	"description": "General-purpose agent with transport abstraction, state management, and attachment support",
 	"type": "module",
 	"main": "./dist/index.js",

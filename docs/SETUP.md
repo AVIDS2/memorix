@@ -132,7 +132,9 @@ memorix doctor agents --agent <agent>
 memorix repair agents --agent <agent>
 ```
 
-The doctor checks Memorix-owned MCP entries and guidance files for stale command paths, missing `memorix` MCP servers, missing Claude `alwaysLoad`, and outdated Memory Autopilot rules.
+The doctor checks Memorix-owned MCP entries and guidance files for stale command paths, missing `memorix` MCP servers, missing Claude `alwaysLoad`, and outdated Memory Autopilot rules. For `codex --scope global`, it also checks the local plugin bundle, Personal marketplace entry, five declared lifecycle hooks, Codex's trusted hook state, and the installed/enabled state reported by `codex plugin list`.
+
+After Codex setup, start a new thread so enabled plugins can load. Codex does not expose a command that proves hooks are already active inside the current thread. If doctor reports `codex-plugin-disabled`, open `/plugins` and turn Memorix on there; repair does not toggle a user-disabled plugin.
 
 ### Option B: manual stdio MCP
 

@@ -1,11 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { execSync } from 'node:child_process';
+import { execSync, spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import doctorCommand from '../../src/cli/commands/doctor.js';
 import repairCommand from '../../src/cli/commands/repair.js';
+import { getCliVersion } from '../../src/cli/version.js';
+
+vi.mock('node:child_process', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:child_process')>();
+  return { ...actual, spawnSync: vi.fn() };
+});
 
 async function runCommand(command: any, args: Record<string, unknown>) {
   const logs: string[] = [];
@@ -53,6 +59,7 @@ describe('agent doctor and repair', () => {
     if (originalUserProfile === undefined) delete process.env.USERPROFILE;
     else process.env.USERPROFILE = originalUserProfile;
     rmSync(sandboxRoot, { recursive: true, force: true });
+    vi.mocked(spawnSync).mockReset();
   });
 
   function writeStaleClaudeSetup() {
@@ -139,6 +146,68 @@ describe('agent doctor and repair', () => {
         },
       },
     }, null, 2), 'utf-8');
+  }
+
+  function writeCurrentCodexPluginSetup() {
+    const pluginPath = path.join(sandboxRoot, '.codex', 'plugins', 'memorix');
+    mkdirSync(path.join(pluginPath, '.codex-plugin'), { recursive: true });
+    mkdirSync(path.join(pluginPath, 'hooks'), { recursive: true });
+    mkdirSync(path.join(sandboxRoot, '.agents', 'plugins'), { recursive: true });
+
+    writeFileSync(path.join(pluginPath, '.codex-plugin', 'plugin.json'), JSON.stringify({
+      name: 'memorix',
+      version: getCliVersion(),
+      hooks: './hooks/hooks.json',
+    }, null, 2), 'utf-8');
+    writeFileSync(path.join(pluginPath, 'hooks', 'hooks.json'), JSON.stringify({
+      hooks: {
+        SessionStart: [],
+        UserPromptSubmit: [],
+        PostToolUse: [],
+        PreCompact: [],
+        Stop: [],
+      },
+    }, null, 2), 'utf-8');
+    writeFileSync(path.join(sandboxRoot, '.codex', 'config.toml'), [
+      '[hooks.state."memorix@personal:hooks/hooks.json:session_start:0:0"]',
+      'trusted_hash = "sha256:test"',
+      '[hooks.state."memorix@personal:hooks/hooks.json:user_prompt_submit:0:0"]',
+      'trusted_hash = "sha256:test"',
+      '[hooks.state."memorix@personal:hooks/hooks.json:post_tool_use:0:0"]',
+      'trusted_hash = "sha256:test"',
+      '[hooks.state."memorix@personal:hooks/hooks.json:pre_compact:0:0"]',
+      'trusted_hash = "sha256:test"',
+      '[hooks.state."memorix@personal:hooks/hooks.json:stop:0:0"]',
+      'trusted_hash = "sha256:test"',
+    ].join('\n'), 'utf-8');
+    writeFileSync(path.join(sandboxRoot, '.agents', 'plugins', 'marketplace.json'), JSON.stringify({
+      name: 'personal',
+      plugins: [{
+        name: 'memorix',
+        source: { source: 'local', path: './.codex/plugins/memorix' },
+      }],
+    }, null, 2), 'utf-8');
+  }
+
+  function mockCodexPluginList(enabled = true) {
+    vi.mocked(spawnSync).mockReturnValue({
+      status: 0,
+      stdout: JSON.stringify({
+        installed: [{
+          pluginId: 'memorix@personal',
+          name: 'memorix',
+          marketplaceName: 'personal',
+          version: getCliVersion(),
+          installed: true,
+          enabled,
+        }],
+        available: [],
+      }),
+      stderr: '',
+      output: [],
+      pid: 0,
+      signal: null,
+    } as ReturnType<typeof spawnSync>);
   }
 
   it('doctor agents detects stale MCP paths and outdated Claude guidance', async () => {
@@ -257,5 +326,72 @@ describe('agent doctor and repair', () => {
       args: ['serve'],
       alwaysLoad: true,
     });
+  });
+
+  it('doctor agents verifies the Codex bundle, marketplace, enabled plugin, and hook contract', async () => {
+    writeCurrentCodexPluginSetup();
+    mockCodexPluginList(true);
+
+    const result = await runCommand(doctorCommand, {
+      _: ['agents'],
+      agent: 'codex',
+      scope: 'global',
+      json: true,
+    });
+
+    expect(result.exitCode).toBe(0);
+    const parsed = JSON.parse(result.stdout);
+    const codex = parsed.agents.entries.find((entry: any) => entry.agent === 'codex');
+
+    expect(codex.plugin.status).toBe('ok');
+    expect(codex.plugin.checks.map((check: any) => check.kind)).toEqual([
+      'bundle',
+      'marketplace',
+      'runtime',
+      'hook-trust',
+    ]);
+    expect(codex.plugin.checks[0].hooks.declared).toEqual(expect.arrayContaining([
+      'SessionStart',
+      'UserPromptSubmit',
+      'PostToolUse',
+      'PreCompact',
+      'Stop',
+    ]));
+    expect(codex.plugin.checks[2].runtime).toMatchObject({ installed: true, enabled: true });
+    expect(codex.plugin.checks[3].hookTrust.trusted).toHaveLength(5);
+  });
+
+  it('doctor agents reports a disabled Codex plugin as repairable', async () => {
+    writeCurrentCodexPluginSetup();
+    mockCodexPluginList(false);
+
+    const result = await runCommand(doctorCommand, {
+      _: ['agents'],
+      agent: 'codex',
+      scope: 'global',
+      json: true,
+    });
+
+    const parsed = JSON.parse(result.stdout);
+    const codex = parsed.agents.entries.find((entry: any) => entry.agent === 'codex');
+    expect(codex.plugin.status).toBe('repairable');
+    expect(codex.plugin.issues).toContain('codex-plugin-disabled');
+  });
+
+  it('repair agents leaves a disabled Codex plugin for the plugin browser', async () => {
+    writeCurrentCodexPluginSetup();
+    mockCodexPluginList(false);
+
+    const result = await runCommand(repairCommand, {
+      _: ['agents'],
+      agent: 'codex',
+      scope: 'global',
+      json: true,
+    });
+
+    expect(result.exitCode).toBe(0);
+    const parsed = JSON.parse(result.stdout);
+    expect(parsed.repair.changed).not.toContain('codex:plugin:global');
+    expect(parsed.repair.skipped).toContain('codex:plugin:global:enable-in-plugin-browser');
   });
 });

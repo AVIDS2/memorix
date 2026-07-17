@@ -300,32 +300,25 @@ is intentional after reviewing the diff, rerun with
 - dashboard
 - Git Memory
 - config diagnostics
+- `memorix setup --agent codex --global` followed by `memorix doctor agents --agent codex --scope global --json` in an isolated home, when changing the Codex integration
 
 4. inspect package contents:
 
 ```bash
 npm pack --dry-run --json
-npm pack --workspace @memorix/ai --dry-run --json
-npm pack --workspace @memorix/agent-core --dry-run --json
-npm pack --workspace @memorix/tui --dry-run --json
-npm pack --workspace @memorix/memcode --dry-run --json
 ```
 
 5. commit and push
-6. publish manually when ready, in dependency order:
+6. publish the supported public package manually when ready:
 
 ```bash
-npm publish --workspace @memorix/ai --access public
-npm publish --workspace @memorix/agent-core --access public
-npm publish --workspace @memorix/tui --access public
-npm publish --workspace @memorix/memcode --access public
 npm publish --access public
 ```
 
 Notes:
 
 - `prepublishOnly` runs build + test, but does not contact live model catalog APIs
-- `memorix` depends on `@memorix/memcode`; `@memorix/memcode` depends on `@memorix/ai`, `@memorix/agent-core`, and `@memorix/tui`, so publish workspaces before the root package
+- `@memorix/ai`, `@memorix/agent-core`, `@memorix/tui`, and `@memorix/memcode` are internal workspaces. Their code is bundled into the root `memorix` distribution and they must stay `private` unless the project deliberately establishes an owned npm scope and a separate package-support contract.
 - npm publish is usually manual, especially when 2FA is enabled
 - GitHub release automation should not be treated as a substitute for manual runtime validation
 

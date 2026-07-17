@@ -661,7 +661,7 @@ If it reports stale MCP command paths, missing `memorix` MCP entries, missing Cl
 memorix repair agents --agent <agent>
 ```
 
-Repair only rewrites Memorix-owned MCP entries and Memorix-owned guidance blocks. It should not edit unrelated user config.
+Repair only rewrites Memorix-owned MCP entries, Memorix-owned guidance blocks, and an explicitly targeted Codex Memorix plugin bundle. It does not edit unrelated user config or turn on a user-disabled Codex plugin; enable that one from `/plugins`.
 
 ### 1. Is the workspace a Git repo?
 

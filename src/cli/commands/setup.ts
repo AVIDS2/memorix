@@ -300,6 +300,17 @@ async function stripHookCaptureFromPlugin(pluginPath: string, agent: PluginInsta
   }
 }
 
+async function stampCodexPluginVersion(pluginPath: string): Promise<void> {
+  const manifestPath = path.join(pluginPath, '.codex-plugin', 'plugin.json');
+  const manifest = JSON.parse(await readFile(manifestPath, 'utf-8')) as Record<string, unknown>;
+  if (manifest.name !== 'memorix') {
+    throw new Error(`Unexpected Codex plugin manifest at ${manifestPath}`);
+  }
+
+  manifest.version = getCliVersion();
+  await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf-8');
+}
+
 async function stripHookCaptureFromOpenClawBundle(bundlePath: string): Promise<void> {
   await rm(path.join(bundlePath, 'hooks'), { recursive: true, force: true });
 
@@ -636,6 +647,7 @@ export async function installPluginPackage(options: PluginInstallOptions): Promi
     const pluginPath = path.join(home, '.codex', 'plugins', 'memorix');
     const marketplacePath = path.join(home, '.agents', 'plugins', 'marketplace.json');
     await copyDir(source, pluginPath);
+    await stampCodexPluginVersion(pluginPath);
     if (!includeHooks) await stripHookCaptureFromPlugin(pluginPath, 'codex');
     await writeOfficialSkills(path.join(pluginPath, 'skills'));
     await upsertCodexMarketplace(marketplacePath, pluginPath);
@@ -862,7 +874,7 @@ function tryInstallClaudePlugin(marketplaceRoot: string): { ok: boolean; message
   };
 }
 
-function tryInstallCodexPlugin(): { ok: boolean; message: string } {
+export function tryInstallCodexPlugin(): { ok: boolean; message: string } {
   const result = spawnSync('codex', ['plugin', 'add', 'memorix@personal', '--json'], {
     encoding: 'utf-8',
     stdio: 'pipe',

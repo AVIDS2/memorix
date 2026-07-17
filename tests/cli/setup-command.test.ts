@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import fsSync from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { getCliVersion } from '../../src/cli/version.js';
 
 import {
   buildSetupPlan,
@@ -163,6 +164,7 @@ describe('plugin package installer', () => {
       const manifest = JSON.parse(await fs.readFile(pluginManifest, 'utf-8'));
       const hooks = JSON.parse(await fs.readFile(hooksConfig, 'utf-8'));
       expect(manifest.name).toBe('memorix');
+      expect(manifest.version).toBe(getCliVersion());
       expect(manifest.hooks).toBe('./hooks/hooks.json');
       expect(hooks.hooks.SessionStart[0].hooks[0]).toMatchObject({
         command: 'memorix hook --agent codex',

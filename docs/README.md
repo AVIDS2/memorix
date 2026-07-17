@@ -81,6 +81,7 @@ The public docs are organized by user intent:
 | 1.2 deterministic Workset evaluation fixtures | [1.2 Evaluation Harness](1.2.0-EVALUATION-HARNESS.md) |
 | 1.2 versioned code-state contract | [1.2 Code State Snapshots](1.2.0-CODE-STATE.md) |
 | 1.2 source-backed claim and conflict contract | [1.2 Claim Ledger](1.2.0-CLAIM-LEDGER.md) |
+| 1.2 reviewable Markdown knowledge workspace | [1.2 Knowledge Workspace](1.2.0-KNOWLEDGE-WORKSPACE.md) |
 | Active 1.2 multi-dimensional memory work | [1.2.0 Development Charter](1.2.0-DEVELOPMENT-CHARTER.md) |
 | Historical cloud sync and multi-agent research | [CLOUD_SYNC_AND_MULTI_AGENT_RESEARCH.md](CLOUD_SYNC_AND_MULTI_AGENT_RESEARCH.md) |
 | Known issues and old roadmap notes | [KNOWN_ISSUES_AND_ROADMAP.md](KNOWN_ISSUES_AND_ROADMAP.md) |

@@ -989,6 +989,7 @@ const main = defineCommand({
     context: () => import('./commands/context.js').then(m => m.default),
     explain: () => import('./commands/explain.js').then(m => m.default),
     codegraph: () => import('./commands/codegraph.js').then(m => m.default),
+    knowledge: () => import('./commands/knowledge.js').then(m => m.default),
     reasoning: () => import('./commands/reasoning.js').then(m => m.default),
     retention: () => import('./commands/retention.js').then(m => m.default),
     formation: () => import('./commands/formation.js').then(m => m.default),
@@ -1048,7 +1049,7 @@ const main = defineCommand({
     // Detect by checking if the first CLI arg matches a registered subcommand name.
     const firstArg = process.argv[2];
     const knownSubs = ['ask', 'search', 'remember', 'recent', 'memcode', 'config',
-      'init', 'setup', 'integrate', 'memory', 'context', 'explain', 'codegraph', 'reasoning', 'retention', 'formation', 'audit', 'transfer', 'skills',
+      'init', 'setup', 'integrate', 'memory', 'context', 'explain', 'codegraph', 'knowledge', 'reasoning', 'retention', 'formation', 'audit', 'transfer', 'skills',
       'session', 'team', 'task', 'message', 'lock', 'handoff', 'poll',
       'receipt',
       'serve', 'serve-http', 'status', 'sync',

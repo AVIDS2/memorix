@@ -86,7 +86,23 @@
   supersession, model-review policy, snapshot binding, changed-symbol
   requalification, and compact task selection.
 
+## Phase 3 Knowledge Workspace
+- Memorix now initializes a private local Markdown workspace by default. A
+  versioned workspace requires an explicit absolute path inside the Git project
+  and refuses ignored or unsafe target directories.
+- Approved active claims compile into Markdown proposals with frontmatter,
+  source claim ids, evidence references, snapshot context, a catalog, and an
+  append-only change log. Proposed pages are not silently published.
+- The knowledge init, status, compile, apply, and lint commands provide the
+  operator path. Applying a proposal protects a manual page edit by default;
+  an explicit force flag is the only overwrite path and is logged.
+- Workspace lint detects malformed frontmatter, broken links, orphan pages,
+  missing claims/evidence, superseded claims, unresolved conflicts, stale code
+  snapshots, and protected manual edits.
+- The compiled CLI was smoke-tested in an isolated Git project through init,
+  compile, apply, and lint with a source-backed claim.
+
 ## Next Steps
-1. Compile approved claims into a reviewable local Markdown knowledge workspace.
-2. Add canonical workflow inheritance on top of source-backed claims and pages.
+1. Add canonical workflow inheritance on top of source-backed claims and pages.
+2. Route compact task Worksets through code state, claims, pages, and workflows.
 3. Define parser-provider benchmarks before selecting runtime dependencies.

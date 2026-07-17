@@ -374,6 +374,86 @@ CREATE TABLE IF NOT EXISTS knowledge_claim_events (
 );
 `;
 
+// ── 1.2 Knowledge Workspace ─────────────────────────────────────────
+
+const CREATE_KNOWLEDGE_WORKSPACES_TABLE = [
+  'CREATE TABLE IF NOT EXISTS knowledge_workspaces (',
+  '  id              TEXT PRIMARY KEY,',
+  '  projectId       TEXT NOT NULL,',
+  '  mode            TEXT NOT NULL,',
+  '  rootPath        TEXT NOT NULL,',
+  '  projectRoot     TEXT,',
+  '  status          TEXT NOT NULL,',
+  '  createdAt       TEXT NOT NULL,',
+  '  updatedAt       TEXT NOT NULL,',
+  '  lastCompiledAt  TEXT,',
+  '  lastLintedAt    TEXT,',
+  '  UNIQUE(projectId, mode)',
+  ');',
+].join('\n');
+
+const CREATE_KNOWLEDGE_PAGES_TABLE = [
+  'CREATE TABLE IF NOT EXISTS knowledge_pages (',
+  '  id                TEXT PRIMARY KEY,',
+  '  workspaceId       TEXT NOT NULL,',
+  '  relativePath      TEXT NOT NULL,',
+  '  title             TEXT NOT NULL,',
+  '  kind              TEXT NOT NULL,',
+  '  status            TEXT NOT NULL,',
+  '  reviewState       TEXT NOT NULL,',
+  '  contentHash       TEXT NOT NULL,',
+  '  sourceHash        TEXT NOT NULL,',
+  "  claimIdsJson      TEXT NOT NULL DEFAULT '[]',",
+  '  snapshotId        TEXT,',
+  "  tagsJson          TEXT NOT NULL DEFAULT '[]',",
+  '  generatedAt       TEXT NOT NULL,',
+  '  updatedAt         TEXT NOT NULL,',
+  '  lastLintedAt      TEXT,',
+  '  manualContentHash TEXT,',
+  '  UNIQUE(workspaceId, relativePath),',
+  '  FOREIGN KEY (workspaceId) REFERENCES knowledge_workspaces(id) ON DELETE CASCADE',
+  ');',
+].join('\n');
+
+const CREATE_KNOWLEDGE_PAGE_CLAIMS_TABLE = [
+  'CREATE TABLE IF NOT EXISTS knowledge_page_claims (',
+  '  pageId   TEXT NOT NULL,',
+  '  claimId  TEXT NOT NULL,',
+  '  role     TEXT NOT NULL,',
+  '  PRIMARY KEY (pageId, claimId),',
+  '  FOREIGN KEY (pageId) REFERENCES knowledge_pages(id) ON DELETE CASCADE,',
+  '  FOREIGN KEY (claimId) REFERENCES knowledge_claims(id) ON DELETE RESTRICT',
+  ');',
+].join('\n');
+
+const CREATE_KNOWLEDGE_PAGE_LINKS_TABLE = [
+  'CREATE TABLE IF NOT EXISTS knowledge_page_links (',
+  '  sourcePageId TEXT NOT NULL,',
+  '  targetPath   TEXT NOT NULL,',
+  '  PRIMARY KEY (sourcePageId, targetPath),',
+  '  FOREIGN KEY (sourcePageId) REFERENCES knowledge_pages(id) ON DELETE CASCADE',
+  ');',
+].join('\n');
+
+const CREATE_KNOWLEDGE_PROPOSALS_TABLE = [
+  'CREATE TABLE IF NOT EXISTS knowledge_proposals (',
+  '  id              TEXT PRIMARY KEY,',
+  '  workspaceId     TEXT NOT NULL,',
+  '  pageId          TEXT NOT NULL,',
+  '  targetPath      TEXT NOT NULL,',
+  '  proposalPath    TEXT NOT NULL,',
+  '  baseContentHash TEXT,',
+  '  sourceHash      TEXT NOT NULL,',
+  '  reason          TEXT NOT NULL,',
+  '  status          TEXT NOT NULL,',
+  '  createdAt       TEXT NOT NULL,',
+  '  appliedAt       TEXT,',
+  '  UNIQUE(workspaceId, proposalPath),',
+  '  FOREIGN KEY (workspaceId) REFERENCES knowledge_workspaces(id) ON DELETE CASCADE,',
+  '  FOREIGN KEY (pageId) REFERENCES knowledge_pages(id) ON DELETE CASCADE',
+  ');',
+].join('\n');
+
 // ── Runtime maintenance jobs ───────────────────────────────────────
 
 const CREATE_MAINTENANCE_JOBS_TABLE = `
@@ -440,6 +520,10 @@ CREATE INDEX IF NOT EXISTS idx_knowledge_claims_project_conflict ON knowledge_cl
 CREATE INDEX IF NOT EXISTS idx_knowledge_claims_project_key ON knowledge_claims(projectId, claimKey, status);
 CREATE INDEX IF NOT EXISTS idx_knowledge_claim_evidence_claim ON knowledge_claim_evidence(claimId, createdAt);
 CREATE INDEX IF NOT EXISTS idx_knowledge_claim_events_claim ON knowledge_claim_events(claimId, createdAt);
+CREATE INDEX IF NOT EXISTS idx_knowledge_workspaces_project ON knowledge_workspaces(projectId, mode);
+CREATE INDEX IF NOT EXISTS idx_knowledge_pages_workspace_status ON knowledge_pages(workspaceId, status, updatedAt DESC);
+CREATE INDEX IF NOT EXISTS idx_knowledge_page_claims_claim ON knowledge_page_claims(claimId);
+CREATE INDEX IF NOT EXISTS idx_knowledge_proposals_workspace_status ON knowledge_proposals(workspaceId, status, createdAt DESC);
 CREATE INDEX IF NOT EXISTS idx_maintenance_jobs_ready ON maintenance_jobs(status, run_after);
 CREATE INDEX IF NOT EXISTS idx_maintenance_jobs_project ON maintenance_jobs(project_id, status, run_after);
 CREATE INDEX IF NOT EXISTS idx_maintenance_targets_updated ON maintenance_targets(updated_at);
@@ -493,6 +577,20 @@ const SCHEMA_MIGRATIONS: SchemaMigration[] = [
       db.exec('CREATE INDEX IF NOT EXISTS idx_knowledge_claims_project_key ON knowledge_claims(projectId, claimKey, status)');
       db.exec('CREATE INDEX IF NOT EXISTS idx_knowledge_claim_evidence_claim ON knowledge_claim_evidence(claimId, createdAt)');
       db.exec('CREATE INDEX IF NOT EXISTS idx_knowledge_claim_events_claim ON knowledge_claim_events(claimId, createdAt)');
+    },
+  },
+  {
+    id: '1.2-knowledge-workspace',
+    apply: (db) => {
+      db.exec(CREATE_KNOWLEDGE_WORKSPACES_TABLE);
+      db.exec(CREATE_KNOWLEDGE_PAGES_TABLE);
+      db.exec(CREATE_KNOWLEDGE_PAGE_CLAIMS_TABLE);
+      db.exec(CREATE_KNOWLEDGE_PAGE_LINKS_TABLE);
+      db.exec(CREATE_KNOWLEDGE_PROPOSALS_TABLE);
+      db.exec('CREATE INDEX IF NOT EXISTS idx_knowledge_workspaces_project ON knowledge_workspaces(projectId, mode)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_knowledge_pages_workspace_status ON knowledge_pages(workspaceId, status, updatedAt DESC)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_knowledge_page_claims_claim ON knowledge_page_claims(claimId)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_knowledge_proposals_workspace_status ON knowledge_proposals(workspaceId, status, createdAt DESC)');
     },
   },
 ];

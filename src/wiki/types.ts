@@ -20,8 +20,14 @@ export interface KnowledgeSection {
 }
 
 export interface ProjectKnowledgeOverview {
-  title: 'Knowledge Base';
-  subtitle: 'LLM Wiki';
+  /**
+   * A read-only projection of durable memories. This is intentionally not
+   * called a maintained wiki until the 1.2 Knowledge Workspace exists.
+   */
+  title: 'Memory Overview';
+  subtitle: 'Generated from durable project memory';
+  kind: 'memory-overview';
+  maintained: false;
   projectId: string;
   generatedAt: string;
   sections: KnowledgeSection[];
@@ -32,7 +38,7 @@ export interface ProjectKnowledgeOverview {
   };
 }
 
-// -- Knowledge Graph types --
+// -- Deterministic memory-map types --
 
 export type SemanticEdgeType = 'supports' | 'relates_to' | 'mentions' | 'derived_from';
 
@@ -75,7 +81,13 @@ export interface KnowledgeGraphStats {
 }
 
 export interface ProjectKnowledgeGraph {
-  title: 'Knowledge Graph';
+  /**
+   * Deterministic links inferred from current memory data. It is not a
+   * semantic graph database or a source of independently verified claims.
+   */
+  title: 'Memory Map';
+  kind: 'deterministic-memory-map';
+  semantic: false;
   projectId: string;
   generatedAt: string;
   nodes: SemanticNode[];

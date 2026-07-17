@@ -1,5 +1,5 @@
 /**
- * Knowledge Base Generator Tests
+ * Memory Overview Generator Tests
  *
  * Covers:
  * - excludes probe observations
@@ -264,8 +264,10 @@ describe('Source refs', () => {
 describe('Empty state', () => {
   it('returns valid overview with no observations or skills', () => {
     const kb = generateKnowledgeBase({ projectId: PROJECT_ID, observations: [], miniSkills: [] });
-    expect(kb.title).toBe('Knowledge Base');
-    expect(kb.subtitle).toBe('LLM Wiki');
+    expect(kb.title).toBe('Memory Overview');
+    expect(kb.subtitle).toBe('Generated from durable project memory');
+    expect(kb.kind).toBe('memory-overview');
+    expect(kb.maintained).toBe(false);
     expect(kb.projectId).toBe(PROJECT_ID);
     expect(kb.stats.observationsUsed).toBe(0);
     expect(kb.stats.miniSkillsUsed).toBe(0);

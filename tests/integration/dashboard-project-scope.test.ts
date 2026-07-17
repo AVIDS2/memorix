@@ -208,12 +208,14 @@ describe('Standalone Dashboard Project Scope', () => {
     expect(body.jobs).toEqual([]);
   });
 
-  it('GET /api/knowledge returns project-scoped Knowledge Base overview', async () => {
+  it('GET /api/knowledge returns a project-scoped read-only memory overview', async () => {
     const { status, body } = await fetchJson('/api/knowledge');
     expect(status).toBe(200);
 
-    expect(body.title).toBe('Knowledge Base');
-    expect(body.subtitle).toBe('LLM Wiki');
+    expect(body.title).toBe('Memory Overview');
+    expect(body.subtitle).toBe('Generated from durable project memory');
+    expect(body.kind).toBe('memory-overview');
+    expect(body.maintained).toBe(false);
     expect(body.projectId).toBe(PROJECT_A);
     expect(body.stats.observationsUsed).toBe(2);
 
@@ -240,11 +242,13 @@ describe('Standalone Dashboard Project Scope', () => {
 
   // ── /api/knowledge-graph project scope ──
 
-  it('GET /api/knowledge-graph returns project-scoped semantic graph', async () => {
+  it('GET /api/knowledge-graph returns a project-scoped deterministic memory map', async () => {
     const { status, body } = await fetchJson('/api/knowledge-graph');
     expect(status).toBe(200);
 
-    expect(body.title).toBe('Knowledge Graph');
+    expect(body.title).toBe('Memory Map');
+    expect(body.kind).toBe('deterministic-memory-map');
+    expect(body.semantic).toBe(false);
     expect(body.projectId).toBe(PROJECT_A);
     expect(body.nodes.length).toBeGreaterThan(0);
     expect(body.clusters.length).toBeGreaterThan(0);

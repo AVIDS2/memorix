@@ -553,8 +553,8 @@ export function WikiView({ knowledge, loading }: WikiViewProps): React.ReactElem
   if (loading) {
     return (
       <Box flexDirection="column" paddingX={1}>
-        <Text color={COLORS.brand} bold>Knowledge Base</Text>
-        <Text color={COLORS.muted}>  LLM Wiki</Text>
+        <Text color={COLORS.brand} bold>Memory Overview</Text>
+        <Text color={COLORS.muted}>  Generated from durable memory</Text>
         <Text color={COLORS.border}>{separator()}</Text>
         <Text color={COLORS.muted}>Loading...</Text>
       </Box>
@@ -564,19 +564,19 @@ export function WikiView({ knowledge, loading }: WikiViewProps): React.ReactElem
   if (!knowledge) {
     return (
       <Box flexDirection="column" paddingX={1}>
-        <Text color={COLORS.brand} bold>Knowledge Base</Text>
-        <Text color={COLORS.muted}>  LLM Wiki</Text>
+        <Text color={COLORS.brand} bold>Memory Overview</Text>
+        <Text color={COLORS.muted}>  Generated from durable memory</Text>
         <Text color={COLORS.border}>{separator()}</Text>
-        <Text color={COLORS.warning}>No knowledge available for this project.</Text>
-        <Text color={COLORS.textDim}>Store memories with /remember or /chat to build your Knowledge Base.</Text>
+        <Text color={COLORS.warning}>No memory overview is available for this project.</Text>
+        <Text color={COLORS.textDim}>Store durable memories with /remember or /chat to build your overview.</Text>
       </Box>
     );
   }
 
   return (
     <Box flexDirection="column" paddingX={1}>
-      <Text color={COLORS.brand} bold>Knowledge Base</Text>
-      <Text color={COLORS.muted}>  LLM Wiki</Text>
+      <Text color={COLORS.brand} bold>Memory Overview</Text>
+      <Text color={COLORS.muted}>  Generated from durable memory</Text>
       <Box>
         <Text color={COLORS.textDim}>  Project: {knowledge.projectId}</Text>
         <Text color={COLORS.muted}> │ {knowledge.stats.observationsUsed} obs, {knowledge.stats.miniSkillsUsed} skills</Text>

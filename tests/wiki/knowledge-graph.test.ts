@@ -1,5 +1,5 @@
 /**
- * Knowledge Graph Generator Tests
+ * Deterministic Memory Map Generator Tests
  *
  * Covers:
  * - other project observations do not leak into graph
@@ -314,7 +314,9 @@ describe('Node properties', () => {
 describe('Title and metadata', () => {
   it('has correct title and projectId', () => {
     const kg = generateKnowledgeGraph({ projectId: PROJECT_ID, observations: [], miniSkills: [] });
-    expect(kg.title).toBe('Knowledge Graph');
+    expect(kg.title).toBe('Memory Map');
+    expect(kg.kind).toBe('deterministic-memory-map');
+    expect(kg.semantic).toBe(false);
     expect(kg.projectId).toBe(PROJECT_ID);
   });
 

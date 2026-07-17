@@ -19,10 +19,10 @@ describe('tui layout helpers', () => {
     expect(computeLayoutWidths(4).contentWidth).toBe(0);
   });
 
-  it('includes the Knowledge Base slash command', () => {
+  it('includes the Memory Overview slash command', () => {
     const wiki = SLASH_COMMANDS.find(command => command.name === '/wiki');
     expect(wiki).toBeDefined();
     expect(wiki?.alias).toBe('/knowledge');
-    expect(wiki?.description).toBe('Knowledge Base');
+    expect(wiki?.description).toBe('Memory overview');
   });
 });

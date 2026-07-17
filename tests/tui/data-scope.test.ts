@@ -167,8 +167,10 @@ describe('getKnowledgeBase project scope', () => {
     // Should return a valid overview for project A
     expect(kb).not.toBeNull();
     expect(kb!.projectId).toBe(PROJECT_A);
-    expect(kb!.title).toBe('Knowledge Base');
-    expect(kb!.subtitle).toBe('LLM Wiki');
+    expect(kb!.title).toBe('Memory Overview');
+    expect(kb!.subtitle).toBe('Generated from durable project memory');
+    expect(kb!.kind).toBe('memory-overview');
+    expect(kb!.maintained).toBe(false);
     // Project A has 2 active observations, Project B has 2 -- only A's should be counted
     expect(kb!.stats.observationsUsed).toBe(2);
 

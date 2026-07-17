@@ -1,5 +1,5 @@
 /**
- * KnowledgeView — Wiki browser for the shared knowledge layer.
+ * KnowledgeView — read-only memory overview browser.
  *
  * Displays ProjectKnowledgeOverview sections and items.
  * Each item shows its provenance refs; pressing 'm' on an item
@@ -36,8 +36,8 @@ export function KnowledgeView({ knowledge, loading, selectedItemIdx, itemCount }
   if (loading) {
     return (
       <Box flexDirection="column" paddingX={1}>
-        <Text color={COLORS.brand} bold>Knowledge Base</Text>
-        <Text color={COLORS.muted}>  LLM Wiki</Text>
+        <Text color={COLORS.brand} bold>Memory Overview</Text>
+        <Text color={COLORS.muted}>  Generated from durable memory</Text>
         <Text color={COLORS.border}>{separator()}</Text>
         <Text color={COLORS.muted}>Loading…</Text>
       </Box>
@@ -47,11 +47,11 @@ export function KnowledgeView({ knowledge, loading, selectedItemIdx, itemCount }
   if (!knowledge) {
     return (
       <Box flexDirection="column" paddingX={1}>
-        <Text color={COLORS.brand} bold>Knowledge Base</Text>
-        <Text color={COLORS.muted}>  LLM Wiki</Text>
+        <Text color={COLORS.brand} bold>Memory Overview</Text>
+        <Text color={COLORS.muted}>  Generated from durable memory</Text>
         <Text color={COLORS.border}>{separator()}</Text>
-        <Text color={COLORS.warning}>No knowledge available for this project.</Text>
-        <Text color={COLORS.textDim}>Store memories with /remember or use Workbench to build context.</Text>
+        <Text color={COLORS.warning}>No memory overview is available for this project.</Text>
+        <Text color={COLORS.textDim}>Store durable memories with /remember or use Workbench to build context.</Text>
       </Box>
     );
   }
@@ -68,8 +68,8 @@ export function KnowledgeView({ knowledge, loading, selectedItemIdx, itemCount }
   return (
     <Box flexDirection="column" paddingX={1}>
       <Box>
-        <Text color={COLORS.brand} bold>Knowledge Base</Text>
-        <Text color={COLORS.muted}>  LLM Wiki</Text>
+        <Text color={COLORS.brand} bold>Memory Overview</Text>
+        <Text color={COLORS.muted}>  Generated from durable memory</Text>
       </Box>
       <Box>
         <Text color={COLORS.textDim}>  {knowledge.projectId}</Text>

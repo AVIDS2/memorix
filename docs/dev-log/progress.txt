@@ -41,12 +41,26 @@
 - Treat natural-language `memorix_project_context` as the product surface;
   internal graph/provider complexity must stay behind it.
 
+## Phase 0 Evaluation Foundation
+- Existing UI/API projections now identify themselves honestly as a read-only
+  Memory Overview and deterministic Memory Map. They are not presented as a
+  maintained wiki or semantic graph.
+- The Workset evaluation harness has fixture repositories for TypeScript,
+  Python, Go, docs-only, dirty worktree, deleted-symbol, and incomplete-scan
+  cases. Its seed manifest covers observations, Git facts, test evidence,
+  mini-skills, and explicit graph relations.
+- The harness compares memory-only, current-context, and candidate Worksets
+  against source/evidence/caution requirements and variant token ceilings.
+- The current Auto Context path is smoke-tested against real local TypeScript
+  and dirty-worktree fixtures with embeddings disabled. The candidate budget is
+  180 tokens; the current baseline budget is 320 tokens.
+- A formal Claim Ledger does not exist yet. Phase 2 owns claim provenance,
+  conflict, and supersession semantics; Phase 0 only prevents the old views
+  from being mislabeled as those future capabilities.
+
 ## Next Steps
-1. Build Phase 0 fixtures that distinguish structural code facts, evidence,
-   claims, wiki pages, and workflow selection across coding, debugging,
-   onboarding, refactor, and non-code tasks.
-2. Add the `CodeStateSnapshot` schema and migration with clean/dirty revision
+1. Add the `CodeStateSnapshot` schema and migration with clean/dirty revision
    coverage and explicit scan completeness.
-3. Add the source-backed claim contract before a wiki compiler or workflow
+2. Add the source-backed claim contract before a wiki compiler or workflow
    inheritance runtime.
-4. Define parser-provider benchmarks before selecting runtime dependencies.
+3. Define parser-provider benchmarks before selecting runtime dependencies.

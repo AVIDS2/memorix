@@ -10,8 +10,9 @@
 - Released baseline: `memorix@1.1.13`, tag `v1.1.13`, PR #129 merged as
   `7e8077f`.
 - Goal: turn Memorix from a useful narrative-memory layer into a task-ready
-  working-context layer where code state, change evidence, verification, and
-  durable decisions are ranked together.
+  working-context layer where code state, change evidence, verification,
+  source-backed project knowledge, workflows, and durable decisions are ranked
+  together.
 
 ## 1.1.13 Closeout
 - Codex setup now stamps plugin versions and doctor distinguishes bundle,
@@ -24,6 +25,10 @@
 - The [1.2 Product Story](../1.2.0-PRODUCT-STORY.md) is the canonical
   user-facing narrative; the Development Charter is its implementation
   contract.
+- The [Knowledge and Workflow Research](../1.2.0-KNOWLEDGE-WORKFLOW-RESEARCH.md)
+  establishes Knowledge Workspace and Workflow Inheritance as 1.2 core product
+  layers, with an explicit boundary against claiming the existing memory map is
+  already a semantic graph or maintained LLM Wiki.
 - Use the [1.2 Development Charter](../1.2.0-DEVELOPMENT-CHARTER.md) as the
   working product contract.
 - Keep the current SQLite CodeGraph tables and incremental refresh as the base;
@@ -34,8 +39,11 @@
   internal graph/provider complexity must stay behind it.
 
 ## Next Steps
-1. Build Phase 0 fixture/evaluation harness for coding, debugging, onboarding,
-   refactor, and non-code tasks.
+1. Build Phase 0 fixtures that distinguish structural code facts, evidence,
+   claims, wiki pages, and workflow selection across coding, debugging,
+   onboarding, refactor, and non-code tasks.
 2. Add the `CodeStateSnapshot` schema and migration with clean/dirty revision
-   coverage.
-3. Define parser-provider benchmarks before selecting runtime dependencies.
+   coverage and explicit scan completeness.
+3. Add the source-backed claim contract before a wiki compiler or workflow
+   inheritance runtime.
+4. Define parser-provider benchmarks before selecting runtime dependencies.

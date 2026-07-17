@@ -75,6 +75,7 @@ The public docs are organized by user intent:
 | Module-by-module notes | [MODULES.md](MODULES.md) |
 | CodeGraph Memory / Context Fabric design | [2026-06-29-codegraph-memory-context-fabric-design.md](superpowers/specs/2026-06-29-codegraph-memory-context-fabric-design.md) |
 | Auto Context Layer design | [2026-06-29-auto-context-layer-design.md](superpowers/specs/2026-06-29-auto-context-layer-design.md) |
+| Active 1.2 multi-dimensional memory work | [1.2.0 Development Charter](1.2.0-DEVELOPMENT-CHARTER.md) |
 | Historical cloud sync and multi-agent research | [CLOUD_SYNC_AND_MULTI_AGENT_RESEARCH.md](CLOUD_SYNC_AND_MULTI_AGENT_RESEARCH.md) |
 | Known issues and old roadmap notes | [KNOWN_ISSUES_AND_ROADMAP.md](KNOWN_ISSUES_AND_ROADMAP.md) |
 
@@ -102,7 +103,9 @@ Historical/deep-reference documents may describe older designs. If they conflict
 
 ## Current Product Line
 
-These docs target the **1.1 release line**, where:
+The released product is on the **1.1 line**. Active 1.2 design work is tracked
+in the [1.2 Development Charter](1.2.0-DEVELOPMENT-CHARTER.md). The current
+released baseline has:
 
 - `memorix setup --agent <agent> --global` is the default agent integration command
 - `memorix serve` is the manual stdio MCP server for external agents

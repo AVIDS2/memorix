@@ -4,43 +4,35 @@
 > older notes when they conflict.
 
 ## Current State
-- Phase: 1.1.13 ready to publish
-- Branch: `codex/1.1.13-release-contract`
+- Phase: 1.2 foundation / multi-dimensional Agent Memory
+- Branch: `codex/1.2.0-multidimensional-memory`
 - Last updated: 2026-07-17
-- Goal: make Codex global setup diagnosable end to end, remove the accidental
-  workspace publish lane, restore the Star History chart, then publish a clean
-  1.1.13 before beginning 1.2 work.
+- Released baseline: `memorix@1.1.13`, tag `v1.1.13`, PR #129 merged as
+  `7e8077f`.
+- Goal: turn Memorix from a useful narrative-memory layer into a task-ready
+  working-context layer where code state, change evidence, verification, and
+  durable decisions are ranked together.
 
-## Completed Recently
-- Released `memorix@1.1.12`, tagged `v1.1.12`, with native Codex lifecycle
-  hooks, Windows-safe OpenCode hook resolution, scope-isolated setup, and
-  cache-first semantic-vector hydration.
-- `memorix setup --agent codex --global` now stamps the copied plugin manifest
-  with the running Memorix version instead of leaving the template version.
-- `memorix doctor agents --agent codex --scope global` now reports four
-  independently useful facts: the local bundle and declared hook contract, the
-  Personal marketplace entry, Codex's installed/enabled plugin state, and the
-  trusted state for each Codex lifecycle hook.
-- Repair only refreshes Memorix-owned files. A disabled plugin or untrusted
-  hook remains an explicit user action in Codex's plugin/hook UI.
-- `@memorix/ai`, `@memorix/agent-core`, `@memorix/tui`, and
-  `@memorix/memcode` are explicitly internal workspaces. The public release
-  contract is the bundled root `memorix` package.
-- Restored the AVIDS2/memorix Star History chart at the bottom of both READMEs.
+## 1.1.13 Closeout
+- Codex setup now stamps plugin versions and doctor distinguishes bundle,
+  marketplace, installed/enabled state, declared hooks, and hook trust.
+- Root package publishing is isolated from internal `@memorix/*` workspaces.
+- Full tests, build, pack inspection, isolated MCP smoke, isolated Codex smoke,
+  and Ubuntu/Windows CI all passed before release.
 
-## Verification Snapshot
-- Focused Codex setup, hook, doctor, and release-contract regressions pass.
-- `npm run lint`, `npm run build`, and the full serial `npm test` suite pass.
-- `npm pack --dry-run` includes the root runtime, plugin templates, hooks,
-  READMEs, and docs at `memorix@1.1.13`.
-- A clean normal npm installation of the tarball completed a real stdio MCP
-  store/search call against an isolated Git repository and exposed the expected
-  seven-tool micro profile.
-- An isolated real Codex CLI setup installed and enabled `memorix@personal`,
-  stamped the manifest at `1.1.13`, and let doctor verify the bundle,
-  marketplace, runtime state, and pending first-use hook trust separately.
-- The Star History embed uses Star History's current `/image` README endpoint.
+## 1.2 Accepted Direction
+- Use the [1.2 Development Charter](../1.2.0-DEVELOPMENT-CHARTER.md) as the
+  working product contract.
+- Keep the current SQLite CodeGraph tables and incremental refresh as the base;
+  do not discard working 1.1 Code Memory.
+- Add versioned Code State and evidence-quality semantics before new parsers,
+  external providers, or user-visible tool surfaces.
+- Treat natural-language `memorix_project_context` as the product surface;
+  internal graph/provider complexity must stay behind it.
 
 ## Next Steps
-- Push/merge/tag/publish `v1.1.13`, then create the 1.2 development baseline
-  from the released main branch.
+1. Build Phase 0 fixture/evaluation harness for coding, debugging, onboarding,
+   refactor, and non-code tasks.
+2. Add the `CodeStateSnapshot` schema and migration with clean/dirty revision
+   coverage.
+3. Define parser-provider benchmarks before selecting runtime dependencies.

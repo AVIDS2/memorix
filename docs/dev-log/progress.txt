@@ -4,71 +4,43 @@
 > older notes when they conflict.
 
 ## Current State
-- Phase: 1.1.12 ready to publish
-- Branch: `codex/1.1.12-runtime-hygiene`
+- Phase: 1.1.13 ready to publish
+- Branch: `codex/1.1.13-release-contract`
 - Last updated: 2026-07-17
-- Goal: ship the verified Codex lifecycle hooks, repair OpenCode Windows hook
-  delivery, and preserve semantic vector recall without blocking MCP startup.
+- Goal: make Codex global setup diagnosable end to end, remove the accidental
+  workspace publish lane, restore the Star History chart, then publish a clean
+  1.1.13 before beginning 1.2 work.
 
 ## Completed Recently
-- Released `memorix@1.1.11`, tagged `v1.1.11`, with durable maintenance,
-  bounded lifecycle work, incremental Code Memory, and first-turn SQLite
-  readiness.
-- Added Codex plugin lifecycle hooks for `SessionStart`, `UserPromptSubmit`,
-  `PostToolUse`, `PreCompact`, and `Stop`, including native SessionStart
-  context injection, quiet capture events, Windows command overrides, and
-  compact-session startup coverage.
-- Confirmed issue #124's project-context timeout fix with the reporter.
-- Triaged issue #125 as an OpenCode Windows PATH resolution failure and
-  reviewed PR #126's semantic vector-recall diagnosis.
-
-## Completed In This Release Candidate
-- OpenCode's generated Windows plugin now embeds the npm `memorix.cmd` shim
-  resolved during setup. It no longer assumes OpenCode inherits the user's
-  npm path, and delivery diagnostics are opt-in through `MEMORIX_HOOK_DEBUG=1`.
-- Project setup no longer writes Claude, Codex, or Copilot plugin bundles into
-  the user home; those bundles require an explicit `--global` installation.
-- API embedding hydration restores compatible local cache entries after lexical
-  readiness. Startup never makes a remote embedding request; cache misses stay
-  in the bounded background lane, and the first successful vector upgrades a
-  cache-less lexical index in the same process. Namespace-scoped cache metadata
-  provides a recovery path when the separate dimensions cache is missing.
-- TUI health, chat, and quick-search paths now use the same lexical-ready
-  initializer, so a first TUI render or search never probes the embedding API.
-- Orama initialization is serialized across cache-only startup and normal
-  callers, preventing a late vector-schema instance from replacing a hydrated
-  lexical index. Resetting the store also invalidates any obsolete in-flight
-  initializer.
-- Cache-only API initialization now avoids parsing the large vector-cache file
-  unless local dimensions metadata proves that cached vectors can be attached.
-- Added regressions for cache hits, cache misses, invalid vectors, stale index
-  changes, delayed cache I/O, concurrent index initialization, schema upgrade
-  after a first vector, and setup scope isolation.
+- Released `memorix@1.1.12`, tagged `v1.1.12`, with native Codex lifecycle
+  hooks, Windows-safe OpenCode hook resolution, scope-isolated setup, and
+  cache-first semantic-vector hydration.
+- `memorix setup --agent codex --global` now stamps the copied plugin manifest
+  with the running Memorix version instead of leaving the template version.
+- `memorix doctor agents --agent codex --scope global` now reports four
+  independently useful facts: the local bundle and declared hook contract, the
+  Personal marketplace entry, Codex's installed/enabled plugin state, and the
+  trusted state for each Codex lifecycle hook.
+- Repair only refreshes Memorix-owned files. A disabled plugin or untrusted
+  hook remains an explicit user action in Codex's plugin/hook UI.
+- `@memorix/ai`, `@memorix/agent-core`, `@memorix/tui`, and
+  `@memorix/memcode` are explicitly internal workspaces. The public release
+  contract is the bundled root `memorix` package.
+- Restored the AVIDS2/memorix Star History chart at the bottom of both READMEs.
 
 ## Verification Snapshot
-- Focused hook/vector tests pass, including a Windows child-process smoke with
-  the npm bin directory removed from the child `PATH`.
-- Full `npm test` passes, along with `npm run lint` and `npm run build` after
-  the final initialization-race and lazy-cache regressions were added.
-- Real stdio MCP smoke with an unreachable API endpoint confirms that an empty
-  cache does not issue a startup embedding probe. A second local API smoke
-  confirms first-vector schema upgrade reaches hybrid search without restart.
-- A cross-process cache smoke deletes the dimensions cache after populating
-  vectors, then verifies offline hybrid retrieval restores from the redundant
-  namespace metadata without another API request.
-- An isolated Windows home smoke confirms project setup leaves the user Codex
-  plugin untouched and `--global` installs the native SessionStart hook.
-- `npm pack --dry-run` succeeds. A clean normal installation of the generated
-  `memorix-1.1.12.tgz` loaded the `better-sqlite3` native binding, completed
-  MCP `initialize` and `tools/list`, and exposed the expected 7-tool micro
-  profile with `memorix_project_context` present.
-
-## Known Boundary
-- Orama remains process-local. Search and stateful write/session tools still
-  wait for full runtime hydration; bootstrap-safe context tools do not.
-- CodeGraph Lite is an incremental local structural map, not a replacement for
-  an AST/language-server intelligence product.
+- Focused Codex setup, hook, doctor, and release-contract regressions pass.
+- `npm run lint`, `npm run build`, and the full serial `npm test` suite pass.
+- `npm pack --dry-run` includes the root runtime, plugin templates, hooks,
+  READMEs, and docs at `memorix@1.1.13`.
+- A clean normal npm installation of the tarball completed a real stdio MCP
+  store/search call against an isolated Git repository and exposed the expected
+  seven-tool micro profile.
+- An isolated real Codex CLI setup installed and enabled `memorix@personal`,
+  stamped the manifest at `1.1.13`, and let doctor verify the bundle,
+  marketplace, runtime state, and pending first-use hook trust separately.
+- The Star History embed uses Star History's current `/image` README endpoint.
 
 ## Next Steps
-- Commit and publish `1.1.12`, then update issue #124, issue #125, and PR #126
-  with the release evidence and credit.
+- Push/merge/tag/publish `v1.1.13`, then create the 1.2 development baseline
+  from the released main branch.

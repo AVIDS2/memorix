@@ -1,6 +1,7 @@
 {
 	"name": "@memorix/memcode",
 	"version": "1.1.12",
+	"private": true,
 	"description": "Memorix-native coding agent CLI with terminal chat, project memory, hooks, and session management",
 	"type": "module",
 	"piConfig": {

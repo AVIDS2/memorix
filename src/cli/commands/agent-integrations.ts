@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { basename, dirname, resolve } from 'node:path';
@@ -9,9 +10,12 @@ import {
   buildMemorixServer,
   getMcpAdapter,
   getSetupAgentTargets,
+  installPluginPackage,
   installMcpConfig,
+  tryInstallCodexPlugin,
   type McpConfigAgent,
 } from './setup.js';
+import { getCliVersion } from '../version.js';
 
 export type AgentIntegrationScope = 'local' | 'project' | 'global' | 'all';
 export type AgentIntegrationStatus = 'ok' | 'missing' | 'repairable' | 'skipped';
@@ -40,6 +44,35 @@ export interface AgentGuidanceCheck {
   issues: string[];
 }
 
+export interface AgentPluginCheck {
+  scope: 'global';
+  kind: 'bundle' | 'marketplace' | 'runtime' | 'hook-trust';
+  path: string;
+  exists: boolean;
+  status: AgentIntegrationStatus;
+  issues: string[];
+  version?: string;
+  hooks?: {
+    declared: string[];
+    expected: string[];
+  };
+  runtime?: {
+    installed: boolean;
+    enabled: boolean;
+    version?: string;
+  };
+  hookTrust?: {
+    trusted: string[];
+    expected: string[];
+  };
+}
+
+export interface AgentPluginStatus {
+  status: AgentIntegrationStatus;
+  issues: string[];
+  checks: AgentPluginCheck[];
+}
+
 export interface AgentIntegrationEntry {
   agent: AgentName;
   mcp: {
@@ -52,6 +85,7 @@ export interface AgentIntegrationEntry {
     issues: string[];
     checks: AgentGuidanceCheck[];
   };
+  plugin: AgentPluginStatus;
 }
 
 export interface AgentIntegrationReport {
@@ -88,6 +122,12 @@ const GUIDANCE_AGENTS = new Set<AgentName>([
   'opencode',
   'trae',
 ]);
+
+const CODEX_PLUGIN_NAME = 'memorix';
+const CODEX_PLUGIN_MARKETPLACE = 'personal';
+const CODEX_PLUGIN_ID = `${CODEX_PLUGIN_NAME}@${CODEX_PLUGIN_MARKETPLACE}`;
+const CODEX_HOOK_EVENTS = ['SessionStart', 'UserPromptSubmit', 'PostToolUse', 'PreCompact', 'Stop'];
+const CODEX_HOOK_STATE_NAMES = ['session_start', 'user_prompt_submit', 'post_tool_use', 'pre_compact', 'stop'];
 
 type ConcreteAgentIntegrationScope = Exclude<AgentIntegrationScope, 'all'>;
 type JsonRecord = Record<string, unknown>;
@@ -177,6 +217,310 @@ function aggregateGuidanceIssues(checks: AgentGuidanceCheck[]): string[] {
 
 function asRecord(value: unknown): JsonRecord | null {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as JsonRecord : null;
+}
+
+function asRecordArray(value: unknown): JsonRecord[] {
+  return Array.isArray(value)
+    ? value.map(asRecord).filter((entry): entry is JsonRecord => entry !== null)
+    : [];
+}
+
+function codexPluginPath(): string {
+  return `${homedir()}/.codex/plugins/${CODEX_PLUGIN_NAME}`;
+}
+
+function codexMarketplacePath(): string {
+  return `${homedir()}/.agents/plugins/marketplace.json`;
+}
+
+function codexConfigPath(): string {
+  return `${homedir()}/.codex/config.toml`;
+}
+
+function normalizeMarketplacePath(value: string): string {
+  return value.replace(/\\/g, '/').replace(/^\.\//, '');
+}
+
+function isMemorixCodexPlugin(value: JsonRecord): boolean {
+  return value.pluginId === CODEX_PLUGIN_ID
+    || (value.name === CODEX_PLUGIN_NAME && value.marketplaceName === CODEX_PLUGIN_MARKETPLACE);
+}
+
+export function parseCodexPluginList(output: string): AgentPluginCheck['runtime'] | null {
+  try {
+    const parsed = asRecord(JSON.parse(output));
+    if (!parsed) return null;
+    const entries = [...asRecordArray(parsed.installed), ...asRecordArray(parsed.available)];
+    const plugin = entries.find(isMemorixCodexPlugin);
+    if (!plugin) return { installed: false, enabled: false };
+    return {
+      installed: plugin.installed === true,
+      enabled: plugin.enabled === true,
+      ...(typeof plugin.version === 'string' ? { version: plugin.version } : {}),
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function inspectCodexPluginBundle(): Promise<AgentPluginCheck> {
+  const pluginPath = codexPluginPath();
+  const manifestPath = `${pluginPath}/.codex-plugin/plugin.json`;
+  const hooksPath = `${pluginPath}/hooks/hooks.json`;
+  if (!existsSync(pluginPath)) {
+    return {
+      scope: 'global',
+      kind: 'bundle',
+      path: pluginPath,
+      exists: false,
+      status: 'missing',
+      issues: ['codex-plugin-bundle-missing'],
+    };
+  }
+  if (!existsSync(manifestPath)) {
+    return {
+      scope: 'global',
+      kind: 'bundle',
+      path: manifestPath,
+      exists: false,
+      status: 'repairable',
+      issues: ['codex-plugin-manifest-missing'],
+    };
+  }
+
+  let manifest: JsonRecord | null = null;
+  try {
+    manifest = asRecord(JSON.parse(await readFile(manifestPath, 'utf-8')));
+  } catch {
+    return {
+      scope: 'global',
+      kind: 'bundle',
+      path: manifestPath,
+      exists: true,
+      status: 'repairable',
+      issues: ['codex-plugin-manifest-unreadable'],
+    };
+  }
+  if (!manifest || manifest.name !== CODEX_PLUGIN_NAME) {
+    return {
+      scope: 'global',
+      kind: 'bundle',
+      path: manifestPath,
+      exists: true,
+      status: 'repairable',
+      issues: ['codex-plugin-manifest-invalid'],
+    };
+  }
+
+  const version = typeof manifest.version === 'string' ? manifest.version : undefined;
+  const issues: string[] = [];
+  if (version !== getCliVersion()) issues.push('codex-plugin-version-mismatch');
+  if (manifest.hooks !== './hooks/hooks.json') issues.push('codex-hook-manifest-missing');
+
+  let declared: string[] = [];
+  if (!existsSync(hooksPath)) {
+    issues.push('codex-hook-manifest-missing');
+  } else {
+    try {
+      const hooksConfig = asRecord(JSON.parse(await readFile(hooksPath, 'utf-8')));
+      const hooks = asRecord(hooksConfig?.hooks);
+      declared = hooks ? Object.keys(hooks) : [];
+      if (CODEX_HOOK_EVENTS.some((event) => !declared.includes(event))) {
+        issues.push('codex-hook-events-missing');
+      }
+    } catch {
+      issues.push('codex-hook-manifest-unreadable');
+    }
+  }
+
+  return {
+    scope: 'global',
+    kind: 'bundle',
+    path: pluginPath,
+    exists: true,
+    status: issues.length > 0 ? 'repairable' : 'ok',
+    issues: unique(issues),
+    ...(version ? { version } : {}),
+    hooks: { declared, expected: [...CODEX_HOOK_EVENTS] },
+  };
+}
+
+async function inspectCodexMarketplace(): Promise<AgentPluginCheck> {
+  const marketplacePath = codexMarketplacePath();
+  if (!existsSync(marketplacePath)) {
+    return {
+      scope: 'global',
+      kind: 'marketplace',
+      path: marketplacePath,
+      exists: false,
+      status: 'missing',
+      issues: ['codex-marketplace-missing'],
+    };
+  }
+
+  let catalog: JsonRecord | null = null;
+  try {
+    catalog = asRecord(JSON.parse(await readFile(marketplacePath, 'utf-8')));
+  } catch {
+    return {
+      scope: 'global',
+      kind: 'marketplace',
+      path: marketplacePath,
+      exists: true,
+      status: 'repairable',
+      issues: ['codex-marketplace-unreadable'],
+    };
+  }
+
+  const entry = asRecordArray(catalog?.plugins).find((plugin) => plugin.name === CODEX_PLUGIN_NAME);
+  if (!entry) {
+    return {
+      scope: 'global',
+      kind: 'marketplace',
+      path: marketplacePath,
+      exists: true,
+      status: 'repairable',
+      issues: ['codex-marketplace-entry-missing'],
+    };
+  }
+
+  const source = asRecord(entry.source);
+  const sourcePath = typeof source?.path === 'string' ? source.path : '';
+  const issues = source?.source === 'local' && normalizeMarketplacePath(sourcePath) === '.codex/plugins/memorix'
+    ? []
+    : ['codex-marketplace-entry-stale'];
+  return {
+    scope: 'global',
+    kind: 'marketplace',
+    path: marketplacePath,
+    exists: true,
+    status: issues.length > 0 ? 'repairable' : 'ok',
+    issues,
+  };
+}
+
+function inspectCodexPluginRuntime(): AgentPluginCheck {
+  const command = 'codex plugin list --marketplace personal --available --json';
+  const result = spawnSync('codex', ['plugin', 'list', '--marketplace', CODEX_PLUGIN_MARKETPLACE, '--available', '--json'], {
+    encoding: 'utf-8',
+    stdio: 'pipe',
+    shell: process.platform === 'win32',
+  });
+  if (result.error || result.status !== 0) {
+    return {
+      scope: 'global',
+      kind: 'runtime',
+      path: command,
+      exists: false,
+      status: 'skipped',
+      issues: ['codex-plugin-runtime-unavailable'],
+    };
+  }
+
+  const runtime = parseCodexPluginList(String(result.stdout ?? ''));
+  if (!runtime) {
+    return {
+      scope: 'global',
+      kind: 'runtime',
+      path: command,
+      exists: true,
+      status: 'skipped',
+      issues: ['codex-plugin-runtime-unreadable'],
+    };
+  }
+
+  const issues: string[] = [];
+  if (!runtime.installed) issues.push('codex-plugin-not-installed');
+  else if (!runtime.enabled) issues.push('codex-plugin-disabled');
+  return {
+    scope: 'global',
+    kind: 'runtime',
+    path: command,
+    exists: true,
+    status: issues.length > 0 ? 'repairable' : 'ok',
+    issues,
+    runtime,
+  };
+}
+
+async function inspectCodexHookTrust(): Promise<AgentPluginCheck> {
+  const configPath = codexConfigPath();
+  if (!existsSync(configPath)) {
+    return {
+      scope: 'global',
+      kind: 'hook-trust',
+      path: configPath,
+      exists: false,
+      status: 'skipped',
+      issues: ['codex-hook-trust-unavailable'],
+    };
+  }
+
+  let config = '';
+  try {
+    config = await readFile(configPath, 'utf-8');
+  } catch {
+    return {
+      scope: 'global',
+      kind: 'hook-trust',
+      path: configPath,
+      exists: true,
+      status: 'skipped',
+      issues: ['codex-hook-trust-unreadable'],
+    };
+  }
+
+  const trusted = CODEX_HOOK_STATE_NAMES.filter((event) =>
+    config.includes(`[hooks.state."${CODEX_PLUGIN_ID}:hooks/hooks.json:${event}:`)
+  );
+  const issues = trusted.length === CODEX_HOOK_STATE_NAMES.length ? [] : ['codex-hook-trust-pending'];
+  return {
+    scope: 'global',
+    kind: 'hook-trust',
+    path: configPath,
+    exists: true,
+    status: issues.length > 0 ? 'repairable' : 'ok',
+    issues,
+    hookTrust: { trusted, expected: [...CODEX_HOOK_STATE_NAMES] },
+  };
+}
+
+function aggregatePluginStatus(checks: AgentPluginCheck[]): AgentIntegrationStatus {
+  if (checks.length === 0) return 'skipped';
+  return worstStatus(checks.map((check) => check.status));
+}
+
+function aggregatePluginIssues(checks: AgentPluginCheck[]): string[] {
+  const status = aggregatePluginStatus(checks);
+  if (status === 'ok') {
+    return unique(checks.filter((check) => check.status === 'skipped').flatMap((check) => check.issues));
+  }
+  if (status === 'repairable') {
+    return unique(checks
+      .filter((check) => check.status === 'repairable' || check.status === 'missing')
+      .flatMap((check) => check.issues));
+  }
+  return unique(checks
+    .filter((check) => check.status === status)
+    .flatMap((check) => check.issues));
+}
+
+async function inspectPlugin(agent: AgentName, scope: AgentIntegrationScope): Promise<AgentPluginStatus> {
+  if (agent !== 'codex' || scope === 'local' || scope === 'project') {
+    return { status: 'skipped', issues: [], checks: [] };
+  }
+
+  const checks = [
+    await inspectCodexPluginBundle(),
+    await inspectCodexMarketplace(),
+    inspectCodexPluginRuntime(),
+    await inspectCodexHookTrust(),
+  ];
+  return {
+    status: aggregatePluginStatus(checks),
+    issues: aggregatePluginIssues(checks),
+    checks,
+  };
 }
 
 function looksLikeStaleMemorixCommand(server: MCPServerEntry): boolean {
@@ -492,10 +836,11 @@ export async function inspectAgentIntegrations(options: {
       agent,
       mcp: await inspectMcp(agent, projectRoot, scope),
       guidance: await inspectGuidance(agent, projectRoot, scope),
+      plugin: await inspectPlugin(agent, scope),
     });
   }
 
-  const entryStatuses = entries.map((entry) => worstStatus([entry.mcp.status, entry.guidance.status]));
+  const entryStatuses = entries.map((entry) => worstStatus([entry.mcp.status, entry.guidance.status, entry.plugin.status]));
   return {
     projectRoot,
     scope,
@@ -519,10 +864,11 @@ export function formatAgentIntegrationReport(report: AgentIntegrationReport): st
   ];
 
   for (const entry of report.entries) {
-    const status = worstStatus([entry.mcp.status, entry.guidance.status]);
+    const status = worstStatus([entry.mcp.status, entry.guidance.status, entry.plugin.status]);
     lines.push(`${entry.agent}: ${status}`);
     if (entry.mcp.issues.length > 0) lines.push(`  MCP: ${entry.mcp.issues.join(', ')}`);
     if (entry.guidance.issues.length > 0) lines.push(`  Guidance: ${entry.guidance.issues.join(', ')}`);
+    if (entry.plugin.issues.length > 0) lines.push(`  Plugin: ${entry.plugin.issues.join(', ')}`);
   }
 
   lines.push('');
@@ -585,6 +931,42 @@ export async function repairAgentIntegrations(options: {
       }
     } else {
       skipped.push(`${entry.agent}:guidance`);
+    }
+
+    if (entry.agent === 'codex' && entry.plugin.status !== 'ok' && entry.plugin.status !== 'skipped') {
+      const bundleOrMarketplaceNeedsRepair = entry.plugin.checks.some((check) =>
+        (check.kind === 'bundle' || check.kind === 'marketplace') && check.status !== 'ok'
+      );
+      const runtime = entry.plugin.checks.find((check) => check.kind === 'runtime');
+      const hookTrust = entry.plugin.checks.find((check) => check.kind === 'hook-trust');
+      const needsInstall = runtime?.runtime?.installed === false;
+      const needsManualEnable = runtime?.runtime?.installed === true && runtime.runtime.enabled === false;
+      const needsHookTrust = hookTrust?.status === 'repairable';
+      const missingPluginFiles = entry.plugin.checks.some((check) =>
+        (check.kind === 'bundle' || check.kind === 'marketplace') && check.status === 'missing'
+      );
+
+      if (needsManualEnable) {
+        skipped.push('codex:plugin:global:enable-in-plugin-browser');
+      }
+      if (needsHookTrust) {
+        skipped.push('codex:plugin:global:review-hooks');
+      }
+
+      if (bundleOrMarketplaceNeedsRepair || needsInstall) {
+        if ((missingPluginFiles || needsInstall) && !canInstallMissing) {
+          skipped.push('codex:plugin:global:missing');
+        } else {
+          if (!options.dry) {
+            await installPluginPackage({ agent: 'codex' });
+            if (needsInstall) {
+              const install = tryInstallCodexPlugin();
+              if (!install.ok) skipped.push('codex:plugin:global:install-pending');
+            }
+          }
+          changed.push('codex:plugin:global');
+        }
+      }
     }
   }
 

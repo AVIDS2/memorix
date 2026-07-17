@@ -473,3 +473,5 @@ Memorix draws from the MCP ecosystem and prior memory projects such as mcp-memor
 <h2 id="license"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/tags/light/section-license.svg"><img src="assets/tags/section-license.svg" alt="License" height="32" /></picture></h2>
 
 [Apache 2.0](LICENSE)
+
+[![Star History Chart](https://api.star-history.com/image?repos=AVIDS2/memorix&type=Date)](https://star-history.com/#AVIDS2/memorix&Date)

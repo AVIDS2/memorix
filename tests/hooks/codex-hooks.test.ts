@@ -3,6 +3,7 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { formatHookOutput, handleHookEvent } from '../../src/hooks/handler.js';
 import { normalizeHookInput } from '../../src/hooks/normalizer.js';
+import { getCliVersion } from '../../src/cli/version.js';
 
 describe('Codex hooks', () => {
   it('normalizes official Codex hook payloads when the plugin sets the agent identity', () => {
@@ -99,5 +100,6 @@ describe('Codex hooks', () => {
       commandWindows: 'memorix.cmd hook --agent codex',
     });
     expect(manifest.hooks).toBe('./hooks/hooks.json');
+    expect(manifest.version).toBe(getCliVersion());
   });
 });

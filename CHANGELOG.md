@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.1.13] - 2026-07-17
+
+### Added
+- **Codex installation proof** -- `memorix doctor agents --agent codex --scope global` now checks the local plugin bundle, Personal marketplace entry, five declared and trusted lifecycle hooks, and the installed/enabled state reported by `codex plugin list`.
+
+### Fixed
+- **Codex plugin version drift** -- Global setup now stamps the copied Codex plugin manifest with the installed Memorix version, so Codex no longer reports the old template version after an upgrade. The source template is covered by a release regression test as well.
+- **Workspace package publish trap** -- `@memorix/ai`, `@memorix/agent-core`, `@memorix/tui`, and `@memorix/memcode` are now explicitly internal workspaces. The root `memorix` package ships their bundled runtime, and the release workflow publishes only that supported public package.
+
 ## [1.1.12] - 2026-07-17
 
 ### Added

@@ -9,17 +9,17 @@
 
 ### 事件映射表
 
-| 语义 | VS Code Copilot | Claude Code | Windsurf | Cursor (Beta) | Kiro |
-|------|----------------|-------------|----------|---------------|------|
-| 会话开始 | SessionStart | SessionStart | — | — | — |
-| 用户输入 | UserPromptSubmit | UserPromptSubmit | pre_user_prompt | beforeSubmitPrompt | user prompt |
-| 工具调用前 | PreToolUse | PreToolUse | pre_mcp_tool_use | beforeMCPExecution | — |
-| 工具调用后 | PostToolUse | PostToolUse | post_mcp_tool_use | — | — |
-| 文件编辑后 | PostToolUse(write) | PostToolUse(write) | post_write_code | afterFileEdit | file save |
-| 命令执行后 | PostToolUse(cmd) | PostToolUse(cmd) | post_run_command | — | — |
-| AI 回复后 | — | — | post_cascade_response | — | agent turn |
-| 上下文压缩前 | PreCompact | PreCompact | — | — | — |
-| 会话结束 | Stop | Stop | — | stop | — |
+| 语义 | VS Code Copilot | Claude Code | Codex | Windsurf | Cursor (Beta) | Kiro |
+|------|----------------|-------------|-------|----------|---------------|------|
+| 会话开始 | SessionStart | SessionStart | SessionStart | — | — | — |
+| 用户输入 | UserPromptSubmit | UserPromptSubmit | UserPromptSubmit | pre_user_prompt | beforeSubmitPrompt | user prompt |
+| 工具调用前 | PreToolUse | PreToolUse | — | pre_mcp_tool_use | beforeMCPExecution | — |
+| 工具调用后 | PostToolUse | PostToolUse | PostToolUse | post_mcp_tool_use | — | — |
+| 文件编辑后 | PostToolUse(write) | PostToolUse(write) | PostToolUse(apply_patch) | post_write_code | afterFileEdit | file save |
+| 命令执行后 | PostToolUse(cmd) | PostToolUse(cmd) | PostToolUse(Bash) | post_run_command | — | — |
+| AI 回复后 | — | — | Stop | post_cascade_response | — | agent turn |
+| 上下文压缩前 | PreCompact | PreCompact | PreCompact | — | — | — |
+| 会话结束 | Stop | Stop | Stop | — | stop | — |
 
 ### 配置文件位置
 
@@ -27,6 +27,7 @@
 |-------|---------|------|
 | VS Code Copilot | `.github/hooks/*.json` | Claude Code 兼容 |
 | Claude Code | `.claude/settings.json` | 原生 |
+| Codex | Memorix 插件内 `hooks/hooks.json` | Codex plugin hooks；通过 `memorix setup --agent codex` 安装 |
 | Windsurf | `.windsurf/cascade.json` | Windsurf 格式 |
 | Cursor | `.cursor/hooks.json` | Cursor 格式 |
 | Kiro | `.kiro/hooks/*.hook.md` | Markdown + YAML |
@@ -38,6 +39,9 @@
 ```
 // VS Code / Claude Code
 { "hookEventName": "PostToolUse", "sessionId": "...", "cwd": "...", "tool_name": "write", ... }
+
+// Codex
+{ "hook_event_name": "PostToolUse", "session_id": "...", "cwd": "...", "tool_name": "apply_patch", ... }
 
 // Windsurf  
 { "agent_action_name": "post_write_code", "trajectory_id": "...", "tool_info": { "file_path": "..." } }
@@ -80,9 +84,17 @@ memorix hook <normalized_event> [--agent <agent_name>]
 ```bash
 memorix hooks install
 # 自动检测已安装的 Agent → 生成对应配置文件
-# 支持: --agent cursor|windsurf|claude|copilot|kiro|codex
+# 支持: --agent cursor|windsurf|claude|copilot|kiro
 # 支持: --project (仅当前项目) | --global (全局)
 ```
+
+Codex 使用插件入口而不是 fallback 配置文件：
+
+```bash
+memorix setup --agent codex --global
+```
+
+安装后，Codex 首次要求时在 `/hooks` 中审核 Memorix 插件的 hook 定义。
 
 ## 文件结构
 

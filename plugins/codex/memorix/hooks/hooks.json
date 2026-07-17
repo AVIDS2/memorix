@@ -2,10 +2,12 @@
   "hooks": {
     "SessionStart": [
       {
+        "matcher": "startup|resume|clear|compact",
         "hooks": [
           {
             "type": "command",
             "command": "memorix hook --agent codex",
+            "commandWindows": "memorix.cmd hook --agent codex",
             "timeout": 10
           }
         ]
@@ -13,10 +15,12 @@
     ],
     "PostToolUse": [
       {
+        "matcher": "*",
         "hooks": [
           {
             "type": "command",
             "command": "memorix hook --agent codex",
+            "commandWindows": "memorix.cmd hook --agent codex",
             "timeout": 10
           }
         ]
@@ -28,6 +32,32 @@
           {
             "type": "command",
             "command": "memorix hook --agent codex",
+            "commandWindows": "memorix.cmd hook --agent codex",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "matcher": "manual|auto",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "memorix hook --agent codex",
+            "commandWindows": "memorix.cmd hook --agent codex",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "memorix hook --agent codex",
+            "commandWindows": "memorix.cmd hook --agent codex",
             "timeout": 10
           }
         ]

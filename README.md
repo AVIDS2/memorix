@@ -245,7 +245,7 @@ memorix setup --agent omp --global
 What it installs depends on the target agent, but the goal is the same: make Memorix available wherever you open that agent without asking you to wire every repo by hand.
 
 - Claude Code: installs the Memorix plugin package, adds `CLAUDE.md` guidance, and enables hook capture when you do not pass `--noHooks`.
-- Codex: installs the Memorix plugin package, adds `AGENTS.md` guidance, and enables hook capture when you do not pass `--noHooks`.
+- Codex: installs the Memorix plugin package with stdio MCP, skills, and lifecycle hooks, then adds `AGENTS.md` guidance. When Codex asks, review the plugin hook definition once with `/hooks`; `--noHooks` skips automatic capture.
 - GitHub Copilot CLI: installs the Copilot plugin package and official Memorix skills.
 - Pi: installs the user-level Pi package and official skills.
 - Cursor: writes Cursor MCP/rules/config entries in the chosen scope.

@@ -8,7 +8,12 @@
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { normalizeHookInput } from '../../src/hooks/normalizer.js';
-import { installHooks, uninstallHooks, getHookStatus } from '../../src/hooks/installers/index.js';
+import {
+  installHooks,
+  uninstallHooks,
+  getHookStatus,
+  resolveOpenCodeHookCommand,
+} from '../../src/hooks/installers/index.js';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
@@ -188,28 +193,36 @@ describe('Issue #80: OpenCode plugin must use correct event keys', () => {
     expect(content).not.toContain('Bun.write(tmpPath');
   });
 
-  it('should use memorix.cmd on Windows', async () => {
+  it('resolves the Windows npm shim before OpenCode starts', () => {
+    expect(resolveOpenCodeHookCommand('win32', () => 'C:\\Users\\example\\AppData\\Roaming\\npm\\memorix.cmd'))
+      .toBe('C:\\Users\\example\\AppData\\Roaming\\npm\\memorix.cmd');
+    expect(resolveOpenCodeHookCommand('win32', () => null)).toBe('memorix.cmd');
+    expect(resolveOpenCodeHookCommand('linux', () => 'ignored')).toBe('memorix');
+  });
+
+  it('should embed the resolved Memorix command in the generated plugin', async () => {
     await installHooks('opencode', tmpDir);
     const pluginPath = path.join(tmpDir, '.opencode', 'plugins', 'memorix.js');
     const content = await fs.readFile(pluginPath, 'utf-8');
-    expect(content).toContain("process.platform === 'win32' ? 'memorix.cmd' : 'memorix'");
+    expect(content).toContain(`const hookCommand = ${JSON.stringify(resolveOpenCodeHookCommand())};`);
   });
 
-  it('should include diagnostic logging on failure (not silent swallow)', async () => {
+  it('keeps hook delivery failures out of the normal OpenCode conversation', async () => {
     await installHooks('opencode', tmpDir);
     const pluginPath = path.join(tmpDir, '.opencode', 'plugins', 'memorix.js');
     const content = await fs.readFile(pluginPath, 'utf-8');
     expect(content).toContain('[memorix-plugin]');
-    expect(content).toContain('console.error');
+    expect(content).toContain("process.env.MEMORIX_HOOK_DEBUG !== '1'");
+    expect(content).toContain('hookFailureReported');
   });
 
   // ─── Plugin version ───
 
-  it('should generate version 6 plugin (assistant response capture + spawnSync)', async () => {
+  it('should generate version 7 plugin (stable Windows command + quiet failure handling)', async () => {
     await installHooks('opencode', tmpDir);
     const pluginPath = path.join(tmpDir, '.opencode', 'plugins', 'memorix.js');
     const content = await fs.readFile(pluginPath, 'utf-8');
-    expect(content).toContain('@generated-version 6');
+    expect(content).toContain('@generated-version 7');
   });
 
   // ─── Hooks status: verified field ───
@@ -233,12 +246,12 @@ describe('Issue #80: OpenCode plugin must use correct event keys', () => {
     expect(claude!.verified).toBe(true); // Config-based, file existence = verified
   });
 
-  it('should detect outdated v3 OpenCode plugin (catch-all event handler)', async () => {
-    // Write a v3-style plugin manually
+  it('should detect the v6 OpenCode plugin with the Windows PATH bug as outdated', async () => {
+    // v6 used a bare memorix.cmd lookup from OpenCode's own PATH.
     const pluginDir = path.join(tmpDir, '.opencode', 'plugins');
     await fs.mkdir(pluginDir, { recursive: true });
     const pluginPath = path.join(pluginDir, 'memorix.js');
-    await fs.writeFile(pluginPath, `// @generated-version 3\nexport const MemorixPlugin = async (ctx) => { return { event: async ({ event }) => {} } };`, 'utf-8');
+    await fs.writeFile(pluginPath, '// @generated-version 6\nexport const MemorixPlugin = async () => ({});', 'utf-8');
 
     const statuses = await getHookStatus(tmpDir);
     const oc = statuses.find(s => s.agent === 'opencode');
@@ -290,14 +303,14 @@ describe('Issue #80: OpenCode plugin must use correct event keys', () => {
 
   // ─── Reinstall ───
 
-  it('should reinstall after uninstall with correct v6 format', async () => {
+  it('should reinstall after uninstall with correct v7 format', async () => {
     await installHooks('opencode', tmpDir);
     await uninstallHooks('opencode', tmpDir);
     await installHooks('opencode', tmpDir);
 
     const pluginPath = path.join(tmpDir, '.opencode', 'plugins', 'memorix.js');
     const content = await fs.readFile(pluginPath, 'utf-8');
-    expect(content).toContain('@generated-version 6');
+    expect(content).toContain('@generated-version 7');
     expect(content).toContain("'session.created':");
     expect(content).toContain("'message.updated':");
     expect(content).toContain('spawnSync');

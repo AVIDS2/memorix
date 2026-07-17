@@ -10,10 +10,15 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 
+const embeddingProvider = vi.hoisted(() => ({
+  getEmbeddingProvider: vi.fn(),
+  isEmbeddingExplicitlyDisabled: vi.fn(),
+}));
+
 vi.mock('../../src/embedding/provider.js', () => ({
-  getEmbeddingProvider: async () => null,
+  getEmbeddingProvider: embeddingProvider.getEmbeddingProvider,
   isVectorSearchAvailable: async () => false,
-  isEmbeddingExplicitlyDisabled: () => true,
+  isEmbeddingExplicitlyDisabled: embeddingProvider.isEmbeddingExplicitlyDisabled,
   resetProvider: () => {},
 }));
 
@@ -24,6 +29,10 @@ let testDir: string;
 let dataDir: string;
 
 beforeEach(async () => {
+  embeddingProvider.getEmbeddingProvider.mockReset();
+  embeddingProvider.getEmbeddingProvider.mockResolvedValue(null);
+  embeddingProvider.isEmbeddingExplicitlyDisabled.mockReset();
+  embeddingProvider.isEmbeddingExplicitlyDisabled.mockReturnValue(true);
   testDir = await fs.mkdtemp(path.join(os.tmpdir(), 'memorix-tui-scope-'));
   dataDir = path.join(testDir, '.memorix', 'data');
   await fs.mkdir(dataDir, { recursive: true });
@@ -55,6 +64,26 @@ beforeEach(async () => {
 });
 
 describe('getHealthInfo project scope', () => {
+  it('checks embedding readiness without allowing a remote startup probe', async () => {
+    vi.doMock('../../src/project/detector.js', () => ({
+      detectProject: () => ({ id: PROJECT_A, name: 'project-a', rootPath: testDir, gitRemote: 'none' }),
+    }));
+    vi.doMock('../../src/store/persistence.js', async () => {
+      const actual = await vi.importActual('../../src/store/persistence.js') as any;
+      return { ...actual, getProjectDataDir: async () => dataDir };
+    });
+    embeddingProvider.isEmbeddingExplicitlyDisabled.mockReturnValue(false);
+    embeddingProvider.getEmbeddingProvider.mockResolvedValue(null);
+
+    const { getHealthInfo } = await import('../../src/cli/tui/data.js');
+    await getHealthInfo(PROJECT_A);
+
+    expect(embeddingProvider.getEmbeddingProvider).toHaveBeenCalledWith({ allowNetworkProbe: false });
+
+    vi.doUnmock('../../src/project/detector.js');
+    vi.doUnmock('../../src/store/persistence.js');
+  });
+
   it('counts only the specified project observations', async () => {
     // Mock detectProject + getProjectDataDir to use our test dir
     vi.doMock('../../src/project/detector.js', () => ({

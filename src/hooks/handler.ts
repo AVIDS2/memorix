@@ -14,7 +14,7 @@ import type { ObservationType } from '../types.js';
 import { normalizeHookInput } from './normalizer.js';
 import { detectBestPattern, patternToObservationType } from './pattern-detector.js';
 import { isSignificantKnowledge, isRetrievedResult, isTrivialCommand } from './significance-filter.js';
-import type { HookEvent, HookOutput, NormalizedHookInput } from './types.js';
+import type { AgentName, HookEvent, HookOutput, NormalizedHookInput } from './types.js';
 
 // ─── Constants ───
 
@@ -431,6 +431,55 @@ export async function handleHookEvent(input: NormalizedHookInput): Promise<{
   };
 }
 
+/**
+ * Convert Memorix's neutral hook response into the host-specific response
+ * schema expected by each supported agent.
+ */
+export function formatHookOutput(
+  agent: AgentName,
+  rawEventName: string,
+  output: HookOutput,
+): Record<string, unknown> {
+  if (agent === 'codex') {
+    const codexOutput: Record<string, unknown> = { continue: output.continue };
+    if (output.stopReason) codexOutput.stopReason = output.stopReason;
+
+    // Codex adds SessionStart additionalContext directly to developer context.
+    // Capture-only events deliberately stay quiet so automatic memory never
+    // becomes a stream of status messages in the agent's working context.
+    if (rawEventName === 'SessionStart' && output.systemMessage) {
+      codexOutput.hookSpecificOutput = {
+        hookEventName: 'SessionStart',
+        additionalContext: output.systemMessage,
+      };
+    }
+
+    return codexOutput;
+  }
+
+  const finalOutput: Record<string, unknown> = { ...output };
+  const hookSpecificOutputEvents = new Set([
+    'PreToolUse',
+    'UserPromptSubmit',
+    'PostToolUse',
+    'postToolUse',
+    'preToolUse',
+    'userPromptSubmitted',
+  ]);
+
+  if (rawEventName && hookSpecificOutputEvents.has(rawEventName)) {
+    const hookSpecificOutput: Record<string, unknown> = { hookEventName: rawEventName };
+    if (output.systemMessage) {
+      hookSpecificOutput.additionalContext = output.systemMessage;
+    } else if (rawEventName === 'UserPromptSubmit') {
+      hookSpecificOutput.additionalContext = '';
+    }
+    finalOutput.hookSpecificOutput = hookSpecificOutput;
+  }
+
+  return finalOutput;
+}
+
 // ─── Entry Point ───
 
 /**
@@ -602,23 +651,11 @@ export async function runHook(agentOverride?: string, eventOverride?: string): P
     ?? (payload.hook_event_name as string)
     ?? (payload.hookEventName as string)
     ?? '';
-  const finalOutput: Record<string, unknown> = { ...output };
   if (input.agent === 'antigravity') {
     process.stdout.write(JSON.stringify(toAntigravityHookOutput(rawEventName, output)));
     return;
   }
-
-  const HSO_EVENTS = new Set(['PreToolUse', 'UserPromptSubmit', 'PostToolUse', 'postToolUse', 'preToolUse', 'userPromptSubmitted']);
-  if (rawEventName && HSO_EVENTS.has(rawEventName)) {
-    const hso: Record<string, unknown> = { hookEventName: rawEventName };
-    // additionalContext is REQUIRED for UserPromptSubmit, optional for others
-    if (output.systemMessage) {
-      hso.additionalContext = output.systemMessage;
-    } else if (rawEventName === 'UserPromptSubmit') {
-      hso.additionalContext = '';
-    }
-    finalOutput.hookSpecificOutput = hso;
-  }
+  const finalOutput = formatHookOutput(input.agent, rawEventName, output);
   process.stdout.write(JSON.stringify(finalOutput));
 }
 

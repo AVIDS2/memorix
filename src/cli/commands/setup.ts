@@ -192,6 +192,7 @@ export function buildSetupPlan(options: {
   hooks?: boolean;
   rules?: boolean;
   plugin?: boolean;
+  global?: boolean;
 }): SetupPlan {
   const mcp = options.mcp ?? 'stdio';
   const actions: SetupAction[] = [];
@@ -206,7 +207,7 @@ export function buildSetupPlan(options: {
   if (wantsPlugin && options.agent !== 'all') {
     if (options.agent === 'opencode') {
       actions.push('opencode-local-plugin');
-    } else if (PLUGIN_PACKAGE_AGENTS.has(options.agent)) {
+    } else if (PLUGIN_PACKAGE_AGENTS.has(options.agent) && options.global) {
       actions.push('plugin-package');
     } else if (EXTENSION_PACKAGE_AGENTS.has(options.agent)) {
       actions.push('extension-package');
@@ -1061,6 +1062,10 @@ async function installAgentSetup(agent: AgentName, plan: SetupPlan, global: bool
   const hasOmpPackage = plan.actions.includes('omp-package') && agent === 'omp';
   const wantsMcpConfig = plan.mcp !== 'none' && agent !== 'pi';
 
+  if (PLUGIN_PACKAGE_AGENTS.has(agent) && plan.includePlugin && !global) {
+    p.log.info(`${agent}: project setup leaves user-level plugins untouched. Run \`memorix setup --agent ${agent} --global\` to install its plugin, skills, and lifecycle hooks.`);
+  }
+
   if (hasPluginPackage) {
     const result = await installPluginPackage({
       agent: agent as PluginInstallOptions['agent'],
@@ -1322,6 +1327,7 @@ export default defineCommand({
         hooks: !args.noHooks,
         rules: !args.noRules,
         plugin: !args.noPlugin,
+        global: Boolean(args.global),
       });
       await installAgentSetup(agent, plan, Boolean(args.global));
     }

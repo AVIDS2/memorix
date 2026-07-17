@@ -14,7 +14,15 @@ vi.mock('../../src/store/orama-store.js', () => ({
   resetDb: vi.fn().mockResolvedValue(undefined),
   generateEmbedding: vi.fn().mockResolvedValue(null),
   batchGenerateEmbeddings: vi.fn().mockResolvedValue([]),
+  getDb: vi.fn().mockResolvedValue({}),
   getVectorDimensions: vi.fn().mockReturnValue(384),
+  hydrateIndex: vi.fn().mockResolvedValue(0),
+  hydrateIndexForStartup: vi.fn().mockResolvedValue(0),
+  getDeferredCachedVectorHydration: vi.fn().mockReturnValue(null),
+  isEmbeddingEnabled: vi.fn().mockReturnValue(false),
+  hasObservationVector: vi.fn().mockReturnValue(false),
+  getLastSearchMode: vi.fn().mockReturnValue('fulltext'),
+  searchObservations: vi.fn().mockResolvedValue([]),
   makeOramaObservationId: (projectId: string, id: number) => `obs-${projectId}-${id}`,
 }));
 
@@ -280,7 +288,45 @@ describe('Vector Stability', () => {
     expect(getVectorMissingIds()).toContain(observation.id);
   });
 
-  it('reindexObservations skips synchronous batch embedding when the active provider is remote API', async () => {
+  it('upgrades a lexical startup index after the first API vector establishes dimensions', async () => {
+    const oramaStore = await import('../../src/store/orama-store.js');
+    const embeddingProvider = await import('../../src/embedding/provider.js');
+    let dimensions: number | null = null;
+    const vector = [0.1, 0.2, 0.3];
+
+    vi.mocked(oramaStore.getVectorDimensions).mockImplementation(() => dimensions);
+    vi.mocked(oramaStore.resetDb).mockImplementation(async () => {
+      dimensions = 3;
+    });
+    vi.mocked(oramaStore.generateEmbedding).mockResolvedValue(vector);
+    vi.mocked(embeddingProvider.getEmbeddingProvider).mockResolvedValue({
+      name: 'api-test',
+      dimensions: 3,
+      embed: vi.fn(),
+      embedBatch: vi.fn(),
+      getCachedEmbeddings: vi.fn().mockResolvedValue([vector]),
+    });
+
+    const { storeObservation, getVectorMissingIds } = await import('../../src/memory/observations.js');
+    const { observation } = await storeObservation({
+      entityName: 'first-api-vector',
+      type: 'discovery',
+      title: 'First API vector establishes the schema',
+      narrative: 'The process should switch from lexical-only to semantic search without a restart.',
+      projectId: 'test/vector-schema-upgrade',
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    expect(oramaStore.resetDb).toHaveBeenCalled();
+    expect(oramaStore.insertObservation).toHaveBeenCalledWith(expect.objectContaining({
+      observationId: observation.id,
+      embedding: vector,
+    }));
+    expect(getVectorMissingIds()).not.toContain(observation.id);
+  });
+
+  it('reindexObservations restores cached API embeddings and leaves cache misses queued', async () => {
     const oramaStore = await import('../../src/store/orama-store.js');
     const embeddingProvider = await import('../../src/embedding/provider.js');
     const persistence = await import('../../src/store/persistence.js');
@@ -305,11 +351,15 @@ describe('Vector Stability', () => {
     vi.mocked(persistence.loadObservationsJson).mockResolvedValue(testObs);
     mockStore.loadAll.mockResolvedValue(testObs);
     mockStore.loadIdCounter.mockResolvedValue(42);
+    const cachedVector = Array.from({ length: 4096 }, () => 0.1);
+    const getCachedEmbeddings = vi.fn().mockResolvedValue([cachedVector]);
+    vi.mocked(oramaStore.getVectorDimensions).mockReturnValue(4096);
     vi.mocked(embeddingProvider.getEmbeddingProvider).mockResolvedValue({
       name: 'api-Qwen-Qwen3-Embedding-8B',
       dimensions: 4096,
       embed: vi.fn(),
       embedBatch: vi.fn(),
+      getCachedEmbeddings,
     });
 
     const { initObservations, reindexObservations, getVectorMissingIds } =
@@ -320,6 +370,112 @@ describe('Vector Stability', () => {
 
     expect(count).toBe(1);
     expect(oramaStore.batchGenerateEmbeddings).not.toHaveBeenCalled();
-    expect(getVectorMissingIds()).toContain(41);
+    expect(getCachedEmbeddings).toHaveBeenCalledWith([
+      'Remote API startup reindex Should not block MCP startup on remote embedding backfill',
+    ]);
+    expect(oramaStore.insertObservation).toHaveBeenCalledWith(expect.objectContaining({
+      embedding: cachedVector,
+    }));
+    expect(getVectorMissingIds()).not.toContain(41);
+  });
+
+  it('builds the current vector schema before rejecting a stale cached vector', async () => {
+    const oramaStore = await import('../../src/store/orama-store.js');
+    const embeddingProvider = await import('../../src/embedding/provider.js');
+    const persistence = await import('../../src/store/persistence.js');
+    let schemaReady = false;
+    vi.mocked(oramaStore.getDb).mockImplementation(async () => {
+      schemaReady = true;
+      return {} as any;
+    });
+    vi.mocked(oramaStore.getVectorDimensions).mockImplementation(() => schemaReady ? 4096 : null);
+
+    const testObs = [{
+      id: 47,
+      entityName: 'stale-cache-vector',
+      type: 'discovery',
+      title: 'Cached vector has old dimensions',
+      narrative: 'The lexical observation must survive the mismatch',
+      facts: [],
+      filesModified: [],
+      concepts: [],
+      tokens: 10,
+      createdAt: new Date().toISOString(),
+      projectId: 'test/vector-stability',
+      status: 'active',
+      source: 'agent',
+    }];
+    vi.mocked(persistence.loadObservationsJson).mockResolvedValue(testObs);
+    mockStore.loadAll.mockResolvedValue(testObs);
+    mockStore.loadIdCounter.mockResolvedValue(48);
+    vi.mocked(embeddingProvider.getEmbeddingProvider).mockResolvedValue({
+      name: 'api-Qwen-Qwen3-Embedding-8B',
+      dimensions: 4096,
+      embed: vi.fn(),
+      embedBatch: vi.fn(),
+      getCachedEmbeddings: vi.fn().mockResolvedValue([[0.1, 0.2, 0.3]]),
+    });
+
+    const { initObservations, reindexObservations, getVectorMissingIds } =
+      await import('../../src/memory/observations.js');
+    await initObservations('/tmp/memorix-vector-stale-cache');
+
+    const count = await reindexObservations();
+
+    expect(count).toBe(1);
+    expect(oramaStore.getDb).toHaveBeenCalledOnce();
+    expect(oramaStore.insertObservation).toHaveBeenCalledWith(expect.not.objectContaining({ embedding: expect.anything() }));
+    expect(getVectorMissingIds('test/vector-stability')).toContain(47);
+  });
+
+  it('prepareSearchIndex queues only observations that lack a cached vector', async () => {
+    const oramaStore = await import('../../src/store/orama-store.js');
+    const persistence = await import('../../src/store/persistence.js');
+    const testObs = [
+      {
+        id: 51,
+        entityName: 'cached-vector',
+        type: 'discovery',
+        title: 'Already cached',
+        narrative: 'Should not be queued again',
+        facts: [],
+        filesModified: [],
+        concepts: [],
+        tokens: 10,
+        createdAt: new Date().toISOString(),
+        projectId: 'test/vector-hydration',
+        status: 'active',
+        source: 'agent',
+      },
+      {
+        id: 52,
+        entityName: 'missing-vector',
+        type: 'discovery',
+        title: 'No cache entry',
+        narrative: 'Should use bounded background recovery',
+        facts: [],
+        filesModified: [],
+        concepts: [],
+        tokens: 10,
+        createdAt: new Date().toISOString(),
+        projectId: 'test/vector-hydration',
+        status: 'active',
+        source: 'agent',
+      },
+    ];
+    vi.mocked(persistence.loadObservationsJson).mockResolvedValue(testObs);
+    mockStore.loadAll.mockResolvedValue(testObs);
+    mockStore.loadIdCounter.mockResolvedValue(53);
+    vi.mocked(oramaStore.hydrateIndexForStartup).mockResolvedValue(2);
+    vi.mocked(oramaStore.isEmbeddingEnabled).mockReturnValue(true);
+    vi.mocked(oramaStore.hasObservationVector).mockImplementation((_projectId, observationId) => observationId === 51);
+
+    const { initObservations, prepareSearchIndex, getVectorMissingIds } =
+      await import('../../src/memory/observations.js');
+    await initObservations('/tmp/memorix-vector-hydration');
+
+    await prepareSearchIndex();
+
+    expect(getVectorMissingIds('test/vector-hydration')).toEqual([52]);
   });
 });

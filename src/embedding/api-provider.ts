@@ -14,6 +14,7 @@ import type { EmbeddingProvider } from './provider.js';
 const CACHE_DIR = process.env.MEMORIX_DATA_DIR || join(homedir(), '.memorix', 'data');
 const CACHE_FILE = join(CACHE_DIR, '.embedding-api-cache.json');
 const DIMS_CACHE_FILE = join(CACHE_DIR, '.embedding-dims-cache.json');
+const CACHE_META_FILE = join(CACHE_DIR, '.embedding-api-cache-meta.json');
 
 const cache = new Map<string, number[]>();
 const MAX_CACHE_SIZE = 10000;
@@ -80,6 +81,73 @@ function dimsCacheKey(config: Pick<APIEmbeddingConfig, 'baseUrl' | 'model' | 're
     config.model,
     config.requestedDimensions ?? 'native',
   ].join('|');
+}
+
+interface CacheMetadataEntry {
+  namespace: string;
+  dimensions: number;
+  ts: number;
+}
+
+function isValidDimension(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value > 0;
+}
+
+/**
+ * The vector cache keeps a tiny, redundant namespace → dimensions map. It lets
+ * cache-first startup recover when the separate dimensions cache is missing.
+ */
+async function loadCachedVectorDimensions(
+  config: Pick<APIEmbeddingConfig, 'baseUrl' | 'model' | 'requestedDimensions'>,
+): Promise<number | null> {
+  try {
+    const raw = await readFile(CACHE_META_FILE, 'utf-8');
+    const data = JSON.parse(raw);
+    const namespace = cacheNamespace(config);
+    if (!Array.isArray(data?.entries)) return null;
+    const entry = data.entries.find((candidate: unknown) =>
+      typeof candidate === 'object' &&
+      candidate !== null &&
+      (candidate as { namespace?: unknown }).namespace === namespace &&
+      isValidDimension((candidate as { dimensions?: unknown }).dimensions),
+    ) as CacheMetadataEntry | undefined;
+    return entry?.dimensions ?? null;
+  } catch {
+    return null;
+  }
+}
+
+async function saveCachedVectorDimensions(
+  config: Pick<APIEmbeddingConfig, 'baseUrl' | 'model' | 'requestedDimensions'>,
+  dimensions: number,
+): Promise<void> {
+  if (!isValidDimension(dimensions)) return;
+  try {
+    await mkdir(CACHE_DIR, { recursive: true });
+    let entries: CacheMetadataEntry[] = [];
+    try {
+      const raw = await readFile(CACHE_META_FILE, 'utf-8');
+      const data = JSON.parse(raw);
+      if (Array.isArray(data?.entries)) {
+        entries = data.entries.filter((candidate: unknown): candidate is CacheMetadataEntry =>
+          typeof candidate === 'object' &&
+          candidate !== null &&
+          typeof (candidate as { namespace?: unknown }).namespace === 'string' &&
+          isValidDimension((candidate as { dimensions?: unknown }).dimensions) &&
+          typeof (candidate as { ts?: unknown }).ts === 'number',
+        );
+      }
+    } catch {
+      // The cache metadata is a best-effort acceleration layer.
+    }
+
+    const namespace = cacheNamespace(config);
+    entries = entries.filter((entry) => entry.namespace !== namespace);
+    entries.push({ namespace, dimensions, ts: Date.now() });
+    await writeFile(CACHE_META_FILE, JSON.stringify({ version: 1, entries }));
+  } catch {
+    // A missing or read-only cache must never block embedding requests.
+  }
 }
 
 /** Load cached probe dimensions from disk. Returns null if not cached. */
@@ -179,6 +247,7 @@ async function saveCachedDims(config: Pick<APIEmbeddingConfig, 'baseUrl' | 'mode
 
     await writeFile(DIMS_CACHE_FILE, JSON.stringify({ entries }));
   } catch { /* best-effort */ }
+  await saveCachedVectorDimensions(config, dimensions);
 }
 
 async function saveDiskCacheNow(): Promise<void> {
@@ -231,6 +300,14 @@ interface APIEmbeddingConfig {
   requestedDimensions: number | null;
 }
 
+export interface APIEmbeddingProviderCreateOptions {
+  /**
+   * When false, only previously persisted dimension metadata may initialize
+   * the provider. This keeps startup/cache hydration off the remote API path.
+   */
+  allowNetworkProbe?: boolean;
+}
+
 function resolveEnvEmbeddingApiKey(): string | undefined {
   return process.env.MEMORIX_EMBEDDING_API_KEY;
 }
@@ -272,18 +349,27 @@ export class APIEmbeddingProvider implements EmbeddingProvider {
     this.name = `api-${config.model.replace(/\//g, '-')}`;
   }
 
-  static async create(): Promise<APIEmbeddingProvider> {
+  static async create(): Promise<APIEmbeddingProvider>;
+  static async create(options: APIEmbeddingProviderCreateOptions & { allowNetworkProbe: false }): Promise<APIEmbeddingProvider | null>;
+  static async create(options: APIEmbeddingProviderCreateOptions): Promise<APIEmbeddingProvider | null>;
+  static async create(options: APIEmbeddingProviderCreateOptions = {}): Promise<APIEmbeddingProvider | null> {
     const config = APIEmbeddingProvider.resolveConfig();
-
-    // Start loading the 45MB+ embedding cache in the background (non-blocking).
-    // It will be awaited on first embed() call if not yet ready.
-    startDiskCacheLoad();
+    const allowNetworkProbe = options.allowNetworkProbe !== false;
 
     // Try cached dimensions first to avoid a network probe on cold start
     let probeDimensions = await loadCachedDims(config);
+    let dimensionSource: 'dims-cache' | 'vector-cache' | 'probe' = 'dims-cache';
+    if (probeDimensions === null) {
+      probeDimensions = await loadCachedVectorDimensions(config);
+      if (probeDimensions !== null) dimensionSource = 'vector-cache';
+    }
     if (probeDimensions !== null) {
-      console.error(`[memorix] API embedding: ${config.model} @ ${config.baseUrl} (${probeDimensions}d) [cached dims]`);
+      console.error(`[memorix] API embedding: ${config.model} @ ${config.baseUrl} (${probeDimensions}d) [${dimensionSource}]`);
+      if (dimensionSource === 'dims-cache') {
+        void saveCachedVectorDimensions(config, probeDimensions);
+      }
     } else {
+      if (!allowNetworkProbe) return null;
       probeDimensions = await APIEmbeddingProvider.probeAPI(config);
       console.error(`[memorix] API embedding: ${config.model} @ ${config.baseUrl} (${probeDimensions}d)`);
       // Persist for next cold start
@@ -292,6 +378,11 @@ export class APIEmbeddingProvider implements EmbeddingProvider {
     if (config.requestedDimensions) {
       console.error(`[memorix] Dimension shortening: ${config.requestedDimensions}d requested`);
     }
+
+    // The cache can only be used after dimensions are known. In cache-only
+    // startup with no metadata, skip parsing the potentially large cache file
+    // altogether and stay lexical until a normal embedding lane is needed.
+    startDiskCacheLoad();
 
     return new APIEmbeddingProvider(config, probeDimensions);
   }
@@ -517,6 +608,14 @@ export class APIEmbeddingProvider implements EmbeddingProvider {
 
     scheduleDiskSave();
     return results;
+  }
+
+  async getCachedEmbeddings(texts: string[]): Promise<(number[] | null)[]> {
+    await ensureDiskCacheLoaded();
+    return texts.map((text) => {
+      const hash = textHash(normalizeText(text), this.cacheKeyNamespace);
+      return cache.get(hash) ?? null;
+    });
   }
 
   getStats(): { totalTokens: number; totalApiCalls: number; cacheSize: number } {

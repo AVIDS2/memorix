@@ -56,7 +56,8 @@ const SKILLS_SECTION: SectionDef = {
 const ALL_SECTIONS: SectionDef[] = [...SECTION_DEFS, GIT_SECTION, SKILLS_SECTION];
 
 // -- Edge inference rules --
-// Infer semantic edges between observations based on shared attributes.
+// Infer deterministic memory links between observations based on shared
+// attributes. These links are a navigational projection, not verified claims.
 // Rules (no LLM, deterministic):
 // 1. supports: same entityName, different section -> source supports target
 // 2. relates_to: same entityName, same section -> bidirectional
@@ -251,7 +252,7 @@ export function generateKnowledgeGraph(options: GenerateGraphOptions): ProjectKn
     }
   }
 
-  // Infer edges from observation/skill semantics
+  // Infer deterministic links from observation and skill metadata.
   const edges = inferEdges(nodes, entityNameIndex);
 
   // Add derived_from edges: skill -> source obs
@@ -270,7 +271,7 @@ export function generateKnowledgeGraph(options: GenerateGraphOptions): ProjectKn
     }
   }
 
-  // Merge graph-store relations into semantic edges
+  // Merge explicit graph-store relations into the deterministic map.
   // Only include relations where both endpoints map to existing nodes
   if (graphRelations && graphRelations.length > 0) {
     const entityNodeMap = new Map<string, string>(); // entityName -> first matching nodeId
@@ -323,7 +324,9 @@ export function generateKnowledgeGraph(options: GenerateGraphOptions): ProjectKn
   };
 
   return {
-    title: 'Knowledge Graph',
+    title: 'Memory Map',
+    kind: 'deterministic-memory-map',
+    semantic: false,
     projectId,
     generatedAt: options.generatedAt ?? new Date().toISOString(),
     nodes,

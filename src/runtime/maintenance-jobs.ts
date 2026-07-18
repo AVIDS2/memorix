@@ -8,6 +8,11 @@ export const MAINTENANCE_JOB_KINDS = [
   'retention-archive',
   'consolidation',
   'codegraph-refresh',
+  'claim-derive',
+  'claim-requalification',
+  'knowledge-compile',
+  'knowledge-lint',
+  'workflow-index',
 ] as const;
 
 export type MaintenanceJobKind = typeof MAINTENANCE_JOB_KINDS[number];

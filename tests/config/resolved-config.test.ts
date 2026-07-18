@@ -32,6 +32,9 @@ const ENV_KEYS = [
   'MEMORIX_EMBEDDING_BASE_URL',
   'MEMORIX_EMBEDDING_MODEL',
   'MEMORIX_EMBEDDING_DIMENSIONS',
+  'MEMORIX_CODEGRAPH_EXTERNAL_CONTEXT',
+  'MEMORIX_CODEGRAPH_EXTERNAL_COMMAND',
+  'MEMORIX_CODEGRAPH_EXTERNAL_TIMEOUT_MS',
   'OPENAI_API_KEY',
 ];
 
@@ -181,6 +184,27 @@ describe('resolved config', () => {
 
     expect(cfg.codegraph.excludePatterns).toEqual(['vendor/**', '**/generated/**']);
     expect(cfg.codegraph.maxFileBytes).toBe(524288);
+  });
+
+  it('resolves bounded external CodeGraph context settings without credentials', () => {
+    writeFileSync(join(HOME, '.memorix', 'config.toml'), [
+      '[codegraph]',
+      'external_context = "off"',
+      'external_command = "C:\\\\tools\\\\codegraph.cmd"',
+      'external_timeout_ms = 900',
+    ].join('\n'), 'utf8');
+    process.env.MEMORIX_CODEGRAPH_EXTERNAL_CONTEXT = 'auto';
+    process.env.MEMORIX_CODEGRAPH_EXTERNAL_TIMEOUT_MS = '700';
+
+    const cfg = getResolvedConfig({ projectRoot: null, homeDir: HOME });
+
+    expect(cfg.codegraph.externalContext).toBe('auto');
+    expect(cfg.codegraph.externalCommand).toBe('C:\\tools\\codegraph.cmd');
+    expect(cfg.codegraph.externalTimeoutMs).toBe(700);
+    expect(cfg.sources.env).toEqual(expect.arrayContaining([
+      'MEMORIX_CODEGRAPH_EXTERNAL_CONTEXT',
+      'MEMORIX_CODEGRAPH_EXTERNAL_TIMEOUT_MS',
+    ]));
   });
 
   it('uses git TOML settings in runtime getGitConfig after project root detection', () => {

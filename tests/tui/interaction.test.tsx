@@ -1544,13 +1544,13 @@ describe('IntegrateView', () => {
 // -- WikiView tests --
 
 describe('WikiView', () => {
-  it('renders Knowledge Base heading and LLM Wiki label', () => {
+  it('renders the read-only Memory Overview label', () => {
     const { lastFrame, unmount } = render(
       <WikiView knowledge={null} loading={false} />,
     );
     const frame = lastFrame()!;
-    expect(frame).toContain('Knowledge Base');
-    expect(frame).toContain('LLM Wiki');
+    expect(frame).toContain('Memory Overview');
+    expect(frame).toContain('Generated from durable memory');
     unmount();
   });
 
@@ -1559,7 +1559,7 @@ describe('WikiView', () => {
       <WikiView knowledge={null} loading={false} />,
     );
     const frame = lastFrame()!;
-    expect(frame).toContain('No knowledge available');
+    expect(frame).toContain('No memory overview is available');
     unmount();
   });
 
@@ -1568,15 +1568,17 @@ describe('WikiView', () => {
       <WikiView knowledge={null} loading={true} />,
     );
     const frame = lastFrame()!;
-    expect(frame).toContain('Knowledge Base');
+    expect(frame).toContain('Memory Overview');
     expect(frame).toContain('Loading');
     unmount();
   });
 
   it('renders sections and source refs with knowledge data', () => {
     const kb: import('../../src/wiki/types.js').ProjectKnowledgeOverview = {
-      title: 'Knowledge Base',
-      subtitle: 'LLM Wiki',
+      title: 'Memory Overview',
+      subtitle: 'Generated from durable project memory',
+      kind: 'memory-overview',
+      maintained: false,
       projectId: 'test/project',
       generatedAt: new Date().toISOString(),
       sections: [
@@ -1610,8 +1612,8 @@ describe('WikiView', () => {
       <WikiView knowledge={kb} loading={false} />,
     );
     const frame = lastFrame()!;
-    expect(frame).toContain('Knowledge Base');
-    expect(frame).toContain('LLM Wiki');
+    expect(frame).toContain('Memory Overview');
+    expect(frame).toContain('Generated from durable memory');
     expect(frame).toContain('test/project');
     expect(frame).toContain('Core Decisions');
     expect(frame).toContain('Use JWT for auth');

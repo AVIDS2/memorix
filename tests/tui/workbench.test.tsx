@@ -121,8 +121,10 @@ function makeProject() {
 // Knowledge with first item having refs (so 'm' jump works on index 0)
 function makeKnowledge() {
   return {
-    title: 'Knowledge Base',
-    subtitle: 'LLM Wiki',
+    title: 'Memory Overview',
+    subtitle: 'Generated from durable project memory',
+    kind: 'memory-overview',
+    maintained: false,
     projectId: 'test/proj',
     generatedAt: new Date().toISOString(),
     sections: [
@@ -259,7 +261,7 @@ describe('WorkbenchApp — tab navigation', () => {
     // Wait for knowledge tab to render
     await waitForCondition(() => {
       const f = lastFrame() ?? '';
-      return f.includes('# Knowledge') && f.includes('Knowledge Base');
+      return f.includes('# Knowledge') && f.includes('Memory Overview');
     });
 
     const frame = lastFrame() ?? '';
@@ -384,7 +386,7 @@ describe('WorkbenchApp — tab navigation', () => {
     // Ctrl+Right → Knowledge
     stdin.write('\x1B[1;5C');
     await waitForCondition(() => (lastFrame() ?? '').includes('# Knowledge'));
-    expect(lastFrame() ?? '').toContain('Knowledge Base');
+    expect(lastFrame() ?? '').toContain('Memory Overview');
 
     // Ctrl+Right → Memory
     stdin.write('\x1B[1;5C');

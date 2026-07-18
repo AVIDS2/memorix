@@ -285,6 +285,7 @@ describe('CodeGraph Lite provider', () => {
 
     expect(result.files.map(file => file.path)).toEqual(['src/stable.ts']);
     expect(result.symbols.map(symbol => symbol.name)).toEqual(['stable']);
+    expect(result.unreadableFiles).toBe(1);
     vi.doUnmock('node:fs');
     vi.resetModules();
   });

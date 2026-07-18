@@ -598,7 +598,7 @@ export function WorkbenchApp({ version, onExitForInteractive }: AppProps): React
           setKnowledgeSelectedIdx(0);
           setLoading(false);
           navigateTo('knowledge');
-          setStatusMsg({ text: kb ? `Knowledge Base: ${kb.stats.observationsUsed} obs, ${kb.stats.miniSkillsUsed} skills` : 'No knowledge available', type: 'info' });
+          setStatusMsg({ text: kb ? `Memory Overview: ${kb.stats.observationsUsed} obs, ${kb.stats.miniSkillsUsed} skills` : 'No memory overview available', type: 'info' });
           break;
         }
         case 'memory': {

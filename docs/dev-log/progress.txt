@@ -4,43 +4,123 @@
 > older notes when they conflict.
 
 ## Current State
-- Phase: 1.1.13 ready to publish
-- Branch: `codex/1.1.13-release-contract`
-- Last updated: 2026-07-17
-- Goal: make Codex global setup diagnosable end to end, remove the accidental
-  workspace publish lane, restore the Star History chart, then publish a clean
-  1.1.13 before beginning 1.2 work.
+- Phase: 1.2 release validation and publication
+- Branch: `codex/1.2.0-multidimensional-memory`
+- Last updated: 2026-07-18
+- Released baseline: `memorix@1.1.13`, tag `v1.1.13`, PR #129 merged as
+  `7e8077f`.
+- Goal: turn Memorix from a useful narrative-memory layer into a task-ready
+  working-context layer where code state, change evidence, verification,
+  source-backed project knowledge, workflows, and durable decisions are ranked
+  together.
 
-## Completed Recently
-- Released `memorix@1.1.12`, tagged `v1.1.12`, with native Codex lifecycle
-  hooks, Windows-safe OpenCode hook resolution, scope-isolated setup, and
-  cache-first semantic-vector hydration.
-- `memorix setup --agent codex --global` now stamps the copied plugin manifest
-  with the running Memorix version instead of leaving the template version.
-- `memorix doctor agents --agent codex --scope global` now reports four
-  independently useful facts: the local bundle and declared hook contract, the
-  Personal marketplace entry, Codex's installed/enabled plugin state, and the
-  trusted state for each Codex lifecycle hook.
-- Repair only refreshes Memorix-owned files. A disabled plugin or untrusted
-  hook remains an explicit user action in Codex's plugin/hook UI.
-- `@memorix/ai`, `@memorix/agent-core`, `@memorix/tui`, and
-  `@memorix/memcode` are explicitly internal workspaces. The public release
-  contract is the bundled root `memorix` package.
-- Restored the AVIDS2/memorix Star History chart at the bottom of both READMEs.
+## 1.1.13 Closeout
+- Codex setup now stamps plugin versions and doctor distinguishes bundle,
+  marketplace, installed/enabled state, declared hooks, and hook trust.
+- Root package publishing is isolated from internal `@memorix/*` workspaces.
+- Full tests, build, pack inspection, isolated MCP smoke, isolated Codex smoke,
+  and Ubuntu/Windows CI all passed before release.
 
-## Verification Snapshot
-- Focused Codex setup, hook, doctor, and release-contract regressions pass.
-- `npm run lint`, `npm run build`, and the full serial `npm test` suite pass.
-- `npm pack --dry-run` includes the root runtime, plugin templates, hooks,
-  READMEs, and docs at `memorix@1.1.13`.
-- A clean normal npm installation of the tarball completed a real stdio MCP
-  store/search call against an isolated Git repository and exposed the expected
-  seven-tool micro profile.
-- An isolated real Codex CLI setup installed and enabled `memorix@personal`,
-  stamped the manifest at `1.1.13`, and let doctor verify the bundle,
-  marketplace, runtime state, and pending first-use hook trust separately.
-- The Star History embed uses Star History's current `/image` README endpoint.
+## 1.2 Accepted Direction
+- The [1.2 Product Story](../1.2.0-PRODUCT-STORY.md) is the canonical
+  user-facing narrative; the Development Charter is its implementation
+  contract.
+- The [Knowledge and Workflow Research](../1.2.0-KNOWLEDGE-WORKFLOW-RESEARCH.md)
+  establishes Knowledge Workspace and Workflow Inheritance as 1.2 core product
+  layers, with an explicit boundary against claiming the existing memory map is
+  already a semantic graph or maintained LLM Wiki.
+- The [1.2 Implementation Plan](../1.2.0-IMPLEMENTATION-PLAN.md) is the
+  execution contract for the single complete 1.2 goal. All phases are internal
+  gates in one continuous delivery path, not separate user approval points.
+- Use the [1.2 Development Charter](../1.2.0-DEVELOPMENT-CHARTER.md) as the
+  working product contract.
+- Keep the current SQLite CodeGraph tables and incremental refresh as the base;
+  do not discard working 1.1 Code Memory.
+- Add versioned Code State and evidence-quality semantics before new parsers,
+  external providers, or user-visible tool surfaces.
+- Treat natural-language `memorix_project_context` as the product surface;
+  internal graph/provider complexity must stay behind it.
 
-## Next Steps
-- Push/merge/tag/publish `v1.1.13`, then create the 1.2 development baseline
-  from the released main branch.
+## Phase 0 Evaluation Foundation
+- Existing UI/API projections now identify themselves honestly as a read-only
+  Memory Overview and deterministic Memory Map. They are not presented as a
+  maintained wiki or semantic graph.
+- The Workset evaluation harness has fixture repositories for TypeScript,
+  Python, Go, docs-only, dirty worktree, deleted-symbol, and incomplete-scan
+  cases. Its seed manifest covers observations, Git facts, test evidence,
+  mini-skills, and explicit graph relations.
+- The harness compares memory-only, current-context, and candidate Worksets
+  against source/evidence/caution requirements and variant token ceilings.
+- The current Auto Context path is smoke-tested against real local TypeScript
+  and dirty-worktree fixtures with embeddings disabled. The candidate budget is
+  180 tokens; the current baseline budget is 320 tokens.
+- The former memory map remains separate from the formal Claim Ledger. Phase 2
+  owns claim provenance, conflict, and supersession semantics; Phase 0 only
+  prevents the old views from being mislabeled as those capabilities.
+
+## Phase 1 Code State
+- Lite refresh now appends a Code State Snapshot with bounded Git revision and
+  worktree metadata, a source epoch, a prior-snapshot link, and explicit scan
+  completeness.
+- Current files, symbols, edges, and current observation-code refs are marked
+  with the latest completed snapshot. Existing CodeGraph rows survive the
+  additive schema migration.
+- Project Context, the CodeGraph MCP status payload, and the codegraph CLI
+  status output expose the latest snapshot. A non-Git directory reports
+  unavailable instead of clean.
+
+## Phase 2 Claim Ledger
+- SQLite now has additive, transactional tables for claims, evidence
+  references, and lifecycle events. Every stored claim requires at least one
+  source reference and credential values are sanitized before durable writes.
+- Exact normalized assertions reuse their record and attach more evidence;
+  competing approved assertions remain disputed rather than being overwritten.
+  Evidence-aware supersession preserves an audit trail.
+- Explicit memories and Git-ingested facts can derive conservative claims.
+  Hook/model output does not become approved knowledge automatically.
+- Observation code references inherit the latest Code State Snapshot when they
+  are created. CodeGraph refresh requalifies bound claims: changed or deleted
+  symbols become unknown, and incomplete scans force review instead of false
+  certainty.
+- Unit and integration tests cover evidence validation, redaction, conflict,
+  supersession, model-review policy, snapshot binding, changed-symbol
+  requalification, and compact task selection.
+
+## Phase 3 Knowledge Workspace
+- Memorix now initializes a private local Markdown workspace by default. A
+  versioned workspace requires an explicit absolute path inside the Git project
+  and refuses ignored or unsafe target directories.
+- Approved active claims compile into Markdown proposals with frontmatter,
+  source claim ids, evidence references, snapshot context, a catalog, and an
+  append-only change log. Proposed pages are not silently published.
+- The knowledge init, status, compile, apply, and lint commands provide the
+  operator path. Applying a proposal protects a manual page edit by default;
+  an explicit force flag is the only overwrite path and is logged.
+- Workspace lint detects malformed frontmatter, broken links, orphan pages,
+  missing claims/evidence, superseded claims, unresolved conflicts, stale code
+  snapshots, and protected manual edits.
+- The compiled CLI was smoke-tested in an isolated Git project through init,
+  compile, apply, and lint with a source-backed claim.
+
+## 1.2 Delivery Complete, Release Checks In Progress
+- Phase 4 added canonical Markdown workflows, safe adapter preview/apply, import,
+  selection, and verification receipts. Agent instruction files are render
+  targets, not the workflow source of truth.
+- Phase 5 routes Project Context and Context Pack through one bounded Workset
+  assembler. It ranks current facts, claims, knowledge pages, workflows, and
+  cautions instead of dumping unrelated narrative memory.
+- Phase 6 makes refresh, claim derivation/requalification, knowledge
+  compile/lint, workflow indexing, retention, and consolidation durable
+  maintenance work. Interactive MCP requests do not scan an entire corpus.
+- Phase 7 adds an optional local semantic CodeGraph boundary. Lite remains the
+  durable local fallback; external output is used only from a healthy existing
+  `.codegraph` index, is validated, bounded, and never persisted as raw code.
+- The advanced `memorix_knowledge` MCP action tool now exposes explicit
+  workspace/proposal/workflow management only in `team` and `full` profiles.
+- Completed local release gates: lint, full test suite, production build,
+  package-content audit, isolated Windows npm install, stdio MCP smoke, and
+  HTTP dashboard/lifecycle smoke.
+- Release audit also incorporated #130 before publication: the optional SQLite
+  runtime now uses the Node-26-compatible `better-sqlite3` 12.x line, with a
+  dedicated Node 26 CI smoke that opens an in-memory database.
+- Remaining remote gates: GitHub CI, npm publish, tag, and GitHub release.

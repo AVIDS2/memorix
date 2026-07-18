@@ -322,9 +322,15 @@ async function handleApi(
                 };
 
                 let maintenance = { total: 0, pending: 0, running: 0, retrying: 0, completed: 0, failed: 0 };
+                let lifecycle: unknown;
                 try {
                     const { MaintenanceJobStore } = await import('../runtime/maintenance-jobs.js');
                     maintenance = new MaintenanceJobStore(effectiveDataDir).summary(effectiveProjectId);
+                    const { collectLifecycleDiagnostics } = await import('../runtime/lifecycle-status.js');
+                    lifecycle = await collectLifecycleDiagnostics({
+                        dataDir: effectiveDataDir,
+                        projectId: effectiveProjectId,
+                    });
                 } catch { /* optional maintenance diagnostics */ }
 
                 sendJson(res, {
@@ -338,6 +344,7 @@ async function handleApi(
                     embedding: embeddingStatus,
                     storage: storageInfo,
                     maintenance,
+                    ...(lifecycle ? { lifecycle } : {}),
                     gitSummary: {
                         total: gitMemories.length,
                         recentWeek: recentGitCount,
@@ -349,7 +356,10 @@ async function handleApi(
             }
 
             case '/maintenance': {
-                const { MaintenanceJobStore } = await import('../runtime/maintenance-jobs.js');
+                const [{ MaintenanceJobStore }, { collectLifecycleDiagnostics }] = await Promise.all([
+                    import('../runtime/maintenance-jobs.js'),
+                    import('../runtime/lifecycle-status.js'),
+                ]);
                 const jobs = new MaintenanceJobStore(effectiveDataDir).list({
                     projectId: effectiveProjectId,
                     limit: 50,
@@ -357,6 +367,10 @@ async function handleApi(
                 sendJson(res, {
                     summary: new MaintenanceJobStore(effectiveDataDir).summary(effectiveProjectId),
                     jobs,
+                    lifecycle: await collectLifecycleDiagnostics({
+                        dataDir: effectiveDataDir,
+                        projectId: effectiveProjectId,
+                    }),
                 });
                 break;
             }

@@ -1,6 +1,12 @@
 import type { ProjectInfo } from '../types.js';
 import { evaluateCodeRefFreshness } from './freshness.js';
-import type { CodeFile, CodeRefStatus, CodeSymbol, ObservationCodeRef } from './types.js';
+import type {
+  CodeFile,
+  CodeRefStatus,
+  CodeStateSnapshot,
+  CodeSymbol,
+  ObservationCodeRef,
+} from './types.js';
 import type { CodeGraphStore } from './store.js';
 import { isCodeGraphExcludedPath } from './exclude.js';
 
@@ -31,6 +37,7 @@ export interface ProjectContextOverview {
     refs: number;
     indexedAt?: string;
     languages: LanguageSummary[];
+    latestSnapshot?: CodeStateSnapshot;
   };
   memory: {
     total: number;
@@ -196,6 +203,7 @@ function overviewFromGraph(input: {
       refs: status.refs,
       ...(status.indexedAt ? { indexedAt: status.indexedAt } : {}),
       languages: countLanguages(input.graph.files),
+      ...(status.latestSnapshot ? { latestSnapshot: status.latestSnapshot } : {}),
     },
     memory: {
       total: input.observations.filter(obs => obs.projectId === input.project.id).length,

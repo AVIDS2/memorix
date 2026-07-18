@@ -119,5 +119,16 @@ describe('File Lock', () => {
       const tmpFiles = files.filter(f => f.includes('.tmp'));
       expect(tmpFiles).toHaveLength(0);
     });
+
+    it('keeps same-process concurrent writes from colliding on one temporary path', async () => {
+      const filePath = path.join(tmpDir, 'test.json');
+      await expect(Promise.all([
+        atomicWriteFile(filePath, 'first'),
+        atomicWriteFile(filePath, 'second'),
+      ])).resolves.toHaveLength(2);
+      expect(['first', 'second']).toContain(await fs.readFile(filePath, 'utf8'));
+      const files = await fs.readdir(tmpDir);
+      expect(files.filter(file => file.includes('.tmp'))).toEqual([]);
+    });
   });
 });

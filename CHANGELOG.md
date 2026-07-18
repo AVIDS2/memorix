@@ -4,6 +4,25 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-07-18
+
+### Added
+- **Versioned Code State** -- Added local code snapshots, source epochs, completeness metadata, and memory-to-code freshness so project memory can be requalified when the checkout changes.
+- **Claim ledger and reviewable knowledge workspace** -- Added source-backed claims with confidence/conflict lifecycle, plus local or explicitly versioned Markdown workspaces that compile proposals before a reviewed page can change.
+- **Canonical project workflows** -- Added import, selection, preview, safe adapter application, and run receipts for project workflows without treating an agent-specific instruction file as the source of truth.
+- **Bounded task Worksets** -- Memory Autopilot and Context Pack now select task-relevant current facts, evidence, knowledge/workflow starts, cautions, and verification instead of adding a generic historical-memory dump.
+- **Advanced Knowledge Workspace MCP tool** -- Added `memorix_knowledge` as one action-based management surface for workspace, proposal, and workflow operations in the explicit `team` and `full` MCP profiles.
+- **Optional local semantic CodeGraph provider** -- A healthy pre-indexed local CodeGraph can add a validated, bounded semantic outline to a task Workset. The built-in Lite provider remains available with explicit capability limits.
+
+### Changed
+- **Durable knowledge lifecycle** -- Code State refresh, claim derivation/requalification, knowledge compile/lint, and workflow indexing run through resumable maintenance jobs rather than turning interactive requests into a corpus-wide foreground scan.
+- **Provider quality is visible** -- CodeGraph status, Doctor, and Project Context JSON report whether the task used Lite structural evidence or a validated external semantic outline.
+
+### Fixed
+- **Incomplete scan truthfulness** -- Unreadable files and deferred removals now remain visible in snapshot completeness instead of being silently treated as a complete code view.
+- **External CodeGraph safety boundary** -- Memorix only accepts local output for the exact healthy project root, rejects stale/malformed/oversized/path-escaping data, runs without a shell, and never persists raw external source output.
+- **Node 26 SQLite runtime** -- Upgraded the optional `better-sqlite3` path to a release that supports Node 26, and added a Node 26 CI smoke that opens an in-memory database. Fixes #130; reported by @RaviTharuma.
+
 ## [1.1.13] - 2026-07-17
 
 ### Added

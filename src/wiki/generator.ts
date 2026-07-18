@@ -221,8 +221,10 @@ export function generateKnowledgeBase(options: GenerateOptions): ProjectKnowledg
   const skillRefCount = allRefs.filter((r) => r.kind === 'mini-skill').length;
 
   return {
-    title: 'Knowledge Base',
-    subtitle: 'LLM Wiki',
+    title: 'Memory Overview',
+    subtitle: 'Generated from durable project memory',
+    kind: 'memory-overview',
+    maintained: false,
     projectId,
     generatedAt: options.generatedAt ?? new Date().toISOString(),
     sections,

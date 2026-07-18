@@ -24,9 +24,9 @@ const i18n = {
     noDataDesc: 'Start using Memorix to see your dashboard',
 
     // Graph
-    knowledgeGraph: 'Knowledge Graph',
+    knowledgeGraph: 'Memory Entity Map',
     noGraphData: 'No Graph Data',
-    noGraphDataDesc: 'Create entities and relations to see your knowledge graph',
+    noGraphDataDesc: 'Create entities and relations to see your memory entity map',
     observation_s: 'observation(s)',
     nodes: 'nodes',
     edges: 'edges',
@@ -147,8 +147,8 @@ const i18n = {
     recentGitMemories: 'Recent Git Memories',
     commit: 'Commit',
     created: 'Created',
-    knowledgeTitle: 'Knowledge Base',
-    knowledgeSubtitle: 'Project-scoped engineering knowledge distilled from durable memory',
+    knowledgeTitle: 'Memory Overview',
+    knowledgeSubtitle: 'Read-only overview generated from durable project memory, not a maintained wiki',
     knowledgeObservationsUsed: 'Observations Used',
     knowledgeMiniSkillsUsed: 'Mini-skills Used',
     knowledgeRefs: 'Refs',
@@ -156,10 +156,10 @@ const i18n = {
     knowledgeQuickJump: 'Sections',
     knowledgeNoItems: 'No entries in this section yet',
     knowledgeNoItemsDesc: 'This section will fill in as durable project knowledge is stored.',
-    knowledgeUnavailable: 'Knowledge Base Unavailable',
+    knowledgeUnavailable: 'Memory Overview Unavailable',
     knowledgeUnavailableDesc: 'Could not load /api/knowledge for the selected project.',
-    knowledgeEmpty: 'No Knowledge Base Entries',
-    knowledgeEmptyDesc: 'Store durable observations or promote mini-skills to populate this read-only project wiki.',
+    knowledgeEmpty: 'No Memory Overview Entries',
+    knowledgeEmptyDesc: 'Store durable observations or promote mini-skills to populate this read-only memory overview.',
     knowledgeProvenance: 'Provenance',
     knowledgeEntry: 'entry',
     knowledgeEntries: 'entries',
@@ -225,6 +225,10 @@ const i18n = {
     maintenanceQueued: 'queued',
     maintenanceRunning: 'running',
     maintenanceNeedsAttention: 'needs attention',
+    knowledgeLifecycle: 'Knowledge Lifecycle',
+    claimsNeedReview: 'claims need review',
+    pendingProposals: 'pending proposals',
+    knowledgeReady: 'Knowledge current',
 
     // Project states
     noProjects: 'No projects',
@@ -341,14 +345,14 @@ const i18n = {
     graphTopToBottom: 'Top → Bottom',
     graphMore: 'more',
 
-    // Knowledge Graph (semantic)
-    kgTitle: 'Knowledge Graph',
-    kgSubtitle: 'Semantic knowledge topology — section clusters, evidence links, provenance',
+    // Deterministic memory-map projection
+    kgTitle: 'Memory Map',
+    kgSubtitle: 'Deterministic links from shared entities, skill sources, and explicit relations',
     kgNodes: 'nodes',
     kgEdges: 'edges',
     kgClusters: 'clusters',
-    kgNoData: 'No Knowledge Graph Data',
-    kgNoDataDesc: 'Store durable observations or promote mini-skills to generate a semantic knowledge graph.',
+    kgNoData: 'No Memory Map Data',
+    kgNoDataDesc: 'Store durable observations or promote mini-skills to build a deterministic memory map.',
     kgClusterFilter: 'Section Cluster',
     kgEdgeTypeFilter: 'Edge Type',
     kgEdgeSupports: 'supports',
@@ -363,7 +367,7 @@ const i18n = {
     kgInspectorRelatedEdges: 'Related Edges',
     kgInspectorNoEdges: 'No edges',
     kgDataMode: 'Data Source',
-    kgModeSemantic: 'Semantic KG',
+    kgModeSemantic: 'Inferred Memory Map',
     kgModeEntity: 'Entity Graph',
     kgViewMode: 'View Mode',
     kgFocused: 'Focused',
@@ -388,8 +392,8 @@ const i18n = {
     // Nav tooltips + labels
     navDashboard: 'Dashboard',
     navGitMemory: 'Git Memory',
-    navKnowledge: 'Knowledge Base',
-    navGraph: 'Knowledge Graph',
+    navKnowledge: 'Memory Overview',
+    navGraph: 'Memory Map',
     navObservations: 'Observations',
     navRetention: 'Retention',
     navConfig: 'Config',
@@ -574,8 +578,8 @@ const i18n = {
     recentGitMemories: '最近 Git 记忆',
     commit: '提交',
     created: '创建时间',
-    knowledgeTitle: '知识库',
-    knowledgeSubtitle: '从持久项目记忆中提炼出的工程知识',
+    knowledgeTitle: '记忆概览',
+    knowledgeSubtitle: '从持久项目记忆生成的只读概览，尚非可维护 Wiki',
     knowledgeObservationsUsed: '使用的观察',
     knowledgeMiniSkillsUsed: '使用的 Mini-skills',
     knowledgeRefs: '引用',
@@ -583,10 +587,10 @@ const i18n = {
     knowledgeQuickJump: '章节',
     knowledgeNoItems: '本章节暂无条目',
     knowledgeNoItemsDesc: '当项目中出现持久知识后，本章节会自动填充。',
-    knowledgeUnavailable: '知识库不可用',
+    knowledgeUnavailable: '记忆概览不可用',
     knowledgeUnavailableDesc: '无法为所选项目加载 /api/knowledge。',
-    knowledgeEmpty: '暂无知识库条目',
-    knowledgeEmptyDesc: '存储持久观察或提升 mini-skill 后，此只读项目 wiki 会自动填充。',
+    knowledgeEmpty: '暂无记忆概览条目',
+    knowledgeEmptyDesc: '存储持久观察或提升 mini-skill 后，此只读记忆概览会自动填充。',
     knowledgeProvenance: '来源',
     knowledgeEntry: '条',
     knowledgeEntries: '条',
@@ -652,6 +656,10 @@ const i18n = {
     maintenanceQueued: '项排队',
     maintenanceRunning: '项运行中',
     maintenanceNeedsAttention: '项需要处理',
+    knowledgeLifecycle: '知识生命周期',
+    claimsNeedReview: '条 claim 待复核',
+    pendingProposals: '个提案待审',
+    knowledgeReady: '知识状态正常',
 
     // Project states
     noProjects: '无项目',
@@ -773,14 +781,14 @@ const i18n = {
     graphTopToBottom: '从上到下',
     graphMore: '更多',
 
-    // Knowledge Graph (semantic)
-    kgTitle: '知识图谱',
-    kgSubtitle: '语义知识拓扑 — 分区聚类、证据关联、溯源',
+    // Deterministic memory-map projection
+    kgTitle: '记忆关系图',
+    kgSubtitle: '由共享实体、技能来源和显式关系确定性推断',
     kgNodes: '个节点',
     kgEdges: '条边',
     kgClusters: '个聚类',
-    kgNoData: '暂无知识图谱数据',
-    kgNoDataDesc: '存储持久观察或提升迷你技能以生成语义知识图谱。',
+    kgNoData: '暂无记忆关系图数据',
+    kgNoDataDesc: '存储持久观察或提升迷你技能以构建确定性记忆关系图。',
     kgClusterFilter: '分区聚类',
     kgEdgeTypeFilter: '边类型',
     kgEdgeSupports: '支撑',
@@ -795,7 +803,7 @@ const i18n = {
     kgInspectorRelatedEdges: '相关边',
     kgInspectorNoEdges: '无边',
     kgDataMode: '数据源',
-    kgModeSemantic: '语义图谱',
+    kgModeSemantic: '推断记忆关系图',
     kgModeEntity: '实体图谱',
     kgViewMode: '视图模式',
     kgFocused: '聚焦',
@@ -820,8 +828,8 @@ const i18n = {
     // Nav tooltips
     navDashboard: '仪表盘',
     navGitMemory: 'Git 记忆',
-    navKnowledge: '知识库',
-    navGraph: '知识图谱',
+    navKnowledge: '记忆概览',
+    navGraph: '记忆关系图',
     navObservations: '观察记录',
     navRetention: '记忆衰减',
     navConfig: '配置溯源',
@@ -1331,6 +1339,9 @@ async function loadDashboard() {
   const gs = stats.gitSummary || { total: 0, recentWeek: 0, recentMemories: [] };
   const rs = stats.retentionSummary || { active: 0, stale: 0, archive: 0, immune: 0 };
   const maintenance = stats.maintenance || { pending: 0, running: 0, retrying: 0, failed: 0 };
+  const lifecycle = stats.lifecycle || {};
+  const lifecycleClaims = lifecycle.claims || { needsReview: 0, conflicts: 0 };
+  const pendingProposals = (lifecycle.workspaces || []).reduce((total, workspace) => total + (workspace.pendingProposals || 0), 0);
   const queuedMaintenance = (maintenance.pending || 0) + (maintenance.retrying || 0);
   const activeMaintenance = maintenance.running || 0;
   const failedMaintenance = maintenance.failed || 0;
@@ -1341,6 +1352,11 @@ async function loadDashboard() {
       : queuedMaintenance > 0
         ? { color: 'var(--accent-amber)', text: `${queuedMaintenance} ${t('maintenanceQueued')}` }
         : { color: 'var(--accent-green)', text: t('maintenanceIdle') };
+  const knowledgeState = lifecycleClaims.conflicts > 0 || lifecycleClaims.needsReview > 0
+    ? { color: 'var(--accent-amber)', text: `${lifecycleClaims.conflicts || lifecycleClaims.needsReview} ${t('claimsNeedReview')}` }
+    : pendingProposals > 0
+      ? { color: 'var(--accent-blue)', text: `${pendingProposals} ${t('pendingProposals')}` }
+      : { color: 'var(--accent-green)', text: t('knowledgeReady') };
 
   const typeIcons = {
     'session-request': '<span class="iconify" data-icon="lucide:target" style="color:#f87171;"></span>', gotcha: '<span class="iconify" data-icon="lucide:alert-octagon" style="color:#ef4444;"></span>', 'problem-solution': '<span class="iconify" data-icon="lucide:lightbulb" style="color:#fbbf24;"></span>',
@@ -1421,6 +1437,10 @@ async function loadDashboard() {
               <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">${t('maintenance')}</div>
               <div style="font-size:14px;font-weight:600;color:${maintenanceState.color};">${maintenanceState.text}</div>
               ${queuedMaintenance > 0 && activeMaintenance > 0 ? `<div style="font-size:11px;color:var(--text-secondary);margin-top:2px;">${queuedMaintenance} ${t('maintenanceQueued')}</div>` : ''}
+            </div>
+            <div>
+              <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">${t('knowledgeLifecycle')}</div>
+              <div style="font-size:14px;font-weight:600;color:${knowledgeState.color};">${knowledgeState.text}</div>
             </div>
           </div>
         </div>
@@ -1762,7 +1782,7 @@ async function loadGraph() {
   const container = document.getElementById('page-graph');
   container.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
 
-  // Try semantic Knowledge Graph first
+  // Prefer the deterministic memory-map projection when it is available.
   try {
     const kg = await api('knowledge-graph');
     if (kg && kg.nodes && kg.nodes.length > 0) {
@@ -1829,7 +1849,7 @@ async function loadGraph() {
 }
 
 // ============================================================
-// Semantic Knowledge Graph Renderer — Apache ECharts 5
+// Deterministic Memory Map Renderer — Apache ECharts 5
 // Force layout, section categories, evidence-based edges
 // ============================================================
 

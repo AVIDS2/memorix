@@ -43,6 +43,9 @@ export interface MemorixTomlConfig {
   codegraph?: {
     exclude_patterns?: string[];
     max_file_bytes?: number;
+    external_context?: 'auto' | 'off';
+    external_command?: string;
+    external_timeout_ms?: number;
   };
   server?: {
     transport?: 'stdio' | 'http';

@@ -319,9 +319,11 @@ export default defineCommand({
         const { CodeGraphStore } = await import('../../codegraph/store.js');
         const { buildProjectContextOverview } = await import('../../codegraph/project-context.js');
         const { getResolvedConfig } = await import('../../config/resolved-config.js');
+        const { inspectExternalCodeGraph } = await import('../../codegraph/external-provider.js');
         const codeStore = new CodeGraphStore();
         await codeStore.init(dataDir);
-        const exclude = getResolvedConfig({ projectRoot: projectRoot || process.cwd() }).codegraph.excludePatterns;
+        const codegraphConfig = getResolvedConfig({ projectRoot: projectRoot || process.cwd() }).codegraph;
+        const exclude = codegraphConfig.excludePatterns;
         const overview = buildProjectContextOverview({
           project: {
             id: projectId,
@@ -335,6 +337,12 @@ export default defineCommand({
         const languageText = overview.code.languages.length > 0
           ? overview.code.languages.map((item: any) => `${item.language} ${item.files}`).join(', ')
           : 'none indexed yet';
+        const providerQuality = await inspectExternalCodeGraph({
+          projectRoot: projectRoot || process.cwd(),
+          mode: codegraphConfig.externalContext,
+          command: codegraphConfig.externalCommand,
+          timeoutMs: codegraphConfig.externalTimeoutMs,
+        });
 
         if (overview.code.files > 0) {
           lines.push(ok(`Code memory: ${overview.code.files} files, ${overview.code.symbols} symbols, ${overview.code.refs} memory links`));
@@ -342,6 +350,15 @@ export default defineCommand({
         } else {
           lines.push(warn('Code memory: no project scan found yet'));
           tips.push('Run `memorix codegraph refresh` once to seed project context.');
+        }
+
+        lines.push(info(
+          `Code provider: Lite durable index; external semantic graph ${providerQuality.health.state}`,
+        ));
+        if (providerQuality.health.state !== 'ready'
+          && providerQuality.health.state !== 'not-detected'
+          && providerQuality.health.state !== 'disabled') {
+          lines.push(warn(`External CodeGraph: ${providerQuality.health.reason ?? providerQuality.health.state}`));
         }
 
         if (overview.freshness.stale > 0 || overview.freshness.suspect > 0) {
@@ -362,6 +379,7 @@ export default defineCommand({
           refs: overview.code.refs,
           languages: overview.code.languages,
           freshness: overview.freshness,
+          providerQuality: providerQuality.quality,
           ...(overview.code.indexedAt ? { indexedAt: overview.code.indexedAt } : {}),
         };
       } catch (e) {
@@ -373,7 +391,58 @@ export default defineCommand({
       lines.push(info('Project context unavailable without a detected project.'));
     }
 
-    // ── 6. Conflict Check ────────────────────────────────────────
+    // ── 6. Knowledge Lifecycle ──────────────────────────────────
+    lines.push('');
+    lines.push('┌─ Knowledge Lifecycle ─────────────────────────────');
+
+    if (projectId && dataDir) {
+      try {
+        const { collectLifecycleDiagnostics } = await import('../../runtime/lifecycle-status.js');
+        const lifecycle = await collectLifecycleDiagnostics({ dataDir, projectId });
+        report.lifecycle = lifecycle;
+
+        const queued = lifecycle.maintenance.summary.pending + lifecycle.maintenance.summary.retrying;
+        const running = lifecycle.maintenance.summary.running;
+        if (lifecycle.maintenance.summary.failed > 0) {
+          lines.push(warn(`Maintenance: ${lifecycle.maintenance.summary.failed} failed job(s)`));
+          for (const job of lifecycle.maintenance.failedJobs) {
+            lines.push(info(`Failed: ${job.kind} after ${job.attempts} attempt(s)`));
+          }
+          issues.push('Knowledge maintenance has failed work. Run `memorix doctor --json` to inspect the affected job kind.');
+        } else if (queued > 0 || running > 0) {
+          lines.push(info(`Maintenance: ${queued} queued, ${running} running`));
+        } else {
+          lines.push(ok('Maintenance: idle'));
+        }
+
+        lines.push(info(
+          `Claims: ${lifecycle.claims.active} active, ${lifecycle.claims.needsReview} need review, ${lifecycle.claims.unknown} unknown`,
+        ));
+        if (lifecycle.claims.conflicts > 0) {
+          lines.push(warn(`Claim conflicts: ${lifecycle.claims.conflicts}`));
+          issues.push('Source-backed claims conflict and need review before they guide work.');
+        }
+
+        if (lifecycle.workspaces.length === 0) {
+          lines.push(info('Knowledge workspace: not initialized'));
+        } else {
+          for (const workspace of lifecycle.workspaces) {
+            lines.push(info(
+              `${workspace.mode} workspace: ${workspace.pages} pages, ${workspace.pendingProposals} pending proposal(s), ${workspace.status}`,
+            ));
+          }
+        }
+        lines.push(info(`Workflows: ${lifecycle.workflows.active}/${lifecycle.workflows.total} active, ${lifecycle.workflows.failedRuns} failed run(s)`));
+      } catch (e) {
+        const message = e instanceof Error ? e.message : String(e);
+        lines.push(warn(`Knowledge lifecycle unavailable: ${message}`));
+        report.lifecycle = { error: message };
+      }
+    } else {
+      lines.push(info('Knowledge lifecycle unavailable without a detected project.'));
+    }
+
+    // ── 7. Conflict Check ────────────────────────────────────────
     lines.push('');
     lines.push('┌─ Conflict Check ──────────────────────────────────');
 
@@ -403,7 +472,7 @@ export default defineCommand({
     }
     report.conflicts = { found: conflictsFound };
 
-    // ── 7. LLM Status ────────────────────────────────────────────
+    // ── 8. LLM Status ────────────────────────────────────────────
     lines.push('');
     lines.push('┌─ LLM Enhanced Mode ───────────────────────────────');
 
@@ -427,7 +496,7 @@ export default defineCommand({
       report.llm = { enabled: false };
     }
 
-    // ── 8. Auto-Update Status ──────────────────────────────────
+    // ── 9. Auto-Update Status ──────────────────────────────────
     lines.push('');
     lines.push('┌─ Auto-Update ─────────────────────────────────────');
 

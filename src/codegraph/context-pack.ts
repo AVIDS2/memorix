@@ -1,5 +1,13 @@
 import { evaluateCodeRefFreshness } from './freshness.js';
-import type { CodeFile, CodeRefStatus, CodeSymbol, ObservationCodeRef } from './types.js';
+import { buildTaskWorkset, type TaskWorkset, type WorksetCaution } from '../knowledge/workset.js';
+import type {
+  CodeFile,
+  CodeGraphProviderQuality,
+  CodeRefStatus,
+  CodeSymbol,
+  ExternalCodeGraphOutline,
+  ObservationCodeRef,
+} from './types.js';
 import type { CodeGraphStore } from './store.js';
 import { isCodeGraphExcludedPath } from './exclude.js';
 
@@ -9,6 +17,8 @@ export interface ContextPackMemory {
   type: string;
   status: CodeRefStatus | 'unbound';
   reason: string;
+  path?: string;
+  symbol?: string;
 }
 
 export interface ContextPackCodeFact {
@@ -32,6 +42,8 @@ export interface ContextPack {
   warnings: ContextPackWarning[];
   suggestedReads: string[];
   suggestedVerification: string[];
+  /** 1.2 bounded task selection, added without removing legacy pack fields. */
+  workset?: TaskWorkset;
 }
 
 export interface ContextPackObservation {
@@ -181,6 +193,8 @@ export function assembleContextPack(input: AssembleContextPackInput): ContextPac
           type: observation.type,
           status: freshness.status,
           reason: freshness.reason,
+          ...(file ? { path: file.path } : {}),
+          ...(symbol ? { symbol: symbol.name } : {}),
         });
       }
       if (file) suggestedReads.push(file.path);
@@ -240,7 +254,74 @@ export function assembleContextPack(input: AssembleContextPackInput): ContextPac
   };
 }
 
+/**
+ * Context Pack remains compatible with its detailed legacy fields, but the
+ * agent-facing prompt now uses the same bounded Workset selector as Project
+ * Context. No repository scan or page compilation happens here.
+ */
+export async function attachTaskWorkset(input: {
+  pack: ContextPack;
+  projectId: string;
+  dataDir: string;
+  lens: string;
+  worktreeDirty: boolean;
+  currentFacts?: string[];
+  codeState?: string;
+  snapshot?: {
+    id?: string;
+    sourceEpoch?: number;
+    worktreeState?: 'clean' | 'dirty' | 'unavailable';
+    incomplete?: boolean;
+  };
+  semanticCode?: ExternalCodeGraphOutline;
+  providerQuality?: CodeGraphProviderQuality;
+  runtimeCautions?: WorksetCaution[];
+}): Promise<ContextPack> {
+  const semanticStartHere = input.semanticCode
+    ? [...input.semanticCode.relatedFiles, ...input.semanticCode.entryPoints.map(entry => entry.path)]
+    : [];
+  const workset = await buildTaskWorkset({
+    projectId: input.projectId,
+    dataDir: input.dataDir,
+    task: input.pack.task,
+    lens: input.lens,
+    currentFacts: input.currentFacts ?? [],
+    ...(input.codeState ? { codeState: input.codeState } : {}),
+    startHere: uniq([...semanticStartHere, ...input.pack.suggestedReads]),
+    ...(input.semanticCode ? { semanticCode: input.semanticCode } : {}),
+    ...(input.providerQuality ? { providerQuality: input.providerQuality } : {}),
+    reliableMemory: input.pack.memories
+      .filter(memory => memory.status === 'current')
+      .map(memory => ({
+        id: memory.id,
+        title: memory.title,
+        type: memory.type,
+        status: memory.status,
+        ...(memory.path ? { path: memory.path } : {}),
+        ...(memory.symbol ? { symbol: memory.symbol } : {}),
+        ...(memory.reason ? { reason: memory.reason } : {}),
+      })),
+    cautionMemory: input.pack.warnings.map(warning => ({
+      id: warning.id,
+      title: warning.title,
+      type: 'memory',
+      status: warning.status,
+      reason: warning.reason,
+    })),
+    verificationHints: input.pack.suggestedVerification,
+    worktreeDirty: input.worktreeDirty,
+    ...(input.snapshot ? { snapshot: input.snapshot } : {}),
+    freshness: {
+      suspect: input.pack.warnings.filter(warning => warning.status === 'suspect').length,
+      stale: input.pack.warnings.filter(warning => warning.status === 'stale').length,
+    },
+    runtimeCautions: input.runtimeCautions,
+  });
+  return { ...input.pack, workset };
+}
+
 export function buildContextPackPrompt(pack: ContextPack): string {
+  if (pack.workset) return pack.workset.prompt;
   const reliableMemories = pack.memories.filter(memory => memory.status === 'current');
   const unboundMemories = pack.memories.filter(memory => memory.status === 'unbound');
   const lines: string[] = ['## Task', pack.task, '', '## Reliable Memories'];

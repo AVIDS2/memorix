@@ -127,8 +127,10 @@ function makeProject() {
 // Knowledge with refs for graph->knowledge jump verification
 function makeKnowledge() {
   return {
-    title: 'Knowledge Base',
-    subtitle: 'LLM Wiki',
+    title: 'Memory Overview',
+    subtitle: 'Generated from durable project memory',
+    kind: 'memory-overview' as const,
+    maintained: false as const,
     projectId: 'test/proj',
     generatedAt: new Date().toISOString(),
     sections: [
@@ -155,7 +157,9 @@ function makeKnowledge() {
 
 function makeGraph(): ProjectKnowledgeGraph {
   return {
-    title: 'Knowledge Graph',
+    title: 'Memory Map',
+    kind: 'deterministic-memory-map',
+    semantic: false,
     projectId: 'test/proj',
     generatedAt: new Date().toISOString(),
     nodes: [
@@ -249,11 +253,11 @@ describe('WorkbenchApp — Graph tab', () => {
 
     // Navigate to Graph via Alt+5
     stdin.write('\x1B5'); // Alt+5
-    await waitForCondition(() => (lastFrame() ?? '').includes('Knowledge Graph'));
+    await waitForCondition(() => (lastFrame() ?? '').includes('Memory Map'));
 
     const frame = lastFrame() ?? '';
     expect(frame).toContain('# Graph'); // Active tab indicator
-    expect(frame).toContain('Knowledge Graph');
+    expect(frame).toContain('Memory Map');
     expect(frame).toContain('3 nodes');
     expect(frame).toContain('2 edges');
     expect(frame).toContain('3 clusters');
@@ -273,7 +277,7 @@ describe('WorkbenchApp — Graph tab', () => {
     await waitForCondition(() => (lastFrame() ?? '').includes('New chat ready'));
 
     stdin.write('\x1B5'); // Alt+5
-    await waitForCondition(() => (lastFrame() ?? '').includes('Knowledge Graph'));
+    await waitForCondition(() => (lastFrame() ?? '').includes('Memory Map'));
 
     const frame = lastFrame() ?? '';
     // Clusters visible
@@ -303,7 +307,7 @@ describe('WorkbenchApp — Graph tab', () => {
     await waitForCondition(() => (lastFrame() ?? '').includes('New chat ready'));
 
     stdin.write('\x1B5'); // Alt+5
-    await waitForCondition(() => (lastFrame() ?? '').includes('Knowledge Graph'));
+    await waitForCondition(() => (lastFrame() ?? '').includes('Memory Map'));
 
     // Move selection down to first node (index 0 = cluster header, index 1 = "Use JWT for auth")
     await tick(200);
@@ -327,7 +331,7 @@ describe('WorkbenchApp — Graph tab', () => {
     expect(frame).toContain('Incoming');
     // Navigation hints
     expect(frame).toContain('esc back');
-    expect(frame).toContain('k > Knowledge');
+    expect(frame).toContain('k > Memory Overview');
 
     unmount();
   }, 10000);
@@ -346,7 +350,7 @@ describe('WorkbenchApp — Graph tab', () => {
 
     // Navigate to Graph
     stdin.write('\x1B5'); // Alt+5
-    await waitForCondition(() => (lastFrame() ?? '').includes('Knowledge Graph'));
+    await waitForCondition(() => (lastFrame() ?? '').includes('Memory Map'));
 
     // Move to first node (down 1 to skip cluster header)
     await tick(200);
@@ -378,7 +382,7 @@ describe('WorkbenchApp — Graph tab', () => {
     await waitForCondition(() => (lastFrame() ?? '').includes('New chat ready'));
 
     stdin.write('\x1B5'); // Alt+5
-    await waitForCondition(() => (lastFrame() ?? '').includes('Knowledge Graph'));
+    await waitForCondition(() => (lastFrame() ?? '').includes('Memory Map'));
     await tick(200);
 
     // Initially: All
@@ -410,7 +414,7 @@ describe('WorkbenchApp — Graph tab', () => {
     await waitForCondition(() => (lastFrame() ?? '').includes('New chat ready'));
 
     stdin.write('\x1B5'); // Alt+5 → Graph tab
-    await waitForCondition(() => (lastFrame() ?? '').includes('Knowledge Graph'));
+    await waitForCondition(() => (lastFrame() ?? '').includes('Memory Map'));
     await tick(200);
 
     // Type a non-blocked character from empty command bar
@@ -442,7 +446,7 @@ describe('WorkbenchApp — Graph tab', () => {
     stdin.write('\r');
 
     await waitForCondition(() => (lastFrame() ?? '').includes('# Graph'));
-    expect(lastFrame() ?? '').toContain('Knowledge Graph');
+    expect(lastFrame() ?? '').toContain('Memory Map');
 
     unmount();
   }, 10000);
@@ -482,10 +486,10 @@ describe('WorkbenchApp — Graph tab', () => {
     await waitForCondition(() => (lastFrame() ?? '').includes('New chat ready'));
 
     stdin.write('\x1B5'); // Alt+5
-    await waitForCondition(() => (lastFrame() ?? '').includes('Knowledge Graph'));
+    await waitForCondition(() => (lastFrame() ?? '').includes('Memory Map'));
 
     const frame = lastFrame() ?? '';
-    expect(frame).toContain('No graph data available');
+    expect(frame).toContain('No memory map data is available');
 
     unmount();
   }, 10000);

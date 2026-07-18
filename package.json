@@ -1,6 +1,6 @@
 {
   "name": "memorix",
-  "version": "1.1.13",
+  "version": "1.2.0",
   "description": "Local-first shared memory layer for AI coding agents across MCP clients, Git history, reasoning context, and project sessions.",
   "type": "module",
   "sideEffects": false,
@@ -61,6 +61,7 @@
     "test:watch": "vitest",
     "test:llm-live": "MEMORIX_RUN_LIVE_LLM_TESTS=1 vitest run tests/integration/formation-llm-quality.test.ts",
     "test:e2e": "vitest run tests/e2e/",
+    "benchmark:codegraph": "node scripts/benchmark-codegraph-provider.cjs",
     "lint": "tsc --noEmit",
     "prepublishOnly": "npm run build && npm test"
   },
@@ -137,7 +138,7 @@
   },
   "optionalDependencies": {
     "@huggingface/transformers": "^3.0.0",
-    "better-sqlite3": "^11.0.0"
+    "better-sqlite3": "^12.11.1"
   },
   "overrides": {
     "tar": "^7.5.16",

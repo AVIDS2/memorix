@@ -31,6 +31,7 @@ import { countTextTokens } from '../compact/token-budget.js';
 import { extractEntities, enrichConcepts } from './entity-extractor.js';
 import { getEmbeddingProvider, isEmbeddingExplicitlyDisabled } from '../embedding/provider.js';
 import { sanitizeCredentials } from './secret-filter.js';
+import { enqueueClaimDerivation } from '../runtime/lifecycle.js';
 
 /** In-memory observation list (loaded from persistence on init) */
 let observations: Observation[] = [];
@@ -117,6 +118,22 @@ async function bindObservationCodeRefsBestEffort(observation: Observation): Prom
     await bindObservationToCode(codeStore, observation);
   } catch {
     // Code refs enrich memory retrieval, but memory writes must remain durable without them.
+  }
+}
+
+function queueClaimDerivation(observation: Observation): void {
+  const dataDir = projectDir;
+  const isExplicit = observation.sourceDetail === 'explicit';
+  const isGit = observation.source === 'git' || observation.sourceDetail === 'git-ingest';
+  if (!dataDir || (!isExplicit && !isGit)) return;
+  try {
+    enqueueClaimDerivation({
+      dataDir,
+      projectId: observation.projectId,
+      observationId: observation.id,
+    });
+  } catch {
+    // The observation remains durable; a later scan can recover its claim.
   }
 }
 
@@ -431,6 +448,7 @@ export async function storeObservation(input: {
   }
 
   await bindObservationCodeRefsBestEffort(observation);
+  queueClaimDerivation(observation);
 
   // Generate embedding async (fire-and-forget) — never blocks MCP response
   // Track in vectorMissingIds until embedding is successfully written.
@@ -585,6 +603,7 @@ async function upsertObservation(
   }
 
   await bindObservationCodeRefsBestEffort(existing);
+  queueClaimDerivation(existing);
 
   // Generate embedding async (fire-and-forget) — never blocks MCP response
   const searchableText = [input.title, input.narrative, ...(input.facts ?? [])].join(' ');

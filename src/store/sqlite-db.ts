@@ -293,6 +293,206 @@ CREATE TABLE IF NOT EXISTS observation_code_refs (
 );
 `;
 
+const CREATE_SCHEMA_MIGRATIONS_TABLE = [
+  'CREATE TABLE IF NOT EXISTS schema_migrations (',
+  '  id TEXT PRIMARY KEY,',
+  '  applied_at TEXT NOT NULL',
+  ');',
+].join('\n');
+
+const CREATE_CODE_STATE_SNAPSHOTS_TABLE = [
+  'CREATE TABLE IF NOT EXISTS code_state_snapshots (',
+  '  id                   TEXT PRIMARY KEY,',
+  '  projectId            TEXT NOT NULL,',
+  '  provider             TEXT NOT NULL,',
+  '  baseRevision         TEXT,',
+  '  worktreeFingerprint  TEXT NOT NULL,',
+  '  worktreeState        TEXT NOT NULL,',
+  '  changedPathCount     INTEGER NOT NULL DEFAULT 0,',
+  '  indexedAt            TEXT NOT NULL,',
+  '  sourceEpoch          INTEGER NOT NULL,',
+  "  completenessJson     TEXT NOT NULL DEFAULT '{}',",
+  '  previousSnapshotId   TEXT,',
+  '  UNIQUE(projectId, sourceEpoch)',
+  ');',
+].join('\n');
+
+// ── 1.2 Knowledge Claim Ledger ──────────────────────────────────────
+
+const CREATE_KNOWLEDGE_CLAIMS_TABLE = `
+CREATE TABLE IF NOT EXISTS knowledge_claims (
+  id              TEXT PRIMARY KEY,
+  projectId       TEXT NOT NULL,
+  subject         TEXT NOT NULL,
+  predicate       TEXT NOT NULL,
+  objectValue     TEXT NOT NULL,
+  scope           TEXT NOT NULL,
+  claimKey        TEXT NOT NULL,
+  conflictKey     TEXT NOT NULL,
+  status          TEXT NOT NULL,
+  confidence      REAL NOT NULL,
+  observedAt      TEXT NOT NULL,
+  validFrom       TEXT,
+  validTo         TEXT,
+  supersededBy    TEXT,
+  reviewState     TEXT NOT NULL,
+  origin          TEXT NOT NULL,
+  createdAt       TEXT NOT NULL,
+  updatedAt       TEXT NOT NULL
+);
+`;
+
+const CREATE_KNOWLEDGE_CLAIM_EVIDENCE_TABLE = `
+CREATE TABLE IF NOT EXISTS knowledge_claim_evidence (
+  id              TEXT PRIMARY KEY,
+  claimId         TEXT NOT NULL,
+  evidenceKind    TEXT NOT NULL,
+  evidenceId      TEXT NOT NULL,
+  relation        TEXT NOT NULL,
+  snapshotId      TEXT,
+  locator         TEXT,
+  capturedHash    TEXT,
+  evidenceKey     TEXT NOT NULL,
+  createdAt       TEXT NOT NULL,
+  UNIQUE(claimId, evidenceKey),
+  FOREIGN KEY (claimId) REFERENCES knowledge_claims(id) ON DELETE CASCADE
+);
+`;
+
+const CREATE_KNOWLEDGE_CLAIM_EVENTS_TABLE = `
+CREATE TABLE IF NOT EXISTS knowledge_claim_events (
+  id              TEXT PRIMARY KEY,
+  projectId       TEXT NOT NULL,
+  claimId         TEXT NOT NULL,
+  kind            TEXT NOT NULL,
+  fromStatus      TEXT,
+  toStatus        TEXT,
+  relatedClaimId  TEXT,
+  detail          TEXT,
+  createdAt       TEXT NOT NULL,
+  FOREIGN KEY (claimId) REFERENCES knowledge_claims(id) ON DELETE CASCADE
+);
+`;
+
+// ── 1.2 Knowledge Workspace ─────────────────────────────────────────
+
+const CREATE_KNOWLEDGE_WORKSPACES_TABLE = [
+  'CREATE TABLE IF NOT EXISTS knowledge_workspaces (',
+  '  id              TEXT PRIMARY KEY,',
+  '  projectId       TEXT NOT NULL,',
+  '  mode            TEXT NOT NULL,',
+  '  rootPath        TEXT NOT NULL,',
+  '  projectRoot     TEXT,',
+  '  status          TEXT NOT NULL,',
+  '  createdAt       TEXT NOT NULL,',
+  '  updatedAt       TEXT NOT NULL,',
+  '  lastCompiledAt  TEXT,',
+  '  lastLintedAt    TEXT,',
+  '  UNIQUE(projectId, mode)',
+  ');',
+].join('\n');
+
+const CREATE_KNOWLEDGE_PAGES_TABLE = [
+  'CREATE TABLE IF NOT EXISTS knowledge_pages (',
+  '  id                TEXT PRIMARY KEY,',
+  '  workspaceId       TEXT NOT NULL,',
+  '  relativePath      TEXT NOT NULL,',
+  '  title             TEXT NOT NULL,',
+  '  kind              TEXT NOT NULL,',
+  '  status            TEXT NOT NULL,',
+  '  reviewState       TEXT NOT NULL,',
+  '  contentHash       TEXT NOT NULL,',
+  '  sourceHash        TEXT NOT NULL,',
+  "  claimIdsJson      TEXT NOT NULL DEFAULT '[]',",
+  '  snapshotId        TEXT,',
+  "  tagsJson          TEXT NOT NULL DEFAULT '[]',",
+  '  generatedAt       TEXT NOT NULL,',
+  '  updatedAt         TEXT NOT NULL,',
+  '  lastLintedAt      TEXT,',
+  '  manualContentHash TEXT,',
+  '  UNIQUE(workspaceId, relativePath),',
+  '  FOREIGN KEY (workspaceId) REFERENCES knowledge_workspaces(id) ON DELETE CASCADE',
+  ');',
+].join('\n');
+
+const CREATE_KNOWLEDGE_PAGE_CLAIMS_TABLE = [
+  'CREATE TABLE IF NOT EXISTS knowledge_page_claims (',
+  '  pageId   TEXT NOT NULL,',
+  '  claimId  TEXT NOT NULL,',
+  '  role     TEXT NOT NULL,',
+  '  PRIMARY KEY (pageId, claimId),',
+  '  FOREIGN KEY (pageId) REFERENCES knowledge_pages(id) ON DELETE CASCADE,',
+  '  FOREIGN KEY (claimId) REFERENCES knowledge_claims(id) ON DELETE RESTRICT',
+  ');',
+].join('\n');
+
+const CREATE_KNOWLEDGE_PAGE_LINKS_TABLE = [
+  'CREATE TABLE IF NOT EXISTS knowledge_page_links (',
+  '  sourcePageId TEXT NOT NULL,',
+  '  targetPath   TEXT NOT NULL,',
+  '  PRIMARY KEY (sourcePageId, targetPath),',
+  '  FOREIGN KEY (sourcePageId) REFERENCES knowledge_pages(id) ON DELETE CASCADE',
+  ');',
+].join('\n');
+
+const CREATE_KNOWLEDGE_PROPOSALS_TABLE = [
+  'CREATE TABLE IF NOT EXISTS knowledge_proposals (',
+  '  id              TEXT PRIMARY KEY,',
+  '  workspaceId     TEXT NOT NULL,',
+  '  pageId          TEXT NOT NULL,',
+  '  targetPath      TEXT NOT NULL,',
+  '  proposalPath    TEXT NOT NULL,',
+  '  baseContentHash TEXT,',
+  '  sourceHash      TEXT NOT NULL,',
+  '  reason          TEXT NOT NULL,',
+  '  status          TEXT NOT NULL,',
+  '  createdAt       TEXT NOT NULL,',
+  '  appliedAt       TEXT,',
+  '  UNIQUE(workspaceId, proposalPath),',
+  '  FOREIGN KEY (workspaceId) REFERENCES knowledge_workspaces(id) ON DELETE CASCADE,',
+  '  FOREIGN KEY (pageId) REFERENCES knowledge_pages(id) ON DELETE CASCADE',
+  ');',
+].join('\n');
+
+// ── 1.2 Workflow inheritance ────────────────────────────────────────
+
+const CREATE_KNOWLEDGE_WORKFLOWS_TABLE = [
+  'CREATE TABLE IF NOT EXISTS knowledge_workflows (',
+  '  id            TEXT PRIMARY KEY,',
+  '  workspaceId   TEXT NOT NULL,',
+  '  sourcePath    TEXT NOT NULL,',
+  '  title         TEXT NOT NULL,',
+  '  status        TEXT NOT NULL,',
+  '  version       INTEGER NOT NULL,',
+  '  sourceHash    TEXT NOT NULL,',
+  '  contentHash   TEXT NOT NULL,',
+  '  specJson      TEXT NOT NULL,',
+  '  importedFrom  TEXT,',
+  '  createdAt     TEXT NOT NULL,',
+  '  updatedAt     TEXT NOT NULL,',
+  '  UNIQUE(workspaceId, sourcePath),',
+  '  FOREIGN KEY (workspaceId) REFERENCES knowledge_workspaces(id) ON DELETE CASCADE',
+  ');',
+].join('\n');
+
+const CREATE_KNOWLEDGE_WORKFLOW_RUNS_TABLE = [
+  'CREATE TABLE IF NOT EXISTS knowledge_workflow_runs (',
+  '  id                    TEXT PRIMARY KEY,',
+  '  workflowId            TEXT NOT NULL,',
+  '  projectId             TEXT NOT NULL,',
+  '  task                  TEXT NOT NULL,',
+  '  startingSnapshotId    TEXT,',
+  "  selectedEvidenceJson  TEXT NOT NULL DEFAULT '[]',",
+  "  phaseStateJson        TEXT NOT NULL DEFAULT '{}',",
+  '  outcome               TEXT NOT NULL,',
+  '  verificationVerdict   TEXT NOT NULL,',
+  '  failureReason         TEXT,',
+  '  startedAt             TEXT NOT NULL,',
+  '  completedAt           TEXT,',
+  '  FOREIGN KEY (workflowId) REFERENCES knowledge_workflows(id) ON DELETE CASCADE',
+  ');',
+].join('\n');
+
 // ── Runtime maintenance jobs ───────────────────────────────────────
 
 const CREATE_MAINTENANCE_JOBS_TABLE = `
@@ -348,8 +548,23 @@ CREATE INDEX IF NOT EXISTS idx_code_files_project ON code_files(projectId);
 CREATE INDEX IF NOT EXISTS idx_code_symbols_project_name ON code_symbols(projectId, name);
 CREATE INDEX IF NOT EXISTS idx_code_symbols_file ON code_symbols(fileId);
 CREATE INDEX IF NOT EXISTS idx_code_edges_project ON code_edges(projectId, type);
+CREATE INDEX IF NOT EXISTS idx_code_snapshots_project_epoch ON code_state_snapshots(projectId, sourceEpoch DESC);
+CREATE INDEX IF NOT EXISTS idx_code_files_snapshot ON code_files(projectId, snapshotId);
+CREATE INDEX IF NOT EXISTS idx_code_symbols_snapshot ON code_symbols(projectId, snapshotId);
+CREATE INDEX IF NOT EXISTS idx_code_edges_snapshot ON code_edges(projectId, snapshotId);
 CREATE INDEX IF NOT EXISTS idx_observation_code_refs_obs ON observation_code_refs(projectId, observationId);
 CREATE INDEX IF NOT EXISTS idx_observation_code_refs_status ON observation_code_refs(projectId, status);
+CREATE INDEX IF NOT EXISTS idx_knowledge_claims_project_status ON knowledge_claims(projectId, status, updatedAt DESC);
+CREATE INDEX IF NOT EXISTS idx_knowledge_claims_project_conflict ON knowledge_claims(projectId, conflictKey, status);
+CREATE INDEX IF NOT EXISTS idx_knowledge_claims_project_key ON knowledge_claims(projectId, claimKey, status);
+CREATE INDEX IF NOT EXISTS idx_knowledge_claim_evidence_claim ON knowledge_claim_evidence(claimId, createdAt);
+CREATE INDEX IF NOT EXISTS idx_knowledge_claim_events_claim ON knowledge_claim_events(claimId, createdAt);
+CREATE INDEX IF NOT EXISTS idx_knowledge_workspaces_project ON knowledge_workspaces(projectId, mode);
+CREATE INDEX IF NOT EXISTS idx_knowledge_pages_workspace_status ON knowledge_pages(workspaceId, status, updatedAt DESC);
+CREATE INDEX IF NOT EXISTS idx_knowledge_page_claims_claim ON knowledge_page_claims(claimId);
+CREATE INDEX IF NOT EXISTS idx_knowledge_proposals_workspace_status ON knowledge_proposals(workspaceId, status, createdAt DESC);
+CREATE INDEX IF NOT EXISTS idx_knowledge_workflows_workspace_status ON knowledge_workflows(workspaceId, status, updatedAt DESC);
+CREATE INDEX IF NOT EXISTS idx_knowledge_workflow_runs_project_workflow ON knowledge_workflow_runs(projectId, workflowId, startedAt DESC);
 CREATE INDEX IF NOT EXISTS idx_maintenance_jobs_ready ON maintenance_jobs(status, run_after);
 CREATE INDEX IF NOT EXISTS idx_maintenance_jobs_project ON maintenance_jobs(project_id, status, run_after);
 CREATE INDEX IF NOT EXISTS idx_maintenance_targets_updated ON maintenance_targets(updated_at);
@@ -357,6 +572,94 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_maintenance_jobs_active_dedupe
   ON maintenance_jobs(project_id, kind, dedupe_key)
   WHERE status IN ('pending', 'running', 'retry');
 `;
+
+interface SchemaMigration {
+  id: string;
+  apply: (db: any) => void;
+}
+
+function hasColumn(db: any, table: string, column: string): boolean {
+  return db.prepare('PRAGMA table_info(' + table + ')')
+    .all()
+    .some((row: { name?: string }) => row.name === column);
+}
+
+function addColumnIfMissing(db: any, table: string, column: string, definition: string): void {
+  if (hasColumn(db, table, column)) return;
+  db.exec('ALTER TABLE ' + table + ' ADD COLUMN ' + definition);
+}
+
+const SCHEMA_MIGRATIONS: SchemaMigration[] = [
+  {
+    id: '1.2-code-state-snapshots',
+    apply: (db) => {
+      db.exec(CREATE_CODE_STATE_SNAPSHOTS_TABLE);
+      addColumnIfMissing(db, 'code_files', 'snapshotId', 'snapshotId TEXT');
+      addColumnIfMissing(db, 'code_files', 'sourceEpoch', 'sourceEpoch INTEGER');
+      addColumnIfMissing(db, 'code_symbols', 'snapshotId', 'snapshotId TEXT');
+      addColumnIfMissing(db, 'code_symbols', 'sourceEpoch', 'sourceEpoch INTEGER');
+      addColumnIfMissing(db, 'code_edges', 'snapshotId', 'snapshotId TEXT');
+      addColumnIfMissing(db, 'code_edges', 'sourceEpoch', 'sourceEpoch INTEGER');
+      addColumnIfMissing(db, 'observation_code_refs', 'snapshotId', 'snapshotId TEXT');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_code_snapshots_project_epoch ON code_state_snapshots(projectId, sourceEpoch DESC)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_code_files_snapshot ON code_files(projectId, snapshotId)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_code_symbols_snapshot ON code_symbols(projectId, snapshotId)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_code_edges_snapshot ON code_edges(projectId, snapshotId)');
+    },
+  },
+  {
+    id: '1.2-knowledge-claim-ledger',
+    apply: (db) => {
+      db.exec(CREATE_KNOWLEDGE_CLAIMS_TABLE);
+      db.exec(CREATE_KNOWLEDGE_CLAIM_EVIDENCE_TABLE);
+      db.exec(CREATE_KNOWLEDGE_CLAIM_EVENTS_TABLE);
+      db.exec('CREATE INDEX IF NOT EXISTS idx_knowledge_claims_project_status ON knowledge_claims(projectId, status, updatedAt DESC)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_knowledge_claims_project_conflict ON knowledge_claims(projectId, conflictKey, status)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_knowledge_claims_project_key ON knowledge_claims(projectId, claimKey, status)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_knowledge_claim_evidence_claim ON knowledge_claim_evidence(claimId, createdAt)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_knowledge_claim_events_claim ON knowledge_claim_events(claimId, createdAt)');
+    },
+  },
+  {
+    id: '1.2-knowledge-workspace',
+    apply: (db) => {
+      db.exec(CREATE_KNOWLEDGE_WORKSPACES_TABLE);
+      db.exec(CREATE_KNOWLEDGE_PAGES_TABLE);
+      db.exec(CREATE_KNOWLEDGE_PAGE_CLAIMS_TABLE);
+      db.exec(CREATE_KNOWLEDGE_PAGE_LINKS_TABLE);
+      db.exec(CREATE_KNOWLEDGE_PROPOSALS_TABLE);
+      db.exec('CREATE INDEX IF NOT EXISTS idx_knowledge_workspaces_project ON knowledge_workspaces(projectId, mode)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_knowledge_pages_workspace_status ON knowledge_pages(workspaceId, status, updatedAt DESC)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_knowledge_page_claims_claim ON knowledge_page_claims(claimId)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_knowledge_proposals_workspace_status ON knowledge_proposals(workspaceId, status, createdAt DESC)');
+    },
+  },
+  {
+    id: '1.2-workflow-inheritance',
+    apply: (db) => {
+      db.exec(CREATE_KNOWLEDGE_WORKFLOWS_TABLE);
+      db.exec(CREATE_KNOWLEDGE_WORKFLOW_RUNS_TABLE);
+      db.exec('CREATE INDEX IF NOT EXISTS idx_knowledge_workflows_workspace_status ON knowledge_workflows(workspaceId, status, updatedAt DESC)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_knowledge_workflow_runs_project_workflow ON knowledge_workflow_runs(projectId, workflowId, startedAt DESC)');
+    },
+  },
+];
+
+function applySchemaMigrations(db: any): void {
+  db.exec(CREATE_SCHEMA_MIGRATIONS_TABLE);
+  for (const migration of SCHEMA_MIGRATIONS) {
+    const applied = db.prepare('SELECT 1 FROM schema_migrations WHERE id = ?').get(migration.id);
+    if (applied) continue;
+    const apply = db.transaction(() => {
+      migration.apply(db);
+      db.prepare('INSERT INTO schema_migrations (id, applied_at) VALUES (?, ?)').run(
+        migration.id,
+        new Date().toISOString(),
+      );
+    });
+    apply();
+  }
+}
 
 // ── Singleton cache ─────────────────────────────────────────────────
 
@@ -423,6 +726,10 @@ export function getDatabase(dataDir: string): any {
   try { db.exec(`ALTER TABLE team_tasks ADD COLUMN preferred_role TEXT`); } catch { /* already exists */ }
   try { db.exec(`ALTER TABLE team_messages ADD COLUMN to_role TEXT`); } catch { /* already exists */ }
   try { db.exec(`ALTER TABLE team_messages ADD COLUMN handoff_status TEXT`); } catch { /* already exists */ }
+
+  // New migrations are transactional and tracked. Older idempotent migrations
+  // remain untouched for backwards compatibility with existing local stores.
+  applySchemaMigrations(db);
 
   // Create indexes AFTER all ALTER TABLE migrations so referenced columns exist
   db.exec(CREATE_INDEXES);

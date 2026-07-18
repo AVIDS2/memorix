@@ -11,6 +11,11 @@ export const CONTROL_PLANE_MAINTENANCE_KINDS: readonly MaintenanceJobKind[] = [
   'retention-archive',
   'consolidation',
   'codegraph-refresh',
+  'claim-derive',
+  'claim-requalification',
+  'knowledge-compile',
+  'knowledge-lint',
+  'workflow-index',
 ];
 
 const TARGET_WAIT_RETRY_MS = 30_000;

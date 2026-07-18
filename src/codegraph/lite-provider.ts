@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync, statSync, type Dirent } from 'node:fs';
 import { join, relative } from 'node:path';
-import type { CodeEdge, CodeFile, CodeSymbol } from './types.js';
+import type { CodeEdge, CodeFile, CodeStateSnapshot, CodeSymbol } from './types.js';
+import { collectCodeStateSnapshot } from './code-state.js';
 import { makeCodeEdgeId, makeCodeFileId, makeCodeSymbolId, normalizeCodePath } from './ids.js';
 import { isCodeGraphExcludedPath, normalizeCodeGraphExcludePatterns } from './exclude.js';
 import { CodeGraphStore, type CodeGraphFileDelta } from './store.js';
@@ -19,6 +20,7 @@ export interface LiteIndexResult {
   symbols: CodeSymbol[];
   edges: CodeEdge[];
   skippedOversizedFiles: number;
+  unreadableFiles: number;
 }
 
 export interface LiteRefreshResult {
@@ -30,7 +32,9 @@ export interface LiteRefreshResult {
   indexedSymbols: number;
   indexedEdges: number;
   skippedOversizedFiles: number;
+  unreadableFiles: number;
   removalScanDeferred: boolean;
+  snapshot: CodeStateSnapshot;
 }
 
 export const DEFAULT_CODEGRAPH_MAX_FILE_BYTES = 2 * 1024 * 1024;
@@ -299,13 +303,18 @@ function extractImportEdges(projectId: string, file: CodeFile, text: string, ind
   return edges;
 }
 
+interface LiteFileIndexAttempt {
+  delta?: CodeGraphFileDelta;
+  unreadable: boolean;
+}
+
 function indexFileLite(
   projectId: string,
   projectRoot: string,
   abs: string,
   indexedAt: string,
   fileStat?: ReturnType<typeof statSync>,
-): CodeGraphFileDelta | undefined {
+): LiteFileIndexAttempt {
   const rel = normalizeCodePath(relative(projectRoot, abs));
   try {
     const text = readFileSync(abs, 'utf-8');
@@ -316,17 +325,22 @@ function indexFileLite(
       path: rel,
       language: languageForPath(rel),
       contentHash: hashText(text),
-      mtimeMs: Math.round(Number(stat.mtimeMs)),
+      // Preserve filesystem precision. Rounding here made same-size edits in
+      // a short Windows timestamp window indistinguishable to refresh.
+      mtimeMs: Number(stat.mtimeMs),
       sizeBytes: Number(stat.size),
       indexedAt,
     };
     return {
-      file,
-      symbols: extractSymbols(projectId, file, text, indexedAt),
-      edges: extractImportEdges(projectId, file, text, indexedAt),
+      delta: {
+        file,
+        symbols: extractSymbols(projectId, file, text, indexedAt),
+        edges: extractImportEdges(projectId, file, text, indexedAt),
+      },
+      unreadable: false,
     };
   } catch {
-    return undefined;
+    return { unreadable: true };
   }
 }
 
@@ -340,26 +354,31 @@ export async function indexProjectLite(options: LiteIndexOptions): Promise<LiteI
   const symbols: CodeSymbol[] = [];
   const edges: CodeEdge[] = [];
   let skippedOversizedFiles = 0;
+  let unreadableFiles = 0;
 
   for (const abs of paths) {
     let stat: ReturnType<typeof statSync>;
     try {
       stat = statSync(abs);
     } catch {
+      unreadableFiles++;
       continue;
     }
     if (Number(stat.size) > maxFileBytes) {
       skippedOversizedFiles++;
       continue;
     }
-    const delta = indexFileLite(options.projectId, options.projectRoot, abs, indexedAt, stat);
-    if (!delta) continue;
-    files.push(delta.file);
-    symbols.push(...delta.symbols);
-    edges.push(...delta.edges);
+    const attempt = indexFileLite(options.projectId, options.projectRoot, abs, indexedAt, stat);
+    if (!attempt.delta) {
+      if (attempt.unreadable) unreadableFiles++;
+      continue;
+    }
+    files.push(attempt.delta.file);
+    symbols.push(...attempt.delta.symbols);
+    edges.push(...attempt.delta.edges);
   }
 
-  return { files, symbols, edges, skippedOversizedFiles };
+  return { files, symbols, edges, skippedOversizedFiles, unreadableFiles };
 }
 
 /**
@@ -382,31 +401,38 @@ export async function refreshProjectLite(
   const oversizedExistingFileIds = new Set<string>();
   let unchangedFiles = 0;
   let skippedOversizedFiles = 0;
+  let unreadableFiles = 0;
 
   for (const abs of paths) {
     const rel = normalizeCodePath(relative(options.projectRoot, abs));
+    // A discovered but temporarily unreadable path is not deletion evidence.
+    seenPaths.add(rel);
     let stat: ReturnType<typeof statSync>;
     try {
       stat = statSync(abs);
     } catch {
+      unreadableFiles++;
       continue;
     }
-    seenPaths.add(rel);
     const existing = existingByPath.get(rel);
-    const roundedMtime = Math.round(Number(stat.mtimeMs));
+    const mtimeMs = Number(stat.mtimeMs);
     const sizeBytes = Number(stat.size);
     if (sizeBytes > maxFileBytes) {
       skippedOversizedFiles++;
       if (existing) oversizedExistingFileIds.add(existing.id);
       continue;
     }
-    if (existing && existing.mtimeMs === roundedMtime && existing.sizeBytes === sizeBytes) {
+    if (existing && existing.mtimeMs === mtimeMs && existing.sizeBytes === sizeBytes) {
       unchangedFiles++;
       continue;
     }
 
-    const delta = indexFileLite(options.projectId, options.projectRoot, abs, indexedAt, stat);
-    if (!delta) continue;
+    const attempt = indexFileLite(options.projectId, options.projectRoot, abs, indexedAt, stat);
+    if (!attempt.delta) {
+      if (attempt.unreadable) unreadableFiles++;
+      continue;
+    }
+    const delta = attempt.delta;
     if (existing?.contentHash === delta.file.contentHash) {
       metadataOnly.push(delta.file);
       unchangedFiles++;
@@ -430,7 +456,24 @@ export async function refreshProjectLite(
     metadataOnly,
     removedFileIds,
   });
-
+  const completeness = {
+    scannedFiles: paths.length,
+    maxFiles,
+    changedFiles: changed.length,
+    unchangedFiles,
+    metadataOnlyFiles: metadataOnly.length,
+    removedFiles: removedFileIds.length,
+    skippedOversizedFiles,
+    unreadableFiles,
+    removalScanDeferred,
+  };
+  const snapshot = store.recordCodeStateSnapshot(await collectCodeStateSnapshot({
+    projectId: options.projectId,
+    projectRoot: options.projectRoot,
+    provider: 'lite',
+    indexedAt,
+    completeness,
+  }));
   return {
     scannedFiles: paths.length,
     changedFiles: changed.length,
@@ -440,6 +483,8 @@ export async function refreshProjectLite(
     indexedSymbols: changed.reduce((total, delta) => total + delta.symbols.length, 0),
     indexedEdges: changed.reduce((total, delta) => total + delta.edges.length, 0),
     skippedOversizedFiles,
+    unreadableFiles,
     removalScanDeferred,
+    snapshot,
   };
 }

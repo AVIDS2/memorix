@@ -20,6 +20,7 @@ import { resetObservationStore } from '../../src/store/obs-store.js';
 import { resetDb } from '../../src/store/orama-store.js';
 import { resetSessionStore } from '../../src/store/session-store.js';
 import { resetTeamStore } from '../../src/team/team-store.js';
+import { MaintenanceJobStore } from '../../src/runtime/maintenance-jobs.js';
 
 describe('Claude Code Hook Handler E2E', () => {
   const originalCwd = process.cwd();
@@ -81,6 +82,41 @@ export function verifyToken(token: string) {
     expect(observation).not.toBeNull();
     expect(observation!.entityName).toBe('auth');
     expect(observation!.narrative.length).toBeGreaterThan(50);
+  });
+
+  it('queues one durable Code Memory refresh after repeated real file mutations', async () => {
+    const sandboxRoot = mkdtempSync(path.join(tmpdir(), 'memorix-hook-refresh-'));
+    const repoDir = path.join(sandboxRoot, 'repo');
+    const dataDir = path.join(sandboxRoot, 'data');
+    try {
+      mkdirSync(path.join(repoDir, 'src'), { recursive: true });
+      writeFileSync(path.join(repoDir, 'src', 'auth.ts'), 'export const auth = true;\n', 'utf8');
+      execSync('git init', { cwd: repoDir, stdio: 'ignore' });
+      process.env.MEMORIX_DATA_DIR = dataDir;
+
+      const input = {
+        event: 'post_edit' as const,
+        agent: 'claude' as const,
+        timestamp: '2026-07-17T00:00:00.000Z',
+        sessionId: 'sess-refresh',
+        cwd: repoDir,
+        filePath: 'src/auth.ts',
+        raw: {},
+      };
+      await handleHookEvent(input);
+      await handleHookEvent(input);
+
+      const jobs = new MaintenanceJobStore(dataDir).list({ projectId: 'local/repo' });
+      expect(jobs).toHaveLength(1);
+      expect(jobs[0]).toMatchObject({
+        kind: 'codegraph-refresh',
+        dedupeKey: 'codegraph-refresh',
+        payload: { source: 'hook-file-mutation', maxFiles: 5_000 },
+      });
+    } finally {
+      closeAllDatabases();
+      rmSync(sandboxRoot, { recursive: true, force: true });
+    }
   });
 
   // ─── PostToolUse: Edit (code modifications) ───
@@ -250,7 +286,7 @@ export function verifyToken(token: string) {
       const { observation, output } = await handleHookEvent(input);
 
       expect(observation).toBeNull();
-      expect(output.systemMessage).toContain('Memorix Autopilot Brief for repo');
+      expect(output.systemMessage).toContain('Memorix Autopilot Brief');
       expect(output.systemMessage).toContain('Start here');
       expect(output.systemMessage).toContain('src/auth.ts');
       expect(output.systemMessage).toContain('Code Memory refresh queued');

@@ -469,10 +469,11 @@ export async function createMemorixServer(
   let maintenanceWorker: { stop(): void } | null = null;
   const startProjectMaintenanceWorker = async (autoCleanup = false): Promise<void> => {
     maintenanceWorker?.stop();
-    const [{ MaintenanceJobStore, MaintenanceJobWorker }, maintenance, observations] = await Promise.all([
+    const [{ MaintenanceJobStore, MaintenanceJobWorker }, maintenance, observations, lifecycle] = await Promise.all([
       import('./runtime/maintenance-jobs.js'),
       import('./runtime/project-maintenance.js'),
       import('./memory/observations.js'),
+      import('./runtime/lifecycle.js'),
     ]);
     const queue = new MaintenanceJobStore(projectDir);
     const vectorStatus = observations.getVectorStatus(project.id);
@@ -509,11 +510,12 @@ export async function createMemorixServer(
         || !Number.isFinite(indexedAt)
         || Date.now() - indexedAt > 10 * 60_000;
       if (needsRefresh) {
-        queue.enqueue({
+        lifecycle.enqueueCodegraphRefresh({
+          dataDir: projectDir,
           projectId: project.id,
-          kind: 'codegraph-refresh',
-          dedupeKey: 'startup-codegraph-refresh',
-          payload: { maxFiles: 5_000 },
+          source: 'startup',
+          maxFiles: 5_000,
+          queue,
         });
       }
     } catch {
@@ -1329,10 +1331,12 @@ export async function createMemorixServer(
         },
         { getObservationStore },
         { MaintenanceJobStore },
+        { enqueueCodegraphRefresh },
       ] = await Promise.all([
         import('./codegraph/auto-context.js'),
         import('./store/obs-store.js'),
         import('./runtime/maintenance-jobs.js'),
+        import('./runtime/lifecycle.js'),
       ]);
       const observations = await getObservationStore().loadByProject(project.id, { status: 'active' });
       const context = await buildAutoProjectContext({
@@ -1342,11 +1346,12 @@ export async function createMemorixServer(
         task,
         refresh: refresh ?? 'auto',
         enqueueRefresh: () => {
-          new MaintenanceJobStore(projectDir).enqueue({
+          enqueueCodegraphRefresh({
+            dataDir: projectDir,
             projectId: project.id,
-            kind: 'codegraph-refresh',
-            dedupeKey: 'context-codegraph-refresh',
-            payload: { maxFiles: 5_000 },
+            source: 'project-context',
+            maxFiles: 5_000,
+            queue: new MaintenanceJobStore(projectDir),
           });
         },
       });
@@ -1373,13 +1378,24 @@ export async function createMemorixServer(
       const unresolved = requireResolvedProject('show CodeGraph Memory status for the current project');
       if (unresolved) return unresolved;
 
-      const { CodeGraphStore } = await import('./codegraph/store.js');
+      const [{ CodeGraphStore }, { getResolvedConfig }, { inspectExternalCodeGraph }] = await Promise.all([
+        import('./codegraph/store.js'),
+        import('./config/resolved-config.js'),
+        import('./codegraph/external-provider.js'),
+      ]);
       const store = new CodeGraphStore();
       await store.init(projectDir);
       const status = store.status(project.id);
+      const codegraphConfig = getResolvedConfig({ projectRoot: project.rootPath }).codegraph;
+      const providerQuality = await inspectExternalCodeGraph({
+        projectRoot: project.rootPath,
+        mode: codegraphConfig.externalContext,
+        command: codegraphConfig.externalCommand,
+        timeoutMs: codegraphConfig.externalTimeoutMs,
+      });
 
       return {
-        content: [{ type: 'text' as const, text: JSON.stringify(status, null, 2) }],
+        content: [{ type: 'text' as const, text: JSON.stringify({ ...status, providerQuality: providerQuality.quality }, null, 2) }],
       };
     },
   );
@@ -1405,21 +1421,28 @@ export async function createMemorixServer(
 
       const [
         { CodeGraphStore },
-        { assembleContextPackForTask, buildContextPackPrompt },
+        { assembleContextPackForTask, attachTaskWorkset, buildContextPackPrompt },
         { getResolvedConfig },
+        { getExternalCodeGraphContext },
         { getObservationStore },
+        { collectCurrentProjectFacts },
+        { resolveTaskLens },
       ] = await Promise.all([
         import('./codegraph/store.js'),
         import('./codegraph/context-pack.js'),
         import('./config/resolved-config.js'),
+        import('./codegraph/external-provider.js'),
         import('./store/obs-store.js'),
+        import('./codegraph/current-facts.js'),
+        import('./codegraph/task-lens.js'),
       ]);
       const store = new CodeGraphStore();
       await store.init(projectDir);
-      const exclude = getResolvedConfig({ projectRoot: project.rootPath }).codegraph.excludePatterns;
+      const codegraphConfig = getResolvedConfig({ projectRoot: project.rootPath }).codegraph;
+      const exclude = codegraphConfig.excludePatterns;
       const observations = await getObservationStore().loadByProject(project.id, { status: 'active' });
       observations.reverse();
-      const pack = assembleContextPackForTask({
+      const basePack = assembleContextPackForTask({
         store,
         projectId: project.id,
         task,
@@ -1427,11 +1450,328 @@ export async function createMemorixServer(
         limit: typeof limit === 'number' ? limit : 20,
         exclude,
       });
+      const status = store.status(project.id);
+      const currentFacts = collectCurrentProjectFacts({ project, now: new Date() });
+      const snapshot = status.latestSnapshot;
+      const external = await getExternalCodeGraphContext({
+        projectRoot: project.rootPath,
+        task,
+        exclude,
+        mode: codegraphConfig.externalContext,
+        command: codegraphConfig.externalCommand,
+        timeoutMs: codegraphConfig.externalTimeoutMs,
+      });
+      const worksetFacts: string[] = [];
+      if (currentFacts.packageVersion) worksetFacts.push('Package version: ' + currentFacts.packageVersion);
+      if (currentFacts.latestChangelog) {
+        worksetFacts.push('Latest changelog: ' + currentFacts.latestChangelog.version
+          + (currentFacts.latestChangelog.date ? ' (' + currentFacts.latestChangelog.date + ')' : ''));
+      }
+      worksetFacts.push('Git: ' + (currentFacts.git.branch ? 'branch ' + currentFacts.git.branch + ', ' : '')
+        + (currentFacts.git.dirty ? 'dirty worktree' : 'clean worktree'));
+      const codeState = snapshot
+        ? '- Code state: ' + (snapshot.baseRevision ? snapshot.baseRevision.slice(0, 12) : 'Git unavailable')
+          + ', ' + snapshot.worktreeState + ' worktree'
+          + ', epoch ' + snapshot.sourceEpoch
+        : '- Code state: no completed snapshot yet';
+      const pack = await attachTaskWorkset({
+        pack: basePack,
+        projectId: project.id,
+        dataDir: projectDir,
+        lens: resolveTaskLens(task).id,
+        worktreeDirty: currentFacts.git.dirty,
+        currentFacts: worksetFacts,
+        codeState,
+        ...(snapshot
+          ? {
+            snapshot: {
+              id: snapshot.id,
+              sourceEpoch: snapshot.sourceEpoch,
+              worktreeState: snapshot.worktreeState,
+              incomplete: snapshot.completeness.skippedOversizedFiles > 0
+                || (snapshot.completeness.unreadableFiles ?? 0) > 0
+                || snapshot.completeness.removalScanDeferred,
+            },
+          }
+          : {}),
+        ...(external.outline ? { semanticCode: external.outline } : {}),
+        providerQuality: external.quality,
+        ...(external.caution
+          ? { runtimeCautions: [{ kind: 'external-codegraph-fallback' as const, message: external.caution }] }
+          : {}),
+      });
       const text = buildContextPackPrompt(pack);
 
       return {
         content: [{ type: 'text' as const, text }],
       };
+    },
+  );
+
+  server.registerTool(
+    'memorix_knowledge',
+    {
+      title: 'Knowledge Workspace',
+      description:
+        'Manage the reviewable project Knowledge Workspace. Use it only for deliberate knowledge operations: initialize a local or versioned workspace, inspect status, compile source-backed proposals, lint, apply a reviewed proposal, or manage canonical workflows. It is intentionally absent from the default micro/lite profiles.',
+      inputSchema: {
+        action: z.enum([
+          'workspace_init',
+          'status',
+          'compile',
+          'lint',
+          'proposal_apply',
+          'workflow_import',
+          'workflow_list',
+          'workflow_select',
+          'workflow_preview',
+          'workflow_apply',
+          'workflow_run',
+        ]).describe('Knowledge operation to perform'),
+        mode: z.enum(['local', 'versioned']).optional().default('local').describe('Workspace mode; versioned writes require an explicit project path during workspace_init'),
+        path: z.string().optional().describe('Explicit versioned workspace path, used only by workspace_init'),
+        proposalId: z.string().optional().describe('Pending proposal id for proposal_apply'),
+        allowManualOverwrite: z.boolean().optional().default(false).describe('Explicitly allow proposal_apply to replace a manually edited page'),
+        workflowId: z.string().optional().describe('Canonical workflow id for workflow preview, apply, or run'),
+        agent: z.string().optional().describe('Target agent for a workflow adapter'),
+        task: z.string().optional().describe('Task text for workflow selection or a workflow run'),
+        outcome: z.enum(['passed', 'failed', 'cancelled', 'in-progress']).optional().describe('Workflow run outcome'),
+        verificationVerdict: z.enum(['passed', 'failed', 'not-run']).optional().describe('Workflow run verification verdict'),
+        failureReason: z.string().optional().describe('Sanitized workflow failure reason'),
+        startingSnapshotId: z.string().optional().describe('Code snapshot id present when a workflow run began'),
+        evidenceIds: z.array(z.string()).max(24).optional().describe('Selected evidence ids for a workflow run'),
+      },
+    },
+    async ({
+      action,
+      mode,
+      path: workspacePath,
+      proposalId,
+      allowManualOverwrite,
+      workflowId,
+      agent,
+      task,
+      outcome,
+      verificationVerdict,
+      failureReason,
+      startingSnapshotId,
+      evidenceIds,
+    }) => {
+      const unresolved = requireResolvedProject('manage the Knowledge Workspace for the current project');
+      if (unresolved) return unresolved;
+
+      const text = (value: unknown, isError = false) => ({
+        content: [{ type: 'text' as const, text: JSON.stringify(value, null, 2) }],
+        ...(isError ? { isError: true as const } : {}),
+      });
+      const modeValue = mode ?? 'local';
+      const requireText = (value: string | undefined, field: string): string | undefined => {
+        const normalized = value?.trim();
+        return normalized ? normalized : undefined;
+      };
+
+      const [
+        { ClaimStore },
+        { CodeGraphStore },
+        { initializeKnowledgeWorkspace, loadKnowledgeWorkspace },
+        { KnowledgeWorkspaceStore },
+        { applyKnowledgeProposal, compileKnowledgeWorkspace, lintKnowledgeWorkspace },
+        { WorkflowStore },
+        {
+          applyWorkflowAdapter,
+          importWindsurfWorkflows,
+          previewWorkflowAdapter,
+          recordWorkflowRun,
+          selectWorkspaceWorkflows,
+          syncCanonicalWorkflows,
+        },
+      ] = await Promise.all([
+        import('./knowledge/claim-store.js'),
+        import('./codegraph/store.js'),
+        import('./knowledge/workspace.js'),
+        import('./knowledge/workspace-store.js'),
+        import('./knowledge/wiki.js'),
+        import('./knowledge/workflow-store.js'),
+        import('./knowledge/workflows.js'),
+      ]);
+
+      if (action === 'workspace_init') {
+        if (modeValue === 'versioned' && !requireText(workspacePath, 'path')) {
+          return text({ error: 'path is required to initialize a versioned Knowledge Workspace.' }, true);
+        }
+        const workspace = await initializeKnowledgeWorkspace({
+          projectId: project.id,
+          dataDir: projectDir,
+          mode: modeValue,
+          ...(modeValue === 'versioned'
+            ? { projectRoot: project.rootPath, rootPath: requireText(workspacePath, 'path')! }
+            : {}),
+        });
+        return text({
+          workspace: {
+            id: workspace.id,
+            mode: workspace.mode,
+            rootPath: workspace.rootPath,
+            status: workspace.status,
+          },
+          next: 'Compile creates reviewable proposals; it does not silently publish pages.',
+        });
+      }
+
+      const workspace = await loadKnowledgeWorkspace({ projectId: project.id, dataDir: projectDir, mode: modeValue });
+      if (!workspace) {
+        return text({ error: 'Knowledge Workspace is not initialized. Run workspace_init first.' }, true);
+      }
+      const claims = new ClaimStore();
+      const workspaceStore = new KnowledgeWorkspaceStore();
+      await Promise.all([claims.init(projectDir), workspaceStore.init(projectDir)]);
+
+      if (action === 'status') {
+        const pages = workspaceStore.listPages(workspace.id);
+        const pending = workspaceStore.listProposals(workspace.id, 'pending');
+        return text({
+          workspace: {
+            id: workspace.id,
+            mode: workspace.mode,
+            rootPath: workspace.rootPath,
+            status: workspace.status,
+            publishedPages: pages.filter(page => page.status === 'active').length,
+            pendingProposals: pending.map(proposal => ({
+              id: proposal.id,
+              targetPath: proposal.targetPath,
+              reason: proposal.reason,
+              createdAt: proposal.createdAt,
+            })),
+          },
+        });
+      }
+
+      if (action === 'compile') {
+        const result = await compileKnowledgeWorkspace({ workspace, claims });
+        return text({
+          proposals: result.proposals.map(proposal => ({
+            id: proposal.id,
+            targetPath: proposal.targetPath,
+            proposalPath: proposal.proposalPath,
+            reason: proposal.reason,
+          })),
+          unchangedPublishedPages: result.published.map(page => page.relativePath),
+          next: result.proposals.length ? 'Review a proposal, then use proposal_apply deliberately.' : undefined,
+        });
+      }
+
+      if (action === 'lint') {
+        const codeStore = new CodeGraphStore();
+        await codeStore.init(projectDir);
+        const result = await lintKnowledgeWorkspace({ workspace, claims, codeStore });
+        return text(result);
+      }
+
+      if (action === 'proposal_apply') {
+        const proposal = requireText(proposalId, 'proposalId');
+        if (!proposal) return text({ error: 'proposalId is required for proposal_apply.' }, true);
+        const result = await applyKnowledgeProposal({
+          workspace,
+          proposalId: proposal,
+          allowManualOverwrite: !!allowManualOverwrite,
+        });
+        return text({
+          proposal: { id: result.proposal.id, status: result.proposal.status },
+          targetPath: result.targetPath,
+        });
+      }
+
+      const workflowStore = new WorkflowStore();
+      await workflowStore.init(projectDir);
+      const projectRoot = workspace.projectRoot ?? project.rootPath;
+
+      if (action === 'workflow_import') {
+        const result = await importWindsurfWorkflows({ workspace, projectRoot });
+        return text({
+          imported: result.imported.map(workflow => ({ id: workflow.id, title: workflow.title, sourcePath: workflow.sourcePath })),
+          skipped: result.skipped,
+        });
+      }
+
+      const synced = await syncCanonicalWorkflows(workspace);
+      if (action === 'workflow_list') {
+        return text({
+          workflows: workflowStore.listWorkflows(workspace.id).map(workflow => ({
+            id: workflow.id,
+            title: workflow.title,
+            status: workflow.status,
+            taskLenses: workflow.taskLenses,
+            sourcePath: workflow.sourcePath,
+          })),
+          parseErrors: synced.errors,
+        });
+      }
+
+      if (action === 'workflow_select') {
+        const selectedTask = requireText(task, 'task');
+        if (!selectedTask) return text({ error: 'task is required for workflow_select.' }, true);
+        const result = await selectWorkspaceWorkflows({ workspace, task: selectedTask });
+        return text({
+          selections: result.selections.map(selection => ({
+            id: selection.workflow.id,
+            title: selection.workflow.title,
+            reasons: selection.reasons,
+            firstPhase: selection.firstPhase.title,
+            cautions: selection.cautions,
+          })),
+          parseErrors: result.errors,
+        });
+      }
+
+      const requestedWorkflowId = requireText(workflowId, 'workflowId');
+      if (!requestedWorkflowId) return text({ error: 'workflowId is required for this workflow action.' }, true);
+      const workflow = workflowStore.getWorkflow(requestedWorkflowId);
+      if (!workflow || workflow.workspaceId !== workspace.id) {
+        return text({ error: 'Workflow was not found for this Knowledge Workspace.' }, true);
+      }
+
+      if (action === 'workflow_preview' || action === 'workflow_apply') {
+        const targetAgent = requireText(agent, 'agent');
+        if (!targetAgent) return text({ error: 'agent is required for a workflow adapter action.' }, true);
+        const result = action === 'workflow_preview'
+          ? await previewWorkflowAdapter({ workflow, projectRoot, agent: targetAgent as any })
+          : await applyWorkflowAdapter({ workflow, projectRoot, agent: targetAgent as any });
+        return text({
+          workflowId: workflow.id,
+          agent: targetAgent,
+          status: result.status,
+          targetPath: result.targetPath,
+          reason: result.reason,
+          ...(action === 'workflow_preview' && result.content ? { content: result.content } : {}),
+        });
+      }
+
+      if (action === 'workflow_run') {
+        const runTask = requireText(task, 'task');
+        if (!runTask) return text({ error: 'task is required for workflow_run.' }, true);
+        if (!outcome) return text({ error: 'outcome is required for workflow_run.' }, true);
+        const result = await recordWorkflowRun({
+          workspace,
+          run: {
+            workflowId: workflow.id,
+            projectId: project.id,
+            task: runTask,
+            outcome,
+            ...(verificationVerdict ? { verificationVerdict } : {}),
+            ...(requireText(failureReason, 'failureReason') ? { failureReason: requireText(failureReason, 'failureReason') } : {}),
+            ...(requireText(startingSnapshotId, 'startingSnapshotId') ? { startingSnapshotId: requireText(startingSnapshotId, 'startingSnapshotId') } : {}),
+            selectedEvidence: [...new Set((evidenceIds ?? []).map(item => item.trim()).filter(Boolean))],
+          },
+        });
+        return text({
+          id: result.id,
+          workflowId: result.workflowId,
+          outcome: result.outcome,
+          verificationVerdict: result.verificationVerdict,
+        });
+      }
+
+      return text({ error: 'Unsupported knowledge action.' }, true);
     },
   );
 

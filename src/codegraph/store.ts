@@ -1,5 +1,15 @@
+import { randomUUID } from 'node:crypto';
 import { getDatabase } from '../store/sqlite-db.js';
-import type { CodeEdge, CodeFile, CodeGraphStatus, CodeSymbol, ObservationCodeRef } from './types.js';
+import type {
+  CodeEdge,
+  CodeFile,
+  CodeGraphStatus,
+  CodeStateScanCompleteness,
+  CodeStateSnapshot,
+  CodeStateSnapshotInput,
+  CodeSymbol,
+  ObservationCodeRef,
+} from './types.js';
 import { normalizeCodePath } from './ids.js';
 
 export interface CodeGraphFileDelta {
@@ -19,6 +29,8 @@ function rowToFile(row: any): CodeFile {
     ...(row.sizeBytes != null ? { sizeBytes: row.sizeBytes } : {}),
     indexedAt: row.indexedAt,
     ...(row.gitCommit ? { gitCommit: row.gitCommit } : {}),
+    ...(row.snapshotId ? { snapshotId: row.snapshotId } : {}),
+    ...(row.sourceEpoch != null ? { sourceEpoch: Number(row.sourceEpoch) } : {}),
   };
 }
 
@@ -37,6 +49,8 @@ function rowToSymbol(row: any): CodeSymbol {
     ...(row.contentHash ? { contentHash: row.contentHash } : {}),
     indexedAt: row.indexedAt,
     stale: !!row.stale,
+    ...(row.snapshotId ? { snapshotId: row.snapshotId } : {}),
+    ...(row.sourceEpoch != null ? { sourceEpoch: Number(row.sourceEpoch) } : {}),
   } as CodeSymbol;
 }
 
@@ -52,6 +66,8 @@ function rowToEdge(row: any): CodeEdge {
     confidence: row.confidence,
     ...(row.evidence ? { evidence: row.evidence } : {}),
     indexedAt: row.indexedAt,
+    ...(row.snapshotId ? { snapshotId: row.snapshotId } : {}),
+    ...(row.sourceEpoch != null ? { sourceEpoch: Number(row.sourceEpoch) } : {}),
   } as CodeEdge;
 }
 
@@ -68,14 +84,69 @@ function rowToRef(row: any): ObservationCodeRef {
     ...(row.reason ? { reason: row.reason } : {}),
     createdAt: row.createdAt,
     ...(row.updatedAt ? { updatedAt: row.updatedAt } : {}),
+    ...(row.snapshotId ? { snapshotId: row.snapshotId } : {}),
   } as ObservationCodeRef;
+}
+
+function parseCompleteness(raw: unknown): CodeStateScanCompleteness {
+  try {
+    const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('invalid completeness');
+    return {
+      scannedFiles: Number((parsed as any).scannedFiles) || 0,
+      maxFiles: Number((parsed as any).maxFiles) || 0,
+      changedFiles: Number((parsed as any).changedFiles) || 0,
+      unchangedFiles: Number((parsed as any).unchangedFiles) || 0,
+      metadataOnlyFiles: Number((parsed as any).metadataOnlyFiles) || 0,
+      removedFiles: Number((parsed as any).removedFiles) || 0,
+      skippedOversizedFiles: Number((parsed as any).skippedOversizedFiles) || 0,
+      unreadableFiles: Number((parsed as any).unreadableFiles) || 0,
+      removalScanDeferred: Boolean((parsed as any).removalScanDeferred),
+    };
+  } catch {
+    return {
+      scannedFiles: 0,
+      maxFiles: 0,
+      changedFiles: 0,
+      unchangedFiles: 0,
+      metadataOnlyFiles: 0,
+      removedFiles: 0,
+      skippedOversizedFiles: 0,
+      unreadableFiles: 0,
+      removalScanDeferred: false,
+    };
+  }
+}
+
+function rowToSnapshot(row: any): CodeStateSnapshot {
+  return {
+    id: row.id,
+    projectId: row.projectId,
+    provider: row.provider,
+    ...(row.baseRevision ? { baseRevision: row.baseRevision } : {}),
+    worktreeFingerprint: row.worktreeFingerprint,
+    worktreeState: row.worktreeState,
+    changedPathCount: Number(row.changedPathCount),
+    indexedAt: row.indexedAt,
+    sourceEpoch: Number(row.sourceEpoch),
+    completeness: parseCompleteness(row.completenessJson),
+    ...(row.previousSnapshotId ? { previousSnapshotId: row.previousSnapshotId } : {}),
+  } as CodeStateSnapshot;
 }
 
 export class CodeGraphStore {
   private db: any = null;
+  private dataDir: string | null = null;
 
   async init(dataDir: string): Promise<void> {
+    this.dataDir = dataDir;
     this.db = getDatabase(dataDir);
+  }
+
+  /** Data directory shared with the rest of the local project evidence stores. */
+  getDataDir(): string {
+    if (!this.dataDir) throw new Error('CodeGraphStore is not initialized');
+    return this.dataDir;
   }
 
   upsertFiles(files: CodeFile[]): void {
@@ -364,9 +435,9 @@ export class CodeGraphStore {
     if (refs.length === 0) return;
     const stmt = this.db.prepare(`
       INSERT OR REPLACE INTO observation_code_refs
-        (id, projectId, observationId, fileId, symbolId, capturedFileHash, capturedSymbolHash, status, reason, createdAt, updatedAt)
+        (id, projectId, observationId, fileId, symbolId, capturedFileHash, capturedSymbolHash, status, reason, createdAt, updatedAt, snapshotId)
       VALUES
-        (@id, @projectId, @observationId, @fileId, @symbolId, @capturedFileHash, @capturedSymbolHash, @status, @reason, @createdAt, @updatedAt)
+        (@id, @projectId, @observationId, @fileId, @symbolId, @capturedFileHash, @capturedSymbolHash, @status, @reason, @createdAt, @updatedAt, @snapshotId)
     `);
     const tx = this.db.transaction((items: ObservationCodeRef[]) => {
       for (const ref of items) {
@@ -382,6 +453,7 @@ export class CodeGraphStore {
           reason: ref.reason ?? null,
           createdAt: ref.createdAt,
           updatedAt: ref.updatedAt ?? null,
+          snapshotId: ref.snapshotId ?? this.latestSnapshot(ref.projectId)?.id ?? null,
         });
       }
     });
@@ -395,9 +467,9 @@ export class CodeGraphStore {
     `);
     const insertRef = this.db.prepare(`
       INSERT OR REPLACE INTO observation_code_refs
-        (id, projectId, observationId, fileId, symbolId, capturedFileHash, capturedSymbolHash, status, reason, createdAt, updatedAt)
+        (id, projectId, observationId, fileId, symbolId, capturedFileHash, capturedSymbolHash, status, reason, createdAt, updatedAt, snapshotId)
       VALUES
-        (@id, @projectId, @observationId, @fileId, @symbolId, @capturedFileHash, @capturedSymbolHash, @status, @reason, @createdAt, @updatedAt)
+        (@id, @projectId, @observationId, @fileId, @symbolId, @capturedFileHash, @capturedSymbolHash, @status, @reason, @createdAt, @updatedAt, @snapshotId)
     `);
     const tx = this.db.transaction(() => {
       deleteRefs.run(projectId, observationId);
@@ -414,6 +486,7 @@ export class CodeGraphStore {
           reason: ref.reason ?? null,
           createdAt: ref.createdAt,
           updatedAt: ref.updatedAt ?? null,
+          snapshotId: ref.snapshotId ?? this.latestSnapshot(ref.projectId)?.id ?? null,
         });
       }
     });
@@ -514,12 +587,87 @@ export class CodeGraphStore {
     `).all(projectId, projectId).map(rowToSymbol);
   }
 
+  latestSnapshot(projectId: string): CodeStateSnapshot | undefined {
+    const row = this.db.prepare(
+      'SELECT * FROM code_state_snapshots WHERE projectId = ? ORDER BY sourceEpoch DESC LIMIT 1',
+    ).get(projectId);
+    return row ? rowToSnapshot(row) : undefined;
+  }
+
+  listSnapshots(projectId: string, limit = 20): CodeStateSnapshot[] {
+    const safeLimit = Number.isFinite(limit) ? Math.max(1, Math.min(200, Math.floor(limit))) : 20;
+    return this.db.prepare(
+      'SELECT * FROM code_state_snapshots WHERE projectId = ? ORDER BY sourceEpoch DESC LIMIT ?',
+    ).all(projectId, safeLimit).map(rowToSnapshot);
+  }
+
+  /**
+   * Record a completed scan and mark all current structural facts with its
+   * epoch. The snapshot is written only after refresh reconciliation succeeds,
+   * so an interrupted scan cannot be advertised as complete.
+   */
+  recordCodeStateSnapshot(input: CodeStateSnapshotInput): CodeStateSnapshot {
+    const id = randomUUID();
+    let snapshot: CodeStateSnapshot | undefined;
+    const tx = this.db.transaction(() => {
+      const previous = this.db.prepare(
+        'SELECT id, sourceEpoch FROM code_state_snapshots WHERE projectId = ? ORDER BY sourceEpoch DESC LIMIT 1',
+      ).get(input.projectId);
+      const sourceEpoch = Number(previous?.sourceEpoch ?? 0) + 1;
+      const previousSnapshotId = previous?.id as string | undefined;
+      this.db.prepare(
+        'INSERT INTO code_state_snapshots (id, projectId, provider, baseRevision, worktreeFingerprint, worktreeState, changedPathCount, indexedAt, sourceEpoch, completenessJson, previousSnapshotId) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      ).run(
+        id,
+        input.projectId,
+        input.provider,
+        input.baseRevision ?? null,
+        input.worktreeFingerprint,
+        input.worktreeState,
+        input.changedPathCount,
+        input.indexedAt,
+        sourceEpoch,
+        JSON.stringify(input.completeness),
+        previousSnapshotId ?? null,
+      );
+      this.db.prepare(
+        'UPDATE code_files SET snapshotId = ?, sourceEpoch = ?, gitCommit = COALESCE(?, gitCommit) WHERE projectId = ?',
+      ).run(id, sourceEpoch, input.baseRevision ?? null, input.projectId);
+      this.db.prepare(
+        'UPDATE code_symbols SET snapshotId = ?, sourceEpoch = ? WHERE projectId = ? AND stale = 0',
+      ).run(id, sourceEpoch, input.projectId);
+      this.db.prepare(
+        'UPDATE code_edges SET snapshotId = ?, sourceEpoch = ? WHERE projectId = ?',
+      ).run(id, sourceEpoch, input.projectId);
+      this.db.prepare(
+        "UPDATE observation_code_refs SET snapshotId = ? WHERE projectId = ? AND status = 'current'",
+      ).run(id, input.projectId);
+      snapshot = {
+        ...input,
+        id,
+        sourceEpoch,
+        ...(previousSnapshotId ? { previousSnapshotId } : {}),
+      };
+    });
+    tx();
+    return snapshot!;
+  }
+
   status(projectId: string): CodeGraphStatus {
     const files = this.db.prepare(`SELECT COUNT(*) AS count FROM code_files WHERE projectId = ?`).get(projectId).count;
     const symbols = this.db.prepare(`SELECT COUNT(*) AS count FROM code_symbols WHERE projectId = ? AND stale = 0`).get(projectId).count;
     const edges = this.db.prepare(`SELECT COUNT(*) AS count FROM code_edges WHERE projectId = ?`).get(projectId).count;
     const refs = this.db.prepare(`SELECT COUNT(*) AS count FROM observation_code_refs WHERE projectId = ?`).get(projectId).count;
     const latest = this.db.prepare(`SELECT MAX(indexedAt) AS indexedAt FROM code_files WHERE projectId = ?`).get(projectId);
-    return { provider: 'lite', files, symbols, edges, refs, ...(latest?.indexedAt ? { indexedAt: latest.indexedAt } : {}) };
+    const latestSnapshot = this.latestSnapshot(projectId);
+    return {
+      provider: 'lite',
+      files,
+      symbols,
+      edges,
+      refs,
+      ...(latest?.indexedAt ? { indexedAt: latest.indexedAt } : {}),
+      ...(latestSnapshot ? { latestSnapshot } : {}),
+    };
   }
 }

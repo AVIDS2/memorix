@@ -37,6 +37,7 @@ The current CLI namespaces are:
 - `memorix session`
 - `memorix memory`
 - `memorix codegraph`
+- `memorix knowledge`
 - `memorix reasoning`
 - `memorix retention`
 - `memorix formation`
@@ -61,6 +62,7 @@ memorix memory search --query "release blocker"
 memorix context --task "continue auth bug"
 memorix codegraph refresh
 memorix codegraph status --json
+memorix knowledge status
 memorix reasoning search --query "why sqlite"
 memorix retention status
 memorix task list
@@ -78,9 +80,9 @@ memorix receipt --json --probe "release blocker"
 
 The CLI is for direct terminal use, not a 1:1 mirror of MCP tool names. The only MCP-only area is the optional graph-compatibility tools (`create_entities`, `read_graph`, and related tools) for workflows that expect the official memory-server style graph API.
 
-### Memory Autopilot, CodeGraph Memory, and Context Packs
+### Memory Autopilot, Code State, and Context Packs
 
-Memory Autopilot is the default agent-facing path for coding context. It uses CodeGraph Memory, project observations, task-lens heuristics, and freshness labels to produce a compact brief instead of dumping raw old chat text. CodeGraph Memory stores structured file, symbol, import-edge, and memory-to-code reference facts in the same local SQLite database as project memory. It is not a replacement for normal file reads. Its job is to help agents decide which memories still point at current code, which ones are stale, and which files/symbols deserve inspection next.
+Memory Autopilot is the default agent-facing path for coding context. It builds a bounded task Workset instead of dumping old chat text: current project facts, Code State, selected observations, source-backed claims, matching knowledge/workflow starts, cautions, and verification hints. Code State stores versioned local file, symbol, import-edge, and memory-to-code reference facts beside project memory. It is not a replacement for normal file reads. Its job is to help agents decide which memories still point at current code, which ones are stale, and which files/symbols deserve inspection next.
 
 CLI:
 
@@ -97,19 +99,36 @@ memorix codegraph context-pack --task "continue auth bug"
 
 MCP:
 
-- `memorix_project_context` builds the default Memory Autopilot brief. It can auto-refresh CodeGraph Memory when the index is missing or stale, infer a task lens (`bugfix`, `feature`, `release`, `onboarding`, `refactor`, `docs`, `test`, or `general`), then return current project facts, Start here files, reliable code-bound memories, stale/suspect cautions, and lens-specific verification hints.
+- `memorix_project_context` builds the default Memory Autopilot brief. It can auto-refresh Code State when the local index is missing or stale, infer a task lens (`bugfix`, `feature`, `release`, `onboarding`, `refactor`, `docs`, `test`, or `general`), then return current project facts, Start here files, selected evidence, stale/suspect cautions, and lens-specific verification hints.
 - `memorix_codegraph_status` returns provider/index counts for the current project.
 - `memorix_context_pack` builds a task-specific packet with reliable current memories, lower-trust unbound memories, current code facts, freshness warnings, suggested reads, and suggested verification.
 
-`memorix context` defaults to `--refresh auto`, so first use can seed CodeGraph Memory without a separate manual `memorix codegraph refresh`. Its brief puts live package/changelog/Git facts before memory hints and flags old `progress.txt` / dev-log notes as historical when they predate the latest changelog, so agents should treat current facts as the source of truth when files disagree. Task lenses keep the packet shaped to the work: bugfix briefs prefer failing tests and repros, release briefs prefer metadata/changelog/package checks, and onboarding briefs prefer docs and entry points while hiding unrelated suspect details. Use `--refresh never` for read-only inspection and `--refresh always` when you want to force a fresh scan.
+`memorix context` defaults to `--refresh auto`, so first use can seed Code State without a separate manual `memorix codegraph refresh`. Its brief puts live package/changelog/Git facts before memory hints and flags old `progress.txt` / dev-log notes as historical when they predate the latest changelog, so agents should treat current facts as the source of truth when files disagree. Task lenses keep the packet shaped to the work: bugfix briefs prefer failing tests and repros, release briefs prefer metadata/changelog/package checks, and onboarding briefs prefer docs and entry points while hiding unrelated suspect details. Use `--refresh never` for read-only inspection and `--refresh always` when you want to force a fresh scan.
 
-Project-specific generated, vendored, or cache paths can be excluded from CodeGraph Memory with `[codegraph].exclude_patterns` in `memorix.toml` or `~/.memorix/config.toml` (`codegraph.excludePatterns` in legacy YAML). User patterns extend the built-in excludes and are applied to indexing, Project Context suggested reads, and Context Pack suggested reads.
+Project-specific generated, vendored, or cache paths can be excluded from Code State with `[codegraph].exclude_patterns` in `memorix.toml` or `~/.memorix/config.toml` (`codegraph.excludePatterns` in legacy YAML). User patterns extend the built-in excludes and are applied to indexing, Project Context suggested reads, and Context Pack suggested reads.
 
 SessionStart hooks keep the default minimal hint lightweight. When memory behavior is configured with `sessionInject=full`, Memorix injects the compact Memory Autopilot brief at session start instead of only listing recent text memories.
 
 The intended loop for agents is: get the project brief when it helps, inspect the suggested current files, use stale or unbound memory only as a lead, store durable outcomes after the work changes the project, and resolve obsolete memories.
 
-The built-in Lite provider indexes common code files with lightweight file, symbol, and import facts. Future providers can feed richer graph data into the same store and context APIs.
+The built-in Lite provider indexes common code files with lightweight file, symbol, and import facts. It is a structural fallback, not a language-server-quality graph. When a project already has a healthy local CodeGraph index, `[codegraph].external_context = "auto"` may add a validated, bounded semantic outline to the Workset. Memorix never initializes, syncs, or exports that external index, and never stores its raw source output. `memorix codegraph status --json`, `memorix doctor --json`, and Project Context JSON identify the actual provider quality.
+
+### Knowledge Workspace and Workflows
+
+`memorix knowledge` is the deliberate, reviewable knowledge-management path. It uses source-backed claims to compile Markdown proposals, protects manually edited pages, and can keep canonical project workflows separate from agent-specific adapters.
+
+```bash
+memorix knowledge init --mode local
+memorix knowledge status
+memorix knowledge compile
+memorix knowledge lint
+memorix knowledge apply --proposal <id>
+memorix knowledge workflow import
+memorix knowledge workflow select --task "prepare a release"
+memorix knowledge workflow preview --id <workflow-id> --agent codex
+```
+
+The advanced MCP action tool is `memorix_knowledge`. It is registered only in the `team` and `full` tool profiles so normal agents keep the compact micro/lite tool surface. Its actions are `workspace_init`, `status`, `compile`, `lint`, `proposal_apply`, `workflow_import`, `workflow_list`, `workflow_select`, `workflow_preview`, `workflow_apply`, and `workflow_run`. Use it only when an agent is explicitly managing the reviewable Knowledge Workspace; ordinary coding work should stay on `memorix_project_context`.
 
 ### Cross-Agent Handoff Receipt
 

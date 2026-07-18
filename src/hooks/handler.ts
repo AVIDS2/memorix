@@ -298,12 +298,12 @@ async function handleSessionStart(input: NormalizedHookInput): Promise<{
         dataDir,
         observations: activeObservations,
         refresh: 'auto',
-        enqueueRefresh: () => import('../runtime/maintenance-jobs.js').then(({ MaintenanceJobStore }) => {
-            new MaintenanceJobStore(dataDir).enqueue({
+        enqueueRefresh: () => import('../runtime/lifecycle.js').then(({ enqueueCodegraphRefresh }) => {
+            enqueueCodegraphRefresh({
+              dataDir,
               projectId: canonicalId,
-              kind: 'codegraph-refresh',
-              dedupeKey: 'hook-codegraph-refresh',
-              payload: { maxFiles: 5_000 },
+              source: 'hook-session-start',
+              maxFiles: 5_000,
             });
           }),
       });
@@ -337,7 +337,7 @@ async function handleSessionStart(input: NormalizedHookInput): Promise<{
  * Pipeline: Classify → Policy check → Store → Respond
  * Pattern detection is used for classification only, not storage gating.
  */
-export async function handleHookEvent(input: NormalizedHookInput): Promise<{
+async function handleHookEventCore(input: NormalizedHookInput): Promise<{
   observation: ReturnType<typeof buildObservation> | null;
   output: HookOutput;
 }> {
@@ -429,6 +429,48 @@ export async function handleHookEvent(input: NormalizedHookInput): Promise<{
     observation: buildObservation(input, content, category),
     output: defaultOutput,
   };
+}
+
+/** Queue a later scan after an actual file mutation without scanning in the hook. */
+async function queueCodegraphRefreshForMutation(input: NormalizedHookInput): Promise<void> {
+  if (classifyTool(input) !== 'file_modify') return;
+  try {
+    const [
+      { detectProject },
+      { getProjectDataDir },
+      { initAliasRegistry, registerAlias },
+      { enqueueCodegraphRefresh },
+    ] = await Promise.all([
+      import('../project/detector.js'),
+      import('../store/persistence.js'),
+      import('../project/aliases.js'),
+      import('../runtime/lifecycle.js'),
+    ]);
+    const project = detectProject(input.cwd || process.cwd());
+    if (!project) return;
+    const dataDir = await getProjectDataDir(project.id);
+    initAliasRegistry(dataDir);
+    const projectId = await registerAlias(project);
+    enqueueCodegraphRefresh({
+      dataDir,
+      projectId,
+      source: 'hook-file-mutation',
+      maxFiles: 5_000,
+    });
+  } catch {
+    // Hooks remain capture-first even if optional Code Memory scheduling fails.
+  }
+}
+
+export async function handleHookEvent(input: NormalizedHookInput): Promise<{
+  observation: ReturnType<typeof buildObservation> | null;
+  output: HookOutput;
+}> {
+  try {
+    return await handleHookEventCore(input);
+  } finally {
+    await queueCodegraphRefreshForMutation(input);
+  }
 }
 
 /**

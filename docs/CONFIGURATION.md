@@ -65,6 +65,11 @@ noise_keywords = ["format", "typo"]
 exclude_patterns = ["vendor/**", "third_party/**", "generated/**"]
 max_file_bytes = 2097152
 
+# Optional: use an already-indexed local CodeGraph only when it is healthy.
+external_context = "auto"
+# external_command = "C:\\tools\\codegraph.cmd"
+external_timeout_ms = 1200
+
 [server]
 transport = "stdio"
 dashboard = true
@@ -209,15 +214,19 @@ the Memorix project ID.
 
 ### `[codegraph]`
 
-CodeGraph Memory and Project Context scan limits.
+Code State, CodeGraph Memory, and Project Context scan/provider settings.
 
 Common keys:
 
 - `exclude_patterns = ["vendor/**", "third_party/**", "generated/**"]`
 - `max_file_bytes = 2097152` (2 MiB per source file by default)
+- `external_context = "auto"` (`"off"` keeps the built-in Lite provider only)
+- `external_command = "C:\\tools\\codegraph.cmd"` (optional path when CodeGraph is not on `PATH`)
+- `external_timeout_ms = 1200` (bounded local semantic-query timeout)
 
-Legacy YAML uses `codegraph.excludePatterns` and `codegraph.maxFileBytes` for
-the same settings.
+Legacy YAML uses `codegraph.excludePatterns`, `codegraph.maxFileBytes`,
+`codegraph.externalContext`, `codegraph.externalCommand`, and
+`codegraph.externalTimeoutMs` for the same settings.
 
 These patterns extend Memorix's built-in CodeGraph excludes (`node_modules`,
 build outputs, worktrees, and similar generated directories). Matching paths are
@@ -225,6 +234,15 @@ skipped during CodeGraph indexing and hidden from Project Context / Context Pack
 suggested reads. Files larger than `max_file_bytes` are also skipped so a
 generated or minified source file cannot monopolize an incremental scan. Raise
 the limit only for a repository where that file is intentional source.
+
+`external_context = "auto"` is deliberately conservative. Memorix checks for
+an already-initialized local `.codegraph` index and uses it only when its status
+matches the current project and has no pending changes. It never runs
+`codegraph init`, `index`, or `sync`, and it never sends repository content to
+a remote service. A valid external response contributes only a small semantic
+outline to the current task Workset; raw code is neither copied into the
+Workset nor persisted as Memorix knowledge. See
+[1.2 Provider Quality](1.2.0-PROVIDER-QUALITY.md) for the complete contract.
 
 ### `[server]`
 

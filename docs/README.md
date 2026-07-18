@@ -31,7 +31,8 @@ The public docs are organized by user intent:
 | Topic | Document |
 | --- | --- |
 | CLI commands and MCP tools | [API_REFERENCE.md](API_REFERENCE.md) |
-| Memory Autopilot, CodeGraph Memory, and context packs | [API_REFERENCE.md § Memory Autopilot, CodeGraph Memory, and Context Packs](API_REFERENCE.md#memory-autopilot-codegraph-memory-and-context-packs), [context fabric design](superpowers/specs/2026-06-29-codegraph-memory-context-fabric-design.md), and [auto context design](superpowers/specs/2026-06-29-auto-context-layer-design.md) |
+| Memory Autopilot, Code State, and context packs | [API_REFERENCE.md § Memory Autopilot, Code State, and Context Packs](API_REFERENCE.md#memory-autopilot-code-state-and-context-packs), [1.2 Code State](1.2.0-CODE-STATE.md), and [1.2 Workset Retrieval](1.2.0-WORKSET-RETRIEVAL.md) |
+| Reviewable knowledge pages and workflow inheritance | [API_REFERENCE.md § Knowledge Workspace and Workflows](API_REFERENCE.md#knowledge-workspace-and-workflows), [1.2 Knowledge Workspace](1.2.0-KNOWLEDGE-WORKSPACE.md), and [1.2 Workflow Inheritance](1.2.0-WORKFLOW-INHERITANCE.md) |
 | Git-derived engineering memory | [GIT_MEMORY.md](GIT_MEMORY.md) |
 | Memory formation and quality pipeline | [MEMORY_FORMATION_PIPELINE.md](MEMORY_FORMATION_PIPELINE.md) |
 | Performance and resource profile | [PERFORMANCE.md](PERFORMANCE.md) |
@@ -75,6 +76,18 @@ The public docs are organized by user intent:
 | Module-by-module notes | [MODULES.md](MODULES.md) |
 | CodeGraph Memory / Context Fabric design | [2026-06-29-codegraph-memory-context-fabric-design.md](superpowers/specs/2026-06-29-codegraph-memory-context-fabric-design.md) |
 | Auto Context Layer design | [2026-06-29-auto-context-layer-design.md](superpowers/specs/2026-06-29-auto-context-layer-design.md) |
+| 1.2 product direction and user journey | [1.2 Product Story](1.2.0-PRODUCT-STORY.md) |
+| 1.2 knowledge base and workflow inheritance research | [Knowledge and Workflow Research](1.2.0-KNOWLEDGE-WORKFLOW-RESEARCH.md) |
+| 1.2 execution contract and phase gates | [1.2 Implementation Plan](1.2.0-IMPLEMENTATION-PLAN.md) |
+| 1.2 deterministic Workset evaluation fixtures | [1.2 Evaluation Harness](1.2.0-EVALUATION-HARNESS.md) |
+| 1.2 versioned code-state contract | [1.2 Code State Snapshots](1.2.0-CODE-STATE.md) |
+| 1.2 source-backed claim and conflict contract | [1.2 Claim Ledger](1.2.0-CLAIM-LEDGER.md) |
+| 1.2 reviewable Markdown knowledge workspace | [1.2 Knowledge Workspace](1.2.0-KNOWLEDGE-WORKSPACE.md) |
+| 1.2 canonical workflows and safe agent adapters | [1.2 Workflow Inheritance](1.2.0-WORKFLOW-INHERITANCE.md) |
+| 1.2 task-shaped evidence selection | [1.2 Workset Retrieval](1.2.0-WORKSET-RETRIEVAL.md) |
+| 1.2 non-blocking refresh and maintenance contract | [1.2 Dynamic Lifecycle](1.2.0-DYNAMIC-LIFECYCLE.md) |
+| 1.2 honest Lite and optional semantic CodeGraph provider contract | [1.2 Provider Quality](1.2.0-PROVIDER-QUALITY.md) |
+| Active 1.2 multi-dimensional memory work | [1.2.0 Development Charter](1.2.0-DEVELOPMENT-CHARTER.md) |
 | Historical cloud sync and multi-agent research | [CLOUD_SYNC_AND_MULTI_AGENT_RESEARCH.md](CLOUD_SYNC_AND_MULTI_AGENT_RESEARCH.md) |
 | Known issues and old roadmap notes | [KNOWN_ISSUES_AND_ROADMAP.md](KNOWN_ISSUES_AND_ROADMAP.md) |
 
@@ -102,7 +115,9 @@ Historical/deep-reference documents may describe older designs. If they conflict
 
 ## Current Product Line
 
-These docs target the **1.1 release line**, where:
+The released product is on the **1.1 line**. Active 1.2 design work is tracked
+in the [1.2 Development Charter](1.2.0-DEVELOPMENT-CHARTER.md). The current
+released baseline has:
 
 - `memorix setup --agent <agent> --global` is the default agent integration command
 - `memorix serve` is the manual stdio MCP server for external agents

@@ -1,5 +1,5 @@
 /**
- * GraphView — Knowledge graph text browser.
+ * GraphView — deterministic memory-map text browser.
  *
  * Modes: browse (clusters + nodes), detail (single node with edge summary).
  * Keyboard: f filter, up/down navigate, enter detail, k -> Knowledge, esc back.
@@ -168,7 +168,7 @@ export function GraphView({ projectId, inputFocused, onNavigateKnowledge }: Grap
     return (
       <Box flexDirection="column" paddingX={1}>
         <Box>
-          <Text color={COLORS.brand} bold>Graph Node Detail</Text>
+          <Text color={COLORS.brand} bold>Memory Map Item</Text>
         </Box>
         <Text color={COLORS.border}>{separator()}</Text>
         <Box marginY={1} flexDirection="column">
@@ -190,7 +190,7 @@ export function GraphView({ projectId, inputFocused, onNavigateKnowledge }: Grap
         )}
         {/* Edge summary */}
         <Box marginY={1} flexDirection="column">
-          <Text color={COLORS.brandDim} bold>Edges</Text>
+          <Text color={COLORS.brandDim} bold>Links</Text>
           <Text color={COLORS.muted}>Outgoing ({outgoing.length}): </Text>
           {outgoing.slice(0, 6).map((e) => {
             const targetNode = graph?.nodes.find((n) => n.id === e.target);
@@ -213,7 +213,7 @@ export function GraphView({ projectId, inputFocused, onNavigateKnowledge }: Grap
           {incoming.length > 6 && <Text color={COLORS.muted}>  ... +{incoming.length - 6} more</Text>}
         </Box>
         <Box marginTop={1}>
-          <Text color={COLORS.muted}>esc back  |  k {'>'} Knowledge</Text>
+          <Text color={COLORS.muted}>esc back  |  k {'>'} Memory Overview</Text>
         </Box>
       </Box>
     );
@@ -230,11 +230,12 @@ export function GraphView({ projectId, inputFocused, onNavigateKnowledge }: Grap
     <Box flexDirection="column" paddingX={1}>
       <Box flexDirection="column">
         <Box>
-          <Text color={COLORS.brand} bold>Knowledge Graph</Text>
+          <Text color={COLORS.brand} bold>Memory Map</Text>
           {!loading && graph && (
             <Text color={COLORS.muted}> | {graph.stats.totalNodes} nodes, {graph.stats.totalEdges} edges, {graph.stats.clusterCount} clusters</Text>
           )}
         </Box>
+        <Text color={COLORS.textDim}>Deterministic links from shared entities, skill sources, and explicit relations</Text>
         {/* Filter bar */}
         {!loading && graph && (
           <Box marginTop={0}>
@@ -248,7 +249,7 @@ export function GraphView({ projectId, inputFocused, onNavigateKnowledge }: Grap
       {loading ? (
         <Text color={COLORS.muted}>Loading...</Text>
       ) : !graph ? (
-        <Text color={COLORS.muted}>No graph data available. Store observations to build the knowledge graph.</Text>
+        <Text color={COLORS.muted}>No memory map data is available. Store durable observations to build deterministic links.</Text>
       ) : flatItems.length === 0 ? (
         <Text color={COLORS.muted}>
           {filterMode !== 'all' ? 'No nodes match this filter.' : 'No nodes in graph.'}
@@ -290,7 +291,7 @@ export function GraphView({ projectId, inputFocused, onNavigateKnowledge }: Grap
 
       <Box marginTop={1} flexDirection="column">
         <Text color={COLORS.textDim}>
-          f filter  |  up/down navigate  |  enter detail  |  k {'>'} Knowledge
+          f filter  |  up/down navigate  |  enter detail  |  k {'>'} Memory Overview
         </Text>
       </Box>
     </Box>

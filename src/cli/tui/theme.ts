@@ -31,7 +31,7 @@ export const SLASH_COMMANDS: SlashCommand[] = [
   { name: '/integrate',  description: 'Set up an IDE',          alias: '/setup' },
   { name: '/cleanup',    description: 'Cleanup and purge' },
   { name: '/ingest',     description: 'Git to Memory' },
-  { name: '/wiki',       description: 'Knowledge Base',         alias: '/knowledge' },
+  { name: '/wiki',       description: 'Memory overview',        alias: '/knowledge' },
   { name: '/exit',       description: 'Exit workbench',         alias: '/q' },
 ];
 

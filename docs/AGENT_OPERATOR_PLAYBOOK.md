@@ -25,9 +25,9 @@ It supports:
 - local-first project-scoped memory
 - cross-agent recall across Cursor, Claude Code, Codex, Windsurf, Gemini CLI, GitHub Copilot, OpenCode, OpenClaw, Hermes Agent, Oh-my-Pi, Pi, Kiro, Antigravity, and Trae
 
-### Current 1.1 Baseline
+### Current 1.2 Baseline
 
-For the 1.1 release line, the visible product shape is:
+For the 1.2 release line, the visible product shape is:
 
 - `memorix setup --agent <agent> --global` is the default integration command for an existing coding agent or IDE
 - setup installs plugin packages where supported, MCP config, usage guidance, hooks, and skills according to agent capability
@@ -38,6 +38,9 @@ For the 1.1 release line, the visible product shape is:
 - model lanes are separate: `[memory.llm]` for formation/rerank/summaries, `[embedding]` for semantic search, `[agent]` for the model memcode talks to while coding
 - legacy `memorix.yml`, `.env`, and `~/.memorix/config.json` are compatibility inputs, not the recommended setup path
 - generated agent rules treat `memorix_session_start` as optional unless explicit session semantics matter
+- `memorix_project_context` / `memorix context --task "..."` is the normal black-box entry for non-trivial coding work: it assembles a bounded task Workset instead of injecting a generic memory dump
+- Code State keeps local snapshots and freshness links; a healthy pre-existing local CodeGraph index can add a bounded semantic outline, but Memorix never initializes or synchronizes that external index itself
+- `memorix knowledge` is an explicit review path for source-backed Markdown knowledge and canonical workflows. Do not initialize a versioned workspace or apply a proposal unless the user asks for that managed artifact
 - integration surfaces are agent-specific: Claude Code, Codex, GitHub Copilot CLI, Antigravity, and Hermes receive plugin packages; OpenClaw receives a compatible bundle; Pi and Oh-my-Pi receive package entries; Gemini CLI receives an extension package; OpenCode receives a plugin file and skill; Cursor and other agents receive MCP/rules/hooks where supported
 - privacy-safe diagnostics and receipts avoid raw chat, memory text, query text, tool payloads, and local file paths
 
@@ -47,7 +50,7 @@ For the 1.1 release line, the visible product shape is:
 
 ### CLI is the direct command surface; MCP is the integration layer
 
-For direct use, prefer `memorix ...` commands first. In the 1.1 line, the CLI covers session, memory, reasoning, retention, formation, audit, transfer, skills, orchestration coordination, sync, ingest workflows, and the bundled terminal agent.
+For direct use, prefer `memorix ...` commands first. In the 1.2 line, the CLI covers session, memory, Code State, knowledge workspaces, reasoning, retention, formation, audit, transfer, skills, orchestration coordination, sync, ingest workflows, and the bundled terminal agent.
 
 Do not ask memory-only users to join coordination state. A lightweight session is enough for memory, retrieval, reasoning, and continuation. Use `joinTeam` / `team_manage(join)` only for explicit task/message/lock coordination or for CLI-agent work managed by `memorix orchestrate`.
 

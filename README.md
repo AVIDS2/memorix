@@ -61,10 +61,10 @@ Memorix is more than a memory store. It also installs agent integrations, keeps 
 | --- | --- | --- |
 | Memory Autopilot | A bounded task Workset with start files, current memory, source-backed knowledge, workflow starts, cautions, and verification | `memorix context --task "..."`, `memorix_project_context` |
 | Observation Memory | Searchable facts, fixes, gotchas, session summaries, and implementation notes scoped to the current Git project | `memorix memory`, MCP memory tools |
-| Code Memory | File/symbol links and freshness checks so old memories point to current code or show up as suspect/stale | `memorix codegraph`, automatic context refresh |
+| Code State and Code Memory | Versioned local code snapshots, file/symbol links, and freshness checks. The built-in Lite index is always honest about its limits; an already-indexed local CodeGraph can add a bounded semantic outline | `memorix codegraph`, automatic context refresh |
 | Git Memory | Commit-derived engineering facts that answer what changed, where, and why it matters | `memorix ingest commit`, git hook |
 | Reasoning Memory | Design rationale, alternatives, trade-offs, and risks that should survive beyond one chat | `memorix reasoning`, memory formation |
-| Knowledge Workspace | Reviewable Markdown pages and project playbooks compiled from source-backed claims | `memorix knowledge`, `memorix knowledge workflow` |
+| Knowledge Workspace | Reviewable Markdown pages and project playbooks compiled from source-backed claims; proposals never overwrite reviewed pages silently | `memorix knowledge`, `memorix knowledge workflow` |
 | Agent setup | One setup path for MCP, rules, hooks, skills, plugins, bundles, or extensions depending on the agent | `memorix setup --agent <agent>` |
 | Agent doctor | Checks whether agent MCP config and guidance are current, then repairs Memorix-owned entries when needed | `memorix doctor agents`, `memorix repair agents` |
 | Hooks and skills | Optional capture from supported agents, plus reusable project skills promoted from durable knowledge | `memorix hooks`, `memorix skills` |

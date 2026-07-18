@@ -2,7 +2,7 @@
 
 > Local-first shared memory layer for AI coding agents.
 
-Memorix gives coding agents persistent, project-aware memory across sessions, IDEs, terminals, and MCP clients. It stores project knowledge once so multiple agents can retrieve it — through plugin packages, MCP, CLI, SDK, generated rules/instructions, hooks, skills, local plugins, or the bundled terminal agent. It works with Claude Code, Codex, Cursor, Windsurf, GitHub Copilot CLI, Gemini CLI, OpenCode, Pi, Kiro, Antigravity, Trae, and other MCP-capable agents.
+Memorix gives coding agents persistent, project-aware memory across sessions, IDEs, terminals, and MCP clients. It stores project knowledge once so multiple agents can retrieve it through plugin packages, MCP, CLI, SDK, generated rules/instructions, hooks, skills, local plugins, or the bundled terminal agent. It works with Claude Code, Codex, Cursor, Windsurf, GitHub Copilot CLI, Gemini CLI, OpenCode, OpenClaw, Hermes Agent, Oh-my-Pi, Pi, Kiro, Antigravity, Trae, and other MCP-capable agents.
 
 ## Entry Points
 
@@ -10,20 +10,25 @@ Memorix gives coding agents persistent, project-aware memory across sessions, ID
 - `memorix setup --list` lists supported agent entry points.
 - `memorix serve` starts the manual stdio MCP server for IDEs and agents.
 - `memorix background start` starts the HTTP MCP service and dashboard.
-- `memorix memory`, `reasoning`, `session`, `team`, `task`, `handoff`, `poll`, `receipt`, `sync`, `ingest`, and `orchestrate` expose the CLI command set.
+- `memorix memory`, `codegraph`, `knowledge`, `reasoning`, `session`, `team`, `task`, `handoff`, `poll`, `receipt`, `sync`, `ingest`, and `orchestrate` expose the CLI command set.
 - `memorix integrate --agent <agent>` and `memorix hooks install --agent <agent>` are manual/fallback generation commands.
 - `memorix` and `memcode` open memcode, the bundled terminal agent that uses the same project memory pool.
 - `memorix dashboard` opens the local read-mostly dashboard.
 
 ## Memory Model
 
-Memorix combines three layers:
+Memorix combines durable memory with a bounded task Workset:
 
 - **Observation Memory**: facts, gotchas, fixes, implementation notes, what changed
 - **Reasoning Memory**: why decisions were made, alternatives, constraints, risks
 - **Git Memory**: commit-derived engineering facts with source provenance
+- **Code State**: versioned local file/symbol/import facts and freshness links that keep memory tied to the current checkout
+- **Claim Ledger and Knowledge Workspace**: source-backed claims compiled into reviewable Markdown proposals, never silent overwrites
+- **Canonical Workflows**: project workflows with safe per-agent adapters and recorded verification outcomes
 
-Search is project-scoped by default. Use global scope only when cross-project recall is intentional.
+For non-trivial coding work, agents normally call `memorix_project_context` (or `memorix context --task "...")`. It selects a small task Workset with current facts, relevant evidence, start files, cautions, and verification hints instead of dumping all old text memory. Search is project-scoped by default. Use global scope only when cross-project recall is intentional.
+
+The built-in CodeGraph Lite index is structural and intentionally not presented as a complete semantic graph. A project that already has a healthy local CodeGraph index can contribute a small validated semantic outline through `[codegraph].external_context = "auto"`; Memorix never initializes, syncs, exports, or remotely uploads that index.
 
 ## memcode
 

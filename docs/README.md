@@ -31,7 +31,8 @@ The public docs are organized by user intent:
 | Topic | Document |
 | --- | --- |
 | CLI commands and MCP tools | [API_REFERENCE.md](API_REFERENCE.md) |
-| Memory Autopilot, CodeGraph Memory, and context packs | [API_REFERENCE.md § Memory Autopilot, CodeGraph Memory, and Context Packs](API_REFERENCE.md#memory-autopilot-codegraph-memory-and-context-packs), [context fabric design](superpowers/specs/2026-06-29-codegraph-memory-context-fabric-design.md), and [auto context design](superpowers/specs/2026-06-29-auto-context-layer-design.md) |
+| Memory Autopilot, Code State, and context packs | [API_REFERENCE.md § Memory Autopilot, Code State, and Context Packs](API_REFERENCE.md#memory-autopilot-code-state-and-context-packs), [1.2 Code State](1.2.0-CODE-STATE.md), and [1.2 Workset Retrieval](1.2.0-WORKSET-RETRIEVAL.md) |
+| Reviewable knowledge pages and workflow inheritance | [API_REFERENCE.md § Knowledge Workspace and Workflows](API_REFERENCE.md#knowledge-workspace-and-workflows), [1.2 Knowledge Workspace](1.2.0-KNOWLEDGE-WORKSPACE.md), and [1.2 Workflow Inheritance](1.2.0-WORKFLOW-INHERITANCE.md) |
 | Git-derived engineering memory | [GIT_MEMORY.md](GIT_MEMORY.md) |
 | Memory formation and quality pipeline | [MEMORY_FORMATION_PIPELINE.md](MEMORY_FORMATION_PIPELINE.md) |
 | Performance and resource profile | [PERFORMANCE.md](PERFORMANCE.md) |

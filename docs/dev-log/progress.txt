@@ -4,9 +4,9 @@
 > older notes when they conflict.
 
 ## Current State
-- Phase: 1.2 foundation / multi-dimensional Agent Memory
+- Phase: 1.2 release validation and publication
 - Branch: `codex/1.2.0-multidimensional-memory`
-- Last updated: 2026-07-17
+- Last updated: 2026-07-18
 - Released baseline: `memorix@1.1.13`, tag `v1.1.13`, PR #129 merged as
   `7e8077f`.
 - Goal: turn Memorix from a useful narrative-memory layer into a task-ready
@@ -102,7 +102,22 @@
 - The compiled CLI was smoke-tested in an isolated Git project through init,
   compile, apply, and lint with a source-backed claim.
 
-## Next Steps
-1. Add canonical workflow inheritance on top of source-backed claims and pages.
-2. Route compact task Worksets through code state, claims, pages, and workflows.
-3. Define parser-provider benchmarks before selecting runtime dependencies.
+## 1.2 Delivery Complete, Release Checks In Progress
+- Phase 4 added canonical Markdown workflows, safe adapter preview/apply, import,
+  selection, and verification receipts. Agent instruction files are render
+  targets, not the workflow source of truth.
+- Phase 5 routes Project Context and Context Pack through one bounded Workset
+  assembler. It ranks current facts, claims, knowledge pages, workflows, and
+  cautions instead of dumping unrelated narrative memory.
+- Phase 6 makes refresh, claim derivation/requalification, knowledge
+  compile/lint, workflow indexing, retention, and consolidation durable
+  maintenance work. Interactive MCP requests do not scan an entire corpus.
+- Phase 7 adds an optional local semantic CodeGraph boundary. Lite remains the
+  durable local fallback; external output is used only from a healthy existing
+  `.codegraph` index, is validated, bounded, and never persisted as raw code.
+- The advanced `memorix_knowledge` MCP action tool now exposes explicit
+  workspace/proposal/workflow management only in `team` and `full` profiles.
+- Completed local release gates: lint, full test suite, production build,
+  package-content audit, isolated Windows npm install, stdio MCP smoke, and
+  HTTP dashboard/lifecycle smoke.
+- Remaining remote gates: GitHub CI, npm publish, tag, and GitHub release.

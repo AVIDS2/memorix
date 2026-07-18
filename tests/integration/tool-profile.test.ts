@@ -105,6 +105,7 @@ describe('Tool profile registration', () => {
     expect(liteTools).toContain('memorix_store');
     expect(liteTools).toContain('memorix_session_start');
     expect(liteTools).toContain('memorix_graph_context');
+    expect(liteTools).not.toContain('memorix_knowledge');
     expect(liteTools).not.toContain('team_manage');
     expect(liteTools).not.toContain('memorix_poll');
     expect(liteTools).not.toContain('memorix_rules_sync');
@@ -120,6 +121,7 @@ describe('Tool profile registration', () => {
     expect(teamTools).toContain('team_manage');
     expect(teamTools).toContain('memorix_poll');
     expect(teamTools).toContain('memorix_dashboard');
+    expect(teamTools).toContain('memorix_knowledge');
     expect(teamTools).toContain('memorix_graph_context');
     expect(teamTools).not.toContain('memorix_rules_sync');
     expect(teamTools).not.toContain('create_entities');
@@ -135,6 +137,25 @@ describe('Tool profile registration', () => {
     expect(fullTools).toContain('memorix_rules_sync');
     expect(fullTools).toContain('create_entities');
     expect(fullTools).toContain('memorix_graph_context');
+    expect(fullTools).toContain('memorix_knowledge');
+  }, 30000);
+
+  it('keeps reviewable Knowledge Workspace operations behind one advanced MCP tool', async () => {
+    const dir = await createGitProjectDir('memorix-profile-knowledge-');
+    const { server } = await createMemorixServer(
+      dir,
+      undefined,
+      undefined,
+      { toolProfile: 'team' } as any,
+    );
+    const knowledge = getHandler(server as any, 'memorix_knowledge');
+
+    const initialized = JSON.parse(getText(await knowledge({ action: 'workspace_init', mode: 'local' })));
+    expect(initialized.workspace).toMatchObject({ mode: 'local', status: 'ready' });
+    expect(initialized.next).toContain('reviewable proposals');
+
+    const status = JSON.parse(getText(await knowledge({ action: 'status', mode: 'local' })));
+    expect(status.workspace).toMatchObject({ mode: 'local', publishedPages: 0, pendingProposals: [] });
   }, 30000);
 
   it('should keep session_start lightweight by default and require explicit joinTeam for coordination identity', async () => {

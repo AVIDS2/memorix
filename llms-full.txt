@@ -2,9 +2,22 @@
 
 > Local-first shared memory layer for AI coding agents.
 
-Memorix is a TypeScript/Node.js project that gives AI coding agents persistent, project-aware memory. It targets software development workflows, not generic chat. It works across Claude Code, Codex, Cursor, Windsurf, GitHub Copilot CLI, Gemini CLI, OpenCode, Pi, Kiro, Antigravity, Trae, and any agent that can speak MCP over stdio or HTTP. Integrations usually start with `memorix setup --agent <agent> --global`, which installs the recommended user-level package or config for that agent: plugin packages when supported, package or extension entries, MCP config, generated guidance, hooks, skills, or the bundled terminal agent.
+Memorix is a TypeScript/Node.js project that gives AI coding agents persistent, project-aware memory. It targets software development workflows, not generic chat. It works across Claude Code, Codex, Cursor, Windsurf, GitHub Copilot CLI, Gemini CLI, OpenCode, OpenClaw, Hermes Agent, Oh-my-Pi, Pi, Kiro, Antigravity, Trae, and any agent that can speak MCP over stdio or HTTP. Integrations usually start with `memorix setup --agent <agent> --global`, which installs the recommended user-level package or config for that agent: plugin packages when supported, package or extension entries, MCP config, generated guidance, hooks, skills, or the bundled terminal agent.
 
 If you are an AI coding agent helping a user install, operate, or troubleshoot Memorix, read `docs/AGENT_OPERATOR_PLAYBOOK.md` before taking action. It is the main reference for install, runtime selection, Git/project binding, MCP integration, hooks, and troubleshooting.
+
+## 1.2 Multi-Dimensional Memory Model
+
+Memorix is not a transcript dump. The normal agent path is `memorix_project_context` or `memorix context --task "..."`, which assembles a bounded task Workset: current Git/package facts, selected observations and reasoning, Code State freshness, source-backed claims, matching knowledge/workflow starts, cautions, and verification hints.
+
+- **Observation, Reasoning, and Git Memory** preserve durable engineering facts.
+- **Code State** records versioned local file, symbol, import, and memory-to-code links so prior evidence can be requalified when code moves.
+- **Claim Ledger** keeps provenance, confidence, conflicts, and lifecycle state separate from prose.
+- **Knowledge Workspace** compiles claims into reviewable Markdown proposals; it does not silently overwrite manually edited pages.
+- **Canonical Workflows** represent project process once and render conservative agent-specific adapters only on explicit request.
+- **Lifecycle maintenance** uses durable, resumable jobs so indexing, claim requalification, knowledge compile/lint, retention, and consolidation do not turn an interactive MCP request into a corpus-sized foreground job.
+
+The built-in CodeGraph Lite provider is a structural local fallback, not a complete semantic graph. If a project already has a healthy local CodeGraph index, `[codegraph].external_context = "auto"` can add a small validated semantic outline. Memorix never runs `codegraph init`, `index`, or `sync`, does not transmit the repository, and does not persist raw external code output.
 
 ## Entry Points
 
@@ -348,7 +361,7 @@ Docker is for the HTTP service. The container must have access to the repositori
 
 ## Supported Clients
 
-Memorix supports Claude Code, Codex, Cursor, Windsurf, GitHub Copilot CLI, Gemini CLI, OpenCode, Pi, Kiro, Antigravity, Trae, memcode, and other stdio or HTTP MCP clients.
+Memorix supports Claude Code, Codex, Cursor, Windsurf, GitHub Copilot CLI, Gemini CLI, OpenCode, OpenClaw, Hermes Agent, Oh-my-Pi, Pi, Kiro, Antigravity, Trae, memcode, and other stdio or HTTP MCP clients.
 
 Support depth differs by client:
 
@@ -356,6 +369,7 @@ Support depth differs by client:
 - MCP is the common integration layer.
 - Claude Code, Codex, and GitHub Copilot CLI receive local plugin packages.
 - Pi receives a user-level package when setup runs with `--global`; Gemini CLI receives a local extension package.
+- OpenClaw receives a compatible bundle; Hermes Agent receives a plugin package; Oh-my-Pi receives a package/extension entry.
 - Project instructions and rules include AGENTS.md, GEMINI.md, Cursor rules, Windsurf rules, Kiro steering, and Trae rules.
 - Hooks are generated for agents that expose usable hook events.
 - OpenCode receives a local plugin file at `.opencode/plugins/memorix.js`, an OpenCode skill at `.opencode/skills/memorix-memory/SKILL.md`, plus `opencode.json` MCP config.

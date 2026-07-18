@@ -1089,6 +1089,7 @@ const main = defineCommand({
       console.error('  context    Show the Memory Autopilot brief for this project');
       console.error('  explain    Explain where Memorix project context comes from');
       console.error('  codegraph  Refresh/status/context-pack for CodeGraph Memory');
+      console.error('  knowledge  Review source-backed knowledge pages and project workflows');
       console.error('  reasoning  Store/search decision rationale');
       console.error('  retention  Inspect stale/archive status');
       console.error('  formation  Inspect Memory Formation metrics');

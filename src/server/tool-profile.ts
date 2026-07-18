@@ -10,7 +10,7 @@
  *     Suitable for normal MCP clients where every tool schema costs context tokens.
  *   - "lite": Core memory CRUD, sessions, reasoning, retention, backup — 17 tools.
  *     Suitable for solo users who want the full memory surface without team tools.
- *   - "team" (HTTP default): lite + orchestration coordination tools + dashboard — 24 tools.
+ *   - "team" (HTTP default): lite + orchestration coordination tools, dashboard, and Knowledge Workspace — 25 tools.
  *     Suitable when an operator explicitly wants task/message/lock surfaces.
  *   - "full": Everything, including niche / advanced tools (consolidate, dedup,
  *     formation metrics, skills, rules/workspace sync, KG-official, image ingest).
@@ -50,6 +50,7 @@ export const TOOL_PROFILES: Record<string, ReadonlyArray<ToolProfile>> = Object.
 
   // ── team: orchestration coordination surfaces — HTTP default ──────
   memorix_dashboard:          ['team', 'full'],
+  memorix_knowledge:          ['team', 'full'],
   memorix_handoff:            ['team', 'full'],
   memorix_poll:               ['team', 'full'],
   team_manage:                ['team', 'full'],
@@ -135,7 +136,7 @@ export function describeProfile(profile: ToolProfile): string {
   switch (profile) {
     case 'micro': return 'micro (agent-ready context + basic memory, ~7 tools)';
     case 'lite': return 'lite (core memory + sessions, ~17 tools)';
-    case 'team': return 'team (lite + coordination tools + dashboard, ~24 tools)';
+    case 'team': return 'team (lite + coordination tools + dashboard + knowledge workspace, ~25 tools)';
     case 'full': return 'full (all tools including advanced / KG-compat)';
   }
 }

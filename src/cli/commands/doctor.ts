@@ -319,9 +319,11 @@ export default defineCommand({
         const { CodeGraphStore } = await import('../../codegraph/store.js');
         const { buildProjectContextOverview } = await import('../../codegraph/project-context.js');
         const { getResolvedConfig } = await import('../../config/resolved-config.js');
+        const { inspectExternalCodeGraph } = await import('../../codegraph/external-provider.js');
         const codeStore = new CodeGraphStore();
         await codeStore.init(dataDir);
-        const exclude = getResolvedConfig({ projectRoot: projectRoot || process.cwd() }).codegraph.excludePatterns;
+        const codegraphConfig = getResolvedConfig({ projectRoot: projectRoot || process.cwd() }).codegraph;
+        const exclude = codegraphConfig.excludePatterns;
         const overview = buildProjectContextOverview({
           project: {
             id: projectId,
@@ -335,6 +337,12 @@ export default defineCommand({
         const languageText = overview.code.languages.length > 0
           ? overview.code.languages.map((item: any) => `${item.language} ${item.files}`).join(', ')
           : 'none indexed yet';
+        const providerQuality = await inspectExternalCodeGraph({
+          projectRoot: projectRoot || process.cwd(),
+          mode: codegraphConfig.externalContext,
+          command: codegraphConfig.externalCommand,
+          timeoutMs: codegraphConfig.externalTimeoutMs,
+        });
 
         if (overview.code.files > 0) {
           lines.push(ok(`Code memory: ${overview.code.files} files, ${overview.code.symbols} symbols, ${overview.code.refs} memory links`));
@@ -342,6 +350,15 @@ export default defineCommand({
         } else {
           lines.push(warn('Code memory: no project scan found yet'));
           tips.push('Run `memorix codegraph refresh` once to seed project context.');
+        }
+
+        lines.push(info(
+          `Code provider: Lite durable index; external semantic graph ${providerQuality.health.state}`,
+        ));
+        if (providerQuality.health.state !== 'ready'
+          && providerQuality.health.state !== 'not-detected'
+          && providerQuality.health.state !== 'disabled') {
+          lines.push(warn(`External CodeGraph: ${providerQuality.health.reason ?? providerQuality.health.state}`));
         }
 
         if (overview.freshness.stale > 0 || overview.freshness.suspect > 0) {
@@ -362,6 +379,7 @@ export default defineCommand({
           refs: overview.code.refs,
           languages: overview.code.languages,
           freshness: overview.freshness,
+          providerQuality: providerQuality.quality,
           ...(overview.code.indexedAt ? { indexedAt: overview.code.indexedAt } : {}),
         };
       } catch (e) {

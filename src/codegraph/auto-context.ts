@@ -1,11 +1,17 @@
 import { existsSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { getResolvedConfig } from '../config/resolved-config.js';
-import { buildTaskWorkset, type TaskWorkset } from '../knowledge/workset.js';
+import { buildTaskWorkset, type TaskWorkset, type WorksetCaution } from '../knowledge/workset.js';
 import type { ProjectInfo } from '../types.js';
 import { backfillMissingObservationCodeRefs, type CodeRefBackfillResult } from './binder.js';
 import { collectCurrentProjectFacts, type CurrentProjectFacts } from './current-facts.js';
 import { refreshProjectLite } from './lite-provider.js';
+import {
+  getExternalCodeGraphContext,
+  inspectExternalCodeGraph,
+  type ExternalCodeGraphRunner,
+} from './external-provider.js';
+import type { CodeGraphProviderQuality, ExternalCodeGraphOutline } from './types.js';
 import {
   buildProjectContextExplain,
   type ProjectContextExplain,
@@ -41,6 +47,7 @@ export interface AutoProjectContext {
   overview: ProjectContextOverview;
   explain: ProjectContextExplain;
   refresh: AutoContextRefreshResult;
+  providerQuality: CodeGraphProviderQuality;
   workset: TaskWorkset;
 }
 
@@ -104,6 +111,8 @@ export async function buildAutoProjectContext(input: {
   now?: Date;
   exclude?: string[];
   maxFileBytes?: number;
+  /** Test-only injection point; production uses the bounded local runner. */
+  externalRunner?: ExternalCodeGraphRunner;
   /**
    * When supplied, a needed refresh is queued instead of running in this
    * request. MCP and hook callers use this to keep their response path fast.
@@ -196,15 +205,59 @@ export async function buildAutoProjectContext(input: {
   const currentFacts = collectCurrentProjectFacts({ project: input.project, now });
   const latestSnapshot = overview.code.latestSnapshot;
   const sourceSets = lensSourceSets({ task, lens, explain });
+  let externalOutline: ExternalCodeGraphOutline | undefined;
+  let externalCaution: string | undefined;
+  let providerQuality: CodeGraphProviderQuality;
+  if (task) {
+    const external = await getExternalCodeGraphContext({
+      projectRoot: input.project.rootPath,
+      task,
+      exclude,
+      mode: codegraphConfig.externalContext,
+      command: codegraphConfig.externalCommand,
+      timeoutMs: codegraphConfig.externalTimeoutMs,
+      ...(input.externalRunner ? { runner: input.externalRunner } : {}),
+    });
+    externalOutline = external.outline;
+    externalCaution = external.caution;
+    providerQuality = external.quality;
+  } else {
+    const external = await inspectExternalCodeGraph({
+      projectRoot: input.project.rootPath,
+      mode: codegraphConfig.externalContext,
+      command: codegraphConfig.externalCommand,
+      timeoutMs: codegraphConfig.externalTimeoutMs,
+      ...(input.externalRunner ? { runner: input.externalRunner } : {}),
+    });
+    providerQuality = external.quality;
+  }
+  const externalStartHere = externalOutline
+    ? [...externalOutline.relatedFiles, ...externalOutline.entryPoints.map(entry => entry.path)]
+    : [];
+  const startHere = [...new Set([
+    ...externalStartHere,
+    ...rankLensPaths([
+      ...existingLensCandidates(input.project.rootPath, lens),
+      ...overview.suggestedReads,
+    ], lens, task),
+  ])].slice(0, 5);
+  const runtimeCautions: WorksetCaution[] = [];
+  if (refresh.reason === 'queued') {
+    runtimeCautions.push({ kind: 'codegraph-refresh-queued', message: refresh.message });
+  } else if (refresh.reason === 'failed') {
+    runtimeCautions.push({ kind: 'codegraph-refresh-failed', message: refresh.message });
+  }
+  if (externalCaution) {
+    runtimeCautions.push({ kind: 'external-codegraph-fallback', message: externalCaution });
+  }
   const workset = await buildTaskWorkset({
     projectId: input.project.id,
     dataDir: input.dataDir,
     ...(task ? { task } : {}),
     lens: lens.id,
-    startHere: rankLensPaths([
-      ...existingLensCandidates(input.project.rootPath, lens),
-      ...overview.suggestedReads,
-    ], lens, task).slice(0, 5),
+    startHere,
+    ...(externalOutline ? { semanticCode: externalOutline } : {}),
+    providerQuality,
     currentFacts: worksetFactLines(currentFacts),
     codeState: codeStateLine(overview),
     reliableMemory: sourceSets.reliableSources
@@ -237,6 +290,7 @@ export async function buildAutoProjectContext(input: {
           sourceEpoch: latestSnapshot.sourceEpoch,
           worktreeState: latestSnapshot.worktreeState,
           incomplete: latestSnapshot.completeness.skippedOversizedFiles > 0
+            || (latestSnapshot.completeness.unreadableFiles ?? 0) > 0
             || latestSnapshot.completeness.removalScanDeferred,
         },
       }
@@ -245,17 +299,7 @@ export async function buildAutoProjectContext(input: {
       suspect: overview.freshness.suspect,
       stale: overview.freshness.stale,
     },
-    runtimeCautions: refresh.reason === 'queued'
-      ? [{
-        kind: 'codegraph-refresh-queued' as const,
-        message: refresh.message,
-      }]
-      : refresh.reason === 'failed'
-        ? [{
-          kind: 'codegraph-refresh-failed' as const,
-          message: refresh.message,
-        }]
-        : [],
+    runtimeCautions,
   });
 
   return {
@@ -266,6 +310,7 @@ export async function buildAutoProjectContext(input: {
     overview,
     explain,
     refresh,
+    providerQuality,
     workset,
   };
 }
@@ -280,7 +325,9 @@ function codeStateLine(overview: ProjectContextOverview): string {
   const snapshot = overview.code.latestSnapshot;
   if (!snapshot) return '- Code state: no completed snapshot yet';
   const revision = snapshot.baseRevision ? snapshot.baseRevision.slice(0, 12) : 'Git unavailable';
-  const scanState = snapshot.completeness.skippedOversizedFiles > 0 || snapshot.completeness.removalScanDeferred
+  const scanState = snapshot.completeness.skippedOversizedFiles > 0
+    || (snapshot.completeness.unreadableFiles ?? 0) > 0
+    || snapshot.completeness.removalScanDeferred
     ? 'incomplete scan'
     : 'complete scan';
   return '- Code state: ' + revision
@@ -320,11 +367,7 @@ function existingLensCandidates(rootPath: string, lens: TaskLens): string[] {
 }
 
 function rankedStartHere(context: AutoProjectContext, limit = 8): string[] {
-  const candidates = [
-    ...existingLensCandidates(context.project.rootPath, context.lens),
-    ...context.overview.suggestedReads,
-  ];
-  return rankLensPaths(candidates, context.lens, context.task).slice(0, limit);
+  return context.workset.startHere.slice(0, limit);
 }
 
 function lensLine(context: AutoProjectContext): string {
@@ -450,6 +493,7 @@ export function formatAutoProjectContextSummary(context: AutoProjectContext): st
     ...formatCurrentFactsLines(context.currentFacts),
     '',
     `- Code memory: ${context.overview.code.files} files / ${context.overview.code.symbols} symbols / ${context.overview.code.refs} memory links`,
+    `- Code provider: ${context.providerQuality.selected} (${context.providerQuality.selectedQuality})`,
     `- Languages: ${formatLanguages(context.overview)}`,
     `- Memories: ${context.overview.memory.active} active / ${context.overview.memory.total} total`,
     `- Freshness: ${context.overview.freshness.current} current, ${context.overview.freshness.suspect} suspect, ${context.overview.freshness.stale} stale`,

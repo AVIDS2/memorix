@@ -362,7 +362,9 @@ export function deriveLowRiskClaimsFromObservation(
 
 function incompleteSnapshot(snapshot: CodeStateSnapshot | undefined): boolean {
   if (!snapshot) return false;
-  return snapshot.completeness.skippedOversizedFiles > 0 || snapshot.completeness.removalScanDeferred;
+  return snapshot.completeness.skippedOversizedFiles > 0
+    || (snapshot.completeness.unreadableFiles ?? 0) > 0
+    || snapshot.completeness.removalScanDeferred;
 }
 
 function requalification(

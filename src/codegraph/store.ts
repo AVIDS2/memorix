@@ -100,6 +100,7 @@ function parseCompleteness(raw: unknown): CodeStateScanCompleteness {
       metadataOnlyFiles: Number((parsed as any).metadataOnlyFiles) || 0,
       removedFiles: Number((parsed as any).removedFiles) || 0,
       skippedOversizedFiles: Number((parsed as any).skippedOversizedFiles) || 0,
+      unreadableFiles: Number((parsed as any).unreadableFiles) || 0,
       removalScanDeferred: Boolean((parsed as any).removalScanDeferred),
     };
   } catch {
@@ -111,6 +112,7 @@ function parseCompleteness(raw: unknown): CodeStateScanCompleteness {
       metadataOnlyFiles: 0,
       removedFiles: 0,
       skippedOversizedFiles: 0,
+      unreadableFiles: 0,
       removalScanDeferred: false,
     };
   }

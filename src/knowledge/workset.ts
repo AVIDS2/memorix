@@ -6,6 +6,7 @@ import { KnowledgeWorkspaceStore } from './workspace-store.js';
 import { loadKnowledgeWorkspace } from './workspace.js';
 import { WorkflowStore } from './workflow-store.js';
 import { selectWorkflows } from './workflows.js';
+import type { CodeGraphProviderQuality, ExternalCodeGraphOutline } from '../codegraph/types.js';
 import type { KnowledgeClaim, ClaimEvidenceRef } from './types.js';
 import type { KnowledgePageRecord, KnowledgeWorkspace } from './workspace-types.js';
 import type { WorkflowSelection } from './workflow-types.js';
@@ -19,7 +20,8 @@ export type WorksetCautionKind =
   | 'claim-needs-review'
   | 'workflow-failed-verification'
   | 'codegraph-refresh-queued'
-  | 'codegraph-refresh-failed';
+  | 'codegraph-refresh-failed'
+  | 'external-codegraph-fallback';
 
 export interface WorksetCaution {
   kind: WorksetCautionKind;
@@ -74,6 +76,8 @@ export interface TaskWorkset {
   currentFacts: string[];
   codeState?: string;
   startHere: string[];
+  /** Bounded task-specific relations from a validated local semantic graph. */
+  semanticCode?: ExternalCodeGraphOutline;
   reliableMemory: WorksetMemorySource[];
   cautionMemory: WorksetMemorySource[];
   hiddenCautionMemoryCount: number;
@@ -87,6 +91,7 @@ export interface TaskWorkset {
     snapshotId?: string;
     sourceEpoch?: number;
     workspaceId?: string;
+    codeProvider?: CodeGraphProviderQuality;
   };
   budget: {
     maxTokens: number;
@@ -104,6 +109,8 @@ export interface BuildTaskWorksetInput {
   currentFacts?: string[];
   codeState?: string;
   startHere: string[];
+  semanticCode?: ExternalCodeGraphOutline;
+  providerQuality?: CodeGraphProviderQuality;
   reliableMemory?: WorksetMemorySource[];
   cautionMemory?: WorksetMemorySource[];
   hiddenCautionMemoryCount?: number;
@@ -283,6 +290,33 @@ export function renderTaskWorksetPrompt(input: Omit<TaskWorkset, 'prompt' | 'bud
     appendLine(lines, input.codeState, maxTokens, omitted, 'code-state');
   }
 
+  if (input.semanticCode && (input.semanticCode.entryPoints.length > 0 || input.semanticCode.relations.length > 0)) {
+    appendLine(lines, '', maxTokens, omitted, 'semantic-code-heading');
+    appendLine(lines, 'Semantic code outline', maxTokens, omitted, 'semantic-code-heading');
+    for (const relation of input.semanticCode.relations.slice(0, 2)) {
+      const location = relation.from.path + (relation.line ? ':' + relation.line : '');
+      appendLine(
+        lines,
+        '- ' + location + ': ' + short(relation.from.name, 12) + ' ' + short(relation.kind, 8) + ' ' + short(relation.to.name, 12),
+        maxTokens,
+        omitted,
+        'semantic-relation',
+      );
+    }
+    if (input.semanticCode.relations.length === 0) {
+      for (const entry of input.semanticCode.entryPoints.slice(0, 2)) {
+        const location = entry.path + (entry.startLine ? ':' + entry.startLine : '');
+        appendLine(
+          lines,
+          '- ' + location + ': ' + short(entry.name, 16) + ' (' + short(entry.kind, 8) + ')',
+          maxTokens,
+          omitted,
+          'semantic-entry',
+        );
+      }
+    }
+  }
+
   if (input.startHere.length > 0) {
     appendLine(lines, '', maxTokens, omitted, 'start-heading');
     appendLine(lines, 'Start here', maxTokens, omitted, 'start-heading');
@@ -448,6 +482,7 @@ export async function buildTaskWorkset(input: BuildTaskWorksetInput): Promise<Ta
       : short(fact, 28)).slice(0, 4) ?? [],
     ...(input.codeState ? { codeState: short(input.codeState, 28) } : {}),
     startHere: unique(input.startHere).slice(0, 5),
+    ...(input.semanticCode ? { semanticCode: input.semanticCode } : {}),
     reliableMemory: input.reliableMemory?.slice(0, 3) ?? [],
     cautionMemory: input.cautionMemory?.slice(0, 3) ?? [],
     hiddenCautionMemoryCount: input.hiddenCautionMemoryCount ?? 0,
@@ -461,6 +496,7 @@ export async function buildTaskWorkset(input: BuildTaskWorksetInput): Promise<Ta
       ...(input.snapshot?.id ? { snapshotId: input.snapshot.id } : {}),
       ...(input.snapshot?.sourceEpoch !== undefined ? { sourceEpoch: input.snapshot.sourceEpoch } : {}),
       ...(workspace ? { workspaceId: workspace.id } : {}),
+      ...(input.providerQuality ? { codeProvider: input.providerQuality } : {}),
     },
   };
   const rendered = renderTaskWorksetPrompt({

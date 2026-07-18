@@ -5,6 +5,8 @@ import { assembleContextPackForTask, attachTaskWorkset, buildContextPackPrompt }
 import { backfillMissingObservationCodeRefs } from '../../codegraph/binder.js';
 import { collectCurrentProjectFacts } from '../../codegraph/current-facts.js';
 import { resolveTaskLens } from '../../codegraph/task-lens.js';
+import { getExternalCodeGraphContext, inspectExternalCodeGraph } from '../../codegraph/external-provider.js';
+import type { CodeGraphProviderQuality } from '../../codegraph/types.js';
 import { getResolvedConfig } from '../../config/resolved-config.js';
 import { getAllObservations } from '../../memory/observations.js';
 import { emitError, emitResult, getCliProjectContext, parsePositiveInt } from './operator-shared.js';
@@ -14,7 +16,9 @@ function formatSnapshotStatus(status: ReturnType<CodeGraphStore['status']>): str
   if (!snapshot) return ['- Code state: no completed snapshot yet'];
   const revision = snapshot.baseRevision ? snapshot.baseRevision.slice(0, 12) : 'Git unavailable';
   const completeness = snapshot.completeness;
-  const scanState = completeness.skippedOversizedFiles > 0 || completeness.removalScanDeferred
+  const scanState = completeness.skippedOversizedFiles > 0
+    || (completeness.unreadableFiles ?? 0) > 0
+    || completeness.removalScanDeferred
     ? 'incomplete'
     : 'complete';
   return [
@@ -24,11 +28,12 @@ function formatSnapshotStatus(status: ReturnType<CodeGraphStore['status']>): str
       + ', epoch ' + snapshot.sourceEpoch,
     '- Scan completeness: ' + scanState
       + ' (' + completeness.scannedFiles + '/' + completeness.maxFiles + ' paths'
-      + ', ' + completeness.skippedOversizedFiles + ' oversized skipped)',
+      + ', ' + completeness.skippedOversizedFiles + ' oversized skipped'
+      + ', ' + (completeness.unreadableFiles ?? 0) + ' unreadable)',
   ];
 }
 
-function formatStatus(status: ReturnType<CodeGraphStore['status']>): string {
+function formatStatus(status: ReturnType<CodeGraphStore['status']>, quality?: CodeGraphProviderQuality): string {
   return [
     ...formatSnapshotStatus(status),
     `CodeGraph Memory: ${status.provider}`,
@@ -37,6 +42,13 @@ function formatStatus(status: ReturnType<CodeGraphStore['status']>): string {
     `- Edges: ${status.edges}`,
     `- Memory refs: ${status.refs}`,
     status.indexedAt ? `- Indexed at: ${status.indexedAt}` : '- Indexed at: never',
+    ...(quality
+      ? [
+        `- Persistent provider: ${status.provider} (heuristic local index)`,
+        `- External semantic CodeGraph: ${quality.external.state}`
+          + (quality.external.reason ? ` (${quality.external.reason})` : ''),
+      ]
+      : []),
   ].join('\n');
 }
 
@@ -91,10 +103,16 @@ export default defineCommand({
       switch (action) {
         case 'status': {
           const status = store.status(project.id);
+          const providerQuality = await inspectExternalCodeGraph({
+            projectRoot: project.rootPath,
+            mode: codegraphConfig.externalContext,
+            command: codegraphConfig.externalCommand,
+            timeoutMs: codegraphConfig.externalTimeoutMs,
+          });
           const text = explicitAction || asJson
-            ? formatStatus(status)
-            : `${formatStatus(status)}\n\n${formatUsageHint()}`;
-          emitResult({ project, status }, text, asJson);
+            ? formatStatus(status, providerQuality.quality)
+            : `${formatStatus(status, providerQuality.quality)}\n\n${formatUsageHint()}`;
+          emitResult({ project, status, providerQuality: providerQuality.quality }, text, asJson);
           return;
         }
 
@@ -116,11 +134,17 @@ export default defineCommand({
             snapshotId: refresh.snapshot.id,
           });
           const status = store.status(project.id);
+          const providerQuality = await inspectExternalCodeGraph({
+            projectRoot: project.rootPath,
+            mode: codegraphConfig.externalContext,
+            command: codegraphConfig.externalCommand,
+            timeoutMs: codegraphConfig.externalTimeoutMs,
+          });
           emitResult(
-            { project, status, refresh, backfill },
+            { project, status, providerQuality: providerQuality.quality, refresh, backfill },
             [
               'CodeGraph Memory refreshed.',
-              formatStatus(status),
+              formatStatus(status, providerQuality.quality),
               `- Files: ${refresh.changedFiles} changed, ${refresh.unchangedFiles} unchanged, ${refresh.removedFiles} removed`,
               `- Backfilled memories: ${backfill.observationsBackfilled}`,
               `- Backfilled refs: ${backfill.refsBackfilled}`,
@@ -151,6 +175,14 @@ export default defineCommand({
           const status = store.status(project.id);
           const facts = compactFacts(project);
           const snapshot = status.latestSnapshot;
+          const external = await getExternalCodeGraphContext({
+            projectRoot: project.rootPath,
+            task,
+            exclude,
+            mode: codegraphConfig.externalContext,
+            command: codegraphConfig.externalCommand,
+            timeoutMs: codegraphConfig.externalTimeoutMs,
+          });
           const pack = await attachTaskWorkset({
             pack: basePack,
             projectId: project.id,
@@ -166,12 +198,18 @@ export default defineCommand({
                   sourceEpoch: snapshot.sourceEpoch,
                   worktreeState: snapshot.worktreeState,
                   incomplete: snapshot.completeness.skippedOversizedFiles > 0
+                    || (snapshot.completeness.unreadableFiles ?? 0) > 0
                     || snapshot.completeness.removalScanDeferred,
                 },
               }
               : {}),
+            ...(external.outline ? { semanticCode: external.outline } : {}),
+            providerQuality: external.quality,
+            ...(external.caution
+              ? { runtimeCautions: [{ kind: 'external-codegraph-fallback' as const, message: external.caution }] }
+              : {}),
           });
-          emitResult({ project, pack }, buildContextPackPrompt(pack), asJson);
+          emitResult({ project, pack, providerQuality: external.quality }, buildContextPackPrompt(pack), asJson);
           return;
         }
 

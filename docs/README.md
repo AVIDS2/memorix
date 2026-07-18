@@ -85,6 +85,7 @@ The public docs are organized by user intent:
 | 1.2 canonical workflows and safe agent adapters | [1.2 Workflow Inheritance](1.2.0-WORKFLOW-INHERITANCE.md) |
 | 1.2 task-shaped evidence selection | [1.2 Workset Retrieval](1.2.0-WORKSET-RETRIEVAL.md) |
 | 1.2 non-blocking refresh and maintenance contract | [1.2 Dynamic Lifecycle](1.2.0-DYNAMIC-LIFECYCLE.md) |
+| 1.2 honest Lite and optional semantic CodeGraph provider contract | [1.2 Provider Quality](1.2.0-PROVIDER-QUALITY.md) |
 | Active 1.2 multi-dimensional memory work | [1.2.0 Development Charter](1.2.0-DEVELOPMENT-CHARTER.md) |
 | Historical cloud sync and multi-agent research | [CLOUD_SYNC_AND_MULTI_AGENT_RESEARCH.md](CLOUD_SYNC_AND_MULTI_AGENT_RESEARCH.md) |
 | Known issues and old roadmap notes | [KNOWN_ISSUES_AND_ROADMAP.md](KNOWN_ISSUES_AND_ROADMAP.md) |

@@ -1378,13 +1378,24 @@ export async function createMemorixServer(
       const unresolved = requireResolvedProject('show CodeGraph Memory status for the current project');
       if (unresolved) return unresolved;
 
-      const { CodeGraphStore } = await import('./codegraph/store.js');
+      const [{ CodeGraphStore }, { getResolvedConfig }, { inspectExternalCodeGraph }] = await Promise.all([
+        import('./codegraph/store.js'),
+        import('./config/resolved-config.js'),
+        import('./codegraph/external-provider.js'),
+      ]);
       const store = new CodeGraphStore();
       await store.init(projectDir);
       const status = store.status(project.id);
+      const codegraphConfig = getResolvedConfig({ projectRoot: project.rootPath }).codegraph;
+      const providerQuality = await inspectExternalCodeGraph({
+        projectRoot: project.rootPath,
+        mode: codegraphConfig.externalContext,
+        command: codegraphConfig.externalCommand,
+        timeoutMs: codegraphConfig.externalTimeoutMs,
+      });
 
       return {
-        content: [{ type: 'text' as const, text: JSON.stringify(status, null, 2) }],
+        content: [{ type: 'text' as const, text: JSON.stringify({ ...status, providerQuality: providerQuality.quality }, null, 2) }],
       };
     },
   );
@@ -1412,6 +1423,7 @@ export async function createMemorixServer(
         { CodeGraphStore },
         { assembleContextPackForTask, attachTaskWorkset, buildContextPackPrompt },
         { getResolvedConfig },
+        { getExternalCodeGraphContext },
         { getObservationStore },
         { collectCurrentProjectFacts },
         { resolveTaskLens },
@@ -1419,13 +1431,15 @@ export async function createMemorixServer(
         import('./codegraph/store.js'),
         import('./codegraph/context-pack.js'),
         import('./config/resolved-config.js'),
+        import('./codegraph/external-provider.js'),
         import('./store/obs-store.js'),
         import('./codegraph/current-facts.js'),
         import('./codegraph/task-lens.js'),
       ]);
       const store = new CodeGraphStore();
       await store.init(projectDir);
-      const exclude = getResolvedConfig({ projectRoot: project.rootPath }).codegraph.excludePatterns;
+      const codegraphConfig = getResolvedConfig({ projectRoot: project.rootPath }).codegraph;
+      const exclude = codegraphConfig.excludePatterns;
       const observations = await getObservationStore().loadByProject(project.id, { status: 'active' });
       observations.reverse();
       const basePack = assembleContextPackForTask({
@@ -1439,6 +1453,14 @@ export async function createMemorixServer(
       const status = store.status(project.id);
       const currentFacts = collectCurrentProjectFacts({ project, now: new Date() });
       const snapshot = status.latestSnapshot;
+      const external = await getExternalCodeGraphContext({
+        projectRoot: project.rootPath,
+        task,
+        exclude,
+        mode: codegraphConfig.externalContext,
+        command: codegraphConfig.externalCommand,
+        timeoutMs: codegraphConfig.externalTimeoutMs,
+      });
       const worksetFacts: string[] = [];
       if (currentFacts.packageVersion) worksetFacts.push('Package version: ' + currentFacts.packageVersion);
       if (currentFacts.latestChangelog) {
@@ -1467,9 +1489,15 @@ export async function createMemorixServer(
               sourceEpoch: snapshot.sourceEpoch,
               worktreeState: snapshot.worktreeState,
               incomplete: snapshot.completeness.skippedOversizedFiles > 0
+                || (snapshot.completeness.unreadableFiles ?? 0) > 0
                 || snapshot.completeness.removalScanDeferred,
             },
           }
+          : {}),
+        ...(external.outline ? { semanticCode: external.outline } : {}),
+        providerQuality: external.quality,
+        ...(external.caution
+          ? { runtimeCautions: [{ kind: 'external-codegraph-fallback' as const, message: external.caution }] }
           : {}),
       });
       const text = buildContextPackPrompt(pack);

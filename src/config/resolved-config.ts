@@ -55,6 +55,9 @@ export interface ResolvedMemorixConfig {
   codegraph: {
     excludePatterns?: string[];
     maxFileBytes?: number;
+    externalContext: 'auto' | 'off';
+    externalCommand?: string;
+    externalTimeoutMs?: number;
   };
   server: {
     transport?: 'stdio' | 'http';
@@ -156,6 +159,22 @@ export function getResolvedConfig(options: ResolvedLaneOptions = {}): ResolvedMe
     codegraph: {
       excludePatterns: firstArray(toml.codegraph?.exclude_patterns, yaml.codegraph?.excludePatterns),
       maxFileBytes: firstNumber(toml.codegraph?.max_file_bytes, yaml.codegraph?.maxFileBytes),
+      externalContext: first(
+        normalizeExternalContext(process.env.MEMORIX_CODEGRAPH_EXTERNAL_CONTEXT),
+        toml.codegraph?.external_context,
+        yaml.codegraph?.externalContext,
+        'auto',
+      )!,
+      externalCommand: first(
+        process.env.MEMORIX_CODEGRAPH_EXTERNAL_COMMAND,
+        toml.codegraph?.external_command,
+        yaml.codegraph?.externalCommand,
+      ),
+      externalTimeoutMs: firstNumber(
+        parseNumber(process.env.MEMORIX_CODEGRAPH_EXTERNAL_TIMEOUT_MS),
+        toml.codegraph?.external_timeout_ms,
+        yaml.codegraph?.externalTimeoutMs,
+      ),
     },
     server: {
       transport: first(toml.server?.transport, yaml.server?.transport),
@@ -254,6 +273,9 @@ function getEnvSourceNames(): string[] {
     'MEMORIX_EMBEDDING_BASE_URL',
     'MEMORIX_EMBEDDING_MODEL',
     'MEMORIX_EMBEDDING_DIMENSIONS',
+    'MEMORIX_CODEGRAPH_EXTERNAL_CONTEXT',
+    'MEMORIX_CODEGRAPH_EXTERNAL_COMMAND',
+    'MEMORIX_CODEGRAPH_EXTERNAL_TIMEOUT_MS',
     'OPENROUTER_API_KEY',
   ].filter((name) => process.env[name]);
 }
@@ -266,4 +288,10 @@ function isOpenRouterUrl(value: string | undefined): boolean {
   } catch {
     return /(^|\.)openrouter\.ai(?::|\/|$)/i.test(value);
   }
+}
+
+function normalizeExternalContext(value: string | undefined): 'auto' | 'off' | undefined {
+  const normalized = value?.trim().toLowerCase();
+  if (normalized === 'auto' || normalized === 'off') return normalized;
+  return undefined;
 }

@@ -61,6 +61,7 @@
     "test:watch": "vitest",
     "test:llm-live": "MEMORIX_RUN_LIVE_LLM_TESTS=1 vitest run tests/integration/formation-llm-quality.test.ts",
     "test:e2e": "vitest run tests/e2e/",
+    "benchmark:codegraph": "node scripts/benchmark-codegraph-provider.cjs",
     "lint": "tsc --noEmit",
     "prepublishOnly": "npm run build && npm test"
   },

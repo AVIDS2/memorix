@@ -180,6 +180,11 @@ describe('project context CLI commands', () => {
       lens: 'release',
       startHere: expect.arrayContaining(['CHANGELOG.md', 'package.json']),
     });
+    expect(parsed.providerQuality).toMatchObject({
+      selected: 'lite',
+      selectedQuality: 'heuristic',
+      external: { state: 'not-detected' },
+    });
     expect(parsed.workset.budget.tokenCount).toBeLessThanOrEqual(parsed.workset.budget.maxTokens);
   });
 
@@ -229,6 +234,10 @@ describe('project context CLI commands', () => {
         current: 2,
         suspect: 0,
         stale: 0,
+      },
+      providerQuality: {
+        selected: 'lite',
+        external: { state: 'not-detected' },
       },
     });
     expect(parsed.lifecycle).toMatchObject({

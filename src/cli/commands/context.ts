@@ -45,6 +45,7 @@ export default defineCommand({
           currentFacts: context.currentFacts,
           overview: context.overview,
           refresh: context.refresh,
+          providerQuality: context.providerQuality,
           workset: context.workset,
           ...(context.task ? { task: context.task } : {}),
         },

@@ -100,6 +100,70 @@ describe('auto project context', () => {
     expect(context.workset.budget.tokenCount).toBeLessThanOrEqual(context.workset.budget.maxTokens);
   });
 
+  it('uses a validated local semantic outline without adding raw external code', async () => {
+    mkdirSync(path.join(repoDir, '.codegraph'), { recursive: true });
+    const runner = {
+      run: vi.fn(async ({ args }: { args: string[] }) => {
+        if (args[0] === 'status') {
+          return {
+            ok: true,
+            stdout: JSON.stringify({
+              initialized: true,
+              projectPath: repoDir,
+              fileCount: 2,
+              nodeCount: 2,
+              edgeCount: 1,
+              languages: ['typescript'],
+              pendingChanges: { added: 0, modified: 0, removed: 0 },
+              worktreeMismatch: null,
+            }),
+          };
+        }
+        return {
+          ok: true,
+          stdout: JSON.stringify({
+            entryPoints: [{
+              id: 'function:require-auth',
+              kind: 'function',
+              name: 'requireAuthenticatedUser',
+              filePath: 'src/auth.ts',
+              startLine: 1,
+              endLine: 1,
+            }],
+            nodes: [{
+              id: 'function:validate-token',
+              kind: 'function',
+              name: 'validateToken',
+              filePath: 'src/auth.ts',
+              startLine: 1,
+              endLine: 1,
+            }],
+            edges: [{ source: 'function:require-auth', target: 'function:validate-token', kind: 'calls', line: 1 }],
+            codeBlocks: [],
+            relatedFiles: ['src/auth.ts'],
+            stats: { nodeCount: 2, edgeCount: 1, fileCount: 1 },
+          }),
+        };
+      }),
+    };
+
+    const context = await buildAutoProjectContext({
+      project: { id: 'local/repo', name: 'repo', rootPath: repoDir },
+      dataDir,
+      observations: getAllObservations(),
+      refresh: 'auto',
+      task: 'trace authentication validation',
+      externalRunner: runner,
+    });
+
+    expect(context.providerQuality).toMatchObject({ selected: 'external', selectedQuality: 'semantic' });
+    expect(context.workset.provenance.codeProvider).toMatchObject({ selected: 'external' });
+    expect(context.workset.startHere[0]).toBe('src/auth.ts');
+    expect(context.workset.prompt).toContain('Semantic code outline');
+    expect(context.workset.prompt).toContain('requireAuthenticatedUser calls validateToken');
+    expect(context.workset.prompt).not.toContain('const secret');
+  });
+
   it('queues an MCP-style refresh instead of scanning code inside the request', async () => {
     await storeObservation({
       entityName: 'auth',

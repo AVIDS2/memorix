@@ -94,6 +94,8 @@ export interface CodeStateScanCompleteness {
   metadataOnlyFiles: number;
   removedFiles: number;
   skippedOversizedFiles: number;
+  /** Source paths discovered but unavailable for stat/read during this scan. */
+  unreadableFiles?: number;
   removalScanDeferred: boolean;
 }
 
@@ -122,4 +124,81 @@ export interface CodeGraphStatus {
   refs: number;
   indexedAt?: string;
   latestSnapshot?: CodeStateSnapshot;
+}
+
+/** Policy for using a separately installed, local semantic CodeGraph index. */
+export type CodeGraphExternalMode = 'auto' | 'off';
+
+/**
+ * The external provider state is deliberately more precise than a boolean.
+ * A caller can distinguish an absent optional tool from a stale or invalid
+ * result without treating either as a fatal failure for Code Memory.
+ */
+export type ExternalCodeGraphState =
+  | 'disabled'
+  | 'not-detected'
+  | 'unavailable'
+  | 'not-initialized'
+  | 'stale'
+  | 'timed-out'
+  | 'invalid'
+  | 'ready';
+
+export interface ExternalCodeGraphHealth {
+  state: ExternalCodeGraphState;
+  reason?: string;
+  indexedFiles?: number;
+  indexedNodes?: number;
+  indexedEdges?: number;
+  languages?: string[];
+}
+
+export interface CodeGraphProviderQuality {
+  /** Provider that contributed task-scoped code evidence to this response. */
+  selected: CodeGraphProviderKind;
+  /** Lite is heuristic; external outlines are only semantic after validation. */
+  selectedQuality: 'heuristic' | 'semantic';
+  mode: CodeGraphExternalMode;
+  lite: {
+    quality: 'heuristic';
+    capabilities: {
+      declarations: boolean;
+      importHints: boolean;
+      resolvedRelations: false;
+      exactLocations: false;
+    };
+    supportedLanguages: string[];
+  };
+  external: ExternalCodeGraphHealth;
+}
+
+export interface ExternalCodeGraphSymbol {
+  id: string;
+  name: string;
+  qualifiedName?: string;
+  kind: string;
+  path: string;
+  startLine?: number;
+  endLine?: number;
+  language?: string;
+}
+
+export interface ExternalCodeGraphRelation {
+  from: ExternalCodeGraphSymbol;
+  to: ExternalCodeGraphSymbol;
+  kind: string;
+  line?: number;
+}
+
+/** A bounded, non-source-code semantic outline returned for one task. */
+export interface ExternalCodeGraphOutline {
+  provider: 'external';
+  entryPoints: ExternalCodeGraphSymbol[];
+  relations: ExternalCodeGraphRelation[];
+  relatedFiles: string[];
+  stats: {
+    nodes: number;
+    edges: number;
+    files: number;
+  };
 }

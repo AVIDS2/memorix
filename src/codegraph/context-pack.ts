@@ -1,6 +1,13 @@
 import { evaluateCodeRefFreshness } from './freshness.js';
-import { buildTaskWorkset, type TaskWorkset } from '../knowledge/workset.js';
-import type { CodeFile, CodeRefStatus, CodeSymbol, ObservationCodeRef } from './types.js';
+import { buildTaskWorkset, type TaskWorkset, type WorksetCaution } from '../knowledge/workset.js';
+import type {
+  CodeFile,
+  CodeGraphProviderQuality,
+  CodeRefStatus,
+  CodeSymbol,
+  ExternalCodeGraphOutline,
+  ObservationCodeRef,
+} from './types.js';
 import type { CodeGraphStore } from './store.js';
 import { isCodeGraphExcludedPath } from './exclude.js';
 
@@ -266,7 +273,13 @@ export async function attachTaskWorkset(input: {
     worktreeState?: 'clean' | 'dirty' | 'unavailable';
     incomplete?: boolean;
   };
+  semanticCode?: ExternalCodeGraphOutline;
+  providerQuality?: CodeGraphProviderQuality;
+  runtimeCautions?: WorksetCaution[];
 }): Promise<ContextPack> {
+  const semanticStartHere = input.semanticCode
+    ? [...input.semanticCode.relatedFiles, ...input.semanticCode.entryPoints.map(entry => entry.path)]
+    : [];
   const workset = await buildTaskWorkset({
     projectId: input.projectId,
     dataDir: input.dataDir,
@@ -274,7 +287,9 @@ export async function attachTaskWorkset(input: {
     lens: input.lens,
     currentFacts: input.currentFacts ?? [],
     ...(input.codeState ? { codeState: input.codeState } : {}),
-    startHere: input.pack.suggestedReads,
+    startHere: uniq([...semanticStartHere, ...input.pack.suggestedReads]),
+    ...(input.semanticCode ? { semanticCode: input.semanticCode } : {}),
+    ...(input.providerQuality ? { providerQuality: input.providerQuality } : {}),
     reliableMemory: input.pack.memories
       .filter(memory => memory.status === 'current')
       .map(memory => ({
@@ -300,6 +315,7 @@ export async function attachTaskWorkset(input: {
       suspect: input.pack.warnings.filter(warning => warning.status === 'suspect').length,
       stale: input.pack.warnings.filter(warning => warning.status === 'stale').length,
     },
+    runtimeCautions: input.runtimeCautions,
   });
   return { ...input.pack, workset };
 }

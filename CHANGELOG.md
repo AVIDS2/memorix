@@ -21,6 +21,7 @@ All notable changes to this project will be documented in this file.
 ### Fixed
 - **Incomplete scan truthfulness** -- Unreadable files and deferred removals now remain visible in snapshot completeness instead of being silently treated as a complete code view.
 - **External CodeGraph safety boundary** -- Memorix only accepts local output for the exact healthy project root, rejects stale/malformed/oversized/path-escaping data, runs without a shell, and never persists raw external source output.
+- **Node 26 SQLite runtime** -- Upgraded the optional `better-sqlite3` path to a release that supports Node 26, and added a Node 26 CI smoke that opens an in-memory database. Fixes #130; reported by @RaviTharuma.
 
 ## [1.1.13] - 2026-07-17
 

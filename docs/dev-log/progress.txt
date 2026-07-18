@@ -120,4 +120,7 @@
 - Completed local release gates: lint, full test suite, production build,
   package-content audit, isolated Windows npm install, stdio MCP smoke, and
   HTTP dashboard/lifecycle smoke.
+- Release audit also incorporated #130 before publication: the optional SQLite
+  runtime now uses the Node-26-compatible `better-sqlite3` 12.x line, with a
+  dedicated Node 26 CI smoke that opens an in-memory database.
 - Remaining remote gates: GitHub CI, npm publish, tag, and GitHub release.

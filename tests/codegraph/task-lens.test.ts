@@ -10,7 +10,9 @@ describe('task lens routing', () => {
 
   it('keeps an explicit release request as release when publishing is deferred', () => {
     expect(resolveTaskLens('Prepare the 1.2.1 release, but do not publish until maintainer approval.').id).toBe('release');
+    expect(resolveTaskLens('Do not publish, but prepare the 1.2.1 release plan.').id).toBe('release');
     expect(resolveTaskLens('\u51c6\u5907 1.2.1 \u53d1\u7248\uff0c\u4f46\u4e0d\u8981\u7acb\u5373\u53d1\u5e03\u3002').id).toBe('release');
+    expect(resolveTaskLens('\u4e0d\u8981\u53d1\u5e03\uff0c\u4f46\u5148\u51c6\u5907 1.2.1 \u53d1\u7248\u8ba1\u5212\u3002').id).toBe('release');
   });
 
   it('does not promote a Chinese no-publish instruction to release', () => {

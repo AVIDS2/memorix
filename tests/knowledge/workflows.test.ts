@@ -193,11 +193,23 @@ describe('Workflow Inheritance', () => {
     });
     expect(unrelated.selections).toHaveLength(0);
 
+    const prohibited = await selectWorkspaceWorkflows({
+      workspace,
+      task: 'Investigate the token 401 incident and do not publish anything.',
+    });
+    expect(prohibited.selections).toHaveLength(0);
+
     const release = await selectWorkspaceWorkflows({
       workspace,
       task: 'Prepare and publish the npm patch release.',
     });
     expect(release.selections.map(selection => selection.workflow.id)).toEqual(['patch-release']);
+
+    const planned = await selectWorkspaceWorkflows({
+      workspace,
+      task: 'Do not publish, but prepare the npm patch release plan.',
+    });
+    expect(planned.selections.map(selection => selection.workflow.id)).toEqual(['patch-release']);
   });
 
   it('selects only matching active workflows and exposes prior failed verification as a caution', async () => {

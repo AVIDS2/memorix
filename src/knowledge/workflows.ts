@@ -7,6 +7,7 @@ import { atomicWriteFile, withFileLock } from '../store/file-lock.js';
 import { WorkflowSyncer } from '../workspace/workflow-sync.js';
 import { getKnowledgeWorkspacePaths, resolveKnowledgeWorkspaceFile } from './workspace.js';
 import { WorkflowStore } from './workflow-store.js';
+import { containsTaskKeyword } from '../codegraph/task-lens.js';
 import type {
   WorkflowAdapterPreview,
   WorkflowAdapterTarget,
@@ -432,7 +433,7 @@ function taskScore(workflow: WorkflowSpec, task: string): { score: number; reaso
   const matchedTriggers = new Set<string>();
   for (const lens of workflow.taskLenses) {
     const terms = LENS_TERMS[lens.toLowerCase()] ?? [lens.toLowerCase()];
-    if (terms.some(term => text.includes(term))) {
+    if (terms.some(term => containsTaskKeyword(task, term))) {
       score += 20;
       reasons.push('matches ' + lens + ' workflow');
       matchedLenses.add(lens.toLowerCase());
@@ -440,7 +441,7 @@ function taskScore(workflow: WorkflowSpec, task: string): { score: number; reaso
   }
   for (const trigger of workflow.triggers) {
     const term = trigger.toLowerCase().trim();
-    if (term.length >= 2 && text.includes(term)) {
+    if (term.length >= 2 && containsTaskKeyword(task, term)) {
       score += 8;
       reasons.push('matches trigger "' + trigger + '"');
       matchedTriggers.add(term);

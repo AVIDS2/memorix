@@ -159,7 +159,12 @@ function tokenize(text: string): string[] {
     .filter(token => token.length > 1 && !STOP_WORDS.has(token));
 }
 
-function containsKeyword(text: string, keyword: string): boolean {
+/**
+ * Match a task keyword only when the task states it as an action or intent,
+ * rather than prohibiting that action. Workflow selection shares this rule so
+ * a safety constraint cannot reintroduce an intent rejected by task routing.
+ */
+export function containsTaskKeyword(text: string, keyword: string): boolean {
   const matcher = /^[a-z0-9_-]+$/i.test(keyword)
     ? new RegExp(`(^|[^a-z0-9_-])${keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?=[^a-z0-9_-]|$)`, 'gi')
     : new RegExp(keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
@@ -189,7 +194,12 @@ function isNegatedTaskKeyword(text: string, keywordIndex: number): boolean {
     text.lastIndexOf('\uff1f', keywordIndex - 1),
     text.lastIndexOf('\uff1b', keywordIndex - 1),
   );
-  const prefix = text.slice(boundary + 1, keywordIndex).toLowerCase();
+  let prefix = text.slice(boundary + 1, keywordIndex).toLowerCase();
+  const contrast = /(?:,|\uff0c)\s*(?:but|however|instead|yet|\u4f46\u662f|\u4f46|\u800c\u662f)\s*/gi;
+  let contrastMatch: RegExpExecArray | null;
+  let contrastEnd = -1;
+  while ((contrastMatch = contrast.exec(prefix)) !== null) contrastEnd = contrast.lastIndex;
+  if (contrastEnd >= 0) prefix = prefix.slice(contrastEnd);
   if (/\b(?:do|does|did|should|must|can|could|will|would|may|might)\s+not\b/.test(prefix)) return true;
   if (/\b(?:don't|dont|never|without|avoid|skip)\b/.test(prefix)) return true;
   if (/(?:^|[\s,])no\s+(?:[a-z0-9_-]+\s*){0,4}$/i.test(prefix)) return true;
@@ -209,7 +219,7 @@ export function resolveTaskLens(task?: string): TaskLens {
   };
 
   for (const id of LENS_PRIORITY) {
-    const score = KEYWORDS[id].reduce((sum, keyword) => sum + (containsKeyword(normalized, keyword) ? 1 : 0), 0);
+    const score = KEYWORDS[id].reduce((sum, keyword) => sum + (containsTaskKeyword(normalized, keyword) ? 1 : 0), 0);
     const priority = LENS_PRIORITY.indexOf(id);
     if (score > best.score || (score === best.score && score > 0 && priority < best.priority)) {
       best = { id, score, priority };

@@ -1,6 +1,7 @@
 import { defineCommand } from 'citty';
 import { CodeGraphStore } from '../../codegraph/store.js';
 import { ClaimStore } from '../../knowledge/claim-store.js';
+import { reviewClaim } from '../../knowledge/claims.js';
 import { applyKnowledgeProposal, compileKnowledgeWorkspace, lintKnowledgeWorkspace } from '../../knowledge/wiki.js';
 import { initializeKnowledgeWorkspace, loadKnowledgeWorkspace } from '../../knowledge/workspace.js';
 import { KnowledgeWorkspaceStore } from '../../knowledge/workspace-store.js';
@@ -28,6 +29,8 @@ function usage(): string {
     '  memorix knowledge init [--mode local]',
     '  memorix knowledge init --mode versioned --path C:\\project\\docs\\knowledge',
     '  memorix knowledge status',
+    '  memorix knowledge claims',
+    '  memorix knowledge review --id <claim-id> --review approved --detail "checked current source evidence"',
     '  memorix knowledge compile',
     '  memorix knowledge lint',
     '  memorix knowledge apply --proposal <id> [--force]',
@@ -57,6 +60,11 @@ function workflowVerdict(value: unknown): 'passed' | 'failed' | 'not-run' | unde
   throw new Error('workflow verdict must be passed, failed, or not-run');
 }
 
+function claimReviewState(value: unknown): 'approved' | 'rejected' {
+  if (value === 'approved' || value === 'rejected') return value;
+  throw new Error('claim review must be approved or rejected');
+}
+
 function evidenceList(value: unknown): string[] {
   if (typeof value !== 'string' || !value.trim()) return [];
   return [...new Set(value.split(',').map(item => item.trim()).filter(Boolean))];
@@ -81,6 +89,8 @@ export default defineCommand({
     failure: { type: 'string', description: 'Sanitized failure reason for a workflow run' },
     snapshot: { type: 'string', description: 'Starting code snapshot id for a workflow run' },
     evidence: { type: 'string', description: 'Comma-separated evidence ids selected for a workflow run' },
+    review: { type: 'string', description: 'Claim review verdict: approved or rejected' },
+    detail: { type: 'string', description: 'Evidence check performed for a claim review' },
     json: { type: 'boolean', description: 'Emit machine-readable JSON output' },
   },
   run: async ({ args }) => {
@@ -119,6 +129,36 @@ export default defineCommand({
       await claimStore.init(dataDir);
       const workspaceStore = new KnowledgeWorkspaceStore();
       await workspaceStore.init(dataDir);
+
+      if (action === 'claims') {
+        const claims = claimStore.listClaims(project.id, { limit: 100 });
+        emitResult(
+          { project, workspace, claims },
+          'Claims: ' + claims.length + ' total, ' + claims.filter(claim => claim.reviewState === 'needs-review').length + ' awaiting review.',
+          asJson,
+        );
+        return;
+      }
+
+      if (action === 'review') {
+        const claimId = requiredText(args.id, 'claim id');
+        const existing = claimStore.getClaim(claimId);
+        if (!existing || existing.projectId !== project.id) {
+          emitError('Claim was not found for this knowledge workspace.', asJson);
+          return;
+        }
+        const claim = reviewClaim(claimStore, {
+          claimId,
+          reviewState: claimReviewState(args.review),
+          detail: requiredText(args.detail, 'review detail'),
+        });
+        emitResult(
+          { project, workspace, claim },
+          'Claim ' + claim.id + ' marked ' + claim.reviewState + '.',
+          asJson,
+        );
+        return;
+      }
 
       if (action === 'workflow') {
         const workflowAction = (positional[1] || 'list').toLowerCase();

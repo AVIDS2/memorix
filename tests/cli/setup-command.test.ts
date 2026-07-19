@@ -12,6 +12,7 @@ import {
   installMcpConfig,
   installGeminiExtensionPackage,
   installHermesPluginPackage,
+  installAgentSetup,
   installOmpPackage,
   installOpenClawBundlePackage,
   installPiPackage,
@@ -66,6 +67,30 @@ describe('setup command planning', () => {
     const plan = buildSetupPlan({ agent: 'codex', mcp: 'http' });
     expect(plan.mcp).toBe('http');
     expect(plan.actions).toContain('http-control-plane');
+  });
+
+  it('keeps Claude guidance while honoring --noHooks', async () => {
+    const tmpDir = makeTmpDir();
+    const originalCwd = process.cwd();
+    try {
+      process.chdir(tmpDir);
+      const plan = buildSetupPlan({
+        agent: 'claude',
+        mcp: 'none',
+        hooks: false,
+        plugin: false,
+      });
+
+      await installAgentSetup('claude', plan, false);
+
+      await expect(fs.readFile(path.join(tmpDir, 'CLAUDE.md'), 'utf-8'))
+        .resolves.toContain('Memorix');
+      await expect(fs.access(path.join(tmpDir, '.claude', 'settings.local.json')))
+        .rejects.toThrow();
+    } finally {
+      process.chdir(originalCwd);
+      await cleanup(tmpDir);
+    }
   });
 
   it('lists plugin-capable setup targets', () => {

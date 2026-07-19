@@ -7,6 +7,7 @@ import { initializeKnowledgeWorkspace } from '../../src/knowledge/workspace.js';
 import {
   applyWorkflowAdapter,
   importWindsurfWorkflows,
+  parseWorkflowMarkdown,
   previewWorkflowAdapter,
   recordWorkflowRun,
   selectWorkspaceWorkflows,
@@ -75,6 +76,28 @@ afterEach(() => {
 });
 
 describe('Workflow Inheritance', () => {
+  it('keeps the repository release workflow parseable and explicit about approval', () => {
+    const sourcePath = path.join(process.cwd(), 'docs', 'knowledge', 'workflows', 'memorix-release.md');
+    const workflow = parseWorkflowMarkdown(readFileSync(sourcePath, 'utf8'), {
+      workspaceId: 'workspace:memorix',
+      sourcePath: 'workflows/memorix-release.md',
+    });
+
+    expect(workflow).toMatchObject({
+      id: 'memorix-release',
+      status: 'active',
+      taskLenses: ['release'],
+      verificationGates: expect.arrayContaining([
+        'npm run lint passes',
+        'npm run build passes',
+        'npm test passes',
+        'Package smoke passes',
+        'Maintainer approval is explicit before publishing',
+      ]),
+    });
+    expect(workflow.body).toMatch(/explicit maintainer approval/i);
+  });
+
   it('imports a Windsurf workflow as canonical Markdown without changing its source', async () => {
     const sandbox = tempRoot();
     const projectRoot = path.join(sandbox, 'repo');
@@ -109,7 +132,7 @@ describe('Workflow Inheritance', () => {
     expect(readFileSync(sourcePath, 'utf8')).toBe(source);
     expect(result.imported[0]).toMatchObject({
       status: 'active',
-      taskLenses: expect.arrayContaining(['release']),
+      taskLenses: ['release'],
       importedFrom: '.windsurf/workflows/release.md',
     });
     expect(existsSync(path.join(workspace.rootPath, result.imported[0].sourcePath))).toBe(true);
@@ -117,6 +140,76 @@ describe('Workflow Inheritance', () => {
     const second = await importWindsurfWorkflows({ workspace, projectRoot });
     expect(second.imported).toHaveLength(0);
     expect(second.skipped[0].reason).toMatch(/preserved/i);
+  });
+
+  it('preserves a canonical Windsurf workflow contract and ignores generic verification words for release selection', async () => {
+    const sandbox = tempRoot();
+    const projectRoot = path.join(sandbox, 'repo');
+    const dataDir = path.join(sandbox, 'data');
+    mkdirSync(path.join(projectRoot, '.windsurf', 'workflows'), { recursive: true });
+    initGitRepository(projectRoot);
+    writeFileSync(path.join(projectRoot, '.windsurf', 'workflows', 'release.md'), [
+      '---',
+      'id: patch-release',
+      'title: Patch release',
+      'description: Prepare a patch release with explicit verification evidence.',
+      'status: active',
+      'version: 1',
+      'taskLenses: [release, test]',
+      'triggers: [release, publish, npm]',
+      'allowedAgents: [codex, claude-code, windsurf]',
+      'verificationGates: [focused tests pass, changelog reviewed, package smoke passes]',
+      '---',
+      '',
+      '## Inspect',
+      '',
+      'Read the current version and unresolved release risks.',
+      '',
+      '## Verify',
+      '',
+      'Run focused verification before publishing.',
+      '',
+    ].join('\n'), 'utf8');
+    const workspace = await initializeKnowledgeWorkspace({
+      projectId: 'org/repo',
+      dataDir,
+      mode: 'local',
+    });
+
+    const imported = await importWindsurfWorkflows({ workspace, projectRoot });
+    expect(imported.imported).toHaveLength(1);
+    expect(imported.imported[0]).toMatchObject({
+      id: 'patch-release',
+      title: 'Patch release',
+      sourcePath: 'workflows/patch-release.md',
+      importedFrom: '.windsurf/workflows/release.md',
+      verificationGates: ['focused tests pass', 'changelog reviewed', 'package smoke passes'],
+      compatibleAgents: ['codex', 'claude-code', 'windsurf'],
+    });
+
+    const unrelated = await selectWorkspaceWorkflows({
+      workspace,
+      task: 'Investigate token 401 and run focused verification.',
+    });
+    expect(unrelated.selections).toHaveLength(0);
+
+    const prohibited = await selectWorkspaceWorkflows({
+      workspace,
+      task: 'Investigate the token 401 incident and do not publish anything.',
+    });
+    expect(prohibited.selections).toHaveLength(0);
+
+    const release = await selectWorkspaceWorkflows({
+      workspace,
+      task: 'Prepare and publish the npm patch release.',
+    });
+    expect(release.selections.map(selection => selection.workflow.id)).toEqual(['patch-release']);
+
+    const planned = await selectWorkspaceWorkflows({
+      workspace,
+      task: 'Do not publish, but prepare the npm patch release plan.',
+    });
+    expect(planned.selections.map(selection => selection.workflow.id)).toEqual(['patch-release']);
   });
 
   it('selects only matching active workflows and exposes prior failed verification as a caution', async () => {

@@ -56,6 +56,27 @@ export async function createAutoRelations(
   // Skip self-references
   const selfName = obs.entityName.toLowerCase();
 
+  const explicitRelated = [...new Set((obs.relatedEntities ?? [])
+    .map(name => name.trim())
+    .filter(name => name && name.toLowerCase() !== selfName))];
+  if (explicitRelated.length > 0) {
+    await graphManager.createEntities(explicitRelated.map(name => ({
+      name,
+      entityType: 'related',
+      observations: [],
+    })));
+    for (const name of explicitRelated) {
+      const matchedEntity = graphManager.findEntityByName(name);
+      if (matchedEntity) {
+        relations.push({
+          from: obs.entityName,
+          to: matchedEntity.name,
+          relationType: 'related_entity',
+        });
+      }
+    }
+  }
+
   // Check extracted identifiers against existing entities (O(1) lookups via index)
   const candidates = [
     ...extracted.identifiers,

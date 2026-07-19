@@ -7,6 +7,7 @@ import { atomicWriteFile, withFileLock } from '../store/file-lock.js';
 import { WorkflowSyncer } from '../workspace/workflow-sync.js';
 import { getKnowledgeWorkspacePaths, resolveKnowledgeWorkspaceFile } from './workspace.js';
 import { WorkflowStore } from './workflow-store.js';
+import { containsTaskKeyword } from '../codegraph/task-lens.js';
 import type {
   WorkflowAdapterPreview,
   WorkflowAdapterTarget,
@@ -414,6 +415,9 @@ const LENS_TERMS: Record<string, string[]> = {
   test: ['test', 'verify', 'smoke', '测试', '验证'],
 };
 
+const GENERIC_WORKFLOW_LENSES = new Set(['review', 'test']);
+const GENERIC_WORKFLOW_TERMS = new Set(['review', 'audit', 'test', 'verify', 'smoke']);
+
 function inferTaskLenses(value: string): string[] {
   const text = value.toLowerCase();
   return Object.entries(LENS_TERMS)
@@ -425,20 +429,28 @@ function taskScore(workflow: WorkflowSpec, task: string): { score: number; reaso
   const text = task.toLowerCase();
   let score = 0;
   const reasons: string[] = [];
+  const matchedLenses = new Set<string>();
+  const matchedTriggers = new Set<string>();
   for (const lens of workflow.taskLenses) {
     const terms = LENS_TERMS[lens.toLowerCase()] ?? [lens.toLowerCase()];
-    if (terms.some(term => text.includes(term))) {
+    if (terms.some(term => containsTaskKeyword(task, term))) {
       score += 20;
       reasons.push('matches ' + lens + ' workflow');
+      matchedLenses.add(lens.toLowerCase());
     }
   }
   for (const trigger of workflow.triggers) {
     const term = trigger.toLowerCase().trim();
-    if (term.length >= 2 && text.includes(term)) {
+    if (term.length >= 2 && containsTaskKeyword(task, term)) {
       score += 8;
       reasons.push('matches trigger "' + trigger + '"');
+      matchedTriggers.add(term);
     }
   }
+  const hasSpecificLens = workflow.taskLenses.some(lens => !GENERIC_WORKFLOW_LENSES.has(lens.toLowerCase()));
+  const hasSpecificMatch = [...matchedLenses].some(lens => !GENERIC_WORKFLOW_LENSES.has(lens))
+    || [...matchedTriggers].some(trigger => !GENERIC_WORKFLOW_TERMS.has(trigger));
+  if (hasSpecificLens && !hasSpecificMatch) return { score: 0, reasons: [] };
   return { score, reasons: [...new Set(reasons)] };
 }
 
@@ -475,9 +487,28 @@ function importedWorkflowSpec(input: {
   sourcePath: string;
   raw: string;
 }): WorkflowSpec {
+  let sourceMatter: matter.GrayMatterFile<string>;
+  try {
+    sourceMatter = matter(input.raw);
+  } catch (error) {
+    throw new Error('Malformed Windsurf workflow Markdown: ' + (error instanceof Error ? error.message : String(error)));
+  }
+  if (sourceMatter.data.id !== undefined) {
+    const id = requiredText(sourceMatter.data as Record<string, unknown>, 'id');
+    const sourcePath = 'workflows/' + slug(id) + '.md';
+    const canonical = parsedWorkflow(sourceMatter.data as Record<string, unknown>, sourceMatter.content, {
+      workspaceId: input.workspace.id,
+      sourcePath,
+      contentHash: hash(input.raw),
+    });
+    return materializeWorkflow({
+      ...canonical,
+      importedFrom: input.sourcePath.replace(/\\/g, '/'),
+    });
+  }
   const entry = new WorkflowSyncer().parseWindsurfWorkflow(input.sourceName, input.raw);
   const content = entry.content.trim() || '## Execute\n\nFollow the imported workflow.';
-  const lenses = inferTaskLenses(entry.name + '\n' + entry.description + '\n' + content);
+  const lenses = inferTaskLenses(entry.name + '\n' + entry.description);
   const createdAt = now();
   const sourcePath = 'workflows/' + slug(entry.name) + '.md';
   const spec: WorkflowSpec = {

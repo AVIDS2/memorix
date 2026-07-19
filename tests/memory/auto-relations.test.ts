@@ -155,6 +155,37 @@ describe('Auto-Relations', () => {
     expect(selfRefs).toHaveLength(0);
   });
 
+  it('persists an explicit related entity as a durable graph edge', async () => {
+    await graphManager.createEntities([
+      { name: 'release-process', entityType: 'workflow', observations: [] },
+    ]);
+    const obs: Observation = {
+      id: 5,
+      entityName: 'release-process',
+      type: 'how-it-works',
+      title: 'Release process refreshes tokens',
+      narrative: 'The release process can require a token refresh.',
+      facts: [],
+      filesModified: [],
+      concepts: [],
+      relatedEntities: ['token-refresh', 'release-process', ' token-refresh '],
+      tokens: 20,
+      createdAt: new Date().toISOString(),
+      projectId: PROJECT_ID,
+    };
+
+    const count = await createAutoRelations(obs, extractEntities(obs.narrative), graphManager);
+    const graph = await graphManager.readGraph();
+
+    expect(count).toBe(1);
+    expect(graph.entities).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: 'token-refresh' }),
+    ]));
+    expect(graph.relations).toEqual(expect.arrayContaining([
+      { from: 'release-process', to: 'token-refresh', relationType: 'related_entity' },
+    ]));
+  });
+
   it('should return 0 when no matching entities found', async () => {
     const obs: Observation = {
       id: 4,

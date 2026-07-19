@@ -2,7 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [1.2.1] - 2026-07-19
+
+### Added
+- **Review-gated Knowledge claims** -- Explicit agent observations now become source-backed candidates first. They can be inspected and deliberately approved or rejected through `memorix knowledge claims` / `memorix knowledge review` or the advanced `memorix_knowledge` MCP action before they enter knowledge compilation.
+- **Versioned Memorix release workflow** -- Added `docs/knowledge/workflows/memorix-release.md`, a canonical release playbook with verification gates and an explicit maintainer approval boundary.
+
+### Fixed
+- **Claude setup respects `--noHooks`** -- Project setup now keeps generated `CLAUDE.md` guidance without also creating Claude lifecycle-hook configuration when hook capture was explicitly disabled.
+- **Claude Code manual MCP readiness** -- Manual setup examples now include Claude Code's `alwaysLoad: true` entry and point to Doctor/Repair for detecting and restoring the eager-load contract.
+- **Workflow import fidelity** -- Canonical Windsurf workflows preserve their source ID, title, agents, phases, and verification gates instead of being reduced to a generated `workflow:<hash>` entry. Release workflows no longer match a non-release task merely because it says “verify” or “test”.
+- **Graph surface consistency** -- Explicit `relatedEntities` now persist as graph edges, and MCP graph tools, standalone Dashboard, HTTP control plane, and exports share one project-scoping rule.
+- **Intent-aware task and workflow routing** -- A safety constraint such as “do not publish” no longer routes an incident or debugging task into a release lens or release workflow. Explicit release requests still retain release verification while publication is deferred for approval.
+- **Git fact consistency** -- Project Context, Context Pack, and CodeGraph CLI now report `Git: unavailable` for an invalid or unreadable repository instead of presenting it as a clean worktree.
+- **Windows verification-gate timeout** -- A timed-out orchestration gate now resolves promptly while its shell process tree is terminated in the background, instead of waiting indefinitely for a descendant process to close.
 
 ## [1.2.0] - 2026-07-18
 

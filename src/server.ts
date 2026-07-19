@@ -28,6 +28,7 @@ import { initSessionStore } from './store/session-store.js';
 import { checkProjectAttribution, auditProjectObservations } from './memory/attribution-guard.js';
 import { createAutoRelations } from './memory/auto-relations.js';
 import { extractEntities } from './memory/entity-extractor.js';
+import { scopeKnowledgeGraphToProject } from './memory/graph-scope.js';
 import { compactSearch, compactTimeline, compactDetail } from './compact/engine.js';
 import { buildGraphContextPacket, formatGraphContextPrompt } from './memory/graph-context.js';
 import { detectProject } from './project/detector.js';
@@ -1425,7 +1426,7 @@ export async function createMemorixServer(
         { getResolvedConfig },
         { getExternalCodeGraphContext },
         { getObservationStore },
-        { collectCurrentProjectFacts },
+        { collectCurrentProjectFacts, formatGitFact },
         { resolveTaskLens },
       ] = await Promise.all([
         import('./codegraph/store.js'),
@@ -1467,8 +1468,7 @@ export async function createMemorixServer(
         worksetFacts.push('Latest changelog: ' + currentFacts.latestChangelog.version
           + (currentFacts.latestChangelog.date ? ' (' + currentFacts.latestChangelog.date + ')' : ''));
       }
-      worksetFacts.push('Git: ' + (currentFacts.git.branch ? 'branch ' + currentFacts.git.branch + ', ' : '')
-        + (currentFacts.git.dirty ? 'dirty worktree' : 'clean worktree'));
+      worksetFacts.push(formatGitFact(currentFacts.git));
       const codeState = snapshot
         ? '- Code state: ' + (snapshot.baseRevision ? snapshot.baseRevision.slice(0, 12) : 'Git unavailable')
           + ', ' + snapshot.worktreeState + ' worktree'
@@ -1513,11 +1513,13 @@ export async function createMemorixServer(
     {
       title: 'Knowledge Workspace',
       description:
-        'Manage the reviewable project Knowledge Workspace. Use it only for deliberate knowledge operations: initialize a local or versioned workspace, inspect status, compile source-backed proposals, lint, apply a reviewed proposal, or manage canonical workflows. It is intentionally absent from the default micro/lite profiles.',
+        'Manage the reviewable project Knowledge Workspace. Use it only for deliberate knowledge operations: initialize a local or versioned workspace, review source-backed claims, compile proposals, lint, apply a reviewed proposal, or manage canonical workflows. It is intentionally absent from the default micro/lite profiles.',
       inputSchema: {
         action: z.enum([
           'workspace_init',
           'status',
+          'claim_list',
+          'claim_review',
           'compile',
           'lint',
           'proposal_apply',
@@ -1532,6 +1534,9 @@ export async function createMemorixServer(
         path: z.string().optional().describe('Explicit versioned workspace path, used only by workspace_init'),
         proposalId: z.string().optional().describe('Pending proposal id for proposal_apply'),
         allowManualOverwrite: z.boolean().optional().default(false).describe('Explicitly allow proposal_apply to replace a manually edited page'),
+        claimId: z.string().optional().describe('Source-backed claim id for claim_review'),
+        claimReviewState: z.enum(['approved', 'rejected']).optional().describe('Deliberate review verdict for claim_review'),
+        reviewDetail: z.string().max(2_000).optional().describe('Evidence check performed before approving or rejecting a claim'),
         workflowId: z.string().optional().describe('Canonical workflow id for workflow preview, apply, or run'),
         agent: z.string().optional().describe('Target agent for a workflow adapter'),
         task: z.string().optional().describe('Task text for workflow selection or a workflow run'),
@@ -1548,6 +1553,9 @@ export async function createMemorixServer(
       path: workspacePath,
       proposalId,
       allowManualOverwrite,
+      claimId,
+      claimReviewState,
+      reviewDetail,
       workflowId,
       agent,
       task,
@@ -1572,6 +1580,7 @@ export async function createMemorixServer(
 
       const [
         { ClaimStore },
+        { reviewClaim },
         { CodeGraphStore },
         { initializeKnowledgeWorkspace, loadKnowledgeWorkspace },
         { KnowledgeWorkspaceStore },
@@ -1587,6 +1596,7 @@ export async function createMemorixServer(
         },
       ] = await Promise.all([
         import('./knowledge/claim-store.js'),
+        import('./knowledge/claims.js'),
         import('./codegraph/store.js'),
         import('./knowledge/workspace.js'),
         import('./knowledge/workspace-store.js'),
@@ -1642,7 +1652,55 @@ export async function createMemorixServer(
               reason: proposal.reason,
               createdAt: proposal.createdAt,
             })),
+            reviewableClaims: claims.listClaims(project.id, { limit: 100 })
+              .filter(claim => claim.reviewState === 'needs-review')
+              .map(claim => ({ id: claim.id, subject: claim.subject, predicate: claim.predicate, objectValue: claim.objectValue })),
           },
+        });
+      }
+
+      if (action === 'claim_list') {
+        return text({
+          claims: claims.listClaims(project.id, { limit: 100 }).map(claim => ({
+            id: claim.id,
+            subject: claim.subject,
+            predicate: claim.predicate,
+            objectValue: claim.objectValue,
+            status: claim.status,
+            reviewState: claim.reviewState,
+            origin: claim.origin,
+            confidence: claim.confidence,
+            evidenceCount: claims.listEvidence(claim.id).length,
+          })),
+          next: 'Approve only after checking the linked evidence. Rejected claims stay out of retrieval and publication.',
+        });
+      }
+
+      if (action === 'claim_review') {
+        const requestedClaimId = requireText(claimId, 'claimId');
+        const detail = requireText(reviewDetail, 'reviewDetail');
+        if (!requestedClaimId || !claimReviewState || !detail) {
+          return text({ error: 'claimId, claimReviewState, and reviewDetail are required for claim_review.' }, true);
+        }
+        const existing = claims.getClaim(requestedClaimId);
+        if (!existing || existing.projectId !== project.id) {
+          return text({ error: 'Claim was not found for the current project.' }, true);
+        }
+        const claim = reviewClaim(claims, {
+          claimId: requestedClaimId,
+          reviewState: claimReviewState,
+          detail,
+        });
+        return text({
+          claim: {
+            id: claim.id,
+            status: claim.status,
+            reviewState: claim.reviewState,
+            updatedAt: claim.updatedAt,
+          },
+          next: claim.reviewState === 'approved'
+            ? 'This approved source-backed claim can now be considered by knowledge compilation.'
+            : 'This rejected claim is excluded from retrieval and knowledge compilation.',
         });
       }
 
@@ -1688,7 +1746,13 @@ export async function createMemorixServer(
       if (action === 'workflow_import') {
         const result = await importWindsurfWorkflows({ workspace, projectRoot });
         return text({
-          imported: result.imported.map(workflow => ({ id: workflow.id, title: workflow.title, sourcePath: workflow.sourcePath })),
+          imported: result.imported.map(workflow => ({
+            id: workflow.id,
+            title: workflow.title,
+            sourcePath: workflow.sourcePath,
+            importedFrom: workflow.importedFrom,
+            verificationGates: workflow.verificationGates,
+          })),
           skipped: result.skipped,
         });
       }
@@ -1702,6 +1766,8 @@ export async function createMemorixServer(
             status: workflow.status,
             taskLenses: workflow.taskLenses,
             sourcePath: workflow.sourcePath,
+            importedFrom: workflow.importedFrom,
+            verificationGates: workflow.verificationGates,
           })),
           parseErrors: synced.errors,
         });
@@ -2739,15 +2805,11 @@ export async function createMemorixServer(
   async function scopeGraphToProject(graph: { entities: any[]; relations: any[] }) {
     const { getAllObservations } = await import('./memory/observations.js');
     const allObs = await withFreshIndex(() => getAllObservations());
-    const projectEntityNames = new Set(
-      allObs
-        .filter(o => o.projectId === project.id && (o.status ?? 'active') === 'active' && o.entityName)
-        .map(o => o.entityName),
+    const scoped = scopeKnowledgeGraphToProject(
+      graph,
+      allObs.filter(observation => observation.projectId === project.id),
     );
-    const entities = graph.entities.filter((e: any) => projectEntityNames.has(e.name));
-    const entityNameSet = new Set(entities.map((e: any) => e.name));
-    const relations = graph.relations.filter((r: any) => entityNameSet.has(r.from) && entityNameSet.has(r.to));
-    return { entities, relations };
+    return { entities: scoped.entities, relations: scoped.relations };
   }
 
   /** read_graph — MCP Official compatible */

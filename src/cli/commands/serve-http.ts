@@ -23,6 +23,7 @@ import { defineCommand } from 'citty';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { ObservationStore } from '../../store/obs-store.js';
 import { resolveToolProfile } from '../../server/tool-profile.js';
+import { scopeKnowledgeGraphToProject } from '../../memory/graph-scope.js';
 
 export const DEFAULT_SESSION_TIMEOUT_MS = 30 * 60 * 1000;
 
@@ -764,6 +765,7 @@ export default defineCommand({
             source?: string;
             commitHash?: string;
             filesModified?: string[];
+            relatedEntities?: string[];
             status?: string;
             importance?: number;
             accessCount?: number;
@@ -860,12 +862,7 @@ export default defineCommand({
           } catch { /* best effort */ }
 
           // Project-scoped graph counts (must match /graph and /export)
-          const projectEntityNames = new Set(
-            observations.filter(o => o.entityName).map(o => o.entityName!)
-          );
-          const projectEntities = graph.entities.filter((e: any) => projectEntityNames.has(e.name));
-          const projectEntitySet = new Set(projectEntities.map((e: any) => e.name));
-          const projectRelations = graph.relations.filter((r: any) => projectEntitySet.has(r.from) && projectEntitySet.has(r.to));
+          const projectGraph = scopeKnowledgeGraphToProject(graph, observations);
 
           let maintenance = { total: 0, pending: 0, running: 0, retrying: 0, completed: 0, failed: 0 };
           let lifecycle: unknown;
@@ -877,8 +874,8 @@ export default defineCommand({
           } catch { /* optional maintenance diagnostics */ }
 
           sendJson({
-            entities: projectEntities.length,
-            relations: projectRelations.length,
+            entities: projectGraph.entities.length,
+            relations: projectGraph.relations.length,
             observations: observations.length,
             nextId,
             typeCounts,
@@ -930,19 +927,9 @@ export default defineCommand({
           await initGraphStore(graphDataDir);
           const fullGraph = { entities: getGraphStore().loadEntities(), relations: getGraphStore().loadRelations() };
 
-          // Project-scope the graph: only include entities that have observations in this project
-          const allObs = await loadDashboardProjectObservations(graphDataDir, graphProjectId, 'active') as Array<{ entityName?: string }>;
-          const projectEntityNames = new Set(
-            allObs
-              .filter(o => o.entityName)
-              .map(o => o.entityName!)
-          );
-
-          const entities = fullGraph.entities.filter(e => projectEntityNames.has(e.name));
-          const entityNameSet = new Set(entities.map(e => e.name));
-          const relations = fullGraph.relations.filter(r => entityNameSet.has(r.from) && entityNameSet.has(r.to));
-
-          sendJson({ entities, relations });
+          const allObs = await loadDashboardProjectObservations(graphDataDir, graphProjectId, 'active');
+          const scoped = scopeKnowledgeGraphToProject(fullGraph, allObs);
+          sendJson({ entities: scoped.entities, relations: scoped.relations });
           return;
         }
 
@@ -1012,24 +999,15 @@ export default defineCommand({
           const allObs = await loadDashboardProjectObservations(kgDataDir, kgProjectId, 'active');
           const skills = await getMiniSkillStore().loadByProject(kgProjectId);
 
-          // Project-scope graph store (same logic as /api/graph)
           const fullGraph = { entities: getGraphStore().loadEntities(), relations: getGraphStore().loadRelations() };
-          const graphObs = await loadDashboardProjectObservations(kgDataDir, kgProjectId, 'active') as Array<{ entityName?: string }>;
-          const projectEntityNames = new Set(
-            graphObs
-              .filter(o => o.entityName)
-              .map(o => o.entityName!)
-          );
-          const scopedEntities = fullGraph.entities.filter(e => projectEntityNames.has(e.name));
-          const scopedEntityNameSet = new Set(scopedEntities.map(e => e.name));
-          const scopedRelations = fullGraph.relations.filter(r => scopedEntityNameSet.has(r.from) && scopedEntityNameSet.has(r.to));
+          const scoped = scopeKnowledgeGraphToProject(fullGraph, allObs);
 
           const graph = generateKnowledgeGraph({
             projectId: kgProjectId,
             observations: allObs,
             miniSkills: skills,
-            graphEntities: scopedEntities,
-            graphRelations: scopedRelations,
+            graphEntities: scoped.entities,
+            graphRelations: scoped.relations,
           });
 
           sendJson(graph);
@@ -1369,19 +1347,14 @@ export default defineCommand({
           const { initGraphStore, getGraphStore } = await import('../../store/graph-store.js');
           await initGraphStore(expDataDir);
           const fullGraph = { entities: getGraphStore().loadEntities(), relations: getGraphStore().loadRelations() };
-          const observations = await loadDashboardProjectObservations(expDataDir, expProjectId, 'active') as Array<{ entityName?: string }>;
+          const observations = await loadDashboardProjectObservations(expDataDir, expProjectId, 'active');
           const expStore = await getDashboardObservationStore(expDataDir);
           const nextId = await expStore.loadIdCounter();
-          const exportEntityNames = new Set(
-            observations.filter(o => o.entityName).map(o => o.entityName!),
-          );
-          const exportEntities = fullGraph.entities.filter((e: any) => exportEntityNames.has(e.name));
-          const exportEntitySet = new Set(exportEntities.map((e: any) => e.name));
-          const exportRelations = fullGraph.relations.filter((r: any) => exportEntitySet.has(r.from) && exportEntitySet.has(r.to));
+          const scoped = scopeKnowledgeGraphToProject(fullGraph, observations);
           const exportData = {
             project: { id: expProjectId, name: expProjectName },
             exportedAt: new Date().toISOString(),
-            graph: { entities: exportEntities, relations: exportRelations },
+            graph: { entities: scoped.entities, relations: scoped.relations },
             observations,
             nextId,
           };

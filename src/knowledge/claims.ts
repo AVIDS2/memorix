@@ -242,6 +242,56 @@ export function writeClaim(store: ClaimStore, input: KnowledgeClaimInput): Claim
   });
 }
 
+/**
+ * Deliberately approve or reject a source-backed claim after its evidence has
+ * been checked. Derived agent observations never cross this boundary by
+ * themselves.
+ */
+export function reviewClaim(
+  store: ClaimStore,
+  input: {
+    claimId: string;
+    reviewState: Extract<KnowledgeClaimReviewState, 'approved' | 'rejected'>;
+    detail: string;
+  },
+): KnowledgeClaim {
+  if (input.reviewState !== 'approved' && input.reviewState !== 'rejected') {
+    throw new Error('A claim review must approve or reject the claim');
+  }
+  const detail = compactText(input.detail, 'review detail');
+  return store.transaction(() => {
+    const claim = store.getClaim(input.claimId);
+    if (!claim) throw new Error('Claim was not found');
+    if (input.reviewState === 'approved' && claim.status === 'superseded') {
+      throw new Error('A superseded claim cannot be approved');
+    }
+    const now = new Date().toISOString();
+    const nextStatus: KnowledgeClaimStatus = input.reviewState === 'rejected'
+      ? 'unknown'
+      : claim.status === 'unknown' && claim.reviewState === 'rejected'
+        ? 'active'
+        : claim.status;
+    const updated: KnowledgeClaim = {
+      ...claim,
+      status: nextStatus,
+      reviewState: input.reviewState,
+      updatedAt: now,
+    };
+    store.updateClaim(updated);
+    store.recordEvent({
+      projectId: claim.projectId,
+      claimId: claim.id,
+      kind: 'reviewed',
+      fromStatus: claim.status,
+      toStatus: updated.status,
+      detail: 'Review: ' + claim.reviewState + ' -> ' + input.reviewState + '. ' + detail,
+      createdAt: now,
+    });
+    reconcileConflicts(store, claim.projectId, claim.conflictKey, now);
+    return store.getClaim(claim.id) ?? updated;
+  });
+}
+
 export function supersedeClaim(
   store: ClaimStore,
   input: {
@@ -353,7 +403,7 @@ export function deriveLowRiskClaimsFromObservation(
     scope: 'project',
     confidence,
     observedAt: observation.updatedAt ?? observation.createdAt,
-    reviewState: 'approved',
+    reviewState: isGit ? 'approved' : 'needs-review',
     origin: isGit ? 'git' : 'derived',
     evidence,
   });

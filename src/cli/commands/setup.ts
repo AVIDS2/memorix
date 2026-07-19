@@ -1062,7 +1062,7 @@ function tryInstallOmpPackage(packagePath: string): { ok: boolean; message: stri
   };
 }
 
-async function installAgentSetup(agent: AgentName, plan: SetupPlan, global: boolean): Promise<void> {
+export async function installAgentSetup(agent: AgentName, plan: SetupPlan, global: boolean): Promise<void> {
   const { installAgentGuidance, installHooks } = await import('../../hooks/installers/index.js');
   const targetRoot = global ? homedir() : process.cwd();
   const hasPluginPackage = plan.actions.includes('plugin-package') && PLUGIN_PACKAGE_AGENTS.has(agent);
@@ -1200,13 +1200,19 @@ async function installAgentSetup(agent: AgentName, plan: SetupPlan, global: bool
   } else if (hasOmpPackage) {
     p.log.info(`${agent}: extension command, hook events, and skills are bundled in the Oh-my-Pi package`);
   } else if (hasExtensionPackage) {
-    if (plan.actions.includes('hooks') || plan.actions.includes('project-guidance')) {
+    if (plan.actions.includes('hooks')) {
       const result = await installHooks(agent, targetRoot, global);
       p.log.success(`${agent}: integration files -> ${result.configPath}`);
+    } else if (plan.actions.includes('project-guidance')) {
+      const rulesPath = await installAgentGuidance(agent, targetRoot, global);
+      p.log.success(`${agent}: guidance -> ${rulesPath}`);
     }
-  } else if (agent === 'opencode' || plan.actions.includes('hooks') || plan.actions.includes('project-guidance')) {
+  } else if (plan.actions.includes('hooks')) {
     const result = await installHooks(agent, targetRoot, global);
     p.log.success(`${agent}: integration files -> ${result.configPath}`);
+  } else if (plan.actions.includes('project-guidance')) {
+    const rulesPath = await installAgentGuidance(agent, targetRoot, global);
+    p.log.success(`${agent}: guidance -> ${rulesPath}`);
   }
 
   if (agent === 'pi') {

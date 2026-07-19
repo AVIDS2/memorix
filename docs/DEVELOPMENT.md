@@ -271,6 +271,10 @@ to make sure provenance diagnostics match runtime behavior.
 
 ## 9. Release Workflow
 
+The repository's canonical workflow is [Memorix release](knowledge/workflows/memorix-release.md).
+It is the versioned source for agents and maintainers; its checks supplement,
+rather than replace, the explicit maintainer approval required to publish.
+
 Recommended release flow:
 
 1. update docs and version metadata

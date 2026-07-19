@@ -120,6 +120,8 @@ The built-in Lite provider indexes common code files with lightweight file, symb
 ```bash
 memorix knowledge init --mode local
 memorix knowledge status
+memorix knowledge claims
+memorix knowledge review --id <claim-id> --review approved --detail "checked current source evidence"
 memorix knowledge compile
 memorix knowledge lint
 memorix knowledge apply --proposal <id>
@@ -128,7 +130,7 @@ memorix knowledge workflow select --task "prepare a release"
 memorix knowledge workflow preview --id <workflow-id> --agent codex
 ```
 
-The advanced MCP action tool is `memorix_knowledge`. It is registered only in the `team` and `full` tool profiles so normal agents keep the compact micro/lite tool surface. Its actions are `workspace_init`, `status`, `compile`, `lint`, `proposal_apply`, `workflow_import`, `workflow_list`, `workflow_select`, `workflow_preview`, `workflow_apply`, and `workflow_run`. Use it only when an agent is explicitly managing the reviewable Knowledge Workspace; ordinary coding work should stay on `memorix_project_context`.
+The advanced MCP action tool is `memorix_knowledge`. It is registered only in the `team` and `full` tool profiles so normal agents keep the compact micro/lite tool surface. Its actions are `workspace_init`, `status`, `claim_list`, `claim_review`, `compile`, `lint`, `proposal_apply`, `workflow_import`, `workflow_list`, `workflow_select`, `workflow_preview`, `workflow_apply`, and `workflow_run`. Explicit agent observations become `needs-review` claim candidates: check their source evidence, then use `claim_review` with a reason to approve or reject them. Only approved claims can be compiled into publishable Knowledge Workspace pages. Ordinary coding work should stay on `memorix_project_context`.
 
 ### Cross-Agent Handoff Receipt
 

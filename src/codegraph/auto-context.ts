@@ -4,7 +4,7 @@ import { getResolvedConfig } from '../config/resolved-config.js';
 import { buildTaskWorkset, type TaskWorkset, type WorksetCaution } from '../knowledge/workset.js';
 import type { ProjectInfo } from '../types.js';
 import { backfillMissingObservationCodeRefs, type CodeRefBackfillResult } from './binder.js';
-import { collectCurrentProjectFacts, type CurrentProjectFacts } from './current-facts.js';
+import { collectCurrentProjectFacts, formatGitFact, type CurrentProjectFacts } from './current-facts.js';
 import { refreshProjectLite } from './lite-provider.js';
 import {
   getExternalCodeGraphContext,
@@ -430,15 +430,7 @@ function formatCurrentFactsLines(facts: CurrentProjectFacts): string[] {
     lines.push(`- Latest changelog: ${facts.latestChangelog.version}${facts.latestChangelog.date ? ` (${facts.latestChangelog.date})` : ''}`);
   }
 
-  const gitParts: string[] = [];
-  if (facts.git.detached) {
-    gitParts.push('detached HEAD');
-  } else if (facts.git.branch) {
-    gitParts.push(`branch ${facts.git.branch}`);
-  }
-  if (facts.git.commit) gitParts.push(`commit ${facts.git.commit}`);
-  gitParts.push(facts.git.dirty ? 'dirty worktree' : 'clean worktree');
-  lines.push(`- Git: ${gitParts.join(', ')}`);
+  lines.push('- ' + formatGitFact(facts.git));
   if (facts.git.latestCommit) lines.push(`- Latest commit: ${facts.git.latestCommit}`);
   lines.push('- Current facts above outrank progress/dev-log files when they conflict.');
 
@@ -464,11 +456,7 @@ function worksetFactLines(facts: CurrentProjectFacts): string[] {
     lines.push('Latest changelog: ' + facts.latestChangelog.version
       + (facts.latestChangelog.date ? ' (' + facts.latestChangelog.date + ')' : ''));
   }
-  const gitParts: string[] = [];
-  if (facts.git.branch) gitParts.push('branch ' + facts.git.branch);
-  if (facts.git.commit) gitParts.push('commit ' + facts.git.commit);
-  gitParts.push(facts.git.dirty ? 'dirty worktree' : 'clean worktree');
-  lines.push('Git: ' + gitParts.join(', '));
+  lines.push(formatGitFact(facts.git));
   for (const note of facts.staleNotes.slice(0, 1)) {
     lines.push(
       'Historical note: ' + note.path

@@ -64,7 +64,7 @@ Memorix is more than a memory store. It also installs agent integrations, keeps 
 | Code State and Code Memory | Versioned local code snapshots, file/symbol links, and freshness checks. The built-in Lite index is always honest about its limits; an already-indexed local CodeGraph can add a bounded semantic outline | `memorix codegraph`, automatic context refresh |
 | Git Memory | Commit-derived engineering facts that answer what changed, where, and why it matters | `memorix ingest commit`, git hook |
 | Reasoning Memory | Design rationale, alternatives, trade-offs, and risks that should survive beyond one chat | `memorix reasoning`, memory formation |
-| Knowledge Workspace | Reviewable Markdown pages and project playbooks compiled from source-backed claims; proposals never overwrite reviewed pages silently | `memorix knowledge`, `memorix knowledge workflow` |
+| Knowledge Workspace | Review-gated source-backed claims, Markdown pages, and canonical project workflows; proposals never overwrite reviewed pages silently | `memorix knowledge`, `memorix knowledge workflow` |
 | Agent setup | One setup path for MCP, rules, hooks, skills, plugins, bundles, or extensions depending on the agent | `memorix setup --agent <agent>` |
 | Agent doctor | Checks whether agent MCP config and guidance are current, then repairs Memorix-owned entries when needed | `memorix doctor agents`, `memorix repair agents` |
 | Hooks and skills | Optional capture from supported agents, plus reusable project skills promoted from durable knowledge | `memorix hooks`, `memorix skills` |
@@ -258,7 +258,7 @@ What it installs depends on the target agent, but the goal is the same: make Mem
 - Hermes Agent: installs into Hermes home (`%LOCALAPPDATA%\hermes` on native Windows, `~/.hermes` elsewhere, or `HERMES_HOME`), enables the plugin in `config.yaml`, registers plugin hooks, slash/CLI commands, skills, and writes MCP config.
 - Oh-my-Pi: installs an `omp.extensions` package with extension hook events, a `memorix` command, official skills, and writes MCP config.
 
-Need a quieter install? Add `--noHooks` for targets where setup can control hook capture separately from the host's official package entry.
+Need a quieter install? Add `--noHooks` for targets where setup can control hook capture separately from the host's official package entry. It keeps MCP and guidance, but skips Memorix hook capture.
 
 If you intentionally want repo-local guidance or hooks, run the same command inside that repository without `--global`.
 
@@ -274,6 +274,8 @@ If your agent only needs a manual MCP entry, use stdio:
   }
 }
 ```
+
+For a manually managed Claude Code entry, add `"alwaysLoad": true` inside the `memorix` server object. This lets Claude Code expose Memorix tools during print-mode startup; `memorix doctor agents --agent claude` can detect and repair a missing setting.
 
 HTTP is not required for normal setup. Use it only when you intentionally want a shared background service, dashboard, Docker, or multiple clients using the same endpoint:
 

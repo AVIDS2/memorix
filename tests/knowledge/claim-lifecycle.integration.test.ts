@@ -13,6 +13,7 @@ vi.mock('../../src/embedding/provider.js', () => ({
 import { refreshProjectLite } from '../../src/codegraph/lite-provider.js';
 import { CodeGraphStore } from '../../src/codegraph/store.js';
 import { ClaimStore } from '../../src/knowledge/claim-store.js';
+import { reviewClaim } from '../../src/knowledge/claims.js';
 import { initObservations, storeObservation } from '../../src/memory/observations.js';
 import { MaintenanceJobStore, MaintenanceJobWorker } from '../../src/runtime/maintenance-jobs.js';
 import { createProjectMaintenanceHandler } from '../../src/runtime/project-maintenance.js';
@@ -46,7 +47,7 @@ afterEach(async () => {
 });
 
 describe('claim lifecycle integration', () => {
-  it('creates a claim from an explicit memory in a recoverable background job, records its current snapshot, and downgrades it after a bound symbol changes', async () => {
+  it('keeps an explicit-memory claim reviewable until evidence is checked, then downgrades it after a bound symbol changes', async () => {
     const code = new CodeGraphStore();
     await code.init(dataDir);
     const first = await refreshProjectLite(code, {
@@ -90,7 +91,7 @@ describe('claim lifecycle integration', () => {
       subject: 'auth',
       predicate: 'decision',
       status: 'active',
-      reviewState: 'approved',
+      reviewState: 'needs-review',
     });
     expect(evidence).toEqual(expect.arrayContaining([
       expect.objectContaining({
@@ -102,6 +103,11 @@ describe('claim lifecycle integration', () => {
         snapshotId: first.snapshot.id,
       }),
     ]));
+    expect(reviewClaim(claims, {
+      claimId: claim.id,
+      reviewState: 'approved',
+      detail: 'Checked the linked current code snapshot before publication.',
+    })).toMatchObject({ reviewState: 'approved', status: 'active' });
 
     await fs.writeFile(
       path.join(projectRoot, 'src', 'auth.ts'),

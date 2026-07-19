@@ -141,21 +141,122 @@ describe('Tool profile registration', () => {
   }, 30000);
 
   it('keeps reviewable Knowledge Workspace operations behind one advanced MCP tool', async () => {
-    const dir = await createGitProjectDir('memorix-profile-knowledge-');
-    const { server } = await createMemorixServer(
-      dir,
-      undefined,
-      undefined,
-      { toolProfile: 'team' } as any,
-    );
-    const knowledge = getHandler(server as any, 'memorix_knowledge');
+    const isolatedDataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'memorix-profile-knowledge-data-'));
+    const previousDataDir = process.env.MEMORIX_DATA_DIR;
+    process.env.MEMORIX_DATA_DIR = isolatedDataDir;
+    resetTomlConfigCache();
+    resetResolvedConfigCache();
+    resetObservationStore();
+    await resetDb();
+    try {
+      const dir = await createGitProjectDir('memorix-profile-knowledge-');
+      const { server, projectId } = await createMemorixServer(
+        dir,
+        undefined,
+        undefined,
+        { toolProfile: 'team' } as any,
+      );
+      const knowledge = getHandler(server as any, 'memorix_knowledge');
 
-    const initialized = JSON.parse(getText(await knowledge({ action: 'workspace_init', mode: 'local' })));
-    expect(initialized.workspace).toMatchObject({ mode: 'local', status: 'ready' });
-    expect(initialized.next).toContain('reviewable proposals');
+      const initialized = JSON.parse(getText(await knowledge({ action: 'workspace_init', mode: 'local' })));
+      expect(initialized.workspace).toMatchObject({ mode: 'local', status: 'ready' });
+      expect(initialized.next).toContain('reviewable proposals');
 
-    const status = JSON.parse(getText(await knowledge({ action: 'status', mode: 'local' })));
-    expect(status.workspace).toMatchObject({ mode: 'local', publishedPages: 0, pendingProposals: [] });
+      const status = JSON.parse(getText(await knowledge({ action: 'status', mode: 'local' })));
+      expect(status.workspace).toMatchObject({ mode: 'local', publishedPages: 0, pendingProposals: [] });
+
+      const projectDataDir = await getProjectDataDir(projectId);
+      const { ClaimStore } = await import('../../src/knowledge/claim-store.js');
+      const { writeClaim } = await import('../../src/knowledge/claims.js');
+      const claims = new ClaimStore();
+      await claims.init(projectDataDir);
+      const candidate = writeClaim(claims, {
+        projectId,
+        subject: 'auth refresh',
+        predicate: 'decision',
+        objectValue: 'replace the cached authorization header',
+        scope: 'project',
+        reviewState: 'needs-review',
+        origin: 'derived',
+        evidence: [{
+          evidenceKind: 'observation',
+          evidenceId: 'observation:42',
+          relation: 'supports',
+        }],
+      }).claim;
+
+      const listed = JSON.parse(getText(await knowledge({ action: 'claim_list', mode: 'local' })));
+      expect(listed.claims).toEqual(expect.arrayContaining([
+        expect.objectContaining({ id: candidate.id, reviewState: 'needs-review', evidenceCount: 1 }),
+      ]));
+
+      const reviewed = JSON.parse(getText(await knowledge({
+        action: 'claim_review',
+        mode: 'local',
+        claimId: candidate.id,
+        claimReviewState: 'approved',
+        reviewDetail: 'Checked the linked observation against the current implementation.',
+      })));
+      expect(reviewed.claim).toMatchObject({ id: candidate.id, reviewState: 'approved' });
+    } finally {
+      closeAllDatabases();
+      resetObservationStore();
+      await resetDb();
+      if (previousDataDir === undefined) {
+        delete process.env.MEMORIX_DATA_DIR;
+      } else {
+        process.env.MEMORIX_DATA_DIR = previousDataDir;
+      }
+      resetTomlConfigCache();
+      resetResolvedConfigCache();
+      await fs.rm(isolatedDataDir, { recursive: true, force: true });
+    }
+  }, 30000);
+
+  it('keeps raw graph compatibility output limited to entities and relations while persisting explicit links', async () => {
+    const isolatedDataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'memorix-profile-graph-data-'));
+    const previousDataDir = process.env.MEMORIX_DATA_DIR;
+    process.env.MEMORIX_DATA_DIR = isolatedDataDir;
+    resetTomlConfigCache();
+    resetResolvedConfigCache();
+    resetObservationStore();
+    await resetDb();
+    try {
+      const dir = await createGitProjectDir('memorix-profile-graph-');
+      const { server } = await createMemorixServer(
+        dir,
+        undefined,
+        undefined,
+        { toolProfile: 'full' } as any,
+      );
+      const store = getHandler(server as any, 'memorix_store');
+      const readGraph = getHandler(server as any, 'read_graph');
+      await store({
+        entityName: 'release-process',
+        type: 'decision',
+        title: 'Refresh retry replaces the cached authorization header',
+        narrative: 'Refresh retry must replace the cached authorization header.',
+        relatedEntities: ['token-refresh'],
+      });
+
+      const graph = JSON.parse(getText(await readGraph({})));
+      expect(Object.keys(graph).sort()).toEqual(['entities', 'relations']);
+      expect(graph.relations).toEqual(expect.arrayContaining([
+        { from: 'release-process', to: 'token-refresh', relationType: 'related_entity' },
+      ]));
+    } finally {
+      closeAllDatabases();
+      resetObservationStore();
+      await resetDb();
+      if (previousDataDir === undefined) {
+        delete process.env.MEMORIX_DATA_DIR;
+      } else {
+        process.env.MEMORIX_DATA_DIR = previousDataDir;
+      }
+      resetTomlConfigCache();
+      resetResolvedConfigCache();
+      await fs.rm(isolatedDataDir, { recursive: true, force: true });
+    }
   }, 30000);
 
   it('should keep session_start lightweight by default and require explicit joinTeam for coordination identity', async () => {

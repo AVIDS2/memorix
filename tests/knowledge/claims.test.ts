@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { deriveLowRiskClaimsFromObservation, requalifyClaimsForCodeState, selectClaimsForTask, supersedeClaim, writeClaim } from '../../src/knowledge/claims.js';
+import { deriveLowRiskClaimsFromObservation, requalifyClaimsForCodeState, reviewClaim, selectClaimsForTask, supersedeClaim, writeClaim } from '../../src/knowledge/claims.js';
 import { ClaimStore } from '../../src/knowledge/claim-store.js';
 import { CodeGraphStore } from '../../src/codegraph/store.js';
 import type { Observation } from '../../src/types.js';
@@ -240,6 +240,7 @@ describe('knowledge claim ledger', () => {
 
     const derived = deriveLowRiskClaimsFromObservation(store, observation(), code);
     expect(derived).toHaveLength(1);
+    expect(derived[0]).toMatchObject({ reviewState: 'needs-review', origin: 'derived' });
     expect(store.listEvidence(derived[0].id)).toEqual(expect.arrayContaining([
       expect.objectContaining({ evidenceKind: 'observation', evidenceId: 'observation:42' }),
       expect.objectContaining({ evidenceKind: 'code', evidenceId: 'code-ref:ref:auth' }),
@@ -336,6 +337,40 @@ describe('knowledge claim ledger', () => {
       confidence: expect.any(Number),
     });
     expect(store.getClaim(codeBound[0].id)!.confidence).toBeLessThanOrEqual(0.55);
+  });
+
+  it('keeps agent-derived claims out of the approved ledger until a deliberate evidence review', async () => {
+    const store = await newClaimStore();
+
+    const [candidate] = deriveLowRiskClaimsFromObservation(store, observation());
+    expect(candidate).toMatchObject({ status: 'active', reviewState: 'needs-review', origin: 'derived' });
+    expect(selectClaimsForTask(store, {
+      projectId: 'org/repo',
+      task: 'Update the authentication decision.',
+    })).toMatchObject({
+      claims: [expect.objectContaining({ id: candidate.id, reviewState: 'needs-review' })],
+      cautions: expect.arrayContaining(['claim-needs-review']),
+    });
+
+    const reviewed = reviewClaim(store, {
+      claimId: candidate.id,
+      reviewState: 'approved',
+      detail: 'Checked the linked observation and current implementation.',
+    });
+    expect(reviewed).toMatchObject({ id: candidate.id, status: 'active', reviewState: 'approved' });
+    expect(store.listEvents(candidate.id)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'reviewed', detail: expect.stringContaining('Checked') }),
+    ]));
+
+    const [gitDerived] = deriveLowRiskClaimsFromObservation(store, observation({
+      id: 43,
+      entityName: 'release',
+      title: 'Release commit updates the package version',
+      source: 'git',
+      sourceDetail: 'git-ingest',
+      commitHash: 'abc1234',
+    }));
+    expect(gitDerived).toMatchObject({ reviewState: 'approved', origin: 'git' });
   });
 
   it('returns a compact, task-lensed selection and carries matching conflicts as a caution instead of hiding one side', async () => {

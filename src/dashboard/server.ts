@@ -22,6 +22,7 @@ import { loadDotenv } from '../config/dotenv-loader.js';
 import { resetDotenv } from '../config/dotenv-loader.js';
 import { initProjectRoot } from '../config/yaml-loader.js';
 import { clearProjectRoot } from '../config/yaml-loader.js';
+import { scopeKnowledgeGraphToProject } from '../memory/graph-scope.js';
 
 // MIME types for static file serving
 const MIME_TYPES: Record<string, string> = {
@@ -92,22 +93,15 @@ export function prepareDashboardConfig(projectRoot: string | null): void {
 
 /**
  * Compute project-scoped graph counts from observations.
- * Only entities referenced by this project's active observations are counted.
+ * Active observation entities and their explicit cross-references are counted.
  */
 function computeProjectGraphCounts(
     allEntities: Array<{ name: string }>,
     allRelations: Array<{ from: string; to: string }>,
-    projectObs: Array<{ entityName?: string; status?: string }>,
+    projectObs: Array<{ entityName?: string; relatedEntities?: string[]; status?: string }>,
 ): { entities: number; relations: number; entityNames: Set<string> } {
-    const entityNames = new Set(
-        projectObs
-            .filter(o => (o.status ?? 'active') === 'active' && o.entityName)
-            .map(o => o.entityName!),
-    );
-    const entities = allEntities.filter(e => entityNames.has(e.name));
-    const entityNameSet = new Set(entities.map(e => e.name));
-    const relations = allRelations.filter(r => entityNameSet.has(r.from) && entityNameSet.has(r.to));
-    return { entities: entities.length, relations: relations.length, entityNames };
+    const scoped = scopeKnowledgeGraphToProject({ entities: allEntities, relations: allRelations }, projectObs);
+    return { entities: scoped.entities.length, relations: scoped.relations.length, entityNames: scoped.entityNames };
 }
 
 /**
@@ -210,17 +204,9 @@ async function handleApi(
                 await initGraphStore(effectiveDataDir);
                 const gStore = getGraphStore();
                 const graph = { entities: gStore.loadEntities(), relations: gStore.loadRelations() };
-                // Project-scope the graph: only include entities that have observations in this project
-                const graphObs = await getObservationStore().loadByProject(effectiveProjectId, { status: 'active' }) as Array<{ entityName?: string }>;
-                const projectEntityNames = new Set(
-                    graphObs
-                        .filter(o => o.entityName)
-                        .map(o => o.entityName!),
-                );
-                const entities = graph.entities.filter((e: any) => projectEntityNames.has(e.name));
-                const entityNameSet = new Set(entities.map((e: any) => e.name));
-                const relations = graph.relations.filter((r: any) => entityNameSet.has(r.from) && entityNameSet.has(r.to));
-                sendJson(res, { entities, relations });
+                const graphObs = await getObservationStore().loadByProject(effectiveProjectId, { status: 'active' });
+                const scoped = scopeKnowledgeGraphToProject(graph, graphObs);
+                sendJson(res, { entities: scoped.entities, relations: scoped.relations });
                 break;
             }
 
@@ -240,11 +226,11 @@ async function handleApi(
             case '/stats': {
                 await initGraphStore(effectiveDataDir);
                 const graph = { entities: getGraphStore().loadEntities(), relations: getGraphStore().loadRelations() };
-                const observations = await getObservationStore().loadByProject(effectiveProjectId, { status: 'active' }) as Array<{ type?: string; id?: number; createdAt?: string; title?: string; entityName?: string; status?: string }>;
+                const observations = await getObservationStore().loadByProject(effectiveProjectId, { status: 'active' }) as Array<{ type?: string; id?: number; createdAt?: string; title?: string; entityName?: string; relatedEntities?: string[]; status?: string }>;
                 const nextId = await getObservationStore().loadIdCounter();
 
                 // Project-scoped graph counts (must match /api/graph and /api/export)
-                const projectGraphCounts = computeProjectGraphCounts(graph.entities, graph.relations, observations as Array<{ entityName?: string; status?: string }>);
+                const projectGraphCounts = computeProjectGraphCounts(graph.entities, graph.relations, observations);
 
                 // Type counts (exclude probe -- operational heartbeats, not durable knowledge)
                 const typeCounts: Record<string, number> = {};
@@ -461,24 +447,15 @@ async function handleApi(
                 const allObs = await getObservationStore().loadByProject(effectiveProjectId, { status: 'active' });
                 const skills = await getMiniSkillStore().loadByProject(effectiveProjectId);
 
-                // Project-scope graph store (same logic as /api/graph)
                 const fullGraph = { entities: getGraphStore().loadEntities(), relations: getGraphStore().loadRelations() };
-                const graphObs = await getObservationStore().loadByProject(effectiveProjectId, { status: 'active' }) as Array<{ entityName?: string }>;
-                const projectEntityNames = new Set(
-                    graphObs
-                        .filter(o => o.entityName)
-                        .map(o => o.entityName!),
-                );
-                const scopedEntities = fullGraph.entities.filter((e: any) => projectEntityNames.has(e.name));
-                const scopedEntityNameSet = new Set(scopedEntities.map((e: any) => e.name));
-                const scopedRelations = fullGraph.relations.filter((r: any) => scopedEntityNameSet.has(r.from) && scopedEntityNameSet.has(r.to));
+                const scoped = scopeKnowledgeGraphToProject(fullGraph, allObs);
 
                 const graph = generateKnowledgeGraph({
                     projectId: effectiveProjectId,
                     observations: allObs,
                     miniSkills: skills,
-                    graphEntities: scopedEntities,
-                    graphRelations: scopedRelations,
+                    graphEntities: scoped.entities,
+                    graphRelations: scoped.relations,
                 });
 
                 sendJson(res, graph);
@@ -747,19 +724,11 @@ async function handleApi(
                     const fullGraph = { entities: getGraphStore().loadEntities(), relations: getGraphStore().loadRelations() };
                     const observations = await getObservationStore().loadByProject(effectiveProjectId, { status: 'active' });
                     const nextId = await getObservationStore().loadIdCounter();
-                    // Project-scope the graph: only entities referenced by this project's observations
-                    const exportEntityNames = new Set(
-                        observations
-                            .filter(o => (o.status ?? 'active') === 'active' && o.entityName)
-                            .map(o => o.entityName!),
-                    );
-                    const exportEntities = fullGraph.entities.filter((e: any) => exportEntityNames.has(e.name));
-                    const exportEntitySet = new Set(exportEntities.map((e: any) => e.name));
-                    const exportRelations = fullGraph.relations.filter((r: any) => exportEntitySet.has(r.from) && exportEntitySet.has(r.to));
+                    const scoped = scopeKnowledgeGraphToProject(fullGraph, observations);
                     const exportData = {
                         project: { id: effectiveProjectId, name: effectiveProjectName },
                         exportedAt: new Date().toISOString(),
-                        graph: { entities: exportEntities, relations: exportRelations },
+                        graph: { entities: scoped.entities, relations: scoped.relations },
                         observations,
                         nextId,
                     };

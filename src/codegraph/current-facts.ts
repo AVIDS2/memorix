@@ -10,6 +10,7 @@ export interface CurrentProjectFacts {
     date?: string;
   };
   git: {
+    available: boolean;
     branch?: string;
     commit?: string;
     latestCommit?: string;
@@ -72,17 +73,34 @@ function runGit(rootPath: string, args: string[]): string | undefined {
 }
 
 function readGitFacts(rootPath: string): CurrentProjectFacts['git'] {
-  const branch = runGit(rootPath, ['branch', '--show-current']);
+  const available = runGit(rootPath, ['rev-parse', '--is-inside-work-tree']) === 'true';
+  if (!available) {
+    return { available: false, dirty: false, detached: false };
+  }
+
+  const branch = runGit(rootPath, ['symbolic-ref', '--quiet', '--short', 'HEAD'])
+    ?? runGit(rootPath, ['branch', '--show-current']);
   const commit = runGit(rootPath, ['rev-parse', '--short', 'HEAD']);
   const latestCommit = runGit(rootPath, ['log', '-1', '--pretty=%s']);
   const dirty = Boolean(runGit(rootPath, ['status', '--porcelain']));
   return {
+    available: true,
     ...(branch ? { branch } : {}),
     ...(commit ? { commit } : {}),
     ...(latestCommit ? { latestCommit } : {}),
     dirty,
     detached: !branch,
   };
+}
+
+export function formatGitFact(git: CurrentProjectFacts['git']): string {
+  if (!git.available) return 'Git: unavailable';
+  const parts: string[] = [];
+  if (git.detached) parts.push('detached HEAD');
+  else if (git.branch) parts.push('branch ' + git.branch);
+  if (git.commit) parts.push('commit ' + git.commit);
+  parts.push(git.dirty ? 'dirty worktree' : 'clean worktree');
+  return 'Git: ' + parts.join(', ');
 }
 
 function parseProgressNote(content: string): Pick<ProjectStaleNote, 'lastUpdated' | 'branchHint'> {

@@ -3,7 +3,7 @@ import { CodeGraphStore } from '../../codegraph/store.js';
 import { refreshProjectLite } from '../../codegraph/lite-provider.js';
 import { assembleContextPackForTask, attachTaskWorkset, buildContextPackPrompt } from '../../codegraph/context-pack.js';
 import { backfillMissingObservationCodeRefs } from '../../codegraph/binder.js';
-import { collectCurrentProjectFacts } from '../../codegraph/current-facts.js';
+import { collectCurrentProjectFacts, formatGitFact } from '../../codegraph/current-facts.js';
 import { resolveTaskLens } from '../../codegraph/task-lens.js';
 import { getExternalCodeGraphContext, inspectExternalCodeGraph } from '../../codegraph/external-provider.js';
 import type { CodeGraphProviderQuality } from '../../codegraph/types.js';
@@ -71,8 +71,7 @@ function compactFacts(project: { rootPath: string }): { facts: string[]; dirty: 
     facts.push('Latest changelog: ' + current.latestChangelog.version
       + (current.latestChangelog.date ? ' (' + current.latestChangelog.date + ')' : ''));
   }
-  facts.push('Git: ' + (current.git.branch ? 'branch ' + current.git.branch + ', ' : '')
-    + (current.git.dirty ? 'dirty worktree' : 'clean worktree'));
+  facts.push(formatGitFact(current.git));
   return { facts, dirty: current.git.dirty };
 }
 

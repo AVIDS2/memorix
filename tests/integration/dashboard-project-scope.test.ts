@@ -85,7 +85,7 @@ describe('Standalone Dashboard Project Scope', () => {
 
     // Seed observations for two projects
     const observations = [
-      { id: 1, entityName: 'auth-module', type: 'decision', title: 'Use JWT', narrative: 'Chose JWT for auth', facts: [], projectId: PROJECT_A, status: 'active', createdAt: new Date().toISOString() },
+      { id: 1, entityName: 'auth-module', type: 'decision', title: 'Use JWT', narrative: 'Chose JWT for auth', facts: [], relatedEntities: ['token-refresh'], projectId: PROJECT_A, status: 'active', createdAt: new Date().toISOString() },
       { id: 2, entityName: 'auth-module', type: 'gotcha', title: 'Token expiry', narrative: 'Tokens expire silently', facts: [], projectId: PROJECT_A, status: 'active', createdAt: new Date().toISOString() },
       { id: 3, entityName: 'billing-service', type: 'decision', title: 'Use Stripe', narrative: 'Chose Stripe for billing', facts: [], projectId: PROJECT_B, status: 'active', createdAt: new Date().toISOString() },
       { id: 4, entityName: 'billing-service', type: 'problem-solution', title: 'Webhook retry', narrative: 'Fixed webhook retries', facts: [], projectId: PROJECT_B, status: 'active', createdAt: new Date().toISOString() },
@@ -98,7 +98,9 @@ describe('Standalone Dashboard Project Scope', () => {
     // Seed graph with entities from both projects
     const graphLines = [
       JSON.stringify({ type: 'entity', name: 'auth-module', entityType: 'module', observations: ['[#1] Use JWT', '[#2] Token expiry'] }),
+      JSON.stringify({ type: 'entity', name: 'token-refresh', entityType: 'related', observations: [] }),
       JSON.stringify({ type: 'entity', name: 'billing-service', entityType: 'service', observations: ['[#3] Use Stripe', '[#4] Webhook retry'] }),
+      JSON.stringify({ type: 'relation', from: 'auth-module', to: 'token-refresh', relationType: 'related_entity' }),
       JSON.stringify({ type: 'relation', from: 'auth-module', to: 'billing-service', relationType: 'depends-on' }),
     ];
     await fs.writeFile(path.join(dataDir, 'graph.jsonl'), graphLines.join('\n') + '\n');
@@ -153,6 +155,7 @@ describe('Standalone Dashboard Project Scope', () => {
     const entityNames = body.entities.map((e: any) => e.name);
     // Project A has auth-module, NOT billing-service
     expect(entityNames).toContain('auth-module');
+    expect(entityNames).toContain('token-refresh');
     expect(entityNames).not.toContain('billing-service');
   });
 
@@ -170,9 +173,11 @@ describe('Standalone Dashboard Project Scope', () => {
     const { status, body } = await fetchJson('/api/graph');
     expect(status).toBe(200);
 
-    // The cross-project relation (auth-module → billing-service) should NOT appear
-    // when viewing project A (only auth-module is in scope)
-    expect(body.relations).toHaveLength(0);
+    // The cross-project relation (auth-module → billing-service) should NOT appear,
+    // but the explicit project relation remains visible even without its own observation.
+    expect(body.relations).toEqual([
+      { from: 'auth-module', to: 'token-refresh', relationType: 'related_entity' },
+    ]);
   });
 
   it('GET /api/observations excludes resolved observations', async () => {
@@ -372,10 +377,13 @@ describe('Standalone Dashboard Project Scope', () => {
     // Graph should be project-scoped
     const entityNames = body.graph.entities.map((e: any) => e.name);
     expect(entityNames).toContain('auth-module');
+    expect(entityNames).toContain('token-refresh');
     expect(entityNames).not.toContain('billing-service');
 
-    // Cross-project relation should be excluded
-    expect(body.graph.relations).toHaveLength(0);
+    // Cross-project relation is excluded while the explicit project link remains.
+    expect(body.graph.relations).toEqual([
+      { from: 'auth-module', to: 'token-refresh', relationType: 'related_entity' },
+    ]);
 
     // Metadata
     expect(body.project.id).toBe(PROJECT_A);

@@ -9,7 +9,7 @@
  * is skipped and the task completes as before (backward compatible).
  */
 
-import { spawn, execSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -63,6 +63,15 @@ export function runGate(
   return new Promise<GateResult>((resolve) => {
     const chunks: Buffer[] = [];
     let totalBytes = 0;
+    let settled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    const finish = (result: GateResult) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      resolve(result);
+    };
 
     const proc = spawn(command, {
       cwd,
@@ -86,9 +95,14 @@ export function runGate(
     let killed = false;
     const killTree = () => {
       try {
-        if (process.platform === 'win32') {
-          // Windows: kill entire process tree via taskkill
-          execSync(`taskkill /F /T /PID ${proc.pid}`, { stdio: 'ignore' });
+        if (process.platform === 'win32' && proc.pid) {
+          // `shell: true` gives Windows a cmd.exe parent. Kill its whole tree
+          // without making the timeout path wait for a stubborn descendant.
+          const killer = spawn('taskkill.exe', ['/F', '/T', '/PID', String(proc.pid)], {
+            stdio: 'ignore',
+            windowsHide: true,
+          });
+          killer.unref();
         } else {
           // Unix: kill process group
           process.kill(-proc.pid!, 'SIGKILL');
@@ -97,20 +111,30 @@ export function runGate(
         // Fallback: kill the process directly
         try { proc.kill('SIGKILL'); } catch { /* already dead */ }
       }
+      try { proc.stdout?.destroy(); } catch { /* already closed */ }
+      try { proc.stderr?.destroy(); } catch { /* already closed */ }
+      proc.unref();
     };
 
-    const timer = setTimeout(() => {
+    timer = setTimeout(() => {
       killed = true;
       killTree();
+      const output = Buffer.concat(chunks).toString('utf-8');
+      finish({
+        gate,
+        passed: false,
+        output: output + `\n[TIMEOUT] Gate "${gate}" killed after ${timeoutMs}ms`,
+        durationMs: Date.now() - start,
+        command,
+      });
     }, timeoutMs);
 
     proc.on('close', (code) => {
-      clearTimeout(timer);
       const output = Buffer.concat(chunks).toString('utf-8');
       const durationMs = Date.now() - start;
 
       if (killed) {
-        resolve({
+        finish({
           gate,
           passed: false,
           output: output + `\n[TIMEOUT] Gate "${gate}" killed after ${timeoutMs}ms`,
@@ -120,7 +144,7 @@ export function runGate(
         return;
       }
 
-      resolve({
+      finish({
         gate,
         passed: code === 0,
         output,
@@ -130,8 +154,7 @@ export function runGate(
     });
 
     proc.on('error', (err) => {
-      clearTimeout(timer);
-      resolve({
+      finish({
         gate,
         passed: false,
         output: `[ERROR] Failed to spawn gate command: ${err.message}`,

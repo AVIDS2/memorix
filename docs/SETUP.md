@@ -276,11 +276,17 @@ Manual stdio shape:
   "mcpServers": {
     "memorix": {
       "command": "memorix",
-      "args": ["serve"]
+      "args": ["serve"],
+      "alwaysLoad": true
     }
   }
 }
 ```
+
+Keep `alwaysLoad: true` for a manually managed Claude Code entry so its small
+Memorix tool set is available during print-mode startup. `memorix doctor agents
+--agent claude` reports a missing eager-load setting, and `memorix repair agents
+--agent claude` restores it without replacing unrelated MCP servers.
 
 ### Cursor
 

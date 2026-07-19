@@ -115,6 +115,7 @@ const KEYWORDS: Record<Exclude<TaskLensId, 'general'>, string[]> = {
   bugfix: [
     'bug',
     'crash',
+    'incident',
     'debug',
     'error',
     'fail',
@@ -125,6 +126,7 @@ const KEYWORDS: Record<Exclude<TaskLensId, 'general'>, string[]> = {
     'repro',
     '报错',
     '崩溃',
+    '故障',
     '失败',
     '修复',
     '问题',
@@ -158,10 +160,42 @@ function tokenize(text: string): string[] {
 }
 
 function containsKeyword(text: string, keyword: string): boolean {
-  if (/^[a-z0-9_-]+$/i.test(keyword)) {
-    return new RegExp(`(^|[^a-z0-9_-])${keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([^a-z0-9_-]|$)`, 'i').test(text);
+  const matcher = /^[a-z0-9_-]+$/i.test(keyword)
+    ? new RegExp(`(^|[^a-z0-9_-])${keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?=[^a-z0-9_-]|$)`, 'gi')
+    : new RegExp(keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+  let match: RegExpExecArray | null;
+  while ((match = matcher.exec(text)) !== null) {
+    const keywordIndex = match.index + (match[1]?.length ?? 0);
+    if (!isNegatedTaskKeyword(text, keywordIndex)) return true;
   }
-  return text.includes(keyword);
+  return false;
+}
+
+/**
+ * Task text often carries safety constraints such as "do not publish". Those
+ * constraints must not route a debugging task into the release workflow.
+ * Keep this deliberately small and local: it only suppresses a keyword inside
+ * the same sentence when the sentence explicitly negates an action.
+ */
+function isNegatedTaskKeyword(text: string, keywordIndex: number): boolean {
+  const boundary = Math.max(
+    text.lastIndexOf('.', keywordIndex - 1),
+    text.lastIndexOf('!', keywordIndex - 1),
+    text.lastIndexOf('?', keywordIndex - 1),
+    text.lastIndexOf(';', keywordIndex - 1),
+    text.lastIndexOf('\n', keywordIndex - 1),
+    text.lastIndexOf('\u3002', keywordIndex - 1),
+    text.lastIndexOf('\uff01', keywordIndex - 1),
+    text.lastIndexOf('\uff1f', keywordIndex - 1),
+    text.lastIndexOf('\uff1b', keywordIndex - 1),
+  );
+  const prefix = text.slice(boundary + 1, keywordIndex).toLowerCase();
+  if (/\b(?:do|does|did|should|must|can|could|will|would|may|might)\s+not\b/.test(prefix)) return true;
+  if (/\b(?:don't|dont|never|without|avoid|skip)\b/.test(prefix)) return true;
+  if (/(?:^|[\s,])no\s+(?:[a-z0-9_-]+\s*){0,4}$/i.test(prefix)) return true;
+  const chineseClauseStart = Math.max(prefix.lastIndexOf(','), prefix.lastIndexOf('\uff0c'), prefix.lastIndexOf('\u3001'));
+  const chineseClause = prefix.slice(chineseClauseStart + 1);
+  return /(?:\u4e0d\u8981|\u4e0d\u5e94|\u4e0d\u53ef|\u4e0d\u80fd|\u4e0d\u4f1a|\u7981\u6b62|\u52ff|\u4e0d)\s*(?:\u7acb\u5373|\u76f4\u63a5|\u518d|\u73b0\u5728|\u64c5\u81ea|\u5148)?\s*$/.test(chineseClause);
 }
 
 export function resolveTaskLens(task?: string): TaskLens {

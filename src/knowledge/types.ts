@@ -59,6 +59,7 @@ export type KnowledgeClaimOrigin = 'explicit' | 'git' | 'derived' | 'model';
 export const CLAIM_EVENT_KINDS = [
   'created',
   'evidence-added',
+  'reviewed',
   'conflicted',
   'superseded',
   'requalified',

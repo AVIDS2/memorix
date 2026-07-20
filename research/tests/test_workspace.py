@@ -74,6 +74,11 @@ stale_evidence_ids = ["value:base"]
 forbidden_actions = []
 hidden_patch = "hidden.patch"
 reference_patch = "reference.patch"
+
+[[oracle.source_check]]
+path = "value.txt"
+required_literals = ["reference"]
+forbidden_literals = ["transfer"]
 """.strip(),
         encoding="utf-8",
     )
@@ -115,7 +120,70 @@ reference_patch = "reference.patch"
         workspace.path,
     )
     assert evaluation.hidden_patch_sha256
+    assert evaluation.passed
+    assert evaluation.source_checks[0].passed
     assert (workspace.path / "hidden.txt").read_text(encoding="utf-8") == "hidden\n"
+
+
+def test_transfer_evaluation_reports_source_check_violation(tmp_path: Path) -> None:
+    case_dir = tmp_path / "case"
+    seed = case_dir / "seed"
+    seed.mkdir(parents=True)
+    (seed / "value.txt").write_text("wrong\n", encoding="utf-8")
+    manifest_path = case_dir / "case.toml"
+    manifest_path.write_text(
+        """
+schema_version = "0.1"
+id = "source-check-violation"
+title = "Source check violation"
+split = "development"
+language = "text"
+tags = ["oracle"]
+
+[repository]
+source_type = "local-fixture"
+path = "seed"
+base_revision = "fixture-base"
+
+[precursor]
+task = "Inspect the source."
+success_commands = ["git status --short"]
+
+[transition]
+kind = "none"
+description = "No transition is required."
+apply_commands = []
+
+[transfer]
+task = "Preserve the source rule."
+success_commands = ["git status --short"]
+
+[oracle]
+required_start_files = ["value.txt"]
+relevant_evidence_ids = []
+stale_evidence_ids = []
+forbidden_actions = []
+[[oracle.source_check]]
+path = "value.txt"
+required_literals = ["expected"]
+""".strip(),
+        encoding="utf-8",
+    )
+    workspace = materialize_case(
+        load_case_manifest(manifest_path),
+        tmp_path / "workspace",
+        stage="transfer",
+    )
+
+    evaluation = run_transfer_evaluation(
+        load_case_manifest(manifest_path),
+        workspace.path,
+    )
+
+    assert not evaluation.passed
+    assert evaluation.source_checks[0].violations == (
+        "required literal is missing: 'expected'",
+    )
 
 
 def test_materializes_a_pinned_git_repository(tmp_path: Path) -> None:

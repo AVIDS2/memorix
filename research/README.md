@@ -52,7 +52,10 @@ Development cases also carry a maintainer-only `oracle.reference_patch`. Run
 `memorixbench grade ... --phase transfer --reference --allow-case-commands` in
 a fresh materialized workspace to verify that the known-good repair passes the
 same hidden tests used for agents. The reference patch is never mounted during
-an agent run.
+an agent run. A case may also declare scoped source checks for refactoring
+boundaries that behavior tests cannot observe directly. Those checks run after
+the agent exits, are included in `grade` output and trial artifacts, and are
+part of task success rather than advisory prose.
 
 ## Reproducibility contract
 

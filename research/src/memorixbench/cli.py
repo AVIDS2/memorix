@@ -79,6 +79,7 @@ def _grade(args: argparse.Namespace) -> int:
             timeout_seconds=args.timeout_seconds,
         )
         hidden_patch_sha256 = None
+        source_checks = ()
     else:
         evaluation = run_transfer_evaluation(
             manifest,
@@ -87,7 +88,8 @@ def _grade(args: argparse.Namespace) -> int:
         )
         results = list(evaluation.commands)
         hidden_patch_sha256 = evaluation.hidden_patch_sha256
-    passed = phase_passed(results)
+        source_checks = evaluation.source_checks
+    passed = phase_passed(results) and all(check.passed for check in source_checks)
     print(json.dumps({
         "case_id": manifest.case_id,
         "phase": args.phase,
@@ -95,6 +97,7 @@ def _grade(args: argparse.Namespace) -> int:
         "hidden_patch_sha256": hidden_patch_sha256,
         "reference_patch_sha256": reference_patch_sha256,
         "commands": [asdict(result) for result in results],
+        "source_checks": [asdict(check) for check in source_checks],
     }, indent=2))
     return 0 if passed else 1
 

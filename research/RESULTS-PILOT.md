@@ -72,3 +72,13 @@ ceiling, passed hidden tests, and had 25.7 seconds of service preparation plus
 0.078 seconds retrieval and 68.6 seconds of agent time. This is a functional
 adapter smoke only, not a Mem0-vs-AgentMemory comparison or evidence of an
 outcome effect.
+
+`python-itsdangerous-future-age-zero` is the second external development case.
+It pins the BSD-3-Clause `pallets/itsdangerous` revision `672971d` and records
+the real upstream future-timestamp policy from `c30678d`; its helper-extraction
+transition is benchmark-authored and labelled as such. A fresh upstream
+materialization passed the precursor and transfer public suites (101 each),
+failed the hidden regression oracle (102 passed, 1 failed), and passed the
+reference repair (103 passed). The case also checks that timestamp rejection
+stays outside `TimestampSigner.unsign`, so a solution cannot merely restore
+the stale inline owner. It has no agent result yet.

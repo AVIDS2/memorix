@@ -189,3 +189,23 @@ analysis, an open artifact, and an English LaTeX paper.
 - All four authoring gates passed for the v5 case: precursor, transfer public,
   hidden failure on unmodified transfer, and reference-patch recovery. No model
   trial has used this case yet.
+
+## Oracle review and Python external case
+
+- An independent benchmark review blocked the first version of the Python
+  `itsdangerous` case before it entered the development corpus: its hidden test
+  could have accepted a blanket rejection of `max_age=0`, the task wording
+  revealed the answer, and its “do not restore the old owner” rule was only
+  prose.
+- The revised case now asks only for restoration of the established policy,
+  checks both zero-age acceptance at the current timestamp and rejection of a
+  future timestamp, and uses a declared scoped source check to require that
+  `TimestampSigner.unsign` delegates age validation rather than inlining
+  `SignatureExpired` again.
+- The harness now parses and evaluates these source checks after hidden-test
+  mounting. Their results enter CLI grades and trial artifacts, and a failed
+  check makes `task_success` false.
+- Fresh pinned-repository gates passed: precursor public suite 101/101,
+  transfer public suite 101/101, unmodified transfer hidden oracle 102 pass +
+  1 expected failure, and reference repair 103/103 with the source check
+  passing. No agent has been run on this case.

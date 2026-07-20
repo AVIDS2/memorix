@@ -1,0 +1,21 @@
+diff --git a/tests/test_itsdangerous/test_timed.py b/tests/test_itsdangerous/test_timed.py
+--- a/tests/test_itsdangerous/test_timed.py
++++ b/tests/test_itsdangerous/test_timed.py
+@@ -84,6 +84,17 @@ class TestTimestampSigner(FreezeMixin, TestSigner):
+ 
+         assert isinstance(exc_info.value.date_signed, datetime)
+ 
++    def test_zero_max_age_allows_current_signature(self, signer):
++        signed = signer.sign("value")
++        assert signer.unsign(signed, max_age=0) == b"value"
++
++    def test_future_age_with_zero_max_age(self, signer):
++        signed = signer.sign("value")
++
++        with freeze_time("1971-05-31"):
++            with pytest.raises(SignatureExpired):
++                signer.unsign(signed, max_age=0)
++
+     def test_sig_error_date_signed(self, signer):
+         signed = signer.sign("my string").replace(b"my", b"other", 1)
+ 

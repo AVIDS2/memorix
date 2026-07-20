@@ -62,11 +62,23 @@ class MemorySeedSpec:
 
 
 @dataclass(frozen=True)
+class SourceCheckSpec:
+    """A deterministic source-level constraint evaluated after an agent run."""
+
+    path: str
+    scope_start: str | None
+    scope_end: str | None
+    required_literals: tuple[str, ...]
+    forbidden_literals: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class OracleSpec:
     required_start_files: tuple[str, ...]
     relevant_evidence_ids: tuple[str, ...]
     stale_evidence_ids: tuple[str, ...]
     forbidden_actions: tuple[str, ...]
+    source_checks: tuple[SourceCheckSpec, ...]
     hidden_patch: str | None = None
     reference_patch: str | None = None
 
@@ -158,6 +170,51 @@ def _memory_seeds(data: dict[str, Any]) -> tuple[MemorySeedSpec, ...]:
             related_entities=_strings(item, "related_entities", context=context),
         ))
     return tuple(seeds)
+
+
+def _source_checks(data: dict[str, Any]) -> tuple[SourceCheckSpec, ...]:
+    raw = data.get("source_check", [])
+    if not isinstance(raw, list):
+        raise ManifestError("oracle.source_check must be an array of tables when present")
+
+    checks: list[SourceCheckSpec] = []
+    identities: set[tuple[str, str | None, str | None]] = set()
+    for index, item in enumerate(raw, 1):
+        if not isinstance(item, dict):
+            raise ManifestError(f"oracle.source_check[{index}] must be a table")
+        context = f"oracle.source_check[{index}]"
+        path = _text(item, "path", context=context)
+        path_parts = Path(path).parts
+        if Path(path).is_absolute() or ".." in path_parts:
+            raise ManifestError(f"{context}.path must stay inside the repository")
+        scope_start = _optional_text(item, "scope_start")
+        scope_end = _optional_text(item, "scope_end")
+        if scope_end and not scope_start:
+            raise ManifestError(f"{context}.scope_end requires scope_start")
+        required_literals = _strings(item, "required_literals", context=context)
+        forbidden_literals = _strings(item, "forbidden_literals", context=context)
+        if not required_literals and not forbidden_literals:
+            raise ManifestError(
+                f"{context} requires required_literals or forbidden_literals"
+            )
+        overlap = set(required_literals) & set(forbidden_literals)
+        if overlap:
+            raise ManifestError(
+                f"{context} literals cannot be both required and forbidden: "
+                + ", ".join(sorted(overlap))
+            )
+        identity = (path, scope_start, scope_end)
+        if identity in identities:
+            raise ManifestError(f"{context} duplicates an earlier source check scope")
+        identities.add(identity)
+        checks.append(SourceCheckSpec(
+            path=path,
+            scope_start=scope_start,
+            scope_end=scope_end,
+            required_literals=required_literals,
+            forbidden_literals=forbidden_literals,
+        ))
+    return tuple(checks)
 
 
 def load_case_manifest(path: str | Path) -> CaseManifest:
@@ -273,6 +330,7 @@ def load_case_manifest(path: str | Path) -> CaseManifest:
                 "forbidden_actions",
                 context="oracle",
             ),
+            source_checks=_source_checks(oracle_data),
             hidden_patch=_optional_text(oracle_data, "hidden_patch"),
             reference_patch=_optional_text(oracle_data, "reference_patch"),
         ),

@@ -90,7 +90,15 @@ Each case contains:
 6. isolated public and hidden success tests, plus a maintainer-only reference
    repair that passes the hidden tests;
 7. an action/evidence oracle, stale evidence, and forbidden stale actions when
-   applicable.
+   applicable;
+8. a scoped deterministic source check when ownership or placement is part of
+   correctness and behavior tests alone would let an agent restore stale code.
+
+Source checks are deliberately narrow literal constraints over a declared file
+or stable source span. They are evaluated only after the agent exits, archived
+with the hidden-test grade, and never replace behavioral tests. A case may use
+them to preserve a refactoring boundary (for example, requiring validation to
+remain in an extracted helper) without exposing that oracle to the agent.
 
 External cases additionally declare transition provenance. An upstream replay
 reconstructs an observed upstream change. A historically grounded controlled
@@ -132,7 +140,7 @@ intrusion.
 Primary outcome:
 
 - task_success: all case-specific required tests pass without forbidden test or
-  fixture modification.
+  fixture modification, and every declared source check passes.
 
 Secondary outcomes:
 

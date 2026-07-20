@@ -10,7 +10,7 @@ import subprocess
 import time
 from typing import Literal
 
-from .schema import CaseManifest, PhaseSpec
+from .schema import CaseManifest, PhaseSpec, SourceCheckSpec
 
 Stage = Literal["base", "precursor", "transfer"]
 
@@ -37,9 +37,23 @@ class CommandResult:
 
 
 @dataclass(frozen=True)
+class SourceCheckResult:
+    path: str
+    passed: bool
+    violations: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class TransferEvaluation:
     commands: tuple[CommandResult, ...]
     hidden_patch_sha256: str | None
+    source_checks: tuple[SourceCheckResult, ...]
+
+    @property
+    def passed(self) -> bool:
+        return phase_passed(list(self.commands)) and all(
+            check.passed for check in self.source_checks
+        )
 
 
 def _run_git(cwd: Path, *args: str) -> str:
@@ -259,6 +273,68 @@ def apply_reference_patch(manifest: CaseManifest, workspace: str | Path) -> str:
     return _sha256(patch)
 
 
+def _source_check_region(
+    source: str,
+    check: SourceCheckSpec,
+) -> tuple[str | None, tuple[str, ...]]:
+    if not check.scope_start:
+        return source, ()
+    start = source.find(check.scope_start)
+    if start < 0:
+        return None, (f"scope_start not found: {check.scope_start!r}",)
+    if not check.scope_end:
+        return source[start:], ()
+    end = source.find(check.scope_end, start + len(check.scope_start))
+    if end < 0:
+        return None, (f"scope_end not found: {check.scope_end!r}",)
+    return source[start:end], ()
+
+
+def evaluate_source_checks(
+    manifest: CaseManifest,
+    workspace: str | Path,
+) -> tuple[SourceCheckResult, ...]:
+    root = Path(workspace).resolve()
+    results: list[SourceCheckResult] = []
+    for check in manifest.oracle.source_checks:
+        candidate = (root / check.path).resolve()
+        if candidate != root and root not in candidate.parents:
+            raise ValueError(f"source check path escapes workspace: {check.path}")
+        if not candidate.is_file():
+            results.append(SourceCheckResult(
+                path=check.path,
+                passed=False,
+                violations=("source file is missing",),
+            ))
+            continue
+        source = candidate.read_text(encoding="utf-8", errors="replace")
+        region, violations = _source_check_region(source, check)
+        if region is None:
+            results.append(SourceCheckResult(
+                path=check.path,
+                passed=False,
+                violations=violations,
+            ))
+            continue
+        issues = list(violations)
+        issues.extend(
+            f"required literal is missing: {literal!r}"
+            for literal in check.required_literals
+            if literal not in region
+        )
+        issues.extend(
+            f"forbidden literal is present: {literal!r}"
+            for literal in check.forbidden_literals
+            if literal in region
+        )
+        results.append(SourceCheckResult(
+            path=check.path,
+            passed=not issues,
+            violations=tuple(issues),
+        ))
+    return tuple(results)
+
+
 def remove_generated_workspace(path: str | Path, *, workspace_root: str | Path) -> None:
     target = Path(path).resolve()
     root = Path(workspace_root).resolve()
@@ -284,6 +360,7 @@ def run_transfer_evaluation(
         except subprocess.CalledProcessError as error:
             details = (error.stderr or error.stdout or "git apply failed").strip()
             raise ValueError(f"failed to mount hidden evaluation patch: {details}") from error
+    source_checks = evaluate_source_checks(manifest, repo)
     return TransferEvaluation(
         commands=tuple(
             run_phase_commands(
@@ -293,4 +370,5 @@ def run_transfer_evaluation(
             )
         ),
         hidden_patch_sha256=hidden_patch_sha256,
+        source_checks=source_checks,
     )

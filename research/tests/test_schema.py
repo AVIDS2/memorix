@@ -102,6 +102,39 @@ def test_parses_oracle_reference_patch(tmp_path: Path) -> None:
     assert case.oracle.reference_patch == "reference.patch"
 
 
+def test_parses_scoped_source_check(tmp_path: Path) -> None:
+    content = VALID_CASE.replace(
+        'forbidden_actions = ["restore the removed auth validator"]',
+        '''forbidden_actions = ["restore the removed auth validator"]
+
+[[oracle.source_check]]
+path = "src/session.ts"
+scope_start = "export function validate"
+scope_end = "export function next"
+required_literals = ["return true"]
+forbidden_literals = ["return false"]''',
+    )
+
+    case = load_case_manifest(write_case(tmp_path, content))
+
+    assert case.oracle.source_checks[0].path == "src/session.ts"
+    assert case.oracle.source_checks[0].scope_start == "export function validate"
+    assert case.oracle.source_checks[0].forbidden_literals == ("return false",)
+
+
+def test_rejects_empty_source_check(tmp_path: Path) -> None:
+    content = VALID_CASE.replace(
+        'forbidden_actions = ["restore the removed auth validator"]',
+        '''forbidden_actions = []
+
+[[oracle.source_check]]
+path = "src/session.ts"''',
+    )
+
+    with pytest.raises(ManifestError, match="requires required_literals or forbidden_literals"):
+        load_case_manifest(write_case(tmp_path, content))
+
+
 def test_rejects_duplicate_memory_seed_topic_keys(tmp_path: Path) -> None:
     content = VALID_CASE + """
 

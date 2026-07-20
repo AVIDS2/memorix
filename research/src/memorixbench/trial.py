@@ -129,6 +129,7 @@ class TrialOutcome:
     precursor_patch_sha256: str | None
     transition_patch_sha256: str | None
     hidden_test_patch_sha256: str | None
+    source_check_violations: tuple[str, ...]
     agent_start_commit: str
     patch_sha256: str
     platform: str
@@ -569,6 +570,11 @@ def run_trial(
         timeout_seconds=min(timeout_seconds, 300),
     )
     grade_results = list(evaluation.commands)
+    source_check_violations = tuple(
+        f"{check.path}: {violation}"
+        for check in evaluation.source_checks
+        for violation in check.violations
+    )
     patch_sha = _sha256(execution.patch_path)
     transcript_sha: str | None = None
     if manifest.precursor.transcript:
@@ -613,7 +619,7 @@ def run_trial(
         seed=seed,
         valid_run=valid_run,
         failure_reason=failure_reason,
-        task_success=phase_passed(grade_results),
+        task_success=evaluation.passed,
         agent_returncode=execution.returncode,
         timed_out=execution.timed_out,
         first_correct_action_seconds=None,
@@ -653,6 +659,7 @@ def run_trial(
         precursor_patch_sha256=materialized.precursor_patch_sha256,
         transition_patch_sha256=transition_patch_sha256,
         hidden_test_patch_sha256=evaluation.hidden_patch_sha256,
+        source_check_violations=source_check_violations,
         agent_start_commit=agent_start_commit,
         patch_sha256=patch_sha,
         platform=platform.platform(),
@@ -667,6 +674,7 @@ def run_trial(
             {
                 "passed": outcome.task_success,
                 "commands": _serialize_commands(grade_results),
+                "source_checks": [asdict(check) for check in evaluation.source_checks],
             },
             indent=2,
         ),

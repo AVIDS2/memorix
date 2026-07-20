@@ -73,6 +73,37 @@ analysis, an open artifact, and an English LaTeX paper.
   runner, plus auditable result reclassification.
 - Expand development cases before any confirmatory run.
 
+## Canonical Mem0 baseline and controlled-agent hardening
+
+- Added an executable `mem0-2.0.12-local` canonical-retrieval condition. It
+  uses a pinned external Mem0 runtime, local Qdrant, FastEmbed
+  `BAAI/bge-small-en-v1.5`, `infer=False`, a unique scoped project id, and no
+  inherited LLM/embedding credentials. The adapter preflight writes, reopens,
+  retrieves, and checks a foreign empty scope before an agent run.
+- Canonical seed text, query, ranked-result count, and a 180-token offline
+  lexical context ceiling are explicit in `research/BASELINE_PROTOCOL.md`.
+  Native product behavior stays a separate track; AgentMemory is not yet an
+  executable comparison row.
+- The first end-to-end Mem0 attempts exposed two Windows path-length failures:
+  FastEmbed cache and then Qdrant collection paths were too deeply nested under
+  artifacts. The fixed layout keeps per-run writable data under the short
+  F-drive `runtime-data` root and uses an already-pinned F-drive model cache in
+  offline mode. Both failures are preserved as infrastructure diagnostics.
+- Claude's initial narrow Bash allowlist accidentally denied Go's `./...`
+  package glob through `Bash(*..*)`, then denied ordinary workspace `grep` and
+  `dir` actions. The harness now permits normal commands in a disposable
+  checkout, pre-denies network/install/remote-Git/dynamic-interpreter actions,
+  and archives/audits every Bash command for parent traversal or external path
+  access. Any denial or audit violation invalidates the run.
+- A controlled direct permission smoke ran exactly `go test ./...` in 11.3
+  seconds without a denial. The first valid paired external development smoke
+  used the same seed for Mem0 and no-memory. Both passed hidden tests; Mem0 was
+  49.7 seconds/USD 0.108 and no-memory was 104.1 seconds/USD 0.232. This is a
+  single easy development pair and is explicitly non-confirmatory.
+- Current Claude telemetry for those runs reported DeepSeek V4 Pro message
+  events plus Claude Haiku/Opus billing records, despite the configured client
+  route. All are therefore recorded as mixed rather than pure DeepSeek Flash.
+
 ## Development-pilot exclusions and case hardening
 
 - A controlled Python micro-Memorix pilot on the first wording of

@@ -4,6 +4,7 @@ from pathlib import Path
 from memorixbench.agents import (
     _failure_reason,
     _parse_claude,
+    audit_bash_commands,
     build_claude_command,
     build_codex_command,
     load_claude_provider_env,
@@ -68,13 +69,16 @@ def test_writes_claude_isolation_settings(tmp_path: Path) -> None:
     path = write_claude_settings(
         tmp_path / "settings.json",
         denied_roots=(Path("F:/artifacts"),),
-        allowed_tools=("Read", "Bash(npm test)"),
+        allowed_tools=("Read", "Bash(npm test)", "Bash(go test ./...)"),
     )
     payload = json.loads(path.read_text(encoding="utf-8"))
     assert payload["autoMemoryEnabled"] is False
     assert "Read(//f/artifacts/**)" in payload["permissions"]["deny"]
     assert "Bash(npm test)" in payload["permissions"]["allow"]
-    assert "Bash(python *)" not in payload["permissions"]["deny"]
+    assert "Bash" not in payload["permissions"]["deny"]
+    assert "Bash(*..*)" not in payload["permissions"]["deny"]
+    assert "Bash(* ../*)" in payload["permissions"]["deny"]
+    assert "Bash(go test ./...)" in payload["permissions"]["allow"]
 
 
 def test_claude_completed_patch_at_budget_boundary_is_valid() -> None:
@@ -146,3 +150,33 @@ def test_claude_completed_patch_at_budget_boundary_is_valid() -> None:
         stdout='{"subtype":"error_max_budget_usd","errors":["Reached maximum budget"]}',
         stderr="",
     ) == "budget-exhausted"
+
+
+def test_command_audit_allows_workspace_scoped_browsing(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    violations = audit_bash_commands(
+        (
+            f'cd "{workspace}" && grep -rn "retry" --include="*_test.go"',
+            f'dir "{workspace}" /b',
+            "go test ./...",
+        ),
+        workspace=workspace,
+    )
+
+    assert violations == ()
+
+
+def test_command_audit_flags_escape_and_network_commands(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    violations = audit_bash_commands(
+        ("grep -r secret ../outside", "curl https://example.invalid", "type F:\\outside.txt"),
+        workspace=workspace,
+    )
+
+    assert any(item.startswith("parent-traversal:") for item in violations)
+    assert any(item.startswith("network-command:") for item in violations)
+    assert any(item.startswith("external-path:") for item in violations)

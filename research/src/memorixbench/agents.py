@@ -14,6 +14,15 @@ AgentName = Literal["codex", "claude"]
 
 CLAUDE_PROVIDER_ENV_PREFIXES = ("ANTHROPIC_",)
 SENSITIVE_ENV_PATTERN = re.compile(r"(?:API[_-]?KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL)", re.IGNORECASE)
+PARENT_TRAVERSAL_PATTERN = re.compile(r"(?<!\.)\.\.(?:[\\/]|(?=\s|$))")
+WINDOWS_PATH_PATTERN = re.compile(r"(?i)\b[a-z]:[\\/][^\s\"'`;&|<>]*")
+POSIX_DRIVE_PATH_PATTERN = re.compile(r"(?i)(?<![a-z0-9_])/[a-z](?:/[^\s\"'`;&|<>]*)?")
+NETWORK_COMMAND_PATTERN = re.compile(
+    r"(?i)(?:^|&&|\|\||;|\|)\s*(?:curl|wget|iwr|invoke-webrequest|ssh|scp|git\s+(?:clone|fetch|pull|push)|npm\s+install|pip\s+install)\b"
+)
+DYNAMIC_INTERPRETER_PATTERN = re.compile(
+    r"(?i)(?:^|&&|\|\||;|\|)\s*(?:node|python|powershell|pwsh|cmd)\s+(?:-e|-c|--input-type|/c)\b"
+)
 
 
 def load_claude_provider_env(settings_path: str | Path) -> dict[str, str]:
@@ -56,22 +65,32 @@ def write_claude_settings(
         pattern = _permission_path(Path(root))
         deny.extend([f"Read({pattern})", f"Edit({pattern})"])
     deny.extend([
-        "Bash(*..*)",
-        "Bash(find *)",
-        "Bash(ls *)",
-        "Bash(dir *)",
-        "Bash(Get-ChildItem *)",
-        "Bash(cat *)",
-        "Bash(head *)",
-        "Bash(tail *)",
-        "Bash(grep *)",
-        "Bash(git log *)",
-        "Bash(git show *)",
-        "Bash(git branch *)",
+        # Do not block Go's ./... package pattern while denying parent traversal.
+        "Bash(../*)",
+        "Bash(..\\*)",
+        "Bash(* ../*)",
+        "Bash(* ..\\*)",
+        "Bash(* /../*)",
+        "Bash(* \\..\\*)",
+        "Bash(* ..)",
+        "Bash(* .. *)",
+        "Bash(curl *)",
+        "Bash(wget *)",
+        "Bash(iwr *)",
+        "Bash(Invoke-WebRequest *)",
+        "Bash(ssh *)",
+        "Bash(scp *)",
+        "Bash(git clone *)",
+        "Bash(git fetch *)",
+        "Bash(git pull *)",
+        "Bash(git push *)",
+        "Bash(npm install *)",
+        "Bash(pip install *)",
         "Bash(node -e *)",
         "Bash(node --input-type*)",
         "Bash(pwsh *)",
         "Bash(powershell *)",
+        "Bash(cmd /c *)",
     ])
     payload = {
         "autoMemoryEnabled": False,
@@ -135,6 +154,7 @@ class AgentExecution:
     successful_tool_call_count: int
     successful_tool_names: tuple[str, ...]
     permission_denials: tuple[str, ...]
+    bash_commands: tuple[str, ...]
     final_message: str
     events_path: Path
     stderr_path: Path
@@ -307,6 +327,7 @@ def _parse_codex(events: list[dict[str, object]]) -> dict[str, object]:
         "successful_tool_call_count": successful_tool_call_count,
         "successful_tool_names": tuple(sorted(successful_tool_names)),
         "permission_denials": (),
+        "bash_commands": (),
         "completed": completed,
         "reported_models": tuple(sorted(reported_models)),
         "model_usage": (),
@@ -324,6 +345,7 @@ def _parse_claude(events: list[dict[str, object]]) -> dict[str, object]:
     successful_tool_names: set[str] = set()
     tool_use_names: dict[str, str] = {}
     permission_denials: set[str] = set()
+    bash_commands: list[str] = []
     completed = False
     reported_models: set[str] = set()
     model_usage_records: dict[str, ModelUsage] = {}
@@ -387,6 +409,11 @@ def _parse_claude(events: list[dict[str, object]]) -> dict[str, object]:
                     tool_use_names[tool_use_id] = tool_name
             if tool_name == "Bash":
                 command_count += 1
+                tool_input = item.get("input")
+                if isinstance(tool_input, dict):
+                    raw_command = tool_input.get("command")
+                    if isinstance(raw_command, str) and raw_command.strip():
+                        bash_commands.append(raw_command.strip())
     return {
         "input_tokens": _int_or_none(usage.get("input_tokens")),
         "cached_input_tokens": _int_or_none(
@@ -402,10 +429,44 @@ def _parse_claude(events: list[dict[str, object]]) -> dict[str, object]:
         "successful_tool_call_count": successful_tool_call_count,
         "successful_tool_names": tuple(sorted(successful_tool_names)),
         "permission_denials": tuple(sorted(permission_denials)),
+        "bash_commands": tuple(bash_commands),
         "completed": completed,
         "reported_models": tuple(sorted(reported_models)),
         "model_usage": tuple(sorted(model_usage_records.values(), key=lambda item: item.model)),
     }
+
+
+def _is_within_workspace(path: Path, workspace: Path) -> bool:
+    try:
+        path.resolve().relative_to(workspace.resolve())
+    except ValueError:
+        return False
+    return True
+
+
+def audit_bash_commands(
+    commands: Iterable[str],
+    *,
+    workspace: str | Path,
+) -> tuple[str, ...]:
+    """Flag command strings that could contaminate a non-adversarial trial."""
+    workspace_path = Path(workspace).resolve()
+    violations: list[str] = []
+    for command in commands:
+        if PARENT_TRAVERSAL_PATTERN.search(command):
+            violations.append(f"parent-traversal: {command}")
+        if NETWORK_COMMAND_PATTERN.search(command):
+            violations.append(f"network-command: {command}")
+        if DYNAMIC_INTERPRETER_PATTERN.search(command):
+            violations.append(f"dynamic-interpreter: {command}")
+        raw_paths = list(WINDOWS_PATH_PATTERN.findall(command))
+        for raw in POSIX_DRIVE_PATH_PATTERN.findall(command):
+            if len(raw) >= 3 and raw[1] == "/":
+                raw_paths.append(raw[1].upper() + ":/" + raw[3:])
+        for raw_path in raw_paths:
+            if not _is_within_workspace(Path(raw_path), workspace_path):
+                violations.append(f"external-path: {raw_path}")
+    return tuple(dict.fromkeys(violations))
 
 
 def _failure_reason(
@@ -558,6 +619,7 @@ def run_agent(
         successful_tool_call_count=int(parsed["successful_tool_call_count"]),
         successful_tool_names=parsed["successful_tool_names"],  # type: ignore[arg-type]
         permission_denials=parsed["permission_denials"],  # type: ignore[arg-type]
+        bash_commands=parsed["bash_commands"],  # type: ignore[arg-type]
         final_message=str(parsed["final_message"]),
         events_path=events_path,
         stderr_path=stderr_path,

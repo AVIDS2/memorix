@@ -16,6 +16,12 @@ not a result table and must not be used to claim a memory effect.
   knowledge.
 - Early no-memory fixed-budget exhaustions predated the explicit valid-failure
   classification rule. They remain raw artifacts, not comparison rows.
+- Four initial Mem0 external-case attempts are archived as harness diagnostics,
+  not result rows: two hit Windows path-length failures before an agent started;
+  one had an over-broad Bash deny rule that blocked `go test ./...`; and one
+  blocked ordinary in-workspace `grep`/`dir` inspection. The current runner
+  uses short F-drive runtime data, an offline shared model cache, and a
+  command-contamination audit instead.
 
 ## Current executable smoke
 
@@ -51,5 +57,10 @@ regression is benchmark-authored and documented in the case provenance.
 The case has passed its four authoring gates on this machine: precursor tests
 passed; transfer public tests passed; the unmodified transfer snapshot failed
 the hidden zero-sampling check; and the maintainer reference patch passed it.
-No agent condition has been run on this case, so this is validation evidence,
-not an efficacy result.
+The repaired runner has one valid paired development smoke on this case with
+the same seed: `mem0-2.0.12-local` and no-memory both passed hidden tests. Mem0
+used two retrieved records (150 proxy tokens), took 49.7 seconds, and cost
+about USD 0.108; no-memory took 104.1 seconds and cost about USD 0.232. This
+is one easy development pair, not an effect estimate: both conditions solved
+the task and the client was a mixed stack. It exists to verify the real Mem0
+adapter, isolation, command audit, and grading path before case expansion.

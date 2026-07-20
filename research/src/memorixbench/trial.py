@@ -13,10 +13,13 @@ from .agents import (
     AgentExecution,
     AgentName,
     ModelUsage,
+    audit_bash_commands,
     load_claude_provider_env,
     run_agent,
     write_claude_settings,
 )
+from .baseline import BaselineRetrieval
+from .mem0_adapter import MEM0_PROVIDER_ID, Mem0LocalAdapter
 from .memorix_adapter import (
     refresh_memorix_project,
     seed_memorix_project,
@@ -40,7 +43,16 @@ MEMORIX_CONDITION_MODES = {
     "memorix-1.2.1-full-local": "full",
 }
 MEMORIX_CONDITIONS = set(MEMORIX_CONDITION_MODES)
-SUPPORTED_CONDITIONS = {"no-memory", "last-n", *MEMORIX_CONDITIONS}
+MEM0_CONDITIONS = {MEM0_PROVIDER_ID}
+CANONICAL_RETRIEVAL_CONDITIONS = MEM0_CONDITIONS
+SUPPORTED_CONDITIONS = {
+    "no-memory",
+    "last-n",
+    *MEMORIX_CONDITIONS,
+    *CANONICAL_RETRIEVAL_CONDITIONS,
+}
+CANONICAL_RETRIEVAL_TOP_K = 8
+CANONICAL_RETRIEVAL_TOKEN_BUDGET = 180
 MEMORIX_ALLOWED_TOOLS = (
     "mcp__memorix__memorix_project_context",
     "mcp__memorix__memorix_context_pack",
@@ -57,13 +69,7 @@ INFRASTRUCTURE_FAILURE_REASONS = {
     "agent-runtime",
     "missing-completion-event",
 }
-CLAUDE_BASE_ALLOWED_TOOLS = (
-    "Read",
-    "Edit",
-    "Bash(git status --short)",
-    "Bash(git diff *)",
-    "Bash(git ls-files)",
-)
+CLAUDE_BASE_ALLOWED_TOOLS = ("Read", "Edit", "Bash")
 
 
 @dataclass(frozen=True)
@@ -100,8 +106,14 @@ class TrialOutcome:
     successful_tool_call_count: int
     successful_tool_names: tuple[str, ...]
     permission_denials: tuple[str, ...]
+    bash_commands: tuple[str, ...]
+    command_contamination_violations: tuple[str, ...]
     memory_tool_attempt_count: int
     memory_tool_call_count: int
+    memory_provider: str | None
+    retrieved_context_tokens: int | None
+    retrieved_context_record_count: int | None
+    retrieved_context_truncated: bool | None
     memorix_cli_sha256: str | None
     case_manifest_sha256: str
     precursor_transcript_sha256: str | None
@@ -139,10 +151,10 @@ def _model_profile(model_usage: tuple[ModelUsage, ...]) -> str:
 def is_valid_execution(
     failure_reason: str | None,
     *,
-    memory_permission_denied: bool,
+    environment_violation: bool,
 ) -> bool:
     """Keep fixed-budget and timeout outcomes as task failures, not exclusions."""
-    return not memory_permission_denied and failure_reason not in INFRASTRUCTURE_FAILURE_REASONS
+    return not environment_violation and failure_reason not in INFRASTRUCTURE_FAILURE_REASONS
 
 
 def _resolve_case_asset(manifest: CaseManifest, relative: str) -> Path:
@@ -155,7 +167,12 @@ def _resolve_case_asset(manifest: CaseManifest, relative: str) -> Path:
     return candidate
 
 
-def build_condition_prompt(manifest: CaseManifest, condition: str) -> str:
+def build_condition_prompt(
+    manifest: CaseManifest,
+    condition: str,
+    *,
+    retrieved_context: str | None = None,
+) -> str:
     if condition not in SUPPORTED_CONDITIONS:
         raise ValueError(
             f"condition {condition!r} is not executable yet; supported: {sorted(SUPPORTED_CONDITIONS)}"
@@ -175,6 +192,15 @@ def build_condition_prompt(manifest: CaseManifest, condition: str) -> str:
             "</prior_session>",
             "",
         ])
+    if condition in CANONICAL_RETRIEVAL_CONDITIONS:
+        if not retrieved_context or not retrieved_context.strip():
+            raise ValueError(f"{condition} requires retrieved context")
+        parts.extend([
+            "<retrieved_memory>",
+            retrieved_context.strip(),
+            "</retrieved_memory>",
+            "",
+        ])
     verification_commands = tuple(
         f"`{command}`" for command in manifest.transfer.success_commands
     )
@@ -188,6 +214,7 @@ def build_condition_prompt(manifest: CaseManifest, condition: str) -> str:
         "",
         "Use any configured project-context or memory capability when it would help, but verify it against the current source.",
         "This is an isolated workspace. You are already in the repository; use `git ls-files` directly to enumerate project files and do not inspect parent or sibling directories.",
+        "Use normal source-inspection and verification commands only inside this workspace. Do not read, write, or execute outside it, and do not use network or installation commands.",
         "Repository history is intentionally a single transfer snapshot; do not look for precursor commits. Use current files and any configured memory only.",
         verification_instruction,
         "Work directly in the repository. Inspect the current source before editing, make the smallest correct change, and run the relevant tests. Do not ask for confirmation.",
@@ -248,11 +275,11 @@ def run_trial(
     timeout_seconds: int = 900,
     max_budget_usd: float | None = None,
     memorix_cli: str | Path | None = None,
+    mem0_python: str | Path | None = None,
     workspace_root: str | Path | None = None,
     claude_provider_settings: str | Path | None = None,
 ) -> TrialOutcome:
     manifest = load_case_manifest(case_path)
-    prompt = build_condition_prompt(manifest, condition)
     run_id = str(uuid.uuid4())
     model_label = model or "client-default"
     artifact_root_path = Path(artifact_root).resolve()
@@ -287,13 +314,14 @@ def run_trial(
     run_dir.mkdir(parents=True, exist_ok=False)
     started_at = datetime.now(timezone.utc).isoformat()
     is_memorix = condition in MEMORIX_CONDITIONS
+    is_canonical_retrieval = condition in CANONICAL_RETRIEVAL_CONDITIONS
     memorix_mode = MEMORIX_CONDITION_MODES.get(condition)
     if is_memorix and agent != "claude":
         raise ValueError("the first controlled Memorix adapter currently supports Claude only")
     materialized = materialize_case(
         manifest,
         workspace_dir,
-        stage="precursor" if is_memorix else "transfer",
+        stage="precursor" if is_memorix or is_canonical_retrieval else "transfer",
     )
 
     transfer_commit = materialized.transfer_commit
@@ -301,6 +329,7 @@ def run_trial(
     mcp_config: Path | None = None
     claude_settings: Path | None = None
     memorix_cli_sha256: str | None = None
+    retrieval: BaselineRetrieval | None = None
     condition_metadata: dict[str, object] = {
         "condition": condition,
         "memory_provider": None,
@@ -360,9 +389,69 @@ def run_trial(
             "refresh_maintenance": refresh_result["maintenance"]["summary"],
             "final_workset": refresh_result["final"]["workset"],
         }
+    elif condition == MEM0_PROVIDER_ID:
+        if mem0_python is None:
+            raise ValueError(f"{MEM0_PROVIDER_ID} requires --mem0-python")
+        mem0_python_path = Path(mem0_python).resolve()
+        memory_dir = run_dir / "memory"
+        runtime_data_dir = (
+            artifact_root_path.parent / "runtime-data" / "mem0" / run_id
+        )
+        adapter = Mem0LocalAdapter(
+            python_path=mem0_python_path,
+            data_dir=runtime_data_dir,
+            artifact_dir=memory_dir / "adapter",
+            model_cache_root=artifact_root_path.parent / "caches",
+            collection_name=f"memorixbench_{run_id.replace('-', '_')}",
+        )
+        project_id = f"memorixbench-{run_id}"
+        preflight = adapter.preflight()
+        seed_result = adapter.seed(manifest, project_id=project_id)
+        transfer_commit, transition_patch_sha256 = advance_case_to_transfer(
+            manifest,
+            workspace_dir,
+        )
+        agent_start_commit = reset_history_to_snapshot(workspace_dir)
+        retrieval = adapter.retrieve(
+            project_id=project_id,
+            query=manifest.transfer.task,
+            top_k=CANONICAL_RETRIEVAL_TOP_K,
+            token_budget=CANONICAL_RETRIEVAL_TOKEN_BUDGET,
+        )
+        condition_metadata = {
+            "condition": condition,
+            "memory_provider": "mem0",
+            "provider_id": MEM0_PROVIDER_ID,
+            "python": str(mem0_python_path),
+            "embedding_model": adapter.embedding_model,
+            "embedding_dimensions": adapter.embedding_dimensions,
+            "model_cache_root": str(adapter.model_cache_root),
+            "network": "offline",
+            "collection_name": adapter.collection_name,
+            "project_id": project_id,
+            "data_dir": str(adapter.data_dir),
+            "preflight": preflight,
+            "seed": seed_result,
+            "retrieval": {
+                "query": retrieval.query,
+                "top_k": CANONICAL_RETRIEVAL_TOP_K,
+                "token_budget": retrieval.token_budget,
+                "token_count": retrieval.token_count,
+                "truncated": retrieval.truncated,
+                "records": [
+                    {"memory_id": record.memory_id, "score": record.score}
+                    for record in retrieval.records
+                ],
+            },
+        }
     else:
         agent_start_commit = reset_history_to_snapshot(workspace_dir)
 
+    prompt = build_condition_prompt(
+        manifest,
+        condition,
+        retrieved_context=retrieval.context if retrieval else None,
+    )
     allowed_tools = build_claude_allowed_tools(manifest, condition)
     if agent == "claude":
         assert workspace_root_path is not None
@@ -412,18 +501,26 @@ def run_trial(
     memory_tool_call_count = sum(
         "memorix" in name.lower() for name in execution.successful_tool_names
     )
-    memory_permission_denied = is_memorix and any(
-        name in MEMORIX_ALLOWED_TOOLS for name in execution.permission_denials
+    command_contamination_violations = audit_bash_commands(
+        execution.bash_commands,
+        workspace=workspace_dir,
+    )
+    environment_violation = bool(
+        execution.permission_denials or command_contamination_violations
     )
     valid_run = is_valid_execution(
         execution.failure_reason,
-        memory_permission_denied=memory_permission_denied,
+        environment_violation=environment_violation,
     )
     failure_reason = (
-        "memory-permission-denied" if memory_permission_denied else execution.failure_reason
+        "permission-denied"
+        if execution.permission_denials
+        else "command-contamination"
+        if command_contamination_violations
+        else execution.failure_reason
     )
     outcome = TrialOutcome(
-        schema_version="0.3",
+        schema_version="0.5",
         run_id=run_id,
         study_id=study_id,
         case_id=manifest.case_id,
@@ -455,8 +552,16 @@ def run_trial(
         successful_tool_call_count=execution.successful_tool_call_count,
         successful_tool_names=execution.successful_tool_names,
         permission_denials=execution.permission_denials,
+        bash_commands=execution.bash_commands,
+        command_contamination_violations=command_contamination_violations,
         memory_tool_attempt_count=memory_tool_attempt_count,
         memory_tool_call_count=memory_tool_call_count,
+        memory_provider=str(condition_metadata["memory_provider"])
+        if condition_metadata["memory_provider"] is not None
+        else None,
+        retrieved_context_tokens=retrieval.token_count if retrieval else None,
+        retrieved_context_record_count=len(retrieval.records) if retrieval else None,
+        retrieved_context_truncated=retrieval.truncated if retrieval else None,
         memorix_cli_sha256=memorix_cli_sha256,
         case_manifest_sha256=_sha256(manifest.source_path),
         precursor_transcript_sha256=transcript_sha,
@@ -501,6 +606,16 @@ def run_trial(
     )
     (run_dir / "condition.json").write_text(
         json.dumps(condition_metadata, indent=2),
+        encoding="utf-8",
+    )
+    (run_dir / "command-audit.json").write_text(
+        json.dumps(
+            {
+                "commands": list(execution.bash_commands),
+                "violations": list(command_contamination_violations),
+            },
+            indent=2,
+        ),
         encoding="utf-8",
     )
     (run_dir / "result.json").write_text(

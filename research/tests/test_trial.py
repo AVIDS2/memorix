@@ -18,6 +18,7 @@ def test_no_memory_prompt_has_no_precursor_record() -> None:
     assert "configured project-context or memory capability" in prompt
     assert "single transfer snapshot" in prompt
     assert "You are already in the repository" in prompt
+    assert "Use normal source-inspection and verification commands" in prompt
     assert "Trusted verification command for this case: `npm test`" in prompt
 
 
@@ -33,11 +34,11 @@ def test_claude_allowlist_includes_case_verification_only() -> None:
 
 
 def test_budget_and_timeout_are_valid_task_failures() -> None:
-    assert is_valid_execution("budget-exhausted", memory_permission_denied=False)
-    assert is_valid_execution("timeout", memory_permission_denied=False)
-    assert not is_valid_execution("authentication", memory_permission_denied=False)
-    assert not is_valid_execution("mcp-startup", memory_permission_denied=False)
-    assert not is_valid_execution(None, memory_permission_denied=True)
+    assert is_valid_execution("budget-exhausted", environment_violation=False)
+    assert is_valid_execution("timeout", environment_violation=False)
+    assert not is_valid_execution("authentication", environment_violation=False)
+    assert not is_valid_execution("mcp-startup", environment_violation=False)
+    assert not is_valid_execution(None, environment_violation=True)
 
 
 def test_last_n_prompt_contains_bounded_precursor_record() -> None:
@@ -55,3 +56,26 @@ def test_memorix_prompt_does_not_inline_the_precursor_record() -> None:
     )
     assert "<prior_session>" not in prompt
     assert "at least twelve characters" not in prompt
+
+
+def test_mem0_prompt_inlines_only_retrieved_canonical_context() -> None:
+    prompt = build_condition_prompt(
+        load_case_manifest(CASE),
+        "mem0-2.0.12-local",
+        retrieved_context="Retrieved project memory follows.\n\n[1] durable policy",
+    )
+
+    assert "<retrieved_memory>" in prompt
+    assert "durable policy" in prompt
+    assert "<prior_session>" not in prompt
+
+
+def test_mem0_prompt_requires_retrieval() -> None:
+    manifest = load_case_manifest(CASE)
+
+    try:
+        build_condition_prompt(manifest, "mem0-2.0.12-local")
+    except ValueError as error:
+        assert "requires retrieved context" in str(error)
+    else:
+        raise AssertionError("Mem0 condition should require retrieved context")

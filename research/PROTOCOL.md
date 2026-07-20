@@ -163,15 +163,21 @@ Model identifiers, agent versions, system instructions, integration files, and
 command lines are pinned and archived. Provider-reported per-model usage is
 also archived; a client run that invokes helper models is labelled `mixed`, not
 as a pure run of the requested model. Claude trials use `--bare`, explicit MCP
-configuration, disabled client auto-memory, a separate workspace root, and a
-permission policy that denies artifact, home, source-repository, parent, and
-sibling paths. Native Windows permission controls are treated as a mitigation,
-not as a substitute for documented contamination checks.
+configuration, disabled client auto-memory, a separate workspace root, and
+read/edit denials for artifact, home, and source-repository paths. Bash is
+allowed for normal work inside a disposable checkout, while parent traversal,
+network, installation, remote-Git, dynamic-interpreter, and external-path
+commands are denied or detected from the archived event stream. Native Windows
+permission controls are treated as a mitigation, not as a substitute for this
+documented command-contamination audit.
 
-Authentication, provider quota, MCP startup, agent-runtime, and missing-event
-failures are infrastructure exclusions. A fixed-budget exhaustion or timeout is
-an observed task failure when the process otherwise ran in the declared
-environment; it is not silently retried or excluded.
+Authentication, provider quota, MCP startup, agent-runtime, missing-event,
+permission-denied, and command-contamination failures are infrastructure
+exclusions. Any permission denial or command-audit violation invalidates a run
+until the declared constrained environment is repaired and preflighted; it is
+never treated as agent behavior or silently retried. A fixed-budget exhaustion
+or timeout is an observed task failure when the process otherwise ran in the
+declared environment.
 
 ## 9. Sample size and pilot freeze
 

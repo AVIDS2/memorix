@@ -24,6 +24,7 @@ audited.
 ## Layout
 
 - PROTOCOL.md: preregistration draft and statistical analysis plan.
+- BASELINE_PROTOCOL.md: fair canonical and native memory-baseline contract.
 - CLAIMS.md: every intended paper claim and the evidence required to unlock it.
 - LITERATURE.md: comparison boundaries for adjacent memory systems and benchmarks.
 - RESULTS-PILOT.md: excluded diagnostics and non-confirmatory smoke evidence.
@@ -65,3 +66,8 @@ The requested model label is not sufficient provenance. Runs record the
 provider-reported per-model token and cost breakdown plus a `single`, `mixed`,
 or `unreported` execution profile. A run that uses a helper model is reported
 as a mixed client stack rather than as a pure single-model result.
+
+Baseline adapters must additionally pass their pinned local preflight before an
+agent run. See `BASELINE_PROTOCOL.md` for the equal-evidence/equal-budget
+retrieval contract and the distinction between canonical and native product
+tracks.

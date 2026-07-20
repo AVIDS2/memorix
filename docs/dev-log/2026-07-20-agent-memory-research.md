@@ -199,13 +199,25 @@ analysis, an open artifact, and an English LaTeX paper.
   prose.
 - The revised case now asks only for restoration of the established policy,
   checks both zero-age acceptance at the current timestamp and rejection of a
-  future timestamp, and uses a declared scoped source check to require that
+  future timestamp, and uses a hidden Python AST assertion to require that
   `TimestampSigner.unsign` delegates age validation rather than inlining
   `SignatureExpired` again.
-- The harness now parses and evaluates these source checks after hidden-test
-  mounting. Their results enter CLI grades and trial artifacts, and a failed
-  check makes `task_success` false.
+- The harness now evaluates literal source checks before hidden-test mounting,
+  archives both source hashes and check phase, and treats a failed check as a
+  task failure. Literal checks are only a lightweight guard; the Python case's
+  ownership rule is enforced by the hidden AST oracle.
 - Fresh pinned-repository gates passed: precursor public suite 101/101,
-  transfer public suite 101/101, unmodified transfer hidden oracle 102 pass +
-  1 expected failure, and reference repair 103/103 with the source check
+  transfer public suite 101/101, unmodified transfer hidden oracle 103 pass +
+  1 expected failure, and reference repair 104/104 with the hidden AST oracle
   passing. No agent has been run on this case.
+
+## Reproducible case-authoring gate
+
+- Added `memorixbench verify-case`, which materializes four fresh workspaces
+  and records the complete admission sequence: precursor public success,
+  transfer public success, hidden-regression failure, and reference-repair
+  success. It preserves the workspaces rather than deleting evidence.
+- Its first end-to-end run used the external `itsdangerous` case and reproduced
+  all four gates from a fresh upstream clone. This caught and then prevented a
+  malformed hidden-patch hunk during authoring; patch application is now part
+  of the automatic admission path rather than an informal manual check.

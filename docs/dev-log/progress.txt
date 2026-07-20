@@ -14,11 +14,13 @@
   artifact, and an English paper.
 - Research source of truth: `research/PROTOCOL.md`, `research/CLAIMS.md`, and
   `docs/dev-log/2026-07-20-agent-memory-research.md`.
-- Current gate: 44 research-tooling tests pass; three local TypeScript/Python/Go
+- Current gate: 45 research-tooling tests pass; three local TypeScript/Python/Go
   transfer fixtures plus provenance-labelled external Go and Python cases pass
   their precursor/public/hidden-reference authoring checks. The Python case
-  additionally has an enforced source-ownership oracle, so an inline rollback
-  cannot score as correct. The pinned local Mem0 adapter has passed
+  additionally has an enforced hidden AST source-ownership oracle, so an inline
+  rollback cannot score as correct. `memorixbench verify-case` now creates and records
+  all four authoring gates in fresh workspaces before a case can reach agents.
+  The pinned local Mem0 adapter has passed
   write/read/restart/scope preflight and one valid paired external development
   smoke. The AgentMemory full-service adapter has also passed its Docker
   write/read/restart/scope preflight and an isolated agent smoke; broader

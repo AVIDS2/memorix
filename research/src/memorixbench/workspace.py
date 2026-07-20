@@ -41,6 +41,8 @@ class SourceCheckResult:
     path: str
     passed: bool
     violations: tuple[str, ...]
+    source_sha256: str | None
+    scoped_source_sha256: str | None
 
 
 @dataclass(frozen=True)
@@ -48,6 +50,7 @@ class TransferEvaluation:
     commands: tuple[CommandResult, ...]
     hidden_patch_sha256: str | None
     source_checks: tuple[SourceCheckResult, ...]
+    source_check_phase: str
 
     @property
     def passed(self) -> bool:
@@ -305,15 +308,20 @@ def evaluate_source_checks(
                 path=check.path,
                 passed=False,
                 violations=("source file is missing",),
+                source_sha256=None,
+                scoped_source_sha256=None,
             ))
             continue
         source = candidate.read_text(encoding="utf-8", errors="replace")
+        source_sha256 = hashlib.sha256(source.encode("utf-8")).hexdigest()
         region, violations = _source_check_region(source, check)
         if region is None:
             results.append(SourceCheckResult(
                 path=check.path,
                 passed=False,
                 violations=violations,
+                source_sha256=source_sha256,
+                scoped_source_sha256=None,
             ))
             continue
         issues = list(violations)
@@ -331,6 +339,10 @@ def evaluate_source_checks(
             path=check.path,
             passed=not issues,
             violations=tuple(issues),
+            source_sha256=source_sha256,
+            scoped_source_sha256=hashlib.sha256(
+                region.encode("utf-8")
+            ).hexdigest(),
         ))
     return tuple(results)
 
@@ -351,6 +363,8 @@ def run_transfer_evaluation(
     timeout_seconds: int = 300,
 ) -> TransferEvaluation:
     repo = Path(workspace).resolve()
+    # Inspect the agent-authored source before a maintainer-only hidden patch can alter it.
+    source_checks = evaluate_source_checks(manifest, repo)
     hidden_patch_sha256: str | None = None
     if manifest.oracle.hidden_patch:
         patch = _resolve_asset(manifest, manifest.oracle.hidden_patch)
@@ -360,7 +374,6 @@ def run_transfer_evaluation(
         except subprocess.CalledProcessError as error:
             details = (error.stderr or error.stdout or "git apply failed").strip()
             raise ValueError(f"failed to mount hidden evaluation patch: {details}") from error
-    source_checks = evaluate_source_checks(manifest, repo)
     return TransferEvaluation(
         commands=tuple(
             run_phase_commands(
@@ -371,4 +384,5 @@ def run_transfer_evaluation(
         ),
         hidden_patch_sha256=hidden_patch_sha256,
         source_checks=source_checks,
+        source_check_phase="pre-hidden-patch",
     )

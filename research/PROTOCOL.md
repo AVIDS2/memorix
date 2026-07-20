@@ -91,14 +91,16 @@ Each case contains:
    repair that passes the hidden tests;
 7. an action/evidence oracle, stale evidence, and forbidden stale actions when
    applicable;
-8. a scoped deterministic source check when ownership or placement is part of
+8. a deterministic structural oracle when ownership or placement is part of
    correctness and behavior tests alone would let an agent restore stale code.
 
 Source checks are deliberately narrow literal constraints over a declared file
-or stable source span. They are evaluated only after the agent exits, archived
-with the hidden-test grade, and never replace behavioral tests. A case may use
-them to preserve a refactoring boundary (for example, requiring validation to
-remain in an extracted helper) without exposing that oracle to the agent.
+or stable source span. They are evaluated after the agent exits but before a
+maintainer-only hidden patch is mounted, and their source and scoped-source
+hashes are archived with the grade. They never replace behavioral tests. When
+semantic ownership is central to a case, use a hidden language-specific test or
+validator (for example, an AST check) rather than treating a literal match as a
+complete architecture proof.
 
 External cases additionally declare transition provenance. An upstream replay
 reconstructs an observed upstream change. A historically grounded controlled

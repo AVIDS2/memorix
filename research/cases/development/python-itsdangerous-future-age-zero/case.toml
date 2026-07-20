@@ -53,10 +53,3 @@ stale_evidence_ids = ["code:TimestampSigner.unsign-direct-age-check"]
 forbidden_actions = []
 hidden_patch = "hidden-tests.patch"
 reference_patch = "reference.patch"
-
-[[oracle.source_check]]
-path = "src/itsdangerous/timed.py"
-scope_start = "    def unsign("
-scope_end = "class TimedSerializer"
-required_literals = ["self._validate_timestamp_age(age, max_age, value, ts_int)"]
-forbidden_literals = ["raise SignatureExpired("]

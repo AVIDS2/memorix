@@ -675,6 +675,7 @@ def run_trial(
                 "passed": outcome.task_success,
                 "commands": _serialize_commands(grade_results),
                 "source_checks": [asdict(check) for check in evaluation.source_checks],
+                "source_check_phase": evaluation.source_check_phase,
             },
             indent=2,
         ),

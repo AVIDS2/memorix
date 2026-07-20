@@ -181,9 +181,79 @@ required_literals = ["expected"]
     )
 
     assert not evaluation.passed
+    assert evaluation.source_check_phase == "pre-hidden-patch"
+    assert evaluation.source_checks[0].source_sha256
+    assert evaluation.source_checks[0].scoped_source_sha256
     assert evaluation.source_checks[0].violations == (
         "required literal is missing: 'expected'",
     )
+
+
+def test_source_checks_ignore_hidden_patch_source_changes(tmp_path: Path) -> None:
+    case_dir = tmp_path / "case"
+    seed = case_dir / "seed"
+    seed.mkdir(parents=True)
+    (seed / "value.txt").write_text("broken\n", encoding="utf-8")
+    (case_dir / "hidden.patch").write_text(
+        "--- a/value.txt\n+++ b/value.txt\n@@ -1 +1 @@\n-broken\n+expected\n",
+        encoding="utf-8",
+    )
+    manifest_path = case_dir / "case.toml"
+    manifest_path.write_text(
+        """
+schema_version = "0.1"
+id = "source-check-pre-hidden"
+title = "Source checks precede hidden patches"
+split = "development"
+language = "text"
+tags = ["oracle"]
+
+[repository]
+source_type = "local-fixture"
+path = "seed"
+base_revision = "fixture-base"
+
+[precursor]
+task = "Inspect the source."
+success_commands = ["git status --short"]
+
+[transition]
+kind = "none"
+description = "No transition is required."
+apply_commands = []
+
+[transfer]
+task = "Preserve the source rule."
+success_commands = ["git status --short"]
+
+[oracle]
+required_start_files = ["value.txt"]
+relevant_evidence_ids = []
+stale_evidence_ids = []
+forbidden_actions = []
+hidden_patch = "hidden.patch"
+[[oracle.source_check]]
+path = "value.txt"
+required_literals = ["expected"]
+""".strip(),
+        encoding="utf-8",
+    )
+    workspace = materialize_case(
+        load_case_manifest(manifest_path),
+        tmp_path / "workspace",
+        stage="transfer",
+    )
+
+    evaluation = run_transfer_evaluation(
+        load_case_manifest(manifest_path),
+        workspace.path,
+    )
+
+    assert evaluation.source_check_phase == "pre-hidden-patch"
+    assert not evaluation.source_checks[0].passed
+    assert evaluation.commands[0].returncode == 0
+    assert not evaluation.passed
+    assert (workspace.path / "value.txt").read_text(encoding="utf-8") == "expected\n"
 
 
 def test_materializes_a_pinned_git_repository(tmp_path: Path) -> None:

@@ -135,6 +135,20 @@ path = "src/session.ts"''',
         load_case_manifest(write_case(tmp_path, content))
 
 
+def test_rejects_source_check_path_escape(tmp_path: Path) -> None:
+    content = VALID_CASE.replace(
+        'forbidden_actions = ["restore the removed auth validator"]',
+        '''forbidden_actions = []
+
+[[oracle.source_check]]
+path = "../outside.txt"
+required_literals = ["expected"]''',
+    )
+
+    with pytest.raises(ManifestError, match="must stay inside the repository"):
+        load_case_manifest(write_case(tmp_path, content))
+
+
 def test_rejects_duplicate_memory_seed_topic_keys(tmp_path: Path) -> None:
     content = VALID_CASE + """
 

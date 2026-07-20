@@ -54,8 +54,21 @@ a fresh materialized workspace to verify that the known-good repair passes the
 same hidden tests used for agents. The reference patch is never mounted during
 an agent run. A case may also declare scoped source checks for refactoring
 boundaries that behavior tests cannot observe directly. Those checks run after
-the agent exits, are included in `grade` output and trial artifacts, and are
-part of task success rather than advisory prose.
+the agent exits but before hidden tests are mounted, are included with source
+hashes in `grade` output and trial artifacts, and are part of task success
+rather than advisory prose. For a semantic ownership constraint, use a hidden
+language-specific validator rather than relying on string matching alone.
+
+Before a case is eligible for an agent run, execute all four authoring gates in
+one fresh artifact root:
+
+    uv run memorixbench verify-case cases/development/<case>/case.toml \
+      --target-root F:/memorix-research-artifacts/case-authoring/<case> \
+      --allow-case-commands
+
+The command proves precursor-public success, transfer-public success, hidden
+regression failure, and reference-repair success. It intentionally preserves
+the four materialized workspaces as audit evidence.
 
 ## Reproducibility contract
 

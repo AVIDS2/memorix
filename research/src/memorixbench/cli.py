@@ -5,6 +5,7 @@ from dataclasses import asdict
 import json
 from pathlib import Path
 
+from .authoring import verify_case_authoring
 from .schema import ManifestError, load_case_manifest
 from .scoring import collect_result_payloads, compare_conditions, load_jsonl, write_jsonl
 from .trial import SUPPORTED_CONDITIONS, run_trial
@@ -80,6 +81,7 @@ def _grade(args: argparse.Namespace) -> int:
         )
         hidden_patch_sha256 = None
         source_checks = ()
+        source_check_phase = None
     else:
         evaluation = run_transfer_evaluation(
             manifest,
@@ -89,6 +91,7 @@ def _grade(args: argparse.Namespace) -> int:
         results = list(evaluation.commands)
         hidden_patch_sha256 = evaluation.hidden_patch_sha256
         source_checks = evaluation.source_checks
+        source_check_phase = evaluation.source_check_phase
     passed = phase_passed(results) and all(check.passed for check in source_checks)
     print(json.dumps({
         "case_id": manifest.case_id,
@@ -98,8 +101,21 @@ def _grade(args: argparse.Namespace) -> int:
         "reference_patch_sha256": reference_patch_sha256,
         "commands": [asdict(result) for result in results],
         "source_checks": [asdict(check) for check in source_checks],
+        "source_check_phase": source_check_phase,
     }, indent=2))
     return 0 if passed else 1
+
+
+def _verify_case(args: argparse.Namespace) -> int:
+    if not args.allow_case_commands:
+        raise ValueError("case verification executes trusted commands; pass --allow-case-commands")
+    verification = verify_case_authoring(
+        load_case_manifest(args.case),
+        args.target_root,
+        timeout_seconds=args.timeout_seconds,
+    )
+    print(json.dumps(asdict(verification), indent=2))
+    return 0 if verification.passed else 1
 
 
 def _run_trial(args: argparse.Namespace) -> int:
@@ -162,6 +178,12 @@ def build_parser() -> argparse.ArgumentParser:
     grade.add_argument("--allow-case-commands", action="store_true")
     grade.add_argument("--reference", action="store_true")
 
+    verify_case = subparsers.add_parser("verify-case")
+    verify_case.add_argument("case", type=Path)
+    verify_case.add_argument("--target-root", type=Path, required=True)
+    verify_case.add_argument("--timeout-seconds", type=int, default=300)
+    verify_case.add_argument("--allow-case-commands", action="store_true")
+
     trial = subparsers.add_parser("run-trial")
     trial.add_argument("case", type=Path)
     trial.add_argument("--artifact-root", type=Path, required=True)
@@ -196,6 +218,8 @@ def main() -> int:
             return _materialize(args)
         if args.command == "grade":
             return _grade(args)
+        if args.command == "verify-case":
+            return _verify_case(args)
         if args.command == "run-trial":
             return _run_trial(args)
     except (ManifestError, ValueError) as error:

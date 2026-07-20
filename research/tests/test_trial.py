@@ -1,10 +1,14 @@
+from dataclasses import replace
 from pathlib import Path
+
+import pytest
 
 from memorixbench.schema import load_case_manifest
 from memorixbench.trial import (
     AGENTMEMORY_PROVIDER_ID,
     build_claude_allowed_tools,
     build_condition_prompt,
+    ensure_development_case,
     is_valid_execution,
 )
 
@@ -94,3 +98,10 @@ def test_agentmemory_canonical_prompt_uses_the_same_context_boundary() -> None:
     assert "mcp__agentmemory" not in build_claude_allowed_tools(
         load_case_manifest(CASE), AGENTMEMORY_PROVIDER_ID
     )
+
+
+def test_non_development_cases_are_not_executable_yet() -> None:
+    manifest = replace(load_case_manifest(CASE), split="test")
+
+    with pytest.raises(ValueError, match="private-oracle overlays"):
+        ensure_development_case(manifest)

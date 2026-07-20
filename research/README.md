@@ -87,3 +87,9 @@ Baseline adapters must additionally pass their pinned local preflight before an
 agent run. See `BASELINE_PROTOCOL.md` for the equal-evidence/equal-budget
 retrieval contract and the distinction between canonical and native product
 tracks.
+
+All currently executable cases are development-only. Their result artifacts
+carry `evidence_tier: development`, and `memorixbench compare` rejects them
+unless `--allow-development` is passed explicitly. Validation and test splits
+remain disabled until their private-oracle overlay and agent read-isolation
+preflight are implemented.

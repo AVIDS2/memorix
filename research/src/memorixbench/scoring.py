@@ -25,6 +25,7 @@ class RunResult:
     negative_control_intrusions: int = 0
     valid_run: bool = True
     failure_reason: str | None = None
+    evidence_tier: str = "unclassified"
 
     @property
     def pair_key(self) -> tuple[str, str, str, int, int]:
@@ -64,6 +65,7 @@ class RunResult:
             failure_reason=(
                 None if data.get("failure_reason") is None else str(data["failure_reason"])
             ),
+            evidence_tier=str(data.get("evidence_tier", "unclassified")),
         )
 
 
@@ -183,8 +185,20 @@ def compare_conditions(
     control: str,
     bootstrap_samples: int = 10_000,
     bootstrap_seed: int = 1729,
+    require_confirmatory: bool = True,
 ) -> PairedComparison:
     candidates = [item for item in results if item.condition in {treatment, control}]
+    if require_confirmatory:
+        non_confirmatory = sorted({
+            item.evidence_tier
+            for item in candidates
+            if item.evidence_tier != "confirmatory"
+        })
+        if non_confirmatory:
+            raise ValueError(
+                "non-confirmatory results require an explicit development override: "
+                + ", ".join(non_confirmatory)
+            )
     excluded_invalid = sum(not item.valid_run for item in candidates)
     selected = [item for item in candidates if item.valid_run]
     by_condition: dict[str, dict[tuple[str, str, str, int, int], RunResult]] = {

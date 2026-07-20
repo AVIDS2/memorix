@@ -81,4 +81,12 @@ materialization passed the precursor and transfer public suites (101 each),
 failed the hidden regression oracle (103 passed, 1 failed), and passed the
 reference repair (104 passed). A hidden Python AST oracle checks that timestamp
 rejection stays outside `TimestampSigner.unsign`, so a solution cannot merely
-restore the stale inline owner. It has no agent result yet.
+restore the stale inline owner.
+
+One isolated no-memory Claude development run also passed all 104 graded tests
+in 127.4 seconds at about USD 0.329. It had no permission or command-audit
+violation, but it used a mixed client stack and the transfer source makes the
+truthiness regression easy to infer directly. This is therefore an admission
+and runner diagnostic, not a Memorix comparison row: the case is retained for
+authoring and ownership checks but classified as low precursor-dependency until
+a harder successor case is independently admitted.

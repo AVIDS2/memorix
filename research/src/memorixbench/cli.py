@@ -38,6 +38,7 @@ def _compare(args: argparse.Namespace) -> int:
         control=args.control,
         bootstrap_samples=args.bootstrap_samples,
         bootstrap_seed=args.bootstrap_seed,
+        require_confirmatory=not args.allow_development,
     )
     print(json.dumps(asdict(comparison), indent=2))
     return 0
@@ -155,6 +156,7 @@ def build_parser() -> argparse.ArgumentParser:
     compare.add_argument("--control", required=True)
     compare.add_argument("--bootstrap-samples", type=int, default=10_000)
     compare.add_argument("--bootstrap-seed", type=int, default=1729)
+    compare.add_argument("--allow-development", action="store_true")
 
     collect = subparsers.add_parser("collect-results")
     collect.add_argument("root", type=Path)

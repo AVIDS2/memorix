@@ -81,6 +81,8 @@ class TrialOutcome:
     run_id: str
     study_id: str
     case_id: str
+    case_split: str
+    evidence_tier: str
     condition: str
     agent: AgentName
     model: str
@@ -269,6 +271,14 @@ def _serialize_commands(results: list[CommandResult]) -> list[dict[str, object]]
     return [asdict(result) for result in results]
 
 
+def ensure_development_case(manifest: CaseManifest) -> None:
+    if manifest.split != "development":
+        raise ValueError(
+            "only development cases are executable until private-oracle overlays "
+            "and agent read-isolation preflight are implemented"
+        )
+
+
 def run_trial(
     *,
     case_path: str | Path,
@@ -288,6 +298,7 @@ def run_trial(
     claude_provider_settings: str | Path | None = None,
 ) -> TrialOutcome:
     manifest = load_case_manifest(case_path)
+    ensure_development_case(manifest)
     run_id = str(uuid.uuid4())
     model_label = model or "client-default"
     artifact_root_path = Path(artifact_root).resolve()
@@ -609,6 +620,8 @@ def run_trial(
         run_id=run_id,
         study_id=study_id,
         case_id=manifest.case_id,
+        case_split=manifest.split,
+        evidence_tier="development",
         condition=condition,
         agent=agent,
         model=model_label,

@@ -238,6 +238,13 @@ agent process exits. Development pilot runs that reveal prompt ambiguity,
 leakage, invalid oracle behavior, or changed execution rules are archived with
 their manifest hashes and excluded before confirmatory case selection.
 
+Development cases may retain authoring oracles in the repository so their
+admission gates are reproducible; they are explicitly public development
+evidence, not private-oracle evaluations. The executable runner currently
+refuses validation and test splits. Confirmatory execution is blocked until a
+private oracle overlay and verified read isolation exist for every included
+agent client, including Codex.
+
 Public repositories may have appeared in model training, so conclusions concern
 the controlled transfer intervention, not proof of novel code synthesis. Where
 possible, transitions are newly authored and timestamped after the selected

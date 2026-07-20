@@ -21,6 +21,7 @@ def run(case_id: str, condition: str, success: bool) -> RunResult:
         repetition=0,
         seed=7,
         task_success=success,
+        evidence_tier="confirmatory",
     )
 
 
@@ -60,6 +61,7 @@ def test_excludes_infrastructure_failures_from_pairs() -> None:
         task_success=False,
         valid_run=False,
         failure_reason="authentication",
+        evidence_tier="confirmatory",
     )
     with pytest.raises(ValueError, match="no matched"):
         compare_conditions(
@@ -102,6 +104,7 @@ def test_collects_and_writes_machine_readable_results(tmp_path: Path) -> None:
         "repetition": 0,
         "seed": 1729,
         "task_success": False,
+        "evidence_tier": "confirmatory",
     }
     (nested / "result.json").write_text(json.dumps(payload), encoding="utf-8")
 
@@ -110,3 +113,43 @@ def test_collects_and_writes_machine_readable_results(tmp_path: Path) -> None:
 
     assert write_jsonl(destination, rows) == 1
     assert destination.read_text(encoding="utf-8").strip() == json.dumps(payload, sort_keys=True)
+
+
+def test_rejects_development_results_without_explicit_override() -> None:
+    development = RunResult(
+        case_id="case-a",
+        condition="memorix-full",
+        agent="claude",
+        model="model-a",
+        repetition=0,
+        seed=7,
+        task_success=True,
+        evidence_tier="development",
+    )
+    control = RunResult(
+        case_id="case-a",
+        condition="no-memory",
+        agent="claude",
+        model="model-a",
+        repetition=0,
+        seed=7,
+        task_success=False,
+        evidence_tier="development",
+    )
+
+    with pytest.raises(ValueError, match="explicit development override"):
+        compare_conditions(
+            [development, control],
+            treatment="memorix-full",
+            control="no-memory",
+            bootstrap_samples=100,
+        )
+
+    comparison = compare_conditions(
+        [development, control],
+        treatment="memorix-full",
+        control="no-memory",
+        bootstrap_samples=100,
+        require_confirmatory=False,
+    )
+    assert comparison.pairs == 1

@@ -206,6 +206,14 @@ analysis, an open artifact, and an English LaTeX paper.
   archives both source hashes and check phase, and treats a failed check as a
   task failure. Literal checks are only a lightweight guard; the Python case's
   ownership rule is enforced by the hidden AST oracle.
+- A second independent code review found that the original source-check order
+  could have let a hidden patch alter checked source. The runner now checks the
+  agent-authored tree first, and a regression test proves a hidden source patch
+  cannot repair that result. The same review identified that development
+  oracles are not a private test set; trial artifacts are now explicitly marked
+  `development`, comparison rejects them by default, and non-development
+  execution is blocked pending a private overlay plus per-client read-isolation
+  preflight.
 - Fresh pinned-repository gates passed: precursor public suite 101/101,
   transfer public suite 101/101, unmodified transfer hidden oracle 103 pass +
   1 expected failure, and reference repair 104/104 with the hidden AST oracle

@@ -6,9 +6,15 @@ import re
 import tomllib
 from typing import Any
 
-SCHEMA_VERSION = "0.1"
+SCHEMA_VERSION = "0.3"
 CASE_ID_PATTERN = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+COMMIT_SHA_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 VALID_SPLITS = {"development", "validation", "test"}
+VALID_DEPENDENCY_STRENGTHS = {"low", "medium", "high"}
+VALID_DEPENDENCY_CLASSIFICATION_STATUS = {
+    "retrospective-development",
+    "preregistered",
+}
 VALID_SOURCE_TYPES = {"local-fixture", "git"}
 VALID_TRANSITIONS = {
     "none",
@@ -89,6 +95,8 @@ class CaseManifest:
     case_id: str
     title: str
     split: str
+    dependency_strength: str
+    dependency_classification_status: str
     language: str
     tags: tuple[str, ...]
     repository: RepositorySpec
@@ -237,6 +245,18 @@ def load_case_manifest(path: str | Path) -> CaseManifest:
     split = _text(data, "split")
     if split not in VALID_SPLITS:
         raise ManifestError(f"manifest.split must be one of {sorted(VALID_SPLITS)}")
+    dependency_strength = _text(data, "dependency_strength")
+    if dependency_strength not in VALID_DEPENDENCY_STRENGTHS:
+        raise ManifestError(
+            "manifest.dependency_strength must be one of "
+            f"{sorted(VALID_DEPENDENCY_STRENGTHS)}"
+        )
+    dependency_classification_status = _text(data, "dependency_classification_status")
+    if dependency_classification_status not in VALID_DEPENDENCY_CLASSIFICATION_STATUS:
+        raise ManifestError(
+            "manifest.dependency_classification_status must be one of "
+            f"{sorted(VALID_DEPENDENCY_CLASSIFICATION_STATUS)}"
+        )
 
     repository_data = _table(data, "repository")
     source_type = _text(repository_data, "source_type", context="repository")
@@ -244,9 +264,14 @@ def load_case_manifest(path: str | Path) -> CaseManifest:
         raise ManifestError(
             f"repository.source_type must be one of {sorted(VALID_SOURCE_TYPES)}"
         )
+    base_revision = _text(repository_data, "base_revision", context="repository")
+    if source_type == "git" and not COMMIT_SHA_PATTERN.fullmatch(base_revision):
+        raise ManifestError(
+            "repository.base_revision must be a full lowercase 40-character commit SHA"
+        )
     repository = RepositorySpec(
         source_type=source_type,
-        base_revision=_text(repository_data, "base_revision", context="repository"),
+        base_revision=base_revision,
         path=_optional_text(repository_data, "path"),
         url=_optional_text(repository_data, "url"),
         license=_optional_text(repository_data, "license"),
@@ -271,6 +296,8 @@ def load_case_manifest(path: str | Path) -> CaseManifest:
         case_id=case_id,
         title=_text(data, "title"),
         split=split,
+        dependency_strength=dependency_strength,
+        dependency_classification_status=dependency_classification_status,
         language=_text(data, "language"),
         tags=_strings(data, "tags", context="manifest", required=True),
         repository=repository,

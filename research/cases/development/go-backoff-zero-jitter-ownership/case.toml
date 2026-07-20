@@ -1,7 +1,9 @@
-schema_version = "0.1"
+schema_version = "0.3"
 id = "go-backoff-zero-jitter-ownership"
 title = "Zero-jitter retry policy survives randomization-helper extraction"
 split = "development"
+dependency_strength = "medium"
+dependency_classification_status = "retrospective-development"
 language = "go"
 tags = ["cross-session", "code-change", "stale-symbol", "policy-retention", "external-repository", "historically-grounded"]
 

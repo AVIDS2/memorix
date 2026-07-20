@@ -217,7 +217,11 @@ analysis, an open artifact, and an English LaTeX paper.
 - Fresh pinned-repository gates passed: precursor public suite 101/101,
   transfer public suite 101/101, unmodified transfer hidden oracle 103 pass +
   1 expected failure, and reference repair 104/104 with the hidden AST oracle
-  passing. No agent has been run on this case.
+  passing. It had no agent result at admission time.
+- A later isolated no-memory Claude diagnostic passed the same hidden suite,
+  confirming that this transfer state is low predecessor-dependency for the
+  current strong client. It remains a development admission and ownership
+  check, not a Memorix comparison row or primary-effect candidate.
 
 ## Reproducible case-authoring gate
 
@@ -229,3 +233,20 @@ analysis, an open artifact, and an English LaTeX paper.
   all four gates from a fresh upstream clone. This caught and then prevented a
   malformed hidden-patch hunk during authoring; patch application is now part
   of the automatic admission path rather than an informal manual check.
+- A subsequent GitHub SSL failure was classified as infrastructure rather than
+  case behavior. The materializer now supports a pinned local Git cache only
+  with a full immutable commit and recorded origin metadata; an offline
+  `itsdangerous` run reproduced all four gates through that cache.
+- A governance review corrected the initial dependency labels: they are
+  retrospective development classifications, not preregistration. The next
+  confirmatory corpus must carry a frozen `preregistered` classification before
+  any model call. New trial artifacts also snapshot the full case definition,
+  instead of relying on a manifest hash alone.
+
+## Candidate triage
+
+- Audited a JavaScript `p-limit` runtime-concurrency candidate with real
+  upstream policy history. It is deferred rather than admitted: the pinned
+  snapshot lacks a reproducible lockfile, and current full tests suffer from
+  dependency drift. Its exact provenance, policy commits, and admission
+  blockers live in `research/CASE-CANDIDATES.md`.

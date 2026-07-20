@@ -1,7 +1,9 @@
-schema_version = "0.1"
+schema_version = "0.3"
 id = "typescript-auth-ownership"
 title = "Token policy and shard marker survive an ownership migration"
 split = "development"
+dependency_strength = "high"
+dependency_classification_status = "retrospective-development"
 language = "typescript"
 tags = ["cross-session", "code-change", "stale-symbol", "policy-retention"]
 

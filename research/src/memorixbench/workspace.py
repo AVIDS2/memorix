@@ -25,6 +25,8 @@ class MaterializedWorkspace:
     transfer_commit: str | None
     precursor_patch_sha256: str | None
     transition_patch_sha256: str | None
+    repository_transport: str
+    repository_origin: str | None
 
 
 @dataclass(frozen=True)
@@ -111,11 +113,40 @@ def _apply_patch(repo: Path, patch: Path, message: str) -> str:
     return _commit_all(repo, message)
 
 
+def _normalized_git_url(value: str) -> str:
+    return value.rstrip("/").removesuffix(".git")
+
+
+def _verified_cache_source(
+    manifest: CaseManifest,
+    cache_root: str | Path,
+) -> tuple[Path, str]:
+    if manifest.repository.source_type != "git":
+        raise ValueError("repository_cache is only valid for git repository cases")
+    assert manifest.repository.url is not None
+    cache = Path(cache_root).resolve()
+    if not cache.is_dir():
+        raise ValueError(f"repository cache does not exist: {cache}")
+    try:
+        origin = _run_git(cache, "remote", "get-url", "origin")
+        _run_git(cache, "cat-file", "-e", f"{manifest.repository.base_revision}^{{commit}}")
+    except subprocess.CalledProcessError as error:
+        details = (error.stderr or error.stdout or "invalid repository cache").strip()
+        raise ValueError(f"invalid repository cache {cache}: {details}") from error
+    if _normalized_git_url(origin) != _normalized_git_url(manifest.repository.url):
+        raise ValueError(
+            "repository cache origin does not match manifest URL: "
+            f"{origin!r} != {manifest.repository.url!r}"
+        )
+    return cache, origin
+
+
 def materialize_case(
     manifest: CaseManifest,
     target: str | Path,
     *,
     stage: Stage = "transfer",
+    repository_cache: str | Path | None = None,
 ) -> MaterializedWorkspace:
     if stage not in {"base", "precursor", "transfer"}:
         raise ValueError(f"unsupported materialization stage: {stage}")
@@ -124,7 +155,11 @@ def materialize_case(
         raise ValueError(f"target already exists: {target_path}")
     target_path.parent.mkdir(parents=True, exist_ok=True)
 
+    repository_transport = "local-fixture"
+    repository_origin: str | None = None
     if manifest.repository.source_type == "local-fixture":
+        if repository_cache is not None:
+            raise ValueError("repository_cache is only valid for git repository cases")
         assert manifest.repository.path is not None
         source = _resolve_asset(manifest, manifest.repository.path)
         if not source.is_dir():
@@ -132,8 +167,17 @@ def materialize_case(
         shutil.copytree(source, target_path)
     else:
         assert manifest.repository.url is not None
+        clone_source = manifest.repository.url
+        repository_origin = manifest.repository.url
+        if repository_cache is not None:
+            cache, cache_origin = _verified_cache_source(manifest, repository_cache)
+            clone_source = str(cache)
+            repository_origin = cache_origin
+            repository_transport = "pinned-local-cache"
+        else:
+            repository_transport = "remote"
         subprocess.run(
-            ["git", "clone", "--quiet", "--no-checkout", manifest.repository.url, str(target_path)],
+            ["git", "clone", "--quiet", "--no-checkout", clone_source, str(target_path)],
             check=True,
         )
         _run_git(target_path, "checkout", "--quiet", manifest.repository.base_revision)
@@ -146,6 +190,11 @@ def materialize_case(
         base_commit = _commit_all(target_path, "memorixbench: base fixture")
     else:
         base_commit = _run_git(target_path, "rev-parse", "HEAD")
+    if manifest.repository.source_type == "git" and base_commit != manifest.repository.base_revision:
+        raise ValueError(
+            "materialized Git revision does not match the manifest commit: "
+            f"{base_commit} != {manifest.repository.base_revision}"
+        )
 
     precursor_commit: str | None = None
     transfer_commit: str | None = None
@@ -179,6 +228,8 @@ def materialize_case(
         transfer_commit=transfer_commit,
         precursor_patch_sha256=precursor_sha,
         transition_patch_sha256=transition_sha,
+        repository_transport=repository_transport,
+        repository_origin=repository_origin,
     )
 
 

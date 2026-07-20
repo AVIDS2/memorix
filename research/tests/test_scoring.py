@@ -22,6 +22,8 @@ def run(case_id: str, condition: str, success: bool) -> RunResult:
         seed=7,
         task_success=success,
         evidence_tier="confirmatory",
+        predecessor_dependency="high",
+        dependency_classification_status="preregistered",
     )
 
 
@@ -62,6 +64,8 @@ def test_excludes_infrastructure_failures_from_pairs() -> None:
         valid_run=False,
         failure_reason="authentication",
         evidence_tier="confirmatory",
+        predecessor_dependency="high",
+        dependency_classification_status="preregistered",
     )
     with pytest.raises(ValueError, match="no matched"):
         compare_conditions(
@@ -105,6 +109,8 @@ def test_collects_and_writes_machine_readable_results(tmp_path: Path) -> None:
         "seed": 1729,
         "task_success": False,
         "evidence_tier": "confirmatory",
+        "predecessor_dependency": "high",
+        "dependency_classification_status": "preregistered",
     }
     (nested / "result.json").write_text(json.dumps(payload), encoding="utf-8")
 
@@ -125,6 +131,8 @@ def test_rejects_development_results_without_explicit_override() -> None:
         seed=7,
         task_success=True,
         evidence_tier="development",
+        predecessor_dependency="high",
+        dependency_classification_status="retrospective-development",
     )
     control = RunResult(
         case_id="case-a",
@@ -135,6 +143,8 @@ def test_rejects_development_results_without_explicit_override() -> None:
         seed=7,
         task_success=False,
         evidence_tier="development",
+        predecessor_dependency="high",
+        dependency_classification_status="retrospective-development",
     )
 
     with pytest.raises(ValueError, match="explicit development override"):
@@ -153,3 +163,65 @@ def test_rejects_development_results_without_explicit_override() -> None:
         require_confirmatory=False,
     )
     assert comparison.pairs == 1
+
+
+def test_rejects_low_dependency_without_explicit_override() -> None:
+    low_treatment = RunResult(
+        case_id="case-a",
+        condition="memorix-full",
+        agent="claude",
+        model="model-a",
+        repetition=0,
+        seed=7,
+        task_success=True,
+        evidence_tier="confirmatory",
+        predecessor_dependency="low",
+        dependency_classification_status="preregistered",
+    )
+    low_control = RunResult(
+        case_id="case-a",
+        condition="no-memory",
+        agent="claude",
+        model="model-a",
+        repetition=0,
+        seed=7,
+        task_success=False,
+        evidence_tier="confirmatory",
+        predecessor_dependency="low",
+        dependency_classification_status="preregistered",
+    )
+
+    with pytest.raises(ValueError, match="low or unclassified dependency"):
+        compare_conditions(
+            [low_treatment, low_control],
+            treatment="memorix-full",
+            control="no-memory",
+            bootstrap_samples=100,
+        )
+
+    comparison = compare_conditions(
+        [low_treatment, low_control],
+        treatment="memorix-full",
+        control="no-memory",
+        bootstrap_samples=100,
+        include_low_dependency=True,
+    )
+    assert comparison.pairs == 1
+
+
+def test_rejects_invalid_result_classification() -> None:
+    payload = {
+        "case_id": "case-a",
+        "condition": "no-memory",
+        "agent": "claude",
+        "model": "model-a",
+        "repetition": 0,
+        "seed": 7,
+        "task_success": True,
+        "evidence_tier": "development",
+        "predecessor_dependency": "high",
+        "dependency_classification_status": "unknown",
+    }
+
+    with pytest.raises(ValueError, match="dependency_classification_status"):
+        RunResult.from_dict(payload)

@@ -39,6 +39,7 @@ def _compare(args: argparse.Namespace) -> int:
         bootstrap_samples=args.bootstrap_samples,
         bootstrap_seed=args.bootstrap_seed,
         require_confirmatory=not args.allow_development,
+        include_low_dependency=args.include_low_dependency,
     )
     print(json.dumps(asdict(comparison), indent=2))
     return 0
@@ -58,6 +59,7 @@ def _materialize(args: argparse.Namespace) -> int:
         load_case_manifest(args.case),
         args.target,
         stage=args.stage,
+        repository_cache=args.repository_cache,
     )
     payload = asdict(workspace)
     payload["path"] = str(workspace.path)
@@ -114,6 +116,7 @@ def _verify_case(args: argparse.Namespace) -> int:
         load_case_manifest(args.case),
         args.target_root,
         timeout_seconds=args.timeout_seconds,
+        repository_cache=args.repository_cache,
     )
     print(json.dumps(asdict(verification), indent=2))
     return 0 if verification.passed else 1
@@ -138,6 +141,7 @@ def _run_trial(args: argparse.Namespace) -> int:
         agentmemory_runtime=args.agentmemory_runtime,
         workspace_root=args.workspace_root,
         claude_provider_settings=args.claude_provider_settings,
+        repository_cache=args.repository_cache,
     )
     print(json.dumps(asdict(outcome), indent=2))
     return 0
@@ -157,6 +161,7 @@ def build_parser() -> argparse.ArgumentParser:
     compare.add_argument("--bootstrap-samples", type=int, default=10_000)
     compare.add_argument("--bootstrap-seed", type=int, default=1729)
     compare.add_argument("--allow-development", action="store_true")
+    compare.add_argument("--include-low-dependency", action="store_true")
 
     collect = subparsers.add_parser("collect-results")
     collect.add_argument("root", type=Path)
@@ -171,6 +176,7 @@ def build_parser() -> argparse.ArgumentParser:
         choices=("base", "precursor", "transfer"),
         default="transfer",
     )
+    materialize.add_argument("--repository-cache", type=Path)
 
     grade = subparsers.add_parser("grade")
     grade.add_argument("case", type=Path)
@@ -185,6 +191,7 @@ def build_parser() -> argparse.ArgumentParser:
     verify_case.add_argument("--target-root", type=Path, required=True)
     verify_case.add_argument("--timeout-seconds", type=int, default=300)
     verify_case.add_argument("--allow-case-commands", action="store_true")
+    verify_case.add_argument("--repository-cache", type=Path)
 
     trial = subparsers.add_parser("run-trial")
     trial.add_argument("case", type=Path)
@@ -202,6 +209,7 @@ def build_parser() -> argparse.ArgumentParser:
     trial.add_argument("--agentmemory-runtime", type=Path)
     trial.add_argument("--workspace-root", type=Path)
     trial.add_argument("--claude-provider-settings", type=Path)
+    trial.add_argument("--repository-cache", type=Path)
     trial.add_argument("--allow-agent-execution", action="store_true")
     return parser
 

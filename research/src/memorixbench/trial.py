@@ -6,6 +6,7 @@ import hashlib
 import json
 from pathlib import Path
 import platform
+import shutil
 import subprocess
 import time
 import uuid
@@ -82,6 +83,8 @@ class TrialOutcome:
     study_id: str
     case_id: str
     case_split: str
+    predecessor_dependency: str
+    dependency_classification_status: str
     evidence_tier: str
     condition: str
     agent: AgentName
@@ -124,6 +127,7 @@ class TrialOutcome:
     memory_retrieval_seconds: float | None
     memorix_cli_sha256: str | None
     case_manifest_sha256: str
+    case_definition_sha256: str
     precursor_transcript_sha256: str | None
     base_commit: str
     precursor_commit: str | None
@@ -139,6 +143,8 @@ class TrialOutcome:
     started_at: str
     artifact_dir: str
     workspace_isolation: str
+    repository_transport: str
+    repository_origin: str | None
 
 
 def _sha256(path: Path) -> str:
@@ -279,6 +285,25 @@ def ensure_development_case(manifest: CaseManifest) -> None:
         )
 
 
+def archive_case_definition(manifest: CaseManifest, artifact_dir: Path) -> str:
+    source_root = manifest.source_path.parent.resolve()
+    if any(path.is_symlink() for path in source_root.rglob("*")):
+        raise ValueError("case definition cannot contain symbolic links")
+    destination = artifact_dir / "case-definition"
+    shutil.copytree(source_root, destination)
+    digest = hashlib.sha256()
+    for path in sorted(destination.rglob("*")):
+        if not path.is_file():
+            continue
+        relative = path.relative_to(destination).as_posix()
+        digest.update(relative.encode("utf-8"))
+        digest.update(b"\0")
+        with path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+    return digest.hexdigest()
+
+
 def run_trial(
     *,
     case_path: str | Path,
@@ -296,6 +321,7 @@ def run_trial(
     agentmemory_runtime: str | Path | None = None,
     workspace_root: str | Path | None = None,
     claude_provider_settings: str | Path | None = None,
+    repository_cache: str | Path | None = None,
 ) -> TrialOutcome:
     manifest = load_case_manifest(case_path)
     ensure_development_case(manifest)
@@ -331,6 +357,7 @@ def run_trial(
         workspace_dir = run_dir / "workspace"
     agent_dir = run_dir / "agent"
     run_dir.mkdir(parents=True, exist_ok=False)
+    case_definition_sha256 = archive_case_definition(manifest, run_dir)
     started_at = datetime.now(timezone.utc).isoformat()
     is_memorix = condition in MEMORIX_CONDITIONS
     is_canonical_retrieval = condition in CANONICAL_RETRIEVAL_CONDITIONS
@@ -341,6 +368,7 @@ def run_trial(
         manifest,
         workspace_dir,
         stage="precursor" if is_memorix or is_canonical_retrieval else "transfer",
+        repository_cache=repository_cache,
     )
 
     transfer_commit = materialized.transfer_commit
@@ -616,11 +644,13 @@ def run_trial(
         else execution.failure_reason
     )
     outcome = TrialOutcome(
-        schema_version="0.7",
+        schema_version="1.1",
         run_id=run_id,
         study_id=study_id,
         case_id=manifest.case_id,
         case_split=manifest.split,
+        predecessor_dependency=manifest.dependency_strength,
+        dependency_classification_status=manifest.dependency_classification_status,
         evidence_tier="development",
         condition=condition,
         agent=agent,
@@ -665,6 +695,7 @@ def run_trial(
         memory_retrieval_seconds=memory_retrieval_seconds,
         memorix_cli_sha256=memorix_cli_sha256,
         case_manifest_sha256=_sha256(manifest.source_path),
+        case_definition_sha256=case_definition_sha256,
         precursor_transcript_sha256=transcript_sha,
         base_commit=materialized.base_commit,
         precursor_commit=materialized.precursor_commit,
@@ -680,6 +711,8 @@ def run_trial(
         started_at=started_at,
         artifact_dir=str(run_dir),
         workspace_isolation=workspace_isolation,
+        repository_transport=materialized.repository_transport,
+        repository_origin=materialized.repository_origin,
     )
     (run_dir / "prompt.txt").write_text(prompt, encoding="utf-8")
     (run_dir / "grade.json").write_text(

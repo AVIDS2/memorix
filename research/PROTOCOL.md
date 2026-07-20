@@ -112,8 +112,12 @@ specifies its role in confirmatory analysis.
 
 Transition strata are code changes, dependency changes, configuration changes,
 documentation or policy changes, and no-change controls. Dependency strength is
-classified before model runs as low, medium, or high according to how much the
-transfer task depends on precursor-only information.
+declared as low, medium, or high together with its classification status.
+Existing development cases are explicitly `retrospective-development`; they
+help harden the harness but are not preregistered evidence. A confirmatory case
+must be marked `preregistered` before its first model run. Low-dependency cases
+remain useful for harness and negative-control work, but cannot enter the
+primary memory-effect analysis without a separate declared analysis stratum.
 
 The corpus must include multiple repositories and at least TypeScript, Python,
 and Go. Memorix itself may be used for development and smoke tests but is
@@ -258,6 +262,13 @@ analysis code, aggregate results, failure inventory, and the exact manuscript
 tables and figures. Raw logs are redacted for credentials and personally
 identifying paths before public release. Every paper number must be regenerated
 from archived machine-readable results by one documented command.
+
+For remote repositories, a pinned local Git cache may be used only when its
+`origin` matches the manifest URL and it contains the immutable full commit
+named by the manifest. The commit identity, not a mutable remote URL, fixes the
+content; the origin match is recorded as provenance metadata. Artifacts record
+the transport and origin so transient network failure is never misclassified as
+an agent outcome.
 
 ## 13. Claim boundary
 

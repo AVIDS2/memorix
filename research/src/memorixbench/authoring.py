@@ -20,6 +20,8 @@ from .workspace import (
 class AuthoringGateResult:
     name: str
     workspace: str
+    repository_transport: str
+    repository_origin: str | None
     passed: bool
     commands: tuple[CommandResult, ...]
     source_checks: tuple[SourceCheckResult, ...]
@@ -47,6 +49,7 @@ def verify_case_authoring(
     target_root: str | Path,
     *,
     timeout_seconds: int = 300,
+    repository_cache: str | Path | None = None,
 ) -> AuthoringVerification:
     """Run the four deterministic gates required before a case reaches agents."""
 
@@ -60,7 +63,12 @@ def verify_case_authoring(
         raise ValueError(f"authoring target root already exists: {root}")
     root.mkdir(parents=True)
 
-    precursor = materialize_case(manifest, root / "01-precursor", stage="precursor")
+    precursor = materialize_case(
+        manifest,
+        root / "01-precursor",
+        stage="precursor",
+        repository_cache=repository_cache,
+    )
     precursor_commands = tuple(
         run_phase_commands(
             manifest.precursor,
@@ -69,7 +77,12 @@ def verify_case_authoring(
         )
     )
 
-    public = materialize_case(manifest, root / "02-transfer-public", stage="transfer")
+    public = materialize_case(
+        manifest,
+        root / "02-transfer-public",
+        stage="transfer",
+        repository_cache=repository_cache,
+    )
     public_commands = tuple(
         run_phase_commands(
             manifest.transfer,
@@ -79,7 +92,12 @@ def verify_case_authoring(
     )
     public_checks = evaluate_source_checks(manifest, public.path)
 
-    hidden = materialize_case(manifest, root / "03-transfer-hidden", stage="transfer")
+    hidden = materialize_case(
+        manifest,
+        root / "03-transfer-hidden",
+        stage="transfer",
+        repository_cache=repository_cache,
+    )
     hidden_evaluation = run_transfer_evaluation(
         manifest,
         hidden.path,
@@ -88,7 +106,12 @@ def verify_case_authoring(
     if hidden_evaluation.hidden_patch_sha256 is None:
         raise ValueError("authoring verification did not mount the hidden patch")
 
-    reference = materialize_case(manifest, root / "04-transfer-reference", stage="transfer")
+    reference = materialize_case(
+        manifest,
+        root / "04-transfer-reference",
+        stage="transfer",
+        repository_cache=repository_cache,
+    )
     reference_patch_sha256 = apply_reference_patch(manifest, reference.path)
     reference_evaluation = run_transfer_evaluation(
         manifest,
@@ -100,6 +123,8 @@ def verify_case_authoring(
         AuthoringGateResult(
             name="precursor-public",
             workspace=str(precursor.path),
+            repository_transport=precursor.repository_transport,
+            repository_origin=precursor.repository_origin,
             passed=phase_passed(list(precursor_commands)),
             commands=precursor_commands,
             source_checks=(),
@@ -107,6 +132,8 @@ def verify_case_authoring(
         AuthoringGateResult(
             name="transfer-public",
             workspace=str(public.path),
+            repository_transport=public.repository_transport,
+            repository_origin=public.repository_origin,
             passed=(
                 phase_passed(list(public_commands))
                 and _checks_passed(public_checks)
@@ -117,6 +144,8 @@ def verify_case_authoring(
         AuthoringGateResult(
             name="transfer-hidden-regression",
             workspace=str(hidden.path),
+            repository_transport=hidden.repository_transport,
+            repository_origin=hidden.repository_origin,
             passed=(
                 not phase_passed(list(hidden_evaluation.commands))
                 and _checks_passed(hidden_evaluation.source_checks)
@@ -128,6 +157,8 @@ def verify_case_authoring(
         AuthoringGateResult(
             name="transfer-reference",
             workspace=str(reference.path),
+            repository_transport=reference.repository_transport,
+            repository_origin=reference.repository_origin,
             passed=reference_evaluation.passed,
             commands=reference_evaluation.commands,
             source_checks=reference_evaluation.source_checks,

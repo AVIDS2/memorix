@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from memorixbench.schema import load_case_manifest
 import subprocess
 
@@ -40,10 +42,12 @@ def test_materializes_precursor_and_transition_patches(tmp_path: Path) -> None:
     manifest_path = case_dir / "case.toml"
     manifest_path.write_text(
         """
-schema_version = "0.1"
+schema_version = "0.3"
 id = "workspace-transition"
 title = "Workspace transition"
 split = "development"
+dependency_strength = "low"
+dependency_classification_status = "retrospective-development"
 language = "text"
 tags = ["transition"]
 
@@ -133,10 +137,12 @@ def test_transfer_evaluation_reports_source_check_violation(tmp_path: Path) -> N
     manifest_path = case_dir / "case.toml"
     manifest_path.write_text(
         """
-schema_version = "0.1"
+schema_version = "0.3"
 id = "source-check-violation"
 title = "Source check violation"
 split = "development"
+dependency_strength = "low"
+dependency_classification_status = "retrospective-development"
 language = "text"
 tags = ["oracle"]
 
@@ -201,10 +207,12 @@ def test_source_checks_ignore_hidden_patch_source_changes(tmp_path: Path) -> Non
     manifest_path = case_dir / "case.toml"
     manifest_path.write_text(
         """
-schema_version = "0.1"
+schema_version = "0.3"
 id = "source-check-pre-hidden"
 title = "Source checks precede hidden patches"
 split = "development"
+dependency_strength = "low"
+dependency_classification_status = "retrospective-development"
 language = "text"
 tags = ["oracle"]
 
@@ -289,10 +297,12 @@ def test_materializes_a_pinned_git_repository(tmp_path: Path) -> None:
     manifest_path = case_dir / "case.toml"
     manifest_path.write_text(
         f"""
-schema_version = "0.1"
+schema_version = "0.3"
 id = "pinned-git-source"
 title = "Pinned Git source"
 split = "development"
+dependency_strength = "low"
+dependency_classification_status = "retrospective-development"
 language = "text"
 tags = ["git"]
 
@@ -332,3 +342,100 @@ forbidden_actions = []
 
     assert workspace.base_commit == pinned_revision
     assert (workspace.path / "value.txt").read_text(encoding="utf-8") == "pinned\n"
+    assert workspace.repository_transport == "remote"
+    assert workspace.repository_origin == source.as_posix()
+
+
+def test_materializes_from_verified_local_cache(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    subprocess.run(["git", "init", "--quiet"], cwd=source, check=True)
+    subprocess.run(
+        ["git", "config", "user.name", "MemorixBench Test"],
+        cwd=source,
+        check=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.email", "memorixbench@example.invalid"],
+        cwd=source,
+        check=True,
+    )
+    (source / "value.txt").write_text("cached\n", encoding="utf-8")
+    subprocess.run(["git", "add", "value.txt"], cwd=source, check=True)
+    subprocess.run(["git", "commit", "--quiet", "-m", "cached"], cwd=source, check=True)
+    revision = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=source,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    expected_url = "https://example.test/memorixbench-cache.git"
+    subprocess.run(["git", "remote", "add", "origin", expected_url], cwd=source, check=True)
+
+    case_dir = tmp_path / "case"
+    case_dir.mkdir()
+    manifest_path = case_dir / "case.toml"
+    manifest_path.write_text(
+        f"""
+schema_version = "0.3"
+id = "verified-local-cache"
+title = "Verified local cache"
+split = "development"
+dependency_strength = "low"
+dependency_classification_status = "retrospective-development"
+language = "text"
+tags = ["git"]
+
+[repository]
+source_type = "git"
+url = "{expected_url}"
+base_revision = "{revision}"
+license = "MIT"
+
+[precursor]
+task = "Inspect the source."
+success_commands = ["git status --short"]
+
+[transition]
+kind = "none"
+description = "No transition is required."
+apply_commands = []
+
+[transfer]
+task = "Use the source."
+success_commands = ["git status --short"]
+
+[oracle]
+required_start_files = ["value.txt"]
+relevant_evidence_ids = []
+stale_evidence_ids = []
+forbidden_actions = []
+""".strip(),
+        encoding="utf-8",
+    )
+    manifest = load_case_manifest(manifest_path)
+
+    workspace = materialize_case(
+        manifest,
+        tmp_path / "workspace",
+        stage="transfer",
+        repository_cache=source,
+    )
+
+    assert workspace.repository_transport == "pinned-local-cache"
+    assert workspace.repository_origin == expected_url
+    assert (workspace.path / "value.txt").read_text(encoding="utf-8") == "cached\n"
+
+    subprocess.run(
+        ["git", "remote", "set-url", "origin", "https://example.test/other.git"],
+        cwd=source,
+        check=True,
+    )
+    with pytest.raises(ValueError, match="origin does not match"):
+        materialize_case(
+            manifest,
+            tmp_path / "mismatched-workspace",
+            stage="transfer",
+            repository_cache=source,
+        )

@@ -43,10 +43,12 @@ def test_verifies_all_authoring_gates(tmp_path: Path) -> None:
     manifest_path = case_dir / "case.toml"
     manifest_path.write_text(
         f"""
-schema_version = "0.1"
+schema_version = "0.3"
 id = "authoring-verification"
 title = "Authoring verification"
 split = "development"
+dependency_strength = "low"
+dependency_classification_status = "retrospective-development"
 language = "text"
 tags = ["authoring"]
 
@@ -94,3 +96,5 @@ reference_patch = "reference.patch"
     ]
     assert verification.gates[2].commands[0].returncode == 1
     assert verification.gates[3].commands[0].returncode == 0
+    assert {gate.repository_transport for gate in verification.gates} == {"local-fixture"}
+    assert {gate.repository_origin for gate in verification.gates} == {None}

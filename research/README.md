@@ -29,6 +29,8 @@ audited.
 - LITERATURE.md: comparison boundaries for adjacent memory systems and benchmarks.
 - RESULTS-PILOT.md: excluded diagnostics and non-confirmatory smoke evidence.
 - cases/: public case manifests and case-authoring rules.
+- CASE-CANDIDATES.md: researched candidates that are not yet eligible cases.
+- LEGACY-ARTIFACTS.md: pre-snapshot diagnostic artifact boundary.
 - src/memorixbench/: manifest validation and analysis tooling.
 - tests/: deterministic tests for the research tooling.
 - artifacts/: checksums and public artifact metadata; large local artifacts are ignored.
@@ -70,6 +72,12 @@ The command proves precursor-public success, transfer-public success, hidden
 regression failure, and reference-repair success. It intentionally preserves
 the four materialized workspaces as audit evidence.
 
+For a Git case, `--repository-cache <checkout>` may replace the clone transport
+only after MemorixBench verifies an `origin` match and checks out the manifest's
+immutable full commit. The commit fixes the content; `origin` is recorded as
+provenance metadata, not treated as cryptographic proof. The gate output records
+whether each workspace came from the remote or a pinned local cache.
+
 ## Reproducibility contract
 
 A publishable run must record the case manifest hash, repository revision,
@@ -93,3 +101,9 @@ carry `evidence_tier: development`, and `memorixbench compare` rejects them
 unless `--allow-development` is passed explicitly. Validation and test splits
 remain disabled until their private-oracle overlay and agent read-isolation
 preflight are implemented.
+
+Every case declares `dependency_strength` as `low`, `medium`, or `high`, plus
+whether the classification is `retrospective-development` or `preregistered`.
+Only the latter can support a confirmatory result, and a low-dependency case is
+never promoted into a primary memory-effect result merely because an agent
+completed it.

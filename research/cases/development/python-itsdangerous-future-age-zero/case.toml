@@ -1,7 +1,9 @@
-schema_version = "0.1"
+schema_version = "0.3"
 id = "python-itsdangerous-future-age-zero"
 title = "Strict zero-age timestamp policy survives validation-helper extraction"
 split = "development"
+dependency_strength = "low"
+dependency_classification_status = "retrospective-development"
 language = "python"
 tags = ["cross-session", "code-change", "stale-symbol", "security-policy", "external-repository", "historically-grounded"]
 

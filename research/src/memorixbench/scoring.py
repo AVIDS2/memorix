@@ -7,6 +7,14 @@ from pathlib import Path
 import random
 from typing import Iterable
 
+VALID_EVIDENCE_TIERS = {"unclassified", "development", "confirmatory"}
+VALID_DEPENDENCY_STRENGTHS = {"low", "medium", "high"}
+VALID_DEPENDENCY_CLASSIFICATION_STATUS = {
+    "unclassified",
+    "retrospective-development",
+    "preregistered",
+}
+
 
 @dataclass(frozen=True)
 class RunResult:
@@ -26,6 +34,8 @@ class RunResult:
     valid_run: bool = True
     failure_reason: str | None = None
     evidence_tier: str = "unclassified"
+    predecessor_dependency: str | None = None
+    dependency_classification_status: str = "unclassified"
 
     @property
     def pair_key(self) -> tuple[str, str, str, int, int]:
@@ -47,6 +57,34 @@ class RunResult:
             raise ValueError("run result is missing: " + ", ".join(sorted(missing)))
         if not isinstance(data["task_success"], bool):
             raise ValueError("task_success must be a boolean")
+        evidence_tier = str(data.get("evidence_tier", "unclassified"))
+        predecessor_dependency = (
+            None
+            if data.get("predecessor_dependency") is None
+            else str(data["predecessor_dependency"])
+        )
+        dependency_classification_status = str(
+            data.get("dependency_classification_status", "unclassified")
+        )
+        if evidence_tier not in VALID_EVIDENCE_TIERS:
+            raise ValueError(f"unknown evidence_tier: {evidence_tier!r}")
+        if predecessor_dependency not in {None, *VALID_DEPENDENCY_STRENGTHS}:
+            raise ValueError(
+                f"unknown predecessor_dependency: {predecessor_dependency!r}"
+            )
+        if dependency_classification_status not in VALID_DEPENDENCY_CLASSIFICATION_STATUS:
+            raise ValueError(
+                "unknown dependency_classification_status: "
+                f"{dependency_classification_status!r}"
+            )
+        if evidence_tier != "unclassified" and (
+            predecessor_dependency is None
+            or dependency_classification_status == "unclassified"
+        ):
+            raise ValueError(
+                "classified results require predecessor_dependency and "
+                "dependency_classification_status"
+            )
         return cls(
             case_id=str(data["case_id"]),
             condition=str(data["condition"]),
@@ -65,7 +103,9 @@ class RunResult:
             failure_reason=(
                 None if data.get("failure_reason") is None else str(data["failure_reason"])
             ),
-            evidence_tier=str(data.get("evidence_tier", "unclassified")),
+            evidence_tier=evidence_tier,
+            predecessor_dependency=predecessor_dependency,
+            dependency_classification_status=dependency_classification_status,
         )
 
 
@@ -186,6 +226,7 @@ def compare_conditions(
     bootstrap_samples: int = 10_000,
     bootstrap_seed: int = 1729,
     require_confirmatory: bool = True,
+    include_low_dependency: bool = False,
 ) -> PairedComparison:
     candidates = [item for item in results if item.condition in {treatment, control}]
     if require_confirmatory:
@@ -198,6 +239,27 @@ def compare_conditions(
             raise ValueError(
                 "non-confirmatory results require an explicit development override: "
                 + ", ".join(non_confirmatory)
+            )
+        non_preregistered = sorted({
+            item.dependency_classification_status
+            for item in candidates
+            if item.dependency_classification_status != "preregistered"
+        })
+        if non_preregistered:
+            raise ValueError(
+                "non-preregistered results cannot enter a confirmatory comparison: "
+                + ", ".join(non_preregistered)
+            )
+    if not include_low_dependency:
+        ineligible_dependencies = sorted({
+            "missing" if item.predecessor_dependency is None else item.predecessor_dependency
+            for item in candidates
+            if item.predecessor_dependency not in {"medium", "high"}
+        })
+        if ineligible_dependencies:
+            raise ValueError(
+                "low or unclassified dependency results require an explicit override: "
+                + ", ".join(ineligible_dependencies)
             )
     excluded_invalid = sum(not item.valid_run for item in candidates)
     selected = [item for item in candidates if item.valid_run]

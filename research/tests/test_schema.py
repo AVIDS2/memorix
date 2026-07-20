@@ -6,10 +6,12 @@ from memorixbench.schema import ManifestError, load_case_manifest
 
 
 VALID_CASE = """
-schema_version = "0.1"
+schema_version = "0.3"
 id = "typescript-auth-transfer"
 title = "Auth ownership transfer"
 split = "development"
+dependency_strength = "medium"
+dependency_classification_status = "retrospective-development"
 language = "typescript"
 tags = ["cross-session", "stale-symbol"]
 
@@ -49,6 +51,8 @@ def test_loads_valid_case(tmp_path: Path) -> None:
     case = load_case_manifest(write_case(tmp_path))
     assert case.case_id == "typescript-auth-transfer"
     assert case.transition.kind == "code-change"
+    assert case.dependency_strength == "medium"
+    assert case.dependency_classification_status == "retrospective-development"
     assert case.oracle.stale_evidence_ids == ("obs:legacy-auth-owner",)
 
 
@@ -65,8 +69,18 @@ def test_requires_git_license(tmp_path: Path) -> None:
     content = VALID_CASE.replace(
         'source_type = "local-fixture"\npath = "fixtures/typescript-auth"',
         'source_type = "git"\nurl = "https://example.test/repo.git"',
-    )
+    ).replace('base_revision = "fixture-v1"', 'base_revision = "0123456789abcdef0123456789abcdef01234567"')
     with pytest.raises(ManifestError, match="url and repository.license"):
+        load_case_manifest(write_case(tmp_path, content))
+
+
+def test_rejects_mutable_git_base_revision(tmp_path: Path) -> None:
+    content = VALID_CASE.replace(
+        'source_type = "local-fixture"\npath = "fixtures/typescript-auth"',
+        'source_type = "git"\nurl = "https://example.test/repo.git"\nlicense = "MIT"',
+    ).replace('base_revision = "fixture-v1"', 'base_revision = "HEAD"')
+
+    with pytest.raises(ManifestError, match="40-character commit SHA"):
         load_case_manifest(write_case(tmp_path, content))
 
 
@@ -146,6 +160,26 @@ required_literals = ["expected"]''',
     )
 
     with pytest.raises(ManifestError, match="must stay inside the repository"):
+        load_case_manifest(write_case(tmp_path, content))
+
+
+def test_rejects_unknown_dependency_strength(tmp_path: Path) -> None:
+    content = VALID_CASE.replace(
+        'dependency_strength = "medium"',
+        'dependency_strength = "unknown"',
+    )
+
+    with pytest.raises(ManifestError, match="dependency_strength"):
+        load_case_manifest(write_case(tmp_path, content))
+
+
+def test_rejects_unknown_dependency_classification_status(tmp_path: Path) -> None:
+    content = VALID_CASE.replace(
+        'dependency_classification_status = "retrospective-development"',
+        'dependency_classification_status = "unknown"',
+    )
+
+    with pytest.raises(ManifestError, match="dependency_classification_status"):
         load_case_manifest(write_case(tmp_path, content))
 
 

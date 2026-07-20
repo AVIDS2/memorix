@@ -2,6 +2,7 @@ from pathlib import Path
 
 from memorixbench.schema import load_case_manifest
 from memorixbench.trial import (
+    AGENTMEMORY_PROVIDER_ID,
     build_claude_allowed_tools,
     build_condition_prompt,
     is_valid_execution,
@@ -79,3 +80,17 @@ def test_mem0_prompt_requires_retrieval() -> None:
         assert "requires retrieved context" in str(error)
     else:
         raise AssertionError("Mem0 condition should require retrieved context")
+
+
+def test_agentmemory_canonical_prompt_uses_the_same_context_boundary() -> None:
+    prompt = build_condition_prompt(
+        load_case_manifest(CASE),
+        AGENTMEMORY_PROVIDER_ID,
+        retrieved_context="Retrieved project memory follows.\n\n[1] durable policy",
+    )
+
+    assert "<retrieved_memory>" in prompt
+    assert "durable policy" in prompt
+    assert "mcp__agentmemory" not in build_claude_allowed_tools(
+        load_case_manifest(CASE), AGENTMEMORY_PROVIDER_ID
+    )

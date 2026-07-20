@@ -18,14 +18,16 @@
   transfer fixtures and one provenance-labelled external Go case pass their
   precursor/public/hidden-reference authoring checks. The pinned local Mem0
   adapter has passed write/read/restart/scope preflight and one valid paired
-  external development smoke; AgentMemory integration remains pending.
+  external development smoke. The AgentMemory full-service adapter has also
+  passed its Docker write/read/restart/scope preflight and an isolated agent
+  smoke; broader comparison runs remain pending.
 - Current evidence: isolated Claude Code development smokes exercise the real
   Memorix MCP path successfully across all three languages. They are not
   confirmatory comparisons; `research/RESULTS-PILOT.md` records exclusions and
   the model-profile caveat.
-- Next: add further external-repository cases, complete AgentMemory's full
-  canonical/native adapters, then freeze the confirmatory protocol before
-  aggregation.
+- Next: add further external-repository cases, add AgentMemory's separate
+  native smart-search condition only after its scope semantics are explicitly
+  tested, then freeze the confirmatory protocol before aggregation.
 
 ## 1.1.13 Closeout
 - Codex setup now stamps plugin versions and doctor distinguishes bundle,

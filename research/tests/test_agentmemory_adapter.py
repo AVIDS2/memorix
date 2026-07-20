@@ -1,0 +1,87 @@
+import json
+from pathlib import Path
+
+from memorixbench.agentmemory_adapter import (
+    AGENTMEMORY_PROVIDER_ID,
+    AgentMemoryFullAdapter,
+    ENGINE_PORT_OFFSETS,
+    PERSISTENCE_SETTLE_SECONDS,
+    _narrative_content,
+)
+
+
+def _adapter(tmp_path: Path) -> AgentMemoryFullAdapter:
+    package_root = tmp_path / "runtime" / "node_modules" / "@agentmemory" / "agentmemory"
+    (package_root / "dist").mkdir(parents=True)
+    (package_root / "dist" / "cli.mjs").write_text("// fixture", encoding="utf-8")
+    (package_root / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
+    (package_root / "package.json").write_text(
+        json.dumps({"version": "0.9.28"}), encoding="utf-8"
+    )
+    return AgentMemoryFullAdapter(
+        runtime_root=tmp_path / "runtime",
+        data_dir=tmp_path / "data",
+        artifact_dir=tmp_path / "artifacts",
+        project_name="memorixbench_agentmemory_test",
+        lock_path=tmp_path / "locks" / "agentmemory-3111.lock",
+    )
+
+
+def test_agentmemory_adapter_scrubs_provider_state_and_uses_isolated_home(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("OPENROUTER_API_KEY", "never-copy")
+    monkeypatch.setenv("ANTHROPIC_BASE_URL", "https://provider.invalid")
+    adapter = _adapter(tmp_path)
+
+    environment = adapter._environment()
+
+    assert environment["AGENTMEMORY_USE_DOCKER"] == "1"
+    assert environment["AGENTMEMORY_AUTO_COMPRESS"] == "false"
+    assert environment["AGENTMEMORY_INJECT_CONTEXT"] == "false"
+    assert environment["HOME"] == str(adapter.home_dir)
+    assert environment["COMPOSE_PROJECT_NAME"] == adapter.project_name
+    assert "OPENROUTER_API_KEY" not in environment
+    assert "ANTHROPIC_BASE_URL" not in environment
+    assert PERSISTENCE_SETTLE_SECONDS == 12
+    assert ENGINE_PORT_OFFSETS == (0, 1, 2, 6_353, 46_023)
+
+
+def test_agentmemory_adapter_normalizes_scoped_search_results(tmp_path: Path) -> None:
+    adapter = _adapter(tmp_path)
+    adapter._search_raw = lambda **_: {
+        "results": [
+            {
+                "score": 0.9,
+                "observation": {
+                    "id": "memory-1",
+                    "narrative": "Durable retry policy",
+                },
+            },
+            {
+                "score": 0.4,
+                "observation": {"id": "memory-2", "facts": ["Fallback fact"]},
+            },
+        ]
+    }
+
+    retrieval = adapter.retrieve(
+        project_id="project-a",
+        query="retry policy",
+        top_k=8,
+        token_budget=80,
+    )
+
+    assert retrieval.provider == AGENTMEMORY_PROVIDER_ID
+    assert retrieval.provider_version == "0.9.28"
+    assert [record.memory_id for record in retrieval.records] == ["memory-1", "memory-2"]
+    assert "Durable retry policy" in retrieval.context
+    assert (adapter.artifact_dir / "retrieve.json").is_file()
+
+
+def test_agentmemory_narrative_content_prefers_full_narrative() -> None:
+    assert _narrative_content(
+        {"narrative": "full evidence", "facts": ["short evidence"]}
+    ) == "full evidence"
+    assert _narrative_content({"facts": ["one", "two"]}) == "one\ntwo"

@@ -64,3 +64,11 @@ about USD 0.108; no-memory took 104.1 seconds and cost about USD 0.232. This
 is one easy development pair, not an effect estimate: both conditions solved
 the task and the client was a mixed stack. It exists to verify the real Mem0
 adapter, isolation, command audit, and grading path before case expansion.
+
+AgentMemory's official Docker full-service adapter also has one valid
+development smoke on this same easy case. It passed write/read/restart/project
+isolation preflight, retrieved the same two records at the same 150-token
+ceiling, passed hidden tests, and had 25.7 seconds of service preparation plus
+0.078 seconds retrieval and 68.6 seconds of agent time. This is a functional
+adapter smoke only, not a Mem0-vs-AgentMemory comparison or evidence of an
+outcome effect.

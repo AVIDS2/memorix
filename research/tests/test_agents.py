@@ -152,6 +152,40 @@ def test_claude_completed_patch_at_budget_boundary_is_valid() -> None:
     ) == "budget-exhausted"
 
 
+def test_claude_parser_records_unavailable_tool_attempts() -> None:
+    events = [
+        {
+            "type": "assistant",
+            "message": {
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "id": "grep-call",
+                        "name": "Grep",
+                    }
+                ]
+            },
+        },
+        {
+            "type": "user",
+            "message": {
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": "grep-call",
+                        "is_error": True,
+                        "content": "Error: No such tool available: Grep.",
+                    }
+                ]
+            },
+        },
+    ]
+
+    parsed = _parse_claude(events)
+
+    assert parsed["unavailable_tool_attempts"] == ("Grep",)
+
+
 def test_command_audit_allows_workspace_scoped_browsing(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     workspace.mkdir()

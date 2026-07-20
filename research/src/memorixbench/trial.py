@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 import platform
 import subprocess
+import time
 import uuid
 
 from .agents import (
@@ -19,6 +20,7 @@ from .agents import (
     write_claude_settings,
 )
 from .baseline import BaselineRetrieval
+from .agentmemory_adapter import AGENTMEMORY_PROVIDER_ID, AgentMemoryFullAdapter
 from .mem0_adapter import MEM0_PROVIDER_ID, Mem0LocalAdapter
 from .memorix_adapter import (
     refresh_memorix_project,
@@ -44,7 +46,8 @@ MEMORIX_CONDITION_MODES = {
 }
 MEMORIX_CONDITIONS = set(MEMORIX_CONDITION_MODES)
 MEM0_CONDITIONS = {MEM0_PROVIDER_ID}
-CANONICAL_RETRIEVAL_CONDITIONS = MEM0_CONDITIONS
+AGENTMEMORY_CONDITIONS = {AGENTMEMORY_PROVIDER_ID}
+CANONICAL_RETRIEVAL_CONDITIONS = MEM0_CONDITIONS | AGENTMEMORY_CONDITIONS
 SUPPORTED_CONDITIONS = {
     "no-memory",
     "last-n",
@@ -106,6 +109,7 @@ class TrialOutcome:
     successful_tool_call_count: int
     successful_tool_names: tuple[str, ...]
     permission_denials: tuple[str, ...]
+    unavailable_tool_attempts: tuple[str, ...]
     bash_commands: tuple[str, ...]
     command_contamination_violations: tuple[str, ...]
     memory_tool_attempt_count: int
@@ -114,6 +118,8 @@ class TrialOutcome:
     retrieved_context_tokens: int | None
     retrieved_context_record_count: int | None
     retrieved_context_truncated: bool | None
+    memory_preparation_seconds: float | None
+    memory_retrieval_seconds: float | None
     memorix_cli_sha256: str | None
     case_manifest_sha256: str
     precursor_transcript_sha256: str | None
@@ -276,6 +282,7 @@ def run_trial(
     max_budget_usd: float | None = None,
     memorix_cli: str | Path | None = None,
     mem0_python: str | Path | None = None,
+    agentmemory_runtime: str | Path | None = None,
     workspace_root: str | Path | None = None,
     claude_provider_settings: str | Path | None = None,
 ) -> TrialOutcome:
@@ -330,6 +337,8 @@ def run_trial(
     claude_settings: Path | None = None
     memorix_cli_sha256: str | None = None
     retrieval: BaselineRetrieval | None = None
+    memory_preparation_seconds: float | None = None
+    memory_retrieval_seconds: float | None = None
     condition_metadata: dict[str, object] = {
         "condition": condition,
         "memory_provider": None,
@@ -405,19 +414,23 @@ def run_trial(
             collection_name=f"memorixbench_{run_id.replace('-', '_')}",
         )
         project_id = f"memorixbench-{run_id}"
+        preparation_started = time.monotonic()
         preflight = adapter.preflight()
         seed_result = adapter.seed(manifest, project_id=project_id)
+        memory_preparation_seconds = time.monotonic() - preparation_started
         transfer_commit, transition_patch_sha256 = advance_case_to_transfer(
             manifest,
             workspace_dir,
         )
         agent_start_commit = reset_history_to_snapshot(workspace_dir)
+        retrieval_started = time.monotonic()
         retrieval = adapter.retrieve(
             project_id=project_id,
             query=manifest.transfer.task,
             top_k=CANONICAL_RETRIEVAL_TOP_K,
             token_budget=CANONICAL_RETRIEVAL_TOKEN_BUDGET,
         )
+        memory_retrieval_seconds = time.monotonic() - retrieval_started
         condition_metadata = {
             "condition": condition,
             "memory_provider": "mem0",
@@ -443,6 +456,72 @@ def run_trial(
                     for record in retrieval.records
                 ],
             },
+            "preparation_seconds": memory_preparation_seconds,
+            "retrieval_seconds": memory_retrieval_seconds,
+        }
+    elif condition == AGENTMEMORY_PROVIDER_ID:
+        if agentmemory_runtime is None:
+            raise ValueError(f"{AGENTMEMORY_PROVIDER_ID} requires --agentmemory-runtime")
+        runtime_root = Path(agentmemory_runtime).resolve()
+        memory_dir = run_dir / "memory"
+        runtime_data_dir = (
+            artifact_root_path.parent / "runtime-data" / "agentmemory" / run_id
+        )
+        project_id = f"memorixbench-{run_id}"
+        compose_project = "memorixbench_am_" + run_id.replace("-", "")[:16]
+        adapter = AgentMemoryFullAdapter(
+            runtime_root=runtime_root,
+            data_dir=runtime_data_dir,
+            artifact_dir=memory_dir / "adapter",
+            project_name=compose_project,
+            lock_path=(
+                artifact_root_path.parent
+                / "runtime-locks"
+                / "agentmemory-3111.lock"
+            ),
+        )
+        preparation_started = time.monotonic()
+        with adapter:
+            preflight = adapter.preflight(project_id=project_id)
+            seed_result = adapter.seed(manifest, project_id=project_id)
+            memory_preparation_seconds = time.monotonic() - preparation_started
+            transfer_commit, transition_patch_sha256 = advance_case_to_transfer(
+                manifest,
+                workspace_dir,
+            )
+            agent_start_commit = reset_history_to_snapshot(workspace_dir)
+            retrieval_started = time.monotonic()
+            retrieval = adapter.retrieve(
+                project_id=project_id,
+                query=manifest.transfer.task,
+                top_k=CANONICAL_RETRIEVAL_TOP_K,
+                token_budget=CANONICAL_RETRIEVAL_TOKEN_BUDGET,
+            )
+            memory_retrieval_seconds = time.monotonic() - retrieval_started
+        condition_metadata = {
+            "condition": condition,
+            "memory_provider": "agentmemory",
+            "provider_id": AGENTMEMORY_PROVIDER_ID,
+            "runtime_root": str(runtime_root),
+            "project_name": compose_project,
+            "port": adapter.port,
+            "data_dir": str(adapter.data_dir),
+            "full_service": True,
+            "preflight": preflight,
+            "seed": seed_result,
+            "retrieval": {
+                "query": retrieval.query,
+                "top_k": CANONICAL_RETRIEVAL_TOP_K,
+                "token_budget": retrieval.token_budget,
+                "token_count": retrieval.token_count,
+                "truncated": retrieval.truncated,
+                "records": [
+                    {"memory_id": record.memory_id, "score": record.score}
+                    for record in retrieval.records
+                ],
+            },
+            "preparation_seconds": memory_preparation_seconds,
+            "retrieval_seconds": memory_retrieval_seconds,
         }
     else:
         agent_start_commit = reset_history_to_snapshot(workspace_dir)
@@ -520,7 +599,7 @@ def run_trial(
         else execution.failure_reason
     )
     outcome = TrialOutcome(
-        schema_version="0.5",
+        schema_version="0.7",
         run_id=run_id,
         study_id=study_id,
         case_id=manifest.case_id,
@@ -552,6 +631,7 @@ def run_trial(
         successful_tool_call_count=execution.successful_tool_call_count,
         successful_tool_names=execution.successful_tool_names,
         permission_denials=execution.permission_denials,
+        unavailable_tool_attempts=execution.unavailable_tool_attempts,
         bash_commands=execution.bash_commands,
         command_contamination_violations=command_contamination_violations,
         memory_tool_attempt_count=memory_tool_attempt_count,
@@ -562,6 +642,8 @@ def run_trial(
         retrieved_context_tokens=retrieval.token_count if retrieval else None,
         retrieved_context_record_count=len(retrieval.records) if retrieval else None,
         retrieved_context_truncated=retrieval.truncated if retrieval else None,
+        memory_preparation_seconds=memory_preparation_seconds,
+        memory_retrieval_seconds=memory_retrieval_seconds,
         memorix_cli_sha256=memorix_cli_sha256,
         case_manifest_sha256=_sha256(manifest.source_path),
         precursor_transcript_sha256=transcript_sha,

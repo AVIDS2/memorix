@@ -58,15 +58,31 @@ The adapter archives request, stdout, stderr, preflight, seed, retrieval, and
 context metadata under the run artifact. A cache/download or Qdrant startup
 failure is infrastructure evidence, never a task failure.
 
-## AgentMemory boundary
+## AgentMemory full-service adapter
 
-AgentMemory is not yet an executable comparison row. Its full service must
-first pass the same write/read/restart/isolation preflight. Direct local
-probing found that its REST `/search` respected `project`, while `/smart-search`
-returned a result across a foreign project in that probe. Therefore canonical
-AgentMemory retrieval will use the scoped endpoint; native smart-search is a
-separate explicitly labelled product condition, not silently substituted for
-the fair baseline.
+The implemented canonical condition is `agentmemory-0.9.28-full-local`:
+
+- pinned official AgentMemory `0.9.28` runtime and its pinned iii Docker image
+  `0.11.2`;
+- a unique Docker Compose project and persistent volume for every run;
+- an isolated home/config directory, scrubbed provider credentials,
+  `AGENTMEMORY_AUTO_COMPRESS=false`, and
+  `AGENTMEMORY_INJECT_CONTEXT=false`;
+- official REST `/agentmemory/remember` for canonical writes and scoped
+  `/agentmemory/search` with `project` for retrieval;
+- a full preflight that writes a marker, proves an empty foreign project,
+  waits for the observed asynchronous file flush, restarts the full service,
+  and finds the marker again;
+- serialized use of the official static Docker ports. The harness waits until
+  every exposed iii port can bind after compose teardown before a restart.
+
+The observed local full-service persistence flush window is 12 seconds. It is
+recorded as setup evidence rather than hidden inside agent wall-clock time.
+Direct local probing found that `/search` respected `project`, while
+`/smart-search` returned a result across a foreign project in that probe.
+Therefore canonical AgentMemory retrieval uses the scoped endpoint; native
+smart-search is a separate explicitly labelled product condition, not silently
+substituted for the fair baseline.
 
 ## Eligibility and contamination
 

@@ -115,6 +115,7 @@ def _run_trial(args: argparse.Namespace) -> int:
         max_budget_usd=args.max_budget_usd,
         memorix_cli=args.memorix_cli,
         mem0_python=args.mem0_python,
+        agentmemory_runtime=args.agentmemory_runtime,
         workspace_root=args.workspace_root,
         claude_provider_settings=args.claude_provider_settings,
     )
@@ -171,6 +172,7 @@ def build_parser() -> argparse.ArgumentParser:
     trial.add_argument("--max-budget-usd", type=float)
     trial.add_argument("--memorix-cli", type=Path)
     trial.add_argument("--mem0-python", type=Path)
+    trial.add_argument("--agentmemory-runtime", type=Path)
     trial.add_argument("--workspace-root", type=Path)
     trial.add_argument("--claude-provider-settings", type=Path)
     trial.add_argument("--allow-agent-execution", action="store_true")

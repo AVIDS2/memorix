@@ -104,6 +104,30 @@ analysis, an open artifact, and an English LaTeX paper.
   events plus Claude Haiku/Opus billing records, despite the configured client
   route. All are therefore recorded as mixed rather than pure DeepSeek Flash.
 
+## AgentMemory full-service baseline
+
+- Implemented `agentmemory-0.9.28-full-local` against the installed official
+  runtime and its pinned `iii:0.11.2` Docker path. Every run receives a unique
+  Compose project/volume and an isolated home; provider credentials are
+  scrubbed, automatic LLM compression and hook injection are disabled, and
+  canonical records use `/remember` plus project-scoped `/search`.
+- Initial full-service probes exposed two real lifecycle details: iii writes
+  the API-visible memory before the file-backed Docker store has flushed, and
+  Docker `down` can return before its exposed ports are reusable on Windows.
+  A measured 12-second persistence settle gate and a bind-based wait for all
+  official iii ports now precede the restart check.
+- The full preflight now proves initial write/read, zero foreign-project
+  results, service restart, and recovered marker. The current external Go
+  smoke then retrieves two records under the same 150-token canonical ceiling,
+  completes the hidden repair, and passes command contamination audit. Its
+  first timing field undercounted initial service startup and is archived as a
+  diagnostic; the corrected follow-up records 25.7s preparation, 0.078s
+  retrieval, and 68.6s agent wall time. Neither is comparative evidence.
+- Claude may attempt tools excluded by the controlled surface (for example,
+  `Grep`). The parser now records unavailable-tool attempts separately from
+  permission denials and path contamination; no unavailable tool is treated as
+  successful evidence access.
+
 ## Development-pilot exclusions and case hardening
 
 - A controlled Python micro-Memorix pilot on the first wording of

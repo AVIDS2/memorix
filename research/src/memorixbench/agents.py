@@ -154,6 +154,7 @@ class AgentExecution:
     successful_tool_call_count: int
     successful_tool_names: tuple[str, ...]
     permission_denials: tuple[str, ...]
+    unavailable_tool_attempts: tuple[str, ...]
     bash_commands: tuple[str, ...]
     final_message: str
     events_path: Path
@@ -327,6 +328,7 @@ def _parse_codex(events: list[dict[str, object]]) -> dict[str, object]:
         "successful_tool_call_count": successful_tool_call_count,
         "successful_tool_names": tuple(sorted(successful_tool_names)),
         "permission_denials": (),
+        "unavailable_tool_attempts": (),
         "bash_commands": (),
         "completed": completed,
         "reported_models": tuple(sorted(reported_models)),
@@ -345,6 +347,7 @@ def _parse_claude(events: list[dict[str, object]]) -> dict[str, object]:
     successful_tool_names: set[str] = set()
     tool_use_names: dict[str, str] = {}
     permission_denials: set[str] = set()
+    unavailable_tool_attempts: set[str] = set()
     bash_commands: list[str] = []
     completed = False
     reported_models: set[str] = set()
@@ -392,7 +395,12 @@ def _parse_claude(events: list[dict[str, object]]) -> dict[str, object]:
                 continue
             if item.get("type") == "tool_result":
                 tool_use_id = item.get("tool_use_id")
-                if not item.get("is_error", False) and isinstance(tool_use_id, str):
+                if item.get("is_error", False) and isinstance(tool_use_id, str):
+                    tool_name = tool_use_names.get(tool_use_id)
+                    detail = str(item.get("content", ""))
+                    if tool_name and "No such tool available" in detail:
+                        unavailable_tool_attempts.add(tool_name)
+                elif isinstance(tool_use_id, str):
                     tool_name = tool_use_names.get(tool_use_id)
                     if tool_name:
                         successful_tool_call_count += 1
@@ -429,6 +437,7 @@ def _parse_claude(events: list[dict[str, object]]) -> dict[str, object]:
         "successful_tool_call_count": successful_tool_call_count,
         "successful_tool_names": tuple(sorted(successful_tool_names)),
         "permission_denials": tuple(sorted(permission_denials)),
+        "unavailable_tool_attempts": tuple(sorted(unavailable_tool_attempts)),
         "bash_commands": tuple(bash_commands),
         "completed": completed,
         "reported_models": tuple(sorted(reported_models)),
@@ -619,6 +628,7 @@ def run_agent(
         successful_tool_call_count=int(parsed["successful_tool_call_count"]),
         successful_tool_names=parsed["successful_tool_names"],  # type: ignore[arg-type]
         permission_denials=parsed["permission_denials"],  # type: ignore[arg-type]
+        unavailable_tool_attempts=parsed["unavailable_tool_attempts"],  # type: ignore[arg-type]
         bash_commands=parsed["bash_commands"],  # type: ignore[arg-type]
         final_message=str(parsed["final_message"]),
         events_path=events_path,

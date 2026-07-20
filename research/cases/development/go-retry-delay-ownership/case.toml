@@ -1,0 +1,56 @@
+schema_version = "0.1"
+id = "go-retry-delay-ownership"
+title = "Retry delay policy and cadence survive service ownership migration"
+split = "development"
+language = "go"
+tags = ["cross-session", "code-change", "stale-symbol", "policy-retention"]
+
+[repository]
+source_type = "local-fixture"
+path = "seed"
+base_revision = "fixture-base"
+license = "Apache-2.0"
+
+[precursor]
+task = "Harden retry scheduling after the reliability review."
+success_commands = ["go test ./..."]
+patch = "precursor.patch"
+transcript = "precursor-transcript.md"
+
+[transition]
+kind = "code-change"
+description = "Retry-delay validation moves from the policy package into the service and loses its lower bound and scheduler cadence."
+apply_commands = []
+patch = "transition.patch"
+
+[transfer]
+task = "Continue the retry scheduling migration. A regression now accepts retry delays that violate the existing safety policy; restore the existing policy without restoring the deleted policy package."
+success_commands = ["go test ./..."]
+
+[[memory_seed]]
+entity_name = "retry-delay-policy"
+type = "decision"
+title = "Retry delay bounds and cadence"
+narrative = "Retry delay must be at least 375 milliseconds, at most 30 seconds, and align to a 125-millisecond scheduler cadence. This reliability policy is independent of implementation location."
+facts = ["Minimum retry delay: 375ms", "Maximum retry delay: 30s", "Retry delay must be divisible by 125ms"]
+files_modified = []
+concepts = ["retry", "reliability", "backoff"]
+topic_key = "benchmark/go-retry-delay-ownership/policy"
+
+[[memory_seed]]
+entity_name = "retry-delay-validator"
+type = "what-changed"
+title = "Retry delay validator code owner"
+narrative = "At this snapshot retry delay validation is implemented by internal/policy/delay.go#ValidRetryDelay."
+facts = []
+files_modified = ["internal/policy/delay.go"]
+concepts = ["retry", "code-ownership"]
+topic_key = "benchmark/go-retry-delay-ownership/code-owner"
+
+[oracle]
+required_start_files = ["service/retry.go"]
+relevant_evidence_ids = ["policy:retry-delay-bounds"]
+stale_evidence_ids = ["code:internal/policy/delay.go#ValidRetryDelay"]
+forbidden_actions = ["restore internal/policy/delay.go", "weaken the 375ms minimum or 125ms cadence"]
+hidden_patch = "hidden-tests.patch"
+reference_patch = "reference.patch"

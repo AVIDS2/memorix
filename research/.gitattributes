@@ -1,0 +1,2 @@
+# Unified diff context uses a single leading space for blank source lines.
+cases/**/*.patch -whitespace

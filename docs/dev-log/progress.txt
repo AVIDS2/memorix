@@ -4,15 +4,24 @@
 > older notes when they conflict.
 
 ## Current State
-- Phase: 1.2 release validation and publication
-- Branch: `codex/1.2.0-multidimensional-memory`
-- Last updated: 2026-07-18
-- Released baseline: `memorix@1.1.13`, tag `v1.1.13`, PR #129 merged as
-  `7e8077f`.
-- Goal: turn Memorix from a useful narrative-memory layer into a task-ready
-  working-context layer where code state, change evidence, verification,
-  source-backed project knowledge, workflows, and durable decisions are ranked
-  together.
+- Phase: MemorixBench-Transfer research foundation
+- Branch: `codex/memorix-agent-memory-research`
+- Last updated: 2026-07-20
+- Released baseline: `memorix@1.2.1`, commit `1b5bf7f`.
+- Goal: produce a reproducible, submission-ready study of freshness-aware
+  multi-session project memory for coding agents, including downstream
+  engineering outcomes, fair baselines, ablations, statistics, an open
+  artifact, and an English paper.
+- Research source of truth: `research/PROTOCOL.md`, `research/CLAIMS.md`, and
+  `docs/dev-log/2026-07-20-agent-memory-research.md`.
+- Current gate: 26 research-tooling tests pass; three TypeScript/Python/Go
+  transfer fixtures pass precursor/public/hidden-reference authoring checks.
+- Current evidence: isolated Claude Code development smokes exercise the real
+  Memorix MCP path successfully across all three languages. They are not
+  confirmatory comparisons; `research/RESULTS-PILOT.md` records exclusions and
+  the model-profile caveat.
+- Next: add external-repository cases, adapter contracts for no-memory/last-N/
+  Mem0/AgentMemory, then freeze the confirmatory protocol before aggregation.
 
 ## 1.1.13 Closeout
 - Codex setup now stamps plugin versions and doctor distinguishes bundle,

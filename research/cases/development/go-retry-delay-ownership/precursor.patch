@@ -1,0 +1,22 @@
+diff --git a/internal/policy/delay.go b/internal/policy/delay.go
+--- a/internal/policy/delay.go
++++ b/internal/policy/delay.go
+@@ -3,5 +3,5 @@ package policy
+ import "time"
+ 
+ func ValidRetryDelay(delay time.Duration) bool {
+-    return delay > 0 && delay <= 30*time.Second
++    return delay >= 375*time.Millisecond && delay <= 30*time.Second && delay%(125*time.Millisecond) == 0
+ }
+diff --git a/service/retry_test.go b/service/retry_test.go
+--- a/service/retry_test.go
++++ b/service/retry_test.go
+@@ -14,7 +14,7 @@ func TestRejectsInvalidRetryDelay(t *testing.T) {
+ func TestRejectsInvalidRetryDelay(t *testing.T) {
+     for _, delay := range []time.Duration{
+         0,
+-        31 * time.Second,
++        374 * time.Millisecond, 400 * time.Millisecond, 31 * time.Second,
+     } {
+         if !panics(func() { ScheduleRetry(delay) }) {
+             t.Fatalf("expected %s to panic", delay)

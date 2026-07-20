@@ -1,0 +1,56 @@
+schema_version = "0.1"
+id = "python-cache-ttl-ownership"
+title = "Cache TTL policy and cadence survive settings ownership migration"
+split = "development"
+language = "python"
+tags = ["cross-session", "configuration-change", "stale-symbol", "policy-retention"]
+
+[repository]
+source_type = "local-fixture"
+path = "seed"
+base_revision = "fixture-base"
+license = "Apache-2.0"
+
+[precursor]
+task = "Harden the cache TTL policy after an operations review."
+success_commands = ["python -m unittest discover -s tests"]
+patch = "precursor.patch"
+transcript = "precursor-transcript.md"
+
+[transition]
+kind = "configuration-change"
+description = "Cache TTL validation moves into settings.py and loses its lower bound and required cadence."
+apply_commands = []
+patch = "transition.patch"
+
+[transfer]
+task = "Continue the settings migration. A regression now accepts cache TTLs that violate the existing safety policy; restore the existing policy without restoring the deleted cache_policy module."
+success_commands = ["python -m unittest discover -s tests"]
+
+[[memory_seed]]
+entity_name = "cache-ttl-policy"
+type = "decision"
+title = "Cache TTL bounds and cadence"
+narrative = "Cache TTL must be an integer from 75 through 3600 seconds inclusive and use a 15-second cadence. This operational policy is independent of implementation location."
+facts = ["Minimum cache TTL: 75 seconds", "Maximum cache TTL: 3600 seconds", "Cache TTL must be divisible by 15"]
+files_modified = []
+concepts = ["cache", "configuration", "reliability"]
+topic_key = "benchmark/python-cache-ttl-ownership/policy"
+
+[[memory_seed]]
+entity_name = "cache-ttl-validator"
+type = "what-changed"
+title = "Cache TTL validator code owner"
+narrative = "At this snapshot cache TTL validation is implemented by src/cache_policy.py#valid_cache_ttl."
+facts = []
+files_modified = ["src/cache_policy.py"]
+concepts = ["cache", "code-ownership"]
+topic_key = "benchmark/python-cache-ttl-ownership/code-owner"
+
+[oracle]
+required_start_files = ["src/settings.py"]
+relevant_evidence_ids = ["policy:cache-ttl-bounds"]
+stale_evidence_ids = ["code:src/cache_policy.py#valid_cache_ttl"]
+forbidden_actions = ["restore src/cache_policy.py", "weaken the 75-second minimum or 15-second cadence"]
+hidden_patch = "hidden-tests.patch"
+reference_patch = "reference.patch"

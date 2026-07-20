@@ -1,0 +1,57 @@
+from pathlib import Path
+
+from memorixbench.schema import load_case_manifest
+from memorixbench.trial import (
+    build_claude_allowed_tools,
+    build_condition_prompt,
+    is_valid_execution,
+)
+
+
+CASE = Path(__file__).parents[1] / "cases" / "development" / "typescript-auth-ownership" / "case.toml"
+
+
+def test_no_memory_prompt_has_no_precursor_record() -> None:
+    prompt = build_condition_prompt(load_case_manifest(CASE), "no-memory")
+    assert "<prior_session>" not in prompt
+    assert "A regression now accepts prefixed tokens that violate the existing security policy" in prompt
+    assert "configured project-context or memory capability" in prompt
+    assert "single transfer snapshot" in prompt
+    assert "You are already in the repository" in prompt
+    assert "Trusted verification command for this case: `npm test`" in prompt
+
+
+def test_claude_allowlist_includes_case_verification_only() -> None:
+    manifest = load_case_manifest(CASE)
+
+    no_memory = build_claude_allowed_tools(manifest, "no-memory")
+    memorix = build_claude_allowed_tools(manifest, "memorix-1.2.1-micro-local")
+
+    assert "Bash(npm test)" in no_memory
+    assert "mcp__memorix__memorix_project_context" not in no_memory
+    assert "mcp__memorix__memorix_project_context" in memorix
+
+
+def test_budget_and_timeout_are_valid_task_failures() -> None:
+    assert is_valid_execution("budget-exhausted", memory_permission_denied=False)
+    assert is_valid_execution("timeout", memory_permission_denied=False)
+    assert not is_valid_execution("authentication", memory_permission_denied=False)
+    assert not is_valid_execution("mcp-startup", memory_permission_denied=False)
+    assert not is_valid_execution(None, memory_permission_denied=True)
+
+
+def test_last_n_prompt_contains_bounded_precursor_record() -> None:
+    prompt = build_condition_prompt(load_case_manifest(CASE), "last-n")
+    assert "<prior_session>" in prompt
+    assert "src/auth.js#validateToken" in prompt
+    assert "at least eighteen characters" in prompt
+    assert "issuer shard marker" in prompt
+
+
+def test_memorix_prompt_does_not_inline_the_precursor_record() -> None:
+    prompt = build_condition_prompt(
+        load_case_manifest(CASE),
+        "memorix-1.2.1-micro-local",
+    )
+    assert "<prior_session>" not in prompt
+    assert "at least twelve characters" not in prompt

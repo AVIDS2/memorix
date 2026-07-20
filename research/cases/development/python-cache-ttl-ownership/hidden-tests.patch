@@ -1,0 +1,28 @@
+diff --git a/tests/test_cache_ttl_hidden.py b/tests/test_cache_ttl_hidden.py
+new file mode 100644
+--- /dev/null
++++ b/tests/test_cache_ttl_hidden.py
+@@ -0,0 +1,23 @@
++import unittest
++
++from src.settings import build_settings
++
++
++class CacheTtlPolicyTests(unittest.TestCase):
++    def test_accepts_the_minimum_policy_ttl(self) -> None:
++        self.assertEqual(build_settings(75), {"cache_ttl": 75})
++
++    def test_accepts_the_next_policy_cadence(self) -> None:
++        self.assertEqual(build_settings(90), {"cache_ttl": 90})
++
++    def test_rejects_a_ttl_one_second_below_policy(self) -> None:
++        with self.assertRaises(ValueError):
++            build_settings(74)
++
++    def test_rejects_a_ttl_off_the_policy_cadence(self) -> None:
++        with self.assertRaises(ValueError):
++            build_settings(76)
++
++    def test_rejects_non_integer_ttls(self) -> None:
++        with self.assertRaises(ValueError):
++            build_settings(75.0)

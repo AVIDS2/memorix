@@ -1,0 +1,31 @@
+# Case authoring
+
+Every benchmark case lives in its own directory and contains case.toml plus the
+smallest auditable material needed to reproduce its transition and grade it.
+Case identifiers are globally unique lowercase kebab-case strings.
+
+A case must pin its repository revision and license, define precursor and
+transfer success commands, describe the transition, identify expected start
+files, and separate relevant evidence from stale evidence. Test-split oracles
+must not be exposed to the agent process.
+
+Each `[[memory_seed]]` table is an atomic precursor fact written through the
+same memory API for every supported memory-system adapter. Put durable policy
+and snapshot-bound implementation location in separate seeds so freshness can
+invalidate the latter without discarding the former.
+
+When `oracle.hidden_patch` is present, the runner mounts that patch only after
+the agent process exits. Agent-facing workspaces are also reinitialized as a
+single transfer-snapshot Git repository, so precursor commits and reflogs cannot
+leak the answer to no-memory conditions.
+
+Development cases additionally use `oracle.reference_patch` for maintainer
+self-tests. A valid case has four independently checked properties: its
+precursor passes; its transfer snapshot passes public tests; its unmodified
+transfer snapshot fails hidden tests; and its reference patch passes those same
+hidden tests. Reference and hidden patches are never copied into the
+agent-facing workspace. Test-split reference repairs remain private.
+
+Local fixture cases are for harness development. Confirmatory cases based on
+external repositories use source_type = "git" and must include a public URL,
+commit hash, and SPDX-compatible license identifier.

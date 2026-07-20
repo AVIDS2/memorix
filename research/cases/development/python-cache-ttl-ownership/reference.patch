@@ -1,0 +1,10 @@
+diff --git a/src/settings.py b/src/settings.py
+--- a/src/settings.py
++++ b/src/settings.py
+@@ -1,5 +1,5 @@
+ def valid_cache_ttl(seconds: object) -> bool:
+-    return isinstance(seconds, int) and seconds > 0 and seconds <= 3600
++    return isinstance(seconds, int) and 75 <= seconds <= 3600 and seconds % 15 == 0
+ 
+ 
+ def build_settings(cache_ttl: object) -> dict[str, int]:

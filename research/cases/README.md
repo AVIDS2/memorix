@@ -29,3 +29,10 @@ agent-facing workspace. Test-split reference repairs remain private.
 Local fixture cases are for harness development. Confirmatory cases based on
 external repositories use source_type = "git" and must include a public URL,
 commit hash, and SPDX-compatible license identifier.
+
+External cases must also state their transition provenance in a public case
+note. A historically grounded controlled transition may use a real upstream
+constraint but a benchmark-authored state change; it must never be described as
+an upstream incident replay. Such cases stay in development until the frozen
+protocol declares how their results are analyzed separately from natural issue
+replays.

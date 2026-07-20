@@ -116,3 +116,81 @@ reference_patch = "reference.patch"
     )
     assert evaluation.hidden_patch_sha256
     assert (workspace.path / "hidden.txt").read_text(encoding="utf-8") == "hidden\n"
+
+
+def test_materializes_a_pinned_git_repository(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    subprocess.run(["git", "init", "--quiet"], cwd=source, check=True)
+    subprocess.run(
+        ["git", "config", "user.name", "MemorixBench Test"],
+        cwd=source,
+        check=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.email", "memorixbench@example.invalid"],
+        cwd=source,
+        check=True,
+    )
+    (source / "value.txt").write_text("pinned\n", encoding="utf-8")
+    subprocess.run(["git", "add", "value.txt"], cwd=source, check=True)
+    subprocess.run(["git", "commit", "--quiet", "-m", "pinned"], cwd=source, check=True)
+    pinned_revision = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=source,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    (source / "value.txt").write_text("later\n", encoding="utf-8")
+    subprocess.run(["git", "add", "value.txt"], cwd=source, check=True)
+    subprocess.run(["git", "commit", "--quiet", "-m", "later"], cwd=source, check=True)
+
+    case_dir = tmp_path / "git-case"
+    case_dir.mkdir()
+    manifest_path = case_dir / "case.toml"
+    manifest_path.write_text(
+        f"""
+schema_version = "0.1"
+id = "pinned-git-source"
+title = "Pinned Git source"
+split = "development"
+language = "text"
+tags = ["git"]
+
+[repository]
+source_type = "git"
+url = "{source.as_posix()}"
+base_revision = "{pinned_revision}"
+license = "MIT"
+
+[precursor]
+task = "Inspect the pinned source."
+success_commands = ["git status --short"]
+
+[transition]
+kind = "none"
+description = "No transition is required for this materialization test."
+apply_commands = []
+
+[transfer]
+task = "Use the pinned source."
+success_commands = ["git status --short"]
+
+[oracle]
+required_start_files = ["value.txt"]
+relevant_evidence_ids = []
+stale_evidence_ids = []
+forbidden_actions = []
+""".strip(),
+        encoding="utf-8",
+    )
+
+    workspace = materialize_case(
+        load_case_manifest(manifest_path),
+        tmp_path / "pinned-workspace",
+        stage="transfer",
+    )
+
+    assert workspace.base_commit == pinned_revision
+    assert (workspace.path / "value.txt").read_text(encoding="utf-8") == "pinned\n"

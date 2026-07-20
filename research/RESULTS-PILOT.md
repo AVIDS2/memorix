@@ -39,3 +39,17 @@ The smokes show only that the harness and the real MCP path can execute across
 three languages. Confirmatory work still requires frozen external cases,
 matched no-memory/last-N/external-memory conditions, repetitions, statistics,
 and an independent review.
+
+## External case authoring evidence
+
+`go-backoff-zero-jitter-ownership` pins the MIT-licensed upstream
+`cenkalti/backoff` v5 source at `3d3869e`. It is a historically grounded
+controlled transition, not an upstream incident replay: the durable no-jitter
+constraint comes from upstream commit `6b0e4ad`, while the helper-extraction
+regression is benchmark-authored and documented in the case provenance.
+
+The case has passed its four authoring gates on this machine: precursor tests
+passed; transfer public tests passed; the unmodified transfer snapshot failed
+the hidden zero-sampling check; and the maintainer reference patch passed it.
+No agent condition has been run on this case, so this is validation evidence,
+not an efficacy result.

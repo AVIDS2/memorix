@@ -92,6 +92,14 @@ Each case contains:
 7. an action/evidence oracle, stale evidence, and forbidden stale actions when
    applicable.
 
+External cases additionally declare transition provenance. An upstream replay
+reconstructs an observed upstream change. A historically grounded controlled
+transition starts from a real repository and real historical constraint but
+uses a benchmark-authored state change. The latter is valuable for isolating
+freshness, but is never called an upstream incident and is reported as a
+separate stratum. It remains development-only until the frozen protocol
+specifies its role in confirmatory analysis.
+
 Transition strata are code changes, dependency changes, configuration changes,
 documentation or policy changes, and no-change controls. Dependency strength is
 classified before model runs as low, medium, or high according to how much the

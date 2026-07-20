@@ -115,3 +115,22 @@ analysis, an open artifact, and an English LaTeX paper.
   rather than exclusions. Authentication, provider quota, MCP startup, runtime,
   and missing-event failures remain infrastructure exclusions. Earlier raw
   no-memory runs are retained as diagnostics and are not aggregated.
+
+## External-repository case authoring
+
+- AgentMemory source audit confirmed a documented REST surface (`remember` and
+  `smart-search`) and a standalone MCP proxy, but the full service depends on a
+  pinned iii engine and its README identifies native Windows as a manual setup
+  path. A fair baseline must therefore preflight and archive engine/store
+  availability rather than treat a failed install as a task failure.
+- Added `go-backoff-zero-jitter-ownership`, pinned to the MIT-licensed
+  `cenkalti/backoff` v5 revision `3d3869e86accb1d31bcb9cb954435afa128bd986`.
+  Its durable policy is historically grounded in upstream commit `6b0e4ad`,
+  while its later helper-extraction regression is deliberately benchmark
+  authored and marked as such in `PROVENANCE.md`.
+- The first older v4 cut was rejected because current Go rejects its stale
+  example name before any behavioral test runs. The selected v5 cut passes
+  unmodified `go test ./...` under the current toolchain.
+- All four authoring gates passed for the v5 case: precursor, transfer public,
+  hidden failure on unmodified transfer, and reference-patch recovery. No model
+  trial has used this case yet.

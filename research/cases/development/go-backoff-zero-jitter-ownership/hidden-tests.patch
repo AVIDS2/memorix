@@ -1,0 +1,37 @@
+diff --git a/randomization_hidden_test.go b/randomization_hidden_test.go
+new file mode 100644
+index 0000000..4f6cc12
+--- /dev/null
++++ b/randomization_hidden_test.go
+@@ -0,0 +1,31 @@
++package backoff
++
++import (
++	"testing"
++	"time"
++)
++
++func TestZeroRandomizationSkipsSampling(t *testing.T) {
++	originalRandomFloat64 := randomFloat64
++	t.Cleanup(func() {
++		randomFloat64 = originalRandomFloat64
++	})
++
++	sampled := false
++	randomFloat64 = func() float64 {
++		sampled = true
++		return 0.5
++	}
++
++	backoff := NewExponentialBackOff()
++	backoff.InitialInterval = 500 * time.Millisecond
++	backoff.RandomizationFactor = 0
++	backoff.Reset()
++
++	if got := backoff.NextBackOff(); got != 500*time.Millisecond {
++		t.Fatalf("zero jitter interval = %s, want %s", got, 500*time.Millisecond)
++	}
++	if sampled {
++		t.Fatal("zero jitter must not sample the random source")
++	}
++}

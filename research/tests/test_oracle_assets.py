@@ -14,6 +14,7 @@ from memorixbench.authoring import AuthoringGateResult, AuthoringVerification
 from memorixbench.oracle_assets import (
     load_private_oracle_overlay,
     resolve_oracle_assets,
+    verifier_runtime_hash,
 )
 from memorixbench.reporting import (
     serialize_authoring_verification,
@@ -95,6 +96,12 @@ forbidden_actions = []
     overlay.mkdir()
     hidden = overlay / "hidden-tests.patch"
     reference = overlay / "reference.patch"
+    verifier = overlay / "verifier-runtime"
+    verifier.mkdir()
+    (verifier / "entrypoint.txt").write_text(
+        "fixed private verifier runtime\n",
+        encoding="utf-8",
+    )
     hidden.write_text("hidden\n", encoding="utf-8")
     reference.write_text("reference\n", encoding="utf-8")
     (overlay / "oracle.toml").write_text(
@@ -109,7 +116,10 @@ hidden_patch = "{hidden.name}"
 hidden_patch_sha256 = "{_sha256(hidden)}"
 reference_patch = "{reference.name}"
 reference_patch_sha256 = "{_sha256(reference)}"
-verifier_runtime_sha256 = "{'0' * 64}"
+verifier_runtime = "{verifier.name}"
+verifier_runtime_sha256 = "{verifier_runtime_hash(verifier)}"
+verifier_image = "registry.example.invalid/memorix-verifier@sha256:{'1' * 64}"
+verifier_command = ["/verifier/entrypoint"]
 """.strip(),
         encoding="utf-8",
     )
@@ -126,6 +136,8 @@ def test_loads_private_oracle_bound_to_public_case_tree(tmp_path: Path) -> None:
     assert assets.overlay_id == "opaque-test-1"
     assert assets.hidden_patch and assets.hidden_patch.parent == overlay
     assert assets.reference_patch and assets.reference_patch.parent == overlay
+    assert assets.verifier_runtime == overlay / "verifier-runtime"
+    assert len(assets.definition_sha256) == 64
 
 
 def test_private_case_archives_only_declared_public_bundle_paths(tmp_path: Path) -> None:
@@ -158,6 +170,45 @@ def test_rejects_private_overlay_with_wrong_public_contract(tmp_path: Path) -> N
 
     with pytest.raises(ValueError, match="public case definition"):
         load_private_oracle_overlay(manifest, overlay)
+
+
+def test_rejects_private_overlay_with_changed_verifier_runtime(tmp_path: Path) -> None:
+    manifest_path, overlay = _private_case(tmp_path)
+    manifest = load_case_manifest(manifest_path)
+    (overlay / "verifier-runtime" / "entrypoint.txt").write_text(
+        "changed after commitment\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="verifier runtime commitment"):
+        load_private_oracle_overlay(manifest, overlay)
+
+
+def test_rejects_unpinned_private_verifier_image(tmp_path: Path) -> None:
+    manifest_path, overlay = _private_case(tmp_path)
+    manifest = load_case_manifest(manifest_path)
+    definition = overlay / "oracle.toml"
+    definition.write_text(
+        definition.read_text(encoding="utf-8").replace(
+            "registry.example.invalid/memorix-verifier@sha256:" + "1" * 64,
+            "registry.example.invalid/memorix-verifier:latest",
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="image must be pinned"):
+        load_private_oracle_overlay(manifest, overlay)
+
+
+def test_private_overlay_errors_do_not_disclose_the_overlay_path(tmp_path: Path) -> None:
+    manifest_path, overlay = _private_case(tmp_path)
+    manifest = load_case_manifest(manifest_path)
+    (overlay / "oracle.toml").unlink()
+
+    with pytest.raises(ValueError) as error:
+        load_private_oracle_overlay(manifest, overlay)
+
+    assert str(overlay) not in str(error.value)
 
 
 def test_private_oracle_execution_remains_blocked_without_external_sandbox(

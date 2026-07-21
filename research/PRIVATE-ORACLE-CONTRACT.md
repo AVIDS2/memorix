@@ -45,7 +45,10 @@ hidden_patch = "hidden-tests.patch"
 hidden_patch_sha256 = "<sha256 of hidden-tests.patch>"
 reference_patch = "reference.patch"
 reference_patch_sha256 = "<sha256 of reference.patch>"
+verifier_runtime = "verifier-runtime"
 verifier_runtime_sha256 = "<sha256 of the pinned verifier runtime>"
+verifier_image = "<registry image pinned by sha256 digest>"
+verifier_command = ["/verifier/entrypoint"]
 ```
 
 Patch paths are resolved under the overlay root only. The loader rejects a case

@@ -12,7 +12,13 @@ import { create, insert, search, remove, update, count, getByID, type AnyOrama }
 import type { MemorixDocument, SearchOptions, IndexEntry, KnowledgeLayer } from '../types.js';
 import { OBSERVATION_ICONS, type ObservationType } from '../types.js';
 import { resolveKnowledgeLayer } from '../skills/mini-skills.js';
-import { getEmbeddingProvider, type EmbeddingProvider } from '../embedding/provider.js';
+import {
+  getEmbeddingProvider,
+  UnsupportedEmbeddingModalityError,
+  type EmbeddingInput,
+  type EmbeddingOptions,
+  type EmbeddingProvider,
+} from '../embedding/provider.js';
 import { calculateProjectAffinity, extractProjectKeywords, type AffinityContext, type MemoryContent } from './project-affinity.js';
 import { detectQueryIntent, applyIntentBoost } from '../search/intent-detector.js';
 import { maybeExpandSearchQuery } from '../search/query-expansion.js';
@@ -254,7 +260,26 @@ export function getVectorDimensions(): number | null {
 export async function generateEmbedding(text: string): Promise<number[] | null> {
   const provider = await getEmbeddingProvider();
   if (!provider) return null;
-  return provider.embed(text);
+  return provider.embedInput
+    ? provider.embedInput({ modality: 'text', text }, { intent: 'document' })
+    : provider.embed(text);
+}
+
+/** Generate a typed embedding; unsupported media returns null so callers retain BM25. */
+export async function generateEmbeddingInput(
+  input: EmbeddingInput,
+  options: EmbeddingOptions = {},
+): Promise<number[] | null> {
+  const provider = await getEmbeddingProvider();
+  if (!provider) return null;
+  try {
+    if (provider.embedInput) return await provider.embedInput(input, options);
+    if (input.modality === 'text') return provider.embed(input.text);
+    return null;
+  } catch (error) {
+    if (error instanceof UnsupportedEmbeddingModalityError) return null;
+    throw error;
+  }
 }
 
 /**
@@ -561,7 +586,9 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
         } else {
           // Embedding timeout: 15 seconds
           const EMBEDDING_TIMEOUT_MS = 15000;
-          const embedPromise = provider.embed(expandedEmbeddingQuery!);
+          const embedPromise = provider.embedInput
+            ? provider.embedInput({ modality: 'text', text: expandedEmbeddingQuery! }, { intent: 'query' })
+            : provider.embed(expandedEmbeddingQuery!);
           const timeoutPromise = new Promise<never>((_, reject) =>
             setTimeout(() => reject(new Error(`Embedding timeout after ${EMBEDDING_TIMEOUT_MS}ms`)), EMBEDDING_TIMEOUT_MS)
           );

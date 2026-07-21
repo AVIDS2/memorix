@@ -15,7 +15,13 @@ import { createHash } from 'node:crypto';
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
-import type { EmbeddingProvider } from './provider.js';
+import {
+  UnsupportedEmbeddingModalityError,
+  validateEmbeddingInput,
+  type EmbeddingInput,
+  type EmbeddingOptions,
+  type EmbeddingProvider,
+} from './provider.js';
 
 const CACHE_DIR = process.env.MEMORIX_DATA_DIR || join(homedir(), '.memorix', 'data');
 const CACHE_FILE = join(CACHE_DIR, '.embedding-cache.json');
@@ -76,6 +82,18 @@ export class FastEmbedProvider implements EmbeddingProvider {
     // Load disk cache before returning — subsequent embedBatch calls will hit cache
     await loadDiskCache();
     return new FastEmbedProvider(model);
+  }
+
+  async embedInput(input: EmbeddingInput, _options: EmbeddingOptions = {}): Promise<number[]> {
+    validateEmbeddingInput(input);
+    if (input.modality !== 'text') {
+      throw new UnsupportedEmbeddingModalityError(this.name, input.modality);
+    }
+    return this.embed(input.text);
+  }
+
+  async embedInputs(inputs: EmbeddingInput[], options: EmbeddingOptions = {}): Promise<number[][]> {
+    return Promise.all(inputs.map((input) => this.embedInput(input, options)));
   }
 
   async embed(text: string): Promise<number[]> {

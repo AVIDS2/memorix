@@ -47,6 +47,7 @@ function obsToRow(obs: Observation): Record<string, unknown> {
     commitHash: obs.commitHash ?? null,
     relatedCommits: obs.relatedCommits ? JSON.stringify(obs.relatedCommits) : null,
     relatedEntities: obs.relatedEntities ? JSON.stringify(obs.relatedEntities) : null,
+    attachments: obs.attachments ? JSON.stringify(obs.attachments) : null,
     sourceDetail: obs.sourceDetail ?? null,
     valueCategory: obs.valueCategory ?? null,
     createdByAgentId: obs.createdByAgentId ?? null,
@@ -78,6 +79,7 @@ function rowToObs(row: any): Observation {
     ...(row.commitHash ? { commitHash: row.commitHash } : {}),
     ...(row.relatedCommits ? { relatedCommits: safeJsonParse(row.relatedCommits, []) } : {}),
     ...(row.relatedEntities ? { relatedEntities: safeJsonParse(row.relatedEntities, []) } : {}),
+    ...(row.attachments ? { attachments: safeJsonParse(row.attachments, []) } : {}),
     ...(row.sourceDetail ? { sourceDetail: row.sourceDetail } : {}),
     ...(row.valueCategory ? { valueCategory: row.valueCategory } : {}),
     ...(row.createdByAgentId ? { createdByAgentId: row.createdByAgentId } : {}),
@@ -132,12 +134,12 @@ export class SqliteBackend implements ObservationStore {
         (id, entityName, type, title, narrative, facts, filesModified, concepts, tokens,
          createdAt, updatedAt, projectId, hasCausalLanguage, topicKey, revisionCount,
          sessionId, status, progress, source, commitHash, relatedCommits, relatedEntities,
-         sourceDetail, valueCategory, createdByAgentId, writeGeneration)
+         attachments, sourceDetail, valueCategory, createdByAgentId, writeGeneration)
       VALUES
         (@id, @entityName, @type, @title, @narrative, @facts, @filesModified, @concepts, @tokens,
          @createdAt, @updatedAt, @projectId, @hasCausalLanguage, @topicKey, @revisionCount,
          @sessionId, @status, @progress, @source, @commitHash, @relatedCommits, @relatedEntities,
-         @sourceDetail, @valueCategory, @createdByAgentId, @writeGeneration)
+         @attachments, @sourceDetail, @valueCategory, @createdByAgentId, @writeGeneration)
     `);
     this.stmtUpdate = this.stmtInsert; // INSERT OR REPLACE works for both
     this.stmtSetStatus = this.db.prepare(`UPDATE observations SET status = ? WHERE id = ?`);

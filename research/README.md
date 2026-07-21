@@ -31,6 +31,10 @@ audited.
 - cases/: public case manifests and case-authoring rules.
 - CASE-CANDIDATES.md: researched candidates that are not yet eligible cases.
 - LEGACY-ARTIFACTS.md: pre-snapshot diagnostic artifact boundary.
+- PRIVATE-ORACLE-CONTRACT.md: public/private case boundary and the required
+  external isolation proof for confirmatory trials.
+- CONFIRMATORY-EXECUTION-ARCHITECTURE.md: worker/vault separation required
+  before a private-oracle result can enter the confirmatory corpus.
 - src/memorixbench/: manifest validation and analysis tooling.
 - tests/: deterministic tests for the research tooling.
 - artifacts/: checksums and public artifact metadata; large local artifacts are ignored.
@@ -99,8 +103,9 @@ tracks.
 All currently executable cases are development-only. Their result artifacts
 carry `evidence_tier: development`, and `memorixbench compare` rejects them
 unless `--allow-development` is passed explicitly. Validation and test splits
-remain disabled until their private-oracle overlay and agent read-isolation
-preflight are implemented.
+remain disabled until a private-oracle overlay is paired with a passing external
+agent-isolation certificate for the exact runtime image. Claude/Codex permission
+rules are defense in depth, never the proof.
 
 Every case declares `dependency_strength` as `low`, `medium`, or `high`, plus
 whether the classification is `retrospective-development` or `preregistered`.

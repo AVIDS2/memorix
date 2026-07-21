@@ -6,7 +6,7 @@ from memorixbench.schema import ManifestError, load_case_manifest
 
 
 VALID_CASE = """
-schema_version = "0.3"
+schema_version = "0.5"
 id = "typescript-auth-transfer"
 title = "Auth ownership transfer"
 split = "development"
@@ -34,6 +34,7 @@ task = "Continue the authentication regression after the ownership change."
 success_commands = ["npm test"]
 
 [oracle]
+visibility = "public"
 required_start_files = ["src/session.ts"]
 relevant_evidence_ids = ["test:session-auth"]
 stale_evidence_ids = ["obs:legacy-auth-owner"]
@@ -53,6 +54,7 @@ def test_loads_valid_case(tmp_path: Path) -> None:
     assert case.transition.kind == "code-change"
     assert case.dependency_strength == "medium"
     assert case.dependency_classification_status == "retrospective-development"
+    assert case.oracle.visibility == "public"
     assert case.oracle.stale_evidence_ids == ("obs:legacy-auth-owner",)
 
 
@@ -180,6 +182,55 @@ def test_rejects_unknown_dependency_classification_status(tmp_path: Path) -> Non
     )
 
     with pytest.raises(ManifestError, match="dependency_classification_status"):
+        load_case_manifest(write_case(tmp_path, content))
+
+
+def test_private_oracle_assets_are_not_public_manifest_fields(tmp_path: Path) -> None:
+    content = VALID_CASE.replace(
+        'visibility = "public"',
+        'visibility = "private"\nhidden_patch = "hidden.patch"',
+    )
+
+    with pytest.raises(ManifestError, match="private oracle assets"):
+        load_case_manifest(write_case(tmp_path, content))
+
+
+def test_test_split_requires_private_preregistered_oracle(tmp_path: Path) -> None:
+    content = VALID_CASE.replace('split = "development"', 'split = "test"').replace(
+        'dependency_classification_status = "retrospective-development"',
+        'dependency_classification_status = "preregistered"',
+    ).replace('visibility = "public"', 'visibility = "private"').replace(
+        'forbidden_actions = ["restore the removed auth validator"]',
+        '''required_isolation_profile = "remote-worker-vault-v1"
+verifier_mode = "black-box-controller-v1"
+forbidden_actions = []''',
+    ).replace(
+        "[repository]",
+        '''[bundle]
+public_paths = ["case.toml", "fixtures/typescript-auth"]
+
+[repository]''',
+    )
+
+    case = load_case_manifest(write_case(tmp_path, content))
+
+    assert case.oracle.visibility == "private"
+    assert case.oracle.required_isolation_profile == "remote-worker-vault-v1"
+    assert case.public_bundle_paths == ("case.toml", "fixtures/typescript-auth")
+
+
+def test_confirmatory_case_requires_public_bundle_allowlist(tmp_path: Path) -> None:
+    content = VALID_CASE.replace('split = "development"', 'split = "test"').replace(
+        'dependency_classification_status = "retrospective-development"',
+        'dependency_classification_status = "preregistered"',
+    ).replace('visibility = "public"', 'visibility = "private"').replace(
+        'forbidden_actions = ["restore the removed auth validator"]',
+        '''required_isolation_profile = "remote-worker-vault-v1"
+verifier_mode = "black-box-controller-v1"
+forbidden_actions = []''',
+    )
+
+    with pytest.raises(ManifestError, match="public_paths allowlist"):
         load_case_manifest(write_case(tmp_path, content))
 
 

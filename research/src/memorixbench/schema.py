@@ -6,7 +6,7 @@ import re
 import tomllib
 from typing import Any
 
-SCHEMA_VERSION = "0.3"
+SCHEMA_VERSION = "0.5"
 CASE_ID_PATTERN = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 COMMIT_SHA_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 VALID_SPLITS = {"development", "validation", "test"}
@@ -15,6 +15,12 @@ VALID_DEPENDENCY_CLASSIFICATION_STATUS = {
     "retrospective-development",
     "preregistered",
 }
+VALID_ORACLE_VISIBILITIES = {"public", "private"}
+VALID_CONFIRMATORY_ISOLATION_PROFILES = {
+    "remote-worker-vault-v1",
+    "hyperv-worker-vault-v1",
+}
+VALID_CONFIRMATORY_VERIFIER_MODES = {"black-box-controller-v1"}
 VALID_SOURCE_TYPES = {"local-fixture", "git"}
 VALID_TRANSITIONS = {
     "none",
@@ -80,6 +86,9 @@ class SourceCheckSpec:
 
 @dataclass(frozen=True)
 class OracleSpec:
+    visibility: str
+    required_isolation_profile: str | None
+    verifier_mode: str | None
     required_start_files: tuple[str, ...]
     relevant_evidence_ids: tuple[str, ...]
     stale_evidence_ids: tuple[str, ...]
@@ -105,6 +114,7 @@ class CaseManifest:
     transfer: PhaseSpec
     memory_seeds: tuple[MemorySeedSpec, ...]
     oracle: OracleSpec
+    public_bundle_paths: tuple[str, ...]
     source_path: Path
 
 
@@ -225,6 +235,47 @@ def _source_checks(data: dict[str, Any]) -> tuple[SourceCheckSpec, ...]:
     return tuple(checks)
 
 
+def _public_bundle_paths(data: dict[str, Any]) -> tuple[str, ...]:
+    bundle_data = data.get("bundle")
+    if bundle_data is None:
+        return ()
+    if not isinstance(bundle_data, dict):
+        raise ManifestError("bundle must be a table when present")
+    paths = _strings(bundle_data, "public_paths", context="bundle", required=True)
+    seen: set[str] = set()
+    for path in paths:
+        candidate = Path(path)
+        if candidate.is_absolute() or ".." in candidate.parts or not candidate.parts:
+            raise ManifestError("bundle.public_paths must stay inside the case directory")
+        normalized = candidate.as_posix()
+        if normalized in seen:
+            raise ManifestError("bundle.public_paths must not contain duplicates")
+        seen.add(normalized)
+    return tuple(Path(path).as_posix() for path in paths)
+
+
+def _path_is_covered(path: str, public_paths: tuple[str, ...]) -> bool:
+    candidate = Path(path).as_posix()
+    return any(
+        candidate == declared or candidate.startswith(declared.rstrip("/") + "/")
+        for declared in public_paths
+    )
+
+
+def _required_public_assets(manifest: CaseManifest) -> tuple[str, ...]:
+    assets: list[str] = ["case.toml"]
+    if manifest.repository.path:
+        assets.append(manifest.repository.path)
+    for phase in (manifest.precursor, manifest.transfer):
+        if phase.patch:
+            assets.append(phase.patch)
+        if phase.transcript:
+            assets.append(phase.transcript)
+    if manifest.transition.patch:
+        assets.append(manifest.transition.patch)
+    return tuple(assets)
+
+
 def load_case_manifest(path: str | Path) -> CaseManifest:
     source_path = Path(path).resolve()
     try:
@@ -291,6 +342,30 @@ def load_case_manifest(path: str | Path) -> CaseManifest:
         )
 
     oracle_data = _table(data, "oracle")
+    oracle_visibility = _optional_text(oracle_data, "visibility") or "public"
+    if oracle_visibility not in VALID_ORACLE_VISIBILITIES:
+        raise ManifestError(
+            "oracle.visibility must be one of "
+            f"{sorted(VALID_ORACLE_VISIBILITIES)}"
+        )
+    required_isolation_profile = _optional_text(
+        oracle_data,
+        "required_isolation_profile",
+    )
+    verifier_mode = _optional_text(oracle_data, "verifier_mode")
+    hidden_patch = _optional_text(oracle_data, "hidden_patch")
+    reference_patch = _optional_text(oracle_data, "reference_patch")
+    if oracle_visibility == "private" and (hidden_patch or reference_patch):
+        raise ManifestError(
+            "private oracle assets must live in a private overlay, not case.toml"
+        )
+    if split in {"validation", "test"} and oracle_visibility != "private":
+        raise ManifestError("validation and test cases require oracle.visibility = 'private'")
+    if split in {"validation", "test"} and dependency_classification_status != "preregistered":
+        raise ManifestError(
+            "validation and test cases require preregistered dependency classification"
+        )
+    public_bundle_paths = _public_bundle_paths(data)
     manifest = CaseManifest(
         schema_version=schema_version,
         case_id=case_id,
@@ -336,6 +411,9 @@ def load_case_manifest(path: str | Path) -> CaseManifest:
         ),
         memory_seeds=_memory_seeds(data),
         oracle=OracleSpec(
+            visibility=oracle_visibility,
+            required_isolation_profile=required_isolation_profile,
+            verifier_mode=verifier_mode,
             required_start_files=_strings(
                 oracle_data,
                 "required_start_files",
@@ -358,9 +436,10 @@ def load_case_manifest(path: str | Path) -> CaseManifest:
                 context="oracle",
             ),
             source_checks=_source_checks(oracle_data),
-            hidden_patch=_optional_text(oracle_data, "hidden_patch"),
-            reference_patch=_optional_text(oracle_data, "reference_patch"),
+            hidden_patch=hidden_patch,
+            reference_patch=reference_patch,
         ),
+        public_bundle_paths=public_bundle_paths,
         source_path=source_path,
     )
 
@@ -371,6 +450,37 @@ def load_case_manifest(path: str | Path) -> CaseManifest:
         raise ManifestError(
             "oracle evidence cannot be both relevant and stale: " + ", ".join(sorted(overlap))
         )
+    if split in {"validation", "test"} and (
+        manifest.oracle.source_checks or manifest.oracle.forbidden_actions
+    ):
+        raise ManifestError(
+            "validation and test case-specific oracle rules must live in the private overlay"
+        )
+    if split in {"validation", "test"}:
+        if manifest.oracle.required_isolation_profile not in VALID_CONFIRMATORY_ISOLATION_PROFILES:
+            raise ManifestError(
+                "validation and test cases require a supported "
+                "oracle.required_isolation_profile"
+            )
+        if manifest.oracle.verifier_mode not in VALID_CONFIRMATORY_VERIFIER_MODES:
+            raise ManifestError(
+                "validation and test cases require oracle.verifier_mode = "
+                '"black-box-controller-v1"'
+            )
+        if not manifest.public_bundle_paths:
+            raise ManifestError(
+                "validation and test cases require an explicit [bundle] public_paths allowlist"
+            )
+        missing_assets = [
+            asset
+            for asset in _required_public_assets(manifest)
+            if not _path_is_covered(asset, manifest.public_bundle_paths)
+        ]
+        if missing_assets:
+            raise ManifestError(
+                "bundle.public_paths does not cover required public assets: "
+                + ", ".join(missing_assets)
+            )
     if transition_kind != "none" and not (
         manifest.transition.patch or manifest.transition.apply_commands
     ):

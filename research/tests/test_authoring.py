@@ -43,7 +43,7 @@ def test_verifies_all_authoring_gates(tmp_path: Path) -> None:
     manifest_path = case_dir / "case.toml"
     manifest_path.write_text(
         f"""
-schema_version = "0.3"
+schema_version = "0.5"
 id = "authoring-verification"
 title = "Authoring verification"
 split = "development"
@@ -72,6 +72,7 @@ task = "Repair the transfer regression."
 success_commands = [{transfer_command}]
 
 [oracle]
+visibility = "public"
 required_start_files = ["value.txt"]
 relevant_evidence_ids = []
 stale_evidence_ids = []

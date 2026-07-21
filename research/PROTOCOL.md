@@ -245,9 +245,16 @@ their manifest hashes and excluded before confirmatory case selection.
 Development cases may retain authoring oracles in the repository so their
 admission gates are reproducible; they are explicitly public development
 evidence, not private-oracle evaluations. The executable runner currently
-refuses validation and test splits. Confirmatory execution is blocked until a
-private oracle overlay and verified read isolation exist for every included
-agent client, including Codex.
+refuses validation and test splits. Confirmatory execution remains blocked until
+each included agent client runs on a separate worker host or disposable VM with
+no private-oracle bytes, returns only a sealed patch, and is graded by a fresh,
+offline vault workspace after the worker is destroyed. A local Docker
+containment probe is diagnostic only. The full worker/vault protocol requires a
+randomized sentinel suite, inspected runtime profile, signed worker attestation,
+and redacted grade receipt for the exact pinned image. Client-side Claude/Codex
+permission rules are retained as defense in depth but do not count as
+read-isolation evidence. Private grade reports preserve only status, duration,
+byte counts, and output hashes.
 
 Public repositories may have appeared in model training, so conclusions concern
 the controlled transfer intervention, not proof of novel code synthesis. Where
@@ -262,6 +269,12 @@ analysis code, aggregate results, failure inventory, and the exact manuscript
 tables and figures. Raw logs are redacted for credentials and personally
 identifying paths before public release. Every paper number must be regenerated
 from archived machine-readable results by one documented command.
+
+Private overlays, hidden verifier output, reference repairs, and any ephemeral
+credential injection material remain outside the public artifact. The release
+includes their commitments and the isolation-certificate hashes instead. After
+the embargo, any disclosure must preserve those original commitments and state
+whether the public release is identical to the version used for grading.
 
 For remote repositories, a pinned local Git cache may be used only when its
 `origin` matches the manifest URL and it contains the immutable full commit

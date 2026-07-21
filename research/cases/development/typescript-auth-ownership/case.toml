@@ -1,4 +1,4 @@
-schema_version = "0.3"
+schema_version = "0.5"
 id = "typescript-auth-ownership"
 title = "Token policy and shard marker survive an ownership migration"
 split = "development"
@@ -50,6 +50,7 @@ concepts = ["authentication", "code-ownership"]
 topic_key = "benchmark/typescript-auth-ownership/code-owner"
 
 [oracle]
+visibility = "public"
 required_start_files = ["src/session.js"]
 relevant_evidence_ids = ["policy:access-token-format", "test:short-token-rejection"]
 stale_evidence_ids = ["code:src/auth.js#validateToken"]

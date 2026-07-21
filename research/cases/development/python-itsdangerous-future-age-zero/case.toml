@@ -1,4 +1,4 @@
-schema_version = "0.3"
+schema_version = "0.5"
 id = "python-itsdangerous-future-age-zero"
 title = "Strict zero-age timestamp policy survives validation-helper extraction"
 split = "development"
@@ -49,6 +49,7 @@ concepts = ["TimestampSigner", "unsign", "timestamp-age"]
 topic_key = "benchmark/python-itsdangerous-future-age-zero/code-owner"
 
 [oracle]
+visibility = "public"
 required_start_files = ["src/itsdangerous/timed.py", "tests/test_itsdangerous/test_timed.py"]
 relevant_evidence_ids = ["policy:strict-zero-max-age"]
 stale_evidence_ids = ["code:TimestampSigner.unsign-direct-age-check"]

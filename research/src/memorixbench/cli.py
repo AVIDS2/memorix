@@ -6,6 +6,12 @@ import json
 from pathlib import Path
 
 from .authoring import verify_case_authoring
+from .oracle_assets import resolve_oracle_assets
+from .reporting import (
+    serialize_authoring_verification,
+    serialize_command_results,
+    serialize_source_checks,
+)
 from .schema import ManifestError, load_case_manifest
 from .scoring import collect_result_payloads, compare_conditions, load_jsonl, write_jsonl
 from .trial import SUPPORTED_CONDITIONS, run_trial
@@ -71,11 +77,16 @@ def _grade(args: argparse.Namespace) -> int:
     if not args.allow_case_commands:
         raise ValueError("grading executes trusted case commands; pass --allow-case-commands")
     manifest = load_case_manifest(args.case)
+    oracle_assets = resolve_oracle_assets(manifest, args.private_oracle_root)
     reference_patch_sha256 = None
     if args.reference:
         if args.phase != "transfer":
             raise ValueError("--reference is only valid for transfer grading")
-        reference_patch_sha256 = apply_reference_patch(manifest, args.workspace)
+        reference_patch_sha256 = apply_reference_patch(
+            manifest,
+            args.workspace,
+            oracle_assets=oracle_assets,
+        )
     if args.phase == "precursor":
         results = run_phase_commands(
             manifest.precursor,
@@ -90,6 +101,7 @@ def _grade(args: argparse.Namespace) -> int:
             manifest,
             args.workspace,
             timeout_seconds=args.timeout_seconds,
+            oracle_assets=oracle_assets,
         )
         results = list(evaluation.commands)
         hidden_patch_sha256 = evaluation.hidden_patch_sha256
@@ -102,8 +114,14 @@ def _grade(args: argparse.Namespace) -> int:
         "passed": passed,
         "hidden_patch_sha256": hidden_patch_sha256,
         "reference_patch_sha256": reference_patch_sha256,
-        "commands": [asdict(result) for result in results],
-        "source_checks": [asdict(check) for check in source_checks],
+        "commands": serialize_command_results(
+            results,
+            private_oracle=oracle_assets.visibility == "private",
+        ),
+        "source_checks": serialize_source_checks(
+            source_checks,
+            private_oracle=oracle_assets.visibility == "private",
+        ),
         "source_check_phase": source_check_phase,
     }, indent=2))
     return 0 if passed else 1
@@ -112,13 +130,23 @@ def _grade(args: argparse.Namespace) -> int:
 def _verify_case(args: argparse.Namespace) -> int:
     if not args.allow_case_commands:
         raise ValueError("case verification executes trusted commands; pass --allow-case-commands")
+    manifest = load_case_manifest(args.case)
     verification = verify_case_authoring(
-        load_case_manifest(args.case),
+        manifest,
         args.target_root,
         timeout_seconds=args.timeout_seconds,
         repository_cache=args.repository_cache,
+        oracle_assets=resolve_oracle_assets(manifest, args.private_oracle_root),
     )
-    print(json.dumps(asdict(verification), indent=2))
+    print(
+        json.dumps(
+            serialize_authoring_verification(
+                verification,
+                private_oracle=manifest.oracle.visibility == "private",
+            ),
+            indent=2,
+        )
+    )
     return 0 if verification.passed else 1
 
 
@@ -142,6 +170,7 @@ def _run_trial(args: argparse.Namespace) -> int:
         workspace_root=args.workspace_root,
         claude_provider_settings=args.claude_provider_settings,
         repository_cache=args.repository_cache,
+        private_oracle_root=args.private_oracle_root,
     )
     print(json.dumps(asdict(outcome), indent=2))
     return 0
@@ -185,6 +214,7 @@ def build_parser() -> argparse.ArgumentParser:
     grade.add_argument("--timeout-seconds", type=int, default=300)
     grade.add_argument("--allow-case-commands", action="store_true")
     grade.add_argument("--reference", action="store_true")
+    grade.add_argument("--private-oracle-root", type=Path)
 
     verify_case = subparsers.add_parser("verify-case")
     verify_case.add_argument("case", type=Path)
@@ -192,6 +222,7 @@ def build_parser() -> argparse.ArgumentParser:
     verify_case.add_argument("--timeout-seconds", type=int, default=300)
     verify_case.add_argument("--allow-case-commands", action="store_true")
     verify_case.add_argument("--repository-cache", type=Path)
+    verify_case.add_argument("--private-oracle-root", type=Path)
 
     trial = subparsers.add_parser("run-trial")
     trial.add_argument("case", type=Path)
@@ -210,6 +241,7 @@ def build_parser() -> argparse.ArgumentParser:
     trial.add_argument("--workspace-root", type=Path)
     trial.add_argument("--claude-provider-settings", type=Path)
     trial.add_argument("--repository-cache", type=Path)
+    trial.add_argument("--private-oracle-root", type=Path)
     trial.add_argument("--allow-agent-execution", action="store_true")
     return parser
 

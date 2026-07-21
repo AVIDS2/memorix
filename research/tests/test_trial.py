@@ -4,9 +4,9 @@ from pathlib import Path
 import pytest
 
 from memorixbench.schema import load_case_manifest
+from memorixbench.case_bundle import archive_public_case_definition
 from memorixbench.trial import (
     AGENTMEMORY_PROVIDER_ID,
-    archive_case_definition,
     build_claude_allowed_tools,
     build_condition_prompt,
     ensure_development_case,
@@ -111,8 +111,8 @@ def test_non_development_cases_are_not_executable_yet() -> None:
 def test_archives_complete_case_definition(tmp_path: Path) -> None:
     manifest = load_case_manifest(CASE)
 
-    first_hash = archive_case_definition(manifest, tmp_path / "first")
-    second_hash = archive_case_definition(manifest, tmp_path / "second")
+    first_hash = archive_public_case_definition(manifest, tmp_path / "first")
+    second_hash = archive_public_case_definition(manifest, tmp_path / "second")
 
     assert first_hash == second_hash
     assert (tmp_path / "first" / "case-definition" / "case.toml").is_file()

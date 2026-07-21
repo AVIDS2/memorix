@@ -1,4 +1,4 @@
-schema_version = "0.3"
+schema_version = "0.5"
 id = "python-cache-ttl-ownership"
 title = "Cache TTL policy and cadence survive settings ownership migration"
 split = "development"
@@ -50,6 +50,7 @@ concepts = ["cache", "code-ownership"]
 topic_key = "benchmark/python-cache-ttl-ownership/code-owner"
 
 [oracle]
+visibility = "public"
 required_start_files = ["src/settings.py"]
 relevant_evidence_ids = ["policy:cache-ttl-bounds"]
 stale_evidence_ids = ["code:src/cache_policy.py#valid_cache_ttl"]

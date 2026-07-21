@@ -42,7 +42,7 @@ def test_materializes_precursor_and_transition_patches(tmp_path: Path) -> None:
     manifest_path = case_dir / "case.toml"
     manifest_path.write_text(
         """
-schema_version = "0.3"
+schema_version = "0.5"
 id = "workspace-transition"
 title = "Workspace transition"
 split = "development"
@@ -72,6 +72,7 @@ task = "Use the transfer state."
 success_commands = ["git status --short"]
 
 [oracle]
+visibility = "public"
 required_start_files = ["value.txt"]
 relevant_evidence_ids = ["value:transfer"]
 stale_evidence_ids = ["value:base"]
@@ -137,7 +138,7 @@ def test_transfer_evaluation_reports_source_check_violation(tmp_path: Path) -> N
     manifest_path = case_dir / "case.toml"
     manifest_path.write_text(
         """
-schema_version = "0.3"
+schema_version = "0.5"
 id = "source-check-violation"
 title = "Source check violation"
 split = "development"
@@ -165,6 +166,7 @@ task = "Preserve the source rule."
 success_commands = ["git status --short"]
 
 [oracle]
+visibility = "public"
 required_start_files = ["value.txt"]
 relevant_evidence_ids = []
 stale_evidence_ids = []
@@ -207,7 +209,7 @@ def test_source_checks_ignore_hidden_patch_source_changes(tmp_path: Path) -> Non
     manifest_path = case_dir / "case.toml"
     manifest_path.write_text(
         """
-schema_version = "0.3"
+schema_version = "0.5"
 id = "source-check-pre-hidden"
 title = "Source checks precede hidden patches"
 split = "development"
@@ -235,6 +237,7 @@ task = "Preserve the source rule."
 success_commands = ["git status --short"]
 
 [oracle]
+visibility = "public"
 required_start_files = ["value.txt"]
 relevant_evidence_ids = []
 stale_evidence_ids = []
@@ -297,7 +300,7 @@ def test_materializes_a_pinned_git_repository(tmp_path: Path) -> None:
     manifest_path = case_dir / "case.toml"
     manifest_path.write_text(
         f"""
-schema_version = "0.3"
+schema_version = "0.5"
 id = "pinned-git-source"
 title = "Pinned Git source"
 split = "development"
@@ -326,6 +329,7 @@ task = "Use the pinned source."
 success_commands = ["git status --short"]
 
 [oracle]
+visibility = "public"
 required_start_files = ["value.txt"]
 relevant_evidence_ids = []
 stale_evidence_ids = []
@@ -378,7 +382,7 @@ def test_materializes_from_verified_local_cache(tmp_path: Path) -> None:
     manifest_path = case_dir / "case.toml"
     manifest_path.write_text(
         f"""
-schema_version = "0.3"
+schema_version = "0.5"
 id = "verified-local-cache"
 title = "Verified local cache"
 split = "development"
@@ -407,6 +411,7 @@ task = "Use the source."
 success_commands = ["git status --short"]
 
 [oracle]
+visibility = "public"
 required_start_files = ["value.txt"]
 relevant_evidence_ids = []
 stale_evidence_ids = []

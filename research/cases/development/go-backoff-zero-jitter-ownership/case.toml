@@ -1,4 +1,4 @@
-schema_version = "0.3"
+schema_version = "0.5"
 id = "go-backoff-zero-jitter-ownership"
 title = "Zero-jitter retry policy survives randomization-helper extraction"
 split = "development"
@@ -49,6 +49,7 @@ concepts = ["retry", "code-ownership"]
 topic_key = "benchmark/go-backoff-zero-jitter-ownership/code-owner"
 
 [oracle]
+visibility = "public"
 required_start_files = ["randomization.go", "exponential.go"]
 relevant_evidence_ids = ["policy:zero-jitter"]
 stale_evidence_ids = ["code:exponential.go#getRandomValueFromInterval"]

@@ -1,4 +1,4 @@
-schema_version = "0.3"
+schema_version = "0.5"
 id = "go-retry-delay-ownership"
 title = "Retry delay policy and cadence survive service ownership migration"
 split = "development"
@@ -50,6 +50,7 @@ concepts = ["retry", "code-ownership"]
 topic_key = "benchmark/go-retry-delay-ownership/code-owner"
 
 [oracle]
+visibility = "public"
 required_start_files = ["service/retry.go"]
 relevant_evidence_ids = ["policy:retry-delay-bounds"]
 stale_evidence_ids = ["code:internal/policy/delay.go#ValidRetryDelay"]

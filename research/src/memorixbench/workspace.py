@@ -10,6 +10,7 @@ import subprocess
 import time
 from typing import Literal
 
+from .oracle_assets import OracleAssetSet, public_oracle_assets
 from .schema import CaseManifest, PhaseSpec, SourceCheckSpec
 
 Stage = Literal["base", "precursor", "transfer"]
@@ -312,13 +313,20 @@ def reset_history_to_snapshot(
     return _commit_all(repo, message)
 
 
-def apply_reference_patch(manifest: CaseManifest, workspace: str | Path) -> str:
+def apply_reference_patch(
+    manifest: CaseManifest,
+    workspace: str | Path,
+    *,
+    oracle_assets: OracleAssetSet | None = None,
+) -> str:
     """Mount the maintainer-only known-good repair before hidden-test grading."""
-    reference_patch = manifest.oracle.reference_patch
-    if reference_patch is None:
+    assets = oracle_assets or public_oracle_assets(manifest)
+    if assets.visibility == "private":
+        raise ValueError("private oracle reference patches require the vault grader")
+    if assets.reference_patch is None:
         raise ValueError(f"case has no oracle reference patch: {manifest.case_id}")
     repo = Path(workspace).resolve()
-    patch = _resolve_asset(manifest, reference_patch)
+    patch = assets.reference_patch
     try:
         _run_git(repo, "apply", "--whitespace=nowarn", str(patch))
     except subprocess.CalledProcessError as error:
@@ -412,13 +420,17 @@ def run_transfer_evaluation(
     workspace: str | Path,
     *,
     timeout_seconds: int = 300,
+    oracle_assets: OracleAssetSet | None = None,
 ) -> TransferEvaluation:
     repo = Path(workspace).resolve()
+    assets = oracle_assets or public_oracle_assets(manifest)
+    if assets.visibility == "private":
+        raise ValueError("private oracle evaluation requires the vault grader")
     # Inspect the agent-authored source before a maintainer-only hidden patch can alter it.
     source_checks = evaluate_source_checks(manifest, repo)
     hidden_patch_sha256: str | None = None
-    if manifest.oracle.hidden_patch:
-        patch = _resolve_asset(manifest, manifest.oracle.hidden_patch)
+    if assets.hidden_patch:
+        patch = assets.hidden_patch
         hidden_patch_sha256 = _sha256(patch)
         try:
             _run_git(repo, "apply", "--whitespace=nowarn", str(patch))

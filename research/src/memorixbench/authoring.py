@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from .oracle_assets import OracleAssetSet, public_oracle_assets
 from .schema import CaseManifest
 from .workspace import (
     CommandResult,
@@ -50,10 +51,12 @@ def verify_case_authoring(
     *,
     timeout_seconds: int = 300,
     repository_cache: str | Path | None = None,
+    oracle_assets: OracleAssetSet | None = None,
 ) -> AuthoringVerification:
     """Run the four deterministic gates required before a case reaches agents."""
 
-    if not manifest.oracle.hidden_patch or not manifest.oracle.reference_patch:
+    assets = oracle_assets or public_oracle_assets(manifest)
+    if not assets.hidden_patch or not assets.reference_patch:
         raise ValueError(
             "authoring verification requires oracle.hidden_patch and oracle.reference_patch"
         )
@@ -102,6 +105,7 @@ def verify_case_authoring(
         manifest,
         hidden.path,
         timeout_seconds=timeout_seconds,
+        oracle_assets=assets,
     )
     if hidden_evaluation.hidden_patch_sha256 is None:
         raise ValueError("authoring verification did not mount the hidden patch")
@@ -112,11 +116,16 @@ def verify_case_authoring(
         stage="transfer",
         repository_cache=repository_cache,
     )
-    reference_patch_sha256 = apply_reference_patch(manifest, reference.path)
+    reference_patch_sha256 = apply_reference_patch(
+        manifest,
+        reference.path,
+        oracle_assets=assets,
+    )
     reference_evaluation = run_transfer_evaluation(
         manifest,
         reference.path,
         timeout_seconds=timeout_seconds,
+        oracle_assets=assets,
     )
 
     gates = (

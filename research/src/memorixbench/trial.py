@@ -6,7 +6,6 @@ import hashlib
 import json
 from pathlib import Path
 import platform
-import shutil
 import subprocess
 import time
 import uuid
@@ -21,6 +20,7 @@ from .agents import (
     write_claude_settings,
 )
 from .baseline import BaselineRetrieval
+from .case_bundle import archive_public_case_definition
 from .agentmemory_adapter import AGENTMEMORY_PROVIDER_ID, AgentMemoryFullAdapter
 from .mem0_adapter import MEM0_PROVIDER_ID, Mem0LocalAdapter
 from .memorix_adapter import (
@@ -28,9 +28,10 @@ from .memorix_adapter import (
     seed_memorix_project,
     write_claude_mcp_config,
 )
+from .oracle_assets import OracleAssetSet, resolve_oracle_assets
+from .reporting import serialize_command_results, serialize_source_checks
 from .schema import CaseManifest, load_case_manifest
 from .workspace import (
-    CommandResult,
     advance_case_to_transfer,
     materialize_case,
     phase_passed,
@@ -145,6 +146,10 @@ class TrialOutcome:
     workspace_isolation: str
     repository_transport: str
     repository_origin: str | None
+    oracle_visibility: str
+    oracle_definition_sha256: str
+    oracle_overlay_id: str | None
+    verifier_runtime_sha256: str | None
 
 
 def _sha256(path: Path) -> str:
@@ -273,10 +278,6 @@ def _paths_overlap(left: Path, right: Path) -> bool:
     return left == right or left in right.parents or right in left.parents
 
 
-def _serialize_commands(results: list[CommandResult]) -> list[dict[str, object]]:
-    return [asdict(result) for result in results]
-
-
 def ensure_development_case(manifest: CaseManifest) -> None:
     if manifest.split != "development":
         raise ValueError(
@@ -285,23 +286,27 @@ def ensure_development_case(manifest: CaseManifest) -> None:
         )
 
 
-def archive_case_definition(manifest: CaseManifest, artifact_dir: Path) -> str:
-    source_root = manifest.source_path.parent.resolve()
-    if any(path.is_symlink() for path in source_root.rglob("*")):
-        raise ValueError("case definition cannot contain symbolic links")
-    destination = artifact_dir / "case-definition"
-    shutil.copytree(source_root, destination)
-    digest = hashlib.sha256()
-    for path in sorted(destination.rglob("*")):
-        if not path.is_file():
-            continue
-        relative = path.relative_to(destination).as_posix()
-        digest.update(relative.encode("utf-8"))
-        digest.update(b"\0")
-        with path.open("rb") as handle:
-            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-                digest.update(chunk)
-    return digest.hexdigest()
+def ensure_trial_eligibility(
+    manifest: CaseManifest,
+    *,
+    agent: AgentName,
+    oracle_assets: OracleAssetSet,
+) -> str:
+    if manifest.split == "development":
+        if oracle_assets.visibility != "public":
+            raise ValueError("development cases must use public oracle assets")
+        return "development"
+    if oracle_assets.visibility != "private":
+        raise ValueError("validation and test cases require private oracle assets")
+    if manifest.dependency_classification_status != "preregistered":
+        raise ValueError("confirmatory cases require preregistered dependency classification")
+    if agent == "codex":
+        raise ValueError(
+            "Codex private-oracle trials are disabled pending adversarial read-isolation preflight"
+        )
+    raise ValueError(
+        "private-oracle trials are disabled pending an external sandbox isolation certificate"
+    )
 
 
 def run_trial(
@@ -322,9 +327,15 @@ def run_trial(
     workspace_root: str | Path | None = None,
     claude_provider_settings: str | Path | None = None,
     repository_cache: str | Path | None = None,
+    private_oracle_root: str | Path | None = None,
 ) -> TrialOutcome:
     manifest = load_case_manifest(case_path)
-    ensure_development_case(manifest)
+    oracle_assets = resolve_oracle_assets(manifest, private_oracle_root)
+    evidence_tier = ensure_trial_eligibility(
+        manifest,
+        agent=agent,
+        oracle_assets=oracle_assets,
+    )
     run_id = str(uuid.uuid4())
     model_label = model or "client-default"
     artifact_root_path = Path(artifact_root).resolve()
@@ -357,7 +368,7 @@ def run_trial(
         workspace_dir = run_dir / "workspace"
     agent_dir = run_dir / "agent"
     run_dir.mkdir(parents=True, exist_ok=False)
-    case_definition_sha256 = archive_case_definition(manifest, run_dir)
+    case_definition_sha256 = archive_public_case_definition(manifest, run_dir)
     started_at = datetime.now(timezone.utc).isoformat()
     is_memorix = condition in MEMORIX_CONDITIONS
     is_canonical_retrieval = condition in CANONICAL_RETRIEVAL_CONDITIONS
@@ -607,6 +618,7 @@ def run_trial(
         manifest,
         workspace_dir,
         timeout_seconds=min(timeout_seconds, 300),
+        oracle_assets=oracle_assets,
     )
     grade_results = list(evaluation.commands)
     source_check_violations = tuple(
@@ -644,14 +656,14 @@ def run_trial(
         else execution.failure_reason
     )
     outcome = TrialOutcome(
-        schema_version="1.1",
+        schema_version="1.2",
         run_id=run_id,
         study_id=study_id,
         case_id=manifest.case_id,
         case_split=manifest.split,
         predecessor_dependency=manifest.dependency_strength,
         dependency_classification_status=manifest.dependency_classification_status,
-        evidence_tier="development",
+        evidence_tier=evidence_tier,
         condition=condition,
         agent=agent,
         model=model_label,
@@ -713,14 +725,24 @@ def run_trial(
         workspace_isolation=workspace_isolation,
         repository_transport=materialized.repository_transport,
         repository_origin=materialized.repository_origin,
+        oracle_visibility=oracle_assets.visibility,
+        oracle_definition_sha256=oracle_assets.definition_sha256,
+        oracle_overlay_id=oracle_assets.overlay_id,
+        verifier_runtime_sha256=oracle_assets.verifier_runtime_sha256,
     )
     (run_dir / "prompt.txt").write_text(prompt, encoding="utf-8")
     (run_dir / "grade.json").write_text(
         json.dumps(
             {
                 "passed": outcome.task_success,
-                "commands": _serialize_commands(grade_results),
-                "source_checks": [asdict(check) for check in evaluation.source_checks],
+                "commands": serialize_command_results(
+                    grade_results,
+                    private_oracle=oracle_assets.visibility == "private",
+                ),
+                "source_checks": serialize_source_checks(
+                    evaluation.source_checks,
+                    private_oracle=oracle_assets.visibility == "private",
+                ),
                 "source_check_phase": evaluation.source_check_phase,
             },
             indent=2,

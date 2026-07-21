@@ -779,6 +779,12 @@ const SCHEMA_MIGRATIONS: SchemaMigration[] = [
       db.exec('CREATE INDEX IF NOT EXISTS idx_long_term_memory_events_memory ON long_term_memory_events(memoryId, createdAt)');
     },
   },
+  {
+    id: '1.2-observation-attachments',
+    apply: (db) => {
+      try { db.exec('ALTER TABLE observations ADD COLUMN attachments TEXT'); } catch { /* already exists */ }
+    },
+  },
 ];
 
 function applySchemaMigrations(db: any): void {

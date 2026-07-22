@@ -8,6 +8,7 @@ from pathlib import Path
 import platform
 import re
 import subprocess
+import sys
 import time
 import uuid
 
@@ -25,10 +26,16 @@ from .case_bundle import archive_public_case_definition
 from .agentmemory_adapter import AGENTMEMORY_PROVIDER_ID, AgentMemoryFullAdapter
 from .mem0_adapter import MEM0_PROVIDER_ID, Mem0LocalAdapter
 from .memorix_adapter import (
+    MEMORIX_CANONICAL_PROVIDER_ID,
     ingest_memorix_trace,
-    refresh_memorix_project,
+    retrieve_memorix_canonical,
     seed_memorix_canonical_evidence,
-    write_claude_mcp_config,
+)
+from .native_mcp_gateway import (
+    NativeMcpBudgetPolicy,
+    NativeMcpGatewayReceipt,
+    load_native_mcp_receipt,
+    write_native_mcp_config,
 )
 from .oracle_assets import OracleAssetSet, resolve_oracle_assets
 from .reporting import serialize_command_results, serialize_source_checks
@@ -48,11 +55,15 @@ MEMORIX_CONDITION_MODES = {
     "memorix-1.2.1-micro-local": "micro",
     "memorix-1.2.1-lite-local": "lite",
     "memorix-1.2.1-full-local": "full",
+    MEMORIX_CANONICAL_PROVIDER_ID: "micro",
 }
 MEMORIX_CONDITIONS = set(MEMORIX_CONDITION_MODES)
+NATIVE_MEMORIX_CONDITIONS = MEMORIX_CONDITIONS - {MEMORIX_CANONICAL_PROVIDER_ID}
 MEM0_CONDITIONS = {MEM0_PROVIDER_ID}
 AGENTMEMORY_CONDITIONS = {AGENTMEMORY_PROVIDER_ID}
-CANONICAL_RETRIEVAL_CONDITIONS = MEM0_CONDITIONS | AGENTMEMORY_CONDITIONS
+CANONICAL_RETRIEVAL_CONDITIONS = (
+    MEM0_CONDITIONS | AGENTMEMORY_CONDITIONS | {MEMORIX_CANONICAL_PROVIDER_ID}
+)
 SUPPORTED_CONDITIONS = {
     "no-memory",
     "last-n",
@@ -61,14 +72,9 @@ SUPPORTED_CONDITIONS = {
 }
 CANONICAL_RETRIEVAL_TOP_K = 8
 CANONICAL_RETRIEVAL_TOKEN_BUDGET = 180
+NATIVE_MCP_CALL_BUDGET = 1
 MEMORIX_ALLOWED_TOOLS = (
     "mcp__memorix__memorix_project_context",
-    "mcp__memorix__memorix_context_pack",
-    "mcp__memorix__memorix_graph_context",
-    "mcp__memorix__memorix_search",
-    "mcp__memorix__memorix_detail",
-    "mcp__memorix__memorix_store",
-    "mcp__memorix__memorix_resolve",
 )
 INFRASTRUCTURE_FAILURE_REASONS = {
     "authentication",
@@ -140,6 +146,13 @@ class TrialOutcome:
     retrieved_context_truncated: bool | None
     retrieval_call_count: int | None
     retrieval_round_count: int | None
+    native_mcp_policy_sha256: str | None
+    native_mcp_call_budget: int | None
+    native_mcp_receipt_status: str
+    native_mcp_call_attempt_count: int | None
+    native_mcp_served_call_count: int | None
+    native_mcp_context_tokens: int | None
+    native_mcp_context_truncated: bool | None
     raw_replay_context_tokens: int | None
     raw_replay_context_truncated: bool | None
     formation_track: str
@@ -230,6 +243,54 @@ def validate_trial_outcome(outcome: TrialOutcome) -> None:
             outcome.retrieval_round_count > outcome.retrieval_call_count
         ):
             raise ValueError("retrieval receipt has an invalid call or round count")
+    if outcome.condition in NATIVE_MEMORIX_CONDITIONS:
+        _require_sha256(outcome.native_mcp_policy_sha256, field="native MCP policy hash")
+        if outcome.native_mcp_call_budget != NATIVE_MCP_CALL_BUDGET:
+            raise ValueError("native MCP condition has an invalid call budget")
+        if outcome.native_mcp_receipt_status == "recorded-v1":
+            attempts = outcome.native_mcp_call_attempt_count
+            served = outcome.native_mcp_served_call_count
+            if attempts is None or served is None or attempts < 0 or served < 0 or served > attempts:
+                raise ValueError("native MCP receipt has invalid call accounting")
+            if served > outcome.native_mcp_call_budget:
+                raise ValueError("native MCP receipt exceeded its call budget")
+            if served == 0:
+                if outcome.native_mcp_context_tokens is not None or outcome.native_mcp_context_truncated is not None:
+                    raise ValueError("unused native MCP receipt contains context evidence")
+            elif (
+                outcome.native_mcp_context_tokens is None
+                or outcome.native_mcp_context_tokens > CANONICAL_RETRIEVAL_TOKEN_BUDGET
+                or outcome.native_mcp_context_truncated is None
+            ):
+                raise ValueError("native MCP receipt has invalid bounded context evidence")
+        elif outcome.native_mcp_receipt_status == "not-started-v1":
+            if any(
+                value is not None
+                for value in (
+                    outcome.native_mcp_call_attempt_count,
+                    outcome.native_mcp_served_call_count,
+                    outcome.native_mcp_context_tokens,
+                    outcome.native_mcp_context_truncated,
+                )
+            ):
+                raise ValueError("unstarted native MCP gateway must not report usage")
+        elif outcome.native_mcp_receipt_status == "missing-after-attempt-v1":
+            if outcome.valid_run:
+                raise ValueError("missing native MCP receipt cannot be a valid run")
+        else:
+            raise ValueError("trial outcome has an invalid native MCP receipt status")
+    elif any(
+        value is not None
+        for value in (
+            outcome.native_mcp_policy_sha256,
+            outcome.native_mcp_call_budget,
+            outcome.native_mcp_call_attempt_count,
+            outcome.native_mcp_served_call_count,
+            outcome.native_mcp_context_tokens,
+            outcome.native_mcp_context_truncated,
+        )
+    ) or outcome.native_mcp_receipt_status != "not-applicable-v1":
+        raise ValueError("non-Memorix condition has native MCP evidence")
     if outcome.memory_tool_attempt_count > outcome.tool_call_count:
         raise ValueError("memory tool attempts exceed total tool calls")
     if outcome.memory_tool_call_count > outcome.successful_tool_call_count:
@@ -412,7 +473,7 @@ def build_claude_allowed_tools(manifest: CaseManifest, condition: str) -> tuple[
     verification_tools = tuple(
         f"Bash({command})" for command in manifest.transfer.success_commands
     )
-    memory_tools = MEMORIX_ALLOWED_TOOLS if condition in MEMORIX_CONDITIONS else ()
+    memory_tools = MEMORIX_ALLOWED_TOOLS if condition in NATIVE_MEMORIX_CONDITIONS else ()
     return tuple(dict.fromkeys((*CLAUDE_BASE_ALLOWED_TOOLS, *verification_tools, *memory_tools)))
 
 
@@ -554,10 +615,12 @@ def run_trial(
     case_definition_sha256 = archive_public_case_definition(manifest, run_dir)
     started_at = datetime.now(timezone.utc).isoformat()
     is_memorix = condition in MEMORIX_CONDITIONS
+    is_native_memorix = condition in NATIVE_MEMORIX_CONDITIONS
+    is_memorix_canonical = condition == MEMORIX_CANONICAL_PROVIDER_ID
     is_canonical_retrieval = condition in CANONICAL_RETRIEVAL_CONDITIONS
     memorix_mode = MEMORIX_CONDITION_MODES.get(condition)
-    if is_memorix and agent != "claude":
-        raise ValueError("the first controlled Memorix adapter currently supports Claude only")
+    if is_native_memorix and agent != "claude":
+        raise ValueError("the budgeted native Memorix MCP track currently supports Claude only")
     materialized = materialize_case(
         manifest,
         workspace_dir,
@@ -574,6 +637,10 @@ def run_trial(
     memory_preparation_seconds: float | None = None
     memory_retrieval_seconds: float | None = None
     formation_receipt: dict[str, object] | None = None
+    native_mcp_policy: NativeMcpBudgetPolicy | None = None
+    native_mcp_receipt_path: Path | None = None
+    native_mcp_receipt: NativeMcpGatewayReceipt | None = None
+    native_mcp_receipt_status = "not-applicable-v1"
     condition_metadata: dict[str, object] = {
         "condition": condition,
         "study_track": manifest.study_track,
@@ -597,6 +664,7 @@ def run_trial(
         data_dir = memory_dir / "data"
         home_dir = memory_dir / "home"
         adapter_dir = memory_dir / "adapter"
+        preparation_started = time.monotonic()
         if precursor_trace is None:
             seed_result = seed_memorix_canonical_evidence(
                 manifest=manifest,
@@ -618,29 +686,12 @@ def run_trial(
                 mode=memorix_mode or "full",
             )
         formation_receipt = _require_formation_receipt(seed_result)
+        memory_preparation_seconds = time.monotonic() - preparation_started
         transfer_commit, transition_patch_sha256 = advance_case_to_transfer(
             manifest,
             workspace_dir,
         )
         agent_start_commit = reset_history_to_snapshot(workspace_dir)
-        refresh_result = refresh_memorix_project(
-            manifest=manifest,
-            workspace=workspace_dir,
-            cli_path=memorix_cli_path,
-            data_dir=data_dir,
-            home_dir=home_dir,
-            artifact_dir=adapter_dir,
-            project_id=str(seed_result["project_id"]),
-            mode=memorix_mode or "full",
-        )
-        mcp_config = write_claude_mcp_config(
-            path=memory_dir / "claude-mcp.json",
-            cli_path=memorix_cli_path,
-            workspace=workspace_dir,
-            data_dir=data_dir,
-            home_dir=home_dir,
-            mode=memorix_mode or "full",
-        )
         memorix_cli_sha256 = _sha256(memorix_cli_path)
         condition_metadata = {
             "condition": condition,
@@ -651,14 +702,69 @@ def run_trial(
             "precursor_trace_sha256": precursor_trace.sha256 if precursor_trace else None,
             "memorix_cli": str(memorix_cli_path),
             "memorix_cli_sha256": memorix_cli_sha256,
-            "tool_profile": memorix_mode,
+            "formation_tool_profile": memorix_mode,
             "llm": "off",
             "embedding": "off",
             "seed_maintenance": seed_result["maintenance"]["summary"],
             "formation_receipt": formation_receipt,
-            "refresh_maintenance": refresh_result["maintenance"]["summary"],
-            "final_workset": refresh_result["final"]["workset"],
+            "preparation_seconds": memory_preparation_seconds,
         }
+        if is_memorix_canonical:
+            retrieval_started = time.monotonic()
+            canonical = retrieve_memorix_canonical(
+                workspace=workspace_dir,
+                cli_path=memorix_cli_path,
+                data_dir=data_dir,
+                home_dir=home_dir,
+                artifact_dir=adapter_dir,
+                query=manifest.transfer.task,
+                top_k=CANONICAL_RETRIEVAL_TOP_K,
+                token_budget=CANONICAL_RETRIEVAL_TOKEN_BUDGET,
+            )
+            retrieval = canonical.retrieval
+            memory_retrieval_seconds = time.monotonic() - retrieval_started
+            condition_metadata.update({
+                "interaction_track": "canonical-retrieval-v1",
+                "retrieval": {
+                    "query": retrieval.query,
+                    "top_k": CANONICAL_RETRIEVAL_TOP_K,
+                    "token_budget": retrieval.token_budget,
+                    "token_count": retrieval.token_count,
+                    "truncated": retrieval.truncated,
+                    "logical_call_count": retrieval.retrieval_call_count,
+                    "logical_round_count": retrieval.retrieval_round_count,
+                    "transport_call_count": canonical.transport_call_count,
+                    "candidate_refs": list(canonical.candidate_refs),
+                },
+                "retrieval_seconds": memory_retrieval_seconds,
+            })
+        else:
+            native_mcp_policy = NativeMcpBudgetPolicy(
+                task=manifest.transfer.task,
+                call_budget=NATIVE_MCP_CALL_BUDGET,
+                token_budget=CANONICAL_RETRIEVAL_TOKEN_BUDGET,
+                refresh="never",
+            )
+            native_mcp_receipt_path = memory_dir / "native-mcp-gateway-receipt.json"
+            mcp_config = write_native_mcp_config(
+                path=memory_dir / "claude-mcp.json",
+                python_executable=Path(sys.executable),
+                memorix_cli=memorix_cli_path,
+                workspace=workspace_dir,
+                data_dir=data_dir,
+                home_dir=home_dir,
+                log_dir=adapter_dir / "native-mcp-control-plane",
+                receipt_path=native_mcp_receipt_path,
+                task=native_mcp_policy.task,
+                call_budget=native_mcp_policy.call_budget,
+                token_budget=native_mcp_policy.token_budget,
+                refresh=native_mcp_policy.refresh,
+            )
+            condition_metadata.update({
+                "interaction_track": "native-mcp-budgeted-v1",
+                "gateway_underlying_tool_profile": "micro",
+                "native_mcp_policy": native_mcp_policy.public_payload(),
+            })
     elif condition == MEM0_PROVIDER_ID:
         if mem0_python is None:
             raise ValueError(f"{MEM0_PROVIDER_ID} requires --mem0-python")
@@ -859,6 +965,24 @@ def run_trial(
         settings_path=claude_settings,
         environment=provider_env,
     )
+    if is_native_memorix:
+        assert native_mcp_policy is not None
+        assert native_mcp_receipt_path is not None
+        if native_mcp_receipt_path.is_file():
+            native_mcp_receipt = load_native_mcp_receipt(native_mcp_receipt_path)
+            if native_mcp_receipt.policy_sha256 != native_mcp_policy.sha256:
+                raise RuntimeError("native MCP gateway receipt is bound to a different policy")
+            if native_mcp_receipt.served_call_count > native_mcp_policy.call_budget:
+                raise RuntimeError("native MCP gateway receipt exceeded its call budget")
+            native_mcp_receipt_status = "recorded-v1"
+        elif any("memorix" in name.lower() for name in execution.tool_call_names):
+            native_mcp_receipt_status = "missing-after-attempt-v1"
+        else:
+            native_mcp_receipt_status = "not-started-v1"
+        condition_metadata["native_mcp_receipt_status"] = native_mcp_receipt_status
+        condition_metadata["native_mcp_receipt"] = (
+            native_mcp_receipt.public_payload() if native_mcp_receipt else None
+        )
     evaluation = run_transfer_evaluation(
         manifest,
         workspace_dir,
@@ -891,7 +1015,9 @@ def run_trial(
         workspace=workspace_dir,
     )
     environment_violation = bool(
-        execution.permission_denials or command_contamination_violations
+        execution.permission_denials
+        or command_contamination_violations
+        or native_mcp_receipt_status == "missing-after-attempt-v1"
     )
     valid_run = is_valid_execution(
         execution.failure_reason,
@@ -902,10 +1028,24 @@ def run_trial(
         if execution.permission_denials
         else "command-contamination"
         if command_contamination_violations
+        else "mcp-budget-receipt-missing"
+        if native_mcp_receipt_status == "missing-after-attempt-v1"
         else execution.failure_reason
     )
+    native_mcp_attempt_count = (
+        native_mcp_receipt.call_attempt_count if native_mcp_receipt else None
+    )
+    native_mcp_served_call_count = (
+        native_mcp_receipt.served_call_count if native_mcp_receipt else None
+    )
+    native_mcp_context_tokens = (
+        native_mcp_receipt.emitted_context_tokens if native_mcp_receipt else None
+    )
+    native_mcp_context_truncated = (
+        native_mcp_receipt.context_truncated if native_mcp_receipt else None
+    )
     outcome = TrialOutcome(
-        schema_version="1.4",
+        schema_version="1.5",
         run_id=run_id,
         study_id=study_id,
         case_id=manifest.case_id,
@@ -959,11 +1099,48 @@ def run_trial(
         memory_provider=str(condition_metadata["memory_provider"])
         if condition_metadata["memory_provider"] is not None
         else None,
-        retrieved_context_tokens=retrieval.token_count if retrieval else None,
-        retrieved_context_record_count=len(retrieval.records) if retrieval else None,
-        retrieved_context_truncated=retrieval.truncated if retrieval else None,
-        retrieval_call_count=retrieval.retrieval_call_count if retrieval else None,
-        retrieval_round_count=retrieval.retrieval_round_count if retrieval else None,
+        retrieved_context_tokens=(
+            retrieval.token_count
+            if retrieval
+            else native_mcp_context_tokens
+        ),
+        retrieved_context_record_count=(
+            len(retrieval.records)
+            if retrieval
+            else 1
+            if native_mcp_served_call_count
+            else None
+        ),
+        retrieved_context_truncated=(
+            retrieval.truncated
+            if retrieval
+            else native_mcp_context_truncated
+        ),
+        retrieval_call_count=(
+            retrieval.retrieval_call_count
+            if retrieval
+            else native_mcp_served_call_count
+            if native_mcp_served_call_count
+            else None
+        ),
+        retrieval_round_count=(
+            retrieval.retrieval_round_count
+            if retrieval
+            else native_mcp_served_call_count
+            if native_mcp_served_call_count
+            else None
+        ),
+        native_mcp_policy_sha256=(
+            native_mcp_policy.sha256 if native_mcp_policy else None
+        ),
+        native_mcp_call_budget=(
+            native_mcp_policy.call_budget if native_mcp_policy else None
+        ),
+        native_mcp_receipt_status=native_mcp_receipt_status,
+        native_mcp_call_attempt_count=native_mcp_attempt_count,
+        native_mcp_served_call_count=native_mcp_served_call_count,
+        native_mcp_context_tokens=native_mcp_context_tokens,
+        native_mcp_context_truncated=native_mcp_context_truncated,
         raw_replay_context_tokens=trace_view.token_count if trace_view else None,
         raw_replay_context_truncated=trace_view.truncated if trace_view else None,
         formation_track=manifest.formation_track,

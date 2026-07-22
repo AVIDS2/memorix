@@ -19,8 +19,8 @@ fact into one product and calling the result end-to-end memory formation.
   formation receipt with its source event ids and write/transport/maintenance
   counts.
 - The native product track preserves a product's own interface and maintenance path.
-  Memorix MCP modes belong here. Native AgentMemory smart search, for example,
-  will be reported separately from its canonical scoped-search baseline.
+  Budgeted Memorix MCP and native AgentMemory smart search, for example, are
+  reported separately from their canonical scoped-search baselines.
 
 `native-session` formation is intentionally not executable yet. It will be a
 separate, preregistered surface once each provider can replay the same captured
@@ -56,8 +56,26 @@ tokenizer that downloads data during an experiment.
 
 Each canonical retrieval records its actual provider call count and round count;
 the one-call/one-round profile is explicit rather than inferred from a unique
-tool name. Native product runs are reported as their own surface until a
-budget gateway can enforce an equivalent native call/round budget.
+tool name. Native product runs are reported as their own surface through the
+bounded gateway in `NATIVE-MCP-BUDGET-CONTRACT.md`.
+
+## Memorix Canonical Adapter
+
+The implemented canonical condition is `memorix-1.2.1-canonical-local`.
+
+It deliberately does not call `memorix_project_context`, `memorix_context_pack`,
+CodeGraph refresh, or any write tool during transfer. It runs one logical
+provider retrieval round: Memorix compact search receives the frozen transfer
+query and returns at most eight typed observation refs; one bulk detail call
+hydrates only those refs; the adapter then renders the returned memory evidence
+through the same neutral 180-token renderer used by the other canonical
+conditions.
+
+The artifact records both meanings of “call”: `logical_retrieval_call_count =
+1` and `logical_retrieval_round_count = 1` describe the experimental treatment,
+while `transport_call_count = 2` makes the search-plus-hydration implementation
+visible. It is never silently represented as one MCP transport. No raw replay,
+source-aware project brief, or agent-driven tool loop enters this condition.
 
 ## Mem0 local adapter
 

@@ -2,10 +2,12 @@ import json
 from pathlib import Path
 
 from memorixbench.memorix_adapter import (
+    MEMORIX_CANONICAL_PROVIDER_ID,
     PROVIDER_ENV_KEYS,
     _isolated_process_env,
     _parse_mcp_body,
     ingest_memorix_trace,
+    retrieve_memorix_canonical,
     write_claude_mcp_config,
 )
 from memorixbench.trace import PrecursorEvent, PrecursorTrace
@@ -110,3 +112,46 @@ def test_memorix_trace_ingestion_never_scans_the_precursor_workspace(tmp_path: P
     receipt = result["formation_receipt"]
     assert receipt["transport_call_count"] == 4
     assert receipt["source_event_ids"] == ["event-1"]
+
+
+def test_memorix_canonical_retrieval_uses_one_logical_search_round(tmp_path: Path, monkeypatch) -> None:
+    import memorixbench.memorix_adapter as module
+
+    calls: list[tuple[str, dict[str, object]]] = []
+
+    class FakeControlPlane:
+        def __init__(self, **_kwargs) -> None:
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args) -> None:
+            return None
+
+        def tool(self, name: str, arguments: dict[str, object]) -> dict[str, object]:
+            calls.append((name, arguments))
+            if name == "memorix_search":
+                return {"content": [{"type": "text", "text": "| obs:7@project-a | decision |"}]}
+            return {"content": [{"type": "text", "text": "Full durable policy evidence"}]}
+
+    monkeypatch.setattr(module, "MemorixControlPlane", FakeControlPlane)
+
+    result = retrieve_memorix_canonical(
+        workspace=tmp_path / "workspace",
+        cli_path=tmp_path / "cli.js",
+        data_dir=tmp_path / "data",
+        home_dir=tmp_path / "home",
+        artifact_dir=tmp_path / "artifact",
+        query="repair policy",
+        top_k=8,
+        token_budget=180,
+    )
+
+    assert result.retrieval.provider == MEMORIX_CANONICAL_PROVIDER_ID
+    assert result.retrieval.retrieval_call_count == 1
+    assert result.retrieval.retrieval_round_count == 1
+    assert result.transport_call_count == 2
+    assert result.candidate_refs == ("obs:7@project-a",)
+    assert calls[0][0] == "memorix_search"
+    assert calls[1] == ("memorix_detail", {"typedRefs": ["obs:7@project-a"]})

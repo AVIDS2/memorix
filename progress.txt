@@ -15,11 +15,14 @@ Completed
 - A strict, short-lived `remote-worker-vault-v1` attestation contract now binds worker job/run/patch/runtime/isolation/sentinel/destruction data and is verified with a real OpenSSH Ed25519 sign/verify test using temporary keys.
 - A security review rejected the proposed generic Docker vault verifier: mounting candidate code and hidden tests into one grader process lets candidate code inspect private assets. The implementation was removed rather than patched over.
 - The logical `stdio-jsonl-v1` controller/subject session contract and a Linux/KVM microVM preflight gate are implemented and tested. The current Windows workstation and current VPS both fail that gate, so neither can produce a private confirmatory grade.
+- The native Memorix MCP track now uses a one-tool, fixed-task, one-call, 180-token research gateway with a run receipt. Unit, real control-plane, and real stdio subprocess smoke checks all passed; unrestricted native MCP remains exploratory.
+- The Memorix canonical adapter now uses compact search plus bulk detail as one logical retrieval round, preserves its two actual MCP transports in artifacts, and renders the same 180-token neutral context as Mem0 and AgentMemory. Real smoke passed.
+- All five development cases passed the full four-stage authoring gate. The TypeScript case had a stale patch context and was repaired without changing its task semantics.
 - Full research test suite and public case validation pass after this phase.
 
 In progress
 - Implement the controller/subject black-box verifier on a remote Linux/KVM microVM runtime. Docker/Windows protocol smoke is diagnostic-only and must not silently downgrade the isolation profile.
-- Design a bounded native Memorix MCP gateway so native comparisons cannot silently exceed the canonical retrieval budget.
+- Implement the planned Memorix canonical retrieval adapter so the primary cross-provider track does not depend on native MCP interaction.
 
 Next
 - Author preregistered private Track C cases with captured precursor traces and repository-level split registry.
@@ -27,7 +30,7 @@ Next
 
 Constraints
 - No development result, local Docker containment run, or seeded Track B result may be presented as confirmatory evidence.
-- Native Memorix MCP currently has no enforced retrieval-call budget; it remains a separately labelled native surface until a budget gateway exists.
+- Budgeted native Memorix MCP is a separately labelled product track, not the primary canonical retrieval comparison.
 - Private oracle bytes must never enter an agent worker workspace or public artifact.
 - A generic hidden-test mount is not a black-box verifier and must never unlock confirmatory execution.
 - Private black-box claims require a fresh KVM-backed guest per hidden case; lack of KVM is a hard refusal, not a Docker fallback.

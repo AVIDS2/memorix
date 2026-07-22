@@ -114,6 +114,11 @@ agent run. See `BASELINE_PROTOCOL.md` for the equal-evidence/equal-budget
 retrieval contract and the distinction between canonical and native product
 tracks.
 
+The native Memorix product track is itself budgeted by a one-tool MCP gateway;
+see `NATIVE-MCP-BUDGET-CONTRACT.md`. It records whether the agent elected to
+use Memorix and prevents native tool discovery from turning into unbounded
+retrieval rounds.
+
 All currently executable cases are development-only. Their result artifacts
 carry `evidence_tier: development`, and `memorixbench compare` rejects them
 unless `--allow-development` is passed explicitly. Validation and test splits

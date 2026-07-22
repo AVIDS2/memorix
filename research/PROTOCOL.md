@@ -262,6 +262,11 @@ report their missingness; they never coerce them to zero. Infrastructure
 failures are shown separately. Both intention-to-run and valid-run summaries
 are published when exclusions occur.
 
+Native MCP interaction is reported on its own budgeted product track. It is
+never silently pooled with the canonical retrieval primary comparison; see
+`NATIVE-MCP-BUDGET-CONTRACT.md` for the one-call, fixed-task, bounded-output
+gateway and its receipt rules.
+
 ## 11. Leakage and contamination controls
 
 Case authors never place oracle answers in public prompts, filenames, memory

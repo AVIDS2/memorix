@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import socket
 import subprocess
@@ -13,6 +15,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
 
+from .baseline import BaselineRetrieval, RetrievedMemory, build_retrieval
 from .schema import CaseManifest
 from .trace import PrecursorTrace
 
@@ -31,6 +34,8 @@ PROVIDER_ENV_KEYS = (
     "ANTHROPIC_API_KEY",
     "OPENROUTER_API_KEY",
 )
+MEMORIX_CANONICAL_PROVIDER_ID = "memorix-1.2.1-canonical-local"
+TYPED_OBSERVATION_REF_PATTERN = re.compile(r"\|\s*(obs:[0-9]+(?:@[^\s|]+)?)\s*\|")
 
 
 def _isolated_process_env(provider_env: dict[str, str] | None = None) -> dict[str, str]:
@@ -489,3 +494,95 @@ def refresh_memorix_project(
     artifact_dir.mkdir(parents=True, exist_ok=True)
     (artifact_dir / "context.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
     return result
+
+
+@dataclass(frozen=True)
+class MemorixCanonicalRetrieval:
+    retrieval: BaselineRetrieval
+    candidate_refs: tuple[str, ...]
+    transport_call_count: int
+
+
+def _typed_observation_refs(text: str, *, limit: int) -> tuple[str, ...]:
+    refs: list[str] = []
+    for match in TYPED_OBSERVATION_REF_PATTERN.finditer(text):
+        ref = match.group(1)
+        if ref not in refs:
+            refs.append(ref)
+        if len(refs) >= limit:
+            break
+    return tuple(refs)
+
+
+def retrieve_memorix_canonical(
+    *,
+    workspace: Path,
+    cli_path: Path,
+    data_dir: Path,
+    home_dir: Path,
+    artifact_dir: Path,
+    query: str,
+    top_k: int,
+    token_budget: int,
+) -> MemorixCanonicalRetrieval:
+    """Run one logical Memorix retrieval round through compact search then bulk detail."""
+
+    if top_k <= 0 or token_budget <= 0:
+        raise ValueError("Memorix canonical retrieval limits must be positive")
+    with MemorixControlPlane(
+        cli_path=cli_path,
+        workspace=workspace,
+        data_dir=data_dir,
+        home_dir=home_dir,
+        log_dir=artifact_dir / "canonical-retrieval-control-plane",
+        mode="micro",
+    ) as control:
+        search_text = _tool_text(control.tool("memorix_search", {
+            "query": query,
+            "limit": top_k,
+            "maxTokens": 0,
+            "scope": "project",
+            "status": "active",
+        }))
+        refs = _typed_observation_refs(search_text, limit=top_k)
+        detail_text = ""
+        transport_call_count = 1
+        if refs:
+            detail_text = _tool_text(control.tool("memorix_detail", {"typedRefs": list(refs)}))
+            transport_call_count += 1
+    records = (
+        (RetrievedMemory(memory_id="|".join(refs), content=detail_text),)
+        if detail_text.strip()
+        else ()
+    )
+    retrieval = build_retrieval(
+        provider=MEMORIX_CANONICAL_PROVIDER_ID,
+        provider_version=None,
+        query=query,
+        records=records,
+        token_budget=token_budget,
+        retrieval_call_count=1,
+        retrieval_round_count=1,
+    )
+    result = {
+        "provider": MEMORIX_CANONICAL_PROVIDER_ID,
+        "query_sha256": hashlib.sha256(query.encode("utf-8")).hexdigest(),
+        "candidate_refs": list(refs),
+        "search_sha256": hashlib.sha256(search_text.encode("utf-8")).hexdigest(),
+        "detail_sha256": hashlib.sha256(detail_text.encode("utf-8")).hexdigest(),
+        "transport_call_count": transport_call_count,
+        "logical_retrieval_call_count": retrieval.retrieval_call_count,
+        "token_budget": retrieval.token_budget,
+        "token_count": retrieval.token_count,
+        "truncated": retrieval.truncated,
+    }
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    (artifact_dir / "canonical-retrieval.json").write_text(
+        json.dumps(result, indent=2),
+        encoding="utf-8",
+    )
+    return MemorixCanonicalRetrieval(
+        retrieval=retrieval,
+        candidate_refs=refs,
+        transport_call_count=transport_call_count,
+    )

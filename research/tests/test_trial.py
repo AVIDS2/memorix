@@ -4,14 +4,19 @@ from types import SimpleNamespace
 
 import pytest
 
+from memorixbench.agents import AgentExecution
+from memorixbench.baseline import RetrievedMemory, build_retrieval
+from memorixbench.memorix_adapter import MemorixCanonicalRetrieval
 from memorixbench.schema import load_case_manifest
 from memorixbench.case_bundle import archive_public_case_definition
 from memorixbench.trial import (
     AGENTMEMORY_PROVIDER_ID,
+    MEMORIX_CANONICAL_PROVIDER_ID,
     build_claude_allowed_tools,
     build_condition_prompt,
     ensure_development_case,
     is_valid_execution,
+    run_trial,
     validate_trial_outcome,
 )
 from memorixbench.trace import TraceView
@@ -89,6 +94,22 @@ def test_memorix_prompt_does_not_inline_the_precursor_record() -> None:
     assert "at least twelve characters" not in prompt
 
 
+def test_memorix_canonical_prompt_uses_injected_context_without_native_mcp() -> None:
+    manifest = load_case_manifest(CASE)
+    prompt = build_condition_prompt(
+        manifest,
+        MEMORIX_CANONICAL_PROVIDER_ID,
+        retrieved_context="Retrieved project memory follows.\n\n[1] durable policy",
+    )
+
+    assert "<retrieved_memory>" in prompt
+    assert "durable policy" in prompt
+    assert "mcp__memorix" not in build_claude_allowed_tools(
+        manifest,
+        MEMORIX_CANONICAL_PROVIDER_ID,
+    )
+
+
 def test_mem0_prompt_inlines_only_retrieved_canonical_context() -> None:
     prompt = build_condition_prompt(
         load_case_manifest(CASE),
@@ -156,6 +177,13 @@ def _pending_outcome(**overrides: object) -> SimpleNamespace:
         "raw_replay_context_tokens": None,
         "retrieval_call_count": None,
         "retrieval_round_count": None,
+        "native_mcp_policy_sha256": None,
+        "native_mcp_call_budget": None,
+        "native_mcp_receipt_status": "not-applicable-v1",
+        "native_mcp_call_attempt_count": None,
+        "native_mcp_served_call_count": None,
+        "native_mcp_context_tokens": None,
+        "native_mcp_context_truncated": None,
         "memory_tool_attempt_count": 0,
         "memory_tool_call_count": 0,
         "tool_call_count": 0,
@@ -199,3 +227,140 @@ def test_outcome_validator_requires_track_c_trace_and_formation_receipt() -> Non
 
     with pytest.raises(ValueError, match="different trace"):
         validate_trial_outcome(outcome)  # type: ignore[arg-type]
+
+
+def test_outcome_validator_rejects_native_mcp_budget_overrun() -> None:
+    outcome = _pending_outcome(
+        condition="memorix-1.2.1-micro-local",
+        formation_receipt={"surface": "seeded-canonical"},
+        native_mcp_policy_sha256="d" * 64,
+        native_mcp_call_budget=1,
+        native_mcp_receipt_status="recorded-v1",
+        native_mcp_call_attempt_count=2,
+        native_mcp_served_call_count=2,
+        native_mcp_context_tokens=180,
+        native_mcp_context_truncated=True,
+    )
+
+    with pytest.raises(ValueError, match="exceeded its call budget"):
+        validate_trial_outcome(outcome)  # type: ignore[arg-type]
+
+
+def test_canonical_memorix_trial_uses_injected_context_not_native_mcp(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import memorixbench.trial as module
+
+    cli = tmp_path / "memorix-cli.js"
+    cli.write_text("placeholder", encoding="utf-8")
+    retrieval = build_retrieval(
+        provider=MEMORIX_CANONICAL_PROVIDER_ID,
+        provider_version=None,
+        query="Continue the token-validation migration.",
+        records=(RetrievedMemory(memory_id="obs:1", content="durable policy"),),
+        token_budget=180,
+    )
+
+    def fake_seed(**_kwargs: object) -> dict[str, object]:
+        return {
+            "project_id": "project-a",
+            "maintenance": {"summary": {}},
+            "formation_receipt": {
+                "surface": "seeded-canonical",
+                "write_operation_count": 2,
+                "transport_call_count": 3,
+                "maintenance_call_count": 0,
+                "record_count": 2,
+            },
+        }
+
+    def fake_retrieve(**_kwargs: object) -> MemorixCanonicalRetrieval:
+        return MemorixCanonicalRetrieval(
+            retrieval=retrieval,
+            candidate_refs=("obs:1",),
+            transport_call_count=2,
+        )
+
+    def fake_run_agent(**kwargs: object) -> AgentExecution:
+        artifact_dir = kwargs["artifact_dir"]
+        assert isinstance(artifact_dir, Path)
+        artifact_dir.mkdir(parents=True, exist_ok=True)
+        patch_path = artifact_dir / "candidate.patch"
+        patch_path.write_text("", encoding="utf-8")
+        assert kwargs["mcp_config"] is None
+        assert "<retrieved_memory>" in str(kwargs["prompt"])
+        return AgentExecution(
+            agent="claude",
+            model="test-model",
+            reported_models=("test-model",),
+            model_usage=(),
+            returncode=0,
+            timed_out=False,
+            completed=True,
+            failure_reason=None,
+            wall_seconds=0.01,
+            input_tokens=None,
+            cached_input_tokens=None,
+            output_tokens=None,
+            reasoning_output_tokens=None,
+            cost_usd=None,
+            event_count=0,
+            command_count=0,
+            tool_call_count=0,
+            tool_names=(),
+            tool_call_names=(),
+            successful_tool_call_count=0,
+            successful_tool_names=(),
+            successful_tool_call_names=(),
+            permission_denials=(),
+            unavailable_tool_attempts=(),
+            bash_commands=(),
+            final_message="done",
+            events_path=artifact_dir / "events.jsonl",
+            timeline_path=artifact_dir / "timeline.jsonl",
+            action_ledger_path=artifact_dir / "action-ledger.json",
+            action_ledger_sha256="a" * 64,
+            action_count=0,
+            action_timing_source="stream-monotonic-v1",
+            stderr_path=artifact_dir / "stderr.log",
+            patch_path=patch_path,
+        )
+
+    monkeypatch.setattr(module, "load_claude_provider_env", lambda _path: {})
+    monkeypatch.setattr(module, "archive_public_case_definition", lambda *_args, **_kwargs: "b" * 64)
+    monkeypatch.setattr(module, "seed_memorix_canonical_evidence", fake_seed)
+    monkeypatch.setattr(module, "retrieve_memorix_canonical", fake_retrieve)
+    monkeypatch.setattr(module, "run_agent", fake_run_agent)
+    monkeypatch.setattr(
+        module,
+        "run_transfer_evaluation",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            passed=True,
+            commands=(),
+            source_checks=(),
+            hidden_patch_sha256=None,
+            source_check_phase=None,
+        ),
+    )
+
+    outcome = run_trial(
+        case_path=CASE,
+        artifact_root=tmp_path / "artifacts",
+        study_id="unit",
+        condition=MEMORIX_CANONICAL_PROVIDER_ID,
+        agent="claude",
+        model="test-model",
+        repetition=0,
+        seed=1,
+        memorix_cli=cli,
+        workspace_root=tmp_path / "workspaces",
+        claude_provider_settings=tmp_path / "provider.json",
+    )
+
+    assert outcome.memory_provider == "memorix"
+    assert outcome.retrieval_call_count == 1
+    assert outcome.retrieval_round_count == 1
+    assert outcome.retrieved_context_tokens == retrieval.token_count
+    assert outcome.native_mcp_receipt_status == "not-applicable-v1"
+    assert outcome.native_mcp_policy_sha256 is None

@@ -1,7 +1,7 @@
 diff --git a/src/auth.js b/src/auth.js
 --- a/src/auth.js
 +++ b/src/auth.js
-@@ -1,3 +1,6 @@
+@@ -1,3 +1,7 @@
  export function validateToken(token) {
 -  return typeof token === 'string' && token.length >= 8;
 +  return typeof token === 'string'
@@ -9,24 +9,22 @@ diff --git a/src/auth.js b/src/auth.js
 +    && token.length >= 18
 +    && /[0-9]/.test(token);
  }
++
 diff --git a/tests/token.test.mjs b/tests/token.test.mjs
 --- a/tests/token.test.mjs
 +++ b/tests/token.test.mjs
-@@ -3,10 +3,14 @@ import test from 'node:test';
- 
- import { createSession } from '../src/session.js';
- 
+@@ -6,6 +6,11 @@
 -test('accepts a sufficiently long token', () => {
 -  assert.deepEqual(createSession('abcdefgh'), { token: 'abcdefgh' });
 +test('accepts a policy-compliant token', () => {
 +  assert.deepEqual(createSession('tok_alpha7bravo9xy'), { token: 'tok_alpha7bravo9xy' });
  });
- 
++
  test('rejects a short token', () => {
 -  assert.throws(() => createSession('short'));
 +  assert.throws(() => createSession('tok_alpha7bravo9x'));
-+});
+ });
 +
 +test('rejects a token without the required prefix', () => {
 +  assert.throws(() => createSession('alpha7bravo9xyzz'));
- });
++});

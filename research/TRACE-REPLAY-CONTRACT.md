@@ -56,6 +56,22 @@ stream-json` and `codex exec --json` completed-event surfaces. Unknown raw
 lines are never silently treated as trace content. The command is a capture and
 sanitization tool, not an oracle or an experiment runner.
 
+## Multi-capture bundles
+
+A confirmatory Track C case cannot nominate one favored precursor session.
+`memorixbench build-trace-bundle` consumes at least two independently captured
+trace/receipt pairs and writes `precursor-trace-bundle-v1`. It verifies every
+receipt-to-trace commitment, requires a shared workspace-snapshot commitment,
+and refuses duplicate capture ids or canonical traces. The bundle uses
+`hash-bucket-v1`: `case_id`, run seed, and repetition deterministically select
+one capture, so all paired conditions receive the same source trace without a
+post-hoc choice.
+
+Validation and test manifests must reference a bundle, not a direct trace; all
+bundle assets must be allowlisted in the public case definition and every
+receipt must carry `isolated-worker-v1`. A development bundle may use a local
+diagnostic capture, but it remains excluded from confirmatory analysis.
+
 ## Bounded raw replay
 
 The `last-n` control is rendered with `event-suffix-v1`, not by cutting an

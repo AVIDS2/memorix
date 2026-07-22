@@ -25,6 +25,8 @@ Completed
 - The source ledger now also binds each public transition to its immutable first-parent base. This caught and corrected an earlier backoff lead whose selected historical base was not actually the parent of the cited public repair; branch-head API fields are no longer trusted as source snapshots.
 - The Cobra source candidate passed both a Go dependency prewarm and a `GOPROXY=off GOSUMDB=off go test ./...` replay with caches on F:. Its hash-only preflight receipt is bound in the source ledger, so it is environment-ready but still only a screening candidate.
 - Track C now has a capture boundary for Claude and Codex JSONL streams: raw events stay private, while sanitized canonical traces carry a receipt binding raw/timeline commitments, client/model metadata, workspace snapshot, and redaction count. Local captures are diagnostic-only by construction.
+- Track C trace bundles now require at least two distinct captured sessions and select one deterministically from case/seed/repetition. Confirmatory manifests must use an allowlisted bundle with isolated-worker receipts; a direct trace remains development-only.
+- A real two-session local diagnostic bundle was rebuilt after the CRLF canonicalization repair. Both receipt-to-trace commitments and the public safety scan passed; it stays excluded from cases and results because it is mixed-model and local diagnostic evidence.
 
 In progress
 - Implement the controller/subject black-box verifier on a remote Linux/KVM microVM runtime. Docker/Windows protocol smoke is diagnostic-only and must not silently downgrade the isolation profile.

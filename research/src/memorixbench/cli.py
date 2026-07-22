@@ -27,6 +27,7 @@ from .source_ledger import (
 )
 from .preflight import write_environment_preflight_receipt
 from .trace_capture import capture_trace_from_streams
+from .trace import load_trace_bundle, write_trace_bundle
 from .reporting import (
     serialize_authoring_verification,
     serialize_command_results,
@@ -49,6 +50,9 @@ def _validate_cases(root: Path) -> int:
     if not manifests:
         raise ManifestError(f"no case.toml files found under {root}")
     cases = [load_case_manifest(path) for path in manifests]
+    for case in cases:
+        if case.precursor_trace_bundle is not None:
+            load_trace_bundle(case)
     ids = [case.case_id for case in cases]
     duplicates = sorted({case_id for case_id in ids if ids.count(case_id) > 1})
     if duplicates:
@@ -127,6 +131,19 @@ def _record_environment_preflight(args: argparse.Namespace) -> int:
         observed_at_utc=args.observed_at_utc,
     )
     print(json.dumps(receipt.public_payload(), indent=2))
+    return 0
+
+
+def _build_trace_bundle(args: argparse.Namespace) -> int:
+    path = write_trace_bundle(
+        path=args.output,
+        case_root=args.case_root,
+        case_id=args.case_id,
+        trace_paths=args.trace,
+        receipt_paths=args.receipt,
+        selection=args.selection,
+    )
+    print(json.dumps({"bundle": str(path)}, indent=2))
     return 0
 
 
@@ -390,6 +407,14 @@ def build_parser() -> argparse.ArgumentParser:
     preflight.add_argument("--output", type=Path, required=True)
     preflight.add_argument("--observed-at-utc")
 
+    trace_bundle = subparsers.add_parser("build-trace-bundle")
+    trace_bundle.add_argument("--case-root", type=Path, required=True)
+    trace_bundle.add_argument("--case-id", required=True)
+    trace_bundle.add_argument("--trace", type=Path, action="append", required=True)
+    trace_bundle.add_argument("--receipt", type=Path, action="append", required=True)
+    trace_bundle.add_argument("--output", type=Path, required=True)
+    trace_bundle.add_argument("--selection", default="hash-bucket-v1")
+
     compare = subparsers.add_parser("compare")
     compare.add_argument("results", type=Path)
     compare.add_argument("--treatment", required=True)
@@ -497,6 +522,8 @@ def main() -> int:
             return _capture_trace(args)
         if args.command == "record-environment-preflight":
             return _record_environment_preflight(args)
+        if args.command == "build-trace-bundle":
+            return _build_trace_bundle(args)
         if args.command == "compare":
             return _compare(args)
         if args.command == "collect-results":

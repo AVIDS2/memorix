@@ -7,6 +7,7 @@ from memorixbench.schema import load_case_manifest
 from memorixbench.trace import (
     PrecursorEvent,
     TraceError,
+    canonical_trace_sha256,
     load_precursor_trace,
     render_trace_view,
     trace_records,
@@ -187,3 +188,48 @@ def test_canonical_hash_ignores_newline_encoding_but_records_source_hash(tmp_pat
 
     assert first.canonical_sha256 == second.canonical_sha256
     assert first.source_sha256 != second.source_sha256
+
+
+def test_canonical_trace_commitment_matches_loaded_trace(tmp_path: Path) -> None:
+    manifest_path, _ = _trace_case(tmp_path)
+    trace = load_precursor_trace(load_case_manifest(manifest_path))
+
+    commitment = canonical_trace_sha256(
+        case_id=trace.case_id,
+        provenance=trace.provenance,
+        normalization=trace.normalization,
+        events=trace.events,
+    )
+
+    assert commitment == trace.canonical_sha256
+
+
+def test_writer_normalizes_crlf_before_committing_trace(tmp_path: Path) -> None:
+    manifest_path, trace_path = _trace_case(tmp_path)
+    write_canonical_trace(
+        path=trace_path,
+        case_id="trace-case",
+        provenance="captured-session-v1",
+        normalization="event-normalize-v1",
+        events=(
+            PrecursorEvent(
+                event_id="e1",
+                session_id="s1",
+                sequence=0,
+                turn=0,
+                role="user",
+                kind="message",
+                content="first line\r\nsecond line  ",
+            ),
+        ),
+    )
+
+    trace = load_precursor_trace(load_case_manifest(manifest_path))
+
+    assert trace.canonical_sha256 == canonical_trace_sha256(
+        case_id=trace.case_id,
+        provenance=trace.provenance,
+        normalization=trace.normalization,
+        events=trace.events,
+    )
+    assert trace.events[0].content == "first line\nsecond line"

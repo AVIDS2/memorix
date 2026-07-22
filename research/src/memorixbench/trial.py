@@ -40,7 +40,7 @@ from .native_mcp_gateway import (
 from .oracle_assets import OracleAssetSet, resolve_oracle_assets
 from .reporting import serialize_command_results, serialize_source_checks
 from .schema import CaseManifest, load_case_manifest
-from .trace import TraceView, load_precursor_trace, render_trace_view
+from .trace import TraceView, ResolvedPrecursorTrace, render_trace_view, resolve_precursor_trace
 from .workspace import (
     advance_case_to_transfer,
     materialize_case,
@@ -160,6 +160,9 @@ class TrialOutcome:
     precursor_trace_sha256: str | None
     precursor_trace_source_sha256: str | None
     precursor_trace_view_sha256: str | None
+    precursor_trace_capture_id: str | None
+    precursor_trace_selection: str | None
+    precursor_trace_bundle_sha256: str | None
     formation_receipt: dict[str, object] | None
     memory_preparation_seconds: float | None
     memory_retrieval_seconds: float | None
@@ -218,6 +221,22 @@ def validate_trial_outcome(outcome: TrialOutcome) -> None:
             raise ValueError("executable Track C trial outcome must use trace-replay formation")
         _require_sha256(outcome.precursor_trace_sha256, field="precursor trace hash")
         _require_sha256(outcome.precursor_trace_source_sha256, field="precursor trace source hash")
+        if outcome.precursor_trace_capture_id is None:
+            if any(
+                value is not None
+                for value in (
+                    outcome.precursor_trace_selection,
+                    outcome.precursor_trace_bundle_sha256,
+                )
+            ):
+                raise ValueError("direct precursor trace cannot carry bundle selection metadata")
+        else:
+            if outcome.precursor_trace_selection != "hash-bucket-v1":
+                raise ValueError("captured trace bundle has an invalid selection")
+            _require_sha256(
+                outcome.precursor_trace_bundle_sha256,
+                field="precursor trace bundle hash",
+            )
         if outcome.precursor_transcript_sha256 is not None:
             raise ValueError("Track C trial outcome must not carry a raw precursor transcript")
     if outcome.condition == "last-n" and outcome.study_track == "C":
@@ -560,18 +579,30 @@ def run_trial(
             "native-session formation is not executable until provider-native "
             "formation adapters and their audit contract are implemented"
         )
-    precursor_trace = (
-        load_precursor_trace(manifest)
+    resolved_trace: ResolvedPrecursorTrace | None = (
+        resolve_precursor_trace(
+            manifest,
+            seed=seed,
+            repetition=repetition,
+        )
         if manifest.formation_track == "trace-replay"
+        else None
+    )
+    precursor_trace = resolved_trace.trace if resolved_trace else None
+    trace_truncation = (
+        manifest.precursor_trace.truncation
+        if manifest.precursor_trace is not None
+        else manifest.precursor_trace_bundle.truncation
+        if manifest.precursor_trace_bundle is not None
         else None
     )
     trace_view = (
         render_trace_view(
             precursor_trace,
             token_budget=CANONICAL_RETRIEVAL_TOKEN_BUDGET,
-            truncation=manifest.precursor_trace.truncation,
+            truncation=trace_truncation or "event-suffix-v1",
         )
-        if condition == "last-n" and precursor_trace is not None and manifest.precursor_trace is not None
+        if condition == "last-n" and precursor_trace is not None
         else None
     )
     oracle_assets = resolve_oracle_assets(manifest, private_oracle_root)
@@ -648,6 +679,9 @@ def run_trial(
         "precursor_trace": {
             "canonical_sha256": precursor_trace.canonical_sha256,
             "source_sha256": precursor_trace.source_sha256,
+            "capture_id": resolved_trace.capture_id if resolved_trace else None,
+            "selection": resolved_trace.selection if resolved_trace else None,
+            "bundle_sha256": resolved_trace.bundle_sha256 if resolved_trace else None,
         }
         if precursor_trace
         else None,
@@ -922,6 +956,9 @@ def run_trial(
     condition_metadata["precursor_trace"] = {
         "canonical_sha256": precursor_trace.canonical_sha256,
         "source_sha256": precursor_trace.source_sha256,
+        "capture_id": resolved_trace.capture_id if resolved_trace else None,
+        "selection": resolved_trace.selection if resolved_trace else None,
+        "bundle_sha256": resolved_trace.bundle_sha256 if resolved_trace else None,
     } if precursor_trace else None
     condition_metadata["raw_replay_view"] = _trace_view_metadata(trace_view)
     if formation_receipt is not None:
@@ -1148,6 +1185,9 @@ def run_trial(
         precursor_trace_sha256=precursor_trace_sha,
         precursor_trace_source_sha256=precursor_trace_source_sha,
         precursor_trace_view_sha256=trace_view.sha256 if trace_view else None,
+        precursor_trace_capture_id=resolved_trace.capture_id if resolved_trace else None,
+        precursor_trace_selection=resolved_trace.selection if resolved_trace else None,
+        precursor_trace_bundle_sha256=resolved_trace.bundle_sha256 if resolved_trace else None,
         formation_receipt=formation_receipt,
         memory_preparation_seconds=memory_preparation_seconds,
         memory_retrieval_seconds=memory_retrieval_seconds,

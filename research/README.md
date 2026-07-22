@@ -84,6 +84,17 @@ its public receipt:
 This produces diagnostic evidence only unless the receipt is bound to the
 separate external worker/vault isolation profile.
 
+Bundle two or more independently captured traces before a Track C case is
+admitted:
+
+    uv run memorixbench build-trace-bundle \
+      --case-root cases/validation/example-case --case-id example-case \
+      --trace cases/validation/example-case/traces/capture-a.json \
+      --receipt cases/validation/example-case/traces/capture-a-receipt.json \
+      --trace cases/validation/example-case/traces/capture-b.json \
+      --receipt cases/validation/example-case/traces/capture-b-receipt.json \
+      --output cases/validation/example-case/trace-bundle.json
+
 After a candidate has been prewarmed in the external artifact root, record the
 hash-only offline verification receipt before changing its ledger readiness:
 

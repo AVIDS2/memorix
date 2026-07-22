@@ -25,6 +25,8 @@ VALID_FORMATION_TRACKS = {"seeded-canonical", "trace-replay", "native-session"}
 VALID_TRACE_PROVENANCE = {"captured-session-v1", "controlled-replay-v1"}
 VALID_TRACE_NORMALIZATIONS = {"event-normalize-v1"}
 VALID_TRACE_TRUNCATIONS = {"event-suffix-v1"}
+VALID_TRACE_BUNDLE_SCHEMAS = {"precursor-trace-bundle-v1"}
+VALID_TRACE_BUNDLE_SELECTIONS = {"hash-bucket-v1"}
 VALID_SOURCE_TYPES = {"local-fixture", "git"}
 VALID_TRANSITIONS = {
     "none",
@@ -70,6 +72,14 @@ class PrecursorTraceSpec:
     schema_version: str
     provenance: str
     normalization: str
+    truncation: str
+
+
+@dataclass(frozen=True)
+class PrecursorTraceBundleSpec:
+    path: str
+    schema_version: str
+    selection: str
     truncation: str
 
 
@@ -127,6 +137,7 @@ class CaseManifest:
     transfer: PhaseSpec
     formation_track: str
     precursor_trace: PrecursorTraceSpec | None
+    precursor_trace_bundle: PrecursorTraceBundleSpec | None
     memory_seeds: tuple[MemorySeedSpec, ...]
     oracle: OracleSpec
     public_bundle_paths: tuple[str, ...]
@@ -296,13 +307,17 @@ def _required_public_assets(manifest: CaseManifest) -> tuple[str, ...]:
         assets.append(manifest.transition.patch)
     if manifest.precursor_trace:
         assets.append(manifest.precursor_trace.path)
+    if manifest.precursor_trace_bundle:
+        assets.append(manifest.precursor_trace_bundle.path)
     return tuple(assets)
 
 
-def _formation_spec(data: dict[str, Any]) -> tuple[str, PrecursorTraceSpec | None]:
+def _formation_spec(
+    data: dict[str, Any],
+) -> tuple[str, PrecursorTraceSpec | None, PrecursorTraceBundleSpec | None]:
     formation_data = data.get("formation")
     if formation_data is None:
-        return "seeded-canonical", None
+        return "seeded-canonical", None, None
     if not isinstance(formation_data, dict):
         raise ManifestError("formation must be a table when present")
     track = _text(formation_data, "track", context="formation")
@@ -311,31 +326,56 @@ def _formation_spec(data: dict[str, Any]) -> tuple[str, PrecursorTraceSpec | Non
             "formation.track must be one of " + str(sorted(VALID_FORMATION_TRACKS))
         )
     trace_data = formation_data.get("precursor_trace")
-    if trace_data is None:
+    bundle_data = formation_data.get("trace_bundle")
+    if trace_data is not None and bundle_data is not None:
+        raise ManifestError("formation may declare precursor_trace or trace_bundle, not both")
+    if trace_data is None and bundle_data is None:
         if track != "seeded-canonical":
-            raise ManifestError("trace-replay and native-session require precursor_trace")
-        return track, None
-    if not isinstance(trace_data, dict):
-        raise ManifestError("formation.precursor_trace must be a table")
-    trace = PrecursorTraceSpec(
-        path=_text(trace_data, "path", context="formation.precursor_trace"),
-        schema_version=_text(trace_data, "schema_version", context="formation.precursor_trace"),
-        provenance=_text(trace_data, "provenance", context="formation.precursor_trace"),
-        normalization=_text(trace_data, "normalization", context="formation.precursor_trace"),
-        truncation=_text(trace_data, "truncation", context="formation.precursor_trace"),
+            raise ManifestError("trace-replay and native-session require precursor_trace or trace_bundle")
+        return track, None, None
+    if trace_data is not None:
+        if not isinstance(trace_data, dict):
+            raise ManifestError("formation.precursor_trace must be a table")
+        trace = PrecursorTraceSpec(
+            path=_text(trace_data, "path", context="formation.precursor_trace"),
+            schema_version=_text(trace_data, "schema_version", context="formation.precursor_trace"),
+            provenance=_text(trace_data, "provenance", context="formation.precursor_trace"),
+            normalization=_text(trace_data, "normalization", context="formation.precursor_trace"),
+            truncation=_text(trace_data, "truncation", context="formation.precursor_trace"),
+        )
+        if trace.provenance not in VALID_TRACE_PROVENANCE:
+            raise ManifestError("formation.precursor_trace.provenance is unsupported")
+        if trace.normalization not in VALID_TRACE_NORMALIZATIONS:
+            raise ManifestError("formation.precursor_trace.normalization is unsupported")
+        if trace.truncation not in VALID_TRACE_TRUNCATIONS:
+            raise ManifestError("formation.precursor_trace.truncation is unsupported")
+        if track == "seeded-canonical":
+            raise ManifestError("seeded-canonical cases must not declare precursor_trace")
+        trace_path = Path(trace.path)
+        if trace_path.is_absolute() or ".." in trace_path.parts:
+            raise ManifestError("formation.precursor_trace.path must stay inside the case")
+        return track, trace, None
+    assert bundle_data is not None
+    if not isinstance(bundle_data, dict):
+        raise ManifestError("formation.trace_bundle must be a table")
+    bundle = PrecursorTraceBundleSpec(
+        path=_text(bundle_data, "path", context="formation.trace_bundle"),
+        schema_version=_text(bundle_data, "schema_version", context="formation.trace_bundle"),
+        selection=_text(bundle_data, "selection", context="formation.trace_bundle"),
+        truncation=_text(bundle_data, "truncation", context="formation.trace_bundle"),
     )
-    if trace.provenance not in VALID_TRACE_PROVENANCE:
-        raise ManifestError("formation.precursor_trace.provenance is unsupported")
-    if trace.normalization not in VALID_TRACE_NORMALIZATIONS:
-        raise ManifestError("formation.precursor_trace.normalization is unsupported")
-    if trace.truncation not in VALID_TRACE_TRUNCATIONS:
-        raise ManifestError("formation.precursor_trace.truncation is unsupported")
-    if track == "seeded-canonical":
-        raise ManifestError("seeded-canonical cases must not declare precursor_trace")
-    trace_path = Path(trace.path)
-    if trace_path.is_absolute() or ".." in trace_path.parts:
-        raise ManifestError("formation.precursor_trace.path must stay inside the case")
-    return track, trace
+    if bundle.schema_version not in VALID_TRACE_BUNDLE_SCHEMAS:
+        raise ManifestError("formation.trace_bundle.schema_version is unsupported")
+    if bundle.selection not in VALID_TRACE_BUNDLE_SELECTIONS:
+        raise ManifestError("formation.trace_bundle.selection is unsupported")
+    if bundle.truncation not in VALID_TRACE_TRUNCATIONS:
+        raise ManifestError("formation.trace_bundle.truncation is unsupported")
+    if track != "trace-replay":
+        raise ManifestError("formation.trace_bundle requires trace-replay")
+    bundle_path = Path(bundle.path)
+    if bundle_path.is_absolute() or ".." in bundle_path.parts:
+        raise ManifestError("formation.trace_bundle.path must stay inside the case")
+    return track, None, bundle
 
 
 def load_case_manifest(path: str | Path) -> CaseManifest:
@@ -428,7 +468,7 @@ def load_case_manifest(path: str | Path) -> CaseManifest:
             "validation and test cases require preregistered dependency classification"
         )
     public_bundle_paths = _public_bundle_paths(data)
-    formation_track, precursor_trace = _formation_spec(data)
+    formation_track, precursor_trace, precursor_trace_bundle = _formation_spec(data)
     manifest = CaseManifest(
         schema_version=schema_version,
         case_id=case_id,
@@ -474,6 +514,7 @@ def load_case_manifest(path: str | Path) -> CaseManifest:
         ),
         formation_track=formation_track,
         precursor_trace=precursor_trace,
+        precursor_trace_bundle=precursor_trace_bundle,
         memory_seeds=_memory_seeds(data),
         oracle=OracleSpec(
             visibility=oracle_visibility,
@@ -546,22 +587,25 @@ def load_case_manifest(path: str | Path) -> CaseManifest:
                 "bundle.public_paths does not cover required public assets: "
                 + ", ".join(missing_assets)
             )
-    if manifest.formation_track != "seeded-canonical" and manifest.precursor_trace is None:
-        raise ManifestError("non-canonical formation requires a precursor trace")
+    if (
+        manifest.formation_track != "seeded-canonical"
+        and manifest.precursor_trace is None
+        and manifest.precursor_trace_bundle is None
+    ):
+        raise ManifestError("non-canonical formation requires precursor_trace or trace_bundle")
     if manifest.study_track == "C" and manifest.memory_seeds:
         raise ManifestError("Track C cases must not declare memory_seed entries")
     if manifest.study_track == "C" and manifest.precursor.transcript:
         raise ManifestError(
-            "Track C precursor session content must be represented by precursor_trace, not precursor.transcript"
+            "Track C precursor session content must be represented by precursor_trace or trace_bundle, not precursor.transcript"
         )
     if (
         manifest.split in {"validation", "test"}
         and manifest.study_track == "C"
-        and manifest.precursor_trace is not None
-        and manifest.precursor_trace.provenance != "captured-session-v1"
+        and manifest.precursor_trace_bundle is None
     ):
         raise ManifestError(
-            "confirmatory Track C cases require captured-session-v1 precursor traces"
+            "confirmatory Track C cases require a captured-session trace bundle"
         )
     if manifest.precursor_trace is not None:
         if not _path_is_covered(
@@ -571,6 +615,15 @@ def load_case_manifest(path: str | Path) -> CaseManifest:
             if split in {"validation", "test"}:
                 raise ManifestError(
                     "bundle.public_paths must cover the precursor trace"
+                )
+    if manifest.precursor_trace_bundle is not None:
+        if not _path_is_covered(
+            manifest.precursor_trace_bundle.path,
+            manifest.public_bundle_paths,
+        ):
+            if split in {"validation", "test"}:
+                raise ManifestError(
+                    "bundle.public_paths must cover the precursor trace bundle"
                 )
     if transition_kind != "none" and not (
         manifest.transition.patch or manifest.transition.apply_commands

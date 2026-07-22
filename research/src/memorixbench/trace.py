@@ -18,6 +18,7 @@ from .schema import (
 
 
 TRACE_SCHEMA_VERSION = "precursor-trace-v1"
+TRACE_BUNDLE_SCHEMA_VERSION = "precursor-trace-bundle-v1"
 TRACE_EVENT_ROLES = {"user", "assistant", "tool", "system"}
 TRACE_EVENT_KINDS = {"message", "tool_call", "tool_result"}
 MAX_EVENT_BYTES = 256 * 1024
@@ -97,6 +98,33 @@ class TraceView:
     dropped_event_ids: tuple[str, ...]
     truncated: bool
     sha256: str
+
+
+@dataclass(frozen=True)
+class TraceBundleEntry:
+    capture_id: str
+    trace: PrecursorTrace
+    receipt_sha256: str
+    workspace_snapshot_sha256: str
+    capture_mode: str
+
+
+@dataclass(frozen=True)
+class PrecursorTraceBundle:
+    schema_version: str
+    case_id: str
+    selection: str
+    entries: tuple[TraceBundleEntry, ...]
+    source_path: Path
+    source_sha256: str
+
+
+@dataclass(frozen=True)
+class ResolvedPrecursorTrace:
+    trace: PrecursorTrace
+    capture_id: str | None
+    selection: str | None
+    bundle_sha256: str | None
 
 
 def _canonical_text(value: str) -> str:
@@ -248,17 +276,38 @@ def _canonical_payload(
     }
 
 
-def load_precursor_trace(
-    manifest: CaseManifest,
-    path: str | Path | None = None,
+def _canonicalize_events(events: Iterable[PrecursorEvent]) -> tuple[PrecursorEvent, ...]:
+    normalized: list[PrecursorEvent] = []
+    for index, event in enumerate(events, start=1):
+        raw: dict[str, object] = {
+            "id": event.event_id,
+            "session_id": event.session_id,
+            "sequence": event.sequence,
+            "turn": event.turn,
+            "role": event.role,
+            "kind": event.kind,
+            "content": event.content,
+        }
+        if event.tool_name is not None:
+            raw["tool_name"] = event.tool_name
+        if event.tool_call_id is not None:
+            raw["tool_call_id"] = event.tool_call_id
+        normalized.append(_event(raw, index))
+    ordered = tuple(normalized)
+    _validate_event_order(ordered)
+    return ordered
+
+
+def load_trace_file(
+    *,
+    path: str | Path,
+    case_id: str,
+    provenance: str,
+    normalization: str,
 ) -> PrecursorTrace:
-    spec = manifest.precursor_trace
-    if spec is None:
-        raise TraceError(f"case {manifest.case_id} has no precursor trace")
-    source = Path(path or (manifest.source_path.parent / spec.path)).resolve()
-    root = manifest.source_path.parent.resolve()
-    if source == root or root not in source.parents or not source.is_file():
-        raise TraceError("precursor trace path is missing or outside the case")
+    source = Path(path).resolve()
+    if not source.is_file():
+        raise TraceError("precursor trace path is unavailable")
     raw_bytes = source.read_bytes()
     if len(raw_bytes) > MAX_TRACE_BYTES:
         raise TraceError("precursor trace exceeds the size limit")
@@ -270,36 +319,316 @@ def load_precursor_trace(
         raise TraceError("precursor trace must be a JSON object")
     if raw.get("schema_version") != TRACE_SCHEMA_VERSION:
         raise TraceError("precursor trace schema version is unsupported")
-    if raw.get("schema_version") != spec.schema_version:
-        raise TraceError("precursor trace schema version does not match the case")
-    if raw.get("case_id") != manifest.case_id:
+    if raw.get("case_id") != case_id:
         raise TraceError("precursor trace case id does not match the case")
-    if raw.get("provenance") != spec.provenance:
+    if raw.get("provenance") != provenance:
         raise TraceError("precursor trace provenance does not match the case")
-    if raw.get("normalization") != spec.normalization:
+    if raw.get("normalization") != normalization:
         raise TraceError("precursor trace normalization does not match the case")
     raw_events = raw.get("events")
     if not isinstance(raw_events, list):
         raise TraceError("precursor trace must contain an events array")
-    events = tuple(_event(item, index) for index, item in enumerate(raw_events, 1))
-    _validate_event_order(events)
+    events = _canonicalize_events(
+        _event(item, index) for index, item in enumerate(raw_events, 1)
+    )
     payload = _canonical_payload(
         schema_version=TRACE_SCHEMA_VERSION,
-        case_id=manifest.case_id,
-        provenance=spec.provenance,
-        normalization=spec.normalization,
+        case_id=case_id,
+        provenance=provenance,
+        normalization=normalization,
         events=events,
     )
     return PrecursorTrace(
         schema_version=TRACE_SCHEMA_VERSION,
-        case_id=manifest.case_id,
-        provenance=spec.provenance,
-        normalization=spec.normalization,
+        case_id=case_id,
+        provenance=provenance,
+        normalization=normalization,
         events=events,
         source_path=source,
         source_sha256=_sha256_bytes(raw_bytes),
         canonical_sha256=_sha256_payload(payload),
     )
+
+
+def load_precursor_trace(
+    manifest: CaseManifest,
+    path: str | Path | None = None,
+) -> PrecursorTrace:
+    spec = manifest.precursor_trace
+    if spec is None:
+        raise TraceError(f"case {manifest.case_id} has no direct precursor trace")
+    source = Path(path or (manifest.source_path.parent / spec.path)).resolve()
+    root = manifest.source_path.parent.resolve()
+    if source == root or root not in source.parents:
+        raise TraceError("precursor trace path is outside the case")
+    return load_trace_file(
+        path=source,
+        case_id=manifest.case_id,
+        provenance=spec.provenance,
+        normalization=spec.normalization,
+    )
+
+
+def _bundle_case_asset(manifest: CaseManifest, value: str) -> Path:
+    root = manifest.source_path.parent.resolve()
+    path = Path(value)
+    if path.is_absolute() or ".." in path.parts:
+        raise TraceError("trace bundle asset path must stay inside the case")
+    candidate = (root / path).resolve()
+    if candidate == root or root not in candidate.parents or not candidate.is_file():
+        raise TraceError("trace bundle asset is unavailable or outside the case")
+    return candidate
+
+
+def _bundle_public_path_is_covered(manifest: CaseManifest, value: str) -> bool:
+    normalized = Path(value).as_posix()
+    return any(
+        normalized == declared
+        or normalized.startswith(declared.rstrip("/") + "/")
+        for declared in manifest.public_bundle_paths
+    )
+
+
+def _required_bundle_text(value: object, *, label: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise TraceError(f"trace bundle {label} must be a non-empty string")
+    return value.strip()
+
+
+def _bundle_sha256(value: object, *, label: str) -> str:
+    digest = _required_bundle_text(value, label=label)
+    if not re.fullmatch(r"[0-9a-f]{64}", digest):
+        raise TraceError(f"trace bundle {label} must be a lowercase SHA-256")
+    return digest
+
+
+def load_trace_bundle(manifest: CaseManifest) -> PrecursorTraceBundle:
+    spec = manifest.precursor_trace_bundle
+    if spec is None:
+        raise TraceError(f"case {manifest.case_id} has no precursor trace bundle")
+    bundle_path = _bundle_case_asset(manifest, spec.path)
+    raw_bytes = bundle_path.read_bytes()
+    try:
+        raw = json.loads(raw_bytes.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise TraceError("trace bundle must be UTF-8 JSON") from error
+    if not isinstance(raw, dict):
+        raise TraceError("trace bundle must be an object")
+    expected = {"schema_version", "case_id", "selection", "captures"}
+    if set(raw) != expected:
+        raise TraceError("trace bundle has unexpected fields")
+    if raw.get("schema_version") != TRACE_BUNDLE_SCHEMA_VERSION or raw.get("schema_version") != spec.schema_version:
+        raise TraceError("trace bundle schema version is unsupported")
+    if raw.get("case_id") != manifest.case_id:
+        raise TraceError("trace bundle case id does not match the case")
+    if raw.get("selection") != spec.selection:
+        raise TraceError("trace bundle selection does not match the case")
+    captures = raw.get("captures")
+    if not isinstance(captures, list) or len(captures) < 2:
+        raise TraceError("trace bundle requires at least two captured sessions")
+    from .trace_capture import TraceCaptureError, load_trace_capture_receipt
+
+    entries: list[TraceBundleEntry] = []
+    seen_capture_ids: set[str] = set()
+    seen_trace_hashes: set[str] = set()
+    snapshot_hashes: set[str] = set()
+    for index, capture in enumerate(captures, start=1):
+        if not isinstance(capture, dict):
+            raise TraceError(f"trace bundle capture {index} must be an object")
+        capture_fields = {
+            "capture_id",
+            "trace_path",
+            "trace_source_sha256",
+            "canonical_trace_sha256",
+            "receipt_path",
+            "receipt_sha256",
+        }
+        if set(capture) != capture_fields:
+            raise TraceError(f"trace bundle capture {index} has unexpected fields")
+        capture_id = _required_bundle_text(capture.get("capture_id"), label="capture_id")
+        if not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", capture_id):
+            raise TraceError("trace bundle capture id must be lowercase kebab-case")
+        if capture_id in seen_capture_ids:
+            raise TraceError("trace bundle capture ids must be unique")
+        trace_path_text = _required_bundle_text(capture.get("trace_path"), label="trace_path")
+        receipt_path_text = _required_bundle_text(capture.get("receipt_path"), label="receipt_path")
+        trace_path = _bundle_case_asset(manifest, trace_path_text)
+        receipt_path = _bundle_case_asset(manifest, receipt_path_text)
+        if manifest.split in {"validation", "test"} and (
+            not _bundle_public_path_is_covered(manifest, trace_path_text)
+            or not _bundle_public_path_is_covered(manifest, receipt_path_text)
+        ):
+            raise TraceError("confirmatory trace bundle assets must be public-bundle allowlisted")
+        trace_source_sha256 = _bundle_sha256(
+            capture.get("trace_source_sha256"),
+            label="trace_source_sha256",
+        )
+        canonical_trace_sha256 = _bundle_sha256(
+            capture.get("canonical_trace_sha256"),
+            label="canonical_trace_sha256",
+        )
+        receipt_sha256 = _bundle_sha256(capture.get("receipt_sha256"), label="receipt_sha256")
+        if _sha256_bytes(trace_path.read_bytes()) != trace_source_sha256:
+            raise TraceError("trace bundle trace source hash does not match")
+        if _sha256_bytes(receipt_path.read_bytes()) != receipt_sha256:
+            raise TraceError("trace bundle receipt hash does not match")
+        try:
+            receipt = load_trace_capture_receipt(receipt_path)
+        except TraceCaptureError as error:
+            raise TraceError("trace bundle capture receipt is invalid") from error
+        trace = load_trace_file(
+            path=trace_path,
+            case_id=manifest.case_id,
+            provenance="captured-session-v1",
+            normalization="event-normalize-v1",
+        )
+        if (
+            receipt.capture_id != capture_id
+            or receipt.case_id != manifest.case_id
+            or receipt.trace_source_sha256 != trace_source_sha256
+            or receipt.canonical_trace_sha256 != canonical_trace_sha256
+            or trace.source_sha256 != trace_source_sha256
+            or trace.canonical_sha256 != canonical_trace_sha256
+        ):
+            raise TraceError("trace bundle capture does not bind its trace receipt")
+        if manifest.split in {"validation", "test"} and receipt.capture_mode != "isolated-worker-v1":
+            raise TraceError("confirmatory trace bundle requires isolated-worker captures")
+        if canonical_trace_sha256 in seen_trace_hashes:
+            raise TraceError("trace bundle captures must have distinct canonical traces")
+        seen_capture_ids.add(capture_id)
+        seen_trace_hashes.add(canonical_trace_sha256)
+        snapshot_hashes.add(receipt.workspace_snapshot_sha256)
+        entries.append(TraceBundleEntry(
+            capture_id=capture_id,
+            trace=trace,
+            receipt_sha256=receipt_sha256,
+            workspace_snapshot_sha256=receipt.workspace_snapshot_sha256,
+            capture_mode=receipt.capture_mode,
+        ))
+    if len(snapshot_hashes) != 1:
+        raise TraceError("trace bundle captures must share one workspace snapshot")
+    return PrecursorTraceBundle(
+        schema_version=TRACE_BUNDLE_SCHEMA_VERSION,
+        case_id=manifest.case_id,
+        selection=spec.selection,
+        entries=tuple(entries),
+        source_path=bundle_path,
+        source_sha256=_sha256_bytes(raw_bytes),
+    )
+
+
+def resolve_precursor_trace(
+    manifest: CaseManifest,
+    *,
+    seed: int,
+    repetition: int,
+) -> ResolvedPrecursorTrace:
+    if isinstance(seed, bool) or not isinstance(seed, int) or seed < 0:
+        raise TraceError("trace selection seed must be a non-negative integer")
+    if isinstance(repetition, bool) or not isinstance(repetition, int) or repetition < 0:
+        raise TraceError("trace selection repetition must be a non-negative integer")
+    if manifest.precursor_trace is not None:
+        return ResolvedPrecursorTrace(
+            trace=load_precursor_trace(manifest),
+            capture_id=None,
+            selection=None,
+            bundle_sha256=None,
+        )
+    bundle = load_trace_bundle(manifest)
+    if bundle.selection != "hash-bucket-v1":
+        raise TraceError("trace bundle selection is unsupported")
+    index = int.from_bytes(
+        hashlib.sha256(
+            f"{manifest.case_id}:{seed}:{repetition}".encode("utf-8")
+        ).digest()[:8],
+        "big",
+    ) % len(bundle.entries)
+    selected = bundle.entries[index]
+    return ResolvedPrecursorTrace(
+        trace=selected.trace,
+        capture_id=selected.capture_id,
+        selection=bundle.selection,
+        bundle_sha256=bundle.source_sha256,
+    )
+
+
+def write_trace_bundle(
+    *,
+    path: str | Path,
+    case_root: str | Path,
+    case_id: str,
+    trace_paths: Iterable[str | Path],
+    receipt_paths: Iterable[str | Path],
+    selection: str = "hash-bucket-v1",
+) -> Path:
+    """Write a verified public bundle from independently captured trace receipts."""
+
+    root = Path(case_root).resolve()
+    if not root.is_dir():
+        raise TraceError("trace bundle case root is unavailable")
+    target = Path(path).resolve()
+    if target == root or root not in target.parents:
+        raise TraceError("trace bundle output must stay inside the case root")
+    if target.exists():
+        raise TraceError("trace bundle output path already exists")
+    traces = tuple(Path(value).resolve() for value in trace_paths)
+    receipts = tuple(Path(value).resolve() for value in receipt_paths)
+    if len(traces) != len(receipts) or len(traces) < 2:
+        raise TraceError("trace bundle requires matching trace and receipt pairs for at least two captures")
+    if selection != "hash-bucket-v1":
+        raise TraceError("trace bundle selection is unsupported")
+    from .trace_capture import TraceCaptureError, load_trace_capture_receipt
+
+    captures: list[dict[str, str]] = []
+    capture_ids: set[str] = set()
+    canonical_hashes: set[str] = set()
+    snapshot_hashes: set[str] = set()
+    for trace_path, receipt_path in zip(traces, receipts, strict=True):
+        for asset in (trace_path, receipt_path):
+            if asset == root or root not in asset.parents or not asset.is_file():
+                raise TraceError("trace bundle input must stay inside the case root")
+        try:
+            receipt = load_trace_capture_receipt(receipt_path)
+        except TraceCaptureError as error:
+            raise TraceError("trace bundle receipt is invalid") from error
+        trace = load_trace_file(
+            path=trace_path,
+            case_id=case_id,
+            provenance="captured-session-v1",
+            normalization="event-normalize-v1",
+        )
+        if (
+            receipt.case_id != case_id
+            or receipt.trace_source_sha256 != trace.source_sha256
+            or receipt.canonical_trace_sha256 != trace.canonical_sha256
+        ):
+            raise TraceError("trace bundle receipt does not bind its trace")
+        if receipt.capture_id in capture_ids:
+            raise TraceError("trace bundle capture ids must be unique")
+        if trace.canonical_sha256 in canonical_hashes:
+            raise TraceError("trace bundle captures must have distinct canonical traces")
+        capture_ids.add(receipt.capture_id)
+        canonical_hashes.add(trace.canonical_sha256)
+        snapshot_hashes.add(receipt.workspace_snapshot_sha256)
+        captures.append({
+            "capture_id": receipt.capture_id,
+            "trace_path": trace_path.relative_to(root).as_posix(),
+            "trace_source_sha256": trace.source_sha256,
+            "canonical_trace_sha256": trace.canonical_sha256,
+            "receipt_path": receipt_path.relative_to(root).as_posix(),
+            "receipt_sha256": _sha256_bytes(receipt_path.read_bytes()),
+        })
+    if len(snapshot_hashes) != 1:
+        raise TraceError("trace bundle captures must share one workspace snapshot")
+    payload = {
+        "schema_version": TRACE_BUNDLE_SCHEMA_VERSION,
+        "case_id": case_id,
+        "selection": selection,
+        "captures": captures,
+    }
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    return target
 
 
 def trace_records(trace: PrecursorTrace) -> tuple[RetrievedMemory, ...]:
@@ -420,8 +749,7 @@ def canonical_trace_sha256(
         raise TraceError(f"unsupported trace provenance: {provenance}")
     if normalization not in VALID_TRACE_NORMALIZATIONS:
         raise TraceError(f"unsupported trace normalization: {normalization}")
-    ordered = tuple(events)
-    _validate_event_order(ordered)
+    ordered = _canonicalize_events(events)
     for event in ordered:
         _reject_public_secrets(event.content)
     return _sha256_payload(_canonical_payload(
@@ -442,6 +770,7 @@ def write_canonical_trace(
     events: Iterable[PrecursorEvent],
 ) -> Path:
     ordered = tuple(events)
+    ordered = _canonicalize_events(ordered)
     canonical_trace_sha256(
         case_id=case_id,
         provenance=provenance,

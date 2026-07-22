@@ -59,6 +59,18 @@ This is a capture-pipeline diagnostic only: it used `local-diagnostic-v1`, not
 the external worker profile, its source snapshot is not a registered case, and
 it has no transfer task, oracle, comparison condition, or outcome row.
 
+The first two diagnostic captures also exposed a Windows CRLF canonicalization
+defect in the trace writer: raw-file commitments matched while canonical
+commitments did not. They are invalidated and retained only as private failure
+artifacts. The writer now normalizes events before both writing and committing;
+future captures must pass the bundle receipt-to-trace check.
+
+The same two private raw streams were re-canonicalized after that repair. Their
+two new receipts bound distinct canonical traces to one workspace snapshot, and
+the resulting `hash-bucket-v1` bundle passed receipt, canonical-hash, and public
+safety checks. It remains a mixed-model `local-diagnostic-v1` bundle with no
+registered case or outcome row.
+
 ## External case authoring evidence
 
 `go-backoff-zero-jitter-ownership` pins the MIT-licensed upstream

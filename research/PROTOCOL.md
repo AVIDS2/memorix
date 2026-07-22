@@ -65,6 +65,13 @@ confirmatory Track C case requires `captured-session-v1` provenance. A
 `controlled-replay-v1` trace may harden the development harness but cannot be
 promoted as captured user-session evidence.
 
+A confirmatory case must bind at least two independently captured precursor
+traces in a `precursor-trace-bundle-v1`, all from the same precursor workspace
+snapshot. `case_id`, run seed, and repetition select one trace via the frozen
+`hash-bucket-v1` rule before any condition is formed, so a condition cannot
+choose a favorable session after seeing results. Every validation/test receipt
+must be `isolated-worker-v1`; local captures are diagnostic only.
+
 ## 4. Conditions
 
 Primary conditions:
@@ -289,7 +296,7 @@ the controller/subject boundary in `BLACK-BOX-CONTROLLER-CONTRACT.md`.
 Agent processes cannot read another condition's logs or memory database.
 Track C precursor traces are normalized before condition-specific formation.
 The raw precursor transcript is never injected as a separate asset in Track C:
-the manifest rejects it in favor of the trace. The raw source-file hash,
+the manifest rejects it in favor of the selected trace bundle entry. The raw source-file hash,
 canonical trace hash, bounded-view hash, retained event ids, dropped event ids,
 token count, formation receipt, and retrieval call/round counts are archived
 for every applicable run.

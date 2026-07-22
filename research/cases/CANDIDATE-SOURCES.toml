@@ -104,12 +104,14 @@ license_url = "https://github.com/pallets/click/blob/8c1a0a7abbc1c36f70d1f65f360
 license_sha256 = "9a8ad106a394e853bfe21f42f4e72d592819a22805d991b5f3275029292b658d"
 source_urls = ["https://github.com/pallets/click/issues/2819", "https://github.com/pallets/click/pull/3678"]
 causal_chain = "issue-pr"
-environment_readiness = "unverified"
+environment_readiness = "offline-ready"
+environment_receipt_path = "preflight/click-help-parameter.json"
+environment_receipt_sha256 = "8c7698ee759f646a167e17b746d2396d795318339a8312ead88cae12477ac29c"
 benchmark_overlap = "unreviewed"
 model_exposure = "public-history-documented"
 public_solution_exists = true
 transition_plan = "not-designed"
-decision_rationale = "A real deterministic CLI-library regression with a pinned permissive base; it remains a source lead until its Python environment, memory dependency, and private post-snapshot transition are separately admitted."
+decision_rationale = "A real deterministic CLI-library regression with a pinned offline full-suite preflight. It remains a source lead until benchmark-overlap review, memory dependency, and a private post-snapshot transition are separately admitted."
 
 [[candidate]]
 id = "uvicorn-proxy-headers"
@@ -150,7 +152,7 @@ source_urls = ["https://github.com/spf13/cobra/issues/2257", "https://github.com
 causal_chain = "issue-pr"
 environment_readiness = "offline-ready"
 environment_receipt_path = "preflight/cobra-completion-os-args.json"
-environment_receipt_sha256 = "2cf8cfddff698e9042280694b9589abd3d329c6dc88bd8112e9e52bd4aabbfb0"
+environment_receipt_sha256 = "d362f4adae22daac5239bfe33c2d4632a11856e22403114ca787c2326f77fe5c"
 benchmark_overlap = "unreviewed"
 model_exposure = "public-history-documented"
 public_solution_exists = true
@@ -172,12 +174,14 @@ license_url = "https://github.com/urfave/cli/blob/700c663540569deea3a7760411f7ed
 license_sha256 = "85695dfe027cabaf97c7fea77c45a01a36c0815e52df9219894b1ba031ee72f0"
 source_urls = ["https://github.com/urfave/cli/issues/2335", "https://github.com/urfave/cli/pull/2336"]
 causal_chain = "issue-pr"
-environment_readiness = "unverified"
+environment_readiness = "offline-ready"
+environment_receipt_path = "preflight/urfave-cli-colon-completion.json"
+environment_receipt_sha256 = "6c4c17e67cd4e14ea533067905615bebbf3b6a39f53353cc62bbf204440468d6"
 benchmark_overlap = "unreviewed"
 model_exposure = "public-history-documented"
 public_solution_exists = true
 transition_plan = "not-designed"
-decision_rationale = "A narrow Go completion regression with a likely focused test route; candidate only until Bash and Go offline dependencies are pinned and a distinct private transition is authored."
+decision_rationale = "A narrow Go completion regression with a pinned offline full-suite preflight. It remains a screening lead until benchmark-overlap review and a distinct private post-snapshot transition are designed."
 
 [[candidate]]
 id = "zod-parse-context-immutability"
@@ -194,12 +198,14 @@ license_url = "https://github.com/colinhacks/zod/blob/57d80a82bde8877f3eb79e5dad
 license_sha256 = "3f1189b28e3866e0d979968d466b78f813f76827cfdca1fbb124cc0a5c8841f8"
 source_urls = ["https://github.com/colinhacks/zod/issues/5466", "https://github.com/colinhacks/zod/pull/5632"]
 causal_chain = "issue-pr"
-environment_readiness = "unverified"
+environment_readiness = "offline-ready"
+environment_receipt_path = "preflight/zod-parse-context-immutability.json"
+environment_receipt_sha256 = "264d843aaf83f824b7e5a8330e2a0cae88db77e25d98044360267ccc04c4b201"
 benchmark_overlap = "unreviewed"
 model_exposure = "public-history-documented"
 public_solution_exists = true
 transition_plan = "not-designed"
-decision_rationale = "A real TypeScript library state-mutation bug with focused codec coverage, but the pnpm monorepo must demonstrate an offline deterministic test slice before admission."
+decision_rationale = "A real TypeScript library state-mutation bug with a pinned offline codec-test preflight. It remains a source lead until benchmark-overlap review, memory dependency, and a private post-snapshot transition are separately admitted."
 
 [[candidate]]
 id = "typescript-never-nullish"

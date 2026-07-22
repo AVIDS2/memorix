@@ -89,3 +89,21 @@ Constraints
 - The Cobra source check no longer requires the reference patch's `append`
   spelling. Hidden behavior tests plus the old-owner prohibition accept both
   `append` and `make`/`copy` implementations.
+
+## 2026-07-22: Cross-language source preflight expansion
+
+- Audited immutable origin, first-parent base revision, and exact license bytes
+  for three additional screening candidates: MIT-licensed `urfave/cli`,
+  BSD-3-Clause `pallets/click`, and MIT-licensed `colinhacks/zod`.
+- Each candidate now has a committed, hash-bound environment receipt with all
+  caches and logs outside the repository on F:. `urfave/cli` passed bootstrap
+  plus `GOPROXY=off` full-suite Go tests; Click passed bootstrap plus offline
+  full pytest; Zod passed bootstrap plus offline lockfile resolution and its
+  focused codec test.
+- The source ledger now has an explicit test for the exact offline-ready
+  candidate set. This prevents a receipt from being attached to a similarly
+  shaped field in the wrong source entry.
+- These candidates remain `screening`: environment replay alone does not
+  establish benchmark-overlap clearance, a memory-dependent transfer task, or
+  a private post-snapshot transition. No new case or result row is admitted by
+  this preflight batch.

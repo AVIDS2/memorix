@@ -28,6 +28,27 @@ def test_source_ledger_keeps_candidates_out_of_the_confirmatory_corpus() -> None
     assert "backoff-permanent-error" in result.candidate_ids
 
 
+def test_source_ledger_binds_receipts_to_the_expected_screening_candidates() -> None:
+    ledger = load_source_ledger(LEDGER)
+    offline_ready = {
+        entry.candidate_id
+        for entry in ledger.entries
+        if entry.environment_readiness == "offline-ready"
+    }
+
+    assert offline_ready == {
+        "click-help-parameter",
+        "cobra-completion-os-args",
+        "urfave-cli-colon-completion",
+        "zod-parse-context-immutability",
+    }
+    assert all(
+        entry.status == "screening"
+        for entry in ledger.entries
+        if entry.candidate_id in offline_ready
+    )
+
+
 def test_source_ledger_rejects_admission_without_offline_preflight(tmp_path: Path) -> None:
     candidate = tmp_path / "CANDIDATE-SOURCES.toml"
     candidate.write_text(
@@ -40,16 +61,12 @@ def test_source_ledger_rejects_admission_without_offline_preflight(tmp_path: Pat
 
 
 def test_source_ledger_rejects_a_tampered_environment_receipt_hash(tmp_path: Path) -> None:
-    (tmp_path / "preflight").mkdir()
-    shutil.copy2(
-        LEDGER.parent / "preflight" / "cobra-completion-os-args.json",
-        tmp_path / "preflight" / "cobra-completion-os-args.json",
-    )
+    shutil.copytree(LEDGER.parent / "preflight", tmp_path / "preflight")
     candidate = tmp_path / "CANDIDATE-SOURCES.toml"
     source = LEDGER.read_text(encoding="utf-8")
     candidate.write_text(
         source.replace(
-            'environment_receipt_sha256 = "2cf8cfddff698e9042280694b9589abd3d329c6dc88bd8112e9e52bd4aabbfb0"',
+                'environment_receipt_sha256 = "d362f4adae22daac5239bfe33c2d4632a11856e22403114ca787c2326f77fe5c"',
             'environment_receipt_sha256 = "0000000000000000000000000000000000000000000000000000000000000000"',
         ),
         encoding="utf-8",

@@ -136,10 +136,8 @@ def write_environment_preflight_receipt(
     if target.exists():
         raise PreflightError("preflight receipt path already exists")
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(
-        json.dumps(receipt.public_payload(), indent=2, ensure_ascii=False) + "\n",
-        encoding="utf-8",
-    )
+    with target.open("w", encoding="utf-8", newline="\n") as handle:
+        handle.write(json.dumps(receipt.public_payload(), indent=2, ensure_ascii=False) + "\n")
     return receipt
 
 

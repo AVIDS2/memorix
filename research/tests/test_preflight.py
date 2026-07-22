@@ -38,6 +38,7 @@ def test_writes_and_loads_a_passing_offline_preflight_receipt(tmp_path: Path) ->
 
     assert receipt.passed is True
     assert loaded == receipt
+    assert b"\r\n" not in output.read_bytes()
 
 
 def test_preflight_rejects_inconsistent_pass_state(tmp_path: Path) -> None:

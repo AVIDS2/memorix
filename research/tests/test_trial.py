@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from memorixbench.agents import AgentExecution
+from memorixbench.agents import AgentExecution, ModelUsage
 from memorixbench.baseline import RetrievedMemory, build_retrieval
 from memorixbench.memorix_adapter import MemorixCanonicalRetrieval
 from memorixbench.schema import load_case_manifest
@@ -17,6 +17,7 @@ from memorixbench.trial import (
     ensure_development_case,
     is_valid_execution,
     is_task_success,
+    _matches_required_single_model,
     _trial_run_directory,
     run_trial,
     validate_trial_outcome,
@@ -56,6 +57,7 @@ def test_budget_and_timeout_are_valid_task_failures() -> None:
     assert is_valid_execution("timeout", environment_violation=False)
     assert not is_valid_execution("authentication", environment_violation=False)
     assert not is_valid_execution("mcp-startup", environment_violation=False)
+    assert not is_valid_execution("model-route-mismatch", environment_violation=False)
     assert not is_valid_execution(None, environment_violation=True)
 
 
@@ -64,6 +66,34 @@ def test_timeout_or_budget_exhaustion_cannot_count_as_task_success() -> None:
     assert not is_task_success(True, completed=True, timed_out=False, failure_reason="budget-exhausted")
     assert not is_task_success(True, completed=False, timed_out=False, failure_reason=None)
     assert is_task_success(True, completed=True, timed_out=False, failure_reason=None)
+
+
+def test_required_single_model_route_requires_exact_provider_telemetry() -> None:
+    single_usage = (
+        ModelUsage(
+            model="model-a",
+            input_tokens=1,
+            cached_input_tokens=None,
+            output_tokens=1,
+            cost_usd=0.01,
+        ),
+    )
+
+    assert _matches_required_single_model(
+        "model-a",
+        reported_models=("model-a",),
+        model_usage=single_usage,
+    )
+    assert not _matches_required_single_model(
+        "model-a",
+        reported_models=("model-a", "helper-model"),
+        model_usage=single_usage,
+    )
+    assert not _matches_required_single_model(
+        "model-a",
+        reported_models=("model-a",),
+        model_usage=(*single_usage, replace(single_usage[0], model="helper-model")),
+    )
 
 
 def test_trial_artifacts_use_a_short_run_directory(tmp_path: Path) -> None:

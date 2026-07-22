@@ -221,7 +221,9 @@ condition definition requires a disclosed difference.
 Model identifiers, agent versions, system instructions, integration files, and
 command lines are pinned and archived. Provider-reported per-model usage is
 also archived; a client run that invokes helper models is labelled `mixed`, not
-as a pure run of the requested model. Claude trials use `--bare`, explicit MCP
+as a pure run of the requested model. A trial may declare a required single
+model; it is then invalid unless both the provider-reported model set and
+per-model usage contain exactly that one model. Claude trials use `--bare`, explicit MCP
 configuration, disabled client auto-memory, a separate workspace root, and
 read/edit denials for artifact, home, and source-repository paths. Bash is
 allowed for normal work inside a disposable checkout, while parent traversal,

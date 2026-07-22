@@ -301,6 +301,7 @@ def _run_trial(args: argparse.Namespace) -> int:
         condition=args.condition,
         agent=args.agent,
         model=args.model,
+        required_single_model=args.required_single_model,
         repetition=args.repetition,
         seed=args.seed,
         timeout_seconds=args.timeout_seconds,
@@ -510,6 +511,7 @@ def build_parser() -> argparse.ArgumentParser:
     trial.add_argument("--condition", choices=sorted(SUPPORTED_CONDITIONS), required=True)
     trial.add_argument("--agent", choices=("codex", "claude"), required=True)
     trial.add_argument("--model")
+    trial.add_argument("--required-single-model")
     trial.add_argument("--repetition", type=int, default=0)
     trial.add_argument("--seed", type=int, default=1729)
     trial.add_argument("--timeout-seconds", type=int, default=900)

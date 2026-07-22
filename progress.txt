@@ -131,3 +131,9 @@ Constraints
   assumption before agent launch. It was fixed and covered by tests. The
   comparison command now rejects mixed or unreported model routes by default;
   an explicit development-only override is required to inspect those diagnostics.
+- The current local Claude route reports multiple actual provider models even
+  when its configured display model is DeepSeek. `run-trial` now supports
+  `--required-single-model` and invalidates a run unless telemetry contains
+  exactly that one model. This workstation can continue development diagnostics,
+  but cannot supply a pure-model confirmatory cohort until a provider route
+  passes that gate.

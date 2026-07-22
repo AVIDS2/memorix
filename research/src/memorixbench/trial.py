@@ -82,6 +82,7 @@ INFRASTRUCTURE_FAILURE_REASONS = {
     "mcp-startup",
     "agent-runtime",
     "missing-completion-event",
+    "model-route-mismatch",
 }
 CLAUDE_BASE_ALLOWED_TOOLS = ("Read", "Edit", "Bash(git *)")
 SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
@@ -212,6 +213,11 @@ def _require_sha256(value: str | None, *, field: str) -> None:
 def validate_trial_outcome(outcome: TrialOutcome) -> None:
     """Reject result artifacts that would invalidate a paired Track C analysis."""
 
+    if (
+        getattr(outcome, "failure_reason", None) == "model-route-mismatch"
+        and getattr(outcome, "valid_run", True)
+    ):
+        raise ValueError("model-route mismatch cannot be a valid run")
     if outcome.study_track not in {"B", "C"}:
         raise ValueError("trial outcome has an invalid study track")
     if outcome.study_track == "B" and outcome.formation_track != "seeded-canonical":
@@ -367,6 +373,20 @@ def _model_profile(model_usage: tuple[ModelUsage, ...]) -> str:
     if len(model_usage) == 1:
         return "single"
     return "mixed"
+
+
+def _matches_required_single_model(
+    required_model: str | None,
+    *,
+    reported_models: tuple[str, ...],
+    model_usage: tuple[ModelUsage, ...],
+) -> bool:
+    if required_model is None:
+        return True
+    return (
+        reported_models == (required_model,)
+        and _model_profile(model_usage) == "single"
+    )
 
 
 def is_valid_execution(
@@ -590,7 +610,12 @@ def run_trial(
     claude_provider_settings: str | Path | None = None,
     repository_cache: str | Path | None = None,
     private_oracle_root: str | Path | None = None,
+    required_single_model: str | None = None,
 ) -> TrialOutcome:
+    if required_single_model is not None:
+        required_single_model = required_single_model.strip()
+        if not required_single_model:
+            raise ValueError("required_single_model must be non-empty when provided")
     manifest = load_case_manifest(case_path)
     if manifest.formation_track == "native-session":
         raise ValueError(
@@ -1060,6 +1085,15 @@ def run_trial(
     memory_tool_call_count = sum(
         "memorix" in name.lower() for name in execution.successful_tool_call_names
     )
+    model_route_matched = _matches_required_single_model(
+        required_single_model,
+        reported_models=execution.reported_models,
+        model_usage=execution.model_usage,
+    )
+    condition_metadata.update({
+        "required_single_model": required_single_model,
+        "model_route_matched": model_route_matched,
+    })
     command_contamination_violations = audit_bash_commands(
         execution.bash_commands,
         workspace=workspace_dir,
@@ -1068,6 +1102,7 @@ def run_trial(
         execution.permission_denials
         or command_contamination_violations
         or native_mcp_receipt_status == "missing-after-attempt-v1"
+        or not model_route_matched
     )
     valid_run = is_valid_execution(
         execution.failure_reason,
@@ -1080,6 +1115,8 @@ def run_trial(
         if command_contamination_violations
         else "mcp-budget-receipt-missing"
         if native_mcp_receipt_status == "missing-after-attempt-v1"
+        else "model-route-mismatch"
+        if not model_route_matched
         else execution.failure_reason
     )
     native_mcp_attempt_count = (

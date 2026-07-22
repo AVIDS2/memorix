@@ -7,6 +7,17 @@ import shutil
 from .schema import CaseManifest
 
 
+PRIVATE_ORACLE_FILENAMES = frozenset(
+    {
+        "annotation-rubric.md",
+        "hidden-tests.patch",
+        "oracle.toml",
+        "reference.patch",
+        "transition.patch",
+    }
+)
+
+
 def _regular_files(root: Path) -> tuple[Path, ...]:
     if not root.is_dir() or root.is_symlink():
         raise ValueError(f"case definition root must be a regular directory: {root}")
@@ -53,12 +64,26 @@ def _public_case_files(manifest: CaseManifest) -> tuple[Path, ...]:
     return tuple(sorted(files))
 
 
+def _assert_private_oracle_assets_are_absent(manifest: CaseManifest) -> None:
+    if manifest.oracle.visibility != "private":
+        return
+    root = manifest.source_path.parent.resolve()
+    all_files = _regular_files(root)
+    if any(path.name in PRIVATE_ORACLE_FILENAMES for path in all_files):
+        raise ValueError("public case tree contains a reserved private-oracle asset")
+    public_files = _public_case_files(manifest)
+    if set(all_files) != set(public_files):
+        raise ValueError("public private case tree contains an unbundled file")
+
+
 def public_case_definition_hash(manifest: CaseManifest) -> str:
     root = manifest.source_path.parent.resolve()
+    _assert_private_oracle_assets_are_absent(manifest)
     return _hash_files(root, _public_case_files(manifest))
 
 
 def archive_public_case_definition(manifest: CaseManifest, artifact_dir: str | Path) -> str:
+    _assert_private_oracle_assets_are_absent(manifest)
     destination = Path(artifact_dir).resolve() / "case-definition"
     source = manifest.source_path.parent.resolve()
     files = _public_case_files(manifest)

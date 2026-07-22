@@ -90,10 +90,10 @@ private overlay.
 
 ## Vault grading contract
 
-The controller materializes a new transfer workspace from the public case
-definition. It applies the sealed patch after path and size validation. It does
-not reuse the worker filesystem, worker process, worker artifact directory, or
-worker container.
+The controller materializes a new transfer workspace from the immutable public
+base and its sealed private transition. It applies the worker's sealed patch
+after path and size validation. It does not reuse the worker filesystem, worker
+process, worker artifact directory, or worker container.
 
 The vault grader runs offline. The private verifier may observe the fresh
 candidate workspace and mount its private test bundle, but no grade workspace,

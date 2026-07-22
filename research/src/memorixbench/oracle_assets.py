@@ -9,9 +9,11 @@ import stat
 import tomllib
 
 from .case_bundle import public_case_definition_hash
-from .schema import CaseManifest
+from .schema import CaseManifest, SourceCheckSpec, parse_source_checks
 
 PRIVATE_OVERLAY_SCHEMA_VERSION = "0.2"
+DEVELOPMENT_OVERLAY_MODE = "development-authoring-v1"
+BLACK_BOX_OVERLAY_MODE = "black-box-controller-v1"
 SHA256_PATTERN = "0123456789abcdef"
 PINNED_IMAGE_PATTERN = re.compile(r"^.+@sha256:[0-9a-f]{64}$")
 
@@ -20,7 +22,9 @@ PINNED_IMAGE_PATTERN = re.compile(r"^.+@sha256:[0-9a-f]{64}$")
 class OracleAssetSet:
     case_id: str
     visibility: str
+    mode: str
     root: Path
+    transition_patch: Path | None
     hidden_patch: Path | None
     reference_patch: Path | None
     annotation_rubric: Path | None
@@ -30,10 +34,12 @@ class OracleAssetSet:
     definition_sha256: str
     overlay_id: str | None
     public_contract_sha256: str
+    transition_patch_sha256: str | None
     hidden_patch_sha256: str | None
     reference_patch_sha256: str | None
     annotation_rubric_sha256: str | None
     verifier_runtime_sha256: str | None
+    source_checks: tuple[SourceCheckSpec, ...]
 
 
 def _sha256(path: Path) -> str:
@@ -83,6 +89,15 @@ def _required_text(data: dict[str, object], key: str) -> str:
     value = data.get(key)
     if not isinstance(value, str) or not value.strip():
         raise ValueError("private oracle definition has a missing required field")
+    return value.strip()
+
+
+def _optional_text(data: dict[str, object], key: str) -> str | None:
+    value = data.get(key)
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError("private oracle definition has an invalid optional field")
     return value.strip()
 
 
@@ -159,6 +174,7 @@ def _overlay_hash(paths: tuple[Path, ...], root: Path) -> str:
 def _private_definition_hash(
     *,
     definition: Path,
+    transition: Path,
     hidden: Path,
     reference: Path,
     annotation_rubric: Path,
@@ -167,7 +183,10 @@ def _private_definition_hash(
 ) -> str:
     digest = hashlib.sha256()
     digest.update(
-        _overlay_hash((definition, hidden, reference, annotation_rubric), root).encode("ascii")
+        _overlay_hash(
+            (definition, transition, hidden, reference, annotation_rubric),
+            root,
+        ).encode("ascii")
     )
     digest.update(b"\0")
     digest.update(verifier_runtime.relative_to(root).as_posix().encode("utf-8"))
@@ -176,22 +195,29 @@ def _private_definition_hash(
     return digest.hexdigest()
 
 
+def _development_overlay_hash(root: Path) -> str:
+    paths = tuple(sorted(root.rglob("*")))
+    if any(_is_reparse_point(path) for path in paths):
+        raise ValueError("private oracle root is invalid")
+    files = tuple(path for path in paths if path.is_file())
+    if not files:
+        raise ValueError("private oracle root is invalid")
+    return _overlay_hash(files, root)
+
+
 def _public_asset(manifest: CaseManifest, relative: str, *, label: str) -> Path:
     return _resolve_asset(manifest.source_path.parent.resolve(), relative, label=label)
-
-
-def _public_transition_sha256(manifest: CaseManifest) -> str:
-    if not manifest.transition.patch:
-        raise ValueError(
-            "private-oracle cases require a public transition.patch commitment"
-        )
-    return _sha256(_public_asset(manifest, manifest.transition.patch, label="transition patch"))
 
 
 def public_oracle_assets(manifest: CaseManifest) -> OracleAssetSet:
     if manifest.oracle.visibility != "public":
         raise ValueError(f"case {manifest.case_id} requires a private oracle overlay")
     root = manifest.source_path.parent.resolve()
+    transition = (
+        _resolve_asset(root, manifest.transition.patch, label="transition patch")
+        if manifest.transition.patch
+        else None
+    )
     hidden = (
         _resolve_asset(root, manifest.oracle.hidden_patch, label="hidden patch")
         if manifest.oracle.hidden_patch
@@ -205,7 +231,9 @@ def public_oracle_assets(manifest: CaseManifest) -> OracleAssetSet:
     return OracleAssetSet(
         case_id=manifest.case_id,
         visibility="public",
+        mode="public-local-v1",
         root=root,
+        transition_patch=transition,
         hidden_patch=hidden,
         reference_patch=reference,
         annotation_rubric=None,
@@ -215,10 +243,12 @@ def public_oracle_assets(manifest: CaseManifest) -> OracleAssetSet:
         definition_sha256=public_case_definition_hash(manifest),
         overlay_id=None,
         public_contract_sha256=public_case_definition_hash(manifest),
+        transition_patch_sha256=_sha256(transition) if transition else None,
         hidden_patch_sha256=None,
         reference_patch_sha256=None,
         annotation_rubric_sha256=None,
         verifier_runtime_sha256=None,
+        source_checks=manifest.oracle.source_checks,
     )
 
 
@@ -247,14 +277,63 @@ def load_private_oracle_overlay(
         raise ValueError("private oracle is not bound to this public case definition")
     if _required_text(data, "base_commit") != manifest.repository.base_revision:
         raise ValueError("private oracle base_commit does not match the public manifest")
-    if _require_sha256(data, "transition_patch_sha256") != _public_transition_sha256(manifest):
+    if manifest.transition.visibility != "private":
+        raise ValueError("private oracle requires a private transition commitment")
+    transition = _resolve_asset(
+        root,
+        _required_text(data, "transition_patch"),
+        label="transition patch",
+    )
+    transition_patch_sha256 = _require_sha256(data, "transition_patch_sha256")
+    if transition_patch_sha256 != manifest.transition.commitment_sha256:
         raise ValueError("private oracle transition patch commitment does not match")
+    if transition_patch_sha256 != _sha256(transition):
+        raise ValueError("private oracle transition patch bytes do not match")
     hidden = _resolve_asset(root, _required_text(data, "hidden_patch"), label="hidden patch")
     reference = _resolve_asset(
         root,
         _required_text(data, "reference_patch"),
         label="reference patch",
     )
+    hidden_patch_sha256 = _require_sha256(data, "hidden_patch_sha256")
+    if hidden_patch_sha256 != _sha256(hidden):
+        raise ValueError("private oracle hidden patch commitment does not match")
+    reference_patch_sha256 = _require_sha256(data, "reference_patch_sha256")
+    if reference_patch_sha256 != _sha256(reference):
+        raise ValueError("private oracle reference patch commitment does not match")
+    source_checks = parse_source_checks(data, context="private oracle")
+    mode = _optional_text(data, "mode")
+
+    if manifest.split == "development":
+        if mode != DEVELOPMENT_OVERLAY_MODE:
+            raise ValueError(
+                "development private oracle requires mode = development-authoring-v1"
+            )
+        return OracleAssetSet(
+            case_id=manifest.case_id,
+            visibility="private",
+            mode=mode,
+            root=root,
+            transition_patch=transition,
+            hidden_patch=hidden,
+            reference_patch=reference,
+            annotation_rubric=None,
+            verifier_runtime=None,
+            verifier_image=None,
+            verifier_command=(),
+            definition_sha256=_development_overlay_hash(root),
+            overlay_id=_required_text(data, "overlay_id"),
+            public_contract_sha256=public_contract_sha256,
+            transition_patch_sha256=transition_patch_sha256,
+            hidden_patch_sha256=hidden_patch_sha256,
+            reference_patch_sha256=reference_patch_sha256,
+            annotation_rubric_sha256=None,
+            verifier_runtime_sha256=None,
+            source_checks=source_checks,
+        )
+
+    if mode not in {None, BLACK_BOX_OVERLAY_MODE}:
+        raise ValueError("private oracle mode is incompatible with confirmatory execution")
     annotation_rubric = _resolve_asset(
         root,
         _required_text(data, "annotation_rubric"),
@@ -264,12 +343,6 @@ def load_private_oracle_overlay(
         root,
         _required_text(data, "verifier_runtime"),
     )
-    hidden_patch_sha256 = _require_sha256(data, "hidden_patch_sha256")
-    if hidden_patch_sha256 != _sha256(hidden):
-        raise ValueError("private oracle hidden patch commitment does not match")
-    reference_patch_sha256 = _require_sha256(data, "reference_patch_sha256")
-    if reference_patch_sha256 != _sha256(reference):
-        raise ValueError("private oracle reference patch commitment does not match")
     annotation_rubric_sha256 = _require_sha256(data, "annotation_rubric_sha256")
     if annotation_rubric_sha256 != _sha256(annotation_rubric):
         raise ValueError("private oracle annotation rubric commitment does not match")
@@ -283,7 +356,9 @@ def load_private_oracle_overlay(
     return OracleAssetSet(
         case_id=manifest.case_id,
         visibility="private",
+        mode=BLACK_BOX_OVERLAY_MODE,
         root=root,
+        transition_patch=transition,
         hidden_patch=hidden,
         reference_patch=reference,
         annotation_rubric=annotation_rubric,
@@ -292,6 +367,7 @@ def load_private_oracle_overlay(
         verifier_command=verifier_command,
         definition_sha256=_private_definition_hash(
             definition=definition,
+            transition=transition,
             hidden=hidden,
             reference=reference,
             annotation_rubric=annotation_rubric,
@@ -300,10 +376,12 @@ def load_private_oracle_overlay(
         ),
         overlay_id=_required_text(data, "overlay_id"),
         public_contract_sha256=public_contract_sha256,
+        transition_patch_sha256=transition_patch_sha256,
         hidden_patch_sha256=hidden_patch_sha256,
         reference_patch_sha256=reference_patch_sha256,
         annotation_rubric_sha256=annotation_rubric_sha256,
         verifier_runtime_sha256=verifier_runtime_sha256,
+        source_checks=source_checks,
     )
 
 

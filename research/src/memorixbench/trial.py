@@ -575,8 +575,10 @@ def ensure_trial_eligibility(
     oracle_assets: OracleAssetSet,
 ) -> str:
     if manifest.split == "development":
-        if oracle_assets.visibility != "public":
-            raise ValueError("development cases must use public oracle assets")
+        if oracle_assets.visibility == "private":
+            raise ValueError(
+                "development private-oracle trials are disabled; use the overlay only for authoring verification"
+            )
         return "development"
     if oracle_assets.visibility != "private":
         raise ValueError("validation and test cases require private oracle assets")
@@ -692,6 +694,7 @@ def run_trial(
         workspace_dir,
         stage="precursor" if is_memorix or is_canonical_retrieval else "transfer",
         repository_cache=repository_cache,
+        oracle_assets=oracle_assets,
     )
 
     transfer_commit = materialized.transfer_commit
@@ -762,6 +765,7 @@ def run_trial(
         transfer_commit, transition_patch_sha256 = advance_case_to_transfer(
             manifest,
             workspace_dir,
+            oracle_assets=oracle_assets,
         )
         agent_start_commit = reset_history_to_snapshot(workspace_dir)
         memorix_cli_sha256 = _sha256(memorix_cli_path)
@@ -866,6 +870,7 @@ def run_trial(
         transfer_commit, transition_patch_sha256 = advance_case_to_transfer(
             manifest,
             workspace_dir,
+            oracle_assets=oracle_assets,
         )
         agent_start_commit = reset_history_to_snapshot(workspace_dir)
         retrieval_started = time.monotonic()
@@ -945,6 +950,7 @@ def run_trial(
             transfer_commit, transition_patch_sha256 = advance_case_to_transfer(
                 manifest,
                 workspace_dir,
+                oracle_assets=oracle_assets,
             )
             agent_start_commit = reset_history_to_snapshot(workspace_dir)
             retrieval_started = time.monotonic()

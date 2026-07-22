@@ -1,8 +1,0 @@
-{
-  "name": "memorixbench-typescript-auth",
-  "private": true,
-  "type": "module",
-  "scripts": {
-    "test": "node --test tests/token.test.mjs"
-  }
-}

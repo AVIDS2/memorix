@@ -142,15 +142,36 @@ def _verified_cache_source(
     return cache, origin
 
 
+def _resolve_transition_patch(
+    manifest: CaseManifest,
+    oracle_assets: OracleAssetSet | None,
+) -> Path:
+    if manifest.transition.visibility == "public":
+        if not manifest.transition.patch:
+            raise ValueError("public transition requires transition.patch")
+        return _resolve_asset(manifest, manifest.transition.patch)
+    if oracle_assets is None or oracle_assets.visibility != "private":
+        raise ValueError("private transition requires a private oracle overlay")
+    if oracle_assets.transition_patch is None:
+        raise ValueError("private oracle overlay has no transition patch")
+    if oracle_assets.transition_patch_sha256 != manifest.transition.commitment_sha256:
+        raise ValueError("private transition commitment does not match the manifest")
+    return oracle_assets.transition_patch
+
+
 def materialize_case(
     manifest: CaseManifest,
     target: str | Path,
     *,
     stage: Stage = "transfer",
     repository_cache: str | Path | None = None,
+    oracle_assets: OracleAssetSet | None = None,
 ) -> MaterializedWorkspace:
     if stage not in {"base", "precursor", "transfer"}:
         raise ValueError(f"unsupported materialization stage: {stage}")
+    transition_patch: Path | None = None
+    if stage == "transfer" and manifest.transition.kind != "none":
+        transition_patch = _resolve_transition_patch(manifest, oracle_assets)
     target_path = Path(target).resolve()
     if target_path.exists():
         raise ValueError(f"target already exists: {target_path}")
@@ -211,8 +232,7 @@ def materialize_case(
             "memorixbench: apply precursor outcome",
         )
 
-    if stage == "transfer" and manifest.transition.patch:
-        transition_patch = _resolve_asset(manifest, manifest.transition.patch)
+    if transition_patch is not None:
         transition_sha = _sha256(transition_patch)
         transfer_commit = _apply_patch(
             target_path,
@@ -286,13 +306,13 @@ def phase_passed(results: list[CommandResult]) -> bool:
 def advance_case_to_transfer(
     manifest: CaseManifest,
     workspace: str | Path,
+    *,
+    oracle_assets: OracleAssetSet | None = None,
 ) -> tuple[str | None, str | None]:
     if manifest.transition.kind == "none":
         return None, None
-    if not manifest.transition.patch:
-        raise ValueError("incremental transfer currently requires transition.patch")
     repo = Path(workspace).resolve()
-    patch = _resolve_asset(manifest, manifest.transition.patch)
+    patch = _resolve_transition_patch(manifest, oracle_assets)
     patch_sha = _sha256(patch)
     commit = _apply_patch(
         repo,
@@ -323,10 +343,15 @@ def apply_reference_patch(
     workspace: str | Path,
     *,
     oracle_assets: OracleAssetSet | None = None,
+    allow_development_private: bool = False,
 ) -> str:
     """Mount the maintainer-only known-good repair before hidden-test grading."""
     assets = oracle_assets or public_oracle_assets(manifest)
-    if assets.visibility == "private":
+    if assets.visibility == "private" and not (
+        allow_development_private
+        and manifest.split == "development"
+        and assets.mode == "development-authoring-v1"
+    ):
         raise ValueError("private oracle reference patches require the vault grader")
     if assets.reference_patch is None:
         raise ValueError(f"case has no oracle reference patch: {manifest.case_id}")
@@ -360,10 +385,12 @@ def _source_check_region(
 def evaluate_source_checks(
     manifest: CaseManifest,
     workspace: str | Path,
+    *,
+    source_checks: tuple[SourceCheckSpec, ...] | None = None,
 ) -> tuple[SourceCheckResult, ...]:
     root = Path(workspace).resolve()
     results: list[SourceCheckResult] = []
-    for check in manifest.oracle.source_checks:
+    for check in source_checks if source_checks is not None else manifest.oracle.source_checks:
         candidate = (root / check.path).resolve()
         if candidate != root and root not in candidate.parents:
             raise ValueError(f"source check path escapes workspace: {check.path}")
@@ -426,13 +453,22 @@ def run_transfer_evaluation(
     *,
     timeout_seconds: int = 300,
     oracle_assets: OracleAssetSet | None = None,
+    allow_development_private: bool = False,
 ) -> TransferEvaluation:
     repo = Path(workspace).resolve()
     assets = oracle_assets or public_oracle_assets(manifest)
-    if assets.visibility == "private":
+    if assets.visibility == "private" and not (
+        allow_development_private
+        and manifest.split == "development"
+        and assets.mode == "development-authoring-v1"
+    ):
         raise ValueError("private oracle evaluation requires the vault grader")
     # Inspect the agent-authored source before a maintainer-only hidden patch can alter it.
-    source_checks = evaluate_source_checks(manifest, repo)
+    source_checks = evaluate_source_checks(
+        manifest,
+        repo,
+        source_checks=assets.source_checks,
+    )
     hidden_patch_sha256: str | None = None
     if assets.hidden_patch:
         patch = assets.hidden_patch

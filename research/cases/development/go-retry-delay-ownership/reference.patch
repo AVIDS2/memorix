@@ -1,8 +1,0 @@
-diff --git a/service/retry.go b/service/retry.go
---- a/service/retry.go
-+++ b/service/retry.go
-@@ -7,3 +7,3 @@
- func validRetryDelay(delay time.Duration) bool {
--    return delay > 0 && delay <= 30*time.Second
-+    return delay >= 375*time.Millisecond && delay <= 30*time.Second && delay%(125*time.Millisecond) == 0
- }

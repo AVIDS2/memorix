@@ -25,18 +25,18 @@ from memorixbench.trial import (
 from memorixbench.trace import TraceView
 
 
-CASE = Path(__file__).parents[1] / "cases" / "development" / "typescript-auth-ownership" / "case.toml"
+CASE = Path(__file__).parent / "fixtures" / "prompt-case" / "case.toml"
 
 
 def test_no_memory_prompt_has_no_precursor_record() -> None:
     prompt = build_condition_prompt(load_case_manifest(CASE), "no-memory")
     assert "<prior_session>" not in prompt
-    assert "A regression now accepts prefixed tokens that violate the existing security policy" in prompt
+    assert "restore the durable project policy" in prompt
     assert "configured project-context or memory capability" in prompt
     assert "single transfer snapshot" in prompt
     assert "You are already in the repository" in prompt
     assert "Use normal source-inspection and verification commands" in prompt
-    assert "Trusted verification command for this case: `npm test`" in prompt
+    assert "Trusted verification command for this case: `git status --short`" in prompt
 
 
 def test_claude_allowlist_includes_case_verification_only() -> None:
@@ -45,7 +45,7 @@ def test_claude_allowlist_includes_case_verification_only() -> None:
     no_memory = build_claude_allowed_tools(manifest, "no-memory")
     memorix = build_claude_allowed_tools(manifest, "memorix-1.2.1-micro-local")
 
-    assert "Bash(npm test)" in no_memory
+    assert "Bash(git status --short)" in no_memory
     assert "Bash(git *)" in no_memory
     assert "Bash" not in no_memory
     assert "mcp__memorix__memorix_project_context" not in no_memory
@@ -107,9 +107,7 @@ def test_trial_artifacts_use_a_short_run_directory(tmp_path: Path) -> None:
 def test_last_n_prompt_contains_bounded_precursor_record() -> None:
     prompt = build_condition_prompt(load_case_manifest(CASE), "last-n")
     assert "<prior_session>" in prompt
-    assert "src/auth.js#validateToken" in prompt
-    assert "at least eighteen characters" in prompt
-    assert "issuer shard marker" in prompt
+    assert "durable project policy survives" in prompt
 
 
 def test_track_c_last_n_requires_a_prepared_event_aligned_view() -> None:
@@ -129,7 +127,7 @@ def test_track_c_last_n_requires_a_prepared_event_aligned_view() -> None:
     prompt = build_condition_prompt(manifest, "last-n", trace_view=view)
 
     assert "bounded evidence" in prompt
-    assert "issuer shard marker" not in prompt
+    assert "durable project policy survives" not in prompt
     with pytest.raises(ValueError, match="prepared bounded trace view"):
         build_condition_prompt(manifest, "last-n")
 
@@ -140,7 +138,7 @@ def test_memorix_prompt_does_not_inline_the_precursor_record() -> None:
         "memorix-1.2.1-micro-local",
     )
     assert "<prior_session>" not in prompt
-    assert "at least twelve characters" not in prompt
+    assert "durable project policy survives" not in prompt
 
 
 def test_memorix_canonical_prompt_uses_injected_context_without_native_mcp() -> None:
@@ -211,7 +209,8 @@ def test_archives_complete_case_definition(tmp_path: Path) -> None:
 
     assert first_hash == second_hash
     assert (tmp_path / "first" / "case-definition" / "case.toml").is_file()
-    assert (tmp_path / "first" / "case-definition" / "hidden-tests.patch").is_file()
+    assert (tmp_path / "first" / "case-definition" / "seed" / "project.txt").is_file()
+    assert not (tmp_path / "first" / "case-definition" / "hidden-tests.patch").exists()
 
 
 def _pending_outcome(**overrides: object) -> SimpleNamespace:

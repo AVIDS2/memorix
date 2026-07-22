@@ -1,6 +1,7 @@
 import hashlib
 import json
 from pathlib import Path
+import sys
 from types import SimpleNamespace
 
 import pytest
@@ -10,7 +11,11 @@ from memorixbench.case_bundle import (
     public_case_definition_hash,
 )
 import memorixbench.cli as cli
-from memorixbench.authoring import AuthoringGateResult, AuthoringVerification
+from memorixbench.authoring import (
+    AuthoringGateResult,
+    AuthoringVerification,
+    verify_case_authoring,
+)
 from memorixbench.oracle_assets import (
     load_private_oracle_overlay,
     resolve_oracle_assets,
@@ -28,6 +33,7 @@ from memorixbench.workspace import (
     SourceCheckResult,
     TransferEvaluation,
     apply_reference_patch,
+    materialize_case,
     run_transfer_evaluation,
 )
 
@@ -41,14 +47,16 @@ def _private_case(tmp_path: Path) -> tuple[Path, Path]:
     seed = case_root / "seed"
     seed.mkdir(parents=True)
     (seed / "value.txt").write_text("base\n", encoding="utf-8")
-    transition = case_root / "transition.patch"
+    overlay = tmp_path / "private-overlay"
+    overlay.mkdir()
+    transition = overlay / "transition.patch"
     transition.write_text(
         "--- a/value.txt\n+++ b/value.txt\n@@ -1 +1 @@\n-base\n+transfer\n",
         encoding="utf-8",
     )
     manifest_path = case_root / "case.toml"
     manifest_path.write_text(
-        """
+        f"""
 schema_version = "0.5"
 id = "private-oracle-case"
 title = "Private oracle case"
@@ -59,7 +67,7 @@ language = "text"
 tags = ["private-oracle"]
 
 [bundle]
-public_paths = ["case.toml", "seed", "transition.patch"]
+public_paths = ["case.toml", "seed"]
 
 [repository]
 source_type = "local-fixture"
@@ -72,9 +80,10 @@ success_commands = ["git status --short"]
 
 [transition]
 kind = "code-change"
-description = "Apply the public transfer transition."
+description = "Apply the sealed transfer transition."
 apply_commands = []
-patch = "transition.patch"
+visibility = "private"
+commitment_sha256 = "{_sha256(transition)}"
 
 [transfer]
 task = "Repair the transfer state."
@@ -92,8 +101,6 @@ forbidden_actions = []
         encoding="utf-8",
     )
     manifest = load_case_manifest(manifest_path)
-    overlay = tmp_path / "private-overlay"
-    overlay.mkdir()
     hidden = overlay / "hidden-tests.patch"
     reference = overlay / "reference.patch"
     annotation_rubric = overlay / "annotation-rubric.md"
@@ -109,10 +116,12 @@ forbidden_actions = []
     (overlay / "oracle.toml").write_text(
         f"""
 schema_version = "0.2"
+mode = "black-box-controller-v1"
 overlay_id = "opaque-test-1"
 case_id = "{manifest.case_id}"
 public_case_definition_sha256 = "{public_case_definition_hash(manifest)}"
 base_commit = "{manifest.repository.base_revision}"
+transition_patch = "{transition.name}"
 transition_patch_sha256 = "{_sha256(transition)}"
 hidden_patch = "{hidden.name}"
 hidden_patch_sha256 = "{_sha256(hidden)}"
@@ -130,6 +139,115 @@ verifier_command = ["/verifier/entrypoint"]
     return manifest_path, overlay
 
 
+def _development_private_case(tmp_path: Path) -> tuple[Path, Path]:
+    case_root = tmp_path / "development-case"
+    seed = case_root / "seed"
+    seed.mkdir(parents=True)
+    (seed / "value.txt").write_text("base\n", encoding="utf-8")
+    (seed / "expected.txt").write_text("base\n", encoding="utf-8")
+    (seed / "check.py").write_text(
+        "from pathlib import Path\n"
+        "raise SystemExit(\n"
+        "    Path('value.txt').read_text(encoding='utf-8')\n"
+        "    != Path('expected.txt').read_text(encoding='utf-8')\n"
+        ")\n",
+        encoding="utf-8",
+    )
+    overlay = tmp_path / "development-private-overlay"
+    overlay.mkdir()
+    transition = overlay / "transition.patch"
+    transition.write_text(
+        "--- a/value.txt\n+++ b/value.txt\n@@ -1 +1 @@\n-base\n+broken\n"
+        "--- a/expected.txt\n+++ b/expected.txt\n@@ -1 +1 @@\n-base\n+broken\n",
+        encoding="utf-8",
+    )
+    executable = sys.executable.replace("\\", "/")
+    command = json.dumps(f'"{executable}" check.py')
+    manifest_path = case_root / "case.toml"
+    manifest_path.write_text(
+        "\n".join(
+            (
+                'schema_version = "0.5"',
+                'id = "development-private-oracle-case"',
+                'title = "Development private oracle case"',
+                'split = "development"',
+                'dependency_strength = "low"',
+                'dependency_classification_status = "retrospective-development"',
+                'language = "text"',
+                'tags = ["private-oracle", "development"]',
+                '',
+                '[bundle]',
+                'public_paths = ["case.toml", "seed"]',
+                '',
+                '[repository]',
+                'source_type = "local-fixture"',
+                'path = "seed"',
+                'base_revision = "fixture-base"',
+                '',
+                '[precursor]',
+                'task = "Inspect the precursor."',
+                f'success_commands = [{command}]',
+                '',
+                '[transition]',
+                'kind = "code-change"',
+                'description = "Apply the sealed transfer transition."',
+                'apply_commands = []',
+                'visibility = "private"',
+                f'commitment_sha256 = "{_sha256(transition)}"',
+                '',
+                '[transfer]',
+                'task = "Repair the transfer state."',
+                f'success_commands = [{command}]',
+                '',
+                '[oracle]',
+                'visibility = "private"',
+                'required_start_files = ["value.txt"]',
+                'relevant_evidence_ids = []',
+                'stale_evidence_ids = []',
+                'forbidden_actions = []',
+            )
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    manifest = load_case_manifest(manifest_path)
+    hidden = overlay / "hidden-tests.patch"
+    reference = overlay / "reference.patch"
+    hidden.write_text(
+        "--- a/expected.txt\n+++ b/expected.txt\n@@ -1 +1 @@\n-broken\n+fixed\n",
+        encoding="utf-8",
+    )
+    reference.write_text(
+        "--- a/value.txt\n+++ b/value.txt\n@@ -1 +1 @@\n-broken\n+fixed\n",
+        encoding="utf-8",
+    )
+    (overlay / "oracle.toml").write_text(
+        "\n".join(
+            (
+                'schema_version = "0.2"',
+                'mode = "development-authoring-v1"',
+                'overlay_id = "development-private-1"',
+                f'case_id = "{manifest.case_id}"',
+                f'public_case_definition_sha256 = "{public_case_definition_hash(manifest)}"',
+                f'base_commit = "{manifest.repository.base_revision}"',
+                f'transition_patch = "{transition.name}"',
+                f'transition_patch_sha256 = "{_sha256(transition)}"',
+                f'hidden_patch = "{hidden.name}"',
+                f'hidden_patch_sha256 = "{_sha256(hidden)}"',
+                f'reference_patch = "{reference.name}"',
+                f'reference_patch_sha256 = "{_sha256(reference)}"',
+                '',
+                '[[source_check]]',
+                'path = "value.txt"',
+                'required_literals = ["fixed"]',
+            )
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return manifest_path, overlay
+
+
 def test_loads_private_oracle_bound_to_public_case_tree(tmp_path: Path) -> None:
     manifest_path, overlay = _private_case(tmp_path)
     manifest = load_case_manifest(manifest_path)
@@ -138,29 +256,79 @@ def test_loads_private_oracle_bound_to_public_case_tree(tmp_path: Path) -> None:
 
     assert assets.visibility == "private"
     assert assets.overlay_id == "opaque-test-1"
+    assert assets.transition_patch and assets.transition_patch.parent == overlay
     assert assets.hidden_patch and assets.hidden_patch.parent == overlay
     assert assets.reference_patch and assets.reference_patch.parent == overlay
     assert assets.annotation_rubric == overlay / "annotation-rubric.md"
     assert assets.verifier_runtime == overlay / "verifier-runtime"
     assert assets.hidden_patch_sha256 == _sha256(assets.hidden_patch)
+    assert assets.transition_patch_sha256 == _sha256(assets.transition_patch)
     assert assets.reference_patch_sha256 == _sha256(assets.reference_patch)
     assert len(assets.definition_sha256) == 64
 
 
-def test_private_case_archives_only_declared_public_bundle_paths(tmp_path: Path) -> None:
+def test_development_private_overlay_is_limited_to_authoring_verification(
+    tmp_path: Path,
+) -> None:
+    manifest_path, overlay = _development_private_case(tmp_path)
+    manifest = load_case_manifest(manifest_path)
+    assets = resolve_oracle_assets(manifest, overlay)
+
+    assert assets.mode == "development-authoring-v1"
+    assert len(assets.source_checks) == 1
+    verification = verify_case_authoring(
+        manifest,
+        tmp_path / "authoring-artifacts",
+        oracle_assets=assets,
+    )
+
+    assert verification.passed
+    with pytest.raises(ValueError, match="development private-oracle trials are disabled"):
+        ensure_trial_eligibility(manifest, agent="claude", oracle_assets=assets)
+
+
+def test_private_transition_requires_overlay_before_workspace_creation(
+    tmp_path: Path,
+) -> None:
+    manifest_path, overlay = _development_private_case(tmp_path)
+    manifest = load_case_manifest(manifest_path)
+    target = tmp_path / "missing-overlay-workspace"
+
+    with pytest.raises(ValueError, match="private transition requires a private oracle overlay"):
+        materialize_case(manifest, target, stage="transfer")
+    assert not target.exists()
+
+    assets = resolve_oracle_assets(manifest, overlay)
+    materialized = materialize_case(
+        manifest,
+        tmp_path / "sealed-workspace",
+        stage="transfer",
+        oracle_assets=assets,
+    )
+    assert materialized.transition_patch_sha256 == assets.transition_patch_sha256
+    assert (materialized.path / "value.txt").read_text(encoding="utf-8") == "broken\n"
+
+
+def test_private_case_rejects_unbundled_files(tmp_path: Path) -> None:
     manifest_path, _overlay = _private_case(tmp_path)
     manifest = load_case_manifest(manifest_path)
     secret_file = manifest_path.parent / "unlisted-private-note.txt"
     secret_file.write_text("must-not-enter-public-bundle\n", encoding="utf-8")
-    original_hash = public_case_definition_hash(manifest)
 
-    archived_hash = archive_public_case_definition(manifest, tmp_path / "artifact")
+    with pytest.raises(ValueError, match="unbundled file"):
+        archive_public_case_definition(manifest, tmp_path / "artifact")
 
-    archive_root = tmp_path / "artifact" / "case-definition"
-    assert archived_hash == original_hash
-    assert (archive_root / "case.toml").is_file()
-    assert (archive_root / "seed" / "value.txt").is_file()
-    assert not (archive_root / secret_file.name).exists()
+
+def test_private_case_rejects_reserved_oracle_assets_in_public_tree(tmp_path: Path) -> None:
+    manifest_path, _overlay = _private_case(tmp_path)
+    manifest = load_case_manifest(manifest_path)
+    (manifest_path.parent / "hidden-tests.patch").write_text(
+        "must stay outside the public tree\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="reserved private-oracle asset"):
+        public_case_definition_hash(manifest)
 
 
 def test_rejects_private_overlay_with_wrong_public_contract(tmp_path: Path) -> None:

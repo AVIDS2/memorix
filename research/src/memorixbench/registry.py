@@ -131,11 +131,14 @@ def load_case_registry(path: str | Path) -> CaseRegistry:
         raise CaseRegistryError("case registry cannot be read") from error
     if raw.get("schema_version") != CASE_REGISTRY_SCHEMA_VERSION:
         raise CaseRegistryError("unsupported case registry schema")
-    if set(raw) != {"schema_version", "registry_id", "case"}:
+    if set(raw) not in (
+        {"schema_version", "registry_id"},
+        {"schema_version", "registry_id", "case"},
+    ):
         raise CaseRegistryError("case registry has unexpected top-level fields")
-    entries_raw = raw.get("case")
-    if not isinstance(entries_raw, list) or not entries_raw:
-        raise CaseRegistryError("case registry must contain at least one [[case]] entry")
+    entries_raw = raw.get("case", [])
+    if not isinstance(entries_raw, list):
+        raise CaseRegistryError("case registry entries must be an array of tables")
     entries: list[CaseRegistryEntry] = []
     for entry_raw in entries_raw:
         if not isinstance(entry_raw, dict):

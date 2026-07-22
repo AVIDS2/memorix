@@ -195,10 +195,38 @@ def test_private_oracle_assets_are_not_public_manifest_fields(tmp_path: Path) ->
         load_case_manifest(write_case(tmp_path, content))
 
 
+def test_private_development_oracle_rules_are_not_public_manifest_fields(
+    tmp_path: Path,
+) -> None:
+    content = VALID_CASE.replace(
+        'visibility = "public"',
+        'visibility = "private"',
+    )
+
+    with pytest.raises(ManifestError, match="private oracle case-specific rules"):
+        load_case_manifest(write_case(tmp_path, content))
+
+
+def test_private_oracle_requires_a_sealed_transition(tmp_path: Path) -> None:
+    content = VALID_CASE.replace(
+        'visibility = "public"',
+        'visibility = "private"',
+    ).replace(
+        'forbidden_actions = ["restore the removed auth validator"]',
+        'forbidden_actions = []',
+    )
+
+    with pytest.raises(ManifestError, match="require a private transition"):
+        load_case_manifest(write_case(tmp_path, content))
+
+
 def test_test_split_requires_private_preregistered_oracle(tmp_path: Path) -> None:
     content = VALID_CASE.replace('split = "development"', 'split = "test"').replace(
         'dependency_classification_status = "retrospective-development"',
         'dependency_classification_status = "preregistered"',
+    ).replace(
+        'apply_commands = ["git apply transition.patch"]',
+        'apply_commands = []\nvisibility = "private"\ncommitment_sha256 = "' + "a" * 64 + '"',
     ).replace('visibility = "public"', 'visibility = "private"').replace(
         'forbidden_actions = ["restore the removed auth validator"]',
         '''required_isolation_profile = "remote-worker-vault-v1"
@@ -223,6 +251,9 @@ def test_confirmatory_case_requires_public_bundle_allowlist(tmp_path: Path) -> N
     content = VALID_CASE.replace('split = "development"', 'split = "test"').replace(
         'dependency_classification_status = "retrospective-development"',
         'dependency_classification_status = "preregistered"',
+    ).replace(
+        'apply_commands = ["git apply transition.patch"]',
+        'apply_commands = []\nvisibility = "private"\ncommitment_sha256 = "' + "a" * 64 + '"',
     ).replace('visibility = "public"', 'visibility = "private"').replace(
         'forbidden_actions = ["restore the removed auth validator"]',
         '''required_isolation_profile = "remote-worker-vault-v1"

@@ -48,8 +48,6 @@ from .workspace import (
 
 def _validate_cases(root: Path) -> int:
     manifests = sorted(root.rglob("case.toml"))
-    if not manifests:
-        raise ManifestError(f"no case.toml files found under {root}")
     cases = [load_case_manifest(path) for path in manifests]
     for case in cases:
         if case.precursor_trace_bundle is not None:

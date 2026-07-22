@@ -9,39 +9,42 @@ agent-isolation certificate has been issued for the exact runtime profile.
 ## Public case definition
 
 A validation or test case declares `oracle.visibility = "private"`. Its public
-case tree contains the immutable repository revision, precursor and transfer
-tasks, public verification command, evidence seeds, transition, dependency
-strength, and preregistration status. It must not name or contain a hidden test
-patch, reference repair, case-specific source check, or case-specific forbidden
-action.
+case card contains only the immutable repository revision, a broad task
+description, contamination disclosure, preregistration metadata, and opaque
+commitments. It must not name or contain a hidden test patch, reference repair,
+case-specific source check, forbidden implementation path, exact behavior
+predicate, raw predecessor evidence, or transition patch.
 
 Before its first model run, a confirmatory case must have:
 
 - `split = "validation"` or `"test"`;
 - `dependency_classification_status = "preregistered"`;
 - an immutable full Git commit when it uses an upstream repository;
-- a public transition patch committed in the public case tree; and
+- a privately authored post-snapshot transition committed only by hash; and
 - an accepted private overlay bound to the exact hash of the whole public case
   definition tree, not merely `case.toml`.
 
 The public tree hash covers file paths and bytes. It is copied into each run
-artifact, so later edits cannot silently change the task behind a result.
+artifact, so later edits cannot silently change the public card behind a result.
+The private overlay separately commits the transfer construction and grader.
 
 ## Private overlay
 
 The overlay lives outside the Git worktree and outside every public artifact
-directory. Its root contains `oracle.toml`, hidden tests, a reference repair,
-an annotation rubric, and a pinned verifier runtime; asset names below are
-examples only and are not published in the public case definition.
+directory. Its root contains the private transition, hidden tests, a reference
+repair, an annotation rubric, and a pinned verifier runtime; asset names below
+are examples only and are not published in the public case definition.
 `oracle.toml` uses this versioned contract:
 
 ```toml
 schema_version = "0.2"
+mode = "black-box-controller-v1"
 overlay_id = "opaque-case-revision"
 case_id = "example-case"
 public_case_definition_sha256 = "<sha256 of the public case tree>"
 base_commit = "<same revision as the public manifest>"
-transition_patch_sha256 = "<sha256 of the public transition patch>"
+transition_patch = "transition.patch"
+transition_patch_sha256 = "<sha256 of private transition.patch>"
 hidden_patch = "hidden-tests.patch"
 hidden_patch_sha256 = "<sha256 of hidden-tests.patch>"
 reference_patch = "reference.patch"
@@ -54,10 +57,15 @@ verifier_image = "<registry image pinned by sha256 digest>"
 verifier_command = ["/verifier/entrypoint"]
 ```
 
-Patch paths are resolved under the overlay root only. The loader rejects a case
-identifier, public-tree hash, base revision, transition commitment, asset hash,
-or verifier-runtime hash mismatch. It also rejects path escapes, symbolic-link
-assets, and public manifests that are not marked private.
+Patch paths are resolved under the overlay root only. The controller rejects a
+case identifier, public-tree hash, base revision, transition commitment, asset
+hash, or verifier-runtime hash mismatch. It also rejects path escapes,
+symbolic-link assets, and public manifests that are not marked private.
+
+`development-authoring-v1` is a narrower overlay mode for local deterministic
+authoring gates. It can validate that private assets bind to a public card, but
+it cannot enable an agent run or an outcome result. The current public registry
+contains no cases while the sealed-transition controller is completed.
 
 ## Isolation boundary
 

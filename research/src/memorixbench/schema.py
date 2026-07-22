@@ -9,6 +9,7 @@ from typing import Any
 SCHEMA_VERSION = "0.5"
 CASE_ID_PATTERN = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 COMMIT_SHA_PATTERN = re.compile(r"^[0-9a-f]{40}$")
+SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 VALID_SPLITS = {"development", "validation", "test"}
 VALID_DEPENDENCY_STRENGTHS = {"low", "medium", "high"}
 VALID_DEPENDENCY_CLASSIFICATION_STATUS = {
@@ -38,6 +39,7 @@ VALID_TRANSITIONS = {
     "configuration-change",
     "documentation-change",
 }
+VALID_TRANSITION_VISIBILITIES = {"public", "private"}
 
 
 class ManifestError(ValueError):
@@ -67,6 +69,8 @@ class TransitionSpec:
     description: str
     apply_commands: tuple[str, ...]
     patch: str | None = None
+    visibility: str = "public"
+    commitment_sha256: str | None = None
 
 
 @dataclass(frozen=True)
@@ -176,6 +180,13 @@ def _optional_text(data: dict[str, Any], key: str) -> str | None:
     return value.strip()
 
 
+def _optional_sha256(data: dict[str, Any], key: str, *, context: str) -> str | None:
+    value = _optional_text(data, key)
+    if value is not None and not SHA256_PATTERN.fullmatch(value):
+        raise ManifestError(f"{context}.{key} must be a lowercase SHA-256 when present")
+    return value
+
+
 def _strings(
     data: dict[str, Any],
     key: str,
@@ -225,40 +236,44 @@ def _memory_seeds(data: dict[str, Any]) -> tuple[MemorySeedSpec, ...]:
     return tuple(seeds)
 
 
-def _source_checks(data: dict[str, Any]) -> tuple[SourceCheckSpec, ...]:
+def parse_source_checks(
+    data: dict[str, Any],
+    *,
+    context: str,
+) -> tuple[SourceCheckSpec, ...]:
     raw = data.get("source_check", [])
     if not isinstance(raw, list):
-        raise ManifestError("oracle.source_check must be an array of tables when present")
+        raise ManifestError(f"{context}.source_check must be an array of tables when present")
 
     checks: list[SourceCheckSpec] = []
     identities: set[tuple[str, str | None, str | None]] = set()
     for index, item in enumerate(raw, 1):
         if not isinstance(item, dict):
-            raise ManifestError(f"oracle.source_check[{index}] must be a table")
-        context = f"oracle.source_check[{index}]"
-        path = _text(item, "path", context=context)
+            raise ManifestError(f"{context}.source_check[{index}] must be a table")
+        check_context = f"{context}.source_check[{index}]"
+        path = _text(item, "path", context=check_context)
         path_parts = Path(path).parts
         if Path(path).is_absolute() or ".." in path_parts:
-            raise ManifestError(f"{context}.path must stay inside the repository")
+            raise ManifestError(f"{check_context}.path must stay inside the repository")
         scope_start = _optional_text(item, "scope_start")
         scope_end = _optional_text(item, "scope_end")
         if scope_end and not scope_start:
-            raise ManifestError(f"{context}.scope_end requires scope_start")
-        required_literals = _strings(item, "required_literals", context=context)
-        forbidden_literals = _strings(item, "forbidden_literals", context=context)
+            raise ManifestError(f"{check_context}.scope_end requires scope_start")
+        required_literals = _strings(item, "required_literals", context=check_context)
+        forbidden_literals = _strings(item, "forbidden_literals", context=check_context)
         if not required_literals and not forbidden_literals:
             raise ManifestError(
-                f"{context} requires required_literals or forbidden_literals"
+                f"{check_context} requires required_literals or forbidden_literals"
             )
         overlap = set(required_literals) & set(forbidden_literals)
         if overlap:
             raise ManifestError(
-                f"{context} literals cannot be both required and forbidden: "
+                f"{check_context} literals cannot be both required and forbidden: "
                 + ", ".join(sorted(overlap))
             )
         identity = (path, scope_start, scope_end)
         if identity in identities:
-            raise ManifestError(f"{context} duplicates an earlier source check scope")
+            raise ManifestError(f"{check_context} duplicates an earlier source check scope")
         identities.add(identity)
         checks.append(SourceCheckSpec(
             path=path,
@@ -268,6 +283,10 @@ def _source_checks(data: dict[str, Any]) -> tuple[SourceCheckSpec, ...]:
             forbidden_literals=forbidden_literals,
         ))
     return tuple(checks)
+
+
+def _source_checks(data: dict[str, Any]) -> tuple[SourceCheckSpec, ...]:
+    return parse_source_checks(data, context="oracle")
 
 
 def _public_bundle_paths(data: dict[str, Any]) -> tuple[str, ...]:
@@ -445,6 +464,18 @@ def load_case_manifest(path: str | Path) -> CaseManifest:
         raise ManifestError(
             f"transition.kind must be one of {sorted(VALID_TRANSITIONS)}"
         )
+    transition_visibility = _optional_text(transition_data, "visibility") or "public"
+    if transition_visibility not in VALID_TRANSITION_VISIBILITIES:
+        raise ManifestError(
+            "transition.visibility must be one of "
+            f"{sorted(VALID_TRANSITION_VISIBILITIES)}"
+        )
+    transition_patch = _optional_text(transition_data, "patch")
+    transition_commitment_sha256 = _optional_sha256(
+        transition_data,
+        "commitment_sha256",
+        context="transition",
+    )
 
     oracle_data = _table(data, "oracle")
     oracle_visibility = _optional_text(oracle_data, "visibility") or "public"
@@ -502,7 +533,9 @@ def load_case_manifest(path: str | Path) -> CaseManifest:
                 context="transition",
                 required=False,
             ),
-            patch=_optional_text(transition_data, "patch"),
+            patch=transition_patch,
+            visibility=transition_visibility,
+            commitment_sha256=transition_commitment_sha256,
         ),
         transfer=PhaseSpec(
             task=_text(transfer_data, "task", context="transfer"),
@@ -565,20 +598,30 @@ def load_case_manifest(path: str | Path) -> CaseManifest:
         raise ManifestError(
             "validation and test case-specific oracle rules must live in the private overlay"
         )
-    if split in {"validation", "test"}:
-        if manifest.oracle.required_isolation_profile not in VALID_CONFIRMATORY_ISOLATION_PROFILES:
+    if oracle_visibility == "private" and (
+        manifest.oracle.source_checks or manifest.oracle.forbidden_actions
+    ):
+        raise ManifestError(
+            "private oracle case-specific rules must live in the private overlay"
+        )
+    if oracle_visibility == "private":
+        if manifest.transition.visibility != "private":
+            raise ManifestError("private oracle cases require a private transition")
+        if manifest.transition.patch or manifest.transition.apply_commands:
             raise ManifestError(
-                "validation and test cases require a supported "
-                "oracle.required_isolation_profile"
+                "private transitions must not expose transition.patch or apply_commands"
             )
-        if manifest.oracle.verifier_mode not in VALID_CONFIRMATORY_VERIFIER_MODES:
+        if manifest.transition.commitment_sha256 is None:
+            raise ManifestError("private transitions require transition.commitment_sha256")
+        if manifest.precursor.patch or manifest.precursor.transcript:
             raise ManifestError(
-                "validation and test cases require oracle.verifier_mode = "
-                '"black-box-controller-v1"'
+                "private oracle precursor patches and transcripts belong in the private controller"
             )
+        if manifest.memory_seeds:
+            raise ManifestError("private oracle memory seeds belong in the private controller")
         if not manifest.public_bundle_paths:
             raise ManifestError(
-                "validation and test cases require an explicit [bundle] public_paths allowlist"
+                "private oracle cases require an explicit [bundle] public_paths allowlist"
             )
         missing_assets = [
             asset
@@ -589,6 +632,17 @@ def load_case_manifest(path: str | Path) -> CaseManifest:
             raise ManifestError(
                 "bundle.public_paths does not cover required public assets: "
                 + ", ".join(missing_assets)
+            )
+    if split in {"validation", "test"}:
+        if manifest.oracle.required_isolation_profile not in VALID_CONFIRMATORY_ISOLATION_PROFILES:
+            raise ManifestError(
+                "validation and test cases require a supported "
+                "oracle.required_isolation_profile"
+            )
+        if manifest.oracle.verifier_mode not in VALID_CONFIRMATORY_VERIFIER_MODES:
+            raise ManifestError(
+                "validation and test cases require oracle.verifier_mode = "
+                '"black-box-controller-v1"'
             )
     if (
         manifest.formation_track != "seeded-canonical"
@@ -629,9 +683,11 @@ def load_case_manifest(path: str | Path) -> CaseManifest:
                     "bundle.public_paths must cover the precursor trace bundle"
                 )
     if transition_kind != "none" and not (
-        manifest.transition.patch or manifest.transition.apply_commands
+        manifest.transition.patch
+        or manifest.transition.apply_commands
+        or manifest.transition.commitment_sha256
     ):
         raise ManifestError(
-            "a non-empty transition requires transition.patch or transition.apply_commands"
+            "a non-empty transition requires a patch, apply_commands, or commitment"
         )
     return manifest

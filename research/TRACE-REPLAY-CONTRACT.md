@@ -129,11 +129,12 @@ measurement data, not performance outcomes.
 
 ## Current boundary
 
-All executable cases remain public development cases. Confirmatory execution
-also requires the separate worker/vault architecture, private oracle overlay,
-and an external isolation certificate documented in
-`CONFIRMATORY-EXECUTION-ARCHITECTURE.md`. No current trace replay is reported
-as a confirmatory result.
+There are currently no executable benchmark cases. The previous public
+development exercises were withdrawn after leakage review. A future trace
+replay can enter an agent run only through the separate sealed-task
+worker/vault architecture, private overlay, and external isolation certificate
+documented in `CONFIRMATORY-EXECUTION-ARCHITECTURE.md`. No current trace replay
+is reported as a confirmatory result.
 
 The public `capture-trace` command and local capture helper can emit only
 `local-diagnostic-v1`. They cannot self-label a receipt as

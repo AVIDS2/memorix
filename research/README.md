@@ -34,6 +34,7 @@ audited.
 - CLAIMS.md: every intended paper claim and the evidence required to unlock it.
 - LITERATURE.md: comparison boundaries for adjacent memory systems and benchmarks.
 - RESULTS-PILOT.md: excluded diagnostics and non-confirmatory smoke evidence.
+- RETIRED-DEVELOPMENT-CORPUS.md: withdrawal record for unsafe early exercises.
 - cases/: public case manifests and case-authoring rules.
 - CASE-CANDIDATES.md: researched candidates that are not yet eligible cases.
 - CASE-REGISTRY-CONTRACT.md: frozen corpus inventory, split isolation, and
@@ -43,6 +44,8 @@ audited.
 - LEGACY-ARTIFACTS.md: pre-snapshot diagnostic artifact boundary.
 - PRIVATE-ORACLE-CONTRACT.md: public/private case boundary and the required
   external isolation proof for confirmatory trials.
+- SEALED-TASK-CONTRACT.md: exactly what is public, worker-visible, and
+  controller-only for a future task.
 - CONFIRMATORY-EXECUTION-ARCHITECTURE.md: worker/vault separation required
   before a private-oracle result can enter the confirmatory corpus.
 - src/memorixbench/: manifest validation and analysis tooling.
@@ -84,29 +87,10 @@ its public receipt:
 This produces diagnostic evidence only unless the receipt is bound to the
 separate external worker/vault isolation profile.
 
-For an auditable local precursor capture, prefer the integrated command over a
-hand-assembled client invocation:
-
-    uv run memorixbench capture-precursor-session \
-      cases/development/<case>/case.toml \
-      --prompt-file F:/memorix-research-artifacts/prompts/<capture>.txt \
-      --artifact-root F:/memorix-research-artifacts/private-captures/<capture> \
-      --public-output-root F:/memorix-research-artifacts/captured-traces/<capture> \
-      --workspace-root F:/memorix-research-artifacts/capture-workspaces \
-      --agent claude \
-      --client-version <claude-version> \
-      --capture-id <capture-id> \
-      --timeout-seconds 240 \
-      --claude-provider-settings C:/Users/<user>/.claude/settings.json \
-      --repository-cache F:/memorix-research-artifacts/repository-cache/<repo>
-
-It materializes the fixed precursor snapshot, runs a constrained local session
-with local auto-memory disabled, retains the raw stream only under the private
-artifact root, verifies the final workspace content snapshot is unchanged, and
-audits shell commands. Trace and receipt are first staged privately, scanned
-against injected provider secrets, then atomically released as `trace.json` and
-`receipt.json` in the separate public-output root. A local run is always
-`local-diagnostic-v1`: it is not an OS-isolated read-only worker and cannot be
+Local precursor capture is a harness diagnostic, not a way to admit a public
+task. It must run from a private controller workspace, retain raw events only
+under `F:/memorix-research-artifacts`, and release at most a separately reviewed
+sanitized trace. A local run is always `local-diagnostic-v1`: it cannot be
 relabeled as isolated-worker evidence by a CLI flag.
 
 Bundle two or more independently captured traces before a Track C case is
@@ -143,33 +127,19 @@ but must be prewarmed and rechecked: a historical preflight receipt is evidence
 of one successful offline run, not proof that a later machine still holds its
 cache.
 
-Development cases also carry a maintainer-only `oracle.reference_patch`. Run
-`memorixbench grade ... --phase transfer --reference --allow-case-commands` in
-a fresh materialized workspace to verify that the known-good repair passes the
-same hidden tests used for agents. The reference patch is never mounted during
-an agent run. A case may also declare scoped source checks for refactoring
-boundaries that behavior tests cannot observe directly. Those checks run after
-the agent exits but before hidden tests are mounted, are included with source
-hashes in `grade` output and trial artifacts, and are part of task success
-rather than advisory prose. For a semantic ownership constraint, use a hidden
-language-specific validator rather than relying on string matching alone.
+## Case status
 
-Before a case is eligible for an agent run, execute all four authoring gates in
-one fresh artifact root:
+The public registry currently has zero executable cases. The early development
+corpus was withdrawn because its public surface leaked answer material; see
+`RETIRED-DEVELOPMENT-CORPUS.md`. New authoring uses a private overlay on the
+artifact drive and may run deterministic maintainer gates only. No private
+overlay can be used for an agent trial until the sealed-transition worker/vault
+controller has passed its adversarial isolation preflight.
 
-    uv run memorixbench verify-case cases/development/<case>/case.toml \
-      --target-root F:/memorix-research-artifacts/case-authoring/<case> \
-      --allow-case-commands
-
-The command proves precursor-public success, transfer-public success, hidden
-regression failure, and reference-repair success. It intentionally preserves
-the four materialized workspaces as audit evidence.
-
-For a Git case, `--repository-cache <checkout>` may replace the clone transport
-only after MemorixBench verifies an `origin` match and checks out the manifest's
-immutable full commit. The commit fixes the content; `origin` is recorded as
-provenance metadata, not treated as cryptographic proof. The gate output records
-whether each workspace came from the remote or a pinned local cache.
+For a pinned Git source, a local repository cache may replace clone transport
+only after MemorixBench verifies the `origin` and exact immutable commit. The
+commit fixes content; `origin` remains provenance metadata rather than
+cryptographic proof.
 
 ## Reproducibility contract
 

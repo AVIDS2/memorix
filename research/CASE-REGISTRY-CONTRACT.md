@@ -31,7 +31,7 @@ novel code synthesis.
 
 ## Enrollment classes
 
-`development-pilot` is the only class in the initial registry. It requires a
+`development-pilot` is reserved for a clean, private-overlay authoring cohort. It requires a
 `development` split and `retrospective-development` dependency classification.
 Seeded Track B pilots must declare zero captured traces. Track C pilots must
 bind a `trace-replay` multi-capture bundle and declare its exact capture count;
@@ -48,9 +48,8 @@ traces. The separate private overlay and KVM controller admission gates still
 apply after registry validation. The runner will not use a confirmatory entry
 until its trace-selection and external black-box gates also pass.
 
-The current registry has eight development case variants across Go, Python,
-and TypeScript, covering six task families. The two Cobra variants are a
-Track B/Track C methodological pair for one task family and must never be
-counted as independent samples in a pooled result. It has zero confirmatory
-cases. That is an honest starting point, not a deficiency hidden by relabeling
-pilot data.
+The current registry intentionally has zero entries. The original eight
+development exercises were withdrawn after leakage review and are outside the
+public artifact. An empty registry is a valid state: it prevents an unsafe case
+from becoming a benchmark merely because the harness can execute it. New cases
+must enter through fresh ids and the full sealed-task admission path.

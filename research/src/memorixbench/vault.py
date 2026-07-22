@@ -110,7 +110,12 @@ def _apply_sealed_patch(workspace: Path, patch: SealedPatch) -> None:
 def _require_private_vault(manifest: CaseManifest, assets: OracleAssetSet) -> None:
     if manifest.oracle.visibility != "private" or assets.visibility != "private":
         raise VaultError("vault grading requires private-oracle case assets")
-    if assets.hidden_patch is None or assets.verifier_runtime is None:
+    if (
+        assets.transition_patch is None
+        or assets.transition_patch_sha256 is None
+        or assets.hidden_patch is None
+        or assets.verifier_runtime is None
+    ):
         raise VaultError("private oracle has no complete verifier runtime")
     if assets.verifier_runtime_sha256 is None:
         raise VaultError("private oracle verifier runtime is not committed")
@@ -233,6 +238,7 @@ def prepare_vault_grade_workspace(
     """Materialize a fresh public transfer state and apply only a sealed patch."""
 
     _require_private_vault(manifest, assets)
+    assets = _refresh_private_assets(manifest, assets)
     root = Path(target_root).resolve()
     if root.exists():
         raise VaultError("vault grade target already exists")
@@ -244,6 +250,7 @@ def prepare_vault_grade_workspace(
             root / "workspace",
             stage="transfer",
             repository_cache=repository_cache,
+            oracle_assets=assets,
         )
         _apply_sealed_patch(materialized.path, sealed_patch)
         return VaultGradeWorkspace(

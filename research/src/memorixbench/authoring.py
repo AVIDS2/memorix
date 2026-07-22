@@ -60,6 +60,15 @@ def verify_case_authoring(
         raise ValueError(
             "authoring verification requires oracle.hidden_patch and oracle.reference_patch"
         )
+    allow_development_private = (
+        manifest.split == "development"
+        and assets.visibility == "private"
+        and assets.mode == "development-authoring-v1"
+    )
+    if assets.visibility == "private" and not allow_development_private:
+        raise ValueError(
+            "private-oracle authoring verification requires a development authoring overlay"
+        )
 
     root = Path(target_root).resolve()
     if root.exists():
@@ -71,6 +80,7 @@ def verify_case_authoring(
         root / "01-precursor",
         stage="precursor",
         repository_cache=repository_cache,
+        oracle_assets=assets,
     )
     precursor_commands = tuple(
         run_phase_commands(
@@ -85,6 +95,7 @@ def verify_case_authoring(
         root / "02-transfer-public",
         stage="transfer",
         repository_cache=repository_cache,
+        oracle_assets=assets,
     )
     public_commands = tuple(
         run_phase_commands(
@@ -98,12 +109,14 @@ def verify_case_authoring(
         root / "03-transfer-hidden",
         stage="transfer",
         repository_cache=repository_cache,
+        oracle_assets=assets,
     )
     hidden_evaluation = run_transfer_evaluation(
         manifest,
         hidden.path,
         timeout_seconds=timeout_seconds,
         oracle_assets=assets,
+        allow_development_private=allow_development_private,
     )
     if hidden_evaluation.hidden_patch_sha256 is None:
         raise ValueError("authoring verification did not mount the hidden patch")
@@ -113,17 +126,20 @@ def verify_case_authoring(
         root / "04-transfer-reference",
         stage="transfer",
         repository_cache=repository_cache,
+        oracle_assets=assets,
     )
     reference_patch_sha256 = apply_reference_patch(
         manifest,
         reference.path,
         oracle_assets=assets,
+        allow_development_private=allow_development_private,
     )
     reference_evaluation = run_transfer_evaluation(
         manifest,
         reference.path,
         timeout_seconds=timeout_seconds,
         oracle_assets=assets,
+        allow_development_private=allow_development_private,
     )
 
     gates = (

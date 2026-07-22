@@ -22,8 +22,8 @@ LEDGER = RESEARCH_ROOT / "cases" / "CANDIDATE-SOURCES.toml"
 def test_source_ledger_keeps_candidates_out_of_the_confirmatory_corpus() -> None:
     result = validate_source_ledger(load_source_ledger(LEDGER))
 
-    assert result.entry_count == 4
-    assert result.status_counts == {"rejected": 1, "screening": 3}
+    assert result.entry_count == 10
+    assert result.status_counts == {"deferred": 1, "rejected": 1, "screening": 8}
     assert "backoff-permanent-error" in result.candidate_ids
 
 
@@ -52,12 +52,22 @@ def test_source_audit_checks_origin_commit_and_exact_license_bytes(tmp_path: Pat
     (repo / "LICENSE").write_bytes(license_bytes)
     subprocess.run(["git", "add", "LICENSE"], cwd=repo, check=True)
     subprocess.run(["git", "commit", "--quiet", "-m", "license"], cwd=repo, check=True)
+    base_revision = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    (repo / "marker.txt").write_text("public transition\n", encoding="utf-8")
+    subprocess.run(["git", "add", "marker.txt"], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "--quiet", "-m", "public transition"], cwd=repo, check=True)
     subprocess.run(
         ["git", "remote", "add", "origin", "https://github.com/cenkalti/backoff.git"],
         cwd=repo,
         check=True,
     )
-    revision = subprocess.run(
+    transition_revision = subprocess.run(
         ["git", "rev-parse", "HEAD"],
         cwd=repo,
         check=True,
@@ -71,7 +81,8 @@ def test_source_audit_checks_origin_commit_and_exact_license_bytes(tmp_path: Pat
         entries=(
             replace(
                 entry,
-                base_revision=revision,
+                base_revision=base_revision,
+                public_transition_revision=transition_revision,
                 license_sha256=hashlib.sha256(license_bytes).hexdigest(),
             ),
         ),
@@ -84,6 +95,7 @@ def test_source_audit_checks_origin_commit_and_exact_license_bytes(tmp_path: Pat
     )
 
     assert audit.origin_matches is True
+    assert audit.base_matches_public_parent is True
     assert audit.license_matches is True
     assert audit.license_sha256 == hashlib.sha256(license_bytes).hexdigest()
 
@@ -101,12 +113,22 @@ def test_source_audit_rejects_changed_license_bytes(tmp_path: Path) -> None:
     (repo / "LICENSE").write_text("different license\n", encoding="utf-8")
     subprocess.run(["git", "add", "LICENSE"], cwd=repo, check=True)
     subprocess.run(["git", "commit", "--quiet", "-m", "license"], cwd=repo, check=True)
+    base_revision = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    (repo / "marker.txt").write_text("public transition\n", encoding="utf-8")
+    subprocess.run(["git", "add", "marker.txt"], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "--quiet", "-m", "public transition"], cwd=repo, check=True)
     subprocess.run(
         ["git", "remote", "add", "origin", "https://github.com/cenkalti/backoff"],
         cwd=repo,
         check=True,
     )
-    revision = subprocess.run(
+    transition_revision = subprocess.run(
         ["git", "rev-parse", "HEAD"],
         cwd=repo,
         check=True,
@@ -115,7 +137,14 @@ def test_source_audit_rejects_changed_license_bytes(tmp_path: Path) -> None:
     ).stdout.strip()
     ledger = load_source_ledger(LEDGER)
     entry = next(item for item in ledger.entries if item.candidate_id == "backoff-permanent-error")
-    audit_ledger = replace(ledger, entries=(replace(entry, base_revision=revision),))
+    audit_ledger = replace(
+        ledger,
+        entries=(replace(
+            entry,
+            base_revision=base_revision,
+            public_transition_revision=transition_revision,
+        ),),
+    )
 
     with pytest.raises(SourceLedgerError, match="license bytes"):
         audit_source_candidate(

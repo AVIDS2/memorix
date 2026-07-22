@@ -22,6 +22,7 @@ Completed
 - The public registry now freezes all development pilots with case-definition hashes, corpus split, repository/task/trace lineage, authoring batch, contamination disclosure, and a four-part dependency card. It rejects any family crossing development, validation, or test, and it requires a future confirmatory entry to declare a private post-snapshot transition plus at least two captured precursor traces.
 - A separate source ledger now pins real-repository leads to their base commit, license bytes, causal source URLs, public-solution and contamination disclosures, and offline readiness. It keeps leads in screening/deferred/rejected states until a private post-snapshot Track C case is actually authored.
 - Source recruitment now has a cache audit: it verifies the pinned Git origin, immutable base commit, and exact license bytes before a candidate can leave source screening.
+- The source ledger now also binds each public transition to its immutable first-parent base. This caught and corrected an earlier backoff lead whose selected historical base was not actually the parent of the cited public repair; branch-head API fields are no longer trusted as source snapshots.
 - Track C now has a capture boundary for Claude and Codex JSONL streams: raw events stay private, while sanitized canonical traces carry a receipt binding raw/timeline commitments, client/model metadata, workspace snapshot, and redaction count. Local captures are diagnostic-only by construction.
 
 In progress

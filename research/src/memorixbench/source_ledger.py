@@ -27,6 +27,7 @@ VALID_ENVIRONMENT_READINESS = {"unverified", "offline-ready", "blocked"}
 VALID_BENCHMARK_OVERLAP = {"unreviewed", "none-confirmed", "known-benchmark"}
 VALID_TRANSITION_PLANS = {"not-designed", "private-post-snapshot", "reuse-public-fix"}
 VALID_MODEL_EXPOSURE = {"public-history-possible", "public-history-documented"}
+VALID_BASE_SELECTIONS = {"first-parent-of-public-transition"}
 
 
 class SourceLedgerError(ValueError):
@@ -41,6 +42,8 @@ class SourceLedgerEntry:
     repository_family_id: str
     repository_url: str
     base_revision: str
+    public_transition_revision: str
+    base_selection: str
     license_spdx: str
     license_path: str
     license_url: str
@@ -78,9 +81,11 @@ class SourceAudit:
     candidate_id: str
     repository_origin: str
     base_revision: str
+    public_transition_revision: str
     license_path: str
     license_sha256: str
     origin_matches: bool
+    base_matches_public_parent: bool
     license_matches: bool
 
     def public_payload(self) -> dict[str, object]:
@@ -187,6 +192,8 @@ def load_source_ledger(path: str | Path) -> SourceLedger:
         "repository_family_id",
         "repository_url",
         "base_revision",
+        "public_transition_revision",
+        "base_selection",
         "license_spdx",
         "license_path",
         "license_url",
@@ -216,6 +223,15 @@ def load_source_ledger(path: str | Path) -> SourceLedger:
             ),
             repository_url=_url(candidate.get("repository_url"), label="repository_url"),
             base_revision=_commit_sha(candidate.get("base_revision"), label="base_revision"),
+            public_transition_revision=_commit_sha(
+                candidate.get("public_transition_revision"),
+                label="public_transition_revision",
+            ),
+            base_selection=_choice(
+                candidate.get("base_selection"),
+                label="base_selection",
+                allowed=VALID_BASE_SELECTIONS,
+            ),
             license_spdx=license_spdx,
             license_path=_relative_path(candidate.get("license_path"), label="license_path"),
             license_url=_url(candidate.get("license_url"), label="license_url"),
@@ -309,6 +325,11 @@ def audit_source_candidate(
             errors="replace",
         ).strip()
         _run_git_bytes(cache, "cat-file", "-e", f"{candidate.base_revision}^{{commit}}")
+        public_parent = _run_git_bytes(
+            cache,
+            "rev-parse",
+            f"{candidate.public_transition_revision}^1",
+        ).decode("utf-8", errors="replace").strip()
         license_bytes = _run_git_bytes(
             cache,
             "show",
@@ -322,17 +343,22 @@ def audit_source_candidate(
         raise SourceLedgerError(f"invalid source repository cache: {details}") from error
     license_sha256 = hashlib.sha256(license_bytes).hexdigest()
     origin_matches = _normalized_git_url(origin) == _normalized_git_url(candidate.repository_url)
+    base_matches_public_parent = public_parent == candidate.base_revision
     license_matches = license_sha256 == candidate.license_sha256
     if not origin_matches:
         raise SourceLedgerError("source repository cache origin does not match ledger")
+    if not base_matches_public_parent:
+        raise SourceLedgerError("source ledger base is not the public transition first parent")
     if not license_matches:
         raise SourceLedgerError("source repository license bytes do not match ledger")
     return SourceAudit(
         candidate_id=candidate.candidate_id,
         repository_origin=origin,
         base_revision=candidate.base_revision,
+        public_transition_revision=candidate.public_transition_revision,
         license_path=candidate.license_path,
         license_sha256=license_sha256,
         origin_matches=origin_matches,
+        base_matches_public_parent=base_matches_public_parent,
         license_matches=license_matches,
     )

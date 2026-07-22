@@ -4,8 +4,9 @@
 dataset. It records why a real repository was considered without republishing
 an issue thread, PR discussion, patch, hidden test, or reference repair.
 
-Every entry pins an immutable base commit, the license path and SHA-256 observed
-at that commit, canonical source URLs, causal-chain type, environment status,
+Every entry pins the public transition commit and its immutable first-parent
+base commit, the license path and SHA-256 observed at that base, canonical
+source URLs, causal-chain type, environment status,
 benchmark-overlap review status, public-solution disclosure, and a rationale.
 `memorixbench validate-source-ledger` rejects malformed provenance and refuses
 to mark a source `admitted` unless it has an allowlisted license, an offline
@@ -14,10 +15,11 @@ plan.
 
 `memorixbench audit-source-candidate <ledger> <candidate-id> <local-cache>`
 verifies a local Git cache before any source is used: its `origin` must match
-the declared repository URL, the full base commit must exist, and `git show`
-must yield exactly the recorded license bytes. It is intentionally a source
-audit, not an admission result; offline build, trace-capture, private-oracle,
-and split gates remain separate.
+the declared repository URL, the public transition's first parent must match the
+declared base, the full base commit must exist, and `git show` must yield exactly
+the recorded license bytes. It is intentionally a source audit, not an
+admission result; offline build, trace-capture, private-oracle, and split gates
+remain separate.
 
 `standalone-pr` is intentionally a weaker causal-chain label than `issue-pr`,
 `review-revision`, or `pr-chain`; it is useful for screening but should not be

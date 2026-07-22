@@ -20,7 +20,11 @@ from .authoring import verify_case_authoring
 from .microvm import inspect_microvm_host, require_microvm_host
 from .oracle_assets import resolve_oracle_assets
 from .registry import load_case_registry, validate_case_registry
-from .source_ledger import load_source_ledger, validate_source_ledger
+from .source_ledger import (
+    audit_source_candidate,
+    load_source_ledger,
+    validate_source_ledger,
+)
 from .reporting import (
     serialize_authoring_verification,
     serialize_command_results,
@@ -63,6 +67,16 @@ def _validate_registry(registry_path: Path, cases_root: Path) -> int:
 def _validate_source_ledger(path: Path) -> int:
     validation = validate_source_ledger(load_source_ledger(path))
     print(json.dumps(validation.public_payload(), indent=2))
+    return 0
+
+
+def _audit_source_candidate(args: argparse.Namespace) -> int:
+    audit = audit_source_candidate(
+        load_source_ledger(args.ledger),
+        candidate_id=args.candidate_id,
+        repository_cache=args.repository_cache,
+    )
+    print(json.dumps(audit.public_payload(), indent=2))
     return 0
 
 
@@ -283,6 +297,11 @@ def build_parser() -> argparse.ArgumentParser:
     source_ledger = subparsers.add_parser("validate-source-ledger")
     source_ledger.add_argument("ledger", type=Path)
 
+    audit_source = subparsers.add_parser("audit-source-candidate")
+    audit_source.add_argument("ledger", type=Path)
+    audit_source.add_argument("candidate_id")
+    audit_source.add_argument("repository_cache", type=Path)
+
     compare = subparsers.add_parser("compare")
     compare.add_argument("results", type=Path)
     compare.add_argument("--treatment", required=True)
@@ -384,6 +403,8 @@ def main() -> int:
             return _validate_registry(args.registry, args.cases_root)
         if args.command == "validate-source-ledger":
             return _validate_source_ledger(args.ledger)
+        if args.command == "audit-source-candidate":
+            return _audit_source_candidate(args)
         if args.command == "compare":
             return _compare(args)
         if args.command == "collect-results":

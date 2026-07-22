@@ -61,6 +61,12 @@ From this directory:
     uv run memorixbench validate-registry cases/REGISTRY.toml cases
     uv run memorixbench validate-source-ledger cases/CANDIDATE-SOURCES.toml
 
+To audit a pre-cloned source cache without allowing a mutable remote checkout:
+
+    uv run memorixbench audit-source-candidate \
+      cases/CANDIDATE-SOURCES.toml backoff-permanent-error \
+      F:/memorix-research-artifacts/repository-cache/backoff
+
 Raw worktrees, transcripts, patches, model events, and caches must be written to
 an external artifact root. Set MEMORIXBENCH_ARTIFACT_ROOT to a drive with enough
 space. Do not point experiments at the user's normal Memorix data directory.

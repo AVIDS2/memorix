@@ -12,6 +12,13 @@ to mark a source `admitted` unless it has an allowlisted license, an offline
 environment, completed overlap review, and a private post-snapshot transition
 plan.
 
+`memorixbench audit-source-candidate <ledger> <candidate-id> <local-cache>`
+verifies a local Git cache before any source is used: its `origin` must match
+the declared repository URL, the full base commit must exist, and `git show`
+must yield exactly the recorded license bytes. It is intentionally a source
+audit, not an admission result; offline build, trace-capture, private-oracle,
+and split gates remain separate.
+
 `standalone-pr` is intentionally a weaker causal-chain label than `issue-pr`,
 `review-revision`, or `pr-chain`; it is useful for screening but should not be
 used to satisfy a preregistered source-diversity quota on its own.

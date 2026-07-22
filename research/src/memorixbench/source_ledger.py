@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 from collections import Counter
+import hashlib
 from pathlib import Path
 import re
+import subprocess
 import tomllib
 from urllib.parse import urlparse
 
@@ -40,6 +42,7 @@ class SourceLedgerEntry:
     repository_url: str
     base_revision: str
     license_spdx: str
+    license_path: str
     license_url: str
     license_sha256: str
     source_urls: tuple[str, ...]
@@ -65,6 +68,20 @@ class SourceLedgerValidation:
     entry_count: int
     status_counts: dict[str, int]
     candidate_ids: tuple[str, ...]
+
+    def public_payload(self) -> dict[str, object]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class SourceAudit:
+    candidate_id: str
+    repository_origin: str
+    base_revision: str
+    license_path: str
+    license_sha256: str
+    origin_matches: bool
+    license_matches: bool
 
     def public_payload(self) -> dict[str, object]:
         return asdict(self)
@@ -127,6 +144,28 @@ def _boolean(value: object, *, label: str) -> bool:
     return value
 
 
+def _relative_path(value: object, *, label: str) -> str:
+    text = _required_text(value, label=label)
+    path = Path(text)
+    if path.is_absolute() or ".." in path.parts:
+        raise SourceLedgerError(f"source ledger {label} must stay inside the repository")
+    return path.as_posix()
+
+
+def _normalized_git_url(value: str) -> str:
+    return value.rstrip("/").removesuffix(".git")
+
+
+def _run_git_bytes(cwd: Path, *args: str) -> bytes:
+    completed = subprocess.run(
+        ["git", *args],
+        cwd=cwd,
+        check=True,
+        capture_output=True,
+    )
+    return completed.stdout
+
+
 def load_source_ledger(path: str | Path) -> SourceLedger:
     source = Path(path).resolve()
     try:
@@ -149,6 +188,7 @@ def load_source_ledger(path: str | Path) -> SourceLedger:
         "repository_url",
         "base_revision",
         "license_spdx",
+        "license_path",
         "license_url",
         "license_sha256",
         "source_urls",
@@ -177,6 +217,7 @@ def load_source_ledger(path: str | Path) -> SourceLedger:
             repository_url=_url(candidate.get("repository_url"), label="repository_url"),
             base_revision=_commit_sha(candidate.get("base_revision"), label="base_revision"),
             license_spdx=license_spdx,
+            license_path=_relative_path(candidate.get("license_path"), label="license_path"),
             license_url=_url(candidate.get("license_url"), label="license_url"),
             license_sha256=_sha256(candidate.get("license_sha256"), label="license_sha256"),
             source_urls=_urls(candidate.get("source_urls"), label="source_urls"),
@@ -244,4 +285,54 @@ def validate_source_ledger(ledger: SourceLedger) -> SourceLedgerValidation:
         entry_count=len(ledger.entries),
         status_counts=dict(sorted(status_counts.items())),
         candidate_ids=tuple(sorted(entry.candidate_id for entry in ledger.entries)),
+    )
+
+
+def audit_source_candidate(
+    ledger: SourceLedger,
+    *,
+    candidate_id: str,
+    repository_cache: str | Path,
+) -> SourceAudit:
+    candidate = next(
+        (entry for entry in ledger.entries if entry.candidate_id == candidate_id),
+        None,
+    )
+    if candidate is None:
+        raise SourceLedgerError(f"source ledger candidate is unknown: {candidate_id}")
+    cache = Path(repository_cache).resolve()
+    if not cache.is_dir():
+        raise SourceLedgerError("source repository cache does not exist")
+    try:
+        origin = _run_git_bytes(cache, "remote", "get-url", "origin").decode(
+            "utf-8",
+            errors="replace",
+        ).strip()
+        _run_git_bytes(cache, "cat-file", "-e", f"{candidate.base_revision}^{{commit}}")
+        license_bytes = _run_git_bytes(
+            cache,
+            "show",
+            f"{candidate.base_revision}:{candidate.license_path}",
+        )
+    except subprocess.CalledProcessError as error:
+        details = (error.stderr or error.stdout or b"invalid repository cache").decode(
+            "utf-8",
+            errors="replace",
+        ).strip()
+        raise SourceLedgerError(f"invalid source repository cache: {details}") from error
+    license_sha256 = hashlib.sha256(license_bytes).hexdigest()
+    origin_matches = _normalized_git_url(origin) == _normalized_git_url(candidate.repository_url)
+    license_matches = license_sha256 == candidate.license_sha256
+    if not origin_matches:
+        raise SourceLedgerError("source repository cache origin does not match ledger")
+    if not license_matches:
+        raise SourceLedgerError("source repository license bytes do not match ledger")
+    return SourceAudit(
+        candidate_id=candidate.candidate_id,
+        repository_origin=origin,
+        base_revision=candidate.base_revision,
+        license_path=candidate.license_path,
+        license_sha256=license_sha256,
+        origin_matches=origin_matches,
+        license_matches=license_matches,
     )

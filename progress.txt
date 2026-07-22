@@ -21,6 +21,7 @@ Completed
 - Full research test suite and public case validation pass after this phase.
 - The public registry now freezes all development pilots with case-definition hashes, corpus split, repository/task/trace lineage, authoring batch, contamination disclosure, and a four-part dependency card. It rejects any family crossing development, validation, or test, and it requires a future confirmatory entry to declare a private post-snapshot transition plus at least two captured precursor traces.
 - A separate source ledger now pins real-repository leads to their base commit, license bytes, causal source URLs, public-solution and contamination disclosures, and offline readiness. It keeps leads in screening/deferred/rejected states until a private post-snapshot Track C case is actually authored.
+- Source recruitment now has a cache audit: it verifies the pinned Git origin, immutable base commit, and exact license bytes before a candidate can leave source screening.
 
 In progress
 - Implement the controller/subject black-box verifier on a remote Linux/KVM microVM runtime. Docker/Windows protocol smoke is diagnostic-only and must not silently downgrade the isolation profile.

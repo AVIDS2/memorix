@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+from dataclasses import replace
+import hashlib
 from pathlib import Path
+import subprocess
 
 import pytest
 
 from memorixbench.source_ledger import (
     SourceLedgerError,
+    audit_source_candidate,
     load_source_ledger,
     validate_source_ledger,
 )
@@ -32,3 +36,90 @@ def test_source_ledger_rejects_admission_without_offline_preflight(tmp_path: Pat
 
     with pytest.raises(SourceLedgerError, match="offline-ready"):
         validate_source_ledger(load_source_ledger(candidate))
+
+
+def test_source_audit_checks_origin_commit_and_exact_license_bytes(tmp_path: Path) -> None:
+    repo = tmp_path / "repository"
+    repo.mkdir()
+    subprocess.run(["git", "init", "--quiet"], cwd=repo, check=True)
+    subprocess.run(["git", "config", "user.name", "MemorixBench"], cwd=repo, check=True)
+    subprocess.run(
+        ["git", "config", "user.email", "memorixbench@example.invalid"],
+        cwd=repo,
+        check=True,
+    )
+    license_bytes = b"MIT sample license\n"
+    (repo / "LICENSE").write_bytes(license_bytes)
+    subprocess.run(["git", "add", "LICENSE"], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "--quiet", "-m", "license"], cwd=repo, check=True)
+    subprocess.run(
+        ["git", "remote", "add", "origin", "https://github.com/cenkalti/backoff.git"],
+        cwd=repo,
+        check=True,
+    )
+    revision = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    ledger = load_source_ledger(LEDGER)
+    entry = next(item for item in ledger.entries if item.candidate_id == "backoff-permanent-error")
+    audit_ledger = replace(
+        ledger,
+        entries=(
+            replace(
+                entry,
+                base_revision=revision,
+                license_sha256=hashlib.sha256(license_bytes).hexdigest(),
+            ),
+        ),
+    )
+
+    audit = audit_source_candidate(
+        audit_ledger,
+        candidate_id="backoff-permanent-error",
+        repository_cache=repo,
+    )
+
+    assert audit.origin_matches is True
+    assert audit.license_matches is True
+    assert audit.license_sha256 == hashlib.sha256(license_bytes).hexdigest()
+
+
+def test_source_audit_rejects_changed_license_bytes(tmp_path: Path) -> None:
+    repo = tmp_path / "repository"
+    repo.mkdir()
+    subprocess.run(["git", "init", "--quiet"], cwd=repo, check=True)
+    subprocess.run(["git", "config", "user.name", "MemorixBench"], cwd=repo, check=True)
+    subprocess.run(
+        ["git", "config", "user.email", "memorixbench@example.invalid"],
+        cwd=repo,
+        check=True,
+    )
+    (repo / "LICENSE").write_text("different license\n", encoding="utf-8")
+    subprocess.run(["git", "add", "LICENSE"], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "--quiet", "-m", "license"], cwd=repo, check=True)
+    subprocess.run(
+        ["git", "remote", "add", "origin", "https://github.com/cenkalti/backoff"],
+        cwd=repo,
+        check=True,
+    )
+    revision = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    ledger = load_source_ledger(LEDGER)
+    entry = next(item for item in ledger.entries if item.candidate_id == "backoff-permanent-error")
+    audit_ledger = replace(ledger, entries=(replace(entry, base_revision=revision),))
+
+    with pytest.raises(SourceLedgerError, match="license bytes"):
+        audit_source_candidate(
+            audit_ledger,
+            candidate_id="backoff-permanent-error",
+            repository_cache=repo,
+        )

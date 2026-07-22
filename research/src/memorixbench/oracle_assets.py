@@ -30,6 +30,8 @@ class OracleAssetSet:
     definition_sha256: str
     overlay_id: str | None
     public_contract_sha256: str
+    hidden_patch_sha256: str | None
+    reference_patch_sha256: str | None
     annotation_rubric_sha256: str | None
     verifier_runtime_sha256: str | None
 
@@ -213,6 +215,8 @@ def public_oracle_assets(manifest: CaseManifest) -> OracleAssetSet:
         definition_sha256=public_case_definition_hash(manifest),
         overlay_id=None,
         public_contract_sha256=public_case_definition_hash(manifest),
+        hidden_patch_sha256=None,
+        reference_patch_sha256=None,
         annotation_rubric_sha256=None,
         verifier_runtime_sha256=None,
     )
@@ -260,9 +264,11 @@ def load_private_oracle_overlay(
         root,
         _required_text(data, "verifier_runtime"),
     )
-    if _require_sha256(data, "hidden_patch_sha256") != _sha256(hidden):
+    hidden_patch_sha256 = _require_sha256(data, "hidden_patch_sha256")
+    if hidden_patch_sha256 != _sha256(hidden):
         raise ValueError("private oracle hidden patch commitment does not match")
-    if _require_sha256(data, "reference_patch_sha256") != _sha256(reference):
+    reference_patch_sha256 = _require_sha256(data, "reference_patch_sha256")
+    if reference_patch_sha256 != _sha256(reference):
         raise ValueError("private oracle reference patch commitment does not match")
     annotation_rubric_sha256 = _require_sha256(data, "annotation_rubric_sha256")
     if annotation_rubric_sha256 != _sha256(annotation_rubric):
@@ -294,6 +300,8 @@ def load_private_oracle_overlay(
         ),
         overlay_id=_required_text(data, "overlay_id"),
         public_contract_sha256=public_contract_sha256,
+        hidden_patch_sha256=hidden_patch_sha256,
+        reference_patch_sha256=reference_patch_sha256,
         annotation_rubric_sha256=annotation_rubric_sha256,
         verifier_runtime_sha256=verifier_runtime_sha256,
     )

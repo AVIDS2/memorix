@@ -78,8 +78,9 @@ def test_vault_receipt_redacts_private_verifier_output(tmp_path: Path) -> None:
     def verifier(request: PrivateVerifierRequest) -> PrivateVerifierResult:
         requests.append(request)
         assert (request.workspace / "value.txt").read_text(encoding="utf-8") == "candidate\n"
-        assert request.hidden_patch.parent == overlay
-        assert request.verifier_runtime.parent == overlay
+        assert request.hidden_patch.parent.name == "private-assets"
+        assert request.hidden_patch.parent != overlay
+        assert request.verifier_runtime.parent == request.hidden_patch.parent
         assert request.verifier_image.startswith("registry.example.invalid/")
         assert request.verifier_command == ("/verifier/entrypoint",)
         return PrivateVerifierResult(
@@ -100,8 +101,11 @@ def test_vault_receipt_redacts_private_verifier_output(tmp_path: Path) -> None:
 
     assert len(requests) == 1
     assert receipt.passed
+    assert receipt.evidence_tier == "diagnostic"
+    assert receipt.grade_mode == "private-verifier-hook-diagnostic-v1"
     assert private_detail not in str(receipt)
     assert len(receipt.stdout_sha256) == 64
+    assert not (tmp_path / "vault-grade" / "private-assets").exists()
 
 
 def test_vault_builds_blind_packet_from_committed_private_rubric(tmp_path: Path) -> None:
@@ -149,3 +153,57 @@ def test_vault_builds_blind_packet_from_committed_private_rubric(tmp_path: Path)
     assert "opaque-test-1" not in serialized
     assert str(overlay).casefold() not in serialized
     assert "memorix-full" not in serialized
+
+
+def test_vault_rejects_an_overlay_mutated_after_initial_resolution(tmp_path: Path) -> None:
+    manifest_path, overlay = _private_case(tmp_path)
+    manifest = load_case_manifest(manifest_path)
+    assets = resolve_oracle_assets(manifest, overlay)
+    worker_patch = seal_patch(_worker_patch(tmp_path))
+    assert assets.hidden_patch is not None
+    assets.hidden_patch.write_text("changed after resolution\n", encoding="utf-8")
+
+    def verifier(_request: PrivateVerifierRequest) -> PrivateVerifierResult:
+        raise AssertionError("mutated private assets must not reach the verifier")
+
+    try:
+        grade_sealed_patch(
+            manifest,
+            assets,
+            worker_patch,
+            tmp_path / "vault-grade",
+            verifier,
+        )
+    except ValueError as error:
+        assert "hidden patch commitment" in str(error)
+    else:
+        raise AssertionError("mutated private overlay was accepted")
+    assert not (tmp_path / "vault-grade" / "private-assets").exists()
+
+
+def test_vault_receipt_hashes_private_output_as_original_bytes(tmp_path: Path) -> None:
+    manifest_path, overlay = _private_case(tmp_path)
+    manifest = load_case_manifest(manifest_path)
+    assets = resolve_oracle_assets(manifest, overlay)
+    worker_patch = seal_patch(_worker_patch(tmp_path))
+
+    def verifier(_request: PrivateVerifierRequest) -> PrivateVerifierResult:
+        return PrivateVerifierResult(
+            passed=False,
+            returncode=1,
+            elapsed_seconds=0.01,
+            stdout=b"\xff\x00",
+            stderr=b"\x80",
+        )
+
+    receipt = grade_sealed_patch(
+        manifest,
+        assets,
+        worker_patch,
+        tmp_path / "vault-grade",
+        verifier,
+    )
+
+    assert receipt.stdout_bytes == 2
+    assert receipt.stderr_bytes == 1
+    assert len(receipt.stdout_sha256) == 64

@@ -265,7 +265,9 @@ are published when exclusions occur.
 ## 11. Leakage and contamination controls
 
 Case authors never place oracle answers in public prompts, filenames, memory
-titles, or adapter configuration. Hidden tests are mounted only for grading.
+titles, or adapter configuration. A private fixture is never mounted into the
+same process environment that executes candidate code; confirmatory cases use
+the controller/subject boundary in `BLACK-BOX-CONTROLLER-CONTRACT.md`.
 Agent processes cannot read another condition's logs or memory database.
 Track C precursor traces are normalized before condition-specific formation.
 The raw precursor transcript is never injected as a separate asset in Track C:

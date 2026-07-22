@@ -3,12 +3,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 import hashlib
 from pathlib import Path
+import shutil
 import subprocess
 import time
 from typing import Protocol
 
 from .annotation import BlindAnnotationPacket, build_blind_packet
-from .oracle_assets import OracleAssetSet
+from .oracle_assets import OracleAssetSet, load_private_oracle_overlay, verifier_runtime_hash
 from .schema import CaseManifest
 from .sealed_patch import SealedPatch, snapshot_sealed_patch
 from .workspace import MaterializedWorkspace, materialize_case
@@ -21,6 +22,7 @@ class VaultError(ValueError):
 @dataclass(frozen=True)
 class VaultGradeWorkspace:
     case_id: str
+    root: Path
     path: Path
     materialized: MaterializedWorkspace
     sealed_patch: SealedPatch
@@ -43,12 +45,14 @@ class PrivateVerifierResult:
     passed: bool
     returncode: int
     elapsed_seconds: float
-    stdout: str
-    stderr: str
+    stdout: str | bytes
+    stderr: str | bytes
 
 
 @dataclass(frozen=True)
 class RedactedGradeReceipt:
+    evidence_tier: str
+    grade_mode: str
     case_id: str
     sealed_patch_sha256: str
     public_case_definition_sha256: str
@@ -67,8 +71,21 @@ class PrivateVerifier(Protocol):
     def __call__(self, request: PrivateVerifierRequest) -> PrivateVerifierResult: ...
 
 
-def _sha256_text(value: str) -> tuple[str, int]:
-    encoded = value.encode("utf-8")
+@dataclass(frozen=True)
+class VaultPrivateAssetSnapshot:
+    root: Path
+    hidden_patch: Path
+    verifier_runtime: Path
+    verifier_image: str
+    verifier_command: tuple[str, ...]
+    definition_sha256: str
+    verifier_runtime_sha256: str
+
+
+def _sha256_output(value: str | bytes) -> tuple[str, int]:
+    encoded = value.encode("utf-8") if isinstance(value, str) else value
+    if not isinstance(encoded, bytes):
+        raise VaultError("private verifier output must be text or bytes")
     return hashlib.sha256(encoded).hexdigest(), len(encoded)
 
 
@@ -97,6 +114,70 @@ def _require_private_vault(manifest: CaseManifest, assets: OracleAssetSet) -> No
         raise VaultError("private oracle has no complete verifier runtime")
     if assets.verifier_runtime_sha256 is None:
         raise VaultError("private oracle verifier runtime is not committed")
+    if assets.hidden_patch_sha256 is None:
+        raise VaultError("private oracle hidden patch is not committed")
+
+
+def _refresh_private_assets(manifest: CaseManifest, assets: OracleAssetSet) -> OracleAssetSet:
+    """Reject a private overlay that changed after its initial commitment check."""
+
+    refreshed = load_private_oracle_overlay(manifest, assets.root)
+    if refreshed.definition_sha256 != assets.definition_sha256:
+        raise VaultError("private oracle changed after its initial commitment check")
+    return refreshed
+
+
+def _copy_committed_file(source: Path, target: Path, expected_sha256: str) -> None:
+    if _sha256_output(source.read_bytes())[0] != expected_sha256:
+        raise VaultError("private oracle asset changed before vault snapshot")
+    shutil.copy2(source, target)
+    if _sha256_output(target.read_bytes())[0] != expected_sha256:
+        raise VaultError("private oracle asset changed during vault snapshot")
+
+
+def _snapshot_private_assets(
+    manifest: CaseManifest,
+    assets: OracleAssetSet,
+    vault_root: Path,
+) -> VaultPrivateAssetSnapshot:
+    """Copy committed private inputs into this vault run before any verifier sees them."""
+
+    refreshed = _refresh_private_assets(manifest, assets)
+    _require_private_vault(manifest, refreshed)
+    assert refreshed.hidden_patch is not None
+    assert refreshed.hidden_patch_sha256 is not None
+    assert refreshed.verifier_runtime is not None
+    assert refreshed.verifier_runtime_sha256 is not None
+    assert refreshed.verifier_image is not None
+    snapshot_root = vault_root / "private-assets"
+    if snapshot_root.exists():
+        raise VaultError("private vault snapshot target already exists")
+    snapshot_root.mkdir()
+    try:
+        hidden_patch = snapshot_root / "hidden-tests.patch"
+        _copy_committed_file(
+            refreshed.hidden_patch,
+            hidden_patch,
+            refreshed.hidden_patch_sha256,
+        )
+        if verifier_runtime_hash(refreshed.verifier_runtime) != refreshed.verifier_runtime_sha256:
+            raise VaultError("private verifier runtime changed before vault snapshot")
+        verifier_runtime = snapshot_root / "verifier-runtime"
+        shutil.copytree(refreshed.verifier_runtime, verifier_runtime, symlinks=True)
+        if verifier_runtime_hash(verifier_runtime) != refreshed.verifier_runtime_sha256:
+            raise VaultError("private verifier runtime changed during vault snapshot")
+        return VaultPrivateAssetSnapshot(
+            root=snapshot_root,
+            hidden_patch=hidden_patch,
+            verifier_runtime=verifier_runtime,
+            verifier_image=refreshed.verifier_image,
+            verifier_command=refreshed.verifier_command,
+            definition_sha256=refreshed.definition_sha256,
+            verifier_runtime_sha256=refreshed.verifier_runtime_sha256,
+        )
+    except Exception:
+        shutil.rmtree(snapshot_root, ignore_errors=True)
+        raise
 
 
 def build_vault_blind_annotation_packet(
@@ -109,12 +190,21 @@ def build_vault_blind_annotation_packet(
 ) -> BlindAnnotationPacket:
     """Build a rater packet inside the vault without revealing the overlay identity."""
 
+    assets = _refresh_private_assets(manifest, assets)
     _require_private_vault(manifest, assets)
     if assets.annotation_rubric is None:
         raise VaultError("private oracle has no committed annotation rubric")
+    if assets.annotation_rubric_sha256 is None:
+        raise VaultError("private annotation rubric is not committed")
     try:
-        rubric = assets.annotation_rubric.read_text(encoding="utf-8").strip()
+        rubric_bytes = assets.annotation_rubric.read_bytes()
     except OSError as error:
+        raise VaultError("private annotation rubric cannot be read") from error
+    if _sha256_output(rubric_bytes)[0] != assets.annotation_rubric_sha256:
+        raise VaultError("private annotation rubric changed after its commitment check")
+    try:
+        rubric = rubric_bytes.decode("utf-8").strip()
+    except UnicodeDecodeError as error:
         raise VaultError("private annotation rubric cannot be read") from error
     if not rubric:
         raise VaultError("private annotation rubric is empty")
@@ -158,14 +248,13 @@ def prepare_vault_grade_workspace(
         _apply_sealed_patch(materialized.path, sealed_patch)
         return VaultGradeWorkspace(
             case_id=manifest.case_id,
+            root=root,
             path=materialized.path,
             materialized=materialized,
             sealed_patch=sealed_patch,
         )
     except Exception:
         # Do not leave an ambiguous partial grade workspace after a failed seal/apply.
-        import shutil
-
         shutil.rmtree(root, ignore_errors=True)
         raise
 
@@ -180,7 +269,7 @@ def grade_sealed_patch(
     timeout_seconds: int = 300,
     repository_cache: str | Path | None = None,
 ) -> RedactedGradeReceipt:
-    """Grade a worker patch through a private verifier and return no private text."""
+    """Run a diagnostic-only private verifier and return no private text."""
 
     workspace = prepare_vault_grade_workspace(
         manifest,
@@ -189,30 +278,36 @@ def grade_sealed_patch(
         target_root,
         repository_cache=repository_cache,
     )
-    assert assets.hidden_patch is not None
-    assert assets.verifier_runtime is not None
-    assert assets.verifier_image is not None
+    try:
+        private_assets = _snapshot_private_assets(manifest, assets, workspace.root)
+    except Exception:
+        shutil.rmtree(workspace.root, ignore_errors=True)
+        raise
     started = time.monotonic()
-    result = verifier(
-        PrivateVerifierRequest(
-            workspace=workspace.path,
-            hidden_patch=assets.hidden_patch,
-            verifier_runtime=assets.verifier_runtime,
-            verifier_image=assets.verifier_image,
-            verifier_command=assets.verifier_command,
-            timeout_seconds=timeout_seconds,
+    try:
+        result = verifier(
+            PrivateVerifierRequest(
+                workspace=workspace.path,
+                hidden_patch=private_assets.hidden_patch,
+                verifier_runtime=private_assets.verifier_runtime,
+                verifier_image=private_assets.verifier_image,
+                verifier_command=private_assets.verifier_command,
+                timeout_seconds=timeout_seconds,
+            )
         )
-    )
+    finally:
+        shutil.rmtree(private_assets.root, ignore_errors=True)
     elapsed_seconds = max(result.elapsed_seconds, time.monotonic() - started)
-    stdout_sha256, stdout_bytes = _sha256_text(result.stdout)
-    stderr_sha256, stderr_bytes = _sha256_text(result.stderr)
-    assert assets.verifier_runtime_sha256 is not None
+    stdout_sha256, stdout_bytes = _sha256_output(result.stdout)
+    stderr_sha256, stderr_bytes = _sha256_output(result.stderr)
     return RedactedGradeReceipt(
+        evidence_tier="diagnostic",
+        grade_mode="private-verifier-hook-diagnostic-v1",
         case_id=manifest.case_id,
         sealed_patch_sha256=workspace.sealed_patch.sha256,
         public_case_definition_sha256=assets.public_contract_sha256,
-        private_oracle_definition_sha256=assets.definition_sha256,
-        verifier_runtime_sha256=assets.verifier_runtime_sha256,
+        private_oracle_definition_sha256=private_assets.definition_sha256,
+        verifier_runtime_sha256=private_assets.verifier_runtime_sha256,
         passed=result.passed,
         returncode=result.returncode,
         elapsed_seconds=elapsed_seconds,

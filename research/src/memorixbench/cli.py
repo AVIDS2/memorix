@@ -17,6 +17,7 @@ from .annotation import (
     write_final_annotation,
 )
 from .authoring import verify_case_authoring
+from .microvm import inspect_microvm_host, require_microvm_host
 from .oracle_assets import resolve_oracle_assets
 from .reporting import (
     serialize_authoring_verification,
@@ -161,6 +162,13 @@ def _verify_case(args: argparse.Namespace) -> int:
     return 0 if verification.passed else 1
 
 
+def _preflight_microvm(_args: argparse.Namespace) -> int:
+    capability = inspect_microvm_host()
+    print(json.dumps(capability.public_payload(), indent=2))
+    require_microvm_host(capability)
+    return 0
+
+
 def _run_trial(args: argparse.Namespace) -> int:
     if not args.allow_agent_execution:
         raise ValueError("agent execution may consume paid model quota; pass --allow-agent-execution")
@@ -292,6 +300,8 @@ def build_parser() -> argparse.ArgumentParser:
     verify_case.add_argument("--repository-cache", type=Path)
     verify_case.add_argument("--private-oracle-root", type=Path)
 
+    microvm = subparsers.add_parser("preflight-microvm")
+
     trial = subparsers.add_parser("run-trial")
     trial.add_argument("case", type=Path)
     trial.add_argument("--artifact-root", type=Path, required=True)
@@ -356,6 +366,8 @@ def main() -> int:
             return _grade(args)
         if args.command == "verify-case":
             return _verify_case(args)
+        if args.command == "preflight-microvm":
+            return _preflight_microvm(args)
         if args.command == "run-trial":
             return _run_trial(args)
         if args.command == "build-annotation-packet":

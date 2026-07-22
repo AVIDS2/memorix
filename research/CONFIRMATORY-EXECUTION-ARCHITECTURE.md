@@ -29,6 +29,15 @@ all private verifier runtime bytes remain on the vault side. They never cross
 to the worker. The worker is a separate host or disposable VM, not a Docker
 Desktop container on the same Windows host as the vault.
 
+`memorixbench.attestation` defines the signed worker statement used by the
+future controller: canonical JSON is signed in a fixed OpenSSH namespace and
+binds the job, public bundle, prompt, memory snapshot, workspace snapshot,
+sealed patch, runtime/image commitments, inspected isolation state, sentinel
+suite, destruction receipt, and a short expiry. The vault verifies a configured
+worker principal rather than trusting a worker-provided boolean. The module has
+an actual temporary-key OpenSSH sign/verify regression test, but it does not
+itself issue an external-worker certificate or enable a trial.
+
 ## Profiles
 
 `docker-agent-diagnostic-v1` is a local containment diagnostic only. It may
@@ -96,6 +105,17 @@ The verifier must use a pinned private runtime and fixed entrypoint rather than
 delegating to a candidate-controlled script such as a modified `package.json`
 test command. Case authors supply a verifier bundle commitment in the private
 overlay. A generic hidden patch is insufficient for a confirmatory case.
+
+The vault must not use a generic grader that mounts both candidate files and
+private tests into one process container. Candidate code runs while tests run,
+so it could inspect those files even when every mount is read-only. Instead,
+each confirmatory case needs a black-box controller/subject protocol: the
+subject sees public candidate files only, while the controller retains private
+fixtures and communicates through a fixed public interface. The subject must be
+a fresh KVM-backed Linux microVM; container hardening is defense in depth but
+cannot turn Docker Desktop or a same-host container into this boundary. Until
+the protocol and KVM preflight pass adversarial tests, the generic
+`PrivateVerifier` hook is diagnostic-only.
 
 ## Certificate and receipt
 

@@ -142,6 +142,8 @@ def test_loads_private_oracle_bound_to_public_case_tree(tmp_path: Path) -> None:
     assert assets.reference_patch and assets.reference_patch.parent == overlay
     assert assets.annotation_rubric == overlay / "annotation-rubric.md"
     assert assets.verifier_runtime == overlay / "verifier-runtime"
+    assert assets.hidden_patch_sha256 == _sha256(assets.hidden_patch)
+    assert assets.reference_patch_sha256 == _sha256(assets.reference_patch)
     assert len(assets.definition_sha256) == 64
 
 

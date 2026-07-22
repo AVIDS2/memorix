@@ -95,6 +95,26 @@ are never accepted as the isolation proof, because the agent process must not
 be able to reach the oracle at the operating-system boundary in the first
 place.
 
+### Black-box verifier requirement
+
+There is intentionally no generic `docker run` implementation that mounts a
+candidate workspace and hidden tests into the same process container. Even with
+read-only mounts and a fixed entrypoint, candidate code executing during a test
+can inspect private files and tailor its behavior to them.
+
+A confirmatory private case therefore needs a case-specific
+`black-box-controller-v1` verifier: the subject process sees only public
+candidate files and exposes a fixed, public interaction boundary; the private
+controller owns hidden fixtures and observes only that boundary. The subject
+must run in a new KVM-backed Linux microVM on the remote vault runtime. Docker
+can harden controller-side helpers or exercise public diagnostics, but it is
+not accepted as the subject isolation proof for a private result.
+
+The current vault code keeps `PrivateVerifier` as an explicit integration
+protocol until this controller/subject contract, KVM preflight, and adversarial
+tests are implemented. Neither a local Docker run, a Windows Docker Desktop
+run, nor a generic hidden-test mount can unlock confirmatory execution.
+
 ## Output and disclosure boundary
 
 Private-oracle reports preserve only pass/fail status, return code, duration,

@@ -118,8 +118,11 @@ All currently executable cases are development-only. Their result artifacts
 carry `evidence_tier: development`, and `memorixbench compare` rejects them
 unless `--allow-development` is passed explicitly. Validation and test splits
 remain disabled until a private-oracle overlay is paired with a passing external
-agent-isolation certificate for the exact runtime image. Claude/Codex permission
-rules are defense in depth, never the proof.
+agent-isolation certificate for the exact runtime image. A private black-box
+subject additionally requires a Linux/KVM microVM preflight; run
+`memorixbench preflight-microvm` on the intended vault host. A host without
+KVM refuses private execution rather than falling back to Docker. Claude/Codex
+permission rules are defense in depth, never the proof.
 
 Every case declares `dependency_strength` as `low`, `medium`, or `high`, plus
 whether the classification is `retrospective-development` or `preregistered`.

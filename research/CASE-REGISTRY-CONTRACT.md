@@ -16,8 +16,12 @@ across corpus splits.
 The dependency card has four deliberately separate statements: why predecessor
 knowledge is needed, the smallest useful evidence, a tempting but obsolete
 distractor, and what a no-memory agent should reasonably be able to infer. It
-is a preregistration aid, not an oracle answer. The case workspace never mounts
-this registry for a worker.
+is a preregistration aid, not an oracle answer. Before a development case can
+contribute to an effect comparison, it also needs dependency admission: the
+policy must not be directly encoded in the transfer prompt, public tests, or
+agent-visible oracle material; public traces must omit answer-key material; and
+a matched no-memory cohort must be reported rather than assumed weak. The case
+workspace never mounts this registry for a worker.
 
 `contamination_risk` is a disclosure, not a magical proof that a public
 repository was absent from model training. A confirmatory public-repository
@@ -44,8 +48,8 @@ traces. The separate private overlay and KVM controller admission gates still
 apply after registry validation. The runner will not use a confirmatory entry
 until its trace-selection and external black-box gates also pass.
 
-The current registry has seven development case variants across Go, Python,
-and TypeScript, covering five task families. The two Cobra variants are a
+The current registry has eight development case variants across Go, Python,
+and TypeScript, covering six task families. The two Cobra variants are a
 Track B/Track C methodological pair for one task family and must never be
 counted as independent samples in a pooled result. It has zero confirmatory
 cases. That is an honest starting point, not a deficiency hidden by relabeling

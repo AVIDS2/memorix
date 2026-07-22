@@ -287,7 +287,11 @@ def test_canonical_memorix_trial_uses_injected_context_not_native_mcp(
     def fake_seed(**_kwargs: object) -> dict[str, object]:
         return {
             "project_id": "project-a",
-            "maintenance": {"summary": {}},
+            "maintenance": {
+                "poll_count": 0,
+                "settled_for_retrieval": True,
+                "mode": "deferred-after-synchronous-store-v1",
+            },
             "formation_receipt": {
                 "surface": "seeded-canonical",
                 "write_operation_count": 2,

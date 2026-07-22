@@ -68,13 +68,26 @@ exact injected-secret scan and public-content safety scan pass. Its capture mode
 is fixed to `local-diagnostic-v1`: the local process is not an OS-isolated
 worker, so confirmatory provenance remains an external controller responsibility.
 
+For code-bearing precursor sessions, `capture-precursor-session` uses
+`event-normalize-tool-results-omitted-v1`. It preserves assistant tool calls,
+tool-call ids, event order, and an explicit receipt omission count, while every
+tool-result body becomes the fixed text `<tool output omitted from public
+trace>`. This prevents a Read result from becoming a portable source-code
+answer key. The agent's own concise policy handoff remains replayable. The
+lower-level `capture-trace` command exposes this as explicit `metadata-only`
+mode; verbatim tool results remain available only when deliberately requested
+for a diagnostic and must not be treated as safe by default.
+
 ## Multi-capture bundles
 
 A confirmatory Track C case cannot nominate one favored precursor session.
 `memorixbench build-trace-bundle` consumes at least two independently captured
 trace/receipt pairs and writes `precursor-trace-bundle-v1`. It verifies every
 receipt-to-trace commitment, requires a shared workspace-snapshot commitment,
-and refuses duplicate capture ids or canonical traces. The bundle uses
+refuses duplicate capture ids or canonical traces, and binds one explicit trace
+normalization for every capture. It rejects a bundle that mixes normalizations.
+Legacy v1 bundles without that field are read as `event-normalize-v1` only. The
+bundle uses
 `hash-bucket-v1`: `case_id`, run seed, and repetition deterministically select
 one capture, so all paired conditions receive the same source trace without a
 post-hoc choice.

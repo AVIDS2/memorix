@@ -23,6 +23,7 @@ VALID_FORMATION_TRACKS = {
     "trace-replay",
     "native-session",
 }
+VALID_MODEL_PROFILES = {"single", "mixed", "unreported"}
 VALID_ANNOTATION_STATUSES = {"pending-v1", "consensus-v1", "adjudicated-v1"}
 SECONDARY_OUTCOME_STATUS = {"pending-v1", "annotated-v1", "no-correct-action-v1", "unrateable-v1"}
 
@@ -55,6 +56,7 @@ class RunResult:
     formation_track: str = "unclassified"
     precursor_trace_sha256: str | None = None
     reported_models: tuple[str, ...] = ()
+    model_profile: str = "unreported"
     case_definition_sha256: str | None = None
     oracle_definition_sha256: str | None = None
 
@@ -95,6 +97,10 @@ class RunResult:
             else str(data["precursor_trace_sha256"])
         )
         reported_models = _reported_models(data.get("reported_models", ()))
+        model_profile = str(data.get(
+            "model_profile",
+            "single" if len(reported_models) == 1 else "mixed" if reported_models else "unreported",
+        ))
         case_definition_sha256 = _optional_identity(
             data.get("case_definition_sha256"),
             label="case_definition_sha256",
@@ -128,6 +134,14 @@ class RunResult:
             raise ValueError(f"unknown study_track: {study_track!r}")
         if formation_track not in VALID_FORMATION_TRACKS:
             raise ValueError(f"unknown formation_track: {formation_track!r}")
+        if model_profile not in VALID_MODEL_PROFILES:
+            raise ValueError(f"unknown model_profile: {model_profile!r}")
+        if model_profile == "single" and len(reported_models) != 1:
+            raise ValueError("single model_profile requires exactly one reported model")
+        if model_profile == "mixed" and len(reported_models) < 2:
+            raise ValueError("mixed model_profile requires multiple reported models")
+        if model_profile == "unreported" and reported_models:
+            raise ValueError("unreported model_profile cannot include reported models")
         if study_track == "B" and formation_track != "seeded-canonical":
             raise ValueError("Track B results require seeded-canonical formation")
         if study_track == "C" and formation_track not in {"trace-replay", "native-session"}:
@@ -182,6 +196,7 @@ class RunResult:
             formation_track=formation_track,
             precursor_trace_sha256=precursor_trace_sha256,
             reported_models=reported_models,
+            model_profile=model_profile,
             case_definition_sha256=case_definition_sha256,
             oracle_definition_sha256=oracle_definition_sha256,
         )
@@ -230,11 +245,25 @@ def _optional_identity(value: object, *, label: str) -> str | None:
     return value.strip()
 
 
-def _assert_pair_compatible(treatment: RunResult, control: RunResult) -> None:
+def _assert_pair_compatible(
+    treatment: RunResult,
+    control: RunResult,
+    *,
+    allow_mixed_models: bool,
+) -> None:
     if not treatment.reported_models or not control.reported_models:
         raise ValueError("paired runs must report their actual model identity")
     if treatment.reported_models != control.reported_models:
         raise ValueError("paired runs report different actual models")
+    if treatment.model_profile != control.model_profile:
+        raise ValueError("paired runs report different model profiles")
+    if not allow_mixed_models and (
+        treatment.model_profile != "single" or len(treatment.reported_models) != 1
+    ):
+        raise ValueError(
+            "paired runs require a single actual model; mixed or unreported "
+            "routes need an explicit diagnostic override"
+        )
     for label, treatment_value, control_value in (
         (
             "case definition",
@@ -389,7 +418,10 @@ def compare_conditions(
     bootstrap_seed: int = 1729,
     require_confirmatory: bool = True,
     include_low_dependency: bool = False,
+    allow_mixed_models: bool = False,
 ) -> PairedComparison:
+    if allow_mixed_models and require_confirmatory:
+        raise ValueError("mixed-model override is available only for development diagnostics")
     candidates = [item for item in results if item.condition in {treatment, control}]
     if require_confirmatory:
         non_confirmatory = sorted({
@@ -451,7 +483,11 @@ def compare_conditions(
         for key in matched_keys
     ]
     for treatment_run, control_run in pairs:
-        _assert_pair_compatible(treatment_run, control_run)
+        _assert_pair_compatible(
+            treatment_run,
+            control_run,
+            allow_mixed_models=allow_mixed_models,
+        )
     treatment_rate = sum(item[0].task_success for item in pairs) / len(pairs)
     control_rate = sum(item[1].task_success for item in pairs) / len(pairs)
     treatment_only = sum(

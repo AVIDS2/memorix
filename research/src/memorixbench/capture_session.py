@@ -320,6 +320,7 @@ def capture_precursor_session(
         requested_model=model,
         capture_id=selected_capture_id,
         capture_mode="local-diagnostic-v1",
+        tool_result_mode="metadata-only",
     )
     _release_staged_public_output(
         staging_root=staging_root,

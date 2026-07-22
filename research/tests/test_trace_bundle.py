@@ -4,6 +4,8 @@ import hashlib
 import json
 from pathlib import Path
 
+import pytest
+
 from memorixbench.schema import load_case_manifest
 from memorixbench.trace import load_trace_bundle, resolve_precursor_trace, write_trace_bundle
 from memorixbench.trace_capture import capture_trace_from_streams
@@ -64,7 +66,13 @@ forbidden_actions = []
     return manifest
 
 
-def _capture(path: Path, *, capture_id: str, text: str) -> tuple[Path, Path]:
+def _capture(
+    path: Path,
+    *,
+    capture_id: str,
+    text: str,
+    tool_result_mode: str = "verbatim",
+) -> tuple[Path, Path]:
     events = path / f"{capture_id}-events.jsonl"
     timeline = path / f"{capture_id}-timeline.jsonl"
     trace = path / "traces" / f"{capture_id}.json"
@@ -98,6 +106,7 @@ def _capture(path: Path, *, capture_id: str, text: str) -> tuple[Path, Path]:
         workspace_roots=(path / "seed",),
         capture_id=capture_id,
         captured_at_utc="2026-07-22T00:00:00+00:00",
+        tool_result_mode=tool_result_mode,
     )
     return trace, receipt
 
@@ -155,11 +164,100 @@ def test_bundle_binds_two_captures_and_selects_deterministically(tmp_path: Path)
     second = resolve_precursor_trace(manifest, seed=1729, repetition=1)
 
     assert len(loaded.entries) == 2
+    assert loaded.normalization == "event-normalize-v1"
     assert first.capture_id in {"capture-one", "capture-two"}
     assert first.capture_id == second.capture_id
     assert first.trace.canonical_sha256 == second.trace.canonical_sha256
     assert first.selection == "hash-bucket-v1"
     assert first.bundle_sha256 == loaded.source_sha256
+
+
+def test_bundle_binds_metadata_only_normalization(tmp_path: Path) -> None:
+    case = tmp_path / "case"
+    manifest_path = _write_case(case)
+    first_trace, first_receipt = _capture(
+        case,
+        capture_id="capture-one",
+        text="The policy retains the first decision.",
+        tool_result_mode="metadata-only",
+    )
+    second_trace, second_receipt = _capture(
+        case,
+        capture_id="capture-two",
+        text="The policy retains the second decision.",
+        tool_result_mode="metadata-only",
+    )
+    write_trace_bundle(
+        path=case / "trace-bundle.json",
+        case_root=case,
+        case_id="bundle-case",
+        trace_paths=(first_trace, second_trace),
+        receipt_paths=(first_receipt, second_receipt),
+    )
+
+    payload = json.loads((case / "trace-bundle.json").read_text(encoding="utf-8"))
+    loaded = load_trace_bundle(load_case_manifest(manifest_path))
+
+    assert payload["normalization"] == "event-normalize-tool-results-omitted-v1"
+    assert loaded.normalization == "event-normalize-tool-results-omitted-v1"
+    assert {entry.trace.normalization for entry in loaded.entries} == {
+        "event-normalize-tool-results-omitted-v1"
+    }
+
+
+def test_bundle_loads_legacy_v1_without_explicit_normalization(tmp_path: Path) -> None:
+    case = tmp_path / "case"
+    manifest_path = _write_case(case)
+    first_trace, first_receipt = _capture(
+        case,
+        capture_id="capture-one",
+        text="The policy retains the first decision.",
+    )
+    second_trace, second_receipt = _capture(
+        case,
+        capture_id="capture-two",
+        text="The policy retains the second decision.",
+    )
+    bundle_path = case / "trace-bundle.json"
+    write_trace_bundle(
+        path=bundle_path,
+        case_root=case,
+        case_id="bundle-case",
+        trace_paths=(first_trace, second_trace),
+        receipt_paths=(first_receipt, second_receipt),
+    )
+    legacy = json.loads(bundle_path.read_text(encoding="utf-8"))
+    legacy.pop("normalization")
+    bundle_path.write_bytes((json.dumps(legacy, indent=2) + "\n").encode("utf-8"))
+
+    loaded = load_trace_bundle(load_case_manifest(manifest_path))
+
+    assert loaded.normalization == "event-normalize-v1"
+
+
+def test_bundle_rejects_mixed_trace_normalizations(tmp_path: Path) -> None:
+    case = tmp_path / "case"
+    _write_case(case)
+    first_trace, first_receipt = _capture(
+        case,
+        capture_id="capture-one",
+        text="The policy retains the first decision.",
+    )
+    second_trace, second_receipt = _capture(
+        case,
+        capture_id="capture-two",
+        text="The policy retains the second decision.",
+        tool_result_mode="metadata-only",
+    )
+
+    with pytest.raises(ValueError, match="share one normalization"):
+        write_trace_bundle(
+            path=case / "trace-bundle.json",
+            case_root=case,
+            case_id="bundle-case",
+            trace_paths=(first_trace, second_trace),
+            receipt_paths=(first_receipt, second_receipt),
+        )
 
 
 def test_bundle_rejects_a_tampered_receipt_commitment(tmp_path: Path) -> None:

@@ -107,3 +107,27 @@ Constraints
   establish benchmark-overlap clearance, a memory-dependent transfer task, or
   a private post-snapshot transition. No new case or result row is admitted by
   this preflight batch.
+
+## 2026-07-22: Click Track C development admission diagnostic
+
+- Added the external Click normalization/completion case with a two-capture,
+  metadata-only trace bundle. The bundle now records its normalization scheme;
+  legacy bundles remain readable as v1, while a mixed-normalization bundle is
+  rejected.
+- Re-prewarmed the pinned Click environment in the F-drive artifact cache,
+  recorded a refreshed hash-bound preflight receipt, and made phase commands
+  scrub an inherited controller `VIRTUAL_ENV`. A new clean four-gate run passed
+  precursor public, transfer public, expected hidden regression, and reference
+  repair checks.
+- Registered Click as a development-only case with a dependency card and trace
+  coverage review. The registry now contains eight development variants and no
+  confirmatory case.
+- Ran one matched local no-memory versus canonical Memorix diagnostic. The
+  no-memory run exhausted its budget without a patch; Memorix passed the public
+  hidden behavior and structural checks after a trace-replay formation and one
+  512-token retrieval round. Both runs used a mixed local provider route, so
+  this is not a result claim or a cohort.
+- The first canonical attempt exposed a real trial-harness maintenance receipt
+  assumption before agent launch. It was fixed and covered by tests. The
+  comparison command now rejects mixed or unreported model routes by default;
+  an explicit development-only override is required to inspect those diagnostics.

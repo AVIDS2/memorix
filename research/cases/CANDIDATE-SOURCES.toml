@@ -105,13 +105,13 @@ license_sha256 = "9a8ad106a394e853bfe21f42f4e72d592819a22805d991b5f3275029292b65
 source_urls = ["https://github.com/pallets/click/issues/2819", "https://github.com/pallets/click/pull/3678"]
 causal_chain = "issue-pr"
 environment_readiness = "offline-ready"
-environment_receipt_path = "preflight/click-help-parameter.json"
-environment_receipt_sha256 = "8c7698ee759f646a167e17b746d2396d795318339a8312ead88cae12477ac29c"
+environment_receipt_path = "preflight/click-help-parameter-v2.json"
+environment_receipt_sha256 = "a0936db613619c863811fa9e92e5125e7af3b6bfac1018350ef07cf77709e3fc"
 benchmark_overlap = "unreviewed"
 model_exposure = "public-history-documented"
 public_solution_exists = true
 transition_plan = "not-designed"
-decision_rationale = "A real deterministic CLI-library regression with a pinned offline full-suite preflight. It remains a source lead until benchmark-overlap review, memory dependency, and a private post-snapshot transition are separately admitted."
+decision_rationale = "A real deterministic CLI-library regression with a refreshed pinned offline targeted-test preflight from a clean external cache. It remains a source lead until benchmark-overlap review, memory dependency, and a private post-snapshot transition are separately admitted."
 
 [[candidate]]
 id = "uvicorn-proxy-headers"

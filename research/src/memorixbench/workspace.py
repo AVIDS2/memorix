@@ -241,6 +241,10 @@ def run_phase_commands(
     timeout_seconds: int = 300,
 ) -> list[CommandResult]:
     cwd = Path(workspace).resolve()
+    environment = os.environ.copy()
+    # A parent `uv run` exports its own virtual environment. Case commands must
+    # resolve against the materialized workspace and its declared cache instead.
+    environment.pop("VIRTUAL_ENV", None)
     results: list[CommandResult] = []
     for command in phase.success_commands:
         started = time.monotonic()
@@ -254,6 +258,7 @@ def run_phase_commands(
                 encoding="utf-8",
                 errors="replace",
                 timeout=timeout_seconds,
+                env=environment,
             )
             result = CommandResult(
                 command=command,

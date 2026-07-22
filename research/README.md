@@ -136,6 +136,12 @@ Raw worktrees, transcripts, patches, model events, and caches must be written to
 an external artifact root. Set MEMORIXBENCH_ARTIFACT_ROOT to a drive with enough
 space. Do not point experiments at the user's normal Memorix data directory.
 Every condition receives an isolated data directory and repository checkout.
+Case phase commands scrub an inherited `VIRTUAL_ENV`, so they resolve from the
+materialized workspace rather than the research controller's environment.
+Explicit external cache configuration such as `UV_CACHE_DIR` remains available,
+but must be prewarmed and rechecked: a historical preflight receipt is evidence
+of one successful offline run, not proof that a later machine still holds its
+cache.
 
 Development cases also carry a maintainer-only `oracle.reference_patch`. Run
 `memorixbench grade ... --phase transfer --reference --allow-case-commands` in

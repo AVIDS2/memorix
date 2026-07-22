@@ -1,0 +1,24 @@
+diff --git a/tests/test_normalization.py b/tests/test_normalization.py
+index 442b638..927e6be 100644
+--- a/tests/test_normalization.py
++++ b/tests/test_normalization.py
+@@ -61,3 +61,19 @@ def test_command_normalization(runner):
+ 
+     result = runner.invoke(cli, ["FOO"])
+     assert result.output == "here!\n"
++
++
++def test_option_normalizer_receives_name_without_prefix(runner):
++    def normalize_token(token):
++        if token.startswith("-"):
++            raise AssertionError("option prefix reached token normalizer")
++        return token.lower()
++
++    @click.command(context_settings={"token_normalize_func": normalize_token})
++    @click.option("--mode", type=click.Choice(["fast", "safe"]))
++    def cli(mode):
++        click.echo(mode)
++
++    result = runner.invoke(cli, ["--MODE", "fast"])
++    assert not result.exception, result.output
++    assert result.output == "fast\n"

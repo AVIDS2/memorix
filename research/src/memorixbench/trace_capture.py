@@ -18,6 +18,7 @@ from .trace import PrecursorEvent, TraceError, canonical_trace_sha256, write_can
 TRACE_CAPTURE_RECEIPT_SCHEMA_VERSION = "captured-trace-receipt-v2"
 VALID_AGENTS = {"claude", "codex"}
 VALID_CAPTURE_MODES = {"local-diagnostic-v1", "isolated-worker-v1"}
+VALID_TOOL_RESULT_MODES = {"verbatim", "metadata-only"}
 IDENTIFIER_PATTERN = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 TIMELINE_BINDING = "stdout-concatenation-v1"
@@ -28,6 +29,7 @@ CODEX_NON_CONTENT_EVENT_TYPES = {
     "turn.completed",
     "item.started",
 }
+TOOL_RESULT_CONTENT_OMITTED = "<tool output omitted from public trace>"
 
 
 class TraceCaptureError(ValueError):
@@ -150,6 +152,8 @@ def _read_jsonl(path: Path) -> tuple[bytes, list[dict[str, object]]]:
 def _claude_events(
     events: Iterable[dict[str, object]],
     prompt: str,
+    *,
+    tool_result_mode: str,
 ) -> tuple[tuple[CapturedEvent, ...], tuple[str, ...], tuple[tuple[str, int], ...]]:
     captured: list[CapturedEvent] = [CapturedEvent("user", "message", prompt)]
     tool_names: dict[str, str] = {}
@@ -230,10 +234,15 @@ def _claude_events(
                 tool_call_id = _required_text(item.get("tool_use_id"), label="Claude tool result id")
                 if tool_call_id not in tool_names:
                     raise TraceCaptureError("Claude tool result has no preceding tool call")
+                if tool_result_mode == "metadata-only":
+                    tool_result_content = TOOL_RESULT_CONTENT_OMITTED
+                    omitted["claude-tool-result-content"] += 1
+                else:
+                    tool_result_content = _content_text(item.get("content", "<empty tool result>"))
                 captured.append(CapturedEvent(
                     "tool",
                     "tool_result",
-                    _content_text(item.get("content", "<empty tool result>")),
+                    tool_result_content,
                     tool_call_id=tool_call_id,
                 ))
                 continue
@@ -248,6 +257,8 @@ def _claude_events(
 def _codex_events(
     events: Iterable[dict[str, object]],
     prompt: str,
+    *,
+    tool_result_mode: str,
 ) -> tuple[tuple[CapturedEvent, ...], tuple[str, ...], tuple[tuple[str, int], ...]]:
     captured: list[CapturedEvent] = [CapturedEvent("user", "message", prompt)]
     reported_models: set[str] = set()
@@ -306,10 +317,15 @@ def _codex_events(
             tool_name=tool_name,
             tool_call_id=tool_call_id,
         ))
+        if tool_result_mode == "metadata-only":
+            tool_result_content = TOOL_RESULT_CONTENT_OMITTED
+            omitted["codex-tool-result-content"] += 1
+        else:
+            tool_result_content = _content_text(tool_output)
         captured.append(CapturedEvent(
             "tool",
             "tool_result",
-            _content_text(tool_output),
+            tool_result_content,
             tool_call_id=tool_call_id,
         ))
     return (
@@ -413,6 +429,7 @@ def capture_trace_from_streams(
     requested_model: str | None = None,
     capture_id: str | None = None,
     capture_mode: str = "local-diagnostic-v1",
+    tool_result_mode: str = "verbatim",
     captured_at_utc: str | None = None,
 ) -> TraceCaptureReceipt:
     if agent not in VALID_AGENTS:
@@ -423,6 +440,8 @@ def capture_trace_from_streams(
         raise TraceCaptureError(
             "standalone trace capture can only emit local diagnostic receipts"
         )
+    if tool_result_mode not in VALID_TOOL_RESULT_MODES:
+        raise TraceCaptureError("trace capture tool_result_mode is unsupported")
     case_id = _identifier(case_id, label="case_id")
     selected_capture_id = _identifier(capture_id or f"capture-{uuid4().hex}", label="capture_id")
     prompt = _required_text(prompt, label="prompt")
@@ -448,18 +467,31 @@ def capture_trace_from_streams(
             raise TraceCaptureError("raw client event has no supported type")
         raw_event_type_counts[event_type] += 1
     if agent == "claude":
-        captured, reported_models, omitted_event_counts = _claude_events(raw_records, prompt)
+        captured, reported_models, omitted_event_counts = _claude_events(
+            raw_records,
+            prompt,
+            tool_result_mode=tool_result_mode,
+        )
     else:
-        captured, reported_models, omitted_event_counts = _codex_events(raw_records, prompt)
+        captured, reported_models, omitted_event_counts = _codex_events(
+            raw_records,
+            prompt,
+            tool_result_mode=tool_result_mode,
+        )
     trace_events, redaction_count = _to_trace_events(
         captured,
         capture_id=selected_capture_id,
         workspace_roots=roots,
     )
+    normalization = (
+        "event-normalize-v1"
+        if tool_result_mode == "verbatim"
+        else "event-normalize-tool-results-omitted-v1"
+    )
     canonical_sha256 = canonical_trace_sha256(
         case_id=case_id,
         provenance="captured-session-v1",
-        normalization="event-normalize-v1",
+        normalization=normalization,
         events=trace_events,
     )
     output = Path(output_path).resolve()
@@ -470,7 +502,7 @@ def capture_trace_from_streams(
         path=output,
         case_id=case_id,
         provenance="captured-session-v1",
-        normalization="event-normalize-v1",
+        normalization=normalization,
         events=trace_events,
     )
     trace_source_sha256 = hashlib.sha256(output.read_bytes()).hexdigest()

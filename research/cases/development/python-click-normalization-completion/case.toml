@@ -1,0 +1,55 @@
+schema_version = "0.5"
+id = "python-click-normalization-completion"
+title = "Option-prefix normalization survives a shared completion-helper migration"
+split = "development"
+dependency_strength = "medium"
+dependency_classification_status = "retrospective-development"
+language = "python"
+tags = ["cross-session", "code-change", "normalization", "shell-completion", "external-repository", "historically-grounded", "development-controlled", "trace-replay", "captured-session"]
+
+[repository]
+source_type = "git"
+url = "https://github.com/pallets/click.git"
+base_revision = "8c1a0a7abbc1c36f70d1f65f3604acc46c5ce6ab"
+license = "BSD-3-Clause"
+
+[precursor]
+task = "Review token normalization across parsing and shell completion before moving the shared helper. Preserve the user-facing normalization boundary and summarize the policy without editing code."
+success_commands = ["uv run --offline --group tests --no-default-groups pytest tests/test_normalization.py tests/test_shell_completion.py -q"]
+patch = "precursor.patch"
+
+[transition]
+kind = "code-change"
+description = "A benchmark-authored migration moves option splitting and normalization primitives into utils.py. The transfer snapshot incorrectly sends the entire prefixed option token to the configured normalizer."
+apply_commands = []
+patch = "transition.patch"
+
+[transfer]
+task = "Continue the shared option-normalization helper migration. A regression now violates the established normalization boundary during CLI parsing and completion. Restore that behavior while keeping the split and normalization helpers owned by utils.py."
+success_commands = ["uv run --offline --group tests --no-default-groups pytest tests/test_normalization.py tests/test_shell_completion.py -q"]
+
+[formation]
+track = "trace-replay"
+
+[formation.trace_bundle]
+path = "traces/precursor-trace-bundle.json"
+schema_version = "precursor-trace-bundle-v1"
+selection = "hash-bucket-v1"
+truncation = "event-suffix-v1"
+
+[oracle]
+visibility = "public"
+required_start_files = ["src/click/core.py", "src/click/parser.py", "src/click/utils.py", "src/click/shell_completion.py"]
+relevant_evidence_ids = ["policy:option-prefix-normalization-boundary"]
+stale_evidence_ids = ["code:parser.py#_split_opt"]
+forbidden_actions = ["restore a local option-splitting implementation in parser.py", "pass a CLI option prefix into token_normalize_func"]
+hidden_patch = "hidden-tests.patch"
+reference_patch = "reference.patch"
+
+[[oracle.source_check]]
+path = "src/click/parser.py"
+forbidden_literals = ["def _split_opt("]
+
+[[oracle.source_check]]
+path = "src/click/core.py"
+forbidden_literals = ["prefix, value = _split_opt"]

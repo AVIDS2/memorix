@@ -1,0 +1,139 @@
+diff --git a/src/click/core.py b/src/click/core.py
+index 6de4216..b4a43c2 100644
+--- a/src/click/core.py
++++ b/src/click/core.py
+@@ -68,7 +68,7 @@ def _complete_visible_commands(
+     multi = t.cast(Group, ctx.command)
+ 
+     for name in multi.list_commands(ctx):
+-        if name.startswith(incomplete):
++        if ctx._normalize_token(name).startswith(ctx._normalize_token(incomplete)):
+             command = multi.get_command(ctx, name)
+ 
+             if command is not None and not command.hidden:
+@@ -561,6 +561,15 @@ class Context:
+ 
+         return exit_result
+ 
++    def _normalize_token(self, token: str) -> str:
++        if self.token_normalize_func is None:
++            return token
++        return self.token_normalize_func(token)
++
++    def _normalize_opt(self, opt: str) -> str:
++        prefix, value = _split_opt(opt)
++        return f"{prefix}{self._normalize_token(value)}"
++
+     @contextmanager
+     def scope(self, cleanup: bool = True) -> cabc.Generator[Context]:
+         """This helper method can be used with the context object to promote
+@@ -1398,7 +1407,7 @@ class Command:
+                 results.extend(
+                     CompletionItem(name, help=param.help)
+                     for name in [*param.opts, *param.secondary_opts]
+-                    if name.startswith(incomplete)
++                    if ctx._normalize_opt(name).startswith(ctx._normalize_opt(incomplete))
+                 )
+ 
+         while ctx.parent is not None:
+diff --git a/src/click/parser.py b/src/click/parser.py
+index 4fcbf7c..1eec03f 100644
+--- a/src/click/parser.py
++++ b/src/click/parser.py
+@@ -118,10 +118,9 @@ def _split_opt(opt: str) -> tuple[str, str]:
+ 
+ 
+ def _normalize_opt(opt: str, ctx: Context | None) -> str:
+-    if ctx is None or ctx.token_normalize_func is None:
++    if ctx is None:
+         return opt
+-    prefix, opt = _split_opt(opt)
+-    return f"{prefix}{ctx.token_normalize_func(opt)}"
++    return ctx._normalize_opt(opt)
+ 
+ 
+ class _Option:
+@@ -279,7 +278,7 @@ class _OptionParser:
+         The `obj` can be used to identify the option in the order list
+         that is returned from the parser.
+         """
+-        opts = [_normalize_opt(opt, self.ctx) for opt in opts]
++        opts = [self.ctx._normalize_opt(opt) for opt in opts]
+         option = _Option(obj, opts, dest, action=action, nargs=nargs, const=const)
+         self._opt_prefixes.update(option.prefixes)
+         for opt in option._short_opts:
+@@ -394,7 +393,7 @@ class _OptionParser:
+         unknown_options = []
+ 
+         for ch in arg[1:]:
+-            opt = _normalize_opt(f"{prefix}{ch}", self.ctx)
++            opt = self.ctx._normalize_opt(f"{prefix}{ch}")
+             option = self._short_opt.get(opt)
+             i += 1
+ 
+@@ -476,7 +475,7 @@ class _OptionParser:
+             long_opt, explicit_value = arg.split("=", 1)
+         else:
+             long_opt = arg
+-        norm_long_opt = _normalize_opt(long_opt, self.ctx)
++        norm_long_opt = self.ctx._normalize_opt(long_opt)
+ 
+         # At this point we will match the (assumed) long option through
+         # the long option matching code.  Note that this allows options
+diff --git a/src/click/shell_completion.py b/src/click/shell_completion.py
+index 5652214..c11faac 100644
+--- a/src/click/shell_completion.py
++++ b/src/click/shell_completion.py
+@@ -593,7 +593,9 @@ def _is_incomplete_option(ctx: Context, args: list[str], param: Parameter) -> bo
+             last_option = arg
+             break
+ 
+-    return last_option is not None and last_option in param.opts
++    return last_option is not None and ctx._normalize_opt(last_option) in {
++        ctx._normalize_opt(opt) for opt in param.opts
++    }
+ 
+ 
+ def _resolve_context(
+diff --git a/src/click/types.py b/src/click/types.py
+index a27983b..4810973 100644
+--- a/src/click/types.py
++++ b/src/click/types.py
+@@ -449,6 +449,7 @@ class Choice(ParamType[_ValueT_co], t.Generic[_ValueT_co]):
+ 
+         str_choices = [self.normalize_choice(choice, ctx) for choice in self.choices]
+         if self.case_sensitive:
++            incomplete = ctx._normalize_token(incomplete)
+             matched = (c for c in str_choices if c.startswith(incomplete))
+         else:
+             incomplete = incomplete.lower()
+diff --git a/tests/test_shell_completion.py b/tests/test_shell_completion.py
+index 1e3fd99..8920bc2 100644
+--- a/tests/test_shell_completion.py
++++ b/tests/test_shell_completion.py
+@@ -149,6 +149,25 @@ def test_type_choice():
+     assert _get_words(cli, ["-c"], "a2") == ["a2"]
+ 
+ 
++def test_token_normalization_completion():
++    context_settings = {"token_normalize_func": str.lower}
++    cli = Command(
++        "cli",
++        context_settings=context_settings,
++        params=[Option(["--mode"], type=Choice(["fast", "safe"]))],
++    )
++
++    assert _get_words(cli, [], "--MO") == ["--mode"]
++    assert _get_words(cli, ["--MODE"], "F") == ["fast"]
++
++    group = Group(
++        "cli",
++        context_settings=context_settings,
++        commands={"deploy": Command("deploy")},
++    )
++    assert _get_words(group, [], "DE") == ["deploy"]
++
++
+ def test_choice_special_characters():
+     cli = Command("cli", params=[Option(["-c"], type=Choice(["!1", "!2", "+3"]))])
+     assert _get_words(cli, ["-c"], "") == ["!1", "!2", "+3"]

@@ -730,6 +730,9 @@ def run_trial(
                 mode=memorix_mode or "full",
             )
         formation_receipt = _require_formation_receipt(seed_result)
+        maintenance_receipt = seed_result.get("maintenance")
+        if not isinstance(maintenance_receipt, dict):
+            raise RuntimeError("Memorix formation did not return a maintenance receipt")
         memory_preparation_seconds = time.monotonic() - preparation_started
         transfer_commit, transition_patch_sha256 = advance_case_to_transfer(
             manifest,
@@ -749,7 +752,7 @@ def run_trial(
             "formation_tool_profile": memorix_mode,
             "llm": "off",
             "embedding": "off",
-            "seed_maintenance": seed_result["maintenance"]["summary"],
+            "seed_maintenance": maintenance_receipt,
             "formation_receipt": formation_receipt,
             "preparation_seconds": memory_preparation_seconds,
         }

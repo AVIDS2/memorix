@@ -30,6 +30,7 @@ def run(case_id: str, condition: str, success: bool) -> RunResult:
         formation_track="trace-replay",
         precursor_trace_sha256=f"trace-{case_id}",
         reported_models=("model-a",),
+        model_profile="single",
         case_definition_sha256=f"case-definition-{case_id}",
         oracle_definition_sha256=f"oracle-definition-{case_id}",
     )
@@ -74,6 +75,7 @@ def test_excludes_infrastructure_failures_from_pairs() -> None:
         evidence_tier="confirmatory",
         predecessor_dependency="high",
         dependency_classification_status="preregistered",
+        model_profile="single",
         study_track="C",
         formation_track="trace-replay",
         precursor_trace_sha256="trace-case-a",
@@ -192,6 +194,7 @@ def test_rejects_development_results_without_explicit_override() -> None:
         evidence_tier="development",
         predecessor_dependency="high",
         dependency_classification_status="retrospective-development",
+        model_profile="single",
         reported_models=("model-a",),
         case_definition_sha256="case-definition-case-a",
         oracle_definition_sha256="oracle-definition-case-a",
@@ -207,6 +210,7 @@ def test_rejects_development_results_without_explicit_override() -> None:
         evidence_tier="development",
         predecessor_dependency="high",
         dependency_classification_status="retrospective-development",
+        model_profile="single",
         reported_models=("model-a",),
         case_definition_sha256="case-definition-case-a",
         oracle_definition_sha256="oracle-definition-case-a",
@@ -242,6 +246,7 @@ def test_rejects_low_dependency_without_explicit_override() -> None:
         evidence_tier="confirmatory",
         predecessor_dependency="low",
         dependency_classification_status="preregistered",
+        model_profile="single",
         study_track="C",
         formation_track="trace-replay",
         precursor_trace_sha256="trace-case-a",
@@ -260,6 +265,7 @@ def test_rejects_low_dependency_without_explicit_override() -> None:
         evidence_tier="confirmatory",
         predecessor_dependency="low",
         dependency_classification_status="preregistered",
+        model_profile="single",
         study_track="C",
         formation_track="trace-replay",
         precursor_trace_sha256="trace-case-a",
@@ -329,6 +335,53 @@ def test_rejects_pairs_with_mismatched_actual_models_or_definitions() -> None:
             control="no-memory",
             bootstrap_samples=100,
         )
+
+
+def test_rejects_mixed_models_without_a_development_diagnostic_override() -> None:
+    treatment = replace(
+        run("case-a", "memorix-full", True),
+        reported_models=("model-a", "model-b"),
+        model_profile="mixed",
+    )
+    control = replace(
+        run("case-a", "no-memory", False),
+        reported_models=("model-a", "model-b"),
+        model_profile="mixed",
+    )
+
+    with pytest.raises(ValueError, match="single actual model"):
+        compare_conditions(
+            [treatment, control],
+            treatment="memorix-full",
+            control="no-memory",
+            bootstrap_samples=100,
+        )
+
+    comparison = compare_conditions(
+        [treatment, control],
+        treatment="memorix-full",
+        control="no-memory",
+        bootstrap_samples=100,
+        require_confirmatory=False,
+        allow_mixed_models=True,
+    )
+
+    assert comparison.pairs == 1
+
+
+def test_rejects_an_inconsistent_model_profile() -> None:
+    with pytest.raises(ValueError, match="single model_profile"):
+        RunResult.from_dict({
+            "case_id": "case-a",
+            "condition": "no-memory",
+            "agent": "claude",
+            "model": "model-a",
+            "repetition": 0,
+            "seed": 7,
+            "task_success": False,
+            "reported_models": ["model-a", "model-b"],
+            "model_profile": "single",
+        })
 
 
 def test_result_keeps_pending_secondary_outcomes_as_null() -> None:

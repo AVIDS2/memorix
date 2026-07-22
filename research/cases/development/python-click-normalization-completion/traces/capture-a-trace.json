@@ -1,0 +1,299 @@
+{
+  "schema_version": "precursor-trace-v1",
+  "case_id": "python-click-normalization-completion",
+  "provenance": "captured-session-v1",
+  "normalization": "event-normalize-tool-results-omitted-v1",
+  "events": [
+    {
+      "id": "click-normalization-claude-a-metadata-event-1",
+      "session_id": "click-normalization-claude-a-metadata",
+      "sequence": 0,
+      "turn": 0,
+      "role": "user",
+      "kind": "message",
+      "content": "Read only these source areas: `src/click/core.py` around the Context token\nnormalization methods and command completion, `src/click/parser.py` around\noption normalization, `src/click/shell_completion.py` around incomplete option\nhandling, and `tests/test_shell_completion.py` around token normalization.\n\nDo not inspect other files. Do not edit code. Return exactly three bullets,\nunder 80 words total, with no code or repair steps:\n\n- what reaches `token_normalize_func` for an option;\n- what completion must compare versus return;\n- one cross-module invariant a refactor must retain."
+    },
+    {
+      "id": "click-normalization-claude-a-metadata-event-2",
+      "session_id": "click-normalization-claude-a-metadata",
+      "sequence": 1,
+      "turn": 0,
+      "role": "assistant",
+      "kind": "tool_call",
+      "content": "{\"file_path\":\"<ABSOLUTE_PATH>\",\"limit\":50,\"offset\":1}",
+      "tool_name": "Read",
+      "tool_call_id": "call_00_NcTwjfOXN3wIIfDbLuIM9375"
+    },
+    {
+      "id": "click-normalization-claude-a-metadata-event-3",
+      "session_id": "click-normalization-claude-a-metadata",
+      "sequence": 2,
+      "turn": 0,
+      "role": "tool",
+      "kind": "tool_result",
+      "content": "<tool output omitted from public trace>",
+      "tool_call_id": "call_00_NcTwjfOXN3wIIfDbLuIM9375"
+    },
+    {
+      "id": "click-normalization-claude-a-metadata-event-4",
+      "session_id": "click-normalization-claude-a-metadata",
+      "sequence": 3,
+      "turn": 0,
+      "role": "assistant",
+      "kind": "tool_call",
+      "content": "{\"command\":\"grep -n \\\"token_normalize_func<ABSOLUTE_PATH>|_normalize<ABSOLUTE_PATH>|normalize\\\" <ABSOLUTE_PATH>\",\"description\":\"Find token_normalize_func references in core.py\"}",
+      "tool_name": "Bash",
+      "tool_call_id": "call_01_jzenorL6uy5r5m8AfSIL3276"
+    },
+    {
+      "id": "click-normalization-claude-a-metadata-event-5",
+      "session_id": "click-normalization-claude-a-metadata",
+      "sequence": 4,
+      "turn": 0,
+      "role": "tool",
+      "kind": "tool_result",
+      "content": "<tool output omitted from public trace>",
+      "tool_call_id": "call_01_jzenorL6uy5r5m8AfSIL3276"
+    },
+    {
+      "id": "click-normalization-claude-a-metadata-event-6",
+      "session_id": "click-normalization-claude-a-metadata",
+      "sequence": 5,
+      "turn": 0,
+      "role": "assistant",
+      "kind": "tool_call",
+      "content": "{\"command\":\"grep -n \\\"token_normalize_func<ABSOLUTE_PATH>|_normalize<ABSOLUTE_PATH>|normalize\\\" \\\"<ABSOLUTE_PATH>\"\",\"description\":\"Find token_normalize_func references in core.py\"}",
+      "tool_name": "Bash",
+      "tool_call_id": "call_00_RZKfpSMA5iiTHRSNEPq12638"
+    },
+    {
+      "id": "click-normalization-claude-a-metadata-event-7",
+      "session_id": "click-normalization-claude-a-metadata",
+      "sequence": 6,
+      "turn": 0,
+      "role": "tool",
+      "kind": "tool_result",
+      "content": "<tool output omitted from public trace>",
+      "tool_call_id": "call_00_RZKfpSMA5iiTHRSNEPq12638"
+    },
+    {
+      "id": "click-normalization-claude-a-metadata-event-8",
+      "session_id": "click-normalization-claude-a-metadata",
+      "sequence": 7,
+      "turn": 0,
+      "role": "assistant",
+      "kind": "tool_call",
+      "content": "{\"command\":\"grep -n \\\"token_normalize_func<ABSOLUTE_PATH>|_normalize<ABSOLUTE_PATH>|normalize\\\" \\\"<ABSOLUTE_PATH>\"\",\"description\":\"Find token_normalize_func references in parser.py\"}",
+      "tool_name": "Bash",
+      "tool_call_id": "call_01_YaGJoNb8BzoM1fimIMpw0708"
+    },
+    {
+      "id": "click-normalization-claude-a-metadata-event-9",
+      "session_id": "click-normalization-claude-a-metadata",
+      "sequence": 8,
+      "turn": 0,
+      "role": "tool",
+      "kind": "tool_result",
+      "content": "<tool output omitted from public trace>",
+      "tool_call_id": "call_01_YaGJoNb8BzoM1fimIMpw0708"
+    },
+    {
+      "id": "click-normalization-claude-a-metadata-event-10",
+      "session_id": "click-normalization-claude-a-metadata",
+      "sequence": 9,
+      "turn": 0,
+      "role": "assistant",
+      "kind": "tool_call",
+      "content": "{\"command\":\"grep -n \\\"token_normalize_func<ABSOLUTE_PATH>|_normalize<ABSOLUTE_PATH>|normalize<ABSOLUTE_PATH>|incomplete\\\" \\\"<ABSOLUTE_PATH>\"\",\"description\":\"Find token_normalize_func references in shell_completion.py\"}",
+      "tool_name": "Bash",
+      "tool_call_id": "call_02_gL6g6TTSgAtoWRiLs1xh8375"
+    },
+    {
+      "id": "click-normalization-claude-a-metadata-event-11",
+      "session_id": "click-normalization-claude-a-metadata",
+      "sequence": 10,
+      "turn": 0,
+      "role": "tool",
+      "kind": "tool_result",
+      "content": "<tool output omitted from public trace>",
+      "tool_call_id": "call_02_gL6g6TTSgAtoWRiLs1xh8375"
+    },
+    {
+      "id": "click-normalization-claude-a-metadata-event-12",
+      "session_id": "click-normalization-claude-a-metadata",
+      "sequence": 11,
+      "turn": 0,
+      "role": "assistant",
+      "kind": "tool_call",
+      "content": "{\"command\":\"grep -n \\\"token_normalize_func<ABSOLUTE_PATH>|_normalize<ABSOLUTE_PATH>|normalize\\\" \\\"<ABSOLUTE_PATH>\"\",\"description\":\"Find token_normalize_func references in test_shell_completion.py\"}",
+      "tool_name": "Bash",
+      "tool_call_id": "call_03_339HPThdW1jzbYEixJcU5957"
+    },
+    {
+      "id": "click-normalization-claude-a-metadata-event-13",
+      "session_id": "click-normalization-claude-a-metadata",
+      "sequence": 12,
+      "turn": 0,
+      "role": "tool",
+      "kind": "tool_result",
+      "content": "<tool output omitted from public trace>",
+      "tool_call_id": "call_03_339HPThdW1jzbYEixJcU5957"
+    },
+    {
+      "id": "click-normalization-claude-a-metadata-event-14",
+      "session_id": "click-normalization-claude-a-metadata",
+      "sequence": 13,
+      "turn": 0,
+      "role": "assistant",
+      "kind": "tool_call",
+      "content": "{\"file_path\":\"<ABSOLUTE_PATH>\",\"limit\":20,\"offset\":560}",
+      "tool_name": "Read",
+      "tool_call_id": "call_00_oatdO48bDVRddV0y89d93662"
+    },
+    {
+      "id": "click-normalization-claude-a-metadata-event-15",
+      "session_id": "click-normalization-claude-a-metadata",
+      "sequence": 14,
+      "turn": 0,
+      "role": "tool",
+      "kind": "tool_result",
+      "content": "<tool output omitted from public trace>",
+      "tool_call_id": "call_00_oatdO48bDVRddV0y89d93662"
+    },
+    {
+      "id": "click-normalization-claude-a-metadata-event-16",
+      "session_id": "click-normalization-claude-a-metadata",
+      "sequence": 15,
+      "turn": 0,
+      "role": "assistant",
+      "kind": "tool_call",
+      "content": "{\"file_path\":\"<ABSOLUTE_PATH>\",\"limit\":30,\"offset\":1395}",
+      "tool_name": "Read",
+      "tool_call_id": "call_01_j3x7g5GXTkMA9nCYL8yu8388"
+    },
+    {
+      "id": "click-normalization-claude-a-metadata-event-17",
+      "session_id": "click-normalization-claude-a-metadata",
+      "sequence": 16,
+      "turn": 0,
+      "role": "tool",
+      "kind": "tool_result",
+      "content": "<tool output omitted from public trace>",
+      "tool_call_id": "call_01_j3x7g5GXTkMA9nCYL8yu8388"
+    },
+    {
+      "id": "click-normalization-claude-a-metadata-event-18",
+      "session_id": "click-normalization-claude-a-metadata",
+      "sequence": 17,
+      "turn": 0,
+      "role": "assistant",
+      "kind": "tool_call",
+      "content": "{\"file_path\":\"<ABSOLUTE_PATH>\",\"limit\":90,\"offset\":540}",
+      "tool_name": "Read",
+      "tool_call_id": "call_02_1x1IM2jgLFlgNpzCziFO1121"
+    },
+    {
+      "id": "click-normalization-claude-a-metadata-event-19",
+      "session_id": "click-normalization-claude-a-metadata",
+      "sequence": 18,
+      "turn": 0,
+      "role": "tool",
+      "kind": "tool_result",
+      "content": "<tool output omitted from public trace>",
+      "tool_call_id": "call_02_1x1IM2jgLFlgNpzCziFO1121"
+    },
+    {
+      "id": "click-normalization-claude-a-metadata-event-20",
+      "session_id": "click-normalization-claude-a-metadata",
+      "sequence": 19,
+      "turn": 0,
+      "role": "assistant",
+      "kind": "tool_call",
+      "content": "{\"file_path\":\"<ABSOLUTE_PATH>\",\"limit\":30,\"offset\":145}",
+      "tool_name": "Read",
+      "tool_call_id": "call_03_i3tu9AYa4TZd0a4ECW4n0126"
+    },
+    {
+      "id": "click-normalization-claude-a-metadata-event-21",
+      "session_id": "click-normalization-claude-a-metadata",
+      "sequence": 20,
+      "turn": 0,
+      "role": "tool",
+      "kind": "tool_result",
+      "content": "<tool output omitted from public trace>",
+      "tool_call_id": "call_03_i3tu9AYa4TZd0a4ECW4n0126"
+    },
+    {
+      "id": "click-normalization-claude-a-metadata-event-22",
+      "session_id": "click-normalization-claude-a-metadata",
+      "sequence": 21,
+      "turn": 0,
+      "role": "assistant",
+      "kind": "tool_call",
+      "content": "{\"file_path\":\"<ABSOLUTE_PATH>\",\"limit\":15,\"offset\":115}",
+      "tool_name": "Read",
+      "tool_call_id": "call_04_OtgnR0nn3p1UTbz4nLvT6439"
+    },
+    {
+      "id": "click-normalization-claude-a-metadata-event-23",
+      "session_id": "click-normalization-claude-a-metadata",
+      "sequence": 22,
+      "turn": 0,
+      "role": "tool",
+      "kind": "tool_result",
+      "content": "<tool output omitted from public trace>",
+      "tool_call_id": "call_04_OtgnR0nn3p1UTbz4nLvT6439"
+    },
+    {
+      "id": "click-normalization-claude-a-metadata-event-24",
+      "session_id": "click-normalization-claude-a-metadata",
+      "sequence": 23,
+      "turn": 0,
+      "role": "assistant",
+      "kind": "tool_call",
+      "content": "{\"file_path\":\"<ABSOLUTE_PATH>\",\"limit\":40,\"offset\":662}",
+      "tool_name": "Read",
+      "tool_call_id": "call_00_yXtXV2QFLDcMYFXoYtzL2998"
+    },
+    {
+      "id": "click-normalization-claude-a-metadata-event-25",
+      "session_id": "click-normalization-claude-a-metadata",
+      "sequence": 24,
+      "turn": 0,
+      "role": "tool",
+      "kind": "tool_result",
+      "content": "<tool output omitted from public trace>",
+      "tool_call_id": "call_00_yXtXV2QFLDcMYFXoYtzL2998"
+    },
+    {
+      "id": "click-normalization-claude-a-metadata-event-26",
+      "session_id": "click-normalization-claude-a-metadata",
+      "sequence": 25,
+      "turn": 0,
+      "role": "assistant",
+      "kind": "tool_call",
+      "content": "{\"file_path\":\"<ABSOLUTE_PATH>\",\"limit\":15,\"offset\":60}",
+      "tool_name": "Read",
+      "tool_call_id": "call_01_j6XBE0kLfYti6H0n82cc3497"
+    },
+    {
+      "id": "click-normalization-claude-a-metadata-event-27",
+      "session_id": "click-normalization-claude-a-metadata",
+      "sequence": 26,
+      "turn": 0,
+      "role": "tool",
+      "kind": "tool_result",
+      "content": "<tool output omitted from public trace>",
+      "tool_call_id": "call_01_j6XBE0kLfYti6H0n82cc3497"
+    },
+    {
+      "id": "click-normalization-claude-a-metadata-event-28",
+      "session_id": "click-normalization-claude-a-metadata",
+      "sequence": 27,
+      "turn": 0,
+      "role": "assistant",
+      "kind": "message",
+      "content": "- **What reaches `token_normalize_func` for an option:** Only the option name after the prefix (`--`, `-`) is passed through; `_normalize_opt` splits the token via `_split_opt`, normalizes the value portion, and re-joins the prefix unchanged.\n\n- **What completion must compare versus return:** Both sides are normalized for comparison (normalized token vs. normalized incomplete using `startswith`), but completion returns the original, unnormalized names — the caller sees the canonical form, never the normalized one.\n\n- **One cross-module invariant a refactor must retain:** `ctx._normalize_opt` and `ctx._normalize_token` must remain the single normalization entry point used by parser option matching, shell-completion incomplete-resolution, and completion-item filtering — all three modules converge on the same context methods with no independent normalization paths."
+    }
+  ]
+}

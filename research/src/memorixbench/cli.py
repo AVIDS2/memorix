@@ -102,6 +102,7 @@ def _capture_trace(args: argparse.Namespace) -> int:
         requested_model=args.model,
         capture_id=args.capture_id,
         capture_mode=args.capture_mode,
+        tool_result_mode=args.tool_result_mode,
         captured_at_utc=args.captured_at_utc,
     )
     print(json.dumps(receipt.public_payload(), indent=2))
@@ -178,6 +179,7 @@ def _compare(args: argparse.Namespace) -> int:
         bootstrap_seed=args.bootstrap_seed,
         require_confirmatory=not args.allow_development,
         include_low_dependency=args.include_low_dependency,
+        allow_mixed_models=args.allow_mixed_models,
     )
     print(json.dumps(asdict(comparison), indent=2))
     return 0
@@ -409,6 +411,11 @@ def build_parser() -> argparse.ArgumentParser:
         choices=("local-diagnostic-v1",),
         default="local-diagnostic-v1",
     )
+    capture_trace.add_argument(
+        "--tool-result-mode",
+        choices=("verbatim", "metadata-only"),
+        default="verbatim",
+    )
     capture_trace.add_argument("--captured-at-utc")
 
     capture_session = subparsers.add_parser("capture-precursor-session")
@@ -460,6 +467,7 @@ def build_parser() -> argparse.ArgumentParser:
     compare.add_argument("--bootstrap-seed", type=int, default=1729)
     compare.add_argument("--allow-development", action="store_true")
     compare.add_argument("--include-low-dependency", action="store_true")
+    compare.add_argument("--allow-mixed-models", action="store_true")
 
     collect = subparsers.add_parser("collect-results")
     collect.add_argument("root", type=Path)

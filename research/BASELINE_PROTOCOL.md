@@ -149,3 +149,9 @@ An agent client that reports more than one model is labelled `mixed`; a user
 selected route is never assumed to be the actual inference stack. Fixed-budget
 or timeout outcomes remain observed task failures only when the run otherwise
 passes the environment and contamination gates.
+
+The comparison command rejects `mixed` and `unreported` model profiles by
+default, even when both paired conditions report the same model set. The
+`--allow-mixed-models` override is available only together with the explicit
+development override for a local diagnostic; it cannot unlock a confirmatory
+comparison.

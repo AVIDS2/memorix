@@ -1,14 +1,16 @@
 from pathlib import Path
+import sys
 
 import pytest
 
-from memorixbench.schema import load_case_manifest
+from memorixbench.schema import PhaseSpec, load_case_manifest
 import subprocess
 
 from memorixbench.workspace import (
     apply_reference_patch,
     materialize_case,
     reset_history_to_snapshot,
+    run_phase_commands,
     run_transfer_evaluation,
 )
 
@@ -348,6 +350,26 @@ forbidden_actions = []
     assert (workspace.path / "value.txt").read_text(encoding="utf-8") == "pinned\n"
     assert workspace.repository_transport == "remote"
     assert workspace.repository_origin == source.as_posix()
+
+
+def test_phase_commands_scrub_an_inherited_virtual_environment(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("VIRTUAL_ENV", "host-only-environment")
+    command = subprocess.list2cmdline([
+        sys.executable,
+        "-c",
+        "import os; raise SystemExit('VIRTUAL_ENV' in os.environ)",
+    ])
+
+    results = run_phase_commands(
+        PhaseSpec(task="Check command isolation.", success_commands=(command,)),
+        tmp_path,
+    )
+
+    assert len(results) == 1
+    assert results[0].returncode == 0
 
 
 def test_materializes_from_verified_local_cache(tmp_path: Path) -> None:

@@ -33,14 +33,15 @@ def replace_case_field(source: str, case_id: str, old: str, new: str) -> str:
 def test_frozen_development_registry_matches_every_public_case() -> None:
     result = validate_case_registry(load_case_registry(REGISTRY), cases_root=CASES_ROOT)
 
-    assert result.entry_count == 7
-    assert result.development_pilot_count == 7
+    assert result.entry_count == 8
+    assert result.development_pilot_count == 8
     assert result.confirmatory_count == 0
-    assert result.repository_family_count == 6
-    assert result.task_family_count == 5
-    assert result.trace_family_count == 7
+    assert result.repository_family_count == 7
+    assert result.task_family_count == 6
+    assert result.trace_family_count == 8
     assert "go-cobra-completion-input-ownership" in result.case_ids
     assert "go-cobra-completion-input-seeded" in result.case_ids
+    assert "python-click-normalization-completion" in result.case_ids
     assert "typescript-auth-ownership" in result.case_ids
     assert len(result.registry_sha256) == 64
 

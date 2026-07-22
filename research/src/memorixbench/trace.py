@@ -106,6 +106,7 @@ class PrecursorTraceBundle:
     schema_version: str
     case_id: str
     selection: str
+    normalization: str
     entries: tuple[TraceBundleEntry, ...]
     source_path: Path
     source_sha256: str
@@ -396,6 +397,37 @@ def _bundle_sha256(value: object, *, label: str) -> str:
     return digest
 
 
+def _bundle_normalization(raw: dict[str, object]) -> str:
+    legacy_fields = {"schema_version", "case_id", "selection", "captures"}
+    current_fields = legacy_fields | {"normalization"}
+    fields = set(raw)
+    if fields == legacy_fields:
+        # Bundles written before normalization became explicit were v1-only.
+        return "event-normalize-v1"
+    if fields != current_fields:
+        raise TraceError("trace bundle has unexpected fields")
+    normalization = _required_bundle_text(raw.get("normalization"), label="normalization")
+    if normalization not in VALID_TRACE_NORMALIZATIONS:
+        raise TraceError("trace bundle normalization is unsupported")
+    return normalization
+
+
+def _trace_file_normalization(path: Path) -> str:
+    raw_bytes = path.read_bytes()
+    if len(raw_bytes) > MAX_TRACE_BYTES:
+        raise TraceError("precursor trace exceeds the size limit")
+    try:
+        raw = json.loads(raw_bytes.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise TraceError("precursor trace must be UTF-8 JSON") from error
+    if not isinstance(raw, dict):
+        raise TraceError("precursor trace must be a JSON object")
+    normalization = _required_bundle_text(raw.get("normalization"), label="normalization")
+    if normalization not in VALID_TRACE_NORMALIZATIONS:
+        raise TraceError("precursor trace normalization is unsupported")
+    return normalization
+
+
 def load_trace_bundle(manifest: CaseManifest) -> PrecursorTraceBundle:
     spec = manifest.precursor_trace_bundle
     if spec is None:
@@ -408,9 +440,7 @@ def load_trace_bundle(manifest: CaseManifest) -> PrecursorTraceBundle:
         raise TraceError("trace bundle must be UTF-8 JSON") from error
     if not isinstance(raw, dict):
         raise TraceError("trace bundle must be an object")
-    expected = {"schema_version", "case_id", "selection", "captures"}
-    if set(raw) != expected:
-        raise TraceError("trace bundle has unexpected fields")
+    normalization = _bundle_normalization(raw)
     if raw.get("schema_version") != TRACE_BUNDLE_SCHEMA_VERSION or raw.get("schema_version") != spec.schema_version:
         raise TraceError("trace bundle schema version is unsupported")
     if raw.get("case_id") != manifest.case_id:
@@ -474,7 +504,7 @@ def load_trace_bundle(manifest: CaseManifest) -> PrecursorTraceBundle:
             path=trace_path,
             case_id=manifest.case_id,
             provenance="captured-session-v1",
-            normalization="event-normalize-v1",
+            normalization=normalization,
         )
         if (
             receipt.capture_id != capture_id
@@ -505,6 +535,7 @@ def load_trace_bundle(manifest: CaseManifest) -> PrecursorTraceBundle:
         schema_version=TRACE_BUNDLE_SCHEMA_VERSION,
         case_id=manifest.case_id,
         selection=spec.selection,
+        normalization=normalization,
         entries=tuple(entries),
         source_path=bundle_path,
         source_sha256=_sha256_bytes(raw_bytes),
@@ -577,6 +608,7 @@ def write_trace_bundle(
     capture_ids: set[str] = set()
     canonical_hashes: set[str] = set()
     snapshot_hashes: set[str] = set()
+    bundle_normalization: str | None = None
     for trace_path, receipt_path in zip(traces, receipts, strict=True):
         for asset in (trace_path, receipt_path):
             if asset == root or root not in asset.parents or not asset.is_file():
@@ -585,11 +617,16 @@ def write_trace_bundle(
             receipt = load_trace_capture_receipt(receipt_path)
         except TraceCaptureError as error:
             raise TraceError("trace bundle receipt is invalid") from error
+        trace_normalization = _trace_file_normalization(trace_path)
+        if bundle_normalization is None:
+            bundle_normalization = trace_normalization
+        elif trace_normalization != bundle_normalization:
+            raise TraceError("trace bundle captures must share one normalization")
         trace = load_trace_file(
             path=trace_path,
             case_id=case_id,
             provenance="captured-session-v1",
-            normalization="event-normalize-v1",
+            normalization=trace_normalization,
         )
         if (
             receipt.case_id != case_id
@@ -614,10 +651,13 @@ def write_trace_bundle(
         })
     if len(snapshot_hashes) != 1:
         raise TraceError("trace bundle captures must share one workspace snapshot")
+    if bundle_normalization is None:
+        raise TraceError("trace bundle requires at least one normalization")
     payload = {
         "schema_version": TRACE_BUNDLE_SCHEMA_VERSION,
         "case_id": case_id,
         "selection": selection,
+        "normalization": bundle_normalization,
         "captures": captures,
     }
     target.parent.mkdir(parents=True, exist_ok=True)

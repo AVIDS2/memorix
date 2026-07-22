@@ -154,6 +154,34 @@ def test_captures_a_codex_stream_with_paired_tool_events(tmp_path: Path) -> None
     assert payload["events"][1]["tool_name"] == "shell"
 
 
+def test_metadata_only_capture_omits_claude_tool_output(tmp_path: Path) -> None:
+    workspace, events, timeline, prompt = _write_capture_inputs(tmp_path, agent="claude")
+    output = tmp_path / "trace.json"
+    receipt_path = tmp_path / "receipt.json"
+
+    receipt = capture_trace_from_streams(
+        events_path=events,
+        timeline_path=timeline,
+        case_id="capture-case",
+        agent="claude",
+        prompt=prompt.read_text(encoding="utf-8"),
+        output_path=output,
+        receipt_path=receipt_path,
+        client_version="test-client-1",
+        workspace_snapshot_sha256="c" * 64,
+        workspace_roots=(workspace,),
+        capture_id="capture-test-metadata-only",
+        tool_result_mode="metadata-only",
+    )
+
+    payload = json.loads(output.read_text(encoding="utf-8"))
+
+    assert payload["normalization"] == "event-normalize-tool-results-omitted-v1"
+    assert payload["events"][3]["content"] == "<tool output omitted from public trace>"
+    assert dict(receipt.omitted_event_counts)["claude-tool-result-content"] == 1
+    assert "super-secret-value" not in output.read_text(encoding="utf-8")
+
+
 def test_capture_omits_a_duplicate_claude_terminal_result(tmp_path: Path) -> None:
     workspace, events, timeline, prompt = _write_capture_inputs(tmp_path, agent="claude")
     records = [

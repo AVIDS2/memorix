@@ -29,6 +29,13 @@ regression may violate the very structural constraint that the agent must later
 restore. Reference and hidden patches are never copied into the agent-facing
 workspace. Test-split reference repairs remain private.
 
+Those four gates establish that a case is runnable and repairable, not that it
+measures a memory effect. Before a development case is used for a comparison,
+its policy must be absent from the transfer prompt, public tests, and exposed
+oracle assets; public precursor traces must not carry source-code answer keys;
+and a matched no-memory cohort must be run and reported. A no-memory success is
+useful evidence against overclaiming, not a result to hide.
+
 Local fixture cases are for harness development. Confirmatory cases based on
 external repositories use source_type = "git" and must include a public URL,
 commit hash, and SPDX-compatible license identifier.

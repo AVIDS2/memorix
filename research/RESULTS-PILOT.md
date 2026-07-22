@@ -139,3 +139,24 @@ retrieved eight ranked candidates, preserved the ownership invariant inside a
 canonical Claude smoke completed the repair through one logical search/detail
 round. The client telemetry was mixed, the oracle was public, and no matched
 control was run, so this remains a functional smoke only.
+
+## Click dependency-admission diagnostic
+
+`python-click-normalization-completion` is a new Python Track C development
+case built from two public metadata-only precursor captures. Its four authoring
+gates passed from a pinned Click cache after a fresh `uv` prewarm and an offline
+replay. The first canonical trial uncovered a harness mismatch: trace formation
+returns a deferred maintenance receipt, while the trial code incorrectly
+assumed a legacy nested summary. The run stopped before an agent launched, was
+kept as a diagnostic artifact, and the receipt handling was fixed with a
+regression test before any result was accepted.
+
+One matched local pair then used the same selected trace, seed, public oracle,
+tool policy, nominal USD 0.75 budget, and client. The no-memory condition made
+no edit and exhausted the client budget. The canonical Memorix condition wrote
+28 trace observations, retrieved eight candidates in one logical round under a
+512-token ceiling, edited only `src/click/utils.py`, and passed 59 focused tests
+plus the structural checks. The pair is intentionally not an effect estimate:
+it has one pair, an exact McNemar p-value of 1.0, and a mixed provider route.
+The comparison CLI now rejects mixed or unreported model profiles unless both
+development and mixed-model diagnostic overrides are explicit.

@@ -23,7 +23,10 @@ VALID_CONFIRMATORY_ISOLATION_PROFILES = {
 VALID_CONFIRMATORY_VERIFIER_MODES = {"black-box-controller-v1"}
 VALID_FORMATION_TRACKS = {"seeded-canonical", "trace-replay", "native-session"}
 VALID_TRACE_PROVENANCE = {"captured-session-v1", "controlled-replay-v1"}
-VALID_TRACE_NORMALIZATIONS = {"event-normalize-v1"}
+VALID_TRACE_NORMALIZATIONS = {
+    "event-normalize-v1",
+    "event-normalize-tool-results-omitted-v1",
+}
 VALID_TRACE_TRUNCATIONS = {"event-suffix-v1"}
 VALID_TRACE_BUNDLE_SCHEMAS = {"precursor-trace-bundle-v1"}
 VALID_TRACE_BUNDLE_SELECTIONS = {"hash-bucket-v1"}

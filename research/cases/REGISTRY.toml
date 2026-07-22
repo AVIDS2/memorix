@@ -2,6 +2,25 @@ schema_version = "0.3"
 registry_id = "memorixbench-development-pilot-v1"
 
 [[case]]
+id = "python-click-normalization-completion"
+path = "development/python-click-normalization-completion/case.toml"
+enrollment = "development-pilot"
+case_definition_sha256 = "6948af9ff31e1569a50bf7bfe349ab725d824cf75e6b73c6b7a915e2b4b26214"
+corpus_split = "development"
+repository_family_id = "pallets-click"
+task_family_id = "token-normalization-owner-migration"
+trace_family_id = "captured-python-click-normalization"
+authoring_batch = "development-pilot-2026-07"
+source_class = "public-repository"
+contamination_risk = "public-history-documented"
+transition_exposure = "development-controlled"
+dependency_rationale = "The transfer task can use the retained option-prefix normalization boundary after the helper moves from Context into utils, while the previous Context owner is stale."
+minimal_sufficient_evidence = "The token normalizer receives the option-name body without a leading CLI prefix; comparisons may normalize declared spelling without changing the return spelling."
+plausible_distractor = "The prior Context normalization helper remains visible in the precursor trace but is stale after the migration to utils.py."
+no_memory_expectation = "The transfer snapshot exposes normalization call sites, so a strong agent may infer prefix stripping from source; a matched no-memory cohort is required before treating this as a memory-dependent effect case."
+captured_trace_count = 2
+
+[[case]]
 id = "go-cobra-completion-input-ownership"
 path = "development/go-cobra-completion-input-ownership/case.toml"
 enrollment = "development-pilot"

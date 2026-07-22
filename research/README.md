@@ -84,6 +84,18 @@ its public receipt:
 This produces diagnostic evidence only unless the receipt is bound to the
 separate external worker/vault isolation profile.
 
+After a candidate has been prewarmed in the external artifact root, record the
+hash-only offline verification receipt before changing its ledger readiness:
+
+    uv run memorixbench record-environment-preflight \
+      cases/CANDIDATE-SOURCES.toml cobra-completion-os-args \
+      --bootstrap-command "go test ./..." --bootstrap-exit-code 0 \
+      --bootstrap-log F:/memorix-research-artifacts/candidate-preflight/cobra-completion-os-args/bootstrap-go-test.log \
+      --offline-command "GOPROXY=off GOSUMDB=off go test ./..." --offline-exit-code 0 \
+      --offline-log F:/memorix-research-artifacts/candidate-preflight/cobra-completion-os-args/offline-go-test.log \
+      --runtime "go1.25.5 windows-amd64" --offline-policy go-proxy-off-v1 \
+      --output cases/preflight/cobra-completion-os-args.json
+
 Raw worktrees, transcripts, patches, model events, and caches must be written to
 an external artifact root. Set MEMORIXBENCH_ARTIFACT_ROOT to a drive with enough
 space. Do not point experiments at the user's normal Memorix data directory.

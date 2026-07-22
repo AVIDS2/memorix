@@ -21,6 +21,13 @@ the recorded license bytes. It is intentionally a source audit, not an
 admission result; offline build, trace-capture, private-oracle, and split gates
 remain separate.
 
+An `offline-ready` candidate must additionally bind a compact
+`candidate-environment-preflight-v1` receipt under `cases/preflight/`. The
+receipt stores the bootstrap and offline commands, exit codes, log hashes,
+runtime, and a named offline policy, never raw logs or absolute cache paths.
+The ledger verifies both the receipt file hash and that its candidate/base/public
+transition commitments match the source entry.
+
 `standalone-pr` is intentionally a weaker causal-chain label than `issue-pr`,
 `review-revision`, or `pr-chain`; it is useful for screening but should not be
 used to satisfy a preregistered source-diversity quota on its own.

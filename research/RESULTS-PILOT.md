@@ -46,6 +46,19 @@ three languages. Confirmatory work still requires frozen external cases,
 matched no-memory/last-N/external-memory conditions, repetitions, statistics,
 and an independent review.
 
+## Trace capture diagnostic
+
+One disposable Claude Code 2.1.201 read-only session on a non-enrolled
+`cenkalti/backoff` snapshot exercised the real stream-to-trace path. Its 463
+private client events and private monotonic timeline produced a six-event
+sanitized `captured-session-v1` trace with five path or credential redactions.
+The public trace safety scan and both receipt commitments passed. Provider
+telemetry named three models, so the capture is explicitly labelled `mixed`.
+
+This is a capture-pipeline diagnostic only: it used `local-diagnostic-v1`, not
+the external worker profile, its source snapshot is not a registered case, and
+it has no transfer task, oracle, comparison condition, or outcome row.
+
 ## External case authoring evidence
 
 `go-backoff-zero-jitter-ownership` pins the MIT-licensed upstream

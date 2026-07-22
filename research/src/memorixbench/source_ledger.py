@@ -9,6 +9,8 @@ import subprocess
 import tomllib
 from urllib.parse import urlparse
 
+from .preflight import PreflightError, load_environment_preflight_receipt
+
 
 SOURCE_LEDGER_SCHEMA_VERSION = "0.1"
 IDENTIFIER_PATTERN = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
@@ -51,6 +53,8 @@ class SourceLedgerEntry:
     source_urls: tuple[str, ...]
     causal_chain: str
     environment_readiness: str
+    environment_receipt_path: str | None
+    environment_receipt_sha256: str | None
     benchmark_overlap: str
     model_exposure: str
     public_solution_exists: bool
@@ -157,6 +161,12 @@ def _relative_path(value: object, *, label: str) -> str:
     return path.as_posix()
 
 
+def _optional_relative_path(value: object, *, label: str) -> str | None:
+    if value is None:
+        return None
+    return _relative_path(value, label=label)
+
+
 def _normalized_git_url(value: str) -> str:
     return value.rstrip("/").removesuffix(".git")
 
@@ -185,7 +195,7 @@ def load_source_ledger(path: str | Path) -> SourceLedger:
     if not isinstance(candidates, list) or not candidates:
         raise SourceLedgerError("source ledger must contain at least one [[candidate]] entry")
     entries: list[SourceLedgerEntry] = []
-    expected_fields = {
+    required_fields = {
         "id",
         "status",
         "language",
@@ -207,12 +217,29 @@ def load_source_ledger(path: str | Path) -> SourceLedger:
         "transition_plan",
         "decision_rationale",
     }
+    optional_fields = {"environment_receipt_path", "environment_receipt_sha256"}
     for candidate in candidates:
-        if not isinstance(candidate, dict) or set(candidate) != expected_fields:
+        if not isinstance(candidate, dict) or not (
+            required_fields <= set(candidate) <= required_fields | optional_fields
+        ):
             raise SourceLedgerError("source ledger candidate has unexpected fields")
         license_spdx = _required_text(candidate.get("license_spdx"), label="license_spdx")
         if license_spdx not in ALLOWED_LICENSES:
             raise SourceLedgerError("source ledger candidate uses a disallowed license")
+        receipt_path = _optional_relative_path(
+            candidate.get("environment_receipt_path"),
+            label="environment_receipt_path",
+        )
+        receipt_sha256 = (
+            _sha256(
+                candidate.get("environment_receipt_sha256"),
+                label="environment_receipt_sha256",
+            )
+            if candidate.get("environment_receipt_sha256") is not None
+            else None
+        )
+        if (receipt_path is None) != (receipt_sha256 is None):
+            raise SourceLedgerError("source ledger environment receipt path and hash must appear together")
         entries.append(SourceLedgerEntry(
             candidate_id=_identifier(candidate.get("id"), label="id"),
             status=_choice(candidate.get("status"), label="status", allowed=VALID_STATUSES),
@@ -247,6 +274,8 @@ def load_source_ledger(path: str | Path) -> SourceLedger:
                 label="environment_readiness",
                 allowed=VALID_ENVIRONMENT_READINESS,
             ),
+            environment_receipt_path=receipt_path,
+            environment_receipt_sha256=receipt_sha256,
             benchmark_overlap=_choice(
                 candidate.get("benchmark_overlap"),
                 label="benchmark_overlap",
@@ -292,9 +321,40 @@ def _require_admission_invariants(entry: SourceLedgerEntry) -> None:
         raise SourceLedgerError("admitted source candidate needs a private post-snapshot transition")
 
 
+def _validate_environment_receipt(entry: SourceLedgerEntry, ledger: SourceLedger) -> None:
+    if entry.environment_readiness != "offline-ready":
+        if entry.environment_receipt_path is not None:
+            raise SourceLedgerError("only offline-ready candidates may bind an environment receipt")
+        return
+    if entry.environment_receipt_path is None or entry.environment_receipt_sha256 is None:
+        raise SourceLedgerError("offline-ready source candidate requires an environment receipt")
+    root = ledger.source_path.parent.resolve()
+    receipt_path = (root / entry.environment_receipt_path).resolve()
+    if receipt_path == root or root not in receipt_path.parents:
+        raise SourceLedgerError("environment receipt path escapes the source ledger directory")
+    try:
+        observed_sha256 = hashlib.sha256(receipt_path.read_bytes()).hexdigest()
+    except OSError as error:
+        raise SourceLedgerError("environment receipt is unavailable") from error
+    if observed_sha256 != entry.environment_receipt_sha256:
+        raise SourceLedgerError("environment receipt hash does not match source ledger")
+    try:
+        receipt = load_environment_preflight_receipt(receipt_path)
+    except PreflightError as error:
+        raise SourceLedgerError("environment receipt is invalid") from error
+    if (
+        not receipt.passed
+        or receipt.candidate_id != entry.candidate_id
+        or receipt.base_revision != entry.base_revision
+        or receipt.public_transition_revision != entry.public_transition_revision
+    ):
+        raise SourceLedgerError("environment receipt does not bind the source candidate")
+
+
 def validate_source_ledger(ledger: SourceLedger) -> SourceLedgerValidation:
     for entry in ledger.entries:
         _require_admission_invariants(entry)
+        _validate_environment_receipt(entry, ledger)
     status_counts = Counter(entry.status for entry in ledger.entries)
     return SourceLedgerValidation(
         ledger_id=ledger.ledger_id,

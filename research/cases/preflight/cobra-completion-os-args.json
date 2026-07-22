@@ -1,0 +1,21 @@
+{
+  "schema_version": "candidate-environment-preflight-v1",
+  "candidate_id": "cobra-completion-os-args",
+  "base_revision": "f2878bab8c96afd6e36968af96343b35dbb82a82",
+  "public_transition_revision": "746ef07158728502482cea9f880a6f4b21ef29a9",
+  "bootstrap": {
+    "command": "go test ./...",
+    "exit_code": 0,
+    "log_sha256": "636eecc3889c52d7cc93e54230c2ec4fc272b9cb55e2615ac8ec385509260b4b"
+  },
+  "offline": {
+    "command": "GOPROXY=off GOSUMDB=off go test ./...",
+    "exit_code": 0,
+    "log_sha256": "5a77b49fec60be6e6547d8852a3661719fc005449dc2db2cb893647f725a4536"
+  },
+  "runtime": "go version go1.25.5 windows/amd64",
+  "offline_policy": "go-proxy-off-v1",
+  "cache_profile": "external-artifact-root-v1",
+  "passed": true,
+  "observed_at_utc": "2026-07-22T05:06:22.351241+00:00"
+}

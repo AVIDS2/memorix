@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import replace
 import hashlib
 from pathlib import Path
+import shutil
 import subprocess
 
 import pytest
@@ -35,6 +36,26 @@ def test_source_ledger_rejects_admission_without_offline_preflight(tmp_path: Pat
     )
 
     with pytest.raises(SourceLedgerError, match="offline-ready"):
+        validate_source_ledger(load_source_ledger(candidate))
+
+
+def test_source_ledger_rejects_a_tampered_environment_receipt_hash(tmp_path: Path) -> None:
+    (tmp_path / "preflight").mkdir()
+    shutil.copy2(
+        LEDGER.parent / "preflight" / "cobra-completion-os-args.json",
+        tmp_path / "preflight" / "cobra-completion-os-args.json",
+    )
+    candidate = tmp_path / "CANDIDATE-SOURCES.toml"
+    source = LEDGER.read_text(encoding="utf-8")
+    candidate.write_text(
+        source.replace(
+            'environment_receipt_sha256 = "2cf8cfddff698e9042280694b9589abd3d329c6dc88bd8112e9e52bd4aabbfb0"',
+            'environment_receipt_sha256 = "0000000000000000000000000000000000000000000000000000000000000000"',
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(SourceLedgerError, match="environment receipt hash"):
         validate_source_ledger(load_source_ledger(candidate))
 
 

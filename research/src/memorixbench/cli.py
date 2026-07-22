@@ -25,6 +25,7 @@ from .source_ledger import (
     load_source_ledger,
     validate_source_ledger,
 )
+from .preflight import write_environment_preflight_receipt
 from .trace_capture import capture_trace_from_streams
 from .reporting import (
     serialize_authoring_verification,
@@ -97,6 +98,33 @@ def _capture_trace(args: argparse.Namespace) -> int:
         capture_id=args.capture_id,
         capture_mode=args.capture_mode,
         captured_at_utc=args.captured_at_utc,
+    )
+    print(json.dumps(receipt.public_payload(), indent=2))
+    return 0
+
+
+def _record_environment_preflight(args: argparse.Namespace) -> int:
+    ledger = load_source_ledger(args.ledger)
+    candidate = next(
+        (entry for entry in ledger.entries if entry.candidate_id == args.candidate_id),
+        None,
+    )
+    if candidate is None:
+        raise ValueError(f"unknown source candidate: {args.candidate_id}")
+    receipt = write_environment_preflight_receipt(
+        path=args.output,
+        candidate_id=candidate.candidate_id,
+        base_revision=candidate.base_revision,
+        public_transition_revision=candidate.public_transition_revision,
+        bootstrap_command=args.bootstrap_command,
+        bootstrap_exit_code=args.bootstrap_exit_code,
+        bootstrap_log=args.bootstrap_log,
+        offline_command=args.offline_command,
+        offline_exit_code=args.offline_exit_code,
+        offline_log=args.offline_log,
+        runtime=args.runtime,
+        offline_policy=args.offline_policy,
+        observed_at_utc=args.observed_at_utc,
     )
     print(json.dumps(receipt.public_payload(), indent=2))
     return 0
@@ -344,6 +372,24 @@ def build_parser() -> argparse.ArgumentParser:
     )
     capture_trace.add_argument("--captured-at-utc")
 
+    preflight = subparsers.add_parser("record-environment-preflight")
+    preflight.add_argument("ledger", type=Path)
+    preflight.add_argument("candidate_id")
+    preflight.add_argument("--bootstrap-command", required=True)
+    preflight.add_argument("--bootstrap-exit-code", type=int, required=True)
+    preflight.add_argument("--bootstrap-log", type=Path, required=True)
+    preflight.add_argument("--offline-command", required=True)
+    preflight.add_argument("--offline-exit-code", type=int, required=True)
+    preflight.add_argument("--offline-log", type=Path, required=True)
+    preflight.add_argument("--runtime", required=True)
+    preflight.add_argument(
+        "--offline-policy",
+        choices=("go-proxy-off-v1", "node-offline-store-v1", "python-index-off-v1"),
+        required=True,
+    )
+    preflight.add_argument("--output", type=Path, required=True)
+    preflight.add_argument("--observed-at-utc")
+
     compare = subparsers.add_parser("compare")
     compare.add_argument("results", type=Path)
     compare.add_argument("--treatment", required=True)
@@ -449,6 +495,8 @@ def main() -> int:
             return _audit_source_candidate(args)
         if args.command == "capture-trace":
             return _capture_trace(args)
+        if args.command == "record-environment-preflight":
+            return _record_environment_preflight(args)
         if args.command == "compare":
             return _compare(args)
         if args.command == "collect-results":

@@ -35,6 +35,27 @@ JSON hash. The canonical hash is the identity used for paired Track C results.
 Only `captured-session-v1` traces may enter a confirmatory case. A
 `controlled-replay-v1` trace is allowed for development hardening only.
 
+## Capture receipts
+
+`memorixbench capture-trace` turns an agent client's private JSONL stream into
+a public canonical trace plus a `captured-trace-receipt-v1`. The raw event and
+timeline files remain in the private artifact root. The receipt records only
+their SHA-256 commitments, the canonical and source trace commitments, agent,
+requested/reported model labels, client version, workspace-snapshot commitment,
+event counts, redaction count, capture mode, and timestamp.
+
+Before a trace is written, known workspace paths, absolute host paths, and
+credential-like strings are replaced or removed. The normal trace validator is
+then run on the transformed content. This is deliberate: a raw event stream is
+not safe to publish merely because it is JSON. A local capture is always marked
+`local-diagnostic-v1`; only a future worker capture bound to the external
+isolation contract can use `isolated-worker-v1`.
+
+The current command supports the documented `claude --print --output-format
+stream-json` and `codex exec --json` completed-event surfaces. Unknown raw
+lines are never silently treated as trace content. The command is a capture and
+sanitization tool, not an oracle or an experiment runner.
+
 ## Bounded raw replay
 
 The `last-n` control is rendered with `event-suffix-v1`, not by cutting an

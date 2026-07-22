@@ -67,6 +67,23 @@ To audit a pre-cloned source cache without allowing a mutable remote checkout:
       cases/CANDIDATE-SOURCES.toml backoff-permanent-error \
       F:/memorix-research-artifacts/repository-cache/backoff
 
+To convert one private agent event stream into a sanitized Track C trace and
+its public receipt:
+
+    uv run memorixbench capture-trace \
+      --events F:/memorix-research-artifacts/capture/events.jsonl \
+      --timeline F:/memorix-research-artifacts/capture/event-timeline.jsonl \
+      --case-id example-case --agent claude \
+      --prompt-file F:/memorix-research-artifacts/capture/prompt.txt \
+      --output F:/memorix-research-artifacts/capture/trace.json \
+      --receipt F:/memorix-research-artifacts/capture/receipt.json \
+      --client-version claude-cli-pinned \
+      --workspace-snapshot-sha256 <sha256> \
+      --workspace-root F:/memorix-research-artifacts/capture/workspace
+
+This produces diagnostic evidence only unless the receipt is bound to the
+separate external worker/vault isolation profile.
+
 Raw worktrees, transcripts, patches, model events, and caches must be written to
 an external artifact root. Set MEMORIXBENCH_ARTIFACT_ROOT to a drive with enough
 space. Do not point experiments at the user's normal Memorix data directory.

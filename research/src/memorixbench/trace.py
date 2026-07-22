@@ -407,14 +407,15 @@ def render_trace_retrieval(
     )
 
 
-def write_canonical_trace(
+def canonical_trace_sha256(
     *,
-    path: str | Path,
     case_id: str,
     provenance: str,
     normalization: str,
     events: Iterable[PrecursorEvent],
-) -> Path:
+) -> str:
+    """Return the canonical trace commitment without writing a public artifact."""
+
     if provenance not in VALID_TRACE_PROVENANCE:
         raise TraceError(f"unsupported trace provenance: {provenance}")
     if normalization not in VALID_TRACE_NORMALIZATIONS:
@@ -423,6 +424,30 @@ def write_canonical_trace(
     _validate_event_order(ordered)
     for event in ordered:
         _reject_public_secrets(event.content)
+    return _sha256_payload(_canonical_payload(
+        schema_version=TRACE_SCHEMA_VERSION,
+        case_id=case_id,
+        provenance=provenance,
+        normalization=normalization,
+        events=ordered,
+    ))
+
+
+def write_canonical_trace(
+    *,
+    path: str | Path,
+    case_id: str,
+    provenance: str,
+    normalization: str,
+    events: Iterable[PrecursorEvent],
+) -> Path:
+    ordered = tuple(events)
+    canonical_trace_sha256(
+        case_id=case_id,
+        provenance=provenance,
+        normalization=normalization,
+        events=ordered,
+    )
     payload = _canonical_payload(
         schema_version=TRACE_SCHEMA_VERSION,
         case_id=case_id,

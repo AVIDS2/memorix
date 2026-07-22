@@ -25,6 +25,7 @@ from .source_ledger import (
     load_source_ledger,
     validate_source_ledger,
 )
+from .trace_capture import capture_trace_from_streams
 from .reporting import (
     serialize_authoring_verification,
     serialize_command_results,
@@ -77,6 +78,27 @@ def _audit_source_candidate(args: argparse.Namespace) -> int:
         repository_cache=args.repository_cache,
     )
     print(json.dumps(audit.public_payload(), indent=2))
+    return 0
+
+
+def _capture_trace(args: argparse.Namespace) -> int:
+    receipt = capture_trace_from_streams(
+        events_path=args.events,
+        timeline_path=args.timeline,
+        case_id=args.case_id,
+        agent=args.agent,
+        prompt=args.prompt_file.read_text(encoding="utf-8"),
+        output_path=args.output,
+        receipt_path=args.receipt,
+        client_version=args.client_version,
+        workspace_snapshot_sha256=args.workspace_snapshot_sha256,
+        workspace_roots=args.workspace_root,
+        requested_model=args.model,
+        capture_id=args.capture_id,
+        capture_mode=args.capture_mode,
+        captured_at_utc=args.captured_at_utc,
+    )
+    print(json.dumps(receipt.public_payload(), indent=2))
     return 0
 
 
@@ -302,6 +324,26 @@ def build_parser() -> argparse.ArgumentParser:
     audit_source.add_argument("candidate_id")
     audit_source.add_argument("repository_cache", type=Path)
 
+    capture_trace = subparsers.add_parser("capture-trace")
+    capture_trace.add_argument("--events", type=Path, required=True)
+    capture_trace.add_argument("--timeline", type=Path, required=True)
+    capture_trace.add_argument("--case-id", required=True)
+    capture_trace.add_argument("--agent", choices=("claude", "codex"), required=True)
+    capture_trace.add_argument("--prompt-file", type=Path, required=True)
+    capture_trace.add_argument("--output", type=Path, required=True)
+    capture_trace.add_argument("--receipt", type=Path, required=True)
+    capture_trace.add_argument("--client-version", required=True)
+    capture_trace.add_argument("--workspace-snapshot-sha256", required=True)
+    capture_trace.add_argument("--workspace-root", type=Path, action="append", required=True)
+    capture_trace.add_argument("--model")
+    capture_trace.add_argument("--capture-id")
+    capture_trace.add_argument(
+        "--capture-mode",
+        choices=("local-diagnostic-v1", "isolated-worker-v1"),
+        default="local-diagnostic-v1",
+    )
+    capture_trace.add_argument("--captured-at-utc")
+
     compare = subparsers.add_parser("compare")
     compare.add_argument("results", type=Path)
     compare.add_argument("--treatment", required=True)
@@ -405,6 +447,8 @@ def main() -> int:
             return _validate_source_ledger(args.ledger)
         if args.command == "audit-source-candidate":
             return _audit_source_candidate(args)
+        if args.command == "capture-trace":
+            return _capture_trace(args)
         if args.command == "compare":
             return _compare(args)
         if args.command == "collect-results":

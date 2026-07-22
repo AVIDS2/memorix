@@ -19,10 +19,12 @@ Completed
 - The Memorix canonical adapter now uses compact search plus bulk detail as one logical retrieval round, preserves its two actual MCP transports in artifacts, and renders the same 180-token neutral context as Mem0 and AgentMemory. Real smoke passed.
 - All five development cases passed the full four-stage authoring gate. The TypeScript case had a stale patch context and was repaired without changing its task semantics.
 - Full research test suite and public case validation pass after this phase.
+- The public registry now freezes all development pilots with case-definition hashes, corpus split, repository/task/trace lineage, authoring batch, contamination disclosure, and a four-part dependency card. It rejects any family crossing development, validation, or test, and it requires a future confirmatory entry to declare a private post-snapshot transition plus at least two captured precursor traces.
+- A separate source ledger now pins real-repository leads to their base commit, license bytes, causal source URLs, public-solution and contamination disclosures, and offline readiness. It keeps leads in screening/deferred/rejected states until a private post-snapshot Track C case is actually authored.
 
 In progress
 - Implement the controller/subject black-box verifier on a remote Linux/KVM microVM runtime. Docker/Windows protocol smoke is diagnostic-only and must not silently downgrade the isolation profile.
-- Implement the planned Memorix canonical retrieval adapter so the primary cross-provider track does not depend on native MCP interaction.
+- Build the source ledger and trace-capture selection protocol required to turn audited public-repository candidates into confirmatory Track C cases.
 
 Next
 - Author preregistered private Track C cases with captured precursor traces and repository-level split registry.

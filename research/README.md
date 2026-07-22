@@ -36,6 +36,10 @@ audited.
 - RESULTS-PILOT.md: excluded diagnostics and non-confirmatory smoke evidence.
 - cases/: public case manifests and case-authoring rules.
 - CASE-CANDIDATES.md: researched candidates that are not yet eligible cases.
+- CASE-REGISTRY-CONTRACT.md: frozen corpus inventory, split isolation, and
+  dependency/contamination disclosure rules.
+- SOURCE-LEDGER-CONTRACT.md: provenance and admission rules for real-repository
+  leads that are not yet benchmark cases.
 - LEGACY-ARTIFACTS.md: pre-snapshot diagnostic artifact boundary.
 - PRIVATE-ORACLE-CONTRACT.md: public/private case boundary and the required
   external isolation proof for confirmatory trials.
@@ -54,6 +58,8 @@ From this directory:
     uv sync --extra dev --extra analysis
     uv run pytest
     uv run memorixbench validate-cases cases
+    uv run memorixbench validate-registry cases/REGISTRY.toml cases
+    uv run memorixbench validate-source-ledger cases/CANDIDATE-SOURCES.toml
 
 Raw worktrees, transcripts, patches, model events, and caches must be written to
 an external artifact root. Set MEMORIXBENCH_ARTIFACT_ROOT to a drive with enough
@@ -134,3 +140,9 @@ whether the classification is `retrospective-development` or `preregistered`.
 Only the latter can support a confirmatory result, and a low-dependency case is
 never promoted into a primary memory-effect result merely because an agent
 completed it.
+
+The registry also freezes repository, task, and trace family identifiers so a
+closely related task cannot leak from development into validation or test. It
+requires an explicit contamination disclosure and a four-part dependency card.
+These disclosures document the experimental boundary; they do not claim that a
+public repository was absent from model pretraining.

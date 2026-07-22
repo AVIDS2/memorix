@@ -136,6 +136,19 @@ The corpus must include multiple repositories and at least TypeScript, Python,
 and Go. Memorix itself may be used for development and smoke tests but is
 excluded from confirmatory generalization claims. Repository-level splits
 prevent closely related cases from appearing in both development and test sets.
+The frozen registry additionally prohibits a repository family, transition/task
+family, or captured-trace family from crossing corpus splits. Each registered
+case carries a dependency rationale, minimal sufficient predecessor evidence,
+plausible stale distractor, no-memory expectation, source/contamination
+disclosure, and authoring-batch id. These are preregistered before the first
+condition run and are not mounted in the agent workspace.
+
+Candidate sources live in a separate ledger and cannot be interpreted as cases
+or result rows. The ledger pins the base revision and license hash at that
+revision, records public-history and benchmark-overlap risk, and requires an
+offline environment plus a private post-snapshot transition before admission.
+Public issue and PR text is treated as provenance metadata, not copied into the
+agent prompt or private oracle.
 
 ## 6. Primary hypotheses
 

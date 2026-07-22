@@ -1,0 +1,78 @@
+schema_version = "0.1"
+ledger_id = "memorixbench-source-screening-v1"
+
+[[candidate]]
+id = "backoff-permanent-error"
+status = "screening"
+language = "go"
+repository_family_id = "cenkalti-backoff"
+repository_url = "https://github.com/cenkalti/backoff"
+base_revision = "7cad66a637c4ffff09d0795608116ddcc7eb1769"
+license_spdx = "MIT"
+license_url = "https://github.com/cenkalti/backoff/blob/7cad66a637c4ffff09d0795608116ddcc7eb1769/LICENSE"
+license_sha256 = "5c0476add4c38b55d0ed5ac11b85e00c38f26e1caee20dfe3ab58190103d1fbc"
+source_urls = ["https://github.com/cenkalti/backoff/issues/177", "https://github.com/cenkalti/backoff/pull/178"]
+causal_chain = "issue-pr"
+environment_readiness = "unverified"
+benchmark_overlap = "unreviewed"
+model_exposure = "public-history-documented"
+public_solution_exists = true
+transition_plan = "not-designed"
+decision_rationale = "Small real Go repair with a pinned MIT base; retain only as a source lead until an independent post-snapshot transfer transition and offline authoring gate exist."
+
+[[candidate]]
+id = "pytest-relative-filename"
+status = "screening"
+language = "python"
+repository_family_id = "pytest-dev-pytest"
+repository_url = "https://github.com/pytest-dev/pytest"
+base_revision = "e7355d70771b5f34f78d7012f73bdc8eb79574d6"
+license_spdx = "MIT"
+license_url = "https://github.com/pytest-dev/pytest/blob/e7355d70771b5f34f78d7012f73bdc8eb79574d6/LICENSE"
+license_sha256 = "ca836a5f9ecca3b2f350230faa20a48fb8b145653b5568d784862df864706b9b"
+source_urls = ["https://github.com/pytest-dev/pytest/issues/1139", "https://github.com/pytest-dev/pytest/pull/14744"]
+causal_chain = "issue-pr"
+environment_readiness = "unverified"
+benchmark_overlap = "unreviewed"
+model_exposure = "public-history-documented"
+public_solution_exists = true
+transition_plan = "not-designed"
+decision_rationale = "Real cross-file Python regression with a pinned MIT base; defer any case construction until the test environment and a memory-dependent private transition are independently verified."
+
+[[candidate]]
+id = "eslint-unreachable-loop-ignore-all"
+status = "screening"
+language = "typescript"
+repository_family_id = "eslint-eslint"
+repository_url = "https://github.com/eslint/eslint"
+base_revision = "044a627fa3e28ee1410d515acc5378eb4b49f8ba"
+license_spdx = "MIT"
+license_url = "https://github.com/eslint/eslint/blob/044a627fa3e28ee1410d515acc5378eb4b49f8ba/LICENSE"
+license_sha256 = "3b6be04f862a077a4b97929dbf247299360824d9365f8603c263769303ace18c"
+source_urls = ["https://github.com/eslint/eslint/pull/21116"]
+causal_chain = "standalone-pr"
+environment_readiness = "unverified"
+benchmark_overlap = "unreviewed"
+model_exposure = "public-history-documented"
+public_solution_exists = true
+transition_plan = "not-designed"
+decision_rationale = "A real deterministic CLI-rule regression with a pinned MIT base, but the public PR is only a causal source and must not be reused as the evaluation answer."
+
+[[candidate]]
+id = "itsdangerous-fips-sha1"
+status = "rejected"
+language = "python"
+repository_family_id = "pallets-itsdangerous"
+repository_url = "https://github.com/pallets/itsdangerous"
+base_revision = "93ae366874bbd4f69d90495c45b2cd336387496c"
+license_spdx = "BSD-3-Clause"
+license_url = "https://github.com/pallets/itsdangerous/blob/93ae366874bbd4f69d90495c45b2cd336387496c/LICENSE.txt"
+license_sha256 = "63af09891b6be8ad1a4252ed43af0f4efba7fc948e228367bed7f3c5ae0b09d7"
+source_urls = ["https://github.com/pallets/itsdangerous/issues/375", "https://github.com/pallets/itsdangerous/pull/378"]
+causal_chain = "issue-pr"
+environment_readiness = "unverified"
+benchmark_overlap = "unreviewed"
+model_exposure = "public-history-documented"
+public_solution_exists = true
+transition_plan = "not-designed"
+decision_rationale = "Rejected for confirmatory recruitment because the same repository family is already represented in the development pilot; keeping it demonstrates the repository-split rule."

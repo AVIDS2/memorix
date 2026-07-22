@@ -1,0 +1,46 @@
+# Case Registry Contract
+
+`cases/REGISTRY.toml` is the frozen public inventory for MemorixBench. It is
+not a leaderboard input and does not turn a case into evidence by itself. Its
+job is to make case inclusion and case drift auditable before any aggregate
+comparison is calculated.
+
+Each entry binds an id, relative `case.toml` path, enrollment class, corpus
+split, repository/task/trace family ids, authoring batch, source and
+contamination disclosure, dependency card, captured-trace count, and SHA-256 of
+the complete public case-definition tree. `memorixbench validate-registry`
+rejects a missing case, an unregistered case, a duplicate, a path escape, an id
+mismatch, a changed public definition, or a shared repository/task/trace family
+across corpus splits.
+
+The dependency card has four deliberately separate statements: why predecessor
+knowledge is needed, the smallest useful evidence, a tempting but obsolete
+distractor, and what a no-memory agent should reasonably be able to infer. It
+is a preregistration aid, not an oracle answer. The case workspace never mounts
+this registry for a worker.
+
+`contamination_risk` is a disclosure, not a magical proof that a public
+repository was absent from model training. A confirmatory public-repository
+case must use a privately authored post-snapshot transition, record the risk,
+and be analyzed as an intervention on shared code priors rather than a test of
+novel code synthesis.
+
+## Enrollment classes
+
+`development-pilot` is the only class in the initial registry. It requires a
+`development` split and `retrospective-development` dependency classification.
+Those cases are useful for authoring gates, adapter smoke, runtime variance,
+and failure-mode discovery. They are never included in a confirmatory table.
+
+`confirmatory` is deliberately unavailable to a merely polished development
+case. It requires a `validation` or `test` split, preregistered dependency
+classification, private oracle, Track C trace replay,
+`captured-session-v1` provenance, a public repository, a privately authored
+post-snapshot transition, and at least two independently captured precursor
+traces. The separate private overlay and KVM controller admission gates still
+apply after registry validation. The runner will not use a confirmatory entry
+until its trace-selection and external black-box gates also pass.
+
+The current registry has five development pilots across Go, Python, and
+TypeScript. It has zero confirmatory cases. That is an honest starting point,
+not a deficiency hidden by relabeling pilot data.

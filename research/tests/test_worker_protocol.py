@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+import memorixbench.worker_protocol as worker_protocol
 import subprocess
 
 import pytest
@@ -17,7 +18,7 @@ from memorixbench.actions import write_action_ledger
 
 def _workspace(tmp_path: Path) -> Path:
     workspace = tmp_path / "workspace"
-    workspace.mkdir()
+    workspace.mkdir(parents=True)
     subprocess.run(["git", "init", "--quiet"], cwd=workspace, check=True)
     subprocess.run(["git", "config", "user.name", "MemorixBench Test"], cwd=workspace, check=True)
     subprocess.run(["git", "config", "user.email", "test@example.invalid"], cwd=workspace, check=True)
@@ -86,6 +87,48 @@ def test_worker_snapshot_rejects_dirty_public_workspace(tmp_path: Path) -> None:
     (workspace / "value.txt").write_text("dirty\n", encoding="utf-8")
 
     with pytest.raises(WorkerProtocolError, match="start clean"):
+        workspace_snapshot_hash(workspace)
+
+
+def test_worker_snapshot_is_stable_across_distinct_commit_metadata(tmp_path: Path) -> None:
+    first = _workspace(tmp_path / "first")
+    second = _workspace(tmp_path / "second")
+
+    assert workspace_snapshot_hash(first) == workspace_snapshot_hash(second)
+
+
+def test_worker_snapshot_rejects_ignored_workspace_files(tmp_path: Path) -> None:
+    workspace = _workspace(tmp_path)
+    (workspace / ".gitignore").write_text("ignored.txt\n", encoding="utf-8")
+    subprocess.run(["git", "add", ".gitignore"], cwd=workspace, check=True)
+    subprocess.run(["git", "commit", "--quiet", "-m", "ignore local artifact"], cwd=workspace, check=True)
+    (workspace / "ignored.txt").write_text("not part of the source tree\n", encoding="utf-8")
+
+    with pytest.raises(WorkerProtocolError, match="including ignored files"):
+        workspace_snapshot_hash(workspace)
+
+
+def test_worker_snapshot_rejects_linked_worktree_git_metadata(tmp_path: Path) -> None:
+    workspace = _workspace(tmp_path)
+    (workspace / ".git").rename(workspace / ".git-directory")
+    (workspace / ".git").write_text("gitdir: ../external/.git\n", encoding="utf-8")
+
+    with pytest.raises(WorkerProtocolError, match="regular .git directory"):
+        workspace_snapshot_hash(workspace)
+
+
+def test_worker_snapshot_rejects_a_reparse_workspace_root(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = _workspace(tmp_path)
+    original = worker_protocol._is_reparse_point
+
+    def root_only(path: Path) -> bool:
+        return path.resolve() == workspace.resolve() or original(path)
+
+    monkeypatch.setattr(worker_protocol, "_is_reparse_point", root_only)
+    with pytest.raises(WorkerProtocolError, match="workspace root"):
         workspace_snapshot_hash(workspace)
 
 

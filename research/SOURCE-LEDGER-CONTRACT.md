@@ -37,10 +37,10 @@ used to satisfy a preregistered source-diversity quota on its own.
 A public issue or pull request can establish that an engineering problem had a
 real upstream cause. It cannot supply an unobserved oracle: its discussion,
 patch, and tests are already public and may have appeared in training data.
-MemorixBench therefore treats public history as a source lead only. The actual
-Track C transfer case must be rebuilt from a pinned base with a new private
-post-snapshot transition, newly captured precursor sessions, and a controller-
-only oracle.
+MemorixBench therefore treats public history as a source lead only. A
+confirmatory Track C transfer case must be rebuilt from a pinned base with a
+new private post-snapshot transition, newly captured precursor sessions, and a
+controller-only oracle.
 
 This makes the claim deliberately narrower and more defensible: under the same
 code prior, does a declared memory intervention improve cross-session transfer?

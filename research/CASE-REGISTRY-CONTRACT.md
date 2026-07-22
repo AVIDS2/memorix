@@ -29,8 +29,11 @@ novel code synthesis.
 
 `development-pilot` is the only class in the initial registry. It requires a
 `development` split and `retrospective-development` dependency classification.
-Those cases are useful for authoring gates, adapter smoke, runtime variance,
-and failure-mode discovery. They are never included in a confirmatory table.
+Seeded Track B pilots must declare zero captured traces. Track C pilots must
+bind a `trace-replay` multi-capture bundle and declare its exact capture count;
+the loader verifies every trace/receipt commitment and their shared snapshot.
+Both kinds are useful for authoring gates, adapter smoke, runtime variance, and
+failure-mode discovery. They are never included in a confirmatory table.
 
 `confirmatory` is deliberately unavailable to a merely polished development
 case. It requires a `validation` or `test` split, preregistered dependency
@@ -41,6 +44,9 @@ traces. The separate private overlay and KVM controller admission gates still
 apply after registry validation. The runner will not use a confirmatory entry
 until its trace-selection and external black-box gates also pass.
 
-The current registry has five development pilots across Go, Python, and
-TypeScript. It has zero confirmatory cases. That is an honest starting point,
-not a deficiency hidden by relabeling pilot data.
+The current registry has seven development case variants across Go, Python,
+and TypeScript, covering five task families. The two Cobra variants are a
+Track B/Track C methodological pair for one task family and must never be
+counted as independent samples in a pooled result. It has zero confirmatory
+cases. That is an honest starting point, not a deficiency hidden by relabeling
+pilot data.

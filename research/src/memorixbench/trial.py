@@ -71,7 +71,7 @@ SUPPORTED_CONDITIONS = {
     *CANONICAL_RETRIEVAL_CONDITIONS,
 }
 CANONICAL_RETRIEVAL_TOP_K = 8
-CANONICAL_RETRIEVAL_TOKEN_BUDGET = 180
+CANONICAL_RETRIEVAL_TOKEN_BUDGET = 512
 NATIVE_MCP_CALL_BUDGET = 1
 MEMORIX_ALLOWED_TOOLS = (
     "mcp__memorix__memorix_project_context",
@@ -83,7 +83,7 @@ INFRASTRUCTURE_FAILURE_REASONS = {
     "agent-runtime",
     "missing-completion-event",
 }
-CLAUDE_BASE_ALLOWED_TOOLS = ("Read", "Edit", "Bash")
+CLAUDE_BASE_ALLOWED_TOOLS = ("Read", "Edit", "Bash(git *)")
 SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 
 
@@ -378,6 +378,24 @@ def is_valid_execution(
     return not environment_violation and failure_reason not in INFRASTRUCTURE_FAILURE_REASONS
 
 
+def is_task_success(
+    evaluation_passed: bool,
+    *,
+    completed: bool,
+    timed_out: bool,
+    failure_reason: str | None,
+) -> bool:
+    """A correct patch only counts when the agent finished within its budget."""
+
+    return evaluation_passed and completed and not timed_out and failure_reason is None
+
+
+def _trial_run_directory(artifact_root: Path, run_id: str) -> Path:
+    """Keep artifact paths short on Windows; identity is committed in result.json."""
+
+    return artifact_root / "runs" / run_id
+
+
 def _resolve_case_asset(manifest: CaseManifest, relative: str) -> Path:
     root = manifest.source_path.parent.resolve()
     candidate = (root / relative).resolve()
@@ -614,15 +632,7 @@ def run_trial(
     run_id = str(uuid.uuid4())
     model_label = model or "client-default"
     artifact_root_path = Path(artifact_root).resolve()
-    run_dir = (
-        artifact_root_path
-        / study_id
-        / manifest.case_id
-        / agent
-        / model_label.replace("/", "_")
-        / condition
-        / f"r{repetition}-s{seed}-{run_id}"
-    )
+    run_dir = _trial_run_directory(artifact_root_path, run_id)
     workspace_isolation = "artifact-local"
     workspace_run_root: Path | None = None
     workspace_root_path: Path | None = None
@@ -769,6 +779,7 @@ def run_trial(
                     "logical_round_count": retrieval.retrieval_round_count,
                     "transport_call_count": canonical.transport_call_count,
                     "candidate_refs": list(canonical.candidate_refs),
+                    "detail_redaction_count": canonical.detail_redaction_count,
                 },
                 "retrieval_seconds": memory_retrieval_seconds,
             })
@@ -975,8 +986,7 @@ def run_trial(
         assert workspace_root_path is not None
         denied_roots = {
             artifact_root_path,
-            Path(artifact_root_path.anchor),
-            Path(Path.home().anchor),
+            Path.home(),
             _git_root(manifest.source_path.parent),
         }
         claude_settings = write_claude_settings(
@@ -1100,7 +1110,12 @@ def run_trial(
         seed=seed,
         valid_run=valid_run,
         failure_reason=failure_reason,
-        task_success=evaluation.passed,
+        task_success=is_task_success(
+            evaluation.passed,
+            completed=execution.completed,
+            timed_out=execution.timed_out,
+            failure_reason=failure_reason,
+        ),
         agent_returncode=execution.returncode,
         timed_out=execution.timed_out,
         first_correct_action_seconds=None,

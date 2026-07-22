@@ -1,0 +1,23 @@
+{
+  "schema_version": "precursor-trace-bundle-v1",
+  "case_id": "go-cobra-completion-input-ownership",
+  "selection": "hash-bucket-v1",
+  "captures": [
+    {
+      "capture_id": "cobra-completion-review-a-v4",
+      "trace_path": "traces/capture-a-trace.json",
+      "trace_source_sha256": "ac637dbcd758f0b4ea7088cffea60f564174291e6a6623f031b944855cabe188",
+      "canonical_trace_sha256": "6820924b5904197bb8b6893018a6cbbd6f7ef42b07eb64d8e8aa3fd1ad9233ab",
+      "receipt_path": "traces/capture-a-receipt.json",
+      "receipt_sha256": "8fbff6b41a88469d6011f4943cfbdd629d5748e9ae688f56dfa82edeff2b17dd"
+    },
+    {
+      "capture_id": "cobra-completion-review-b-v1",
+      "trace_path": "traces/capture-b-trace.json",
+      "trace_source_sha256": "057490e55d570f860202c7e1f2bae042fa041bf3b3423d5ab6cce3b614567a67",
+      "canonical_trace_sha256": "90035840bc527baa427372d37faddcb39ec2b65f2b395c35c0b493e02aeecb5e",
+      "receipt_path": "traces/capture-b-receipt.json",
+      "receipt_sha256": "27f83da68ff1d2e3096a4657a4e7b9ade687cecb613271a74e492ed9a8668194"
+    }
+  ]
+}

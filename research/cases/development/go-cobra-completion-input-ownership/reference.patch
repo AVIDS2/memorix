@@ -1,0 +1,13 @@
+diff --git a/completion_input.go b/completion_input.go
+index 583d93d..8d25ea0 100644
+--- a/completion_input.go
++++ b/completion_input.go
+@@ -16,5 +16,7 @@ package cobra
+ 
+ // completionInput separates the incomplete word from the completed arguments.
+ func completionInput(args []string) (trimmedArgs []string, toComplete string) {
+-	return args[:len(args)-1], args[len(args)-1]
++	toComplete = args[len(args)-1]
++	trimmedArgs = append([]string(nil), args[:len(args)-1]...)
++	return trimmedArgs, toComplete
+ }

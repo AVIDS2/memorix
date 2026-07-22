@@ -49,15 +49,26 @@ Results are ranked by the provider, then rendered under the neutral warning:
 > against the current source.
 
 The current development setting retrieves at most 8 records and injects at
-most 180 tokens counted with `lexical-token-proxy-v1`. This offline proxy is
-only a common context ceiling; provider-reported prompt tokens remain the
-primary token accounting in result tables. The proxy deliberately avoids a
-tokenizer that downloads data during an experiment.
+most 512 tokens counted with `lexical-token-proxy-v1`. This ceiling was raised
+during development calibration because 180 proxy tokens could not retain one
+complete terminal handoff event; it is frozen before any validation or test
+case is admitted. The offline proxy is only a common context ceiling;
+provider-reported prompt tokens remain the primary token accounting in result
+tables. The proxy deliberately avoids a tokenizer that downloads data during
+an experiment.
 
 Each canonical retrieval records its actual provider call count and round count;
 the one-call/one-round profile is explicit rather than inferred from a unique
 tool name. Native product runs are reported as their own surface through the
 bounded gateway in `NATIVE-MCP-BUDGET-CONTRACT.md`.
+
+For Memorix's canonical formation, each explicit `memorix_store` write is
+synchronous and searchable before the call returns. The adapter therefore
+starts retrieval immediately after those audited writes and records
+`deferred-after-synchronous-store-v1` rather than polling unrelated asynchronous
+claim, knowledge, or workflow maintenance. Those background features remain
+part of the native product surface, not hidden formation latency in the
+canonical retrieval comparison.
 
 ## Memorix Canonical Adapter
 
@@ -68,7 +79,7 @@ CodeGraph refresh, or any write tool during transfer. It runs one logical
 provider retrieval round: Memorix compact search receives the frozen transfer
 query and returns at most eight typed observation refs; one bulk detail call
 hydrates only those refs; the adapter then renders the returned memory evidence
-through the same neutral 180-token renderer used by the other canonical
+through the same neutral 512-token renderer used by the other canonical
 conditions.
 
 The artifact records both meanings of “call”: `logical_retrieval_call_count =

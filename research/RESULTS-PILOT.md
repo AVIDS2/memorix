@@ -115,3 +115,27 @@ truthiness regression easy to infer directly. This is therefore an admission
 and runner diagnostic, not a Memorix comparison row: the case is retained for
 authoring and ownership checks but classified as low precursor-dependency until
 a harder successor case is independently admitted.
+
+## Cobra Track C replay diagnostics
+
+The Cobra ownership case is a development-only Track C exercise with two
+locally captured, mixed-client precursor sessions. It is not included in any
+comparison table or effect estimate.
+
+During hardening, the first `last-n` execution exposed a renderer defect: the
+180-token budget could not hold one complete terminal event and produced a
+header-only prompt. The common development budget was recalibrated to 512
+lexical proxy tokens before any validation or test enrollment, and the renderer
+now rejects an empty replay view instead of executing it. A subsequent B-trace
+`last-n` smoke completed the ownership repair with a clean command audit.
+
+The first Memorix canonical smoke then exposed adapter defects rather than a
+product outcome: the adapter used an unsupported `session-event` type and did
+not treat MCP `isError` responses as failed writes. Those artifacts are
+diagnostic failures and are not result rows. After fixing the adapter, a real
+no-model formation/retrieval diagnostic wrote 20 supported observations,
+retrieved eight ranked candidates, preserved the ownership invariant inside a
+512-token context, and redacted all host paths before injection. A later real
+canonical Claude smoke completed the repair through one logical search/detail
+round. The client telemetry was mixed, the oracle was public, and no matched
+control was run, so this remains a functional smoke only.

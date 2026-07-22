@@ -5,6 +5,7 @@ import hashlib
 import json
 from pathlib import Path
 import shutil
+import stat
 import subprocess
 from typing import Any
 
@@ -112,16 +113,93 @@ def _git_output(workspace: Path, *args: str) -> str:
     return completed.stdout
 
 
-def workspace_snapshot_hash(workspace: str | Path) -> str:
-    """Hash the public worker start state without exposing its file contents."""
+def _is_reparse_point(path: Path) -> bool:
+    attributes = getattr(path.lstat(), "st_file_attributes", 0)
+    return bool(attributes & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400))
 
-    root = Path(workspace).resolve()
-    status = _git_output(root, "status", "--porcelain=v1", "--untracked-files=all")
+
+def _hash_workspace_tree(root: Path) -> str:
+    """Hash every visible workspace path without inheriting temporary Git commits."""
+
+    digest = hashlib.sha256()
+    digest.update(b"memorixbench-workspace-tree-v2\0")
+
+    def visit(directory: Path) -> None:
+        for child in sorted(directory.iterdir(), key=lambda item: item.name.casefold()):
+            relative = child.relative_to(root).as_posix()
+            if relative == ".git" or relative.startswith(".git/"):
+                continue
+            if child.is_symlink() or _is_reparse_point(child):
+                raise WorkerProtocolError(
+                    f"worker workspace cannot contain symbolic or reparse paths: {relative}"
+                )
+            metadata = child.lstat()
+            if stat.S_ISDIR(metadata.st_mode):
+                digest.update(b"D\0")
+                digest.update(relative.encode("utf-8"))
+                digest.update(b"\0")
+                visit(child)
+                continue
+            if not stat.S_ISREG(metadata.st_mode):
+                raise WorkerProtocolError(
+                    f"worker workspace contains an unsupported filesystem entry: {relative}"
+                )
+            digest.update(b"F\0")
+            digest.update(relative.encode("utf-8"))
+            digest.update(b"\0")
+            digest.update(str(stat.S_IMODE(metadata.st_mode)).encode("ascii"))
+            digest.update(b"\0")
+            with child.open("rb") as handle:
+                for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                    digest.update(chunk)
+    visit(root)
+    return digest.hexdigest()
+
+
+def _validated_workspace_root(workspace: str | Path) -> Path:
+    requested = Path(workspace)
+    try:
+        metadata = requested.lstat()
+    except OSError as error:
+        raise WorkerProtocolError("worker workspace cannot be inspected") from error
+    if requested.is_symlink() or _is_reparse_point(requested):
+        raise WorkerProtocolError("worker workspace root cannot be a symbolic or reparse path")
+    if not stat.S_ISDIR(metadata.st_mode):
+        raise WorkerProtocolError("worker workspace root must be a directory")
+    root = requested.resolve()
+    git_metadata = root / ".git"
+    try:
+        git_stat = git_metadata.lstat()
+    except OSError as error:
+        raise WorkerProtocolError("worker workspace must use a regular .git directory") from error
+    if (
+        git_metadata.is_symlink()
+        or _is_reparse_point(git_metadata)
+        or not stat.S_ISDIR(git_stat.st_mode)
+    ):
+        raise WorkerProtocolError("worker workspace must use a regular .git directory")
+    return root
+
+
+def workspace_snapshot_hash(workspace: str | Path) -> str:
+    """Commit a stable, clean public workspace tree without exposing contents.
+
+    The hash intentionally excludes `.git` metadata: materialized fixture commits
+    have local timestamps, while the tree that an agent can inspect must retain
+    one stable identity across independent captures.
+    """
+
+    root = _validated_workspace_root(workspace)
+    status = _git_output(
+        root,
+        "status",
+        "--porcelain=v1",
+        "--untracked-files=all",
+        "--ignored=matching",
+    )
     if status.strip():
-        raise WorkerProtocolError("worker workspace must start clean")
-    revision = _git_output(root, "rev-parse", "HEAD").strip()
-    tree = _git_output(root, "rev-parse", "HEAD^{tree}").strip()
-    return _sha256_text(f"{revision}\0{tree}\0")
+        raise WorkerProtocolError("worker workspace must start clean, including ignored files")
+    return _hash_workspace_tree(root)
 
 
 def _capture_workspace_patch(workspace: Path, target: Path) -> SealedPatch:

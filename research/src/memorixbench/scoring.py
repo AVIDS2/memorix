@@ -54,6 +54,9 @@ class RunResult:
     study_track: str = "unclassified"
     formation_track: str = "unclassified"
     precursor_trace_sha256: str | None = None
+    reported_models: tuple[str, ...] = ()
+    case_definition_sha256: str | None = None
+    oracle_definition_sha256: str | None = None
 
     @property
     def pair_key(self) -> tuple[str, str, str, int, int]:
@@ -90,6 +93,15 @@ class RunResult:
             None
             if data.get("precursor_trace_sha256") is None
             else str(data["precursor_trace_sha256"])
+        )
+        reported_models = _reported_models(data.get("reported_models", ()))
+        case_definition_sha256 = _optional_identity(
+            data.get("case_definition_sha256"),
+            label="case_definition_sha256",
+        )
+        oracle_definition_sha256 = _optional_identity(
+            data.get("oracle_definition_sha256"),
+            label="oracle_definition_sha256",
         )
         annotation_status = str(data.get("annotation_status", "pending-v1"))
         first_correct_action_status = str(
@@ -169,6 +181,9 @@ class RunResult:
             study_track=study_track,
             formation_track=formation_track,
             precursor_trace_sha256=precursor_trace_sha256,
+            reported_models=reported_models,
+            case_definition_sha256=case_definition_sha256,
+            oracle_definition_sha256=oracle_definition_sha256,
         )
 
 
@@ -196,7 +211,46 @@ def _optional_int(value: object) -> int | None:
     return None if value is None else int(value)
 
 
+def _reported_models(value: object) -> tuple[str, ...]:
+    if not isinstance(value, (list, tuple)):
+        raise ValueError("reported_models must be a sequence")
+    models: list[str] = []
+    for item in value:
+        if not isinstance(item, str) or not item.strip():
+            raise ValueError("reported_models must contain non-empty strings")
+        models.append(item.strip())
+    return tuple(sorted(set(models)))
+
+
+def _optional_identity(value: object, *, label: str) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{label} must be a non-empty string when present")
+    return value.strip()
+
+
 def _assert_pair_compatible(treatment: RunResult, control: RunResult) -> None:
+    if not treatment.reported_models or not control.reported_models:
+        raise ValueError("paired runs must report their actual model identity")
+    if treatment.reported_models != control.reported_models:
+        raise ValueError("paired runs report different actual models")
+    for label, treatment_value, control_value in (
+        (
+            "case definition",
+            treatment.case_definition_sha256,
+            control.case_definition_sha256,
+        ),
+        (
+            "oracle definition",
+            treatment.oracle_definition_sha256,
+            control.oracle_definition_sha256,
+        ),
+    ):
+        if treatment_value is None or control_value is None:
+            raise ValueError(f"paired runs are missing a {label} identity")
+        if treatment_value != control_value:
+            raise ValueError(f"paired runs use different {label}s")
     if treatment.study_track != control.study_track:
         raise ValueError("paired runs use different study tracks")
     if treatment.formation_track != control.formation_track:

@@ -93,8 +93,6 @@ def verify_case_authoring(
             timeout_seconds=timeout_seconds,
         )
     )
-    public_checks = evaluate_source_checks(manifest, public.path)
-
     hidden = materialize_case(
         manifest,
         root / "03-transfer-hidden",
@@ -143,22 +141,16 @@ def verify_case_authoring(
             workspace=str(public.path),
             repository_transport=public.repository_transport,
             repository_origin=public.repository_origin,
-            passed=(
-                phase_passed(list(public_commands))
-                and _checks_passed(public_checks)
-            ),
+            passed=phase_passed(list(public_commands)),
             commands=public_commands,
-            source_checks=public_checks,
+            source_checks=(),
         ),
         AuthoringGateResult(
             name="transfer-hidden-regression",
             workspace=str(hidden.path),
             repository_transport=hidden.repository_transport,
             repository_origin=hidden.repository_origin,
-            passed=(
-                not phase_passed(list(hidden_evaluation.commands))
-                and _checks_passed(hidden_evaluation.source_checks)
-            ),
+            passed=not phase_passed(list(hidden_evaluation.commands)),
             commands=hidden_evaluation.commands,
             source_checks=hidden_evaluation.source_checks,
             hidden_patch_sha256=hidden_evaluation.hidden_patch_sha256,

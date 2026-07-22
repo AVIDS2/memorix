@@ -1,0 +1,37 @@
+{
+  "schema_version": "captured-trace-receipt-v2",
+  "capture_id": "cobra-completion-review-a-v4",
+  "case_id": "go-cobra-completion-input-ownership",
+  "agent": "claude",
+  "requested_model": null,
+  "reported_models": [
+    "claude-haiku-4-5",
+    "claude-opus-4-8[1m]",
+    "deepseek-v4-pro"
+  ],
+  "client_version": "claude-cli-2.1.201",
+  "capture_mode": "local-diagnostic-v1",
+  "workspace_snapshot_sha256": "04784a394f11971e57f9b00c9333e07a1ab811fe203e1880c9ccd836895d51ee",
+  "raw_events_sha256": "2242e1df6f24ccca57508d5d44f8b93cd85d1a05563e1781b4912a66395879c9",
+  "raw_timeline_sha256": "3d4ec5bedc4b04631c350bf843fe6177ef0959ac83f40d1b665620c7864691f2",
+  "timeline_record_count": 1485,
+  "timeline_binding": "stdout-concatenation-v1",
+  "canonical_trace_sha256": "6820924b5904197bb8b6893018a6cbbd6f7ef42b07eb64d8e8aa3fd1ad9233ab",
+  "trace_source_sha256": "ac637dbcd758f0b4ea7088cffea60f564174291e6a6623f031b944855cabe188",
+  "raw_event_count": 1485,
+  "raw_event_type_counts": {
+    "assistant": 45,
+    "result": 1,
+    "system": 1415,
+    "user": 24
+  },
+  "omitted_event_counts": {
+    "claude-content:thinking": 21,
+    "claude-result-duplicate": 1,
+    "claude-system:init": 1,
+    "claude-system:thinking_tokens": 1414
+  },
+  "trace_event_count": 49,
+  "redaction_count": 44,
+  "captured_at_utc": "2026-07-22T07:11:57.658313+00:00"
+}

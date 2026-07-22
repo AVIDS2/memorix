@@ -1,0 +1,518 @@
+{
+  "schema_version": "precursor-trace-v1",
+  "case_id": "go-cobra-completion-input-ownership",
+  "provenance": "captured-session-v1",
+  "normalization": "event-normalize-v1",
+  "events": [
+    {
+      "id": "cobra-completion-review-a-v4-event-1",
+      "session_id": "cobra-completion-review-a-v4",
+      "sequence": 0,
+      "turn": 0,
+      "role": "user",
+      "kind": "message",
+      "content": "Read the shell-completion argument flow and give a short handoff for the next\ndeveloper. In three bullets, state the behavior that must be preserved, the\ncurrent helper or owner where it lives, and one refactor risk. Inspect only the\nrelevant source. Do not run tests, do not modify files, and do not use network."
+    },
+    {
+      "id": "cobra-completion-review-a-v4-event-2",
+      "session_id": "cobra-completion-review-a-v4",
+      "sequence": 1,
+      "turn": 0,
+      "role": "assistant",
+      "kind": "tool_call",
+      "content": "{\"command\":\"find . -type f -name \\\"*.go\\\" | xargs grep -l -i \\\"completion<ABSOLUTE_PATH>|shell.comp<ABSOLUTE_PATH>|GenMan\\\" 2>/dev/null | head -30\",\"description\":\"Find Go files related to shell completion\"}",
+      "tool_name": "Bash",
+      "tool_call_id": "call_00_3gb9oWGJsFifGykALNPs4495"
+    },
+    {
+      "id": "cobra-completion-review-a-v4-event-3",
+      "session_id": "cobra-completion-review-a-v4",
+      "sequence": 2,
+      "turn": 0,
+      "role": "tool",
+      "kind": "tool_result",
+      "content": "This Bash command contains multiple operations. The following part requires approval: xargs grep -l -i \"completion\\|shell.comp\\|GenMan\"",
+      "tool_call_id": "call_00_3gb9oWGJsFifGykALNPs4495"
+    },
+    {
+      "id": "cobra-completion-review-a-v4-event-4",
+      "session_id": "cobra-completion-review-a-v4",
+      "sequence": 3,
+      "turn": 0,
+      "role": "assistant",
+      "kind": "tool_call",
+      "content": "{\"command\":\"ls -la\",\"description\":\"List root directory\"}",
+      "tool_name": "Bash",
+      "tool_call_id": "call_01_1e2BjSAOAqSC6l1EbIhy2892"
+    },
+    {
+      "id": "cobra-completion-review-a-v4-event-5",
+      "session_id": "cobra-completion-review-a-v4",
+      "sequence": 4,
+      "turn": 0,
+      "role": "tool",
+      "kind": "tool_result",
+      "content": "total 589\ndrwxr-xr-x 1 Lenovo 197121      0 Jul 22 15:10 .\ndrwxr-xr-x 1 Lenovo 197121      0 Jul 22 15:10 ..\ndrwxr-xr-x 1 Lenovo 197121      0 Jul 22 15:10 .git\ndrwxr-xr-x 1 Lenovo 197121      0 Jul 22 15:10 .github\n-rw-r--r-- 1 Lenovo 197121    523 Jul 22 15:10 .gitignore\n-rw-r--r-- 1 Lenovo 197121   1611 Jul 22 15:10 .golangci.yml\n-rw-r--r-- 1 Lenovo 197121    175 Jul 22 15:10 .mailmap\n-rw-r--r-- 1 Lenovo 197121   3159 Jul 22 15:10 CONDUCT.md\n-rw-r--r-- 1 Lenovo 197121   2147 Jul 22 15:10 CONTRIBUTING.md\n-rw-r--r-- 1 Lenovo 197121  10314 Jul 22 15:10 LICENSE.txt\n-rw-r--r-- 1 Lenovo 197121    150 Jul 22 15:10 MAINTAINERS\n-rw-r--r-- 1 Lenovo 197121    942 Jul 22 15:10 Makefile\n-rw-r--r-- 1 Lenovo 197121   5082 Jul 22 15:10 README.md\n-rw-r--r-- 1 Lenovo 197121   5214 Jul 22 15:10 SECURITY.md\n-rw-r--r-- 1 Lenovo 197121   2694 Jul 22 15:10 active_help.go\n-rw-r--r-- 1 Lenovo 197121  12693 Jul 22 15:10 active_help_test.go\n-rw-r--r-- 1 Lenovo 197121   4241 Jul 22 15:10 args.go\n-rw-r--r-- 1 Lenovo 197121  15416 Jul 22 15:10 args_test.go\ndrwxr-xr-x 1 Lenovo 197121      0 Jul 22 15:10 assets\n-rw-r--r-- 1 Lenovo 197121  23731 Jul 22 15:10 bash_completions.go\n-rw-r--r-- 1 Lenovo 197121  18337 Jul 22 15:10 bash_completionsV2.go\n-rw-r--r-- 1 Lenovo 197121   1040 Jul 22 15:10 bash_completionsV2_test.go\n-rw-r--r-- 1 Lenovo 197121  10500 Jul 22 15:10 bash_completions_test.go\n-rw-r--r-- 1 Lenovo 197121   7727 Jul 22 15:10 cobra.go\n-rw-r--r-- 1 Lenovo 197121   7357 Jul 22 15:10 cobra_test.go\n-rw-r--r-- 1 Lenovo 197121  63214 Jul 22 15:10 command.go\n-rw-r--r-- 1 Lenovo 197121    709 Jul 22 15:10 command_notwin.go\n-rw-r--r-- 1 Lenovo 197121  83069 Jul 22 15:10 command_test.go\n-rw-r--r-- 1 Lenovo 197121   1094 Jul 22 15:10 command_win.go\n-rw-r--r-- 1 Lenovo 197121  40385 Jul 22 15:10 completions.go\n-rw-r--r-- 1 Lenovo 197121 121212 Jul 22 15:10 completions_test.go\ndrwxr-xr-x 1 Lenovo 197121      0 Jul 22 15:10 doc\n-rw-r--r-- 1 Lenovo 197121  11826 Jul 22 15:10 fish_completions.go\n-rw-r--r-- 1 Lenovo 197121   4145 Jul 22 15:10 fish_completions_test.go\n-rw-r--r-- 1 Lenovo 197121   9910 Jul 22 15:10 flag_groups.go\n-rw-r--r-- 1 Lenovo 197121   9088 Jul 22 15:10 flag_groups_test.go\n-rw-r--r-- 1 Lenovo 197121    206 Jul 22 15:10 go.mod\n-rw-r--r-- 1 Lenovo 197121   1100 Jul 22 15:10 go.sum\n-rw-r--r-- 1 Lenovo 197121  13961 Jul 22 15:10 powershell_completions.go\n-rw-r--r-- 1 Lenovo 197121   1033 Jul 22 15:10 powershell_completions_test.go\n-rw-r--r-- 1 Lenovo 197121   4447 Jul 22 15:10 shell_completions.go\ndrwxr-xr-x 1 Lenovo 197121      0 Jul 22 15:10 site\n-rw-r--r-- 1 Lenovo 197121  11328 Jul 22 15:10 zsh_completions.go\n-rw-r--r-- 1 Lenovo 197121   1028 Jul 22 15:10 zsh_completions_test.go",
+      "tool_call_id": "call_01_1e2BjSAOAqSC6l1EbIhy2892"
+    },
+    {
+      "id": "cobra-completion-review-a-v4-event-6",
+      "session_id": "cobra-completion-review-a-v4",
+      "sequence": 5,
+      "turn": 0,
+      "role": "assistant",
+      "kind": "tool_call",
+      "content": "{\"file_path\":\"<ABSOLUTE_PATH>\"}",
+      "tool_name": "Read",
+      "tool_call_id": "call_00_LqvsqLQZySVHEjkIpZ9w2862"
+    },
+    {
+      "id": "cobra-completion-review-a-v4-event-7",
+      "session_id": "cobra-completion-review-a-v4",
+      "sequence": 6,
+      "turn": 0,
+      "role": "tool",
+      "kind": "tool_result",
+      "content": "1\t// Copyright 2013-2023 The Cobra Authors\n2\t//\n3\t// Licensed under the Apache License, Version 2.0 (the \"License\");\n4\t// you may not use this file except in compliance with the License.\n5\t// You may obtain a copy of the License at\n6\t//\n7\t//      htt<ABSOLUTE_PATH>\n8\t//\n9\t// Unless required by applicable law or agreed to in writing, software\n10\t// distributed under the License is distributed on an \"AS IS\" BASIS,\n11\t// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\n12\t// See the License for the specific language governing permissions and\n13\t// limitations under the License.\n14\n15\tpackage cobra\n16\n17\timport (\n18\t\t\"github.com/spf13/pflag\"\n19\t)\n20\n21\t// MarkFlagRequired instructs the various shell completion implementations to\n22\t// prioritize the named flag when performing completion,\n23\t// and causes your command to report an error if invoked without the flag.\n24\tfunc (c *Command) MarkFlagRequired(name string) error {\n25\t\treturn MarkFlagRequired(c.Flags(), name)\n26\t}\n27\n28\t// MarkPersistentFlagRequired instructs the various shell completion implementations to\n29\t// prioritize the named persistent flag when performing completion,\n30\t// and causes your command to report an error if invoked without the flag.\n31\tfunc (c *Command) MarkPersistentFlagRequired(name string) error {\n32\t\treturn MarkFlagRequired(c.PersistentFlags(), name)\n33\t}\n34\n35\t// MarkFlagRequired instructs the various shell completion implementations to\n36\t// prioritize the named flag when performing completion,\n37\t// and causes your command to report an error if invoked without the flag.\n38\tfunc MarkFlagRequired(flags *pflag.FlagSet, name string) error {\n39\t\treturn flags.SetAnnotation(name, BashCompOneRequiredFlag, []string{\"true\"})\n40\t}\n41\n42\t// MarkFlagFilename instructs the various shell completion implementations to\n43\t// limit completions for the named flag to the specified file extensions.\n44\tfunc (c *Command) MarkFlagFilename(name string, extensions ...string) error {\n45\t\treturn MarkFlagFilename(c.Flags(), name, extensions...)\n46\t}\n47\n48\t// MarkFlagCustom adds the BashCompCustom annotation to the named flag, if it exists.\n49\t// The bash completion script will call the bash function f for the flag.\n50\t//\n51\t// This will only work for bash completion.\n52\t// It is recommended to instead use c.RegisterFlagCompletionFunc(...) which allows\n53\t// to register a Go function which will work across all shells.\n54\tfunc (c *Command) MarkFlagCustom(name string, f string) error {\n55\t\treturn MarkFlagCustom(c.Flags(), name, f)\n56\t}\n57\n58\t// MarkPersistentFlagFilename instructs the various shell completion\n59\t// implementations to limit completions for the named persistent flag to the\n60\t// specified file extensions.\n61\tfunc (c *Command) MarkPersistentFlagFilename(name string, extensions ...string) error {\n62\t\treturn MarkFlagFilename(c.PersistentFlags(), name, extensions...)\n63\t}\n64\n65\t// MarkFlagFilename instructs the various shell completion implementations to\n66\t// limit completions for the named flag to the specified file extensions.\n67\tfunc MarkFlagFilename(flags *pflag.FlagSet, name string, extensions ...string) error {\n68\t\treturn flags.SetAnnotation(name, BashCompFilenameExt, extensions)\n69\t}\n70\n71\t// MarkFlagCustom adds the BashCompCustom annotation to the named flag, if it exists.\n72\t// The bash completion script will call the bash function f for the flag.\n73\t//\n74\t// This will only work for bash completion.\n75\t// It is recommended to instead use c.RegisterFlagCompletionFunc(...) which allows\n76\t// to register a Go function which will work across all shells.\n77\tfunc MarkFlagCustom(flags *pflag.FlagSet, name string, f string) error {\n78\t\treturn flags.SetAnnotation(name, BashCompCustom, []string{f})\n79\t}\n80\n81\t// MarkFlagDirname instructs the various shell completion implementations to\n82\t// limit completions for the named flag to directory names.\n83\tfunc (c *Command) MarkFlagDirname(name string) error {\n84\t\treturn MarkFlagDirname(c.Flags(), name)\n85\t}\n86\n87\t// MarkPersistentFlagDirname instructs the various shell completion\n88\t// implementations to limit completions for the named persistent flag to\n89\t// directory names.\n90\tfunc (c *Command) MarkPersistentFlagDirname(name string) error {\n91\t\treturn MarkFlagDirname(c.PersistentFlags(), name)\n92\t}\n93\n94\t// MarkFlagDirname instructs the various shell completion implementations to\n95\t// limit completions for the named flag to directory names.\n96\tfunc MarkFlagDirname(flags *pflag.FlagSet, name string) error {\n97\t\treturn flags.SetAnnotation(name, BashCompSubdirsInDir, []string{})\n98\t}\n99",
+      "tool_call_id": "call_00_LqvsqLQZySVHEjkIpZ9w2862"
+    },
+    {
+      "id": "cobra-completion-review-a-v4-event-8",
+      "session_id": "cobra-completion-review-a-v4",
+      "sequence": 7,
+      "turn": 0,
+      "role": "assistant",
+      "kind": "tool_call",
+      "content": "{\"file_path\":\"<ABSOLUTE_PATH>\",\"limit\":120}",
+      "tool_name": "Read",
+      "tool_call_id": "call_01_7flrqD98ZexQ9tnQ4eId4654"
+    },
+    {
+      "id": "cobra-completion-review-a-v4-event-9",
+      "session_id": "cobra-completion-review-a-v4",
+      "sequence": 8,
+      "turn": 0,
+      "role": "tool",
+      "kind": "tool_result",
+      "content": "1\t// Copyright 2013-2023 The Cobra Authors\n2\t//\n3\t// Licensed under the Apache License, Version 2.0 (the \"License\");\n4\t// you may not use this file except in compliance with the License.\n5\t// You may obtain a copy of the License at\n6\t//\n7\t//      htt<ABSOLUTE_PATH>\n8\t//\n9\t// Unless required by applicable law or agreed to in writing, software\n10\t// distributed under the License is distributed on an \"AS IS\" BASIS,\n11\t// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\n12\t// See the License for the specific language governing permissions and\n13\t// limitations under the License.\n14\n15\tpackage cobra\n16\n17\timport (\n18\t\t\"fmt\"\n19\t\t\"os\"\n20\t\t\"regexp\"\n21\t\t\"strconv\"\n22\t\t\"strings\"\n23\t\t\"sync\"\n24\n25\t\t\"github.com/spf13/pflag\"\n26\t)\n27\n28\tconst (\n29\t\t// ShellCompRequestCmd is the name of the hidden command that is used to request\n30\t\t// completion results from the program.  It is used by the shell completion scripts.\n31\t\tShellCompRequestCmd = \"__complete\"\n32\t\t// ShellCompNoDescRequestCmd is the name of the hidden command that is used to request\n33\t\t// completion results without their description.  It is used by the shell completion scripts.\n34\t\tShellCompNoDescRequestCmd = \"__completeNoDesc\"\n35\t)\n36\n37\t// Global map of flag completion functions. Make sure to use flagCompletionMutex before you try to read and write from it.\n38\tvar flagCompletionFunctions = map[*pflag.Flag]CompletionFunc{}\n39\n40\t// lock for reading and writing from flagCompletionFunctions\n41\tvar flagCompletionMutex = &sync.RWMutex{}\n42\n43\t// ShellCompDirective is a bit map representing the different behaviors the shell\n44\t// can be instructed to have once completions have been provided.\n45\ttype ShellCompDirective int\n46\n47\ttype flagCompError struct {\n48\t\tsubCommand string\n49\t\tflagName   string\n50\t}\n51\n52\tfunc (e *flagCompError) Error() string {\n53\t\treturn \"Subcommand '\" + e.subCommand + \"' does not support flag '\" + e.flagName + \"'\"\n54\t}\n55\n56\tconst (\n57\t\t// ShellCompDirectiveError indicates an error occurred and completions should be ignored.\n58\t\tShellCompDirectiveError ShellCompDirective = 1 << iota\n59\n60\t\t// ShellCompDirectiveNoSpace indicates that the shell should not add a space\n61\t\t// after the completion even if there is a single completion provided.\n62\t\tShellCompDirectiveNoSpace\n63\n64\t\t// ShellCompDirectiveNoFileComp indicates that the shell should not provide\n65\t\t// file completion even when no completion is provided.\n66\t\tShellCompDirectiveNoFileComp\n67\n68\t\t// ShellCompDirectiveFilterFileExt indicates that the provided completions\n69\t\t// should be used as file extension filters.\n70\t\t// For flags, using Command.MarkFlagFilename() and Command.MarkPersistentFlagFilename()\n71\t\t// is a shortcut to using this directive explicitly.  The BashCompFilenameExt\n72\t\t// annotation can also be used to obtain the same behavior for flags.\n73\t\tShellCompDirectiveFilterFileExt\n74\n75\t\t// ShellCompDirectiveFilterDirs indicates that only directory names should\n76\t\t// be provided in file completion.  To request directory names within another\n77\t\t// directory, the returned completions should specify the directory within\n78\t\t// which to search.  The BashCompSubdirsInDir annotation can be used to\n79\t\t// obtain the same behavior but only for flags.\n80\t\tShellCompDirectiveFilterDirs\n81\n82\t\t// ShellCompDirectiveKeepOrder indicates that the shell should preserve the order\n83\t\t// in which the completions are provided\n84\t\tShellCompDirectiveKeepOrder\n85\n86\t\t// ===========================================================================\n87\n88\t\t// All directives using iota should be above this one.\n89\t\t// For internal use.\n90\t\tshellCompDirectiveMaxValue\n91\n92\t\t// ShellCompDirectiveDefault indicates to let the shell perform its default\n93\t\t// behavior after completions have been provided.\n94\t\t// This one must be last to avoid messing up the iota count.\n95\t\tShellCompDirectiveDefault ShellCompDirective = 0\n96\t)\n97\n98\tconst (\n99\t\t// Constants for the completion command\n100\t\tcompCmdName              = \"completion\"\n101\t\tcompCmdNoDescFlagName    = \"no-descriptions\"\n102\t\tcompCmdNoDescFlagDesc    = \"disable completion descriptions\"\n103\t\tcompCmdNoDescFlagDefault = false\n104\t)\n105\n106\t// CompletionOptions are the options to control shell completion\n107\ttype CompletionOptions struct {\n108\t\t// DisableDefaultCmd prevents Cobra from creating a default 'completion' command\n109\t\tDisableDefaultCmd bool\n110\t\t// DisableNoDescFlag prevents Cobra from creating the '--no-descriptions' flag\n111\t\t// for shells that support completion descriptions\n112\t\tDisableNoDescFlag bool\n113\t\t// DisableDescriptions turns off all completion descriptions for shells\n114\t\t// that support them\n115\t\tDisableDescriptions bool\n116\t\t// HiddenDefaultCmd makes the default 'completion' command hidden\n117\t\tHiddenDefaultCmd bool\n118\t\t// DefaultShellCompDirective sets the ShellCompDirective that is returned\n119\t\t// if no special directive can be determined\n120\t\tDefaultShellCompDirective *ShellCompDirective",
+      "tool_call_id": "call_01_7flrqD98ZexQ9tnQ4eId4654"
+    },
+    {
+      "id": "cobra-completion-review-a-v4-event-10",
+      "session_id": "cobra-completion-review-a-v4",
+      "sequence": 9,
+      "turn": 0,
+      "role": "assistant",
+      "kind": "tool_call",
+      "content": "{\"file_path\":\"<ABSOLUTE_PATH>\",\"limit\":200,\"offset\":120}",
+      "tool_name": "Read",
+      "tool_call_id": "call_00_H0a5Qbg5WZzYMdBKGo1y4520"
+    },
+    {
+      "id": "cobra-completion-review-a-v4-event-11",
+      "session_id": "cobra-completion-review-a-v4",
+      "sequence": 10,
+      "turn": 0,
+      "role": "tool",
+      "kind": "tool_result",
+      "content": "120\t\tDefaultShellCompDirective *ShellCompDirective\n121\t}\n122\n123\tfunc (receiver *CompletionOptions) SetDefaultShellCompDirective(directive ShellCompDirective) {\n124\t\treceiver.DefaultShellCompDirective = &directive\n125\t}\n126\n127\t// Completion is a string that can be used for completions\n128\t//\n129\t// two formats are supported:\n130\t//   - the completion choice\n131\t//   - the completion choice with a textual description (separated by a TAB).\n132\t//\n133\t// [CompletionWithDesc] can be used to create a completion string with a textual description.\n134\t//\n135\t// Note: Go type alias is used to provide a more descriptive name in the documentation, but any string can be used.\n136\ttype Completion = string\n137\n138\t// CompletionFunc is a function that provides completion results.\n139\ttype CompletionFunc = func(cmd *Command, args []string, toComplete string) ([]Completion, ShellCompDirective)\n140\n141\t// CompletionWithDesc returns a [Completion] with a description by using the TAB delimited format.\n142\tfunc CompletionWithDesc(choice string, description string) Completion {\n143\t\treturn choice + \"\\t\" + description\n144\t}\n145\n146\t// NoFileCompletions can be used to disable file completion for commands that should\n147\t// not trigger file completions.\n148\t//\n149\t// This method satisfies [CompletionFunc].\n150\t// It can be used with [Command.RegisterFlagCompletionFunc] and for [Command.ValidArgsFunction].\n151\tfunc NoFileCompletions(cmd *Command, args []string, toComplete string) ([]Completion, ShellCompDirective) {\n152\t\treturn nil, ShellCompDirectiveNoFileComp\n153\t}\n154\n155\t// FixedCompletions can be used to create a completion function which always\n156\t// returns the same results.\n157\t//\n158\t// This method returns a function that satisfies [CompletionFunc]\n159\t// It can be used with [Command.RegisterFlagCompletionFunc] and for [Command.ValidArgsFunction].\n160\tfunc FixedCompletions(choices []Completion, directive ShellCompDirective) CompletionFunc {\n161\t\treturn func(cmd *Command, args []string, toComplete string) ([]Completion, ShellCompDirective) {\n162\t\t\treturn choices, directive\n163\t\t}\n164\t}\n165\n166\t// RegisterFlagCompletionFunc should be called to register a function to provide completion for a flag.\n167\t//\n168\t// You can use pre-defined completion functions such as [FixedCompletions] or [NoFileCompletions],\n169\t// or you can define your own.\n170\tfunc (c *Command) RegisterFlagCompletionFunc(flagName string, f CompletionFunc) error {\n171\t\tflag := c.Flag(flagName)\n172\t\tif flag == nil {\n173\t\t\treturn fmt.Errorf(\"RegisterFlagCompletionFunc: flag '%s' does not exist\", flagName)\n174\t\t}\n175\t\tflagCompletionMutex.Lock()\n176\t\tdefer flagCompletionMutex.Unlock()\n177\n178\t\tif _, exists := flagCompletionFunctions[flag]; exists {\n179\t\t\treturn fmt.Errorf(\"RegisterFlagCompletionFunc: flag '%s' already registered\", flagName)\n180\t\t}\n181\t\tflagCompletionFunctions[flag] = f\n182\t\treturn nil\n183\t}\n184\n185\t// GetFlagCompletionFunc returns the completion function for the given flag of the command, if available.\n186\tfunc (c *Command) GetFlagCompletionFunc(flagName string) (CompletionFunc, bool) {\n187\t\tflag := c.Flag(flagName)\n188\t\tif flag == nil {\n189\t\t\treturn nil, false\n190\t\t}\n191\n192\t\tflagCompletionMutex.RLock()\n193\t\tdefer flagCompletionMutex.RUnlock()\n194\n195\t\tcompletionFunc, exists := flagCompletionFunctions[flag]\n196\t\treturn completionFunc, exists\n197\t}\n198\n199\t// Returns a string listing the different directive enabled in the specified parameter\n200\tfunc (d ShellCompDirective) string() string {\n201\t\tvar directives []string\n202\t\tif d&ShellCompDirectiveError != 0 {\n203\t\t\tdirectives = append(directives, \"ShellCompDirectiveError\")\n204\t\t}\n205\t\tif d&ShellCompDirectiveNoSpace != 0 {\n206\t\t\tdirectives = append(directives, \"ShellCompDirectiveNoSpace\")\n207\t\t}\n208\t\tif d&ShellCompDirectiveNoFileComp != 0 {\n209\t\t\tdirectives = append(directives, \"ShellCompDirectiveNoFileComp\")\n210\t\t}\n211\t\tif d&ShellCompDirectiveFilterFileExt != 0 {\n212\t\t\tdirectives = append(directives, \"ShellCompDirectiveFilterFileExt\")\n213\t\t}\n214\t\tif d&ShellCompDirectiveFilterDirs != 0 {\n215\t\t\tdirectives = append(directives, \"ShellCompDirectiveFilterDirs\")\n216\t\t}\n217\t\tif d&ShellCompDirectiveKeepOrder != 0 {\n218\t\t\tdirectives = append(directives, \"ShellCompDirectiveKeepOrder\")\n219\t\t}\n220\t\tif len(directives) == 0 {\n221\t\t\tdirectives = append(directives, \"ShellCompDirectiveDefault\")\n222\t\t}\n223\n224\t\tif d >= shellCompDirectiveMaxValue {\n225\t\t\treturn fmt.Sprintf(\"ERROR: unexpected ShellCompDirective value: %d\", d)\n226\t\t}\n227\t\treturn strings.Join(directives, \", \")\n228\t}\n229\n230\t// initCompleteCmd adds a special hidden command that can be used to request custom completions.\n231\tfunc (c *Command) initCompleteCmd(args []string) {\n232\t\tcompleteCmd := &Command{\n233\t\t\tUse:                   fmt.Sprintf(\"%s [command-line]\", ShellCompRequestCmd),\n234\t\t\tAliases:               []string{ShellCompNoDescRequestCmd},\n235\t\t\tDisableFlagsInUseLine: true,\n236\t\t\tHidden:                true,\n237\t\t\tDisableFlagParsing:    true,\n238\t\t\tArgs:                  MinimumNArgs(1),\n239\t\t\tShort:                 \"Request shell completion choices for the specified command-line\",\n240\t\t\tLong: fmt.Sprintf(\"%[2]s is a special command that is used by the shell completion logic\\n%[1]s\",\n241\t\t\t\t\"to request completion choices for the specified command-line.\", ShellCompRequestCmd),\n242\t\t\tRun: func(cmd *Command, args []string) {\n243\t\t\t\tfinalCmd, completions, directive, err := cmd.getCompletions(args)\n244\t\t\t\tif err != nil {\n245\t\t\t\t\tCompErrorln(err.Error())\n246\t\t\t\t\t// Keep going for multiple reasons:\n247\t\t\t\t\t// 1- There could be some valid completions even though there was an error\n248\t\t\t\t\t// 2- Even without completions, we need to print the directive\n249\t\t\t\t}\n250\n251\t\t\t\tnoDescriptions := cmd.CalledAs() == ShellCompNoDescRequestCmd\n252\t\t\t\tif !noDescriptions {\n253\t\t\t\t\tif doDescriptions, err := strconv.ParseBool(getEnvConfig(cmd, configEnvVarSuffixDescriptions)); err == nil {\n254\t\t\t\t\t\tnoDescriptions = !doDescriptions\n255\t\t\t\t\t}\n256\t\t\t\t}\n257\t\t\t\tnoActiveHelp := GetActiveHelpConfig(finalCmd) == activeHelpGlobalDisable\n258\t\t\t\tout := finalCmd.OutOrStdout()\n259\t\t\t\tfor _, comp := range completions {\n260\t\t\t\t\tif noActiveHelp && strings.HasPrefix(comp, activeHelpMarker) {\n261\t\t\t\t\t\t// Remove all activeHelp entries if it's disabled.\n262\t\t\t\t\t\tcontinue\n263\t\t\t\t\t}\n264\t\t\t\t\tif noDescriptions {\n265\t\t\t\t\t\t// Remove any description that may be included following a tab character.\n266\t\t\t\t\t\tcomp = strings.SplitN(comp, \"\\t\", 2)[0]\n267\t\t\t\t\t}\n268\n269\t\t\t\t\t// Make sure we only write the first line to the output.\n270\t\t\t\t\t// This is needed if a description contains a linebreak.\n271\t\t\t\t\t// Otherwise the shell scripts will interpret the other lines as new flags\n272\t\t\t\t\t// and could therefore provide a wrong completion.\n273\t\t\t\t\tcomp = strings.SplitN(comp, \"\\n\", 2)[0]\n274\n275\t\t\t\t\t// Finally trim the completion.  This is especially important to get rid\n276\t\t\t\t\t// of a trailing tab when there are no description following it.\n277\t\t\t\t\t// For example, a sub-command without a description should not be completed\n278\t\t\t\t\t// with a tab at the end (or else zsh will show a -- following it\n279\t\t\t\t\t// although there is no description).\n280\t\t\t\t\tcomp = strings.TrimSpace(comp)\n281\n282\t\t\t\t\t// Print each possible completion to the output for the completion script to consume.\n283\t\t\t\t\tfmt.Fprintln(out, comp)\n284\t\t\t\t}\n285\n286\t\t\t\t// As the last printout, print the completion directive for the completion script to parse.\n287\t\t\t\t// The directive integer must be that last character following a single colon (:).\n288\t\t\t\t// The completion script expects :<directive>\n289\t\t\t\tfmt.Fprintf(out, \":%d\\n\", directive)\n290\n291\t\t\t\t// Print some helpful info to stderr for the user to understand.\n292\t\t\t\t// Output from stderr must be ignored by the completion script.\n293\t\t\t\tfmt.Fprintf(finalCmd.ErrOrStderr(), \"Completion ended with directive: %s\\n\", directive.string())\n294\t\t\t},\n295\t\t}\n296\t\tc.AddCommand(completeCmd)\n297\t\tsubCmd, _, err := c.Find(args)\n298\t\tif err != nil || subCmd.Name() != ShellCompRequestCmd {\n299\t\t\t// Only create this special command if it is actually being called.\n300\t\t\t// This reduces possible side-effects of creating such a command;\n301\t\t\t// for example, having this command would cause problems to a\n302\t\t\t// cobra program that only consists of the root command, since this\n303\t\t\t// command would cause the root command to suddenly have a subcommand.\n304\t\t\tc.RemoveCommand(completeCmd)\n305\t\t}\n306\t}\n307\n308\t// SliceValue is a reduced version of [pflag.SliceValue]. It is used to detect\n309\t// flags that accept multiple values and therefore can provide completion\n310\t// multiple times.\n311\ttype SliceValue interface {\n312\t\t// GetSlice returns the flag value list as an array of strings.\n313\t\tGetSlice() []string\n314\t}\n315\n316\t// completionInput separates the incomplete word from the completed arguments.\n317\t//\n318\t// Completion parsing may append a sentinel to the completed arguments. Keep the\n319\t// caller-owned slice independent so processing completion cannot rewrite the",
+      "tool_call_id": "call_00_H0a5Qbg5WZzYMdBKGo1y4520"
+    },
+    {
+      "id": "cobra-completion-review-a-v4-event-12",
+      "session_id": "cobra-completion-review-a-v4",
+      "sequence": 11,
+      "turn": 0,
+      "role": "assistant",
+      "kind": "tool_call",
+      "content": "{\"command\":\"cd \\\"<ABSOLUTE_PATH>\" && grep -n \\\"func.*[Cc]omplet\\\" command.go | head -30\",\"description\":\"Find completion-related functions in command.go\"}",
+      "tool_name": "Bash",
+      "tool_call_id": "call_01_dAoeUONqeJBxQa13b2lD7161"
+    },
+    {
+      "id": "cobra-completion-review-a-v4-event-13",
+      "session_id": "cobra-completion-review-a-v4",
+      "sequence": 12,
+      "turn": 0,
+      "role": "tool",
+      "kind": "tool_result",
+      "content": "87:\t// ValidArgsFunction is an optional function that provides valid non-flag arguments for shell completion.\n100:\t// BashCompletionFunction is custom bash functions used by the legacy bash autocompletion generator.\n352:func (c *Command) SetCompletionCommandGroupID(groupID string) {\n1274:\t\t\tValidArgsFunction: func(c *Command, args []string, toComplete string) ([]Completion, ShellCompDirective) {",
+      "tool_call_id": "call_01_dAoeUONqeJBxQa13b2lD7161"
+    },
+    {
+      "id": "cobra-completion-review-a-v4-event-14",
+      "session_id": "cobra-completion-review-a-v4",
+      "sequence": 13,
+      "turn": 0,
+      "role": "assistant",
+      "kind": "tool_call",
+      "content": "{\"file_path\":\"<ABSOLUTE_PATH>\",\"limit\":200,\"offset\":316}",
+      "tool_name": "Read",
+      "tool_call_id": "call_00_HjuaLwQiXc7uTNK6DzaL9303"
+    },
+    {
+      "id": "cobra-completion-review-a-v4-event-15",
+      "session_id": "cobra-completion-review-a-v4",
+      "sequence": 14,
+      "turn": 0,
+      "role": "tool",
+      "kind": "tool_result",
+      "content": "316\t// completionInput separates the incomplete word from the completed arguments.\n317\t//\n318\t// Completion parsing may append a sentinel to the completed arguments. Keep the\n319\t// caller-owned slice independent so processing completion cannot rewrite the\n320\t// incomplete word in the original input.\n321\tfunc completionInput(args []string) (trimmedArgs []string, toComplete string) {\n322\t\ttoComplete = args[len(args)-1]\n323\t\ttrimmedArgs = append([]string(nil), args[:len(args)-1]...)\n324\t\treturn trimmedArgs, toComplete\n325\t}\n326\n327\tfunc (c *Command) getCompletions(args []string) (*Command, []Completion, ShellCompDirective, error) {\n328\t\t// The last argument, which is not completely typed by the user,\n329\t\t// should not be part of the list of arguments\n330\t\ttrimmedArgs, toComplete := completionInput(args)\n331\n332\t\tvar finalCmd *Command\n333\t\tvar finalArgs []string\n334\t\tvar err error\n335\t\t// Find the real command for which completion must be performed\n336\t\t// check if we need to traverse here to parse local flags on parent commands\n337\t\tif c.Root().TraverseChildren {\n338\t\t\tfinalCmd, finalArgs, err = c.Root().Traverse(trimmedArgs)\n339\t\t} else {\n340\t\t\t// For Root commands that don't specify any value for their Args fields, when we call\n341\t\t\t// Find(), if those Root commands don't have any sub-commands, they will accept arguments.\n342\t\t\t// However, because we have added the __complete sub-command in the current code path, the\n343\t\t\t// call to Find() -> legacyArgs() will return an error if there are any arguments.\n344\t\t\t// To avoid this, we first remove the __complete command to get back to having no sub-commands.\n345\t\t\trootCmd := c.Root()\n346\t\t\tif len(rootCmd.Commands()) == 1 {\n347\t\t\t\trootCmd.RemoveCommand(c)\n348\t\t\t}\n349\n350\t\t\tfinalCmd, finalArgs, err = rootCmd.Find(trimmedArgs)\n351\t\t}\n352\t\tif err != nil {\n353\t\t\t// Unable to find the real command. E.g., <program> someInvalidCmd <TAB>\n354\t\t\treturn c, []Completion{}, ShellCompDirectiveDefault, fmt.Errorf(\"unable to find a command for arguments: %v\", trimmedArgs)\n355\t\t}\n356\t\tfinalCmd.ctx = c.ctx\n357\n358\t\t// These flags are normally added when `execute()` is called on `finalCmd`,\n359\t\t// however, when doing completion, we don't call `finalCmd.execute()`.\n360\t\t// Let's add the --help and --version flag ourselves but only if the finalCmd\n361\t\t// has not disabled flag parsing; if flag parsing is disabled, it is up to the\n362\t\t// finalCmd itself to handle the completion of *all* flags.\n363\t\tif !finalCmd.DisableFlagParsing {\n364\t\t\tfinalCmd.InitDefaultHelpFlag()\n365\t\t\tfinalCmd.InitDefaultVersionFlag()\n366\t\t}\n367\n368\t\t// Check if we are doing flag value completion before parsing the flags.\n369\t\t// This is important because if we are completing a flag value, we need to also\n370\t\t// remove the flag name argument from the list of finalArgs or else the parsing\n371\t\t// could fail due to an invalid value (incomplete) for the flag.\n372\t\tflag, finalArgs, toComplete, flagErr := checkIfFlagCompletion(finalCmd, finalArgs, toComplete)\n373\n374\t\t// Check if interspersed is false or -- was set on a previous arg.\n375\t\t// This works by counting the arguments. Normally -- is not counted as arg but\n376\t\t// if -- was already set or interspersed is false and there is already one arg then\n377\t\t// the extra added -- is counted as arg.\n378\t\tflagCompletion := true\n379\t\t_ = finalCmd.ParseFlags(append(finalArgs, \"--\"))\n380\t\tnewArgCount := finalCmd.Flags().NArg()\n381\n382\t\t// Parse the flags early so we can check if required flags are set\n383\t\tif err = finalCmd.ParseFlags(finalArgs); err != nil {\n384\t\t\treturn finalCmd, []Completion{}, ShellCompDirectiveDefault, fmt.Errorf(\"Error while parsing flags from args %v: %s\", finalArgs, err.Error())\n385\t\t}\n386\n387\t\trealArgCount := finalCmd.Flags().NArg()\n388\t\tif newArgCount > realArgCount {\n389\t\t\t// don't do flag completion (see above)\n390\t\t\tflagCompletion = false\n391\t\t}\n392\t\t// Error while attempting to parse flags\n393\t\tif flagErr != nil {\n394\t\t\t// If error type is flagCompError and we don't want flagCompletion we should ignore the error\n395\t\t\tif _, ok := flagErr.(*flagCompError); !ok || flagCompletion {\n396\t\t\t\treturn finalCmd, []Completion{}, ShellCompDirectiveDefault, flagErr\n397\t\t\t}\n398\t\t}\n399\n400\t\t// Look for the --help or --version flags.  If they are present,\n401\t\t// there should be no further completions.\n402\t\tif helpOrVersionFlagPresent(finalCmd) {\n403\t\t\treturn finalCmd, []Completion{}, ShellCompDirectiveNoFileComp, nil\n404\t\t}\n405\n406\t\t// We only remove the flags from the arguments if DisableFlagParsing is not set.\n407\t\t// This is important for commands which have requested to do their own flag completion.\n408\t\tif !finalCmd.DisableFlagParsing {\n409\t\t\tfinalArgs = finalCmd.Flags().Args()\n410\t\t}\n411\n412\t\tif flag != nil && flagCompletion {\n413\t\t\t// Check if we are completing a flag value subject to annotations\n414\t\t\tif validExts, present := flag.Annotations[BashCompFilenameExt]; present {\n415\t\t\t\tif len(validExts) != 0 {\n416\t\t\t\t\t// File completion filtered by extensions\n417\t\t\t\t\treturn finalCmd, validExts, ShellCompDirectiveFilterFileExt, nil\n418\t\t\t\t}\n419\n420\t\t\t\t// The annotation requests simple file completion.  There is no reason to do\n421\t\t\t\t// that since it is the default behavior anyway.  Let's ignore this annotation\n422\t\t\t\t// in case the program also registered a completion function for this flag.\n423\t\t\t\t// Even though it is a mistake on the program's side, let's be nice when we can.\n424\t\t\t}\n425\n426\t\t\tif subDir, present := flag.Annotations[BashCompSubdirsInDir]; present {\n427\t\t\t\tif len(subDir) == 1 {\n428\t\t\t\t\t// Directory completion from within a directory\n429\t\t\t\t\treturn finalCmd, subDir, ShellCompDirectiveFilterDirs, nil\n430\t\t\t\t}\n431\t\t\t\t// Directory completion\n432\t\t\t\treturn finalCmd, []Completion{}, ShellCompDirectiveFilterDirs, nil\n433\t\t\t}\n434\t\t}\n435\n436\t\tvar completions []Completion\n437\t\tvar directive ShellCompDirective\n438\n439\t\t// Enforce flag groups before doing flag completions\n440\t\tfinalCmd.enforceFlagGroupsForCompletion()\n441\n442\t\t// Note that we want to perform flagname completion even if finalCmd.DisableFlagParsing==true;\n443\t\t// doing this allows for completion of persistent flag names even for commands that disable flag parsing.\n444\t\t//\n445\t\t// When doing completion of a flag name, as soon as an argument starts with\n446\t\t// a '-' we know it is a flag.  We cannot use isFlagArg() here as it requires\n447\t\t// the flag name to be complete\n448\t\tif flag == nil && len(toComplete) > 0 && toComplete[0] == '-' && !strings.Contains(toComplete, \"=\") && flagCompletion {\n449\t\t\t// First check for required flags\n450\t\t\tcompletions = completeRequireFlags(finalCmd, toComplete)\n451\n452\t\t\t// If we have not found any required flags, only then can we show regular flags\n453\t\t\tif len(completions) == 0 {\n454\t\t\t\tdoCompleteFlags := func(flag *pflag.Flag) {\n455\t\t\t\t\t_, acceptsMultiple := flag.Value.(SliceValue)\n456\t\t\t\t\tacceptsMultiple = acceptsMultiple ||\n457\t\t\t\t\t\tstrings.Contains(flag.Value.Type(), \"Slice\") ||\n458\t\t\t\t\t\tstrings.Contains(flag.Value.Type(), \"Array\") ||\n459\t\t\t\t\t\tstrings.HasPrefix(flag.Value.Type(), \"stringTo\")\n460\n461\t\t\t\t\tif !flag.Changed || acceptsMultiple {\n462\t\t\t\t\t\t// If the flag is not already present, or if it can be specified multiple times (Array, Slice, or stringTo)\n463\t\t\t\t\t\t// we suggest it as a completion\n464\t\t\t\t\t\tcompletions = append(completions, getFlagNameCompletions(flag, toComplete)...)\n465\t\t\t\t\t}\n466\t\t\t\t}\n467\n468\t\t\t\t// We cannot use finalCmd.Flags() because we may not have called ParsedFlags() for commands\n469\t\t\t\t// that have set DisableFlagParsing; it is ParseFlags() that merges the inherited and\n470\t\t\t\t// non-inherited flags.\n471\t\t\t\tfinalCmd.InheritedFlags().VisitAll(func(flag *pflag.Flag) {\n472\t\t\t\t\tdoCompleteFlags(flag)\n473\t\t\t\t})\n474\t\t\t\t// Try to complete non-inherited flags even if DisableFlagParsing==true.\n475\t\t\t\t// This allows programs to tell Cobra about flags for completion even\n476\t\t\t\t// if the actual parsing of flags is not done by Cobra.\n477\t\t\t\t// For instance, Helm uses this to provide flag name completion for\n478\t\t\t\t// some of its plugins.\n479\t\t\t\tfinalCmd.NonInheritedFlags().VisitAll(func(flag *pflag.Flag) {\n480\t\t\t\t\tdoCompleteFlags(flag)\n481\t\t\t\t})\n482\t\t\t}\n483\n484\t\t\tdirective = ShellCompDirectiveNoFileComp\n485\t\t\tif len(completions) == 1 && strings.HasSuffix(completions[0], \"=\") {\n486\t\t\t\t// If there is a single completion, the shell usually adds a space\n487\t\t\t\t// after the completion.  We don't want that if the flag ends with an =\n488\t\t\t\tdirective = ShellCompDirectiveNoSpace\n489\t\t\t}\n490\n491\t\t\tif !finalCmd.DisableFlagParsing {\n492\t\t\t\t// If DisableFlagParsing==false, we have completed the flags as known by Cobra;\n493\t\t\t\t// we can return what we found.\n494\t\t\t\t// If DisableFlagParsing==true, Cobra may not be aware of all flags, so we\n495\t\t\t\t// let the logic continue to see if ValidArgsFunction needs to be called.\n496\t\t\t\treturn finalCmd, completions, directive, nil\n497\t\t\t}\n498\t\t} else {\n499\t\t\tdirective = ShellCompDirectiveDefault\n500\t\t\t// check current and parent commands for a custom DefaultShellCompDirective\n501\t\t\tfor cmd := finalCmd; cmd != nil; cmd = cmd.parent {\n502\t\t\t\tif cmd.CompletionOptions.DefaultShellCompDirective != nil {\n503\t\t\t\t\tdirective = *cmd.CompletionOptions.DefaultShellCompDirective\n504\t\t\t\t\tbreak\n505\t\t\t\t}\n506\t\t\t}\n507\n508\t\t\tif flag == nil {\n509\t\t\t\tfoundLocalNonPersistentFlag := false\n510\t\t\t\t// If TraverseChildren is true on the root command we don't check for\n511\t\t\t\t// local flags because we can use a local flag on a parent command\n512\t\t\t\tif !finalCmd.Root().TraverseChildren {\n513\t\t\t\t\t// Check if there are any local, non-persistent flags on the command-line\n514\t\t\t\t\tlocalNonPersistentFlags := finalCmd.LocalNonPersistentFlags()\n515\t\t\t\t\tfinalCmd.NonInheritedFlags().VisitAll(func(flag *pflag.Flag) {",
+      "tool_call_id": "call_00_HjuaLwQiXc7uTNK6DzaL9303"
+    },
+    {
+      "id": "cobra-completion-review-a-v4-event-16",
+      "session_id": "cobra-completion-review-a-v4",
+      "sequence": 15,
+      "turn": 0,
+      "role": "assistant",
+      "kind": "tool_call",
+      "content": "{\"file_path\":\"<ABSOLUTE_PATH>\",\"limit\":200,\"offset\":515}",
+      "tool_name": "Read",
+      "tool_call_id": "call_00_gCRY2YTtYb0FvQmJG76Y0937"
+    },
+    {
+      "id": "cobra-completion-review-a-v4-event-17",
+      "session_id": "cobra-completion-review-a-v4",
+      "sequence": 16,
+      "turn": 0,
+      "role": "tool",
+      "kind": "tool_result",
+      "content": "515\t\t\t\t\tfinalCmd.NonInheritedFlags().VisitAll(func(flag *pflag.Flag) {\n516\t\t\t\t\t\tif localNonPersistentFlags.Lookup(flag.Name) != nil && flag.Changed {\n517\t\t\t\t\t\t\tfoundLocalNonPersistentFlag = true\n518\t\t\t\t\t\t}\n519\t\t\t\t\t})\n520\t\t\t\t}\n521\n522\t\t\t\t// Complete subcommand names, including the help command\n523\t\t\t\tif len(finalArgs) == 0 && !foundLocalNonPersistentFlag {\n524\t\t\t\t\t// We only complete sub-commands if:\n525\t\t\t\t\t// - there are no arguments on the command-line and\n526\t\t\t\t\t// - there are no local, non-persistent flags on the command-line or TraverseChildren is true\n527\t\t\t\t\tfor _, subCmd := range finalCmd.Commands() {\n528\t\t\t\t\t\tif subCmd.IsAvailableCommand() || subCmd == finalCmd.helpCommand {\n529\t\t\t\t\t\t\tif strings.HasPrefix(subCmd.Name(), toComplete) {\n530\t\t\t\t\t\t\t\tcompletions = append(completions, CompletionWithDesc(subCmd.Name(), subCmd.Short))\n531\t\t\t\t\t\t\t}\n532\t\t\t\t\t\t\tdirective = ShellCompDirectiveNoFileComp\n533\t\t\t\t\t\t}\n534\t\t\t\t\t}\n535\t\t\t\t}\n536\n537\t\t\t\t// Complete required flags even without the '-' prefix\n538\t\t\t\tcompletions = append(completions, completeRequireFlags(finalCmd, toComplete)...)\n539\n540\t\t\t\t// Always complete ValidArgs, even if we are completing a subcommand name.\n541\t\t\t\t// This is for commands that have both subcommands and ValidArgs.\n542\t\t\t\tif len(finalCmd.ValidArgs) > 0 {\n543\t\t\t\t\tif len(finalArgs) == 0 {\n544\t\t\t\t\t\t// ValidArgs are only for the first argument\n545\t\t\t\t\t\tfor _, validArg := range finalCmd.ValidArgs {\n546\t\t\t\t\t\t\tif strings.HasPrefix(validArg, toComplete) {\n547\t\t\t\t\t\t\t\tcompletions = append(completions, validArg)\n548\t\t\t\t\t\t\t}\n549\t\t\t\t\t\t}\n550\t\t\t\t\t\tdirective = ShellCompDirectiveNoFileComp\n551\n552\t\t\t\t\t\t// If no completions were found within commands or ValidArgs,\n553\t\t\t\t\t\t// see if there are any ArgAliases that should be completed.\n554\t\t\t\t\t\tif len(completions) == 0 {\n555\t\t\t\t\t\t\tfor _, argAlias := range finalCmd.ArgAliases {\n556\t\t\t\t\t\t\t\tif strings.HasPrefix(argAlias, toComplete) {\n557\t\t\t\t\t\t\t\t\tcompletions = append(completions, argAlias)\n558\t\t\t\t\t\t\t\t}\n559\t\t\t\t\t\t\t}\n560\t\t\t\t\t\t}\n561\t\t\t\t\t}\n562\n563\t\t\t\t\t// If there are ValidArgs specified (even if they don't match), we stop completion.\n564\t\t\t\t\t// Only one of ValidArgs or ValidArgsFunction can be used for a single command.\n565\t\t\t\t\treturn finalCmd, completions, directive, nil\n566\t\t\t\t}\n567\n568\t\t\t\t// Let the logic continue so as to add any ValidArgsFunction completions,\n569\t\t\t\t// even if we already found sub-commands.\n570\t\t\t\t// This is for commands that have subcommands but also specify a ValidArgsFunction.\n571\t\t\t}\n572\t\t}\n573\n574\t\t// Find the completion function for the flag or command\n575\t\tvar completionFn CompletionFunc\n576\t\tif flag != nil && flagCompletion {\n577\t\t\tflagCompletionMutex.RLock()\n578\t\t\tcompletionFn = flagCompletionFunctions[flag]\n579\t\t\tflagCompletionMutex.RUnlock()\n580\t\t} else {\n581\t\t\tcompletionFn = finalCmd.ValidArgsFunction\n582\t\t}\n583\t\tif completionFn != nil {\n584\t\t\t// Go custom completion defined for this flag or command.\n585\t\t\t// Call the registered completion function to get the completions.\n586\t\t\tvar comps []Completion\n587\t\t\tcomps, directive = completionFn(finalCmd, finalArgs, toComplete)\n588\t\t\tcompletions = append(completions, comps...)\n589\t\t}\n590\n591\t\treturn finalCmd, completions, directive, nil\n592\t}\n593\n594\tfunc helpOrVersionFlagPresent(cmd *Command) bool {\n595\t\tif versionFlag := cmd.Flags().Lookup(\"version\"); versionFlag != nil &&\n596\t\t\tlen(versionFlag.Annotations[FlagSetByCobraAnnotation]) > 0 && versionFlag.Changed {\n597\t\t\treturn true\n598\t\t}\n599\t\tif helpFlag := cmd.Flags().Lookup(helpFlagName); helpFlag != nil &&\n600\t\t\tlen(helpFlag.Annotations[FlagSetByCobraAnnotation]) > 0 && helpFlag.Changed {\n601\t\t\treturn true\n602\t\t}\n603\t\treturn false\n604\t}\n605\n606\tfunc getFlagNameCompletions(flag *pflag.Flag, toComplete string) []Completion {\n607\t\tif nonCompletableFlag(flag) {\n608\t\t\treturn []Completion{}\n609\t\t}\n610\n611\t\tvar completions []Completion\n612\t\tflagName := \"--\" + flag.Name\n613\t\tif strings.HasPrefix(flagName, toComplete) {\n614\t\t\t// Flag without the =\n615\t\t\tcompletions = append(completions, CompletionWithDesc(flagName, flag.Usage))\n616\n617\t\t\t// Why suggest both long forms: --flag and --flag= ?\n618\t\t\t// This forces the user to *always* have to type either an = or a space after the flag name.\n619\t\t\t// Let's be nice and avoid making users have to do that.\n620\t\t\t// Since boolean flags and shortname flags don't show the = form, let's go that route and never show it.\n621\t\t\t// The = form will still work, we just won't suggest it.\n622\t\t\t// This also makes the list of suggested flags shorter as we avoid all the = forms.\n623\t\t\t//\n624\t\t\t// if len(flag.NoOptDefVal) == 0 {\n625\t\t\t// \t// Flag requires a value, so it can be suffixed with =\n626\t\t\t// \tflagName += \"=\"\n627\t\t\t// \tcompletions = append(completions, CompletionWithDesc(flagName, flag.Usage))\n628\t\t\t// }\n629\t\t}\n630\n631\t\tflagName = \"-\" + flag.Shorthand\n632\t\tif len(flag.Shorthand) > 0 && strings.HasPrefix(flagName, toComplete) {\n633\t\t\tcompletions = append(completions, CompletionWithDesc(flagName, flag.Usage))\n634\t\t}\n635\n636\t\treturn completions\n637\t}\n638\n639\tfunc completeRequireFlags(finalCmd *Command, toComplete string) []Completion {\n640\t\tvar completions []Completion\n641\n642\t\tdoCompleteRequiredFlags := func(flag *pflag.Flag) {\n643\t\t\tif _, present := flag.Annotations[BashCompOneRequiredFlag]; present {\n644\t\t\t\tif !flag.Changed {\n645\t\t\t\t\t// If the flag is not already present, we suggest it as a completion\n646\t\t\t\t\tcompletions = append(completions, getFlagNameCompletions(flag, toComplete)...)\n647\t\t\t\t}\n648\t\t\t}\n649\t\t}\n650\n651\t\t// We cannot use finalCmd.Flags() because we may not have called ParsedFlags() for commands\n652\t\t// that have set DisableFlagParsing; it is ParseFlags() that merges the inherited and\n653\t\t// non-inherited flags.\n654\t\tfinalCmd.InheritedFlags().VisitAll(func(flag *pflag.Flag) {\n655\t\t\tdoCompleteRequiredFlags(flag)\n656\t\t})\n657\t\tfinalCmd.NonInheritedFlags().VisitAll(func(flag *pflag.Flag) {\n658\t\t\tdoCompleteRequiredFlags(flag)\n659\t\t})\n660\n661\t\treturn completions\n662\t}\n663\n664\tfunc checkIfFlagCompletion(finalCmd *Command, args []string, lastArg string) (*pflag.Flag, []string, string, error) {\n665\t\tif finalCmd.DisableFlagParsing {\n666\t\t\t// We only do flag completion if we are allowed to parse flags\n667\t\t\t// This is important for commands which have requested to do their own flag completion.\n668\t\t\treturn nil, args, lastArg, nil\n669\t\t}\n670\n671\t\tvar flagName string\n672\t\ttrimmedArgs := args\n673\t\tflagWithEqual := false\n674\t\torgLastArg := lastArg\n675\n676\t\t// When doing completion of a flag name, as soon as an argument starts with\n677\t\t// a '-' we know it is a flag.  We cannot use isFlagArg() here as that function\n678\t\t// requires the flag name to be complete\n679\t\tif len(lastArg) > 0 && lastArg[0] == '-' {\n680\t\t\tif index := strings.Index(lastArg, \"=\"); index >= 0 {\n681\t\t\t\t// Flag with an =\n682\t\t\t\tif strings.HasPrefix(lastArg[:index], \"--\") {\n683\t\t\t\t\t// Flag has full name\n684\t\t\t\t\tflagName = lastArg[2:index]\n685\t\t\t\t} else {\n686\t\t\t\t\t// Flag is shorthand\n687\t\t\t\t\t// We have to get the last shorthand flag name\n688\t\t\t\t\t// e.g. `-asd` => d to provide the correct completion\n689\t\t\t\t\t// http<ABSOLUTE_PATH>\n690\t\t\t\t\tflagName = lastArg[index-1 : index]\n691\t\t\t\t}\n692\t\t\t\tlastArg = lastArg[index+1:]\n693\t\t\t\tflagWithEqual = true\n694\t\t\t} else {\n695\t\t\t\t// Normal flag completion\n696\t\t\t\treturn nil, args, lastArg, nil\n697\t\t\t}\n698\t\t}\n699\n700\t\tif len(flagName) == 0 {\n701\t\t\tif len(args) > 0 {\n702\t\t\t\tprevArg := args[len(args)-1]\n703\t\t\t\tif isFlagArg(prevArg) {\n704\t\t\t\t\t// Only consider the case where the flag does not contain an =.\n705\t\t\t\t\t// If the flag contains an = it means it has already been fully processed,\n706\t\t\t\t\t// so we don't need to deal with it here.\n707\t\t\t\t\tif index := strings.Index(prevArg, \"=\"); index < 0 {\n708\t\t\t\t\t\tif strings.HasPrefix(prevArg, \"--\") {\n709\t\t\t\t\t\t\t// Flag has full name\n710\t\t\t\t\t\t\tflagName = prevArg[2:]\n711\t\t\t\t\t\t} else {\n712\t\t\t\t\t\t\t// Flag is shorthand\n713\t\t\t\t\t\t\t// We have to get the last shorthand flag name\n714\t\t\t\t\t\t\t// e.g. `-asd` => d to provide the correct completion",
+      "tool_call_id": "call_00_gCRY2YTtYb0FvQmJG76Y0937"
+    },
+    {
+      "id": "cobra-completion-review-a-v4-event-18",
+      "session_id": "cobra-completion-review-a-v4",
+      "sequence": 17,
+      "turn": 0,
+      "role": "assistant",
+      "kind": "tool_call",
+      "content": "{\"command\":\"cd \\\"<ABSOLUTE_PATH>\" && grep -n \\\"func.*[Cc]omplet\\\" command.go | head -40\",\"description\":\"Find completion functions in command.go\"}",
+      "tool_name": "Bash",
+      "tool_call_id": "call_00_FrDfxLXqhaujtY4hTnP18632"
+    },
+    {
+      "id": "cobra-completion-review-a-v4-event-19",
+      "session_id": "cobra-completion-review-a-v4",
+      "sequence": 18,
+      "turn": 0,
+      "role": "tool",
+      "kind": "tool_result",
+      "content": "87:\t// ValidArgsFunction is an optional function that provides valid non-flag arguments for shell completion.\n100:\t// BashCompletionFunction is custom bash functions used by the legacy bash autocompletion generator.\n352:func (c *Command) SetCompletionCommandGroupID(groupID string) {\n1274:\t\t\tValidArgsFunction: func(c *Command, args []string, toComplete string) ([]Completion, ShellCompDirective) {",
+      "tool_call_id": "call_00_FrDfxLXqhaujtY4hTnP18632"
+    },
+    {
+      "id": "cobra-completion-review-a-v4-event-20",
+      "session_id": "cobra-completion-review-a-v4",
+      "sequence": 19,
+      "turn": 0,
+      "role": "assistant",
+      "kind": "tool_call",
+      "content": "{\"command\":\"cd \\\"<ABSOLUTE_PATH>\" && grep -n \\\"completion<ABSOLUTE_PATH>|__complete<ABSOLUTE_PATH>|initCompleteCmd<ABSOLUTE_PATH>|ValidArgsFunction<ABSOLUTE_PATH>|RegisterFlagCompletion<ABSOLUTE_PATH>|getCompletions\\\" command.go | head -40\",\"description\":\"Search for completion references in command.go\"}",
+      "tool_name": "Bash",
+      "tool_call_id": "call_00_ECzXPqFL8J91Sb22sfIQ1806"
+    },
+    {
+      "id": "cobra-completion-review-a-v4-event-21",
+      "session_id": "cobra-completion-review-a-v4",
+      "sequence": 20,
+      "turn": 0,
+      "role": "tool",
+      "kind": "tool_result",
+      "content": "85:\t// ValidArgs is list of all valid non-flag arguments that are accepted in shell completions\n87:\t// ValidArgsFunction is an optional function that provides valid non-flag arguments for shell completion.\n89:\t// Only one of ValidArgs and ValidArgsFunction can be used for a command.\n90:\tValidArgsFunction CompletionFunc\n96:\t// These are not suggested to the user in the shell completion,\n100:\t// BashCompletionFunction is custom bash functions used by the legacy bash autocompletion generator.\n101:\t// For portability with other shells, it is recommended to instead use ValidArgsFunction\n188:\t// completionCommandGroupID is the group id for the completion command\n189:\tcompletionCommandGroupID string\n207:\t// CompletionOptions is a set of options to control the handling of shell completion\n351:// SetCompletionCommandGroupID sets the group id of the completion command.\n353:\t// completionCommandGroupID is used if no completion command is defined by the user\n354:\tc.Root().completionCommandGroupID = groupID\n1109:\t// initialize the __complete command to be used for shell completion\n1110:\tc.initCompleteCmd(args)\n1112:\t// initialize the default completion command\n1274:\t\t\tValidArgsFunction: func(c *Command, args []string, toComplete string) ([]Completion, ShellCompDirective) {\n1275:\t\t\t\tvar completions []Completion\n1287:\t\t\t\t\t\t\tcompletions = append(completions, CompletionWithDesc(subCmd.Name(), subCmd.Short))\n1291:\t\t\t\treturn completions, ShellCompDirectiveNoFileComp",
+      "tool_call_id": "call_00_ECzXPqFL8J91Sb22sfIQ1806"
+    },
+    {
+      "id": "cobra-completion-review-a-v4-event-22",
+      "session_id": "cobra-completion-review-a-v4",
+      "sequence": 21,
+      "turn": 0,
+      "role": "assistant",
+      "kind": "tool_call",
+      "content": "{\"file_path\":\"<ABSOLUTE_PATH>\",\"limit\":80,\"offset\":1100}",
+      "tool_name": "Read",
+      "tool_call_id": "call_00_bQvdtNd0aaSYMbpBZ6iw7226"
+    },
+    {
+      "id": "cobra-completion-review-a-v4-event-23",
+      "session_id": "cobra-completion-review-a-v4",
+      "sequence": 22,
+      "turn": 0,
+      "role": "tool",
+      "kind": "tool_result",
+      "content": "1100\t\tc.InitDefaultHelpCmd()\n1101\n1102\t\targs := c.args\n1103\n1104\t\t// Workaround FAIL with \"go test -v\" or \"cobra.test -test.v\", see #155\n1105\t\tif c.args == nil && filepath.Base(os.Args[0]) != \"cobra.test\" {\n1106\t\t\targs = os.Args[1:]\n1107\t\t}\n1108\n1109\t\t// initialize the __complete command to be used for shell completion\n1110\t\tc.initCompleteCmd(args)\n1111\n1112\t\t// initialize the default completion command\n1113\t\tc.InitDefaultCompletionCmd(args...)\n1114\n1115\t\t// Now that all commands have been created, let's make sure all groups\n1116\t\t// are properly created also\n1117\t\tc.checkCommandGroups()\n1118\n1119\t\tvar flags []string\n1120\t\tif c.TraverseChildren {\n1121\t\t\tcmd, flags, err = c.Traverse(args)\n1122\t\t} else {\n1123\t\t\tcmd, flags, err = c.Find(args)\n1124\t\t}\n1125\t\tif err != nil {\n1126\t\t\t// If found parse to a subcommand and then failed, talk about the subcommand\n1127\t\t\tif cmd != nil {\n1128\t\t\t\tc = cmd\n1129\t\t\t}\n1130\t\t\tif !c.SilenceErrors {\n1131\t\t\t\tc.PrintErrln(c.ErrPrefix(), err.Error())\n1132\t\t\t\tc.PrintErrf(\"Run '%v --help' for usage.\\n\", c.CommandPath())\n1133\t\t\t}\n1134\t\t\treturn c, err\n1135\t\t}\n1136\n1137\t\tcmd.commandCalledAs.called = true\n1138\t\tif cmd.commandCalledAs.name == \"\" {\n1139\t\t\tcmd.commandCalledAs.name = cmd.Name()\n1140\t\t}\n1141\n1142\t\t// We have to pass global context to children command\n1143\t\t// if context is present on the parent command.\n1144\t\tif cmd.ctx == nil {\n1145\t\t\tcmd.ctx = c.ctx\n1146\t\t}\n1147\n1148\t\terr = cmd.execute(flags)\n1149\t\tif err != nil {\n1150\t\t\t// Always show help if requested, even if SilenceErrors is in\n1151\t\t\t// effect\n1152\t\t\tif errors.Is(err, flag.ErrHelp) {\n1153\t\t\t\tcmd.HelpFunc()(cmd, args)\n1154\t\t\t\treturn cmd, nil\n1155\t\t\t}\n1156\n1157\t\t\t// If root command has SilenceErrors flagged,\n1158\t\t\t// all subcommands should respect it\n1159\t\t\tif !cmd.SilenceErrors && !c.SilenceErrors {\n1160\t\t\t\tc.PrintErrln(cmd.ErrPrefix(), err.Error())\n1161\t\t\t}\n1162\n1163\t\t\t// If root command has SilenceUsage flagged,\n1164\t\t\t// all subcommands should respect it\n1165\t\t\tif !cmd.SilenceUsage && !c.SilenceUsage {\n1166\t\t\t\tc.Println(cmd.UsageString())\n1167\t\t\t}\n1168\t\t}\n1169\t\treturn cmd, err\n1170\t}\n1171\n1172\tfunc (c *Command) ValidateArgs(args []string) error {\n1173\t\tif c.Args == nil {\n1174\t\t\treturn ArbitraryArgs(c, args)\n1175\t\t}\n1176\t\treturn c.Args(c, args)\n1177\t}\n1178\n1179\t// ValidateRequiredFlags validates all required flags are present and returns an error otherwise",
+      "tool_call_id": "call_00_bQvdtNd0aaSYMbpBZ6iw7226"
+    },
+    {
+      "id": "cobra-completion-review-a-v4-event-24",
+      "session_id": "cobra-completion-review-a-v4",
+      "sequence": 23,
+      "turn": 0,
+      "role": "assistant",
+      "kind": "tool_call",
+      "content": "{\"command\":\"cd \\\"<ABSOLUTE_PATH>\" && grep -n \\\"InitDefaultCompletionCmd<ABSOLUTE_PATH>|func.*[Cc]ompletion[Cc]md<ABSOLUTE_PATH>|func.*[Gg]en.*[Cc]om\\\" command.go\",\"description\":\"Find default completion command init\"}",
+      "tool_name": "Bash",
+      "tool_call_id": "call_00_dMWTYFuujZ6TCstMzOHk5877"
+    },
+    {
+      "id": "cobra-completion-review-a-v4-event-25",
+      "session_id": "cobra-completion-review-a-v4",
+      "sequence": 24,
+      "turn": 0,
+      "role": "tool",
+      "kind": "tool_result",
+      "content": "1113:\tc.InitDefaultCompletionCmd(args...)",
+      "tool_call_id": "call_00_dMWTYFuujZ6TCstMzOHk5877"
+    },
+    {
+      "id": "cobra-completion-review-a-v4-event-26",
+      "session_id": "cobra-completion-review-a-v4",
+      "sequence": 25,
+      "turn": 0,
+      "role": "assistant",
+      "kind": "tool_call",
+      "content": "{\"command\":\"cd \\\"<ABSOLUTE_PATH>\" && grep -rn \\\"InitDefaultCompletionCmd<ABSOLUTE_PATH>|func.*CompletionCmd\\\" *.go\",\"description\":\"Find InitDefaultCompletionCmd definition\"}",
+      "tool_name": "Bash",
+      "tool_call_id": "call_00_q1ZpbxW1UTifi2aQuiHl1803"
+    },
+    {
+      "id": "cobra-completion-review-a-v4-event-27",
+      "session_id": "cobra-completion-review-a-v4",
+      "sequence": 26,
+      "turn": 0,
+      "role": "tool",
+      "kind": "tool_result",
+      "content": "command.go:1113:\tc.InitDefaultCompletionCmd(args...)\ncompletions.go:750:// InitDefaultCompletionCmd adds a default 'completion' command to c.\ncompletions.go:755:func (c *Command) InitDefaultCompletionCmd(args ...string) {\ncompletions_test.go:2461:func TestDefaultCompletionCmd(t *testing.T) {\ncompletions_test.go:3928:// A test to make sure the InitDefaultCompletionCmd function works as expected\ncompletions_test.go:3930:func TestInitDefaultCompletionCmd(t *testing.T) {\ncompletions_test.go:4004:\t\t\t// Call the InitDefaultCompletionCmd function directly\ncompletions_test.go:4006:\t\t\t\trootCmd.InitDefaultCompletionCmd()\ncompletions_test.go:4008:\t\t\t\trootCmd.InitDefaultCompletionCmd(tc.args...)",
+      "tool_call_id": "call_00_q1ZpbxW1UTifi2aQuiHl1803"
+    },
+    {
+      "id": "cobra-completion-review-a-v4-event-28",
+      "session_id": "cobra-completion-review-a-v4",
+      "sequence": 27,
+      "turn": 0,
+      "role": "assistant",
+      "kind": "tool_call",
+      "content": "{\"file_path\":\"<ABSOLUTE_PATH>\",\"limit\":120,\"offset\":750}",
+      "tool_name": "Read",
+      "tool_call_id": "call_00_qMb4t6XDXZCfIGj7Dh2n6719"
+    },
+    {
+      "id": "cobra-completion-review-a-v4-event-29",
+      "session_id": "cobra-completion-review-a-v4",
+      "sequence": 28,
+      "turn": 0,
+      "role": "tool",
+      "kind": "tool_result",
+      "content": "750\t// InitDefaultCompletionCmd adds a default 'completion' command to c.\n751\t// This function will do nothing if any of the following is true:\n752\t// 1- the feature has been explicitly disabled by the program,\n753\t// 2- c has no subcommands (to avoid creating one),\n754\t// 3- c already has a 'completion' command provided by the program.\n755\tfunc (c *Command) InitDefaultCompletionCmd(args ...string) {\n756\t\tif c.CompletionOptions.DisableDefaultCmd {\n757\t\t\treturn\n758\t\t}\n759\n760\t\tfor _, cmd := range c.commands {\n761\t\t\tif cmd.Name() == compCmdName || cmd.HasAlias(compCmdName) {\n762\t\t\t\t// A completion command is already available\n763\t\t\t\treturn\n764\t\t\t}\n765\t\t}\n766\n767\t\thaveNoDescFlag := !c.CompletionOptions.DisableNoDescFlag && !c.CompletionOptions.DisableDescriptions\n768\n769\t\t// Special case to know if there are sub-commands or not.\n770\t\thasSubCommands := false\n771\t\tfor _, cmd := range c.commands {\n772\t\t\tif cmd.Name() != ShellCompRequestCmd && cmd.Name() != helpCommandName {\n773\t\t\t\t// We found a real sub-command (not 'help' or '__complete')\n774\t\t\t\thasSubCommands = true\n775\t\t\t\tbreak\n776\t\t\t}\n777\t\t}\n778\n779\t\tcompletionCmd := &Command{\n780\t\t\tUse:   compCmdName,\n781\t\t\tShort: \"Generate the autocompletion script for the specified shell\",\n782\t\t\tLong: fmt.Sprintf(`Generate the autocompletion script for %[1]s for the specified shell.\n783\tSee each sub-command's help for details on how to use the generated script.\n784\t`, c.Root().Name()),\n785\t\t\tArgs:              NoArgs,\n786\t\t\tValidArgsFunction: NoFileCompletions,\n787\t\t\tHidden:            c.CompletionOptions.HiddenDefaultCmd,\n788\t\t\tGroupID:           c.completionCommandGroupID,\n789\t\t}\n790\t\tc.AddCommand(completionCmd)\n791\n792\t\tif !hasSubCommands {\n793\t\t\t// If the 'completion' command will be the only sub-command,\n794\t\t\t// we only create it if it is actually being called.\n795\t\t\t// This avoids breaking programs that would suddenly find themselves with\n796\t\t\t// a subcommand, which would prevent them from accepting arguments.\n797\t\t\t// We also create the 'completion' command if the user is triggering\n798\t\t\t// shell completion for it (prog __complete completion '')\n799\t\t\tsubCmd, cmdArgs, err := c.Find(args)\n800\t\t\tif err != nil || subCmd.Name() != compCmdName &&\n801\t\t\t\t(subCmd.Name() != ShellCompRequestCmd || len(cmdArgs) <= 1 || cmdArgs[0] != compCmdName) {\n802\t\t\t\t// The completion command is not being called or being completed so we remove it.\n803\t\t\t\tc.RemoveCommand(completionCmd)\n804\t\t\t\treturn\n805\t\t\t}\n806\t\t}\n807\n808\t\tout := c.OutOrStdout()\n809\t\tnoDesc := c.CompletionOptions.DisableDescriptions\n810\t\tshortDesc := \"Generate the autocompletion script for %s\"\n811\t\tbash := &Command{\n812\t\t\tUse:   \"bash\",\n813\t\t\tShort: fmt.Sprintf(shortDesc, \"bash\"),\n814\t\t\tLong: fmt.Sprintf(`Generate the autocompletion script for the bash shell.\n815\n816\tThis script depends on the 'bash-completion' package.\n817\tIf it is not installed already, you can install it via your OS's package manager.\n818\n819\tTo load completions in your current shell session:\n820\n821\t\tsource <(%[1]s completion bash)\n822\n823\tTo load completions for every new session, execute once:\n824\n825\t#### Linux:\n826\n827\t\t%[1]s completion bash > /etc/bash_completion.d/%[1]s\n828\n829\t#### macOS:\n830\n831\t\t%[1]s completion bash > $(brew --prefix)/etc/bash_completion.d/%[1]s\n832\n833\tYou will need to start a new shell for this setup to take effect.\n834\t`, c.Root().Name()),\n835\t\t\tArgs:                  NoArgs,\n836\t\t\tDisableFlagsInUseLine: true,\n837\t\t\tValidArgsFunction:     NoFileCompletions,\n838\t\t\tRunE: func(cmd *Command, args []string) error {\n839\t\t\t\treturn cmd.Root().GenBashCompletionV2(out, !noDesc)\n840\t\t\t},\n841\t\t}\n842\t\tif haveNoDescFlag {\n843\t\t\tbash.Flags().BoolVar(&noDesc, compCmdNoDescFlagName, compCmdNoDescFlagDefault, compCmdNoDescFlagDesc)\n844\t\t}\n845\n846\t\tzsh := &Command{\n847\t\t\tUse:   \"zsh\",\n848\t\t\tShort: fmt.Sprintf(shortDesc, \"zsh\"),\n849\t\t\tLong: fmt.Sprintf(`Generate the autocompletion script for the zsh shell.\n850\n851\tIf shell completion is not already enabled in your environment you will need\n852\tto enable it.  You can execute the following once:\n853\n854\t\techo \"autoload -U compinit; compinit\" >> ~/.zshrc\n855\n856\tTo load completions in your current shell session:\n857\n858\t\tsource <(%[1]s completion zsh)\n859\n860\tTo load completions for every new session, execute once:\n861\n862\t#### Linux:\n863\n864\t\t%[1]s completion zsh > \"${fpath[1]}/_%[1]s\"\n865\n866\t#### macOS:\n867\n868\t\t%[1]s completion zsh > $(brew --prefix)/share/zsh/site-functions/_%[1]s\n869",
+      "tool_call_id": "call_00_qMb4t6XDXZCfIGj7Dh2n6719"
+    },
+    {
+      "id": "cobra-completion-review-a-v4-event-30",
+      "session_id": "cobra-completion-review-a-v4",
+      "sequence": 29,
+      "turn": 0,
+      "role": "assistant",
+      "kind": "tool_call",
+      "content": "{\"file_path\":\"<ABSOLUTE_PATH>\",\"limit\":90,\"offset\":870}",
+      "tool_name": "Read",
+      "tool_call_id": "call_00_TU1WUPXnphZlDNu36ljQ9668"
+    },
+    {
+      "id": "cobra-completion-review-a-v4-event-31",
+      "session_id": "cobra-completion-review-a-v4",
+      "sequence": 30,
+      "turn": 0,
+      "role": "tool",
+      "kind": "tool_result",
+      "content": "870\tYou will need to start a new shell for this setup to take effect.\n871\t`, c.Root().Name()),\n872\t\t\tArgs:              NoArgs,\n873\t\t\tValidArgsFunction: NoFileCompletions,\n874\t\t\tRunE: func(cmd *Command, args []string) error {\n875\t\t\t\tif noDesc {\n876\t\t\t\t\treturn cmd.Root().GenZshCompletionNoDesc(out)\n877\t\t\t\t}\n878\t\t\t\treturn cmd.Root().GenZshCompletion(out)\n879\t\t\t},\n880\t\t}\n881\t\tif haveNoDescFlag {\n882\t\t\tzsh.Flags().BoolVar(&noDesc, compCmdNoDescFlagName, compCmdNoDescFlagDefault, compCmdNoDescFlagDesc)\n883\t\t}\n884\n885\t\tfish := &Command{\n886\t\t\tUse:   \"fish\",\n887\t\t\tShort: fmt.Sprintf(shortDesc, \"fish\"),\n888\t\t\tLong: fmt.Sprintf(`Generate the autocompletion script for the fish shell.\n889\n890\tTo load completions in your current shell session:\n891\n892\t\t%[1]s completion fish | source\n893\n894\tTo load completions for every new session, execute once:\n895\n896\t\t%[1]s completion fish > ~/.config/fish/completions/%[1]s.fish\n897\n898\tYou will need to start a new shell for this setup to take effect.\n899\t`, c.Root().Name()),\n900\t\t\tArgs:              NoArgs,\n901\t\t\tValidArgsFunction: NoFileCompletions,\n902\t\t\tRunE: func(cmd *Command, args []string) error {\n903\t\t\t\treturn cmd.Root().GenFishCompletion(out, !noDesc)\n904\t\t\t},\n905\t\t}\n906\t\tif haveNoDescFlag {\n907\t\t\tfish.Flags().BoolVar(&noDesc, compCmdNoDescFlagName, compCmdNoDescFlagDefault, compCmdNoDescFlagDesc)\n908\t\t}\n909\n910\t\tpowershell := &Command{\n911\t\t\tUse:   \"powershell\",\n912\t\t\tShort: fmt.Sprintf(shortDesc, \"powershell\"),\n913\t\t\tLong: fmt.Sprintf(`Generate the autocompletion script for powershell.\n914\n915\tTo load completions in your current shell session:\n916\n917\t\t%[1]s completion powershell | Out-String | Invoke-Expression\n918\n919\tTo load completions for every new session, add the output of the above command\n920\tto your powershell profile.\n921\t`, c.Root().Name()),\n922\t\t\tArgs:              NoArgs,\n923\t\t\tValidArgsFunction: NoFileCompletions,\n924\t\t\tRunE: func(cmd *Command, args []string) error {\n925\t\t\t\tif noDesc {\n926\t\t\t\t\treturn cmd.Root().GenPowerShellCompletion(out)\n927\t\t\t\t}\n928\t\t\t\treturn cmd.Root().GenPowerShellCompletionWithDesc(out)\n929\n930\t\t\t},\n931\t\t}\n932\t\tif haveNoDescFlag {\n933\t\t\tpowershell.Flags().BoolVar(&noDesc, compCmdNoDescFlagName, compCmdNoDescFlagDefault, compCmdNoDescFlagDesc)\n934\t\t}\n935\n936\t\tcompletionCmd.AddCommand(bash, zsh, fish, powershell)\n937\t}\n938\n939\tfunc findFlag(cmd *Command, name string) *pflag.Flag {\n940\t\tflagSet := cmd.Flags()\n941\t\tif len(name) == 1 {\n942\t\t\t// First convert the short flag into a long flag\n943\t\t\t// as the cmd.Flag() search only accepts long flags\n944\t\t\tif short := flagSet.ShorthandLookup(name); short != nil {\n945\t\t\t\tname = short.Name\n946\t\t\t} else {\n947\t\t\t\tset := cmd.InheritedFlags()\n948\t\t\t\tif short = set.ShorthandLookup(name); short != nil {\n949\t\t\t\t\tname = short.Name\n950\t\t\t\t} else {\n951\t\t\t\t\treturn nil\n952\t\t\t\t}\n953\t\t\t}\n954\t\t}\n955\t\treturn cmd.Flag(name)\n956\t}\n957\n958\t// CompDebug prints the specified string to the same file as where the\n959\t// completion script prints its logs.",
+      "tool_call_id": "call_00_TU1WUPXnphZlDNu36ljQ9668"
+    },
+    {
+      "id": "cobra-completion-review-a-v4-event-32",
+      "session_id": "cobra-completion-review-a-v4",
+      "sequence": 31,
+      "turn": 0,
+      "role": "assistant",
+      "kind": "tool_call",
+      "content": "{\"file_path\":\"<ABSOLUTE_PATH>\",\"limit\":50,\"offset\":80}",
+      "tool_name": "Read",
+      "tool_call_id": "call_00_ROpHdf9eucopUCNEiyFm0033"
+    },
+    {
+      "id": "cobra-completion-review-a-v4-event-33",
+      "session_id": "cobra-completion-review-a-v4",
+      "sequence": 32,
+      "turn": 0,
+      "role": "tool",
+      "kind": "tool_result",
+      "content": "80\t\tLong string\n81\n82\t\t// Example is examples of how to use the command.\n83\t\tExample string\n84\n85\t\t// ValidArgs is list of all valid non-flag arguments that are accepted in shell completions\n86\t\tValidArgs []Completion\n87\t\t// ValidArgsFunction is an optional function that provides valid non-flag arguments for shell completion.\n88\t\t// It is a dynamic version of using ValidArgs.\n89\t\t// Only one of ValidArgs and ValidArgsFunction can be used for a command.\n90\t\tValidArgsFunction CompletionFunc\n91\n92\t\t// Expected arguments\n93\t\tArgs PositionalArgs\n94\n95\t\t// ArgAliases is List of aliases for ValidArgs.\n96\t\t// These are not suggested to the user in the shell completion,\n97\t\t// but accepted if entered manually.\n98\t\tArgAliases []string\n99\n100\t\t// BashCompletionFunction is custom bash functions used by the legacy bash autocompletion generator.\n101\t\t// For portability with other shells, it is recommended to instead use ValidArgsFunction\n102\t\tBashCompletionFunction string\n103\n104\t\t// Deprecated defines, if this command is deprecated and should print this string when used.\n105\t\tDeprecated string\n106\n107\t\t// Annotations are key/value pairs that can be used by applications to identify or\n108\t\t// group commands or set special options.\n109\t\tAnnotations map[string]string\n110\n111\t\t// Version defines the version for this command. If this value is non-empty and the command does not\n112\t\t// define a \"version\" flag, a \"version\" boolean flag will be added to the command and, if specified,\n113\t\t// will print content of the \"Version\" variable. A shorthand \"v\" flag will also be added if the\n114\t\t// command does not define one.\n115\t\tVersion string\n116\n117\t\t// The *Run functions are executed in the following order:\n118\t\t//   * PersistentPreRun()\n119\t\t//   * PreRun()\n120\t\t//   * Run()\n121\t\t//   * PostRun()\n122\t\t//   * PersistentPostRun()\n123\t\t// All functions get the same args, the arguments after the command name.\n124\t\t// The *PreRun and *PostRun functions will only be executed if the Run function of the current\n125\t\t// command has been declared.\n126\t\t//\n127\t\t// PersistentPreRun: children of this command will inherit and execute.\n128\t\tPersistentPreRun func(cmd *Command, args []string)\n129\t\t// PersistentPreRunE: PersistentPreRun but returns an error.",
+      "tool_call_id": "call_00_ROpHdf9eucopUCNEiyFm0033"
+    },
+    {
+      "id": "cobra-completion-review-a-v4-event-34",
+      "session_id": "cobra-completion-review-a-v4",
+      "sequence": 33,
+      "turn": 0,
+      "role": "assistant",
+      "kind": "tool_call",
+      "content": "{\"file_path\":\"<ABSOLUTE_PATH>\",\"limit\":60,\"offset\":1075}",
+      "tool_name": "Read",
+      "tool_call_id": "call_01_77Yu8Xctg8kpchfJUHT18973"
+    },
+    {
+      "id": "cobra-completion-review-a-v4-event-35",
+      "session_id": "cobra-completion-review-a-v4",
+      "sequence": 34,
+      "turn": 0,
+      "role": "tool",
+      "kind": "tool_result",
+      "content": "1075\t// ExecuteContextC is the same as ExecuteC(), but sets the ctx on the command.\n1076\t// Retrieve ctx by calling cmd.Context() inside your *Run lifecycle or ValidArgs\n1077\t// functions.\n1078\tfunc (c *Command) ExecuteContextC(ctx context.Context) (*Command, error) {\n1079\t\tc.ctx = ctx\n1080\t\treturn c.ExecuteC()\n1081\t}\n1082\n1083\t// ExecuteC executes the command.\n1084\tfunc (c *Command) ExecuteC() (cmd *Command, err error) {\n1085\t\tif c.ctx == nil {\n1086\t\t\tc.ctx = context.Background()\n1087\t\t}\n1088\n1089\t\t// Regardless of what command execute is called on, run on Root only\n1090\t\tif c.HasParent() {\n1091\t\t\treturn c.Root().ExecuteC()\n1092\t\t}\n1093\n1094\t\t// windows hook\n1095\t\tif preExecHookFn != nil {\n1096\t\t\tpreExecHookFn(c)\n1097\t\t}\n1098\n1099\t\t// initialize help at the last point to allow for user overriding\n1100\t\tc.InitDefaultHelpCmd()\n1101\n1102\t\targs := c.args\n1103\n1104\t\t// Workaround FAIL with \"go test -v\" or \"cobra.test -test.v\", see #155\n1105\t\tif c.args == nil && filepath.Base(os.Args[0]) != \"cobra.test\" {\n1106\t\t\targs = os.Args[1:]\n1107\t\t}\n1108\n1109\t\t// initialize the __complete command to be used for shell completion\n1110\t\tc.initCompleteCmd(args)\n1111\n1112\t\t// initialize the default completion command\n1113\t\tc.InitDefaultCompletionCmd(args...)\n1114\n1115\t\t// Now that all commands have been created, let's make sure all groups\n1116\t\t// are properly created also\n1117\t\tc.checkCommandGroups()\n1118\n1119\t\tvar flags []string\n1120\t\tif c.TraverseChildren {\n1121\t\t\tcmd, flags, err = c.Traverse(args)\n1122\t\t} else {\n1123\t\t\tcmd, flags, err = c.Find(args)\n1124\t\t}\n1125\t\tif err != nil {\n1126\t\t\t// If found parse to a subcommand and then failed, talk about the subcommand\n1127\t\t\tif cmd != nil {\n1128\t\t\t\tc = cmd\n1129\t\t\t}\n1130\t\t\tif !c.SilenceErrors {\n1131\t\t\t\tc.PrintErrln(c.ErrPrefix(), err.Error())\n1132\t\t\t\tc.PrintErrf(\"Run '%v --help' for usage.\\n\", c.CommandPath())\n1133\t\t\t}\n1134\t\t\treturn c, err",
+      "tool_call_id": "call_01_77Yu8Xctg8kpchfJUHT18973"
+    },
+    {
+      "id": "cobra-completion-review-a-v4-event-36",
+      "session_id": "cobra-completion-review-a-v4",
+      "sequence": 35,
+      "turn": 0,
+      "role": "assistant",
+      "kind": "tool_call",
+      "content": "{\"command\":\"cd \\\"<ABSOLUTE_PATH>\" && grep -n \\\"func nonCompletableFlag<ABSOLUTE_PATH>|func enforceFlagGroupsForCompletion<ABSOLUTE_PATH>|func getEnvConfig\\\" completions.go\",\"description\":\"Find helper functions in completions.go\"}",
+      "tool_name": "Bash",
+      "tool_call_id": "call_00_OP8foSHEjc750O4WWAU07212"
+    },
+    {
+      "id": "cobra-completion-review-a-v4-event-37",
+      "session_id": "cobra-completion-review-a-v4",
+      "sequence": 36,
+      "turn": 0,
+      "role": "tool",
+      "kind": "tool_result",
+      "content": "1025:func getEnvConfig(cmd *Command, suffix string) string {",
+      "tool_call_id": "call_00_OP8foSHEjc750O4WWAU07212"
+    },
+    {
+      "id": "cobra-completion-review-a-v4-event-38",
+      "session_id": "cobra-completion-review-a-v4",
+      "sequence": 37,
+      "turn": 0,
+      "role": "assistant",
+      "kind": "tool_call",
+      "content": "{\"command\":\"cd \\\"<ABSOLUTE_PATH>\" && grep -n \\\"func nonCompletableFlag<ABSOLUTE_PATH>|func enforceFlagGroupsForCompletion<ABSOLUTE_PATH>|func getEnvConfig<ABSOLUTE_PATH>|func checkIfFlagCompletion<ABSOLUTE_PATH>|func completeRequireFlags<ABSOLUTE_PATH>|func getFlagNameCompletions<ABSOLUTE_PATH>|func helpOrVersionFlagPresent<ABSOLUTE_PATH>|func completionInput\\\" completions.go\",\"description\":\"Find all helper functions in completions.go\"}",
+      "tool_name": "Bash",
+      "tool_call_id": "call_00_ovrFN4N4zPncllDasEUO7839"
+    },
+    {
+      "id": "cobra-completion-review-a-v4-event-39",
+      "session_id": "cobra-completion-review-a-v4",
+      "sequence": 38,
+      "turn": 0,
+      "role": "tool",
+      "kind": "tool_result",
+      "content": "321:func completionInput(args []string) (trimmedArgs []string, toComplete string) {\n594:func helpOrVersionFlagPresent(cmd *Command) bool {\n606:func getFlagNameCompletions(flag *pflag.Flag, toComplete string) []Completion {\n639:func completeRequireFlags(finalCmd *Command, toComplete string) []Completion {\n664:func checkIfFlagCompletion(finalCmd *Command, args []string, lastArg string) (*pflag.Flag, []string, string, error) {\n1025:func getEnvConfig(cmd *Command, suffix string) string {",
+      "tool_call_id": "call_00_ovrFN4N4zPncllDasEUO7839"
+    },
+    {
+      "id": "cobra-completion-review-a-v4-event-40",
+      "session_id": "cobra-completion-review-a-v4",
+      "sequence": 39,
+      "turn": 0,
+      "role": "assistant",
+      "kind": "tool_call",
+      "content": "{\"command\":\"cd \\\"<ABSOLUTE_PATH>\" && grep -rn \\\"func nonCompletableFlag<ABSOLUTE_PATH>|func enforceFlagGroupsForCompletion\\\" *.go\",\"description\":\"Find enforceFlagGroupsForCompletion and nonCompletableFlag\"}",
+      "tool_name": "Bash",
+      "tool_call_id": "call_00_gGfP7pasd6kf3RYNHXcb0036"
+    },
+    {
+      "id": "cobra-completion-review-a-v4-event-41",
+      "session_id": "cobra-completion-review-a-v4",
+      "sequence": 40,
+      "turn": 0,
+      "role": "tool",
+      "kind": "tool_result",
+      "content": "bash_completions.go:696:func nonCompletableFlag(flag *pflag.Flag) bool {",
+      "tool_call_id": "call_00_gGfP7pasd6kf3RYNHXcb0036"
+    },
+    {
+      "id": "cobra-completion-review-a-v4-event-42",
+      "session_id": "cobra-completion-review-a-v4",
+      "sequence": 41,
+      "turn": 0,
+      "role": "assistant",
+      "kind": "tool_call",
+      "content": "{\"command\":\"cd \\\"<ABSOLUTE_PATH>\" && grep -n \\\"func enforceFlagGroupsForCompletion\\\" flag_groups.go\",\"description\":\"Find enforceFlagGroupsForCompletion\"}",
+      "tool_name": "Bash",
+      "tool_call_id": "call_00_SBwUHnYBTtj5aO9TP5m71095"
+    },
+    {
+      "id": "cobra-completion-review-a-v4-event-43",
+      "session_id": "cobra-completion-review-a-v4",
+      "sequence": 42,
+      "turn": 0,
+      "role": "tool",
+      "kind": "tool_result",
+      "content": "(Bash completed with no output)",
+      "tool_call_id": "call_00_SBwUHnYBTtj5aO9TP5m71095"
+    },
+    {
+      "id": "cobra-completion-review-a-v4-event-44",
+      "session_id": "cobra-completion-review-a-v4",
+      "sequence": 43,
+      "turn": 0,
+      "role": "assistant",
+      "kind": "tool_call",
+      "content": "{\"command\":\"cd \\\"<ABSOLUTE_PATH>\" && grep -rn \\\"enforceFlagGroupsForCompletion\\\" *.go\",\"description\":\"Find enforceFlagGroupsForCompletion\"}",
+      "tool_name": "Bash",
+      "tool_call_id": "call_00_OgHA7Q4kuxiRLeK75AfX1275"
+    },
+    {
+      "id": "cobra-completion-review-a-v4-event-45",
+      "session_id": "cobra-completion-review-a-v4",
+      "sequence": 44,
+      "turn": 0,
+      "role": "tool",
+      "kind": "tool_result",
+      "content": "completions.go:440:\tfinalCmd.enforceFlagGroupsForCompletion()\nflag_groups.go:220:// enforceFlagGroupsForCompletion will do the following:\nflag_groups.go:225:func (c *Command) enforceFlagGroupsForCompletion() {",
+      "tool_call_id": "call_00_OgHA7Q4kuxiRLeK75AfX1275"
+    },
+    {
+      "id": "cobra-completion-review-a-v4-event-46",
+      "session_id": "cobra-completion-review-a-v4",
+      "sequence": 45,
+      "turn": 0,
+      "role": "assistant",
+      "kind": "tool_call",
+      "content": "{\"file_path\":\"<ABSOLUTE_PATH>\",\"limit\":50,\"offset\":220}",
+      "tool_name": "Read",
+      "tool_call_id": "call_00_eMugRZvYfAxEszTCzYHv9418"
+    },
+    {
+      "id": "cobra-completion-review-a-v4-event-47",
+      "session_id": "cobra-completion-review-a-v4",
+      "sequence": 46,
+      "turn": 0,
+      "role": "tool",
+      "kind": "tool_result",
+      "content": "220\t// enforceFlagGroupsForCompletion will do the following:\n221\t// - when a flag in a group is present, other flags in the group will be marked required\n222\t// - when none of the flags in a one-required group are present, all flags in the group will be marked required\n223\t// - when a flag in a mutually exclusive group is present, other flags in the group will be marked as hidden\n224\t// This allows the standard completion logic to behave appropriately for flag groups\n225\tfunc (c *Command) enforceFlagGroupsForCompletion() {\n226\t\tif c.DisableFlagParsing {\n227\t\t\treturn\n228\t\t}\n229\n230\t\tflags := c.Flags()\n231\t\tgroupStatus := map[string]map[string]bool{}\n232\t\toneRequiredGroupStatus := map[string]map[string]bool{}\n233\t\tmutuallyExclusiveGroupStatus := map[string]map[string]bool{}\n234\t\tc.Flags().VisitAll(func(pflag *flag.Flag) {\n235\t\t\tprocessFlagForGroupAnnotation(flags, pflag, requiredAsGroupAnnotation, groupStatus)\n236\t\t\tprocessFlagForGroupAnnotation(flags, pflag, oneRequiredAnnotation, oneRequiredGroupStatus)\n237\t\t\tprocessFlagForGroupAnnotation(flags, pflag, mutuallyExclusiveAnnotation, mutuallyExclusiveGroupStatus)\n238\t\t})\n239\n240\t\t// If a flag that is part of a group is present, we make all the other flags\n241\t\t// of that group required so that the shell completion suggests them automatically\n242\t\tfor flagList, flagnameAndStatus := range groupStatus {\n243\t\t\tfor _, isSet := range flagnameAndStatus {\n244\t\t\t\tif isSet {\n245\t\t\t\t\t// One of the flags of the group is set, mark the other ones as required\n246\t\t\t\t\tfor _, fName := range strings.Split(flagList, \" \") {\n247\t\t\t\t\t\t_ = c.MarkFlagRequired(fName)\n248\t\t\t\t\t}\n249\t\t\t\t}\n250\t\t\t}\n251\t\t}\n252\n253\t\t// If none of the flags of a one-required group are present, we make all the flags\n254\t\t// of that group required so that the shell completion suggests them automatically\n255\t\tfor flagList, flagnameAndStatus := range oneRequiredGroupStatus {\n256\t\t\tisSet := false\n257\n258\t\t\tfor _, isSet = range flagnameAndStatus {\n259\t\t\t\tif isSet {\n260\t\t\t\t\tbreak\n261\t\t\t\t}\n262\t\t\t}\n263\n264\t\t\t// None of the flags of the group are set, mark all flags in the group\n265\t\t\t// as required\n266\t\t\tif !isSet {\n267\t\t\t\tfor _, fName := range strings.Split(flagList, \" \") {\n268\t\t\t\t\t_ = c.MarkFlagRequired(fName)\n269\t\t\t\t}",
+      "tool_call_id": "call_00_eMugRZvYfAxEszTCzYHv9418"
+    },
+    {
+      "id": "cobra-completion-review-a-v4-event-48",
+      "session_id": "cobra-completion-review-a-v4",
+      "sequence": 47,
+      "turn": 1,
+      "role": "user",
+      "kind": "message",
+      "content": "[Your previous response had no visible output. Please continue and produce a user-visible response.]"
+    },
+    {
+      "id": "cobra-completion-review-a-v4-event-49",
+      "session_id": "cobra-completion-review-a-v4",
+      "sequence": 48,
+      "turn": 1,
+      "role": "assistant",
+      "kind": "message",
+      "content": "Here is my read of the shell-completion argument flow across `command.go`, `completions.go`, `shell_completions.go`, and the per-shell generators:\n\n- **Behavior that must be preserved**: the hidden `__complete` subcommand is injected into the command tree at execution time (`initCompleteCmd`, line 231 of `completions.go`), consumes the raw command-line and incomplete word, runs `getCompletions` (line 327) to resolve the target command, flags, and registered completion functions, then prints each completion line-by-line followed by a `:<directive>` sentinel. The shell scripts parse that sentinel to drive their native completion behavior. The flow must always emit *exactly* one `:<directive>` line last, even on errors.\n\n- **Current owner / helper where it lives**: `completions.go` is the primary owner (~970 lines). The central function is `getCompletions` (line 327), with helpers `checkIfFlagCompletion` (line 664), `getFlagNameCompletions` (line 606), `completeRequireFlags` (line 639), `completionInput` (line 321), and `helpOrVersionFlagPresent` (line 594). Annotation-based hints live in `shell_completions.go` (lines 1-99). The bootstrap wiring is in `ExecuteC` at `command.go` lines 1109-1113.\n\n- **One refactor risk**: `getCompletions` parses flags twice — once with a synthetic `--` sentinel appended to detect interspersed/trailing conditions (line 379), then again for real parsing (line 383). The first parse mutates `finalCmd.Flags()` state (setting `Changed` on flags), so the second parse's behavior depends on leftover state from the first. Any refactor that consolidates or reorders these two-parses could silently break interspersed-flag detection, the `flagCompletion` boolean, or `checkIfFlagCompletion`'s ability to spot a flag-value context."
+    }
+  ]
+}

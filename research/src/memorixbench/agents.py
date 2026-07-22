@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import signal
 import subprocess
 import threading
 import time
@@ -558,7 +559,9 @@ def _capture_streaming_process(
     """Capture line-delimited client events with observed monotonic timings."""
 
     started = time.monotonic()
-    creationflags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+    creationflags = 0
+    if os.name == "nt":
+        creationflags = subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP
     process = subprocess.Popen(
         command,
         cwd=cwd,
@@ -571,6 +574,7 @@ def _capture_streaming_process(
         bufsize=1,
         env=environment,
         creationflags=creationflags,
+        start_new_session=os.name != "nt",
     )
     records: list[StreamRecord] = []
     lock = threading.Lock()
@@ -608,7 +612,7 @@ def _capture_streaming_process(
         returncode = process.wait(timeout=timeout_seconds)
     except subprocess.TimeoutExpired:
         timed_out = True
-        process.terminate()
+        _terminate_process_tree(process)
         try:
             process.wait(timeout=10)
         except subprocess.TimeoutExpired:
@@ -628,8 +632,38 @@ def _capture_streaming_process(
     return stdout, stderr, returncode, timed_out, ordered
 
 
+def _terminate_process_tree(process: subprocess.Popen[str]) -> None:
+    """Stop a timed-out client and its normal descendants before grading state."""
+
+    if process.poll() is not None:
+        return
+    if os.name == "nt":
+        try:
+            completed = subprocess.run(
+                ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=15,
+                creationflags=subprocess.CREATE_NO_WINDOW,
+            )
+        except subprocess.TimeoutExpired:
+            process.kill()
+            return
+        if completed.returncode == 0:
+            return
+        if process.poll() is None:
+            process.kill()
+        return
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+    except ProcessLookupError:
+        return
+
+
 def _write_event_timeline(path: Path, records: Iterable[StreamRecord]) -> None:
-    with path.open("w", encoding="utf-8") as handle:
+    with path.open("w", encoding="utf-8", newline="\n") as handle:
         for record in records:
             handle.write(json.dumps({
                 "sequence": record.sequence,
@@ -703,7 +737,7 @@ def run_agent(
     action_ledger_path = artifacts / "action-ledger.json"
     stderr_path = artifacts / "stderr.txt"
     patch_path = artifacts / "patch.diff"
-    events_path.write_text(stdout, encoding="utf-8")
+    events_path.write_bytes(stdout.encode("utf-8"))
     _write_event_timeline(timeline_path, stream_records)
     action_ledger = write_action_ledger(
         agent=agent,

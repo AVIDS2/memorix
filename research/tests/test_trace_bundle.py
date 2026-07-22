@@ -69,17 +69,22 @@ def _capture(path: Path, *, capture_id: str, text: str) -> tuple[Path, Path]:
     timeline = path / f"{capture_id}-timeline.jsonl"
     trace = path / "traces" / f"{capture_id}.json"
     receipt = path / "traces" / f"{capture_id}-receipt.json"
-    events.write_text(
-        json.dumps({
-            "type": "assistant",
-            "message": {
-                "model": "bundle-test-model",
-                "content": [{"type": "text", "text": text}],
-            },
-        }) + "\n",
-        encoding="utf-8",
+    event = {
+        "type": "assistant",
+        "message": {
+            "model": "bundle-test-model",
+            "content": [{"type": "text", "text": text}],
+        },
+    }
+    events.write_bytes((json.dumps(event) + "\n").encode("utf-8"))
+    timeline.write_bytes(
+        (json.dumps({
+            "sequence": 0,
+            "stream": "stdout",
+            "elapsed_seconds": 0.0,
+            "line": json.dumps(event) + "\n",
+        }) + "\n").encode("utf-8")
     )
-    timeline.write_text("{\"private\":\"timeline\"}\n", encoding="utf-8")
     capture_trace_from_streams(
         events_path=events,
         timeline_path=timeline,

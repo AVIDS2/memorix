@@ -26,6 +26,7 @@ from .source_ledger import (
     validate_source_ledger,
 )
 from .preflight import write_environment_preflight_receipt
+from .capture_session import capture_precursor_session
 from .trace_capture import capture_trace_from_streams
 from .trace import load_trace_bundle, write_trace_bundle
 from .reporting import (
@@ -104,6 +105,27 @@ def _capture_trace(args: argparse.Namespace) -> int:
         captured_at_utc=args.captured_at_utc,
     )
     print(json.dumps(receipt.public_payload(), indent=2))
+    return 0
+
+
+def _capture_precursor_session(args: argparse.Namespace) -> int:
+    manifest = load_case_manifest(args.case)
+    capture = capture_precursor_session(
+        manifest=manifest,
+        prompt=args.prompt_file.read_text(encoding="utf-8"),
+        artifact_root=args.artifact_root,
+        public_output_root=args.public_output_root,
+        workspace_root=args.workspace_root,
+        agent=args.agent,
+        client_version=args.client_version,
+        capture_id=args.capture_id,
+        model=args.model,
+        timeout_seconds=args.timeout_seconds,
+        max_budget_usd=args.max_budget_usd,
+        repository_cache=args.repository_cache,
+        claude_provider_settings=args.claude_provider_settings,
+    )
+    print(json.dumps(capture.public_payload(), indent=2))
     return 0
 
 
@@ -384,10 +406,25 @@ def build_parser() -> argparse.ArgumentParser:
     capture_trace.add_argument("--capture-id")
     capture_trace.add_argument(
         "--capture-mode",
-        choices=("local-diagnostic-v1", "isolated-worker-v1"),
+        choices=("local-diagnostic-v1",),
         default="local-diagnostic-v1",
     )
     capture_trace.add_argument("--captured-at-utc")
+
+    capture_session = subparsers.add_parser("capture-precursor-session")
+    capture_session.add_argument("case", type=Path)
+    capture_session.add_argument("--prompt-file", type=Path, required=True)
+    capture_session.add_argument("--artifact-root", type=Path, required=True)
+    capture_session.add_argument("--public-output-root", type=Path, required=True)
+    capture_session.add_argument("--workspace-root", type=Path, required=True)
+    capture_session.add_argument("--agent", choices=("claude", "codex"), required=True)
+    capture_session.add_argument("--client-version", required=True)
+    capture_session.add_argument("--capture-id")
+    capture_session.add_argument("--model")
+    capture_session.add_argument("--timeout-seconds", type=int, default=240)
+    capture_session.add_argument("--max-budget-usd", type=float)
+    capture_session.add_argument("--repository-cache", type=Path)
+    capture_session.add_argument("--claude-provider-settings", type=Path)
 
     preflight = subparsers.add_parser("record-environment-preflight")
     preflight.add_argument("ledger", type=Path)
@@ -520,6 +557,8 @@ def main() -> int:
             return _audit_source_candidate(args)
         if args.command == "capture-trace":
             return _capture_trace(args)
+        if args.command == "capture-precursor-session":
+            return _capture_precursor_session(args)
         if args.command == "record-environment-preflight":
             return _record_environment_preflight(args)
         if args.command == "build-trace-bundle":

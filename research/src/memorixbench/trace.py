@@ -9,6 +9,7 @@ import unicodedata
 from typing import Iterable
 
 from .baseline import BaselineRetrieval, RetrievedMemory, token_count
+from .public_safety import PublicSafetyError, reject_public_text
 from .schema import (
     CaseManifest,
     VALID_TRACE_NORMALIZATIONS,
@@ -23,15 +24,6 @@ TRACE_EVENT_ROLES = {"user", "assistant", "tool", "system"}
 TRACE_EVENT_KINDS = {"message", "tool_call", "tool_result"}
 MAX_EVENT_BYTES = 256 * 1024
 MAX_TRACE_BYTES = 8 * 1024 * 1024
-SECRET_PATTERNS = (
-    re.compile(r"(?i)(?:api[_-]?key|auth[_-]?token|password|secret)\s*[:=]\s*\S+"),
-    re.compile(r"(?i)bearer\s+[a-z0-9._~+/=-]{16,}"),
-    re.compile(r"-----BEGIN [A-Z ]+-----"),
-    re.compile(r"(?<![A-Za-z0-9])sk-[A-Za-z0-9_-]{20,}"),
-)
-ABSOLUTE_PATH_PATTERN = re.compile(r"(?i)(?:[a-z]:[\\/]|\\\\|/Users/|/home/)")
-
-
 class TraceError(ValueError):
     """Raised when a precursor trace is invalid or unsafe for public replay."""
 
@@ -142,12 +134,10 @@ def _sha256_payload(payload: object) -> str:
 
 
 def _reject_public_secrets(content: str) -> None:
-    if "\0" in content:
-        raise TraceError("precursor trace contains a NUL byte")
-    if ABSOLUTE_PATH_PATTERN.search(content):
-        raise TraceError("precursor trace contains an absolute host path")
-    if any(pattern.search(content) for pattern in SECRET_PATTERNS):
-        raise TraceError("precursor trace contains credential-like content")
+    try:
+        reject_public_text(content)
+    except PublicSafetyError as error:
+        raise TraceError(f"precursor trace {error}") from error
 
 
 def _text(raw: object, field: str) -> str:
@@ -187,6 +177,10 @@ def _event(raw: object, index: int) -> PrecursorEvent:
     _reject_public_secrets(content)
     tool_name = _optional_text(raw.get("tool_name"), "tool_name")
     tool_call_id = _optional_text(raw.get("tool_call_id"), "tool_call_id")
+    if tool_name is not None:
+        _reject_public_secrets(tool_name)
+    if tool_call_id is not None:
+        _reject_public_secrets(tool_call_id)
     if kind == "message" and (tool_name or tool_call_id):
         raise TraceError(f"trace event {index} message must not declare tool metadata")
     if kind == "tool_call":
@@ -627,7 +621,8 @@ def write_trace_bundle(
         "captures": captures,
     }
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    with target.open("w", encoding="utf-8", newline="\n") as handle:
+        handle.write(json.dumps(payload, indent=2, ensure_ascii=False) + "\n")
     return target
 
 
@@ -675,6 +670,10 @@ def render_trace_view(
         if token_count(_render_trace_events(candidate)) > token_budget:
             break
         retained = list(candidate)
+    if not retained:
+        raise TraceError(
+            "trace context cannot retain a complete event within the token budget"
+        )
     context = _render_trace_events(retained).rstrip()
     retained_ids = tuple(event.event_id for event in retained)
     retained_set = set(retained_ids)
@@ -786,8 +785,6 @@ def write_canonical_trace(
     )
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(
-        json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
-        encoding="utf-8",
-    )
+    with target.open("w", encoding="utf-8", newline="\n") as handle:
+        handle.write(json.dumps(payload, indent=2, ensure_ascii=False) + "\n")
     return target

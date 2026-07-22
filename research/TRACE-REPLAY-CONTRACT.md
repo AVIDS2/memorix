@@ -38,11 +38,12 @@ Only `captured-session-v1` traces may enter a confirmatory case. A
 ## Capture receipts
 
 `memorixbench capture-trace` turns an agent client's private JSONL stream into
-a public canonical trace plus a `captured-trace-receipt-v1`. The raw event and
+a public canonical trace plus a `captured-trace-receipt-v2`. The raw event and
 timeline files remain in the private artifact root. The receipt records only
 their SHA-256 commitments, the canonical and source trace commitments, agent,
 requested/reported model labels, client version, workspace-snapshot commitment,
-event counts, redaction count, capture mode, and timestamp.
+event counts, explicit omitted-event counts, a validated stdout-to-timeline
+binding, redaction count, capture mode, and timestamp.
 
 Before a trace is written, known workspace paths, absolute host paths, and
 credential-like strings are replaced or removed. The normal trace validator is
@@ -55,6 +56,17 @@ The current command supports the documented `claude --print --output-format
 stream-json` and `codex exec --json` completed-event surfaces. Unknown raw
 lines are never silently treated as trace content. The command is a capture and
 sanitization tool, not an oracle or an experiment runner.
+
+`memorixbench capture-precursor-session` is the local diagnostic entry point
+for this contract. It materializes a case's exact precursor snapshot before the
+agent starts, injects only the provider environment needed for a constrained
+Claude invocation, disables local auto-memory, records stream timing, verifies
+the final content snapshot is unchanged after the session, and rejects
+network/path audit violations before trace formation. Raw events and staged
+outputs remain private; a separate public root receives a trace only after an
+exact injected-secret scan and public-content safety scan pass. Its capture mode
+is fixed to `local-diagnostic-v1`: the local process is not an OS-isolated
+worker, so confirmatory provenance remains an external controller responsibility.
 
 ## Multi-capture bundles
 
@@ -88,6 +100,12 @@ This means every condition can be audited against the exact evidence it was
 allowed to see. A Track C manifest cannot also declare `memory_seed` or a raw
 `precursor.transcript` shortcut.
 
+If the declared budget cannot hold even the newest complete event, rendering
+fails before an agent is launched. A header-only replay is invalid evidence,
+not an empty-memory control. Development calibration currently uses a shared
+512-token lexical-proxy ceiling across raw replay and every canonical memory
+condition; that ceiling is frozen before validation or test enrollment.
+
 ## Adapter receipts
 
 Every trace-ingestion adapter records a formation receipt with the input trace
@@ -103,3 +121,8 @@ also requires the separate worker/vault architecture, private oracle overlay,
 and an external isolation certificate documented in
 `CONFIRMATORY-EXECUTION-ARCHITECTURE.md`. No current trace replay is reported
 as a confirmatory result.
+
+The public `capture-trace` command and local capture helper can emit only
+`local-diagnostic-v1`. They cannot self-label a receipt as
+`isolated-worker-v1`; a future confirmatory exporter must bind a capture to a
+verified external worker attestation before that mode is accepted.

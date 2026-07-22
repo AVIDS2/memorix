@@ -8,9 +8,10 @@ import tomllib
 
 from .case_bundle import public_case_definition_hash
 from .schema import CaseManifest, load_case_manifest
+from .trace import TraceError, load_trace_bundle
 
 
-CASE_REGISTRY_SCHEMA_VERSION = "0.2"
+CASE_REGISTRY_SCHEMA_VERSION = "0.3"
 VALID_ENROLLMENTS = {"development-pilot", "confirmatory"}
 VALID_CORPUS_SPLITS = {"development", "validation", "test"}
 VALID_SOURCE_CLASSES = {"local-fixture", "public-repository"}
@@ -265,8 +266,22 @@ def _require_enrollment_invariants(entry: CaseRegistryEntry, manifest: CaseManif
             raise CaseRegistryError("development-pilot entry must be retrospective-development")
         if entry.transition_exposure != "development-controlled":
             raise CaseRegistryError("development-pilot entry must disclose development-controlled transition")
-        if entry.captured_trace_count != 0:
-            raise CaseRegistryError("seeded development-pilot entry cannot declare captured traces")
+        if manifest.study_track == "B":
+            if entry.captured_trace_count != 0:
+                raise CaseRegistryError("seeded development-pilot entry cannot declare captured traces")
+            return
+        if manifest.formation_track != "trace-replay" or manifest.precursor_trace_bundle is None:
+            raise CaseRegistryError(
+                "Track C development-pilot entry must use a captured trace bundle"
+            )
+        try:
+            bundle = load_trace_bundle(manifest)
+        except TraceError as error:
+            raise CaseRegistryError("development trace bundle is invalid") from error
+        if entry.captured_trace_count != len(bundle.entries) or entry.captured_trace_count < 2:
+            raise CaseRegistryError(
+                "Track C development-pilot entry must declare every bundled capture"
+            )
         return
     if manifest.split not in {"validation", "test"}:
         raise CaseRegistryError("confirmatory registry entry must use validation or test split")
@@ -274,15 +289,19 @@ def _require_enrollment_invariants(entry: CaseRegistryEntry, manifest: CaseManif
         raise CaseRegistryError("confirmatory registry entry must be preregistered")
     if manifest.oracle.visibility != "private":
         raise CaseRegistryError("confirmatory registry entry must use a private oracle")
-    if manifest.study_track != "C" or manifest.precursor_trace is None:
+    if manifest.study_track != "C" or manifest.precursor_trace_bundle is None:
         raise CaseRegistryError("confirmatory registry entry must use Track C trace replay")
-    if manifest.precursor_trace.provenance != "captured-session-v1":
-        raise CaseRegistryError("confirmatory registry entry requires captured-session provenance")
     if entry.source_class != "public-repository":
         raise CaseRegistryError("confirmatory registry entry must use a public repository")
     if entry.transition_exposure != "post-snapshot-private":
         raise CaseRegistryError("confirmatory registry entry requires a post-snapshot private transition")
-    if entry.captured_trace_count < 2:
+    try:
+        bundle = load_trace_bundle(manifest)
+    except TraceError as error:
+        raise CaseRegistryError("confirmatory trace bundle is invalid") from error
+    if any(entry.trace.provenance != "captured-session-v1" for entry in bundle.entries):
+        raise CaseRegistryError("confirmatory registry entry requires captured-session provenance")
+    if entry.captured_trace_count != len(bundle.entries) or entry.captured_trace_count < 2:
         raise CaseRegistryError("confirmatory registry entry requires at least two captured traces")
 
 

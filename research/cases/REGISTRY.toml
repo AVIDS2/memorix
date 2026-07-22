@@ -1,5 +1,43 @@
-schema_version = "0.2"
+schema_version = "0.3"
 registry_id = "memorixbench-development-pilot-v1"
+
+[[case]]
+id = "go-cobra-completion-input-ownership"
+path = "development/go-cobra-completion-input-ownership/case.toml"
+enrollment = "development-pilot"
+case_definition_sha256 = "6c040a7e7e28ebecff0810b85117b59dd312dc268401a1973174e8b07427f189"
+corpus_split = "development"
+repository_family_id = "spf13-cobra"
+task_family_id = "completion-input-owner-migration"
+trace_family_id = "captured-go-cobra-completion-input"
+authoring_batch = "development-pilot-2026-07"
+source_class = "public-repository"
+contamination_risk = "public-history-documented"
+transition_exposure = "development-controlled"
+dependency_rationale = "The transfer task depends on a caller-input ownership guarantee recorded across two precursor review sessions after the implementation helper moves."
+minimal_sufficient_evidence = "Completion parsing may append sentinels but must not overwrite the caller-owned incomplete word; the trace bundle also marks the old owner as stale."
+plausible_distractor = "The predecessor helper location in completions.go is obsolete after extraction."
+no_memory_expectation = "The transfer snapshot has no public test that fully specifies ownership of the caller-provided slice, although a strong agent may infer the aliasing risk from source."
+captured_trace_count = 2
+
+[[case]]
+id = "go-cobra-completion-input-seeded"
+path = "development/go-cobra-completion-input-seeded/case.toml"
+enrollment = "development-pilot"
+case_definition_sha256 = "ac0b382d61366e95f2741449fea6d5e81d1bd903ef48c6cabc7c41d5f0405a46"
+corpus_split = "development"
+repository_family_id = "spf13-cobra"
+task_family_id = "completion-input-owner-migration"
+trace_family_id = "seeded-go-cobra-completion-input"
+authoring_batch = "development-pilot-2026-07"
+source_class = "public-repository"
+contamination_risk = "public-history-documented"
+transition_exposure = "development-controlled"
+dependency_rationale = "The transfer task depends on a caller-input ownership guarantee after the implementation helper moves."
+minimal_sufficient_evidence = "Completion parsing may append sentinels but must not overwrite the caller-owned incomplete word."
+plausible_distractor = "The predecessor helper location in completions.go is obsolete after extraction."
+no_memory_expectation = "The transfer snapshot has no public test that fully specifies ownership of the caller-provided slice."
+captured_trace_count = 0
 
 [[case]]
 id = "go-backoff-zero-jitter-ownership"

@@ -29,6 +29,9 @@ def run(case_id: str, condition: str, success: bool) -> RunResult:
         study_track="C",
         formation_track="trace-replay",
         precursor_trace_sha256=f"trace-{case_id}",
+        reported_models=("model-a",),
+        case_definition_sha256=f"case-definition-{case_id}",
+        oracle_definition_sha256=f"oracle-definition-{case_id}",
     )
 
 
@@ -74,6 +77,9 @@ def test_excludes_infrastructure_failures_from_pairs() -> None:
         study_track="C",
         formation_track="trace-replay",
         precursor_trace_sha256="trace-case-a",
+        reported_models=("model-a",),
+        case_definition_sha256="case-definition-case-a",
+        oracle_definition_sha256="oracle-definition-case-a",
     )
     with pytest.raises(ValueError, match="no matched"):
         compare_conditions(
@@ -161,6 +167,9 @@ def test_collects_and_writes_machine_readable_results(tmp_path: Path) -> None:
         "study_track": "C",
         "formation_track": "trace-replay",
         "precursor_trace_sha256": "trace-case-a",
+        "reported_models": ["model-a"],
+        "case_definition_sha256": "case-definition-case-a",
+        "oracle_definition_sha256": "oracle-definition-case-a",
     }
     (nested / "result.json").write_text(json.dumps(payload), encoding="utf-8")
 
@@ -183,6 +192,9 @@ def test_rejects_development_results_without_explicit_override() -> None:
         evidence_tier="development",
         predecessor_dependency="high",
         dependency_classification_status="retrospective-development",
+        reported_models=("model-a",),
+        case_definition_sha256="case-definition-case-a",
+        oracle_definition_sha256="oracle-definition-case-a",
     )
     control = RunResult(
         case_id="case-a",
@@ -195,6 +207,9 @@ def test_rejects_development_results_without_explicit_override() -> None:
         evidence_tier="development",
         predecessor_dependency="high",
         dependency_classification_status="retrospective-development",
+        reported_models=("model-a",),
+        case_definition_sha256="case-definition-case-a",
+        oracle_definition_sha256="oracle-definition-case-a",
     )
 
     with pytest.raises(ValueError, match="explicit development override"):
@@ -230,6 +245,9 @@ def test_rejects_low_dependency_without_explicit_override() -> None:
         study_track="C",
         formation_track="trace-replay",
         precursor_trace_sha256="trace-case-a",
+        reported_models=("model-a",),
+        case_definition_sha256="case-definition-case-a",
+        oracle_definition_sha256="oracle-definition-case-a",
     )
     low_control = RunResult(
         case_id="case-a",
@@ -245,6 +263,9 @@ def test_rejects_low_dependency_without_explicit_override() -> None:
         study_track="C",
         formation_track="trace-replay",
         precursor_trace_sha256="trace-case-a",
+        reported_models=("model-a",),
+        case_definition_sha256="case-definition-case-a",
+        oracle_definition_sha256="oracle-definition-case-a",
     )
 
     with pytest.raises(ValueError, match="low or unclassified dependency"):
@@ -281,6 +302,33 @@ def test_rejects_invalid_result_classification() -> None:
 
     with pytest.raises(ValueError, match="dependency_classification_status"):
         RunResult.from_dict(payload)
+
+
+def test_rejects_pairs_with_mismatched_actual_models_or_definitions() -> None:
+    treatment = run("case-a", "memorix-full", True)
+    mismatched_model = replace(
+        run("case-a", "no-memory", False),
+        reported_models=("model-b",),
+    )
+    with pytest.raises(ValueError, match="different actual models"):
+        compare_conditions(
+            [treatment, mismatched_model],
+            treatment="memorix-full",
+            control="no-memory",
+            bootstrap_samples=100,
+        )
+
+    mismatched_case = replace(
+        run("case-a", "no-memory", False),
+        case_definition_sha256="different-case-definition",
+    )
+    with pytest.raises(ValueError, match="different case definitions"):
+        compare_conditions(
+            [treatment, mismatched_case],
+            treatment="memorix-full",
+            control="no-memory",
+            bootstrap_samples=100,
+        )
 
 
 def test_result_keeps_pending_secondary_outcomes_as_null() -> None:

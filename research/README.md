@@ -84,6 +84,31 @@ its public receipt:
 This produces diagnostic evidence only unless the receipt is bound to the
 separate external worker/vault isolation profile.
 
+For an auditable local precursor capture, prefer the integrated command over a
+hand-assembled client invocation:
+
+    uv run memorixbench capture-precursor-session \
+      cases/development/<case>/case.toml \
+      --prompt-file F:/memorix-research-artifacts/prompts/<capture>.txt \
+      --artifact-root F:/memorix-research-artifacts/private-captures/<capture> \
+      --public-output-root F:/memorix-research-artifacts/captured-traces/<capture> \
+      --workspace-root F:/memorix-research-artifacts/capture-workspaces \
+      --agent claude \
+      --client-version <claude-version> \
+      --capture-id <capture-id> \
+      --timeout-seconds 240 \
+      --claude-provider-settings C:/Users/<user>/.claude/settings.json \
+      --repository-cache F:/memorix-research-artifacts/repository-cache/<repo>
+
+It materializes the fixed precursor snapshot, runs a constrained local session
+with local auto-memory disabled, retains the raw stream only under the private
+artifact root, verifies the final workspace content snapshot is unchanged, and
+audits shell commands. Trace and receipt are first staged privately, scanned
+against injected provider secrets, then atomically released as `trace.json` and
+`receipt.json` in the separate public-output root. A local run is always
+`local-diagnostic-v1`: it is not an OS-isolated read-only worker and cannot be
+relabeled as isolated-worker evidence by a CLI flag.
+
 Bundle two or more independently captured traces before a Track C case is
 admitted:
 

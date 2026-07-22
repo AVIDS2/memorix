@@ -16,6 +16,8 @@ from memorixbench.trial import (
     build_condition_prompt,
     ensure_development_case,
     is_valid_execution,
+    is_task_success,
+    _trial_run_directory,
     run_trial,
     validate_trial_outcome,
 )
@@ -43,6 +45,8 @@ def test_claude_allowlist_includes_case_verification_only() -> None:
     memorix = build_claude_allowed_tools(manifest, "memorix-1.2.1-micro-local")
 
     assert "Bash(npm test)" in no_memory
+    assert "Bash(git *)" in no_memory
+    assert "Bash" not in no_memory
     assert "mcp__memorix__memorix_project_context" not in no_memory
     assert "mcp__memorix__memorix_project_context" in memorix
 
@@ -53,6 +57,21 @@ def test_budget_and_timeout_are_valid_task_failures() -> None:
     assert not is_valid_execution("authentication", environment_violation=False)
     assert not is_valid_execution("mcp-startup", environment_violation=False)
     assert not is_valid_execution(None, environment_violation=True)
+
+
+def test_timeout_or_budget_exhaustion_cannot_count_as_task_success() -> None:
+    assert not is_task_success(True, completed=False, timed_out=True, failure_reason="timeout")
+    assert not is_task_success(True, completed=True, timed_out=False, failure_reason="budget-exhausted")
+    assert not is_task_success(True, completed=False, timed_out=False, failure_reason=None)
+    assert is_task_success(True, completed=True, timed_out=False, failure_reason=None)
+
+
+def test_trial_artifacts_use_a_short_run_directory(tmp_path: Path) -> None:
+    root = tmp_path / ("long-artifact-root-" * 8)
+    run_directory = _trial_run_directory(root, "run-123")
+
+    assert run_directory == root / "runs" / "run-123"
+    assert "client-default" not in str(run_directory)
 
 
 def test_last_n_prompt_contains_bounded_precursor_record() -> None:

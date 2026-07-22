@@ -1,0 +1,28 @@
+diff --git a/completions.go b/completions.go
+index 89d2eeb..9c5bb99 100644
+--- a/completions.go
++++ b/completions.go
+@@ -313,11 +313,21 @@ type SliceValue interface {
+ 	GetSlice() []string
+ }
+ 
++// completionInput separates the incomplete word from the completed arguments.
++//
++// Completion parsing may append a sentinel to the completed arguments. Keep the
++// caller-owned slice independent so processing completion cannot rewrite the
++// incomplete word in the original input.
++func completionInput(args []string) (trimmedArgs []string, toComplete string) {
++	toComplete = args[len(args)-1]
++	trimmedArgs = append([]string(nil), args[:len(args)-1]...)
++	return trimmedArgs, toComplete
++}
++
+ func (c *Command) getCompletions(args []string) (*Command, []Completion, ShellCompDirective, error) {
+ 	// The last argument, which is not completely typed by the user,
+ 	// should not be part of the list of arguments
+-	toComplete := args[len(args)-1]
+-	trimmedArgs := args[:len(args)-1]
++	trimmedArgs, toComplete := completionInput(args)
+ 
+ 	var finalCmd *Command
+ 	var finalArgs []string

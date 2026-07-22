@@ -33,7 +33,7 @@ For each run, the gateway fixes and commits:
 - transfer-task SHA-256 rather than caller-provided tool arguments;
 - `refresh = never` for the comparable memory-only native surface;
 - one served MCP call maximum;
-- the same 180-token lexical proxy output budget used by canonical retrieval;
+- the same 512-token lexical proxy output budget used by canonical retrieval;
 - no memory writes, graph calls, search calls, detail calls, or context-pack
   calls during transfer; and
 - a private run receipt containing only hashes, token counts, truncation, call
@@ -57,7 +57,7 @@ status, attempts, served calls, emitted context tokens, and truncation flag.
 
 The trial validator rejects a receipt with more served calls than attempts, a
 served call above the policy budget, context evidence without a served call, or
-an output above 180 tokens.
+an output above 512 tokens.
 
 ## Verification Boundary
 

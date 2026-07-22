@@ -15,8 +15,8 @@ Completed
 - A strict, short-lived `remote-worker-vault-v1` attestation contract now binds worker job/run/patch/runtime/isolation/sentinel/destruction data and is verified with a real OpenSSH Ed25519 sign/verify test using temporary keys.
 - A security review rejected the proposed generic Docker vault verifier: mounting candidate code and hidden tests into one grader process lets candidate code inspect private assets. The implementation was removed rather than patched over.
 - The logical `stdio-jsonl-v1` controller/subject session contract and a Linux/KVM microVM preflight gate are implemented and tested. The current Windows workstation and current VPS both fail that gate, so neither can produce a private confirmatory grade.
-- The native Memorix MCP track now uses a one-tool, fixed-task, one-call, 180-token research gateway with a run receipt. Unit, real control-plane, and real stdio subprocess smoke checks all passed; unrestricted native MCP remains exploratory.
-- The Memorix canonical adapter now uses compact search plus bulk detail as one logical retrieval round, preserves its two actual MCP transports in artifacts, and renders the same 180-token neutral context as Mem0 and AgentMemory. Real smoke passed.
+- The native Memorix MCP track now uses a one-tool, fixed-task, one-call, 512-token research gateway with a run receipt. Unit, real control-plane, and real stdio subprocess smoke checks all passed; unrestricted native MCP remains exploratory.
+- The Memorix canonical adapter now uses compact search plus bulk detail as one logical retrieval round, preserves its two actual MCP transports in artifacts, and renders the same 512-token neutral context as Mem0 and AgentMemory. Real smoke passed.
 - All five development cases passed the full four-stage authoring gate. The TypeScript case had a stale patch context and was repaired without changing its task semantics.
 - Full research test suite and public case validation pass after this phase.
 - The public registry now freezes all development pilots with case-definition hashes, corpus split, repository/task/trace lineage, authoring batch, contamination disclosure, and a four-part dependency card. It rejects any family crossing development, validation, or test, and it requires a future confirmatory entry to declare a private post-snapshot transition plus at least two captured precursor traces.
@@ -26,7 +26,7 @@ Completed
 - The Cobra source candidate passed both a Go dependency prewarm and a `GOPROXY=off GOSUMDB=off go test ./...` replay with caches on F:. Its hash-only preflight receipt is bound in the source ledger, so it is environment-ready but still only a screening candidate.
 - Track C now has a capture boundary for Claude and Codex JSONL streams: raw events stay private, while sanitized canonical traces carry a receipt binding raw/timeline commitments, client/model metadata, workspace snapshot, and redaction count. Local captures are diagnostic-only by construction.
 - Track C trace bundles now require at least two distinct captured sessions and select one deterministically from case/seed/repetition. Confirmatory manifests must use an allowlisted bundle with isolated-worker receipts; a direct trace remains development-only.
-- A real two-session local diagnostic bundle was rebuilt after the CRLF canonicalization repair. Both receipt-to-trace commitments and the public safety scan passed; it stays excluded from cases and results because it is mixed-model and local diagnostic evidence.
+- A real two-session local diagnostic bundle was rebuilt after the CRLF canonicalization and duplicate-terminal-message repairs. Both receipt-to-trace commitments and the public safety scan passed; it stays excluded from cases and results because it is mixed-model and local diagnostic evidence.
 
 In progress
 - Implement the controller/subject black-box verifier on a remote Linux/KVM microVM runtime. Docker/Windows protocol smoke is diagnostic-only and must not silently downgrade the isolation profile.
@@ -42,3 +42,50 @@ Constraints
 - Private oracle bytes must never enter an agent worker workspace or public artifact.
 - A generic hidden-test mount is not a black-box verifier and must never unlock confirmatory execution.
 - Private black-box claims require a fresh KVM-backed guest per hidden case; lack of KVM is a hard refusal, not a Docker fallback.
+## 2026-07-22: External development-case admission
+
+- Added `go-cobra-completion-input-ownership`, a historically grounded but
+  benchmark-authored controlled transition on pinned Cobra source. It is frozen
+  as a development pilot only; it does not reuse the public repair or count as
+  confirmatory evidence.
+- Ran the complete external authoring gate from a pinned local cache: precursor
+  public tests passed; transfer public tests passed; hidden ownership regression
+  failed as intended; the reference repair passed behavior and structural checks.
+- Found and corrected a harness invariant: final source checks are agent-output
+  constraints, so they cannot be required of an intentionally broken transfer
+  snapshot during public or hidden-regression authoring gates. They remain
+  enforced at the reference and agent-grade phases.
+- Go's configured module and build caches now point to the existing F-drive
+  research cache, avoiding new C-drive cache growth during offline Go work.
+- Added an integrated local precursor-capture path that materializes the
+  precursor snapshot, runs a controlled no-edit agent session, verifies the
+  snapshot stayed clean, audits commands, and only then emits sanitized trace
+  and receipt artifacts. It is hard-coded to local diagnostic provenance.
+
+## 2026-07-22: Track C replay hardening and real-path diagnostics
+
+- Rebuilt the Cobra Track C bundle from the private raw streams after detecting
+  that Claude's terminal `result` duplicated the preceding assistant message.
+  The capture parser now records that omission explicitly; it never silently
+  de-duplicates ordinary repeated content.
+- Calibrated the common development context ceiling from 180 to 512 lexical
+  proxy tokens before any validation/test enrollment. `event-suffix-v1` now
+  rejects a header-only replay instead of launching a blank `last-n` control.
+- A real local Claude Track C `last-n` smoke on the B capture completed the
+  caller-ownership repair with clean command audit. A real Memorix canonical
+  smoke then completed the same repair after trace formation and one logical
+  search/detail round. Both runs use a mixed local client stack and remain
+  development diagnostics, not comparison evidence.
+- The initial canonical smoke exposed two adapter defects: it used the invalid
+  Memorix type `session-event` and accepted MCP `isError` replies as writes.
+  The adapter now maps trace roles to supported types, rejects every failed MCP
+  call, sanitizes detail paths before injection, and verifies direct retrieval
+  through the installed Memorix 1.2.1 CLI.
+- Explicit Memorix stores are synchronously searchable. Canonical formation now
+  records asynchronous claim/knowledge/workflow work as deferred rather than
+  polling unrelated maintenance; a real no-model diagnostic reduced formation
+  from roughly 46 seconds to 3.25 seconds while retaining the relevant
+  invariant in a path-sanitized 512-token retrieval view.
+- The Cobra source check no longer requires the reference patch's `append`
+  spelling. Hidden behavior tests plus the old-owner prohibition accept both
+  `append` and `make`/`copy` implementations.

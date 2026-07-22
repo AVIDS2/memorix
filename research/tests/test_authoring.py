@@ -79,6 +79,10 @@ stale_evidence_ids = []
 forbidden_actions = []
 hidden_patch = "hidden.patch"
 reference_patch = "reference.patch"
+
+[[oracle.source_check]]
+path = "value.txt"
+required_literals = ["fixed"]
 """.strip(),
         encoding="utf-8",
     )
@@ -97,5 +101,8 @@ reference_patch = "reference.patch"
     ]
     assert verification.gates[2].commands[0].returncode == 1
     assert verification.gates[3].commands[0].returncode == 0
+    assert verification.gates[1].source_checks == ()
+    assert not verification.gates[2].source_checks[0].passed
+    assert verification.gates[3].source_checks[0].passed
     assert {gate.repository_transport for gate in verification.gates} == {"local-fixture"}
     assert {gate.repository_origin for gate in verification.gates} == {None}

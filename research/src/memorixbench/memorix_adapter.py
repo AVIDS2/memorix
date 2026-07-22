@@ -16,8 +16,9 @@ from urllib.parse import quote
 from urllib.request import Request, urlopen
 
 from .baseline import BaselineRetrieval, RetrievedMemory, build_retrieval
+from .public_safety import PublicSafetyError, sanitize_public_text
 from .schema import CaseManifest
-from .trace import PrecursorTrace
+from .trace import PrecursorEvent, PrecursorTrace
 
 
 PROVIDER_ENV_KEYS = (
@@ -36,6 +37,11 @@ PROVIDER_ENV_KEYS = (
 )
 MEMORIX_CANONICAL_PROVIDER_ID = "memorix-1.2.1-canonical-local"
 TYPED_OBSERVATION_REF_PATTERN = re.compile(r"\|\s*(obs:[0-9]+(?:@[^\s|]+)?)\s*\|")
+NONBLOCKING_MAINTENANCE_KINDS = frozenset({"workflow-index"})
+
+
+class MemorixAdapterError(RuntimeError):
+    """Raised when the real Memorix control plane rejects an adapter operation."""
 
 
 def _isolated_process_env(provider_env: dict[str, str] | None = None) -> dict[str, str]:
@@ -170,6 +176,64 @@ def _tool_json(result: dict[str, Any]) -> dict[str, Any]:
     return value
 
 
+def _checked_tool(
+    control: Any,
+    name: str,
+    arguments: dict[str, Any],
+) -> dict[str, Any]:
+    result = control.tool(name, arguments)
+    if not isinstance(result, dict):
+        raise MemorixAdapterError(f"Memorix MCP tool {name} returned an invalid response")
+    if result.get("isError") is True:
+        raise MemorixAdapterError(f"Memorix MCP tool {name} rejected the adapter request")
+    return result
+
+
+def _trace_observation_type(event: PrecursorEvent) -> str:
+    """Map normalized trace roles to Memorix's public observation taxonomy."""
+
+    if event.role == "user":
+        return "session-request"
+    if event.kind == "tool_call":
+        return "probe"
+    return "discovery"
+
+
+def _maintenance_activity(value: dict[str, Any]) -> tuple[bool, dict[str, int]]:
+    """Separate direct-retrieval work from deferred workflow indexing."""
+
+    jobs = value.get("jobs")
+    if not isinstance(jobs, list):
+        summary = value.get("summary")
+        if not isinstance(summary, dict):
+            return True, {}
+        return (
+            any(int(summary.get(key, 0)) > 0 for key in ("pending", "running", "retrying")),
+            {},
+        )
+    blocking = False
+    nonblocking: dict[str, int] = {}
+    for job in jobs:
+        if not isinstance(job, dict) or job.get("status") not in {"pending", "running", "retrying"}:
+            continue
+        kind = job.get("kind")
+        if isinstance(kind, str) and kind in NONBLOCKING_MAINTENANCE_KINDS:
+            nonblocking[kind] = nonblocking.get(kind, 0) + 1
+        else:
+            blocking = True
+    return blocking, nonblocking
+
+
+def _deferred_maintenance_receipt() -> dict[str, Any]:
+    """Explicit stores are synchronously searchable; derived jobs are not a retrieval gate."""
+
+    return {
+        "poll_count": 0,
+        "settled_for_retrieval": True,
+        "mode": "deferred-after-synchronous-store-v1",
+    }
+
+
 @dataclass
 class MemorixControlPlane:
     cli_path: Path
@@ -279,14 +343,16 @@ class MemorixControlPlane:
             poll_count += 1
             if isinstance(value, dict):
                 latest = value
-                summary = value.get("summary")
-                if isinstance(summary, dict) and all(
-                    int(summary.get(key, 0)) == 0
-                    for key in ("pending", "running", "retrying")
-                ):
-                    return {**latest, "poll_count": poll_count}
+                blocking, nonblocking = _maintenance_activity(value)
+                if not blocking:
+                    return {
+                        **latest,
+                        "poll_count": poll_count,
+                        "settled_for_retrieval": True,
+                        "nonblocking_pending_by_kind": nonblocking,
+                    }
             time.sleep(0.5)
-        raise TimeoutError(f"Memorix maintenance did not drain: {latest}")
+        raise TimeoutError("Memorix maintenance did not settle for canonical retrieval")
 
 
 def write_claude_mcp_config(
@@ -350,7 +416,7 @@ def seed_memorix_canonical_evidence(
         mode=mode,
         provider_env=provider_env,
     ) as control:
-        initial = _tool_json(control.tool("memorix_project_context", {
+        initial = _tool_json(_checked_tool(control, "memorix_project_context", {
             "task": manifest.precursor.task,
             "format": "json",
             "refresh": "always",
@@ -372,8 +438,8 @@ def seed_memorix_canonical_evidence(
             }
             if seed.topic_key:
                 arguments["topicKey"] = seed.topic_key
-            stored.append(control.tool("memorix_store", arguments))
-        maintenance = control.poll_maintenance(project_id)
+            stored.append(_checked_tool(control, "memorix_store", arguments))
+        maintenance = _deferred_maintenance_receipt()
     result = {
         "project_id": project_id,
         "initial_context": initial,
@@ -416,7 +482,7 @@ def ingest_memorix_trace(
         mode=mode,
         provider_env=provider_env,
     ) as control:
-        initial = _tool_json(control.tool("memorix_project_context", {
+        initial = _tool_json(_checked_tool(control, "memorix_project_context", {
             "task": "Replay the precursor session for benchmark formation.",
             "format": "json",
             "refresh": "never",
@@ -424,9 +490,9 @@ def ingest_memorix_trace(
         project_id = str(initial["project"]["id"])
         stored = []
         for event in trace.events:
-            stored.append(control.tool("memorix_store", {
+            stored.append(_checked_tool(control, "memorix_store", {
                 "entityName": f"trace:{event.event_id}",
-                "type": "session-event",
+                "type": _trace_observation_type(event),
                 "title": f"Precursor {event.role} event",
                 "narrative": event.replay_content(),
                 "facts": [],
@@ -434,7 +500,7 @@ def ingest_memorix_trace(
                 "concepts": ["benchmark-trace", event.kind],
                 "topicKey": f"benchmark-trace/{trace.case_id}/{event.event_id}",
             }))
-        maintenance = control.poll_maintenance(project_id)
+        maintenance = _deferred_maintenance_receipt()
     result = {
         "project_id": project_id,
         "trace_sha256": trace.canonical_sha256,
@@ -479,13 +545,13 @@ def refresh_memorix_project(
         mode=mode,
         provider_env=provider_env,
     ) as control:
-        refreshed = _tool_json(control.tool("memorix_project_context", {
+        refreshed = _tool_json(_checked_tool(control, "memorix_project_context", {
             "task": manifest.transfer.task,
             "format": "json",
             "refresh": "always",
         }))
         maintenance = control.poll_maintenance(project_id)
-        final = _tool_json(control.tool("memorix_project_context", {
+        final = _tool_json(_checked_tool(control, "memorix_project_context", {
             "task": manifest.transfer.task,
             "format": "json",
             "refresh": "never",
@@ -501,6 +567,7 @@ class MemorixCanonicalRetrieval:
     retrieval: BaselineRetrieval
     candidate_refs: tuple[str, ...]
     transport_call_count: int
+    detail_redaction_count: int = 0
 
 
 def _typed_observation_refs(text: str, *, limit: int) -> tuple[str, ...]:
@@ -537,7 +604,7 @@ def retrieve_memorix_canonical(
         log_dir=artifact_dir / "canonical-retrieval-control-plane",
         mode="micro",
     ) as control:
-        search_text = _tool_text(control.tool("memorix_search", {
+        search_text = _tool_text(_checked_tool(control, "memorix_search", {
             "query": query,
             "limit": top_k,
             "maxTokens": 0,
@@ -548,8 +615,19 @@ def retrieve_memorix_canonical(
         detail_text = ""
         transport_call_count = 1
         if refs:
-            detail_text = _tool_text(control.tool("memorix_detail", {"typedRefs": list(refs)}))
+            detail_text = _tool_text(_checked_tool(
+                control,
+                "memorix_detail",
+                {"typedRefs": list(refs)},
+            ))
             transport_call_count += 1
+    try:
+        detail_text, detail_redaction_count = sanitize_public_text(
+            detail_text,
+            workspace_roots=(workspace,),
+        ) if detail_text.strip() else (detail_text, 0)
+    except PublicSafetyError as error:
+        raise MemorixAdapterError("Memorix detail cannot be safely injected") from error
     records = (
         (RetrievedMemory(memory_id="|".join(refs), content=detail_text),)
         if detail_text.strip()
@@ -570,6 +648,7 @@ def retrieve_memorix_canonical(
         "candidate_refs": list(refs),
         "search_sha256": hashlib.sha256(search_text.encode("utf-8")).hexdigest(),
         "detail_sha256": hashlib.sha256(detail_text.encode("utf-8")).hexdigest(),
+        "detail_redaction_count": detail_redaction_count,
         "transport_call_count": transport_call_count,
         "logical_retrieval_call_count": retrieval.retrieval_call_count,
         "token_budget": retrieval.token_budget,
@@ -585,4 +664,5 @@ def retrieve_memorix_canonical(
         retrieval=retrieval,
         candidate_refs=refs,
         transport_call_count=transport_call_count,
+        detail_redaction_count=detail_redaction_count,
     )

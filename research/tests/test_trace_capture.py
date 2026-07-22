@@ -66,11 +66,19 @@ def _write_capture_inputs(tmp_path: Path, *, agent: str) -> tuple[Path, Path, Pa
                 "item": {"type": "agent_message", "text": "The workspace is clean."},
             },
         ]
-    events.write_text(
-        "".join(json.dumps(record) + "\n" for record in records),
-        encoding="utf-8",
+    event_text = "".join(json.dumps(record) + "\n" for record in records)
+    events.write_bytes(event_text.encode("utf-8"))
+    timeline.write_bytes(
+        "".join(
+            json.dumps({
+                "sequence": index,
+                "stream": "stdout",
+                "elapsed_seconds": float(index),
+                "line": json.dumps(record) + "\n",
+            }) + "\n"
+            for index, record in enumerate(records)
+        ).encode("utf-8"),
     )
-    timeline.write_text("{\"private\":\"timeline\"}\n", encoding="utf-8")
     prompt.write_text("Review the retained project policy.", encoding="utf-8")
     return workspace, events, timeline, prompt
 
@@ -103,10 +111,14 @@ def test_captures_and_redacts_a_claude_stream(tmp_path: Path) -> None:
     assert receipt.canonical_trace_sha256 == loaded.canonical_trace_sha256
     assert receipt.redaction_count >= 2
     assert receipt.trace_event_count == 5
+    assert receipt.timeline_binding == "stdout-concatenation-v1"
+    assert receipt.timeline_record_count == 3
     assert "super-secret-value" not in text
     assert "API_KEY=" not in text
     assert workspace.as_posix() not in text
     assert "<WORKSPACE>" in text
+    assert b"\r\n" not in output.read_bytes()
+    assert b"\r\n" not in receipt_path.read_bytes()
     assert payload["events"][2]["kind"] == "tool_call"
     assert payload["events"][3]["kind"] == "tool_result"
 
@@ -142,6 +154,108 @@ def test_captures_a_codex_stream_with_paired_tool_events(tmp_path: Path) -> None
     assert payload["events"][1]["tool_name"] == "shell"
 
 
+def test_capture_omits_a_duplicate_claude_terminal_result(tmp_path: Path) -> None:
+    workspace, events, timeline, prompt = _write_capture_inputs(tmp_path, agent="claude")
+    records = [
+        {
+            "type": "assistant",
+            "message": {"content": [{"type": "text", "text": "Short handoff."}]},
+        },
+        {"type": "result", "result": "Short handoff."},
+    ]
+    events.write_bytes("".join(json.dumps(record) + "\n" for record in records).encode("utf-8"))
+    timeline.write_bytes("".join(
+        json.dumps({
+            "sequence": index,
+            "stream": "stdout",
+            "elapsed_seconds": float(index),
+            "line": json.dumps(record) + "\n",
+        }) + "\n"
+        for index, record in enumerate(records)
+    ).encode("utf-8"))
+
+    receipt = capture_trace_from_streams(
+        events_path=events,
+        timeline_path=timeline,
+        case_id="capture-case",
+        agent="claude",
+        prompt=prompt.read_text(encoding="utf-8"),
+        output_path=tmp_path / "trace.json",
+        receipt_path=tmp_path / "receipt.json",
+        client_version="test-client-1",
+        workspace_snapshot_sha256="f" * 64,
+        workspace_roots=(workspace,),
+    )
+
+    payload = json.loads((tmp_path / "trace.json").read_text(encoding="utf-8"))
+    assert receipt.trace_event_count == 2
+    assert dict(receipt.omitted_event_counts)["claude-result-duplicate"] == 1
+    assert [event["content"] for event in payload["events"]] == [
+        "Review the retained project policy.",
+        "Short handoff.",
+    ]
+
+
+def test_capture_rejects_unsafe_tool_metadata(tmp_path: Path) -> None:
+    workspace, events, timeline, prompt = _write_capture_inputs(tmp_path, agent="claude")
+    records = [
+        {
+            "type": "assistant",
+            "message": {
+                "content": [{
+                    "type": "tool_use",
+                    "id": "tool-1",
+                    "name": "C:\\Users\\private\\tool",
+                    "input": {},
+                }],
+            },
+        },
+    ]
+    events.write_bytes("".join(json.dumps(record) + "\n" for record in records).encode("utf-8"))
+    timeline.write_bytes("".join(
+        json.dumps({
+            "sequence": index,
+            "stream": "stdout",
+            "elapsed_seconds": float(index),
+            "line": json.dumps(record) + "\n",
+        }) + "\n"
+        for index, record in enumerate(records)
+    ).encode("utf-8"))
+
+    with pytest.raises(TraceCaptureError, match="tool_name is unsafe"):
+        capture_trace_from_streams(
+            events_path=events,
+            timeline_path=timeline,
+            case_id="capture-case",
+            agent="claude",
+            prompt=prompt.read_text(encoding="utf-8"),
+            output_path=tmp_path / "trace.json",
+            receipt_path=tmp_path / "receipt.json",
+            client_version="test-client-1",
+            workspace_snapshot_sha256="0" * 64,
+            workspace_roots=(workspace,),
+        )
+
+
+def test_standalone_capture_cannot_self_label_as_isolated(tmp_path: Path) -> None:
+    workspace, events, timeline, prompt = _write_capture_inputs(tmp_path, agent="claude")
+
+    with pytest.raises(TraceCaptureError, match="only emit local diagnostic"):
+        capture_trace_from_streams(
+            events_path=events,
+            timeline_path=timeline,
+            case_id="capture-case",
+            agent="claude",
+            prompt=prompt.read_text(encoding="utf-8"),
+            output_path=tmp_path / "trace.json",
+            receipt_path=tmp_path / "receipt.json",
+            client_version="test-client-1",
+            workspace_snapshot_sha256="1" * 64,
+            workspace_roots=(workspace,),
+            capture_mode="isolated-worker-v1",
+        )
+
+
 def test_capture_rejects_non_json_raw_events(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     workspace.mkdir()
@@ -164,3 +278,72 @@ def test_capture_rejects_non_json_raw_events(tmp_path: Path) -> None:
             workspace_roots=(workspace,),
             capture_id="capture-test-three",
         )
+
+
+def test_capture_rejects_a_timeline_that_does_not_reconstruct_stdout(tmp_path: Path) -> None:
+    workspace, events, timeline, prompt = _write_capture_inputs(tmp_path, agent="claude")
+    timeline.write_text(
+        json.dumps({
+            "sequence": 0,
+            "stream": "stdout",
+            "elapsed_seconds": 0.0,
+            "line": "{}\n",
+        }) + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(TraceCaptureError, match="does not reconstruct"):
+        capture_trace_from_streams(
+            events_path=events,
+            timeline_path=timeline,
+            case_id="capture-case",
+            agent="claude",
+            prompt=prompt.read_text(encoding="utf-8"),
+            output_path=tmp_path / "trace.json",
+            receipt_path=tmp_path / "receipt.json",
+            client_version="test-client-1",
+            workspace_snapshot_sha256="d" * 64,
+            workspace_roots=(workspace,),
+        )
+
+
+def test_capture_redacts_full_windows_and_unc_paths(tmp_path: Path) -> None:
+    workspace, events, timeline, prompt = _write_capture_inputs(tmp_path, agent="claude")
+    record = {
+        "type": "assistant",
+        "message": {
+            "model": "test-model",
+            "content": [{
+                "type": "text",
+                "text": "Inspect C:\\Users\\Alice Example\\repo and \\\\server\\share\\secret.txt.",
+            }],
+        },
+    }
+    events.write_bytes((json.dumps(record) + "\n").encode("utf-8"))
+    timeline.write_bytes(
+        (json.dumps({
+            "sequence": 0,
+            "stream": "stdout",
+            "elapsed_seconds": 0.0,
+            "line": json.dumps(record) + "\n",
+        }) + "\n").encode("utf-8")
+    )
+    output = tmp_path / "trace.json"
+
+    capture_trace_from_streams(
+        events_path=events,
+        timeline_path=timeline,
+        case_id="capture-case",
+        agent="claude",
+        prompt=prompt.read_text(encoding="utf-8"),
+        output_path=output,
+        receipt_path=tmp_path / "receipt.json",
+        client_version="test-client-1",
+        workspace_snapshot_sha256="e" * 64,
+        workspace_roots=(workspace,),
+    )
+
+    payload = output.read_text(encoding="utf-8")
+    assert "Alice Example" not in payload
+    assert "server\\share" not in payload
+    assert "<ABSOLUTE_PATH>" in payload

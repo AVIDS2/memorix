@@ -158,6 +158,59 @@ def test_trace_view_uses_a_suffix_without_cutting_an_event(tmp_path: Path) -> No
     assert len(view.sha256) == 64
 
 
+def test_trace_view_rejects_a_header_only_replay(tmp_path: Path) -> None:
+    manifest_path, trace_path = _trace_case(tmp_path)
+    payload = json.loads(trace_path.read_text(encoding="utf-8"))
+    payload["events"].append(
+        {
+            "id": "e3",
+            "session_id": "s1",
+            "sequence": 2,
+            "turn": 2,
+            "role": "assistant",
+            "kind": "message",
+            "content": "oversized " * 100,
+        }
+    )
+    trace_path.write_text(json.dumps(payload), encoding="utf-8")
+    trace = load_precursor_trace(load_case_manifest(manifest_path))
+
+    with pytest.raises(TraceError, match="cannot retain a complete event"):
+        render_trace_view(trace, token_budget=75)
+
+
+def test_trace_rejects_unsafe_tool_metadata(tmp_path: Path) -> None:
+    manifest_path, trace_path = _trace_case(tmp_path)
+    payload = json.loads(trace_path.read_text(encoding="utf-8"))
+    payload["events"].extend([
+        {
+            "id": "e3",
+            "session_id": "s1",
+            "sequence": 2,
+            "turn": 2,
+            "role": "assistant",
+            "kind": "tool_call",
+            "content": "{}",
+            "tool_name": "C:\\Users\\private\\tool",
+            "tool_call_id": "call-1",
+        },
+        {
+            "id": "e4",
+            "session_id": "s1",
+            "sequence": 3,
+            "turn": 2,
+            "role": "tool",
+            "kind": "tool_result",
+            "content": "done",
+            "tool_call_id": "call-1",
+        },
+    ])
+    trace_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(TraceError, match="absolute host path"):
+        load_precursor_trace(load_case_manifest(manifest_path))
+
+
 def test_trace_rejects_unmatched_tool_result(tmp_path: Path) -> None:
     manifest_path, trace_path = _trace_case(tmp_path)
     payload = json.loads(trace_path.read_text(encoding="utf-8"))
@@ -233,3 +286,4 @@ def test_writer_normalizes_crlf_before_committing_trace(tmp_path: Path) -> None:
         events=trace.events,
     )
     assert trace.events[0].content == "first line\nsecond line"
+    assert b"\r\n" not in trace_path.read_bytes()

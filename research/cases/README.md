@@ -23,8 +23,11 @@ Development cases additionally use `oracle.reference_patch` for maintainer
 self-tests. A valid case has four independently checked properties: its
 precursor passes; its transfer snapshot passes public tests; its unmodified
 transfer snapshot fails hidden tests; and its reference patch passes those same
-hidden tests. Reference and hidden patches are never copied into the
-agent-facing workspace. Test-split reference repairs remain private.
+hidden tests and any declared source checks. The public and hidden-regression
+gates deliberately do not require final source checks: an intentional transfer
+regression may violate the very structural constraint that the agent must later
+restore. Reference and hidden patches are never copied into the agent-facing
+workspace. Test-split reference repairs remain private.
 
 Local fixture cases are for harness development. Confirmatory cases based on
 external repositories use source_type = "git" and must include a public URL,

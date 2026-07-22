@@ -47,6 +47,8 @@ class BaselineRetrieval:
     token_budget: int
     token_count: int
     truncated: bool
+    retrieval_call_count: int = 1
+    retrieval_round_count: int = 1
 
 
 def canonical_seed_id(seed: MemorySeedSpec) -> str:
@@ -124,7 +126,15 @@ def build_retrieval(
     query: str,
     records: Iterable[RetrievedMemory],
     token_budget: int,
+    retrieval_call_count: int = 1,
+    retrieval_round_count: int = 1,
 ) -> BaselineRetrieval:
+    if retrieval_call_count <= 0:
+        raise ValueError("retrieval_call_count must be positive")
+    if retrieval_round_count <= 0:
+        raise ValueError("retrieval_round_count must be positive")
+    if retrieval_round_count > retrieval_call_count:
+        raise ValueError("retrieval_round_count cannot exceed retrieval_call_count")
     normalized = tuple(
         record
         for record in records
@@ -144,6 +154,8 @@ def build_retrieval(
         token_budget=token_budget,
         token_count=used,
         truncated=truncated,
+        retrieval_call_count=retrieval_call_count,
+        retrieval_round_count=retrieval_round_count,
     )
 
 

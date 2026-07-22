@@ -8,6 +8,30 @@ from memorixbench.agentmemory_adapter import (
     PERSISTENCE_SETTLE_SECONDS,
     _narrative_content,
 )
+from memorixbench.trace import PrecursorEvent, PrecursorTrace
+
+
+def _trace(tmp_path: Path) -> PrecursorTrace:
+    return PrecursorTrace(
+        schema_version="precursor-trace-v1",
+        case_id="case-a",
+        provenance="captured-session-v1",
+        normalization="event-normalize-v1",
+        events=(
+            PrecursorEvent(
+                event_id="event-1",
+                session_id="session-1",
+                sequence=0,
+                turn=0,
+                role="assistant",
+                kind="message",
+                content="The cache policy has changed.",
+            ),
+        ),
+        source_path=tmp_path / "trace.json",
+        source_sha256="source-hash",
+        canonical_sha256="canonical-hash",
+    )
 
 
 def _adapter(tmp_path: Path) -> AgentMemoryFullAdapter:
@@ -85,3 +109,20 @@ def test_agentmemory_narrative_content_prefers_full_narrative() -> None:
         {"narrative": "full evidence", "facts": ["short evidence"]}
     ) == "full evidence"
     assert _narrative_content({"facts": ["one", "two"]}) == "one\ntwo"
+
+
+def test_agentmemory_trace_ingestion_records_event_receipt(tmp_path: Path) -> None:
+    adapter = _adapter(tmp_path)
+    calls: list[dict[str, str]] = []
+    adapter._remember = lambda **kwargs: calls.append(kwargs) or {"ok": True}
+
+    result = adapter.ingest_trace(_trace(tmp_path), project_id="project-a")
+
+    assert calls == [{
+        "project_id": "project-a",
+        "content": "[session=session-1 sequence=0 turn=0 role=assistant kind=message]\nThe cache policy has changed.",
+    }]
+    receipt = result["formation_receipt"]
+    assert receipt["trace_sha256"] == "canonical-hash"
+    assert receipt["transport_call_count"] == 1
+    assert (adapter.artifact_dir / "trace-seed.json").is_file()

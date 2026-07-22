@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from memorixbench.baseline import (
     RetrievedMemory,
     build_retrieval,
@@ -9,6 +11,30 @@ from memorixbench.baseline import (
 )
 from memorixbench.mem0_adapter import MEM0_PROVIDER_ID, Mem0LocalAdapter
 from memorixbench.schema import MemorySeedSpec
+from memorixbench.trace import PrecursorEvent, PrecursorTrace
+
+
+def _trace(tmp_path: Path) -> PrecursorTrace:
+    return PrecursorTrace(
+        schema_version="precursor-trace-v1",
+        case_id="case-a",
+        provenance="captured-session-v1",
+        normalization="event-normalize-v1",
+        events=(
+            PrecursorEvent(
+                event_id="event-1",
+                session_id="session-1",
+                sequence=0,
+                turn=0,
+                role="user",
+                kind="message",
+                content="Keep the retry delay bounded.",
+            ),
+        ),
+        source_path=tmp_path / "trace.json",
+        source_sha256="source-hash",
+        canonical_sha256="canonical-hash",
+    )
 
 
 def test_canonical_seed_content_keeps_policy_and_location_separate() -> None:
@@ -47,6 +73,19 @@ def test_retrieval_context_uses_a_stable_token_budget() -> None:
     assert token_count(retrieval.context) == retrieval.token_count
     assert retrieval.context.startswith("Retrieved project memory follows.")
     assert retrieval.truncated
+
+
+def test_retrieval_receipt_rejects_impossible_call_accounting() -> None:
+    with pytest.raises(ValueError, match="round_count cannot exceed"):
+        build_retrieval(
+            provider="test",
+            provider_version="1",
+            query="retry policy",
+            records=(),
+            token_budget=45,
+            retrieval_call_count=1,
+            retrieval_round_count=2,
+        )
 
 
 def test_scrubbed_environment_removes_provider_credentials() -> None:
@@ -94,3 +133,26 @@ def test_mem0_adapter_uses_a_short_shared_model_cache_offline(tmp_path: Path) ->
     assert environment["HF_HOME"] == str(cache_root / "huggingface")
     assert environment["HF_HUB_OFFLINE"] == "1"
     assert environment["TRANSFORMERS_OFFLINE"] == "1"
+
+
+def test_mem0_trace_ingestion_uses_each_canonical_event_once(tmp_path: Path) -> None:
+    adapter = Mem0LocalAdapter(
+        python_path=tmp_path / "python.exe",
+        data_dir=tmp_path / "data",
+        artifact_dir=tmp_path / "artifacts",
+    )
+    captured: dict[str, object] = {}
+    adapter._invoke = lambda action, payload: captured.update({"action": action, "payload": payload}) or {
+        "seed_count": 1
+    }
+
+    result = adapter.ingest_trace(_trace(tmp_path), project_id="project-a")
+
+    assert captured["action"] == "seed"
+    request = captured["payload"]
+    assert isinstance(request, dict)
+    assert request["seeds"][0]["seed_id"] == "trace:event-1"
+    receipt = result["formation_receipt"]
+    assert receipt["trace_sha256"] == "canonical-hash"
+    assert receipt["source_event_ids"] == ["event-1"]
+    assert receipt["write_operation_count"] == 1

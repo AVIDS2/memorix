@@ -15,6 +15,7 @@ from .baseline import (
     scrubbed_provider_environment,
 )
 from .schema import CaseManifest
+from .trace import PrecursorTrace
 
 
 MEM0_PROVIDER_ID = "mem0-2.0.12-local"
@@ -118,7 +119,12 @@ class Mem0LocalAdapter:
     def preflight(self) -> dict[str, Any]:
         return self._invoke("preflight", {})
 
-    def seed(self, manifest: CaseManifest, *, project_id: str) -> dict[str, Any]:
+    def seed_canonical_evidence(
+        self,
+        manifest: CaseManifest,
+        *,
+        project_id: str,
+    ) -> dict[str, Any]:
         if not manifest.memory_seeds:
             raise Mem0AdapterError(f"case {manifest.case_id} has no memory seeds")
         seeds = [
@@ -128,7 +134,38 @@ class Mem0LocalAdapter:
             }
             for seed in manifest.memory_seeds
         ]
-        return self._invoke("seed", {"project_id": project_id, "seeds": seeds})
+        result = self._invoke("seed", {"project_id": project_id, "seeds": seeds})
+        result["formation_receipt"] = {
+            "surface": "seeded-canonical",
+            "input_record_ids": [str(seed["seed_id"]) for seed in seeds],
+            "write_operation_count": len(seeds),
+            "transport_call_count": 1,
+            "maintenance_call_count": 0,
+            "record_count": len(seeds),
+        }
+        return result
+
+    def ingest_trace(self, trace: PrecursorTrace, *, project_id: str) -> dict[str, Any]:
+        records = [
+            {
+                "seed_id": f"trace:{event.event_id}",
+                "content": event.replay_content(),
+            }
+            for event in trace.events
+        ]
+        if not records:
+            raise Mem0AdapterError("precursor trace has no replay records")
+        result = self._invoke("seed", {"project_id": project_id, "seeds": records})
+        result["formation_receipt"] = {
+            "surface": "trace-replay",
+            "trace_sha256": trace.canonical_sha256,
+            "source_event_ids": [event.event_id for event in trace.events],
+            "write_operation_count": len(records),
+            "transport_call_count": 1,
+            "maintenance_call_count": 0,
+            "record_count": len(records),
+        }
+        return result
 
     def retrieve(
         self,

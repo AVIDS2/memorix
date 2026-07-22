@@ -1,3 +1,4 @@
+from dataclasses import replace
 import json
 from pathlib import Path
 
@@ -24,6 +25,9 @@ def run(case_id: str, condition: str, success: bool) -> RunResult:
         evidence_tier="confirmatory",
         predecessor_dependency="high",
         dependency_classification_status="preregistered",
+        study_track="C",
+        formation_track="trace-replay",
+        precursor_trace_sha256=f"trace-{case_id}",
     )
 
 
@@ -66,6 +70,9 @@ def test_excludes_infrastructure_failures_from_pairs() -> None:
         evidence_tier="confirmatory",
         predecessor_dependency="high",
         dependency_classification_status="preregistered",
+        study_track="C",
+        formation_track="trace-replay",
+        precursor_trace_sha256="trace-case-a",
     )
     with pytest.raises(ValueError, match="no matched"):
         compare_conditions(
@@ -97,6 +104,45 @@ def test_rejects_duplicate_condition_pair() -> None:
         )
 
 
+def test_rejects_track_c_pairs_with_different_precursor_traces() -> None:
+    treatment = run("case-a", "memorix-full", True)
+    control = replace(
+        run("case-a", "no-memory", False),
+        precursor_trace_sha256="different-trace",
+    )
+
+    with pytest.raises(ValueError, match="different precursor traces"):
+        compare_conditions(
+            [treatment, control],
+            treatment="memorix-full",
+            control="no-memory",
+            bootstrap_samples=100,
+        )
+
+
+def test_confirmatory_comparison_rejects_track_b_seeded_evidence() -> None:
+    treatment = replace(
+        run("case-a", "memorix-full", True),
+        study_track="B",
+        formation_track="seeded-canonical",
+        precursor_trace_sha256=None,
+    )
+    control = replace(
+        run("case-a", "no-memory", False),
+        study_track="B",
+        formation_track="seeded-canonical",
+        precursor_trace_sha256=None,
+    )
+
+    with pytest.raises(ValueError, match="require Track C"):
+        compare_conditions(
+            [treatment, control],
+            treatment="memorix-full",
+            control="no-memory",
+            bootstrap_samples=100,
+        )
+
+
 def test_collects_and_writes_machine_readable_results(tmp_path: Path) -> None:
     nested = tmp_path / "study" / "case" / "run"
     nested.mkdir(parents=True)
@@ -111,6 +157,9 @@ def test_collects_and_writes_machine_readable_results(tmp_path: Path) -> None:
         "evidence_tier": "confirmatory",
         "predecessor_dependency": "high",
         "dependency_classification_status": "preregistered",
+        "study_track": "C",
+        "formation_track": "trace-replay",
+        "precursor_trace_sha256": "trace-case-a",
     }
     (nested / "result.json").write_text(json.dumps(payload), encoding="utf-8")
 
@@ -177,6 +226,9 @@ def test_rejects_low_dependency_without_explicit_override() -> None:
         evidence_tier="confirmatory",
         predecessor_dependency="low",
         dependency_classification_status="preregistered",
+        study_track="C",
+        formation_track="trace-replay",
+        precursor_trace_sha256="trace-case-a",
     )
     low_control = RunResult(
         case_id="case-a",
@@ -189,6 +241,9 @@ def test_rejects_low_dependency_without_explicit_override() -> None:
         evidence_tier="confirmatory",
         predecessor_dependency="low",
         dependency_classification_status="preregistered",
+        study_track="C",
+        formation_track="trace-replay",
+        precursor_trace_sha256="trace-case-a",
     )
 
     with pytest.raises(ValueError, match="low or unclassified dependency"):
@@ -225,3 +280,22 @@ def test_rejects_invalid_result_classification() -> None:
 
     with pytest.raises(ValueError, match="dependency_classification_status"):
         RunResult.from_dict(payload)
+
+
+def test_result_keeps_unannotated_secondary_outcomes_as_null() -> None:
+    result = RunResult.from_dict({
+        "case_id": "case-a",
+        "condition": "no-memory",
+        "agent": "claude",
+        "model": "model-a",
+        "repetition": 0,
+        "seed": 7,
+        "task_success": True,
+        "stale_memory_errors": None,
+        "stale_memory_error_status": "unannotated-v1",
+        "negative_control_intrusions": None,
+        "negative_control_intrusion_status": "unannotated-v1",
+    })
+
+    assert result.stale_memory_errors is None
+    assert result.negative_control_intrusions is None

@@ -260,3 +260,98 @@ topic_key = "duplicate"
 
     with pytest.raises(ManifestError, match="duplicates an earlier"):
         load_case_manifest(write_case(tmp_path, content))
+
+
+def test_defaults_to_seeded_canonical_formation(tmp_path: Path) -> None:
+    case = load_case_manifest(write_case(tmp_path))
+
+    assert case.formation_track == "seeded-canonical"
+    assert case.study_track == "B"
+    assert case.precursor_trace is None
+
+
+def test_rejects_noncanonical_formation_without_trace(tmp_path: Path) -> None:
+    content = VALID_CASE.replace(
+        "[repository]",
+        "[formation]\ntrack = \"trace-replay\"\n\n[repository]",
+    )
+
+    with pytest.raises(ManifestError, match="require precursor_trace"):
+        load_case_manifest(write_case(tmp_path, content))
+
+
+def test_track_c_rejects_seeded_evidence_and_raw_transcript(tmp_path: Path) -> None:
+    content = VALID_CASE.replace(
+        "[repository]",
+        '''[formation]
+track = "trace-replay"
+
+[formation.precursor_trace]
+path = "trace.json"
+schema_version = "precursor-trace-v1"
+provenance = "captured-session-v1"
+normalization = "event-normalize-v1"
+truncation = "event-suffix-v1"
+
+[repository]''',
+    ).replace(
+        'success_commands = ["npm test"]\n\n[transition]',
+        'success_commands = ["npm test"]\ntranscript = "precursor.md"\n\n[transition]',
+        1,
+    ) + '''
+
+[[memory_seed]]
+entity_name = "leak"
+type = "decision"
+title = "Leak"
+narrative = "This must not enter Track C."
+facts = []
+files_modified = []
+concepts = []
+'''
+
+    with pytest.raises(ManifestError, match="Track C cases must not declare memory_seed"):
+        load_case_manifest(write_case(tmp_path, content))
+
+
+def test_track_c_rejects_raw_precursor_transcript_without_seed(tmp_path: Path) -> None:
+    content = VALID_CASE.replace(
+        "[repository]",
+        '''[formation]
+track = "trace-replay"
+
+[formation.precursor_trace]
+path = "trace.json"
+schema_version = "precursor-trace-v1"
+provenance = "captured-session-v1"
+normalization = "event-normalize-v1"
+truncation = "event-suffix-v1"
+
+[repository]''',
+    ).replace(
+        'success_commands = ["npm test"]\n\n[transition]',
+        'success_commands = ["npm test"]\ntranscript = "precursor.md"\n\n[transition]',
+        1,
+    )
+
+    with pytest.raises(ManifestError, match="precursor_trace"):
+        load_case_manifest(write_case(tmp_path, content))
+
+
+def test_track_c_requires_trace_truncation_contract(tmp_path: Path) -> None:
+    content = VALID_CASE.replace(
+        "[repository]",
+        '''[formation]
+track = "trace-replay"
+
+[formation.precursor_trace]
+path = "trace.json"
+schema_version = "precursor-trace-v1"
+provenance = "captured-session-v1"
+normalization = "event-normalize-v1"
+
+[repository]''',
+    )
+
+    with pytest.raises(ManifestError, match="truncation"):
+        load_case_manifest(write_case(tmp_path, content))

@@ -1,0 +1,26 @@
+# Memorix Agent-Memory Research Progress
+# Updated: 2026-07-22
+
+Completed
+- Public/private oracle boundary, sealed patch protocol, and public worker job contract are implemented and tested.
+- Development cases are explicitly excluded from confirmatory comparison.
+- Track B seeded-canonical evidence is separated from Track C trace-replay formation.
+- precursor-trace-v1 validates normalized event order, turns, tool-call links, secret/path hygiene, source hash, and canonical hash.
+- Bounded raw replay is event-suffix aligned and archives a deterministic view receipt.
+- Mem0, AgentMemory, and Memorix trace ingestion return formation receipts; canonical retrieval records call and round counts.
+- Agent event parsing preserves real tool-call sequences instead of only de-duplicated tool names.
+- Full research test suite and public case validation pass after this phase.
+
+In progress
+- Replace unannotated first-correct-action, stale-memory, and negative-control placeholders with a blinded annotation ledger.
+- Add an outcome validator that rejects incompatible Track C result artifacts before comparison.
+
+Next
+- Build the worker-to-vault execution client and an actual offline black-box verifier profile.
+- Author preregistered private Track C cases with captured precursor traces and repository-level split registry.
+- Run the frozen experimental matrix, then statistical analysis, artifact packaging, and the English LaTeX paper.
+
+Constraints
+- No development result, local Docker containment run, or seeded Track B result may be presented as confirmatory evidence.
+- Native Memorix MCP currently has no enforced retrieval-call budget; it remains a separately labelled native surface until a budget gateway exists.
+- Private oracle bytes must never enter an agent worker workspace or public artifact.

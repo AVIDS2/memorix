@@ -24,13 +24,15 @@ from .case_bundle import archive_public_case_definition
 from .agentmemory_adapter import AGENTMEMORY_PROVIDER_ID, AgentMemoryFullAdapter
 from .mem0_adapter import MEM0_PROVIDER_ID, Mem0LocalAdapter
 from .memorix_adapter import (
+    ingest_memorix_trace,
     refresh_memorix_project,
-    seed_memorix_project,
+    seed_memorix_canonical_evidence,
     write_claude_mcp_config,
 )
 from .oracle_assets import OracleAssetSet, resolve_oracle_assets
 from .reporting import serialize_command_results, serialize_source_checks
 from .schema import CaseManifest, load_case_manifest
+from .trace import TraceView, load_precursor_trace, render_trace_view
 from .workspace import (
     advance_case_to_transfer,
     materialize_case,
@@ -101,19 +103,24 @@ class TrialOutcome:
     agent_returncode: int
     timed_out: bool
     first_correct_action_seconds: float | None
+    first_correct_action_status: str
     input_tokens: int | None
     cached_input_tokens: int | None
     output_tokens: int | None
     reasoning_output_tokens: int | None
     wall_seconds: float
     cost_usd: float | None
-    stale_memory_errors: int
-    negative_control_intrusions: int
+    stale_memory_errors: int | None
+    stale_memory_error_status: str
+    negative_control_intrusions: int | None
+    negative_control_intrusion_status: str
     command_count: int
     tool_call_count: int
     tool_names: tuple[str, ...]
+    tool_call_names: tuple[str, ...]
     successful_tool_call_count: int
     successful_tool_names: tuple[str, ...]
+    successful_tool_call_names: tuple[str, ...]
     permission_denials: tuple[str, ...]
     unavailable_tool_attempts: tuple[str, ...]
     bash_commands: tuple[str, ...]
@@ -124,6 +131,16 @@ class TrialOutcome:
     retrieved_context_tokens: int | None
     retrieved_context_record_count: int | None
     retrieved_context_truncated: bool | None
+    retrieval_call_count: int | None
+    retrieval_round_count: int | None
+    raw_replay_context_tokens: int | None
+    raw_replay_context_truncated: bool | None
+    formation_track: str
+    study_track: str
+    precursor_trace_sha256: str | None
+    precursor_trace_source_sha256: str | None
+    precursor_trace_view_sha256: str | None
+    formation_receipt: dict[str, object] | None
     memory_preparation_seconds: float | None
     memory_retrieval_seconds: float | None
     memorix_cli_sha256: str | None
@@ -187,11 +204,43 @@ def _resolve_case_asset(manifest: CaseManifest, relative: str) -> Path:
     return candidate
 
 
+def _trace_view_metadata(view: TraceView | None) -> dict[str, object] | None:
+    if view is None:
+        return None
+    return {
+        "renderer": view.renderer,
+        "trace_sha256": view.trace_sha256,
+        "token_budget": view.token_budget,
+        "token_count": view.token_count,
+        "retained_event_ids": list(view.retained_event_ids),
+        "dropped_event_ids": list(view.dropped_event_ids),
+        "truncated": view.truncated,
+        "view_sha256": view.sha256,
+    }
+
+
+def _require_formation_receipt(result: dict[str, object]) -> dict[str, object]:
+    receipt = result.get("formation_receipt")
+    if not isinstance(receipt, dict):
+        raise RuntimeError("memory formation adapter returned no auditable receipt")
+    for field in (
+        "surface",
+        "write_operation_count",
+        "transport_call_count",
+        "maintenance_call_count",
+        "record_count",
+    ):
+        if field not in receipt:
+            raise RuntimeError(f"memory formation receipt is missing {field}")
+    return receipt
+
+
 def build_condition_prompt(
     manifest: CaseManifest,
     condition: str,
     *,
     retrieved_context: str | None = None,
+    trace_view: TraceView | None = None,
 ) -> str:
     if condition not in SUPPORTED_CONDITIONS:
         raise ValueError(
@@ -199,19 +248,30 @@ def build_condition_prompt(
         )
     parts: list[str] = []
     if condition == "last-n":
-        if not manifest.precursor.transcript:
-            raise ValueError("last-n requires precursor.transcript")
-        transcript = _resolve_case_asset(
-            manifest,
-            manifest.precursor.transcript,
-        ).read_text(encoding="utf-8")
-        parts.extend([
-            "Here is the bounded record from the previous project session:",
-            "<prior_session>",
-            transcript.strip(),
-            "</prior_session>",
-            "",
-        ])
+        if manifest.study_track == "C":
+            if trace_view is None:
+                raise ValueError("Track C last-n requires a prepared bounded trace view")
+            parts.extend([
+                "Here is the bounded normalized record from the previous project session:",
+                "<prior_session>",
+                trace_view.context,
+                "</prior_session>",
+                "",
+            ])
+        else:
+            if not manifest.precursor.transcript:
+                raise ValueError("last-n requires precursor.transcript")
+            transcript = _resolve_case_asset(
+                manifest,
+                manifest.precursor.transcript,
+            ).read_text(encoding="utf-8")
+            parts.extend([
+                "Here is the bounded record from the previous project session:",
+                "<prior_session>",
+                transcript.strip(),
+                "</prior_session>",
+                "",
+            ])
     if condition in CANONICAL_RETRIEVAL_CONDITIONS:
         if not retrieved_context or not retrieved_context.strip():
             raise ValueError(f"{condition} requires retrieved context")
@@ -330,6 +390,25 @@ def run_trial(
     private_oracle_root: str | Path | None = None,
 ) -> TrialOutcome:
     manifest = load_case_manifest(case_path)
+    if manifest.formation_track == "native-session":
+        raise ValueError(
+            "native-session formation is not executable until provider-native "
+            "formation adapters and their audit contract are implemented"
+        )
+    precursor_trace = (
+        load_precursor_trace(manifest)
+        if manifest.formation_track == "trace-replay"
+        else None
+    )
+    trace_view = (
+        render_trace_view(
+            precursor_trace,
+            token_budget=CANONICAL_RETRIEVAL_TOKEN_BUDGET,
+            truncation=manifest.precursor_trace.truncation,
+        )
+        if condition == "last-n" and precursor_trace is not None and manifest.precursor_trace is not None
+        else None
+    )
     oracle_assets = resolve_oracle_assets(manifest, private_oracle_root)
     evidence_tier = ensure_trial_eligibility(
         manifest,
@@ -390,8 +469,18 @@ def run_trial(
     retrieval: BaselineRetrieval | None = None
     memory_preparation_seconds: float | None = None
     memory_retrieval_seconds: float | None = None
+    formation_receipt: dict[str, object] | None = None
     condition_metadata: dict[str, object] = {
         "condition": condition,
+        "study_track": manifest.study_track,
+        "formation_track": manifest.formation_track,
+        "precursor_trace": {
+            "canonical_sha256": precursor_trace.canonical_sha256,
+            "source_sha256": precursor_trace.source_sha256,
+        }
+        if precursor_trace
+        else None,
+        "raw_replay_view": _trace_view_metadata(trace_view),
         "memory_provider": None,
     }
     if is_memorix:
@@ -404,15 +493,27 @@ def run_trial(
         data_dir = memory_dir / "data"
         home_dir = memory_dir / "home"
         adapter_dir = memory_dir / "adapter"
-        seed_result = seed_memorix_project(
-            manifest=manifest,
-            workspace=workspace_dir,
-            cli_path=memorix_cli_path,
-            data_dir=data_dir,
-            home_dir=home_dir,
-            artifact_dir=adapter_dir,
-            mode=memorix_mode or "full",
-        )
+        if precursor_trace is None:
+            seed_result = seed_memorix_canonical_evidence(
+                manifest=manifest,
+                workspace=workspace_dir,
+                cli_path=memorix_cli_path,
+                data_dir=data_dir,
+                home_dir=home_dir,
+                artifact_dir=adapter_dir,
+                mode=memorix_mode or "full",
+            )
+        else:
+            seed_result = ingest_memorix_trace(
+                trace=precursor_trace,
+                workspace=workspace_dir,
+                cli_path=memorix_cli_path,
+                data_dir=data_dir,
+                home_dir=home_dir,
+                artifact_dir=adapter_dir,
+                mode=memorix_mode or "full",
+            )
+        formation_receipt = _require_formation_receipt(seed_result)
         transfer_commit, transition_patch_sha256 = advance_case_to_transfer(
             manifest,
             workspace_dir,
@@ -439,13 +540,18 @@ def run_trial(
         memorix_cli_sha256 = _sha256(memorix_cli_path)
         condition_metadata = {
             "condition": condition,
+            "study_track": manifest.study_track,
+            "formation_track": manifest.formation_track,
             "memory_provider": "memorix",
+            "formation_source": "precursor-trace" if precursor_trace else "memory-seed",
+            "precursor_trace_sha256": precursor_trace.sha256 if precursor_trace else None,
             "memorix_cli": str(memorix_cli_path),
             "memorix_cli_sha256": memorix_cli_sha256,
             "tool_profile": memorix_mode,
             "llm": "off",
             "embedding": "off",
             "seed_maintenance": seed_result["maintenance"]["summary"],
+            "formation_receipt": formation_receipt,
             "refresh_maintenance": refresh_result["maintenance"]["summary"],
             "final_workset": refresh_result["final"]["workset"],
         }
@@ -467,7 +573,12 @@ def run_trial(
         project_id = f"memorixbench-{run_id}"
         preparation_started = time.monotonic()
         preflight = adapter.preflight()
-        seed_result = adapter.seed(manifest, project_id=project_id)
+        seed_result = (
+            adapter.ingest_trace(precursor_trace, project_id=project_id)
+            if precursor_trace is not None
+            else adapter.seed_canonical_evidence(manifest, project_id=project_id)
+        )
+        formation_receipt = _require_formation_receipt(seed_result)
         memory_preparation_seconds = time.monotonic() - preparation_started
         transfer_commit, transition_patch_sha256 = advance_case_to_transfer(
             manifest,
@@ -484,7 +595,11 @@ def run_trial(
         memory_retrieval_seconds = time.monotonic() - retrieval_started
         condition_metadata = {
             "condition": condition,
+            "study_track": manifest.study_track,
+            "formation_track": manifest.formation_track,
             "memory_provider": "mem0",
+            "formation_source": "precursor-trace" if precursor_trace else "memory-seed",
+            "precursor_trace_sha256": precursor_trace.sha256 if precursor_trace else None,
             "provider_id": MEM0_PROVIDER_ID,
             "python": str(mem0_python_path),
             "embedding_model": adapter.embedding_model,
@@ -496,12 +611,15 @@ def run_trial(
             "data_dir": str(adapter.data_dir),
             "preflight": preflight,
             "seed": seed_result,
+            "formation_receipt": formation_receipt,
             "retrieval": {
                 "query": retrieval.query,
                 "top_k": CANONICAL_RETRIEVAL_TOP_K,
                 "token_budget": retrieval.token_budget,
                 "token_count": retrieval.token_count,
                 "truncated": retrieval.truncated,
+                "call_count": retrieval.retrieval_call_count,
+                "round_count": retrieval.retrieval_round_count,
                 "records": [
                     {"memory_id": record.memory_id, "score": record.score}
                     for record in retrieval.records
@@ -534,7 +652,12 @@ def run_trial(
         preparation_started = time.monotonic()
         with adapter:
             preflight = adapter.preflight(project_id=project_id)
-            seed_result = adapter.seed(manifest, project_id=project_id)
+            seed_result = (
+                adapter.ingest_trace(precursor_trace, project_id=project_id)
+                if precursor_trace is not None
+                else adapter.seed_canonical_evidence(manifest, project_id=project_id)
+            )
+            formation_receipt = _require_formation_receipt(seed_result)
             memory_preparation_seconds = time.monotonic() - preparation_started
             transfer_commit, transition_patch_sha256 = advance_case_to_transfer(
                 manifest,
@@ -551,7 +674,11 @@ def run_trial(
             memory_retrieval_seconds = time.monotonic() - retrieval_started
         condition_metadata = {
             "condition": condition,
+            "study_track": manifest.study_track,
+            "formation_track": manifest.formation_track,
             "memory_provider": "agentmemory",
+            "formation_source": "precursor-trace" if precursor_trace else "memory-seed",
+            "precursor_trace_sha256": precursor_trace.sha256 if precursor_trace else None,
             "provider_id": AGENTMEMORY_PROVIDER_ID,
             "runtime_root": str(runtime_root),
             "project_name": compose_project,
@@ -560,12 +687,15 @@ def run_trial(
             "full_service": True,
             "preflight": preflight,
             "seed": seed_result,
+            "formation_receipt": formation_receipt,
             "retrieval": {
                 "query": retrieval.query,
                 "top_k": CANONICAL_RETRIEVAL_TOP_K,
                 "token_budget": retrieval.token_budget,
                 "token_count": retrieval.token_count,
                 "truncated": retrieval.truncated,
+                "call_count": retrieval.retrieval_call_count,
+                "round_count": retrieval.retrieval_round_count,
                 "records": [
                     {"memory_id": record.memory_id, "score": record.score}
                     for record in retrieval.records
@@ -577,10 +707,21 @@ def run_trial(
     else:
         agent_start_commit = reset_history_to_snapshot(workspace_dir)
 
+    condition_metadata["study_track"] = manifest.study_track
+    condition_metadata["formation_track"] = manifest.formation_track
+    condition_metadata["precursor_trace"] = {
+        "canonical_sha256": precursor_trace.canonical_sha256,
+        "source_sha256": precursor_trace.source_sha256,
+    } if precursor_trace else None
+    condition_metadata["raw_replay_view"] = _trace_view_metadata(trace_view)
+    if formation_receipt is not None:
+        condition_metadata["formation_receipt"] = formation_receipt
+
     prompt = build_condition_prompt(
         manifest,
         condition,
         retrieved_context=retrieval.context if retrieval else None,
+        trace_view=trace_view,
     )
     allowed_tools = build_claude_allowed_tools(manifest, condition)
     if agent == "claude":
@@ -632,10 +773,14 @@ def run_trial(
         transcript_sha = _sha256(
             _resolve_case_asset(manifest, manifest.precursor.transcript)
         )
+    precursor_trace_sha = precursor_trace.canonical_sha256 if precursor_trace else None
+    precursor_trace_source_sha = precursor_trace.source_sha256 if precursor_trace else None
 
-    memory_tool_attempt_count = sum("memorix" in name.lower() for name in execution.tool_names)
+    memory_tool_attempt_count = sum(
+        "memorix" in name.lower() for name in execution.tool_call_names
+    )
     memory_tool_call_count = sum(
-        "memorix" in name.lower() for name in execution.successful_tool_names
+        "memorix" in name.lower() for name in execution.successful_tool_call_names
     )
     command_contamination_violations = audit_bash_commands(
         execution.bash_commands,
@@ -656,7 +801,7 @@ def run_trial(
         else execution.failure_reason
     )
     outcome = TrialOutcome(
-        schema_version="1.2",
+        schema_version="1.4",
         run_id=run_id,
         study_id=study_id,
         case_id=manifest.case_id,
@@ -678,19 +823,24 @@ def run_trial(
         agent_returncode=execution.returncode,
         timed_out=execution.timed_out,
         first_correct_action_seconds=None,
+        first_correct_action_status="unannotated-v1",
         input_tokens=execution.input_tokens,
         cached_input_tokens=execution.cached_input_tokens,
         output_tokens=execution.output_tokens,
         reasoning_output_tokens=execution.reasoning_output_tokens,
         wall_seconds=execution.wall_seconds,
         cost_usd=execution.cost_usd,
-        stale_memory_errors=0,
-        negative_control_intrusions=0,
+        stale_memory_errors=None,
+        stale_memory_error_status="unannotated-v1",
+        negative_control_intrusions=None,
+        negative_control_intrusion_status="unannotated-v1",
         command_count=execution.command_count,
         tool_call_count=execution.tool_call_count,
         tool_names=execution.tool_names,
+        tool_call_names=execution.tool_call_names,
         successful_tool_call_count=execution.successful_tool_call_count,
         successful_tool_names=execution.successful_tool_names,
+        successful_tool_call_names=execution.successful_tool_call_names,
         permission_denials=execution.permission_denials,
         unavailable_tool_attempts=execution.unavailable_tool_attempts,
         bash_commands=execution.bash_commands,
@@ -703,6 +853,16 @@ def run_trial(
         retrieved_context_tokens=retrieval.token_count if retrieval else None,
         retrieved_context_record_count=len(retrieval.records) if retrieval else None,
         retrieved_context_truncated=retrieval.truncated if retrieval else None,
+        retrieval_call_count=retrieval.retrieval_call_count if retrieval else None,
+        retrieval_round_count=retrieval.retrieval_round_count if retrieval else None,
+        raw_replay_context_tokens=trace_view.token_count if trace_view else None,
+        raw_replay_context_truncated=trace_view.truncated if trace_view else None,
+        formation_track=manifest.formation_track,
+        study_track=manifest.study_track,
+        precursor_trace_sha256=precursor_trace_sha,
+        precursor_trace_source_sha256=precursor_trace_source_sha,
+        precursor_trace_view_sha256=trace_view.sha256 if trace_view else None,
+        formation_receipt=formation_receipt,
         memory_preparation_seconds=memory_preparation_seconds,
         memory_retrieval_seconds=memory_retrieval_seconds,
         memorix_cli_sha256=memorix_cli_sha256,

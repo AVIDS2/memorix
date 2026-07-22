@@ -21,6 +21,7 @@ from .baseline import (
     scrubbed_provider_environment,
 )
 from .schema import CaseManifest
+from .trace import PrecursorTrace
 
 
 AGENTMEMORY_PROVIDER_ID = "agentmemory-0.9.28-full-local"
@@ -431,7 +432,12 @@ class AgentMemoryFullAdapter:
             )
         return result
 
-    def seed(self, manifest: CaseManifest, *, project_id: str) -> dict[str, Any]:
+    def seed_canonical_evidence(
+        self,
+        manifest: CaseManifest,
+        *,
+        project_id: str,
+    ) -> dict[str, Any]:
         if not manifest.memory_seeds:
             raise AgentMemoryAdapterError(f"case {manifest.case_id} has no memory seeds")
         written: list[dict[str, Any]] = []
@@ -445,8 +451,50 @@ class AgentMemoryFullAdapter:
                     ),
                 }
             )
-        result = {"seed_count": len(written), "written": written}
+        result = {
+            "seed_count": len(written),
+            "written": written,
+            "formation_receipt": {
+                "surface": "seeded-canonical",
+                "input_record_ids": [canonical_seed_id(seed) for seed in manifest.memory_seeds],
+                "write_operation_count": len(written),
+                "transport_call_count": len(written),
+                "maintenance_call_count": 0,
+                "record_count": len(written),
+            },
+        }
         self._write_artifact("seed.json", result)
+        return result
+
+    def ingest_trace(self, trace: PrecursorTrace, *, project_id: str) -> dict[str, Any]:
+        written: list[dict[str, Any]] = []
+        for event in trace.events:
+            written.append(
+                {
+                    "seed_id": f"trace:{event.event_id}",
+                    "result": self._remember(
+                        project_id=project_id,
+                        content=event.replay_content(),
+                    ),
+                }
+            )
+        if not written:
+            raise AgentMemoryAdapterError("precursor trace has no replay records")
+        result = {
+            "trace_sha256": trace.canonical_sha256,
+            "seed_count": len(written),
+            "written": written,
+            "formation_receipt": {
+                "surface": "trace-replay",
+                "trace_sha256": trace.canonical_sha256,
+                "source_event_ids": [event.event_id for event in trace.events],
+                "write_operation_count": len(written),
+                "transport_call_count": len(written),
+                "maintenance_call_count": 0,
+                "record_count": len(written),
+            },
+        }
+        self._write_artifact("trace-seed.json", result)
         return result
 
     def retrieve(

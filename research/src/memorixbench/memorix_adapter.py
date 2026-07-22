@@ -14,6 +14,7 @@ from urllib.parse import quote
 from urllib.request import Request, urlopen
 
 from .schema import CaseManifest
+from .trace import PrecursorTrace
 
 
 PROVIDER_ENV_KEYS = (
@@ -265,10 +266,12 @@ class MemorixControlPlane:
     def poll_maintenance(self, project_id: str, *, timeout_seconds: int = 45) -> dict[str, Any]:
         deadline = time.monotonic() + timeout_seconds
         latest: dict[str, Any] = {}
+        poll_count = 0
         while time.monotonic() < deadline:
             url = self.base_url + "/api/maintenance?project=" + quote(project_id, safe="")
             with urlopen(url, timeout=5) as response:
                 value = json.loads(response.read().decode("utf-8"))
+            poll_count += 1
             if isinstance(value, dict):
                 latest = value
                 summary = value.get("summary")
@@ -276,7 +279,7 @@ class MemorixControlPlane:
                     int(summary.get(key, 0)) == 0
                     for key in ("pending", "running", "retrying")
                 ):
-                    return latest
+                    return {**latest, "poll_count": poll_count}
             time.sleep(0.5)
         raise TimeoutError(f"Memorix maintenance did not drain: {latest}")
 
@@ -322,7 +325,7 @@ def write_claude_mcp_config(
     return path
 
 
-def seed_memorix_project(
+def seed_memorix_canonical_evidence(
     *,
     manifest: CaseManifest,
     workspace: Path,
@@ -371,9 +374,82 @@ def seed_memorix_project(
         "initial_context": initial,
         "stored": stored,
         "maintenance": maintenance,
+        "formation_receipt": {
+            "surface": "seeded-canonical",
+            "input_record_ids": [seed.topic_key or seed.entity_name for seed in manifest.memory_seeds],
+            "setup_call_count": 1,
+            "write_operation_count": len(stored),
+            "transport_call_count": 1 + len(stored) + int(maintenance.get("poll_count", 0)),
+            "maintenance_call_count": int(maintenance.get("poll_count", 0)),
+            "record_count": len(stored),
+        },
     }
     artifact_dir.mkdir(parents=True, exist_ok=True)
     (artifact_dir / "seed.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
+    return result
+
+
+def ingest_memorix_trace(
+    *,
+    trace: PrecursorTrace,
+    workspace: Path,
+    cli_path: Path,
+    data_dir: Path,
+    home_dir: Path,
+    artifact_dir: Path,
+    provider_env: dict[str, str] | None = None,
+    mode: str = "full",
+) -> dict[str, Any]:
+    """Replay a normalized public precursor trace through Memorix MCP writes."""
+
+    with MemorixControlPlane(
+        cli_path=cli_path,
+        workspace=workspace,
+        data_dir=data_dir,
+        home_dir=home_dir,
+        log_dir=artifact_dir / "trace-seed-control-plane",
+        mode=mode,
+        provider_env=provider_env,
+    ) as control:
+        initial = _tool_json(control.tool("memorix_project_context", {
+            "task": "Replay the precursor session for benchmark formation.",
+            "format": "json",
+            "refresh": "never",
+        }))
+        project_id = str(initial["project"]["id"])
+        stored = []
+        for event in trace.events:
+            stored.append(control.tool("memorix_store", {
+                "entityName": f"trace:{event.event_id}",
+                "type": "session-event",
+                "title": f"Precursor {event.role} event",
+                "narrative": event.replay_content(),
+                "facts": [],
+                "filesModified": [],
+                "concepts": ["benchmark-trace", event.kind],
+                "topicKey": f"benchmark-trace/{trace.case_id}/{event.event_id}",
+            }))
+        maintenance = control.poll_maintenance(project_id)
+    result = {
+        "project_id": project_id,
+        "trace_sha256": trace.canonical_sha256,
+        "event_count": len(trace.events),
+        "initial_context": initial,
+        "stored": stored,
+        "maintenance": maintenance,
+        "formation_receipt": {
+            "surface": "trace-replay",
+            "trace_sha256": trace.canonical_sha256,
+            "source_event_ids": [event.event_id for event in trace.events],
+            "setup_call_count": 1,
+            "write_operation_count": len(stored),
+            "transport_call_count": 1 + len(stored) + int(maintenance.get("poll_count", 0)),
+            "maintenance_call_count": int(maintenance.get("poll_count", 0)),
+            "record_count": len(stored),
+        },
+    }
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    (artifact_dir / "trace-seed.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
     return result
 
 

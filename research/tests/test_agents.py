@@ -142,6 +142,8 @@ def test_claude_completed_patch_at_budget_boundary_is_valid() -> None:
         ("reported-model", 12, 5, 0.02),
     ]
     assert parsed["tool_names"] == ("mcp__memorix__memorix_project_context",)
+    assert parsed["tool_call_names"] == ("mcp__memorix__memorix_project_context",)
+    assert parsed["successful_tool_call_names"] == ("mcp__memorix__memorix_project_context",)
     assert parsed["successful_tool_call_count"] == 1
     assert _failure_reason(
         completed=True,
@@ -184,6 +186,41 @@ def test_claude_parser_records_unavailable_tool_attempts() -> None:
     parsed = _parse_claude(events)
 
     assert parsed["unavailable_tool_attempts"] == ("Grep",)
+
+
+def test_claude_parser_preserves_repeated_tool_calls_for_accounting() -> None:
+    events = [
+        {
+            "type": "assistant",
+            "message": {
+                "content": [
+                    {"type": "tool_use", "id": "first", "name": "mcp__memorix__memorix_search"},
+                    {"type": "tool_use", "id": "second", "name": "mcp__memorix__memorix_search"},
+                ]
+            },
+        },
+        {
+            "type": "user",
+            "message": {
+                "content": [
+                    {"type": "tool_result", "tool_use_id": "first", "content": "one"},
+                    {"type": "tool_result", "tool_use_id": "second", "content": "two"},
+                ]
+            },
+        },
+    ]
+
+    parsed = _parse_claude(events)
+
+    assert parsed["tool_names"] == ("mcp__memorix__memorix_search",)
+    assert parsed["tool_call_names"] == (
+        "mcp__memorix__memorix_search",
+        "mcp__memorix__memorix_search",
+    )
+    assert parsed["successful_tool_call_names"] == (
+        "mcp__memorix__memorix_search",
+        "mcp__memorix__memorix_search",
+    )
 
 
 def test_command_audit_allows_workspace_scoped_browsing(tmp_path: Path) -> None:

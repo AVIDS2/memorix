@@ -151,8 +151,10 @@ class AgentExecution:
     command_count: int
     tool_call_count: int
     tool_names: tuple[str, ...]
+    tool_call_names: tuple[str, ...]
     successful_tool_call_count: int
     successful_tool_names: tuple[str, ...]
+    successful_tool_call_names: tuple[str, ...]
     permission_denials: tuple[str, ...]
     unavailable_tool_attempts: tuple[str, ...]
     bash_commands: tuple[str, ...]
@@ -289,8 +291,10 @@ def _parse_codex(events: list[dict[str, object]]) -> dict[str, object]:
     command_count = 0
     tool_call_count = 0
     tool_names: set[str] = set()
+    tool_call_names: list[str] = []
     successful_tool_call_count = 0
     successful_tool_names: set[str] = set()
+    successful_tool_call_names: list[str] = []
     completed = False
     reported_models: set[str] = set()
     for event in events:
@@ -312,6 +316,8 @@ def _parse_codex(events: list[dict[str, object]]) -> dict[str, object]:
             if isinstance(tool_name, str) and tool_name:
                 tool_names.add(tool_name)
                 successful_tool_names.add(tool_name)
+                tool_call_names.append(tool_name)
+                successful_tool_call_names.append(tool_name)
             successful_tool_call_count += 1
         if item_type == "agent_message" and event.get("type") == "item.completed":
             final_message = str(item.get("text", ""))
@@ -325,8 +331,10 @@ def _parse_codex(events: list[dict[str, object]]) -> dict[str, object]:
         "command_count": command_count,
         "tool_call_count": tool_call_count,
         "tool_names": tuple(sorted(tool_names)),
+        "tool_call_names": tuple(tool_call_names),
         "successful_tool_call_count": successful_tool_call_count,
         "successful_tool_names": tuple(sorted(successful_tool_names)),
+        "successful_tool_call_names": tuple(successful_tool_call_names),
         "permission_denials": (),
         "unavailable_tool_attempts": (),
         "bash_commands": (),
@@ -343,8 +351,10 @@ def _parse_claude(events: list[dict[str, object]]) -> dict[str, object]:
     command_count = 0
     tool_call_count = 0
     tool_names: set[str] = set()
+    tool_call_names: list[str] = []
     successful_tool_call_count = 0
     successful_tool_names: set[str] = set()
+    successful_tool_call_names: list[str] = []
     tool_use_names: dict[str, str] = {}
     permission_denials: set[str] = set()
     unavailable_tool_attempts: set[str] = set()
@@ -405,6 +415,7 @@ def _parse_claude(events: list[dict[str, object]]) -> dict[str, object]:
                     if tool_name:
                         successful_tool_call_count += 1
                         successful_tool_names.add(tool_name)
+                        successful_tool_call_names.append(tool_name)
                 continue
             if item.get("type") != "tool_use":
                 continue
@@ -412,6 +423,7 @@ def _parse_claude(events: list[dict[str, object]]) -> dict[str, object]:
             tool_name = item.get("name")
             if isinstance(tool_name, str) and tool_name:
                 tool_names.add(tool_name)
+                tool_call_names.append(tool_name)
                 tool_use_id = item.get("id")
                 if isinstance(tool_use_id, str):
                     tool_use_names[tool_use_id] = tool_name
@@ -434,8 +446,10 @@ def _parse_claude(events: list[dict[str, object]]) -> dict[str, object]:
         "command_count": command_count,
         "tool_call_count": tool_call_count,
         "tool_names": tuple(sorted(tool_names)),
+        "tool_call_names": tuple(tool_call_names),
         "successful_tool_call_count": successful_tool_call_count,
         "successful_tool_names": tuple(sorted(successful_tool_names)),
+        "successful_tool_call_names": tuple(successful_tool_call_names),
         "permission_denials": tuple(sorted(permission_denials)),
         "unavailable_tool_attempts": tuple(sorted(unavailable_tool_attempts)),
         "bash_commands": tuple(bash_commands),
@@ -625,8 +639,10 @@ def run_agent(
         command_count=int(parsed["command_count"]),
         tool_call_count=int(parsed["tool_call_count"]),
         tool_names=parsed["tool_names"],  # type: ignore[arg-type]
+        tool_call_names=parsed["tool_call_names"],  # type: ignore[arg-type]
         successful_tool_call_count=int(parsed["successful_tool_call_count"]),
         successful_tool_names=parsed["successful_tool_names"],  # type: ignore[arg-type]
+        successful_tool_call_names=parsed["successful_tool_call_names"],  # type: ignore[arg-type]
         permission_denials=parsed["permission_denials"],  # type: ignore[arg-type]
         unavailable_tool_attempts=parsed["unavailable_tool_attempts"],  # type: ignore[arg-type]
         bash_commands=parsed["bash_commands"],  # type: ignore[arg-type]

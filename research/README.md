@@ -13,9 +13,11 @@ audited.
 ## Research tracks
 
 1. Deterministic retrieval checks reuse the existing Workset fixture corpus.
-2. Seeded retrieval compares memory systems with the same approved evidence.
-3. End-to-end formation gives every system the same precursor sessions and
-   evaluates a fresh agent on a dependent transfer task.
+2. Track B seeded retrieval compares memory systems with the same approved
+   evidence; it is retrieval parity, not a claim about memory formation.
+3. Track C trace replay gives every system the same normalized precursor event
+   sequence, records formation receipts, and evaluates a fresh agent on a
+   dependent transfer task.
 4. Stale-memory stress cases change code, dependencies, configuration, or
    project policy between the precursor and transfer phases.
 5. Real engineering cases grade patches with isolated tests rather than an LLM
@@ -25,6 +27,8 @@ audited.
 
 - PROTOCOL.md: preregistration draft and statistical analysis plan.
 - BASELINE_PROTOCOL.md: fair canonical and native memory-baseline contract.
+- TRACE-REPLAY-CONTRACT.md: immutable precursor-event format, bounded replay,
+  and the Track B/Track C boundary.
 - CLAIMS.md: every intended paper claim and the evidence required to unlock it.
 - LITERATURE.md: comparison boundaries for adjacent memory systems and benchmarks.
 - RESULTS-PILOT.md: excluded diagnostics and non-confirmatory smoke evidence.
@@ -87,7 +91,9 @@ whether each workspace came from the remote or a pinned local cache.
 A publishable run must record the case manifest hash, repository revision,
 transition hash, condition, agent and model identifiers, seed, command line,
 environment lock, container digest when used, token and time accounting, patch
-hash, test evidence, and raw event-log checksum. Aggregate tables without that
+hash, test evidence, and raw event-log checksum. Track C additionally records
+the raw and canonical precursor-trace hashes, bounded-view receipt, formation
+receipt, and actual retrieval call/round counts. Aggregate tables without that
 provenance are exploratory only.
 
 The requested model label is not sufficient provenance. Runs record the

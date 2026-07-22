@@ -14,6 +14,13 @@ VALID_DEPENDENCY_CLASSIFICATION_STATUS = {
     "retrospective-development",
     "preregistered",
 }
+VALID_STUDY_TRACKS = {"unclassified", "B", "C"}
+VALID_FORMATION_TRACKS = {
+    "unclassified",
+    "seeded-canonical",
+    "trace-replay",
+    "native-session",
+}
 
 
 @dataclass(frozen=True)
@@ -26,16 +33,22 @@ class RunResult:
     seed: int
     task_success: bool
     first_correct_action_seconds: float | None = None
+    first_correct_action_status: str = "unannotated-v1"
     input_tokens: int | None = None
     output_tokens: int | None = None
     wall_seconds: float | None = None
-    stale_memory_errors: int = 0
-    negative_control_intrusions: int = 0
+    stale_memory_errors: int | None = None
+    stale_memory_error_status: str = "unannotated-v1"
+    negative_control_intrusions: int | None = None
+    negative_control_intrusion_status: str = "unannotated-v1"
     valid_run: bool = True
     failure_reason: str | None = None
     evidence_tier: str = "unclassified"
     predecessor_dependency: str | None = None
     dependency_classification_status: str = "unclassified"
+    study_track: str = "unclassified"
+    formation_track: str = "unclassified"
+    precursor_trace_sha256: str | None = None
 
     @property
     def pair_key(self) -> tuple[str, str, str, int, int]:
@@ -66,6 +79,13 @@ class RunResult:
         dependency_classification_status = str(
             data.get("dependency_classification_status", "unclassified")
         )
+        study_track = str(data.get("study_track", "unclassified"))
+        formation_track = str(data.get("formation_track", "unclassified"))
+        precursor_trace_sha256 = (
+            None
+            if data.get("precursor_trace_sha256") is None
+            else str(data["precursor_trace_sha256"])
+        )
         if evidence_tier not in VALID_EVIDENCE_TIERS:
             raise ValueError(f"unknown evidence_tier: {evidence_tier!r}")
         if predecessor_dependency not in {None, *VALID_DEPENDENCY_STRENGTHS}:
@@ -77,6 +97,16 @@ class RunResult:
                 "unknown dependency_classification_status: "
                 f"{dependency_classification_status!r}"
             )
+        if study_track not in VALID_STUDY_TRACKS:
+            raise ValueError(f"unknown study_track: {study_track!r}")
+        if formation_track not in VALID_FORMATION_TRACKS:
+            raise ValueError(f"unknown formation_track: {formation_track!r}")
+        if study_track == "B" and formation_track != "seeded-canonical":
+            raise ValueError("Track B results require seeded-canonical formation")
+        if study_track == "C" and formation_track not in {"trace-replay", "native-session"}:
+            raise ValueError("Track C results require trace-replay or native-session formation")
+        if study_track == "C" and not precursor_trace_sha256:
+            raise ValueError("Track C results require precursor_trace_sha256")
         if evidence_tier != "unclassified" and (
             predecessor_dependency is None
             or dependency_classification_status == "unclassified"
@@ -94,11 +124,20 @@ class RunResult:
             seed=int(data["seed"]),
             task_success=data["task_success"],
             first_correct_action_seconds=_optional_float(data.get("first_correct_action_seconds")),
+            first_correct_action_status=str(
+                data.get("first_correct_action_status", "unannotated-v1")
+            ),
             input_tokens=_optional_int(data.get("input_tokens")),
             output_tokens=_optional_int(data.get("output_tokens")),
             wall_seconds=_optional_float(data.get("wall_seconds")),
-            stale_memory_errors=int(data.get("stale_memory_errors", 0)),
-            negative_control_intrusions=int(data.get("negative_control_intrusions", 0)),
+            stale_memory_errors=_optional_int(data.get("stale_memory_errors")),
+            stale_memory_error_status=str(
+                data.get("stale_memory_error_status", "unannotated-v1")
+            ),
+            negative_control_intrusions=_optional_int(data.get("negative_control_intrusions")),
+            negative_control_intrusion_status=str(
+                data.get("negative_control_intrusion_status", "unannotated-v1")
+            ),
             valid_run=bool(data.get("valid_run", True)),
             failure_reason=(
                 None if data.get("failure_reason") is None else str(data["failure_reason"])
@@ -106,6 +145,9 @@ class RunResult:
             evidence_tier=evidence_tier,
             predecessor_dependency=predecessor_dependency,
             dependency_classification_status=dependency_classification_status,
+            study_track=study_track,
+            formation_track=formation_track,
+            precursor_trace_sha256=precursor_trace_sha256,
         )
 
 
@@ -131,6 +173,17 @@ def _optional_float(value: object) -> float | None:
 
 def _optional_int(value: object) -> int | None:
     return None if value is None else int(value)
+
+
+def _assert_pair_compatible(treatment: RunResult, control: RunResult) -> None:
+    if treatment.study_track != control.study_track:
+        raise ValueError("paired runs use different study tracks")
+    if treatment.formation_track != control.formation_track:
+        raise ValueError("paired runs use different formation tracks")
+    if treatment.study_track == "C" and (
+        treatment.precursor_trace_sha256 != control.precursor_trace_sha256
+    ):
+        raise ValueError("paired Track C runs use different precursor traces")
 
 
 def load_jsonl(path: str | Path) -> list[RunResult]:
@@ -250,6 +303,12 @@ def compare_conditions(
                 "non-preregistered results cannot enter a confirmatory comparison: "
                 + ", ".join(non_preregistered)
             )
+        non_track_c = sorted({item.study_track for item in candidates if item.study_track != "C"})
+        if non_track_c:
+            raise ValueError(
+                "confirmatory comparisons require Track C results: "
+                + ", ".join(non_track_c)
+            )
     if not include_low_dependency:
         ineligible_dependencies = sorted({
             "missing" if item.predecessor_dependency is None else item.predecessor_dependency
@@ -282,6 +341,8 @@ def compare_conditions(
         (by_condition[treatment][key], by_condition[control][key])
         for key in matched_keys
     ]
+    for treatment_run, control_run in pairs:
+        _assert_pair_compatible(treatment_run, control_run)
     treatment_rate = sum(item[0].task_success for item in pairs) / len(pairs)
     control_rate = sum(item[1].task_success for item in pairs) / len(pairs)
     treatment_only = sum(

@@ -44,20 +44,33 @@ track catches retrieval regressions but is not a downstream-agent result.
 Every memory system receives the same approved atomic evidence, timestamps, and
 scope labels. The systems retrieve under an equal context-token ceiling. This
 isolates retrieval and stale-evidence handling from memory formation quality.
+`seeded-canonical` is Track B only: it is deliberately useful for retrieval
+parity, but it is not evidence that a product formed memory from a session.
 
 ### Track C: end-to-end transfer
 
-Every condition observes the same precursor session content. A transition is
-then applied to the repository. A fresh process, with no raw precursor
-transcript except what its condition permits, receives the transfer task. This
-track measures the complete formation, maintenance, retrieval, and use path.
+Every condition receives the same immutable, normalized precursor trace. Each
+event has a session id, sequence, turn, role, kind, and, where relevant, a
+tool-call link. The trace is replayed through the condition's documented write
+surface before a transition is applied to the repository. A fresh process, with
+no raw precursor transcript except the bounded raw-replay control, receives the
+transfer task.
+
+The currently implemented Track C formation surface is `trace-replay`: it
+compares how systems ingest and retrieve the same public event sequence, and
+records an auditable formation receipt. `native-session` remains a separately
+labelled future surface; it is not executable and must not be substituted into
+the main comparison without a frozen provider-native replay contract. A
+confirmatory Track C case requires `captured-session-v1` provenance. A
+`controlled-replay-v1` trace may harden the development harness but cannot be
+promoted as captured user-session evidence.
 
 ## 4. Conditions
 
 Primary conditions:
 
 - no-memory: fresh agent with repository and task only;
-- last-n: bounded raw precursor transcript replay;
+- last-n: bounded event-suffix replay of the same normalized precursor trace;
 - mem0: pinned open-source Mem0 adapter and version;
 - agentmemory: pinned adapter for the explicitly identified AgentMemory project;
 - memorix-micro: minimal Memorix surface;
@@ -236,7 +249,12 @@ are published when exclusions occur.
 Case authors never place oracle answers in public prompts, filenames, memory
 titles, or adapter configuration. Hidden tests are mounted only for grading.
 Agent processes cannot read another condition's logs or memory database.
-Precursor transcripts are normalized before condition-specific formation.
+Track C precursor traces are normalized before condition-specific formation.
+The raw precursor transcript is never injected as a separate asset in Track C:
+the manifest rejects it in favor of the trace. The raw source-file hash,
+canonical trace hash, bounded-view hash, retained event ids, dropped event ids,
+token count, formation receipt, and retrieval call/round counts are archived
+for every applicable run.
 Reference repairs are mounted only in a separate maintainer self-test after the
 agent process exits. Development pilot runs that reveal prompt ambiguity,
 leakage, invalid oracle behavior, or changed execution rules are archived with

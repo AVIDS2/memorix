@@ -12,6 +12,7 @@ from memorixbench.trial import (
     ensure_development_case,
     is_valid_execution,
 )
+from memorixbench.trace import TraceView
 
 
 CASE = Path(__file__).parents[1] / "cases" / "development" / "typescript-auth-ownership" / "case.toml"
@@ -53,6 +54,28 @@ def test_last_n_prompt_contains_bounded_precursor_record() -> None:
     assert "src/auth.js#validateToken" in prompt
     assert "at least eighteen characters" in prompt
     assert "issuer shard marker" in prompt
+
+
+def test_track_c_last_n_requires_a_prepared_event_aligned_view() -> None:
+    manifest = replace(load_case_manifest(CASE), formation_track="trace-replay")
+    view = TraceView(
+        renderer="event-suffix-v1",
+        trace_sha256="trace-hash",
+        token_budget=180,
+        token_count=20,
+        context="[session=s1 sequence=1 turn=1 role=assistant kind=message]\nbounded evidence",
+        retained_event_ids=("event-1",),
+        dropped_event_ids=(),
+        truncated=False,
+        sha256="view-hash",
+    )
+
+    prompt = build_condition_prompt(manifest, "last-n", trace_view=view)
+
+    assert "bounded evidence" in prompt
+    assert "issuer shard marker" not in prompt
+    with pytest.raises(ValueError, match="prepared bounded trace view"):
+        build_condition_prompt(manifest, "last-n")
 
 
 def test_memorix_prompt_does_not_inline_the_precursor_record() -> None:

@@ -5,26 +5,43 @@ this document or by any current pilot run.
 
 ## Why there are two tracks
 
-MemorixBench distinguishes a **canonical retrieval track** from a **native
-product track**.
+MemorixBench separates the **formation surface** from the **retrieval surface**.
+This prevents an easy but invalid comparison: manually inserting a polished
+fact into one product and calling the result end-to-end memory formation.
 
-- The canonical track gives each baseline the same atomic project evidence,
+- `seeded-canonical` is Track B only. It gives each baseline the same atomic project evidence,
   transfer query, ranked-result limit, and injected-context budget. It tests
   whether the agent benefits from the retrieved evidence without pretending
   that every product has the same formation pipeline or tool surface.
-- The native track preserves a product's own interface and maintenance path.
+- `trace-replay` is the implemented Track C surface. Every condition ingests
+  the same immutable ordered precursor events through its declared write path.
+  The trace has source and canonical hashes, and each adapter returns a
+  formation receipt with its source event ids and write/transport/maintenance
+  counts.
+- The native product track preserves a product's own interface and maintenance path.
   Memorix MCP modes belong here. Native AgentMemory smart search, for example,
   will be reported separately from its canonical scoped-search baseline.
+
+`native-session` formation is intentionally not executable yet. It will be a
+separate, preregistered surface once each provider can replay the same captured
+session with a trustworthy audit ledger; it is not silently treated as
+equivalent to `trace-replay`.
 
 Neither track is allowed to borrow a memory store, embedding API key, hidden
 test, source checkout, or transcript from another condition.
 
 ## Canonical evidence and budget
 
-Each `memory_seed` is converted into one stable record with title, type,
+In Track B, each `memory_seed` is converted into one stable record with title, type,
 narrative, facts, files, concepts, and related entities. Policy and
 implementation-location seeds remain separate records. The transfer task text
 is the retrieval query.
+
+In Track C, `memory_seed` and `precursor.transcript` are forbidden. The raw
+replay control and every memory adapter consume the same `precursor-trace-v1`
+event stream instead. The `last-n` name is retained for continuity, but its
+implementation is a bounded `event-suffix-v1` trace view: it includes whole
+recent events only and records exactly which event ids were omitted.
 
 Results are ranked by the provider, then rendered under the neutral warning:
 
@@ -36,6 +53,11 @@ most 180 tokens counted with `lexical-token-proxy-v1`. This offline proxy is
 only a common context ceiling; provider-reported prompt tokens remain the
 primary token accounting in result tables. The proxy deliberately avoids a
 tokenizer that downloads data during an experiment.
+
+Each canonical retrieval records its actual provider call count and round count;
+the one-call/one-round profile is explicit rather than inferred from a unique
+tool name. Native product runs are reported as their own surface until a
+budget gateway can enforce an equivalent native call/round budget.
 
 ## Mem0 local adapter
 

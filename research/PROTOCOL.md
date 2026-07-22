@@ -174,8 +174,20 @@ Secondary outcomes:
 - repository exploration breadth before the first correct action.
 
 An action is correct only if it is consistent with the frozen oracle and leads
-toward a required change or verification step. Action labeling is blinded to
-condition. A stratified sample is double-labeled and reports agreement.
+toward a required change or verification step. Agent clients stream their
+machine-readable events into an observed monotonic-time action ledger. A
+sanitized ledger preserves action order, time, type, success state, and a
+provider-redacted operation summary; raw event logs and memory payloads are not
+annotation inputs outside the vault.
+
+Every run used in C3, C4, or C7 is independently labeled by two blinded human
+raters. Matching labels become a consensus; disagreement requires a third,
+independent blinded human adjudication. An LLM judge is prohibited. The final
+result contains only the final status, numeric outcomes, and commitments to the
+packet and labels. `null` means pending or unrateable. A zero stale-error or
+intrusion count means it was actually human-rated, not that the harness omitted
+the metric. Development may sample labels to calibrate the rubric, but cannot
+promote those samples into confirmatory evidence.
 
 ## 8. Randomization and isolation
 
@@ -197,6 +209,10 @@ network, installation, remote-Git, dynamic-interpreter, and external-path
 commands are denied or detected from the archived event stream. Native Windows
 permission controls are treated as a mitigation, not as a substitute for this
 documented command-contamination audit.
+
+The raw event timeline stays in the private run artifact. The worker-to-vault
+boundary permits only a sanitized action ledger with no client/provider
+identity, memory operation arguments, or absolute host paths.
 
 Authentication, provider quota, MCP startup, agent-runtime, missing-event,
 permission-denied, and command-contamination failures are infrastructure
@@ -240,7 +256,9 @@ appropriate. Mixed-effects sensitivity models include repository and case as
 grouping factors and model/agent/language/transition stratum as fixed effects.
 These models are secondary and do not replace the paired primary analysis.
 
-Missing cost or token data is reported, not imputed as zero. Infrastructure
+Missing cost or token data is reported, not imputed as zero. Secondary action,
+stale-error, and intrusion analyses reject pending or unrateable labels and
+report their missingness; they never coerce them to zero. Infrastructure
 failures are shown separately. Both intention-to-run and valid-run summaries
 are published when exclusions occur.
 
@@ -265,14 +283,17 @@ admission gates are reproducible; they are explicitly public development
 evidence, not private-oracle evaluations. The executable runner currently
 refuses validation and test splits. Confirmatory execution remains blocked until
 each included agent client runs on a separate worker host or disposable VM with
-no private-oracle bytes, returns only a sealed patch, and is graded by a fresh,
-offline vault workspace after the worker is destroyed. A local Docker
+no private-oracle bytes, returns a sealed patch plus only a sanitized action
+ledger, and is graded by a fresh, offline vault workspace after the worker is
+destroyed. A local Docker
 containment probe is diagnostic only. The full worker/vault protocol requires a
 randomized sentinel suite, inspected runtime profile, signed worker attestation,
 and redacted grade receipt for the exact pinned image. Client-side Claude/Codex
 permission rules are retained as defense in depth but do not count as
 read-isolation evidence. Private grade reports preserve only status, duration,
-byte counts, and output hashes.
+byte counts, and output hashes. Confirmatory result summaries contain no
+absolute artifact path, repository cache path, or private overlay identifier;
+they use opaque artifact receipts and commitments instead.
 
 Public repositories may have appeared in model training, so conclusions concern
 the controlled transfer intervention, not proof of novel code synthesis. Where

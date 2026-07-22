@@ -9,14 +9,16 @@ Completed
 - Bounded raw replay is event-suffix aligned and archives a deterministic view receipt.
 - Mem0, AgentMemory, and Memorix trace ingestion return formation receipts; canonical retrieval records call and round counts.
 - Agent event parsing preserves real tool-call sequences instead of only de-duplicated tool names.
+- Agent event streams now carry observed monotonic timings and a private action ledger.
+- Sanitized worker action ledgers, committed private annotation rubrics, blinded two-rater labels, independent adjudication, and annotation sidecars are implemented and tested.
+- Trial outcomes reject fake pending zeroes, incompatible Track C trace receipts, invalid retrieval accounting, and invalid annotation commitments before writing result.json.
 - Full research test suite and public case validation pass after this phase.
 
 In progress
-- Replace unannotated first-correct-action, stale-memory, and negative-control placeholders with a blinded annotation ledger.
-- Add an outcome validator that rejects incompatible Track C result artifacts before comparison.
+- Build an externally attested worker-to-vault execution client and actual offline black-box verifier profile.
+- Design a bounded native Memorix MCP gateway so native comparisons cannot silently exceed the canonical retrieval budget.
 
 Next
-- Build the worker-to-vault execution client and an actual offline black-box verifier profile.
 - Author preregistered private Track C cases with captured precursor traces and repository-level split registry.
 - Run the frozen experimental matrix, then statistical analysis, artifact packaging, and the English LaTeX paper.
 

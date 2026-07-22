@@ -11,7 +11,7 @@ import tomllib
 from .case_bundle import public_case_definition_hash
 from .schema import CaseManifest
 
-PRIVATE_OVERLAY_SCHEMA_VERSION = "0.1"
+PRIVATE_OVERLAY_SCHEMA_VERSION = "0.2"
 SHA256_PATTERN = "0123456789abcdef"
 PINNED_IMAGE_PATTERN = re.compile(r"^.+@sha256:[0-9a-f]{64}$")
 
@@ -23,12 +23,14 @@ class OracleAssetSet:
     root: Path
     hidden_patch: Path | None
     reference_patch: Path | None
+    annotation_rubric: Path | None
     verifier_runtime: Path | None
     verifier_image: str | None
     verifier_command: tuple[str, ...]
     definition_sha256: str
     overlay_id: str | None
     public_contract_sha256: str
+    annotation_rubric_sha256: str | None
     verifier_runtime_sha256: str | None
 
 
@@ -157,11 +159,14 @@ def _private_definition_hash(
     definition: Path,
     hidden: Path,
     reference: Path,
+    annotation_rubric: Path,
     verifier_runtime: Path,
     root: Path,
 ) -> str:
     digest = hashlib.sha256()
-    digest.update(_overlay_hash((definition, hidden, reference), root).encode("ascii"))
+    digest.update(
+        _overlay_hash((definition, hidden, reference, annotation_rubric), root).encode("ascii")
+    )
     digest.update(b"\0")
     digest.update(verifier_runtime.relative_to(root).as_posix().encode("utf-8"))
     digest.update(b"\0")
@@ -201,12 +206,14 @@ def public_oracle_assets(manifest: CaseManifest) -> OracleAssetSet:
         root=root,
         hidden_patch=hidden,
         reference_patch=reference,
+        annotation_rubric=None,
         verifier_runtime=None,
         verifier_image=None,
         verifier_command=(),
         definition_sha256=public_case_definition_hash(manifest),
         overlay_id=None,
         public_contract_sha256=public_case_definition_hash(manifest),
+        annotation_rubric_sha256=None,
         verifier_runtime_sha256=None,
     )
 
@@ -244,6 +251,11 @@ def load_private_oracle_overlay(
         _required_text(data, "reference_patch"),
         label="reference patch",
     )
+    annotation_rubric = _resolve_asset(
+        root,
+        _required_text(data, "annotation_rubric"),
+        label="annotation rubric",
+    )
     verifier_runtime = _resolve_runtime(
         root,
         _required_text(data, "verifier_runtime"),
@@ -252,6 +264,9 @@ def load_private_oracle_overlay(
         raise ValueError("private oracle hidden patch commitment does not match")
     if _require_sha256(data, "reference_patch_sha256") != _sha256(reference):
         raise ValueError("private oracle reference patch commitment does not match")
+    annotation_rubric_sha256 = _require_sha256(data, "annotation_rubric_sha256")
+    if annotation_rubric_sha256 != _sha256(annotation_rubric):
+        raise ValueError("private oracle annotation rubric commitment does not match")
     verifier_runtime_sha256 = _require_sha256(data, "verifier_runtime_sha256")
     if verifier_runtime_sha256 != verifier_runtime_hash(verifier_runtime):
         raise ValueError("private oracle verifier runtime commitment does not match")
@@ -265,6 +280,7 @@ def load_private_oracle_overlay(
         root=root,
         hidden_patch=hidden,
         reference_patch=reference,
+        annotation_rubric=annotation_rubric,
         verifier_runtime=verifier_runtime,
         verifier_image=verifier_image,
         verifier_command=verifier_command,
@@ -272,11 +288,13 @@ def load_private_oracle_overlay(
             definition=definition,
             hidden=hidden,
             reference=reference,
+            annotation_rubric=annotation_rubric,
             verifier_runtime=verifier_runtime,
             root=root,
         ),
         overlay_id=_required_text(data, "overlay_id"),
         public_contract_sha256=public_contract_sha256,
+        annotation_rubric_sha256=annotation_rubric_sha256,
         verifier_runtime_sha256=verifier_runtime_sha256,
     )
 

@@ -15,7 +15,7 @@ Public case + prompt + retrieval context
       isolated worker host or disposable VM
       agent container has public /work only
                  |
-                 | sealed patch + redacted telemetry
+                 | sealed patch + sanitized action ledger + redacted telemetry
                  v
     local private-oracle vault controller
     fresh grade workspace, offline verifier only
@@ -73,7 +73,11 @@ instead of falling back to direct internet access.
 
 After the agent exits, the worker terminates the container, validates the Git
 diff as a sealed patch, hashes it, emits redacted telemetry, and destroys its
-workspace. It must never run a hidden test or receive a private overlay.
+workspace. It may return a sanitized action ledger to the vault for blinded
+human annotation: action order/time/type/success and provider-redacted operation
+summaries only. It must never return raw client events, model/provider identity,
+memory text, MCP arguments/results, absolute host paths, a hidden test, or a
+private overlay.
 
 ## Vault grading contract
 
@@ -114,6 +118,12 @@ the private overlay definition hash, the private verifier runtime commitment,
 and the offline grade-container identity. Both public records contain only
 stable IDs, states, durations, byte counts, and hashes; no raw path, secret,
 oracle, or hidden output is public.
+
+For C3, C4, and C7, the vault creates a blinded annotation packet from the
+sanitized action ledger plus a committed private rubric. Two human raters see
+neither condition nor model/provider identity; a disagreement requires an
+independent human adjudicator. Only the adjudicated numeric summary and its
+commitments may join the public result corpus.
 
 ## Admission gates
 

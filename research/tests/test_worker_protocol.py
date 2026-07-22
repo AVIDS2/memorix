@@ -12,6 +12,7 @@ from memorixbench.worker_protocol import (
     write_worker_job,
 )
 from memorixbench.agents import AgentExecution
+from memorixbench.actions import write_action_ledger
 
 
 def _workspace(tmp_path: Path) -> Path:
@@ -111,6 +112,13 @@ def test_worker_result_does_not_export_raw_agent_artifacts(
         artifact_dir.mkdir(parents=True, exist_ok=True)
         (artifact_dir / "events.jsonl").write_text("secret raw event\n", encoding="utf-8")
         (workspace / "value.txt").write_text("changed\n", encoding="utf-8")
+        timeline = artifact_dir / "timeline.jsonl"
+        timeline.write_text("", encoding="utf-8")
+        ledger = write_action_ledger(
+            agent="codex",
+            timeline_path=timeline,
+            path=artifact_dir / "action-ledger.json",
+        )
         empty = artifact_dir / "empty"
         empty.write_text("", encoding="utf-8")
         return AgentExecution(
@@ -141,6 +149,11 @@ def test_worker_result_does_not_export_raw_agent_artifacts(
             bash_commands=(),
             final_message="done",
             events_path=artifact_dir / "events.jsonl",
+            timeline_path=timeline,
+            action_ledger_path=artifact_dir / "action-ledger.json",
+            action_ledger_sha256=ledger.sha256,
+            action_count=0,
+            action_timing_source="stream-observed-monotonic-v1",
             stderr_path=empty,
             patch_path=empty,
         )
@@ -149,12 +162,16 @@ def test_worker_result_does_not_export_raw_agent_artifacts(
     from memorixbench.worker_protocol import run_worker_job
 
     output = tmp_path / "worker-output"
-    run_worker_job(job, workspace=workspace, output_root=output)
+    result = run_worker_job(job, workspace=workspace, output_root=output)
 
     assert (output / "sealed.patch").is_file()
     assert (output / "worker-result.json").is_file()
     assert not (output / "agent-internal").exists()
     assert not (output.parent / "worker-output.internal").exists()
+    assert len(result.action_ledger_sha256) == 64
+    assert len(result.sanitized_action_ledger_sha256) == 64
+    assert result.action_count == 0
+    assert (output / "action-ledger.json").is_file()
     delivered_bytes = b"".join(
         path.read_bytes()
         for path in output.rglob("*")

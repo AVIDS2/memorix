@@ -30,12 +30,13 @@ artifact, so later edits cannot silently change the task behind a result.
 ## Private overlay
 
 The overlay lives outside the Git worktree and outside every public artifact
-directory. Its root contains `oracle.toml`, `hidden-tests.patch`, and
-`reference.patch`; the last two names are examples only and are not published
-in the public case definition. `oracle.toml` uses this versioned contract:
+directory. Its root contains `oracle.toml`, hidden tests, a reference repair,
+an annotation rubric, and a pinned verifier runtime; asset names below are
+examples only and are not published in the public case definition.
+`oracle.toml` uses this versioned contract:
 
 ```toml
-schema_version = "0.1"
+schema_version = "0.2"
 overlay_id = "opaque-case-revision"
 case_id = "example-case"
 public_case_definition_sha256 = "<sha256 of the public case tree>"
@@ -45,6 +46,8 @@ hidden_patch = "hidden-tests.patch"
 hidden_patch_sha256 = "<sha256 of hidden-tests.patch>"
 reference_patch = "reference.patch"
 reference_patch_sha256 = "<sha256 of reference.patch>"
+annotation_rubric = "annotation-rubric.md"
+annotation_rubric_sha256 = "<sha256 of the private blinded-rater rubric>"
 verifier_runtime = "verifier-runtime"
 verifier_runtime_sha256 = "<sha256 of the pinned verifier runtime>"
 verifier_image = "<registry image pinned by sha256 digest>"
@@ -73,7 +76,11 @@ vault controller, with these invariants:
    declared temporary filesystems; `no-new-privileges` and dropped capabilities
    are mandatory. Authentication values are injected transiently and are never
    copied into artifacts or image layers.
-3. The worker destroys its agent container and returns only a sealed patch. A
+3. The worker destroys its agent container and returns a sealed patch plus a
+   sanitized action ledger. The ledger may contain action order/time/type,
+   success state, and provider-redacted operation summaries, but never raw
+   client events, memory text, MCP arguments/results, model identity, or a
+   private path. A
    separately started vault grader creates a new workspace, mounts the private
    overlay read-only only after worker exit, has no network access, and returns
    structured, redacted verification evidence to the harness.
@@ -99,8 +106,7 @@ test text, or reference-repair text. This rule applies to `grade`,
 Each future private-oracle result will record only:
 
 - public case-definition hash and private overlay definition hash;
-- overlay identifier, hidden/reference patch commitments, and verifier runtime
-  commitment;
+- verifier runtime commitment and blinded annotation commitments;
 - isolation profile identifier, runtime image digest, and preflight-certificate
   hash; and
 - redacted grade evidence plus the regular agent, model, budget, patch, and

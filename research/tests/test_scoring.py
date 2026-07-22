@@ -9,6 +9,7 @@ from memorixbench.scoring import (
     collect_result_payloads,
     compare_conditions,
     exact_mcnemar_p,
+    require_annotated_secondary,
     write_jsonl,
 )
 
@@ -282,7 +283,7 @@ def test_rejects_invalid_result_classification() -> None:
         RunResult.from_dict(payload)
 
 
-def test_result_keeps_unannotated_secondary_outcomes_as_null() -> None:
+def test_result_keeps_pending_secondary_outcomes_as_null() -> None:
     result = RunResult.from_dict({
         "case_id": "case-a",
         "condition": "no-memory",
@@ -292,10 +293,27 @@ def test_result_keeps_unannotated_secondary_outcomes_as_null() -> None:
         "seed": 7,
         "task_success": True,
         "stale_memory_errors": None,
-        "stale_memory_error_status": "unannotated-v1",
+        "stale_memory_error_status": "pending-v1",
         "negative_control_intrusions": None,
-        "negative_control_intrusion_status": "unannotated-v1",
+        "negative_control_intrusion_status": "pending-v1",
     })
 
     assert result.stale_memory_errors is None
     assert result.negative_control_intrusions is None
+
+
+def test_secondary_analysis_rejects_pending_and_accepts_final_human_labels() -> None:
+    pending = run("case-a", "memorix-full", True)
+    with pytest.raises(ValueError, match="adjudicated human labels"):
+        require_annotated_secondary([pending], metric="stale-memory-errors")
+
+    annotated = replace(
+        pending,
+        annotation_status="consensus-v1",
+        stale_memory_errors=0,
+        stale_memory_error_status="annotated-v1",
+    )
+    assert require_annotated_secondary(
+        [annotated],
+        metric="stale-memory-errors",
+    ) == [annotated]

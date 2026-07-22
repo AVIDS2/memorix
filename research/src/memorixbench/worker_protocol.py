@@ -8,6 +8,7 @@ import shutil
 import subprocess
 from typing import Any
 
+from .annotation import write_sanitized_action_ledger
 from .agents import AgentExecution, AgentName, ModelUsage, run_agent
 from .sealed_patch import SealedPatch, seal_patch
 
@@ -83,6 +84,10 @@ class WorkerResult:
     command_count: int
     tool_call_count: int
     successful_tool_call_count: int
+    action_ledger_sha256: str
+    sanitized_action_ledger_sha256: str
+    action_count: int
+    action_timing_source: str
 
     def public_payload(self) -> dict[str, object]:
         return asdict(self)
@@ -301,6 +306,10 @@ def run_worker_job(
             environment=environment,
         )
         sealed_patch = _capture_workspace_patch(root, output / "sealed.patch")
+        sanitized_actions = write_sanitized_action_ledger(
+            execution.action_ledger_path,
+            output / "action-ledger.json",
+        )
     finally:
         shutil.rmtree(internal_root, ignore_errors=True)
     result = WorkerResult(
@@ -332,6 +341,10 @@ def run_worker_job(
         command_count=execution.command_count,
         tool_call_count=execution.tool_call_count,
         successful_tool_call_count=execution.successful_tool_call_count,
+        action_ledger_sha256=execution.action_ledger_sha256,
+        sanitized_action_ledger_sha256=sanitized_actions.sha256,
+        action_count=execution.action_count,
+        action_timing_source=execution.action_timing_source,
     )
     (output / "worker-result.json").write_text(
         json.dumps(result.public_payload(), indent=2),

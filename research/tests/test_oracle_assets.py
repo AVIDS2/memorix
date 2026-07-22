@@ -96,6 +96,7 @@ forbidden_actions = []
     overlay.mkdir()
     hidden = overlay / "hidden-tests.patch"
     reference = overlay / "reference.patch"
+    annotation_rubric = overlay / "annotation-rubric.md"
     verifier = overlay / "verifier-runtime"
     verifier.mkdir()
     (verifier / "entrypoint.txt").write_text(
@@ -104,9 +105,10 @@ forbidden_actions = []
     )
     hidden.write_text("hidden\n", encoding="utf-8")
     reference.write_text("reference\n", encoding="utf-8")
+    annotation_rubric.write_text("Assess the declared repair actions only.\n", encoding="utf-8")
     (overlay / "oracle.toml").write_text(
         f"""
-schema_version = "0.1"
+schema_version = "0.2"
 overlay_id = "opaque-test-1"
 case_id = "{manifest.case_id}"
 public_case_definition_sha256 = "{public_case_definition_hash(manifest)}"
@@ -116,6 +118,8 @@ hidden_patch = "{hidden.name}"
 hidden_patch_sha256 = "{_sha256(hidden)}"
 reference_patch = "{reference.name}"
 reference_patch_sha256 = "{_sha256(reference)}"
+annotation_rubric = "{annotation_rubric.name}"
+annotation_rubric_sha256 = "{_sha256(annotation_rubric)}"
 verifier_runtime = "{verifier.name}"
 verifier_runtime_sha256 = "{verifier_runtime_hash(verifier)}"
 verifier_image = "registry.example.invalid/memorix-verifier@sha256:{'1' * 64}"
@@ -136,6 +140,7 @@ def test_loads_private_oracle_bound_to_public_case_tree(tmp_path: Path) -> None:
     assert assets.overlay_id == "opaque-test-1"
     assert assets.hidden_patch and assets.hidden_patch.parent == overlay
     assert assets.reference_patch and assets.reference_patch.parent == overlay
+    assert assets.annotation_rubric == overlay / "annotation-rubric.md"
     assert assets.verifier_runtime == overlay / "verifier-runtime"
     assert len(assets.definition_sha256) == 64
 

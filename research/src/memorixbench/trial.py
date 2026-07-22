@@ -6,6 +6,7 @@ import hashlib
 import json
 from pathlib import Path
 import platform
+import re
 import subprocess
 import time
 import uuid
@@ -77,6 +78,7 @@ INFRASTRUCTURE_FAILURE_REASONS = {
     "missing-completion-event",
 }
 CLAUDE_BASE_ALLOWED_TOOLS = ("Read", "Edit", "Bash")
+SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 
 
 @dataclass(frozen=True)
@@ -104,6 +106,8 @@ class TrialOutcome:
     timed_out: bool
     first_correct_action_seconds: float | None
     first_correct_action_status: str
+    annotation_status: str
+    annotation_summary_sha256: str | None
     input_tokens: int | None
     cached_input_tokens: int | None
     output_tokens: int | None
@@ -121,6 +125,9 @@ class TrialOutcome:
     successful_tool_call_count: int
     successful_tool_names: tuple[str, ...]
     successful_tool_call_names: tuple[str, ...]
+    agent_action_count: int
+    agent_action_ledger_sha256: str
+    agent_action_timing_source: str
     permission_denials: tuple[str, ...]
     unavailable_tool_attempts: tuple[str, ...]
     bash_commands: tuple[str, ...]
@@ -159,13 +166,12 @@ class TrialOutcome:
     platform: str
     python_version: str
     started_at: str
-    artifact_dir: str
+    artifact_receipt_id: str
     workspace_isolation: str
     repository_transport: str
-    repository_origin: str | None
+    repository_origin_sha256: str | None
     oracle_visibility: str
     oracle_definition_sha256: str
-    oracle_overlay_id: str | None
     verifier_runtime_sha256: str | None
 
 
@@ -175,6 +181,104 @@ def _sha256(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _receipt_id(*values: str | None) -> str:
+    payload = "\0".join(value or "" for value in values)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _require_sha256(value: str | None, *, field: str) -> None:
+    if value is None or not SHA256_PATTERN.fullmatch(value):
+        raise ValueError(f"trial outcome has an invalid {field}")
+
+
+def validate_trial_outcome(outcome: TrialOutcome) -> None:
+    """Reject result artifacts that would invalidate a paired Track C analysis."""
+
+    if outcome.study_track not in {"B", "C"}:
+        raise ValueError("trial outcome has an invalid study track")
+    if outcome.study_track == "B" and outcome.formation_track != "seeded-canonical":
+        raise ValueError("Track B trial outcome must use seeded-canonical formation")
+    if outcome.study_track == "C":
+        if outcome.formation_track != "trace-replay":
+            raise ValueError("executable Track C trial outcome must use trace-replay formation")
+        _require_sha256(outcome.precursor_trace_sha256, field="precursor trace hash")
+        _require_sha256(outcome.precursor_trace_source_sha256, field="precursor trace source hash")
+        if outcome.precursor_transcript_sha256 is not None:
+            raise ValueError("Track C trial outcome must not carry a raw precursor transcript")
+    if outcome.condition == "last-n" and outcome.study_track == "C":
+        _require_sha256(outcome.precursor_trace_view_sha256, field="raw replay view hash")
+        if outcome.raw_replay_context_tokens is None or (
+            outcome.raw_replay_context_tokens > CANONICAL_RETRIEVAL_TOKEN_BUDGET
+        ):
+            raise ValueError("Track C raw replay exceeded or omitted its token budget")
+    if outcome.condition in MEMORIX_CONDITIONS | MEM0_CONDITIONS | AGENTMEMORY_CONDITIONS:
+        if not isinstance(outcome.formation_receipt, dict):
+            raise ValueError("memory condition has no formation receipt")
+        expected_surface = "trace-replay" if outcome.study_track == "C" else "seeded-canonical"
+        if outcome.formation_receipt.get("surface") != expected_surface:
+            raise ValueError("memory condition formation receipt uses the wrong surface")
+        if outcome.study_track == "C" and (
+            outcome.formation_receipt.get("trace_sha256") != outcome.precursor_trace_sha256
+        ):
+            raise ValueError("memory condition formation receipt is bound to a different trace")
+    if outcome.retrieval_call_count is not None:
+        if outcome.retrieval_call_count <= 0 or outcome.retrieval_round_count is None:
+            raise ValueError("retrieval receipt has an invalid call or round count")
+        if outcome.retrieval_round_count <= 0 or (
+            outcome.retrieval_round_count > outcome.retrieval_call_count
+        ):
+            raise ValueError("retrieval receipt has an invalid call or round count")
+    if outcome.memory_tool_attempt_count > outcome.tool_call_count:
+        raise ValueError("memory tool attempts exceed total tool calls")
+    if outcome.memory_tool_call_count > outcome.successful_tool_call_count:
+        raise ValueError("successful memory tool calls exceed successful tool calls")
+    _require_sha256(outcome.agent_action_ledger_sha256, field="action ledger hash")
+    if outcome.agent_action_count < 0:
+        raise ValueError("trial outcome has an invalid action count")
+    if outcome.annotation_status == "pending-v1":
+        if any(
+            value is not None
+            for value in (
+                outcome.first_correct_action_seconds,
+                outcome.stale_memory_errors,
+                outcome.negative_control_intrusions,
+                outcome.annotation_summary_sha256,
+            )
+        ) or any(
+            status != "pending-v1"
+            for status in (
+                outcome.first_correct_action_status,
+                outcome.stale_memory_error_status,
+                outcome.negative_control_intrusion_status,
+            )
+        ):
+            raise ValueError("pending annotation outcomes must remain null")
+        return
+    if outcome.annotation_status not in {"consensus-v1", "adjudicated-v1"}:
+        raise ValueError("trial outcome has an invalid annotation status")
+    _require_sha256(outcome.annotation_summary_sha256, field="annotation summary hash")
+    if outcome.first_correct_action_status == "annotated-v1":
+        if outcome.first_correct_action_seconds is None:
+            raise ValueError("annotated first correct action requires an elapsed time")
+    elif outcome.first_correct_action_status in {"no-correct-action-v1", "unrateable-v1"}:
+        if outcome.first_correct_action_seconds is not None:
+            raise ValueError("non-observed first correct action must not have an elapsed time")
+    else:
+        raise ValueError("trial outcome has an invalid first-action annotation status")
+    for value, status in (
+        (outcome.stale_memory_errors, outcome.stale_memory_error_status),
+        (outcome.negative_control_intrusions, outcome.negative_control_intrusion_status),
+    ):
+        if status == "annotated-v1":
+            if value is None or value < 0:
+                raise ValueError("annotated episode count must be non-negative")
+        elif status == "unrateable-v1":
+            if value is not None:
+                raise ValueError("unrateable episode count must remain null")
+        else:
+            raise ValueError("trial outcome has an invalid episode annotation status")
 
 
 def _model_profile(model_usage: tuple[ModelUsage, ...]) -> str:
@@ -823,7 +927,9 @@ def run_trial(
         agent_returncode=execution.returncode,
         timed_out=execution.timed_out,
         first_correct_action_seconds=None,
-        first_correct_action_status="unannotated-v1",
+        first_correct_action_status="pending-v1",
+        annotation_status="pending-v1",
+        annotation_summary_sha256=None,
         input_tokens=execution.input_tokens,
         cached_input_tokens=execution.cached_input_tokens,
         output_tokens=execution.output_tokens,
@@ -831,9 +937,9 @@ def run_trial(
         wall_seconds=execution.wall_seconds,
         cost_usd=execution.cost_usd,
         stale_memory_errors=None,
-        stale_memory_error_status="unannotated-v1",
+        stale_memory_error_status="pending-v1",
         negative_control_intrusions=None,
-        negative_control_intrusion_status="unannotated-v1",
+        negative_control_intrusion_status="pending-v1",
         command_count=execution.command_count,
         tool_call_count=execution.tool_call_count,
         tool_names=execution.tool_names,
@@ -841,6 +947,9 @@ def run_trial(
         successful_tool_call_count=execution.successful_tool_call_count,
         successful_tool_names=execution.successful_tool_names,
         successful_tool_call_names=execution.successful_tool_call_names,
+        agent_action_count=execution.action_count,
+        agent_action_ledger_sha256=execution.action_ledger_sha256,
+        agent_action_timing_source=execution.action_timing_source,
         permission_denials=execution.permission_denials,
         unavailable_tool_attempts=execution.unavailable_tool_attempts,
         bash_commands=execution.bash_commands,
@@ -881,15 +990,23 @@ def run_trial(
         platform=platform.platform(),
         python_version=platform.python_version(),
         started_at=started_at,
-        artifact_dir=str(run_dir),
+        artifact_receipt_id=_receipt_id(
+            run_id,
+            case_definition_sha256,
+            patch_sha,
+        ),
         workspace_isolation=workspace_isolation,
         repository_transport=materialized.repository_transport,
-        repository_origin=materialized.repository_origin,
+        repository_origin_sha256=(
+            _receipt_id(materialized.repository_origin)
+            if materialized.repository_origin
+            else None
+        ),
         oracle_visibility=oracle_assets.visibility,
         oracle_definition_sha256=oracle_assets.definition_sha256,
-        oracle_overlay_id=oracle_assets.overlay_id,
         verifier_runtime_sha256=oracle_assets.verifier_runtime_sha256,
     )
+    validate_trial_outcome(outcome)
     (run_dir / "prompt.txt").write_text(prompt, encoding="utf-8")
     (run_dir / "grade.json").write_text(
         json.dumps(

@@ -5,6 +5,17 @@ from dataclasses import asdict
 import json
 from pathlib import Path
 
+from .annotation import (
+    AnnotationError,
+    build_blind_packet,
+    finalize_annotations,
+    load_blind_packet,
+    load_final_annotation,
+    load_submission,
+    merge_annotation_into_result,
+    write_blind_packet,
+    write_final_annotation,
+)
 from .authoring import verify_case_authoring
 from .oracle_assets import resolve_oracle_assets
 from .reporting import (
@@ -176,6 +187,63 @@ def _run_trial(args: argparse.Namespace) -> int:
     return 0
 
 
+def _read_nonempty(path: Path, *, label: str) -> str:
+    value = path.read_text(encoding="utf-8").strip()
+    if not value:
+        raise ValueError(f"{label} file must not be empty")
+    return value
+
+
+def _build_annotation_packet(args: argparse.Namespace) -> int:
+    packet = build_blind_packet(
+        result_path=args.result,
+        sanitized_action_ledger_path=args.sanitized_action_ledger,
+        task=_read_nonempty(args.task_file, label="task"),
+        rubric=_read_nonempty(args.rubric_file, label="rubric"),
+        blind_salt=_read_nonempty(args.blind_salt_file, label="blind salt"),
+        forbidden_strings=tuple(
+            _read_nonempty(path, label="forbidden string")
+            for path in args.forbidden_string_file
+        ),
+    )
+    output = write_blind_packet(packet, args.output)
+    print(json.dumps({
+        "packet_sha256": packet.sha256,
+        "blind_run_id": packet.blind_run_id,
+        "actions": len(packet.actions),
+        "output": str(output.resolve()),
+    }, indent=2))
+    return 0
+
+
+def _finalize_annotations(args: argparse.Namespace) -> int:
+    packet = load_blind_packet(args.packet)
+    annotation = finalize_annotations(
+        packet,
+        load_submission(args.first),
+        load_submission(args.second),
+        adjudication=load_submission(args.adjudication) if args.adjudication else None,
+    )
+    output = write_final_annotation(annotation, args.output)
+    print(json.dumps({
+        **asdict(annotation),
+        "annotation_sha256": annotation.sha256,
+        "output": str(output.resolve()),
+    }, indent=2))
+    return 0
+
+
+def _merge_annotation(args: argparse.Namespace) -> int:
+    merged = merge_annotation_into_result(
+        args.result,
+        load_final_annotation(args.annotation),
+    )
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    args.output.write_text(json.dumps(merged, indent=2) + "\n", encoding="utf-8")
+    print(json.dumps({"output": str(args.output.resolve())}, indent=2))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="memorixbench")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -243,6 +311,32 @@ def build_parser() -> argparse.ArgumentParser:
     trial.add_argument("--repository-cache", type=Path)
     trial.add_argument("--private-oracle-root", type=Path)
     trial.add_argument("--allow-agent-execution", action="store_true")
+
+    annotation_packet = subparsers.add_parser("build-annotation-packet")
+    annotation_packet.add_argument("result", type=Path)
+    annotation_packet.add_argument("sanitized_action_ledger", type=Path)
+    annotation_packet.add_argument("--task-file", type=Path, required=True)
+    annotation_packet.add_argument("--rubric-file", type=Path, required=True)
+    annotation_packet.add_argument("--blind-salt-file", type=Path, required=True)
+    annotation_packet.add_argument(
+        "--forbidden-string-file",
+        type=Path,
+        action="append",
+        default=[],
+    )
+    annotation_packet.add_argument("--output", type=Path, required=True)
+
+    finalize = subparsers.add_parser("finalize-annotations")
+    finalize.add_argument("packet", type=Path)
+    finalize.add_argument("first", type=Path)
+    finalize.add_argument("second", type=Path)
+    finalize.add_argument("--adjudication", type=Path)
+    finalize.add_argument("--output", type=Path, required=True)
+
+    merge_annotation = subparsers.add_parser("merge-annotation")
+    merge_annotation.add_argument("result", type=Path)
+    merge_annotation.add_argument("annotation", type=Path)
+    merge_annotation.add_argument("--output", type=Path, required=True)
     return parser
 
 
@@ -264,7 +358,13 @@ def main() -> int:
             return _verify_case(args)
         if args.command == "run-trial":
             return _run_trial(args)
-    except (ManifestError, ValueError) as error:
+        if args.command == "build-annotation-packet":
+            return _build_annotation_packet(args)
+        if args.command == "finalize-annotations":
+            return _finalize_annotations(args)
+        if args.command == "merge-annotation":
+            return _merge_annotation(args)
+    except (AnnotationError, ManifestError, ValueError) as error:
         parser.error(str(error))
     raise AssertionError(f"unhandled command: {args.command}")
 

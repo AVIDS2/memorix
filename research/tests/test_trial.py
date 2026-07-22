@@ -1,5 +1,6 @@
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -11,6 +12,7 @@ from memorixbench.trial import (
     build_condition_prompt,
     ensure_development_case,
     is_valid_execution,
+    validate_trial_outcome,
 )
 from memorixbench.trace import TraceView
 
@@ -140,3 +142,60 @@ def test_archives_complete_case_definition(tmp_path: Path) -> None:
     assert first_hash == second_hash
     assert (tmp_path / "first" / "case-definition" / "case.toml").is_file()
     assert (tmp_path / "first" / "case-definition" / "hidden-tests.patch").is_file()
+
+
+def _pending_outcome(**overrides: object) -> SimpleNamespace:
+    value = {
+        "study_track": "B",
+        "formation_track": "seeded-canonical",
+        "condition": "no-memory",
+        "precursor_trace_sha256": None,
+        "precursor_trace_source_sha256": None,
+        "precursor_trace_view_sha256": None,
+        "precursor_transcript_sha256": None,
+        "raw_replay_context_tokens": None,
+        "retrieval_call_count": None,
+        "retrieval_round_count": None,
+        "memory_tool_attempt_count": 0,
+        "memory_tool_call_count": 0,
+        "tool_call_count": 0,
+        "successful_tool_call_count": 0,
+        "agent_action_ledger_sha256": "a" * 64,
+        "agent_action_count": 0,
+        "annotation_status": "pending-v1",
+        "annotation_summary_sha256": None,
+        "first_correct_action_seconds": None,
+        "first_correct_action_status": "pending-v1",
+        "stale_memory_errors": None,
+        "stale_memory_error_status": "pending-v1",
+        "negative_control_intrusions": None,
+        "negative_control_intrusion_status": "pending-v1",
+        "formation_receipt": None,
+    }
+    value.update(overrides)
+    return SimpleNamespace(**value)
+
+
+def test_outcome_validator_rejects_fake_pending_zeroes() -> None:
+    outcome = _pending_outcome(stale_memory_errors=0)
+
+    with pytest.raises(ValueError, match="pending annotation outcomes"):
+        validate_trial_outcome(outcome)  # type: ignore[arg-type]
+
+
+def test_outcome_validator_accepts_a_pending_unmeasured_run() -> None:
+    validate_trial_outcome(_pending_outcome())  # type: ignore[arg-type]
+
+
+def test_outcome_validator_requires_track_c_trace_and_formation_receipt() -> None:
+    outcome = _pending_outcome(
+        study_track="C",
+        formation_track="trace-replay",
+        condition="mem0-2.0.12-local",
+        precursor_trace_sha256="b" * 64,
+        precursor_trace_source_sha256="c" * 64,
+        formation_receipt={"surface": "trace-replay", "trace_sha256": "different"},
+    )
+
+    with pytest.raises(ValueError, match="different trace"):
+        validate_trial_outcome(outcome)  # type: ignore[arg-type]

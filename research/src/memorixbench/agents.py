@@ -7,8 +7,11 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+import threading
 import time
 from typing import Iterable, Literal
+
+from .actions import write_action_ledger
 
 AgentName = Literal["codex", "claude"]
 
@@ -132,6 +135,14 @@ class ModelUsage:
 
 
 @dataclass(frozen=True)
+class StreamRecord:
+    sequence: int
+    stream: Literal["stdout", "stderr"]
+    elapsed_seconds: float
+    line: str
+
+
+@dataclass(frozen=True)
 class AgentExecution:
     agent: AgentName
     model: str | None
@@ -160,6 +171,11 @@ class AgentExecution:
     bash_commands: tuple[str, ...]
     final_message: str
     events_path: Path
+    timeline_path: Path
+    action_ledger_path: Path
+    action_ledger_sha256: str
+    action_count: int
+    action_timing_source: str
     stderr_path: Path
     patch_path: Path
 
@@ -531,6 +547,98 @@ def _git_patch(workspace: Path) -> str:
     return completed.stdout
 
 
+def _capture_streaming_process(
+    command: list[str],
+    *,
+    cwd: Path,
+    prompt: str,
+    environment: dict[str, str],
+    timeout_seconds: int,
+) -> tuple[str, str, int, bool, tuple[StreamRecord, ...]]:
+    """Capture line-delimited client events with observed monotonic timings."""
+
+    started = time.monotonic()
+    creationflags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+    process = subprocess.Popen(
+        command,
+        cwd=cwd,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        bufsize=1,
+        env=environment,
+        creationflags=creationflags,
+    )
+    records: list[StreamRecord] = []
+    lock = threading.Lock()
+    next_sequence = 0
+
+    def drain(stream: Literal["stdout", "stderr"], handle) -> None:
+        nonlocal next_sequence
+        try:
+            for line in iter(handle.readline, ""):
+                with lock:
+                    records.append(StreamRecord(
+                        sequence=next_sequence,
+                        stream=stream,
+                        elapsed_seconds=time.monotonic() - started,
+                        line=line,
+                    ))
+                    next_sequence += 1
+        finally:
+            handle.close()
+
+    assert process.stdout is not None
+    assert process.stderr is not None
+    stdout_thread = threading.Thread(target=drain, args=("stdout", process.stdout), daemon=True)
+    stderr_thread = threading.Thread(target=drain, args=("stderr", process.stderr), daemon=True)
+    stdout_thread.start()
+    stderr_thread.start()
+    timed_out = False
+    try:
+        assert process.stdin is not None
+        try:
+            process.stdin.write(prompt)
+            process.stdin.close()
+        except BrokenPipeError:
+            pass
+        returncode = process.wait(timeout=timeout_seconds)
+    except subprocess.TimeoutExpired:
+        timed_out = True
+        process.terminate()
+        try:
+            process.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=5)
+        returncode = 124
+    finally:
+        if process.stdin and not process.stdin.closed:
+            process.stdin.close()
+        stdout_thread.join(timeout=10)
+        stderr_thread.join(timeout=10)
+    ordered = tuple(sorted(records, key=lambda item: item.sequence))
+    stdout = "".join(item.line for item in ordered if item.stream == "stdout")
+    stderr = "".join(item.line for item in ordered if item.stream == "stderr")
+    if timed_out and not stderr:
+        stderr = "timeout\n"
+    return stdout, stderr, returncode, timed_out, ordered
+
+
+def _write_event_timeline(path: Path, records: Iterable[StreamRecord]) -> None:
+    with path.open("w", encoding="utf-8") as handle:
+        for record in records:
+            handle.write(json.dumps({
+                "sequence": record.sequence,
+                "stream": record.stream,
+                "elapsed_seconds": record.elapsed_seconds,
+                "line": record.line,
+            }, ensure_ascii=False) + "\n")
+
+
 def run_agent(
     *,
     agent: AgentName,
@@ -581,33 +689,27 @@ def run_agent(
     if environment:
         env.update(environment)
     started = time.monotonic()
-    timed_out = False
-    try:
-        completed = subprocess.run(
-            command,
-            cwd=workspace_path,
-            input=prompt,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=timeout_seconds,
-            env=env,
-        )
-        stdout = completed.stdout
-        stderr = completed.stderr
-        returncode = completed.returncode
-    except subprocess.TimeoutExpired as error:
-        timed_out = True
-        stdout = error.stdout if isinstance(error.stdout, str) else ""
-        stderr = error.stderr if isinstance(error.stderr, str) else "timeout"
-        returncode = 124
+    stdout, stderr, returncode, timed_out, stream_records = _capture_streaming_process(
+        command,
+        cwd=workspace_path,
+        prompt=prompt,
+        environment=env,
+        timeout_seconds=timeout_seconds,
+    )
     wall_seconds = time.monotonic() - started
 
     events_path = artifacts / "events.jsonl"
+    timeline_path = artifacts / "event-timeline.jsonl"
+    action_ledger_path = artifacts / "action-ledger.json"
     stderr_path = artifacts / "stderr.txt"
     patch_path = artifacts / "patch.diff"
     events_path.write_text(stdout, encoding="utf-8")
+    _write_event_timeline(timeline_path, stream_records)
+    action_ledger = write_action_ledger(
+        agent=agent,
+        timeline_path=timeline_path,
+        path=action_ledger_path,
+    )
     stderr_path.write_text(stderr, encoding="utf-8")
     patch_path.write_text(_git_patch(workspace_path), encoding="utf-8")
 
@@ -648,6 +750,11 @@ def run_agent(
         bash_commands=parsed["bash_commands"],  # type: ignore[arg-type]
         final_message=str(parsed["final_message"]),
         events_path=events_path,
+        timeline_path=timeline_path,
+        action_ledger_path=action_ledger_path,
+        action_ledger_sha256=action_ledger.sha256,
+        action_count=len(action_ledger.actions),
+        action_timing_source=action_ledger.timing_source,
         stderr_path=stderr_path,
         patch_path=patch_path,
     )

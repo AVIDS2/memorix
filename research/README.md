@@ -29,6 +29,8 @@ audited.
 - BASELINE_PROTOCOL.md: fair canonical and native memory-baseline contract.
 - TRACE-REPLAY-CONTRACT.md: immutable precursor-event format, bounded replay,
   and the Track B/Track C boundary.
+- ANNOTATION-PROTOCOL.md: blinded human action labels, adjudication, and the
+  redacted result-summary boundary.
 - CLAIMS.md: every intended paper claim and the evidence required to unlock it.
 - LITERATURE.md: comparison boundaries for adjacent memory systems and benchmarks.
 - RESULTS-PILOT.md: excluded diagnostics and non-confirmatory smoke evidence.
@@ -95,6 +97,12 @@ hash, test evidence, and raw event-log checksum. Track C additionally records
 the raw and canonical precursor-trace hashes, bounded-view receipt, formation
 receipt, and actual retrieval call/round counts. Aggregate tables without that
 provenance are exploratory only.
+
+Action timing is captured from streamed client events with an observed monotonic
+clock. Raw action/event logs remain in the private run artifact. A worker may
+transfer only a sanitized action ledger to the vault, which produces blinded
+human annotation packets; final result summaries contain label commitments and
+numeric outcomes, never rater identities or private rubric text.
 
 The requested model label is not sufficient provenance. Runs record the
 provider-reported per-model token and cost breakdown plus a `single`, `mixed`,

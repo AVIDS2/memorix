@@ -1,7 +1,10 @@
 import json
+import os
 from pathlib import Path
+import sys
 
 from memorixbench.agents import (
+    _capture_streaming_process,
     _failure_reason,
     _parse_claude,
     audit_bash_commands,
@@ -221,6 +224,29 @@ def test_claude_parser_preserves_repeated_tool_calls_for_accounting() -> None:
         "mcp__memorix__memorix_search",
         "mcp__memorix__memorix_search",
     )
+
+
+def test_stream_capture_records_observed_order_and_elapsed_time(tmp_path: Path) -> None:
+    stdout, stderr, returncode, timed_out, records = _capture_streaming_process(
+        [
+            sys.executable,
+            "-u",
+            "-c",
+            "import sys; print('first', flush=True); print('second', file=sys.stderr, flush=True)",
+        ],
+        cwd=tmp_path,
+        prompt="",
+        environment=os.environ.copy(),
+        timeout_seconds=10,
+    )
+
+    assert returncode == 0
+    assert not timed_out
+    assert stdout == "first\n"
+    assert stderr == "second\n"
+    assert [record.sequence for record in records] == list(range(len(records)))
+    assert {record.stream for record in records} == {"stdout", "stderr"}
+    assert all(record.elapsed_seconds >= 0 for record in records)
 
 
 def test_command_audit_allows_workspace_scoped_browsing(tmp_path: Path) -> None:

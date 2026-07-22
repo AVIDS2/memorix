@@ -5,7 +5,9 @@ import json
 import math
 from pathlib import Path
 import random
-from typing import Iterable
+from typing import Iterable, Literal
+
+from .annotation import AnnotationError, load_final_annotation, merge_annotation_into_result
 
 VALID_EVIDENCE_TIERS = {"unclassified", "development", "confirmatory"}
 VALID_DEPENDENCY_STRENGTHS = {"low", "medium", "high"}
@@ -21,6 +23,8 @@ VALID_FORMATION_TRACKS = {
     "trace-replay",
     "native-session",
 }
+VALID_ANNOTATION_STATUSES = {"pending-v1", "consensus-v1", "adjudicated-v1"}
+SECONDARY_OUTCOME_STATUS = {"pending-v1", "annotated-v1", "no-correct-action-v1", "unrateable-v1"}
 
 
 @dataclass(frozen=True)
@@ -33,14 +37,15 @@ class RunResult:
     seed: int
     task_success: bool
     first_correct_action_seconds: float | None = None
-    first_correct_action_status: str = "unannotated-v1"
+    first_correct_action_status: str = "pending-v1"
     input_tokens: int | None = None
     output_tokens: int | None = None
     wall_seconds: float | None = None
     stale_memory_errors: int | None = None
-    stale_memory_error_status: str = "unannotated-v1"
+    stale_memory_error_status: str = "pending-v1"
     negative_control_intrusions: int | None = None
-    negative_control_intrusion_status: str = "unannotated-v1"
+    negative_control_intrusion_status: str = "pending-v1"
+    annotation_status: str = "pending-v1"
     valid_run: bool = True
     failure_reason: str | None = None
     evidence_tier: str = "unclassified"
@@ -86,6 +91,16 @@ class RunResult:
             if data.get("precursor_trace_sha256") is None
             else str(data["precursor_trace_sha256"])
         )
+        annotation_status = str(data.get("annotation_status", "pending-v1"))
+        first_correct_action_status = str(
+            data.get("first_correct_action_status", "pending-v1")
+        )
+        stale_memory_error_status = str(
+            data.get("stale_memory_error_status", "pending-v1")
+        )
+        negative_control_intrusion_status = str(
+            data.get("negative_control_intrusion_status", "pending-v1")
+        )
         if evidence_tier not in VALID_EVIDENCE_TIERS:
             raise ValueError(f"unknown evidence_tier: {evidence_tier!r}")
         if predecessor_dependency not in {None, *VALID_DEPENDENCY_STRENGTHS}:
@@ -107,6 +122,17 @@ class RunResult:
             raise ValueError("Track C results require trace-replay or native-session formation")
         if study_track == "C" and not precursor_trace_sha256:
             raise ValueError("Track C results require precursor_trace_sha256")
+        if annotation_status not in VALID_ANNOTATION_STATUSES:
+            raise ValueError(f"unknown annotation_status: {annotation_status!r}")
+        if any(
+            status not in SECONDARY_OUTCOME_STATUS
+            for status in (
+                first_correct_action_status,
+                stale_memory_error_status,
+                negative_control_intrusion_status,
+            )
+        ):
+            raise ValueError("unknown secondary outcome annotation status")
         if evidence_tier != "unclassified" and (
             predecessor_dependency is None
             or dependency_classification_status == "unclassified"
@@ -124,20 +150,15 @@ class RunResult:
             seed=int(data["seed"]),
             task_success=data["task_success"],
             first_correct_action_seconds=_optional_float(data.get("first_correct_action_seconds")),
-            first_correct_action_status=str(
-                data.get("first_correct_action_status", "unannotated-v1")
-            ),
+            first_correct_action_status=first_correct_action_status,
             input_tokens=_optional_int(data.get("input_tokens")),
             output_tokens=_optional_int(data.get("output_tokens")),
             wall_seconds=_optional_float(data.get("wall_seconds")),
             stale_memory_errors=_optional_int(data.get("stale_memory_errors")),
-            stale_memory_error_status=str(
-                data.get("stale_memory_error_status", "unannotated-v1")
-            ),
+            stale_memory_error_status=stale_memory_error_status,
             negative_control_intrusions=_optional_int(data.get("negative_control_intrusions")),
-            negative_control_intrusion_status=str(
-                data.get("negative_control_intrusion_status", "unannotated-v1")
-            ),
+            negative_control_intrusion_status=negative_control_intrusion_status,
+            annotation_status=annotation_status,
             valid_run=bool(data.get("valid_run", True)),
             failure_reason=(
                 None if data.get("failure_reason") is None else str(data["failure_reason"])
@@ -211,6 +232,15 @@ def collect_result_payloads(root: str | Path) -> list[dict[str, object]]:
             raise ValueError(f"invalid result JSON at {path}: {error}") from error
         if not isinstance(value, dict):
             raise ValueError(f"result JSON must contain an object: {path}")
+        annotation_path = path.with_name("outcome-annotation.json")
+        if annotation_path.is_file():
+            try:
+                value = merge_annotation_into_result(
+                    path,
+                    load_final_annotation(annotation_path),
+                )
+            except AnnotationError as error:
+                raise ValueError(f"invalid outcome annotation at {annotation_path}: {error}") from error
         RunResult.from_dict(value)
         payloads.append(value)
     return sorted(
@@ -237,6 +267,31 @@ def write_jsonl(path: str | Path, payloads: Iterable[dict[str, object]]) -> int:
         encoding="utf-8",
     )
     return len(rows)
+
+
+def require_annotated_secondary(
+    results: Iterable[RunResult],
+    *,
+    metric: Literal["first-correct-action", "stale-memory-errors", "negative-control-intrusions"],
+) -> list[RunResult]:
+    selected = list(results)
+    if metric == "first-correct-action":
+        eligible = {"annotated-v1", "no-correct-action-v1"}
+        statuses = {item.first_correct_action_status for item in selected}
+    elif metric == "stale-memory-errors":
+        eligible = {"annotated-v1"}
+        statuses = {item.stale_memory_error_status for item in selected}
+    else:
+        eligible = {"annotated-v1"}
+        statuses = {item.negative_control_intrusion_status for item in selected}
+    invalid = sorted(statuses - eligible)
+    if invalid:
+        raise ValueError(
+            f"{metric} analysis requires adjudicated human labels; found: " + ", ".join(invalid)
+        )
+    if any(item.annotation_status not in {"consensus-v1", "adjudicated-v1"} for item in selected):
+        raise ValueError(f"{metric} analysis requires final annotation summaries")
+    return selected
 
 
 def exact_mcnemar_p(treatment_only: int, control_only: int) -> float:

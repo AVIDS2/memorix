@@ -7,6 +7,7 @@ import subprocess
 import time
 from typing import Protocol
 
+from .annotation import BlindAnnotationPacket, build_blind_packet
 from .oracle_assets import OracleAssetSet
 from .schema import CaseManifest
 from .sealed_patch import SealedPatch, snapshot_sealed_patch
@@ -96,6 +97,39 @@ def _require_private_vault(manifest: CaseManifest, assets: OracleAssetSet) -> No
         raise VaultError("private oracle has no complete verifier runtime")
     if assets.verifier_runtime_sha256 is None:
         raise VaultError("private oracle verifier runtime is not committed")
+
+
+def build_vault_blind_annotation_packet(
+    manifest: CaseManifest,
+    assets: OracleAssetSet,
+    *,
+    result_path: str | Path,
+    sanitized_action_ledger_path: str | Path,
+    blind_salt: str,
+) -> BlindAnnotationPacket:
+    """Build a rater packet inside the vault without revealing the overlay identity."""
+
+    _require_private_vault(manifest, assets)
+    if assets.annotation_rubric is None:
+        raise VaultError("private oracle has no committed annotation rubric")
+    try:
+        rubric = assets.annotation_rubric.read_text(encoding="utf-8").strip()
+    except OSError as error:
+        raise VaultError("private annotation rubric cannot be read") from error
+    if not rubric:
+        raise VaultError("private annotation rubric is empty")
+    return build_blind_packet(
+        result_path=result_path,
+        sanitized_action_ledger_path=sanitized_action_ledger_path,
+        task=manifest.transfer.task,
+        rubric=rubric,
+        blind_salt=blind_salt,
+        forbidden_strings=(
+            assets.overlay_id or "",
+            str(assets.root),
+            str(assets.annotation_rubric),
+        ),
+    )
 
 
 def prepare_vault_grade_workspace(

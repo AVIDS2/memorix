@@ -1,5 +1,9 @@
+import json
+from dataclasses import asdict
 from pathlib import Path
 
+from memorixbench.actions import write_action_ledger
+from memorixbench.annotation import write_sanitized_action_ledger
 from memorixbench.oracle_assets import resolve_oracle_assets
 from memorixbench.schema import load_case_manifest
 from memorixbench.sealed_patch import seal_patch, snapshot_sealed_patch
@@ -7,6 +11,7 @@ from memorixbench.vault import (
     PrivateVerifierRequest,
     PrivateVerifierResult,
     grade_sealed_patch,
+    build_vault_blind_annotation_packet,
     prepare_vault_grade_workspace,
 )
 
@@ -97,3 +102,50 @@ def test_vault_receipt_redacts_private_verifier_output(tmp_path: Path) -> None:
     assert receipt.passed
     assert private_detail not in str(receipt)
     assert len(receipt.stdout_sha256) == 64
+
+
+def test_vault_builds_blind_packet_from_committed_private_rubric(tmp_path: Path) -> None:
+    manifest_path, overlay = _private_case(tmp_path)
+    manifest = load_case_manifest(manifest_path)
+    assets = resolve_oracle_assets(manifest, overlay)
+    timeline = tmp_path / "timeline.jsonl"
+    timeline.write_text(json.dumps({
+        "sequence": 0,
+        "stream": "stdout",
+        "elapsed_seconds": 1.0,
+        "line": json.dumps({
+            "type": "assistant",
+            "message": {"content": [{
+                "type": "tool_use",
+                "id": "call",
+                "name": "Bash",
+                "input": {"command": "git status --short"},
+            }]},
+        }) + "\n",
+    }) + "\n", encoding="utf-8")
+    ledger_path = tmp_path / "action-ledger.json"
+    ledger = write_action_ledger(agent="claude", timeline_path=timeline, path=ledger_path)
+    sanitized_ledger_path = tmp_path / "sanitized-action-ledger.json"
+    write_sanitized_action_ledger(ledger_path, sanitized_ledger_path)
+    result_path = tmp_path / "result.json"
+    result_path.write_text(json.dumps({
+        "run_id": "private-run",
+        "condition": "memorix-full",
+        "agent": "claude",
+        "model": "model-x",
+        "memory_provider": "memorix",
+        "agent_action_ledger_sha256": ledger.sha256,
+    }), encoding="utf-8")
+
+    packet = build_vault_blind_annotation_packet(
+        manifest,
+        assets,
+        result_path=result_path,
+        sanitized_action_ledger_path=sanitized_ledger_path,
+        blind_salt="vault-only-salt",
+    )
+
+    serialized = json.dumps(asdict(packet)).casefold()
+    assert "opaque-test-1" not in serialized
+    assert str(overlay).casefold() not in serialized
+    assert "memorix-full" not in serialized

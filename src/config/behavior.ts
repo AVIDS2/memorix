@@ -11,6 +11,8 @@ import { detectProject } from '../project/detector.js';
 
 export interface BehaviorConfig {
   sessionInject: 'full' | 'minimal' | 'silent';
+  /** When true, SessionStart also injects the prior-session handoff (Recent Handoff / last session summary). */
+  sessionHandoff: boolean;
   syncAdvisory: boolean;
   autoCleanup: boolean;
   formationMode: 'shadow' | 'active' | 'fallback';
@@ -23,6 +25,7 @@ export interface BehaviorConfigOptions {
 
 const DEFAULTS: BehaviorConfig = {
   sessionInject: 'minimal',
+  sessionHandoff: false,
   syncAdvisory: true,
   autoCleanup: true,
   formationMode: 'active',
@@ -77,6 +80,9 @@ export function getBehaviorConfig(options: BehaviorConfigOptions = {}): Behavior
     sessionInject: isSessionInject(resolved.inject)
       ? resolved.inject
       : isSessionInject(legacy.sessionInject) ? legacy.sessionInject : DEFAULTS.sessionInject,
+    sessionHandoff: typeof resolved.handoff === 'boolean'
+      ? resolved.handoff
+      : typeof legacy.sessionHandoff === 'boolean' ? legacy.sessionHandoff : DEFAULTS.sessionHandoff,
     syncAdvisory: typeof resolved.syncAdvisory === 'boolean'
       ? resolved.syncAdvisory
       : typeof legacy.syncAdvisory === 'boolean' ? legacy.syncAdvisory : DEFAULTS.syncAdvisory,

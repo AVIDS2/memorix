@@ -27,6 +27,7 @@ export interface ResolvedMemorixConfig {
   };
   memory: {
     inject?: 'full' | 'minimal' | 'silent';
+    handoff?: boolean;
     formation?: 'active' | 'shadow' | 'fallback';
     autoCleanup?: boolean;
     syncAdvisory?: boolean;
@@ -122,6 +123,7 @@ export function getResolvedConfig(options: ResolvedLaneOptions = {}): ResolvedMe
     },
     memory: {
       inject: first(toml.memory?.inject, yaml.behavior?.sessionInject),
+      handoff: firstBool(toml.memory?.handoff, yaml.behavior?.sessionHandoff),
       formation: first(toml.memory?.formation, yaml.behavior?.formationMode),
       autoCleanup: firstBool(toml.memory?.auto_cleanup, yaml.behavior?.autoCleanup),
       syncAdvisory: firstBool(toml.memory?.sync_advisory, yaml.behavior?.syncAdvisory),

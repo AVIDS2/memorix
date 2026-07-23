@@ -41,6 +41,7 @@ describe('behavior config resolution', () => {
 
     expect(getBehaviorConfig({ projectRoot: PROJECT, homeDir: HOME })).toEqual({
       sessionInject: 'silent',
+      sessionHandoff: false,
       formationMode: 'shadow',
       autoCleanup: false,
       syncAdvisory: false,
@@ -58,6 +59,7 @@ describe('behavior config resolution', () => {
 
     expect(getBehaviorConfig({ projectRoot: PROJECT, homeDir: HOME })).toEqual({
       sessionInject: 'full',
+      sessionHandoff: false,
       formationMode: 'fallback',
       autoCleanup: false,
       syncAdvisory: false,
@@ -77,9 +79,40 @@ describe('behavior config resolution', () => {
 
     expect(getBehaviorConfig({ projectRoot: PROJECT, homeDir: HOME })).toEqual({
       sessionInject: 'silent',
+      sessionHandoff: false,
       formationMode: 'shadow',
       autoCleanup: false,
       syncAdvisory: false,
     });
+  });
+
+  it('defaults sessionHandoff to false when unset', () => {
+    expect(getBehaviorConfig({ projectRoot: PROJECT, homeDir: HOME }).sessionHandoff).toBe(false);
+  });
+
+  it('reads sessionHandoff from TOML [memory] handoff', () => {
+    writeFileSync(join(HOME, '.memorix', 'config.toml'), [
+      '[memory]',
+      'handoff = true',
+    ].join('\n'), 'utf8');
+
+    expect(getBehaviorConfig({ projectRoot: PROJECT, homeDir: HOME }).sessionHandoff).toBe(true);
+  });
+
+  it('reads sessionHandoff from project YAML behavior.sessionHandoff', () => {
+    writeFileSync(join(PROJECT, 'memorix.yml'), [
+      'behavior:',
+      '  sessionHandoff: true',
+    ].join('\n'), 'utf8');
+
+    expect(getBehaviorConfig({ projectRoot: PROJECT, homeDir: HOME }).sessionHandoff).toBe(true);
+  });
+
+  it('falls back to legacy config.json behavior.sessionHandoff', () => {
+    writeFileSync(join(HOME, '.memorix', 'config.json'), JSON.stringify({
+      behavior: { sessionHandoff: true },
+    }), 'utf8');
+
+    expect(getBehaviorConfig({ projectRoot: PROJECT, homeDir: HOME }).sessionHandoff).toBe(true);
   });
 });

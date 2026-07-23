@@ -11,6 +11,7 @@ export interface MemorixTomlConfig {
   };
   memory?: {
     inject?: 'full' | 'minimal' | 'silent';
+    handoff?: boolean;
     formation?: 'active' | 'shadow' | 'fallback';
     auto_cleanup?: boolean;
     sync_advisory?: boolean;

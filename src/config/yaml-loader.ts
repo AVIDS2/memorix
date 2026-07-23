@@ -82,6 +82,8 @@ export interface MemorixYamlConfig {
   behavior?: {
     /** Session start injection mode */
     sessionInject?: 'full' | 'minimal' | 'silent';
+    /** Also inject prior-session handoff (Recent Handoff / last session summary) at session start */
+    sessionHandoff?: boolean;
     /** Show sync advisory on first search */
     syncAdvisory?: boolean;
     /** Auto-archive expired memories on startup */

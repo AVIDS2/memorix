@@ -261,19 +261,25 @@ async function handleSessionStart(input: NormalizedHookInput): Promise<{
   observation: ReturnType<typeof buildObservation> | null;
   output: HookOutput;
 }> {
-  // Check behavior config for session injection level
+  // Check behavior config for session injection level + handoff
   let injectMode: 'full' | 'minimal' | 'silent' = 'minimal';
+  let injectHandoff = false;
   try {
     const { getBehaviorConfig } = await import('../config/behavior.js');
-    injectMode = getBehaviorConfig().sessionInject;
-  } catch { /* default to minimal */ }
+    const behavior = getBehaviorConfig();
+    injectMode = behavior.sessionInject;
+    injectHandoff = behavior.sessionHandoff;
+  } catch { /* default to minimal, no handoff */ }
 
   if (injectMode === 'silent') {
     return { observation: null, output: { continue: true } };
   }
 
   let contextSummary = '';
-  if (injectMode === 'full') {
+  let handoffSummary = '';
+  // Resolve project + stores once when either the full project-context brief or
+  // the prior-session handoff needs them.
+  if (injectMode === 'full' || injectHandoff) {
     try {
       const { detectProject } = await import('../project/detector.js');
       const { getProjectDataDir } = await import('../store/persistence.js');
@@ -281,7 +287,6 @@ async function handleSessionStart(input: NormalizedHookInput): Promise<{
       const { initMiniSkillStore } = await import('../store/mini-skill-store.js');
       const { initSessionStore } = await import('../store/session-store.js');
       const { initAliasRegistry, registerAlias } = await import('../project/aliases.js');
-      const { buildAutoProjectContext, formatAutoProjectContextPrompt } = await import('../codegraph/auto-context.js');
 
       const rawProject = detectProject(input.cwd || process.cwd());
       if (!rawProject) throw new Error('No .git found');
@@ -292,32 +297,46 @@ async function handleSessionStart(input: NormalizedHookInput): Promise<{
       await initObservationStore(dataDir);
       await initMiniSkillStore(dataDir);
       await initSessionStore(dataDir);
-      const activeObservations = await getStore().loadByProject(canonicalId, { status: 'active' });
-      const context = await buildAutoProjectContext({
-        project: { ...rawProject, id: canonicalId },
-        dataDir,
-        observations: activeObservations,
-        refresh: 'auto',
-        enqueueRefresh: () => import('../runtime/lifecycle.js').then(({ enqueueCodegraphRefresh }) => {
-            enqueueCodegraphRefresh({
-              dataDir,
-              projectId: canonicalId,
-              source: 'hook-session-start',
-              maxFiles: 5_000,
-            });
-          }),
-      });
-      contextSummary = `\n\n${formatAutoProjectContextPrompt(context)}`;
+
+      if (injectMode === 'full') {
+        const { buildAutoProjectContext, formatAutoProjectContextPrompt } = await import('../codegraph/auto-context.js');
+        const activeObservations = await getStore().loadByProject(canonicalId, { status: 'active' });
+        const context = await buildAutoProjectContext({
+          project: { ...rawProject, id: canonicalId },
+          dataDir,
+          observations: activeObservations,
+          refresh: 'auto',
+          enqueueRefresh: () => import('../runtime/lifecycle.js').then(({ enqueueCodegraphRefresh }) => {
+              enqueueCodegraphRefresh({
+                dataDir,
+                projectId: canonicalId,
+                source: 'hook-session-start',
+                maxFiles: 5_000,
+              });
+            }),
+        });
+        contextSummary = `\n\n${formatAutoProjectContextPrompt(context)}`;
+      }
+
+      // Prior-session handoff (Recent Handoff / last session summary + key memories).
+      // Independent of inject level so `minimal + handoff` works for pure task handoff.
+      if (injectHandoff) {
+        const { getSessionContext } = await import('../memory/session.js');
+        const handoff = await getSessionContext(dataDir, canonicalId);
+        if (handoff && handoff.trim()) {
+          handoffSummary = `\n\n${handoff}`;
+        }
+      }
     } catch (sessErr) {
       // Diagnostic log — session start context injection failed
       console.error('[memorix] session start context failed:', (sessErr as Error)?.message ?? sessErr);
     }
   }
 
-  // Build system message based on inject mode
+  // Build system message: base hint, plus project-context brief (full) and/or handoff.
   let systemMessage: string;
-  if (injectMode === 'full' && contextSummary) {
-    systemMessage = `Previous session context may be available. Use memorix_search when prior project context would materially help. If search reports a fresh project with no Memorix memories yet, treat that as a cold-start signal and do not repeat the search in the same turn.${contextSummary}`;
+  if (contextSummary || handoffSummary) {
+    systemMessage = `Previous session context may be available. Use memorix_search when prior project context would materially help. If search reports a fresh project with no Memorix memories yet, treat that as a cold-start signal and do not repeat the search in the same turn.${contextSummary}${handoffSummary}`;
   } else {
     // minimal: one-line hint, no memory content
     systemMessage = 'Previous session context may be available. Use memorix_search when prior project context would materially help. If search reports a fresh project with no Memorix memories yet, do not repeat the search in the same turn.';

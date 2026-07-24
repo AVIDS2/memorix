@@ -4,15 +4,15 @@
 > older notes when they conflict.
 
 ## Current State
-- Phase: 1.2 release validation and publication
-- Branch: `codex/1.2.0-multidimensional-memory`
-- Last updated: 2026-07-18
-- Released baseline: `memorix@1.1.13`, tag `v1.1.13`, PR #129 merged as
-  `7e8077f`.
-- Goal: turn Memorix from a useful narrative-memory layer into a task-ready
-  working-context layer where code state, change evidence, verification,
-  source-backed project knowledge, workflows, and durable decisions are ranked
-  together.
+- Phase: 1.2.2 memory-control-plane definition and baseline fixtures
+- Branch: `codex/1.2.2-memory-control-plane`
+- Last updated: 2026-07-24
+- Released baseline: `memorix@1.2.1`, tag `v1.2.1`, `origin/main` at
+  `1b5bf7f`.
+- Goal: make the 1.2 multi-dimensional evidence layer behave as one bounded,
+  explainable control plane. A task Workset, hook handoff, lifecycle refresh,
+  and provider capability result must share evidence qualification, delivery
+  budgets, and privacy-safe receipts.
 
 ## 1.1.13 Closeout
 - Codex setup now stamps plugin versions and doctor distinguishes bundle,
@@ -102,7 +102,7 @@
 - The compiled CLI was smoke-tested in an isolated Git project through init,
   compile, apply, and lint with a source-backed claim.
 
-## 1.2 Delivery Complete, Release Checks In Progress
+## 1.2 Delivery Complete, Released As 1.2.1
 - Phase 4 added canonical Markdown workflows, safe adapter preview/apply, import,
   selection, and verification receipts. Agent instruction files are render
   targets, not the workflow source of truth.
@@ -123,4 +123,19 @@
 - Release audit also incorporated #130 before publication: the optional SQLite
   runtime now uses the Node-26-compatible `better-sqlite3` 12.x line, with a
   dedicated Node 26 CI smoke that opens an in-memory database.
-- Remaining remote gates: GitHub CI, npm publish, tag, and GitHub release.
+- The release was completed as `memorix@1.2.1`. Its next development line is
+  [1.2.2 Memory Control Plane](../1.2.2-MEMORY-CONTROL-PLANE.md), which
+  consolidates these capabilities instead of adding another disconnected
+  memory feature.
+
+## 1.2.2 Control Plane
+- `TaskWorkset` already has bounded rendering and source-aware claims, but
+  SessionStart handoff and legacy context surfaces need one shared admission,
+  budget, and receipt contract.
+- #135 remains a contributor-owned session-handoff candidate for the bounded
+  `HandoffPacket` phase. It is not copied or silently replaced.
+- #133/#134 remain open pending an official provider-capability layer and a
+  safe agent-facing media path. The existing OpenRouter text embedding path is
+  the supported baseline.
+- See [1.2.2 Memory Control Plane](../1.2.2-MEMORY-CONTROL-PLANE.md) for
+  phases, acceptance gates, non-goals, and release criteria.

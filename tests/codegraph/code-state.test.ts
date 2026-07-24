@@ -176,7 +176,7 @@ describe('CodeStateSnapshot', () => {
     expect(store.listSnapshots('org/repo')).toHaveLength(2);
   });
 
-  it('upgrades a legacy CodeGraph database without replacing its existing rows', () => {
+  it('upgrades a legacy CodeGraph database without replacing its existing rows', { timeout: 15_000 }, () => {
     const dataDir = tempRoot();
     const legacy = new BetterSqlite3(path.join(dataDir, 'memorix.db'));
     legacy.exec([

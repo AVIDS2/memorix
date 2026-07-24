@@ -13,6 +13,7 @@ import {
   calculateRelevance,
   rankByRelevance,
   isImmune,
+  getImmunityReason,
   getRetentionZone,
   getArchiveCandidates,
   getRetentionSummary,
@@ -121,6 +122,16 @@ describe('Retention & Decay', () => {
     it('should protect core valueCategory observations', () => {
       expect(isImmune(makeDoc({ type: 'gotcha', valueCategory: 'core' }))).toBe(true);
       expect(isImmune(makeDoc({ type: 'discovery', valueCategory: 'core' }))).toBe(true);
+    });
+
+    it('does not misreport an unqualified automatic core candidate as immune', () => {
+      const candidate = makeDoc({
+        type: 'decision',
+        valueCategory: 'core',
+        admissionState: 'candidate',
+      });
+      expect(isImmune(candidate)).toBe(false);
+      expect(getImmunityReason(candidate)).toBeNull();
     });
 
     it('should protect frequently accessed observations', () => {

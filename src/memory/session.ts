@@ -12,6 +12,7 @@
  */
 
 import type { Observation, Session } from '../types.js';
+import { isEligibleForAutomaticDelivery } from './admission.js';
 import { classifyLayer } from './disclosure-policy.js';
 import { resolveAliases } from '../project/aliases.js';
 import { getObservationStore } from '../store/obs-store.js';
@@ -369,13 +370,15 @@ export async function getSessionContext(
 
   // L1: recent hook activity signals (titles only, most recent first)
   const l1HookObs = projectObs
-    .filter((obs) => classifyLayer(obs) === 'L1')
+    .filter((obs) => isEligibleForAutomaticDelivery(obs) && classifyLayer(obs) === 'L1')
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
     .slice(0, 3);
 
   // L3: git-ingest evidence count (pointer only, not injected)
   const l3GitCount = projectObs.filter((obs) => classifyLayer(obs) === 'L3').length;
-  const totalHookCount = projectObs.filter((obs) => classifyLayer(obs) === 'L1').length;
+  const totalHookCount = projectObs
+    .filter((obs) => isEligibleForAutomaticDelivery(obs) && classifyLayer(obs) === 'L1')
+    .length;
 
   // Active entities: unique entity names from top-scored L2 memories.
   // Surfaced in L1 Routing as next-hop search guidance — not working context.

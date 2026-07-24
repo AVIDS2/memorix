@@ -6,6 +6,7 @@ import { runMaintenanceInChildProcess } from './isolated-maintenance.js';
 import {
   enqueueClaimRequalification,
   enqueueKnowledgeFollowups,
+  enqueueObservationQualification,
   type MaintenanceQueue,
 } from './lifecycle.js';
 
@@ -14,6 +15,7 @@ const DEFAULT_RETENTION_BATCH_SIZE = 100;
 const DEFAULT_CONSOLIDATION_BATCH_SIZE = 200;
 const DEFAULT_CODEGRAPH_MAX_FILES = 5_000;
 const DEFAULT_CLAIM_DERIVATION_BATCH_SIZE = 100;
+const DEFAULT_OBSERVATION_QUALIFICATION_BATCH_SIZE = 100;
 const VECTOR_RETRY_DELAY_MS = 5_000;
 const DEDUP_PER_PAIR_TIMEOUT_MS = 5_000;
 
@@ -62,6 +64,19 @@ function claimDerivationBatchSize(payload: Record<string, unknown>): number {
 }
 
 function claimDerivationCursor(payload: Record<string, unknown>): number {
+  const value = payload.cursor;
+  return typeof value === 'number' && Number.isFinite(value)
+    ? Math.max(0, Math.floor(value))
+    : 0;
+}
+
+function observationQualificationBatchSize(payload: Record<string, unknown>): number {
+  const value = payload.limit;
+  if (typeof value !== 'number' || !Number.isFinite(value)) return DEFAULT_OBSERVATION_QUALIFICATION_BATCH_SIZE;
+  return Math.min(500, Math.max(1, Math.floor(value)));
+}
+
+function observationQualificationCursor(payload: Record<string, unknown>): number {
   const value = payload.cursor;
   return typeof value === 'number' && Number.isFinite(value)
     ? Math.max(0, Math.floor(value))
@@ -275,6 +290,77 @@ export function createProjectMaintenanceHandler(
         ...(snapshot?.id ? { snapshotId: snapshot.id } : {}),
         ...(options.maintenanceQueue ? { queue: options.maintenanceQueue } : {}),
       });
+      enqueueObservationQualification({
+        projectId,
+        dataDir: projectDir,
+        source: 'codegraph-refresh',
+        ...(options.maintenanceQueue ? { queue: options.maintenanceQueue } : {}),
+      });
+      return { action: 'complete' };
+    }
+
+    if (job.kind === 'observation-qualify') {
+      const [
+        { CodeGraphStore },
+        { bindObservationToCode },
+        { getObservationStore },
+        { qualifyCandidateFromCurrentCode },
+        { updateObservationAdmission },
+      ] = await Promise.all([
+        import('../codegraph/store.js'),
+        import('../codegraph/binder.js'),
+        import('../store/obs-store.js'),
+        import('../memory/admission.js'),
+        import('../memory/observations.js'),
+      ]);
+      const codeStore = new CodeGraphStore();
+      await codeStore.init(projectDir);
+      const limit = observationQualificationBatchSize(job.payload);
+      const page = await getObservationStore().loadByProject(projectId, {
+        status: 'active',
+        afterId: observationQualificationCursor(job.payload),
+        limit: limit + 1,
+      });
+      const hasMore = page.length > limit;
+      const observations = hasMore ? page.slice(0, limit) : page;
+      const indexedAtMs = Date.parse(codeStore.status(projectId).indexedAt ?? '');
+
+      for (const observation of observations) {
+        if (observation.admissionState !== 'candidate') continue;
+        // A candidate may only earn delivery after a Code Memory scan that
+        // happened at or after it was captured. A stale snapshot is evidence
+        // about an earlier project state, not a reason to inject this record.
+        if (!Number.isFinite(indexedAtMs) || indexedAtMs < Date.parse(observation.createdAt)) continue;
+        await bindObservationToCode(codeStore, observation);
+        const currentCodeReferenceCount = codeStore
+          .listObservationRefs(projectId, observation.id)
+          .filter((reference) => reference.status === 'current')
+          .length;
+        const qualification = qualifyCandidateFromCurrentCode({
+          observation,
+          currentCodeReferenceCount,
+        });
+        if (!qualification) continue;
+        await updateObservationAdmission({
+          observationId: observation.id,
+          projectId,
+          expectedState: 'candidate',
+          ...qualification,
+        });
+      }
+
+      if (hasMore && observations.length > 0) {
+        return {
+          action: 'reschedule',
+          delayMs: 0,
+          resetAttempts: true,
+          payload: {
+            ...job.payload,
+            cursor: observations[observations.length - 1].id,
+            limit,
+          },
+        };
+      }
       return { action: 'complete' };
     }
 

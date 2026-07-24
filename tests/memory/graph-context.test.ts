@@ -63,6 +63,31 @@ describe('buildGraphContextPacket', () => {
     expect(packet.entities[0].name).toBe('release-flow');
   });
 
+  it('does not inject an unqualified automatic candidate into a graph context packet', () => {
+    const packet = buildGraphContextPacket([
+      obs({
+        id: 1,
+        entityName: 'auth',
+        title: 'Qualified auth decision',
+        narrative: 'Use signed sessions for the auth flow.',
+        type: 'decision',
+        valueCategory: 'core',
+      }),
+      obs({
+        id: 2,
+        entityName: 'auth',
+        title: 'Automatic auth edit',
+        narrative: 'Hook observed a change in src/auth.ts.',
+        source: 'agent',
+        sourceDetail: 'hook',
+        admissionState: 'candidate',
+        valueCategory: 'contextual',
+      }),
+    ], { projectId: 'AVIDS2/memorix', query: 'auth session', limit: 5 });
+
+    expect(packet.memories.map((memory) => memory.id)).toEqual([1]);
+  });
+
   it('keeps prompt risks scoped to selected context instead of global noise', () => {
     const packet = buildGraphContextPacket([
       obs({ id: 1, entityName: 'memcode-memory', title: 'Graph context injection', narrative: 'Use GraphContext Packet for memory injection.', type: 'decision', valueCategory: 'core' }),

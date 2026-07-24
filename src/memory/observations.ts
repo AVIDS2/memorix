@@ -8,7 +8,14 @@
  * and in the Orama search index (for full-text + vector search).
  */
 
-import type { Observation, ObservationType, ObservationStatus, MemorixDocument, ProgressInfo } from '../types.js';
+import type {
+  Observation,
+  ObservationAdmissionState,
+  ObservationType,
+  ObservationStatus,
+  MemorixDocument,
+  ProgressInfo,
+} from '../types.js';
 import { TOPIC_KEY_FAMILIES } from '../types.js';
 import {
   insertObservation,
@@ -25,13 +32,14 @@ import {
   makeOramaObservationId,
   getLastSearchMode,
   searchObservations,
+  updateObservationMetadata,
 } from '../store/orama-store.js';
 import { getObservationStore, initObservationStore } from '../store/obs-store.js';
 import { countTextTokens } from '../compact/token-budget.js';
 import { extractEntities, enrichConcepts } from './entity-extractor.js';
 import { getEmbeddingProvider, isEmbeddingExplicitlyDisabled } from '../embedding/provider.js';
 import { sanitizeCredentials } from './secret-filter.js';
-import { enqueueClaimDerivation } from '../runtime/lifecycle.js';
+import { enqueueClaimDerivation, enqueueObservationQualification } from '../runtime/lifecycle.js';
 
 /** In-memory observation list (loaded from persistence on init) */
 let observations: Observation[] = [];
@@ -134,6 +142,20 @@ function queueClaimDerivation(observation: Observation): void {
     });
   } catch {
     // The observation remains durable; a later scan can recover its claim.
+  }
+}
+
+function queueObservationQualification(observation: Observation): void {
+  const dataDir = projectDir;
+  if (!dataDir || observation.admissionState !== 'candidate') return;
+  try {
+    enqueueObservationQualification({
+      dataDir,
+      projectId: observation.projectId,
+      source: 'automatic-capture:' + observation.id,
+    });
+  } catch {
+    // Candidate evidence remains available for a later qualification scan.
   }
 }
 
@@ -253,6 +275,8 @@ export async function storeObservation(input: {
   relatedEntities?: string[];
   sourceDetail?: 'explicit' | 'hook' | 'git-ingest';
   valueCategory?: 'core' | 'contextual' | 'ephemeral';
+  admissionState?: ObservationAdmissionState;
+  admissionReason?: string;
   createdByAgentId?: string;
 }): Promise<{ observation: Observation; upserted: boolean }> {
   const now = new Date().toISOString();
@@ -355,6 +379,8 @@ export async function storeObservation(input: {
           relatedEntities: input.relatedEntities,
           sourceDetail: input.sourceDetail,
           valueCategory: input.valueCategory,
+          admissionState: input.admissionState,
+          admissionReason: input.admissionReason ? sanitizeCredentials(input.admissionReason) : undefined,
           createdByAgentId: input.createdByAgentId,
           // Predict the generation that atomic() will commit after this callback.
           // bumpGeneration() runs after fn(tx) returns, incrementing by 1.
@@ -409,6 +435,8 @@ export async function storeObservation(input: {
         relatedEntities: input.relatedEntities,
         sourceDetail: input.sourceDetail,
         valueCategory: input.valueCategory,
+        admissionState: input.admissionState,
+        admissionReason: input.admissionReason ? sanitizeCredentials(input.admissionReason) : undefined,
         createdByAgentId: input.createdByAgentId,
         writeGeneration: 0,
       };
@@ -435,6 +463,8 @@ export async function storeObservation(input: {
       source: input.source ?? 'agent',
       sourceDetail: input.sourceDetail ?? '',
       valueCategory: input.valueCategory ?? '',
+      admissionState: input.admissionState ?? '',
+      admissionReason: input.admissionReason ? sanitizeCredentials(input.admissionReason) : '',
     };
 
     await insertObservation(doc);
@@ -448,6 +478,7 @@ export async function storeObservation(input: {
   }
 
   await bindObservationCodeRefsBestEffort(observation);
+  queueObservationQualification(observation);
   queueClaimDerivation(observation);
 
   // Generate embedding async (fire-and-forget) — never blocks MCP response
@@ -518,6 +549,8 @@ async function upsertObservation(
     progress?: ProgressInfo;
     sourceDetail?: 'explicit' | 'hook' | 'git-ingest';
     valueCategory?: 'core' | 'contextual' | 'ephemeral';
+    admissionState?: ObservationAdmissionState;
+    admissionReason?: string;
   },
   now: string,
 ): Promise<Observation> {
@@ -556,6 +589,8 @@ async function upsertObservation(
   if (input.progress) existing.progress = input.progress;
   if (input.sourceDetail !== undefined) existing.sourceDetail = input.sourceDetail;
   if (input.valueCategory !== undefined) existing.valueCategory = input.valueCategory;
+  if (input.admissionState !== undefined) existing.admissionState = input.admissionState;
+  if (input.admissionReason !== undefined) existing.admissionReason = sanitizeCredentials(input.admissionReason);
 
   // Re-index in Orama WITHOUT embedding first (non-blocking)
   const doc: MemorixDocument = {
@@ -577,6 +612,8 @@ async function upsertObservation(
     source: existing.source ?? 'agent',
     sourceDetail: existing.sourceDetail ?? '',
     valueCategory: existing.valueCategory ?? '',
+    admissionState: existing.admissionState ?? '',
+    admissionReason: existing.admissionReason ?? '',
   };
 
   // Remove old doc and insert updated one (with retry for concurrent upsert race)
@@ -603,6 +640,7 @@ async function upsertObservation(
   }
 
   await bindObservationCodeRefsBestEffort(existing);
+  queueObservationQualification(existing);
   queueClaimDerivation(existing);
 
   // Generate embedding async (fire-and-forget) — never blocks MCP response
@@ -649,6 +687,72 @@ async function upsertObservation(
  */
 export function getObservation(id: number, projectId?: string): Observation | undefined {
   return observations.find((o) => o.id === id && (projectId ? o.projectId === projectId : true));
+}
+
+/**
+ * Promote or demote an automatic observation without changing its content.
+ * The expected-state guard keeps concurrent maintenance workers from
+ * resurrecting an observation that another writer has already changed.
+ */
+export async function updateObservationAdmission(input: {
+  observationId: number;
+  projectId?: string;
+  expectedState?: ObservationAdmissionState;
+  admissionState: ObservationAdmissionState;
+  admissionReason: string;
+}): Promise<Observation | undefined> {
+  await ensureFreshObservations();
+  const cached = observations.find((observation) =>
+    observation.id === input.observationId &&
+    (!input.projectId || observation.projectId === input.projectId),
+  );
+  if (!cached) return undefined;
+
+  const now = new Date().toISOString();
+  const admissionReason = sanitizeCredentials(input.admissionReason).slice(0, 240);
+  const apply = (current: Observation): Observation | undefined => {
+    if (input.projectId && current.projectId !== input.projectId) return undefined;
+    if (input.expectedState && current.admissionState !== input.expectedState) return undefined;
+    return {
+      ...current,
+      admissionState: input.admissionState,
+      admissionReason,
+      updatedAt: now,
+    };
+  };
+
+  let updated: Observation | undefined;
+  if (projectDir) {
+    const store = getObservationStore();
+    await store.atomic(async (tx) => {
+      const current = await tx.getById(input.observationId);
+      if (!current) return;
+      const next = apply(current);
+      if (!next) return;
+      await tx.update(next);
+      updated = next;
+    });
+  } else {
+    updated = apply(cached);
+  }
+
+  if (!updated) return undefined;
+  observations = observations.map((observation) =>
+    observation.id === updated!.id && observation.projectId === updated!.projectId
+      ? updated!
+      : observation,
+  );
+
+  try {
+    await updateObservationMetadata(updated.projectId, updated.id, {
+      admissionState: updated.admissionState,
+      admissionReason: updated.admissionReason,
+    });
+  } catch {
+    // SQLite is canonical. The next index hydration repairs a missed update.
+  }
+
+  return updated;
 }
 
 /**
@@ -701,6 +805,8 @@ export async function resolveObservations(
         source: obs.source ?? 'agent',
         sourceDetail: obs.sourceDetail ?? '',
         valueCategory: obs.valueCategory ?? '',
+        admissionState: obs.admissionState ?? '',
+        admissionReason: obs.admissionReason ?? '',
       };
       await insertObservation(doc);
       // Async embedding update (fire-and-forget)
@@ -904,6 +1010,8 @@ export async function reindexObservations(): Promise<number> {
         source: obs.source ?? 'agent',
         sourceDetail: obs.sourceDetail ?? '',
         valueCategory: obs.valueCategory ?? '',
+        admissionState: obs.admissionState ?? '',
+        admissionReason: obs.admissionReason ?? '',
         ...(compatibleEmbedding ? { embedding: compatibleEmbedding } : {}),
       };
       await insertObservation(doc);
@@ -1114,6 +1222,8 @@ export async function backfillVectorEmbeddings(options: {
             source: obs.source ?? 'agent',
             sourceDetail: obs.sourceDetail ?? '',
             valueCategory: obs.valueCategory ?? '',
+            admissionState: obs.admissionState ?? '',
+            admissionReason: obs.admissionReason ?? '',
             embedding,
           };
           await insertObservation(doc);

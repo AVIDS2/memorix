@@ -113,6 +113,10 @@ export function isImmune(doc: MemorixDocument): boolean {
   // Probe observations are operational heartbeats -- never immune, regardless of valueCategory or access.
   if (doc.type === 'probe') return false;
 
+  // A candidate has not earned durable status. Never let an automatic core
+  // classification turn unqualified capture into permanently retained memory.
+  if (doc.admissionState === 'candidate' || doc.admissionState === 'ephemeral') return false;
+
   // formation-classified core memories are immune regardless of type
   if (doc.valueCategory === 'core') return true;
 
@@ -134,6 +138,11 @@ export function isImmune(doc: MemorixDocument): boolean {
 export function getImmunityReason(doc: MemorixDocument): string | null {
   // Probe observations are never immune
   if (doc.type === 'probe') return null;
+
+  // Automatic traces and candidates have not earned durable status. Keep the
+  // explanation aligned with isImmune() even when an earlier classifier gave
+  // a candidate the core value category.
+  if (doc.admissionState === 'candidate' || doc.admissionState === 'ephemeral') return null;
 
   if (doc.valueCategory === 'core') return 'core valueCategory (formation-classified)';
   const importance = getImportanceLevel(doc);
@@ -401,6 +410,8 @@ function toRetentionDocument(
     source: obs.source ?? 'agent',
     sourceDetail: obs.sourceDetail ?? '',
     valueCategory: obs.valueCategory ?? '',
+    admissionState: obs.admissionState ?? '',
+    admissionReason: obs.admissionReason ?? '',
   };
 }
 

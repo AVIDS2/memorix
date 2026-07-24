@@ -3,6 +3,7 @@ import { loadDotenv } from '../config/dotenv-loader.js';
 import { initProjectRoot } from '../config/yaml-loader.js';
 import { initLLM } from '../llm/provider.js';
 import { initObservationStore } from '../store/obs-store.js';
+import { initObservations } from '../memory/observations.js';
 import {
   MAINTENANCE_JOB_KINDS,
   type MaintenanceJob,
@@ -58,6 +59,7 @@ export async function executeMaintenanceRequest(
   initProjectRoot(request.projectRoot);
   loadDotenv(request.projectRoot);
   await initObservationStore(request.dataDir);
+  await initObservations(request.dataDir);
   if (request.job.kind === 'consolidation') initLLM();
 
   const handler = createProjectMaintenanceHandler(

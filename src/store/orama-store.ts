@@ -175,6 +175,8 @@ async function initializeDb(
     source: 'string' as const,
     sourceDetail: 'string' as const,
     valueCategory: 'string' as const,
+    admissionState: 'string' as const,
+    admissionReason: 'string' as const,
     documentType: 'string' as const,
     knowledgeLayer: 'string' as const,
   };
@@ -390,6 +392,10 @@ export async function hydrateIndex(
         lastAccessedAt: obs.lastAccessedAt || '',
         status: obs.status ?? 'active',
         source: obs.source || 'agent',
+        sourceDetail: obs.sourceDetail ?? '',
+        valueCategory: obs.valueCategory ?? '',
+        admissionState: obs.admissionState ?? '',
+        admissionReason: obs.admissionReason ?? '',
         documentType: 'observation',
         knowledgeLayer: resolveKnowledgeLayer('observation', obs.sourceDetail, obs.source),
         ...(compatibleVector ? { embedding: compatibleVector } : {}),
@@ -441,6 +447,26 @@ export async function insertObservation(doc: MemorixDocument): Promise<void> {
   const database = await getDb();
   await insert(database, doc);
   rememberObservationDoc(doc);
+}
+
+/**
+ * Update retrieval metadata without rebuilding an embedding. Admission is
+ * deliberately metadata-only: promotion must not create another embedding
+ * request or delay a background qualification job.
+ */
+export async function updateObservationMetadata(
+  projectId: string,
+  observationId: number,
+  patch: Pick<MemorixDocument, 'admissionState' | 'admissionReason'>,
+): Promise<boolean> {
+  const database = await getDb();
+  const id = makeOramaObservationId(projectId, observationId);
+  const existing = getByID(database, id) as MemorixDocument | undefined;
+  if (!existing) return false;
+  const next = { ...existing, ...patch };
+  await update(database, id, next);
+  rememberObservationDoc(next);
+  return true;
 }
 
 /**
@@ -682,6 +708,7 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
         source: (doc.source || 'agent') as 'agent' | 'git' | 'manual',
         sourceDetail: (doc.sourceDetail || undefined) as 'explicit' | 'hook' | 'git-ingest' | undefined,
         valueCategory: (doc.valueCategory || undefined) as 'core' | 'contextual' | 'ephemeral' | undefined,
+        admissionState: (doc.admissionState || undefined) as IndexEntry['admissionState'],
         entityName: doc.entityName || undefined,
         documentType: (doc.documentType || 'observation') as 'observation' | 'mini-skill',
         knowledgeLayer: (doc.knowledgeLayer || 'project-truth') as KnowledgeLayer,
@@ -750,6 +777,16 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
       ...entry,
       score: isCommandStyleEntry(entry.title) ? entry.score * 0.3 : entry.score,
     }));
+  }
+
+  // Automatic capture is useful as an audit trail, but unqualified evidence
+  // should not crowd out durable project knowledge in ordinary retrieval.
+  // Keep it available as a fallback when it is all the project has.
+  if (hasQuery) {
+    const qualifiedEntries = intermediate.filter(
+      (entry) => entry.admissionState !== 'candidate' && entry.admissionState !== 'ephemeral',
+    );
+    if (qualifiedEntries.length > 0) intermediate = qualifiedEntries;
   }
 
   // Re-sort: chronological for WHEN queries, relevance for others
@@ -1093,7 +1130,7 @@ export async function getTimeline(
 
   const toIndexEntry = (obs: {
     id: number; type: string; title: string; tokens: number; createdAt: string;
-    source?: string; sourceDetail?: string; valueCategory?: string;
+    source?: string; sourceDetail?: string; valueCategory?: string; admissionState?: string;
   }): IndexEntry => {
     const obsType = obs.type as ObservationType;
     return {
@@ -1106,6 +1143,7 @@ export async function getTimeline(
       source: (obs.source as IndexEntry['source']) || undefined,
       sourceDetail: (obs.sourceDetail as IndexEntry['sourceDetail']) || undefined,
       valueCategory: (obs.valueCategory as IndexEntry['valueCategory']) || undefined,
+      admissionState: (obs.admissionState as IndexEntry['admissionState']) || undefined,
     };
   };
 

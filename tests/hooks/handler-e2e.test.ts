@@ -82,6 +82,7 @@ export function verifyToken(token: string) {
     expect(observation).not.toBeNull();
     expect(observation!.entityName).toBe('auth');
     expect(observation!.narrative.length).toBeGreaterThan(50);
+    expect(observation!.admissionState).toBe('candidate');
   });
 
   it('queues one durable Code Memory refresh after repeated real file mutations', async () => {
@@ -119,6 +120,33 @@ export function verifyToken(token: string) {
     }
   });
 
+  it('allows the CLI hook path to defer a file-mutation refresh until capture is durable', async () => {
+    const sandboxRoot = mkdtempSync(path.join(tmpdir(), 'memorix-hook-deferred-'));
+    const repoDir = path.join(sandboxRoot, 'repo');
+    const dataDir = path.join(sandboxRoot, 'data');
+    try {
+      mkdirSync(path.join(repoDir, 'src'), { recursive: true });
+      writeFileSync(path.join(repoDir, 'src', 'auth.ts'), 'export const auth = true;\n', 'utf8');
+      execSync('git init', { cwd: repoDir, stdio: 'ignore' });
+      process.env.MEMORIX_DATA_DIR = dataDir;
+
+      await handleHookEvent({
+        event: 'post_edit',
+        agent: 'claude',
+        timestamp: new Date().toISOString(),
+        sessionId: 'deferred-hook-session',
+        cwd: repoDir,
+        filePath: 'src/auth.ts',
+        raw: {},
+      }, { deferMaintenance: true });
+
+      expect(new MaintenanceJobStore(dataDir).list({ projectId: 'local/repo' })).toHaveLength(0);
+    } finally {
+      closeAllDatabases();
+      rmSync(sandboxRoot, { recursive: true, force: true });
+    }
+  });
+
   // ─── PostToolUse: Edit (code modifications) ───
   it('should auto-store for Edit tool (code modification)', async () => {
     const payload = {
@@ -141,6 +169,7 @@ export function verifyToken(token: string) {
     const { observation } = await handleHookEvent(input);
     expect(observation).not.toBeNull();
     expect(observation!.narrative).toContain('PORT');
+    expect(observation!.admissionState).toBe('candidate');
   });
 
   // ─── PostToolUse: Bash (npm install, test, build) ───
@@ -169,6 +198,7 @@ export function verifyToken(token: string) {
     const { observation } = await handleHookEvent(input);
     expect(observation).not.toBeNull();
     expect(observation!.narrative).toContain('npm test');
+    expect(observation!.admissionState).toBe('ephemeral');
   });
 
   // ─── PostToolUse: Bash with SHORT output (edge case) ───
@@ -195,6 +225,7 @@ export function verifyToken(token: string) {
     const { observation } = await handleHookEvent(input);
     // Short output but command is meaningful → should store
     expect(observation).not.toBeNull();
+    expect(observation!.admissionState).toBe('ephemeral');
   });
 
   // ─── UserPromptSubmit ───
@@ -213,6 +244,7 @@ export function verifyToken(token: string) {
     const { observation } = await handleHookEvent(input);
     expect(observation).not.toBeNull();
     expect(observation!.narrative).toContain('JWT');
+    expect(observation!.admissionState).toBe('candidate');
   });
 
   // ─── UserPromptSubmit: SHORT prompt (edge case) ───

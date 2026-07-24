@@ -85,6 +85,14 @@ export const OBSERVATION_ICONS: Record<ObservationType, string> = {
 /** Observation lifecycle status */
 export type ObservationStatus = 'active' | 'resolved' | 'archived';
 
+/**
+ * Control-plane admission state for automatically captured observations.
+ * Candidate and ephemeral records remain inspectable, but only qualified
+ * records are eligible for automatic context delivery. Missing state preserves
+ * legacy behavior for observations written before this policy existed.
+ */
+export type ObservationAdmissionState = 'ephemeral' | 'candidate' | 'qualified';
+
 /** Progress tracking for task/feature observations */
 export interface ProgressInfo {
   feature: string;
@@ -132,6 +140,10 @@ export interface Observation {
   sourceDetail?: 'explicit' | 'hook' | 'git-ingest';
   /** Value category from formation pipeline evaluation */
   valueCategory?: 'core' | 'contextual' | 'ephemeral';
+  /** Control-plane admission state for automatic capture and delivery. */
+  admissionState?: ObservationAdmissionState;
+  /** Short, sanitized explanation for the latest admission decision. */
+  admissionReason?: string;
   /** Phase 4a: Agent ID that created this observation (team attribution) */
   createdByAgentId?: string;
   /** Phase 4a: Monotonic write generation — snapshot of storage_generation at write time (watermark coherence) */
@@ -176,6 +188,8 @@ export interface IndexEntry {
   sourceDetail?: 'explicit' | 'hook' | 'git-ingest';
   /** Value category for source-aware ranking */
   valueCategory?: 'core' | 'contextual' | 'ephemeral';
+  /** Control-plane admission state when known. */
+  admissionState?: ObservationAdmissionState;
   /** Explainable recall: why this result matched. */
   matchedFields?: string[];
   /** Entity name — used for entity-affinity scoring and workstream deduplication. */
@@ -258,6 +272,10 @@ export interface MemorixDocument {
   sourceDetail?: string;
   /** Value category from formation evaluation */
   valueCategory?: string;
+  /** Control-plane admission state for automatic capture and delivery. */
+  admissionState?: string;
+  /** Short, sanitized explanation for the latest admission decision. */
+  admissionReason?: string;
   /** Optional vector embedding for semantic/hybrid retrieval */
   embedding?: number[];
   /** Document type: observation or mini-skill (Phase 3a) */

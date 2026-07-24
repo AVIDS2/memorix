@@ -20,6 +20,7 @@ import {
   type ProjectContextOverview,
 } from './project-context.js';
 import { CodeGraphStore } from './store.js';
+import { isEligibleForAutomaticDelivery } from '../memory/admission.js';
 import {
   lensPathCandidates,
   lensVerificationHints,
@@ -70,6 +71,14 @@ function activeProjectObservations(
   projectId: string,
 ): ProjectContextObservation[] {
   return observations.filter(obs => obs.projectId === projectId && (obs.status ?? 'active') === 'active');
+}
+
+function deliveryEligibleProjectObservations(
+  observations: ProjectContextObservation[],
+  projectId: string,
+): ProjectContextObservation[] {
+  return activeProjectObservations(observations, projectId)
+    .filter((observation) => isEligibleForAutomaticDelivery(observation));
 }
 
 function decideRefresh(input: {
@@ -176,12 +185,26 @@ export async function buildAutoProjectContext(input: {
           activeProjectObservations(input.observations, input.project.id) as any,
         );
         try {
-          const { enqueueClaimRequalification } = await import('../runtime/lifecycle.js');
+          const { MaintenanceTargetStore } = await import('../runtime/maintenance-targets.js');
+          new MaintenanceTargetStore(input.dataDir).register({
+            projectId: input.project.id,
+            projectRoot: input.project.rootPath,
+            dataDir: input.dataDir,
+          });
+          const {
+            enqueueClaimRequalification,
+            enqueueObservationQualification,
+          } = await import('../runtime/lifecycle.js');
           enqueueClaimRequalification({
             dataDir: input.dataDir,
             projectId: input.project.id,
             source: 'foreground-refresh',
             snapshotId: store.latestSnapshot(input.project.id)?.id,
+          });
+          enqueueObservationQualification({
+            dataDir: input.dataDir,
+            projectId: input.project.id,
+            source: 'foreground-refresh',
           });
         } catch {
           // The completed scan remains useful even if its later maintenance cannot queue.
@@ -201,7 +224,9 @@ export async function buildAutoProjectContext(input: {
   const explain = buildProjectContextExplain({
     project: input.project,
     store,
-    observations: input.observations,
+    // Binding sees all active evidence, but automatic delivery sees only
+    // evidence that has passed the control-plane admission gate.
+    observations: deliveryEligibleProjectObservations(input.observations, input.project.id),
     exclude,
   });
   const overview = explain.overview;

@@ -141,6 +141,34 @@
 - Budget selection now keeps a knowledge page dependent on a Claim out of the
   prompt when its qualifying Claim could not fit. The receipt records both as
   withheld instead of presenting an orphaned page path as usable knowledge.
+- Phase 3 admission slice complete: automatic observations now persist an
+  `ephemeral`, `candidate`, or `qualified` state and a reason. Hooks and the
+  internal orchestrator capture concrete evidence as candidates, keep routine
+  success/telemetry ephemeral, and drop low-signal activity without writing it.
+  Automatic capture stays quiet in the host agent.
+- A deduplicated `observation-qualify` maintenance job runs after CodeGraph
+  refresh. It requires a scan no older than the capture and at least one
+  current code reference before upgrading a candidate. Qualification does not
+  create a Claim; explicit saves and Git remain the Claim boundary.
+- Auto Project Context, automatic session L1 delivery, Wiki/Knowledge Graph
+  compilation, and graph-context packets exclude candidates and ephemeral
+  traces. Ordinary search prefers qualified material, while explicit lookup
+  can still inspect pending evidence.
+- Pending automatic evidence is also excluded from automatic consolidation so
+  a later qualification can still inspect its original source grain. Retention
+  explanations no longer describe an unqualified `core` candidate as immune.
+- Direct CLI and foreground Code Memory refreshes now enqueue qualification as
+  well as claim requalification, and they register the local project target
+  needed by the isolated control-plane worker. The host hook path persists its
+  candidate before scheduling a refresh, avoiding a fast-worker race where a
+  scan could predate the capture.
+- Compiled-artifact smoke: an isolated Codex `PostToolUse` hook returned only
+  `continue: true`, stored a `candidate`, and the isolated background control
+  plane upgraded it to `qualified` after a real Code Memory scan with one
+  current reference. Embeddings were deliberately disabled for this
+  deterministic local smoke. The full test suite, TypeScript check, and
+  production build also passed after the admission policy was reconciled with
+  OpenCode's concise technical response events.
 - #135 remains a contributor-owned session-handoff candidate for the bounded
   `HandoffPacket` phase. It is not copied or silently replaced.
 - #133/#134 remain open pending an official provider-capability layer and a

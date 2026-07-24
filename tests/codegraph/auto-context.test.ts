@@ -12,6 +12,7 @@ import { getAllObservations, initObservations, storeObservation } from '../../sr
 import { closeAllDatabases } from '../../src/store/sqlite-db.js';
 import { initObservationStore, resetObservationStore } from '../../src/store/obs-store.js';
 import { resetDb } from '../../src/store/orama-store.js';
+import { MaintenanceJobStore } from '../../src/runtime/maintenance-jobs.js';
 import { resetSessionStore } from '../../src/store/session-store.js';
 import { resetTeamStore } from '../../src/team/team-store.js';
 
@@ -99,6 +100,63 @@ describe('auto project context', () => {
     expect(text).toBe(context.workset.prompt);
     expect(context.workset.budget.tokenCount).toBeLessThanOrEqual(context.workset.budget.maxTokens);
     expect(context.workset.receipt.target).toBe('project-context');
+  });
+
+  it('does not source an unqualified automatic capture in an agent brief', async () => {
+    await storeObservation({
+      entityName: 'auth',
+      type: 'what-changed',
+      title: 'Automatic auth hook capture',
+      narrative: 'The hook observed an edit in src/auth.ts.',
+      filesModified: ['src/auth.ts'],
+      projectId: 'local/repo',
+      sourceDetail: 'hook',
+      valueCategory: 'contextual',
+      admissionState: 'candidate',
+      admissionReason: 'file mutation awaits Code Memory qualification',
+    });
+
+    const context = await buildAutoProjectContext({
+      project: { id: 'local/repo', name: 'repo', rootPath: repoDir },
+      dataDir,
+      observations: getAllObservations(),
+      refresh: 'always',
+      task: 'continue auth work',
+    });
+
+    expect(context.explain.sources.map((source) => source.title)).not.toContain('Automatic auth hook capture');
+    expect(formatAutoProjectContextPrompt(context)).not.toContain('Automatic auth hook capture');
+  });
+
+  it('queues candidate qualification after a foreground Code Memory refresh', async () => {
+    await storeObservation({
+      entityName: 'auth',
+      type: 'what-changed',
+      title: 'Automatic auth hook capture',
+      narrative: 'The hook observed an edit in src/auth.ts.',
+      filesModified: ['src/auth.ts'],
+      projectId: 'local/repo',
+      sourceDetail: 'hook',
+      valueCategory: 'contextual',
+      admissionState: 'candidate',
+      admissionReason: 'file mutation awaits Code Memory qualification',
+    });
+
+    await buildAutoProjectContext({
+      project: { id: 'local/repo', name: 'repo', rootPath: repoDir },
+      dataDir,
+      observations: getAllObservations(),
+      refresh: 'always',
+      task: 'continue auth work',
+    });
+
+    expect(new MaintenanceJobStore(dataDir).list({ projectId: 'local/repo' })).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: 'observation-qualify',
+        dedupeKey: 'observation-qualify',
+        payload: expect.objectContaining({ source: 'foreground-refresh' }),
+      }),
+    ]));
   });
 
   it('uses a validated local semantic outline without adding raw external code', async () => {

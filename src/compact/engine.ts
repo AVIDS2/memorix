@@ -232,6 +232,8 @@ export async function compactDetail(
         source: obs.source ?? 'agent',
         sourceDetail: obs.sourceDetail ?? '',
         valueCategory: obs.valueCategory ?? '',
+        admissionState: obs.admissionState ?? '',
+        admissionReason: obs.admissionReason ?? '',
       });
     } else {
       missingRefs.push(ref);
@@ -401,6 +403,8 @@ function observationToDocument(obs: ReturnType<typeof getAllObservations>[number
     source: obs.source ?? 'agent',
     sourceDetail: obs.sourceDetail ?? '',
     valueCategory: obs.valueCategory ?? '',
+    admissionState: obs.admissionState ?? '',
+    admissionReason: obs.admissionReason ?? '',
   };
 }
 

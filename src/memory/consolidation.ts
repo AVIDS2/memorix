@@ -17,6 +17,7 @@
 
 import type { Observation } from '../types.js';
 import { getObservationStore } from '../store/obs-store.js';
+import { isEligibleForAutomaticDelivery } from './admission.js';
 
 /** Default similarity threshold for merging (0.0-1.0) */
 const DEFAULT_SIMILARITY_THRESHOLD = 0.45;
@@ -134,10 +135,14 @@ async function loadConsolidationPage(
 }
 
 function findClusters(observations: Observation[], threshold: number): ConsolidationCluster[] {
-  if (observations.length < MIN_CLUSTER_SIZE) return [];
+  // Pending automatic evidence must stay individually inspectable until its
+  // source-backed qualification step completes. Consolidating it first would
+  // erase the evidence grain the control plane still needs to audit.
+  const eligible = observations.filter(isEligibleForAutomaticDelivery);
+  if (eligible.length < MIN_CLUSTER_SIZE) return [];
 
   const groups = new Map<string, Observation[]>();
-  for (const obs of observations) {
+  for (const obs of eligible) {
     const key = `${obs.entityName}::${obs.type}`;
     const group = groups.get(key) ?? [];
     group.push(obs);

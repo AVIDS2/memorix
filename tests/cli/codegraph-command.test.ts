@@ -8,6 +8,8 @@ import { initObservations, storeObservation } from '../../src/memory/observation
 import { closeAllDatabases } from '../../src/store/sqlite-db.js';
 import { initObservationStore, resetObservationStore } from '../../src/store/obs-store.js';
 import { resetDb } from '../../src/store/orama-store.js';
+import { MaintenanceJobStore } from '../../src/runtime/maintenance-jobs.js';
+import { MaintenanceTargetStore } from '../../src/runtime/maintenance-targets.js';
 import { resetSessionStore } from '../../src/store/session-store.js';
 import { resetTeamStore } from '../../src/team/team-store.js';
 
@@ -159,6 +161,37 @@ describe('codegraph CLI command', () => {
     expect(result.stdout).toContain('Reliable memory');
     expect(result.stdout).toContain('authMiddleware');
     expect(result.stdout).toContain('src/auth.ts');
+  });
+
+  it('queues candidate qualification after a direct Code Memory refresh', async () => {
+    await initObservationStore(dataDir);
+    await initObservations(dataDir);
+    await storeObservation({
+      entityName: 'auth',
+      type: 'what-changed',
+      title: 'Automatic auth edit',
+      narrative: 'The hook changed src/auth.ts.',
+      filesModified: ['src/auth.ts'],
+      projectId: 'local/repo',
+      sourceDetail: 'hook',
+      valueCategory: 'contextual',
+      admissionState: 'candidate',
+      admissionReason: 'file mutation awaits Code Memory qualification',
+    });
+
+    await runCommand({ _: ['refresh'], json: true });
+
+    expect(new MaintenanceTargetStore(dataDir).get('local/repo')).toMatchObject({
+      projectRoot: repoDir,
+      dataDir,
+    });
+    expect(new MaintenanceJobStore(dataDir).list({ projectId: 'local/repo' })).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: 'observation-qualify',
+        dedupeKey: 'observation-qualify',
+        payload: expect.objectContaining({ source: 'manual-codegraph-refresh' }),
+      }),
+    ]));
   });
 
   it('keeps old refs stale after a file disappears on refresh', async () => {

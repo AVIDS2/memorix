@@ -49,6 +49,8 @@ function obsToRow(obs: Observation): Record<string, unknown> {
     relatedEntities: obs.relatedEntities ? JSON.stringify(obs.relatedEntities) : null,
     sourceDetail: obs.sourceDetail ?? null,
     valueCategory: obs.valueCategory ?? null,
+    admissionState: obs.admissionState ?? null,
+    admissionReason: obs.admissionReason ?? null,
     createdByAgentId: obs.createdByAgentId ?? null,
     writeGeneration: obs.writeGeneration ?? 0,
   };
@@ -80,6 +82,8 @@ function rowToObs(row: any): Observation {
     ...(row.relatedEntities ? { relatedEntities: safeJsonParse(row.relatedEntities, []) } : {}),
     ...(row.sourceDetail ? { sourceDetail: row.sourceDetail } : {}),
     ...(row.valueCategory ? { valueCategory: row.valueCategory } : {}),
+    ...(row.admissionState ? { admissionState: row.admissionState } : {}),
+    ...(row.admissionReason ? { admissionReason: row.admissionReason } : {}),
     ...(row.createdByAgentId ? { createdByAgentId: row.createdByAgentId } : {}),
     ...(row.writeGeneration ? { writeGeneration: row.writeGeneration } : {}),
   } as Observation;
@@ -132,12 +136,12 @@ export class SqliteBackend implements ObservationStore {
         (id, entityName, type, title, narrative, facts, filesModified, concepts, tokens,
          createdAt, updatedAt, projectId, hasCausalLanguage, topicKey, revisionCount,
          sessionId, status, progress, source, commitHash, relatedCommits, relatedEntities,
-         sourceDetail, valueCategory, createdByAgentId, writeGeneration)
+         sourceDetail, valueCategory, admissionState, admissionReason, createdByAgentId, writeGeneration)
       VALUES
         (@id, @entityName, @type, @title, @narrative, @facts, @filesModified, @concepts, @tokens,
          @createdAt, @updatedAt, @projectId, @hasCausalLanguage, @topicKey, @revisionCount,
          @sessionId, @status, @progress, @source, @commitHash, @relatedCommits, @relatedEntities,
-         @sourceDetail, @valueCategory, @createdByAgentId, @writeGeneration)
+         @sourceDetail, @valueCategory, @admissionState, @admissionReason, @createdByAgentId, @writeGeneration)
     `);
     this.stmtUpdate = this.stmtInsert; // INSERT OR REPLACE works for both
     this.stmtSetStatus = this.db.prepare(`UPDATE observations SET status = ? WHERE id = ?`);

@@ -1,5 +1,24 @@
-import { describe, it, expect } from 'vitest';
-import { sanitizeErrorPattern, hashErrorPattern } from '../../src/orchestrate/memorix-bridge.js';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+const { storeObservation } = vi.hoisted(() => ({
+  storeObservation: vi.fn(),
+}));
+
+vi.mock('../../src/memory/observations.js', () => ({ storeObservation }));
+
+import {
+  hashErrorPattern,
+  sanitizeErrorPattern,
+  storeFixExhausted,
+  storePipelineSummary,
+  storeTaskCompletion,
+  storeVerifiedFix,
+} from '../../src/orchestrate/memorix-bridge.js';
+
+beforeEach(() => {
+  storeObservation.mockReset();
+  storeObservation.mockResolvedValue(undefined);
+});
 
 describe('sanitizeErrorPattern', () => {
   it('should replace Windows absolute paths', () => {
@@ -59,5 +78,73 @@ describe('hashErrorPattern', () => {
     const h1 = hashErrorPattern('Error in C:\\Users\\alice\\project\\src\\file.ts:42:10');
     const h2 = hashErrorPattern('Error in C:\\Users\\bob\\project\\src\\file.ts:99:5');
     expect(h1).toBe(h2);
+  });
+});
+
+describe('automatic bridge admission', () => {
+  it('keeps a verified orchestration fix as a candidate until Code Memory qualifies it', async () => {
+    storeVerifiedFix({
+      projectId: 'org/repo',
+      gate: 'test',
+      errorOutput: 'src/auth.ts:42:10 expected 200, received 401',
+      fixDescription: 'Updated session validation and reran the focused test.',
+      fixAttempt: 1,
+      maxAttempts: 3,
+      passed: true,
+    });
+
+    await vi.waitFor(() => expect(storeObservation).toHaveBeenCalledTimes(1));
+    expect(storeObservation).toHaveBeenCalledWith(expect.objectContaining({
+      admissionState: 'candidate',
+      admissionReason: expect.stringContaining('awaits current Code Memory qualification'),
+    }));
+  });
+
+  it('keeps exhausted fix evidence as a candidate rather than auto-delivering it', async () => {
+    storeFixExhausted({
+      projectId: 'org/repo',
+      gate: 'compile',
+      errorOutput: 'src/index.ts:9:3 error TS2304',
+      fixDescription: 'Tried the available import paths.',
+      fixAttempt: 3,
+      maxAttempts: 3,
+      passed: false,
+    });
+
+    await vi.waitFor(() => expect(storeObservation).toHaveBeenCalledTimes(1));
+    expect(storeObservation).toHaveBeenCalledWith(expect.objectContaining({
+      admissionState: 'candidate',
+    }));
+  });
+
+  it('keeps task completion as an ephemeral trace and pipeline summary as a candidate', async () => {
+    storeTaskCompletion({
+      projectId: 'org/repo',
+      pipelineId: 'pipeline-1',
+      taskId: 'task-1',
+      taskDescription: 'Fix session timeout',
+      agentName: 'codex',
+      durationMs: 1_000,
+      tailOutput: 'Focused tests passed.',
+    });
+    await vi.waitFor(() => expect(storeObservation).toHaveBeenCalledTimes(1));
+    expect(storeObservation).toHaveBeenLastCalledWith(expect.objectContaining({
+      admissionState: 'ephemeral',
+      valueCategory: 'ephemeral',
+    }));
+
+    storePipelineSummary({
+      projectId: 'org/repo',
+      pipelineId: 'pipeline-1',
+      goal: 'Fix session timeout',
+      totalTasks: 2,
+      completed: 2,
+      failed: 0,
+      elapsedMs: 2_000,
+    });
+    await vi.waitFor(() => expect(storeObservation).toHaveBeenCalledTimes(2));
+    expect(storeObservation).toHaveBeenLastCalledWith(expect.objectContaining({
+      admissionState: 'candidate',
+    }));
   });
 });

@@ -2,15 +2,20 @@
  * Hook Handler
  *
  * Unified entry point for all agent hooks.
- * Architecture: Normalize → Classify → Policy → Store → Respond
+ * Architecture: Normalize → Classify → Admit → Store → Respond
  *
  * Design principles (inspired by claude-mem + mcp-memory-service):
- * - Store-first: capture generously, filter at read time
+ * - Candidate-first: automatic capture is never durable context by default
  * - Tool Taxonomy: declarative policies per tool category
  * - Pattern = classification only: determines observation type, not storage
  */
 
 import type { ObservationType } from '../types.js';
+import {
+  assessHookAdmission,
+  type HookAdmissionDecision,
+  type HookCaptureCategory,
+} from './admission.js';
 import { normalizeHookInput } from './normalizer.js';
 import { detectBestPattern, patternToObservationType } from './pattern-detector.js';
 import { isSignificantKnowledge, isRetrievedResult, isTrivialCommand } from './significance-filter.js';
@@ -49,7 +54,7 @@ const NOISE_COMMANDS = [
 // ─── Tool Taxonomy ───
 
 /** Tool categories for storage policy */
-type ToolCategory = 'file_modify' | 'file_read' | 'command' | 'search' | 'memorix_internal' | 'unknown';
+type ToolCategory = HookCaptureCategory;
 
 /** Storage policy per tool category */
 interface StoragePolicy {
@@ -233,7 +238,12 @@ function generateTitle(input: NormalizedHookInput, patternType: string): string 
   return `Activity (${patternType})`;
 }
 
-function buildObservation(input: NormalizedHookInput, content: string, category: ToolCategory) {
+function buildObservation(
+  input: NormalizedHookInput,
+  content: string,
+  category: ToolCategory,
+  admission?: Extract<HookAdmissionDecision, { action: 'store' }>,
+) {
   const pattern = detectBestPattern(content);
   const policy = STORAGE_POLICY[category] ?? STORAGE_POLICY.unknown;
   const fallbackType = input.filePath ? 'what-changed' : policy.defaultType;
@@ -252,6 +262,11 @@ function buildObservation(input: NormalizedHookInput, content: string, category:
     ],
     concepts: pattern?.matchedKeywords ?? [],
     filesModified: input.filePath ? [input.filePath] : [],
+    ...(admission ? {
+      valueCategory: admission.valueCategory,
+      admissionState: admission.admissionState,
+      admissionReason: admission.admissionReason,
+    } : {}),
   };
 }
 
@@ -281,6 +296,7 @@ async function handleSessionStart(input: NormalizedHookInput): Promise<{
       const { initMiniSkillStore } = await import('../store/mini-skill-store.js');
       const { initSessionStore } = await import('../store/session-store.js');
       const { initAliasRegistry, registerAlias } = await import('../project/aliases.js');
+      const { MaintenanceTargetStore } = await import('../runtime/maintenance-targets.js');
       const { buildAutoProjectContext, formatAutoProjectContextPrompt } = await import('../codegraph/auto-context.js');
 
       const rawProject = detectProject(input.cwd || process.cwd());
@@ -289,6 +305,11 @@ async function handleSessionStart(input: NormalizedHookInput): Promise<{
 
       initAliasRegistry(dataDir);
       const canonicalId = await registerAlias(rawProject);
+      new MaintenanceTargetStore(dataDir).register({
+        projectId: canonicalId,
+        projectRoot: rawProject.rootPath,
+        dataDir,
+      });
       await initObservationStore(dataDir);
       await initMiniSkillStore(dataDir);
       await initSessionStore(dataDir);
@@ -353,8 +374,17 @@ async function handleHookEventCore(input: NormalizedHookInput): Promise<{
     if (endContent.length < 50) {
       return { observation: null, output: defaultOutput };
     }
+    const draft = buildObservation(input, endContent, 'unknown');
+    const admission = assessHookAdmission({
+      hook: input,
+      category: 'unknown',
+      content: endContent,
+      observationType: draft.type,
+    });
     return {
-      observation: buildObservation(input, endContent, 'unknown'),
+      observation: admission.action === 'store'
+        ? buildObservation(input, endContent, 'unknown', admission)
+        : null,
       output: defaultOutput,
     };
   }
@@ -426,8 +456,17 @@ async function handleHookEventCore(input: NormalizedHookInput): Promise<{
   }
   markTriggered(cooldownKey);
 
+  const draft = buildObservation(input, content, category);
+  const admission = assessHookAdmission({
+    hook: input,
+    category,
+    content,
+    observationType: draft.type,
+  });
   return {
-    observation: buildObservation(input, content, category),
+    observation: admission.action === 'store'
+      ? buildObservation(input, content, category, admission)
+      : null,
     output: defaultOutput,
   };
 }
@@ -441,17 +480,24 @@ async function queueCodegraphRefreshForMutation(input: NormalizedHookInput): Pro
       { getProjectDataDir },
       { initAliasRegistry, registerAlias },
       { enqueueCodegraphRefresh },
+      { MaintenanceTargetStore },
     ] = await Promise.all([
       import('../project/detector.js'),
       import('../store/persistence.js'),
       import('../project/aliases.js'),
       import('../runtime/lifecycle.js'),
+      import('../runtime/maintenance-targets.js'),
     ]);
     const project = detectProject(input.cwd || process.cwd());
     if (!project) return;
     const dataDir = await getProjectDataDir(project.id);
     initAliasRegistry(dataDir);
     const projectId = await registerAlias(project);
+    new MaintenanceTargetStore(dataDir).register({
+      projectId,
+      projectRoot: project.rootPath,
+      dataDir,
+    });
     enqueueCodegraphRefresh({
       dataDir,
       projectId,
@@ -466,11 +512,25 @@ async function queueCodegraphRefreshForMutation(input: NormalizedHookInput): Pro
 export async function handleHookEvent(input: NormalizedHookInput): Promise<{
   observation: ReturnType<typeof buildObservation> | null;
   output: HookOutput;
+}>;
+export async function handleHookEvent(input: NormalizedHookInput, options: {
+  deferMaintenance?: boolean;
+}): Promise<{
+  observation: ReturnType<typeof buildObservation> | null;
+  output: HookOutput;
+}>;
+export async function handleHookEvent(input: NormalizedHookInput, options: {
+  deferMaintenance?: boolean;
+} = {}): Promise<{
+  observation: ReturnType<typeof buildObservation> | null;
+  output: HookOutput;
 }> {
   try {
     return await handleHookEventCore(input);
   } finally {
-    await queueCodegraphRefreshForMutation(input);
+    // The CLI persists an automatic observation after this function returns.
+    // It defers scheduling so a fast worker never scans before that write.
+    if (!options.deferMaintenance) await queueCodegraphRefreshForMutation(input);
   }
 }
 
@@ -571,7 +631,7 @@ export async function runHook(agentOverride?: string, eventOverride?: string): P
   }
 
   const input = normalizeHookInput(payload);
-  const { observation, output } = await handleHookEvent(input);
+  const { observation, output } = await handleHookEvent(input, { deferMaintenance: true });
 
   if (observation) {
     try {
@@ -582,6 +642,7 @@ export async function runHook(agentOverride?: string, eventOverride?: string): P
       const { detectProject } = await import('../project/detector.js');
       const { getProjectDataDir } = await import('../store/persistence.js');
       const { initAliasRegistry, registerAlias } = await import('../project/aliases.js');
+      const { MaintenanceTargetStore } = await import('../runtime/maintenance-targets.js');
 
       const rawProject = detectProject(input.cwd || process.cwd());
       if (!rawProject) throw new Error('No .git found');
@@ -591,100 +652,31 @@ export async function runHook(agentOverride?: string, eventOverride?: string): P
       initAliasRegistry(dataDir);
       const canonicalId = await registerAlias(rawProject);
       const projectId = canonicalId;
+      new MaintenanceTargetStore(dataDir).register({
+        projectId,
+        projectRoot: rawProject.rootPath,
+        dataDir,
+      });
       
       await initObservationStore(dataDir);
       await initMSStore(dataDir);
       await initSessStore(dataDir);
       await initObservations(dataDir);
       await storeObservation({ ...observation, projectId, sourceDetail: 'hook' });
-
-      // Shadow mode: Formation Pipeline metrics (fire-and-forget, never blocks)
-      try {
-        const { runFormation } = await import('../memory/formation/index.js');
-        const formationMode = (process.env.MEMORIX_FORMATION_MODE as 'shadow' | 'active' | 'fallback') || 'shadow';
-        const samplingRate = parseFloat(process.env.MEMORIX_FORMATION_HOOKS_SAMPLING_RATE || '0.1');
-        const shouldSample = Math.random() < samplingRate;
-
-        if (shouldSample) {
-          const { withFreshIndex } = await import('../memory/freshness.js');
-          const { getAllObservations } = await import('../memory/observations.js');
-          await withFreshIndex(() => getAllObservations());
-        }
-
-        // In hooks, shadow mode by default for performance
-        // Sampling rate controls how often we run full resolve (expensive)
-        const searchFn = shouldSample
-          ? async (q: string, limit: number, pid: string) => {
-              const { compactSearch, compactDetail } = await import('../compact/engine.js');
-              const result = await compactSearch({ query: q, limit, projectId: pid, status: 'active' });
-              if (result.entries.length === 0) return [];
-              const details = await compactDetail(result.entries.map(e => e.id));
-              return details.documents.map((d, i) => ({
-                id: Number(d.id.replace('obs-', '')),
-                observationId: d.observationId,
-                title: d.title,
-                narrative: d.narrative,
-                facts: d.facts,
-                entityName: d.entityName,
-                type: d.type,
-                score: result.entries[i]?.score ?? 0,
-              }));
-            }
-          : async () => []; // Skip search for speed (shadow mode)
-
-        const getObsFn = shouldSample
-          ? (id: number) => {
-              const { getObservation } = require('../memory/observations.js');
-              const o = getObservation(id);
-              if (!o) return null;
-              return {
-                id: o.id,
-                entityName: o.entityName,
-                type: o.type,
-                title: o.title,
-                narrative: o.narrative,
-                facts: o.facts,
-                topicKey: o.topicKey,
-              };
-            }
-          : () => null;
-
-        const getEntityNamesFn = shouldSample
-          ? () => {
-              const { graphManager } = require('../memory/graph.js');
-              return graphManager.getEntityNames();
-            }
-          : () => [];
-
-        runFormation({
-          entityName: observation.entityName,
-          type: observation.type,
-          title: observation.title,
-          narrative: observation.narrative,
-          facts: observation.facts,
-          projectId,
-          source: 'hook' as const,
-        }, {
-          mode: formationMode,
-          useLLM: false,
-          minValueScore: 0.3,
-          hooksSamplingRate: samplingRate,
-          searchMemories: searchFn,
-          getObservation: getObsFn,
-          getEntityNames: getEntityNamesFn,
-        }).catch(() => {});
-      } catch { /* Formation is optional — never break hooks */ }
-
-      // Feedback: tell the agent what was saved
-      const emoji = TYPE_EMOJI[observation.type] ?? '[PLAN]';
-      output.systemMessage = (output.systemMessage ?? '') +
-        `\n${emoji} Memorix saved: ${observation.title} [${observation.type}]`;
+      // Automatic capture is deliberately quiet. Candidate state and later
+      // qualification are visible through Memorix inspection, not injected as
+      // a stream of status messages into the host agent's context.
     } catch (storeErr) {
       // Diagnostic log — hooks must never break the agent, but silent
       // swallow makes end-to-end debugging impossible.
       console.error('[memorix] hook store failed:', (storeErr as Error)?.message ?? storeErr);
     }
   }
+
+  // A candidate must be durable before a Code Memory refresh can qualify it.
+  // Keep direct handleHookEvent() backward-compatible, but make the real CLI
+  // hook path explicitly capture first and schedule second.
+  await queueCodegraphRefreshForMutation(input);
 
   // Build hookSpecificOutput — Claude Code only supports it for 3 event types:
   //   PreToolUse, UserPromptSubmit, PostToolUse

@@ -1,6 +1,7 @@
 import { auditMemoryQuality, type MemoryQualityAuditReport } from './quality-audit.js';
 import type { Observation } from '../types.js';
 import { getRetentionZone } from './retention.js';
+import { isEligibleForAutomaticDelivery } from './admission.js';
 
 export interface GraphContextPacketOptions {
   projectId: string;
@@ -225,6 +226,8 @@ function scoreForPacket(obs: Observation, queryTokens: string[], referenceTime: 
     source: obs.source ?? 'agent',
     sourceDetail: obs.sourceDetail ?? '',
     valueCategory: obs.valueCategory ?? '',
+    admissionState: obs.admissionState ?? '',
+    admissionReason: obs.admissionReason ?? '',
   }, referenceTime) !== 'active') {
     score -= 2;
   }
@@ -348,8 +351,11 @@ export function buildGraphContextPacket(
     ...audit.issues.orphans.map((entry) => entry.id),
     ...audit.issues.retentionCandidates.map((entry) => entry.id),
   ]);
-  const filteredObservations = observations.filter((obs) => obs.projectId === options.projectId && !riskIds.has(obs.id));
-  const baseObservations = filteredObservations.length > 0 ? filteredObservations : observations;
+  const deliveryEligible = observations.filter(
+    (obs) => obs.projectId === options.projectId && isEligibleForAutomaticDelivery(obs),
+  );
+  const filteredObservations = deliveryEligible.filter((obs) => !riskIds.has(obs.id));
+  const baseObservations = filteredObservations.length > 0 ? filteredObservations : deliveryEligible;
   const memories = pickMemories(baseObservations, options.projectId, options.query, options.limit ?? 5, referenceTime);
   const entities = buildEntities(memories);
   const entityNames = new Set(entities.map((entity) => entity.name));

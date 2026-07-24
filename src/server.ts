@@ -2425,6 +2425,8 @@ export async function createMemorixServer(
         source: obs.source ?? 'agent',
         sourceDetail: obs.sourceDetail ?? '',
         valueCategory: obs.valueCategory ?? '',
+        admissionState: obs.admissionState ?? '',
+        admissionReason: obs.admissionReason ?? '',
       }));
 
       if (docs.length === 0) {

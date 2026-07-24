@@ -126,6 +126,8 @@ export function storeVerifiedFix(fix: FixResult): void {
         source: 'agent',
         sourceDetail: 'hook',
         valueCategory: confidence === 'high' ? 'core' : 'contextual',
+        admissionState: 'candidate',
+        admissionReason: 'verified orchestration fix awaits current Code Memory qualification',
       });
     } catch { /* fire-and-forget */ }
   })();
@@ -158,6 +160,8 @@ export function storeFixExhausted(fix: FixResult): void {
         source: 'agent',
         sourceDetail: 'hook',
         valueCategory: 'contextual',
+        admissionState: 'candidate',
+        admissionReason: 'automatic orchestration failure awaits current Code Memory qualification',
       });
     } catch { /* fire-and-forget */ }
   })();
@@ -300,6 +304,8 @@ export function storeTaskCompletion(opts: {
         source: 'agent',
         sourceDetail: 'hook',
         valueCategory: 'ephemeral',
+        admissionState: 'ephemeral',
+        admissionReason: 'pipeline completion retained only as a short-lived trace',
       });
     } catch { /* fire-and-forget */ }
   })();
@@ -338,6 +344,8 @@ export function storePipelineSummary(opts: {
         source: 'agent',
         sourceDetail: 'hook',
         valueCategory: 'contextual',
+        admissionState: 'candidate',
+        admissionReason: 'automatic pipeline summary awaits current Code Memory qualification',
       });
     } catch { /* fire-and-forget */ }
   })();

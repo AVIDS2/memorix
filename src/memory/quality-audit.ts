@@ -137,6 +137,8 @@ export function auditMemoryQuality(
       source: obs.source ?? 'agent',
       sourceDetail: obs.sourceDetail ?? '',
       valueCategory: obs.valueCategory ?? '',
+      admissionState: obs.admissionState ?? '',
+      admissionReason: obs.admissionReason ?? '',
     }, options.referenceTime) !== 'active')
     .map((obs) => makeEntry(obs, 'Outside active retention zone'));
 

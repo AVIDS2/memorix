@@ -20,6 +20,16 @@ export async function getCliProjectContext(options?: { searchIndex?: boolean; pr
 
   const project = detection.project;
   const dataDir = await getProjectDataDir(project.id);
+  try {
+    const { MaintenanceTargetStore } = await import('../../runtime/maintenance-targets.js');
+    new MaintenanceTargetStore(dataDir).register({
+      projectId: project.id,
+      projectRoot: project.rootPath,
+      dataDir,
+    });
+  } catch {
+    // CLI reads remain available even if optional background maintenance metadata fails.
+  }
   await initObservations(dataDir);
   await initSessionStore(dataDir);
   const teamStore = await initTeamStore(dataDir);

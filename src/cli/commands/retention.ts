@@ -24,6 +24,8 @@ function toDocument(obs: Awaited<ReturnType<typeof getAllObservations>>[number])
     source: obs.source ?? 'agent',
     sourceDetail: obs.sourceDetail ?? '',
     valueCategory: obs.valueCategory ?? '',
+    admissionState: obs.admissionState ?? '',
+    admissionReason: obs.admissionReason ?? '',
   };
 }
 

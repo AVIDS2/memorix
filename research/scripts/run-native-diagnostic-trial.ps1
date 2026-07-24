@@ -51,7 +51,7 @@ $workspacePath = [System.IO.Path]::GetFullPath($WorkspaceRoot)
 $caseFullPath = (Resolve-Path -LiteralPath $CasePath).Path
 $memorixCliPath = (Resolve-Path -LiteralPath $MemorixCli).Path
 $providerSettingsPath = (Resolve-Path -LiteralPath $ClaudeProviderSettings).Path
-$caseRoot = ((Resolve-Path -LiteralPath (Join-Path $researchRoot "cases")).Path.TrimEnd([char[]]'\')) + '\'
+$diagnosticCaseRoot = ((Resolve-Path -LiteralPath (Join-Path $researchRoot "diagnostics\native-session")).Path.TrimEnd([char[]]'\')) + '\'
 
 if (Test-Path -LiteralPath $artifactPath) {
     throw "ArtifactRoot must be a fresh directory."
@@ -59,8 +59,8 @@ if (Test-Path -LiteralPath $artifactPath) {
 if ($artifactPath.TrimEnd([char[]]'\') -eq $workspacePath.TrimEnd([char[]]'\')) {
     throw "ArtifactRoot and WorkspaceRoot must be separate."
 }
-if (-not $caseFullPath.StartsWith($caseRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
-    throw "CasePath must stay under the research cases directory."
+if (-not $caseFullPath.StartsWith($diagnosticCaseRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
+    throw "CasePath must stay under the native-session diagnostics directory."
 }
 
 $parent = Split-Path -Parent $artifactPath

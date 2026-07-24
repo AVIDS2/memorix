@@ -279,7 +279,19 @@ def build_claude_command(
     allowed_tools: Iterable[str] = (),
     settings_path: Path | None = None,
     controlled: bool = True,
+    bare: bool = True,
+    setting_sources: str = "",
+    permission_mode: str = "manual",
 ) -> list[str]:
+    if permission_mode not in {
+        "acceptEdits",
+        "auto",
+        "bypassPermissions",
+        "manual",
+        "dontAsk",
+        "plan",
+    }:
+        raise ValueError("Claude permission mode is unsupported")
     command = [
         "claude",
         "--print",
@@ -288,17 +300,20 @@ def build_claude_command(
         "--verbose",
         "--no-session-persistence",
         "--permission-mode",
-        "manual",
+        permission_mode,
     ]
     if controlled:
+        if setting_sources not in {"", "user", "project", "local"}:
+            raise ValueError("controlled Claude setting source is unsupported")
         command.extend([
-            "--bare",
             "--setting-sources",
-            "",
+            setting_sources,
             "--disable-slash-commands",
             "--tools",
             "Bash,Edit,Read",
         ])
+        if bare:
+            command.append("--bare")
     if mcp_config is not None:
         command.extend(["--strict-mcp-config", "--mcp-config", str(mcp_config)])
     if settings_path is not None:
@@ -1584,6 +1599,9 @@ def run_agent(
     allowed_tools: Iterable[str] = (),
     settings_path: Path | None = None,
     controlled: bool = True,
+    claude_bare: bool = True,
+    claude_setting_sources: str = "",
+    claude_permission_mode: str = "manual",
     verification_commands: Iterable[str] = (),
     writable_paths: Iterable[str] = (),
 ) -> AgentExecution:
@@ -1615,6 +1633,9 @@ def run_agent(
             allowed_tools=allowed_tools,
             settings_path=settings_path,
             controlled=controlled,
+            bare=claude_bare,
+            setting_sources=claude_setting_sources,
+            permission_mode=claude_permission_mode,
         )
     else:
         raise ValueError(f"unsupported agent: {agent}")

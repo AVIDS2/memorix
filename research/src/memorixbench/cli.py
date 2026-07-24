@@ -64,6 +64,7 @@ from .source_ledger import (
 )
 from .preflight import write_environment_preflight_receipt
 from .capture_session import capture_precursor_session
+from .native_client_capture import capture_native_client_session
 from .native_hook_capture import load_native_hook_capture, write_native_hook_capture
 from .trace_capture import capture_trace_from_streams
 from .trace import load_trace_bundle, write_trace_bundle
@@ -411,6 +412,28 @@ def _capture_native_hook_session(args: argparse.Namespace) -> int:
         "capture_sha256": capture.canonical_sha256,
         "event_count": len(capture.events),
     }, indent=2))
+    return 0
+
+
+def _capture_native_client_session(args: argparse.Namespace) -> int:
+    manifest = load_case_manifest(args.case)
+    capture = capture_native_client_session(
+        manifest=manifest,
+        prompt=args.prompt_file.read_text(encoding="utf-8"),
+        artifact_root=args.artifact_root,
+        portable_output=args.output,
+        workspace_root=args.workspace_root,
+        memorix_cli=args.memorix_cli,
+        claude_provider_settings=args.claude_provider_settings,
+        client_version=args.client_version,
+        storage_probe_query=args.storage_probe_query,
+        capture_id=args.capture_id,
+        model=args.model,
+        timeout_seconds=args.timeout_seconds,
+        max_budget_usd=args.max_budget_usd,
+        repository_cache=args.repository_cache,
+    )
+    print(json.dumps(capture.public_payload(), indent=2))
     return 0
 
 
@@ -989,6 +1012,22 @@ def build_parser() -> argparse.ArgumentParser:
     capture_native_hook.add_argument("--storage-probe-query", required=True)
     capture_native_hook.add_argument("--minimum-candidate-refs", type=int, default=1)
 
+    capture_native_client = subparsers.add_parser("capture-native-client-session")
+    capture_native_client.add_argument("case", type=Path)
+    capture_native_client.add_argument("--prompt-file", type=Path, required=True)
+    capture_native_client.add_argument("--artifact-root", type=Path, required=True)
+    capture_native_client.add_argument("--output", type=Path, required=True)
+    capture_native_client.add_argument("--workspace-root", type=Path, required=True)
+    capture_native_client.add_argument("--memorix-cli", type=Path, required=True)
+    capture_native_client.add_argument("--claude-provider-settings", type=Path, required=True)
+    capture_native_client.add_argument("--client-version", required=True)
+    capture_native_client.add_argument("--storage-probe-query", required=True)
+    capture_native_client.add_argument("--capture-id")
+    capture_native_client.add_argument("--model", required=True)
+    capture_native_client.add_argument("--timeout-seconds", type=int, default=240)
+    capture_native_client.add_argument("--max-budget-usd", type=float)
+    capture_native_client.add_argument("--repository-cache", type=Path)
+
     preflight = subparsers.add_parser("record-environment-preflight")
     preflight.add_argument("ledger", type=Path)
     preflight.add_argument("candidate_id")
@@ -1213,6 +1252,8 @@ def main() -> int:
             return _capture_precursor_session(args)
         if args.command == "capture-native-hook-session":
             return _capture_native_hook_session(args)
+        if args.command == "capture-native-client-session":
+            return _capture_native_client_session(args)
         if args.command == "record-environment-preflight":
             return _record_environment_preflight(args)
         if args.command == "preflight-baseline-runtime":

@@ -40,8 +40,28 @@ Every queued task must satisfy all of these before the first task request:
    a retryable task failure.
 
 The current route preflight passed on 2026-07-24 for the isolated
-`deepseek-v4-flash` route. That receipt authorizes no task by itself: every new
-queue invocation repeats the preflight immediately before its task run.
+`deepseek-v4-flash` route. That receipt verifies model routing only; it does
+not prove that a headless client emits command-hook events. Every new queue
+invocation repeats the preflight immediately before its task run.
+
+## Native Client Capture Status
+
+The real-client capture controller is implemented and fail-closed. It runs
+Claude in a disposable home and settings directory, deliberately omits
+`--bare` because that mode skips hooks, requires the exact declared precursor
+patch, and rejects a run if no raw `PostToolUse` event reaches the forwarder.
+
+On 2026-07-24, local headless Claude Code candidates on versions 2.1.201 and
+2.1.217 completed the bounded precursor task but did not emit the required raw
+hook event. No portable capture was produced and none of those attempts enters
+this queue. The absence is a diagnostic finding, not a zero, a failed task
+label, or a reason to alter a user's Claude configuration.
+
+Pi is documented separately in
+`LOCAL-AGENT-UX-DIAGNOSTIC.md`. Its one local two-turn product observation
+used Pi's existing Memorix extension and is deliberately not a queue row: it
+has no paired no-memory control, no pinned experimental model, and no
+admitted dependency case.
 
 ## Frozen Diagnostic Matrix
 
@@ -76,7 +96,14 @@ the paper's canonical efficacy table.
 
 ## Current Queue State
 
-No newly admitted native diagnostic case is queued yet. This is intentional:
-the older local pilot fixtures are not retroactively promoted after their
-outcomes were seen. The next execution requires a newly authored and reviewed
-development case per the entry gates above.
+`diagnostics/native-session/go-logr-repeated-values-v1` is a newly authored
+development-only negative-control draft. Its predeclared
+`native-hook-capture.json` is intentionally absent until a real client capture
+passes every capture gate, so it cannot be run as a trial today. It is outside
+`research/cases/`, outside the frozen public registry, and outside public
+result tables.
+
+No native diagnostic case is admitted or queued. Older local pilots and the Pi
+usability observation are not retroactively promoted after their outcomes were
+seen. The next execution requires a newly authored and reviewed development
+case, a valid portable capture, and every entry gate above.

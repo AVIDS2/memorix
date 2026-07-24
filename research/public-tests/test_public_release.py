@@ -59,6 +59,8 @@ def test_public_summary_hash_and_release_manifest_are_auditable() -> None:
     assert audit.release_id == PUBLIC_RELEASE_V2_ID
     assert audit.entry_count == len(public_release_v2_paths(root))
     assert "EVIDENCE-STATUS.md" in public_release_v2_paths(root)
+    assert "LOCAL-AGENT-UX-DIAGNOSTIC.md" in public_release_v2_paths(root)
+    assert "src/memorixbench/native_client_capture.py" in public_release_v2_paths(root)
 
 
 def test_paper_public_result_text_matches_the_frozen_summaries() -> None:

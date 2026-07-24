@@ -394,14 +394,19 @@ command lines are pinned and archived. Provider-reported per-model usage is
 also archived; a client run that invokes helper models is labelled `mixed`, not
 as a pure run of the requested model. A trial may declare a required single
 model; it is then invalid unless both the provider-reported model set and
-per-model usage contain exactly that one model. Claude trials use `--bare`, explicit MCP
-configuration, disabled client auto-memory, a separate workspace root, and
-read/edit denials for artifact, home, and source-repository paths. Bash is
-allowed for normal work inside a disposable checkout, while parent traversal,
-network, installation, remote-Git, dynamic-interpreter, and external-path
-commands are denied or detected from the archived event stream. Native Windows
-permission controls are treated as a mitigation, not as a substitute for this
-documented command-contamination audit.
+per-model usage contain exactly that one model. Controlled Claude *trials* use
+`--bare`, explicit MCP configuration, disabled client auto-memory, a separate
+workspace root, and read/edit denials for artifact, home, and source-repository
+paths. The development-only real-client hook-capture controller is the explicit
+exception: it must omit `--bare` because that mode skips hooks, while retaining
+the disposable home/settings directory, narrow tool allowlist, exact-patch
+attestation, and one-model route requirement documented in
+`NATIVE-SESSION-FORMATION-CONTRACT.md`. Bash is allowed for normal work inside
+a disposable checkout, while parent traversal, network, installation,
+remote-Git, dynamic-interpreter, and external-path commands are denied or
+detected from the archived event stream. Native Windows permission controls are
+treated as a mitigation, not as a substitute for this documented
+command-contamination audit.
 
 The raw event timeline stays in the private run artifact. The worker-to-vault
 boundary permits only a sanitized action ledger with no client/provider

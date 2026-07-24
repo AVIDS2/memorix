@@ -137,3 +137,37 @@ stdin and forward it to Memorix, use `scripts/native-hook-forwarder.ps1` from
 an external settings file. Pass the CLI, private JSONL log, data directory, and
 home directory as explicit arguments. The script is a byte-preserving transport
 helper; its arguments and generated logs remain external to the public release.
+
+## Real Client Capture
+
+`capture-native-client-session` joins the real client and the portable capture
+converter for a development-only diagnostic. It creates a disposable Claude
+home, settings directory, temporary directory, Memorix data directory, and
+workspace. It never reads or edits a user's Claude configuration.
+
+The capture controller intentionally runs without `--bare`, because Claude
+Code documents that `--bare` skips hooks. It still limits the tool surface,
+disables session persistence, permits only the declared source paths and
+focused checks, requires one exact requested model, pins every internal Claude
+role to that model, and requires the final workspace to match the predeclared
+precursor patch exactly.
+
+```powershell
+uv run memorixbench capture-native-client-session <diagnostic-case>/case.toml `
+  --prompt-file <diagnostic-case>/precursor-prompt.txt `
+  --artifact-root <fresh-private-artifact-root> `
+  --output <fresh-external-output>/native-hook-capture.json `
+  --workspace-root <fresh-external-workspace-root> `
+  --memorix-cli <built-memorix-cli> `
+  --claude-provider-settings <private-provider-settings.json> `
+  --model <exact-client-model-label> `
+  --client-version <observed-client-version> `
+  --storage-probe-query <public-probe-query>
+```
+
+The command fails rather than producing a partial result if the client does
+not emit a raw `PostToolUse` event, performs another edit, crosses a forbidden
+boundary, changes the requested model route, or cannot form searchable
+Memorix state from the sanitized capture. A passing portable capture remains
+local diagnostic provenance until the separate confirmatory worker and review
+gates are met.

@@ -35,6 +35,10 @@ confirmatory claims remain locked until independent execution is complete.
   and the Track B/Track C boundary.
 - NATIVE-SESSION-FORMATION-CONTRACT.md: portable Claude Code hook capture,
   isolated native formation, and its stricter non-comparison boundary.
+- NATIVE-DIAGNOSTIC-EXECUTION-QUEUE.md: frozen policy for local native-product
+  diagnostics, kept separate from public and confirmatory evidence.
+- LOCAL-AGENT-UX-DIAGNOSTIC.md: one documented Pi Coding Agent usability
+  observation and its explicit non-efficacy boundary.
 
 ## Baseline runtime gates
 

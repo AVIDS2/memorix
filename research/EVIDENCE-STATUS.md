@@ -30,7 +30,7 @@ independent cases.
 | --- | --- | --- |
 | Freshness-aware Workset delivery | Source-level and integration tests cover current, stale, suspect, and caution routing. | Held-out coding-task outcomes showing that this changes agent behavior or patch correctness. |
 | Budgeted native MCP delivery profiles | The native gateway and delivery profiles are implemented and tested. The profiles control the agent-facing memory bundle, not the underlying store or project files. | A preregistered native-agent outcome study, including stale-conflict labels and negative controls. |
-| Native hook formation path | Portable hook capture, isolated formation checks, and diagnostics are implemented. | A fair cross-client or cross-agent effectiveness result. |
+| Native hook formation path | Portable hook capture, isolated formation checks, and a real-client capture controller are implemented and tested. The controller requires one exact requested model and rejects missing hook events, mismatched precursor edits, route mismatches, and non-development cases. | An admitted real-client capture. Local headless Claude candidates that did not emit a `PostToolUse` event remain invalid diagnostic attempts, not result rows. |
 | Baseline, route, and artifact guards | The harness rejects mixed models, incomplete matrices, unsafe source material, public-artifact drift, and unsupported confirmatory evidence tiers. | Independent operation of the future trusted relay, worker, vault, and runtime manager. |
 
 An implementation test proves that the harness enforces its contract. It does
@@ -48,6 +48,11 @@ confirmatory result rows:
 - a reviewer-frozen power envelope and Holm-controlled primary analysis;
 - cross-agent transfer trials; and
 - a trusted single-model relay plus independent runtime attestation.
+
+One local Pi Coding Agent two-turn usability observation is recorded in
+`LOCAL-AGENT-UX-DIAGNOSTIC.md`. It exercises the existing Memorix extension in
+a fresh session and is useful product feedback, but it is neither a paired
+comparison nor a public-cohort result. It does not change any claim status.
 
 The source ledger has three screened public repository leads. Their source
 provenance, license, and hash-only private-draft pre-review checks passed, but

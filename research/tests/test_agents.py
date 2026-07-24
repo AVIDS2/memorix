@@ -44,6 +44,34 @@ def test_claude_no_memory_command_uses_bare_controlled_mode() -> None:
     assert "--max-budget-usd" in command
 
 
+def test_controlled_claude_command_can_enable_hooks_without_loading_user_settings() -> None:
+    command = build_claude_command(
+        model="claude-fable-5",
+        controlled=True,
+        bare=False,
+    )
+
+    assert "--bare" not in command
+    assert command[command.index("--setting-sources") + 1] == ""
+    assert "--disable-slash-commands" in command
+
+
+def test_controlled_claude_command_can_use_an_isolated_user_settings_source() -> None:
+    command = build_claude_command(
+        controlled=True,
+        bare=False,
+        setting_sources="user",
+    )
+
+    assert command[command.index("--setting-sources") + 1] == "user"
+
+
+def test_controlled_claude_command_can_use_accept_edits_for_a_disposable_workspace() -> None:
+    command = build_claude_command(permission_mode="acceptEdits")
+
+    assert command[command.index("--permission-mode") + 1] == "acceptEdits"
+
+
 def test_claude_mcp_command_uses_only_explicit_config() -> None:
     command = build_claude_command(
         mcp_config=Path("C:/fixture/mcp.json"),

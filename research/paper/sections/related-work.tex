@@ -1,0 +1,41 @@
+\section{Related Work}
+
+Long-term memory research has largely evaluated conversational retention,
+retrieval, updates, and conflict handling. Mem0 develops a scalable memory
+architecture for long-running agent interactions~\cite{chhikara2025mem0}.
+LongMemEval evaluates interactive chat memory across extraction, temporal
+reasoning, knowledge updates, and abstention~\cite{wu2024longmemeval}.
+MemoryAgentBench organizes incremental multi-turn memory around retrieval,
+test-time learning, long-range understanding, and selective forgetting~\cite{hu2025memoryagentbench}. MemoryArena extends the focus to interdependent
+multi-session agentic tasks~\cite{he2026memoryarena}. EvoArena further models
+progressive updates across dynamic environments, including software, and
+proposes patch-based evolving memory~\cite{xu2026evoarena}. These works make it
+inappropriate to claim that dynamic memory or environment evolution is new.
+Agent Workflow Memory separately induces and selectively retrieves reusable
+workflows for web-navigation tasks~\cite{wang2024agentworkflowmemory}; it does
+not evaluate whether a fresh coding agent produces a correct patch after a
+repository evolution.
+
+These evaluations motivate the need to study memory as an intervention in an
+agent loop. \bench{} differs in its downstream unit: a precursor engineering
+session, a controlled repository evolution, and a fresh agent that must produce
+a tested patch. It therefore measures neither a memory-answer score nor a
+general preference judgment.
+
+Repository-level benchmarks establish another adjacent line. RepoQA evaluates
+long-context code understanding through repository code search~\cite{liu2024repoqa}, while SWE-bench grounds code-agent evaluation in real
+GitHub issues~\cite{jimenez2023swebench}. SWE-EVO evaluates long-horizon,
+multi-file software evolution~\cite{le2025sweevo}, and ChainSWE evaluates
+dependent bug-fix chains in a shared codebase~\cite{jin2026chainswe}. Public repository history is useful
+provenance, but it also makes task and solution exposure a methodological
+concern; a recent audit of SWE-bench Verified illustrates that risk~\cite{openai2026swebench}. Our artifact treats public history only as a source lead and requires
+a separately reviewed private post-snapshot transition before a real repository
+can enter the confirmatory corpus.
+
+The distinction is therefore not that \bench{} introduces evolving code or
+multi-session memory. It isolates a different intervention: a fresh agent sees
+the same evolved repository and ordinary tools in every condition, while only
+bounded predecessor evidence changes. The design compares equal-evidence memory
+adapters, reports native product behavior separately, and treats stale
+predecessor claims as an observable risk rather than assuming that more history
+is always useful.

@@ -1,0 +1,48 @@
+schema_version = "0.5"
+id = "python-limit-clamp-v1"
+title = "Clamp an explicit page limit"
+split = "public-evaluation"
+dependency_strength = "low"
+dependency_classification_status = "preregistered"
+language = "python"
+tags = ["public-evaluation", "current-source-control"]
+
+[bundle]
+public_paths = ["case.toml", "seed"]
+
+[repository]
+source_type = "local-fixture"
+path = "seed"
+base_revision = "python-limit-clamp-v1-base"
+
+[precursor]
+task = "Record the release-note wording for the previous pagination cleanup."
+success_commands = ["python -m unittest discover -s tests -p \"*_unittest.py\""]
+
+[transition]
+kind = "none"
+description = "The current source and test are sufficient for the transfer task."
+apply_commands = []
+
+[transfer]
+task = "Fix `clamp_limit` in `src/paging.py` so callers always receive a value inside the supplied inclusive range. Run the trusted test."
+success_commands = ["python -m unittest discover -s tests -p \"*_unittest.py\""]
+
+[[memory_seed]]
+entity_name = "pagination-release-note"
+type = "discovery"
+title = "Release-note formatting was updated"
+narrative = "The previous session changed a documentation heading from Pagination to Paging. It did not define runtime limit behavior."
+facts = ["Documentation wording is not a runtime policy."]
+files_modified = ["docs/release-notes.md"]
+concepts = ["documentation"]
+topic_key = "pagination-release-note"
+related_entities = ["release-notes"]
+
+[oracle]
+visibility = "public"
+required_start_files = ["src/paging.py", "tests/paging_unittest.py"]
+relevant_evidence_ids = []
+stale_evidence_ids = []
+forbidden_actions = []
+agent_writable_paths = ["src"]

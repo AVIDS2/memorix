@@ -1,0 +1,38 @@
+schema_version = "0.5"
+id = "prompt-fixture"
+title = "Prompt construction fixture"
+split = "development"
+dependency_strength = "low"
+dependency_classification_status = "retrospective-development"
+language = "text"
+tags = ["fixture", "prompt"]
+
+[bundle]
+public_paths = ["case.toml", "seed", "transition.patch", "precursor-transcript.md"]
+
+[repository]
+source_type = "local-fixture"
+path = "seed"
+base_revision = "fixture-base"
+
+[precursor]
+task = "Review the durable project policy before an implementation-owner move."
+success_commands = ["git status --short"]
+transcript = "precursor-transcript.md"
+
+[transition]
+kind = "code-change"
+description = "A controlled transfer snapshot changes the implementation owner."
+apply_commands = []
+patch = "transition.patch"
+
+[transfer]
+task = "Continue the implementation-owner migration and restore the durable project policy in the current source."
+success_commands = ["git status --short"]
+
+[oracle]
+visibility = "public"
+required_start_files = ["project.txt"]
+relevant_evidence_ids = []
+stale_evidence_ids = []
+forbidden_actions = []

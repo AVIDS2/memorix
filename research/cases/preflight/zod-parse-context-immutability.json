@@ -1,0 +1,21 @@
+{
+  "schema_version": "candidate-environment-preflight-v1",
+  "candidate_id": "zod-parse-context-immutability",
+  "base_revision": "57d80a82bde8877f3eb79e5dad9786096c37490f",
+  "public_transition_revision": "f19860f1f17e3bdc3e696ee5290441bba093d7a4",
+  "bootstrap": {
+    "command": "pnpm install --frozen-lockfile --ignore-scripts",
+    "exit_code": 0,
+    "log_sha256": "a2ae693b7b56a225e9f7affee55b99cb163b63c43ed002b2aa830517993ca9b3"
+  },
+  "offline": {
+    "command": "pnpm install --offline --frozen-lockfile --ignore-scripts; pnpm exec vitest run packages/zod/src/v4/classic/tests/codec.test.ts",
+    "exit_code": 0,
+    "log_sha256": "b14d9d6a3ba13217d41876a9d91ac8d85a5edcccf44ae7f79b795a7e64a6186d"
+  },
+  "runtime": "node22.22.3 pnpm10.12.1 windows-amd64",
+  "offline_policy": "node-offline-store-v1",
+  "cache_profile": "external-artifact-root-v1",
+  "passed": true,
+  "observed_at_utc": "2026-07-22T10:00:16.488690+00:00"
+}

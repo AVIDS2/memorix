@@ -1,0 +1,29 @@
+\section{Introduction}
+
+Agent memory is not automatically useful. A fresh coding agent may inspect the
+current repository, run focused tests, and reconstruct the necessary behavior
+without predecessor context. In that setting, injecting older summaries can add
+latency, consume context, or promote a stale assumption. A credible evaluation
+must therefore preserve the ordinary capabilities of a no-memory agent instead
+of weakening it to manufacture a benefit.
+
+\memorix{} is a project memory system for coding agents. Its intended role is
+not to replay every prior interaction. It forms a task workset that combines
+current code state with bounded durable project evidence, warnings for suspect
+claims, and optional knowledge and workflow context. Current source has
+precedence over narrative memory.
+
+This paper introduces the evaluation design for that claim. The central question
+is conditional: for a declared cross-session dependency after controlled project
+evolution, does freshness-aware project memory improve the next agent's
+engineering outcome relative to a capable fresh agent with the same current
+repository access? Equally important, does optional use abstain when current
+source is already enough?
+
+Our contributions are an evaluation protocol for a narrow fresh-agent transfer
+question, a strong no-memory control, a separation between canonical retrieval
+and native product behavior, a 144-run public reproducible cohort plus a
+separately frozen 72-run cross-model replication, and an evidence boundary
+that rejects local diagnostics as confirmatory results. We do not claim that
+software evolution, dynamic memory, or sequential coding tasks are new in
+themselves; adjacent benchmarks already study those broader settings.

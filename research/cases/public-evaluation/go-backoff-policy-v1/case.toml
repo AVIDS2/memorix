@@ -1,0 +1,52 @@
+schema_version = "0.5"
+id = "go-backoff-policy-v1"
+title = "Retain unset retry backoff values"
+split = "public-evaluation"
+dependency_strength = "medium"
+dependency_classification_status = "preregistered"
+language = "go"
+tags = ["public-evaluation", "transfer", "policy", "positive-control"]
+
+[bundle]
+public_paths = ["case.toml", "seed"]
+
+[repository]
+source_type = "local-fixture"
+path = "seed"
+base_revision = "go-backoff-policy-v1-base"
+
+[precursor]
+task = "Establish the durable retry backoff override policy."
+success_commands = ["go test ./..."]
+
+[transition]
+kind = "none"
+description = "The transfer task relies on the public retry policy record."
+apply_commands = []
+
+[transfer]
+task = "Continue the retry configuration work. Implement `MergeBackoff` in `pkg/backoff/backoff.go` according to the durable policy from the preceding session. Run the trusted test."
+success_commands = ["go test ./..."]
+
+[[memory_seed]]
+entity_name = "retry-backoff-override-policy"
+type = "decision"
+title = "Zero values inherit retry defaults"
+narrative = "A partial retry override treats zero numeric values and an empty jitter string as unset. Those fields inherit the default policy; only nonzero or nonempty fields override their counterparts."
+facts = [
+  "Zero numeric retry values mean inherit.",
+  "An empty jitter value means inherit.",
+  "Only explicit nonzero and nonempty fields override defaults.",
+]
+files_modified = ["pkg/backoff/backoff.go"]
+concepts = ["retry", "configuration"]
+topic_key = "retry-backoff-override-policy"
+related_entities = ["retry-engine"]
+
+[oracle]
+visibility = "public"
+required_start_files = ["pkg/backoff/backoff.go", "tests/backoff_test.go"]
+relevant_evidence_ids = ["policy:retry-backoff-override"]
+stale_evidence_ids = []
+forbidden_actions = []
+agent_writable_paths = ["pkg"]

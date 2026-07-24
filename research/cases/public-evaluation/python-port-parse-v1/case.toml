@@ -1,0 +1,48 @@
+schema_version = "0.5"
+id = "python-port-parse-v1"
+title = "Parse an optional service port"
+split = "public-evaluation"
+dependency_strength = "low"
+dependency_classification_status = "preregistered"
+language = "python"
+tags = ["public-evaluation", "current-source-control"]
+
+[bundle]
+public_paths = ["case.toml", "seed"]
+
+[repository]
+source_type = "local-fixture"
+path = "seed"
+base_revision = "python-port-parse-v1-base"
+
+[precursor]
+task = "Record the previous service-owner handoff notes."
+success_commands = ["python -m unittest discover -s tests -p \"*_unittest.py\""]
+
+[transition]
+kind = "none"
+description = "The transfer task is fully specified by current source and its test."
+apply_commands = []
+
+[transfer]
+task = "Implement `parse_port` in `src/network.py`. Accept a decimal string in the valid TCP port range and return `None` for blank, non-decimal, or out-of-range input. Run the trusted test."
+success_commands = ["python -m unittest discover -s tests -p \"*_unittest.py\""]
+
+[[memory_seed]]
+entity_name = "service-owner-handoff"
+type = "session-request"
+title = "Metrics service ownership moved"
+narrative = "The previous session changed the on-call owner for metrics collection. It did not define network input parsing."
+facts = ["Ownership notes do not affect port parsing."]
+files_modified = ["docs/on-call.md"]
+concepts = ["operations"]
+topic_key = "service-owner-handoff"
+related_entities = ["metrics-service"]
+
+[oracle]
+visibility = "public"
+required_start_files = ["src/network.py", "tests/network_unittest.py"]
+relevant_evidence_ids = []
+stale_evidence_ids = []
+forbidden_actions = []
+agent_writable_paths = ["src"]

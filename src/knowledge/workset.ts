@@ -28,6 +28,31 @@ export interface WorksetCaution {
   message: string;
 }
 
+/**
+ * Research-facing prompt delivery profiles. They change only what the agent
+ * receives from an already-built Workset; they never change indexing,
+ * retrieval, storage, or background maintenance.
+ */
+export const TASK_WORKSET_DELIVERY_PROFILES = [
+  'full',
+  'no-freshness',
+  'no-current-state',
+  'no-semantic-code',
+  'no-knowledge',
+  'no-workflow',
+] as const;
+
+export type TaskWorksetDeliveryProfile = typeof TASK_WORKSET_DELIVERY_PROFILES[number];
+
+export interface TaskWorksetDelivery {
+  profile: TaskWorksetDeliveryProfile;
+  prompt: string;
+  tokenCount: number;
+  omitted: string[];
+  /** Stable component names removed before the normal Workset renderer ran. */
+  suppressed: string[];
+}
+
 export interface WorksetClaim {
   id: string;
   assertion: string;
@@ -379,6 +404,114 @@ export function renderTaskWorksetPrompt(input: Omit<TaskWorkset, 'prompt' | 'bud
     prompt: lines.join('\n'),
     tokenCount: countTextTokens(lines.join('\n')),
     omitted: unique(omitted),
+  };
+}
+
+const FRESHNESS_CAUTION_KINDS = new Set<WorksetCautionKind>([
+  'suspect-code-memory',
+  'stale-code-memory',
+  'incomplete-scan',
+  'codegraph-refresh-queued',
+  'codegraph-refresh-failed',
+  'external-codegraph-fallback',
+]);
+
+const CURRENT_STATE_CAUTION_KINDS = new Set<WorksetCautionKind>([
+  'dirty-worktree',
+  'incomplete-scan',
+  'codegraph-refresh-queued',
+  'codegraph-refresh-failed',
+  'external-codegraph-fallback',
+]);
+
+const KNOWLEDGE_CAUTION_KINDS = new Set<WorksetCautionKind>([
+  'claim-conflict',
+  'claim-needs-review',
+]);
+
+/**
+ * Render a counterfactual agent-facing delivery without changing the Workset
+ * that the product formed. This is intentionally not a product-mode switch:
+ * it supports controlled evaluation of which delivered evidence is useful.
+ */
+export function renderTaskWorksetDelivery(
+  workset: TaskWorkset,
+  profile: TaskWorksetDeliveryProfile = 'full',
+): TaskWorksetDelivery {
+  if (profile === 'full') {
+    return {
+      profile,
+      prompt: workset.prompt,
+      tokenCount: workset.budget.tokenCount,
+      omitted: [...workset.budget.omitted],
+      suppressed: [],
+    };
+  }
+
+  const { prompt: _prompt, budget, ...base } = workset;
+  let input: Omit<TaskWorkset, 'prompt' | 'budget'> = base;
+  let suppressed: string[];
+
+  switch (profile) {
+    case 'no-freshness':
+      input = {
+        ...input,
+        cautionMemory: [],
+        hiddenCautionMemoryCount: 0,
+        cautions: input.cautions.filter(caution => !FRESHNESS_CAUTION_KINDS.has(caution.kind)),
+      };
+      suppressed = ['caution-memory', 'freshness-cautions'];
+      break;
+    case 'no-current-state':
+      input = {
+        ...input,
+        currentFacts: [],
+        codeState: undefined,
+        cautions: input.cautions.filter(caution => !CURRENT_STATE_CAUTION_KINDS.has(caution.kind)),
+      };
+      suppressed = ['current-facts', 'code-state', 'current-state-cautions'];
+      break;
+    case 'no-semantic-code':
+      input = { ...input, semanticCode: undefined };
+      suppressed = ['semantic-code'];
+      break;
+    case 'no-knowledge':
+      input = {
+        ...input,
+        claims: [],
+        pages: [],
+        evidenceIds: [],
+        cautions: input.cautions.filter(caution => !KNOWLEDGE_CAUTION_KINDS.has(caution.kind)),
+      };
+      suppressed = ['knowledge-claims', 'knowledge-pages', 'knowledge-cautions'];
+      break;
+    case 'no-workflow': {
+      const workflowVerification = new Set(input.workflows.flatMap(workflow => workflow.verificationGates));
+      input = {
+        ...input,
+        workflows: [],
+        verification: input.verification.filter(check => !workflowVerification.has(check)),
+        cautions: input.cautions.filter(caution => caution.kind !== 'workflow-failed-verification'),
+      };
+      suppressed = ['workflow', 'workflow-verification', 'workflow-cautions'];
+      break;
+    }
+    default: {
+      const exhaustive: never = profile;
+      throw new Error(`Unsupported Task Workset delivery profile: ${exhaustive}`);
+    }
+  }
+
+  const rendered = renderTaskWorksetPrompt({
+    ...input,
+    budget: { maxTokens: budget.maxTokens },
+  });
+  return {
+    profile,
+    prompt: rendered.prompt,
+    tokenCount: rendered.tokenCount,
+    omitted: rendered.omitted,
+    suppressed,
   };
 }
 

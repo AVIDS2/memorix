@@ -1,0 +1,53 @@
+schema_version = "0.5"
+id = "python-header-policy-v1"
+title = "Preserve retry header merge policy"
+split = "public-evaluation"
+dependency_strength = "medium"
+dependency_classification_status = "preregistered"
+language = "python"
+tags = ["public-evaluation", "transfer", "policy", "positive-control"]
+
+[bundle]
+public_paths = ["case.toml", "seed"]
+
+[repository]
+source_type = "local-fixture"
+path = "seed"
+base_revision = "python-header-policy-v1-base"
+
+[precursor]
+task = "Establish the durable request-header merge policy for the retry middleware."
+success_commands = ["python -m unittest discover -s tests -p \"*_unittest.py\""]
+
+[transition]
+kind = "none"
+description = "The transfer task uses the public snapshot and the bounded predecessor policy."
+apply_commands = []
+
+[transfer]
+task = "Continue the retry middleware header merge work. Implement `merge_headers` in `src/headers.py` according to the durable project policy established in the preceding session. Run the trusted test."
+success_commands = ["python -m unittest discover -s tests -p \"*_unittest.py\""]
+
+[[memory_seed]]
+entity_name = "retry-header-merge-policy"
+type = "decision"
+title = "Retry header merge is case-insensitive but presentation-stable"
+narrative = "The retry middleware compares header names case-insensitively. A request value replaces a default value without creating a second differently cased key. The output preserves the casing and insertion position of the first occurrence; new request-only headers append after defaults."
+facts = [
+  "Header identity is case-insensitive.",
+  "A request value overwrites the matching default value.",
+  "Keep the first occurrence's spelling and position.",
+  "Append request-only headers after default headers.",
+]
+files_modified = ["src/headers.py"]
+concepts = ["retry", "headers", "case-insensitive merge"]
+topic_key = "retry-header-merge-policy"
+related_entities = ["retry-middleware"]
+
+[oracle]
+visibility = "public"
+required_start_files = ["src/headers.py", "tests/headers_unittest.py"]
+relevant_evidence_ids = ["policy:retry-header-merge"]
+stale_evidence_ids = []
+forbidden_actions = []
+agent_writable_paths = ["src"]

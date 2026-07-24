@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 vi.mock('../../src/embedding/provider.js', () => ({
   getEmbeddingProvider: async () => null,
@@ -34,12 +34,32 @@ import { resetDb } from '../../src/store/orama-store.js';
 import { resetObservationStore } from '../../src/store/obs-store.js';
 import { closeAllDatabases } from '../../src/store/sqlite-db.js';
 
-let testDir: string;
+let suiteDataDir: string;
+let previousSuiteDataDir: string | undefined;
 
 beforeEach(async () => {
-  testDir = await fs.mkdtemp(path.join(os.tmpdir(), 'memorix-profile-'));
-  await fs.mkdir(path.join(testDir, '.git'));
+  previousSuiteDataDir = process.env.MEMORIX_DATA_DIR;
+  suiteDataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'memorix-profile-suite-data-'));
+  process.env.MEMORIX_DATA_DIR = suiteDataDir;
+  resetTomlConfigCache();
+  resetResolvedConfigCache();
+  resetObservationStore();
+  closeAllDatabases();
   await resetDb();
+});
+
+afterEach(async () => {
+  closeAllDatabases();
+  resetObservationStore();
+  await resetDb();
+  resetTomlConfigCache();
+  resetResolvedConfigCache();
+  if (previousSuiteDataDir === undefined) {
+    delete process.env.MEMORIX_DATA_DIR;
+  } else {
+    process.env.MEMORIX_DATA_DIR = previousSuiteDataDir;
+  }
+  await fs.rm(suiteDataDir, { recursive: true, force: true });
 });
 
 function getToolNames(server: any): string[] {
@@ -340,6 +360,16 @@ describe('Tool profile registration', () => {
     expect(text).toContain('Memorix Autopilot Brief');
     expect(text).toContain('Task lens: bugfix');
     expect(text).toContain('run the smallest failing test or repro first');
+
+    const deliveryJson = getText(await projectContext({
+      task: 'fix failing startup smoke',
+      refresh: 'never',
+      format: 'json',
+      deliveryProfile: 'no-semantic-code',
+    }));
+    const delivery = JSON.parse(deliveryJson).delivery;
+    expect(delivery.profile).toBe('no-semantic-code');
+    expect(delivery.suppressed).toEqual(['semantic-code']);
   }, 30000);
 
   it('should apply CodeGraph exclude patterns to the MCP context pack handler', async () => {

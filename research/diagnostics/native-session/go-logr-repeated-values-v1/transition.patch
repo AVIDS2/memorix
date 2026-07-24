@@ -1,0 +1,17 @@
+diff --git a/funcr/example_test.go b/funcr/example_test.go
+index 1e1a2b2..9197a9a 100644
+--- a/funcr/example_test.go
++++ b/funcr/example_test.go
+@@ -94,9 +94,10 @@ func ExampleOptions_renderHooks() {
+ 			RenderValuesHook:   valuesAsObject,
+ 		})
+ 	log = log.WithName("MyLogger")
+-	log = log.WithValues("savedKey", "savedValue")
++	log = log.WithValues("savedKey1", "savedVal1")
++	log = log.WithValues("savedKey2", "savedVal2")
+ 	log.Info("the message", "key", "value")
+-	// Output: {"log:logger":"MyLogger","log:level":0,"log:msg":"the message","labels":{"savedKey":"savedValue"},"key":"value"}
++	// Output: {"log:logger":"MyLogger","log:level":0,"log:msg":"the message","labels":{"savedKey1":"savedVal1","savedKey2":"savedVal2"},"key":"value"}
+ }
+ 
+ func ExamplePseudoStruct() {

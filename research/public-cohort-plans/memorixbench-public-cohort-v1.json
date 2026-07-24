@@ -1,0 +1,37 @@
+{
+  "schema_version": "public-reproducible-cohort-plan-v1",
+  "plan_id": "memorixbench-public-cohort-v1",
+  "registry_id": "memorixbench-public-reproducible-v1",
+  "registry_sha256": "eb0f3dc1e39545da2f508df9f33840dae88ec0131dafba1a020957cf58c81667",
+  "agent": "openrouter",
+  "model": "qwen/qwen3-coder-30b-a3b-instruct",
+  "case_ids": [
+    "go-backoff-policy-v1",
+    "go-completion-order-v1",
+    "go-slug-v1",
+    "go-stale-endpoint-v1",
+    "python-header-policy-v1",
+    "python-limit-clamp-v1",
+    "python-port-parse-v1",
+    "python-stale-payload-v1",
+    "typescript-boolean-toggle-v1",
+    "typescript-plugin-order-v1",
+    "typescript-stale-config-v1",
+    "typescript-stale-key-prefix-v1"
+  ],
+  "conditions": [
+    "no-memory",
+    "mem0-2.0.12-local",
+    "agentmemory-0.9.28-full-local",
+    "memorix-1.2.1-canonical-local"
+  ],
+  "repetitions": [
+    { "repetition": 1, "seed": 101 },
+    { "repetition": 2, "seed": 202 },
+    { "repetition": 3, "seed": 303 }
+  ],
+  "timeout_seconds": 300,
+  "max_budget_usd": 0.1,
+  "primary_treatment": "memorix-1.2.1-canonical-local",
+  "primary_control": "no-memory"
+}

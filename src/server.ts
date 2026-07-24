@@ -1316,10 +1316,20 @@ export async function createMemorixServer(
         format: z.enum(['prompt', 'summary', 'json']).optional().default('prompt').describe(
           'Output format. "prompt" is agent-ready; "summary" is human-readable; "json" is structured.',
         ),
+        deliveryProfile: z.enum([
+          'full',
+          'no-freshness',
+          'no-current-state',
+          'no-semantic-code',
+          'no-knowledge',
+          'no-workflow',
+        ]).optional().default('full').describe(
+          'Advanced evaluation-only prompt delivery profile. Defaults to the complete agent-facing Workset.',
+        ),
         limit: z.number().optional().describe('Reserved for future source limits; current prompt stays compact by default.'),
       },
     },
-    async ({ task, refresh, format }) => {
+    async ({ task, refresh, format, deliveryProfile }) => {
       const unresolved = requireResolvedProject('build project context for the current project');
       if (unresolved) return unresolved;
 
@@ -1330,11 +1340,13 @@ export async function createMemorixServer(
           formatAutoProjectContextPrompt,
           formatAutoProjectContextSummary,
         },
+        { renderTaskWorksetDelivery },
         { getObservationStore },
         { MaintenanceJobStore },
         { enqueueCodegraphRefresh },
       ] = await Promise.all([
         import('./codegraph/auto-context.js'),
+        import('./knowledge/workset.js'),
         import('./store/obs-store.js'),
         import('./runtime/maintenance-jobs.js'),
         import('./runtime/lifecycle.js'),
@@ -1356,11 +1368,14 @@ export async function createMemorixServer(
           });
         },
       });
+      const delivery = renderTaskWorksetDelivery(context.workset, deliveryProfile ?? 'full');
       const text = format === 'json'
-        ? JSON.stringify({ ...context, brief: buildAutoProjectBrief(context) }, null, 2)
+        ? JSON.stringify({ ...context, brief: buildAutoProjectBrief(context), delivery }, null, 2)
         : format === 'summary'
           ? formatAutoProjectContextSummary(context)
-          : formatAutoProjectContextPrompt(context);
+          : delivery.profile === 'full'
+            ? formatAutoProjectContextPrompt(context)
+            : delivery.prompt;
 
       return {
         content: [{ type: 'text' as const, text }],

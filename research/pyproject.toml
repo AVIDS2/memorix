@@ -1,0 +1,35 @@
+[build-system]
+requires = ["hatchling>=1.26,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "memorixbench"
+version = "0.1.0"
+description = "Reproducible evaluation tooling for multi-session coding-agent memory"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Apache-2.0" }
+authors = [{ name = "Memorix contributors" }]
+dependencies = []
+
+[project.optional-dependencies]
+analysis = [
+  "matplotlib>=3.9,<4",
+  "numpy>=2.0,<3",
+  "pandas>=2.2,<3",
+  "scipy>=1.13,<2",
+  "seaborn>=0.13,<1",
+  "statsmodels>=0.14,<1",
+]
+dev = ["pytest>=8.3,<9"]
+
+[project.scripts]
+memorixbench = "memorixbench.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/memorixbench"]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+pythonpath = ["src"]
+testpaths = ["tests"]

@@ -1,0 +1,25 @@
+\begin{abstract}
+Coding agents increasingly operate across sessions, tools, and handoffs, yet a
+strong fresh model can often recover a project directly from current source and
+tests. This makes a useful evaluation question narrower than whether more
+history is always better: when does project memory improve a dependent task, and
+when should an agent ignore it? We present a preregistered evaluation artifact
+for freshness-aware multi-session project memory, MemorixBench-Transfer; this
+is a protocol and reproducibility study, not a completed efficacy study. The
+design compares a
+capable no-memory control with bounded transcript replay, equal-evidence
+retrieval adapters, and a separately reported native \memorix{} MCP surface.
+It records source freshness, provenance, task-level correctness, context cost,
+and observable actions that conflict with frozen stale claims. Its confirmatory
+protocol specifies isolated workers, private controller-side oracles,
+independent case admission, and separate worker/relay/runtime evidence chains;
+the current public cohorts do not claim those deployment gates. Repeated runs
+estimate within-case stability rather than inflate sample size. On a frozen 12-fixture public Qwen
+cohort with 144 valid runs, canonical \memorix{} achieves a $+2.8$ point
+case-clustered success difference over no memory, with a 95\% interval spanning
+$-8.3$ to $+16.7$ points. A separately frozen 72-run DeepSeek replication has
+100\% task success under both conditions and added context cost for canonical
+\memorix{}. These public results are descriptive rather than confirmatory:
+the fixtures cannot establish pretraining novelty or private-oracle integrity,
+and the KVM-backed execution cohort remains under construction.
+\end{abstract}

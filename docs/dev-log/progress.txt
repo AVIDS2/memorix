@@ -4,15 +4,45 @@
 > older notes when they conflict.
 
 ## Current State
-- Phase: 1.2 release validation and publication
-- Branch: `codex/1.2.0-multidimensional-memory`
-- Last updated: 2026-07-18
-- Released baseline: `memorix@1.1.13`, tag `v1.1.13`, PR #129 merged as
-  `7e8077f`.
-- Goal: turn Memorix from a useful narrative-memory layer into a task-ready
-  working-context layer where code state, change evidence, verification,
-  source-backed project knowledge, workflows, and durable decisions are ranked
-  together.
+- Phase: MemorixBench-Transfer research foundation
+- Branch: `codex/memorix-agent-memory-research`
+- Last updated: 2026-07-24
+- Released baseline: `memorix@1.2.1`, commit `1b5bf7f`.
+- Goal: produce a reproducible, submission-ready study of freshness-aware
+  multi-session project memory for coding agents, including downstream
+  engineering outcomes, fair baselines, ablations, statistics, an open
+  artifact, and an English paper.
+- Research source of truth: `research/PROTOCOL.md`, `research/CLAIMS.md`, and
+  `docs/dev-log/2026-07-20-agent-memory-research.md`.
+- Current gate: the research harness has a sealed public/private task boundary,
+  source provenance ledger, bounded retrieval tracks, model-route accounting,
+  worker/vault contracts, a fail-closed real Claude hook-capture controller,
+  and a documented Pi product-usability diagnostic. The full research test
+  suite passes.
+- Evidence guard: an independent review withdrew every early development task
+  because its public surface leaked answer material. The frozen public registry
+  now contains a new 12-case reproducible cohort; its Qwen and DeepSeek results
+  are descriptive only and every product-effect claim remains unproven. Old
+  local outcomes are excluded, and raw assets are quarantined outside the
+  repository.
+- Confirmation remains blocked until a KVM-capable worker/vault environment,
+  independently reviewed clean cases, and a telemetry-proven single-model route
+  exist. Local adapter and MCP smokes are engineering diagnostics only.
+- Next: complete the sealed transition controller, obtain independently
+  reviewed clean cases and native captures, run preregistered no-memory
+  screening, then freeze the comparative experiment.
+
+## 2026-07-24 Native Diagnostic Tightening
+- Added a development-only real Claude client capture controller. It isolates
+  the client profile, requires an exact single model, an exact precursor patch,
+  and a captured `PostToolUse` `Edit` or `Write` event before portable native
+  formation can proceed. Missing or mismatched events fail closed.
+- Local Claude Code headless candidates on 2.1.201 and 2.1.217 did not emit
+  the required hook event. They produced no admitted capture and no result row.
+- A separate Pi Coding Agent 0.79.0 two-turn product observation verified that
+  the existing Memorix extension injects a bounded handoff naturally in a new
+  session. It is documented as usability feedback only, outside the frozen
+  cohort and all efficacy claims.
 
 ## 1.1.13 Closeout
 - Codex setup now stamps plugin versions and doctor distinguishes bundle,
@@ -124,3 +154,53 @@
   runtime now uses the Node-26-compatible `better-sqlite3` 12.x line, with a
   dedicated Node 26 CI smoke that opens an in-memory database.
 - Remaining remote gates: GitHub CI, npm publish, tag, and GitHub release.
+
+## Research Artifact Verification (2026-07-24)
+- The research branch's Linux, Windows, Node 26 SQLite, and typecheck CI jobs
+  are green after limiting slow Windows filesystem integration tests to their
+  actual 15-second test budgets.
+- A fresh 141-entry public artifact was materialized, self-tested in an
+  isolated virtual environment, and exact-tree audited.
+- The retained raw public-cohort roots were revalidated against their frozen
+  plans. The Qwen matrix remained 144 / 144 valid rows and the DeepSeek matrix
+  remained 72 / 72 valid rows; regenerated analysis SHA-256 values match the
+  committed public summaries.
+- The anonymous NIER package was rebuilt from its allowlist and its rendered
+  four-page PDF was visually reviewed. These are reproducibility and
+  submission-readiness checks, not new evidence of product efficacy.
+- Pi 0.79.0 now has an isolated local JSON-capture adapter in MemorixBench.
+  The first two Windows positional-prompt smokes timed out and remain private
+  invalid diagnostics; the corrected stdin transport completed a clean
+  Qwen-routed fixture capture with two read actions and a sanitized trace.
+  This verifies adapter behavior only, not Pi or Memorix efficacy.
+- A two-run, read-only Pi protocol critique identified a real receipt-accounting
+  gap: the previous admission format aggregated findings without showing that
+  each independent reviewer attested each required criterion. The admission
+  receipt is now v2 with ordered per-reviewer attestations and strict aggregate
+  consistency checks. Pi's suggestions are engineering feedback only, not
+  human review or research evidence.
+
+## Research Admission Handoff And Analysis Freeze (2026-07-24)
+- The private admission process is now v3. Each independent human reviewer
+  completes a bound private worksheet with rubric calibration, a verdict,
+  confidence, and rationale for every required finding. The public receipt
+  records only the corresponding worksheet hashes and cannot approve a
+  low-confidence or incomplete review.
+- MemorixBench can build and exact-tree audit a reviewer handoff packet outside
+  the repository, source cache, and private draft roots. The packet includes
+  the committed private bundle, a mechanical provenance audit, and a
+  non-decisional public-history dossier; it does not compute novelty or admit a
+  case automatically.
+- Three current-v3 external private packets were generated under the F:
+  research-artifact root and exact-tree audited. They are not public artifacts,
+  human reviews, admitted cases, or outcome evidence.
+- `CONFIRMATORY-ANALYSIS-FREEZE.md` now fixes the requirements for a future
+  cohort before labels are visible: case registry, primary family, power,
+  practical threshold, missing-data rule, and implementation/model-route
+  hashes. It defines benefit, harm, inconclusive, and ceiling outcomes without
+  post-hoc reclassification.
+- Verification passed: 363 research tests, five public-release tests, Python
+  bytecode compilation, whitespace audit, a fresh 145-entry public artifact
+  materialization with isolated self-test and exact-tree audit, and a local
+  seven-page LaTeX build. No independent human review or confirmatory outcome
+  cohort exists yet, so no product-effect claim is unlocked.

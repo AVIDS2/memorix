@@ -1,0 +1,48 @@
+schema_version = "0.5"
+id = "go-logr-repeated-values-v1"
+title = "go-logr repeated WithValues native-session negative control"
+split = "development"
+dependency_strength = "low"
+dependency_classification_status = "retrospective-development"
+language = "go"
+tags = ["native-session", "product-diagnostic", "negative-control", "historical-public"]
+
+[repository]
+source_type = "git"
+url = "https://github.com/go-logr/logr"
+base_revision = "8d00e357f1cbbb9246ed8bbf03f2c8fe242d2ae9"
+license = "Apache-2.0"
+
+[precursor]
+task = "In funcr/funcr.go, add exactly this comment immediately before the existing `vals := f.values[:n:n]` line: `// Preserve raw saved values before rendering them for output.` Do not change executable code. Run `go test ./funcr`."
+success_commands = ["go test ./funcr"]
+patch = "precursor.patch"
+
+[transition]
+kind = "code-change"
+description = "The public example now invokes WithValues twice while RenderValuesHook is configured, exposing a historical state-preservation bug."
+apply_commands = []
+patch = "transition.patch"
+visibility = "public"
+
+[transfer]
+task = "The updated public example in funcr/example_test.go now calls WithValues twice with RenderValuesHook configured. Fix funcr so repeated WithValues calls preserve the raw accumulated key-value set before rendering it. Keep the public API unchanged and run `go test ./funcr`."
+success_commands = ["go test ./funcr"]
+
+[formation]
+track = "native-session"
+
+[formation.native_hook_capture]
+path = "native-hook-capture.json"
+schema_version = "native-hook-capture-v1"
+
+[oracle]
+visibility = "public"
+required_start_files = ["funcr/funcr.go", "funcr/example_test.go"]
+relevant_evidence_ids = []
+stale_evidence_ids = []
+forbidden_actions = []
+agent_writable_paths = ["funcr"]
+
+[bundle]
+public_paths = ["case.toml", "README.md", "precursor.patch", "precursor-prompt.txt", "transition.patch", "native-hook-capture.json"]

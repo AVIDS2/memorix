@@ -1,0 +1,29 @@
+\section{Freshness-Aware Project Memory}
+
+The evaluated method treats source freshness and provenance as retrieval
+constraints. A task workset may include current project facts, code-bound
+evidence, durable memories, optional knowledge or workflow starts, and
+verification guidance under a fixed context budget. Code-bound evidence is
+classified against the newest complete project snapshot. Evidence that cannot be
+verified as current is marked suspect or stale rather than silently presented as
+truth.
+
+The evaluation distinguishes two intervention surfaces. The canonical retrieval
+track gives every system the same formation input, transfer query, and bounded
+context ceiling. It asks about retrieval behavior under equal evidence, not
+about a product's unrestricted native session experience. The native \memorix{}
+track instead exposes one bounded read-only project-context call and records
+whether the agent elects to use it. These surfaces are reported separately.
+
+The artifact also implements a separately labelled native-session formation
+diagnostic for Claude Code command hooks. A controller converts private hook
+payloads into a portable, snapshot-bound capture, then replays those payloads
+through the actual \memorix{} hook command in an isolated checkout and requires
+a post-formation storage probe. This path is not an equal-ingestion baseline:
+only no-memory and \memorix{} conditions may use it, and its current local
+client smoke is excluded from all outcome tables and effect estimates.
+
+The no-memory control keeps the same agent client, actual model route, editable
+transfer checkout, ordinary source inspection, verification permissions, timeout,
+and filesystem boundary. It lacks only predecessor evidence and a memory tool.
+Any condition-specific denial of ordinary current-code work invalidates a run.

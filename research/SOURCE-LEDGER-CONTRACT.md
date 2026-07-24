@@ -1,0 +1,74 @@
+# Source Ledger Contract
+
+`cases/CANDIDATE-SOURCES.toml` is an auditable recruiting ledger, not a task
+dataset. It records why a real repository was considered without republishing
+an issue thread, PR discussion, patch, hidden test, or reference repair.
+
+Every entry pins the public transition commit and its immutable first-parent
+base commit, the license path and SHA-256 observed at that base, canonical
+source URLs, causal-chain type, environment status,
+benchmark-overlap review status, public-solution disclosure, and a rationale.
+`memorixbench validate-source-ledger` rejects malformed provenance and refuses
+to mark a source `admitted` unless it has an allowlisted license, an offline
+environment, completed overlap review, and a private post-snapshot transition
+plan.
+
+Screening records are intentionally historical: an offline-ready receipt can
+remain useful for source triage without making a case executable. At
+confirmatory permit issue, however, the controller reloads both the environment
+receipt and the independent admission review. Each must be timestamped, no more
+than 14 days old, and not materially future-dated. This forces a fresh pinned
+runtime check and a fresh human comparison before a source lead can support a
+new worker run.
+
+`memorixbench audit-source-candidate <ledger> <candidate-id> <local-cache>`
+verifies a local Git cache before any source is used: its `origin` must match
+the declared repository URL, the public transition's first parent must match the
+declared base, the full base commit must exist, and `git show` must yield exactly
+the recorded license bytes. It is intentionally a source audit, not an
+admission result; offline build, trace-capture, private-oracle, and split gates
+remain separate.
+
+An `offline-ready` candidate must additionally bind a compact
+`candidate-environment-preflight-v1` receipt under `cases/preflight/`. The
+receipt stores the bootstrap and offline commands, exit codes, log hashes,
+runtime, and a named offline policy, never raw logs or absolute cache paths.
+The ledger verifies both the receipt file hash and that its candidate/base/public
+transition commitments match the source entry.
+
+`standalone-pr` is intentionally a weaker causal-chain label than `issue-pr`,
+`review-revision`, or `pr-chain`; it is useful for screening but should not be
+used to satisfy a preregistered source-diversity quota on its own.
+
+## What a public PR can and cannot provide
+
+A public issue or pull request can establish that an engineering problem had a
+real upstream cause. It cannot supply an unobserved oracle: its discussion,
+patch, and tests are already public and may have appeared in training data.
+MemorixBench therefore treats public history as a source lead only. A
+confirmatory Track C transfer case must be rebuilt from a pinned base with a
+new private post-snapshot transition, newly captured precursor sessions, and a
+controller-only oracle.
+
+This makes the claim deliberately narrower and more defensible: under the same
+code prior, does a declared memory intervention improve cross-session transfer?
+It does not claim to prove novel-code synthesis or absence from model training.
+
+## v1 exclusions
+
+- Licenses outside Apache-2.0, BSD-2-Clause, BSD-3-Clause, ISC, or MIT.
+- Repositories requiring credentials, hosted services, arbitrary downloads, or
+  an unpinned networked dependency build.
+- Direct reuse of public issue text, public solution patches, or public hidden
+  test content as an evaluation oracle.
+- Security-sensitive reports, user data, or unresolved vulnerabilities.
+- Sources from a repository, task family, or trace family already assigned to a
+  different corpus split.
+
+SWE-bench and Defects4J are useful calibration and recruiting references, but
+not a drop-in confirmatory corpus: SWE-bench explicitly uses real GitHub issues
+and a containerized evaluation harness, while their tasks and solutions are
+widely public. See the [SWE-bench README](https://github.com/SWE-bench/SWE-bench/blob/main/README.md)
+and [Defects4J](https://github.com/rjust/defects4j). Source descriptions in
+the public artifact must be independently written; GitHub issue/PR text is not
+copied wholesale.

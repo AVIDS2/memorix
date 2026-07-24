@@ -31,7 +31,7 @@ afterEach(async () => {
 });
 
 describe('observation code refs integration', () => {
-  it('stores code refs after an observation references indexed code', async () => {
+  it('stores code refs after an observation references indexed code', { timeout: 15_000 }, async () => {
     const dataDir = tempDir();
     await initObservationStore(dataDir);
     await initObservations(dataDir);

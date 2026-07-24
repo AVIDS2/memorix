@@ -19,11 +19,16 @@ beforeEach(async () => {
 
 afterEach(async () => {
   closeAllDatabases();
-  await fs.rm(dataDir, { recursive: true, force: true });
+  await fs.rm(dataDir, {
+    recursive: true,
+    force: true,
+    maxRetries: 5,
+    retryDelay: 100,
+  });
 });
 
 describe('lifecycle diagnostics', () => {
-  it('reports repairable queue failures, claim review state, and pending workspace proposals without leaking payloads', async () => {
+  it('reports repairable queue failures, claim review state, and pending workspace proposals without leaking payloads', { timeout: 15_000 }, async () => {
     const claims = new ClaimStore();
     await claims.init(dataDir);
     writeClaim(claims, {

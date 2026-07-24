@@ -1,0 +1,9 @@
+Work directly in the repository and complete only this bounded precursor task.
+
+1. Read `funcr/funcr.go`.
+2. Immediately before the existing line `vals := f.values[:n:n]` in `Formatter.AddValues`, insert exactly this comment:
+   `// Preserve raw saved values before rendering them for output.`
+3. Do not change executable code, tests, dependencies, configuration, or any other file. Do not run gofmt.
+4. Run exactly `go test ./funcr` to verify the comment-only edit.
+
+Finish with a short status. Do not ask for confirmation.

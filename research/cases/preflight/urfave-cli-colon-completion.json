@@ -1,0 +1,21 @@
+{
+  "schema_version": "candidate-environment-preflight-v1",
+  "candidate_id": "urfave-cli-colon-completion",
+  "base_revision": "700c663540569deea3a7760411f7ed136360b5bf",
+  "public_transition_revision": "00f6ef264446f0731a3d49993ae5b8b8cfa8516d",
+  "bootstrap": {
+    "command": "go mod download",
+    "exit_code": 0,
+    "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "offline": {
+    "command": "go test ./...",
+    "exit_code": 0,
+    "log_sha256": "eca82081166e3aa5a8200e1a0299f833de3bacd142650b2cc97e62100ea563ee"
+  },
+  "runtime": "go1.25.5 windows-amd64",
+  "offline_policy": "go-proxy-off-v1",
+  "cache_profile": "external-artifact-root-v1",
+  "passed": true,
+  "observed_at_utc": "2026-07-22T09:55:40.257897+00:00"
+}

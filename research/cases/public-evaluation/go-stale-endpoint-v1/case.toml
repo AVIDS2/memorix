@@ -1,0 +1,48 @@
+schema_version = "0.5"
+id = "go-stale-endpoint-v1"
+title = "Honor the current service endpoint version"
+split = "public-evaluation"
+dependency_strength = "medium"
+dependency_classification_status = "preregistered"
+language = "go"
+tags = ["public-evaluation", "stale-memory-control"]
+
+[bundle]
+public_paths = ["case.toml", "seed"]
+
+[repository]
+source_type = "local-fixture"
+path = "seed"
+base_revision = "go-stale-endpoint-v1-base"
+
+[precursor]
+task = "Record the legacy service endpoint convention."
+success_commands = ["go test ./..."]
+
+[transition]
+kind = "none"
+description = "The current public snapshot has migrated the endpoint version."
+apply_commands = []
+
+[transfer]
+task = "Complete `ResolveEndpoint` in `pkg/endpoint/endpoint.go` from the current source and trusted test. Prior memory may describe an obsolete service version."
+success_commands = ["go test ./..."]
+
+[[memory_seed]]
+entity_name = "legacy-service-endpoint"
+type = "decision"
+title = "Legacy service used the v1 route"
+narrative = "The prior deployment assembled service paths under /v1/<region>."
+facts = ["Legacy route prefix: /v1."]
+files_modified = ["pkg/endpoint/endpoint.go"]
+concepts = ["legacy", "service-version"]
+topic_key = "legacy-service-endpoint"
+related_entities = ["service-router"]
+
+[oracle]
+visibility = "public"
+required_start_files = ["pkg/endpoint/endpoint.go", "tests/endpoint_test.go"]
+relevant_evidence_ids = []
+stale_evidence_ids = ["memory:legacy-service-endpoint"]
+forbidden_actions = []
+agent_writable_paths = ["pkg"]

@@ -6,7 +6,7 @@
  * This tests the full coordination loop without real CLI processes.
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { TeamStore } from '../../src/team/team-store.js';
 import { closeDatabase } from '../../src/store/sqlite-db.js';
 import { runCoordinationLoop, type CoordinatorEvent } from '../../src/orchestrate/coordinator.js';
@@ -498,30 +498,41 @@ describe('Coordinator', () => {
   // ═══════════════════════════════════════════════════════════════
 
   it('should NOT self-stale when task runs longer than staleTtlMs', async () => {
-    store.createTask({ projectId: 'proj1', description: 'Long running task' });
+    // This is a timing-state-machine test, not a wall-clock performance test.
+    // A virtual clock ensures Windows CI scheduler pressure cannot turn the
+    // 200ms scenario into a 5s test timeout.
+    vi.useFakeTimers();
+    try {
+      store.createTask({ projectId: 'proj1', description: 'Long running task' });
 
-    // staleTtlMs = 50ms, but task takes 200ms to complete
-    // Without heartbeat fix, orchestrator would stale itself
-    const events: CoordinatorEvent[] = [];
-    const result = await runCoordinationLoop({
-      projectDir: tmpDir,
-      projectId: 'proj1',
-      adapters: [createMockAdapter({ delayMs: 200 })],
-      teamStore: store,
-      staleTtlMs: 50,
-      pollIntervalMs: 30,
-      taskTimeoutMs: 5_000,
-      maxRetries: 0,
-      onProgress: (e) => events.push(e),
-    });
+      // staleTtlMs = 50ms, but task takes 200ms to complete.
+      // Without the pre-detection heartbeat, the coordinator would stale itself.
+      const events: CoordinatorEvent[] = [];
+      const coordination = runCoordinationLoop({
+        projectDir: tmpDir,
+        projectId: 'proj1',
+        adapters: [createMockAdapter({ delayMs: 200 })],
+        teamStore: store,
+        staleTtlMs: 50,
+        pollIntervalMs: 30,
+        taskTimeoutMs: 5_000,
+        maxRetries: 0,
+        enableLessons: false,
+        onProgress: (e) => events.push(e),
+      });
 
-    // Task should complete, not be released by self-stale
-    expect(result.completed).toBe(1);
-    expect(result.failed).toBe(0);
-    // No stale event should fire for the orchestrator itself
-    // (stale events are only for external agents)
-    const staleEvents = events.filter(e => e.type === 'agent:stale');
-    expect(staleEvents.length).toBe(0);
+      await vi.advanceTimersByTimeAsync(250);
+      const result = await coordination;
+
+      // Task should complete, not be released by self-stale.
+      expect(result.completed).toBe(1);
+      expect(result.failed).toBe(0);
+      // Stale events are only for external agents, never the coordinator itself.
+      const staleEvents = events.filter(e => e.type === 'agent:stale');
+      expect(staleEvents.length).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   // ═══════════════════════════════════════════════════════════════

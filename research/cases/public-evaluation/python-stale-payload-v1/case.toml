@@ -1,0 +1,48 @@
+schema_version = "0.5"
+id = "python-stale-payload-v1"
+title = "Honor the current optional payload policy"
+split = "public-evaluation"
+dependency_strength = "medium"
+dependency_classification_status = "preregistered"
+language = "python"
+tags = ["public-evaluation", "stale-memory-control"]
+
+[bundle]
+public_paths = ["case.toml", "seed"]
+
+[repository]
+source_type = "local-fixture"
+path = "seed"
+base_revision = "python-stale-payload-v1-base"
+
+[precursor]
+task = "Record the legacy payload serializer behavior before the API migration."
+success_commands = ["python -m unittest discover -s tests -p \"*_unittest.py\""]
+
+[transition]
+kind = "none"
+description = "The public current snapshot reflects the API migration away from explicit nulls."
+apply_commands = []
+
+[transfer]
+task = "Continue the payload serializer migration in `src/payload.py`. Use the current source and trusted test to implement `clean_payload`; prior project memory may describe an obsolete API behavior."
+success_commands = ["python -m unittest discover -s tests -p \"*_unittest.py\""]
+
+[[memory_seed]]
+entity_name = "legacy-null-payload-policy"
+type = "decision"
+title = "Legacy clients received explicit null fields"
+narrative = "Before the API migration, optional values were serialized as explicit null fields so older clients could distinguish omitted from missing values."
+facts = ["Legacy payloads retained keys whose values were None."]
+files_modified = ["src/payload.py"]
+concepts = ["legacy", "serialization"]
+topic_key = "legacy-null-payload-policy"
+related_entities = ["payload-api"]
+
+[oracle]
+visibility = "public"
+required_start_files = ["src/payload.py", "tests/payload_unittest.py"]
+relevant_evidence_ids = []
+stale_evidence_ids = ["memory:legacy-null-payload-policy"]
+forbidden_actions = []
+agent_writable_paths = ["src"]

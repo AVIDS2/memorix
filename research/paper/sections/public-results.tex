@@ -1,0 +1,62 @@
+\section{Public Cohort Results}
+\label{sec:public-results}
+
+The frozen public cohort completed all 144 planned rows with no invalid
+infrastructure run. Table~\ref{tab:public-success} reports task success across
+36 executions per condition. The preregistered primary comparison aggregates
+the three repetitions within each of the 12 cases: canonical \memorix{} reached
+97.2\% versus 94.4\% for no memory, an absolute difference of $+2.8$ points
+(95\% case-clustered bootstrap interval $[-8.3, 16.7]$; descriptive sign-flip
+$p=1.0$). The interval includes both a modest disadvantage and a meaningful
+advantage, so this cohort does not support a stable success-rate claim.
+
+\begin{table}[t]
+\centering
+\small
+\caption{Public fixed-model cohort outcomes. Baseline rows are descriptive;
+only Memorix versus no memory is the frozen primary comparison.}
+\label{tab:public-success}
+\begin{tabular}{lrr}
+\toprule
+Condition & Successful runs & Rate \\
+\midrule
+No memory & 34 / 36 & 94.4\% \\
+Mem0 & 34 / 36 & 94.4\% \\
+AgentMemory & 35 / 36 & 97.2\% \\
+Canonical \memorix{} & 35 / 36 & 97.2\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Canonical \memorix{} used 19,479 input tokens per case-cluster on average,
+compared with 23,360 for no memory (difference $-3{,}881$; 95\% interval
+$[-20{,}008, 6{,}938]$). It also averaged 26.65 versus 28.62 seconds,
+\$0.00402 versus \$0.00589 provider cost, and 8.17 versus 8.92 tool calls.
+Every resource interval spans zero. These directionally favorable averages are
+therefore efficiency observations, not evidence of a reliable reduction.
+
+All six failed tasks exhausted the fixed 24-tool-call limit rather than failing
+a verifier. The public failure patterns are informative: in
+\texttt{python-header-policy-v1}, canonical \memorix{} succeeded in all three
+repetitions while no memory succeeded once; in \texttt{go-slug-v1}, canonical
+\memorix{} exhausted the limit once while no memory succeeded in all three.
+The opposing examples explain the near-zero aggregate result and motivate a
+larger real-repository cohort with explicitly varied dependency strength.
+
+We then froze a separate, post-result replication under
+\texttt{deepseek/deepseek-v4-flash}. It retained the same 12 cases, three
+repetitions, exact tool policy, and canonical \memorix{} versus no-memory
+contrast, but did not rerun secondary baseline systems. All 72 planned rows
+were valid and all passed their behavioral verifier: both conditions therefore
+had 36 / 36 successes and a zero success-rate difference. This is not evidence
+that memory failed generally; rather, this strong model had no accuracy headroom
+on these fully public fixtures.
+
+The replication nevertheless exposes a cost boundary. Canonical \memorix{}
+averaged 11,398 versus 9,192 input tokens and \$0.00111 versus \$0.00094
+provider cost per case-cluster, differences of $+2{,}206$ tokens and
+\$0.000174 respectively. Their descriptive 95\% cluster intervals excluded
+zero. Wall time increased by 3.29 seconds on average, but its interval
+$[-1.48, 8.10]$ spans zero. The model-specific contrast reinforces the intended
+claim boundary: memory should earn its context and latency on tasks with a
+real dependency, not be injected automatically because a prior session exists.

@@ -1,0 +1,48 @@
+schema_version = "0.5"
+id = "typescript-stale-config-v1"
+title = "Use the current retry config field"
+split = "public-evaluation"
+dependency_strength = "medium"
+dependency_classification_status = "preregistered"
+language = "typescript"
+tags = ["public-evaluation", "stale-memory-control"]
+
+[bundle]
+public_paths = ["case.toml", "seed"]
+
+[repository]
+source_type = "local-fixture"
+path = "seed"
+base_revision = "typescript-stale-config-v1-base"
+
+[precursor]
+task = "Record the legacy retry config before the public migration."
+success_commands = ["node --test tests/retry-config.spec.mjs"]
+
+[transition]
+kind = "none"
+description = "The current public snapshot uses the new retry field name."
+apply_commands = []
+
+[transfer]
+task = "Continue the retry configuration migration in `src/retry-config.mjs`. Implement `normalizeRetryConfig` from the current source and trusted test; prior memory may describe the obsolete field name."
+success_commands = ["node --test tests/retry-config.spec.mjs"]
+
+[[memory_seed]]
+entity_name = "legacy-retry-count-policy"
+type = "decision"
+title = "Legacy configuration kept retryCount"
+narrative = "Before the migration, the public configuration object used the field retryCount and downstream callers read it directly."
+facts = ["Legacy callers used retryCount rather than retries."]
+files_modified = ["src/retry-config.mjs"]
+concepts = ["legacy", "configuration"]
+topic_key = "legacy-retry-count-policy"
+related_entities = ["retry-config"]
+
+[oracle]
+visibility = "public"
+required_start_files = ["src/retry-config.mjs", "tests/retry-config.spec.mjs"]
+relevant_evidence_ids = []
+stale_evidence_ids = ["memory:legacy-retry-count-policy"]
+forbidden_actions = []
+agent_writable_paths = ["src"]

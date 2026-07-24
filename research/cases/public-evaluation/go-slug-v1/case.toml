@@ -1,0 +1,48 @@
+schema_version = "0.5"
+id = "go-slug-v1"
+title = "Normalize a display name into a slug"
+split = "public-evaluation"
+dependency_strength = "low"
+dependency_classification_status = "preregistered"
+language = "go"
+tags = ["public-evaluation", "current-source-control"]
+
+[bundle]
+public_paths = ["case.toml", "seed"]
+
+[repository]
+source_type = "local-fixture"
+path = "seed"
+base_revision = "go-slug-v1-base"
+
+[precursor]
+task = "Record the old documentation navigation label."
+success_commands = ["go test ./..."]
+
+[transition]
+kind = "none"
+description = "The transfer behavior is explicit in the current source and test."
+apply_commands = []
+
+[transfer]
+task = "Implement `Slug` in `pkg/slug/slug.go`: trim outer whitespace, lowercase text, and replace each run of internal whitespace with one hyphen. Run the trusted test."
+success_commands = ["go test ./..."]
+
+[[memory_seed]]
+entity_name = "documentation-navigation-label"
+type = "discovery"
+title = "Documentation navigation label changed"
+narrative = "The prior session renamed a documentation navigation label. It did not define slug normalization."
+facts = ["Documentation labels do not affect runtime slug behavior."]
+files_modified = ["docs/navigation.md"]
+concepts = ["documentation"]
+topic_key = "documentation-navigation-label"
+related_entities = ["documentation"]
+
+[oracle]
+visibility = "public"
+required_start_files = ["pkg/slug/slug.go", "tests/slug_test.go"]
+relevant_evidence_ids = []
+stale_evidence_ids = []
+forbidden_actions = []
+agent_writable_paths = ["pkg"]

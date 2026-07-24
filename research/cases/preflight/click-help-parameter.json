@@ -1,0 +1,21 @@
+{
+  "schema_version": "candidate-environment-preflight-v1",
+  "candidate_id": "click-help-parameter",
+  "base_revision": "8c1a0a7abbc1c36f70d1f65f3604acc46c5ce6ab",
+  "public_transition_revision": "b67832c2167e5b0ff6764a8c04a0a9087e697b5a",
+  "bootstrap": {
+    "command": "uv sync --group tests --no-default-groups",
+    "exit_code": 0,
+    "log_sha256": "a9ccecf66b0c41625ef887525f3fdb421a92158c0f175c9b4ae2324917700f67"
+  },
+  "offline": {
+    "command": "uv run --offline --group tests --no-default-groups pytest",
+    "exit_code": 0,
+    "log_sha256": "c40fcd3a203b45b0b9449f7727d615868b6ed125982cffa48ca5bad26107323e"
+  },
+  "runtime": "python3.11.15 uv0.9.10 windows-amd64",
+  "offline_policy": "python-index-off-v1",
+  "cache_profile": "external-artifact-root-v1",
+  "passed": true,
+  "observed_at_utc": "2026-07-22T09:58:00.103452+00:00"
+}

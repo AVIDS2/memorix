@@ -1,0 +1,48 @@
+schema_version = "0.5"
+id = "typescript-stale-key-prefix-v1"
+title = "Honor the current API key prefix"
+split = "public-evaluation"
+dependency_strength = "medium"
+dependency_classification_status = "preregistered"
+language = "typescript"
+tags = ["public-evaluation", "stale-memory-control"]
+
+[bundle]
+public_paths = ["case.toml", "seed"]
+
+[repository]
+source_type = "local-fixture"
+path = "seed"
+base_revision = "typescript-stale-key-prefix-v1-base"
+
+[precursor]
+task = "Record the legacy API token prefix before the credential migration."
+success_commands = ["node --test tests/key-prefix.spec.mjs"]
+
+[transition]
+kind = "none"
+description = "The current snapshot reflects the new public credential prefix."
+apply_commands = []
+
+[transfer]
+task = "Complete `formatApiKey` in `src/keys.mjs` using the current source and trusted test. Treat any prior prefix memory as potentially obsolete."
+success_commands = ["node --test tests/key-prefix.spec.mjs"]
+
+[[memory_seed]]
+entity_name = "legacy-api-token-prefix"
+type = "decision"
+title = "Legacy API tokens used token_"
+narrative = "The old credential service formatted public tokens with a token_ prefix."
+facts = ["Legacy formatted value: token_<id>."]
+files_modified = ["src/keys.mjs"]
+concepts = ["legacy", "credentials"]
+topic_key = "legacy-api-token-prefix"
+related_entities = ["credential-service"]
+
+[oracle]
+visibility = "public"
+required_start_files = ["src/keys.mjs", "tests/key-prefix.spec.mjs"]
+relevant_evidence_ids = []
+stale_evidence_ids = ["memory:legacy-api-token-prefix"]
+forbidden_actions = []
+agent_writable_paths = ["src"]

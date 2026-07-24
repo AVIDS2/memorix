@@ -15,9 +15,9 @@ system is useful for every coding task.
 
 | Question | Current observation | What it supports | What it does not support |
 | --- | --- | --- | --- |
-| Does canonical Memorix beat no memory on the public Qwen cohort? | 12 fully public local fixtures, four conditions, and three repetitions produced 144 valid rows. Memorix completed 35 / 36 transfer tasks and no memory completed 34 / 36. The absolute difference is +2.8 points, with a 95% paired interval of -8.3 to +16.7 points and a cluster sign-flip p value of 1.0. | A bounded descriptive observation for this frozen model, fixtures, prompts, and tool policy. | General effectiveness, a statistically supported improvement, or a ranking over other systems. |
-| What happens on the frozen DeepSeek replication? | 12 fixtures, two conditions, and three repetitions produced 72 valid rows. Both Memorix and no memory completed 36 / 36 tasks. Memorix used more input tokens and cost more in this ceiling setting. | A useful boundary finding: memory can add context cost when the base model already solves the fixture set. | A claim that memory is harmless, useful, or harmful in general. |
-| How did the public local baselines compare? | The Qwen matrix also contains Mem0 2.0.12 local and AgentMemory 0.9.28 full local under the frozen public setup. Their results are descriptive secondary contrasts. | A reproducible account of those exact local adapters and shared public evidence. | A universal product ranking, a formation-quality comparison, or a claim about native client integrations. |
+| Does canonical Memorix beat no memory on the public Qwen cohort? | 12 fully public local fixtures, four conditions, and three repetitions produced 144 valid rows. Memorix completed 35 / 36 transfer tasks and no memory completed 34 / 36. The absolute difference is +2.8 points, with a 95% paired interval of -8.3 to +16.7 points and a cluster sign-flip p value of 1.0. Only two case clusters differ, in opposing directions; under the exact four-sign enumeration every signed total is at least as extreme as the observed small net difference. | A bounded descriptive observation for this frozen model, fixtures, prompts, and tool policy. | General effectiveness, a statistically supported improvement, or a ranking over other systems. |
+| What happens on the frozen DeepSeek replication? | 12 fixtures, two conditions, and three repetitions produced 72 valid rows. Both Memorix and no memory completed 36 / 36 tasks. Memorix used more input tokens and cost more in this ceiling setting. The post-result replication intentionally reran only the canonical versus no-memory contrast; it did not silently drop a negative baseline comparison. | A descriptive ceiling observation and a cost measurement for this exact model and fixture set. | A claim that memory is harmless, useful, or harmful in general. |
+| How did the public local baselines compare? | The Qwen matrix also contains Mem0 2.0.12 local and AgentMemory 0.9.28 full local under the frozen public setup. Their results are descriptive secondary contrasts. They were not rerun in the focused DeepSeek replication, so no cross-model baseline ranking is reported. | A reproducible account of those exact local adapters and shared public evidence. | A universal product ranking, a formation-quality comparison, or a claim about native client integrations. |
 
 The exact aggregate receipts are `public-summary/public-cohort-v1.json` and
 `public-summary/public-cross-model-deepseek-v1.json`. The two model cohorts
@@ -37,7 +37,10 @@ independent cases.
 An implementation test proves that the harness enforces its contract. It does
 not prove that the product intervention helps an agent solve a task. In
 particular, no absent stale-action label or native-MCP outcome is treated as a
-zero, a success, or a failure.
+zero, a success, or a failure. A confirmatory primary row that is missing,
+duplicate, invalid, or unplanned fails the frozen analysis instead of being
+imputed; a pending secondary annotation remains missing for that secondary
+metric.
 
 ## Work Prepared but Not Yet Executed
 
@@ -47,6 +50,7 @@ confirmatory result rows:
 - human-blinded action annotation and adjudication;
 - real-repository private transitions, private oracles, and precursor traces;
 - a reviewer-frozen power envelope and Holm-controlled primary analysis;
+- a private reviewer handoff packet and worksheet-bound admission receipt;
 - cross-agent transfer trials; and
 - a trusted single-model relay plus independent runtime attestation.
 
@@ -84,8 +88,8 @@ benchmark.
    independently captured precursor traces.
 3. The execution deployment needs a KVM-backed worker boundary, an independent
    trusted relay, and a separate runtime-attestation signer.
-4. Reviewers must freeze the power envelope and analysis plan before outcome
-   labels are read.
+4. Reviewers must freeze the power envelope and analysis plan described in
+   `CONFIRMATORY-ANALYSIS-FREEZE.md` before outcome labels are read.
 5. A venue submission needs independent artifact review and a final anonymity,
    bibliography, and format pass for the chosen venue.
 

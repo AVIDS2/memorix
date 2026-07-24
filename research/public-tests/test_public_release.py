@@ -59,9 +59,12 @@ def test_public_summary_hash_and_release_manifest_are_auditable() -> None:
     assert audit.release_id == PUBLIC_RELEASE_V2_ID
     assert audit.entry_count == len(public_release_v2_paths(root))
     assert "ADMISSION-REVIEWER-GUIDE.md" in public_release_v2_paths(root)
+    assert "REVIEWER-HANDOFF-PACKET-CONTRACT.md" in public_release_v2_paths(root)
+    assert "CONFIRMATORY-ANALYSIS-FREEZE.md" in public_release_v2_paths(root)
     assert "EVIDENCE-STATUS.md" in public_release_v2_paths(root)
     assert "LOCAL-AGENT-UX-DIAGNOSTIC.md" in public_release_v2_paths(root)
     assert "src/memorixbench/native_client_capture.py" in public_release_v2_paths(root)
+    assert "src/memorixbench/reviewer_packet.py" in public_release_v2_paths(root)
 
 
 def test_paper_public_result_text_matches_the_frozen_summaries() -> None:
@@ -78,6 +81,9 @@ def test_paper_public_result_text_matches_the_frozen_summaries() -> None:
 
     assert qwen["primary_success"]["treatment_success_rate"] == pytest.approx(35 / 36)
     assert qwen["primary_success"]["control_success_rate"] == pytest.approx(34 / 36)
+    assert qwen["primary_success"]["cluster_sign_flip_p"] == 1.0
+    assert qwen["primary_success"]["treatment_favored_clusters"] == 1
+    assert qwen["primary_success"]["control_favored_clusters"] == 1
     assert "97.2\\% versus 94.4\\%" in paper
     assert "$+2.8$ points" in paper
     assert deepseek["primary_success"]["treatment_success_rate"] == 1.0
@@ -85,6 +91,8 @@ def test_paper_public_result_text_matches_the_frozen_summaries() -> None:
     assert "36 / 36 successes and a zero success-rate difference" in paper
     assert "11,398 versus 9,192 input tokens" in paper
     assert "\\$0.00111 versus \\$0.00094" in paper
+    evidence = (root / "EVIDENCE-STATUS.md").read_text(encoding="utf-8")
+    assert "Only two case clusters differ" in evidence
 
 
 def test_public_safety_rejects_real_values_without_rejecting_latex() -> None:

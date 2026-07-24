@@ -19,10 +19,14 @@ from .annotation import (
 )
 from .admission import (
     load_admission_review,
+    load_admission_review_draft,
+    load_reviewer_worksheet,
     validate_admission_review,
+    validate_admission_review_worksheets,
     write_admission_review_draft,
 )
 from .pre_admission import audit_private_draft, write_pre_admission_audit
+from .reviewer_packet import audit_reviewer_handoff_packet, build_reviewer_handoff_packet
 from .analysis_plan import (
     load_confirmatory_analysis_plan,
     validate_confirmatory_results,
@@ -219,6 +223,41 @@ def _validate_admission_review(args: argparse.Namespace) -> int:
     return 0
 
 
+def _validate_admission_review_worksheets(args: argparse.Namespace) -> int:
+    ledger = load_source_ledger(args.ledger)
+    candidate = next(
+        (entry for entry in ledger.entries if entry.candidate_id == args.candidate_id),
+        None,
+    )
+    if candidate is None:
+        raise ValueError(f"unknown source candidate: {args.candidate_id}")
+    review = load_admission_review(args.review)
+    validate_admission_review(
+        review,
+        candidate_id=candidate.candidate_id,
+        repository_url=candidate.repository_url,
+        base_revision=candidate.base_revision,
+        public_transition_revision=candidate.public_transition_revision,
+    )
+    draft = load_admission_review_draft(args.draft)
+    worksheets = tuple(
+        load_reviewer_worksheet(path, draft=draft)
+        for path in args.worksheet
+    )
+    validate_admission_review_worksheets(
+        review,
+        draft=draft,
+        worksheets=worksheets,
+    )
+    print(json.dumps({
+        "candidate_id": review.candidate_id,
+        "decision": review.decision,
+        "reviewer_ids": list(review.reviewer_ids),
+        "reviewer_worksheet_sha256": [item.sha256 for item in worksheets],
+    }, indent=2))
+    return 0
+
+
 def _validate_analysis_plan(args: argparse.Namespace) -> int:
     plan = load_confirmatory_analysis_plan(args.plan)
     print(json.dumps({**plan.public_payload(), "analysis_plan_sha256": plan.sha256}, indent=2))
@@ -342,6 +381,37 @@ def _audit_private_draft(args: argparse.Namespace) -> int:
         "admission_decision": audit.admission_decision,
         "remaining_admission_gates": list(audit.remaining_admission_gates),
         "output": str(output.resolve()),
+    }, indent=2))
+    return 0
+
+
+def _build_reviewer_handoff_packet(args: argparse.Namespace) -> int:
+    packet = build_reviewer_handoff_packet(
+        ledger=load_source_ledger(args.ledger),
+        candidate_id=args.candidate_id,
+        draft_root=args.draft_root,
+        repository_cache=args.repository_cache,
+        reviewer_guide=args.reviewer_guide,
+        packet_id=args.packet_id,
+        output=args.output,
+        audited_at_utc=args.audited_at_utc,
+    )
+    print(json.dumps({
+        "candidate_id": packet.candidate_id,
+        "reviewer_handoff_packet_sha256": packet.sha256,
+        "file_count": len(packet.files),
+        "output": str(args.output.resolve()),
+    }, indent=2))
+    return 0
+
+
+def _audit_reviewer_handoff_packet(args: argparse.Namespace) -> int:
+    packet = audit_reviewer_handoff_packet(args.root)
+    print(json.dumps({
+        "candidate_id": packet.candidate_id,
+        "reviewer_handoff_packet_sha256": packet.sha256,
+        "file_count": len(packet.files),
+        "disposition": packet.disposition,
     }, indent=2))
     return 0
 
@@ -900,6 +970,13 @@ def build_parser() -> argparse.ArgumentParser:
     admission_review.add_argument("--ledger", type=Path, required=True)
     admission_review.add_argument("--candidate-id", required=True)
 
+    admission_worksheets = subparsers.add_parser("validate-admission-review-worksheets")
+    admission_worksheets.add_argument("review", type=Path)
+    admission_worksheets.add_argument("--draft", type=Path, required=True)
+    admission_worksheets.add_argument("--worksheet", type=Path, action="append", required=True)
+    admission_worksheets.add_argument("--ledger", type=Path, required=True)
+    admission_worksheets.add_argument("--candidate-id", required=True)
+
     analysis_plan = subparsers.add_parser("validate-analysis-plan")
     analysis_plan.add_argument("plan", type=Path)
 
@@ -955,6 +1032,19 @@ def build_parser() -> argparse.ArgumentParser:
     private_draft_audit.add_argument("--repository-cache", type=Path, required=True)
     private_draft_audit.add_argument("--output", type=Path, required=True)
     private_draft_audit.add_argument("--audited-at-utc")
+
+    reviewer_handoff_packet = subparsers.add_parser("build-reviewer-handoff-packet")
+    reviewer_handoff_packet.add_argument("ledger", type=Path)
+    reviewer_handoff_packet.add_argument("candidate_id")
+    reviewer_handoff_packet.add_argument("--draft-root", type=Path, required=True)
+    reviewer_handoff_packet.add_argument("--repository-cache", type=Path, required=True)
+    reviewer_handoff_packet.add_argument("--reviewer-guide", type=Path, required=True)
+    reviewer_handoff_packet.add_argument("--packet-id", required=True)
+    reviewer_handoff_packet.add_argument("--output", type=Path, required=True)
+    reviewer_handoff_packet.add_argument("--audited-at-utc")
+
+    reviewer_handoff_packet_audit = subparsers.add_parser("audit-reviewer-handoff-packet")
+    reviewer_handoff_packet_audit.add_argument("root", type=Path)
 
     capture_trace = subparsers.add_parser("capture-trace")
     capture_trace.add_argument("--events", type=Path, required=True)
@@ -1230,6 +1320,8 @@ def main() -> int:
             return _audit_source_candidate(args)
         if args.command == "validate-admission-review":
             return _validate_admission_review(args)
+        if args.command == "validate-admission-review-worksheets":
+            return _validate_admission_review_worksheets(args)
         if args.command == "validate-analysis-plan":
             return _validate_analysis_plan(args)
         if args.command == "validate-runtime-measurement":
@@ -1246,6 +1338,10 @@ def main() -> int:
             return _build_admission_review_draft(args)
         if args.command == "audit-private-draft":
             return _audit_private_draft(args)
+        if args.command == "build-reviewer-handoff-packet":
+            return _build_reviewer_handoff_packet(args)
+        if args.command == "audit-reviewer-handoff-packet":
+            return _audit_reviewer_handoff_packet(args)
         if args.command == "capture-trace":
             return _capture_trace(args)
         if args.command == "capture-precursor-session":

@@ -11,7 +11,8 @@ admitted development or confirmatory case.
 The public receipt records only immutable source identifiers, hashes of the
 private transition, private task brief, and private public-history comparison,
 two or more reviewer pseudonyms, a human-review declaration, finding codes,
-each reviewer's non-narrative attestation, the decision, and timestamp. It
+each reviewer's non-narrative attestation and private-worksheet hash, the
+decision, and timestamp. It
 contains no private task text, hidden test, reference patch, public PR excerpt,
 or reviewer narrative.
 
@@ -25,10 +26,11 @@ or reviewer narrative.
   authored, it is not behaviorally or structurally isomorphic to a public
   solution, the proposed predecessor dependency is real, and current-source
   sufficiency has been considered rather than assumed away.
-- Each reviewer independently attests all four finding codes. The receipt's
-  aggregate `findings` field must equal the union of those individual
-  attestations. This provides an auditable accountability boundary, not proof
-  that a reviewer read material carefully or that a task is novel.
+- Each reviewer independently attests all four finding codes and binds a
+  private worksheet SHA-256. The receipt's aggregate `findings` field must
+  equal the union of those individual attestations. This provides an auditable
+  accountability boundary, not proof that a reviewer read material carefully
+  or that a task is novel.
 
 This is an accountability control, not a magical proof of what a person has
 ever read or what a model saw in training. The study discloses that limit.
@@ -53,10 +55,12 @@ An approval only allows authoring to proceed. It does not make a case
 confirmatory: the registry, private-oracle, independent trace, single-model,
 and KVM worker/vault gates still apply.
 
-The current receipt schema is `case-admission-review-v2`. Existing unapproved
-drafts should be regenerated from the unchanged three private files before
+The current receipt schema is `case-admission-review-v3`. Existing unapproved
+v1 or v2 drafts should be regenerated from the unchanged three private files before
 review; doing so changes only the public hash-only template, not the private
-task or transition commitments.
+task or transition commitments. Use
+`REVIEWER-HANDOFF-PACKET-CONTRACT.md` to build an external private packet,
+calibrate reviewers, and validate the worksheet-to-receipt binding.
 
 At the future confirmatory permit boundary, the controller reloads the source
 ledger and this review. It requires the reviewed repository/base to match the

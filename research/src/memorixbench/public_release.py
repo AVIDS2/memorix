@@ -15,6 +15,7 @@ PUBLIC_RELEASE_V2_TIER = "public-reproducible-summary-v1"
 PUBLIC_RELEASE_V2_STATIC_PATHS = (
     "BASELINE_PROTOCOL.md",
     "ADMISSION-REVIEWER-GUIDE.md",
+    "CONFIRMATORY-ANALYSIS-FREEZE.md",
     "CASE-REGISTRY-CONTRACT.md",
     "CASE-ADMISSION-REVIEW-CONTRACT.md",
     "CLAIMS.md",
@@ -33,6 +34,7 @@ PUBLIC_RELEASE_V2_STATIC_PATHS = (
     "README.md",
     "RESULTS-PILOT.md",
     "RUNTIME-MEASUREMENT-CONTRACT.md",
+    "REVIEWER-HANDOFF-PACKET-CONTRACT.md",
     "SOURCE-LEDGER-CONTRACT.md",
     "AUTOMATED-PRE-ADMISSION-AUDIT-CONTRACT.md",
     "SUBMISSION-READINESS.md",
@@ -98,6 +100,7 @@ PUBLIC_RELEASE_V2_STATIC_PATHS = (
     "src/memorixbench/public_safety.py",
     "src/memorixbench/registry.py",
     "src/memorixbench/reporting.py",
+    "src/memorixbench/reviewer_packet.py",
     "src/memorixbench/runtime_attestation.py",
     "src/memorixbench/runtime_measurement.py",
     "src/memorixbench/schema.py",

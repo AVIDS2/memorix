@@ -41,5 +41,7 @@ separate.
 The audit deliberately does not claim to infer semantic novelty from text or
 code similarity. Such a heuristic can flag material for review, but cannot
 prove that a private transition is or is not equivalent to a public solution.
-The v2 admission receipt instead records each human reviewer's separate
-attestation for every required finding.
+The v3 admission receipt instead records each human reviewer's separate
+attestation for every required finding and binds the hash of that reviewer's
+private worksheet. The worksheet records rubric calibration, confidence, and
+private rationale without exposing private task material in the public receipt.

@@ -9,18 +9,36 @@ import re
 import stat
 
 
-ADMISSION_REVIEW_SCHEMA_VERSION = "case-admission-review-v2"
-ADMISSION_REVIEW_DRAFT_SCHEMA_VERSION = "case-admission-review-draft-v2"
+ADMISSION_REVIEW_SCHEMA_VERSION = "case-admission-review-v3"
+ADMISSION_REVIEW_DRAFT_SCHEMA_VERSION = "case-admission-review-draft-v3"
+REVIEWER_WORKSHEET_SCHEMA_VERSION = "case-admission-reviewer-worksheet-v1"
 IDENTIFIER_PATTERN = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 COMMIT_SHA_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 VALID_DECISIONS = {"approved-for-development", "rejected"}
 VALID_AUTHOR_HISTORY_ACCESS = {"provenance-only-v1", "public-solution-reviewed-v1"}
+VALID_CONFIDENCE = {"low", "medium", "high"}
+VALID_CALIBRATION_CLASSIFICATIONS = {
+    "predecessor-dependent",
+    "current-source-sufficient",
+    "needs-redraft",
+}
+VALID_FINDING_VERDICTS = {"affirmed", "not-affirmed"}
 REQUIRED_APPROVAL_FINDINGS = {
     "independent-transition-v1",
     "not-public-solution-isomorphic-v1",
     "predecessor-dependency-reviewed-v1",
     "current-source-sufficiency-reviewed-v1",
+}
+REVIEWER_CALIBRATION_SCENARIOS = (
+    "public-answer-restatement-v1",
+    "durable-predecessor-constraint-v1",
+    "ambiguous-current-source-v1",
+)
+REVIEWER_CALIBRATION_EXPECTATIONS = {
+    "public-answer-restatement-v1": "current-source-sufficient",
+    "durable-predecessor-constraint-v1": "predecessor-dependent",
+    "ambiguous-current-source-v1": "needs-redraft",
 }
 
 
@@ -68,6 +86,11 @@ class CaseAdmissionReviewDraft:
                 "reviewer_kind": "independent-human-v1",
                 "findings": [],
                 "reviewer_attestations": [],
+                "reviewer_attestation_template": {
+                    "reviewer_id": "<independent reviewer pseudonym>",
+                    "findings": ["<finding code>"],
+                    "reviewer_worksheet_sha256": "<private worksheet SHA-256>",
+                },
                 "decision": "<approved-for-development|rejected>",
                 "reviewed_at_utc": "<RFC3339 timestamp>",
             },
@@ -80,6 +103,54 @@ class ReviewerAttestation:
 
     reviewer_id: str
     findings: tuple[str, ...]
+    reviewer_worksheet_sha256: str
+
+
+@dataclass(frozen=True)
+class CalibrationResponse:
+    """One private calibration response recorded before a real admission decision."""
+
+    scenario_id: str
+    classification: str
+    confidence: str
+    rationale: str
+
+
+@dataclass(frozen=True)
+class FindingAssessment:
+    """One private, reviewer-authored rationale for an admission finding."""
+
+    finding_code: str
+    verdict: str
+    confidence: str
+    rationale: str
+
+
+@dataclass(frozen=True)
+class ReviewerWorksheet:
+    """Private reviewer work product bound by hash from the public receipt."""
+
+    schema_version: str
+    candidate_id: str
+    admission_review_draft_sha256: str
+    reviewer_id: str
+    reviewer_kind: str
+    calibration_responses: tuple[CalibrationResponse, ...]
+    finding_assessments: tuple[FindingAssessment, ...]
+    reviewed_at_utc: str
+
+    @property
+    def affirmed_findings(self) -> tuple[str, ...]:
+        return tuple(
+            assessment.finding_code
+            for assessment in self.finding_assessments
+            if assessment.verdict == "affirmed"
+        )
+
+    @property
+    def sha256(self) -> str:
+        payload = json.dumps(asdict(self), sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 @dataclass(frozen=True)
@@ -157,7 +228,11 @@ def _reviewer_attestations(
         raise AdmissionReviewError("admission review reviewer_attestations must be a list")
     attestations: list[ReviewerAttestation] = []
     for item in value:
-        if not isinstance(item, dict) or set(item) != {"reviewer_id", "findings"}:
+        if not isinstance(item, dict) or set(item) != {
+            "reviewer_id",
+            "findings",
+            "reviewer_worksheet_sha256",
+        }:
             raise AdmissionReviewError("admission review reviewer attestation has an unsupported schema")
         attestations.append(ReviewerAttestation(
             reviewer_id=_identifier(item.get("reviewer_id"), label="reviewer_attestation.reviewer_id"),
@@ -166,12 +241,19 @@ def _reviewer_attestations(
                 label="reviewer_attestation.findings",
                 minimum=1,
             ),
+            reviewer_worksheet_sha256=_sha256(
+                item.get("reviewer_worksheet_sha256"),
+                label="reviewer_attestation.reviewer_worksheet_sha256",
+            ),
         ))
     observed_ids = tuple(item.reviewer_id for item in attestations)
     if observed_ids != reviewer_ids:
         raise AdmissionReviewError(
             "admission review reviewer attestations must match reviewer_ids in order"
         )
+    worksheet_hashes = [item.reviewer_worksheet_sha256 for item in attestations]
+    if len(worksheet_hashes) != len(set(worksheet_hashes)):
+        raise AdmissionReviewError("admission review reviewer worksheets must be distinct")
     return tuple(attestations)
 
 
@@ -184,6 +266,175 @@ def _timestamp(value: object) -> str:
     if parsed.tzinfo is None:
         raise AdmissionReviewError("admission review reviewed_at_utc must include a timezone")
     return text
+
+
+def _choice(value: object, *, label: str, allowed: set[str]) -> str:
+    text = _required_text(value, label=label)
+    if text not in allowed:
+        raise AdmissionReviewError(f"admission review {label} is unsupported")
+    return text
+
+
+def _rationale(value: object, *, label: str) -> str:
+    text = _required_text(value, label=label)
+    if len(text) < 20:
+        raise AdmissionReviewError(f"admission review {label} must explain the judgment")
+    return text
+
+
+def _calibration_responses(value: object) -> tuple[CalibrationResponse, ...]:
+    if not isinstance(value, list):
+        raise AdmissionReviewError("admission review calibration_responses must be a list")
+    responses: list[CalibrationResponse] = []
+    for item in value:
+        if not isinstance(item, dict) or set(item) != {
+            "scenario_id",
+            "classification",
+            "confidence",
+            "rationale",
+        }:
+            raise AdmissionReviewError("admission review calibration response has an unsupported schema")
+        scenario_id = _required_text(item.get("scenario_id"), label="calibration.scenario_id")
+        if scenario_id not in REVIEWER_CALIBRATION_SCENARIOS:
+            raise AdmissionReviewError("admission review calibration scenario is unsupported")
+        responses.append(CalibrationResponse(
+            scenario_id=scenario_id,
+            classification=_choice(
+                item.get("classification"),
+                label="calibration.classification",
+                allowed=VALID_CALIBRATION_CLASSIFICATIONS,
+            ),
+            confidence=_choice(
+                item.get("confidence"),
+                label="calibration.confidence",
+                allowed=VALID_CONFIDENCE,
+            ),
+            rationale=_rationale(item.get("rationale"), label="calibration.rationale"),
+        ))
+    observed = tuple(item.scenario_id for item in responses)
+    if observed != REVIEWER_CALIBRATION_SCENARIOS:
+        raise AdmissionReviewError("admission review calibration responses must cover each scenario in order")
+    for response in responses:
+        if response.classification != REVIEWER_CALIBRATION_EXPECTATIONS[response.scenario_id]:
+            raise AdmissionReviewError("admission review calibration response does not apply the rubric")
+    return tuple(responses)
+
+
+def _finding_assessments(value: object) -> tuple[FindingAssessment, ...]:
+    if not isinstance(value, list):
+        raise AdmissionReviewError("admission review finding_assessments must be a list")
+    assessments: list[FindingAssessment] = []
+    for item in value:
+        if not isinstance(item, dict) or set(item) != {
+            "finding_code",
+            "verdict",
+            "confidence",
+            "rationale",
+        }:
+            raise AdmissionReviewError("admission review finding assessment has an unsupported schema")
+        finding_code = _identifier(item.get("finding_code"), label="finding_assessment.finding_code")
+        if finding_code not in REQUIRED_APPROVAL_FINDINGS:
+            raise AdmissionReviewError("admission review finding assessment is unsupported")
+        assessments.append(FindingAssessment(
+            finding_code=finding_code,
+            verdict=_choice(
+                item.get("verdict"),
+                label="finding_assessment.verdict",
+                allowed=VALID_FINDING_VERDICTS,
+            ),
+            confidence=_choice(
+                item.get("confidence"),
+                label="finding_assessment.confidence",
+                allowed=VALID_CONFIDENCE,
+            ),
+            rationale=_rationale(item.get("rationale"), label="finding_assessment.rationale"),
+        ))
+    observed = tuple(item.finding_code for item in assessments)
+    if len(observed) != len(set(observed)) or set(observed) != REQUIRED_APPROVAL_FINDINGS:
+        raise AdmissionReviewError("admission review findings must assess every required code exactly once")
+    return tuple(assessments)
+
+
+def reviewer_worksheet_template(draft: CaseAdmissionReviewDraft) -> dict[str, object]:
+    """Return a private worksheet template; it is never a public receipt."""
+
+    return {
+        "schema_version": REVIEWER_WORKSHEET_SCHEMA_VERSION,
+        "candidate_id": draft.candidate_id,
+        "admission_review_draft_sha256": draft.sha256,
+        "reviewer_id": "<reviewer-pseudonym>",
+        "reviewer_kind": "independent-human-v1",
+        "calibration_responses": [
+            {
+                "scenario_id": scenario_id,
+                "classification": "<predecessor-dependent|current-source-sufficient|needs-redraft>",
+                "confidence": "<low|medium|high>",
+                "rationale": "<private rationale>",
+            }
+            for scenario_id in REVIEWER_CALIBRATION_SCENARIOS
+        ],
+        "finding_assessments": [
+            {
+                "finding_code": finding_code,
+                "verdict": "<affirmed|not-affirmed>",
+                "confidence": "<low|medium|high>",
+                "rationale": "<private rationale>",
+            }
+            for finding_code in sorted(REQUIRED_APPROVAL_FINDINGS)
+        ],
+        "reviewed_at_utc": "<RFC3339 timestamp>",
+    }
+
+
+def load_reviewer_worksheet(
+    path: str | Path,
+    *,
+    draft: CaseAdmissionReviewDraft,
+) -> ReviewerWorksheet:
+    """Load one private human worksheet and bind it to an immutable draft."""
+
+    source = Path(path)
+    _committed_file_sha256(source, label="reviewer_worksheet")
+    try:
+        raw = json.loads(source.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise AdmissionReviewError("admission review worksheet cannot be read") from error
+    if not isinstance(raw, dict):
+        raise AdmissionReviewError("admission review worksheet must be an object")
+    expected = {
+        "schema_version",
+        "candidate_id",
+        "admission_review_draft_sha256",
+        "reviewer_id",
+        "reviewer_kind",
+        "calibration_responses",
+        "finding_assessments",
+        "reviewed_at_utc",
+    }
+    if set(raw) != expected or raw.get("schema_version") != REVIEWER_WORKSHEET_SCHEMA_VERSION:
+        raise AdmissionReviewError("admission review worksheet has an unsupported schema")
+    reviewer_id = _identifier(raw.get("reviewer_id"), label="reviewer_worksheet.reviewer_id")
+    if reviewer_id == draft.author_id:
+        raise AdmissionReviewError("admission worksheet reviewer must be independent from the author")
+    reviewer_kind = _required_text(raw.get("reviewer_kind"), label="reviewer_worksheet.reviewer_kind")
+    if reviewer_kind != "independent-human-v1":
+        raise AdmissionReviewError("admission worksheet requires an independent human reviewer")
+    worksheet = ReviewerWorksheet(
+        schema_version=REVIEWER_WORKSHEET_SCHEMA_VERSION,
+        candidate_id=_identifier(raw.get("candidate_id"), label="reviewer_worksheet.candidate_id"),
+        admission_review_draft_sha256=_sha256(
+            raw.get("admission_review_draft_sha256"),
+            label="reviewer_worksheet.admission_review_draft_sha256",
+        ),
+        reviewer_id=reviewer_id,
+        reviewer_kind=reviewer_kind,
+        calibration_responses=_calibration_responses(raw.get("calibration_responses")),
+        finding_assessments=_finding_assessments(raw.get("finding_assessments")),
+        reviewed_at_utc=_timestamp(raw.get("reviewed_at_utc")),
+    )
+    if worksheet.candidate_id != draft.candidate_id or worksheet.admission_review_draft_sha256 != draft.sha256:
+        raise AdmissionReviewError("admission review worksheet does not bind the committed draft")
+    return worksheet
 
 
 def _is_reparse_point(metadata: object) -> bool:
@@ -462,3 +713,62 @@ def validate_admission_review(
     )
     if observed != expected:
         raise AdmissionReviewError("admission review does not bind the source-ledger candidate")
+
+
+def validate_admission_review_worksheets(
+    review: CaseAdmissionReview,
+    *,
+    draft: CaseAdmissionReviewDraft,
+    worksheets: tuple[ReviewerWorksheet, ...],
+) -> None:
+    """Bind private reviewer reasoning to the public hash-only receipt.
+
+    The worksheet content stays with the review organizer. This check proves
+    only that the public receipt names the same reviewer work products and that
+    their recorded verdicts agree; it cannot replace independent human review.
+    """
+
+    review_binding = (
+        review.candidate_id,
+        review.repository_url.rstrip("/").removesuffix(".git"),
+        review.base_revision,
+        review.public_transition_revision,
+        review.author_id,
+        review.author_history_access,
+        review.private_transition_commitment_sha256,
+        review.private_task_brief_sha256,
+        review.public_history_comparison_sha256,
+    )
+    draft_binding = (
+        draft.candidate_id,
+        draft.repository_url.rstrip("/").removesuffix(".git"),
+        draft.base_revision,
+        draft.public_transition_revision,
+        draft.author_id,
+        draft.author_history_access,
+        draft.private_transition_commitment_sha256,
+        draft.private_task_brief_sha256,
+        draft.public_history_comparison_sha256,
+    )
+    if review_binding != draft_binding:
+        raise AdmissionReviewError("admission review worksheets do not bind the committed draft")
+    if tuple(item.reviewer_id for item in worksheets) != review.reviewer_ids:
+        raise AdmissionReviewError("admission review worksheets must match reviewer ids in order")
+    if len(worksheets) != len(review.reviewer_attestations):
+        raise AdmissionReviewError("admission review worksheet coverage is incomplete")
+    for attestation, worksheet in zip(review.reviewer_attestations, worksheets):
+        if worksheet.reviewer_id != attestation.reviewer_id:
+            raise AdmissionReviewError("admission review worksheet reviewer does not match attestation")
+        if worksheet.sha256 != attestation.reviewer_worksheet_sha256:
+            raise AdmissionReviewError("admission review worksheet hash does not match attestation")
+        if set(worksheet.affirmed_findings) != set(attestation.findings):
+            raise AdmissionReviewError("admission review worksheet verdicts do not match attestation")
+    if review.decision == "approved-for-development":
+        for worksheet in worksheets:
+            if any(
+                assessment.confidence == "low"
+                for assessment in worksheet.finding_assessments
+            ):
+                raise AdmissionReviewError(
+                    "approved admission needs at least medium confidence for every finding"
+                )

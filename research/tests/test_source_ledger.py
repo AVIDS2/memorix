@@ -101,7 +101,7 @@ def test_source_ledger_requires_and_validates_independent_admission_review(tmp_p
     review_dir = tmp_path / "reviews"
     review_dir.mkdir()
     review = {
-        "schema_version": "case-admission-review-v2",
+        "schema_version": "case-admission-review-v3",
         "candidate_id": "click-help-parameter",
         "repository_url": "https://github.com/pallets/click",
         "base_revision": "8c1a0a7abbc1c36f70d1f65f3604acc46c5ce6ab",
@@ -128,6 +128,9 @@ def test_source_ledger_requires_and_validates_independent_admission_review(tmp_p
                     "predecessor-dependency-reviewed-v1",
                     "current-source-sufficiency-reviewed-v1",
                 ],
+                "reviewer_worksheet_sha256": (
+                    "1" * 64 if reviewer_id == "reviewer-beta" else "2" * 64
+                ),
             }
             for reviewer_id in ["reviewer-beta", "reviewer-gamma"]
         ],

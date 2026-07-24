@@ -34,9 +34,10 @@ work.
 - Their external private design drafts also passed hash-only automated
   pre-review. This checks mechanical integrity only and leaves all three
   sources at `screening`; it is not an independent-human admission decision.
-- Before any independent review, their hash-only admission templates must be
-  regenerated to receipt v2. That change requires separate attestations from
-  each reviewer and changes no private task commitment or candidate status.
+- Before any independent review, their current v1 hash-only admission templates
+  must be regenerated to receipt v3 and assembled into external private handoff
+  packets. That change requires separate worksheet-bound attestations from each
+  reviewer and changes no private task commitment or candidate status.
 
 ## Permitted Positioning Now
 
@@ -63,8 +64,9 @@ solves private-oracle engineering tasks.
 3. A worker/vault deployment needs a usable KVM-backed Linux subject, a trusted
    model relay, and an independent runtime manager with disjoint signing keys.
    The currently configured development machines do not satisfy the KVM gate.
-4. The confirmatory power envelope and analysis plan must be reviewer-frozen
-   before any confirmatory outcome is read.
+4. The confirmatory power envelope and analysis plan described in
+   `CONFIRMATORY-ANALYSIS-FREEZE.md` must be reviewer-frozen before any
+   confirmatory outcome is read.
 5. A final venue-specific pass needs independent artifact review, author and
    anonymization checks, bibliography/format validation, and a decision about
    whether the target accepts an artifact/protocol contribution without a full

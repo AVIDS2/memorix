@@ -45,7 +45,7 @@ recover the full contract directly from the transfer snapshot.
 
 The Go source lead has an offline full-suite path and provides language
 coverage, but its narrow CLI behavior is likely to be current-source
-sufficient. It is therefore useful only as a preregistered negative or
+sufficient. It is therefore useful only as a planned negative or
 medium-dependency control, never as the first positive-evidence case.
 
 ## Role Separation
@@ -55,9 +55,10 @@ medium-dependency control, never as the first positive-evidence case.
 2. A case author with `provenance-only-v1` access authors a new private
    post-snapshot transition and private task brief. The author does not copy a
    public issue, patch, test, or discussion into either asset.
-3. At least two independent human reviewers compare the private design against
-   public history, assess current-source sufficiency and predecessor dependency,
-   and issue the hash-only admission receipt.
+3. At least two independent human reviewers receive separate private handoff
+   packets, compare the private design against public history, assess
+   current-source sufficiency and predecessor dependency, and issue the
+   hash-only admission receipt.
 4. Separate agents capture at least two precursor traces from the same frozen
    snapshot. A worker receives only the public case and the selected condition;
    it never sees the private task, transition, oracle, or review narrative.
@@ -71,7 +72,8 @@ deliberately no-memory-favorable. None has reviewer findings, a public case
 card, a trace, a private oracle, or an admission decision. Their source-ledger
 status remains `screening`; a draft commitment is not an admission.
 
-The hash-only templates were created before the per-reviewer receipt v2 rule.
+The hash-only templates were created before the per-reviewer worksheet-bound
+receipt v3 rule and currently use the older v1 schema.
 Before any human review begins, regenerate each template from the same three
 private files. This changes the template hash and receipt schema only; it does
 not alter the committed private-transition, task-brief, or history-comparison
@@ -85,7 +87,8 @@ true:
 - source-ledger audit and offline preflight pass;
 - benchmark overlap is reviewed rather than assumed;
 - a private post-snapshot transition commitment exists;
-- `validate-admission-review` accepts a two-reviewer human receipt;
+- `validate-admission-review` and `validate-admission-review-worksheets`
+  accept a two-reviewer human receipt and its private worksheets;
 - the receipt says the transition is independently authored, not isomorphic to
   public history, and has a reviewed predecessor dependency;
 - the public card, trace bundle, and private overlay each pass their own
@@ -104,8 +107,9 @@ the source cache origin/parent/license chain, draft-file boundary, hash
 commitments, and obvious path or credential leakage. Its receipt is explicitly
 `automated-pre-review-only-v1`: it never changes the source status, asserts
 semantic novelty, evaluates predecessor dependence, or issues an admission.
-Reviewers then follow `ADMISSION-REVIEWER-GUIDE.md` and each record the four
-required findings independently in a v2 receipt.
+Reviewers then follow `ADMISSION-REVIEWER-GUIDE.md`, receive a private handoff
+packet, and each record the four required findings independently in a v3
+receipt bound to a private worksheet hash.
 
 ## Author-Side Surface Triage
 

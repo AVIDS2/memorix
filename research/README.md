@@ -170,6 +170,10 @@ uv run memorixbench validate-analysis-plan <artifact-dir>/canonical-primary-plan
   leads that are not yet benchmark cases.
 - CASE-ADMISSION-REVIEW-CONTRACT.md: independent human review required before a
   source lead can become an admitted private-transition case.
+- REVIEWER-HANDOFF-PACKET-CONTRACT.md: external private packet, worksheet, and
+  hash-only receipt workflow for that independent review.
+- CONFIRMATORY-ANALYSIS-FREEZE.md: the analysis decisions that reviewers must
+  freeze before a confirmatory worker sees outcome labels.
 - AUTOMATED-PRE-ADMISSION-AUDIT-CONTRACT.md: hash, provenance, source-cache,
   and leakage checks that prepare a private design draft for human review but
   cannot issue an admission decision.

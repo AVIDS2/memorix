@@ -9,6 +9,7 @@ import subprocess
 import tomllib
 from urllib.parse import urlparse
 
+from .admission import AdmissionReviewError, load_admission_review, validate_admission_review
 from .preflight import PreflightError, load_environment_preflight_receipt
 
 
@@ -55,6 +56,8 @@ class SourceLedgerEntry:
     environment_readiness: str
     environment_receipt_path: str | None
     environment_receipt_sha256: str | None
+    admission_review_path: str | None
+    admission_review_sha256: str | None
     benchmark_overlap: str
     model_exposure: str
     public_solution_exists: bool
@@ -217,7 +220,12 @@ def load_source_ledger(path: str | Path) -> SourceLedger:
         "transition_plan",
         "decision_rationale",
     }
-    optional_fields = {"environment_receipt_path", "environment_receipt_sha256"}
+    optional_fields = {
+        "environment_receipt_path",
+        "environment_receipt_sha256",
+        "admission_review_path",
+        "admission_review_sha256",
+    }
     for candidate in candidates:
         if not isinstance(candidate, dict) or not (
             required_fields <= set(candidate) <= required_fields | optional_fields
@@ -240,6 +248,20 @@ def load_source_ledger(path: str | Path) -> SourceLedger:
         )
         if (receipt_path is None) != (receipt_sha256 is None):
             raise SourceLedgerError("source ledger environment receipt path and hash must appear together")
+        review_path = _optional_relative_path(
+            candidate.get("admission_review_path"),
+            label="admission_review_path",
+        )
+        review_sha256 = (
+            _sha256(
+                candidate.get("admission_review_sha256"),
+                label="admission_review_sha256",
+            )
+            if candidate.get("admission_review_sha256") is not None
+            else None
+        )
+        if (review_path is None) != (review_sha256 is None):
+            raise SourceLedgerError("source ledger admission review path and hash must appear together")
         entries.append(SourceLedgerEntry(
             candidate_id=_identifier(candidate.get("id"), label="id"),
             status=_choice(candidate.get("status"), label="status", allowed=VALID_STATUSES),
@@ -276,6 +298,8 @@ def load_source_ledger(path: str | Path) -> SourceLedger:
             ),
             environment_receipt_path=receipt_path,
             environment_receipt_sha256=receipt_sha256,
+            admission_review_path=review_path,
+            admission_review_sha256=review_sha256,
             benchmark_overlap=_choice(
                 candidate.get("benchmark_overlap"),
                 label="benchmark_overlap",
@@ -319,6 +343,8 @@ def _require_admission_invariants(entry: SourceLedgerEntry) -> None:
         raise SourceLedgerError("admitted source candidate needs benchmark-overlap review")
     if entry.transition_plan != "private-post-snapshot":
         raise SourceLedgerError("admitted source candidate needs a private post-snapshot transition")
+    if entry.admission_review_path is None or entry.admission_review_sha256 is None:
+        raise SourceLedgerError("admitted source candidate needs an independent admission review")
 
 
 def _validate_environment_receipt(entry: SourceLedgerEntry, ledger: SourceLedger) -> None:
@@ -351,10 +377,40 @@ def _validate_environment_receipt(entry: SourceLedgerEntry, ledger: SourceLedger
         raise SourceLedgerError("environment receipt does not bind the source candidate")
 
 
+def _validate_admission_review(entry: SourceLedgerEntry, ledger: SourceLedger) -> None:
+    if entry.admission_review_path is None:
+        return
+    assert entry.admission_review_sha256 is not None
+    root = ledger.source_path.parent.resolve()
+    review_path = (root / entry.admission_review_path).resolve()
+    if review_path == root or root not in review_path.parents:
+        raise SourceLedgerError("admission review path escapes the source ledger directory")
+    try:
+        observed_sha256 = hashlib.sha256(review_path.read_bytes()).hexdigest()
+    except OSError as error:
+        raise SourceLedgerError("admission review is unavailable") from error
+    if observed_sha256 != entry.admission_review_sha256:
+        raise SourceLedgerError("admission review hash does not match source ledger")
+    try:
+        review = load_admission_review(review_path)
+        validate_admission_review(
+            review,
+            candidate_id=entry.candidate_id,
+            repository_url=entry.repository_url,
+            base_revision=entry.base_revision,
+            public_transition_revision=entry.public_transition_revision,
+        )
+    except AdmissionReviewError as error:
+        raise SourceLedgerError("admission review is invalid") from error
+    if entry.status == "admitted" and review.decision != "approved-for-development":
+        raise SourceLedgerError("admitted source candidate needs an approved admission review")
+
+
 def validate_source_ledger(ledger: SourceLedger) -> SourceLedgerValidation:
     for entry in ledger.entries:
         _require_admission_invariants(entry)
         _validate_environment_receipt(entry, ledger)
+        _validate_admission_review(entry, ledger)
     status_counts = Counter(entry.status for entry in ledger.entries)
     return SourceLedgerValidation(
         ledger_id=ledger.ledger_id,

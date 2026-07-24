@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -48,16 +49,17 @@ def _entry(
     )
 
 
-def test_public_registry_is_empty_until_clean_cases_are_admitted() -> None:
+def test_public_registry_matches_the_frozen_reproducible_cohort() -> None:
     result = validate_case_registry(load_case_registry(REGISTRY), cases_root=CASES_ROOT)
 
-    assert result.entry_count == 0
+    assert result.entry_count == 12
     assert result.development_pilot_count == 0
+    assert result.public_reproducible_count == 12
     assert result.confirmatory_count == 0
-    assert result.repository_family_count == 0
-    assert result.task_family_count == 0
-    assert result.trace_family_count == 0
-    assert result.case_ids == ()
+    assert result.repository_family_count == 12
+    assert result.task_family_count == 12
+    assert result.trace_family_count == 12
+    assert len(result.case_ids) == 12
     assert len(result.registry_sha256) == 64
 
 
@@ -136,3 +138,35 @@ def test_confirmatory_bundle_checks_captured_provenance(
     monkeypatch.setattr(registry_module, "load_trace_bundle", lambda _manifest: invalid_bundle)
     with pytest.raises(CaseRegistryError, match="captured-session provenance"):
         registry_module._require_enrollment_invariants(entry, manifest)
+
+
+def test_public_reproducible_entry_requires_preregistered_public_case() -> None:
+    entry = replace(
+        _entry(),
+        enrollment="public-reproducible",
+        corpus_split="public-evaluation",
+        transition_exposure="public-preregistered",
+        captured_trace_count=0,
+    )
+    manifest = SimpleNamespace(
+        split="public-evaluation",
+        repository=SimpleNamespace(source_type="git"),
+        dependency_classification_status="preregistered",
+        oracle=SimpleNamespace(
+            visibility="public",
+            agent_writable_paths=("src",),
+        ),
+        study_track="B",
+    )
+
+    registry_module._require_enrollment_invariants(entry, manifest)
+
+    invalid_manifest = SimpleNamespace(
+        split="public-evaluation",
+        repository=SimpleNamespace(source_type="git"),
+        dependency_classification_status="preregistered",
+        oracle=SimpleNamespace(visibility="public", agent_writable_paths=()),
+        study_track="B",
+    )
+    with pytest.raises(CaseRegistryError, match="writable source roots"):
+        registry_module._require_enrollment_invariants(entry, invalid_manifest)

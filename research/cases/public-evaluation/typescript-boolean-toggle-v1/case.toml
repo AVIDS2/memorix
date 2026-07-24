@@ -1,0 +1,48 @@
+schema_version = "0.5"
+id = "typescript-boolean-toggle-v1"
+title = "Parse an explicit boolean toggle"
+split = "public-evaluation"
+dependency_strength = "low"
+dependency_classification_status = "preregistered"
+language = "typescript"
+tags = ["public-evaluation", "current-source-control"]
+
+[bundle]
+public_paths = ["case.toml", "seed"]
+
+[repository]
+source_type = "local-fixture"
+path = "seed"
+base_revision = "typescript-boolean-toggle-v1-base"
+
+[precursor]
+task = "Record the prior dashboard color-token discussion."
+success_commands = ["node --test tests/toggle.spec.mjs"]
+
+[transition]
+kind = "none"
+description = "The transfer behavior is available in current tests."
+apply_commands = []
+
+[transfer]
+task = "Implement `parseToggle` in `src/toggle.mjs`. Accept booleans and the exact lowercase strings `true` and `false`; return `undefined` for every other value. Run the trusted test."
+success_commands = ["node --test tests/toggle.spec.mjs"]
+
+[[memory_seed]]
+entity_name = "dashboard-color-token"
+type = "discovery"
+title = "Dashboard color token discussion"
+narrative = "The previous session selected teal for the dashboard success color. It did not define boolean input parsing."
+facts = ["Visual token decisions do not affect toggle parsing."]
+files_modified = ["docs/design-tokens.md"]
+concepts = ["design"]
+topic_key = "dashboard-color-token"
+related_entities = ["dashboard"]
+
+[oracle]
+visibility = "public"
+required_start_files = ["src/toggle.mjs", "tests/toggle.spec.mjs"]
+relevant_evidence_ids = []
+stale_evidence_ids = []
+forbidden_actions = []
+agent_writable_paths = ["src"]

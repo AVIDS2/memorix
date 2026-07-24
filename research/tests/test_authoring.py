@@ -1,6 +1,5 @@
 import json
 from pathlib import Path
-import sys
 
 from memorixbench.authoring import verify_case_authoring
 from memorixbench.schema import load_case_manifest
@@ -37,9 +36,8 @@ def test_verifies_all_authoring_gates(tmp_path: Path) -> None:
         "--- a/value.txt\n+++ b/value.txt\n@@ -1 +1 @@\n-broken\n+fixed\n",
         encoding="utf-8",
     )
-    executable = sys.executable.replace("\\", "/")
-    precursor_command = json.dumps(f'"{executable}" precursor_check.py')
-    transfer_command = json.dumps(f'"{executable}" transfer_check.py')
+    precursor_command = json.dumps("python precursor_check.py")
+    transfer_command = json.dumps("python transfer_check.py")
     manifest_path = case_dir / "case.toml"
     manifest_path.write_text(
         f"""

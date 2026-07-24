@@ -82,6 +82,17 @@ def _exit_code(value: object, *, label: str) -> int:
     return value
 
 
+def parse_preflight_timestamp(value: object) -> datetime:
+    text = _required_text(value, label="observed_at_utc")
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError as error:
+        raise PreflightError("preflight observed_at_utc is invalid") from error
+    if parsed.tzinfo is None:
+        raise PreflightError("preflight observed_at_utc must include a timezone")
+    return parsed.astimezone(timezone.utc)
+
+
 def _hash_file(path: str | Path) -> str:
     source = Path(path).resolve()
     try:
@@ -130,7 +141,9 @@ def write_environment_preflight_receipt(
         offline_policy=offline_policy,
         cache_profile=CACHE_PROFILE,
         passed=bootstrap_exit_code == 0 and offline_exit_code == 0,
-        observed_at_utc=observed_at_utc or datetime.now(timezone.utc).isoformat(),
+        observed_at_utc=parse_preflight_timestamp(
+            observed_at_utc or datetime.now(timezone.utc).isoformat()
+        ).isoformat(),
     )
     target = Path(path).resolve()
     if target.exists():
@@ -198,5 +211,5 @@ def load_environment_preflight_receipt(path: str | Path) -> EnvironmentPreflight
         offline_policy=offline_policy,
         cache_profile=CACHE_PROFILE,
         passed=passed,
-        observed_at_utc=_required_text(raw.get("observed_at_utc"), label="observed_at_utc"),
+        observed_at_utc=parse_preflight_timestamp(raw.get("observed_at_utc")).isoformat(),
     )

@@ -186,7 +186,12 @@ def materialize_case(
         source = _resolve_asset(manifest, manifest.repository.path)
         if not source.is_dir():
             raise ValueError(f"local fixture is not a directory: {source}")
-        shutil.copytree(source, target_path)
+        # Interpreter and test caches are local execution residue, never fixture state.
+        shutil.copytree(
+            source,
+            target_path,
+            ignore=shutil.ignore_patterns("__pycache__", ".pytest_cache"),
+        )
     else:
         assert manifest.repository.url is not None
         clone_source = manifest.repository.url

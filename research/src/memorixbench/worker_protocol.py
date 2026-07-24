@@ -1,21 +1,26 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 import hashlib
 import json
 from pathlib import Path
+import secrets
 import shutil
 import stat
 import subprocess
+import tempfile
+import re
 from typing import Any
 
 from .annotation import write_sanitized_action_ledger
 from .agents import AgentExecution, AgentName, ModelUsage, run_agent
-from .sealed_patch import SealedPatch, seal_patch
+from .sealed_patch import SealedPatch, SealedPatchError, seal_patch, snapshot_sealed_patch
 
 
-WORKER_JOB_SCHEMA_VERSION = "0.1"
-WORKER_RESULT_SCHEMA_VERSION = "0.1"
+WORKER_JOB_SCHEMA_VERSION = "0.3"
+WORKER_RESULT_SCHEMA_VERSION = "0.3"
+SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
+JOB_NONCE_PATTERN = re.compile(r"^[0-9a-f]{32}$")
 WORKER_FORBIDDEN_FIELDS = {
     "private_oracle_root",
     "oracle_overlay",
@@ -40,11 +45,17 @@ class WorkerJob:
     prompt: str
     prompt_sha256: str
     public_case_definition_sha256: str
+    public_bundle_sha256: str
+    memory_snapshot_sha256: str
+    subject_protocol_sha256: str
+    controller_policy_sha256: str
+    job_nonce: str
     workspace_snapshot_sha256: str
     timeout_seconds: int
     max_budget_usd: float | None
     allowed_tools: tuple[str, ...]
     config_overrides: tuple[str, ...]
+    runtime_config_sha256: str | None = None
 
     @property
     def job_sha256(self) -> str:
@@ -64,6 +75,11 @@ class WorkerResult:
     condition: str
     agent: AgentName
     model: str | None
+    public_bundle_sha256: str
+    memory_snapshot_sha256: str
+    subject_protocol_sha256: str
+    controller_policy_sha256: str
+    job_nonce: str
     workspace_snapshot_sha256: str
     sealed_patch_sha256: str
     sealed_patch_bytes: int
@@ -89,13 +105,114 @@ class WorkerResult:
     sanitized_action_ledger_sha256: str
     action_count: int
     action_timing_source: str
+    runtime_config_sha256: str | None = None
+    final_workspace_sha256: str | None = None
+    model_request_count: int | None = None
+    provider_request_ids_sha256: str | None = None
 
     def public_payload(self) -> dict[str, object]:
         return asdict(self)
 
+    @property
+    def result_sha256(self) -> str:
+        payload = json.dumps(
+            self.public_payload(),
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=True,
+        ).encode("ascii")
+        return hashlib.sha256(payload).hexdigest()
+
 
 def _sha256_text(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _runtime_file_sha256(path: str | Path | None, *, label: str) -> str | None:
+    if path is None:
+        return None
+    candidate = Path(path)
+    try:
+        metadata = candidate.lstat()
+    except OSError as error:
+        raise WorkerProtocolError(f"worker {label} is unavailable") from error
+    if candidate.is_symlink() or not stat.S_ISREG(metadata.st_mode):
+        raise WorkerProtocolError(f"worker {label} must be a regular file")
+    try:
+        return hashlib.sha256(candidate.read_bytes()).hexdigest()
+    except OSError as error:
+        raise WorkerProtocolError(f"worker {label} cannot be read") from error
+
+
+def runtime_configuration_sha256(
+    *,
+    environment: dict[str, str] | None,
+    mcp_config: str | Path | None,
+    settings_path: str | Path | None,
+) -> str:
+    """Commit exact runtime inputs without serializing environment secrets."""
+
+    environment_hashes: dict[str, str] = {}
+    for key, value in sorted((environment or {}).items()):
+        if not isinstance(key, str) or not key or not isinstance(value, str):
+            raise WorkerProtocolError("worker environment must contain non-empty string keys and values")
+        environment_hashes[key] = _sha256_text(value)
+    payload = {
+        "schema_version": "worker-runtime-config-v1",
+        "environment_value_sha256": environment_hashes,
+        "mcp_config_sha256": _runtime_file_sha256(mcp_config, label="MCP config"),
+        "settings_path_sha256": _runtime_file_sha256(settings_path, label="settings file"),
+    }
+    encoded = json.dumps(
+        payload,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+    ).encode("ascii")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def bind_worker_relay_evidence(
+    result: WorkerResult,
+    *,
+    model_request_count: int,
+    provider_request_ids_sha256: str,
+) -> WorkerResult:
+    """Attach relay-observed request commitments before the worker signs its result.
+
+    A future isolated worker obtains these values from its controller-owned relay
+    completion channel. The confirmatory permit independently verifies the same
+    values in the relay signature, so this helper alone is not evidence.
+    """
+
+    if isinstance(model_request_count, bool) or not isinstance(model_request_count, int):
+        raise WorkerProtocolError("worker model request count must be a positive integer")
+    if model_request_count <= 0:
+        raise WorkerProtocolError("worker model request count must be a positive integer")
+    _require_sha256(provider_request_ids_sha256, label="provider request ids")
+    return replace(
+        result,
+        model_request_count=model_request_count,
+        provider_request_ids_sha256=provider_request_ids_sha256,
+    )
+
+
+def create_controller_job_nonce() -> str:
+    """Return a controller-generated nonce for one remote worker job."""
+
+    return secrets.token_hex(16)
+
+
+def _require_sha256(value: object, *, label: str) -> str:
+    if not isinstance(value, str) or not SHA256_PATTERN.fullmatch(value):
+        raise WorkerProtocolError(f"worker job {label} must be a lowercase SHA-256")
+    return value
+
+
+def _require_job_nonce(value: object) -> str:
+    if not isinstance(value, str) or not JOB_NONCE_PATTERN.fullmatch(value):
+        raise WorkerProtocolError("worker job nonce must be a 128-bit lowercase hexadecimal value")
+    return value
 
 
 def _git_output(workspace: Path, *args: str) -> str:
@@ -202,7 +319,30 @@ def workspace_snapshot_hash(workspace: str | Path) -> str:
     return _hash_workspace_tree(root)
 
 
-def _capture_workspace_patch(workspace: Path, target: Path) -> SealedPatch:
+def _workspace_head(workspace: Path) -> str:
+    head = _git_output(workspace, "rev-parse", "--verify", "HEAD").strip()
+    if not re.fullmatch(r"[0-9a-f]{40}", head):
+        raise WorkerProtocolError("worker workspace must have one immutable Git HEAD")
+    return head
+
+
+def _capture_workspace_patch(
+    workspace: Path,
+    target: Path,
+    *,
+    expected_head: str,
+) -> tuple[SealedPatch, str]:
+    if _workspace_head(workspace) != expected_head:
+        raise WorkerProtocolError("worker changed the public workspace Git HEAD")
+    status = _git_output(
+        workspace,
+        "status",
+        "--porcelain=v1",
+        "--untracked-files=all",
+        "--ignored=matching",
+    )
+    if any(line.startswith("!! ") for line in status.splitlines()):
+        raise WorkerProtocolError("worker workspace contains ignored files after execution")
     untracked = _git_output(workspace, "ls-files", "--others", "--exclude-standard")
     paths = tuple(line for line in untracked.splitlines() if line.strip())
     if paths:
@@ -217,10 +357,81 @@ def _capture_workspace_patch(workspace: Path, target: Path) -> SealedPatch:
         )
         if staged.returncode != 0:
             raise WorkerProtocolError("worker could not seal untracked workspace files")
-    patch = _git_output(workspace, "diff", "--no-ext-diff", "--binary")
+    patch = _git_output(workspace, "diff", "--no-ext-diff", "--binary", "HEAD")
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(patch, encoding="utf-8")
-    return seal_patch(target)
+    return seal_patch(target), _hash_workspace_tree(workspace)
+
+
+def reconstruct_sealed_patch_in_vault(
+    *,
+    workspace: str | Path,
+    worker_patch: SealedPatch,
+    expected_workspace_snapshot_sha256: str,
+    expected_final_workspace_sha256: str,
+) -> str:
+    """Apply a sealed worker patch to a clean disposable vault checkout.
+
+    The caller owns this checkout and must discard it after grading. This
+    function deliberately verifies only public tree reconstruction; it never
+    mounts an oracle or starts an agent.
+    """
+
+    _require_sha256(expected_workspace_snapshot_sha256, label="workspace snapshot")
+    _require_sha256(expected_final_workspace_sha256, label="final workspace")
+    root = Path(workspace).resolve()
+    if workspace_snapshot_hash(root) != expected_workspace_snapshot_sha256:
+        raise WorkerProtocolError("vault workspace snapshot does not match the worker baseline")
+    initial_head = _workspace_head(root)
+    with tempfile.TemporaryDirectory(prefix="memorixbench-vault-patch-") as directory:
+        try:
+            frozen_patch = snapshot_sealed_patch(
+                worker_patch,
+                Path(directory) / "sealed-worker.patch",
+            )
+        except SealedPatchError as error:
+            raise WorkerProtocolError("sealed worker patch changed before vault reconstruction") from error
+        patch_path = frozen_patch.path
+        try:
+            checked = subprocess.run(
+                ["git", "apply", "--check", "--whitespace=error", str(patch_path)],
+                cwd=root,
+                check=False,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+            )
+        except OSError as error:
+            raise WorkerProtocolError("vault could not check the sealed worker patch") from error
+        if checked.returncode != 0:
+            raise WorkerProtocolError("sealed worker patch cannot be applied to the vault baseline")
+        applied = subprocess.run(
+            ["git", "apply", "--whitespace=error", str(patch_path)],
+            cwd=root,
+            check=False,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+        if applied.returncode != 0:
+            raise WorkerProtocolError("vault could not apply the sealed worker patch")
+    if _workspace_head(root) != initial_head:
+        raise WorkerProtocolError("sealed worker patch changed the vault Git HEAD")
+    status = _git_output(
+        root,
+        "status",
+        "--porcelain=v1",
+        "--untracked-files=all",
+        "--ignored=matching",
+    )
+    if any(line.startswith("!! ") for line in status.splitlines()):
+        raise WorkerProtocolError("sealed worker patch reconstructs ignored workspace files")
+    final_hash = _hash_workspace_tree(root)
+    if final_hash != expected_final_workspace_sha256:
+        raise WorkerProtocolError("sealed worker patch does not reconstruct the expected final tree")
+    return final_hash
 
 
 def create_worker_job(
@@ -232,11 +443,17 @@ def create_worker_job(
     model: str | None,
     prompt: str,
     public_case_definition_sha256: str,
+    public_bundle_sha256: str,
+    memory_snapshot_sha256: str,
+    subject_protocol_sha256: str,
+    controller_policy_sha256: str,
+    job_nonce: str,
     workspace: str | Path,
     timeout_seconds: int,
     max_budget_usd: float | None,
     allowed_tools: tuple[str, ...] = (),
     config_overrides: tuple[str, ...] = (),
+    runtime_config_sha256: str | None = None,
 ) -> WorkerJob:
     if agent not in {"claude", "codex"}:
         raise WorkerProtocolError("unsupported worker agent")
@@ -244,6 +461,23 @@ def create_worker_job(
         raise WorkerProtocolError("worker job prompt must be non-empty")
     if timeout_seconds <= 0:
         raise WorkerProtocolError("worker timeout must be positive")
+    public_case_definition_sha256 = _require_sha256(
+        public_case_definition_sha256,
+        label="public case definition",
+    )
+    public_bundle_sha256 = _require_sha256(public_bundle_sha256, label="public bundle")
+    memory_snapshot_sha256 = _require_sha256(memory_snapshot_sha256, label="memory snapshot")
+    subject_protocol_sha256 = _require_sha256(subject_protocol_sha256, label="subject protocol")
+    controller_policy_sha256 = _require_sha256(
+        controller_policy_sha256,
+        label="controller policy",
+    )
+    job_nonce = _require_job_nonce(job_nonce)
+    if runtime_config_sha256 is not None:
+        runtime_config_sha256 = _require_sha256(
+            runtime_config_sha256,
+            label="runtime configuration",
+        )
     return WorkerJob(
         schema_version=WORKER_JOB_SCHEMA_VERSION,
         run_id=run_id,
@@ -254,11 +488,17 @@ def create_worker_job(
         prompt=prompt,
         prompt_sha256=_sha256_text(prompt),
         public_case_definition_sha256=public_case_definition_sha256,
+        public_bundle_sha256=public_bundle_sha256,
+        memory_snapshot_sha256=memory_snapshot_sha256,
+        subject_protocol_sha256=subject_protocol_sha256,
+        controller_policy_sha256=controller_policy_sha256,
+        job_nonce=job_nonce,
         workspace_snapshot_sha256=workspace_snapshot_hash(workspace),
         timeout_seconds=timeout_seconds,
         max_budget_usd=max_budget_usd,
         allowed_tools=allowed_tools,
         config_overrides=config_overrides,
+        runtime_config_sha256=runtime_config_sha256,
     )
 
 
@@ -289,11 +529,17 @@ def load_worker_job(path: str | Path) -> WorkerJob:
         "prompt",
         "prompt_sha256",
         "public_case_definition_sha256",
+        "public_bundle_sha256",
+        "memory_snapshot_sha256",
+        "subject_protocol_sha256",
+        "controller_policy_sha256",
+        "job_nonce",
         "workspace_snapshot_sha256",
         "timeout_seconds",
         "max_budget_usd",
-        "allowed_tools",
-        "config_overrides",
+            "allowed_tools",
+            "config_overrides",
+            "runtime_config_sha256",
     }
     if set(raw) != expected:
         raise WorkerProtocolError("worker job has unexpected fields")
@@ -307,6 +553,24 @@ def load_worker_job(path: str | Path) -> WorkerJob:
         raise WorkerProtocolError("worker job prompt must be non-empty")
     if raw.get("prompt_sha256") != _sha256_text(prompt):
         raise WorkerProtocolError("worker job prompt commitment does not match")
+    public_case_definition_sha256 = _require_sha256(
+        raw.get("public_case_definition_sha256"),
+        label="public case definition",
+    )
+    public_bundle_sha256 = _require_sha256(raw.get("public_bundle_sha256"), label="public bundle")
+    memory_snapshot_sha256 = _require_sha256(raw.get("memory_snapshot_sha256"), label="memory snapshot")
+    subject_protocol_sha256 = _require_sha256(raw.get("subject_protocol_sha256"), label="subject protocol")
+    controller_policy_sha256 = _require_sha256(
+        raw.get("controller_policy_sha256"),
+        label="controller policy",
+    )
+    job_nonce = _require_job_nonce(raw.get("job_nonce"))
+    runtime_config_sha256 = raw.get("runtime_config_sha256")
+    if runtime_config_sha256 is not None:
+        runtime_config_sha256 = _require_sha256(
+            runtime_config_sha256,
+            label="runtime configuration",
+        )
     for key in ("allowed_tools", "config_overrides"):
         if not isinstance(raw.get(key), list) or any(
             not isinstance(item, str) or not item.strip() for item in raw[key]
@@ -333,12 +597,18 @@ def load_worker_job(path: str | Path) -> WorkerJob:
         model=None if raw["model"] is None else str(raw["model"]),
         prompt=prompt,
         prompt_sha256=str(raw["prompt_sha256"]),
-        public_case_definition_sha256=str(raw["public_case_definition_sha256"]),
+        public_case_definition_sha256=public_case_definition_sha256,
+        public_bundle_sha256=public_bundle_sha256,
+        memory_snapshot_sha256=memory_snapshot_sha256,
+        subject_protocol_sha256=subject_protocol_sha256,
+        controller_policy_sha256=controller_policy_sha256,
+        job_nonce=job_nonce,
         workspace_snapshot_sha256=str(raw["workspace_snapshot_sha256"]),
         timeout_seconds=timeout_seconds,
         max_budget_usd=max_budget,
         allowed_tools=tuple(raw["allowed_tools"]),
         config_overrides=tuple(raw["config_overrides"]),
+        runtime_config_sha256=runtime_config_sha256,
     )
 
 
@@ -360,6 +630,17 @@ def run_worker_job(
     root = Path(workspace).resolve()
     if workspace_snapshot_hash(root) != job.workspace_snapshot_sha256:
         raise WorkerProtocolError("worker workspace snapshot does not match the public job")
+    initial_head = _workspace_head(root)
+    observed_runtime_config_sha256 = runtime_configuration_sha256(
+        environment=environment,
+        mcp_config=mcp_config,
+        settings_path=settings_path,
+    )
+    if (
+        job.runtime_config_sha256 is not None
+        and observed_runtime_config_sha256 != job.runtime_config_sha256
+    ):
+        raise WorkerProtocolError("worker runtime configuration does not match the public job")
     output = Path(output_root).resolve()
     if output.exists():
         raise WorkerProtocolError("worker output root already exists")
@@ -383,7 +664,11 @@ def run_worker_job(
             settings_path=None if settings_path is None else Path(settings_path),
             environment=environment,
         )
-        sealed_patch = _capture_workspace_patch(root, output / "sealed.patch")
+        sealed_patch, final_workspace_sha256 = _capture_workspace_patch(
+            root,
+            output / "sealed.patch",
+            expected_head=initial_head,
+        )
         sanitized_actions = write_sanitized_action_ledger(
             execution.action_ledger_path,
             output / "action-ledger.json",
@@ -398,6 +683,11 @@ def run_worker_job(
         condition=job.condition,
         agent=job.agent,
         model=job.model,
+        public_bundle_sha256=job.public_bundle_sha256,
+        memory_snapshot_sha256=job.memory_snapshot_sha256,
+        subject_protocol_sha256=job.subject_protocol_sha256,
+        controller_policy_sha256=job.controller_policy_sha256,
+        job_nonce=job.job_nonce,
         workspace_snapshot_sha256=job.workspace_snapshot_sha256,
         sealed_patch_sha256=sealed_patch.sha256,
         sealed_patch_bytes=sealed_patch.byte_count,
@@ -423,6 +713,8 @@ def run_worker_job(
         sanitized_action_ledger_sha256=sanitized_actions.sha256,
         action_count=execution.action_count,
         action_timing_source=execution.action_timing_source,
+        runtime_config_sha256=observed_runtime_config_sha256,
+        final_workspace_sha256=final_workspace_sha256,
     )
     (output / "worker-result.json").write_text(
         json.dumps(result.public_payload(), indent=2),

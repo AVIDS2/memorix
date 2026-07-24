@@ -34,10 +34,19 @@ For each run, the gateway fixes and commits:
 - `refresh = never` for the comparable memory-only native surface;
 - one served MCP call maximum;
 - the same 512-token lexical proxy output budget used by canonical retrieval;
+- one declared delivery profile: `full`, `no-freshness`, `no-current-state`,
+  `no-semantic-code`, `no-knowledge`, or `no-workflow`;
 - no memory writes, graph calls, search calls, detail calls, or context-pack
   calls during transfer; and
 - a private run receipt containing only hashes, token counts, truncation, call
-  attempts, served calls, and provider-failure count.
+  attempts, served calls, provider-failure count, delivery-profile name, and
+  named suppressed components.
+
+The delivery profiles are counterfactual **prompt-delivery** interventions. The
+real Memorix Workset is formed once, then its existing bounded renderer receives
+a copy with the named evidence removed. They do not claim that the underlying
+code index, memory store, knowledge workspace, or workflow maintenance was
+disabled. The full profile returns the normal product prompt unchanged.
 
 The agent sees the returned packet but not the receipt. A second call is an MCP
 tool error, not a retry or an extra context round. The gateway never logs raw
@@ -45,8 +54,9 @@ context to stdout or its receipt.
 
 ## Result Accounting
 
-Every budgeted native result carries the policy hash, call budget, receipt
-status, attempts, served calls, emitted context tokens, and truncation flag.
+Every budgeted native result carries the policy hash, delivery profile, call
+budget, receipt status, attempts, served calls, emitted context tokens, and
+truncation flag.
 
 - `recorded-v1`: the gateway started and produced a valid receipt.
 - `not-started-v1`: the agent never used the MCP server; this is a valid product
@@ -56,8 +66,9 @@ status, attempts, served calls, emitted context tokens, and truncation flag.
   task failure or a zero-retrieval result.
 
 The trial validator rejects a receipt with more served calls than attempts, a
-served call above the policy budget, context evidence without a served call, or
-an output above 512 tokens.
+served call above the policy budget, context evidence without a served call, an
+ablated profile without suppression evidence, a profile that differs from its
+policy, or an output above 512 tokens.
 
 ## Verification Boundary
 

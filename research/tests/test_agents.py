@@ -1,12 +1,17 @@
 import json
 import os
 from pathlib import Path
+import subprocess
 import sys
 
 from memorixbench.agents import (
     _capture_streaming_process,
     _failure_reason,
+    _openrouter_completion,
+    _openrouter_execution_environment,
+    _openrouter_workspace_path,
     _parse_claude,
+    _run_openrouter_agent,
     audit_bash_commands,
     build_claude_command,
     build_codex_command,
@@ -77,6 +82,8 @@ def test_writes_claude_isolation_settings(tmp_path: Path) -> None:
     payload = json.loads(path.read_text(encoding="utf-8"))
     assert payload["autoMemoryEnabled"] is False
     assert "Read(//f/artifacts/**)" in payload["permissions"]["deny"]
+    assert "Bash(* F:/artifacts*)" in payload["permissions"]["deny"]
+    assert "Bash(* /f/artifacts*)" in payload["permissions"]["deny"]
     assert "Bash(npm test)" in payload["permissions"]["allow"]
     assert "Bash" not in payload["permissions"]["deny"]
     assert "Bash(*..*)" not in payload["permissions"]["deny"]
@@ -277,3 +284,184 @@ def test_command_audit_flags_escape_and_network_commands(tmp_path: Path) -> None
     assert any(item.startswith("parent-traversal:") for item in violations)
     assert any(item.startswith("network-command:") for item in violations)
     assert any(item.startswith("external-path:") for item in violations)
+
+
+def test_openrouter_agent_uses_bounded_tools_and_records_one_model(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    subprocess.run(["git", "init", "--quiet"], cwd=workspace, check=True)
+    subprocess.run(["git", "config", "user.name", "MemorixBench Test"], cwd=workspace, check=True)
+    subprocess.run(["git", "config", "user.email", "test@example.invalid"], cwd=workspace, check=True)
+    (workspace / "README.md").write_text("fixture\n", encoding="utf-8")
+    subprocess.run(["git", "add", "README.md"], cwd=workspace, check=True)
+    subprocess.run(["git", "commit", "--quiet", "-m", "fixture"], cwd=workspace, check=True)
+    responses = iter((
+        {
+            "model": "qwen/qwen3-coder-30b-a3b-instruct",
+            "usage": {"prompt_tokens": 12, "completion_tokens": 5},
+            "choices": [{
+                "finish_reason": "tool_calls",
+                "message": {
+                    "content": "",
+                    "tool_calls": [{
+                        "id": "write-answer",
+                        "function": {
+                            "name": "write_file",
+                            "arguments": json.dumps({
+                                "path": "src/answer.py",
+                                "content": "answer = 42\n",
+                            }),
+                        },
+                    }],
+                },
+            }],
+        },
+        {
+            "model": "qwen/qwen3-coder-30b-a3b-instruct",
+            "usage": {"prompt_tokens": 18, "completion_tokens": 3},
+            "choices": [{
+                "finish_reason": "stop",
+                "message": {"content": "Done."},
+            }],
+        },
+    ))
+
+    monkeypatch.setattr(
+        "memorixbench.agents._openrouter_completion",
+        lambda **_kwargs: next(responses),
+    )
+
+    execution = _run_openrouter_agent(
+        workspace=workspace,
+        prompt="Create src/answer.py.",
+        artifact_dir=tmp_path / "artifacts",
+        model="qwen/qwen3-coder-30b-a3b-instruct",
+        timeout_seconds=30,
+        max_budget_usd=None,
+        verification_commands=("python -m py_compile src/answer.py",),
+        writable_paths=("src",),
+    )
+
+    assert execution.completed
+    assert execution.returncode == 0
+    assert execution.reported_models == ("qwen/qwen3-coder-30b-a3b-instruct",)
+    assert execution.input_tokens == 30
+    assert execution.output_tokens == 8
+    assert execution.tool_call_names == ("write_file",)
+    assert execution.successful_tool_call_names == ("write_file",)
+    assert (workspace / "src" / "answer.py").read_text(encoding="utf-8") == "answer = 42\n"
+    assert execution.action_count == 1
+    assert "OPENROUTER_API_KEY" not in execution.events_path.read_text(encoding="utf-8")
+
+
+def test_openrouter_tool_paths_cannot_escape_workspace(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    try:
+        _openrouter_workspace_path(workspace, "../outside")
+    except ValueError as error:
+        assert "workspace" in str(error)
+    else:
+        raise AssertionError("parent traversal must be rejected")
+
+
+def test_openrouter_tools_get_an_isolated_windows_compatible_runtime(tmp_path: Path) -> None:
+    workspace = tmp_path / "run" / "workspace"
+    workspace.mkdir(parents=True)
+
+    environment = _openrouter_execution_environment(workspace)
+
+    runtime_root = workspace.parent / "agent-runtime"
+    assert environment["USERPROFILE"] == str(runtime_root / "home")
+    assert environment["LOCALAPPDATA"] == str(runtime_root / "home" / "localappdata")
+    assert environment["GOCACHE"] == str(runtime_root / "cache" / "go-build")
+    assert environment["TEMP"] == str(runtime_root / "tmp")
+    assert environment["GOENV"] == "off"
+    assert Path(environment["GOCACHE"]).is_dir()
+    assert Path(environment["TEMP"]).is_dir()
+
+
+def test_openrouter_completion_retries_only_a_transient_transport_failure(monkeypatch) -> None:
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, _exc_type, _exc_value, _traceback) -> None:
+            return None
+
+        def read(self) -> bytes:
+            return json.dumps({"choices": [{"message": {"content": "ok"}}]}).encode("utf-8")
+
+    attempts = iter((
+        __import__("urllib.error", fromlist=["URLError"]).URLError("temporary"),
+        Response(),
+    ))
+
+    def fake_urlopen(*_args, **_kwargs):
+        next_item = next(attempts)
+        if isinstance(next_item, Exception):
+            raise next_item
+        return next_item
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setattr("memorixbench.agents.urlrequest.urlopen", fake_urlopen)
+    monkeypatch.setattr("memorixbench.agents.time.sleep", lambda _seconds: None)
+
+    payload = _openrouter_completion(
+        model="qwen/qwen3-coder-30b-a3b-instruct",
+        messages=[{"role": "user", "content": "test"}],
+        timeout_seconds=10,
+    )
+
+    assert payload["_memorixbench_transport"] == {
+        "attempts": 2,
+        "transient_failures": ["unreachable"],
+    }
+    assert _failure_reason(
+        completed=False,
+        timed_out=False,
+        returncode=1,
+        stdout="",
+        stderr="OpenRouter transient transport failure after 3 attempt(s): unreachable",
+    ) == "provider-transient"
+
+
+def test_openrouter_agent_stops_at_declared_cost_budget(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    subprocess.run(["git", "init", "--quiet"], cwd=workspace, check=True)
+    subprocess.run(["git", "config", "user.name", "MemorixBench Test"], cwd=workspace, check=True)
+    subprocess.run(["git", "config", "user.email", "test@example.invalid"], cwd=workspace, check=True)
+    (workspace / "README.md").write_text("fixture\n", encoding="utf-8")
+    subprocess.run(["git", "add", "README.md"], cwd=workspace, check=True)
+    subprocess.run(["git", "commit", "--quiet", "-m", "fixture"], cwd=workspace, check=True)
+    monkeypatch.setattr(
+        "memorixbench.agents._openrouter_completion",
+        lambda **_kwargs: {
+            "model": "qwen/qwen3-coder-30b-a3b-instruct",
+            "usage": {"prompt_tokens": 10, "completion_tokens": 1, "cost": 0.02},
+            "choices": [{"finish_reason": "stop", "message": {"content": "Done."}}],
+        },
+    )
+
+    execution = _run_openrouter_agent(
+        workspace=workspace,
+        prompt="Do nothing.",
+        artifact_dir=tmp_path / "artifacts",
+        model="qwen/qwen3-coder-30b-a3b-instruct",
+        timeout_seconds=30,
+        max_budget_usd=0.01,
+        verification_commands=("git status --short",),
+        writable_paths=("src",),
+    )
+
+    assert not execution.completed
+    assert execution.failure_reason == "budget-exhausted"
+    assert execution.cost_usd == 0.02

@@ -5,14 +5,20 @@ conclusion only after its evidence gate passes on the frozen confirmatory set.
 
 | ID | Candidate claim | Required evidence | Current status |
 | --- | --- | --- | --- |
-| C1 | Memorix full improves dependent coding-task success over no memory. | Paired confirmatory success results across held-out repositories and at least two agent/model families; exact McNemar test and paired bootstrap interval. | Unproven |
-| C2 | Memorix full improves success over raw last-N transcript replay at a bounded context budget. | Equal retrieval-token budget, paired task outcomes, and context accounting. | Unproven |
-| C3 | Freshness checks reduce harm from obsolete project guidance. | Predeclared stale-memory subset; full versus no-freshness ablation; stale-action errors and hidden-test outcomes. | Unproven |
-| C4 | The gain is not only retrieval accuracy but earlier correct engineering action. | Auditable action traces, blinded action labels, inter-rater agreement, paired time/step analysis. | Unproven |
-| C5 | Project memory transfers across agent clients. | Same project state and memory substrate with at least two supported agent clients; no shared hidden transcript. | Unproven |
-| C6 | Graph, workflow, and knowledge layers each add measurable value on matching task strata. | Predeclared component ablations and interaction analysis; no global claim from a narrow stratum. | Unproven |
-| C7 | Memorix does not materially degrade unrelated tasks. | Negative-control tasks, equivalence or bounded non-inferiority analysis, intrusion counts. | Unproven |
-| C8 | Benefits remain meaningful after token, latency, and API cost are included. | Complete accounting with missing-cost disclosure and paired efficiency plots. | Unproven |
+| C1 | Complete Memorix canonical bounded retrieval improves dependent coding-task success over no memory while ordinary current-code access stays matched. | H1 paired confirmatory results across held-out repositories and at least two agent/model families; clustered sign-flip test, paired bootstrap interval, and frozen power receipt. | Unproven |
+| C2 | Complete Memorix canonical bounded retrieval improves success over bounded raw last-N trace replay. | H2 equal retrieved-context budget, paired confirmatory task outcomes, context accounting, clustered sign-flip test, and frozen power receipt. | Unproven |
+| C3 | Budgeted native Memorix Autopilot freshness delivery reduces observable harm from obsolete project guidance. | Predeclared stale-memory subset; complete native delivery versus native freshness-withheld delivery ablation; stale-action labels and hidden-test outcomes. | Unproven |
+| C4 | Canonical bounded retrieval can improve time to first correct engineering action, not only final patch correctness. | Auditable action traces, blinded action labels, inter-rater agreement, and all-valid-run right-censored time analysis at the frozen deadline. | Unproven |
+| C5 | Canonical project memory transfers across agent clients. | Same project state and memory substrate with at least two supported agent clients; no shared hidden transcript. | Unproven |
+| C6 | Predeclared native semantic-code, workflow, and knowledge delivery bundles add measurable value on matching task strata. | Predeclared native agent-facing delivery ablations; any joint interaction needs a separately frozen profile and adequate cells. No global or isolated-module claim from a narrow stratum. | Unproven |
+| C7 | Selective budgeted native memory use does not materially degrade unrelated tasks. | Negative-control tasks, a preregistered numerical non-inferiority margin and one-sided rule, plus tool-call and intrusion counts. | Unproven |
+| C8 | Canonical and budgeted-native benefits remain meaningful after token, latency, and API cost are reported on their separate surfaces. | Complete accounting with missing-cost disclosure and paired efficiency plots. | Unproven |
+
+C1 and C2 are the Holm-corrected canonical primary family. The budgeted
+native-Autopilot MCP track is intentionally not part of either claim. C3 and
+C6-C7 are a separate preregistered product-surface family with one read-only
+call and its own receipt, as defined in `NATIVE-MCP-BUDGET-CONTRACT.md`; it is
+never silently pooled into the canonical cross-provider primary estimate.
 
 ## Forbidden shortcuts
 

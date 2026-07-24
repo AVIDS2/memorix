@@ -1,15 +1,16 @@
 import hashlib
 import json
 from pathlib import Path
-import sys
 from types import SimpleNamespace
 
 import pytest
 
 from memorixbench.case_bundle import (
     archive_public_case_definition,
+    hash_case_tree,
     public_case_definition_hash,
 )
+import memorixbench.case_bundle as case_bundle_module
 import memorixbench.cli as cli
 from memorixbench.authoring import (
     AuthoringGateResult,
@@ -21,6 +22,7 @@ from memorixbench.oracle_assets import (
     resolve_oracle_assets,
     verifier_runtime_hash,
 )
+from memorixbench.public_safety import PublicSafetyError
 from memorixbench.reporting import (
     serialize_authoring_verification,
     serialize_command_results,
@@ -161,8 +163,7 @@ def _development_private_case(tmp_path: Path) -> tuple[Path, Path]:
         "--- a/expected.txt\n+++ b/expected.txt\n@@ -1 +1 @@\n-base\n+broken\n",
         encoding="utf-8",
     )
-    executable = sys.executable.replace("\\", "/")
-    command = json.dumps(f'"{executable}" check.py')
+    command = json.dumps("python check.py")
     manifest_path = case_root / "case.toml"
     manifest_path.write_text(
         "\n".join(
@@ -319,6 +320,67 @@ def test_private_case_rejects_unbundled_files(tmp_path: Path) -> None:
         archive_public_case_definition(manifest, tmp_path / "artifact")
 
 
+@pytest.mark.parametrize(
+    ("content", "message"),
+    (
+        (r"C:\\Users\\alice\\private", "absolute host path"),
+        ("ghp_" + "a" * 36, "credential-like"),
+    ),
+)
+def test_private_case_rejects_sensitive_public_bundle_content(
+    tmp_path: Path,
+    content: str,
+    message: str,
+) -> None:
+    manifest_path, _overlay = _private_case(tmp_path)
+    manifest = load_case_manifest(manifest_path)
+    (manifest_path.parent / "seed" / "value.txt").write_text(content, encoding="utf-8")
+
+    with pytest.raises(PublicSafetyError, match=message):
+        archive_public_case_definition(manifest, tmp_path / "artifact")
+
+
+def test_public_case_rejects_windows_reparse_paths(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    manifest_path, _overlay = _private_case(tmp_path)
+    manifest = load_case_manifest(manifest_path)
+
+    monkeypatch.setattr(
+        case_bundle_module,
+        "_is_reparse_point",
+        lambda path: path.name == "seed",
+    )
+
+    with pytest.raises(ValueError, match="symbolic or reparse"):
+        public_case_definition_hash(manifest)
+
+
+def test_public_case_archive_freezes_validated_bytes(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    manifest_path, _overlay = _private_case(tmp_path)
+    manifest = load_case_manifest(manifest_path)
+    source_file = manifest_path.parent / "seed" / "value.txt"
+    original_read = case_bundle_module._read_public_case_bytes
+
+    def read_then_mutate(path: Path, *, root: Path | None = None) -> bytes:
+        content = original_read(path, root=root)
+        if path == source_file:
+            path.write_text("ghp_" + "a" * 36, encoding="utf-8")
+        return content
+
+    monkeypatch.setattr(case_bundle_module, "_read_public_case_bytes", read_then_mutate)
+    artifact = tmp_path / "artifact"
+    definition_sha256 = archive_public_case_definition(manifest, artifact)
+    archived = artifact / "case-definition"
+
+    assert (archived / "seed" / "value.txt").read_text(encoding="utf-8") == "base\n"
+    assert definition_sha256 == hash_case_tree(archived)
+
+
 def test_private_case_rejects_reserved_oracle_assets_in_public_tree(tmp_path: Path) -> None:
     manifest_path, _overlay = _private_case(tmp_path)
     manifest = load_case_manifest(manifest_path)
@@ -356,6 +418,22 @@ def test_rejects_private_overlay_with_changed_verifier_runtime(tmp_path: Path) -
     )
 
     with pytest.raises(ValueError, match="verifier runtime commitment"):
+        load_private_oracle_overlay(manifest, overlay)
+
+
+def test_confirmatory_private_overlay_requires_an_explicit_black_box_mode(tmp_path: Path) -> None:
+    manifest_path, overlay = _private_case(tmp_path)
+    manifest = load_case_manifest(manifest_path)
+    definition = overlay / "oracle.toml"
+    definition.write_text(
+        definition.read_text(encoding="utf-8").replace(
+            'mode = "black-box-controller-v1"\n',
+            "",
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="requires mode = black-box-controller-v1"):
         load_private_oracle_overlay(manifest, overlay)
 
 

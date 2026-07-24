@@ -10,7 +10,7 @@ SCHEMA_VERSION = "0.5"
 CASE_ID_PATTERN = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 COMMIT_SHA_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
-VALID_SPLITS = {"development", "validation", "test"}
+VALID_SPLITS = {"development", "public-evaluation", "validation", "test"}
 VALID_DEPENDENCY_STRENGTHS = {"low", "medium", "high"}
 VALID_DEPENDENCY_CLASSIFICATION_STATUS = {
     "retrospective-development",
@@ -19,7 +19,6 @@ VALID_DEPENDENCY_CLASSIFICATION_STATUS = {
 VALID_ORACLE_VISIBILITIES = {"public", "private"}
 VALID_CONFIRMATORY_ISOLATION_PROFILES = {
     "remote-worker-vault-v1",
-    "hyperv-worker-vault-v1",
 }
 VALID_CONFIRMATORY_VERIFIER_MODES = {"black-box-controller-v1"}
 VALID_FORMATION_TRACKS = {"seeded-canonical", "trace-replay", "native-session"}
@@ -31,6 +30,7 @@ VALID_TRACE_NORMALIZATIONS = {
 VALID_TRACE_TRUNCATIONS = {"event-suffix-v1"}
 VALID_TRACE_BUNDLE_SCHEMAS = {"precursor-trace-bundle-v1"}
 VALID_TRACE_BUNDLE_SELECTIONS = {"hash-bucket-v1"}
+VALID_NATIVE_HOOK_CAPTURE_SCHEMAS = {"native-hook-capture-v1"}
 VALID_SOURCE_TYPES = {"local-fixture", "git"}
 VALID_TRANSITIONS = {
     "none",
@@ -91,6 +91,12 @@ class PrecursorTraceBundleSpec:
 
 
 @dataclass(frozen=True)
+class NativeHookCaptureSpec:
+    path: str
+    schema_version: str
+
+
+@dataclass(frozen=True)
 class MemorySeedSpec:
     entity_name: str
     type: str
@@ -123,6 +129,7 @@ class OracleSpec:
     relevant_evidence_ids: tuple[str, ...]
     stale_evidence_ids: tuple[str, ...]
     forbidden_actions: tuple[str, ...]
+    agent_writable_paths: tuple[str, ...]
     source_checks: tuple[SourceCheckSpec, ...]
     hidden_patch: str | None = None
     reference_patch: str | None = None
@@ -149,12 +156,21 @@ class CaseManifest:
     oracle: OracleSpec
     public_bundle_paths: tuple[str, ...]
     source_path: Path
+    native_hook_capture: NativeHookCaptureSpec | None = None
 
     @property
     def study_track(self) -> str:
         """The formation surface determines whether a case is Track B or C."""
 
         return "B" if self.formation_track == "seeded-canonical" else "C"
+
+    @property
+    def evidence_tier(self) -> str:
+        if self.split == "public-evaluation":
+            return "public-reproducible"
+        if self.split in {"validation", "test"}:
+            return "confirmatory"
+        return "development"
 
 
 def _table(data: dict[str, Any], key: str) -> dict[str, Any]:
@@ -289,6 +305,17 @@ def _source_checks(data: dict[str, Any]) -> tuple[SourceCheckSpec, ...]:
     return parse_source_checks(data, context="oracle")
 
 
+def _agent_writable_paths(data: dict[str, Any]) -> tuple[str, ...]:
+    paths = _strings(data, "agent_writable_paths", context="oracle")
+    for path in paths:
+        candidate = Path(path)
+        if candidate.is_absolute() or not candidate.parts or ".." in candidate.parts:
+            raise ManifestError("oracle.agent_writable_paths must stay inside the repository")
+        if ".git" in candidate.parts:
+            raise ManifestError("oracle.agent_writable_paths cannot include .git")
+    return tuple(Path(path).as_posix().rstrip("/") for path in paths)
+
+
 def _public_bundle_paths(data: dict[str, Any]) -> tuple[str, ...]:
     bundle_data = data.get("bundle")
     if bundle_data is None:
@@ -331,15 +358,22 @@ def _required_public_assets(manifest: CaseManifest) -> tuple[str, ...]:
         assets.append(manifest.precursor_trace.path)
     if manifest.precursor_trace_bundle:
         assets.append(manifest.precursor_trace_bundle.path)
+    if manifest.native_hook_capture:
+        assets.append(manifest.native_hook_capture.path)
     return tuple(assets)
 
 
 def _formation_spec(
     data: dict[str, Any],
-) -> tuple[str, PrecursorTraceSpec | None, PrecursorTraceBundleSpec | None]:
+) -> tuple[
+    str,
+    PrecursorTraceSpec | None,
+    PrecursorTraceBundleSpec | None,
+    NativeHookCaptureSpec | None,
+]:
     formation_data = data.get("formation")
     if formation_data is None:
-        return "seeded-canonical", None, None
+        return "seeded-canonical", None, None, None
     if not isinstance(formation_data, dict):
         raise ManifestError("formation must be a table when present")
     track = _text(formation_data, "track", context="formation")
@@ -349,12 +383,45 @@ def _formation_spec(
         )
     trace_data = formation_data.get("precursor_trace")
     bundle_data = formation_data.get("trace_bundle")
-    if trace_data is not None and bundle_data is not None:
-        raise ManifestError("formation may declare precursor_trace or trace_bundle, not both")
-    if trace_data is None and bundle_data is None:
+    native_hook_data = formation_data.get("native_hook_capture")
+    declared_sources = sum(
+        value is not None for value in (trace_data, bundle_data, native_hook_data)
+    )
+    if declared_sources > 1:
+        raise ManifestError(
+            "formation may declare precursor_trace, trace_bundle, or native_hook_capture, not multiple sources"
+        )
+    if declared_sources == 0:
         if track != "seeded-canonical":
-            raise ManifestError("trace-replay and native-session require precursor_trace or trace_bundle")
-        return track, None, None
+            raise ManifestError(
+                "trace-replay cases require precursor_trace or trace_bundle; native-session cases require native_hook_capture"
+            )
+        return track, None, None, None
+    if native_hook_data is not None:
+        if not isinstance(native_hook_data, dict):
+            raise ManifestError("formation.native_hook_capture must be a table")
+        if set(native_hook_data) != {"path", "schema_version"}:
+            raise ManifestError("formation.native_hook_capture has unexpected fields")
+        if track != "native-session":
+            raise ManifestError("formation.native_hook_capture requires native-session")
+        native_hook_capture = NativeHookCaptureSpec(
+            path=_text(
+                native_hook_data,
+                "path",
+                context="formation.native_hook_capture",
+            ),
+            schema_version=_text(
+                native_hook_data,
+                "schema_version",
+                context="formation.native_hook_capture",
+            ),
+        )
+        if native_hook_capture.schema_version not in VALID_NATIVE_HOOK_CAPTURE_SCHEMAS:
+            raise ManifestError("formation.native_hook_capture.schema_version is unsupported")
+        native_path = Path(native_hook_capture.path)
+        if native_path.is_absolute() or ".." in native_path.parts:
+            raise ManifestError("formation.native_hook_capture.path must stay inside the case")
+        return track, None, None, native_hook_capture
     if trace_data is not None:
         if not isinstance(trace_data, dict):
             raise ManifestError("formation.precursor_trace must be a table")
@@ -371,12 +438,12 @@ def _formation_spec(
             raise ManifestError("formation.precursor_trace.normalization is unsupported")
         if trace.truncation not in VALID_TRACE_TRUNCATIONS:
             raise ManifestError("formation.precursor_trace.truncation is unsupported")
-        if track == "seeded-canonical":
-            raise ManifestError("seeded-canonical cases must not declare precursor_trace")
+        if track != "trace-replay":
+            raise ManifestError("formation.precursor_trace requires trace-replay")
         trace_path = Path(trace.path)
         if trace_path.is_absolute() or ".." in trace_path.parts:
             raise ManifestError("formation.precursor_trace.path must stay inside the case")
-        return track, trace, None
+        return track, trace, None, None
     assert bundle_data is not None
     if not isinstance(bundle_data, dict):
         raise ManifestError("formation.trace_bundle must be a table")
@@ -397,7 +464,7 @@ def _formation_spec(
     bundle_path = Path(bundle.path)
     if bundle_path.is_absolute() or ".." in bundle_path.parts:
         raise ManifestError("formation.trace_bundle.path must stay inside the case")
-    return track, None, bundle
+    return track, None, bundle, None
 
 
 def load_case_manifest(path: str | Path) -> CaseManifest:
@@ -501,8 +568,19 @@ def load_case_manifest(path: str | Path) -> CaseManifest:
         raise ManifestError(
             "validation and test cases require preregistered dependency classification"
         )
+    if split == "public-evaluation" and oracle_visibility != "public":
+        raise ManifestError("public-evaluation cases require oracle.visibility = 'public'")
+    if split == "public-evaluation" and dependency_classification_status != "preregistered":
+        raise ManifestError(
+            "public-evaluation cases require preregistered dependency classification"
+        )
     public_bundle_paths = _public_bundle_paths(data)
-    formation_track, precursor_trace, precursor_trace_bundle = _formation_spec(data)
+    (
+        formation_track,
+        precursor_trace,
+        precursor_trace_bundle,
+        native_hook_capture,
+    ) = _formation_spec(data)
     manifest = CaseManifest(
         schema_version=schema_version,
         case_id=case_id,
@@ -577,12 +655,14 @@ def load_case_manifest(path: str | Path) -> CaseManifest:
                 "forbidden_actions",
                 context="oracle",
             ),
+            agent_writable_paths=_agent_writable_paths(oracle_data),
             source_checks=_source_checks(oracle_data),
             hidden_patch=hidden_patch,
             reference_patch=reference_patch,
         ),
         public_bundle_paths=public_bundle_paths,
         source_path=source_path,
+        native_hook_capture=native_hook_capture,
     )
 
     overlap = set(manifest.oracle.relevant_evidence_ids) & set(
@@ -604,6 +684,13 @@ def load_case_manifest(path: str | Path) -> CaseManifest:
         raise ManifestError(
             "private oracle case-specific rules must live in the private overlay"
         )
+    if manifest.split == "public-evaluation":
+        if manifest.transition.visibility != "public":
+            raise ManifestError("public-evaluation cases require a public transition")
+        if not manifest.oracle.agent_writable_paths:
+            raise ManifestError(
+                "public-evaluation cases require oracle.agent_writable_paths"
+            )
     if oracle_visibility == "private":
         if manifest.transition.visibility != "private":
             raise ManifestError("private oracle cases require a private transition")
@@ -648,8 +735,11 @@ def load_case_manifest(path: str | Path) -> CaseManifest:
         manifest.formation_track != "seeded-canonical"
         and manifest.precursor_trace is None
         and manifest.precursor_trace_bundle is None
+        and manifest.native_hook_capture is None
     ):
-        raise ManifestError("non-canonical formation requires precursor_trace or trace_bundle")
+        raise ManifestError(
+            "non-canonical formation requires precursor_trace, trace_bundle, or native_hook_capture"
+        )
     if manifest.study_track == "C" and manifest.memory_seeds:
         raise ManifestError("Track C cases must not declare memory_seed entries")
     if manifest.study_track == "C" and manifest.precursor.transcript:
@@ -682,6 +772,14 @@ def load_case_manifest(path: str | Path) -> CaseManifest:
                 raise ManifestError(
                     "bundle.public_paths must cover the precursor trace bundle"
                 )
+    if manifest.native_hook_capture is not None:
+        if not _path_is_covered(
+            manifest.native_hook_capture.path,
+            manifest.public_bundle_paths,
+        ) and split in {"validation", "test"}:
+            raise ManifestError(
+                "bundle.public_paths must cover the native hook capture"
+            )
     if transition_kind != "none" and not (
         manifest.transition.patch
         or manifest.transition.apply_commands

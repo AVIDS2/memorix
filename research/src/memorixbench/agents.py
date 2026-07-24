@@ -7,16 +7,24 @@ from pathlib import Path
 import re
 import shutil
 import signal
+import stat
 import subprocess
 import threading
 import time
 from typing import Iterable, Literal
+from urllib import error as urlerror
+from urllib import request as urlrequest
 
 from .actions import write_action_ledger
 
-AgentName = Literal["codex", "claude"]
+AgentName = Literal["codex", "claude", "openrouter"]
 
 CLAUDE_PROVIDER_ENV_PREFIXES = ("ANTHROPIC_",)
+CLAUDE_ROLE_MODEL_KEYS = (
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL",
+)
 SENSITIVE_ENV_PATTERN = re.compile(r"(?:API[_-]?KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL)", re.IGNORECASE)
 PARENT_TRAVERSAL_PATTERN = re.compile(r"(?<!\.)\.\.(?:[\\/]|(?=\s|$))")
 WINDOWS_PATH_PATTERN = re.compile(r"(?i)\b[a-z]:[\\/][^\s\"'`;&|<>]*")
@@ -27,6 +35,33 @@ NETWORK_COMMAND_PATTERN = re.compile(
 DYNAMIC_INTERPRETER_PATTERN = re.compile(
     r"(?i)(?:^|&&|\|\||;|\|)\s*(?:node|python|powershell|pwsh|cmd)\s+(?:-e|-c|--input-type|/c)\b"
 )
+OPENROUTER_ENDPOINT = "https://openrouter.ai/api/v1/chat/completions"
+OPENROUTER_MAX_TOOL_STEPS = 24
+OPENROUTER_MAX_TRANSPORT_ATTEMPTS = 3
+OPENROUTER_MAX_FILE_BYTES = 160_000
+OPENROUTER_MAX_TOOL_RESULT_BYTES = 18_000
+OPENROUTER_TEXT_SUFFIXES = {
+    ".c",
+    ".cc",
+    ".cpp",
+    ".cs",
+    ".go",
+    ".h",
+    ".hpp",
+    ".java",
+    ".js",
+    ".json",
+    ".md",
+    ".mjs",
+    ".py",
+    ".rs",
+    ".toml",
+    ".ts",
+    ".tsx",
+    ".txt",
+    ".yaml",
+    ".yml",
+}
 
 
 def load_claude_provider_env(settings_path: str | Path) -> dict[str, str]:
@@ -47,6 +82,22 @@ def load_claude_provider_env(settings_path: str | Path) -> dict[str, str]:
     return provider_env
 
 
+def apply_uniform_claude_role_model(
+    provider_env: dict[str, str],
+    model: str | None,
+) -> str | None:
+    """Pin Claude's internal role aliases for one isolated experiment process."""
+
+    if model is None:
+        return None
+    normalized = model.strip()
+    if not normalized:
+        raise ValueError("uniform Claude role model must be non-empty when provided")
+    for key in CLAUDE_ROLE_MODEL_KEYS:
+        provider_env[key] = normalized
+    return normalized
+
+
 def _permission_path(path: Path) -> str:
     normalized = path.resolve().as_posix().rstrip("/")
     if os.name == "nt" and len(normalized) >= 2 and normalized[1] == ":":
@@ -55,6 +106,17 @@ def _permission_path(path: Path) -> str:
         if remainder:
             normalized += "/" + remainder
     return "//" + normalized.lstrip("/") + "/**"
+
+
+def _bash_denied_path_patterns(path: Path) -> tuple[str, ...]:
+    normalized = path.resolve()
+    windows = str(normalized).rstrip("\\/")
+    posix = normalized.as_posix().rstrip("/")
+    patterns = [f"Bash(* {windows}*)", f"Bash(* {posix}*)"]
+    if normalized.drive:
+        suffix = posix[2:].lstrip("/")
+        patterns.append(f"Bash(* /{normalized.drive[0].lower()}/{suffix}*)")
+    return tuple(dict.fromkeys(patterns))
 
 
 def write_claude_settings(
@@ -66,8 +128,10 @@ def write_claude_settings(
     target = Path(path).resolve()
     deny: list[str] = []
     for root in denied_roots:
-        pattern = _permission_path(Path(root))
+        root_path = Path(root)
+        pattern = _permission_path(root_path)
         deny.extend([f"Read({pattern})", f"Edit({pattern})"])
+        deny.extend(_bash_denied_path_patterns(root_path))
     deny.extend([
         # Do not block Go's ./... package pattern while denying parent traversal.
         "Bash(../*)",
@@ -518,8 +582,12 @@ def _failure_reason(
     stderr: str,
 ) -> str | None:
     combined = (stdout + "\n" + stderr).lower()
+    if "maximum bounded tool steps" in combined:
+        return "tool-step-limit"
     if "maximum budget" in combined or "error_max_budget_usd" in combined:
         return "budget-exhausted"
+    if "openrouter transient transport failure" in combined:
+        return "provider-transient"
     if completed:
         return None
     if timed_out:
@@ -546,6 +614,834 @@ def _git_patch(workspace: Path) -> str:
         errors="replace",
     )
     return completed.stdout
+
+
+def _is_reparse_point(path: Path) -> bool:
+    try:
+        details = os.lstat(path)
+    except OSError:
+        return False
+    attributes = getattr(details, "st_file_attributes", 0)
+    reparse_flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+    return path.is_symlink() or bool(attributes & reparse_flag)
+
+
+def _openrouter_workspace_path(
+    workspace: Path,
+    relative: object,
+    *,
+    must_exist: bool = False,
+) -> Path:
+    if not isinstance(relative, str):
+        raise ValueError("path must be a string")
+    candidate = Path(relative)
+    if candidate.is_absolute() or ".." in candidate.parts or ".git" in candidate.parts:
+        raise ValueError("path must remain inside the workspace")
+    raw = workspace / candidate
+    current = workspace
+    for part in candidate.parts:
+        current = current / part
+        if _is_reparse_point(current):
+            raise ValueError("path cannot traverse a symbolic link or reparse point")
+    resolved = raw.resolve()
+    if resolved != workspace and workspace not in resolved.parents:
+        raise ValueError("path must remain inside the workspace")
+    if must_exist and not resolved.exists():
+        raise ValueError("path does not exist")
+    return resolved
+
+
+def _openrouter_execution_environment(workspace: Path) -> dict[str, str]:
+    """Keep host credentials out of tools while supplying disposable build caches."""
+
+    inherited = os.environ
+    environment: dict[str, str] = {}
+    for key in ("PATH", "PATHEXT", "SYSTEMROOT", "WINDIR", "COMSPEC"):
+        value = inherited.get(key)
+        if value:
+            environment[key] = value
+
+    # Tool commands run without the user's home directory so they cannot inherit
+    # credentials or incidental configuration. Windows toolchains still need a
+    # writable profile and cache root, so provide one beside this isolated run,
+    # never inside the editable workspace or the user's real profile.
+    runtime_root = workspace.parent / "agent-runtime"
+    home = runtime_root / "home"
+    cache = runtime_root / "cache"
+    temporary = runtime_root / "tmp"
+    for path in (home, cache, temporary):
+        path.mkdir(parents=True, exist_ok=True)
+    for key, path in {
+        "HOME": home,
+        "USERPROFILE": home,
+        "APPDATA": home / "appdata",
+        "LOCALAPPDATA": home / "localappdata",
+        "TEMP": temporary,
+        "TMP": temporary,
+        "GOCACHE": cache / "go-build",
+        "GOMODCACHE": cache / "go-mod",
+        "GOPATH": cache / "go-path",
+        "npm_config_cache": cache / "npm",
+        "PIP_CACHE_DIR": cache / "pip",
+        "PYTHONPYCACHEPREFIX": cache / "python-bytecode",
+    }.items():
+        path.mkdir(parents=True, exist_ok=True)
+        environment[key] = str(path)
+    environment["GOENV"] = "off"
+    return environment
+
+
+def _bounded_openrouter_output(value: object) -> str:
+    text = json.dumps(value, ensure_ascii=False, sort_keys=True)
+    encoded = text.encode("utf-8")
+    if len(encoded) <= OPENROUTER_MAX_TOOL_RESULT_BYTES:
+        return text
+    truncated = encoded[:OPENROUTER_MAX_TOOL_RESULT_BYTES].decode("utf-8", errors="ignore")
+    return truncated + "\n[tool output truncated]"
+
+
+def _openrouter_text_file(path: Path) -> str | None:
+    if not path.is_file() or _is_reparse_point(path):
+        return None
+    if path.suffix.lower() not in OPENROUTER_TEXT_SUFFIXES:
+        return None
+    if path.stat().st_size > OPENROUTER_MAX_FILE_BYTES:
+        return None
+    try:
+        return path.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        return None
+
+
+def _openrouter_path_is_writable(
+    workspace: Path,
+    path: Path,
+    writable_paths: tuple[str, ...],
+) -> bool:
+    try:
+        relative = path.relative_to(workspace)
+    except ValueError:
+        return False
+    return any(
+        relative == Path(root) or Path(root) in relative.parents
+        for root in writable_paths
+    )
+
+
+def _openrouter_list_files(workspace: Path, arguments: dict[str, object]) -> str:
+    root = _openrouter_workspace_path(workspace, arguments.get("path", ""), must_exist=True)
+    if not root.is_dir():
+        raise ValueError("path must name a directory")
+    depth = arguments.get("max_depth", 3)
+    if isinstance(depth, bool) or not isinstance(depth, int) or not 0 <= depth <= 5:
+        raise ValueError("max_depth must be an integer from 0 through 5")
+    files: list[str] = []
+    for current, directories, names in os.walk(root, followlinks=False):
+        current_path = Path(current)
+        relative_depth = len(current_path.relative_to(root).parts)
+        directories[:] = [
+            name for name in directories
+            if name not in {".git", "node_modules", ".venv", "__pycache__"}
+            and not _is_reparse_point(current_path / name)
+        ]
+        if relative_depth > depth:
+            directories[:] = []
+            continue
+        for name in sorted(names):
+            path = current_path / name
+            if _is_reparse_point(path):
+                continue
+            files.append(path.relative_to(workspace).as_posix())
+            if len(files) >= 240:
+                return _bounded_openrouter_output({"files": files, "truncated": True})
+    return _bounded_openrouter_output({"files": files, "truncated": False})
+
+
+def _openrouter_read_file(workspace: Path, arguments: dict[str, object]) -> str:
+    path = _openrouter_workspace_path(workspace, arguments.get("path"), must_exist=True)
+    content = _openrouter_text_file(path)
+    if content is None:
+        raise ValueError("file is unavailable or exceeds the safe text-file limit")
+    start_line = arguments.get("start_line", 1)
+    end_line = arguments.get("end_line")
+    if isinstance(start_line, bool) or not isinstance(start_line, int) or start_line < 1:
+        raise ValueError("start_line must be a positive integer")
+    lines = content.splitlines()
+    if end_line is None:
+        end_line = min(len(lines), start_line + 299)
+    if isinstance(end_line, bool) or not isinstance(end_line, int) or end_line < start_line:
+        raise ValueError("end_line must be an integer no smaller than start_line")
+    end_line = min(end_line, start_line + 299, len(lines))
+    selected = "\n".join(lines[start_line - 1:end_line])
+    return _bounded_openrouter_output({
+        "path": path.relative_to(workspace).as_posix(),
+        "start_line": start_line,
+        "end_line": end_line,
+        "content": selected,
+    })
+
+
+def _openrouter_search_text(workspace: Path, arguments: dict[str, object]) -> str:
+    query = arguments.get("query")
+    if not isinstance(query, str) or not query.strip() or len(query) > 160:
+        raise ValueError("query must be a non-empty literal of at most 160 characters")
+    root = _openrouter_workspace_path(workspace, arguments.get("path", ""), must_exist=True)
+    if not root.is_dir():
+        raise ValueError("path must name a directory")
+    matches: list[dict[str, object]] = []
+    for current, directories, names in os.walk(root, followlinks=False):
+        current_path = Path(current)
+        directories[:] = [
+            name for name in directories
+            if name not in {".git", "node_modules", ".venv", "__pycache__"}
+            and not _is_reparse_point(current_path / name)
+        ]
+        for name in sorted(names):
+            path = current_path / name
+            content = _openrouter_text_file(path)
+            if content is None:
+                continue
+            for number, line in enumerate(content.splitlines(), 1):
+                if query in line:
+                    matches.append({
+                        "path": path.relative_to(workspace).as_posix(),
+                        "line": number,
+                        "text": line[:500],
+                    })
+                    if len(matches) >= 60:
+                        return _bounded_openrouter_output({"matches": matches, "truncated": True})
+    return _bounded_openrouter_output({"matches": matches, "truncated": False})
+
+
+def _openrouter_write_file(
+    workspace: Path,
+    arguments: dict[str, object],
+    writable_paths: tuple[str, ...],
+) -> str:
+    path = _openrouter_workspace_path(workspace, arguments.get("path"))
+    content = arguments.get("content")
+    if not isinstance(content, str):
+        raise ValueError("content must be a string")
+    if len(content.encode("utf-8")) > OPENROUTER_MAX_FILE_BYTES:
+        raise ValueError("content exceeds the safe write limit")
+    if not _openrouter_path_is_writable(workspace, path, writable_paths):
+        raise ValueError("path is outside this case's writable source roots")
+    if path.exists() and _is_reparse_point(path):
+        raise ValueError("cannot write through a symbolic link or reparse point")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8", newline="\n")
+    return _bounded_openrouter_output({
+        "path": path.relative_to(workspace).as_posix(),
+        "bytes_written": len(content.encode("utf-8")),
+    })
+
+
+def _openrouter_patch_paths_are_safe(
+    workspace: Path,
+    patch: str,
+    writable_paths: tuple[str, ...],
+) -> bool:
+    if "GIT binary patch" in patch or "\x00" in patch:
+        return False
+    for line in patch.splitlines():
+        if line.startswith(("diff --git ", "--- ", "+++ ")):
+            if "../" in line or "..\\" in line or re.search(r"(?:^|\s)[A-Za-z]:[\\/]", line):
+                return False
+        if line.startswith(("--- ", "+++ ")):
+            raw_path = line[4:].split("\t", 1)[0].strip()
+            if raw_path == "/dev/null":
+                continue
+            if raw_path.startswith(("a/", "b/")):
+                raw_path = raw_path[2:]
+            try:
+                target = _openrouter_workspace_path(workspace, raw_path)
+            except ValueError:
+                return False
+            if not _openrouter_path_is_writable(workspace, target, writable_paths):
+                return False
+    return True
+
+
+def _openrouter_apply_patch(
+    workspace: Path,
+    arguments: dict[str, object],
+    writable_paths: tuple[str, ...],
+) -> tuple[bool, str]:
+    patch = arguments.get("patch")
+    if not isinstance(patch, str) or not patch.strip():
+        raise ValueError("patch must be a non-empty unified diff")
+    if len(patch.encode("utf-8")) > OPENROUTER_MAX_FILE_BYTES:
+        raise ValueError("patch exceeds the safe write limit")
+    if not _openrouter_patch_paths_are_safe(workspace, patch, writable_paths):
+        raise ValueError("patch contains an unsafe path or binary payload")
+    environment = _openrouter_execution_environment(workspace)
+    checked = subprocess.run(
+        ["git", "apply", "--check", "--whitespace=nowarn", "-"],
+        cwd=workspace,
+        input=patch,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        env=environment,
+        timeout=30,
+    )
+    if checked.returncode != 0:
+        return False, _bounded_openrouter_output({
+            "applied": False,
+            "stderr": checked.stderr[-4000:],
+        })
+    applied = subprocess.run(
+        ["git", "apply", "--whitespace=nowarn", "-"],
+        cwd=workspace,
+        input=patch,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        env=environment,
+        timeout=30,
+    )
+    succeeded = applied.returncode == 0
+    return succeeded, _bounded_openrouter_output({
+        "applied": applied.returncode == 0,
+        "stderr": applied.stderr[-4000:],
+    })
+
+
+def _openrouter_run_verification(
+    workspace: Path,
+    arguments: dict[str, object],
+    verification_commands: tuple[str, ...],
+) -> tuple[str, str | None]:
+    index = arguments.get("command_index", 0)
+    if isinstance(index, bool) or not isinstance(index, int):
+        raise ValueError("command_index must be an integer")
+    if not 0 <= index < len(verification_commands):
+        raise ValueError("command_index does not name a declared verification command")
+    command = verification_commands[index]
+    try:
+        completed = subprocess.run(
+            command,
+            cwd=workspace,
+            shell=True,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            env=_openrouter_execution_environment(workspace),
+            timeout=300,
+        )
+        payload = {
+            "command_index": index,
+            "returncode": completed.returncode,
+            "stdout": completed.stdout[-8000:],
+            "stderr": completed.stderr[-8000:],
+        }
+    except subprocess.TimeoutExpired:
+        payload = {"command_index": index, "returncode": 124, "stdout": "", "stderr": "timeout"}
+    return _bounded_openrouter_output(payload), command
+
+
+def _openrouter_show_diff(workspace: Path) -> str:
+    completed = subprocess.run(
+        ["git", "diff", "--no-ext-diff"],
+        cwd=workspace,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        env=_openrouter_execution_environment(workspace),
+        timeout=30,
+    )
+    return _bounded_openrouter_output({
+        "returncode": completed.returncode,
+        "diff": completed.stdout[-OPENROUTER_MAX_TOOL_RESULT_BYTES:],
+        "stderr": completed.stderr[-2000:],
+    })
+
+
+def _openrouter_tools() -> list[dict[str, object]]:
+    return [
+        {
+            "type": "function",
+            "function": {
+                "name": "list_files",
+                "description": "List safe workspace files under a relative directory.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "path": {"type": "string"},
+                        "max_depth": {"type": "integer", "minimum": 0, "maximum": 5},
+                    },
+                    "required": ["path"],
+                    "additionalProperties": False,
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "read_file",
+                "description": "Read a bounded range from a safe text file in the workspace.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "path": {"type": "string"},
+                        "start_line": {"type": "integer", "minimum": 1},
+                        "end_line": {"type": "integer", "minimum": 1},
+                    },
+                    "required": ["path"],
+                    "additionalProperties": False,
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "search_text",
+                "description": "Search a literal string in safe workspace text files.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string", "minLength": 1, "maxLength": 160},
+                        "path": {"type": "string"},
+                    },
+                    "required": ["query", "path"],
+                    "additionalProperties": False,
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "write_file",
+                "description": "Write a complete safe text file inside the workspace.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "path": {"type": "string"},
+                        "content": {"type": "string"},
+                    },
+                    "required": ["path", "content"],
+                    "additionalProperties": False,
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "apply_patch",
+                "description": "Apply a safe unified diff inside the workspace.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"patch": {"type": "string"}},
+                    "required": ["patch"],
+                    "additionalProperties": False,
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "run_verification",
+                "description": "Run one trusted verification command by its declared index.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"command_index": {"type": "integer", "minimum": 0}},
+                    "required": ["command_index"],
+                    "additionalProperties": False,
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "show_diff",
+                "description": "Show the current Git diff for the workspace.",
+                "parameters": {"type": "object", "properties": {}, "additionalProperties": False},
+            },
+        },
+    ]
+
+
+def _openrouter_completion(
+    *,
+    model: str,
+    messages: list[dict[str, object]],
+    timeout_seconds: float,
+) -> dict[str, object]:
+    openrouter_credential = os.environ.get("OPENROUTER_API_KEY", "").strip()
+    if not openrouter_credential:
+        raise RuntimeError("OpenRouter API key is unavailable")
+    body = json.dumps({
+        "model": model,
+        "messages": messages,
+        "tools": _openrouter_tools(),
+        "tool_choice": "auto",
+        "temperature": 0,
+        "max_tokens": 2000,
+    }, ensure_ascii=False).encode("utf-8")
+    request = urlrequest.Request(
+        OPENROUTER_ENDPOINT,
+        data=body,
+        headers={
+            "Authorization": f"Bearer {openrouter_credential}",
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://github.com/AVIDS2/memorix",
+            "X-OpenRouter-Title": "MemorixBench controlled agent",
+        },
+        method="POST",
+    )
+    started = time.monotonic()
+    transient_failures: list[str] = []
+    for attempt in range(1, OPENROUTER_MAX_TRANSPORT_ATTEMPTS + 1):
+        remaining = timeout_seconds - (time.monotonic() - started)
+        if remaining <= 0:
+            break
+        try:
+            with urlrequest.urlopen(request, timeout=max(1.0, min(60.0, remaining))) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+            break
+        except urlerror.HTTPError as error:
+            if error.code not in {408, 409, 429} and error.code < 500:
+                raise RuntimeError(f"OpenRouter request failed with HTTP {error.code}") from error
+            transient_failures.append(f"http-{error.code}")
+        except urlerror.URLError:
+            transient_failures.append("unreachable")
+        except TimeoutError:
+            transient_failures.append("timeout")
+
+        if attempt == OPENROUTER_MAX_TRANSPORT_ATTEMPTS:
+            break
+        remaining = timeout_seconds - (time.monotonic() - started)
+        delay = min(float(2 ** (attempt - 1)), max(0.0, remaining - 1.0))
+        if delay <= 0:
+            break
+        time.sleep(delay)
+    else:  # pragma: no cover - loop always breaks or returns
+        raise AssertionError("unreachable OpenRouter transport loop")
+
+    if "payload" not in locals():
+        details = ", ".join(transient_failures) or "timeout-budget"
+        raise RuntimeError(
+            "OpenRouter transient transport failure after "
+            f"{len(transient_failures)} attempt(s): {details}"
+        )
+    if not isinstance(payload, dict):
+        raise RuntimeError("OpenRouter returned an invalid response")
+    payload["_memorixbench_transport"] = {
+        "attempts": len(transient_failures) + 1,
+        "transient_failures": transient_failures,
+    }
+    return payload
+
+
+def _openrouter_tool_call(
+    *,
+    workspace: Path,
+    name: str,
+    arguments: dict[str, object],
+    verification_commands: tuple[str, ...],
+    writable_paths: tuple[str, ...],
+) -> tuple[bool, str, str | None]:
+    try:
+        if name == "list_files":
+            return True, _openrouter_list_files(workspace, arguments), None
+        if name == "read_file":
+            return True, _openrouter_read_file(workspace, arguments), None
+        if name == "search_text":
+            return True, _openrouter_search_text(workspace, arguments), None
+        if name == "write_file":
+            return True, _openrouter_write_file(workspace, arguments, writable_paths), None
+        if name == "apply_patch":
+            succeeded, output = _openrouter_apply_patch(workspace, arguments, writable_paths)
+            return succeeded, output, None
+        if name == "run_verification":
+            output, command = _openrouter_run_verification(
+                workspace,
+                arguments,
+                verification_commands,
+            )
+            return True, output, command
+        if name == "show_diff":
+            return True, _openrouter_show_diff(workspace), None
+        return False, _bounded_openrouter_output({"error": "unsupported tool"}), None
+    except (OSError, ValueError, subprocess.SubprocessError) as error:
+        return False, _bounded_openrouter_output({"error": str(error)}), None
+
+
+def _run_openrouter_agent(
+    *,
+    workspace: Path,
+    prompt: str,
+    artifact_dir: Path,
+    model: str | None,
+    timeout_seconds: int,
+    max_budget_usd: float | None,
+    verification_commands: Iterable[str],
+    writable_paths: Iterable[str],
+) -> AgentExecution:
+    if model is None or not model.strip():
+        raise ValueError("OpenRouter runs require an explicit model id")
+    if max_budget_usd is not None and max_budget_usd <= 0:
+        raise ValueError("OpenRouter max_budget_usd must be positive when provided")
+    commands = tuple(command for command in verification_commands if command.strip())
+    if not commands:
+        raise ValueError("OpenRouter runs require at least one verification command")
+    writable = tuple(path for path in writable_paths if path.strip())
+    if not writable:
+        raise ValueError("OpenRouter runs require explicit writable source roots")
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    events_path = artifact_dir / "events.jsonl"
+    timeline_path = artifact_dir / "event-timeline.jsonl"
+    action_ledger_path = artifact_dir / "action-ledger.json"
+    stderr_path = artifact_dir / "stderr.txt"
+    patch_path = artifact_dir / "patch.diff"
+    started = time.monotonic()
+    records: list[StreamRecord] = []
+    stderr = ""
+    messages: list[dict[str, object]] = [
+        {
+            "role": "system",
+            "content": (
+                "You are a bounded coding agent. Work only through the supplied tools. "
+                "Inspect source before editing, make the smallest correct change, and run "
+                "the trusted verification command before finishing. Do not request network, "
+                "shell, parent-directory, or host access."
+            ),
+        },
+        {"role": "user", "content": prompt},
+    ]
+    reported_models: set[str] = set()
+    usage_by_model: dict[str, dict[str, float | int | None]] = {}
+    tool_names: set[str] = set()
+    tool_call_names: list[str] = []
+    successful_tool_names: set[str] = set()
+    successful_tool_call_names: list[str] = []
+    bash_commands: list[str] = []
+    final_message = ""
+    completed = False
+    timed_out = False
+    returncode = 0
+
+    def emit(event: dict[str, object]) -> None:
+        records.append(StreamRecord(
+            sequence=len(records),
+            stream="stdout",
+            elapsed_seconds=time.monotonic() - started,
+            line=json.dumps(event, ensure_ascii=False) + "\n",
+        ))
+
+    try:
+        for _step in range(OPENROUTER_MAX_TOOL_STEPS):
+            remaining = timeout_seconds - (time.monotonic() - started)
+            if remaining <= 0:
+                timed_out = True
+                returncode = 124
+                stderr = "timeout\n"
+                break
+            response = _openrouter_completion(
+                model=model.strip(),
+                messages=messages,
+                timeout_seconds=remaining,
+            )
+            response_model = response.get("model")
+            if isinstance(response_model, str) and response_model.strip():
+                response_model = response_model.strip()
+                reported_models.add(response_model)
+            else:
+                response_model = model.strip()
+            usage = response.get("usage") if isinstance(response.get("usage"), dict) else {}
+            prompt_tokens = _int_or_none(usage.get("prompt_tokens"))
+            completion_tokens = _int_or_none(usage.get("completion_tokens"))
+            cached_tokens = _int_or_none(usage.get("cached_tokens"))
+            cost = _float_or_none(usage.get("cost"))
+            aggregate = usage_by_model.setdefault(response_model, {
+                "input_tokens": 0,
+                "cached_input_tokens": 0,
+                "output_tokens": 0,
+                "cost_usd": 0.0,
+                "has_input": False,
+                "has_cached": False,
+                "has_output": False,
+                "has_cost": False,
+            })
+            if prompt_tokens is not None:
+                aggregate["input_tokens"] = int(aggregate["input_tokens"] or 0) + prompt_tokens
+                aggregate["has_input"] = True
+            if cached_tokens is not None:
+                aggregate["cached_input_tokens"] = int(aggregate["cached_input_tokens"] or 0) + cached_tokens
+                aggregate["has_cached"] = True
+            if completion_tokens is not None:
+                aggregate["output_tokens"] = int(aggregate["output_tokens"] or 0) + completion_tokens
+                aggregate["has_output"] = True
+            if cost is not None:
+                aggregate["cost_usd"] = float(aggregate["cost_usd"] or 0.0) + cost
+                aggregate["has_cost"] = True
+            choices = response.get("choices")
+            if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
+                raise RuntimeError("OpenRouter response has no completion choice")
+            message = choices[0].get("message")
+            if not isinstance(message, dict):
+                raise RuntimeError("OpenRouter completion has no message")
+            content = message.get("content")
+            final_message = content if isinstance(content, str) else final_message
+            raw_tool_calls = message.get("tool_calls")
+            tool_calls = raw_tool_calls if isinstance(raw_tool_calls, list) else []
+            emit({
+                "type": "openrouter.response",
+                "model": response_model,
+                "usage": usage,
+                "transport": response.get("_memorixbench_transport"),
+                "finish_reason": choices[0].get("finish_reason"),
+                "content": content if isinstance(content, str) else "",
+                "tool_call_count": len(tool_calls),
+            })
+            total_cost = sum(
+                float(values["cost_usd"] or 0.0)
+                for values in usage_by_model.values()
+            )
+            if max_budget_usd is not None and total_cost > max_budget_usd:
+                returncode = 1
+                stderr = "maximum budget reached\n"
+                break
+            assistant_message: dict[str, object] = {
+                "role": "assistant",
+                "content": content if isinstance(content, str) else "",
+            }
+            if tool_calls:
+                assistant_message["tool_calls"] = tool_calls
+            messages.append(assistant_message)
+            if not tool_calls:
+                completed = True
+                break
+            for raw_call in tool_calls:
+                if not isinstance(raw_call, dict):
+                    continue
+                call_id = raw_call.get("id")
+                function = raw_call.get("function")
+                if not isinstance(call_id, str) or not isinstance(function, dict):
+                    continue
+                name = function.get("name")
+                raw_arguments = function.get("arguments")
+                if not isinstance(name, str):
+                    continue
+                try:
+                    arguments = json.loads(raw_arguments) if isinstance(raw_arguments, str) else raw_arguments
+                except json.JSONDecodeError:
+                    arguments = {}
+                if not isinstance(arguments, dict):
+                    arguments = {}
+                tool_names.add(name)
+                tool_call_names.append(name)
+                emit({
+                    "type": "openrouter.tool_call",
+                    "id": call_id,
+                    "name": name,
+                    "arguments": arguments,
+                })
+                succeeded, output, command = _openrouter_tool_call(
+                    workspace=workspace,
+                    name=name,
+                    arguments=arguments,
+                    verification_commands=commands,
+                    writable_paths=writable,
+                )
+                if succeeded:
+                    successful_tool_names.add(name)
+                    successful_tool_call_names.append(name)
+                if command is not None:
+                    bash_commands.append(command)
+                emit({
+                    "type": "openrouter.tool_result",
+                    "id": call_id,
+                    "name": name,
+                    "success": succeeded,
+                    "output": output,
+                })
+                messages.append({"role": "tool", "tool_call_id": call_id, "content": output})
+        else:
+            returncode = 1
+            stderr = "maximum bounded tool steps reached\n"
+    except RuntimeError as error:
+        returncode = 124 if "timed out" in str(error).lower() else 1
+        timed_out = returncode == 124
+        stderr = str(error) + "\n"
+
+    stdout = "".join(record.line for record in records)
+    events_path.write_text(stdout, encoding="utf-8", newline="\n")
+    _write_event_timeline(timeline_path, records)
+    action_ledger = write_action_ledger(
+        agent="openrouter",
+        timeline_path=timeline_path,
+        path=action_ledger_path,
+    )
+    stderr_path.write_text(stderr, encoding="utf-8", newline="\n")
+    patch_path.write_text(_git_patch(workspace), encoding="utf-8", newline="\n")
+    model_usage = tuple(
+        ModelUsage(
+            model=usage_model,
+            input_tokens=int(values["input_tokens"]) if values["has_input"] else None,
+            cached_input_tokens=(
+                int(values["cached_input_tokens"]) if values["has_cached"] else None
+            ),
+            output_tokens=int(values["output_tokens"]) if values["has_output"] else None,
+            cost_usd=float(values["cost_usd"]) if values["has_cost"] else None,
+        )
+        for usage_model, values in sorted(usage_by_model.items())
+    )
+    input_tokens = sum(item.input_tokens or 0 for item in model_usage) or None
+    cached_input_tokens = sum(item.cached_input_tokens or 0 for item in model_usage) or None
+    output_tokens = sum(item.output_tokens or 0 for item in model_usage) or None
+    cost_usd = (
+        sum(item.cost_usd or 0.0 for item in model_usage)
+        if any(item.cost_usd is not None for item in model_usage)
+        else None
+    )
+    failure_reason = _failure_reason(
+        completed=completed,
+        timed_out=timed_out,
+        returncode=returncode,
+        stdout=stdout,
+        stderr=stderr,
+    )
+    return AgentExecution(
+        agent="openrouter",
+        model=model.strip(),
+        reported_models=tuple(sorted(reported_models)),
+        model_usage=model_usage,
+        returncode=returncode,
+        timed_out=timed_out,
+        completed=completed,
+        failure_reason=failure_reason,
+        wall_seconds=time.monotonic() - started,
+        input_tokens=input_tokens,
+        cached_input_tokens=cached_input_tokens,
+        output_tokens=output_tokens,
+        reasoning_output_tokens=None,
+        cost_usd=cost_usd,
+        event_count=len(records),
+        command_count=len(bash_commands),
+        tool_call_count=len(tool_call_names),
+        tool_names=tuple(sorted(tool_names)),
+        tool_call_names=tuple(tool_call_names),
+        successful_tool_call_count=len(successful_tool_call_names),
+        successful_tool_names=tuple(sorted(successful_tool_names)),
+        successful_tool_call_names=tuple(successful_tool_call_names),
+        permission_denials=(),
+        unavailable_tool_attempts=(),
+        bash_commands=tuple(bash_commands),
+        final_message=final_message,
+        events_path=events_path,
+        timeline_path=timeline_path,
+        action_ledger_path=action_ledger_path,
+        action_ledger_sha256=action_ledger.sha256,
+        action_count=len(action_ledger.actions),
+        action_timing_source=action_ledger.timing_source,
+        stderr_path=stderr_path,
+        patch_path=patch_path,
+    )
 
 
 def _capture_streaming_process(
@@ -688,10 +1584,23 @@ def run_agent(
     allowed_tools: Iterable[str] = (),
     settings_path: Path | None = None,
     controlled: bool = True,
+    verification_commands: Iterable[str] = (),
+    writable_paths: Iterable[str] = (),
 ) -> AgentExecution:
     workspace_path = Path(workspace).resolve()
     artifacts = Path(artifact_dir).resolve()
     artifacts.mkdir(parents=True, exist_ok=True)
+    if agent == "openrouter":
+        return _run_openrouter_agent(
+            workspace=workspace_path,
+            prompt=prompt,
+            artifact_dir=artifacts,
+            model=model,
+            timeout_seconds=timeout_seconds,
+            max_budget_usd=max_budget_usd,
+            verification_commands=verification_commands,
+            writable_paths=writable_paths,
+        )
     if agent == "codex":
         command = build_codex_command(
             workspace_path,

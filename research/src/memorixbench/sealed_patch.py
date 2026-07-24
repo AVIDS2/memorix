@@ -2,17 +2,39 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import hashlib
+import os
 from pathlib import Path
 import re
+import stat
 
 
 MAX_SEALED_PATCH_BYTES = 2 * 1024 * 1024
 DIFF_HEADER_PATTERN = re.compile(r"^diff --git a/([^\s]+) b/([^\s]+)$")
 FILE_HEADER_PATTERN = re.compile(r"^(---|\+\+\+) (.+?)(?:\t.*)?$")
+GIT_MODE_PATTERN = re.compile(r"^(?:new file mode|deleted file mode|old mode|new mode) ([0-7]{6})$")
+REGULAR_GIT_FILE_MODES = {"100644", "100755"}
 
 
 class SealedPatchError(ValueError):
     """Raised when a worker patch is unsafe or unsuitable for vault grading."""
+
+
+def _is_reparse_point(path: Path) -> bool:
+    try:
+        metadata = os.lstat(path)
+    except OSError:
+        return False
+    attributes = getattr(metadata, "st_file_attributes", 0)
+    reparse_flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+    return path.is_symlink() or bool(attributes & reparse_flag)
+
+
+def _is_regular_file(path: Path) -> bool:
+    try:
+        metadata = path.lstat()
+    except OSError:
+        return False
+    return not _is_reparse_point(path) and stat.S_ISREG(metadata.st_mode)
 
 
 @dataclass(frozen=True)
@@ -30,6 +52,8 @@ def _sha256(data: bytes) -> str:
 def _validate_relative_path(path: str) -> str:
     if not path or path.startswith("/") or "\\" in path:
         raise SealedPatchError("sealed patch paths must be relative POSIX paths")
+    if ":" in path:
+        raise SealedPatchError("sealed patch paths must not contain a Windows drive or stream")
     parts = Path(path).parts
     if not parts or ".." in parts or ".git" in parts:
         raise SealedPatchError("sealed patch paths must not escape or modify Git metadata")
@@ -39,6 +63,11 @@ def _validate_relative_path(path: str) -> str:
 def _parse_diff_headers(text: str) -> tuple[str, ...]:
     changed_paths: list[str] = []
     for line in text.splitlines():
+        mode_match = GIT_MODE_PATTERN.fullmatch(line)
+        if mode_match is not None:
+            if mode_match.group(1) not in REGULAR_GIT_FILE_MODES:
+                raise SealedPatchError("sealed patch must not contain a special Git file mode")
+            continue
         if line.startswith("diff --git "):
             match = DIFF_HEADER_PATTERN.fullmatch(line)
             if not match:
@@ -67,7 +96,7 @@ def seal_patch(
     """Validate a worker-produced textual Git patch before vault transfer."""
 
     candidate = Path(path)
-    if not candidate.is_file() or candidate.is_symlink():
+    if not _is_regular_file(candidate):
         raise SealedPatchError("sealed patch must be a regular file")
     data = candidate.read_bytes()
     if len(data) > max_bytes:
@@ -93,7 +122,7 @@ def snapshot_sealed_patch(source: SealedPatch, destination: str | Path) -> Seale
     target = Path(destination)
     if target.exists():
         raise SealedPatchError("sealed patch snapshot destination already exists")
-    if not source.path.is_file() or source.path.is_symlink():
+    if not _is_regular_file(source.path):
         raise SealedPatchError("worker sealed patch is no longer a regular file")
     data = source.path.read_bytes()
     if _sha256(data) != source.sha256 or len(data) != source.byte_count:

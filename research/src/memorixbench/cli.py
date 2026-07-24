@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import asdict
+import hashlib
 import json
 from pathlib import Path
 
@@ -16,6 +17,42 @@ from .annotation import (
     write_blind_packet,
     write_final_annotation,
 )
+from .admission import (
+    load_admission_review,
+    validate_admission_review,
+    write_admission_review_draft,
+)
+from .pre_admission import audit_private_draft, write_pre_admission_audit
+from .analysis_plan import (
+    load_confirmatory_analysis_plan,
+    validate_confirmatory_results,
+)
+from .baseline_preflight import run_baseline_runtime_preflight
+from .model_route_preflight import run_model_route_preflight
+from .power import build_conservative_power_plan, write_conservative_power_plan
+from .public_cohort import (
+    load_public_cohort_plan,
+    validate_public_cohort_plan,
+    validate_public_cohort_results,
+)
+from .public_analysis import (
+    analyze_public_cohort,
+    public_cohort_summary_payload,
+    write_public_cohort_analysis,
+    write_public_cohort_summary,
+)
+from .public_artifact import (
+    audit_public_artifact_manifest,
+    build_public_artifact_manifest,
+    load_public_artifact_manifest,
+    materialize_public_artifact,
+    write_public_artifact_manifest,
+)
+from .public_release import build_public_release_v2_manifest
+from .runtime_measurement import (
+    RuntimeMeasurementReceipt,
+    load_runtime_measurement_policy,
+)
 from .authoring import verify_case_authoring
 from .microvm import inspect_microvm_host, require_microvm_host
 from .oracle_assets import resolve_oracle_assets
@@ -27,6 +64,7 @@ from .source_ledger import (
 )
 from .preflight import write_environment_preflight_receipt
 from .capture_session import capture_precursor_session
+from .native_hook_capture import load_native_hook_capture, write_native_hook_capture
 from .trace_capture import capture_trace_from_streams
 from .trace import load_trace_bundle, write_trace_bundle
 from .reporting import (
@@ -35,7 +73,13 @@ from .reporting import (
     serialize_source_checks,
 )
 from .schema import ManifestError, load_case_manifest
-from .scoring import collect_result_payloads, compare_conditions, load_jsonl, write_jsonl
+from .scoring import (
+    collect_result_payloads,
+    compare_conditions,
+    holm_adjust_p_values,
+    load_jsonl,
+    write_jsonl,
+)
 from .trial import SUPPORTED_CONDITIONS, run_trial
 from .workspace import (
     apply_reference_patch,
@@ -52,6 +96,11 @@ def _validate_cases(root: Path) -> int:
     for case in cases:
         if case.precursor_trace_bundle is not None:
             load_trace_bundle(case)
+        if case.native_hook_capture is not None:
+            load_native_hook_capture(
+                case.source_path.parent / case.native_hook_capture.path,
+                case_id=case.case_id,
+            )
     ids = [case.case_id for case in cases]
     duplicates = sorted({case_id for case_id in ids if ids.count(case_id) > 1})
     if duplicates:
@@ -69,6 +118,70 @@ def _validate_registry(registry_path: Path, cases_root: Path) -> int:
     return 0
 
 
+def _validate_public_cohort_plan(args: argparse.Namespace) -> int:
+    plan = load_public_cohort_plan(args.plan)
+    registry = load_case_registry(args.registry)
+    validate_public_cohort_plan(plan, registry=registry, cases_root=args.cases_root)
+    print(json.dumps({
+        "plan_id": plan.plan_id,
+        "registry_id": plan.registry_id,
+        "registry_sha256": plan.registry_sha256,
+        "expected_rows": len(plan.expected_keys),
+        "conditions": list(plan.conditions),
+        "cases": len(plan.case_ids),
+        "repetitions": len(plan.repetitions),
+    }, indent=2))
+    return 0
+
+
+def _validate_public_cohort_results(args: argparse.Namespace) -> int:
+    plan = load_public_cohort_plan(args.plan)
+    registry = load_case_registry(args.registry)
+    validate_public_cohort_plan(plan, registry=registry, cases_root=args.cases_root)
+    validation = validate_public_cohort_results(plan, results_root=args.results_root)
+    print(json.dumps(validation.public_payload(), indent=2))
+    return 0
+
+
+def _analyze_public_cohort(args: argparse.Namespace) -> int:
+    plan = load_public_cohort_plan(args.plan)
+    registry = load_case_registry(args.registry)
+    validate_public_cohort_plan(plan, registry=registry, cases_root=args.cases_root)
+    analysis = analyze_public_cohort(
+        plan,
+        results_root=args.results_root,
+        bootstrap_samples=args.bootstrap_samples,
+        bootstrap_seed=args.bootstrap_seed,
+    )
+    output = write_public_cohort_analysis(args.output, analysis)
+    print(json.dumps({**analysis.public_payload(), "output": str(output)}, indent=2))
+    return 0
+
+
+def _materialize_public_cohort_summary(args: argparse.Namespace) -> int:
+    plan = load_public_cohort_plan(args.plan)
+    registry = load_case_registry(args.registry)
+    validate_public_cohort_plan(plan, registry=registry, cases_root=args.cases_root)
+    analysis = analyze_public_cohort(
+        plan,
+        results_root=args.results_root,
+        bootstrap_samples=args.bootstrap_samples,
+        bootstrap_seed=args.bootstrap_seed,
+    )
+    summary = public_cohort_summary_payload(analysis)
+    output = write_public_cohort_summary(
+        args.output,
+        analysis,
+        replace_expected_analysis_sha256=args.replace_expected_analysis_sha256,
+    )
+    print(json.dumps({
+        "schema_version": "public-cohort-summary-materialization-v1",
+        "analysis_sha256": summary["analysis_sha256"],
+        "output": str(output),
+    }, indent=2))
+    return 0
+
+
 def _validate_source_ledger(path: Path) -> int:
     validation = validate_source_ledger(load_source_ledger(path))
     print(json.dumps(validation.public_payload(), indent=2))
@@ -82,6 +195,153 @@ def _audit_source_candidate(args: argparse.Namespace) -> int:
         repository_cache=args.repository_cache,
     )
     print(json.dumps(audit.public_payload(), indent=2))
+    return 0
+
+
+def _validate_admission_review(args: argparse.Namespace) -> int:
+    ledger = load_source_ledger(args.ledger)
+    candidate = next(
+        (entry for entry in ledger.entries if entry.candidate_id == args.candidate_id),
+        None,
+    )
+    if candidate is None:
+        raise ValueError(f"unknown source candidate: {args.candidate_id}")
+    review = load_admission_review(args.review)
+    validate_admission_review(
+        review,
+        candidate_id=candidate.candidate_id,
+        repository_url=candidate.repository_url,
+        base_revision=candidate.base_revision,
+        public_transition_revision=candidate.public_transition_revision,
+    )
+    print(json.dumps(review.public_payload(), indent=2))
+    return 0
+
+
+def _validate_analysis_plan(args: argparse.Namespace) -> int:
+    plan = load_confirmatory_analysis_plan(args.plan)
+    print(json.dumps({**plan.public_payload(), "analysis_plan_sha256": plan.sha256}, indent=2))
+    return 0
+
+
+def _validate_runtime_measurement(args: argparse.Namespace) -> int:
+    policy = load_runtime_measurement_policy(args.policy)
+    try:
+        payload = json.loads(args.receipt.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ValueError("runtime measurement receipt cannot be read") from error
+    receipt = RuntimeMeasurementReceipt.from_public_payload(payload, policy=policy)
+    print(json.dumps({
+        "policy_id": policy.policy_id,
+        "policy_sha256": policy.sha256,
+        "receipt_sha256": receipt.sha256,
+        "run_id": receipt.run_id,
+        "job_sha256": receipt.job_sha256,
+        "worker_result_sha256": receipt.worker_result_sha256,
+        "measurement_ids": [item.measurement_id for item in receipt.evidence],
+        "observed_at": receipt.observed_at,
+    }, indent=2))
+    return 0
+
+
+def _build_public_artifact_manifest(args: argparse.Namespace) -> int:
+    manifest = build_public_artifact_manifest(
+        root=args.root,
+        release_id=args.release_id,
+        evidence_tier=args.evidence_tier,
+        paths=tuple(args.include),
+        created_at=args.created_at,
+    )
+    write_public_artifact_manifest(manifest, args.output)
+    print(json.dumps({
+        "release_id": manifest.release_id,
+        "evidence_tier": manifest.evidence_tier,
+        "manifest_sha256": manifest.sha256,
+        "entry_count": len(manifest.entries),
+    }, indent=2))
+    return 0
+
+
+def _audit_public_artifact_manifest(args: argparse.Namespace) -> int:
+    audit = audit_public_artifact_manifest(
+        load_public_artifact_manifest(args.manifest),
+        root=args.root,
+        require_exact_tree=args.require_exact_tree,
+    )
+    print(json.dumps(audit.public_payload(), indent=2))
+    return 0
+
+
+def _build_public_release(args: argparse.Namespace) -> int:
+    manifest = build_public_release_v2_manifest(
+        root=args.root,
+        created_at=args.created_at,
+    )
+    write_public_artifact_manifest(manifest, args.output)
+    print(json.dumps({
+        "release_id": manifest.release_id,
+        "evidence_tier": manifest.evidence_tier,
+        "manifest_sha256": manifest.sha256,
+        "entry_count": len(manifest.entries),
+    }, indent=2))
+    return 0
+
+
+def _materialize_public_artifact(args: argparse.Namespace) -> int:
+    materialized = materialize_public_artifact(
+        load_public_artifact_manifest(args.manifest),
+        root=args.root,
+        target=args.target,
+    )
+    print(json.dumps(materialized.public_payload(), indent=2))
+    return 0
+
+
+def _build_admission_review_draft(args: argparse.Namespace) -> int:
+    ledger = load_source_ledger(args.ledger)
+    candidate = next(
+        (entry for entry in ledger.entries if entry.candidate_id == args.candidate_id),
+        None,
+    )
+    if candidate is None:
+        raise ValueError(f"unknown source candidate: {args.candidate_id}")
+    draft = write_admission_review_draft(
+        candidate_id=candidate.candidate_id,
+        repository_url=candidate.repository_url,
+        base_revision=candidate.base_revision,
+        public_transition_revision=candidate.public_transition_revision,
+        author_id=args.author_id,
+        author_history_access=args.author_history_access,
+        private_transition=args.private_transition,
+        private_task_brief=args.private_task_brief,
+        public_history_comparison=args.public_history_comparison,
+        output=args.output,
+    )
+    print(json.dumps({
+        "candidate_id": draft.candidate_id,
+        "admission_review_draft_sha256": draft.sha256,
+        "output": str(args.output.resolve()),
+    }, indent=2))
+    return 0
+
+
+def _audit_private_draft(args: argparse.Namespace) -> int:
+    audit = audit_private_draft(
+        ledger=load_source_ledger(args.ledger),
+        candidate_id=args.candidate_id,
+        draft_root=args.draft_root,
+        repository_cache=args.repository_cache,
+        audited_at_utc=args.audited_at_utc,
+    )
+    output = write_pre_admission_audit(audit, output=args.output)
+    print(json.dumps({
+        "candidate_id": audit.candidate_id,
+        "audit_kind": audit.audit_kind,
+        "pre_admission_audit_sha256": audit.sha256,
+        "admission_decision": audit.admission_decision,
+        "remaining_admission_gates": list(audit.remaining_admission_gates),
+        "output": str(output.resolve()),
+    }, indent=2))
     return 0
 
 
@@ -128,6 +388,32 @@ def _capture_precursor_session(args: argparse.Namespace) -> int:
     return 0
 
 
+def _capture_native_hook_session(args: argparse.Namespace) -> int:
+    capture = write_native_hook_capture(
+        events_path=args.events,
+        output_path=args.output,
+        case_id=args.case_id,
+        capture_id=args.capture_id,
+        client_version=args.client_version,
+        capture_mode=args.capture_mode,
+        workspace=args.workspace,
+        workspace_snapshot_sha256=args.workspace_snapshot_sha256,
+        storage_probe_query=args.storage_probe_query,
+        minimum_candidate_refs=args.minimum_candidate_refs,
+    )
+    print(json.dumps({
+        "schema_version": capture.schema_version,
+        "case_id": capture.case_id,
+        "capture_id": capture.capture_id,
+        "agent": capture.agent,
+        "capture_mode": capture.capture_mode,
+        "capture_source_sha256": capture.source_sha256,
+        "capture_sha256": capture.canonical_sha256,
+        "event_count": len(capture.events),
+    }, indent=2))
+    return 0
+
+
 def _record_environment_preflight(args: argparse.Namespace) -> int:
     ledger = load_source_ledger(args.ledger)
     candidate = next(
@@ -155,6 +441,52 @@ def _record_environment_preflight(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_baseline_runtime_preflight(args: argparse.Namespace) -> int:
+    receipt = run_baseline_runtime_preflight(
+        provider=args.provider,
+        output_dir=args.output,
+        mem0_python=args.mem0_python,
+        model_cache_root=args.model_cache_root,
+        agentmemory_runtime=args.agentmemory_runtime,
+    )
+    print(json.dumps({**receipt, "output": str(args.output.resolve())}, indent=2))
+    return 0
+
+
+def _run_model_route_preflight(args: argparse.Namespace) -> int:
+    receipt = run_model_route_preflight(
+        output_dir=args.output,
+        claude_provider_settings=args.claude_provider_settings,
+        expected_reported_model=args.expected_reported_model,
+        model=args.model,
+        uniform_role_model=args.uniform_role_model,
+        timeout_seconds=args.timeout_seconds,
+        max_budget_usd=args.max_budget_usd,
+    )
+    print(json.dumps({**receipt, "output": str(args.output.resolve())}, indent=2))
+    return 0 if receipt["passed"] else 1
+
+
+def _plan_conservative_power(args: argparse.Namespace) -> int:
+    plan = build_conservative_power_plan(
+        planning_id=args.planning_id,
+        treatment_condition=args.treatment_condition,
+        control_condition=args.control_condition,
+        absolute_minimum_detectable_difference=args.minimum_detectable_difference,
+        expected_discordances=tuple(args.discordance),
+        alpha=args.alpha,
+        family_size=args.family_size,
+        target_power=args.target_power,
+        repetitions_per_cluster=args.repetitions_per_cluster,
+        min_clusters=args.min_clusters,
+        max_clusters=args.max_clusters,
+        step=args.step,
+    )
+    output = write_conservative_power_plan(args.output, plan)
+    print(json.dumps({**plan.public_payload(), "output": str(output)}, indent=2))
+    return 0 if plan.required_clusters is not None else 1
+
+
 def _build_trace_bundle(args: argparse.Namespace) -> int:
     path = write_trace_bundle(
         path=args.output,
@@ -169,17 +501,133 @@ def _build_trace_bundle(args: argparse.Namespace) -> int:
 
 
 def _compare(args: argparse.Namespace) -> int:
+    if not args.allow_development:
+        raise ValueError(
+            "confirmatory comparisons require compare-family with --analysis-plan; "
+            "pass --allow-development for a diagnostic single comparison"
+        )
     comparison = compare_conditions(
         load_jsonl(args.results),
         treatment=args.treatment,
         control=args.control,
         bootstrap_samples=args.bootstrap_samples,
         bootstrap_seed=args.bootstrap_seed,
-        require_confirmatory=not args.allow_development,
+        require_confirmatory=False,
         include_low_dependency=args.include_low_dependency,
         allow_mixed_models=args.allow_mixed_models,
     )
     print(json.dumps(asdict(comparison), indent=2))
+    return 0
+
+
+def _parse_family_comparison(value: str) -> tuple[str, str, str]:
+    parts = value.split(":")
+    if len(parts) != 3 or any(not item.strip() for item in parts):
+        raise ValueError(
+            "family comparison must use comparison-id:treatment-condition:control-condition"
+        )
+    comparison_id, treatment, control = (item.strip() for item in parts)
+    if treatment == control:
+        raise ValueError("family comparison treatment and control must differ")
+    return comparison_id, treatment, control
+
+
+def _canonical_payload_sha256(payload: dict[str, object]) -> str:
+    encoded = json.dumps(
+        payload,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+    ).encode("ascii")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _write_new_json(path: Path, payload: dict[str, object]) -> Path:
+    target = path.resolve()
+    if target.exists():
+        raise ValueError("comparison-family output must not already exist")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return target
+
+
+def _compare_family(args: argparse.Namespace) -> int:
+    family_id = args.family_id.strip()
+    if not family_id:
+        raise ValueError("family_id must be non-empty")
+    if not 0 < args.alpha <= 1:
+        raise ValueError("family alpha must be a probability greater than zero and at most one")
+    specifications = [_parse_family_comparison(value) for value in args.comparison]
+    comparison_ids = [item[0] for item in specifications]
+    duplicates = sorted({item for item in comparison_ids if comparison_ids.count(item) > 1})
+    if duplicates:
+        raise ValueError("duplicate family comparison ids: " + ", ".join(duplicates))
+
+    results = load_jsonl(args.results)
+    analysis_plan = None
+    if not args.allow_development:
+        if args.analysis_plan is None:
+            raise ValueError("confirmatory comparison families require --analysis-plan")
+        analysis_plan = load_confirmatory_analysis_plan(args.analysis_plan)
+        if args.alpha != analysis_plan.alpha:
+            raise ValueError("family alpha does not match the frozen analysis plan")
+        results = validate_confirmatory_results(
+            analysis_plan,
+            family_id=family_id,
+            comparisons=specifications,
+            results=results,
+        )
+    comparisons: list[tuple[str, str, str, object]] = []
+    raw_p_values: dict[str, float] = {}
+    for comparison_id, treatment, control in specifications:
+        comparison = compare_conditions(
+            results,
+            treatment=treatment,
+            control=control,
+            bootstrap_samples=args.bootstrap_samples,
+            bootstrap_seed=args.bootstrap_seed,
+            require_confirmatory=not args.allow_development,
+            include_low_dependency=args.include_low_dependency,
+            allow_mixed_models=args.allow_mixed_models,
+        )
+        comparisons.append((comparison_id, treatment, control, comparison))
+        raw_p_values[comparison_id] = comparison.cluster_sign_flip_p
+
+    adjusted_p_values = holm_adjust_p_values(raw_p_values)
+    payload: dict[str, object] = {
+        "schema_version": "paired-comparison-family-v1",
+        "family_id": family_id,
+        "status": (
+            "development-analysis-output"
+            if args.allow_development
+            else "confirmatory-analysis-output"
+        ),
+        "analysis_plan_id": None if analysis_plan is None else analysis_plan.plan_id,
+        "analysis_plan_sha256": None if analysis_plan is None else analysis_plan.sha256,
+        "input_results_sha256": hashlib.sha256(args.results.read_bytes()).hexdigest(),
+        "alpha": args.alpha,
+        "evidence_policy": {
+            "require_confirmatory": not args.allow_development,
+            "include_low_dependency": args.include_low_dependency,
+            "allow_mixed_models": args.allow_mixed_models,
+        },
+        "multiplicity_method": "holm-bonferroni-v1",
+        "comparisons": [
+            {
+                "comparison_id": comparison_id,
+                "treatment_condition": treatment,
+                "control_condition": control,
+                "raw_p_value": raw_p_values[comparison_id],
+                "holm_adjusted_p_value": adjusted_p_values[comparison_id],
+                "reject_at_alpha": adjusted_p_values[comparison_id] <= args.alpha,
+                "result": asdict(comparison),
+            }
+            for comparison_id, treatment, control, comparison in comparisons
+        ],
+    }
+    payload["family_result_sha256"] = _canonical_payload_sha256(payload)
+    output = _write_new_json(args.output, payload)
+    print(json.dumps({**payload, "output": str(output)}, indent=2))
     return 0
 
 
@@ -309,8 +757,10 @@ def _run_trial(args: argparse.Namespace) -> int:
         agentmemory_runtime=args.agentmemory_runtime,
         workspace_root=args.workspace_root,
         claude_provider_settings=args.claude_provider_settings,
+        uniform_role_model=args.uniform_role_model,
         repository_cache=args.repository_cache,
         private_oracle_root=args.private_oracle_root,
+        registry_path=args.registry,
     )
     print(json.dumps(asdict(outcome), indent=2))
     return 0
@@ -384,6 +834,36 @@ def build_parser() -> argparse.ArgumentParser:
     registry.add_argument("registry", type=Path)
     registry.add_argument("cases_root", type=Path)
 
+    public_cohort_plan = subparsers.add_parser("validate-public-cohort-plan")
+    public_cohort_plan.add_argument("plan", type=Path)
+    public_cohort_plan.add_argument("--registry", type=Path, required=True)
+    public_cohort_plan.add_argument("--cases-root", type=Path, required=True)
+
+    public_cohort_results = subparsers.add_parser("validate-public-cohort-results")
+    public_cohort_results.add_argument("plan", type=Path)
+    public_cohort_results.add_argument("--registry", type=Path, required=True)
+    public_cohort_results.add_argument("--cases-root", type=Path, required=True)
+    public_cohort_results.add_argument("--results-root", type=Path, required=True)
+
+    public_cohort_analysis = subparsers.add_parser("analyze-public-cohort")
+    public_cohort_analysis.add_argument("plan", type=Path)
+    public_cohort_analysis.add_argument("--registry", type=Path, required=True)
+    public_cohort_analysis.add_argument("--cases-root", type=Path, required=True)
+    public_cohort_analysis.add_argument("--results-root", type=Path, required=True)
+    public_cohort_analysis.add_argument("--output", type=Path, required=True)
+    public_cohort_analysis.add_argument("--bootstrap-samples", type=int, default=10_000)
+    public_cohort_analysis.add_argument("--bootstrap-seed", type=int, default=1729)
+
+    public_cohort_summary = subparsers.add_parser("materialize-public-cohort-summary")
+    public_cohort_summary.add_argument("plan", type=Path)
+    public_cohort_summary.add_argument("--registry", type=Path, required=True)
+    public_cohort_summary.add_argument("--cases-root", type=Path, required=True)
+    public_cohort_summary.add_argument("--results-root", type=Path, required=True)
+    public_cohort_summary.add_argument("--output", type=Path, required=True)
+    public_cohort_summary.add_argument("--bootstrap-samples", type=int, default=10_000)
+    public_cohort_summary.add_argument("--bootstrap-seed", type=int, default=1729)
+    public_cohort_summary.add_argument("--replace-expected-analysis-sha256")
+
     source_ledger = subparsers.add_parser("validate-source-ledger")
     source_ledger.add_argument("ledger", type=Path)
 
@@ -391,6 +871,67 @@ def build_parser() -> argparse.ArgumentParser:
     audit_source.add_argument("ledger", type=Path)
     audit_source.add_argument("candidate_id")
     audit_source.add_argument("repository_cache", type=Path)
+
+    admission_review = subparsers.add_parser("validate-admission-review")
+    admission_review.add_argument("review", type=Path)
+    admission_review.add_argument("--ledger", type=Path, required=True)
+    admission_review.add_argument("--candidate-id", required=True)
+
+    analysis_plan = subparsers.add_parser("validate-analysis-plan")
+    analysis_plan.add_argument("plan", type=Path)
+
+    runtime_measurement = subparsers.add_parser("validate-runtime-measurement")
+    runtime_measurement.add_argument("policy", type=Path)
+    runtime_measurement.add_argument("receipt", type=Path)
+
+    public_manifest = subparsers.add_parser("build-public-artifact-manifest")
+    public_manifest.add_argument("--root", type=Path, required=True)
+    public_manifest.add_argument("--release-id", required=True)
+    public_manifest.add_argument(
+        "--evidence-tier",
+        choices=("design-only-v1", "public-reproducible-summary-v1"),
+        required=True,
+    )
+    public_manifest.add_argument("--include", action="append", required=True)
+    public_manifest.add_argument("--created-at")
+    public_manifest.add_argument("--output", type=Path, required=True)
+
+    public_release = subparsers.add_parser("build-public-release")
+    public_release.add_argument("--root", type=Path, required=True)
+    public_release.add_argument("--created-at")
+    public_release.add_argument("--output", type=Path, required=True)
+
+    audit_public_manifest = subparsers.add_parser("audit-public-artifact-manifest")
+    audit_public_manifest.add_argument("--root", type=Path, required=True)
+    audit_public_manifest.add_argument("--manifest", type=Path, required=True)
+    audit_public_manifest.add_argument("--require-exact-tree", action="store_true")
+
+    materialize_public_manifest = subparsers.add_parser("materialize-public-artifact")
+    materialize_public_manifest.add_argument("--root", type=Path, required=True)
+    materialize_public_manifest.add_argument("--manifest", type=Path, required=True)
+    materialize_public_manifest.add_argument("--target", type=Path, required=True)
+
+    admission_draft = subparsers.add_parser("build-admission-review-draft")
+    admission_draft.add_argument("ledger", type=Path)
+    admission_draft.add_argument("candidate_id")
+    admission_draft.add_argument("--author-id", required=True)
+    admission_draft.add_argument(
+        "--author-history-access",
+        choices=("provenance-only-v1", "public-solution-reviewed-v1"),
+        required=True,
+    )
+    admission_draft.add_argument("--private-transition", type=Path, required=True)
+    admission_draft.add_argument("--private-task-brief", type=Path, required=True)
+    admission_draft.add_argument("--public-history-comparison", type=Path, required=True)
+    admission_draft.add_argument("--output", type=Path, required=True)
+
+    private_draft_audit = subparsers.add_parser("audit-private-draft")
+    private_draft_audit.add_argument("ledger", type=Path)
+    private_draft_audit.add_argument("candidate_id")
+    private_draft_audit.add_argument("--draft-root", type=Path, required=True)
+    private_draft_audit.add_argument("--repository-cache", type=Path, required=True)
+    private_draft_audit.add_argument("--output", type=Path, required=True)
+    private_draft_audit.add_argument("--audited-at-utc")
 
     capture_trace = subparsers.add_parser("capture-trace")
     capture_trace.add_argument("--events", type=Path, required=True)
@@ -432,6 +973,22 @@ def build_parser() -> argparse.ArgumentParser:
     capture_session.add_argument("--repository-cache", type=Path)
     capture_session.add_argument("--claude-provider-settings", type=Path)
 
+    capture_native_hook = subparsers.add_parser("capture-native-hook-session")
+    capture_native_hook.add_argument("--events", type=Path, required=True)
+    capture_native_hook.add_argument("--output", type=Path, required=True)
+    capture_native_hook.add_argument("--case-id", required=True)
+    capture_native_hook.add_argument("--capture-id", required=True)
+    capture_native_hook.add_argument("--client-version", required=True)
+    capture_native_hook.add_argument(
+        "--capture-mode",
+        choices=("local-diagnostic-v1", "isolated-worker-v1"),
+        default="local-diagnostic-v1",
+    )
+    capture_native_hook.add_argument("--workspace", type=Path, required=True)
+    capture_native_hook.add_argument("--workspace-snapshot-sha256", required=True)
+    capture_native_hook.add_argument("--storage-probe-query", required=True)
+    capture_native_hook.add_argument("--minimum-candidate-refs", type=int, default=1)
+
     preflight = subparsers.add_parser("record-environment-preflight")
     preflight.add_argument("ledger", type=Path)
     preflight.add_argument("candidate_id")
@@ -450,6 +1007,47 @@ def build_parser() -> argparse.ArgumentParser:
     preflight.add_argument("--output", type=Path, required=True)
     preflight.add_argument("--observed-at-utc")
 
+    baseline_preflight = subparsers.add_parser("preflight-baseline-runtime")
+    baseline_preflight.add_argument(
+        "--provider",
+        choices=("mem0", "agentmemory"),
+        required=True,
+    )
+    baseline_preflight.add_argument("--output", type=Path, required=True)
+    baseline_preflight.add_argument("--mem0-python", type=Path)
+    baseline_preflight.add_argument("--model-cache-root", type=Path)
+    baseline_preflight.add_argument("--agentmemory-runtime", type=Path)
+
+    model_route_preflight = subparsers.add_parser("preflight-model-route")
+    model_route_preflight.add_argument("--output", type=Path, required=True)
+    model_route_preflight.add_argument("--claude-provider-settings", type=Path, required=True)
+    model_route_preflight.add_argument("--model")
+    model_route_preflight.add_argument("--uniform-role-model")
+    model_route_preflight.add_argument("--expected-reported-model")
+    model_route_preflight.add_argument("--timeout-seconds", type=int, default=120)
+    model_route_preflight.add_argument("--max-budget-usd", type=float, default=0.25)
+
+    power_plan = subparsers.add_parser("plan-conservative-power")
+    power_plan.add_argument("--output", type=Path, required=True)
+    power_plan.add_argument("--planning-id", required=True)
+    power_plan.add_argument("--treatment-condition", required=True)
+    power_plan.add_argument("--control-condition", required=True)
+    power_plan.add_argument("--minimum-detectable-difference", type=float, required=True)
+    power_plan.add_argument(
+        "--discordance",
+        type=float,
+        action="append",
+        required=True,
+        help="Predeclared paired-discordance scenario; pass once per envelope point.",
+    )
+    power_plan.add_argument("--alpha", type=float, default=0.05)
+    power_plan.add_argument("--family-size", type=int, default=1)
+    power_plan.add_argument("--target-power", type=float, default=0.8)
+    power_plan.add_argument("--repetitions-per-cluster", type=int, default=3)
+    power_plan.add_argument("--min-clusters", type=int, default=50)
+    power_plan.add_argument("--max-clusters", type=int, default=300)
+    power_plan.add_argument("--step", type=int, default=5)
+
     trace_bundle = subparsers.add_parser("build-trace-bundle")
     trace_bundle.add_argument("--case-root", type=Path, required=True)
     trace_bundle.add_argument("--case-id", required=True)
@@ -467,6 +1065,24 @@ def build_parser() -> argparse.ArgumentParser:
     compare.add_argument("--allow-development", action="store_true")
     compare.add_argument("--include-low-dependency", action="store_true")
     compare.add_argument("--allow-mixed-models", action="store_true")
+
+    compare_family = subparsers.add_parser("compare-family")
+    compare_family.add_argument("results", type=Path)
+    compare_family.add_argument("--family-id", required=True)
+    compare_family.add_argument(
+        "--comparison",
+        action="append",
+        required=True,
+        help="comparison-id:treatment-condition:control-condition",
+    )
+    compare_family.add_argument("--output", type=Path, required=True)
+    compare_family.add_argument("--analysis-plan", type=Path)
+    compare_family.add_argument("--alpha", type=float, default=0.05)
+    compare_family.add_argument("--bootstrap-samples", type=int, default=10_000)
+    compare_family.add_argument("--bootstrap-seed", type=int, default=1729)
+    compare_family.add_argument("--allow-development", action="store_true")
+    compare_family.add_argument("--include-low-dependency", action="store_true")
+    compare_family.add_argument("--allow-mixed-models", action="store_true")
 
     collect = subparsers.add_parser("collect-results")
     collect.add_argument("root", type=Path)
@@ -507,7 +1123,7 @@ def build_parser() -> argparse.ArgumentParser:
     trial.add_argument("--artifact-root", type=Path, required=True)
     trial.add_argument("--study-id", default="development-pilot")
     trial.add_argument("--condition", choices=sorted(SUPPORTED_CONDITIONS), required=True)
-    trial.add_argument("--agent", choices=("codex", "claude"), required=True)
+    trial.add_argument("--agent", choices=("codex", "claude", "openrouter"), required=True)
     trial.add_argument("--model")
     trial.add_argument("--required-single-model")
     trial.add_argument("--repetition", type=int, default=0)
@@ -519,8 +1135,10 @@ def build_parser() -> argparse.ArgumentParser:
     trial.add_argument("--agentmemory-runtime", type=Path)
     trial.add_argument("--workspace-root", type=Path)
     trial.add_argument("--claude-provider-settings", type=Path)
+    trial.add_argument("--uniform-role-model")
     trial.add_argument("--repository-cache", type=Path)
     trial.add_argument("--private-oracle-root", type=Path)
+    trial.add_argument("--registry", type=Path)
     trial.add_argument("--allow-agent-execution", action="store_true")
 
     annotation_packet = subparsers.add_parser("build-annotation-packet")
@@ -559,20 +1177,56 @@ def main() -> int:
             return _validate_cases(args.root)
         if args.command == "validate-registry":
             return _validate_registry(args.registry, args.cases_root)
+        if args.command == "validate-public-cohort-plan":
+            return _validate_public_cohort_plan(args)
+        if args.command == "validate-public-cohort-results":
+            return _validate_public_cohort_results(args)
+        if args.command == "analyze-public-cohort":
+            return _analyze_public_cohort(args)
+        if args.command == "materialize-public-cohort-summary":
+            return _materialize_public_cohort_summary(args)
         if args.command == "validate-source-ledger":
             return _validate_source_ledger(args.ledger)
         if args.command == "audit-source-candidate":
             return _audit_source_candidate(args)
+        if args.command == "validate-admission-review":
+            return _validate_admission_review(args)
+        if args.command == "validate-analysis-plan":
+            return _validate_analysis_plan(args)
+        if args.command == "validate-runtime-measurement":
+            return _validate_runtime_measurement(args)
+        if args.command == "build-public-artifact-manifest":
+            return _build_public_artifact_manifest(args)
+        if args.command == "build-public-release":
+            return _build_public_release(args)
+        if args.command == "audit-public-artifact-manifest":
+            return _audit_public_artifact_manifest(args)
+        if args.command == "materialize-public-artifact":
+            return _materialize_public_artifact(args)
+        if args.command == "build-admission-review-draft":
+            return _build_admission_review_draft(args)
+        if args.command == "audit-private-draft":
+            return _audit_private_draft(args)
         if args.command == "capture-trace":
             return _capture_trace(args)
         if args.command == "capture-precursor-session":
             return _capture_precursor_session(args)
+        if args.command == "capture-native-hook-session":
+            return _capture_native_hook_session(args)
         if args.command == "record-environment-preflight":
             return _record_environment_preflight(args)
+        if args.command == "preflight-baseline-runtime":
+            return _run_baseline_runtime_preflight(args)
+        if args.command == "preflight-model-route":
+            return _run_model_route_preflight(args)
+        if args.command == "plan-conservative-power":
+            return _plan_conservative_power(args)
         if args.command == "build-trace-bundle":
             return _build_trace_bundle(args)
         if args.command == "compare":
             return _compare(args)
+        if args.command == "compare-family":
+            return _compare_family(args)
         if args.command == "collect-results":
             return _collect_results(args)
         if args.command == "materialize":

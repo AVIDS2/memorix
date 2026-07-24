@@ -332,8 +332,10 @@ def load_private_oracle_overlay(
             source_checks=source_checks,
         )
 
-    if mode not in {None, BLACK_BOX_OVERLAY_MODE}:
-        raise ValueError("private oracle mode is incompatible with confirmatory execution")
+    if mode != BLACK_BOX_OVERLAY_MODE:
+        raise ValueError(
+            "confirmatory private oracle requires mode = black-box-controller-v1"
+        )
     annotation_rubric = _resolve_asset(
         root,
         _required_text(data, "annotation_rubric"),

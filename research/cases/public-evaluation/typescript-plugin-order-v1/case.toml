@@ -1,0 +1,53 @@
+schema_version = "0.5"
+id = "typescript-plugin-order-v1"
+title = "Preserve plugin identity and order"
+split = "public-evaluation"
+dependency_strength = "medium"
+dependency_classification_status = "preregistered"
+language = "typescript"
+tags = ["public-evaluation", "transfer", "policy", "positive-control"]
+
+[bundle]
+public_paths = ["case.toml", "seed"]
+
+[repository]
+source_type = "local-fixture"
+path = "seed"
+base_revision = "typescript-plugin-order-v1-base"
+
+[precursor]
+task = "Establish the durable plugin merge policy for the extension registry."
+success_commands = ["node --test tests/plugins.spec.mjs"]
+
+[transition]
+kind = "none"
+description = "The transfer task begins from a public extension-registry snapshot."
+apply_commands = []
+
+[transfer]
+task = "Continue the extension registry work. Implement `mergePlugins` in `src/plugins.mjs` according to the durable plugin policy from the preceding session. Run the trusted test."
+success_commands = ["node --test tests/plugins.spec.mjs"]
+
+[[memory_seed]]
+entity_name = "plugin-merge-policy"
+type = "decision"
+title = "Plugin identity is case-insensitive and order is stable"
+narrative = "Plugins compare by lowercase id. The first occurrence owns output spelling and position. A requested plugin with the same identity replaces the earlier plugin object at that existing position; requested-only plugins append in request order."
+facts = [
+  "Compare plugin ids case-insensitively.",
+  "Keep the first id spelling and position.",
+  "Requested matching plugins replace the earlier object value.",
+  "Append requested-only plugins in their request order.",
+]
+files_modified = ["src/plugins.mjs"]
+concepts = ["plugins", "ordered merge"]
+topic_key = "plugin-merge-policy"
+related_entities = ["extension-registry"]
+
+[oracle]
+visibility = "public"
+required_start_files = ["src/plugins.mjs", "tests/plugins.spec.mjs"]
+relevant_evidence_ids = ["policy:plugin-merge"]
+stale_evidence_ids = []
+forbidden_actions = []
+agent_writable_paths = ["src"]

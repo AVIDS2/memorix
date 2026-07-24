@@ -10,6 +10,7 @@ import re
 from typing import Iterable, Literal
 
 from .actions import AgentAction, load_action_ledger
+from .public_safety import HOST_PATH_PATTERN
 
 
 ANNOTATION_SCHEMA_VERSION = "0.1"
@@ -19,7 +20,7 @@ COUNT_STATUSES = {"rated", "unrateable"}
 MEMORY_MARKER = re.compile(
     r"(?i)memorix|agentmemory|\bmem0\b|mcp(?:__|\b)|anthropic|openai|claude|codex"
 )
-ABSOLUTE_PATH_MARKER = re.compile(r"(?i)(?:[a-z]:[\\/]|/Users/|/home/|\\\\)[^\s\"'`;&|<>]*")
+ABSOLUTE_PATH_MARKER = HOST_PATH_PATTERN
 SECRET_MARKER = re.compile(
     r"(?i)(?:api[_-]?key|auth[_-]?token|password|secret)\s*[:=]\s*\S+"
 )

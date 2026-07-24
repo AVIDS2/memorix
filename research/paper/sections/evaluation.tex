@@ -1,0 +1,46 @@
+\section{Evaluation Plan}
+
+The primary outcome is task success under a frozen behavioral oracle. Secondary
+outcomes include action timing, context and API cost, optional-memory use, and
+stale-claim-consistent conflict actions. A conflict action is an observable
+action that advances a behavior declared stale for that case and conflicts with
+current source or the controller oracle. It is not a claim that memory caused an
+agent's internal reasoning error.
+
+Each confirmatory run is independently labeled by two blinded human raters for
+secondary action outcomes; disagreement requires an independent adjudicator.
+Raters do not see condition or provider identity. Pending or unrateable labels
+remain missing rather than becoming zeros.
+
+The primary analysis unit is a case, agent client, and actual model cluster.
+Repeated runs and seeds estimate stability inside the cluster. We aggregate
+matched repetitions before calculating the primary difference, use a clustered
+bootstrap interval, and use a paired cluster sign-flip test. This prevents one
+task with many retries from appearing to be many independent engineering
+problems.
+
+Each confirmatory family is restricted to one agent and actual-model cohort.
+An immutable analysis manifest binds the registry commitment, H1/H2 condition
+pairs, power-plan commitments, and every case/repetition/seed row before
+outcomes are read. Missing, duplicate, invalid, or unplanned rows fail closed;
+additional agent/model cohorts are reported as independent replications rather
+than pooled as extra cases.
+
+Before confirmatory outcomes are read, the study freezes an absolute minimum
+detectable difference and a nuisance envelope of paired-discordance rates. The
+published planning receipt selects the largest required cluster count across
+that envelope using exact paired-binary power while assuming repeated runs
+within a cluster are perfectly correlated. Thus repetitions receive no
+sample-size credit during planning; they characterize stability rather than
+inflate the apparent number of engineering problems. The planning calculation
+does not replace the final clustered sign-flip analysis. Because H1/H2 use Holm
+adjustment, planning uses the conservative Bonferroni threshold for a
+two-comparison family rather than claiming unobserved joint Holm power.
+
+The primary paper claim is limited to canonical bounded retrieval on the frozen
+transfer corpus: Memorix versus no memory and bounded raw replay form the
+Holm-corrected primary family. Mem0 and AgentMemory use the same canonical
+surface as secondary baseline comparisons. Budgeted native product behavior is
+a separately preregistered product-surface analysis; unrestricted product
+experience is exploratory. A confirmatory table will be inserted only after the
+preregistered corpus and execution gates are complete.

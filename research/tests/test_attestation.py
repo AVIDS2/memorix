@@ -43,6 +43,9 @@ def _attestation(*, now: datetime | None = None) -> WorkerAttestation:
         sealed_patch_sha256=_digest("7"),
         sealed_patch_bytes=123,
         worker_runtime_sha256=_digest("8"),
+        subject_protocol_sha256=_digest("b"),
+        controller_policy_sha256=_digest("c"),
+        job_nonce="d" * 32,
         agent_image="registry.example.invalid/memorix-agent@sha256:" + _digest("9"),
         agent_image_id="sha256:" + _digest("a"),
         tool_catalog_sha256=_digest("b"),
@@ -116,6 +119,43 @@ def test_attestation_rejects_a_stale_or_unbound_statement() -> None:
             workspace_snapshot_sha256=_digest("6"),
             sealed_patch_sha256=_digest("a"),
             sealed_patch_bytes=123,
+            subject_protocol_sha256=_digest("b"),
+            controller_policy_sha256=_digest("c"),
+            job_nonce="d" * 32,
+        )
+
+    with pytest.raises(AttestationError, match="expected subject_protocol_sha256"):
+        validate_attestation_binding(
+            _attestation(now=now),
+            run_id="run-001",
+            case_id="case-001",
+            condition="memorix-full",
+            agent="claude",
+            job_sha256=_digest("1"),
+            public_case_definition_sha256=_digest("2"),
+            workspace_snapshot_sha256=_digest("6"),
+            sealed_patch_sha256=_digest("7"),
+            sealed_patch_bytes=123,
+            subject_protocol_sha256=_digest("c"),
+            controller_policy_sha256=_digest("c"),
+            job_nonce="d" * 32,
+        )
+
+    with pytest.raises(AttestationError, match="expected job_nonce"):
+        validate_attestation_binding(
+            _attestation(now=now),
+            run_id="run-001",
+            case_id="case-001",
+            condition="memorix-full",
+            agent="claude",
+            job_sha256=_digest("1"),
+            public_case_definition_sha256=_digest("2"),
+            workspace_snapshot_sha256=_digest("6"),
+            sealed_patch_sha256=_digest("7"),
+            sealed_patch_bytes=123,
+            subject_protocol_sha256=_digest("b"),
+            controller_policy_sha256=_digest("c"),
+            job_nonce="e" * 32,
         )
 
 

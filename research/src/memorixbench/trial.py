@@ -16,6 +16,7 @@ from .agents import (
     AgentExecution,
     AgentName,
     ModelUsage,
+    apply_uniform_claude_role_model,
     audit_bash_commands,
     load_claude_provider_env,
     run_agent,
@@ -31,6 +32,11 @@ from .memorix_adapter import (
     retrieve_memorix_canonical,
     seed_memorix_canonical_evidence,
 )
+from .native_hook_capture import (
+    NativeHookCapture,
+    ingest_memorix_native_hook_capture,
+    load_native_hook_capture,
+)
 from .native_mcp_gateway import (
     NativeMcpBudgetPolicy,
     NativeMcpGatewayReceipt,
@@ -39,6 +45,7 @@ from .native_mcp_gateway import (
 )
 from .oracle_assets import OracleAssetSet, resolve_oracle_assets
 from .reporting import serialize_command_results, serialize_source_checks
+from .registry import load_case_registry, validate_case_registry
 from .schema import CaseManifest, load_case_manifest
 from .trace import TraceView, ResolvedPrecursorTrace, render_trace_view, resolve_precursor_trace
 from .workspace import (
@@ -50,15 +57,21 @@ from .workspace import (
     run_transfer_evaluation,
 )
 
-MEMORIX_CONDITION_MODES = {
-    "memorix-1.2.1-local": "full",
-    "memorix-1.2.1-micro-local": "micro",
-    "memorix-1.2.1-lite-local": "lite",
-    "memorix-1.2.1-full-local": "full",
-    MEMORIX_CANONICAL_PROVIDER_ID: "micro",
+MEMORIX_NATIVE_DELIVERY_PROFILES = {
+    "memorix-1.2.1-native-autopilot-local": "full",
+    "memorix-1.2.1-selective-local": "full",
+    "memorix-1.2.1-delivery-no-freshness-local": "no-freshness",
+    "memorix-1.2.1-delivery-no-current-state-local": "no-current-state",
+    "memorix-1.2.1-delivery-no-semantic-code-local": "no-semantic-code",
+    "memorix-1.2.1-delivery-no-knowledge-local": "no-knowledge",
+    "memorix-1.2.1-delivery-no-workflow-local": "no-workflow",
 }
-MEMORIX_CONDITIONS = set(MEMORIX_CONDITION_MODES)
+# Every native track deliberately exposes the same minimal MCP surface. Tool
+# profiles change discovery, not the contents of memorix_project_context.
+MEMORIX_FORMATION_TOOL_PROFILE = "micro"
+MEMORIX_CONDITIONS = set(MEMORIX_NATIVE_DELIVERY_PROFILES) | {MEMORIX_CANONICAL_PROVIDER_ID}
 NATIVE_MEMORIX_CONDITIONS = MEMORIX_CONDITIONS - {MEMORIX_CANONICAL_PROVIDER_ID}
+SELECTIVE_MEMORIX_CONDITIONS = {"memorix-1.2.1-selective-local"}
 MEM0_CONDITIONS = {MEM0_PROVIDER_ID}
 AGENTMEMORY_CONDITIONS = {AGENTMEMORY_PROVIDER_ID}
 CANONICAL_RETRIEVAL_CONDITIONS = (
@@ -84,8 +97,34 @@ INFRASTRUCTURE_FAILURE_REASONS = {
     "missing-completion-event",
     "model-route-mismatch",
 }
-CLAUDE_BASE_ALLOWED_TOOLS = ("Read", "Edit", "Bash(git *)")
+CLAUDE_BASE_ALLOWED_TOOLS = (
+    "Read",
+    "Edit",
+    "Bash(git *)",
+    "Bash(ls *)",
+    "Bash(dir *)",
+    "Bash(cat *)",
+    "Bash(sed *)",
+    "Bash(head *)",
+    "Bash(tail *)",
+    "Bash(wc *)",
+    "Bash(find *)",
+    "Bash(rg *)",
+    "Bash(grep *)",
+    "Bash(xxd *)",
+    "Bash(diff *)",
+)
+OPENROUTER_BASE_ALLOWED_TOOLS = (
+    "list_files",
+    "read_file",
+    "search_text",
+    "write_file",
+    "apply_patch",
+    "run_verification",
+    "show_diff",
+)
 SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
+GIT_OBJECT_ID_PATTERN = re.compile(r"^[0-9a-f]{40}(?:[0-9a-f]{24})?$")
 
 
 @dataclass(frozen=True)
@@ -170,6 +209,8 @@ class TrialOutcome:
     memorix_cli_sha256: str | None
     case_manifest_sha256: str
     case_definition_sha256: str
+    case_registry_id: str | None
+    case_registry_sha256: str | None
     precursor_transcript_sha256: str | None
     base_commit: str
     precursor_commit: str | None
@@ -179,6 +220,11 @@ class TrialOutcome:
     hidden_test_patch_sha256: str | None
     source_check_violations: tuple[str, ...]
     agent_start_commit: str
+    agent_start_tree_id: str
+    agent_start_worktree_status_sha256: str
+    task_prompt_sha256: str
+    ordinary_tool_policy_sha256: str
+    full_tool_policy_sha256: str
     patch_sha256: str
     platform: str
     python_version: str
@@ -190,6 +236,10 @@ class TrialOutcome:
     oracle_visibility: str
     oracle_definition_sha256: str
     verifier_runtime_sha256: str | None
+    native_hook_capture_sha256: str | None = None
+    native_hook_capture_source_sha256: str | None = None
+    native_hook_capture_id: str | None = None
+    native_hook_capture_agent: str | None = None
 
 
 def _sha256(path: Path) -> str:
@@ -198,6 +248,56 @@ def _sha256(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _sha256_text(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _clean_agent_start_snapshot(workspace: Path) -> tuple[str, str]:
+    """Capture the exact clean transfer tree that an agent receives."""
+
+    tree = subprocess.run(
+        ["git", "rev-parse", "HEAD^{tree}"],
+        cwd=workspace,
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    ).stdout.strip()
+    if not GIT_OBJECT_ID_PATTERN.fullmatch(tree):
+        raise RuntimeError("transfer workspace has an invalid agent-start tree id")
+    status = subprocess.run(
+        [
+            "git",
+            "status",
+            "--porcelain=v1",
+            "-z",
+            "--untracked-files=all",
+            "--ignored=matching",
+        ],
+        cwd=workspace,
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    ).stdout
+    if status:
+        raise RuntimeError("transfer workspace is dirty before agent start")
+    return tree, hashlib.sha256(status).hexdigest()
+
+
+def _tool_policy_hash(
+    allowed_tools: tuple[str, ...],
+    *,
+    include_memory_tools: bool,
+) -> str:
+    selected = (
+        allowed_tools
+        if include_memory_tools
+        else tuple(tool for tool in allowed_tools if not tool.startswith("mcp__"))
+    )
+    payload = json.dumps(sorted(set(selected)), ensure_ascii=True, separators=(",", ":"))
+    return _sha256_text(payload)
 
 
 def _receipt_id(*values: str | None) -> str:
@@ -218,13 +318,36 @@ def validate_trial_outcome(outcome: TrialOutcome) -> None:
         and getattr(outcome, "valid_run", True)
     ):
         raise ValueError("model-route mismatch cannot be a valid run")
+    if not GIT_OBJECT_ID_PATTERN.fullmatch(outcome.agent_start_tree_id):
+        raise ValueError("trial outcome has an invalid agent-start tree id")
+    for value, field in (
+        (outcome.agent_start_worktree_status_sha256, "agent-start worktree status hash"),
+        (outcome.task_prompt_sha256, "task prompt hash"),
+        (outcome.ordinary_tool_policy_sha256, "ordinary tool policy hash"),
+        (outcome.full_tool_policy_sha256, "full tool policy hash"),
+    ):
+        _require_sha256(value, field=field)
+    evidence_tier = getattr(outcome, "evidence_tier", "development")
+    case_registry_id = getattr(outcome, "case_registry_id", None)
+    case_registry_sha256 = getattr(outcome, "case_registry_sha256", None)
+    if evidence_tier == "public-reproducible":
+        if not case_registry_id:
+            raise ValueError("public-reproducible trial outcome has no registry id")
+        _require_sha256(case_registry_sha256, field="case registry hash")
+    elif case_registry_id is not None or case_registry_sha256 is not None:
+        raise ValueError("non-public trial outcome carries public registry evidence")
     if outcome.study_track not in {"B", "C"}:
         raise ValueError("trial outcome has an invalid study track")
     if outcome.study_track == "B" and outcome.formation_track != "seeded-canonical":
         raise ValueError("Track B trial outcome must use seeded-canonical formation")
     if outcome.study_track == "C":
-        if outcome.formation_track != "trace-replay":
-            raise ValueError("executable Track C trial outcome must use trace-replay formation")
+        if outcome.formation_track not in {"trace-replay", "native-session"}:
+            raise ValueError("Track C trial outcome has an unsupported formation surface")
+    native_capture_sha = getattr(outcome, "native_hook_capture_sha256", None)
+    native_capture_source_sha = getattr(outcome, "native_hook_capture_source_sha256", None)
+    native_capture_id = getattr(outcome, "native_hook_capture_id", None)
+    native_capture_agent = getattr(outcome, "native_hook_capture_agent", None)
+    if outcome.study_track == "C" and outcome.formation_track == "trace-replay":
         _require_sha256(outcome.precursor_trace_sha256, field="precursor trace hash")
         _require_sha256(outcome.precursor_trace_source_sha256, field="precursor trace source hash")
         if outcome.precursor_trace_capture_id is None:
@@ -245,7 +368,42 @@ def validate_trial_outcome(outcome: TrialOutcome) -> None:
             )
         if outcome.precursor_transcript_sha256 is not None:
             raise ValueError("Track C trial outcome must not carry a raw precursor transcript")
+        if any(value is not None for value in (
+            native_capture_sha,
+            native_capture_source_sha,
+            native_capture_id,
+            native_capture_agent,
+        )):
+            raise ValueError("trace-replay outcome cannot carry native hook capture evidence")
+    if outcome.study_track == "C" and outcome.formation_track == "native-session":
+        _require_sha256(native_capture_sha, field="native hook capture hash")
+        _require_sha256(native_capture_source_sha, field="native hook capture source hash")
+        if not isinstance(native_capture_id, str) or not native_capture_id:
+            raise ValueError("native-session outcome has no native hook capture id")
+        if native_capture_agent != "claude":
+            raise ValueError("native-session outcome has an unsupported native hook agent")
+        if any(value is not None for value in (
+            outcome.precursor_trace_sha256,
+            outcome.precursor_trace_source_sha256,
+            outcome.precursor_trace_view_sha256,
+            outcome.precursor_trace_capture_id,
+            outcome.precursor_trace_selection,
+            outcome.precursor_trace_bundle_sha256,
+            outcome.precursor_transcript_sha256,
+        )):
+            raise ValueError("native-session outcome cannot carry trace-replay evidence")
+        if outcome.condition not in {"no-memory", *MEMORIX_CONDITIONS}:
+            raise ValueError("native-session outcome uses an unsupported condition")
+    if outcome.study_track != "C" and any(value is not None for value in (
+        native_capture_sha,
+        native_capture_source_sha,
+        native_capture_id,
+        native_capture_agent,
+    )):
+        raise ValueError("Track B outcome cannot carry native hook capture evidence")
     if outcome.condition == "last-n" and outcome.study_track == "C":
+        if outcome.formation_track != "trace-replay":
+            raise ValueError("last-n is supported only for trace-replay formation")
         _require_sha256(outcome.precursor_trace_view_sha256, field="raw replay view hash")
         if outcome.raw_replay_context_tokens is None or (
             outcome.raw_replay_context_tokens > CANONICAL_RETRIEVAL_TOKEN_BUDGET
@@ -254,13 +412,23 @@ def validate_trial_outcome(outcome: TrialOutcome) -> None:
     if outcome.condition in MEMORIX_CONDITIONS | MEM0_CONDITIONS | AGENTMEMORY_CONDITIONS:
         if not isinstance(outcome.formation_receipt, dict):
             raise ValueError("memory condition has no formation receipt")
-        expected_surface = "trace-replay" if outcome.study_track == "C" else "seeded-canonical"
+        expected_surface = (
+            "trace-replay"
+            if outcome.formation_track == "trace-replay"
+            else "native-session"
+            if outcome.formation_track == "native-session"
+            else "seeded-canonical"
+        )
         if outcome.formation_receipt.get("surface") != expected_surface:
             raise ValueError("memory condition formation receipt uses the wrong surface")
-        if outcome.study_track == "C" and (
+        if outcome.formation_track == "trace-replay" and (
             outcome.formation_receipt.get("trace_sha256") != outcome.precursor_trace_sha256
         ):
             raise ValueError("memory condition formation receipt is bound to a different trace")
+        if outcome.formation_track == "native-session" and (
+            outcome.formation_receipt.get("capture_sha256") != native_capture_sha
+        ):
+            raise ValueError("memory condition formation receipt is bound to a different native hook capture")
     if outcome.retrieval_call_count is not None:
         if outcome.retrieval_call_count <= 0 or outcome.retrieval_round_count is None:
             raise ValueError("retrieval receipt has an invalid call or round count")
@@ -463,11 +631,14 @@ def build_condition_prompt(
     *,
     retrieved_context: str | None = None,
     trace_view: TraceView | None = None,
+    tool_surface: str = "shell",
 ) -> str:
     if condition not in SUPPORTED_CONDITIONS:
         raise ValueError(
             f"condition {condition!r} is not executable yet; supported: {sorted(SUPPORTED_CONDITIONS)}"
         )
+    if tool_surface not in {"shell", "bounded-api"}:
+        raise ValueError("tool_surface must be shell or bounded-api")
     parts: list[str] = []
     if condition == "last-n":
         if manifest.study_track == "C":
@@ -511,12 +682,41 @@ def build_condition_prompt(
         if len(verification_commands) == 1
         else "Trusted verification commands for this case: " + ", ".join(verification_commands)
     )
+    if condition == "no-memory":
+        memory_instruction = (
+            "No prior project memory or session record is available for this run. "
+            "Work only from the current source and trusted verification output."
+        )
+    elif condition in SELECTIVE_MEMORIX_CONDITIONS:
+        memory_instruction = (
+            "Memorix is optional for this task. Before calling it, decide whether prior "
+            "project evidence would materially change your plan. Do not call it merely "
+            "because it is available; if current source and tests are enough, proceed "
+            "without it. If you do use it, treat retrieved evidence as background only "
+            "and verify it against the current source."
+        )
+    else:
+        memory_instruction = (
+            "Use any configured project-context or memory capability when it would help, "
+            "but verify it against the current source."
+        )
     parts.extend([
         manifest.transfer.task,
         "",
-        "Use any configured project-context or memory capability when it would help, but verify it against the current source.",
-        "This is an isolated workspace. You are already in the repository; use `git ls-files` directly to enumerate project files and do not inspect parent or sibling directories.",
-        "Use normal source-inspection and verification commands only inside this workspace. Do not read, write, or execute outside it, and do not use network or installation commands.",
+        memory_instruction,
+    ])
+    if tool_surface == "shell":
+        parts.extend([
+            "This is an isolated workspace. You are already in the repository; use `git ls-files` directly to enumerate project files, never `cd` into `/workspace` or another absolute path, and do not inspect parent or sibling directories.",
+            "The shell is Git Bash on Windows. Prefer `git ls-files` or `ls -R` for listing files; do not use PowerShell cmdlets, Windows `dir`, or `nul` redirections.",
+            "Use normal source-inspection and verification commands only inside this workspace. Do not read, write, or execute outside it, and do not use network or installation commands.",
+        ])
+    else:
+        parts.extend([
+            "This is an isolated workspace. Use only the supplied bounded file, search, edit, diff, and trusted-verification tools. Every path is relative to the repository; do not request parent-directory, shell, network, installation, or host access.",
+            "The verification tool accepts only the trusted command index declared below. Inspect current source before editing and make the smallest correct change.",
+        ])
+    parts.extend([
         "Repository history is intentionally a single transfer snapshot; do not look for precursor commits. Use current files and any configured memory only.",
         verification_instruction,
         "Work directly in the repository. Inspect the current source before editing, make the smallest correct change, and run the relevant tests. Do not ask for confirmation.",
@@ -532,6 +732,18 @@ def build_claude_allowed_tools(manifest: CaseManifest, condition: str) -> tuple[
     )
     memory_tools = MEMORIX_ALLOWED_TOOLS if condition in NATIVE_MEMORIX_CONDITIONS else ()
     return tuple(dict.fromkeys((*CLAUDE_BASE_ALLOWED_TOOLS, *verification_tools, *memory_tools)))
+
+
+def build_openrouter_allowed_tools(manifest: CaseManifest, condition: str) -> tuple[str, ...]:
+    if condition not in SUPPORTED_CONDITIONS:
+        raise ValueError(f"unsupported condition for OpenRouter: {condition}")
+    if condition in NATIVE_MEMORIX_CONDITIONS:
+        raise ValueError("the bounded OpenRouter agent does not expose native MCP tools")
+    if not manifest.transfer.success_commands:
+        raise ValueError("OpenRouter trials require a declared verification command")
+    if not manifest.oracle.agent_writable_paths:
+        raise ValueError("OpenRouter trials require explicit writable source roots")
+    return OPENROUTER_BASE_ALLOWED_TOOLS
 
 
 def _git_version() -> str:
@@ -554,6 +766,13 @@ def _git_root(path: Path) -> Path:
         encoding="utf-8",
     )
     return Path(completed.stdout.strip()).resolve()
+
+
+def _git_root_or_self(path: Path) -> Path:
+    try:
+        return _git_root(path)
+    except subprocess.CalledProcessError:
+        return path.resolve()
 
 
 def _paths_overlap(left: Path, right: Path) -> bool:
@@ -580,6 +799,14 @@ def ensure_trial_eligibility(
                 "development private-oracle trials are disabled; use the overlay only for authoring verification"
             )
         return "development"
+    if manifest.split == "public-evaluation":
+        if agent != "openrouter":
+            raise ValueError("public-evaluation trials currently require the bounded OpenRouter agent")
+        if oracle_assets.visibility != "public":
+            raise ValueError("public-evaluation trials require public oracle assets")
+        if not manifest.oracle.agent_writable_paths:
+            raise ValueError("public-evaluation trials require writable source roots")
+        return "public-reproducible"
     if oracle_assets.visibility != "private":
         raise ValueError("validation and test cases require private oracle assets")
     if manifest.dependency_classification_status != "preregistered":
@@ -613,16 +840,57 @@ def run_trial(
     repository_cache: str | Path | None = None,
     private_oracle_root: str | Path | None = None,
     required_single_model: str | None = None,
+    uniform_role_model: str | None = None,
+    registry_path: str | Path | None = None,
 ) -> TrialOutcome:
     if required_single_model is not None:
         required_single_model = required_single_model.strip()
         if not required_single_model:
             raise ValueError("required_single_model must be non-empty when provided")
+    if uniform_role_model is not None:
+        if agent != "claude":
+            raise ValueError("uniform Claude role model is supported only for Claude trials")
+        uniform_role_model = uniform_role_model.strip()
+        if not uniform_role_model:
+            raise ValueError("uniform Claude role model must be non-empty when provided")
     manifest = load_case_manifest(case_path)
-    if manifest.formation_track == "native-session":
+    if (
+        manifest.formation_track == "native-session"
+        and condition not in {"no-memory", *MEMORIX_CONDITIONS}
+    ):
         raise ValueError(
-            "native-session formation is not executable until provider-native "
-            "formation adapters and their audit contract are implemented"
+            "native-session formation supports only no-memory and Memorix conditions"
+        )
+    registry_id: str | None = None
+    registry_sha256: str | None = None
+    if manifest.split == "public-evaluation":
+        if registry_path is None:
+            raise ValueError("public-evaluation trials require a frozen case registry")
+        registry = load_case_registry(registry_path)
+        registry_validation = validate_case_registry(
+            registry,
+            cases_root=registry.source_path.parent,
+        )
+        entry = next(
+            (candidate for candidate in registry.entries if candidate.case_id == manifest.case_id),
+            None,
+        )
+        if entry is None or entry.enrollment != "public-reproducible":
+            raise ValueError("public-evaluation case is not enrolled as public-reproducible")
+        if manifest.source_path != (registry.source_path.parent / entry.path).resolve():
+            raise ValueError("public-evaluation case path does not match its frozen registry entry")
+        registry_id = registry_validation.registry_id
+        registry_sha256 = registry_validation.registry_sha256
+    native_hook_capture: NativeHookCapture | None = None
+    if manifest.formation_track == "native-session":
+        if manifest.native_hook_capture is None:
+            raise ValueError("native-session formation has no native hook capture")
+        native_capture_path = (
+            manifest.source_path.parent / manifest.native_hook_capture.path
+        ).resolve()
+        native_hook_capture = load_native_hook_capture(
+            native_capture_path,
+            case_id=manifest.case_id,
         )
     resolved_trace: ResolvedPrecursorTrace | None = (
         resolve_precursor_trace(
@@ -676,17 +944,42 @@ def run_trial(
         workspace_dir = workspace_run_root / "workspace"
         workspace_isolation = "separate-root+bare+permissions-v1"
         provider_env = load_claude_provider_env(claude_provider_settings)
+        apply_uniform_claude_role_model(provider_env, uniform_role_model)
     else:
         workspace_dir = run_dir / "workspace"
     agent_dir = run_dir / "agent"
     run_dir.mkdir(parents=True, exist_ok=False)
+    if provider_env is not None:
+        # Keep Claude's runtime cache and config away from the user's profile.
+        agent_home = run_dir / "control" / "agent-home"
+        agent_temp = run_dir / "control" / "agent-temp"
+        agent_appdata = agent_home / "AppData" / "Roaming"
+        agent_local_appdata = agent_home / "AppData" / "Local"
+        agent_claude_config = agent_home / "claude-config"
+        for directory in (
+            agent_home,
+            agent_temp,
+            agent_appdata,
+            agent_local_appdata,
+            agent_claude_config,
+        ):
+            directory.mkdir(parents=True, exist_ok=True)
+        provider_env.update({
+            "HOME": str(agent_home),
+            "USERPROFILE": str(agent_home),
+            "APPDATA": str(agent_appdata),
+            "LOCALAPPDATA": str(agent_local_appdata),
+            "CLAUDE_CONFIG_DIR": str(agent_claude_config),
+            "TEMP": str(agent_temp),
+            "TMP": str(agent_temp),
+        })
     case_definition_sha256 = archive_public_case_definition(manifest, run_dir)
     started_at = datetime.now(timezone.utc).isoformat()
     is_memorix = condition in MEMORIX_CONDITIONS
     is_native_memorix = condition in NATIVE_MEMORIX_CONDITIONS
     is_memorix_canonical = condition == MEMORIX_CANONICAL_PROVIDER_ID
     is_canonical_retrieval = condition in CANONICAL_RETRIEVAL_CONDITIONS
-    memorix_mode = MEMORIX_CONDITION_MODES.get(condition)
+    native_delivery_profile = MEMORIX_NATIVE_DELIVERY_PROFILES.get(condition)
     if is_native_memorix and agent != "claude":
         raise ValueError("the budgeted native Memorix MCP track currently supports Claude only")
     materialized = materialize_case(
@@ -724,7 +1017,22 @@ def run_trial(
         if precursor_trace
         else None,
         "raw_replay_view": _trace_view_metadata(trace_view),
+        "native_hook_capture": {
+            "capture_id": native_hook_capture.capture_id,
+            "capture_sha256": native_hook_capture.canonical_sha256,
+            "capture_source_sha256": native_hook_capture.source_sha256,
+            "capture_mode": native_hook_capture.capture_mode,
+            "agent": native_hook_capture.agent,
+            "client_version": native_hook_capture.client_version,
+        }
+        if native_hook_capture
+        else None,
         "memory_provider": None,
+        "registry": {
+            "id": registry_id,
+            "sha256": registry_sha256,
+        },
+        "agent_writable_paths": list(manifest.oracle.agent_writable_paths),
     }
     if is_memorix:
         if memorix_cli is None:
@@ -737,7 +1045,16 @@ def run_trial(
         home_dir = memory_dir / "home"
         adapter_dir = memory_dir / "adapter"
         preparation_started = time.monotonic()
-        if precursor_trace is None:
+        if native_hook_capture is not None:
+            seed_result = ingest_memorix_native_hook_capture(
+                capture=native_hook_capture,
+                workspace=workspace_dir,
+                cli_path=memorix_cli_path,
+                data_dir=data_dir,
+                home_dir=home_dir,
+                artifact_dir=adapter_dir,
+            )
+        elif precursor_trace is None:
             seed_result = seed_memorix_canonical_evidence(
                 manifest=manifest,
                 workspace=workspace_dir,
@@ -745,7 +1062,7 @@ def run_trial(
                 data_dir=data_dir,
                 home_dir=home_dir,
                 artifact_dir=adapter_dir,
-                mode=memorix_mode or "full",
+                mode=MEMORIX_FORMATION_TOOL_PROFILE,
             )
         else:
             seed_result = ingest_memorix_trace(
@@ -755,7 +1072,7 @@ def run_trial(
                 data_dir=data_dir,
                 home_dir=home_dir,
                 artifact_dir=adapter_dir,
-                mode=memorix_mode or "full",
+                mode=MEMORIX_FORMATION_TOOL_PROFILE,
             )
         formation_receipt = _require_formation_receipt(seed_result)
         maintenance_receipt = seed_result.get("maintenance")
@@ -774,11 +1091,20 @@ def run_trial(
             "study_track": manifest.study_track,
             "formation_track": manifest.formation_track,
             "memory_provider": "memorix",
-            "formation_source": "precursor-trace" if precursor_trace else "memory-seed",
+            "formation_source": (
+                "native-hook-capture"
+                if native_hook_capture
+                else "precursor-trace"
+                if precursor_trace
+                else "memory-seed"
+            ),
             "precursor_trace_sha256": precursor_trace.sha256 if precursor_trace else None,
+            "native_hook_capture_sha256": (
+                native_hook_capture.canonical_sha256 if native_hook_capture else None
+            ),
             "memorix_cli": str(memorix_cli_path),
             "memorix_cli_sha256": memorix_cli_sha256,
-            "formation_tool_profile": memorix_mode,
+            "formation_tool_profile": MEMORIX_FORMATION_TOOL_PROFILE,
             "llm": "off",
             "embedding": "off",
             "seed_maintenance": maintenance_receipt,
@@ -821,6 +1147,7 @@ def run_trial(
                 call_budget=NATIVE_MCP_CALL_BUDGET,
                 token_budget=CANONICAL_RETRIEVAL_TOKEN_BUDGET,
                 refresh="never",
+                delivery_profile=native_delivery_profile or "full",
             )
             native_mcp_receipt_path = memory_dir / "native-mcp-gateway-receipt.json"
             mcp_config = write_native_mcp_config(
@@ -836,10 +1163,12 @@ def run_trial(
                 call_budget=native_mcp_policy.call_budget,
                 token_budget=native_mcp_policy.token_budget,
                 refresh=native_mcp_policy.refresh,
+                delivery_profile=native_mcp_policy.delivery_profile,
             )
             condition_metadata.update({
                 "interaction_track": "native-mcp-budgeted-v1",
                 "gateway_underlying_tool_profile": "micro",
+                "native_delivery_profile": native_mcp_policy.delivery_profile,
                 "native_mcp_policy": native_mcp_policy.public_payload(),
             })
     elif condition == MEM0_PROVIDER_ID:
@@ -995,6 +1324,9 @@ def run_trial(
         }
     else:
         agent_start_commit = reset_history_to_snapshot(workspace_dir)
+    agent_start_tree_id, agent_start_worktree_status_sha256 = _clean_agent_start_snapshot(
+        workspace_dir
+    )
 
     condition_metadata["study_track"] = manifest.study_track
     condition_metadata["formation_track"] = manifest.formation_track
@@ -1006,6 +1338,24 @@ def run_trial(
         "bundle_sha256": resolved_trace.bundle_sha256 if resolved_trace else None,
     } if precursor_trace else None
     condition_metadata["raw_replay_view"] = _trace_view_metadata(trace_view)
+    condition_metadata["native_hook_capture"] = {
+        "capture_id": native_hook_capture.capture_id,
+        "capture_sha256": native_hook_capture.canonical_sha256,
+        "capture_source_sha256": native_hook_capture.source_sha256,
+        "capture_mode": native_hook_capture.capture_mode,
+        "agent": native_hook_capture.agent,
+        "client_version": native_hook_capture.client_version,
+    } if native_hook_capture else None
+    condition_metadata["registry"] = {
+        "id": registry_id,
+        "sha256": registry_sha256,
+    }
+    condition_metadata["agent_writable_paths"] = list(manifest.oracle.agent_writable_paths)
+    condition_metadata["model_route"] = {
+        "requested_model": model_label,
+        "required_single_model": required_single_model,
+        "uniform_role_model": uniform_role_model,
+    }
     if formation_receipt is not None:
         condition_metadata["formation_receipt"] = formation_receipt
 
@@ -1014,14 +1364,38 @@ def run_trial(
         condition,
         retrieved_context=retrieval.context if retrieval else None,
         trace_view=trace_view,
+        tool_surface="bounded-api" if agent == "openrouter" else "shell",
     )
-    allowed_tools = build_claude_allowed_tools(manifest, condition)
+    allowed_tools = (
+        build_openrouter_allowed_tools(manifest, condition)
+        if agent == "openrouter"
+        else build_claude_allowed_tools(manifest, condition)
+    )
+    task_prompt_sha256 = _sha256_text(prompt)
+    ordinary_tool_policy_sha256 = _tool_policy_hash(
+        allowed_tools,
+        include_memory_tools=False,
+    )
+    full_tool_policy_sha256 = _tool_policy_hash(
+        allowed_tools,
+        include_memory_tools=True,
+    )
+    condition_metadata["agent_start"] = {
+        "commit": agent_start_commit,
+        "tree_id": agent_start_tree_id,
+        "worktree_status_sha256": agent_start_worktree_status_sha256,
+    }
+    condition_metadata["controls"] = {
+        "task_prompt_sha256": task_prompt_sha256,
+        "ordinary_tool_policy_sha256": ordinary_tool_policy_sha256,
+        "full_tool_policy_sha256": full_tool_policy_sha256,
+    }
     if agent == "claude":
         assert workspace_root_path is not None
         denied_roots = {
             artifact_root_path,
             Path.home(),
-            _git_root(manifest.source_path.parent),
+            _git_root_or_self(manifest.source_path.parent),
         }
         claude_settings = write_claude_settings(
             run_dir / "control" / "claude-settings.json",
@@ -1045,6 +1419,8 @@ def run_trial(
         allowed_tools=allowed_tools,
         settings_path=claude_settings,
         environment=provider_env,
+        verification_commands=manifest.transfer.success_commands,
+        writable_paths=manifest.oracle.agent_writable_paths,
     )
     if is_native_memorix:
         assert native_mcp_policy is not None
@@ -1053,6 +1429,8 @@ def run_trial(
             native_mcp_receipt = load_native_mcp_receipt(native_mcp_receipt_path)
             if native_mcp_receipt.policy_sha256 != native_mcp_policy.sha256:
                 raise RuntimeError("native MCP gateway receipt is bound to a different policy")
+            if native_mcp_receipt.delivery_profile != native_mcp_policy.delivery_profile:
+                raise RuntimeError("native MCP gateway receipt used a different delivery profile")
             if native_mcp_receipt.served_call_count > native_mcp_policy.call_budget:
                 raise RuntimeError("native MCP gateway receipt exceeded its call budget")
             native_mcp_receipt_status = "recorded-v1"
@@ -1084,6 +1462,12 @@ def run_trial(
         )
     precursor_trace_sha = precursor_trace.canonical_sha256 if precursor_trace else None
     precursor_trace_source_sha = precursor_trace.source_sha256 if precursor_trace else None
+    native_hook_capture_sha = (
+        native_hook_capture.canonical_sha256 if native_hook_capture else None
+    )
+    native_hook_capture_source_sha = (
+        native_hook_capture.source_sha256 if native_hook_capture else None
+    )
 
     memory_tool_attempt_count = sum(
         "memorix" in name.lower() for name in execution.tool_call_names
@@ -1138,7 +1522,7 @@ def run_trial(
         native_mcp_receipt.context_truncated if native_mcp_receipt else None
     )
     outcome = TrialOutcome(
-        schema_version="1.5",
+        schema_version="1.7",
         run_id=run_id,
         study_id=study_id,
         case_id=manifest.case_id,
@@ -1255,6 +1639,8 @@ def run_trial(
         memorix_cli_sha256=memorix_cli_sha256,
         case_manifest_sha256=_sha256(manifest.source_path),
         case_definition_sha256=case_definition_sha256,
+        case_registry_id=registry_id,
+        case_registry_sha256=registry_sha256,
         precursor_transcript_sha256=transcript_sha,
         base_commit=materialized.base_commit,
         precursor_commit=materialized.precursor_commit,
@@ -1264,6 +1650,11 @@ def run_trial(
         hidden_test_patch_sha256=evaluation.hidden_patch_sha256,
         source_check_violations=source_check_violations,
         agent_start_commit=agent_start_commit,
+        agent_start_tree_id=agent_start_tree_id,
+        agent_start_worktree_status_sha256=agent_start_worktree_status_sha256,
+        task_prompt_sha256=task_prompt_sha256,
+        ordinary_tool_policy_sha256=ordinary_tool_policy_sha256,
+        full_tool_policy_sha256=full_tool_policy_sha256,
         patch_sha256=patch_sha,
         platform=platform.platform(),
         python_version=platform.python_version(),
@@ -1283,6 +1674,14 @@ def run_trial(
         oracle_visibility=oracle_assets.visibility,
         oracle_definition_sha256=oracle_assets.definition_sha256,
         verifier_runtime_sha256=oracle_assets.verifier_runtime_sha256,
+        native_hook_capture_sha256=native_hook_capture_sha,
+        native_hook_capture_source_sha256=native_hook_capture_source_sha,
+        native_hook_capture_id=(
+            native_hook_capture.capture_id if native_hook_capture else None
+        ),
+        native_hook_capture_agent=(
+            native_hook_capture.agent if native_hook_capture else None
+        ),
     )
     validate_trial_outcome(outcome)
     (run_dir / "prompt.txt").write_text(prompt, encoding="utf-8")
@@ -1313,6 +1712,7 @@ def run_trial(
                 "workspace_isolation": workspace_isolation,
                 "claude_bare": agent == "claude",
                 "claude_provider_env_keys": sorted(provider_env) if provider_env else [],
+                "claude_uniform_role_model": uniform_role_model,
             },
             indent=2,
         ),

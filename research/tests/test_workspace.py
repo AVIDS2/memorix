@@ -199,6 +199,61 @@ required_literals = ["expected"]
     )
 
 
+def test_materialize_local_fixture_ignores_interpreter_and_test_caches(tmp_path: Path) -> None:
+    case_dir = tmp_path / "case"
+    seed = case_dir / "seed"
+    cache = seed / "src" / "__pycache__"
+    cache.mkdir(parents=True)
+    (seed / "src" / "module.py").write_text("value = 1\n", encoding="utf-8")
+    (cache / "module.cpython-311.pyc").write_bytes(b"cache")
+    (case_dir / "case.toml").write_text(
+        """
+schema_version = "0.5"
+id = "cache-free-local-fixture"
+title = "Cache-free local fixture"
+split = "development"
+dependency_strength = "low"
+dependency_classification_status = "retrospective-development"
+language = "python"
+tags = ["fixture"]
+
+[repository]
+source_type = "local-fixture"
+path = "seed"
+base_revision = "fixture-base"
+
+[precursor]
+task = "Inspect the source."
+success_commands = ["git status --short"]
+
+[transition]
+kind = "none"
+description = "No transition is required."
+apply_commands = []
+
+[transfer]
+task = "Use the source."
+success_commands = ["git status --short"]
+
+[oracle]
+visibility = "public"
+required_start_files = ["src/module.py"]
+relevant_evidence_ids = []
+stale_evidence_ids = []
+forbidden_actions = []
+""".strip(),
+        encoding="utf-8",
+    )
+
+    workspace = materialize_case(
+        load_case_manifest(case_dir / "case.toml"),
+        tmp_path / "workspace",
+    )
+
+    assert (workspace.path / "src" / "module.py").is_file()
+    assert not (workspace.path / "src" / "__pycache__").exists()
+
+
 def test_source_checks_ignore_hidden_patch_source_changes(tmp_path: Path) -> None:
     case_dir = tmp_path / "case"
     seed = case_dir / "seed"

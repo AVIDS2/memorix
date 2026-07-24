@@ -1,5 +1,54 @@
 # Memorix Agent-Memory Research Progress
-# Updated: 2026-07-22
+# Updated: 2026-07-24
+
+## 2026-07-24 single-model native gate and refreshed NIER package
+
+- Ran an isolated, no-tool Claude route preflight with a process-local uniform
+  role override. Claude Code reported exactly one actual model,
+  `deepseek-v4-flash`, in both event and usage telemetry; the probe left its
+  disposable workspace clean. It did not alter the user's Claude settings.
+- Extended `memorixbench run-trial` with `--uniform-role-model`. The option is
+  Claude-only, rewrites the three internal role aliases only in the isolated
+  child process, and records the requested alias in the per-run environment and
+  condition receipts. A non-Claude invocation is rejected. The native queue
+  script repeats the route gate immediately before each paid task run.
+- Added the frozen native-product diagnostic policy. It deliberately has no
+  newly admitted cases yet, so it does not manufacture a native outcome table
+  from old pilot fixtures whose outcomes were already seen.
+- Rebuilt the public artifact and anonymous NIER candidate after these changes.
+  The current public source/staged supplement has 135 allowlisted files, its
+  materialized public tests and exact-tree audit passed, and the anonymous ZIP
+  has no Git metadata, reparse points, local identity strings, or credential
+  values. The staged four-page PDF hash equals the local PDF hash.
+- This improves the reproducibility and native-product execution path; it does
+  not clear the external confirmatory gates. There is still no admitted private
+  real-repository cohort, trusted model relay, KVM-backed worker/vault run,
+  independent human review, venue upload, or publication receipt.
+
+## 2026-07-24 anonymous NIER candidate package
+
+- Added a separate anonymous IEEE NIER candidate under
+  `research/paper-icse-nier/`. It states the actual contribution as an
+  executable, fail-closed fresh-agent-memory evaluation design plus an
+  inconclusive public reproducibility study; it does not claim a completed
+  general memory-effect result.
+- The paper contains a matched strong no-memory control, canonical/native
+  surface separation, fail-closed matrix rules, outcome and resource contracts,
+  evidence tiers, artifact invariants, limitations, and a concrete
+  confirmatory execution sequence. Its final PDF is four pages, has anonymous
+  PDF metadata, and passed strict `chktex`, bibliography-consistency, compile,
+  and visual checks.
+- Added `README.md`, `SUBMISSION-CHECKLIST.md`, and
+  `build-anonymous-supplement.ps1` for a review package. A fresh external build
+  materialized 132 public allowlisted supplement files, neutralized the one
+  project-identifying HTTP Referer in the staged copy, ran five materialized
+  public tests, and passed exact-tree plus identity scans. The staged manuscript
+  PDF hash matches the final local PDF.
+- The resulting archive is a local candidate for an anonymous venue upload,
+  not an upload receipt or a publication. Submission-account metadata,
+  author/conflict declarations, the final venue call check, independent artifact
+  review, real-case admission, a single-model trusted route, and a KVM-backed
+  worker/vault remain external gates.
 
 ## Completed
 
@@ -23,23 +72,209 @@
   external transition patch, and external oracle assets. A local
   `development-authoring-v1` overlay can verify deterministic authoring gates
   but cannot run an agent trial.
+- Ran a deliberately excluded four-condition diagnostic on three newly authored
+  public-oracle development fixtures. Every condition began from a verified
+  clean transfer tree with recorded prompt and tool-policy hashes. All twelve
+  valid runs passed, including every strong no-memory run; forced retrieval
+  added setup/context cost, while the optional native route abstained on all
+  three fixtures. This is a useful negative product signal and harness check,
+  not a benchmark result or an effect claim.
+- Hardened the trial harness after real client execution: normal bounded
+  Git-Bash source inspection is permitted for every condition, client home and
+  temporary directories are per-run isolated, external fixture roots may be
+  non-Git, and result collection no longer traverses mutable agent cache trees.
+- Replaced raw-run inference with case/agent/actual-model clustered inference:
+  retries estimate within-case stability and no longer inflate the primary
+  sample count. Added a two-reviewer, hash-only admission receipt so a source
+  lead cannot be marked admitted on the case author's dependency claim alone.
+- Verified the current Windows workstation and the existing Linux VPS against
+  the microVM gate. Neither exposes `/dev/kvm`; no Firecracker fallback was
+  installed or simulated. They remain suitable only for local diagnostics and
+  controller development, never confirmatory private grading.
+- Added and visually checked a compilable English manuscript skeleton. It states
+  the method and evidence boundary without inventing a result table, effect
+  size, citation, or benchmark ranking.
+- Turned the pinned Mem0 and AgentMemory baseline checks into a reproducible
+  `memorixbench preflight-baseline-runtime` gate. Fresh local runs verified
+  Mem0's offline write/reopen/scoped-read path and AgentMemory's write,
+  foreign-scope rejection, restart persistence, and final Docker-volume
+  cleanup. These are runtime reproducibility receipts, not agent outcomes.
+- Added a controller-side, pre-connected socket transport for the future KVM
+  black-box subject. It enforces JSONL framing, byte ceilings, timeout handling,
+  and redacted receipts, but deliberately cannot create a subject or infer its
+  isolation profile from a local smoke.
+- Bound confirmatory permits to the exact admitted source ledger and human
+  review: the candidate repository/base and the review's private-transition
+  commitment must match the public case before a permit can be issued. The
+  permit records the ledger, candidate, and review commitments for revalidation.
+- Corrected an invalid ablation assumption before any confirmatory run: Memorix
+  `micro`/`lite`/`team`/`full` modes change MCP tool discovery, not the contents
+  of `memorix_project_context`. The benchmark now uses one native Autopilot
+  condition plus five explicit Workset prompt-delivery counterfactuals
+  (freshness, current state, semantic code, knowledge, and workflow). Each
+  counterfactual forms the same Workset and uses the same bounded renderer, then
+  records the named removed components in the one-call gateway receipt.
+- Built the branch CLI and completed a real isolated F-drive native-MCP smoke
+  for `no-freshness`: JSON-RPC initialize and one fixed `tools/call` succeeded,
+  with a `0.2` receipt that binds the profile and suppression evidence. This
+  verifies plumbing only; it is not a task result or an effect claim.
+- Hardened the future KVM black-box controller before deployment: a subject
+  session now requires controller-owned bounded input/output schemas whose
+  canonical hashes match `SubjectProtocol`; every exchanged value is checked
+  against that non-executable schema subset, non-finite JSON is rejected, and
+  the total session deadline limits each send/receive. Local socket tests still
+  prove only protocol mechanics, never KVM isolation or private grading.
+- Incorporated an automated methodology review as design feedback, never as
+  human review or experimental evidence. The harness now rejects ignored as
+  well as tracked/untracked residue before an agent starts; confirmatory permit
+  issue rechecks the independent-review and offline-preflight timestamps within
+  a 14-day window; delivery ablations are documented as entangled prompt
+  bundles rather than isolated internal-module effects; and black-box receipts
+  commit aggregate timing evidence after the agent worker has been destroyed.
+- Added a no-task, no-memory Claude model-route preflight that creates an
+  isolated temporary home/config/cache and records only model telemetry,
+  workspace cleanliness, and hashes of private client events. A real F-drive
+  discovery probe completed with no tools and no workspace change, but its
+  provider telemetry was mixed. It is a private route diagnostic only and did
+  not create a case, an outcome row, or a model-effect claim.
+- Prepared three off-repository, hash-committed private transition and task
+  drafts for Zod, Click, and urfave/cli, plus non-passing human-review templates.
+  Zod is a potential durable-semantic transfer; Click and urfave/cli are
+  explicitly no-memory-favorable controls. Their ledger entries remain
+  `screening`, and no draft is a public case, review, private oracle, trace, or
+  agent run.
+- Added a separate OpenSSH-signed model-relay attestation to the future
+  confirmatory permit path. It binds a relay-owned route policy, one actual
+  model, requested alias, worker job hash/nonce, and hashed provider request
+  identifiers. Permit issue now requires that relay signature, the worker
+  signature, and the worker's client telemetry to agree. A local routed-Claude
+  preflight is therefore readiness evidence only, never back-end model proof.
+- Added a deterministic `memorixbench plan-conservative-power` preregistration
+  tool. It searches a declared paired-discordance envelope using exact
+  two-sided McNemar power, takes the largest required `case x agent x actual
+  model` cluster count, and grants no precision credit for repeated runs. A
+  synthetic F-drive CLI smoke generated a hash-bound planning-only receipt; it
+  is not a frozen design, pilot result, or confirmatory evidence.
+- Reconciled the claim ledger with the protocol: C1 now names equal-evidence
+  canonical bounded retrieval, while the budgeted native-Autopilot MCP surface
+  remains a separately reported product track rather than a silently pooled
+  primary effect estimate.
+- Completed the follow-up reconciliation after a full protocol pass: explicit
+  condition IDs now separate the canonical primary track from the budgeted
+  native product track; H1/H2 and C1/C2 are the Holm-corrected canonical
+  primary family, Mem0/AgentMemory are secondary canonical baselines, and
+  native delivery/selective-abstention claims remain a separate preregistered
+  product family.
+- Applied two read-only code/design audits as engineering feedback, not
+  experimental or human-review evidence. The confirmatory execution path now
+  binds a signed worker-result hash to a separately signed relay receipt,
+  cross-checks request inventory and token totals, commits the exact runtime
+  configuration without serializing its values, prevents redemption of the same
+  job nonce, requires disjoint worker/relay public keys and a pinned
+  `ssh-keygen` binary, and makes the vault reconstruct the sealed patch to the
+  worker's final public-tree hash.
+- Added a frozen `confirmatory-analysis-plan-v1` and made it the only
+  confirmatory family-analysis path. It binds the registry hash, power-plan
+  hashes, H1/H2 condition pairs, one agent/actual-model cohort, and every
+  planned case/repetition/seed row. It fails closed on missing, duplicate,
+  invalid, unplanned, or registry-mismatched results. Power planning now uses a
+  conservative Bonferroni threshold for the two-member Holm family; direct
+  single-comparison CLI output is development-only.
+- Added a third, deployment-owned runtime-attestation chain to confirmatory
+  permits. The controller now requires disjoint worker, relay, and runtime
+  signing keys; the runtime statement binds the exact worker-result hash to a
+  reviewed measurement-policy hash, pinned runtime/image, inspection hash,
+  relay-only network policy, isolation-measurement hash, and the same
+  destruction receipt asserted by the worker. Real OpenSSH signature and
+  tamper-rejection tests pass, but no remote runtime manager or KVM host has
+  been provisioned, so this is fail-closed infrastructure rather than a result.
+- Replaced the runtime policy's formerly opaque isolation hash with a parsed,
+  versioned measurement contract. It requires hash commitments for KVM host
+  capability, microVM runtime, relay-only egress, agent-container inspection,
+  and worker destruction; each fresh per-run receipt binds the same job nonce,
+  worker-result hash, and destruction record before its canonical hash can be
+  signed. `memorixbench validate-runtime-measurement` validates a private
+  policy/receipt pair and prints commitments only.
+- Added an explicit public-artifact manifest and audit path. A release must
+  whitelist relative UTF-8 files, pass secret/path/private-directory checks,
+  and pin each file's category, byte count, and SHA-256 before a later audit
+  rereads the same tree. A six-file design-material smoke passed from an
+  external staging manifest; it contains no case, raw evidence, result, or
+  effect estimate.
+- Re-audited the nearest 2026 primary literature through arXiv metadata and
+  narrowed the manuscript's novelty boundary. EvoArena/EvoMem already studies
+  dynamic environment updates with patch-based memory; SWE-EVO and ChainSWE
+  already study long-horizon and dependent software maintenance. MemorixBench
+  now claims only a stricter fresh-agent, equal-evidence, sealed-transition
+  evaluation protocol, never first dynamic memory or first evolving-code work.
+- Applied a read-only internal security audit to the new execution/release
+  machinery. Permit redemption now reconstructs the sealed patch on a fresh
+  public checkout and rejects a false final-tree commitment before grading;
+  signed runtime attestations have a strict persisted JSON loader; the public
+  release path rejects hard links and unimplemented confirmatory labels, then
+  materializes only audited whitelist files into a new staging directory. A
+  design-material smoke demonstrated old-manifest drift rejection and a fresh
+  six-file staging/audit pass.
+- Hardened the final patch boundary one step further: vault reconstruction now
+  snapshots and re-hashes the sealed patch bytes immediately before `git apply`.
+  A post-seal patch-file replacement is rejected even when the original permit
+  still carries the old patch commitment.
+- Added a bounded OpenRouter coding-agent surface for reproducible public
+  development studies. It requires an exact OpenRouter model id, exposes only
+  relative workspace file/search/edit/diff tools plus manifest-declared
+  verification commands, and requires explicit case writable-source roots.
+  It never exposes arbitrary shell, network, parent-directory, or user-config
+  access to the model. Unit tests cover deterministic fake tool calls, path
+  escape rejection, cache exclusion, and action-ledger accounting.
+- Ran a real fixed-model OpenRouter smoke on a new public Python transfer
+  fixture. `qwen/qwen3-coder-30b-a3b-instruct` reported one exact model in both
+  runs. The corrected no-memory and Memorix-canonical runs both passed; the
+  single development fixture used 19 versus 6 tool calls and 96.5 versus 28.5
+  seconds respectively. This is explicitly a harness/product smoke, not an
+  effect estimate, benchmark result, or confirmatory evidence.
 
 ## In Progress
 
+- Freeze a public, reproducible transfer-study track with explicit writable
+  roots, immutable verification surfaces, fixed model receipts, and paired
+  memory/no-memory runs. This is the achievable primary empirical path; it
+  must not claim private-oracle isolation or unseen-task generalization.
 - Complete the remote controller/subject black-box verifier and acquire a
   KVM-capable worker/vault runtime.
 - Rebuild a clean, independently reviewed corpus with new case ids, private
   transitions, safe public cards, and sanitized multi-session traces.
 - Establish a provider route that satisfies the exact single-model telemetry
-  gate before any comparative cohort is collected.
+  gate before any comparative cohort is collected. The current routed Claude
+  client failed this gate because its telemetry reported a mixed client stack.
+- Provision a trusted relay that can issue the new per-run model-route
+  attestation, or use a direct provider route with equivalent independently
+  verifiable request evidence. The current personal proxy cannot satisfy this
+  confirmatory requirement from client logs alone.
+- Provision an independent remote runtime manager with its own OpenSSH key and
+  a reviewed, frozen measurement policy; collect per-run KVM/isolation evidence
+  through that path rather than treating a worker self-report as host proof.
+- Turn independently audited real repositories into newly authored,
+  post-snapshot development overlays without importing a public issue, patch,
+  or test as the answer.
+- Freeze an outcome-independent MDE and paired-discordance envelope with the
+  protocol reviewers before any confirmatory outcome label is read; use the
+  new plan receipt to set the final cluster target.
+- Freeze H5's numerical non-inferiority margin, one-sided alpha, interval
+  criterion, and missing-data policy before any budgeted native product result
+  is read.
 
 ## Next
 
-1. Red-team each prospective task before it receives a public id.
-2. Run preregistered matched no-memory screening on isolated workers.
-3. Freeze validation/test cases and execute the full baseline and ablation
-   matrix.
-4. Run statistics, failure analysis, artifact audit, and manuscript build.
+1. Have independent human reviewers assess the prepared Zod, Click, and
+   urfave/cli private transition designs before any source changes from screening.
+2. Author and verify private post-snapshot development overlays on an isolated
+   controller after review; do not run agents against them locally.
+3. Acquire the single-model and KVM worker/vault gates, then run preregistered
+   matched no-memory screening.
+4. Freeze the power-plan envelope, validation/test cases, and execute the full
+   baseline and ablation matrix, including one frozen analysis manifest per
+   agent/actual-model cohort.
+5. Run statistics, failure analysis, artifact audit, and manuscript build.
 
 ## Non-negotiable constraints
 
@@ -51,3 +286,342 @@
   result.
 - Lack of KVM or a single-model route is a hard stop for confirmation, not a
   reason to relabel a local smoke as evidence.
+- The private F-drive routed-Claude discovery receipt is a mixed-stack route
+  diagnostic. It cannot be used as a single-model preflight, trial, baseline,
+  or paper result.
+- A worker configuration hash and a client-visible model label are insufficient
+  to prove a confirmatory model route. Only the separate relay signature plus
+  matching worker telemetry can satisfy that gate.
+- A successful baseline runtime preflight proves only that a comparison
+  baseline is runnable. It does not admit a case or support an effectiveness
+  claim.
+- A local socket transport smoke proves JSONL controller mechanics only. It
+  never proves KVM isolation, subject provenance, or private-oracle grading.
+- PowerShell reserves `$HOME`; operational smoke scripts must use a distinct
+  variable such as `$sandboxHome` so temporary controller homes stay on the
+  external artifact drive.
+- The 72-hour diagnostic report is private maintainer material. Its tiny public
+  fixtures, mixed client stack, and one-run cells are intentionally excluded
+  from future paper tables and statistical analysis.
+- A power-plan smoke receipt with hypothetical inputs is a tooling check only.
+  It must never determine the confirmatory cohort; only an outcome-independent
+  reviewer-frozen envelope can do that.
+- A passing local test suite, socket receipt, or controller policy is not KVM
+  isolation evidence. A confirmatory result still needs a remote runner-issued
+  isolation measurement, a trusted relay-issued final request inventory, and
+  the independent human/source gates.
+- A runtime-attestation code path and its temporary-key tests are not a remote
+  runtime-manager deployment or a KVM certificate. A confirmatory permit must
+  receive a fresh third-party runtime statement with a key disjoint from worker
+  and relay trust roots for the exact worker-result hash.
+- A versioned runtime measurement policy/receipt is an admission contract, not
+  a substitute for the private KVM evidence artifacts it commits. The raw
+  artifacts must remain on the independent runtime manager and be available to
+  the authorized audit process.
+- A passing public-artifact manifest audit proves only that the selected static
+  files match a safe whitelist. It does not admit a source, run an agent,
+  validate a private oracle, or turn a design-only release into empirical
+  evidence.
+- The final paper must keep this revised novelty boundary. Any stronger
+  comparative statement requires a full-paper audit of the cited work and must
+  not be inferred from a title, abstract, or benchmark name alone.
+- Typed runtime receipts and signed-hash checks still do not prove that a
+  writable remote controller is trustworthy or that private KVM/egress evidence
+  was independently inspected. Trusted signer files and the pinned verifier
+  binary must live on an immutable controller deployment, and raw evidence must
+  remain in a separately auditable private store before any confirmatory run.
+
+## 2026-07-23 frozen public cohort result
+
+The public-reproducible cohort completed from the frozen v1 registry and plan:
+12 local fixtures, four conditions, and three fixed seeds for 144 rows. The
+result validator accepted all 144 rows, found zero invalid infrastructure rows,
+one exact provider-reported model, one full tool-policy hash, and stable case
+and oracle hashes across conditions. The immutable public analysis receipt is
+stored only in the external artifact root.
+
+The preregistered primary contrast is canonical Memorix versus no memory. Its
+case-clustered success estimate is 97.2% versus 94.4%, a +2.8 point difference
+with a 95% bootstrap interval of [-8.3, 16.7] and descriptive sign-flip p=1.0.
+This is not a stable efficacy claim. Average resource values favor Memorix
+directionally (about 3,881 fewer input tokens, 0.00187 lower provider cost, and
+1.97 fewer seconds per case cluster), but every reported resource interval
+crosses zero. Mem0 and AgentMemory are retained as descriptive secondary
+baselines, not post-hoc primary hypotheses.
+
+All six task failures were valid tool-step-limit outcomes, not verifier or
+infrastructure failures. The opposing case patterns matter: Memorix was better
+on the public header-policy transfer, but exhausted the bounded tool budget once
+on the Go slug transfer. The fixture cohort is therefore useful evidence for
+the boundary "memory is conditional", while real-repository, cross-model, and
+confirmatory tracks remain unfinished.
+
+The public analysis CLI now fails closed on matrix completeness, registry and
+model identity, uniform tool policy, and per-case definition/oracle drift. The
+research manuscript has a rendered public-results section and passed visual
+inspection. LaTeX builds use the existing Git-bundled Perl only in the build
+process PATH; no global dependency was installed.
+
+## 2026-07-23 cross-model replication and release closure
+
+The separately frozen `memorixbench-public-cross-model-deepseek-v1` plan ran
+the same 12 public fixtures, two canonical conditions, and three fixed seeds
+under provider-reported `deepseek/deepseek-v4-flash`. All 72 planned rows were
+valid, used the same full tool-policy hash, and passed their behavioral
+verifier. Both no-memory and canonical Memorix had 36/36 successes, so the
+paired success difference is exactly zero. Canonical Memorix instead consumed
+about 2,206 more input tokens and 0.000174 more provider cost per case cluster;
+the descriptive cluster intervals for those two overhead measures excluded zero.
+This is retained as a separate model cohort, not pooled with the original Qwen
+analysis, and supports the product boundary that memory should earn its cost on
+real dependencies rather than be injected automatically.
+
+The sanitized DeepSeek aggregate receipt is committed beside the Qwen summary.
+The public release builder now has a frozen source whitelist, registry-bound
+public case bundle expansion, a materialized self-test, and an exact-tree audit
+that rejects unlisted files after staging. The latest public summary release
+manifest contains 128 audited files; full research tests, release self-tests,
+and the LaTeX manuscript build pass.
+
+Read-only source audits for the Zod, Click, and urfave/cli candidate caches
+confirmed their declared origin, public-transition parent, and pinned license
+bytes. They remain `screening`: this evidence does not replace independent
+human transition review or admit a real-repository task. A read-only inspection
+of the configured VPS found Docker but no usable KVM device. It cannot serve as
+a confirmatory worker/vault; do not relabel its ordinary virtualization or
+Docker availability as KVM isolation.
+
+## 2026-07-23 independent public-release verification
+
+A fresh public-release v2 staging run produced manifest
+`f39b1662b1ec5c4418e94df931be1b918257eac8e198d365efd1bdc25beceadd` with
+128 whitelisted entries. It passed the source audit, isolated materialized
+public self-test, and final exact-tree audit. A separate full research test
+run passed, the manuscript was up to date under the documented LaTeX build,
+and `git diff --check` was clean.
+
+This closes the internally verifiable public-artifact and manuscript track.
+It does not close the larger confirmatory study: independently reviewed real
+repository cases, private-oracle execution, a trusted model relay, KVM
+worker/vault evidence, and independent human artifact review remain required
+before making an effectiveness or submission-ready main-track claim.
+
+## 2026-07-23 native hook-session formation diagnostic
+
+The research harness now has a distinct `native-session` formation surface for
+portable Claude Code command-hook captures. It refuses a normalized transcript
+or a generic text replay: a private hook JSONL converter removes transcript
+paths, requires all declared paths to remain below one Git workspace, replaces
+that workspace with a portable token, scans the result for public-safety
+violations, and commits source and canonical capture hashes. Both conversion
+and formation reject a dirty or mismatched workspace snapshot.
+
+Formation rehydrates only the workspace token in a clean isolated clone, calls
+the real `memorix hook --agent claude` command once per ordered event with an
+isolated data directory, then requires a separate bounded Memorix search to
+find a declared storage-probe marker. Trial results bind the native capture
+hash and reject trace-replay evidence on this surface; only no-memory and
+Memorix conditions are allowed, so no baseline is falsely treated as having an
+equivalent native hook write path.
+
+One controlled local Claude Code smoke created an actual `PostToolUse` event,
+confirmed that the product stored a searchable observation, converted the
+private event into a portable capture after the precursor was frozen, and
+formed that capture successfully in a fresh clone. This is a client/harness
+integration smoke only. It contains one trivial edit, has no comparison, and
+is excluded from all efficacy, baseline, cross-model, and paper results. Raw
+hook events and temporary client settings remain outside the repository.
+
+## 2026-07-24 real-source preflight and invalid historical diagnostics
+
+The `backoff-permanent-error` source lead now has a public hash-only offline
+environment receipt. The prior cache was a promisor clone and could not supply
+a reproducible local checkout without implicit fetches, so it was left intact.
+A separate complete source checkout was pinned to the ledger base revision.
+The unrelated `TestConstantBackOff` command passed both normal and
+`GOPROXY=off`/`GOSUMDB=off` runs with all Go caches outside the repository. The
+base's `TestIssue177` failure is intentionally retained as the public historical
+task oracle, not misclassified as an environment failure. The source remains
+`screening`, with public-history exposure, no overlap review, and no admission.
+
+Two manual native-client predecessor attempts against that historical source
+are explicitly invalidated. The first exposed a temporary PowerShell UTF-8
+forwarding defect; the second hit a client budget limit before a final response
+or hook capture, and an inherited user-level MCP attempted a disallowed tool.
+Neither attempt produced a valid precursor session, a transfer run, or an
+outcome row. The reusable forwarding script now preserves UTF-8 hook bytes and
+has a separate non-ASCII smoke. The formal controlled runner already uses
+strict MCP configuration; these manual route probes cannot substitute for it.
+
+## 2026-07-23 final public-artifact audit
+
+The complete research test suite passed after the source-ledger receipt update,
+and the six-page manuscript compiled with no undefined-reference, overflow, or
+layout warnings. Every rendered page was visually inspected. A fresh external
+public release was built from the current source tree at the
+`public-reproducible-summary-v1` evidence tier. Its 132-file manifest is
+`07b9704ee6db90ded38b22162fe267ab29981fe5471eef153e3d6ce26b02408d`;
+source-tree audit, materialized clean-environment public tests, and exact-tree
+audit all passed. The artifact deliberately excludes raw hook events, local
+client settings, private transitions, model credentials, and outcome material
+that lacks confirmatory gates.
+
+## 2026-07-23 isolated Claude Code route probe
+
+Claude Code 2.1.201 was started from the external artifact drive with safe
+mode, a strict empty MCP server map, an empty tool catalog, and no session
+persistence. It returned the fixed probe response without loading project
+instructions, hooks, plugins, or MCP tools, and without changing any user
+configuration. The client route is therefore usable for ordinary isolated
+product diagnostics. Its telemetry nevertheless reported both the requested
+DeepSeek Flash route and a Claude Haiku helper model in one request. The probe
+is not a trial or outcome row and confirms that the current routed client still
+fails the single-actual-model gate required for confirmatory research.
+
+## 2026-07-23 bibliography and final artifact rebuild
+
+All nine cited arXiv records were checked against official Atom metadata and
+paper pages; their titles, authors, and years match the manuscript. The paper
+now also cites OpenAI's official SWE-bench Verified contamination audit where
+it explains why public history is provenance rather than an answer source. The
+paper rebuilt cleanly and the rendered references were inspected without
+warnings or layout defects. The rebuilt current public release has 132 files
+and manifest `a273c7e0d18490792fa27b3fd7db7b792b654836e845ca1e8ebcd11929e3fafc`.
+It supersedes the earlier `07b970...` staging manifest solely because of the
+audited bibliography/source changes; both source and materialized-tree audits
+and isolated public tests passed again.
+
+## 2026-07-23 automated manuscript review follow-up
+
+A safe-mode, read-only local Claude Code review was used only as automated
+methodology feedback, never as a human review or experimental result. It
+identified the central positioning risk correctly: the current manuscript is a
+protocol plus small public reproducibility study, not a completed efficacy
+paper. That limitation remains explicit. Three actionable omissions were
+fixed: the abstract now says this scope directly; the public-cohort and status
+sections disclose the low sensitivity of twelve independent clusters and the
+ceiling replication; and the paper/protocol distinguish harness-visible local
+isolation from opaque provider state while stating that conflict labels and
+native-MCP outcome data are currently absent rather than zero. The bibliography
+uses standard abbreviated author names so the unchanged complete author lists
+fit cleanly in six pages.
+
+## 2026-07-23 final-review public release
+
+After the manuscript boundary corrections, the complete research suite passed
+again and the final six-page PDF had no warnings or layout defects. The current
+candidate public release is the 132-file artifact with manifest
+`2f930c2fb23b0c14c9dd0f9fddc929183406202cd8ca80968fd5e37aa2cf0585`.
+Its source audit, clean materialization, isolated public-test run, and
+exact-tree audit all passed. This supersedes the earlier staging manifests; it
+is the release to use for an external artifact/protocol review, not evidence for
+a completed effectiveness submission.
+
+## 2026-07-24 automated private-draft pre-review
+
+The source ledger now has a separate `audit-private-draft` gate for the three
+external, hash-committed private design drafts. It validates the bound offline
+preflight receipt, local Git cache origin/first-parent/license chain, exact
+four-file draft boundary, review-template hash commitments, and obvious host
+path or credential leakage. The resulting receipt is deliberately labeled
+`automated-pre-review-only-v1` and always records `admission_decision` as
+`not-issued`; it cannot substitute for the two independent human reviewers or
+any later case, oracle, trace, worker/vault, or confirmatory permit gate.
+
+The final strict external receipts for Zod, Click, and urfave/cli are under
+`<external-artifact-root>/pre-admission-audits-20260724-094436` with audit
+hashes `2b21c523...`, `86aa706d...`, and `6245dd86...`, respectively.
+All three passed the mechanical checks and remain `screening` with benchmark
+overlap unreviewed. The full research test suite passed, and a fresh 138-file
+public release with manifest
+`02558ff7e1746660ad866fb0911099ea5d7fa49f9c0e4faa0854e35120442a0d` passed
+source audit, materialized public tests, and exact-tree audit.
+
+## 2026-07-24 refreshed anonymous NIER candidate
+
+The anonymous supplement was rebuilt from the current 138-file source release
+into `<external-artifact-root>/icse-nier-anonymous-review-20260724-pre-admission-final`.
+Its source manifest is `075e1f14a95b93fcfa2e3ecf726c9f1a507ae3dbdd788a865e0472d71a799191`;
+the neutralized supplement passed its five public tests and exact-tree audit.
+The copied four-page manuscript has anonymous metadata and the same SHA-256 as
+the local PDF, `c9ec82f18bbc42d7e67a01511cc244545cfc7cb9ef6156fba6f3015d286a22e8`.
+An independent scan found no project identity strings or private-draft feature
+terms in the supplement. The ZIP is an anonymous local candidate only, not an
+external submission or review record.
+
+## 2026-07-24 author-side public-history surface triage
+
+After private commitments were frozen, a non-decision author screen compared
+only public changed-file/function-header surfaces with the private drafts'
+declared scope. Zod's public parse/codec surface and urfave/cli's public
+completion surface appear distinct from their respective high-level private
+topics, but that is not proof of non-isomorphism. Click's public transition
+also changes `src/click/core.py`, the same broad module family likely used by
+the default-map control. It remains a no-memory-favorable control and needs
+heightened human structural/behavioral overlap review. No source was admitted,
+no overlap label changed, and no outcome evidence was created.
+
+## 2026-07-24 literature refresh and final anonymous-package preparation
+
+An academic literature refresh added Agent Workflow Memory as adjacent prior
+work on inducing and selectively retrieving reusable agent workflows. The
+manuscripts now distinguish that web-navigation workflow setting from the
+fresh-agent coding-transfer question here; the citation does not imply a
+baseline result or broader effectiveness claim. Both bibliographies pass their
+consistency checks. The anonymous NIER paper rebuilt to four pages and its
+first and final rendered pages were visually inspected: anonymous metadata,
+tables, references, and two-column flow are intact. The longer protocol paper
+rebuilt to seven pages after the additional related-work boundary, without
+undefined references or box-overflow warnings. A fresh anonymous supplement
+will be materialized from these final sources before any upload candidate is
+named.
+
+## 2026-07-24 final anonymous NIER artifact verification
+
+The final local anonymous candidate was materialized from the updated
+138-entry public release. Its public-release digest is
+`32471a04ad8282ceb11eefea452e8650bac07cc3295ad15971fba386cc5d5a2a`;
+the neutralized supplement digest is
+`b493bbc62a2a71f8ee47b9683ddb9862d405177574a4f0d876f8f798b82f402c`.
+The anonymous package manifest and ZIP digests are
+`09989eb5199622e0e81d3df04e0dc3fb453054aa0115215a7f729ba49098ea69` and
+`9bc0cdcd468be67be2be03eb1333d26295fc144c914c122f0d659e3385f0b2a6`.
+The staged four-page PDF exactly matches the local PDF at
+`96714a12a0e95b0b7d2dffbf6b60a226b5fdafb1093c168c47e81401190582f9`
+and reports `Anonymous Authors` metadata.
+
+Independent package checks found no Git metadata, reparse points, credentials,
+project identity text, private draft files, or host-specific path markers. The
+public protocol deliberately contains generic terms for private-oracle and
+admission governance; those terms are not a private case, transition, oracle,
+or answer. The supplement's five materialized public tests, exact-tree audit,
+full research suite, and whitespace/diff check all passed. This is a verified
+local upload candidate only, not an external submission, review, or acceptance.
+
+## 2026-07-24 evidence-boundary package refresh
+
+Added `research/EVIDENCE-STATUS.md` to the frozen public release so an artifact
+reader can distinguish observed public cohorts, tested mechanisms without
+outcome evidence, unexecuted protocol work, and external claim gates without
+reconstructing that boundary from multiple documents. The page records the
+inconclusive 144-row Qwen observation, the 72-row DeepSeek ceiling/cost
+boundary, and the fact that every C1--C8 product-effect claim remains
+unproven. The whitelist test now makes omission of this status page fail.
+
+The product-side tool-profile integration suite now creates a fresh temporary
+`MEMORIX_DATA_DIR` per test and restores the prior environment after cleanup.
+Its focused run no longer changes the normal local Memorix data tree.
+
+A fresh anonymous candidate was built from the 139-entry public release into
+`<external-artifact-root>/icse-nier-anonymous-review-20260724-evidence-status-verified`.
+The source manifest, neutralized supplement manifest, package manifest, and
+ZIP hashes are `40d1df4a2363a06cf6628492f7f0142b10b842a7bc41e7ac63fab782075e96fc`,
+`9b67c23c8aa66ed21541f4463818f9c64083b7e478ab20a485223f0e152508b2`,
+`add5bc27831a824c3651559e61d01066aa6115f8197763c90c1aab2838e557db`, and
+`96bfade47917b79803dac454dfe7de1c048c99ce316d1db82ecc735801e3d49e`.
+It passed materialized public tests, exact-tree audit, independent per-entry
+package-hash verification, identity/path scanning, and archive-entry scanning.
+The four-page manuscript reports anonymous metadata and its first and final
+rendered pages were visually inspected. This remains a local candidate only;
+human review, trusted isolated execution, and venue submission remain external
+gates.

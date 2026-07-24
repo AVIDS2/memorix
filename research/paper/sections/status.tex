@@ -1,0 +1,34 @@
+\section{Current Status and Limitations}
+
+This manuscript reports two public reproducible model cohorts, not a system
+ranking or confirmatory efficacy claim. Both use the same 12 fully public local
+fixtures: the original Qwen cohort has 144 valid rows and the separately frozen
+DeepSeek replication has 72. They support only the bounded observations stated
+in Section~\ref{sec:public-results}; they do not show that a task was hidden
+from model pretraining or that an effect generalizes to arbitrary repositories.
+Early local development fixtures were withdrawn after a leakage review, and
+mixed-route diagnostics remain excluded from all tables.
+
+Every public row begins from a fresh materialized transfer workspace with an
+isolated local home and cache; controlled Claude runs also disable session
+persistence. This controls harness-visible cross-run state, not opaque
+provider-side caching, hidden provider state, or pretraining exposure. With
+only twelve independent case clusters, the public cohorts have low sensitivity
+to modest effects, and the DeepSeek ceiling replication is a boundary finding,
+not validation. Stale-conflict action labels and budgeted native-MCP product
+outcomes are absent from these cohorts: the former have no public blinded-label
+packet, and the latter currently has integration evidence only. Those absent
+measurements are not converted to zeros or treated as product-effect evidence.
+
+Confirmatory execution requires a single-model route proven by both consistent
+client telemetry and an independent relay-signed receipt, independent source
+and case review, at least two captured precursor traces, a sealed worker patch,
+an independent runtime-manager attestation for the exact worker result, and a
+KVM-backed controller/subject boundary. The current development machines do not
+satisfy the KVM requirement and are not silently downgraded to Docker.
+
+The design cannot prove that a public repository was absent from pretraining.
+Its narrower claim concerns the effect of a controlled memory intervention under
+shared code priors. The artifact releases sanitized commitments and results,
+while distinguishing the current public evidence from diagnostic engineering
+observations and any future confirmatory result.

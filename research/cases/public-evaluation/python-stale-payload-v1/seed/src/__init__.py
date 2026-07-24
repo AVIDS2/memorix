@@ -1,0 +1,1 @@
+"""Public reproducible payload fixture."""

@@ -1,4 +1,5 @@
 import json
+from dataclasses import replace
 from pathlib import Path
 import memorixbench.worker_protocol as worker_protocol
 import subprocess
@@ -39,6 +40,11 @@ def test_worker_job_has_only_public_committed_inputs(tmp_path: Path) -> None:
         model="fixed-model",
         prompt="Repair the transfer task.",
         public_case_definition_sha256="a" * 64,
+        public_bundle_sha256="b" * 64,
+        memory_snapshot_sha256="c" * 64,
+        subject_protocol_sha256="d" * 64,
+        controller_policy_sha256="e" * 64,
+        job_nonce="f" * 32,
         workspace=workspace,
         timeout_seconds=60,
         max_budget_usd=1.0,
@@ -53,6 +59,31 @@ def test_worker_job_has_only_public_committed_inputs(tmp_path: Path) -> None:
     assert workspace_snapshot_hash(workspace) == job.workspace_snapshot_sha256
 
 
+def test_worker_job_hash_binds_controller_provided_bundle_inputs(tmp_path: Path) -> None:
+    workspace = _workspace(tmp_path)
+    job = create_worker_job(
+        run_id="run-1",
+        case_id="case-1",
+        condition="no-memory",
+        agent="claude",
+        model="fixed-model",
+        prompt="Repair the transfer task.",
+        public_case_definition_sha256="a" * 64,
+        public_bundle_sha256="b" * 64,
+        memory_snapshot_sha256="c" * 64,
+        subject_protocol_sha256="d" * 64,
+        controller_policy_sha256="e" * 64,
+        job_nonce="f" * 32,
+        workspace=workspace,
+        timeout_seconds=60,
+        max_budget_usd=1.0,
+    )
+
+    assert replace(job, memory_snapshot_sha256="1" * 64).job_sha256 != job.job_sha256
+    assert replace(job, public_bundle_sha256="2" * 64).job_sha256 != job.job_sha256
+    assert replace(job, job_nonce="3" * 32).job_sha256 != job.job_sha256
+
+
 def test_worker_job_rejects_private_fields_and_prompt_tampering(tmp_path: Path) -> None:
     workspace = _workspace(tmp_path)
     job = create_worker_job(
@@ -63,6 +94,11 @@ def test_worker_job_rejects_private_fields_and_prompt_tampering(tmp_path: Path) 
         model=None,
         prompt="Repair the transfer task.",
         public_case_definition_sha256="a" * 64,
+        public_bundle_sha256="b" * 64,
+        memory_snapshot_sha256="c" * 64,
+        subject_protocol_sha256="d" * 64,
+        controller_policy_sha256="e" * 64,
+        job_nonce="f" * 32,
         workspace=workspace,
         timeout_seconds=60,
         max_budget_usd=None,
@@ -117,6 +153,81 @@ def test_worker_snapshot_rejects_linked_worktree_git_metadata(tmp_path: Path) ->
         workspace_snapshot_hash(workspace)
 
 
+def test_worker_patch_includes_staged_changes_against_the_initial_head(tmp_path: Path) -> None:
+    workspace = _workspace(tmp_path)
+    initial_head = worker_protocol._workspace_head(workspace)
+    (workspace / "value.txt").write_text("staged change\n", encoding="utf-8")
+    subprocess.run(["git", "add", "value.txt"], cwd=workspace, check=True)
+
+    sealed, final_tree = worker_protocol._capture_workspace_patch(
+        workspace,
+        tmp_path / "sealed.patch",
+        expected_head=initial_head,
+    )
+
+    assert "+staged change" in sealed.path.read_text(encoding="utf-8")
+    assert len(final_tree) == 64
+
+
+def test_worker_patch_rejects_ignored_residue_or_a_changed_head(tmp_path: Path) -> None:
+    ignored_workspace = _workspace(tmp_path / "ignored")
+    (ignored_workspace / ".gitignore").write_text("agent-cache/\n", encoding="utf-8")
+    subprocess.run(["git", "add", ".gitignore"], cwd=ignored_workspace, check=True)
+    subprocess.run(["git", "commit", "--quiet", "-m", "ignore cache"], cwd=ignored_workspace, check=True)
+    ignored_head = worker_protocol._workspace_head(ignored_workspace)
+    (ignored_workspace / "agent-cache").mkdir()
+    (ignored_workspace / "agent-cache" / "state.txt").write_text("leak\n", encoding="utf-8")
+
+    with pytest.raises(WorkerProtocolError, match="ignored files"):
+        worker_protocol._capture_workspace_patch(
+            ignored_workspace,
+            tmp_path / "ignored.patch",
+            expected_head=ignored_head,
+        )
+
+    committed_workspace = _workspace(tmp_path / "committed")
+    original_head = worker_protocol._workspace_head(committed_workspace)
+    (committed_workspace / "value.txt").write_text("committed change\n", encoding="utf-8")
+    subprocess.run(["git", "add", "value.txt"], cwd=committed_workspace, check=True)
+    subprocess.run(["git", "commit", "--quiet", "-m", "agent commit"], cwd=committed_workspace, check=True)
+
+    with pytest.raises(WorkerProtocolError, match="Git HEAD"):
+        worker_protocol._capture_workspace_patch(
+            committed_workspace,
+            tmp_path / "committed.patch",
+            expected_head=original_head,
+        )
+
+
+def test_vault_reconstructs_a_sealed_patch_to_the_worker_final_tree(tmp_path: Path) -> None:
+    worker_workspace = _workspace(tmp_path / "worker")
+    baseline = workspace_snapshot_hash(worker_workspace)
+    worker_head = worker_protocol._workspace_head(worker_workspace)
+    (worker_workspace / "value.txt").write_text("worker final\n", encoding="utf-8")
+    sealed, worker_final = worker_protocol._capture_workspace_patch(
+        worker_workspace,
+        tmp_path / "sealed.patch",
+        expected_head=worker_head,
+    )
+    vault_workspace = _workspace(tmp_path / "vault")
+
+    assert worker_protocol.reconstruct_sealed_patch_in_vault(
+        workspace=vault_workspace,
+        worker_patch=sealed,
+        expected_workspace_snapshot_sha256=baseline,
+        expected_final_workspace_sha256=worker_final,
+    ) == worker_final
+
+    retry_workspace = _workspace(tmp_path / "vault-tampered")
+    with pytest.raises(WorkerProtocolError, match="expected final tree"):
+        worker_protocol.reconstruct_sealed_patch_in_vault(
+            workspace=retry_workspace,
+            worker_patch=sealed,
+            expected_workspace_snapshot_sha256=baseline,
+            expected_final_workspace_sha256="0" * 64,
+        )
+
+
 def test_worker_snapshot_rejects_a_reparse_workspace_root(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -145,6 +256,11 @@ def test_worker_result_does_not_export_raw_agent_artifacts(
         model=None,
         prompt="Repair the transfer task.",
         public_case_definition_sha256="a" * 64,
+        public_bundle_sha256="b" * 64,
+        memory_snapshot_sha256="c" * 64,
+        subject_protocol_sha256="d" * 64,
+        controller_policy_sha256="e" * 64,
+        job_nonce="f" * 32,
         workspace=workspace,
         timeout_seconds=60,
         max_budget_usd=None,

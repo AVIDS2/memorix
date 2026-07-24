@@ -12,19 +12,42 @@ from .baseline import token_count, truncate_to_tokens
 from .memorix_adapter import MemorixControlPlane, _isolated_mcp_env, _tool_text
 
 
-GATEWAY_SCHEMA_VERSION = "0.1"
+GATEWAY_SCHEMA_VERSION = "0.2"
 GATEWAY_TOOL_NAME = "memorix_project_context"
 GATEWAY_SERVER_NAME = "memorixbench-native-budget-gateway"
 SUPPORTED_MCP_PROTOCOL_VERSIONS = {"2025-03-26", "2025-06-18", "2025-11-25"}
 SHA256_PATTERN = "0123456789abcdef"
+DELIVERY_PROFILES = frozenset({
+    "full",
+    "no-freshness",
+    "no-current-state",
+    "no-semantic-code",
+    "no-knowledge",
+    "no-workflow",
+})
 
 
 class NativeMcpGatewayError(ValueError):
     """Raised when a native MCP research gateway violates its fixed budget."""
 
 
+@dataclass(frozen=True)
+class ProjectContextDelivery:
+    """Full source context plus the one profile-safe prompt sent to the agent."""
+
+    source_context: str
+    delivered_context: str
+    suppressed_components: tuple[str, ...]
+
+
 class ProjectContextProvider(Protocol):
-    def fetch_project_context(self, *, task: str, refresh: str) -> str: ...
+    def fetch_project_context(
+        self,
+        *,
+        task: str,
+        refresh: str,
+        delivery_profile: str,
+    ) -> ProjectContextDelivery: ...
 
 
 @dataclass(frozen=True)
@@ -33,6 +56,7 @@ class NativeMcpBudgetPolicy:
     call_budget: int
     token_budget: int
     refresh: str = "never"
+    delivery_profile: str = "full"
 
     def validate(self) -> None:
         if not self.task.strip():
@@ -43,6 +67,8 @@ class NativeMcpBudgetPolicy:
             raise NativeMcpGatewayError("native MCP gateway token budget must be positive")
         if self.refresh not in {"never", "auto"}:
             raise NativeMcpGatewayError("native MCP gateway refresh policy is invalid")
+        if self.delivery_profile not in DELIVERY_PROFILES:
+            raise NativeMcpGatewayError("native MCP gateway delivery profile is invalid")
 
     def public_payload(self) -> dict[str, object]:
         self.validate()
@@ -53,6 +79,7 @@ class NativeMcpBudgetPolicy:
             "call_budget": self.call_budget,
             "token_budget": self.token_budget,
             "refresh": self.refresh,
+            "delivery_profile": self.delivery_profile,
         }
 
     @property
@@ -69,6 +96,8 @@ class NativeMcpBudgetPolicy:
 class NativeMcpGatewayReceipt:
     schema_version: str
     policy_sha256: str
+    delivery_profile: str
+    suppressed_components: tuple[str, ...]
     call_attempt_count: int
     served_call_count: int
     provider_failure_count: int
@@ -88,6 +117,8 @@ class NativeMcpGatewayReceipt:
         expected = {
             "schema_version",
             "policy_sha256",
+            "delivery_profile",
+            "suppressed_components",
             "call_attempt_count",
             "served_call_count",
             "provider_failure_count",
@@ -101,6 +132,19 @@ class NativeMcpGatewayReceipt:
             raise NativeMcpGatewayError("native MCP gateway receipt has unexpected fields")
         if value.get("schema_version") != GATEWAY_SCHEMA_VERSION:
             raise NativeMcpGatewayError("unsupported native MCP gateway receipt schema")
+        delivery_profile = value.get("delivery_profile")
+        if delivery_profile not in DELIVERY_PROFILES:
+            raise NativeMcpGatewayError("native MCP gateway receipt delivery profile is invalid")
+        raw_suppressed = value.get("suppressed_components")
+        if not isinstance(raw_suppressed, list) or any(
+            not isinstance(component, str) or not component for component in raw_suppressed
+        ):
+            raise NativeMcpGatewayError("native MCP gateway receipt suppressed components are invalid")
+        suppressed_components = tuple(raw_suppressed)
+        if delivery_profile == "full" and suppressed_components:
+            raise NativeMcpGatewayError("full native MCP delivery cannot suppress components")
+        if delivery_profile != "full" and not suppressed_components:
+            raise NativeMcpGatewayError("ablated native MCP delivery lacks suppression evidence")
         policy_sha256 = value.get("policy_sha256")
         if not isinstance(policy_sha256, str) or len(policy_sha256) != 64 or any(
             character not in SHA256_PATTERN for character in policy_sha256
@@ -136,6 +180,8 @@ class NativeMcpGatewayReceipt:
         receipt = cls(
             schema_version=GATEWAY_SCHEMA_VERSION,
             policy_sha256=policy_sha256,
+            delivery_profile=delivery_profile,
+            suppressed_components=suppressed_components,
             call_attempt_count=counts["call_attempt_count"],
             served_call_count=counts["served_call_count"],
             provider_failure_count=counts["provider_failure_count"],
@@ -158,6 +204,8 @@ class NativeMcpGatewayReceipt:
             )
         ):
             raise NativeMcpGatewayError("empty native MCP receipt contains context evidence")
+        if receipt.served_call_count == 0 and receipt.suppressed_components:
+            raise NativeMcpGatewayError("empty native MCP receipt contains delivery evidence")
         return receipt
 
 
@@ -181,12 +229,15 @@ class NativeMcpBudgetGateway:
         self._source_context: str | None = None
         self._source_context_tokens: int | None = None
         self._context_truncated: bool | None = None
+        self._suppressed_components: tuple[str, ...] = ()
 
     @property
     def receipt(self) -> NativeMcpGatewayReceipt:
         return NativeMcpGatewayReceipt(
             schema_version=GATEWAY_SCHEMA_VERSION,
             policy_sha256=self.policy.sha256,
+            delivery_profile=self.policy.delivery_profile,
+            suppressed_components=self._suppressed_components,
             call_attempt_count=self.call_attempt_count,
             served_call_count=self.served_call_count,
             provider_failure_count=self.provider_failure_count,
@@ -239,25 +290,35 @@ class NativeMcpBudgetGateway:
                 True,
             )
         try:
-            source_context = self.provider.fetch_project_context(
+            delivery = self.provider.fetch_project_context(
                 task=self.policy.task,
                 refresh=self.policy.refresh,
+                delivery_profile=self.policy.delivery_profile,
             )
         except Exception:
             self.provider_failure_count += 1
             return GatewayToolResult("Memorix project context is unavailable for this run.", True)
-        if not isinstance(source_context, str):
+        if (
+            not isinstance(delivery, ProjectContextDelivery)
+            or not isinstance(delivery.source_context, str)
+            or not isinstance(delivery.delivered_context, str)
+            or any(not isinstance(component, str) or not component for component in delivery.suppressed_components)
+        ):
             self.provider_failure_count += 1
             return GatewayToolResult("Memorix project context is unavailable for this run.", True)
+        if self.policy.delivery_profile == "full" and delivery.suppressed_components:
+            self.provider_failure_count += 1
+            return GatewayToolResult("Memorix project context delivery evidence is invalid for this run.", True)
         emitted_context, truncated = truncate_to_tokens(
-            source_context,
+            delivery.delivered_context,
             self.policy.token_budget,
         )
         self.served_call_count += 1
-        self._source_context = source_context
-        self._source_context_tokens = token_count(source_context)
+        self._source_context = delivery.source_context
+        self._source_context_tokens = token_count(delivery.source_context)
         self._emitted_context = emitted_context
         self._context_truncated = truncated
+        self._suppressed_components = delivery.suppressed_components
         return GatewayToolResult(emitted_context, False)
 
     def handle_jsonrpc(self, message: object) -> dict[str, object] | None:
@@ -352,12 +413,48 @@ class MemorixProjectContextProviderImpl:
     def __exit__(self, exc_type: object, exc: object, traceback: object) -> None:
         self.control.__exit__(exc_type, exc, traceback)
 
-    def fetch_project_context(self, *, task: str, refresh: str) -> str:
+    def fetch_project_context(
+        self,
+        *,
+        task: str,
+        refresh: str,
+        delivery_profile: str,
+    ) -> ProjectContextDelivery:
         result = self.control.tool(
             GATEWAY_TOOL_NAME,
-            {"task": task, "format": "prompt", "refresh": refresh},
+            {
+                "task": task,
+                "format": "json",
+                "refresh": refresh,
+                "deliveryProfile": delivery_profile,
+            },
         )
-        return _tool_text(result)
+        try:
+            payload = json.loads(_tool_text(result))
+        except (TypeError, json.JSONDecodeError) as error:
+            raise NativeMcpGatewayError("Memorix project context JSON is unavailable") from error
+        if not isinstance(payload, dict):
+            raise NativeMcpGatewayError("Memorix project context JSON must be an object")
+        workset = payload.get("workset")
+        delivery = payload.get("delivery")
+        if not isinstance(workset, dict) or not isinstance(delivery, dict):
+            raise NativeMcpGatewayError("Memorix project context JSON lacks delivery evidence")
+        source_context = workset.get("prompt")
+        delivered_context = delivery.get("prompt")
+        suppressed = delivery.get("suppressed")
+        if (
+            not isinstance(source_context, str)
+            or not isinstance(delivered_context, str)
+            or not isinstance(suppressed, list)
+            or any(not isinstance(component, str) or not component for component in suppressed)
+            or delivery.get("profile") != delivery_profile
+        ):
+            raise NativeMcpGatewayError("Memorix project context delivery evidence is invalid")
+        return ProjectContextDelivery(
+            source_context=source_context,
+            delivered_context=delivered_context,
+            suppressed_components=tuple(suppressed),
+        )
 
 
 def write_native_mcp_config(
@@ -374,12 +471,14 @@ def write_native_mcp_config(
     call_budget: int,
     token_budget: int,
     refresh: str = "never",
+    delivery_profile: str = "full",
 ) -> Path:
     policy = NativeMcpBudgetPolicy(
         task=task,
         call_budget=call_budget,
         token_budget=token_budget,
         refresh=refresh,
+        delivery_profile=delivery_profile,
     )
     policy.validate()
     payload = {
@@ -409,6 +508,8 @@ def write_native_mcp_config(
                     str(token_budget),
                     "--refresh",
                     refresh,
+                    "--delivery-profile",
+                    delivery_profile,
                 ],
                 "env": _isolated_mcp_env(),
             }
@@ -462,6 +563,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--call-budget", type=int, required=True)
     parser.add_argument("--token-budget", type=int, required=True)
     parser.add_argument("--refresh", choices=("never", "auto"), default="never")
+    parser.add_argument("--delivery-profile", choices=sorted(DELIVERY_PROFILES), default="full")
     return parser
 
 
@@ -472,6 +574,7 @@ def main() -> int:
         call_budget=args.call_budget,
         token_budget=args.token_budget,
         refresh=args.refresh,
+        delivery_profile=args.delivery_profile,
     )
     try:
         with MemorixProjectContextProviderImpl(

@@ -12,7 +12,7 @@ import tempfile
 from .oracle_assets import PINNED_IMAGE_PATTERN
 
 
-WORKER_ATTESTATION_SCHEMA_VERSION = "0.1"
+WORKER_ATTESTATION_SCHEMA_VERSION = "0.4"
 REMOTE_WORKER_VAULT_PROFILE_ID = "remote-worker-vault-v1"
 WORKER_ATTESTATION_NAMESPACE = "memorixbench-worker-attestation-v1"
 MAX_ATTESTATION_LIFETIME = timedelta(hours=1)
@@ -20,6 +20,7 @@ MAX_CLOCK_SKEW = timedelta(minutes=2)
 SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 IMAGE_ID_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
 IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+JOB_NONCE_PATTERN = re.compile(r"^[0-9a-f]{32}$")
 
 
 class AttestationError(ValueError):
@@ -152,6 +153,9 @@ class WorkerAttestation:
     sealed_patch_sha256: str
     sealed_patch_bytes: int
     worker_runtime_sha256: str
+    subject_protocol_sha256: str
+    controller_policy_sha256: str
+    job_nonce: str
     agent_image: str
     agent_image_id: str
     tool_catalog_sha256: str
@@ -162,6 +166,7 @@ class WorkerAttestation:
     isolation: WorkerIsolationSummary
     issued_at: str
     expires_at: str
+    worker_result_sha256: str | None = None
 
     def public_payload(self) -> dict[str, object]:
         payload = asdict(self)
@@ -201,6 +206,8 @@ class WorkerAttestation:
             "workspace snapshot": self.workspace_snapshot_sha256,
             "sealed patch": self.sealed_patch_sha256,
             "worker runtime": self.worker_runtime_sha256,
+            "subject protocol": self.subject_protocol_sha256,
+            "controller policy": self.controller_policy_sha256,
             "tool catalog": self.tool_catalog_sha256,
             "container inspection": self.container_inspection_sha256,
             "model relay policy": self.model_relay_policy_sha256,
@@ -208,6 +215,10 @@ class WorkerAttestation:
             "sentinel suite": self.sentinel_suite_sha256,
         }.items():
             _require_sha256(value, label=label)
+        if self.worker_result_sha256 is not None:
+            _require_sha256(self.worker_result_sha256, label="worker result")
+        if not JOB_NONCE_PATTERN.fullmatch(self.job_nonce):
+            raise AttestationError("worker job nonce is invalid")
         if self.sealed_patch_bytes < 0:
             raise AttestationError("sealed patch byte count must be non-negative")
         if not PINNED_IMAGE_PATTERN.fullmatch(self.agent_image):
@@ -240,6 +251,9 @@ class WorkerAttestation:
             "sealed_patch_sha256",
             "sealed_patch_bytes",
             "worker_runtime_sha256",
+            "subject_protocol_sha256",
+            "controller_policy_sha256",
+            "job_nonce",
             "agent_image",
             "agent_image_id",
             "tool_catalog_sha256",
@@ -250,6 +264,7 @@ class WorkerAttestation:
             "isolation",
             "issued_at",
             "expires_at",
+            "worker_result_sha256",
         }
         if set(value) != expected:
             raise AttestationError("worker attestation has unexpected fields")
@@ -395,6 +410,15 @@ class WorkerAttestation:
                     value["worker_runtime_sha256"],
                     label="worker runtime hash",
                 ),
+                subject_protocol_sha256=_required_text(
+                    value["subject_protocol_sha256"],
+                    label="subject protocol hash",
+                ),
+                controller_policy_sha256=_required_text(
+                    value["controller_policy_sha256"],
+                    label="controller policy hash",
+                ),
+                job_nonce=_required_text(value["job_nonce"], label="job nonce"),
                 agent_image=_required_text(value["agent_image"], label="agent image"),
                 agent_image_id=_required_text(value["agent_image_id"], label="agent image id"),
                 tool_catalog_sha256=_required_text(
@@ -420,6 +444,14 @@ class WorkerAttestation:
                 isolation=isolation,
                 issued_at=_required_text(value["issued_at"], label="issued_at"),
                 expires_at=_required_text(value["expires_at"], label="expires_at"),
+                worker_result_sha256=(
+                    None
+                    if value["worker_result_sha256"] is None
+                    else _required_text(
+                        value["worker_result_sha256"],
+                        label="worker result hash",
+                    )
+                ),
             )
         except AttestationError:
             raise
@@ -593,6 +625,10 @@ def validate_attestation_binding(
     workspace_snapshot_sha256: str,
     sealed_patch_sha256: str,
     sealed_patch_bytes: int,
+    subject_protocol_sha256: str,
+    controller_policy_sha256: str,
+    job_nonce: str,
+    worker_result_sha256: str | None = None,
 ) -> None:
     """Reject a signed statement that is valid cryptographically but binds another run."""
 
@@ -607,7 +643,12 @@ def validate_attestation_binding(
         "workspace_snapshot_sha256": workspace_snapshot_sha256,
         "sealed_patch_sha256": sealed_patch_sha256,
         "sealed_patch_bytes": sealed_patch_bytes,
+        "subject_protocol_sha256": subject_protocol_sha256,
+        "controller_policy_sha256": controller_policy_sha256,
+        "job_nonce": job_nonce,
     }
+    if worker_result_sha256 is not None:
+        expected["worker_result_sha256"] = worker_result_sha256
     for field, value in expected.items():
         if getattr(attestation, field) != value:
             raise AttestationError(f"worker attestation does not bind the expected {field}")

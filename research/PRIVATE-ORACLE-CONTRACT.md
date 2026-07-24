@@ -118,18 +118,69 @@ must run in a new KVM-backed Linux microVM on the remote vault runtime. Docker
 can harden controller-side helpers or exercise public diagnostics, but it is
 not accepted as the subject isolation proof for a private result.
 
-The current vault code keeps `PrivateVerifier` as an explicit integration
-protocol until this controller/subject contract, KVM preflight, and adversarial
-tests are implemented. Neither a local Docker run, a Windows Docker Desktop
-run, nor a generic hidden-test mount can unlock confirmatory execution.
+The current vault code deliberately has no local `PrivateVerifier` callback.
+Its workspace-preparation entry point is development-only: it can freeze a
+committed private transition long enough to materialize an authoring workspace,
+then removes that snapshot before returning. It rejects validation and test
+cases before materializing their private transition. Neither a local Docker
+run, a Windows Docker Desktop run, nor a generic hidden-test mount can unlock
+confirmatory execution.
+
+The future remote controller must first issue and revalidate a
+`ConfirmatoryExecutionPermit`. That permit binds a registered Track C case, the
+exact worker job/result/patch, a signed worker attestation, a separate signed
+model-relay attestation for the exact job nonce and actual model, an independent
+runtime-manager attestation over a fresh parsed measurement receipt, and the
+pinned black-box subject protocol. It is a gating record, not a way to enable
+the generic local trial runner.
+
+At permit issue time, the controller also reloads the admitted source-ledger
+entry and its approved review receipt. The review's private transition hash
+must equal the public manifest's private transition commitment, and the
+candidate repository/base must equal the case repository/base. This prevents a
+reviewed private design from being silently replaced before execution.
+
+The controller's concrete socket transport accepts only a connection already
+created by the remote KVM runner. It owns JSONL framing, byte limits, timeouts,
+and redacted receipts, but it cannot launch a subject, select a network
+endpoint, or attest isolation. Those responsibilities deliberately remain
+outside the local benchmark process.
+
+A local client preflight can detect internally inconsistent telemetry, but it
+cannot prove what an arbitrary proxy served. The confirmatory permit therefore
+requires a relay-owned signer distinct from the worker signer. The relay receipt
+binds the requested alias, actual model set, route policy, and hashed provider
+request identifiers to the controller nonce; it contains no prompt, completion,
+or credential text.
+
+The runtime-manager signer is separate from both worker and relay trust roots.
+Its receipt must parse against the frozen KVM measurement policy and bind the
+same job nonce, worker-result hash, network policy, and destruction record as
+the worker. The receipt exposes only commitments; the controller refuses an
+opaque isolation hash without the parsed policy/receipt pair. See
+`RUNTIME-MEASUREMENT-CONTRACT.md` for the exact evidence contract.
+
+The private controller validates the public subject interface rather than
+trusting schema hashes as labels. A fixed, controller-owned schema pair binds
+the input and output values for every black-box exchange. It rejects unknown
+fields, unbounded strings/arrays, non-finite JSON values, unsupported schema
+keywords, and an output whose schema hash differs from the signed subject
+protocol. These schemas describe the public interaction shape only; they never
+encode hidden expected values or private test predicates.
+
+The subject is never part of the agent turn. It starts only after the worker's
+agent container has been destroyed and its sealed patch has been admitted by
+the controller. The controller commits per-exchange timings privately and
+emits only aggregate timing evidence, so a later condition comparison can
+separate grading-time failures from agent-memory behavior.
 
 ## Output and disclosure boundary
 
-Private-oracle reports preserve only pass/fail status, return code, duration,
-byte counts, and SHA-256 digests for verifier output. They do not emit command
-text, stdout, stderr, source-check paths, violation text, overlay paths, hidden
-test text, or reference-repair text. This rule applies to `grade`,
-`verify-case`, and trial artifacts.
+Future remote private-oracle reports preserve only pass/fail status, return
+code, duration, byte counts, and SHA-256 digests for verifier output. They do
+not emit command text, stdout, stderr, source-check paths, violation text,
+overlay paths, hidden-test text, or reference-repair text. This rule applies to
+all future grade, verification, and trial artifacts.
 
 Each future private-oracle result will record only:
 

@@ -1,0 +1,53 @@
+schema_version = "0.5"
+id = "go-completion-order-v1"
+title = "Preserve completion candidate identity and order"
+split = "public-evaluation"
+dependency_strength = "medium"
+dependency_classification_status = "preregistered"
+language = "go"
+tags = ["public-evaluation", "transfer", "policy", "positive-control"]
+
+[bundle]
+public_paths = ["case.toml", "seed"]
+
+[repository]
+source_type = "local-fixture"
+path = "seed"
+base_revision = "go-completion-order-v1-base"
+
+[precursor]
+task = "Establish the durable completion candidate merge policy."
+success_commands = ["go test ./..."]
+
+[transition]
+kind = "none"
+description = "The transfer task begins from the public completion snapshot."
+apply_commands = []
+
+[transfer]
+task = "Continue the completion merge work. Implement `MergeCandidates` in `pkg/completion/completion.go` according to the durable policy from the preceding session. Run the trusted test."
+success_commands = ["go test ./..."]
+
+[[memory_seed]]
+entity_name = "completion-candidate-policy"
+type = "decision"
+title = "Completion candidates are case-insensitive and order-stable"
+narrative = "Candidate identity compares case-insensitively. The first occurrence keeps its spelling and position; later duplicates are ignored. Requested-only candidates append after the existing candidates in request order."
+facts = [
+  "Compare candidates case-insensitively.",
+  "Keep first spelling and position.",
+  "Ignore later duplicates.",
+  "Append requested-only candidates in request order.",
+]
+files_modified = ["pkg/completion/completion.go"]
+concepts = ["completion", "ordered merge"]
+topic_key = "completion-candidate-policy"
+related_entities = ["completion-engine"]
+
+[oracle]
+visibility = "public"
+required_start_files = ["pkg/completion/completion.go", "tests/completion_test.go"]
+relevant_evidence_ids = ["policy:completion-candidate-merge"]
+stale_evidence_ids = []
+forbidden_actions = []
+agent_writable_paths = ["pkg"]

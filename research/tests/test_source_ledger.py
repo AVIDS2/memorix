@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 import hashlib
+import json
 from pathlib import Path
 import shutil
 import subprocess
@@ -37,6 +38,7 @@ def test_source_ledger_binds_receipts_to_the_expected_screening_candidates() -> 
     }
 
     assert offline_ready == {
+        "backoff-permanent-error",
         "click-help-parameter",
         "cobra-completion-os-args",
         "urfave-cli-colon-completion",
@@ -50,9 +52,14 @@ def test_source_ledger_binds_receipts_to_the_expected_screening_candidates() -> 
 
 
 def test_source_ledger_rejects_admission_without_offline_preflight(tmp_path: Path) -> None:
+    shutil.copytree(LEDGER.parent / "preflight", tmp_path / "preflight")
     candidate = tmp_path / "CANDIDATE-SOURCES.toml"
     candidate.write_text(
-        LEDGER.read_text(encoding="utf-8").replace('status = "screening"', 'status = "admitted"', 1),
+        LEDGER.read_text(encoding="utf-8").replace(
+            'id = "pytest-relative-filename"\nstatus = "screening"',
+            'id = "pytest-relative-filename"\nstatus = "admitted"',
+            1,
+        ),
         encoding="utf-8",
     )
 
@@ -74,6 +81,58 @@ def test_source_ledger_rejects_a_tampered_environment_receipt_hash(tmp_path: Pat
 
     with pytest.raises(SourceLedgerError, match="environment receipt hash"):
         validate_source_ledger(load_source_ledger(candidate))
+
+
+def test_source_ledger_requires_and_validates_independent_admission_review(tmp_path: Path) -> None:
+    shutil.copytree(LEDGER.parent / "preflight", tmp_path / "preflight")
+    source = LEDGER.read_text(encoding="utf-8")
+    start = source.index('[[candidate]]\nid = "click-help-parameter"')
+    end = source.index('[[candidate]]', start + len('[[candidate]]'))
+    block = source[start:end]
+    admitted = block.replace('status = "screening"', 'status = "admitted"')
+    admitted = admitted.replace('benchmark_overlap = "unreviewed"', 'benchmark_overlap = "none-confirmed"')
+    admitted = admitted.replace('transition_plan = "not-designed"', 'transition_plan = "private-post-snapshot"')
+    candidate = tmp_path / "CANDIDATE-SOURCES.toml"
+    candidate.write_text(source.replace(block, admitted), encoding="utf-8")
+
+    with pytest.raises(SourceLedgerError, match="independent admission review"):
+        validate_source_ledger(load_source_ledger(candidate))
+
+    review_dir = tmp_path / "reviews"
+    review_dir.mkdir()
+    review = {
+        "schema_version": "case-admission-review-v1",
+        "candidate_id": "click-help-parameter",
+        "repository_url": "https://github.com/pallets/click",
+        "base_revision": "8c1a0a7abbc1c36f70d1f65f3604acc46c5ce6ab",
+        "public_transition_revision": "b67832c2167e5b0ff6764a8c04a0a9087e697b5a",
+        "author_id": "author-alpha",
+        "author_history_access": "provenance-only-v1",
+        "private_transition_commitment_sha256": "a" * 64,
+        "private_task_brief_sha256": "b" * 64,
+        "public_history_comparison_sha256": "c" * 64,
+        "reviewer_ids": ["reviewer-beta", "reviewer-gamma"],
+        "reviewer_kind": "independent-human-v1",
+        "findings": [
+            "independent-transition-v1",
+            "not-public-solution-isomorphic-v1",
+            "predecessor-dependency-reviewed-v1",
+            "current-source-sufficiency-reviewed-v1",
+        ],
+        "decision": "approved-for-development",
+        "reviewed_at_utc": "2026-07-23T00:00:00+00:00",
+    }
+    review_path = review_dir / "click.json"
+    review_path.write_text(json.dumps(review, indent=2) + "\n", encoding="utf-8")
+    review_sha256 = hashlib.sha256(review_path.read_bytes()).hexdigest()
+    admitted = admitted.replace(
+        'transition_plan = "private-post-snapshot"',
+        'transition_plan = "private-post-snapshot"\nadmission_review_path = "reviews/click.json"\nadmission_review_sha256 = "' + review_sha256 + '"',
+    )
+    candidate.write_text(source.replace(block, admitted), encoding="utf-8")
+
+    validation = validate_source_ledger(load_source_ledger(candidate))
+    assert validation.status_counts["admitted"] == 1
 
 
 def test_source_audit_checks_origin_commit_and_exact_license_bytes(tmp_path: Path) -> None:

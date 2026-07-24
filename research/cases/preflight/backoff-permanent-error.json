@@ -1,0 +1,21 @@
+{
+  "schema_version": "candidate-environment-preflight-v1",
+  "candidate_id": "backoff-permanent-error",
+  "base_revision": "1e7ec631ad36f58e16a2055d6b616cde123a070f",
+  "public_transition_revision": "6ae45cbed79609db4fde04f2b786766e59f51fae",
+  "bootstrap": {
+    "command": "go test ./... -run '^TestConstantBackOff$'",
+    "exit_code": 0,
+    "log_sha256": "afc5ca6fce9227f0a13eb162b5ead9275976146a426ca3ef08819e211e6d2d7d"
+  },
+  "offline": {
+    "command": "GOPROXY=off GOSUMDB=off go test ./... -run '^TestConstantBackOff$'",
+    "exit_code": 0,
+    "log_sha256": "afc5ca6fce9227f0a13eb162b5ead9275976146a426ca3ef08819e211e6d2d7d"
+  },
+  "runtime": "go1.25.5 windows-amd64",
+  "offline_policy": "go-proxy-off-v1",
+  "cache_profile": "external-artifact-root-v1",
+  "passed": true,
+  "observed_at_utc": "2026-07-23T23:59:00+00:00"
+}

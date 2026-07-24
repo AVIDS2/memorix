@@ -13,6 +13,14 @@ to mark a source `admitted` unless it has an allowlisted license, an offline
 environment, completed overlap review, and a private post-snapshot transition
 plan.
 
+Screening records are intentionally historical: an offline-ready receipt can
+remain useful for source triage without making a case executable. At
+confirmatory permit issue, however, the controller reloads both the environment
+receipt and the independent admission review. Each must be timestamped, no more
+than 14 days old, and not materially future-dated. This forces a fresh pinned
+runtime check and a fresh human comparison before a source lead can support a
+new worker run.
+
 `memorixbench audit-source-candidate <ledger> <candidate-id> <local-cache>`
 verifies a local Git cache before any source is used: its `origin` must match
 the declared repository URL, the public transition's first parent must match the

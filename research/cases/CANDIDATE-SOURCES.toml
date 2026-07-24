@@ -16,12 +16,14 @@ license_url = "https://github.com/cenkalti/backoff/blob/1e7ec631ad36f58e16a2055d
 license_sha256 = "5c0476add4c38b55d0ed5ac11b85e00c38f26e1caee20dfe3ab58190103d1fbc"
 source_urls = ["https://github.com/cenkalti/backoff/issues/177", "https://github.com/cenkalti/backoff/pull/178"]
 causal_chain = "issue-pr"
-environment_readiness = "unverified"
+environment_readiness = "offline-ready"
+environment_receipt_path = "preflight/backoff-permanent-error.json"
+environment_receipt_sha256 = "f507fd87503b566271bdc38075ce717e3e7de3c2bdbbc2a2654c10b059d32226"
 benchmark_overlap = "unreviewed"
 model_exposure = "public-history-documented"
 public_solution_exists = true
 transition_plan = "not-designed"
-decision_rationale = "Small real Go repair with a pinned MIT base; retain only as a source lead until an independent post-snapshot transfer transition and offline authoring gate exist."
+decision_rationale = "Small real Go repair with a pinned MIT base and a focused offline health receipt. The base's public TestIssue177 failure is the historical task oracle, not an environment-health failure. Retain only as a source lead until an independent post-snapshot transfer transition, overlap review, and human admission gates exist."
 
 [[candidate]]
 id = "pytest-relative-filename"
@@ -87,7 +89,7 @@ benchmark_overlap = "unreviewed"
 model_exposure = "public-history-documented"
 public_solution_exists = true
 transition_plan = "not-designed"
-decision_rationale = "Rejected for confirmatory recruitment because the same repository family is already represented in the development pilot; keeping it demonstrates the repository-split rule."
+decision_rationale = "Excluded from the first clean confirmatory cohort because this repository family was considered during withdrawn development work; retaining the record documents the repository-family exclusion rule."
 
 [[candidate]]
 id = "click-help-parameter"
@@ -110,8 +112,8 @@ environment_receipt_sha256 = "a0936db613619c863811fa9e92e5125e7af3b6bfac1018350e
 benchmark_overlap = "unreviewed"
 model_exposure = "public-history-documented"
 public_solution_exists = true
-transition_plan = "not-designed"
-decision_rationale = "A real deterministic CLI-library regression with a refreshed pinned offline targeted-test preflight from a clean external cache. It remains a source lead until benchmark-overlap review, memory dependency, and a private post-snapshot transition are separately admitted."
+transition_plan = "private-post-snapshot"
+decision_rationale = "A real deterministic CLI-library lead with a refreshed pinned offline targeted-test preflight and a separately drafted private post-snapshot negative-control transition. It remains screening until benchmark-overlap review, independent human admission, and private-oracle execution gates are satisfied."
 
 [[candidate]]
 id = "uvicorn-proxy-headers"
@@ -157,7 +159,7 @@ benchmark_overlap = "unreviewed"
 model_exposure = "public-history-documented"
 public_solution_exists = true
 transition_plan = "not-designed"
-decision_rationale = "A development-only controlled case now uses this pinned Apache-2.0 base and an independently authored helper migration. The public issue and PR remain causal source evidence only; this candidate stays screening until a distinct private post-snapshot confirmatory transition and split review exist."
+decision_rationale = "A prior controlled development attempt involving this base was withdrawn with the retired corpus. The public issue and PR remain causal source evidence only; this candidate stays screening until a distinct private post-snapshot confirmatory transition and split review exist."
 
 [[candidate]]
 id = "urfave-cli-colon-completion"
@@ -180,8 +182,8 @@ environment_receipt_sha256 = "6c4c17e67cd4e14ea533067905615bebbf3b6a39f53353cc62
 benchmark_overlap = "unreviewed"
 model_exposure = "public-history-documented"
 public_solution_exists = true
-transition_plan = "not-designed"
-decision_rationale = "A narrow Go completion regression with a pinned offline full-suite preflight. It remains a screening lead until benchmark-overlap review and a distinct private post-snapshot transition are designed."
+transition_plan = "private-post-snapshot"
+decision_rationale = "A narrow Go CLI-library lead with a pinned offline full-suite preflight and a separately drafted private post-snapshot negative-control transition. It remains screening until benchmark-overlap review, independent human admission, and private-oracle execution gates are satisfied."
 
 [[candidate]]
 id = "zod-parse-context-immutability"
@@ -204,8 +206,8 @@ environment_receipt_sha256 = "264d843aaf83f824b7e5a8330e2a0cae88db77e25d98044360
 benchmark_overlap = "unreviewed"
 model_exposure = "public-history-documented"
 public_solution_exists = true
-transition_plan = "not-designed"
-decision_rationale = "A real TypeScript library state-mutation bug with a pinned offline codec-test preflight. It remains a source lead until benchmark-overlap review, memory dependency, and a private post-snapshot transition are separately admitted."
+transition_plan = "private-post-snapshot"
+decision_rationale = "A real TypeScript library lead with a pinned offline codec-test preflight and a separately drafted private post-snapshot transition. It remains screening until benchmark-overlap review, independent human admission, and private-oracle execution gates are satisfied."
 
 [[candidate]]
 id = "typescript-never-nullish"

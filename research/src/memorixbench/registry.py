@@ -12,8 +12,8 @@ from .trace import TraceError, load_trace_bundle
 
 
 CASE_REGISTRY_SCHEMA_VERSION = "0.3"
-VALID_ENROLLMENTS = {"development-pilot", "confirmatory"}
-VALID_CORPUS_SPLITS = {"development", "validation", "test"}
+VALID_ENROLLMENTS = {"development-pilot", "public-reproducible", "confirmatory"}
+VALID_CORPUS_SPLITS = {"development", "public-evaluation", "validation", "test"}
 VALID_SOURCE_CLASSES = {"local-fixture", "public-repository"}
 VALID_CONTAMINATION_RISKS = {
     "local-fixture",
@@ -23,6 +23,7 @@ VALID_CONTAMINATION_RISKS = {
 VALID_TRANSITION_EXPOSURES = {
     "development-controlled",
     "historical-public",
+    "public-preregistered",
     "post-snapshot-private",
 }
 IDENTIFIER_PATTERN = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
@@ -76,6 +77,7 @@ class CaseRegistryValidation:
     task_family_count: int
     trace_family_count: int
     case_ids: tuple[str, ...]
+    public_reproducible_count: int = 0
 
     def public_payload(self) -> dict[str, object]:
         return asdict(self)
@@ -286,6 +288,42 @@ def _require_enrollment_invariants(entry: CaseRegistryEntry, manifest: CaseManif
                 "Track C development-pilot entry must declare every bundled capture"
             )
         return
+    if entry.enrollment == "public-reproducible":
+        if manifest.split != "public-evaluation":
+            raise CaseRegistryError(
+                "public-reproducible entry must use public-evaluation split"
+            )
+        if manifest.dependency_classification_status != "preregistered":
+            raise CaseRegistryError("public-reproducible entry must be preregistered")
+        if manifest.oracle.visibility != "public":
+            raise CaseRegistryError("public-reproducible entry must use a public oracle")
+        if not manifest.oracle.agent_writable_paths:
+            raise CaseRegistryError(
+                "public-reproducible entry must declare writable source roots"
+            )
+        if entry.transition_exposure != "public-preregistered":
+            raise CaseRegistryError(
+                "public-reproducible entry must disclose a public preregistered transition"
+            )
+        if manifest.study_track == "B":
+            if entry.captured_trace_count != 0:
+                raise CaseRegistryError(
+                    "seeded public-reproducible entry cannot declare captured traces"
+                )
+            return
+        if manifest.formation_track != "trace-replay" or manifest.precursor_trace_bundle is None:
+            raise CaseRegistryError(
+                "Track C public-reproducible entry must use a trace bundle"
+            )
+        try:
+            bundle = load_trace_bundle(manifest)
+        except TraceError as error:
+            raise CaseRegistryError("public-reproducible trace bundle is invalid") from error
+        if entry.captured_trace_count != len(bundle.entries):
+            raise CaseRegistryError(
+                "public-reproducible entry must declare every bundled trace"
+            )
+        return
     if manifest.split not in {"validation", "test"}:
         raise CaseRegistryError("confirmatory registry entry must use validation or test split")
     if manifest.dependency_classification_status != "preregistered":
@@ -353,6 +391,7 @@ def validate_case_registry(
         raise CaseRegistryError("case registry does not match cases root: " + " ".join(detail))
     _require_split_isolation(registry.entries)
     pilot_count = 0
+    public_reproducible_count = 0
     confirmatory_count = 0
     for entry in registry.entries:
         case_path = (root / _relative_case_path(entry.path)).resolve()
@@ -366,6 +405,8 @@ def validate_case_registry(
         _require_enrollment_invariants(entry, manifest)
         if entry.enrollment == "development-pilot":
             pilot_count += 1
+        elif entry.enrollment == "public-reproducible":
+            public_reproducible_count += 1
         else:
             confirmatory_count += 1
     return CaseRegistryValidation(
@@ -373,6 +414,7 @@ def validate_case_registry(
         registry_sha256=registry.sha256,
         entry_count=len(registry.entries),
         development_pilot_count=pilot_count,
+        public_reproducible_count=public_reproducible_count,
         confirmatory_count=confirmatory_count,
         repository_family_count=len({entry.repository_family_id for entry in registry.entries}),
         task_family_count=len({entry.task_family_id for entry in registry.entries}),

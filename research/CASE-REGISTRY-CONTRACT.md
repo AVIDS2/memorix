@@ -23,6 +23,13 @@ agent-visible oracle material; public traces must omit answer-key material; and
 a matched no-memory cohort must be reported rather than assumed weak. The case
 workspace never mounts this registry for a worker.
 
+Before a real-repository source lead can enter authoring, it must also pass the
+independent human review in `CASE-ADMISSION-REVIEW-CONTRACT.md`. That review
+checks that the private transition is not a relabelled public solution and that
+current-source sufficiency was genuinely considered. The receipt is an
+accountability record, not a claim that public history or model pretraining can
+be erased.
+
 `contamination_risk` is a disclosure, not a magical proof that a public
 repository was absent from model training. A confirmatory public-repository
 case must use a privately authored post-snapshot transition, record the risk,
@@ -48,8 +55,15 @@ traces. The separate private overlay and KVM controller admission gates still
 apply after registry validation. The runner will not use a confirmatory entry
 until its trace-selection and external black-box gates also pass.
 
-The current registry intentionally has zero entries. The original eight
-development exercises were withdrawn after leakage review and are outside the
-public artifact. An empty registry is a valid state: it prevents an unsafe case
-from becoming a benchmark merely because the harness can execute it. New cases
-must enter through fresh ids and the full sealed-task admission path.
+`public-reproducible` is a third, explicitly weaker enrollment class for the
+public local-fixture cohort. It requires the `public-evaluation` split, a
+preregistered dependency card, public oracle assets, explicit agent-writable
+source roots, and a frozen public transition. It can support a locally
+reproducible comparison under its declared model and tool surface, but never a
+private-oracle or pretraining-contamination claim.
+
+The current registry contains twelve `public-reproducible` entries in the
+first frozen cohort. The original eight development exercises were withdrawn
+after leakage review and are outside the public artifact. Registry admission is
+not a quality label: every result must still satisfy the frozen cohort plan and
+the result validator before it is analyzed.

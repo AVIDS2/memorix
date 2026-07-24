@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from http.client import RemoteDisconnected
 import json
 import os
 from pathlib import Path
@@ -25,6 +26,7 @@ from .trace import PrecursorTrace
 
 
 AGENTMEMORY_PROVIDER_ID = "agentmemory-0.9.28-full-local"
+AGENTMEMORY_STATIC_PORT = 3111
 PERSISTENCE_SETTLE_SECONDS = 12
 ENGINE_PORT_OFFSETS = (0, 1, 2, 6_353, 46_023)
 
@@ -65,6 +67,13 @@ class AgentMemoryFullAdapter:
     _stdout_handle: Any = field(default=None, init=False)
     _stderr_handle: Any = field(default=None, init=False)
     _lease_acquired: bool = field(default=False, init=False)
+
+    def __post_init__(self) -> None:
+        if self.port != AGENTMEMORY_STATIC_PORT:
+            raise AgentMemoryAdapterError(
+                "the pinned AgentMemory Compose runtime exposes fixed ports; "
+                f"port must be {AGENTMEMORY_STATIC_PORT}"
+            )
 
     @property
     def package_root(self) -> Path:
@@ -192,7 +201,7 @@ class AgentMemoryFullAdapter:
             raise AgentMemoryAdapterError(
                 f"AgentMemory {method} {path} failed: HTTP {error.code} {detail}"
             ) from error
-        except (URLError, TimeoutError) as error:
+        except (URLError, TimeoutError, RemoteDisconnected, ConnectionResetError) as error:
             raise AgentMemoryAdapterError(
                 f"AgentMemory {method} {path} failed: {error}"
             ) from error
@@ -227,20 +236,26 @@ class AgentMemoryFullAdapter:
             + ", ".join(str(port) for port in occupied)
         )
 
-    def _compose_down(self) -> None:
+    def _compose_down_command(self, *, preserve_state: bool) -> list[str]:
         docker = shutil.which("docker")
         if not docker:
             raise AgentMemoryAdapterError("docker is required for AgentMemory full runtime")
+        command = [
+            docker,
+            "compose",
+            "--project-name",
+            self.project_name,
+            "-f",
+            str(self.compose_path),
+            "down",
+        ]
+        if not preserve_state:
+            command.append("--volumes")
+        return command
+
+    def _compose_down(self, *, preserve_state: bool) -> None:
         completed = subprocess.run(
-            [
-                docker,
-                "compose",
-                "--project-name",
-                self.project_name,
-                "-f",
-                str(self.compose_path),
-                "down",
-            ],
+            self._compose_down_command(preserve_state=preserve_state),
             cwd=self.runtime_root,
             env=self._environment(),
             capture_output=True,
@@ -255,6 +270,7 @@ class AgentMemoryFullAdapter:
                 "returncode": completed.returncode,
                 "stdout": completed.stdout,
                 "stderr": completed.stderr,
+                "preserve_state": preserve_state,
             },
         )
         if completed.returncode != 0:
@@ -330,7 +346,7 @@ class AgentMemoryFullAdapter:
                 self._release_lease()
             raise
 
-    def stop(self) -> None:
+    def stop(self, *, preserve_state: bool = False) -> None:
         process = self._process
         self._process = None
         try:
@@ -341,7 +357,7 @@ class AgentMemoryFullAdapter:
                 except subprocess.TimeoutExpired:
                     process.kill()
                     process.wait(timeout=5)
-            self._compose_down()
+            self._compose_down(preserve_state=preserve_state)
         finally:
             if self._stdout_handle:
                 self._stdout_handle.close()
@@ -405,7 +421,7 @@ class AgentMemoryFullAdapter:
         # async persistence worker has flushed its files. This measured window
         # is a preflight gate, not part of agent wall-clock time.
         time.sleep(PERSISTENCE_SETTLE_SECONDS)
-        self.stop()
+        self.stop(preserve_state=True)
         self.start()
         restarted_search = self._search_raw(
             project_id=marker_project,

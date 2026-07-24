@@ -6,14 +6,35 @@ import re
 from typing import Iterable
 
 
+GENERIC_SECRET_ASSIGNMENT_PATTERN = re.compile(
+    r"(?i)(?:api[_-]?key|auth[_-]?token|password|secret)\s*[:=]\s*(?P<value>\S+)"
+)
+SAFE_RUNTIME_SECRET_REFERENCE_PATTERN = re.compile(
+    r"(?i)^(?:"
+    r"os\.(?:environ|getenv)"
+    r"|process\.env"
+    r"|environ\.get"
+    r"|getenv\s*\("
+    r"|[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+"
+    r"|[A-Za-z_][A-Za-z0-9_]*\s*\("
+    r"|(?:str|bytes|None)\b"
+    r")"
+)
+
 SECRET_REDACTIONS = (
-    (
-        re.compile(r"(?i)(?:api[_-]?key|auth[_-]?token|password|secret)\s*[:=]\s*\S+"),
-        "[REDACTED_SECRET]",
-    ),
+    (GENERIC_SECRET_ASSIGNMENT_PATTERN, "[REDACTED_SECRET]"),
     (re.compile(r"(?i)bearer\s+[a-z0-9._~+/=-]{16,}"), "Bearer [REDACTED]"),
-    (re.compile(r"-----BEGIN [A-Z ]+-----"), "[REDACTED_PRIVATE_KEY]"),
+    (re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----"), "[REDACTED_PRIVATE_KEY]"),
     (re.compile(r"(?<![A-Za-z0-9])sk-[A-Za-z0-9_-]{20,}"), "[REDACTED_SECRET]"),
+    (
+        re.compile(r"(?<![A-Za-z0-9_])gh(?:p|o|u|s|r)_[A-Za-z0-9_]{20,}"),
+        "[REDACTED_GITHUB_TOKEN]",
+    ),
+    (
+        re.compile(r"(?<![A-Za-z0-9_])github_pat_[A-Za-z0-9_]{20,}"),
+        "[REDACTED_GITHUB_TOKEN]",
+    ),
+    (re.compile(r"(?<![A-Za-z0-9_])npm_[A-Za-z0-9]{20,}"), "[REDACTED_NPM_TOKEN]"),
     (
         re.compile(r"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b"),
         "[REDACTED_JWT]",
@@ -24,11 +45,21 @@ SECRET_PATTERNS = tuple(pattern for pattern, _replacement in SECRET_REDACTIONS)
 # Match the full host-path token rather than only its prefix. The character set
 # intentionally permits spaces so a Windows home directory is not partly left
 # behind after redaction. Newlines and markup delimiters terminate a path.
+#
+# A bare ``\\`` is not a UNC path: it is also a common LaTeX row break. Require
+# either a device-prefixed drive path or both a UNC host and share name.
+UNC_COMPONENT_PATTERN = r"[A-Za-z0-9][^\\/\r\n\"'`<>|]*"
+POSIX_HOST_ROOT_PATTERN = (
+    r"(?:Users|home|tmp|private" + r"/" + r"tmp|var" + r"/" + r"folders|mnt/[a-z])"
+)
 HOST_PATH_PATTERN = re.compile(
     r"(?ix)(?:"
+    r"(?<![A-Za-z0-9])[a-z]:[\\/][^\r\n\"'`<>|]*"
+    r"|\\\\(?:\?\\)?(?:"
     r"[a-z]:[\\/][^\r\n\"'`<>|]*"
-    r"|\\\\(?:\?\\)?[^\r\n\"'`<>|]*"
-    r"|/(?:Users|home|tmp|private/tmp|var/folders|mnt/[a-z])(?:/[^\r\n\"'`<>|]*)?"
+    r"|" + UNC_COMPONENT_PATTERN + r"[\\/]" + UNC_COMPONENT_PATTERN + r"(?:[\\/][^\r\n\"'`<>|]*)?"
+    r")"
+    r"|/" + POSIX_HOST_ROOT_PATTERN + r"(?:/[^\r\n\"'`<>|]*)?"
     r")"
 )
 
@@ -77,8 +108,15 @@ def reject_public_text(content: str) -> None:
         raise PublicSafetyError("public artifact contains a NUL byte")
     if HOST_PATH_PATTERN.search(content):
         raise PublicSafetyError("public artifact contains an absolute host path")
-    if any(pattern.search(content) for pattern in SECRET_PATTERNS):
+    if _contains_credential_like_content(content):
         raise PublicSafetyError("public artifact contains credential-like content")
+
+
+def _contains_credential_like_content(content: str) -> bool:
+    for match in GENERIC_SECRET_ASSIGNMENT_PATTERN.finditer(content):
+        if not SAFE_RUNTIME_SECRET_REFERENCE_PATTERN.match(match.group("value")):
+            return True
+    return any(pattern.search(content) for pattern in SECRET_PATTERNS[1:])
 
 
 def reject_public_json_payload(payload: object) -> None:

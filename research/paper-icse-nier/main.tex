@@ -1,0 +1,394 @@
+\documentclass[10pt,conference]{IEEEtran}
+
+\usepackage{booktabs}
+\usepackage{cite}
+\usepackage[hidelinks]{hyperref}
+\hypersetup{
+  pdfauthor={Anonymous Authors},
+  pdftitle={MemorixBench-Transfer: A Fail-Closed Evaluation Design for Fresh-Agent Project Memory}
+}
+
+\newcommand{\memorix}{\textsc{Memorix}}
+\newcommand{\bench}{\textsc{MemorixBench-Transfer}}
+
+\title{\bench: A Fail-Closed Evaluation Design for Fresh-Agent Project Memory}
+\author{Anonymous Authors}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Coding agents increasingly carry project memory across sessions, but a strong
+fresh agent can often recover the needed state from current code and tests.
+This makes a useful question conditional: when does predecessor evidence help a
+new agent complete a later engineering task, and when does it only add stale
+context or cost? We present \bench, a fail-closed evaluation design for this
+question. It holds the evolved repository, ordinary tools, and bounded evidence
+budget fixed while varying only the memory mechanism. The design separates an
+equal-evidence canonical retrieval comparison from native product behavior,
+records freshness and stale-claim risks, and reserves private-oracle claims for
+isolated execution. A public reproducibility study covers twelve frozen Python,
+TypeScript, and Go transfer fixtures. Its 144-run Qwen cohort is inconclusive
+(+2.8 points for canonical \memorix{} over no memory; 95\% interval $[-8.3,
+16.7]$), while a frozen 72-run DeepSeek replication reaches ceiling success for
+both conditions and exposes context-cost overhead. These results are initial
+boundary evidence, not a general effectiveness claim. The contribution is an
+executable evaluation discipline that prevents small public diagnostics from
+being misreported as proof that more memory is better.
+\end{abstract}
+
+\begin{IEEEkeywords}
+agent memory, coding agents, evaluation, reproducibility, software engineering
+\end{IEEEkeywords}
+
+\section{Motivation}
+
+Agent-memory systems are often evaluated by recall or preference-style tasks.
+Those measurements matter, but they do not answer whether retained project
+evidence changes a later coding agent's tested patch. The distinction becomes
+more important as models improve: a capable fresh agent can inspect the current
+repository, search source, and run focused tests without any predecessor
+context. Injecting a long summary can then consume budget, delay useful work,
+or promote an outdated assumption.
+
+Existing memory evaluations cover conversational updates and abstention~\cite{wu2024longmemeval},
+incremental multi-turn memory abilities~\cite{hu2025memoryagentbench}, and
+interdependent agentic tasks~\cite{he2026memoryarena}; workflow-memory work
+also induces reusable routines outside coding~\cite{wang2024agentworkflowmemory}. Dynamic-environment and
+long-horizon coding benchmarks further show that evolving state is not new by
+itself~\cite{xu2026evoarena,le2025sweevo,jin2026chainswe}. \textsc{MemorixBench-Transfer} focuses on a
+narrower intervention: after a controlled repository evolution, can bounded,
+freshness-aware predecessor evidence help a \emph{fresh} agent, relative to an
+equally capable agent that sees the same current code?
+
+This paper makes three contributions. First, it defines a causal comparison that
+does not weaken the no-memory control. Second, it ships an executable public
+study path with fail-closed receipts and a deliberately conservative analysis.
+Third, it makes the evidence boundary explicit: public fixtures establish
+reproducibility observations, while private-oracle effectiveness claims require
+separate admission and isolation gates.
+
+\section{Fresh-Agent Transfer Design}
+
+A case consists of a precursor engineering session, a controlled repository
+transition, and a later transfer task. The transfer agent receives the same
+evolved checkout, editable source roots, current-code inspection tools,
+verification commands, timeout, and actual model route in every condition. The
+only intended difference is predecessor evidence and the mechanism that serves
+it. The no-memory condition therefore remains free to read, search, edit, and
+test the current project; it is not a deliberately weakened baseline.
+
+\begin{figure*}[t]
+\centering
+\small
+\begin{tabular}{@{}p{0.28\textwidth}c p{0.28\textwidth}c p{0.28\textwidth}@{}}
+\toprule
+\centering{}Precursor evidence & & \centering{}Shared transfer state & & \centering{}Evidence boundary \tabularnewline%
+\midrule
+\centering{}Durable decision plus potentially stale trace & $\longrightarrow$ & \centering{}Same evolved repository and ordinary tools; only bounded predecessor evidence changes & $\longrightarrow$ & \centering{}Public verifier now; private oracle only after isolation gates \tabularnewline%
+\bottomrule
+\end{tabular}
+\caption{The intervention is predecessor evidence, not access to current code.
+The transition snapshot and ordinary coding capability remain shared across
+conditions.}\label{fig:transfer-boundary}
+\end{figure*}
+
+\begin{table}[t]
+\caption{Canonical comparison surface. Every condition receives the same
+transfer checkout and ordinary coding tools.}\label{tab:conditions}
+\centering
+\begin{tabular}{p{0.22\columnwidth}p{0.68\columnwidth}}
+\toprule
+Condition & Predecessor input before the transfer task \\
+\midrule
+No memory & None; current source and tests only \\
+Raw replay & Bounded suffix of the normalized precursor trace \\
+Canonical memory & Same bounded trace, formed and retrieved through a pinned adapter \\
+Native product & Optional, one-call project-memory surface; reported separately \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The canonical surface gives comparable providers the same normalized precursor
+trace and context ceiling. It supports a fair retrieval question, not a claim
+that all products share the same native ingestion path. Native \memorix{}
+behavior is consequently a separate product surface: the agent may choose one
+bounded read, and its call count and served context are recorded instead of
+being silently pooled with forced retrieval.
+
+\subsection{Fail-Closed Rejection Rules}
+
+The comparison is useful only when ordinary coding capability remains matched.
+\bench{} therefore rejects, rather than scores, a row when a condition loses a
+current-code tool, a transfer workspace differs from its registered snapshot,
+the provider route is mixed or unreported, a case/oracle definition drifts, or
+the planned matrix has a missing or duplicate row. A broken memory adapter is
+an infrastructure failure rather than a zero. These checks make several common
+shortcuts unreportable: hiding tests from no memory, treating a native hook
+write path as equivalent to another system's replay input, or pooling different
+actual models to make a small result table look larger.
+
+\begin{table}[t]
+\caption{Examples of evidence failures and the required handling.}\label{tab:rejections}
+\centering
+\begin{tabular}{@{}p{0.31\columnwidth}p{0.58\columnwidth}@{}}
+\toprule
+Observed failure & Required handling \\
+\midrule
+No-memory loses ordinary source or test access & Invalidate the matched run \\
+Mixed or missing actual-model telemetry & Exclude the cohort from confirmatory inference \\
+Public issue/patch supplies an answer & Retain only as source provenance \\
+Native ingestion differs across systems & Report as a separate product surface \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Each run begins from a fresh materialized transfer workspace. The harness
+removes previous Git history, rejects filesystem residue, and uses disposable
+local home/cache directories; controlled Claude runs also disable session
+persistence. This controls harness-visible cross-run state, not opaque
+provider-side state or pretraining exposure. Public repository history is used
+only as provenance because public tasks and solutions can contaminate model
+evaluation~\cite{openai2026swebench}. A private transition, oracle, and raw
+precursor event are never released to a public worker.
+
+\subsection{Outcome and Analysis Contract}
+
+Patch correctness is the primary outcome. A run passes only when the registered
+transfer verifier accepts the sealed patch after the agent exits; a model's
+explanation, a self-reported completion message, or a favorable memory lookup
+cannot substitute for that verifier. The same verifier is used for every
+condition in a case. Efficiency and freshness behavior are reported beside, but
+never folded into, correctness. This distinction matters because a memory
+mechanism can add useful evidence while still increasing provider token use or
+wall-clock time, and because a fluent but stale explanation is not a correct
+patch.
+
+\begin{table}[t]
+\caption{Outcome families are deliberately not interchangeable.}\label{tab:outcomes}
+\centering
+\begin{tabular}{@{}p{0.28\columnwidth}p{0.61\columnwidth}@{}}
+\toprule
+Outcome family & Measurement and interpretation \\
+\midrule
+Patch correctness & Registered deterministic transfer verifier after agent exit \\
+Resource cost & Provider-reported input/output tokens, cost, wall time, and tool calls; descriptive unless preregistered \\
+Freshness behavior & Blinded stale-conflict action only when a private label packet exists \\
+Operational integrity & Route, workspace, formation, patch, and verifier receipts; failure invalidates a row \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+For a matched treatment-control pair, the public analysis first averages fixed
+repetitions within a case and then compares the resulting case-level outcomes.
+This makes the case, rather than a retry, the unit of inference. A bootstrap
+interval and a paired sign-flip statistic summarize the primary difference;
+they are descriptive for the present public cohort. The analysis refuses to
+silently repair a partially observed matrix. Missing rows, duplicate rows,
+definition-hash drift, or an actual-model mismatch invalidate the aggregate
+instead of being imputed as failures or dropped after inspection. The same
+policy prevents pseudo-replication: repeating one easy fixture does not create
+many independent engineering tasks.
+
+The protocol also distinguishes a failed task from a failed experiment. A
+verified patch that misses its task under a valid route is an observed task
+failure. A timeout may be an observed outcome when the environment and route
+receipts are intact. By contrast, an adapter crash, an unbound model route, a
+leaked prior workspace, or a verifier that differs across conditions is an
+infrastructure failure. It is surfaced with its receipt and removed from the
+comparison; assigning it a zero to one condition would create a spurious memory
+effect.
+
+\section{Initial Public Reproducibility Study}
+
+We froze a public transfer cohort of twelve local fixtures spanning Python,
+TypeScript, and Go. It contains four predecessor-policy transfers, four
+current-source-sufficient controls, and four stale or distracting-memory cases.
+The first cohort used four conditions and three fixed repetitions (144 rows).
+The registered primary contrast was canonical \memorix{} versus no memory; all
+conditions used one provider-reported model and one bounded tool policy.
+
+\begin{table}[t]
+\caption{Frozen public cohorts. Repetitions are collapsed within each of twelve
+case clusters before inference.}\label{tab:public-results}
+\centering
+\begin{tabular}{@{}p{0.17\columnwidth}p{0.16\columnwidth}p{0.56\columnwidth}@{}}
+\toprule
+Cohort & Valid rows & Descriptive observation \\
+\midrule
+Qwen & 144 & Canonical Memorix 35/36 vs.\ no memory 34/36; +2.8 points, 95\% interval $[-8.3,16.7]$, sign-flip $p=1.0$ \\
+DeepSeek & 72 & Both canonical \memorix{} and no memory 36/36; canonical \memorix{} used about 2,206 more input tokens per case cluster \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The public results are intentionally mixed. The Qwen interval includes a
+meaningful advantage and disadvantage, so it does not support a stable success
+claim. The DeepSeek replication has no accuracy headroom on these fully public
+fixtures and instead reveals a context-cost boundary. With only twelve
+independent clusters, neither cohort is sensitive to modest effects. These are
+useful negative constraints on product design: memory should earn its context
+cost on a real dependency rather than be injected merely because a prior
+session exists.
+
+The study does not report stale-conflict action labels because it has no public
+blinded-label packet, and it does not report a native-MCP outcome comparison;
+the current native hook path is integration evidence only. Missing measurements
+remain missing, never zero. Likewise, public fixtures cannot establish that a
+task was unseen in pretraining, that a private oracle is secure, or that the
+observations generalize across repositories and agent clients.
+
+\subsection{Evidence Tiers}
+
+The artifact separates three claims that are often collapsed. Deterministic
+retrieval tests can show that an adapter forms and retrieves bounded evidence.
+The public cohort can show that a fixed implementation and its mixed outcomes
+are reproducible. Neither can establish a private-oracle engineering effect.
+That final claim requires newly authored transitions, a private controller, and
+independent execution evidence. This tiering is deliberately asymmetric: a
+failure at a higher tier cannot be repaired by adding more public fixture runs.
+
+\section{Artifact Contract}
+
+The implementation is an artifact contract, not merely a prose protocol. Each
+run binds a case-definition hash, clean transfer-tree identity, prompt hash,
+ordinary-tool policy, formation receipt, actual-model telemetry, sealed patch,
+and verifier receipt. The public analysis rejects a matrix with missing,
+duplicate, mixed-model, or definition-drift rows before aggregate statistics
+are produced. Repetitions are collapsed inside a case cluster; they characterize
+stability rather than being counted as independent engineering problems.
+
+\begin{table}[t]
+\caption{Artifact layers and their enforced invariant.}\label{tab:artifact-contract}
+\centering
+\begin{tabular}{@{}p{0.25\columnwidth}p{0.64\columnwidth}@{}}
+\toprule
+Layer & Enforced invariant \\
+\midrule
+Case registry & Immutable case and oracle-definition commitments \\
+Formation adapter & Bounded predecessor input with a provider-specific receipt \\
+Run record & Clean start state, route/tool policy, patch, and verifier binding \\
+Analysis manifest & Predeclared condition pairs and complete row matrix \\
+Public release & Allowlisted files, credential/path scan, materialized self-test \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The release builder materializes only allowlisted public source, fixture, and
+aggregate-result files into a fresh tree, scans for credential-like material
+and host-specific paths, and reruns the public tests there. Raw client events,
+private overlays, hidden verifier output, and local model settings remain
+outside that tree. This lets a reviewer reproduce the bounded public study
+without mistaking its sanitized inputs for a private-oracle benchmark.
+
+\section{Threats to Validity and Scope}
+
+The central internal-validity risk is unequal ordinary capability. A memory
+condition that receives a useful shell command, a hidden test, a different
+timeout, or a pre-warmed project checkout is not measuring predecessor evidence
+alone. \textsc{MemorixBench-Transfer} addresses only harness-visible inequivalence: it commits the
+transfer tree, tool policy, prompt, model-route receipt, and verifier. It cannot
+observe an inference provider's private cache, hidden routing decision, or
+pretraining exposure. The reported model name is consequently an attested local
+observation, not proof of a completely isolated model state.
+
+The main construct-validity risk is conflating a canonical comparison with
+native product experience. Canonical adapters normalize the precursor trace and
+rendered context budget so that systems can be compared without rewarding an
+unrelated ingestion interface. That deliberately strips away some product
+features. Native \memorix{} uses an agent-facing project-context call and may
+include freshness, semantic-code, knowledge, and workflow evidence; it is
+useful as a product diagnostic, but it is not pooled with a forced canonical
+block or presented as a head-to-head native benchmark against products with
+different interfaces. The current native hook implementation has passed
+integration checks only, not an outcome study.
+
+External validity is intentionally narrow. The public cohort has twelve
+fixtures and two observed provider routes, and both public task sources are
+visible enough that they cannot settle contamination or generalization. Its
+ceiling DeepSeek result is informative precisely because it shows a strong
+current-code agent may not need memory on simple public tasks. It does not show
+that memory is useless on difficult, private, cross-session work. Conversely,
+the small positive Qwen point estimate does not establish a general benefit.
+The appropriate conclusion is conditional: memory needs a verified dependency
+that current code alone does not cheaply resolve, and the study must retain a
+strong no-memory control to demonstrate that dependency.
+
+Finally, the artifact is not a claim that every software-engineering outcome
+can be reduced to a deterministic checker. A private behavioral oracle can
+supplement tests when design ownership matters, but it must be held by an
+isolated controller and never revealed in the transfer prompt. The public
+release deliberately withholds that layer. This reduces what can be claimed
+today, while preserving a path to a stronger future study without leaking the
+answer into the agent's context.
+
+\section{Future Plans}
+
+The next stage turns the design into a confirmatory engineering study without
+reusing public issue/patch pairs as answers. Each real-repository lead requires
+a newly authored post-snapshot transition, a private behavioral oracle, two
+independent human admission reviews, and at least two precursor traces. A
+separate worker, model-relay, and runtime-manager evidence chain must bind one
+actual model, the sealed patch, and a KVM-backed controller/subject boundary.
+The analysis plan and power envelope will be frozen before outcome labels are
+read. These gates are deliberately stricter than the public study; absent gates
+are a reason to withhold an effectiveness claim, not to relabel a local smoke
+as evidence.
+
+\subsection{Confirmatory Execution Sequence}
+
+The first gate is case authoring and admission. A candidate begins as a source
+lead, not as an outcome. The case author creates a new post-snapshot transition
+and commits its task, reference repair, and behavioral oracle before any model
+run. Independent reviewers inspect a hash-bound admission record rather than
+the hidden answer. They must reject a lead if the current snapshot already
+makes the transfer task trivial, if public history exposes the intended repair,
+or if predecessor evidence is not plausibly necessary. This gate is costly, but
+it prevents a memory study from selecting only cases where a remembered public
+patch is the answer.
+
+The second gate is isolated execution. The controller owns the private
+transition and oracle; the worker owns only the evolved transfer checkout,
+bounded condition input, and ordinary coding tools. A runtime manager seals
+the patch before validation. A route receipt must bind one actual model for a
+cohort, and the worker/controller boundary must be independently auditable.
+The point is not to claim perfect epistemic isolation. It is to make every
+remaining uncertainty named, bounded, and symmetric across conditions.
+
+The third gate is analysis and replication. A frozen plan names the primary
+comparison, required case clusters, missing-pair policy, and resource outcomes
+before validators reveal outcome labels. An independent execution cohort then
+repeats the full pathway with a second model route or agent client. Only a
+consistent result on admitted private cases can support an effectiveness claim;
+a result that appears only in a native product diagnostic can support product
+engineering, not a cross-system causal conclusion.
+
+\begin{table}[t]
+\caption{Confirmatory gates are claim gates, not administrative checks.}\label{tab:confirmatory-gates}
+\centering
+\begin{tabular}{@{}p{0.26\columnwidth}p{0.61\columnwidth}@{}}
+\toprule
+Gate & What it permits, and what it still does not prove \\
+\midrule
+Private case admission & A dependency-bearing trial; not absence of all model contamination \\
+Worker/controller isolation & A sealed outcome check; not proof about opaque provider state \\
+Frozen paired analysis & A cohort-level effect estimate; not broad cross-project generalization \\
+Independent replication & A robustness claim for declared routes; not universal memory utility \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Data Availability}
+
+An anonymized supplementary package is prepared for review. It contains the
+public fixture definitions, canonical adapters, analysis code, and sanitized
+aggregate receipts needed to reproduce the public cohorts. It excludes raw
+agent events, credentials, private transitions, hidden oracles, reference
+patches, and user-specific client configuration. The supplementary archive must
+be scrubbed of version-control history and author-identifying metadata before
+upload; the non-anonymous project release is not used during review.
+
+\bibliographystyle{IEEEtran}
+\bibliography{references}
+
+\end{document}

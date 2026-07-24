@@ -247,6 +247,28 @@ public_paths = ["case.toml", "fixtures/typescript-auth"]
     assert case.public_bundle_paths == ("case.toml", "fixtures/typescript-auth")
 
 
+def test_public_evaluation_requires_preregistration_and_writable_roots(tmp_path: Path) -> None:
+    content = VALID_CASE.replace(
+        'split = "development"',
+        'split = "public-evaluation"',
+    ).replace(
+        'dependency_classification_status = "retrospective-development"',
+        'dependency_classification_status = "preregistered"',
+    ).replace(
+        'forbidden_actions = ["restore the removed auth validator"]',
+        'forbidden_actions = []\nagent_writable_paths = ["src"]',
+    )
+
+    case = load_case_manifest(write_case(tmp_path, content))
+
+    assert case.evidence_tier == "public-reproducible"
+    assert case.oracle.agent_writable_paths == ("src",)
+
+    missing_roots = content.replace('agent_writable_paths = ["src"]\n', '')
+    with pytest.raises(ManifestError, match="writable_paths"):
+        load_case_manifest(write_case(tmp_path, missing_roots))
+
+
 def test_confirmatory_case_requires_public_bundle_allowlist(tmp_path: Path) -> None:
     content = VALID_CASE.replace('split = "development"', 'split = "test"').replace(
         'dependency_classification_status = "retrospective-development"',
@@ -308,6 +330,47 @@ def test_rejects_noncanonical_formation_without_trace(tmp_path: Path) -> None:
     )
 
     with pytest.raises(ManifestError, match="require precursor_trace"):
+        load_case_manifest(write_case(tmp_path, content))
+
+
+def test_accepts_native_session_formation_with_portable_hook_capture(tmp_path: Path) -> None:
+    content = VALID_CASE.replace(
+        "[repository]",
+        '''[formation]
+track = "native-session"
+
+[formation.native_hook_capture]
+path = "native-hook-capture.json"
+schema_version = "native-hook-capture-v1"
+
+[repository]''',
+    )
+
+    case = load_case_manifest(write_case(tmp_path, content))
+
+    assert case.formation_track == "native-session"
+    assert case.study_track == "C"
+    assert case.native_hook_capture is not None
+    assert case.native_hook_capture.path == "native-hook-capture.json"
+
+
+def test_rejects_native_session_with_trace_replay_source(tmp_path: Path) -> None:
+    content = VALID_CASE.replace(
+        "[repository]",
+        '''[formation]
+track = "native-session"
+
+[formation.precursor_trace]
+path = "trace.json"
+schema_version = "precursor-trace-v1"
+provenance = "captured-session-v1"
+normalization = "event-normalize-v1"
+truncation = "event-suffix-v1"
+
+[repository]''',
+    )
+
+    with pytest.raises(ManifestError, match="requires trace-replay"):
         load_case_manifest(write_case(tmp_path, content))
 
 

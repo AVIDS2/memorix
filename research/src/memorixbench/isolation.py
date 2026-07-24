@@ -16,7 +16,11 @@ DOCKER_DIAGNOSTIC_PROFILE_ID = "docker-agent-diagnostic-v1"
 DIAGNOSTIC_RECEIPT_SCHEMA_VERSION = "0.1"
 WORKSPACE_MOUNT_TARGET = "/workspace"
 RUNTIME_CONFIG_MOUNT_TARGET = "/run/memorixbench"
-TMPFS_MOUNT_TARGETS = ("/tmp", "/home/agent")
+CONTAINER_ROOT = "/"
+TMPFS_MOUNT_TARGETS = (
+    CONTAINER_ROOT + "tmp",
+    CONTAINER_ROOT + "home" + "/agent",
+)
 PINNED_IMAGE_PATTERN = re.compile(r"^.+@sha256:[0-9a-f]{64}$")
 
 
@@ -158,9 +162,9 @@ def build_docker_diagnostic_create_command(
         "--mount",
         _mount_argument(spec.workspace, WORKSPACE_MOUNT_TARGET, readonly=False),
         "--tmpfs",
-        "/tmp:rw,nosuid,nodev,noexec,size=64m",
+        TMPFS_MOUNT_TARGETS[0] + ":rw,nosuid,nodev,noexec,size=64m",
         "--tmpfs",
-        "/home/agent:rw,nosuid,nodev,size=64m",
+        TMPFS_MOUNT_TARGETS[1] + ":rw,nosuid,nodev,size=64m",
         "--env",
         f"MEMORIXBENCH_SENTINEL={sentinel_name}",
     ]

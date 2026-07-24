@@ -1,8 +1,13 @@
 import json
 from pathlib import Path
+from http.client import RemoteDisconnected
+
+import pytest
 
 from memorixbench.agentmemory_adapter import (
     AGENTMEMORY_PROVIDER_ID,
+    AGENTMEMORY_STATIC_PORT,
+    AgentMemoryAdapterError,
     AgentMemoryFullAdapter,
     ENGINE_PORT_OFFSETS,
     PERSISTENCE_SETTLE_SECONDS,
@@ -69,7 +74,35 @@ def test_agentmemory_adapter_scrubs_provider_state_and_uses_isolated_home(
     assert "OPENROUTER_API_KEY" not in environment
     assert "ANTHROPIC_BASE_URL" not in environment
     assert PERSISTENCE_SETTLE_SECONDS == 12
+    assert AGENTMEMORY_STATIC_PORT == 3111
     assert ENGINE_PORT_OFFSETS == (0, 1, 2, 6_353, 46_023)
+
+
+def test_agentmemory_adapter_rejects_ports_not_exposed_by_pinned_compose(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(AgentMemoryAdapterError, match="fixed ports"):
+        AgentMemoryFullAdapter(
+            runtime_root=tmp_path / "runtime",
+            data_dir=tmp_path / "data",
+            artifact_dir=tmp_path / "artifacts",
+            project_name="memorixbench_agentmemory_test",
+            port=3112,
+        )
+
+
+def test_agentmemory_compose_cleanup_only_removes_volumes_after_final_stop(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    adapter = _adapter(tmp_path)
+    monkeypatch.setattr("memorixbench.agentmemory_adapter.shutil.which", lambda _: "docker")
+
+    restart_command = adapter._compose_down_command(preserve_state=True)
+    final_command = adapter._compose_down_command(preserve_state=False)
+
+    assert restart_command[-1] == "down"
+    assert final_command[-2:] == ["down", "--volumes"]
 
 
 def test_agentmemory_adapter_normalizes_scoped_search_results(tmp_path: Path) -> None:
@@ -102,6 +135,17 @@ def test_agentmemory_adapter_normalizes_scoped_search_results(tmp_path: Path) ->
     assert [record.memory_id for record in retrieval.records] == ["memory-1", "memory-2"]
     assert "Durable retry policy" in retrieval.context
     assert (adapter.artifact_dir / "retrieve.json").is_file()
+
+
+def test_agentmemory_adapter_treats_startup_disconnect_as_retryable(tmp_path: Path, monkeypatch) -> None:
+    adapter = _adapter(tmp_path)
+    monkeypatch.setattr(
+        "memorixbench.agentmemory_adapter.urlopen",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RemoteDisconnected("starting")),
+    )
+
+    with pytest.raises(AgentMemoryAdapterError, match="starting"):
+        adapter._request_json("/agentmemory/livez", timeout_seconds=1)
 
 
 def test_agentmemory_narrative_content_prefers_full_narrative() -> None:

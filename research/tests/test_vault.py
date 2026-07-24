@@ -2,20 +2,21 @@ import json
 from dataclasses import asdict
 from pathlib import Path
 
+import pytest
+
+import memorixbench.vault as vault_module
 from memorixbench.actions import write_action_ledger
 from memorixbench.annotation import write_sanitized_action_ledger
 from memorixbench.oracle_assets import resolve_oracle_assets
 from memorixbench.schema import load_case_manifest
 from memorixbench.sealed_patch import seal_patch, snapshot_sealed_patch
 from memorixbench.vault import (
-    PrivateVerifierRequest,
-    PrivateVerifierResult,
-    grade_sealed_patch,
+    VaultError,
     build_vault_blind_annotation_packet,
-    prepare_vault_grade_workspace,
+    prepare_development_vault_workspace,
 )
 
-from test_oracle_assets import _private_case
+from test_oracle_assets import _development_private_case, _private_case
 
 
 def _worker_patch(tmp_path: Path) -> Path:
@@ -26,7 +27,7 @@ index df967b9..a0a6f7e 100644
 --- a/value.txt
 +++ b/value.txt
 @@ -1 +1 @@
--transfer
+-broken
 +candidate
 """,
         encoding="utf-8",
@@ -35,12 +36,12 @@ index df967b9..a0a6f7e 100644
 
 
 def test_vault_snapshots_worker_patch_before_fresh_workspace(tmp_path: Path) -> None:
-    manifest_path, overlay = _private_case(tmp_path)
+    manifest_path, overlay = _development_private_case(tmp_path)
     manifest = load_case_manifest(manifest_path)
     assets = resolve_oracle_assets(manifest, overlay)
     worker_patch = seal_patch(_worker_patch(tmp_path))
 
-    prepared = prepare_vault_grade_workspace(
+    prepared = prepare_development_vault_workspace(
         manifest,
         assets,
         worker_patch,
@@ -51,7 +52,8 @@ def test_vault_snapshots_worker_patch_before_fresh_workspace(tmp_path: Path) -> 
     assert prepared.sealed_patch.path.parent == tmp_path / "vault-grade"
     assert prepared.sealed_patch.sha256 == worker_patch.sha256
     assert (prepared.path / "value.txt").read_text(encoding="utf-8") == "candidate\n"
-    assert not (prepared.path / "hidden-tests.patch").exists()
+    assert not (prepared.root / "private-assets").exists()
+    assert not (prepared.root / ".private-transition.patch").exists()
 
 
 def test_snapshot_rejects_worker_patch_mutation_after_sealing(tmp_path: Path) -> None:
@@ -59,53 +61,81 @@ def test_snapshot_rejects_worker_patch_mutation_after_sealing(tmp_path: Path) ->
     sealed = seal_patch(source)
     source.write_text("changed after worker seal\n", encoding="utf-8")
 
-    try:
+    with pytest.raises(Exception, match="changed after sealing"):
         snapshot_sealed_patch(sealed, tmp_path / "vault.patch")
-    except Exception as error:
-        assert "changed after sealing" in str(error)
-    else:
-        raise AssertionError("mutated worker patch was accepted")
 
 
-def test_vault_receipt_redacts_private_verifier_output(tmp_path: Path) -> None:
-    manifest_path, overlay = _private_case(tmp_path)
+def test_vault_materializes_private_transition_from_frozen_snapshot(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    manifest_path, overlay = _development_private_case(tmp_path)
     manifest = load_case_manifest(manifest_path)
     assets = resolve_oracle_assets(manifest, overlay)
     worker_patch = seal_patch(_worker_patch(tmp_path))
-    private_detail = "hidden verifier detail must not leave the vault"
-    requests: list[PrivateVerifierRequest] = []
+    assert assets.transition_patch is not None
+    original_transition = assets.transition_patch
+    original_materialize_case = vault_module.materialize_case
 
-    def verifier(request: PrivateVerifierRequest) -> PrivateVerifierResult:
-        requests.append(request)
-        assert (request.workspace / "value.txt").read_text(encoding="utf-8") == "candidate\n"
-        assert request.hidden_patch.parent.name == "private-assets"
-        assert request.hidden_patch.parent != overlay
-        assert request.verifier_runtime.parent == request.hidden_patch.parent
-        assert request.verifier_image.startswith("registry.example.invalid/")
-        assert request.verifier_command == ("/verifier/entrypoint",)
-        return PrivateVerifierResult(
-            passed=True,
-            returncode=0,
-            elapsed_seconds=0.01,
-            stdout=private_detail,
-            stderr=private_detail,
+    def mutate_overlay_then_materialize(*args: object, **kwargs: object):
+        snapshot_assets = kwargs["oracle_assets"]
+        assert snapshot_assets.transition_patch != original_transition
+        original_transition.write_text(
+            "--- a/value.txt\n+++ b/value.txt\n@@ -1 +1 @@\n-base\n+tampered\n",
+            encoding="utf-8",
         )
+        return original_materialize_case(*args, **kwargs)
 
-    receipt = grade_sealed_patch(
+    monkeypatch.setattr(vault_module, "materialize_case", mutate_overlay_then_materialize)
+    prepared = prepare_development_vault_workspace(
         manifest,
         assets,
         worker_patch,
         tmp_path / "vault-grade",
-        verifier,
     )
 
-    assert len(requests) == 1
-    assert receipt.passed
-    assert receipt.evidence_tier == "diagnostic"
-    assert receipt.grade_mode == "private-verifier-hook-diagnostic-v1"
-    assert private_detail not in str(receipt)
-    assert len(receipt.stdout_sha256) == 64
-    assert not (tmp_path / "vault-grade" / "private-assets").exists()
+    assert (prepared.path / "value.txt").read_text(encoding="utf-8") == "candidate\n"
+
+
+def test_vault_redacts_private_transition_materialization_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    manifest_path, overlay = _development_private_case(tmp_path)
+    manifest = load_case_manifest(manifest_path)
+    assets = resolve_oracle_assets(manifest, overlay)
+    worker_patch = seal_patch(_worker_patch(tmp_path))
+
+    def fail_materialization(*_args: object, **_kwargs: object):
+        raise ValueError("private transition failed at C:\\vault\\oracle-secret.patch")
+
+    monkeypatch.setattr(vault_module, "materialize_case", fail_materialization)
+
+    with pytest.raises(VaultError, match="private transition could not be materialized") as error:
+        prepare_development_vault_workspace(
+            manifest,
+            assets,
+            worker_patch,
+            tmp_path / "vault-grade",
+        )
+
+    assert "oracle-secret" not in str(error.value)
+    assert not (tmp_path / "vault-grade").exists()
+
+
+def test_local_vault_preparation_rejects_confirmatory_cases(tmp_path: Path) -> None:
+    manifest_path, overlay = _private_case(tmp_path)
+    manifest = load_case_manifest(manifest_path)
+    assets = resolve_oracle_assets(manifest, overlay)
+    worker_patch = seal_patch(_worker_patch(tmp_path))
+
+    with pytest.raises(VaultError, match="development-only"):
+        prepare_development_vault_workspace(
+            manifest,
+            assets,
+            worker_patch,
+            tmp_path / "vault-grade",
+        )
 
 
 def test_vault_builds_blind_packet_from_committed_private_rubric(tmp_path: Path) -> None:
@@ -153,57 +183,3 @@ def test_vault_builds_blind_packet_from_committed_private_rubric(tmp_path: Path)
     assert "opaque-test-1" not in serialized
     assert str(overlay).casefold() not in serialized
     assert "memorix-full" not in serialized
-
-
-def test_vault_rejects_an_overlay_mutated_after_initial_resolution(tmp_path: Path) -> None:
-    manifest_path, overlay = _private_case(tmp_path)
-    manifest = load_case_manifest(manifest_path)
-    assets = resolve_oracle_assets(manifest, overlay)
-    worker_patch = seal_patch(_worker_patch(tmp_path))
-    assert assets.hidden_patch is not None
-    assets.hidden_patch.write_text("changed after resolution\n", encoding="utf-8")
-
-    def verifier(_request: PrivateVerifierRequest) -> PrivateVerifierResult:
-        raise AssertionError("mutated private assets must not reach the verifier")
-
-    try:
-        grade_sealed_patch(
-            manifest,
-            assets,
-            worker_patch,
-            tmp_path / "vault-grade",
-            verifier,
-        )
-    except ValueError as error:
-        assert "hidden patch commitment" in str(error)
-    else:
-        raise AssertionError("mutated private overlay was accepted")
-    assert not (tmp_path / "vault-grade" / "private-assets").exists()
-
-
-def test_vault_receipt_hashes_private_output_as_original_bytes(tmp_path: Path) -> None:
-    manifest_path, overlay = _private_case(tmp_path)
-    manifest = load_case_manifest(manifest_path)
-    assets = resolve_oracle_assets(manifest, overlay)
-    worker_patch = seal_patch(_worker_patch(tmp_path))
-
-    def verifier(_request: PrivateVerifierRequest) -> PrivateVerifierResult:
-        return PrivateVerifierResult(
-            passed=False,
-            returncode=1,
-            elapsed_seconds=0.01,
-            stdout=b"\xff\x00",
-            stderr=b"\x80",
-        )
-
-    receipt = grade_sealed_patch(
-        manifest,
-        assets,
-        worker_patch,
-        tmp_path / "vault-grade",
-        verifier,
-    )
-
-    assert receipt.stdout_bytes == 2
-    assert receipt.stderr_bytes == 1
-    assert len(receipt.stdout_sha256) == 64

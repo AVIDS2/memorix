@@ -6,7 +6,7 @@ import { ClaimStore } from '../../src/knowledge/claim-store.js';
 import { writeClaim } from '../../src/knowledge/claims.js';
 import { applyKnowledgeProposal, compileKnowledgeWorkspace } from '../../src/knowledge/wiki.js';
 import { initializeKnowledgeWorkspace } from '../../src/knowledge/workspace.js';
-import { buildTaskWorkset } from '../../src/knowledge/workset.js';
+import { buildTaskWorkset, renderTaskWorksetDelivery } from '../../src/knowledge/workset.js';
 import { recordWorkflowRun, writeCanonicalWorkflow } from '../../src/knowledge/workflows.js';
 import { closeAllDatabases } from '../../src/store/sqlite-db.js';
 
@@ -205,5 +205,54 @@ describe('Task Workset', () => {
     expect(workset.prompt).toContain('uncommitted changes');
     expect(workset.prompt).toContain('incomplete');
     expect(workset.budget.tokenCount).toBeLessThanOrEqual(96);
+  });
+
+  it('renders delivery ablations through the same bounded Workset renderer', async () => {
+    const root = tempDir();
+    const workset = await buildTaskWorkset({
+      projectId: 'org/repo',
+      dataDir: root,
+      task: 'Fix the stale release behavior.',
+      lens: 'bugfix',
+      currentFacts: ['Package version: 1.2.1', 'Git: dirty worktree'],
+      codeState: 'Code state: dirty worktree, epoch 4.',
+      startHere: ['src/release.ts'],
+      semanticCode: {
+        provider: 'local',
+        entryPoints: [],
+        relations: [{
+          from: { path: 'src/release.ts', name: 'publish', kind: 'function' },
+          to: { path: 'src/verify.ts', name: 'verify', kind: 'function' },
+          kind: 'calls',
+        }],
+        relatedFiles: ['src/release.ts'],
+      },
+      reliableMemory: [],
+      cautionMemory: [{
+        id: 1,
+        title: 'Old release ownership',
+        type: 'decision',
+        status: 'stale',
+        path: 'src/release.ts',
+      }],
+      verificationHints: ['Run the release regression.'],
+      worktreeDirty: true,
+      snapshot: { worktreeState: 'dirty', incomplete: true },
+      freshness: { suspect: 1, stale: 1 },
+    });
+
+    const full = renderTaskWorksetDelivery(workset);
+    const noFreshness = renderTaskWorksetDelivery(workset, 'no-freshness');
+    const noState = renderTaskWorksetDelivery(workset, 'no-current-state');
+    const noSemanticCode = renderTaskWorksetDelivery(workset, 'no-semantic-code');
+
+    expect(full.prompt).toBe(workset.prompt);
+    expect(noFreshness.prompt).not.toContain('Old release ownership');
+    expect(noFreshness.prompt).not.toContain('stale and should not guide edits');
+    expect(noState.prompt).not.toContain('Current project facts');
+    expect(noState.prompt).not.toContain('Project state');
+    expect(noSemanticCode.prompt).not.toContain('Semantic code outline');
+    expect(noFreshness.suppressed).toEqual(['caution-memory', 'freshness-cautions']);
+    expect(noState.tokenCount).toBeLessThanOrEqual(workset.budget.maxTokens);
   });
 });

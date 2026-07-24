@@ -16,7 +16,7 @@ from memorixbench.admission import (
 
 def _payload() -> dict[str, object]:
     return {
-        "schema_version": "case-admission-review-v1",
+        "schema_version": "case-admission-review-v2",
         "candidate_id": "example-source",
         "repository_url": "https://github.com/example/project",
         "base_revision": "a" * 40,
@@ -33,6 +33,26 @@ def _payload() -> dict[str, object]:
             "not-public-solution-isomorphic-v1",
             "predecessor-dependency-reviewed-v1",
             "current-source-sufficiency-reviewed-v1",
+        ],
+        "reviewer_attestations": [
+            {
+                "reviewer_id": "reviewer-beta",
+                "findings": [
+                    "independent-transition-v1",
+                    "not-public-solution-isomorphic-v1",
+                    "predecessor-dependency-reviewed-v1",
+                    "current-source-sufficiency-reviewed-v1",
+                ],
+            },
+            {
+                "reviewer_id": "reviewer-gamma",
+                "findings": [
+                    "independent-transition-v1",
+                    "not-public-solution-isomorphic-v1",
+                    "predecessor-dependency-reviewed-v1",
+                    "current-source-sufficiency-reviewed-v1",
+                ],
+            },
         ],
         "decision": "approved-for-development",
         "reviewed_at_utc": "2026-07-23T00:00:00+00:00",
@@ -70,8 +90,44 @@ def test_admission_review_rejects_author_reviewer_overlap_or_missing_findings(tm
 
     incomplete = _payload()
     incomplete["findings"] = ["independent-transition-v1"]
+    attestations = incomplete["reviewer_attestations"]
+    assert isinstance(attestations, list)
+    for attestation in attestations:
+        assert isinstance(attestation, dict)
+        attestation["findings"] = ["independent-transition-v1"]
     with pytest.raises(AdmissionReviewError, match="missing required findings"):
         load_admission_review(_write_review(tmp_path, incomplete))
+
+
+def test_admission_review_requires_each_reviewer_to_attest_required_findings(
+    tmp_path: Path,
+) -> None:
+    payload = _payload()
+    attestations = payload["reviewer_attestations"]
+    assert isinstance(attestations, list)
+    assert isinstance(attestations[1], dict)
+    attestations[1]["findings"] = ["independent-transition-v1"]
+
+    with pytest.raises(AdmissionReviewError, match="each reviewer to attest"):
+        load_admission_review(_write_review(tmp_path, payload))
+
+
+def test_admission_review_rejects_mismatched_aggregate_or_reviewer_attestations(
+    tmp_path: Path,
+) -> None:
+    payload = _payload()
+    payload["findings"] = ["independent-transition-v1"]
+
+    with pytest.raises(AdmissionReviewError, match="must equal the union"):
+        load_admission_review(_write_review(tmp_path, payload))
+
+
+def test_admission_review_rejects_the_pre_attestation_schema(tmp_path: Path) -> None:
+    payload = _payload()
+    payload["schema_version"] = "case-admission-review-v1"
+
+    with pytest.raises(AdmissionReviewError, match="unsupported schema"):
+        load_admission_review(_write_review(tmp_path, payload))
 
 
 def test_admission_review_rejects_a_mismatched_source_binding(tmp_path: Path) -> None:
@@ -116,6 +172,7 @@ def test_admission_draft_commits_private_inputs_without_writing_their_content(
     assert "private comparison body" not in serialized
     assert draft.private_transition_commitment_sha256 in serialized
     assert '"reviewer_ids": []' in serialized
+    assert '"receipt_schema_version": "case-admission-review-v2"' in serialized
 
     loaded = load_admission_review_draft(output)
     assert loaded == draft

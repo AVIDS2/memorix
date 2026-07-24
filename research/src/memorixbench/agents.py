@@ -17,7 +17,7 @@ from urllib import request as urlrequest
 
 from .actions import write_action_ledger
 
-AgentName = Literal["codex", "claude", "openrouter"]
+AgentName = Literal["codex", "claude", "openrouter", "pi"]
 
 CLAUDE_PROVIDER_ENV_PREFIXES = ("ANTHROPIC_",)
 CLAUDE_ROLE_MODEL_KEYS = (
@@ -25,6 +25,17 @@ CLAUDE_ROLE_MODEL_KEYS = (
     "ANTHROPIC_DEFAULT_SONNET_MODEL",
     "ANTHROPIC_DEFAULT_OPUS_MODEL",
 )
+PI_PROVIDER_ENV_KEYS: dict[str, tuple[str, ...]] = {
+    "anthropic": ("ANTHROPIC_API_KEY", "ANTHROPIC_OAUTH_TOKEN"),
+    "cerebras": ("CEREBRAS_API_KEY",),
+    "deepseek": ("DEEPSEEK_API_KEY",),
+    "google": ("GEMINI_API_KEY",),
+    "groq": ("GROQ_API_KEY",),
+    "mistral": ("MISTRAL_API_KEY",),
+    "openai": ("OPENAI_API_KEY",),
+    "openrouter": ("OPENROUTER_API_KEY",),
+    "xai": ("XAI_API_KEY",),
+}
 SENSITIVE_ENV_PATTERN = re.compile(r"(?:API[_-]?KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL)", re.IGNORECASE)
 PARENT_TRAVERSAL_PATTERN = re.compile(r"(?<!\.)\.\.(?:[\\/]|(?=\s|$))")
 WINDOWS_PATH_PATTERN = re.compile(r"(?i)\b[a-z]:[\\/][^\s\"'`;&|<>]*")
@@ -328,6 +339,53 @@ def build_claude_command(
     return command
 
 
+def build_pi_command(
+    *,
+    model: str,
+    allowed_tools: Iterable[str] = (),
+    extension_path: str | Path | None = None,
+    thinking: str | None = None,
+) -> list[str]:
+    """Build an isolated Pi JSON-stream invocation.
+
+    Pi's explicit extension mode lets a diagnostic load exactly one reviewed
+    extension while ignoring user/global discovery. The caller appends the
+    prompt through stdin. Pi JSON mode reads piped stdin as one initial
+    message, which avoids Windows .cmd argument splitting for natural-language
+    prompts.
+    """
+
+    selected_model = model.strip()
+    if not selected_model or "/" not in selected_model:
+        raise ValueError("controlled Pi runs require a provider-qualified model")
+    command = [
+        "pi",
+        "--mode",
+        "json",
+        "--no-session",
+        "--no-extensions",
+        "--no-skills",
+        "--no-prompt-templates",
+        "--no-themes",
+        "--no-context-files",
+        "--no-approve",
+        "--offline",
+        "--model",
+        selected_model,
+    ]
+    selected_tools = tuple(tool.strip() for tool in allowed_tools if tool.strip())
+    if selected_tools:
+        command.extend(["--tools", ",".join(selected_tools)])
+    if extension_path is not None:
+        command.extend(["--extension", str(Path(extension_path).resolve())])
+    if thinking is not None:
+        selected_thinking = thinking.strip()
+        if not selected_thinking:
+            raise ValueError("Pi thinking level must be non-empty when provided")
+        command.extend(["--thinking", selected_thinking])
+    return command
+
+
 def _json_events(stdout: str) -> list[dict[str, object]]:
     events: list[dict[str, object]] = []
     for line in stdout.splitlines():
@@ -552,6 +610,178 @@ def _parse_claude(events: list[dict[str, object]]) -> dict[str, object]:
         "completed": completed,
         "reported_models": tuple(sorted(reported_models)),
         "model_usage": tuple(sorted(model_usage_records.values(), key=lambda item: item.model)),
+    }
+
+
+def _pi_text_content(value: object) -> str:
+    if isinstance(value, str):
+        return value
+    if not isinstance(value, list):
+        return ""
+    fragments: list[str] = []
+    for item in value:
+        if isinstance(item, dict) and item.get("type") == "text":
+            text = item.get("text")
+            if isinstance(text, str) and text:
+                fragments.append(text)
+    return "\n".join(fragments)
+
+
+def _pi_model_label(message: dict[str, object]) -> str:
+    raw_model = message.get("model")
+    model = raw_model.strip() if isinstance(raw_model, str) else ""
+    if not model:
+        return ""
+    raw_provider = message.get("provider")
+    provider = raw_provider.strip() if isinstance(raw_provider, str) else ""
+    if not provider or model.casefold().startswith(provider.casefold() + "/"):
+        return model
+    return f"{provider}/{model}"
+
+
+def _pi_usage_value(value: object, key: str) -> int | None:
+    if not isinstance(value, dict):
+        return None
+    return _int_or_none(value.get(key))
+
+
+def _pi_cost_value(value: object) -> float | None:
+    if not isinstance(value, dict):
+        return None
+    return _float_or_none(value.get("cost"))
+
+
+def _sum_optional_int(left: int | None, right: int | None) -> int | None:
+    if left is None:
+        return right
+    if right is None:
+        return left
+    return left + right
+
+
+def _sum_optional_float(left: float | None, right: float | None) -> float | None:
+    if left is None:
+        return right
+    if right is None:
+        return left
+    return left + right
+
+
+def _parse_pi(events: list[dict[str, object]]) -> dict[str, object]:
+    """Normalize Pi's official JSON event stream without relying on sessions."""
+
+    final_message = ""
+    command_count = 0
+    tool_call_count = 0
+    tool_names: set[str] = set()
+    tool_call_names: list[str] = []
+    successful_tool_call_count = 0
+    successful_tool_names: set[str] = set()
+    successful_tool_call_names: list[str] = []
+    pending_tools: dict[str, str] = {}
+    unavailable_tool_attempts: set[str] = set()
+    bash_commands: list[str] = []
+    completed = False
+    model_usage_records: dict[str, ModelUsage] = {}
+
+    for event in events:
+        event_type = event.get("type")
+        if event_type == "agent_end":
+            completed = not bool(event.get("willRetry", False))
+            continue
+        if event_type == "tool_execution_start":
+            tool_call_count += 1
+            raw_name = event.get("toolName")
+            tool_name = raw_name.strip() if isinstance(raw_name, str) else ""
+            if not tool_name:
+                continue
+            tool_names.add(tool_name)
+            tool_call_names.append(tool_name)
+            raw_call_id = event.get("toolCallId")
+            if isinstance(raw_call_id, str) and raw_call_id:
+                pending_tools[raw_call_id] = tool_name
+            if tool_name.casefold() == "bash":
+                args = event.get("args")
+                if isinstance(args, dict):
+                    command = args.get("command")
+                    if isinstance(command, str) and command.strip():
+                        bash_commands.append(command.strip())
+                        command_count += 1
+            continue
+        if event_type == "tool_execution_end":
+            raw_call_id = event.get("toolCallId")
+            tool_name = pending_tools.get(raw_call_id) if isinstance(raw_call_id, str) else None
+            if tool_name is None:
+                raw_name = event.get("toolName")
+                tool_name = raw_name.strip() if isinstance(raw_name, str) and raw_name.strip() else None
+            if tool_name is None:
+                continue
+            if not bool(event.get("isError", False)):
+                successful_tool_call_count += 1
+                successful_tool_names.add(tool_name)
+                successful_tool_call_names.append(tool_name)
+                continue
+            result = event.get("result")
+            detail = ""
+            if isinstance(result, dict):
+                detail = _pi_text_content(result.get("content"))
+            if "not enabled" in detail.casefold() or "not available" in detail.casefold():
+                unavailable_tool_attempts.add(tool_name)
+            continue
+        if event_type != "turn_end":
+            continue
+        message = event.get("message")
+        if not isinstance(message, dict) or message.get("role") != "assistant":
+            continue
+        text = _pi_text_content(message.get("content"))
+        if text:
+            final_message = text
+        model = _pi_model_label(message)
+        if not model:
+            continue
+        usage = message.get("usage")
+        existing = model_usage_records.get(model)
+        model_usage_records[model] = ModelUsage(
+            model=model,
+            input_tokens=_sum_optional_int(
+                existing.input_tokens if existing else None,
+                _pi_usage_value(usage, "input"),
+            ),
+            cached_input_tokens=_sum_optional_int(
+                existing.cached_input_tokens if existing else None,
+                _pi_usage_value(usage, "cacheRead"),
+            ),
+            output_tokens=_sum_optional_int(
+                existing.output_tokens if existing else None,
+                _pi_usage_value(usage, "output"),
+            ),
+            cost_usd=_sum_optional_float(
+                existing.cost_usd if existing else None,
+                _pi_cost_value(usage),
+            ),
+        )
+
+    model_usage = tuple(sorted(model_usage_records.values(), key=lambda item: item.model))
+    return {
+        "input_tokens": sum(item.input_tokens or 0 for item in model_usage) or None,
+        "cached_input_tokens": sum(item.cached_input_tokens or 0 for item in model_usage) or None,
+        "output_tokens": sum(item.output_tokens or 0 for item in model_usage) or None,
+        "reasoning_output_tokens": None,
+        "cost_usd": sum(item.cost_usd or 0.0 for item in model_usage) or None,
+        "final_message": final_message,
+        "command_count": command_count,
+        "tool_call_count": tool_call_count,
+        "tool_names": tuple(sorted(tool_names)),
+        "tool_call_names": tuple(tool_call_names),
+        "successful_tool_call_count": successful_tool_call_count,
+        "successful_tool_names": tuple(sorted(successful_tool_names)),
+        "successful_tool_call_names": tuple(successful_tool_call_names),
+        "permission_denials": (),
+        "unavailable_tool_attempts": tuple(sorted(unavailable_tool_attempts)),
+        "bash_commands": tuple(bash_commands),
+        "completed": completed,
+        "reported_models": tuple(item.model for item in model_usage),
+        "model_usage": model_usage,
     }
 
 
@@ -1584,6 +1814,49 @@ def _write_event_timeline(path: Path, records: Iterable[StreamRecord]) -> None:
             }, ensure_ascii=False) + "\n")
 
 
+def _controlled_pi_environment(
+    *,
+    artifact_dir: Path,
+    model: str | None,
+    credential_source: dict[str, str],
+) -> dict[str, str]:
+    if model is None:
+        raise ValueError("controlled Pi runs require an explicit model")
+    provider, separator, _ = model.partition("/")
+    if not separator:
+        raise ValueError("controlled Pi runs require a provider-qualified model")
+    credential_keys = PI_PROVIDER_ENV_KEYS.get(provider.casefold())
+    if credential_keys is None:
+        raise ValueError(f"controlled Pi runs do not support provider: {provider}")
+    credentials = {
+        key: credential_source[key]
+        for key in credential_keys
+        if credential_source.get(key, "").strip()
+    }
+    if not credentials:
+        raise ValueError(f"controlled Pi run has no credential for provider: {provider}")
+    home = artifact_dir / "pi-agent-home"
+    temp = artifact_dir / "pi-temp"
+    config_dir = home / "agent"
+    appdata = home / "AppData" / "Roaming"
+    local_appdata = home / "AppData" / "Local"
+    for directory in (home, temp, config_dir, appdata, local_appdata):
+        directory.mkdir(parents=True, exist_ok=True)
+    return {
+        **credentials,
+        "HOME": str(home),
+        "USERPROFILE": str(home),
+        "APPDATA": str(appdata),
+        "LOCALAPPDATA": str(local_appdata),
+        "PI_CODING_AGENT_DIR": str(config_dir),
+        "PI_OFFLINE": "1",
+        "PI_SKIP_VERSION_CHECK": "1",
+        "PI_TELEMETRY": "0",
+        "TEMP": str(temp),
+        "TMP": str(temp),
+    }
+
+
 def run_agent(
     *,
     agent: AgentName,
@@ -1598,6 +1871,8 @@ def run_agent(
     environment: dict[str, str] | None = None,
     allowed_tools: Iterable[str] = (),
     settings_path: Path | None = None,
+    pi_extension: Path | None = None,
+    pi_thinking: str | None = None,
     controlled: bool = True,
     claude_bare: bool = True,
     claude_setting_sources: str = "",
@@ -1637,11 +1912,27 @@ def run_agent(
             setting_sources=claude_setting_sources,
             permission_mode=claude_permission_mode,
         )
+    elif agent == "pi":
+        if not prompt.strip():
+            raise ValueError("Pi prompt must be non-empty")
+        if model is None:
+            raise ValueError("controlled Pi runs require an explicit model")
+        if max_budget_usd is not None:
+            raise ValueError(
+                "Pi CLI has no hard max-budget flag; controlled Pi capture rejects max_budget_usd"
+            )
+        command = build_pi_command(
+            model=model,
+            allowed_tools=allowed_tools,
+            extension_path=pi_extension,
+            thinking=pi_thinking,
+        )
     else:
         raise ValueError(f"unsupported agent: {agent}")
     command = _platform_command(command)
 
-    env = os.environ.copy()
+    source_env = os.environ.copy()
+    env = source_env.copy()
     if controlled and agent == "claude":
         for key in list(env):
             if SENSITIVE_ENV_PATTERN.search(key):
@@ -1652,6 +1943,18 @@ def run_agent(
         })
     if environment:
         env.update(environment)
+    if controlled and agent == "pi":
+        credential_source = source_env.copy()
+        if environment:
+            credential_source.update(environment)
+        for key in list(env):
+            if SENSITIVE_ENV_PATTERN.search(key):
+                env.pop(key, None)
+        env.update(_controlled_pi_environment(
+            artifact_dir=artifacts,
+            model=model,
+            credential_source=credential_source,
+        ))
     started = time.monotonic()
     stdout, stderr, returncode, timed_out, stream_records = _capture_streaming_process(
         command,
@@ -1678,7 +1981,12 @@ def run_agent(
     patch_path.write_text(_git_patch(workspace_path), encoding="utf-8")
 
     events = _json_events(stdout)
-    parsed = _parse_codex(events) if agent == "codex" else _parse_claude(events)
+    if agent == "codex":
+        parsed = _parse_codex(events)
+    elif agent == "claude":
+        parsed = _parse_claude(events)
+    else:
+        parsed = _parse_pi(events)
     completed = bool(parsed["completed"])
     return AgentExecution(
         agent=agent,

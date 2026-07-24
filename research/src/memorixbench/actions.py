@@ -119,11 +119,22 @@ def _detail(value: object) -> tuple[str | None, str | None]:
 
 
 def _kind_for_tool(name: str) -> ActionKind:
-    if name in {"Bash", "run_verification"}:
+    normalized = name.casefold()
+    if normalized in {"bash", "run_verification"}:
         return "command"
-    if name in {"Edit", "Write", "NotebookEdit", "apply_patch", "write_file"}:
+    if normalized in {"edit", "write", "notebookedit", "apply_patch", "write_file"}:
         return "edit"
-    if name in {"Read", "Glob", "Grep", "Search", "read_file", "list_files", "search_text"}:
+    if normalized in {
+        "read",
+        "glob",
+        "grep",
+        "search",
+        "find",
+        "ls",
+        "read_file",
+        "list_files",
+        "search_text",
+    }:
         return "read"
     return "tool_call"
 
@@ -270,6 +281,35 @@ def _extract_openrouter_actions(records: Iterable[TimedEvent]) -> list[dict[str,
     return actions
 
 
+def _extract_pi_actions(records: Iterable[TimedEvent]) -> list[dict[str, object]]:
+    actions: list[dict[str, object]] = []
+    pending: dict[str, int] = {}
+    for record in records:
+        event = _json_payload(record)
+        if event is None:
+            continue
+        event_type = event.get("type")
+        if event_type == "tool_execution_start":
+            name = event.get("toolName")
+            tool_name = name if isinstance(name, str) and name else None
+            _append_action(
+                actions,
+                record=record,
+                kind=_kind_for_tool(tool_name or ""),
+                tool_name=tool_name,
+                detail_value=event.get("args"),
+                successful=None,
+            )
+            call_id = event.get("toolCallId")
+            if isinstance(call_id, str) and call_id:
+                pending[call_id] = len(actions) - 1
+        elif event_type == "tool_execution_end":
+            call_id = event.get("toolCallId")
+            if isinstance(call_id, str) and call_id in pending:
+                actions[pending[call_id]]["successful"] = not bool(event.get("isError", False))
+    return actions
+
+
 def build_action_ledger(
     *,
     agent: str,
@@ -283,6 +323,8 @@ def build_action_ledger(
         raw_actions = _extract_codex_actions(materialized)
     elif agent == "openrouter":
         raw_actions = _extract_openrouter_actions(materialized)
+    elif agent == "pi":
+        raw_actions = _extract_pi_actions(materialized)
     else:
         raise ActionLedgerError(f"unsupported agent action format: {agent}")
     actions = tuple(
@@ -341,7 +383,7 @@ def load_action_ledger(path: str | Path) -> ActionLedger:
         raise ActionLedgerError("unsupported action ledger schema version")
     if raw.get("timing_source") != ACTION_TIMING_SOURCE:
         raise ActionLedgerError("unsupported action ledger timing source")
-    if raw.get("agent") not in {"claude", "codex", "openrouter"}:
+    if raw.get("agent") not in {"claude", "codex", "openrouter", "pi"}:
         raise ActionLedgerError("action ledger has an unsupported agent")
     timeline_sha256 = raw.get("timeline_sha256")
     if not isinstance(timeline_sha256, str) or len(timeline_sha256) != 64:

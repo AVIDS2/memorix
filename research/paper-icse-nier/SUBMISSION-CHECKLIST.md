@@ -11,6 +11,21 @@ Status: local candidate package only. No venue upload has been performed.
 - [x] The bibliography is generated from the local `references.bib` file.
 - [x] The checked local PDF has four total pages and no undefined references or
   overfull boxes.
+- [x] On 2026-07-24, the manuscript was rebuilt with the documented
+  `pdflatex-bibtex` recipe. Strict format and table checks passed; the
+  bibliography has no missing or unused citation keys.
+- [x] On 2026-07-24, all four rendered PDF pages were visually checked. The
+  narrow-table underfull-box warnings are intentional line wrapping; no text,
+  table, header, or reference is clipped or overlapped.
+- [x] On 2026-07-24, the current
+  [ICSE 2027 NIER call](https://conf.researchr.org/track/icse-2027/icse-2027-new-ideas-and-emerging-results--nier-)
+  was checked: this source uses the required IEEEtran class, fits within the
+  four-main-page plus reference-page limit, and includes the required `Future
+  Plans` section.
+- [x] The same call permits named systems when their provenance is written in
+  the third person. The manuscript retains `Memorix` as a system name, but has
+  no repository URL, first-person ownership claim, author name, affiliation,
+  acknowledgement, or identifying PDF author metadata.
 - [ ] Recheck the official venue page-count rule immediately before upload.
 - [ ] Read the final PDF as a reviewer and remove accidental self-identifiers,
   acknowledgements, repository links, and author metadata.

@@ -71,6 +71,12 @@ deliberately no-memory-favorable. None has reviewer findings, a public case
 card, a trace, a private oracle, or an admission decision. Their source-ledger
 status remains `screening`; a draft commitment is not an admission.
 
+The hash-only templates were created before the per-reviewer receipt v2 rule.
+Before any human review begins, regenerate each template from the same three
+private files. This changes the template hash and receipt schema only; it does
+not alter the committed private-transition, task-brief, or history-comparison
+hashes, and it does not change a candidate's `screening` status.
+
 ## Admission Gates
 
 Before a source can move from `screening` to `admitted`, all of these must be
@@ -98,6 +104,8 @@ the source cache origin/parent/license chain, draft-file boundary, hash
 commitments, and obvious path or credential leakage. Its receipt is explicitly
 `automated-pre-review-only-v1`: it never changes the source status, asserts
 semantic novelty, evaluates predecessor dependence, or issues an admission.
+Reviewers then follow `ADMISSION-REVIEWER-GUIDE.md` and each record the four
+required findings independently in a v2 receipt.
 
 ## Author-Side Surface Triage
 

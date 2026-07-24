@@ -154,6 +154,78 @@ def test_captures_a_codex_stream_with_paired_tool_events(tmp_path: Path) -> None
     assert payload["events"][1]["tool_name"] == "shell"
 
 
+def test_captures_a_pi_json_stream_with_paired_tool_events(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    records = [
+        {"type": "session", "version": 3, "id": "session-1"},
+        {"type": "agent_start"},
+        {
+            "type": "tool_execution_start",
+            "toolCallId": "read-1",
+            "toolName": "read",
+            "args": {"path": "README.md"},
+        },
+        {
+            "type": "tool_execution_end",
+            "toolCallId": "read-1",
+            "toolName": "read",
+            "result": {"content": [{"type": "text", "text": "policy"}]},
+            "isError": False,
+        },
+        {
+            "type": "turn_end",
+            "message": {
+                "role": "assistant",
+                "provider": "openrouter",
+                "model": "qwen/qwen3-coder-30b-a3b-instruct",
+                "content": [
+                    {"type": "toolCall", "name": "read"},
+                    {"type": "text", "text": "The policy is clear."},
+                ],
+            },
+        },
+        {"type": "agent_end", "messages": []},
+    ]
+    events = tmp_path / "events.jsonl"
+    timeline = tmp_path / "timeline.jsonl"
+    events.write_bytes("".join(json.dumps(record) + "\n" for record in records).encode("utf-8"))
+    timeline.write_bytes("".join(
+        json.dumps({
+            "sequence": index,
+            "stream": "stdout",
+            "elapsed_seconds": float(index),
+            "line": json.dumps(record) + "\n",
+        }) + "\n"
+        for index, record in enumerate(records)
+    ).encode("utf-8"))
+
+    receipt = capture_trace_from_streams(
+        events_path=events,
+        timeline_path=timeline,
+        case_id="capture-case",
+        agent="pi",
+        prompt="Review the retained project policy.",
+        output_path=tmp_path / "trace.json",
+        receipt_path=tmp_path / "receipt.json",
+        client_version="pi-0.79.0",
+        workspace_snapshot_sha256="b" * 64,
+        workspace_roots=(workspace,),
+        capture_id="capture-test-pi",
+    )
+
+    payload = json.loads((tmp_path / "trace.json").read_text(encoding="utf-8"))
+    assert receipt.reported_models == ("openrouter/qwen/qwen3-coder-30b-a3b-instruct",)
+    assert [event["kind"] for event in payload["events"]] == [
+        "message",
+        "tool_call",
+        "tool_result",
+        "message",
+    ]
+    assert payload["events"][1]["tool_name"] == "read"
+    assert dict(receipt.omitted_event_counts)["pi-content:toolCall"] == 1
+
+
 def test_metadata_only_capture_omits_claude_tool_output(tmp_path: Path) -> None:
     workspace, events, timeline, prompt = _write_capture_inputs(tmp_path, agent="claude")
     output = tmp_path / "trace.json"

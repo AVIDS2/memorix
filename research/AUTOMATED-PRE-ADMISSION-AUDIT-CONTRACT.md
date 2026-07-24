@@ -37,3 +37,9 @@ for a benchmark. Two independent human reviewers still must make those
 findings through `CASE-ADMISSION-REVIEW-CONTRACT.md`; later private-oracle,
 trace, worker/vault, single-model, and controller-grading gates remain
 separate.
+
+The audit deliberately does not claim to infer semantic novelty from text or
+code similarity. Such a heuristic can flag material for review, but cannot
+prove that a private transition is or is not equivalent to a public solution.
+The v2 admission receipt instead records each human reviewer's separate
+attestation for every required finding.

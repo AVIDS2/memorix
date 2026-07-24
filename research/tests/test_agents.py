@@ -4,6 +4,8 @@ from pathlib import Path
 import subprocess
 import sys
 
+import pytest
+
 from memorixbench.agents import (
     _capture_streaming_process,
     _failure_reason,
@@ -11,11 +13,14 @@ from memorixbench.agents import (
     _openrouter_execution_environment,
     _openrouter_workspace_path,
     _parse_claude,
+    _parse_pi,
     _run_openrouter_agent,
     audit_bash_commands,
     build_claude_command,
     build_codex_command,
+    build_pi_command,
     load_claude_provider_env,
+    run_agent,
     write_claude_settings,
 )
 
@@ -81,6 +86,23 @@ def test_claude_mcp_command_uses_only_explicit_config() -> None:
     assert "--strict-mcp-config" in command
     assert "--mcp-config" in command
     assert "--allowedTools" in command
+
+
+def test_pi_command_uses_json_mode_and_ignores_discovered_user_resources() -> None:
+    command = build_pi_command(
+        model="openrouter/qwen/qwen3-coder-30b-a3b-instruct",
+        allowed_tools=("read", "grep", "bash"),
+        thinking="minimal",
+    )
+
+    assert command[:3] == ["pi", "--mode", "json"]
+    assert "--no-session" in command
+    assert "--no-extensions" in command
+    assert "--no-context-files" in command
+    assert "--no-approve" in command
+    assert command[command.index("--model") + 1] == "openrouter/qwen/qwen3-coder-30b-a3b-instruct"
+    assert command[command.index("--tools") + 1] == "read,grep,bash"
+    assert command[command.index("--thinking") + 1] == "minimal"
 
 
 def test_loads_only_claude_provider_environment(tmp_path: Path) -> None:
@@ -259,6 +281,124 @@ def test_claude_parser_preserves_repeated_tool_calls_for_accounting() -> None:
         "mcp__memorix__memorix_search",
         "mcp__memorix__memorix_search",
     )
+
+
+def test_pi_parser_aggregates_turn_usage_and_tool_results() -> None:
+    events = [
+        {"type": "session", "version": 3},
+        {
+            "type": "tool_execution_start",
+            "toolCallId": "bash-1",
+            "toolName": "bash",
+            "args": {"command": "go test ./..."},
+        },
+        {
+            "type": "tool_execution_end",
+            "toolCallId": "bash-1",
+            "toolName": "bash",
+            "result": {"content": [{"type": "text", "text": "ok"}]},
+            "isError": False,
+        },
+        {
+            "type": "turn_end",
+            "message": {
+                "role": "assistant",
+                "provider": "openrouter",
+                "model": "qwen/qwen3-coder-30b-a3b-instruct",
+                "usage": {"input": 12, "output": 4, "cacheRead": 3, "cost": 0.01},
+                "content": [{"type": "text", "text": "First pass."}],
+            },
+        },
+        {
+            "type": "turn_end",
+            "message": {
+                "role": "assistant",
+                "provider": "openrouter",
+                "model": "qwen/qwen3-coder-30b-a3b-instruct",
+                "usage": {"input": 8, "output": 2, "cacheRead": 1, "cost": 0.02},
+                "content": [{"type": "text", "text": "Tests pass."}],
+            },
+        },
+        {"type": "agent_end", "messages": []},
+    ]
+
+    parsed = _parse_pi(events)
+
+    assert parsed["completed"] is True
+    assert parsed["reported_models"] == ("openrouter/qwen/qwen3-coder-30b-a3b-instruct",)
+    assert parsed["input_tokens"] == 20
+    assert parsed["cached_input_tokens"] == 4
+    assert parsed["output_tokens"] == 6
+    assert parsed["cost_usd"] == 0.03
+    assert parsed["final_message"] == "Tests pass."
+    assert parsed["bash_commands"] == ("go test ./...",)
+    assert parsed["tool_call_names"] == ("bash",)
+    assert parsed["successful_tool_call_names"] == ("bash",)
+
+
+def test_controlled_pi_run_uses_an_isolated_home_and_only_its_provider_secret(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    subprocess.run(["git", "init", "--quiet"], cwd=workspace, check=True)
+    observed: dict[str, object] = {}
+    monkeypatch.setenv("OPENROUTER_API_KEY", "pi-fixture-key")
+    monkeypatch.setenv("UNRELATED_API_KEY", "must-not-reach-pi")
+    monkeypatch.setattr("memorixbench.agents._platform_command", lambda command: command)
+
+    def fake_capture(command, *, cwd, prompt, environment, timeout_seconds):
+        observed["command"] = command
+        observed["cwd"] = cwd
+        observed["prompt"] = prompt
+        observed["environment"] = environment
+        events = [
+            {
+                "type": "turn_end",
+                "message": {
+                    "role": "assistant",
+                    "model": "openrouter/test-model",
+                    "usage": {"input": 1, "output": 1, "cacheRead": 0, "cost": 0.0},
+                    "content": [{"type": "text", "text": "done"}],
+                },
+            },
+            {"type": "agent_end", "messages": []},
+        ]
+        return "".join(json.dumps(event) + "\n" for event in events), "", 0, False, ()
+
+    monkeypatch.setattr("memorixbench.agents._capture_streaming_process", fake_capture)
+    execution = run_agent(
+        agent="pi",
+        workspace=workspace,
+        prompt="Reply with done.",
+        artifact_dir=tmp_path / "artifacts",
+        model="openrouter/test-model",
+        allowed_tools=("read",),
+        timeout_seconds=10,
+    )
+
+    environment = observed["environment"]
+    assert isinstance(environment, dict)
+    assert observed["prompt"] == "Reply with done."
+    assert "Reply with done." not in observed["command"]
+    assert environment["OPENROUTER_API_KEY"] == "pi-fixture-key"
+    assert "UNRELATED_API_KEY" not in environment
+    assert environment["PI_CODING_AGENT_DIR"] == str(tmp_path / "artifacts" / "pi-agent-home" / "agent")
+    assert environment["PI_OFFLINE"] == "1"
+    assert execution.completed is True
+
+
+def test_controlled_pi_run_rejects_an_unenforceable_cost_budget(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="no hard max-budget"):
+        run_agent(
+            agent="pi",
+            workspace=tmp_path,
+            prompt="Reply with done.",
+            artifact_dir=tmp_path / "artifacts",
+            model="openrouter/test-model",
+            max_budget_usd=0.01,
+        )
 
 
 def test_stream_capture_records_observed_order_and_elapsed_time(tmp_path: Path) -> None:

@@ -31,6 +31,7 @@ independent cases.
 | Freshness-aware Workset delivery | Source-level and integration tests cover current, stale, suspect, and caution routing. | Held-out coding-task outcomes showing that this changes agent behavior or patch correctness. |
 | Budgeted native MCP delivery profiles | The native gateway and delivery profiles are implemented and tested. The profiles control the agent-facing memory bundle, not the underlying store or project files. | A preregistered native-agent outcome study, including stale-conflict labels and negative controls. |
 | Native hook formation path | Portable hook capture, isolated formation checks, and a real-client capture controller are implemented and tested. The controller requires one exact requested model and rejects missing hook events, mismatched precursor edits, route mismatches, and non-development cases. | An admitted real-client capture. Local headless Claude candidates that did not emit a `PostToolUse` event remain invalid diagnostic attempts, not result rows. |
+| Pi local JSON capture adapter | Unit coverage and one clean fixture smoke verify an isolated Pi 0.79.0 JSON stream can become a sanitized trace with one exact `provider/model` label and a clean workspace. Earlier positional-prompt attempts timed out and remain invalid private diagnostics. | Paired controls, a native-extension outcome, a real dependent task, and every independent confirmatory gate. |
 | Baseline, route, and artifact guards | The harness rejects mixed models, incomplete matrices, unsafe source material, public-artifact drift, and unsupported confirmatory evidence tiers. | Independent operation of the future trusted relay, worker, vault, and runtime manager. |
 
 An implementation test proves that the harness enforces its contract. It does
@@ -53,6 +54,8 @@ One local Pi Coding Agent two-turn usability observation is recorded in
 `LOCAL-AGENT-UX-DIAGNOSTIC.md`. It exercises the existing Memorix extension in
 a fresh session and is useful product feedback, but it is neither a paired
 comparison nor a public-cohort result. It does not change any claim status.
+The separate Pi JSON capture smoke validates the harness transport only; it is
+not merged with that usability observation or treated as an outcome.
 
 The source ledger has three screened public repository leads. Their source
 provenance, license, and hash-only private-draft pre-review checks passed, but

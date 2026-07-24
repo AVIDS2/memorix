@@ -63,6 +63,19 @@ used Pi's existing Memorix extension and is deliberately not a queue row: it
 has no paired no-memory control, no pinned experimental model, and no
 admitted dependency case.
 
+The generic precursor-capture harness now also accepts Pi's official JSON
+event stream. It starts Pi with a fresh agent directory, disabled discovered
+resources, an explicit provider-qualified model, a read-only tool allowlist,
+and a piped one-shot prompt. A fixture smoke on 2026-07-24 completed with Pi
+0.79.0, one `openrouter/qwen/qwen3-coder-30b-a3b-instruct` route, two successful
+read actions, a clean workspace, and a sanitized local trace. Two earlier
+Windows smoke attempts are retained as invalid private diagnostics: positional
+prompts were split by the `.cmd` wrapper and timed out. The adapter now uses
+stdin, so that failure mode cannot create a trace row. None of these harness
+smokes is a queue result, a native-extension outcome, or efficacy evidence.
+Pi exposes no hard max-budget flag, so the controlled adapter rejects requested
+cost caps instead of treating a timeout as a budget boundary.
+
 ## Frozen Diagnostic Matrix
 
 For each newly admitted development case, run exactly two repetitions under a

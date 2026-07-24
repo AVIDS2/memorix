@@ -117,6 +117,56 @@ def test_codex_action_ledger_records_command_and_mcp_actions() -> None:
     assert all(action.successful is True for action in ledger.actions)
 
 
+def test_pi_action_ledger_links_lowercase_tool_events() -> None:
+    records = (
+        TimedEvent(
+            sequence=0,
+            stream="stdout",
+            elapsed_seconds=0.5,
+            line=json.dumps({
+                "type": "tool_execution_start",
+                "toolCallId": "bash-1",
+                "toolName": "bash",
+                "args": {"command": "go test ./..."},
+            }) + "\n",
+        ),
+        TimedEvent(
+            sequence=1,
+            stream="stdout",
+            elapsed_seconds=1.0,
+            line=json.dumps({
+                "type": "tool_execution_end",
+                "toolCallId": "bash-1",
+                "toolName": "bash",
+                "result": {"content": [{"type": "text", "text": "ok"}]},
+                "isError": False,
+            }) + "\n",
+        ),
+        TimedEvent(
+            sequence=2,
+            stream="stdout",
+            elapsed_seconds=1.5,
+            line=json.dumps({
+                "type": "tool_execution_start",
+                "toolCallId": "read-1",
+                "toolName": "read",
+                "args": {"path": "README.md"},
+            }) + "\n",
+        ),
+    )
+
+    ledger = build_action_ledger(
+        agent="pi",
+        records=records,
+        timeline_sha256="b" * 64,
+    )
+
+    assert [(action.kind, action.tool_name, action.successful) for action in ledger.actions] == [
+        ("command", "bash", True),
+        ("read", "read", None),
+    ]
+
+
 def test_action_ledger_rejects_noncontiguous_timeline(tmp_path: Path) -> None:
     timeline = tmp_path / "timeline.jsonl"
     _write_timeline(timeline, [{

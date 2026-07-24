@@ -21,7 +21,9 @@ confirmatory claims remain locked until independent execution is complete.
    sequence, records formation receipts, and evaluates a fresh agent on a
    dependent transfer task. A separate Claude Code native-hook formation path
    exercises Memorix's real hook entry point but is reported only as a native
-   product/control diagnostic.
+   product/control diagnostic. A Pi JSON capture adapter can create the same
+   local-diagnostic trace shape from Pi's official event stream; it is not a
+   native outcome trial or a substitute for the Memorix Pi extension.
 4. Stale-memory stress cases change code, dependencies, configuration, or
    project policy between the precursor and transfer phases.
 5. Real engineering cases grade patches with isolated tests rather than an LLM
@@ -293,6 +295,16 @@ task. It must run from a private controller workspace, retain raw events only
 under the configured artifact root, and release at most a separately reviewed
 sanitized trace. A local run is always `local-diagnostic-v1`: it cannot be
 relabeled as isolated-worker evidence by a CLI flag.
+
+Pi is accepted as a local precursor-capture agent. Its adapter uses Pi JSON
+mode, an isolated `PI_CODING_AGENT_DIR`, explicit model routing, disabled
+resource discovery, a read-only capture tool surface, and stdin for the one
+initial prompt. It records `provider/model` rather than a provider-less model
+label. That makes a Pi trace auditable without reading or changing a user's Pi
+configuration; it does not make Pi a confirmatory worker or prove a memory
+effect. The official Pi CLI has no hard max-budget flag, so this diagnostic
+adapter rejects requested cost caps instead of implying that a timeout is a
+cost control.
 
 Bundle two or more independently captured traces before a Track C case is
 admitted:

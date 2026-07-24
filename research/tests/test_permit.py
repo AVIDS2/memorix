@@ -301,7 +301,7 @@ def _source_admission(tmp_path: Path, transition_sha256: str) -> tuple[Path, str
     )
     review = tmp_path / "admission-review.json"
     review.write_text(json.dumps({
-        "schema_version": "case-admission-review-v1",
+        "schema_version": "case-admission-review-v2",
         "candidate_id": "example-source",
         "repository_url": "https://github.com/example/project",
         "base_revision": "a" * 40,
@@ -318,6 +318,18 @@ def _source_admission(tmp_path: Path, transition_sha256: str) -> tuple[Path, str
             "not-public-solution-isomorphic-v1",
             "predecessor-dependency-reviewed-v1",
             "current-source-sufficiency-reviewed-v1",
+        ],
+        "reviewer_attestations": [
+            {
+                "reviewer_id": reviewer_id,
+                "findings": [
+                    "independent-transition-v1",
+                    "not-public-solution-isomorphic-v1",
+                    "predecessor-dependency-reviewed-v1",
+                    "current-source-sufficiency-reviewed-v1",
+                ],
+            }
+            for reviewer_id in ["reviewer-beta", "reviewer-gamma"]
         ],
         "decision": "approved-for-development",
         "reviewed_at_utc": reviewed_at,

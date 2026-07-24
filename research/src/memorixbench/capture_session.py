@@ -36,6 +36,12 @@ CLAUDE_CAPTURE_ALLOWED_TOOLS = (
     "Bash(go test ./...)",
     "Bash(go test ./... *)",
 )
+PI_CAPTURE_ALLOWED_TOOLS = (
+    "read",
+    "grep",
+    "find",
+    "ls",
+)
 
 
 class CaptureSessionError(ValueError):
@@ -233,7 +239,7 @@ def capture_precursor_session(
     isolated-worker provenance label or an oracle result.
     """
 
-    if agent not in {"claude", "codex"}:
+    if agent not in {"claude", "codex", "pi"}:
         raise CaptureSessionError(f"unsupported capture agent: {agent}")
     if not prompt.strip():
         raise CaptureSessionError("capture prompt must be non-empty")
@@ -245,6 +251,8 @@ def capture_precursor_session(
         raise CaptureSessionError("capture max budget must be positive")
     if agent == "claude" and claude_provider_settings is None:
         raise CaptureSessionError("Claude precursor capture requires provider settings")
+    if agent == "pi" and model is None:
+        raise CaptureSessionError("Pi precursor capture requires a provider-qualified model")
 
     selected_capture_id = _capture_id(capture_id)
     private_artifact_path = Path(artifact_root).resolve()
@@ -289,8 +297,15 @@ def capture_precursor_session(
         timeout_seconds=timeout_seconds,
         max_budget_usd=max_budget_usd,
         environment=environment,
-        allowed_tools=CLAUDE_CAPTURE_ALLOWED_TOOLS if agent == "claude" else (),
+        allowed_tools=(
+            CLAUDE_CAPTURE_ALLOWED_TOOLS
+            if agent == "claude"
+            else PI_CAPTURE_ALLOWED_TOOLS
+            if agent == "pi"
+            else ()
+        ),
         settings_path=settings_path,
+        pi_thinking="minimal" if agent == "pi" else None,
         controlled=True,
     )
     if not execution.completed or execution.returncode != 0 or execution.timed_out:

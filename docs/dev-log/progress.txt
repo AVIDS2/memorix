@@ -154,3 +154,28 @@
   runtime now uses the Node-26-compatible `better-sqlite3` 12.x line, with a
   dedicated Node 26 CI smoke that opens an in-memory database.
 - Remaining remote gates: GitHub CI, npm publish, tag, and GitHub release.
+
+## Research Artifact Verification (2026-07-24)
+- The research branch's Linux, Windows, Node 26 SQLite, and typecheck CI jobs
+  are green after limiting slow Windows filesystem integration tests to their
+  actual 15-second test budgets.
+- A fresh 141-entry public artifact was materialized, self-tested in an
+  isolated virtual environment, and exact-tree audited.
+- The retained raw public-cohort roots were revalidated against their frozen
+  plans. The Qwen matrix remained 144 / 144 valid rows and the DeepSeek matrix
+  remained 72 / 72 valid rows; regenerated analysis SHA-256 values match the
+  committed public summaries.
+- The anonymous NIER package was rebuilt from its allowlist and its rendered
+  four-page PDF was visually reviewed. These are reproducibility and
+  submission-readiness checks, not new evidence of product efficacy.
+- Pi 0.79.0 now has an isolated local JSON-capture adapter in MemorixBench.
+  The first two Windows positional-prompt smokes timed out and remain private
+  invalid diagnostics; the corrected stdin transport completed a clean
+  Qwen-routed fixture capture with two read actions and a sanitized trace.
+  This verifies adapter behavior only, not Pi or Memorix efficacy.
+- A two-run, read-only Pi protocol critique identified a real receipt-accounting
+  gap: the previous admission format aggregated findings without showing that
+  each independent reviewer attested each required criterion. The admission
+  receipt is now v2 with ordered per-reviewer attestations and strict aggregate
+  consistency checks. Pi's suggestions are engineering feedback only, not
+  human review or research evidence.

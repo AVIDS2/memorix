@@ -16,7 +16,7 @@ from .trace import PrecursorEvent, TraceError, canonical_trace_sha256, write_can
 
 
 TRACE_CAPTURE_RECEIPT_SCHEMA_VERSION = "captured-trace-receipt-v2"
-VALID_AGENTS = {"claude", "codex"}
+VALID_AGENTS = {"claude", "codex", "pi"}
 VALID_CAPTURE_MODES = {"local-diagnostic-v1", "isolated-worker-v1"}
 VALID_TOOL_RESULT_MODES = {"verbatim", "metadata-only"}
 IDENTIFIER_PATTERN = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
@@ -335,6 +335,113 @@ def _codex_events(
     )
 
 
+def _pi_model_label(message: dict[str, object]) -> str:
+    raw_model = message.get("model")
+    model = raw_model.strip() if isinstance(raw_model, str) else ""
+    if not model:
+        return ""
+    raw_provider = message.get("provider")
+    provider = raw_provider.strip() if isinstance(raw_provider, str) else ""
+    if not provider or model.casefold().startswith(provider.casefold() + "/"):
+        return model
+    return f"{provider}/{model}"
+
+
+def _pi_events(
+    events: Iterable[dict[str, object]],
+    prompt: str,
+    *,
+    tool_result_mode: str,
+) -> tuple[tuple[CapturedEvent, ...], tuple[str, ...], tuple[tuple[str, int], ...]]:
+    """Convert Pi JSON mode events while omitting streaming-only duplicates."""
+
+    captured: list[CapturedEvent] = [CapturedEvent("user", "message", prompt)]
+    reported_models: set[str] = set()
+    pending_tools: dict[str, str] = {}
+    omitted = Counter[str]()
+    for event in events:
+        event_type = event.get("type")
+        if event_type in {
+            "session",
+            "agent_start",
+            "agent_end",
+            "turn_start",
+            "message_start",
+            "message_update",
+            "message_end",
+            "tool_execution_update",
+        }:
+            omitted[f"pi-event:{event_type}"] += 1
+            continue
+        if event_type == "tool_execution_start":
+            tool_name = _required_text(event.get("toolName"), label="Pi tool name")
+            tool_call_id = _required_text(event.get("toolCallId"), label="Pi tool call id")
+            if tool_call_id in pending_tools:
+                raise TraceCaptureError("Pi raw stream repeats a tool call id")
+            pending_tools[tool_call_id] = tool_name
+            captured.append(CapturedEvent(
+                "assistant",
+                "tool_call",
+                _json_text(event.get("args", {})),
+                tool_name=tool_name,
+                tool_call_id=tool_call_id,
+            ))
+            continue
+        if event_type == "tool_execution_end":
+            tool_call_id = _required_text(event.get("toolCallId"), label="Pi tool result id")
+            if tool_call_id not in pending_tools:
+                raise TraceCaptureError("Pi tool result has no preceding tool call")
+            reported_name = event.get("toolName")
+            if isinstance(reported_name, str) and reported_name and reported_name != pending_tools[tool_call_id]:
+                raise TraceCaptureError("Pi tool result name does not match its call")
+            if tool_result_mode == "metadata-only":
+                tool_result_content = TOOL_RESULT_CONTENT_OMITTED
+                omitted["pi-tool-result-content"] += 1
+            else:
+                tool_result_content = _content_text(event.get("result", "<empty tool result>"))
+            captured.append(CapturedEvent(
+                "tool",
+                "tool_result",
+                tool_result_content,
+                tool_call_id=tool_call_id,
+            ))
+            del pending_tools[tool_call_id]
+            continue
+        if event_type != "turn_end":
+            raise TraceCaptureError(f"unsupported Pi raw event type: {event_type!r}")
+        message = event.get("message")
+        if not isinstance(message, dict) or message.get("role") != "assistant":
+            raise TraceCaptureError("Pi turn completion has no assistant message")
+        model = _pi_model_label(message)
+        if model:
+            reported_models.add(model)
+        content = message.get("content")
+        if not isinstance(content, list):
+            raise TraceCaptureError("Pi assistant message has no content list")
+        text_count = 0
+        for item in content:
+            if not isinstance(item, dict):
+                raise TraceCaptureError("Pi message content item is not an object")
+            item_type = item.get("type")
+            if item_type == "text" and isinstance(item.get("text"), str) and item["text"].strip():
+                captured.append(CapturedEvent("assistant", "message", str(item["text"])))
+                text_count += 1
+                continue
+            if item_type in {"thinking", "toolCall"}:
+                omitted[f"pi-content:{item_type}"] += 1
+                continue
+            raise TraceCaptureError(f"unsupported Pi content item type: {item_type!r}")
+        if text_count == 0:
+            omitted["pi-turn-end-empty"] += 1
+    if pending_tools:
+        raise TraceCaptureError("Pi raw stream has an unfinished tool call")
+    return (
+        tuple(captured),
+        tuple(sorted(reported_models)),
+        tuple(sorted(omitted.items())),
+    )
+
+
 def _sanitize_content(content: str, *, workspace_roots: Iterable[Path]) -> tuple[str, int]:
     try:
         return sanitize_public_text(content, workspace_roots=workspace_roots)
@@ -472,8 +579,14 @@ def capture_trace_from_streams(
             prompt,
             tool_result_mode=tool_result_mode,
         )
-    else:
+    elif agent == "codex":
         captured, reported_models, omitted_event_counts = _codex_events(
+            raw_records,
+            prompt,
+            tool_result_mode=tool_result_mode,
+        )
+    else:
+        captured, reported_models, omitted_event_counts = _pi_events(
             raw_records,
             prompt,
             tool_result_mode=tool_result_mode,

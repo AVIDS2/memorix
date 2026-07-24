@@ -14,6 +14,7 @@ PUBLIC_RELEASE_V2_ID = "memorixbench-public-cohort-v2"
 PUBLIC_RELEASE_V2_TIER = "public-reproducible-summary-v1"
 PUBLIC_RELEASE_V2_STATIC_PATHS = (
     "BASELINE_PROTOCOL.md",
+    "ADMISSION-REVIEWER-GUIDE.md",
     "CASE-REGISTRY-CONTRACT.md",
     "CASE-ADMISSION-REVIEW-CONTRACT.md",
     "CLAIMS.md",

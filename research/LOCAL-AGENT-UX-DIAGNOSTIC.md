@@ -23,6 +23,17 @@ package were used in a fresh external checkout of the public historical
 `go-logr/logr` negative-control draft. No Pi configuration, extension source,
 or user session file was changed.
 
+### Runtime Identity
+
+The diagnostic used the global `memorix` hook CLI at version 1.2.1. The loaded
+Pi extension was byte-identical to this repository's
+`plugins/pi/memorix/extensions/memorix.js` entry point at the time of the
+observation (`sha256:ce89df8fce8a73f1d70cf70bcc30bf7e1c98c65871bb393efb44dca983a12498`).
+The installed Pi package's packaging version was 1.1.1, but its extension
+entry point matched the 1.2.1 source exactly. This distinction matters: the
+observation is about the extension and hook binary actually exercised, not a
+claim that an arbitrary package label has been tested.
+
 - The precursor session added one predeclared explanatory comment and passed
   `go test ./funcr`.
 - The public transition then made repeated `WithValues` calls observable under

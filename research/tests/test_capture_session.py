@@ -199,6 +199,20 @@ def test_capture_session_requires_separate_artifact_and_workspace_roots(tmp_path
         )
 
 
+def test_capture_session_requires_an_explicit_pi_model(tmp_path: Path) -> None:
+    with pytest.raises(CaptureSessionError, match="provider-qualified model"):
+        capture_precursor_session(
+            manifest=_manifest(tmp_path),
+            prompt="Review without edits.",
+            artifact_root=tmp_path / "artifacts",
+            public_output_root=tmp_path / "public-output",
+            workspace_root=tmp_path / "workspaces",
+            agent="pi",
+            client_version="pi-0.79.0",
+            capture_id="capture-fixture-pi",
+        )
+
+
 def test_capture_session_rejects_roots_inside_the_case_repository(tmp_path: Path) -> None:
     manifest = _manifest(tmp_path)
 

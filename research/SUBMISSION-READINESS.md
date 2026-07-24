@@ -16,6 +16,10 @@ work.
 - Both matrices bind one provider-reported model per cohort, one tool-policy
   hash, stable case/oracle hashes, one Memorix CLI build hash, and exact study
   IDs. Their sanitized aggregate receipts are committed under `public-summary/`.
+- On 2026-07-24, the retained external raw run roots were revalidated against
+  both frozen plans: Qwen remained 144 / 144 valid rows and DeepSeek remained
+  72 / 72 valid rows. Regenerated analysis objects and SHA-256 values exactly
+  matched the committed public summaries.
 - The public artifact release builder whitelists sources and public bundles,
   scans for host paths and credentials, materializes a fresh tree, self-tests
   it outside the staged tree, and rejects any unlisted staged file.
@@ -30,6 +34,9 @@ work.
 - Their external private design drafts also passed hash-only automated
   pre-review. This checks mechanical integrity only and leaves all three
   sources at `screening`; it is not an independent-human admission decision.
+- Before any independent review, their hash-only admission templates must be
+  regenerated to receipt v2. That change requires separate attestations from
+  each reviewer and changes no private task commitment or candidate status.
 
 ## Permitted Positioning Now
 

@@ -9,8 +9,8 @@ import re
 import stat
 
 
-ADMISSION_REVIEW_SCHEMA_VERSION = "case-admission-review-v1"
-ADMISSION_REVIEW_DRAFT_SCHEMA_VERSION = "case-admission-review-draft-v1"
+ADMISSION_REVIEW_SCHEMA_VERSION = "case-admission-review-v2"
+ADMISSION_REVIEW_DRAFT_SCHEMA_VERSION = "case-admission-review-draft-v2"
 IDENTIFIER_PATTERN = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 COMMIT_SHA_PATTERN = re.compile(r"^[0-9a-f]{40}$")
@@ -67,10 +67,19 @@ class CaseAdmissionReviewDraft:
                 "reviewer_ids": [],
                 "reviewer_kind": "independent-human-v1",
                 "findings": [],
+                "reviewer_attestations": [],
                 "decision": "<approved-for-development|rejected>",
                 "reviewed_at_utc": "<RFC3339 timestamp>",
             },
         }
+
+
+@dataclass(frozen=True)
+class ReviewerAttestation:
+    """One reviewer's non-narrative assertion over the committed private bundle."""
+
+    reviewer_id: str
+    findings: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -88,6 +97,7 @@ class CaseAdmissionReview:
     reviewer_ids: tuple[str, ...]
     reviewer_kind: str
     findings: tuple[str, ...]
+    reviewer_attestations: tuple[ReviewerAttestation, ...]
     decision: str
     reviewed_at_utc: str
 
@@ -136,6 +146,33 @@ def _identifiers(value: object, *, label: str, minimum: int = 0) -> tuple[str, .
     if len(values) != len(set(values)):
         raise AdmissionReviewError(f"admission review {label} cannot contain duplicates")
     return values
+
+
+def _reviewer_attestations(
+    value: object,
+    *,
+    reviewer_ids: tuple[str, ...],
+) -> tuple[ReviewerAttestation, ...]:
+    if not isinstance(value, list):
+        raise AdmissionReviewError("admission review reviewer_attestations must be a list")
+    attestations: list[ReviewerAttestation] = []
+    for item in value:
+        if not isinstance(item, dict) or set(item) != {"reviewer_id", "findings"}:
+            raise AdmissionReviewError("admission review reviewer attestation has an unsupported schema")
+        attestations.append(ReviewerAttestation(
+            reviewer_id=_identifier(item.get("reviewer_id"), label="reviewer_attestation.reviewer_id"),
+            findings=_identifiers(
+                item.get("findings"),
+                label="reviewer_attestation.findings",
+                minimum=1,
+            ),
+        ))
+    observed_ids = tuple(item.reviewer_id for item in attestations)
+    if observed_ids != reviewer_ids:
+        raise AdmissionReviewError(
+            "admission review reviewer attestations must match reviewer_ids in order"
+        )
+    return tuple(attestations)
 
 
 def _timestamp(value: object) -> str:
@@ -320,6 +357,7 @@ def load_admission_review(path: str | Path) -> CaseAdmissionReview:
         "reviewer_ids",
         "reviewer_kind",
         "findings",
+        "reviewer_attestations",
         "decision",
         "reviewed_at_utc",
     }
@@ -331,9 +369,30 @@ def load_admission_review(path: str | Path) -> CaseAdmissionReview:
     )
     if author_history_access not in VALID_AUTHOR_HISTORY_ACCESS:
         raise AdmissionReviewError("admission review author_history_access is unsupported")
+    author_id = _identifier(raw.get("author_id"), label="author_id")
+    reviewer_ids = _identifiers(raw.get("reviewer_ids"), label="reviewer_ids", minimum=2)
+    reviewer_kind = _required_text(raw.get("reviewer_kind"), label="reviewer_kind")
+    if reviewer_kind != "independent-human-v1":
+        raise AdmissionReviewError("admission review requires independent human reviewers")
+    if author_id in reviewer_ids:
+        raise AdmissionReviewError("admission reviewers must be independent from the author")
     decision = _required_text(raw.get("decision"), label="decision")
     if decision not in VALID_DECISIONS:
         raise AdmissionReviewError("admission review decision is unsupported")
+    findings = _identifiers(raw.get("findings"), label="findings")
+    reviewer_attestations = _reviewer_attestations(
+        raw.get("reviewer_attestations"),
+        reviewer_ids=reviewer_ids,
+    )
+    attested_findings = {
+        finding
+        for attestation in reviewer_attestations
+        for finding in attestation.findings
+    }
+    if set(findings) != attested_findings:
+        raise AdmissionReviewError(
+            "admission review findings must equal the union of reviewer attestations"
+        )
     review = CaseAdmissionReview(
         schema_version=ADMISSION_REVIEW_SCHEMA_VERSION,
         candidate_id=_identifier(raw.get("candidate_id"), label="candidate_id"),
@@ -343,7 +402,7 @@ def load_admission_review(path: str | Path) -> CaseAdmissionReview:
             raw.get("public_transition_revision"),
             label="public_transition_revision",
         ),
-        author_id=_identifier(raw.get("author_id"), label="author_id"),
+        author_id=author_id,
         author_history_access=author_history_access,
         private_transition_commitment_sha256=_sha256(
             raw.get("private_transition_commitment_sha256"),
@@ -357,16 +416,13 @@ def load_admission_review(path: str | Path) -> CaseAdmissionReview:
             raw.get("public_history_comparison_sha256"),
             label="public_history_comparison_sha256",
         ),
-        reviewer_ids=_identifiers(raw.get("reviewer_ids"), label="reviewer_ids", minimum=2),
-        reviewer_kind=_required_text(raw.get("reviewer_kind"), label="reviewer_kind"),
-        findings=_identifiers(raw.get("findings"), label="findings"),
+        reviewer_ids=reviewer_ids,
+        reviewer_kind=reviewer_kind,
+        findings=findings,
+        reviewer_attestations=reviewer_attestations,
         decision=decision,
         reviewed_at_utc=_timestamp(raw.get("reviewed_at_utc")),
     )
-    if review.reviewer_kind != "independent-human-v1":
-        raise AdmissionReviewError("admission review requires independent human reviewers")
-    if review.author_id in review.reviewer_ids:
-        raise AdmissionReviewError("admission reviewers must be independent from the author")
     if review.decision == "approved-for-development":
         if review.author_history_access != "provenance-only-v1":
             raise AdmissionReviewError(
@@ -374,6 +430,11 @@ def load_admission_review(path: str | Path) -> CaseAdmissionReview:
             )
         if not REQUIRED_APPROVAL_FINDINGS <= set(review.findings):
             raise AdmissionReviewError("approved admission is missing required findings")
+        for attestation in review.reviewer_attestations:
+            if not REQUIRED_APPROVAL_FINDINGS <= set(attestation.findings):
+                raise AdmissionReviewError(
+                    "approved admission requires each reviewer to attest every required finding"
+                )
     return review
 
 

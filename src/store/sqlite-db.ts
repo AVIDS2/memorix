@@ -643,6 +643,12 @@ const SCHEMA_MIGRATIONS: SchemaMigration[] = [
       db.exec('CREATE INDEX IF NOT EXISTS idx_knowledge_workflow_runs_project_workflow ON knowledge_workflow_runs(projectId, workflowId, startedAt DESC)');
     },
   },
+  {
+    id: '1.2-observation-attachments',
+    apply: (db) => {
+      try { db.exec('ALTER TABLE observations ADD COLUMN attachments TEXT'); } catch { /* already exists */ }
+    },
+  },
 ];
 
 function applySchemaMigrations(db: any): void {

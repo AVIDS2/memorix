@@ -174,6 +174,7 @@ export function formatObservationDetail(doc: {
   facts: string;
   filesModified: string;
   concepts: string;
+  attachments?: string;
   createdAt: string;
   projectId: string;
   entityName: string;
@@ -223,6 +224,13 @@ export function formatObservationDetail(doc: {
   if (doc.concepts) {
     lines.push('');
     lines.push(`Concepts: ${doc.concepts}`);
+  }
+
+  const attachments = doc.attachments?.split('\n').filter(Boolean) ?? [];
+  if (attachments.length > 0) {
+    lines.push('');
+    lines.push('Attachments (provenance/BM25 metadata; URL content is not fetched):');
+    for (const attachment of attachments) lines.push(`- ${attachment}`);
   }
 
   return lines.join('\n');

@@ -92,6 +92,15 @@ export interface ProgressInfo {
   completion?: number;
 }
 
+/** Safe media reference for an observation. Raw inline media is never persisted. */
+export interface ObservationAttachment {
+  modality: 'image' | 'audio' | 'video' | 'document';
+  /** Public HTTPS reference. Local paths, private hosts, and credentials are rejected. */
+  url: string;
+  mimeType?: string;
+  name?: string;
+}
+
 /** A rich observation record attached to an entity */
 export interface Observation {
   id: number;
@@ -128,6 +137,8 @@ export interface Observation {
   relatedCommits?: string[];
   /** Related entity names — explicit cross-references to other memory entities */
   relatedEntities?: string[];
+  /** Safe media references and metadata; never contains inline payloads or credentials. */
+  attachments?: ObservationAttachment[];
   /** Provenance detail: how this observation entered the system */
   sourceDetail?: 'explicit' | 'hook' | 'git-ingest';
   /** Value category from formation pipeline evaluation */
@@ -243,6 +254,8 @@ export interface MemorixDocument {
   facts: string;
   filesModified: string;
   concepts: string;
+  /** Searchable, display-safe attachment provenance (one entry per line). */
+  attachments?: string;
   tokens: number;
   createdAt: string;
   projectId: string;

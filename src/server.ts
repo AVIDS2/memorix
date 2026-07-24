@@ -623,9 +623,18 @@ export async function createMemorixServer(
         }).optional().describe('Progress tracking for task/feature observations'),
         relatedCommits: z.array(z.string()).optional().describe('Git commit hashes this memory relates to (links ground truth ↔ reasoning)'),
         relatedEntities: z.array(z.string()).optional().describe('Other entity names this memory cross-references'),
+        attachments: z.array(z.object({
+          modality: z.enum(['image', 'audio', 'video', 'document']),
+          url: z.string().describe(
+            'Public HTTPS provenance reference without query parameters or fragments. ' +
+            'Memorix does not fetch this URL: attachment metadata is persisted and BM25-searchable, while observation vectors remain text-only.',
+          ),
+          mimeType: z.string().optional(),
+          name: z.string().optional(),
+        })).optional().describe('Safe media references to persist and embed; raw inline media is never stored'),
       },
     },
-    async ({ entityName: rawEntityName, type: rawType, title: rawTitle, narrative, facts, filesModified, concepts, topicKey, progress, relatedCommits, relatedEntities }) => {
+    async ({ entityName: rawEntityName, type: rawType, title: rawTitle, narrative, facts, filesModified, concepts, topicKey, progress, relatedCommits, relatedEntities, attachments }) => {
       const unresolved = requireResolvedProject('store memory in the current project');
       if (unresolved) return unresolved;
       return withFreshIndex(async () => {
@@ -986,6 +995,7 @@ export async function createMemorixServer(
         progress: progress as import('./types.js').ProgressInfo | undefined,
         relatedCommits,
         relatedEntities,
+        attachments,
         sourceDetail: 'explicit',
         valueCategory: formationResult?.evaluation.category,
         createdByAgentId: currentAgentId,

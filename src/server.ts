@@ -707,9 +707,18 @@ export async function createMemorixServer(
         overrideReadOnly: z.boolean().optional().describe(
           'Use only when the user explicitly asks to save memory during a read-only or no-modification task.',
         ),
+        attachments: z.array(z.object({
+          modality: z.enum(['image', 'audio', 'video', 'document']),
+          url: z.string().describe(
+            'Public HTTPS provenance reference without query parameters or fragments. ' +
+            'Memorix does not fetch this URL: attachment metadata is persisted and BM25-searchable, while observation vectors remain text-only.',
+          ),
+          mimeType: z.string().optional(),
+          name: z.string().optional(),
+        })).optional().describe('Safe public provenance references. They are stored as metadata for lexical retrieval; raw inline media is never stored.'),
       },
     },
-    async ({ entityName: rawEntityName, type: rawType, title: rawTitle, narrative, facts, filesModified, concepts, topicKey, progress, relatedCommits, relatedEntities, visibility, longTerm, overrideReadOnly }) => {
+    async ({ entityName: rawEntityName, type: rawType, title: rawTitle, narrative, facts, filesModified, concepts, topicKey, progress, relatedCommits, relatedEntities, visibility, longTerm, overrideReadOnly, attachments }) => {
       const unresolved = requireResolvedProject('store memory in the current project');
       if (unresolved) return unresolved;
       const readOnlyBoundary = blockReadOnlyAutopilotWrite(overrideReadOnly);
@@ -1115,6 +1124,7 @@ export async function createMemorixServer(
         progress: progress as import('./types.js').ProgressInfo | undefined,
         relatedCommits,
         relatedEntities,
+        attachments,
         sourceDetail: 'explicit',
         valueCategory: formationResult?.evaluation.category,
         createdByAgentId: currentAgentId,

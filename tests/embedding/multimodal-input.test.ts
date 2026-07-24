@@ -74,6 +74,26 @@ describe('typed embedding inputs', () => {
     ).toThrow(/too large/i);
   });
 
+  it('rejects credential-bearing and private IPv6 media URLs', () => {
+    for (const url of [
+      'https://example.com/a?X-Amz-Signature=secret',
+      'https://example.com/a#token',
+      'https://[::]/a',
+      'https://[fe80::1]/a',
+      'https://[fd00::1]/a',
+      'https://[::ffff:127.0.0.1]/a',
+      'https://[::ffff:10.0.0.1]/a',
+      'https://100.64.0.1/a',
+      'https://198.18.0.1/a',
+      'https://224.0.0.1/a',
+      'https://[ff02::1]/a',
+      'https://[2001:db8::1]/a',
+    ]) {
+      expect(() => validateEmbeddingInput({ modality: 'image', url })).toThrow(EmbeddingInputError);
+    }
+    expect(validateEmbeddingInput({ modality: 'image', url: 'https://[2606:4700:4700::1111]/a' })).toBeTruthy();
+  });
+
   it('reads the cache directory environment at provider creation time', async () => {
     await withEmbeddingEnv({
       MEMORIX_DATA_DIR: '/tmp/memorix-runtime-cache-dir',
@@ -158,32 +178,60 @@ describe('API multimodal mapping', () => {
     });
   });
 
-  it('maps Google retrieval task types and instructions', async () => {
+  it('uses the native Gemini embedContent contract and omits task type for Gemini 2', async () => {
     await withEmbeddingEnv({
       MEMORIX_DATA_DIR: `/tmp/memorix-google-${Date.now()}`,
       MEMORIX_EMBEDDING_API_KEY: 'test-key',
-      MEMORIX_EMBEDDING_BASE_URL: 'https://generativelanguage.googleapis.com/v1beta/openai',
+      MEMORIX_EMBEDDING_BASE_URL: 'https://generativelanguage.googleapis.com/v1beta',
       MEMORIX_EMBEDDING_MODEL: 'gemini-embedding-2-preview',
       MEMORIX_EMBEDDING_DIMENSIONS: '3',
     }, async () => {
       const fetchMock = vi.fn().mockResolvedValue({
         ok: true,
-        json: async () => ({ data: [{ embedding: [1, 2, 3] }] }),
+        json: async () => ({ embedding: { values: [1, 2, 3] } }),
         headers: { get: () => null },
       });
       vi.stubGlobal('fetch', fetchMock);
       const provider = await APIEmbeddingProvider.create();
       await provider!.embedInput(
-        { modality: 'text', text: 'needle' },
-        { intent: 'query', instruction: 'Find code' },
+        { modality: 'image', data: 'aW1hZ2U=', mimeType: 'image/png' },
+        { intent: 'query' },
       );
-      const body = fetchMock.mock.calls
-        .map((call) => JSON.parse(String(call[1].body)))
-        .find((candidate) => candidate.input !== 'dimension probe');
+      const [, options] = fetchMock.mock.calls.at(-1)!;
+      expect(fetchMock.mock.calls.at(-1)![0]).toBe(
+        'https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-2-preview:embedContent',
+      );
+      expect(options.headers).toMatchObject({ 'x-goog-api-key': 'test-key' });
+      const body = JSON.parse(String(options.body));
       expect(body).toMatchObject({
-        task_type: 'RETRIEVAL_QUERY',
-        instruction: 'Find code',
+        content: { parts: [{ inlineData: { mimeType: 'image/png', data: 'aW1hZ2U=' } }] },
+        outputDimensionality: 3,
       });
+      expect(body).not.toHaveProperty('taskType');
+      expect(body).not.toHaveProperty('task_type');
+    });
+  });
+
+  it('keeps Google OpenAI compatibility routing separate', async () => {
+    await withEmbeddingEnv({
+      MEMORIX_DATA_DIR: `/tmp/memorix-google-openai-${Date.now()}`,
+      MEMORIX_EMBEDDING_API_KEY: 'test-key',
+      MEMORIX_EMBEDDING_BASE_URL: 'https://generativelanguage.googleapis.com/v1beta/openai',
+      MEMORIX_EMBEDDING_MODEL: 'text-embedding-004',
+      MEMORIX_EMBEDDING_DIMENSIONS: '3',
+    }, async () => {
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ data: [{ index: 0, embedding: [1, 2, 3] }] }),
+        headers: { get: () => null },
+      });
+      vi.stubGlobal('fetch', fetchMock);
+      const provider = await APIEmbeddingProvider.create();
+      await provider!.embedInput({ modality: 'text', text: 'needle' }, { intent: 'query' });
+      expect(fetchMock.mock.calls.at(-1)![0]).toBe(
+        'https://generativelanguage.googleapis.com/v1beta/openai/embeddings',
+      );
+      expect(fetchMock.mock.calls.at(-1)![1].headers).toMatchObject({ Authorization: 'Bearer test-key' });
     });
   });
 });

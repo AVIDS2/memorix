@@ -10,6 +10,7 @@ import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import {
+  EmbeddingInputError,
   UnsupportedEmbeddingModalityError,
   validateEmbeddingInput,
   type EmbeddingInput,
@@ -78,6 +79,44 @@ function isJinaEndpoint(baseUrl: string): boolean {
 
 function isGoogleEmbeddingEndpoint(baseUrl: string): boolean {
   return /generativelanguage\.googleapis\.com/i.test(baseUrl);
+}
+
+function isNativeGeminiEndpoint(baseUrl: string): boolean {
+  if (!isGoogleEmbeddingEndpoint(baseUrl)) return false;
+  return !new URL(baseUrl).pathname.split('/').includes('openai');
+}
+
+function geminiModelName(model: string): string {
+  return model.replace(/^models\//, '');
+}
+
+function geminiBody(
+  input: EmbeddingInput,
+  model: string,
+  requestedDimensions: number | null,
+  options: EmbeddingOptions = {},
+): Record<string, unknown> {
+  if (options.instruction) {
+    throw new EmbeddingInputError(`Gemini native ${model} does not support embedding instructions`);
+  }
+  if (input.modality !== 'text' && !('data' in input && input.data !== undefined)) {
+    throw new UnsupportedEmbeddingModalityError(`Gemini native ${model}`, input.modality);
+  }
+  const part = input.modality === 'text'
+    ? { text: input.text }
+    : { inlineData: { mimeType: input.mimeType, data: input.data } };
+  const body: Record<string, unknown> = {
+    content: { parts: [part] },
+  };
+  if (requestedDimensions) body.outputDimensionality = requestedDimensions;
+  if (!/^gemini-embedding-2(?:-|$)/i.test(geminiModelName(model))) {
+    body.taskType = (options.intent ?? 'document') === 'query' ? 'RETRIEVAL_QUERY' : 'RETRIEVAL_DOCUMENT';
+  }
+  return body;
+}
+
+function geminiUrl(baseUrl: string, model: string): string {
+  return `${baseUrl}/models/${geminiModelName(model)}:embedContent`;
 }
 
 function mapIntentTask(baseUrl: string, model: string, options: EmbeddingOptions = {}): Record<string, unknown> {
@@ -344,7 +383,8 @@ function cacheSet(hash: string, value: number[]): void {
 }
 
 interface EmbeddingAPIResponse {
-  object: string;
+  object?: string;
+  embedding?: { values: number[] };
   data: Array<{
     object: string;
     index: number;
@@ -495,29 +535,31 @@ export class APIEmbeddingProvider implements EmbeddingProvider {
   }
 
   private static async probeAPI(config: APIEmbeddingConfig): Promise<number> {
-    const body: Record<string, unknown> = {
-      model: config.model,
-      input: 'dimension probe',
-    };
-    if (config.requestedDimensions) {
-      body.dimensions = config.requestedDimensions;
+    if (isNativeGeminiEndpoint(config.baseUrl)) {
+      const response = await fetchWithRetry(
+        geminiUrl(config.baseUrl, config.model),
+        config.apiKey,
+        geminiBody({ modality: 'text', text: 'dimension probe' }, config.model, config.requestedDimensions),
+        0,
+        true,
+      );
+      const embedding = response.embedding?.values;
+      if (!embedding) throw new Error('API probe returned no embeddings; check model name and API key');
+      return embedding.length;
     }
-
-    const response = await fetchWithRetry(
-      `${config.baseUrl}/embeddings`,
-      config.apiKey,
-      body,
-    );
-
-    if (response.data.length === 0 || !response.data[0].embedding) {
-      throw new Error('API probe returned no embeddings; check model name and API key');
-    }
-
-    return response.data[0].embedding.length;
+    const body: Record<string, unknown> = { model: config.model, input: 'dimension probe' };
+    if (config.requestedDimensions) body.dimensions = config.requestedDimensions;
+    const response = await fetchWithRetry(`${config.baseUrl}/embeddings`, config.apiKey, body);
+    const embedding = response.data?.[0]?.embedding;
+    if (!embedding) throw new Error('API probe returned no embeddings; check model name and API key');
+    return embedding.length;
   }
 
   async embed(text: string): Promise<number[]> {
     const normalized = normalizeText(text);
+    if (isNativeGeminiEndpoint(this.config.baseUrl)) {
+      return this.embedInput({ modality: 'text', text: normalized }, { intent: 'document' });
+    }
     const hash = textHash(normalized, this.cacheKeyNamespace);
 
     // Fast path: cache already loaded (warm process) — instant lookup
@@ -586,6 +628,9 @@ export class APIEmbeddingProvider implements EmbeddingProvider {
   }
 
   async embedBatch(texts: string[]): Promise<number[][]> {
+    if (isNativeGeminiEndpoint(this.config.baseUrl)) {
+      return Promise.all(texts.map((text) => this.embedInput({ modality: 'text', text }, { intent: 'document' })));
+    }
     await ensureDiskCacheLoaded();
     const normalizedTexts = texts.map(normalizeText);
     const results: number[][] = new Array(texts.length);
@@ -685,7 +730,7 @@ export class APIEmbeddingProvider implements EmbeddingProvider {
   private supportsModality(modality: EmbeddingInput['modality']): boolean {
     if (modality === 'text') return true;
     if (isJinaEndpoint(this.config.baseUrl)) return true;
-    if (isGoogleEmbeddingEndpoint(this.config.baseUrl) && /embedding-2/i.test(this.config.model)) return true;
+    if (isNativeGeminiEndpoint(this.config.baseUrl) && /embedding-2/i.test(this.config.model)) return true;
     return false;
   }
 
@@ -704,21 +749,26 @@ export class APIEmbeddingProvider implements EmbeddingProvider {
     const cached = cache.get(hash);
     if (cached) return cached;
 
-    const body: Record<string, unknown> = {
-      model: this.config.model,
-      input: input.modality === 'text' && !isJinaEndpoint(this.config.baseUrl)
-        ? input.text
-        : [toProviderInput(input, this.config.baseUrl)],
-      ...mapIntentTask(this.config.baseUrl, this.config.model, options),
-    };
-    if (this.config.requestedDimensions) body.dimensions = this.config.requestedDimensions;
+    const nativeGemini = isNativeGeminiEndpoint(this.config.baseUrl);
+    const body: Record<string, unknown> = nativeGemini
+      ? geminiBody(input, this.config.model, this.config.requestedDimensions, options)
+      : {
+          model: this.config.model,
+          input: input.modality === 'text' && !isJinaEndpoint(this.config.baseUrl)
+            ? input.text
+            : [toProviderInput(input, this.config.baseUrl)],
+          ...mapIntentTask(this.config.baseUrl, this.config.model, options),
+          ...(this.config.requestedDimensions ? { dimensions: this.config.requestedDimensions } : {}),
+        };
 
     const response = await fetchWithRetry(
-      `${this.config.baseUrl}/embeddings`,
+      nativeGemini ? geminiUrl(this.config.baseUrl, this.config.model) : `${this.config.baseUrl}/embeddings`,
       this.config.apiKey,
       body,
+      0,
+      nativeGemini,
     );
-    const embedding = response.data[0]?.embedding;
+    const embedding = nativeGemini ? response.embedding?.values : response.data[0]?.embedding;
     if (!embedding) throw new Error('Embedding API returned no vectors');
     if (embedding.length !== this.dimensions) {
       throw new Error(`Expected ${this.dimensions}d, got ${embedding.length}d; dimension mismatch`);
@@ -756,6 +806,7 @@ async function fetchWithRetry(
   apiKey: string,
   body: Record<string, unknown>,
   attempt = 0,
+  nativeGemini = false,
 ): Promise<EmbeddingAPIResponse> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 10_000);
@@ -763,10 +814,9 @@ async function fetchWithRetry(
   try {
     response = await fetch(url, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
-      },
+      headers: nativeGemini
+        ? { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey }
+        : { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
       body: JSON.stringify(body),
       signal: controller.signal,
     });
@@ -789,7 +839,7 @@ async function fetchWithRetry(
     const waitMs = retryAfter ? parseInt(retryAfter, 10) * 1000 : delay;
     console.error(`[memorix] Embedding API ${response.status}, retry ${attempt + 1}/${MAX_RETRIES} in ${waitMs}ms`);
     await new Promise(resolve => setTimeout(resolve, waitMs));
-    return fetchWithRetry(url, apiKey, body, attempt + 1);
+    return fetchWithRetry(url, apiKey, body, attempt + 1, nativeGemini);
   }
 
   const errorText = await response.text().catch(() => 'unknown error');

@@ -27,6 +27,8 @@
  * Architecture inspired by Mem0's multi-provider embedding design.
  */
 
+import { isIP } from 'node:net';
+
 export type EmbeddingModality = 'text' | 'image' | 'audio' | 'video' | 'document';
 export type EmbeddingIntent = 'query' | 'document';
 
@@ -64,15 +66,40 @@ export class UnsupportedEmbeddingModalityError extends EmbeddingInputError {
 /** Maximum encoded inline media accepted by the public API (5 MiB). */
 export const MAX_INLINE_EMBEDDING_BYTES = 5 * 1024 * 1024;
 
-function isPrivateHost(hostname: string): boolean {
-  const host = hostname.toLowerCase().replace(/^\[|\]$/g, '');
-  if (host === 'localhost' || host === '::1' || host === '0.0.0.0' || host.endsWith('.localhost')) return true;
+function isNonGlobalIPv4(host: string): boolean {
   const parts = host.split('.').map(Number);
-  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return false;
-  return parts[0] === 10 || parts[0] === 127 || parts[0] === 0 ||
+  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return true;
+  return parts[0] === 0 || parts[0] === 10 || parts[0] === 127 || parts[0] >= 224 ||
+    (parts[0] === 100 && parts[1] >= 64 && parts[1] <= 127) ||
     (parts[0] === 169 && parts[1] === 254) ||
     (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) ||
-    (parts[0] === 192 && parts[1] === 168);
+    (parts[0] === 192 && parts[1] === 0 && parts[2] === 0) ||
+    (parts[0] === 192 && parts[1] === 0 && parts[2] === 2) ||
+    (parts[0] === 192 && parts[1] === 168) ||
+    (parts[0] === 198 && (parts[1] === 18 || parts[1] === 19 || parts[1] === 51 && parts[2] === 100)) ||
+    (parts[0] === 203 && parts[1] === 0 && parts[2] === 113);
+}
+
+function isPrivateHost(hostname: string): boolean {
+  const host = hostname.toLowerCase().replace(/^\[|\]$/g, '');
+  if (host === 'localhost' || host.endsWith('.localhost')) return true;
+  if (isIP(host) === 4) return isNonGlobalIPv4(host);
+  if (isIP(host) !== 6) return false;
+
+  // URL canonicalizes IPv4-mapped addresses to hexadecimal (for example
+  // ::ffff:127.0.0.1 becomes ::ffff:7f00:1), so classify the mapped payload.
+  if (host.startsWith('::ffff:')) {
+    const groups = host.slice(7).split(':');
+    if (groups.length === 2) {
+      const high = parseInt(groups[0], 16);
+      const low = parseInt(groups[1], 16);
+      return isNonGlobalIPv4(`${high >> 8}.${high & 255}.${low >> 8}.${low & 255}`);
+    }
+  }
+  const first = parseInt(host.split(':')[0] || '0', 16);
+  return host === '::' || host === '::1' || (first & 0xfe00) === 0xfc00 ||
+    (first & 0xffc0) === 0xfe80 || (first & 0xff00) === 0xff00 ||
+    host.startsWith('2001:db8:');
 }
 
 /** Validate without reading or fetching the media. Returns the original typed input. */
@@ -95,7 +122,11 @@ export function validateEmbeddingInput(input: EmbeddingInput): EmbeddingInput {
     throw new EmbeddingInputError(`Invalid ${input.modality} URL`);
   }
   if (url.protocol !== 'https:') throw new EmbeddingInputError('Unsafe media URL scheme: only https is allowed');
-  if (url.username || url.password) throw new EmbeddingInputError('Media URLs must not contain credentials');
+  // Hostnames are not resolved here: the remote embedding provider performs the
+  // fetch, so local DNS checks cannot prevent provider-side DNS rebinding.
+  if (url.username || url.password || url.search || url.hash) {
+    throw new EmbeddingInputError('Media URLs must not contain credentials, query parameters, or fragments');
+  }
   if (isPrivateHost(url.hostname)) throw new EmbeddingInputError('Private or local media URLs are not allowed');
   return input;
 }

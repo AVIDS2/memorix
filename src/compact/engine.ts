@@ -392,6 +392,12 @@ function observationToDocument(obs: ReturnType<typeof getAllObservations>[number
     facts: obs.facts.join('\n'),
     filesModified: obs.filesModified.join('\n'),
     concepts: obs.concepts.join(', '),
+    attachments: (obs.attachments ?? []).map((attachment) => [
+      attachment.name,
+      attachment.modality,
+      attachment.mimeType,
+      attachment.url,
+    ].filter(Boolean).join(' ')).join('\n'),
     tokens: obs.tokens,
     createdAt: obs.createdAt,
     projectId: obs.projectId,

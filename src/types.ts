@@ -254,6 +254,8 @@ export interface MemorixDocument {
   facts: string;
   filesModified: string;
   concepts: string;
+  /** Searchable, display-safe attachment provenance (one entry per line). */
+  attachments?: string;
   tokens: number;
   createdAt: string;
   projectId: string;

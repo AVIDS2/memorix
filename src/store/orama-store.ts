@@ -172,6 +172,7 @@ async function initializeDb(
     facts: 'string' as const,
     filesModified: 'string' as const,
     concepts: 'string' as const,
+    attachments: 'string' as const,
     tokens: 'number' as const,
     createdAt: 'string' as const,
     projectId: 'string' as const,
@@ -560,7 +561,7 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
     includeVectors: true,
     ...(Object.keys(filters).length > 0 ? { where: filters } : {}),
     // Search specific fields (not tokens, accessCount, etc.)
-    properties: ['title', 'entityName', 'narrative', 'facts', 'concepts', 'filesModified'],
+    properties: ['title', 'entityName', 'narrative', 'facts', 'concepts', 'filesModified', 'attachments'],
     // Field boosting: intent-aware or default
     boost: fieldBoost,
     // Fuzzy tolerance: allow 1-char typos for short queries, 2 for longer

@@ -235,6 +235,15 @@ export async function withFreshObservations<T>(fn: () => T | Promise<T>): Promis
  *   3. Inserts into Orama for full-text search
  *   4. Persists to disk
  */
+function formatAttachmentProvenance(attachments?: ObservationAttachment[]): string {
+  return (attachments ?? []).map((attachment) => [
+    attachment.name,
+    attachment.modality,
+    attachment.mimeType,
+    attachment.url,
+  ].filter(Boolean).join(' ')).join('\n');
+}
+
 export async function storeObservation(input: {
   entityName: string;
   type: ObservationType;
@@ -442,6 +451,7 @@ export async function storeObservation(input: {
       facts: (input.facts ?? []).join('\n'),
       filesModified: enrichedFiles.join('\n'),
       concepts: enrichedConcepts.map(c => c.replace(/-/g, ' ')).join(', '),
+      attachments: formatAttachmentProvenance(input.attachments),
       tokens,
       createdAt: now,
       projectId: input.projectId,
@@ -471,6 +481,9 @@ export async function storeObservation(input: {
   const obsId = observation.id;
   vectorMissingIds.add(obsId);
   const searchableText = [input.title, input.narrative, ...(input.facts ?? [])].join(' ');
+  // URL attachments are durable provenance and BM25 metadata. The observation's
+  // semantic vector remains text-only because providers cannot jointly embed
+  // arbitrary remote URLs with the title/narrative/facts contract.
   generateEmbedding(searchableText).then(async (embedding) => {
     if (embedding) {
       if (!isVectorCompatibleWithCurrentIndex(embedding)) {
@@ -532,6 +545,7 @@ async function upsertObservation(
     topicKey?: string;
     sessionId?: string;
     progress?: ProgressInfo;
+    attachments?: ObservationAttachment[];
     sourceDetail?: 'explicit' | 'hook' | 'git-ingest';
     valueCategory?: 'core' | 'contextual' | 'ephemeral';
   },
@@ -561,6 +575,7 @@ async function upsertObservation(
   existing.title = input.title;
   existing.narrative = input.narrative;
   existing.facts = input.facts ?? [];
+  existing.attachments = input.attachments;
   existing.filesModified = enrichedFiles;
   existing.concepts = enrichedConcepts;
   existing.tokens = tokens;
@@ -584,6 +599,7 @@ async function upsertObservation(
     facts: existing.facts.join('\n'),
     filesModified: enrichedFiles.join('\n'),
     concepts: enrichedConcepts.map(c => c.replace(/-/g, ' ')).join(', '),
+    attachments: formatAttachmentProvenance(existing.attachments),
     tokens,
     createdAt: existing.createdAt,
     projectId: existing.projectId,
@@ -708,6 +724,7 @@ export async function resolveObservations(
         facts: obs.facts.join('\n'),
         filesModified: obs.filesModified.join('\n'),
         concepts: obs.concepts.map(c => c.replace(/-/g, ' ')).join(', '),
+        attachments: formatAttachmentProvenance(obs.attachments),
         tokens: obs.tokens,
         createdAt: obs.createdAt,
         projectId: obs.projectId,
@@ -911,6 +928,7 @@ export async function reindexObservations(): Promise<number> {
         facts: obs.facts.join('\n'),
         filesModified: obs.filesModified.join('\n'),
         concepts: obs.concepts.map((c: string) => c.replace(/-/g, ' ')).join(', '),
+        attachments: formatAttachmentProvenance(obs.attachments),
         tokens: obs.tokens,
         createdAt: obs.createdAt,
         projectId: obs.projectId,
@@ -1121,6 +1139,7 @@ export async function backfillVectorEmbeddings(options: {
             facts: obs.facts.join('\n'),
             filesModified: obs.filesModified.join('\n'),
             concepts: obs.concepts.map(c => c.replace(/-/g, ' ')).join(', '),
+            attachments: formatAttachmentProvenance(obs.attachments),
             tokens: obs.tokens,
             createdAt: obs.createdAt,
             projectId: obs.projectId,

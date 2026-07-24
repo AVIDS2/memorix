@@ -306,6 +306,7 @@ async function handleSessionStart(input: NormalizedHookInput): Promise<{
               maxFiles: 5_000,
             });
           }),
+        deliveryTarget: 'hook-session-start',
       });
       contextSummary = `\n\n${formatAutoProjectContextPrompt(context)}`;
     } catch (sessErr) {

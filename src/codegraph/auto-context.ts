@@ -2,6 +2,7 @@ import { existsSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { getResolvedConfig } from '../config/resolved-config.js';
 import { buildTaskWorkset, type TaskWorkset, type WorksetCaution } from '../knowledge/workset.js';
+import type { ContextDeliveryTarget } from '../knowledge/context-assembly.js';
 import type { ProjectInfo } from '../types.js';
 import { backfillMissingObservationCodeRefs, type CodeRefBackfillResult } from './binder.js';
 import { collectCurrentProjectFacts, formatGitFact, type CurrentProjectFacts } from './current-facts.js';
@@ -118,6 +119,8 @@ export async function buildAutoProjectContext(input: {
    * request. MCP and hook callers use this to keep their response path fast.
    */
   enqueueRefresh?: () => void | Promise<void>;
+  /** The caller surface is recorded in the Workset receipt, not its prompt. */
+  deliveryTarget?: ContextDeliveryTarget;
 }): Promise<AutoProjectContext> {
   const refreshMode = input.refresh ?? 'auto';
   const now = input.now ?? new Date();
@@ -300,6 +303,7 @@ export async function buildAutoProjectContext(input: {
       stale: overview.freshness.stale,
     },
     runtimeCautions,
+    ...(input.deliveryTarget ? { deliveryTarget: input.deliveryTarget } : {}),
   });
 
   return {

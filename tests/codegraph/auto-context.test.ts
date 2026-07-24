@@ -98,6 +98,7 @@ describe('auto project context', () => {
     expect(text).not.toContain('SQLite');
     expect(text).toBe(context.workset.prompt);
     expect(context.workset.budget.tokenCount).toBeLessThanOrEqual(context.workset.budget.maxTokens);
+    expect(context.workset.receipt.target).toBe('project-context');
   });
 
   it('uses a validated local semantic outline without adding raw external code', async () => {

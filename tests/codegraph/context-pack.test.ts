@@ -1,5 +1,14 @@
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { assembleContextPack, buildContextPackPrompt, selectRelevantObservations } from '../../src/codegraph/context-pack.js';
+import {
+  assembleContextPack,
+  attachTaskWorkset,
+  buildContextPackPrompt,
+  selectRelevantObservations,
+} from '../../src/codegraph/context-pack.js';
+import { closeAllDatabases } from '../../src/store/sqlite-db.js';
 
 describe('buildContextPackPrompt', () => {
   it('renders memories, code facts, freshness warnings, reads, and verification', () => {
@@ -325,5 +334,43 @@ describe('buildContextPackPrompt', () => {
     expect(text).not.toContain('.claude/worktrees/release/src/release.ts');
     expect(text).toContain('src/extra.ts');
     expect(text).not.toContain('src/overflow.ts');
+  });
+
+  it('marks Context Pack as a distinct bounded delivery target', async () => {
+    const dataDir = mkdtempSync(path.join(tmpdir(), 'memorix-context-pack-receipt-'));
+    try {
+      const pack = await attachTaskWorkset({
+        pack: {
+          task: 'Continue the auth bug.',
+          memories: [{
+            id: 1,
+            title: 'JWT validation stays in authMiddleware',
+            type: 'decision',
+            status: 'current',
+            reason: 'current code reference',
+            path: 'src/auth.ts',
+          }],
+          codeFacts: [],
+          warnings: [],
+          suggestedReads: ['src/auth.ts'],
+          suggestedVerification: ['Run the focused auth test.'],
+        },
+        projectId: 'org/repo',
+        dataDir,
+        lens: 'bugfix',
+        worktreeDirty: false,
+      });
+
+      expect(pack.workset?.receipt).toMatchObject({
+        version: '1.2.2',
+        target: 'context-pack',
+      });
+      expect(pack.workset?.receipt.selected).toEqual(expect.arrayContaining([
+        expect.objectContaining({ kind: 'start-here', id: 'path:src/auth.ts' }),
+      ]));
+    } finally {
+      closeAllDatabases();
+      rmSync(dataDir, { recursive: true, force: true });
+    }
   });
 });

@@ -146,6 +146,25 @@ describe('Task Workset', () => {
     expect(workset.prompt).toContain('Project knowledge');
     expect(workset.prompt).toContain('Project workflow');
     expect(workset.budget.tokenCount).toBeLessThanOrEqual(workset.budget.maxTokens);
+    expect(workset.receipt).toMatchObject({
+      version: '1.2.2',
+      target: 'project-context',
+      budget: {
+        maxTokens: workset.budget.maxTokens,
+        tokenCount: workset.budget.tokenCount,
+      },
+    });
+    expect(workset.receipt.selected).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'start-here', id: 'path:package.json' }),
+    ]));
+    expect(workset.receipt.selected).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'claim', id: 'claim:' + written.claim.id }),
+      expect.objectContaining({ kind: 'knowledge-page' }),
+    ]));
+    expect(workset.receipt.omitted).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'claim', reason: 'token-budget' }),
+      expect.objectContaining({ kind: 'knowledge-page', reason: 'token-budget' }),
+    ]));
   });
 
   it('returns no generic knowledge dump when task terms do not match durable artifacts', async () => {
@@ -205,5 +224,43 @@ describe('Task Workset', () => {
     expect(workset.prompt).toContain('uncommitted changes');
     expect(workset.prompt).toContain('incomplete');
     expect(workset.budget.tokenCount).toBeLessThanOrEqual(96);
+    expect(workset.receipt.selected).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'caution', id: 'caution:dirty-worktree' }),
+      expect.objectContaining({ kind: 'caution', id: 'caution:incomplete-scan' }),
+    ]));
+    expect(workset.receipt.omitted).toEqual(expect.arrayContaining([
+      expect.objectContaining({ reason: 'token-budget' }),
+    ]));
+    expect(workset.receipt.omitted.find(item => item.kind === 'start-here')).toMatchObject({
+      reason: 'token-budget',
+      count: expect.any(Number),
+    });
+    expect(workset.receipt.omitted.find(item => item.kind === 'start-here')!.count).toBeGreaterThan(1);
+  });
+
+  it('records queued maintenance without adding a diagnostic block to the agent prompt', async () => {
+    const root = tempDir();
+    const workset = await buildTaskWorkset({
+      projectId: 'org/repo',
+      dataDir: root,
+      task: 'Continue the auth fix.',
+      lens: 'bugfix',
+      currentFacts: ['Git: clean worktree'],
+      startHere: ['src/auth.ts'],
+      reliableMemory: [],
+      cautionMemory: [],
+      verificationHints: ['Run the focused auth test.'],
+      worktreeDirty: false,
+      freshness: { suspect: 0, stale: 0 },
+      runtimeCautions: [{
+        kind: 'codegraph-refresh-queued',
+        message: 'Code Memory refresh queued; this brief uses the latest completed scan.',
+      }],
+    });
+
+    expect(workset.receipt.scheduledActions).toEqual([
+      'Code Memory refresh queued; this brief uses the latest completed scan.',
+    ]);
+    expect(workset.prompt).not.toContain('Context delivery receipt');
   });
 });

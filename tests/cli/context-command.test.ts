@@ -198,6 +198,8 @@ describe('project context CLI commands', () => {
     expect(result.stdout).toContain('#1 decision');
     expect(result.stdout).toContain('authMiddleware keeps JWT verification centralized');
     expect(result.stdout).toContain('src/auth.ts');
+    expect(result.stdout).toContain('Context delivery receipt');
+    expect(result.stdout).toContain('Target: Project Context');
     expect(result.stdout).not.toContain('SQLite');
   });
 
@@ -216,6 +218,14 @@ describe('project context CLI commands', () => {
       status: 'current',
     });
     expect(parsed.explain.overview.code.files).toBe(3);
+    expect(parsed.receipt).toMatchObject({
+      version: '1.2.2',
+      target: 'project-context',
+      budget: {
+        maxTokens: expect.any(Number),
+        tokenCount: expect.any(Number),
+      },
+    });
   });
 
   it('includes code memory health in doctor JSON', async () => {

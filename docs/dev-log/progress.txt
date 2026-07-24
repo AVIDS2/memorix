@@ -132,6 +132,15 @@
 - `TaskWorkset` already has bounded rendering and source-aware claims, but
   SessionStart handoff and legacy context surfaces need one shared admission,
   budget, and receipt contract.
+- First implementation slice complete: the shared `ContextReceipt` records
+  delivery target, selected source ids/kinds, trust/freshness, exact budget
+  omissions, queued refreshes, and Workset selection time without entering the
+  agent prompt. Project Context, Context Pack, and full SessionStart injection
+  now carry the same delivery-target semantics; `memorix explain` exposes the
+  receipt in text and JSON.
+- Budget selection now keeps a knowledge page dependent on a Claim out of the
+  prompt when its qualifying Claim could not fit. The receipt records both as
+  withheld instead of presenting an orphaned page path as usable knowledge.
 - #135 remains a contributor-owned session-handoff candidate for the bounded
   `HandoffPacket` phase. It is not copied or silently replaced.
 - #133/#134 remain open pending an official provider-capability layer and a

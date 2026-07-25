@@ -1,6 +1,6 @@
 # Memorix 已知问题 & 未来路线图
 
-> 最后更新: 2026-03-09 (v1.0.0)
+> 最后更新: 2026-07-26 (v1.2.4)
 
 ---
 
@@ -28,8 +28,10 @@
 | # | 问题 | 影响 | 状态 |
 |---|------|------|------|
 | 8 | ~~**Kiro/Trae Agent hooks 未实现**~~ | 功能缺失 | ✅ v0.9.12+ (Kiro/Trae/OpenCode/Gemini CLI 全部支持) |
-| 9 | **fastembed 首次使用需下载模型** — ~30MB，可能在网络不好时超时 | 用户体验 | 需用户显式安装 |
+| 9 | **fastembed 首次使用需下载模型** — ~30MB，可能在网络不好时超时 | 用户体验 | 需用户显式安装 (v1.1.5 起默认不再安装 fastembed，因其依赖存在漏洞的 `tar`) |
 | 10 | **npx 缓存可能损坏** — 见 `MODULE_NOT_FOUND chownr` 问题 | 安装体验 | 需文档说明 |
+| 11 | **Gemini CLI / Antigravity 共享 `.gemini/*` 生态** — hook 运行时身份可能表现为 "last installer wins" | 集成隔离 | 官方设计如此 (v1.0.5) |
+| 12 | **Knowledge Base / Knowledge Graph 为只读生成投影** — 暂不支持图编辑 / GraphRAG | 功能范围 | 设计如此 (v1.0.9) |
 
 ---
 
@@ -72,7 +74,7 @@
 - [x] OpenCode 支持
 - [x] Gemini CLI 支持
 - [x] Copilot hooks 支持
-- [x] 10 个 Agent 全覆盖
+- [x] 14+ 个 Agent 全覆盖 (Cursor, Windsurf, Claude Code, Codex, Copilot, Kiro, Antigravity, OpenCode, Trae, Gemini CLI, Pi, OpenClaw, Hermes, Oh-my-Pi 等)
 
 ### Phase 6: v1.0.0 特性 ✅
 - [x] 团队协作 (Agent注册/文件锁/任务板/消息)
@@ -80,14 +82,38 @@
 - [x] 启动自动清理 (归档 + LLM/Jaccard 去重)
 - [x] Mini-Skills (永久技能, 自动注入)
 - [x] 会话管理 (跨会话上下文注入)
+- [x] 2064+ 测试通过 (156 files, v1.0.8)
 
-### Phase 7: 未来路线图
+### Phase 7: 记忆形成 & 多维度记忆 (v1.0.1–v1.2.4) ✅
+- [x] **Memory Formation Pipeline** — 三阶段管道 (Extract → Resolve → Evaluate) (v1.0.3)
+- [x] **Git Memory** — `git commit` 直接流入记忆 (`memorix git-hook` + `ingest commit`) (v1.0.4)
+- [x] **Reasoning Memory** — `memorix_store_reasoning` / `memorix_search_reasoning` (v1.0.4)
+- [x] **Memory Provenance & 分层披露 (L1/L2/L3)** — `sourceDetail` / `valueCategory` + citation-lite (v1.0.6)
+- [x] **Gemini CLI 一等公民集成** (v1.0.5)
+- [x] **Programmatic SDK** (`memorix/sdk` + `createMemoryClient`) (v1.0.8)
+- [x] **官方 Docker 部署** (HTTP control-plane image + `compose.yaml`) (v1.0.8)
+- [x] **SQLite 规范存储** (observations / mini-skills / sessions / archives) (v1.0.8)
+- [x] **多 Agent 编排器** `memorix orchestrate` (plan → parallel → verify → fix → review → merge) (v1.0.8)
+- [x] **Knowledge Base / LLM Wiki + Knowledge Graph 投影** + TUI Knowledge Workbench (v1.0.9)
+- [x] **原生 memcode Agent** (`memorix memcode` 原生编码代理) (v1.0.11)
+- [x] **官方 Agent 集成包** — `memorix setup` 一命令安装 12+ agents + 7 官方 skills (v1.1.0)
+- [x] **CodeGraph Memory MVP** — SQLite 代码结构层 (files/symbols/import edges/code refs) + Lite provider (v1.1.3)
+- [x] **Memory Autopilot** — `memorix context` / `memorix_project_context` 任务透镜的 bounded Workset (v1.1.5–v1.1.8)
+- [x] **Agent 集成 doctor / repair** (`memorix doctor agents` + `repair agents`) (v1.1.8)
+- [x] **持久化运行时维护** — SQLite maintenance ledger (隔离 runner, dedupe/lease/heartbeat/retry) (v1.1.11)
+- [x] **Multidimensional Memory + Code State 版本化 + Knowledge Workspace** (claim ledger, workflows, bounded Worksets) (v1.2.0)
+- [x] **Memory control plane / 终端控制面** — 统一 CLI、显式本地身份、可见性 reader (v1.2.1–v1.2.4)
+- [x] **Session visibility & continuation context** — `memorix resume`、continuation 一口交付、可见性隔离 (v1.2.3–v1.2.4)
+
+### Phase 8: 未来路线图
 - [ ] 多项目记忆关联搜索
 - [ ] LLM-based 实体抽取 (替代正则)
 - [ ] JetBrains AI 支持
 - [ ] VS Code + Continue.dev 支持
 - [ ] 自定义 embedding 模型支持
 - [ ] 记忆联邦协议 (跨团队共享)
+- [ ] 外部语义 CodeGraph provider 成熟化 (超越内置 Lite)
+- [ ] Knowledge Graph 可编辑 / GraphRAG
 
 ---
 
@@ -126,8 +152,9 @@
 | P1 | projectId 稳定性 | 非 Git 项目需要更好的识别策略 |
 | ~~P2~~ | ~~中文实体抽取~~ | ~~✅ v0.7.11~~ |
 | ~~P2~~ | ~~auto-relations 性能~~ | ~~✅ v0.7.11~~ |
-| P3 | Orama 持久化 | 考虑 Orama 的原生持久化而非每次重建 |
-| ~~P3~~ | ~~测试覆盖~~ | ~~✅ 753 tests, 56 files, 含 HTTP 集成测试~~ |
+| P3 | Orama 持久化 | 考虑 Orama 的原生持久化而非每次重建 (部分缓解: v1.0.8 SQLite 成为规范存储) |
+| ~~P3~~ | ~~observations.json 性能~~ | ~~✅ v1.0.8 迁移至 SQLite (#52)~~ |
+| ~~P3~~ | ~~测试覆盖~~ | ~~✅ 2064 tests, 156 files (v1.0.8)~~ |
 
 ---
 
@@ -147,3 +174,15 @@
 | 2026-03-05 | v0.10.5: Antigravity/Claude Code hooks 修复 |
 | 2026-03-07 | v0.11.0: Mini-Skills + LLM 增强模式 |
 | 2026-03-09 | **v1.0.0**: 首个稳定版 — 22 工具 + 团队协作 + 自动清理 + 753 测试 |
+| 2026-03-14 | v1.0.3: Memory Formation Pipeline (Extract→Resolve→Evaluate) |
+| 2026-03-17 | v1.0.4: Git Memory + Reasoning Memory + 结构化配置 (`memorix.yml`) |
+| 2026-04-05 | v1.0.6: Memory Provenance + 分层披露 (L1/L2/L3) + citation-lite |
+| 2026-04-19 | v1.0.8: Programmatic SDK + Docker + SQLite 规范存储 + 多 Agent 编排器 (2064 测试) |
+| 2026-05-19 | v1.0.9: Knowledge Base / LLM Wiki + Knowledge Graph + TUI Workbench |
+| 2026-06-13 | v1.0.11: 原生 memcode 编码代理 |
+| 2026-06-21 | v1.1.0: 官方 Agent 集成包 — `memorix setup` 一命令安装 12+ agents |
+| 2026-06-29 | v1.1.3: CodeGraph Memory MVP |
+| 2026-07-08 | v1.1.5–v1.1.8: Memory Autopilot + Agent 集成 doctor/repair |
+| 2026-07-16 | v1.1.11: 持久化运行时维护 (SQLite maintenance ledger) |
+| 2026-07-18 | v1.2.0: Multidimensional Memory + Code State 版本化 + Knowledge Workspace |
+| 2026-07-26 | **v1.2.4**: Memory control plane + session visibility + continuation context (`memorix resume`) |

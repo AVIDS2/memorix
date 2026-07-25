@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { analyzeImage } from '../../multimodal/image-loader.js';
 import { storeObservation } from '../../memory/observations.js';
-import { emitError, emitResult, getCliProjectContext } from './operator-shared.js';
+import { emitError, emitResult, getCliProjectContext, resolveCliWriteScope } from './operator-shared.js';
 
 function inferMimeType(filePath: string): string {
   const ext = path.extname(filePath).toLowerCase();
@@ -29,6 +29,7 @@ export default defineCommand({
     path: { type: 'string', description: 'Path to the image file' },
     prompt: { type: 'string', description: 'Custom analysis prompt' },
     mimeType: { type: 'string', description: 'Explicit MIME type override' },
+    visibility: { type: 'string', description: 'Memory visibility: project (default), personal, or team' },
     json: { type: 'boolean', description: 'Emit machine-readable JSON output' },
   },
   run: async ({ args }) => {
@@ -39,8 +40,8 @@ export default defineCommand({
         emitError('path is required for "memorix ingest image"', asJson);
         return;
       }
-      const { project } = await getCliProjectContext();
-      const resolvedPath = path.resolve(process.cwd(), imagePath);
+      const { project, reader, identity } = await getCliProjectContext();
+      const resolvedPath = path.resolve(project.rootPath, imagePath);
       const base64 = readFileSync(resolvedPath).toString('base64');
       const filename = path.basename(resolvedPath);
       const analysis = await analyzeImage({
@@ -59,6 +60,7 @@ export default defineCommand({
         facts: analysis.entities,
         projectId: project.id,
         source: 'manual',
+        ...resolveCliWriteScope({ reader, identity }, args.visibility as string | undefined),
       });
 
       emitResult(

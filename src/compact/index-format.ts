@@ -179,6 +179,8 @@ export function formatObservationDetail(doc: {
   entityName: string;
   sourceDetail?: string;
   valueCategory?: string;
+  admissionState?: string;
+  admissionReason?: string;
   source?: string;
   commitHash?: string;
   relatedCommits?: string[];
@@ -187,7 +189,15 @@ export function formatObservationDetail(doc: {
   const lines: string[] = [];
 
   // Provenance header — shown before #ID when sourceDetail (or legacy source='git') is set
-  const header = buildProvenanceHeader(doc.sourceDetail, doc.valueCategory, doc.source, doc.commitHash, doc.relatedCommits);
+  const header = buildProvenanceHeader(
+    doc.sourceDetail,
+    doc.valueCategory,
+    doc.admissionState,
+    doc.admissionReason,
+    doc.source,
+    doc.commitHash,
+    doc.relatedCommits,
+  );
   if (header) {
     lines.push(header);
     lines.push('');
@@ -236,6 +246,8 @@ export function formatObservationDetail(doc: {
 function buildProvenanceHeader(
   sourceDetail?: string,
   valueCategory?: string,
+  admissionState?: string,
+  admissionReason?: string,
   source?: string,
   commitHash?: string,
   relatedCommits?: string[],
@@ -257,11 +269,22 @@ function buildProvenanceHeader(
     lines.push(verificationLine);
   }
 
-  if (valueCategory === 'core') {
+  if (valueCategory === 'core' && admissionState !== 'candidate' && admissionState !== 'ephemeral') {
     lines.push('[CORE] Core — immune to decay');
+  } else if (valueCategory === 'core') {
+    lines.push('[CORE] Core candidate — not durable until qualification completes');
   } else if (valueCategory === 'ephemeral') {
     lines.push('[WARN] Ephemeral — short-lived signal');
   }
+
+  if (admissionState === 'candidate') {
+    lines.push('[PENDING] Candidate — excluded from automatic context until current Code Memory qualifies it');
+  } else if (admissionState === 'ephemeral') {
+    lines.push('[TRACE] Ephemeral capture — excluded from automatic context');
+  } else if (admissionState === 'qualified') {
+    lines.push('[QUALIFIED] Automatic evidence passed current Code Memory qualification');
+  }
+  if (admissionReason) lines.push(`Admission: ${redactCredentials(admissionReason)}`);
 
   return lines.join('\n');
 }

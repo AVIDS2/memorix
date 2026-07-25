@@ -317,13 +317,24 @@ npm uninstall -g memorix
 ### 从 CLI 管理记忆
 
 ```bash
-memorix context --task "continue release blocker"
+memorix --cwd /path/to/repo context --task "继续处理发布阻塞问题"
 memorix memory search --query "release blocker"
+memorix memory --help
+
+# 可选：只在需要个人/团队记忆或协同时激活本地身份。
+memorix identity join --agent-type codex --name codex-main
+memorix memory store --text "个人排查笔记" --visibility personal
+memorix task create --description "验证发布包"
+
+memorix transfer export --format json --out ./.memorix-export.json
+memorix transfer import --file ./.memorix-export.json
 memorix reasoning search --query "why sqlite"
 memorix git-hook --force
 memorix ingest log --count 20
-memorix dashboard
+memorix workbench
 ```
+
+CLI 是直接入口，不依赖 MCP 会话。它默认绑定当前 Git 项目，也可以用 `--cwd` 指定项目。没有激活身份时，只会读写和导出项目公开记忆；只有明确需要个人/团队记忆或协同任务时，才运行 `memorix identity join` 或 `memorix identity use --agent-id <id>`。`memorix identity clear` 会回到项目公开范围；脚本可用一次性的 `--as <active-agent-id>`。已有 camelCase 参数仍兼容，kebab-case 也可直接使用。
 
 ### 使用内置终端 Agent
 
@@ -358,6 +369,7 @@ memcode
 | 启动共享 HTTP MCP 和 Dashboard | `memorix background start` |
 | 前台调试 HTTP MCP | `memorix serve-http --port 3211` |
 | 直接检查或管理记忆 | `memorix memory`、`memorix reasoning`、`memorix session`、`memorix ingest` |
+| 使用交互式终端记忆控制台 | `memorix workbench` |
 | 使用内置终端 Agent | `memorix` 或 `memcode` |
 | 运行编排式 subagent 工作 | `memorix orchestrate --goal "..."` |
 

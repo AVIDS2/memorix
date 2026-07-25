@@ -24,6 +24,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { ObservationStore } from '../../store/obs-store.js';
 import { resolveToolProfile } from '../../server/tool-profile.js';
 import { scopeKnowledgeGraphToProject } from '../../memory/graph-scope.js';
+import { canManageObservation, filterReadableObservations } from '../../memory/visibility.js';
 
 export const DEFAULT_SESSION_TIMEOUT_MS = 30 * 60 * 1000;
 
@@ -558,7 +559,7 @@ export default defineCommand({
 
     async function loadDashboardObservations(dataDir: string) {
       const store = await getDashboardObservationStore(dataDir);
-      return store.loadAll();
+      return filterReadableObservations(await store.loadAll(), {});
     }
 
     async function loadDashboardProjectObservations(
@@ -567,7 +568,10 @@ export default defineCommand({
       status?: string,
     ) {
       const store = await getDashboardObservationStore(dataDir);
-      return store.loadByProject(projectId, status ? { status } : undefined);
+      return filterReadableObservations(
+        await store.loadByProject(projectId, status ? { status } : undefined),
+        { projectId },
+      );
     }
 
     // Resolve static directory (dist/dashboard/static)
@@ -1321,6 +1325,8 @@ export default defineCommand({
             sendJson({ error: 'Observation not found' }, 404);
           } else if ((matchObs as any).projectId !== delProjectId) {
             sendJson({ error: `Observation #${obsId} belongs to project "${(matchObs as any).projectId}", not "${delProjectId}"` }, 403);
+          } else if (!canManageObservation(matchObs, { projectId: delProjectId })) {
+            sendJson({ error: `Observation #${obsId} is not manageable from the unbound dashboard.` }, 403);
           } else {
             await store.remove(obsId);
             // Sync: clean up graph entity references

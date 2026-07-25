@@ -15,8 +15,9 @@
  * retention period but are no longer permanently immune — they decay normally.
  */
 
-import type { MemorixDocument, Observation } from '../types.js';
+import type { MemorixDocument, Observation, ObservationReader } from '../types.js';
 import { getObservationStore } from '../store/obs-store.js';
+import { canManageObservation } from './visibility.js';
 
 // ── Importance → Retention Period mapping ────────────────────────────
 
@@ -113,6 +114,10 @@ export function isImmune(doc: MemorixDocument): boolean {
   // Probe observations are operational heartbeats -- never immune, regardless of valueCategory or access.
   if (doc.type === 'probe') return false;
 
+  // A candidate has not earned durable status. Never let an automatic core
+  // classification turn unqualified capture into permanently retained memory.
+  if (doc.admissionState === 'candidate' || doc.admissionState === 'ephemeral') return false;
+
   // formation-classified core memories are immune regardless of type
   if (doc.valueCategory === 'core') return true;
 
@@ -134,6 +139,11 @@ export function isImmune(doc: MemorixDocument): boolean {
 export function getImmunityReason(doc: MemorixDocument): string | null {
   // Probe observations are never immune
   if (doc.type === 'probe') return null;
+
+  // Automatic traces and candidates have not earned durable status. Keep the
+  // explanation aligned with isImmune() even when an earlier classifier gave
+  // a candidate the core value category.
+  if (doc.admissionState === 'candidate' || doc.admissionState === 'ephemeral') return null;
 
   if (doc.valueCategory === 'core') return 'core valueCategory (formation-classified)';
   const importance = getImportanceLevel(doc);
@@ -369,6 +379,8 @@ export interface ArchiveExpiredBatchOptions {
   limit?: number;
   referenceTime?: Date;
   accessMap?: Map<number, { accessCount: number; lastAccessedAt: string }>;
+  /** Omit only for trusted background maintenance. */
+  reader?: ObservationReader;
 }
 
 export interface ArchiveExpiredBatchResult {
@@ -401,6 +413,8 @@ function toRetentionDocument(
     source: obs.source ?? 'agent',
     sourceDetail: obs.sourceDetail ?? '',
     valueCategory: obs.valueCategory ?? '',
+    admissionState: obs.admissionState ?? '',
+    admissionReason: obs.admissionReason ?? '',
   };
 }
 
@@ -423,6 +437,7 @@ export async function archiveExpiredBatch(
   const hasMore = page.length > limit;
   const scanned = hasMore ? page.slice(0, limit) : page;
   const candidateIds = scanned
+    .filter((observation) => !options.reader || canManageObservation(observation, options.reader))
     .filter((observation) => getRetentionZone(
       toRetentionDocument(observation, options.accessMap),
       options.referenceTime,
@@ -461,6 +476,7 @@ export async function archiveExpired(
   referenceTime?: Date,
   accessMap?: Map<number, { accessCount: number; lastAccessedAt: string }>,
   projectId?: string,
+  reader?: ObservationReader,
 ): Promise<{ archived: number; remaining: number }> {
   const store = getObservationStore();
   if (projectId) {
@@ -472,12 +488,16 @@ export async function archiveExpired(
         afterId,
         referenceTime,
         accessMap,
+        reader,
       });
       archived += batch.archived;
       afterId = batch.nextCursor;
     } while (afterId !== undefined);
 
-    const remaining = await store.countByProject(projectId, { status: 'active' });
+    const remainingObservations = await store.loadByProject(projectId, { status: 'active' });
+    const remaining = reader
+      ? remainingObservations.filter((observation) => canManageObservation(observation, reader)).length
+      : remainingObservations.length;
     return { archived, remaining };
   }
 

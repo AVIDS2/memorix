@@ -6,6 +6,7 @@ import {
   type AutoContextRefreshMode,
 } from '../../codegraph/auto-context.js';
 import { getAllObservations } from '../../memory/observations.js';
+import { filterReadableObservations } from '../../memory/visibility.js';
 import { emitError, emitResult, getCliProjectContext } from './operator-shared.js';
 
 function coerceRefreshMode(input?: string): AutoContextRefreshMode {
@@ -28,11 +29,11 @@ export default defineCommand({
     const asJson = !!args.json;
 
     try {
-      const { project, dataDir } = await getCliProjectContext();
+      const { project, dataDir, reader } = await getCliProjectContext();
       const context = await buildAutoProjectContext({
         project,
         dataDir,
-        observations: getAllObservations(),
+        observations: filterReadableObservations(getAllObservations(), reader),
         task: args.task as string | undefined,
         refresh: coerceRefreshMode(args.refresh as string | undefined),
       });

@@ -39,8 +39,8 @@ export default defineCommand({
       const { initObservationStore, getObservationStore } = await import('../../store/obs-store.js');
       await initObservationStore(dataDir);
       const store = getObservationStore();
-      const data = await store.loadAll() as Array<{ projectId?: string; status?: string }>;
-      const projectObs = data.filter(o => o.projectId === project.id);
+      const { filterReadableObservations } = await import('../../memory/visibility.js');
+      const projectObs = filterReadableObservations(await store.loadAll(), { projectId: project.id });
       obsCount = projectObs.length;
       activeCount = projectObs.filter(o => (o.status ?? 'active') === 'active').length;
     } catch { /* ignore */ }
@@ -165,7 +165,8 @@ export default defineCommand({
       const { initObservationStore, getObservationStore } = await import('../../store/obs-store.js');
       await initObservationStore(dataDir);
       const store = getObservationStore();
-      const allObs = await store.loadAll() as Array<{ source?: string; type?: string }>;
+      const { filterReadableObservations } = await import('../../memory/visibility.js');
+      const allObs = filterReadableObservations(await store.loadAll(), { projectId: project.id });
       const gitCount = allObs.filter(o => o.source === 'git').length;
       const reasoningCount = allObs.filter(o => o.type === 'reasoning').length;
       if (gitCount > 0 || reasoningCount > 0) {

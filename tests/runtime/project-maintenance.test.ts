@@ -10,8 +10,10 @@ const getVectorStatus = vi.fn();
 const archiveExpiredBatch = vi.fn();
 const codeStoreInit = vi.fn();
 const latestSnapshot = vi.fn();
+const codeStatus = vi.fn();
+const listObservationRefs = vi.fn();
 const CodeGraphStore = vi.fn(function CodeGraphStoreMock() {
-  return { init: codeStoreInit, latestSnapshot };
+  return { init: codeStoreInit, latestSnapshot, status: codeStatus, listObservationRefs };
 });
 const refreshProjectLite = vi.fn();
 const backfillMissingObservationCodeRefs = vi.fn();
@@ -26,6 +28,8 @@ const ClaimStore = vi.fn(function ClaimStoreMock() {
 const bindObservationToCode = vi.fn();
 const deriveLowRiskClaimsFromObservation = vi.fn();
 const requalifyClaimsForCodeState = vi.fn();
+const updateObservationAdmission = vi.fn();
+const qualifyCandidateFromCurrentCode = vi.fn();
 const queueEnqueue = vi.fn();
 
 vi.mock('../../src/embedding/provider.js', () => ({
@@ -35,6 +39,11 @@ vi.mock('../../src/embedding/provider.js', () => ({
 vi.mock('../../src/memory/observations.js', () => ({
   backfillVectorEmbeddings,
   getVectorStatus,
+  updateObservationAdmission,
+}));
+
+vi.mock('../../src/memory/admission.js', () => ({
+  qualifyCandidateFromCurrentCode,
 }));
 
 vi.mock('../../src/memory/retention.js', () => ({
@@ -83,6 +92,9 @@ describe('createProjectMaintenanceHandler', () => {
     getResolvedConfig.mockReturnValue({ codegraph: { excludePatterns: ['generated/**'] } });
     getObservationStore.mockReturnValue({ loadByProject, getById });
     latestSnapshot.mockReturnValue({ id: 'snapshot-a' });
+    codeStatus.mockReturnValue({ indexedAt: '2026-07-24T00:00:00.000Z' });
+    listObservationRefs.mockReturnValue([]);
+    qualifyCandidateFromCurrentCode.mockReturnValue(undefined);
     queueEnqueue.mockReset();
   });
 
@@ -203,6 +215,49 @@ describe('createProjectMaintenanceHandler', () => {
       expect.anything(),
     );
     expect(queueEnqueue).toHaveBeenCalledWith(expect.objectContaining({ kind: 'knowledge-compile' }));
+    expect(result).toEqual({ action: 'complete' });
+  });
+
+  it('qualifies a candidate only after current Code Memory references exist', async () => {
+    const candidate = {
+      id: 43,
+      projectId: 'project-a',
+      entityName: 'auth',
+      type: 'what-changed',
+      title: 'Hook observed auth edit',
+      narrative: 'Changed src/auth.ts.',
+      facts: [],
+      filesModified: ['src/auth.ts'],
+      source: 'agent',
+      sourceDetail: 'hook',
+      valueCategory: 'contextual',
+      admissionState: 'candidate',
+      status: 'active',
+      createdAt: '2026-07-23T00:00:00.000Z',
+    };
+    loadByProject.mockResolvedValue([candidate]);
+    bindObservationToCode.mockResolvedValue([]);
+    listObservationRefs.mockReturnValue([{ status: 'current' }]);
+    qualifyCandidateFromCurrentCode.mockReturnValue({
+      admissionState: 'qualified',
+      admissionReason: 'automatic record qualified against 1 current Code Memory reference(s)',
+    });
+
+    const result = await createProjectMaintenanceHandler('project-a', 'C:/memorix-data')(
+      makeJob({ kind: 'observation-qualify' as any, payload: { limit: 10 } }),
+    );
+
+    expect(bindObservationToCode).toHaveBeenCalledWith(expect.anything(), candidate);
+    expect(qualifyCandidateFromCurrentCode).toHaveBeenCalledWith({
+      observation: candidate,
+      currentCodeReferenceCount: 1,
+    });
+    expect(updateObservationAdmission).toHaveBeenCalledWith(expect.objectContaining({
+      observationId: 43,
+      projectId: 'project-a',
+      expectedState: 'candidate',
+      admissionState: 'qualified',
+    }));
     expect(result).toEqual({ action: 'complete' });
   });
 

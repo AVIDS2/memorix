@@ -1,5 +1,5 @@
 import { defineCommand } from 'citty';
-import { emitError, emitResult, getCliProjectContext, shortId } from './operator-shared.js';
+import { emitError, emitResult, getCliProjectContext, resolveCliActorId, shortId } from './operator-shared.js';
 
 export default defineCommand({
   meta: {
@@ -16,21 +16,22 @@ export default defineCommand({
     const asJson = !!args.json;
 
     try {
-      const { project, teamStore } = await getCliProjectContext();
+      const { project, teamStore, identity } = await getCliProjectContext();
+      const agentId = resolveCliActorId(args.agentId, identity);
 
       switch (action) {
         case 'lock': {
-          if (!args.file || !args.agentId) {
-            emitError('file and agentId are required for "memorix lock lock"', asJson);
+          if (!args.file || !agentId) {
+            emitError('file and an active CLI identity or agentId are required for "memorix lock lock"', asJson);
             return;
           }
-          const result = teamStore.acquireLock(project.id, args.file as string, args.agentId as string);
+          const result = teamStore.acquireLock(project.id, args.file as string, agentId);
           if (!result.success) {
             emitError(`File is already locked by ${shortId(result.lockedBy)}`, asJson);
             return;
           }
           emitResult(
-            { project, file: args.file, lockedBy: args.agentId },
+            { project, file: args.file, lockedBy: agentId },
             `Locked: ${args.file as string}`,
             asJson,
           );
@@ -38,11 +39,11 @@ export default defineCommand({
         }
 
         case 'unlock': {
-          if (!args.file || !args.agentId) {
-            emitError('file and agentId are required for "memorix lock unlock"', asJson);
+          if (!args.file || !agentId) {
+            emitError('file and an active CLI identity or agentId are required for "memorix lock unlock"', asJson);
             return;
           }
-          const released = teamStore.releaseLock(project.id, args.file as string, args.agentId as string);
+          const released = teamStore.releaseLock(project.id, args.file as string, agentId);
           if (!released) {
             emitError('Cannot unlock: not the owner or the file is not locked', asJson);
             return;
@@ -68,7 +69,7 @@ export default defineCommand({
             return;
           }
 
-          const locks = teamStore.listLocks(project.id, args.agentId as string | undefined);
+          const locks = teamStore.listLocks(project.id, agentId);
           emitResult(
             { project, locks },
             locks.length === 0

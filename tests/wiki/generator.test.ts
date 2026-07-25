@@ -98,6 +98,16 @@ describe('Filtering: isEligible', () => {
     expect(isEligible(obs, PROJECT_ID)).toBe(false);
   });
 
+  it('excludes an automatic candidate until it is qualified', () => {
+    const candidate = makeObs({
+      sourceDetail: 'hook',
+      admissionState: 'candidate',
+      admissionReason: 'file mutation awaits Code Memory qualification',
+    });
+    expect(isEligible(candidate, PROJECT_ID)).toBe(false);
+    expect(isEligible({ ...candidate, admissionState: 'qualified' }, PROJECT_ID)).toBe(true);
+  });
+
   it('includes core valueCategory', () => {
     const obs = makeObs({ valueCategory: 'core' });
     expect(isEligible(obs, PROJECT_ID)).toBe(true);

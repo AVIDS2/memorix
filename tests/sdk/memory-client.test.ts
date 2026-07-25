@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { MemoryClient, createMemoryClient } from '../../src/sdk.js';
 import { initObservationStore, resetObservationStore } from '../../src/store/obs-store.js';
-import { initObservations, prepareSearchIndex, getAllObservations, getObservation } from '../../src/memory/observations.js';
+import { initObservations, prepareSearchIndex, getAllObservations, getObservation, storeObservation } from '../../src/memory/observations.js';
 import { resetDb } from '../../src/store/orama-store.js';
 import { resetProvider } from '../../src/embedding/provider.js';
 import { resetConfigCache } from '../../src/config.js';
@@ -160,6 +160,47 @@ describe('MemoryClient (unit)', () => {
 
     await client.store({ entityName: 'a', type: 'discovery', title: 'One', narrative: 'n' });
     expect(await client.count()).toBe(1);
+
+    await client.close();
+  });
+
+  it('keeps personal observations outside the default SDK reader and write scope', async () => {
+    const client = new MemoryClient('test/project', testDir, dataDir);
+    await client._init(true);
+
+    const { observation: shared } = await client.store({
+      entityName: 'shared',
+      type: 'decision',
+      title: 'Project-shared decision',
+      narrative: 'All project readers can use this decision.',
+    });
+    const { observation: personal } = await storeObservation({
+      entityName: 'private',
+      type: 'discovery',
+      title: 'Private operator note',
+      narrative: 'An unbound SDK client must not expose or alter this note.',
+      projectId: 'test/project',
+      topicKey: 'private/operator-note',
+      visibility: 'personal',
+      createdByAgentId: 'private-agent',
+    });
+
+    expect(await client.get(personal.id)).toBeUndefined();
+    expect((await client.getAll()).map((observation) => observation.id)).toEqual([shared.id]);
+    expect(await client.count()).toBe(1);
+    expect((await client.search({ query: 'private operator note' })).map((result) => result.id)).not.toContain(personal.id);
+
+    const resolveResult = await client.resolve([personal.id]);
+    expect(resolveResult.resolved).toEqual([]);
+    expect(resolveResult.notFound).toContain(personal.id);
+
+    await expect(client.store({
+      entityName: 'private',
+      type: 'discovery',
+      title: 'Guessed private update',
+      narrative: 'This must not overwrite the private record.',
+      topicKey: 'private/operator-note',
+    })).rejects.toThrow('write scope');
 
     await client.close();
   });

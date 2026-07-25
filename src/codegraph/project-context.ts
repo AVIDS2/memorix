@@ -16,6 +16,8 @@ export interface ProjectContextObservation {
   title: string;
   type: string;
   status?: string;
+  /** Automatic capture must be qualified before it can source a project brief. */
+  admissionState?: 'ephemeral' | 'candidate' | 'qualified';
   createdAt?: string;
   updatedAt?: string;
   /** Explicit file paths recorded with a memory, used only before Code Memory exists. */

@@ -316,6 +316,7 @@ export async function attachTaskWorkset(input: {
       stale: input.pack.warnings.filter(warning => warning.status === 'stale').length,
     },
     runtimeCautions: input.runtimeCautions,
+    deliveryTarget: 'context-pack',
   });
   return { ...input.pack, workset };
 }

@@ -85,6 +85,7 @@ export function evidenceBasisLine(basis: EvidenceBasis, commitHash?: string): st
 export interface ProvenanceFields {
   sourceDetail?: string;
   valueCategory?: string;
+  admissionState?: string;
   /** Legacy fallback: observations ingested before Phase 1 only have source='git'. */
   source?: string;
 }
@@ -112,8 +113,12 @@ export function resolveSourceDetail(
  * Classify a single observation or index entry into a disclosure layer.
  */
 export function classifyLayer(fields: ProvenanceFields): DisclosureLayer {
-  const { valueCategory } = fields;
+  const { valueCategory, admissionState } = fields;
   const sd = resolveSourceDetail(fields.sourceDetail, fields.source);
+
+  // New automatic records must earn delivery through the control plane.
+  // Preserve legacy behavior for records created before admission metadata.
+  if (admissionState === 'candidate' || admissionState === 'ephemeral') return 'L1';
 
   // Core-valued memories are always promoted to L2, regardless of source.
   if (valueCategory === 'core') return 'L2';

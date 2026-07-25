@@ -13,6 +13,7 @@ import {
   calculateRelevance,
   rankByRelevance,
   isImmune,
+  getImmunityReason,
   getRetentionZone,
   getArchiveCandidates,
   getRetentionSummary,
@@ -121,6 +122,16 @@ describe('Retention & Decay', () => {
     it('should protect core valueCategory observations', () => {
       expect(isImmune(makeDoc({ type: 'gotcha', valueCategory: 'core' }))).toBe(true);
       expect(isImmune(makeDoc({ type: 'discovery', valueCategory: 'core' }))).toBe(true);
+    });
+
+    it('does not misreport an unqualified automatic core candidate as immune', () => {
+      const candidate = makeDoc({
+        type: 'decision',
+        valueCategory: 'core',
+        admissionState: 'candidate',
+      });
+      expect(isImmune(candidate)).toBe(false);
+      expect(getImmunityReason(candidate)).toBeNull();
     });
 
     it('should protect frequently accessed observations', () => {
@@ -339,6 +350,24 @@ describe('Retention & Decay', () => {
       await initObservationStore(tmpDir);
 
       const result = await archiveExpired(tmpDir, now, undefined, 'project-a');
+
+      expect(result).toEqual({ archived: 1, remaining: 0 });
+      const all = await getObservationStore().loadAll();
+      expect(all.find((observation) => observation.id === 1)?.status).toBe('archived');
+      expect(all.find((observation) => observation.id === 2)?.status ?? 'active').toBe('active');
+    });
+
+    it('does not archive private observations for an unbound project reader', async () => {
+      const now = new Date();
+      const expiredDate = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000).toISOString();
+      const observations = [
+        { id: 1, entityName: 'a', type: 'session-request', title: 'Public expired', narrative: '', facts: [], filesModified: [], concepts: [], tokens: 10, createdAt: expiredDate, projectId: 'project-a' },
+        { id: 2, entityName: 'b', type: 'session-request', title: 'Private expired', narrative: '', facts: [], filesModified: [], concepts: [], tokens: 10, createdAt: expiredDate, projectId: 'project-a', visibility: 'personal', createdByAgentId: 'agent-a' },
+      ];
+      await fs.writeFile(path.join(tmpDir, 'observations.json'), JSON.stringify(observations));
+      await initObservationStore(tmpDir);
+
+      const result = await archiveExpired(tmpDir, now, undefined, 'project-a', { projectId: 'project-a' });
 
       expect(result).toEqual({ archived: 1, remaining: 0 });
       const all = await getObservationStore().loadAll();

@@ -54,6 +54,10 @@ For direct use, prefer `memorix ...` commands first. In the 1.2 line, the CLI co
 
 Do not ask memory-only users to join coordination state. A lightweight session is enough for memory, retrieval, reasoning, and continuation. Use `joinTeam` / `team_manage(join)` only for explicit task/message/lock coordination or for CLI-agent work managed by `memorix orchestrate`.
 
+An unbound terminal is intentionally project-scoped: it reads and writes project-visible memory only. Use `memorix identity join --agent-type <agent>` or `memorix identity use --agent-id <id>` only when an operator explicitly needs personal/team memory or coordinated task actions. `memorix identity clear` removes that local selection; `--as <agent-id>` is the one-command script form and still requires an active member of the current project.
+
+`--cwd <git-project>` is the canonical way to run direct CLI work from outside a repository. It changes the command's project anchor only; Git remains the source of truth for final project identity.
+
 Use MCP when:
 
 - an IDE or agent needs tool calls

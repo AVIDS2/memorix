@@ -6,6 +6,7 @@
  */
 
 import * as fs from 'node:fs';
+import { getTuiOperatorContext } from './operator-context.js';
 
 export interface ProjectInfo {
   name: string;
@@ -98,9 +99,7 @@ function truncate(text: string, max = 60): string {
 
 export async function getProjectInfo(): Promise<ProjectInfo | null> {
   try {
-    const { detectProject } = await import('../../project/detector.js');
-    const proj = detectProject(process.cwd());
-    if (!proj) return null;
+    const { project: proj } = await getTuiOperatorContext();
     return {
       name: proj.name,
       id: proj.id,
@@ -127,12 +126,8 @@ export async function getHealthInfo(projectId?: string): Promise<HealthInfo> {
   };
 
   try {
-    const { detectProject } = await import('../../project/detector.js');
-    const { getProjectDataDir } = await import('../../store/persistence.js');
     const { initObservationStore: initStore, getObservationStore: getStore } = await import('../../store/obs-store.js');
-
-    const proj = detectProject(process.cwd());
-    if (!proj) return defaults;
+    const { project: proj, dataDir, reader } = await getTuiOperatorContext();
 
     // Load .env BEFORE any process.env reads or provider initialization (#46)
     try {
@@ -141,11 +136,11 @@ export async function getHealthInfo(projectId?: string): Promise<HealthInfo> {
     } catch { /* best-effort */ }
 
     const effectiveProjectId = projectId || proj.id;
-    const dataDir = await getProjectDataDir(effectiveProjectId);
+    if (effectiveProjectId !== proj.id) return defaults;
     await initStore(dataDir);
     const allObs = (await getStore().loadAll()) as any[];
-    // Filter by project — flat storage shares one observations.json across projects
-    const obs = allObs.filter((o: any) => o.projectId === effectiveProjectId);
+    const { filterReadableObservations } = await import('../../memory/visibility.js');
+    const obs = filterReadableObservations(allObs, reader);
     const active = obs.filter((o: any) => (o.status ?? 'active') === 'active');
 
     defaults.totalMemories = obs.length;
@@ -219,19 +214,15 @@ export async function getHealthInfo(projectId?: string): Promise<HealthInfo> {
 
 export async function getRecentMemories(limit = 8, projectId?: string): Promise<MemoryItem[]> {
   try {
-    const { detectProject } = await import('../../project/detector.js');
-    const { getProjectDataDir } = await import('../../store/persistence.js');
     const { initObservationStore: initStore, getObservationStore: getStore } = await import('../../store/obs-store.js');
-
-    const proj = detectProject(process.cwd());
-    if (!proj) return [];
+    const { project: proj, dataDir, reader } = await getTuiOperatorContext();
 
     const effectiveProjectId = projectId || proj.id;
-    const dataDir = await getProjectDataDir(effectiveProjectId);
+    if (effectiveProjectId !== proj.id) return [];
     await initStore(dataDir);
     const allObs = (await getStore().loadAll()) as any[];
-    // Filter by project — flat storage shares one observations.json
-    const projectObs = allObs.filter((o: any) => o.projectId === effectiveProjectId);
+    const { filterReadableObservations } = await import('../../memory/visibility.js');
+    const projectObs = filterReadableObservations(allObs, reader);
     const active = projectObs.filter((o: any) => (o.status ?? 'active') === 'active');
     const filtered = active.filter((o: any) => !/^(Ran:|Command:|Executed:)\s/i.test(o.title || ''));
 
@@ -251,18 +242,13 @@ export async function getRecentMemories(limit = 8, projectId?: string): Promise<
 export async function searchMemories(query: string, limit = 10): Promise<SearchResult[]> {
   try {
     const { searchObservations } = await import('../../store/orama-store.js');
-    const { getProjectDataDir } = await import('../../store/persistence.js');
-    const { detectProject } = await import('../../project/detector.js');
     const { initObservations, prepareSearchIndex } = await import('../../memory/observations.js');
+    const { project: proj, dataDir, reader } = await getTuiOperatorContext();
 
-    const proj = detectProject(process.cwd());
-    if (!proj) return [];
-
-    const dataDir = await getProjectDataDir(proj.id);
     await initObservations(dataDir);
     await prepareSearchIndex();
 
-    const results = await searchObservations({ query, limit, projectId: proj.id });
+    const results = await searchObservations({ query, limit, projectId: proj.id, reader });
 
     const typeIcons: Record<string, string> = {
       gotcha: '!',
@@ -290,15 +276,10 @@ export async function searchMemories(query: string, limit = 10): Promise<SearchR
 
 export async function storeQuickMemory(text: string): Promise<{ id: number; title: string } | null> {
   try {
-    const { detectProject } = await import('../../project/detector.js');
-    const { getProjectDataDir } = await import('../../store/persistence.js');
     const { initObservations, storeObservation } = await import('../../memory/observations.js');
     const { initObservationStore } = await import('../../store/obs-store.js');
+    const { project: proj, dataDir, reader, identity } = await getTuiOperatorContext();
 
-    const proj = detectProject(process.cwd());
-    if (!proj) return null;
-
-    const dataDir = await getProjectDataDir(proj.id);
     await initObservationStore(dataDir);
     await initObservations(dataDir);
 
@@ -310,6 +291,8 @@ export async function storeQuickMemory(text: string): Promise<{ id: number; titl
       facts: [],
       projectId: proj.id,
       sourceDetail: 'explicit',
+      visibilityReader: reader,
+      ...(identity ? { createdByAgentId: identity.agentId } : {}),
     });
 
     return { id: result.observation.id, title: text.slice(0, 100) };
@@ -484,23 +467,21 @@ export async function getKnowledgeGraph(
   projectId?: string,
 ): Promise<import('../../wiki/types.js').ProjectKnowledgeGraph | null> {
   try {
-    const { detectProject } = await import('../../project/detector.js');
-    const { getProjectDataDir } = await import('../../store/persistence.js');
     const { initObservationStore } = await import('../../store/obs-store.js');
     const { initObservations, getAllObservations } = await import('../../memory/observations.js');
+    const { filterReadableObservations } = await import('../../memory/visibility.js');
     const { initMiniSkillStore, getMiniSkillStore } = await import('../../store/mini-skill-store.js');
     const { generateKnowledgeGraph } = await import('../../wiki/knowledge-graph.js');
 
-    const proj = detectProject(process.cwd());
-    if (!proj) return null;
+    const { project: proj, dataDir, reader } = await getTuiOperatorContext();
 
     const effectiveProjectId = projectId || proj.id;
-    const dataDir = await getProjectDataDir(effectiveProjectId);
+    if (effectiveProjectId !== proj.id) return null;
     await initObservationStore(dataDir);
     await initObservations(dataDir);
     await initMiniSkillStore(dataDir);
 
-    const observations = getAllObservations();
+    const observations = filterReadableObservations(getAllObservations(), reader);
     const skills = await getMiniSkillStore().loadByProject(effectiveProjectId);
 
     return generateKnowledgeGraph({
@@ -515,23 +496,21 @@ export async function getKnowledgeGraph(
 
 export async function getKnowledgeBase(projectId?: string): Promise<import('../../wiki/types.js').ProjectKnowledgeOverview | null> {
   try {
-    const { detectProject } = await import('../../project/detector.js');
-    const { getProjectDataDir } = await import('../../store/persistence.js');
     const { initObservationStore } = await import('../../store/obs-store.js');
     const { initObservations, getAllObservations } = await import('../../memory/observations.js');
+    const { filterReadableObservations } = await import('../../memory/visibility.js');
     const { initMiniSkillStore, getMiniSkillStore } = await import('../../store/mini-skill-store.js');
     const { generateKnowledgeBase } = await import('../../wiki/generator.js');
 
-    const proj = detectProject(process.cwd());
-    if (!proj) return null;
+    const { project: proj, dataDir, reader } = await getTuiOperatorContext();
 
     const effectiveProjectId = projectId || proj.id;
-    const dataDir = await getProjectDataDir(effectiveProjectId);
+    if (effectiveProjectId !== proj.id) return null;
     await initObservationStore(dataDir);
     await initObservations(dataDir);
     await initMiniSkillStore(dataDir);
 
-    const observations = getAllObservations();
+    const observations = filterReadableObservations(getAllObservations(), reader);
     const skills = await getMiniSkillStore().loadByProject(effectiveProjectId);
 
     return generateKnowledgeBase({

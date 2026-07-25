@@ -66,6 +66,24 @@ export function enqueueClaimDerivation(input: {
 }
 
 /**
+ * Automatic captures are initially only candidates. Qualification runs in the
+ * durable maintenance lane after Code Memory has a chance to refresh.
+ */
+export function enqueueObservationQualification(input: {
+  dataDir: string;
+  projectId: string;
+  source: string;
+  queue?: MaintenanceQueue;
+}): void {
+  queueFor(input).enqueue({
+    projectId: input.projectId,
+    kind: 'observation-qualify',
+    dedupeKey: 'observation-qualify',
+    payload: { source: input.source, limit: 100 },
+  });
+}
+
+/**
  * The follow-up jobs operate on the same workspace the Workset reads: a
  * versioned workspace when present, otherwise the local workspace.
  */

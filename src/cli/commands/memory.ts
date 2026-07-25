@@ -1,9 +1,19 @@
 import { defineCommand } from 'citty';
 import { compactDetail, compactSearch, compactTimeline } from '../../compact/engine.js';
 import { withFreshIndex } from '../../memory/freshness.js';
-import { getAllObservations, getProjectObservations, resolveObservations, storeObservation, suggestTopicKey } from '../../memory/observations.js';
+import { getAllObservations, getObservation, getProjectObservations, resolveObservations, storeObservation, suggestTopicKey } from '../../memory/observations.js';
 import { buildGraphContextPacket, formatGraphContextPrompt } from '../../memory/graph-context.js';
-import { emitError, emitResult, getCliProjectContext, parseCsvList, parsePositiveInt, coerceObservationStatus, coerceObservationType } from './operator-shared.js';
+import { canManageObservation, filterReadableObservations, resolveObservationVisibility } from '../../memory/visibility.js';
+import {
+  coerceObservationStatus,
+  coerceObservationType,
+  emitError,
+  emitResult,
+  getCliProjectContext,
+  parseCsvList,
+  parsePositiveInt,
+  resolveCliWriteScope,
+} from './operator-shared.js';
 
 export default defineCommand({
   meta: {
@@ -19,6 +29,7 @@ export default defineCommand({
     facts: { type: 'string', description: 'Comma-separated facts' },
     files: { type: 'string', description: 'Comma-separated file list' },
     concepts: { type: 'string', description: 'Comma-separated concept list' },
+    visibility: { type: 'string', description: 'Memory visibility: project (default), personal, or team' },
     ids: { type: 'string', description: 'Comma-separated observation IDs' },
     id: { type: 'string', description: 'Single observation ID' },
     status: { type: 'string', description: 'Resolved or archived' },
@@ -32,6 +43,7 @@ export default defineCommand({
     after: { type: 'string', description: 'Timeline depth after anchor' },
     threshold: { type: 'string', description: 'Similarity threshold for consolidate' },
     dryRun: { type: 'boolean', description: 'Preview changes without mutating data' },
+    'dry-run': { type: 'boolean', description: 'Kebab-case alias for --dryRun' },
     trigger: { type: 'string', description: 'Custom trigger text for promoted mini-skills' },
     instruction: { type: 'string', description: 'Custom instruction for promoted mini-skills' },
     tags: { type: 'string', description: 'Comma-separated extra tags for promoted mini-skills' },
@@ -44,7 +56,7 @@ export default defineCommand({
     const asJson = !!args.json;
 
     try {
-      const { project } = await getCliProjectContext({ searchIndex: true });
+      const { project, dataDir, reader, identity } = await getCliProjectContext({ searchIndex: true });
 
       switch (action) {
         case 'search': {
@@ -54,7 +66,7 @@ export default defineCommand({
             return;
           }
           const limit = parsePositiveInt(args.limit as string | undefined, 10);
-          const result = await compactSearch({ query, limit, projectId: project.id });
+          const result = await compactSearch({ query, limit, projectId: project.id, reader });
           emitResult({ project, entries: result.entries }, result.formatted, asJson);
           return;
         }
@@ -67,7 +79,7 @@ export default defineCommand({
             emitError('query is required for "memorix memory graph-context"', asJson);
             return;
           }
-          const observations = getAllObservations();
+          const observations = filterReadableObservations(getAllObservations(), reader);
           const packet = buildGraphContextPacket(observations, {
             projectId: project.id,
             query,
@@ -92,7 +104,7 @@ export default defineCommand({
 
         case 'recent': {
           const limit = parsePositiveInt(args.limit as string | undefined, 10);
-          const observations = getProjectObservations(project.id)
+          const observations = filterReadableObservations(getProjectObservations(project.id), reader)
             .filter((obs) => (obs.status ?? 'active') === 'active')
             .slice(-limit)
             .reverse();
@@ -118,6 +130,10 @@ export default defineCommand({
             (args.topicKey as string | undefined)?.trim() ||
             suggestTopicKey(type, title) ||
             undefined;
+          const writeScope = resolveCliWriteScope(
+            { reader, identity },
+            args.visibility as string | undefined,
+          );
           const result = await storeObservation({
             entityName: (args.entity as string | undefined)?.trim() || 'general',
             type,
@@ -129,6 +145,7 @@ export default defineCommand({
             projectId: project.id,
             topicKey,
             source: 'manual',
+            ...writeScope,
           });
           emitResult(
             { project, observation: result.observation, upserted: result.upserted },
@@ -166,7 +183,7 @@ export default defineCommand({
               ? `obs:${numericId}@${project.id}`
               : ref;
           });
-          const result = await compactDetail(scopedRefs);
+          const result = await compactDetail(scopedRefs, { reader });
           emitResult({ project, documents: result.documents }, result.formatted, asJson);
           return;
         }
@@ -182,6 +199,7 @@ export default defineCommand({
             project.id,
             parsePositiveInt(args.before as string | undefined, 3),
             parsePositiveInt(args.after as string | undefined, 3),
+            reader,
           );
           emitResult({ project, timeline: result.timeline }, result.formatted, asJson);
           return;
@@ -196,7 +214,15 @@ export default defineCommand({
             return;
           }
           const status = coerceObservationStatus(args.status as string | undefined);
-          const result = await resolveObservations(ids, status);
+          const authorizedIds = ids.filter((id) => {
+            const observation = getObservation(id, project.id);
+            return observation ? canManageObservation(observation, reader) : false;
+          });
+          if (authorizedIds.length === 0) {
+            emitError('No requested observations are manageable with the active CLI scope.', asJson);
+            return;
+          }
+          const result = await resolveObservations(authorizedIds, status);
           emitResult(
             { project, result, status },
             `Resolved ${result.resolved.length} observation(s) to ${status}${result.notFound.length > 0 ? `; not found: ${result.notFound.join(', ')}` : ''}`,
@@ -207,7 +233,7 @@ export default defineCommand({
 
         case 'deduplicate': {
           const query = (args.query as string | undefined)?.trim();
-          const dryRun = !!args.dryRun;
+          const dryRun = !!args.dryRun || !!args['dry-run'];
           const { isLLMEnabled } = await import('../../llm/provider.js');
           if (!isLLMEnabled()) {
             emitResult(
@@ -220,7 +246,10 @@ export default defineCommand({
 
           const { deduplicateMemory } = await import('../../llm/memory-manager.js');
           const allObs = await withFreshIndex(() =>
-            getAllObservations().filter((obs) => (obs.status ?? 'active') === 'active' && obs.projectId === project.id),
+            filterReadableObservations(
+              getAllObservations().filter((obs) => (obs.status ?? 'active') === 'active' && obs.projectId === project.id),
+              reader,
+            ),
           );
 
           if (allObs.length < 2) {
@@ -230,7 +259,7 @@ export default defineCommand({
 
           let candidates = allObs;
           if (query) {
-            const searchResult = await compactSearch({ query, limit: 20, projectId: project.id, status: 'active' });
+            const searchResult = await compactSearch({ query, limit: 20, projectId: project.id, status: 'active', reader });
             const ids = new Set(searchResult.entries.map((entry) => entry.id));
             candidates = allObs.filter((obs) => ids.has(obs.id));
           } else {
@@ -277,7 +306,13 @@ export default defineCommand({
             return;
           }
 
-          const result = await resolveObservations([...new Set(toResolve)], 'resolved');
+          const result = await resolveObservations(
+            [...new Set(toResolve)].filter((id) => {
+              const observation = getObservation(id, project.id);
+              return observation ? canManageObservation(observation, reader) : false;
+            }),
+            'resolved',
+          );
           emitResult(
             { project, actions, resolved: result.resolved, notFound: result.notFound, dryRun: false },
             `Resolved ${result.resolved.length} duplicate observation(s).`,
@@ -292,7 +327,7 @@ export default defineCommand({
           const { findConsolidationCandidates, executeConsolidation } = await import('../../memory/consolidation.js');
 
           if (consolidationAction === 'preview') {
-            const clusters = await findConsolidationCandidates(process.cwd(), project.id, { threshold });
+            const clusters = await findConsolidationCandidates(project.rootPath, project.id, { threshold });
             emitResult(
               { project, clusters, action: consolidationAction },
               clusters.length === 0
@@ -306,7 +341,7 @@ export default defineCommand({
           }
 
           if (consolidationAction === 'execute') {
-            const result = await executeConsolidation(process.cwd(), project.id, { threshold });
+            const result = await executeConsolidation(project.rootPath, project.id, { threshold });
             emitResult(
               { project, action: consolidationAction, ...result },
               result.clustersFound === 0
@@ -325,11 +360,10 @@ export default defineCommand({
           const promoteAction = (args.action as string | undefined) || 'promote';
           const { promoteToMiniSkill, loadAllMiniSkills, deleteMiniSkill } = await import('../../skills/mini-skills.js');
           const { initMiniSkillStore } = await import('../../store/mini-skill-store.js');
-          const { dataDir } = await getCliProjectContext();
           await initMiniSkillStore(dataDir);
 
           if (promoteAction === 'list') {
-            const skills = await loadAllMiniSkills(process.cwd());
+            const skills = await loadAllMiniSkills(project.rootPath);
             emitResult(
               { project, skills, action: promoteAction },
               skills.length === 0 ? 'No mini-skills found.' : skills.map((skill) => `- #${skill.id} ${skill.title}`).join('\n'),
@@ -344,7 +378,7 @@ export default defineCommand({
               emitError('skillId is required for "memorix memory promote --action delete"', asJson);
               return;
             }
-            const deleted = await deleteMiniSkill(process.cwd(), skillId);
+            const deleted = await deleteMiniSkill(project.rootPath, skillId);
             if (!deleted) {
               emitError(`Mini-skill #${skillId} not found`, asJson);
               return;
@@ -361,12 +395,15 @@ export default defineCommand({
             return;
           }
           const observations = await withFreshIndex(() => getAllObservations());
-          const matched = observations.filter((obs) => ids.includes(obs.id));
+          const matched = filterReadableObservations(
+            observations.filter((obs) => obs.projectId === project.id && ids.includes(obs.id)),
+            reader,
+          ).filter((observation) => resolveObservationVisibility(observation) === 'project');
           if (matched.length === 0) {
-            emitError(`No observations found for IDs: ${ids.join(', ')}`, asJson);
+            emitError(`No project-visible observations found for IDs: ${ids.join(', ')}. Private and team records cannot be promoted into shared skills.`, asJson);
             return;
           }
-          const skill = await promoteToMiniSkill(process.cwd(), project.id, matched, {
+          const skill = await promoteToMiniSkill(project.rootPath, project.id, matched, {
             trigger: args.trigger as string | undefined,
             instruction: args.instruction as string | undefined,
             tags: parseCsvList(args.tags as string | undefined),
@@ -385,7 +422,7 @@ export default defineCommand({
           console.log('Usage:');
           console.log('  memorix memory search --query "timeout bug" [--limit 10]');
           console.log('  memorix memory recent [--limit 10]');
-          console.log('  memorix memory store --text "..." [--title "..."] [--type discovery]');
+          console.log('  memorix memory store --text "..." [--title "..."] [--type discovery] [--visibility project|personal|team]');
           console.log('  memorix memory suggest-topic-key --type decision --title "..."');
           console.log('  memorix memory detail --id 42');
           console.log('  memorix memory detail obs:42@org/project');

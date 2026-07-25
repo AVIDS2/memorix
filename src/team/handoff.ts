@@ -57,6 +57,8 @@ export async function createHandoffArtifact(
     topicKey?: string;
     sourceDetail?: 'explicit' | 'hook' | 'git-ingest';
     valueCategory?: 'core' | 'contextual' | 'ephemeral';
+    visibility?: 'personal' | 'project' | 'team';
+    sharedWithAgentIds?: string[];
     createdByAgentId?: string;
   }) => Promise<{ observation: { id: number }; upserted: boolean }>,
   teamStore: TeamStore,
@@ -82,6 +84,11 @@ export async function createHandoffArtifact(
     topicKey: input.taskId ? `handoff:${input.taskId}:${input.fromAgentId}` : undefined,
     sourceDetail: 'explicit',
     valueCategory: 'core',  // immune to retention archival
+    // A direct handoff is not a project-wide memo. The sender retains access
+    // and the explicit recipient receives a read grant. Broadcast handoffs
+    // are deliberately visible only to active team members.
+    visibility: input.toAgentId ? 'personal' : 'team',
+    ...(input.toAgentId ? { sharedWithAgentIds: [input.toAgentId] } : {}),
     createdByAgentId: input.fromAgentId,
   });
 

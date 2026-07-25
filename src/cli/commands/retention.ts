@@ -1,6 +1,7 @@
 import { defineCommand } from 'citty';
 import { getAllObservations } from '../../memory/observations.js';
 import { archiveExpired, explainRetention, getArchiveCandidates, getRetentionSummary, getRetentionZone, rankByRelevance } from '../../memory/retention.js';
+import { filterReadableObservations } from '../../memory/visibility.js';
 import type { MemorixDocument } from '../../types.js';
 import { emitError, emitResult, getCliProjectContext } from './operator-shared.js';
 
@@ -24,6 +25,8 @@ function toDocument(obs: Awaited<ReturnType<typeof getAllObservations>>[number])
     source: obs.source ?? 'agent',
     sourceDetail: obs.sourceDetail ?? '',
     valueCategory: obs.valueCategory ?? '',
+    admissionState: obs.admissionState ?? '',
+    admissionReason: obs.admissionReason ?? '',
   };
 }
 
@@ -40,9 +43,11 @@ export default defineCommand({
     const asJson = !!args.json;
 
     try {
-      const { project, dataDir } = await getCliProjectContext();
-      const activeDocs = getAllObservations()
-        .filter((obs) => obs.projectId === project.id && (obs.status ?? 'active') === 'active')
+      const { project, dataDir, reader } = await getCliProjectContext();
+      const activeDocs = filterReadableObservations(
+        getAllObservations().filter((obs) => obs.projectId === project.id && (obs.status ?? 'active') === 'active'),
+        reader,
+      )
         .map(toDocument);
 
       switch (action) {
@@ -65,7 +70,7 @@ export default defineCommand({
         }
 
         case 'archive': {
-          const result = await archiveExpired(dataDir, undefined, undefined, project.id);
+          const result = await archiveExpired(dataDir, undefined, undefined, project.id, reader);
           emitResult(
             { project, result },
             result.archived === 0

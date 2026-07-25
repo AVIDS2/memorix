@@ -8,6 +8,7 @@ export const MAINTENANCE_JOB_KINDS = [
   'retention-archive',
   'consolidation',
   'codegraph-refresh',
+  'observation-qualify',
   'claim-derive',
   'claim-requalification',
   'knowledge-compile',

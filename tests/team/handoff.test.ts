@@ -81,6 +81,8 @@ describe('createHandoffArtifact', () => {
     expect(call.valueCategory).toBe('core'); // immune to archival
     expect(call.sourceDetail).toBe('explicit');
     expect(call.createdByAgentId).toBe(a1.agent_id);
+    expect(call.visibility).toBe('personal');
+    expect(call.sharedWithAgentIds).toEqual([a2.agent_id]);
     expect(call.filesModified).toEqual(['src/auth.ts']);
     expect(call.concepts).toContain('handoff');
     expect(call.concepts).toContain('authentication');
@@ -130,6 +132,8 @@ describe('createHandoffArtifact', () => {
     );
 
     expect(result.toAgentId).toBeUndefined();
+    expect(mock.calls[0].visibility).toBe('team');
+    expect(mock.calls[0].sharedWithAgentIds).toBeUndefined();
 
     // Each non-sender agent gets their own recipient-specific message
     const inbox2 = store.getInbox('proj1', a2.agent_id);

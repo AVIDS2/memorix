@@ -1,7 +1,9 @@
 import { defineCommand } from 'citty';
 import { buildAutoProjectContext, type AutoContextRefreshMode } from '../../codegraph/auto-context.js';
 import { formatProjectContextExplain } from '../../codegraph/project-context.js';
+import { formatContextReceipt } from '../../knowledge/context-assembly.js';
 import { getAllObservations } from '../../memory/observations.js';
+import { filterReadableObservations } from '../../memory/visibility.js';
 import { emitError, emitResult, getCliProjectContext } from './operator-shared.js';
 
 function coerceRefreshMode(input?: string): AutoContextRefreshMode {
@@ -23,15 +25,19 @@ export default defineCommand({
     const asJson = !!args.json;
 
     try {
-      const { project, dataDir } = await getCliProjectContext();
+      const { project, dataDir, reader } = await getCliProjectContext();
       const context = await buildAutoProjectContext({
         project,
         dataDir,
-        observations: getAllObservations(),
+        observations: filterReadableObservations(getAllObservations(), reader),
         refresh: coerceRefreshMode(args.refresh as string | undefined),
       });
 
-      emitResult({ project, explain: context.explain, refresh: context.refresh }, formatProjectContextExplain(context.explain), asJson);
+      emitResult(
+        { project, explain: context.explain, receipt: context.workset.receipt, refresh: context.refresh },
+        formatProjectContextExplain(context.explain) + '\n\n' + formatContextReceipt(context.workset.receipt),
+        asJson,
+      );
     } catch (error) {
       emitError(error instanceof Error ? error.message : String(error), asJson);
     }

@@ -23,6 +23,8 @@ import { resetDotenv } from '../config/dotenv-loader.js';
 import { initProjectRoot } from '../config/yaml-loader.js';
 import { clearProjectRoot } from '../config/yaml-loader.js';
 import { scopeKnowledgeGraphToProject } from '../memory/graph-scope.js';
+import { canManageObservation, filterReadableObservations } from '../memory/visibility.js';
+import type { Observation } from '../types.js';
 
 // MIME types for static file serving
 const MIME_TYPES: Record<string, string> = {
@@ -57,6 +59,15 @@ function sendError(res: ServerResponse, message: string, status = 500) {
  */
 function filterByProject<T extends { projectId?: string }>(items: T[], projectId: string): T[] {
     return items.filter(item => item.projectId === projectId);
+}
+
+/**
+ * The dashboard has no per-agent authentication. Treat it as an unbound reader:
+ * project facts remain inspectable, while personal and team-scoped records stay
+ * in their owning MCP session.
+ */
+function filterDashboardObservations(observations: Observation[], projectId: string): Observation[] {
+    return filterReadableObservations(observations, { projectId });
 }
 
 function isActiveStatus(status?: string): boolean {
@@ -147,7 +158,10 @@ async function handleApi(
                 // List all unique project IDs from observations data (flat storage)
                 // Deduplicate using alias registry – aliased IDs are merged under canonical
                 try {
-                    const allObs = await getObservationStore().loadAll() as Array<{ projectId?: string; status?: string }>;
+                    const allObs = filterReadableObservations(
+                        await getObservationStore().loadAll(),
+                        {},
+                    ) as Array<{ projectId?: string; status?: string }>;
                     const projectSet = new Map<string, number>();
                     for (const obs of allObs) {
                         if (!isActiveStatus(obs.status)) continue;
@@ -204,14 +218,20 @@ async function handleApi(
                 await initGraphStore(effectiveDataDir);
                 const gStore = getGraphStore();
                 const graph = { entities: gStore.loadEntities(), relations: gStore.loadRelations() };
-                const graphObs = await getObservationStore().loadByProject(effectiveProjectId, { status: 'active' });
+                const graphObs = filterDashboardObservations(
+                    await getObservationStore().loadByProject(effectiveProjectId, { status: 'active' }),
+                    effectiveProjectId,
+                );
                 const scoped = scopeKnowledgeGraphToProject(graph, graphObs);
                 sendJson(res, { entities: scoped.entities, relations: scoped.relations });
                 break;
             }
 
             case '/observations': {
-                const observations = await getObservationStore().loadByProject(effectiveProjectId, { status: 'active' });
+                const observations = filterDashboardObservations(
+                    await getObservationStore().loadByProject(effectiveProjectId, { status: 'active' }),
+                    effectiveProjectId,
+                );
                 sendJson(res, observations);
                 break;
             }
@@ -226,7 +246,10 @@ async function handleApi(
             case '/stats': {
                 await initGraphStore(effectiveDataDir);
                 const graph = { entities: getGraphStore().loadEntities(), relations: getGraphStore().loadRelations() };
-                const observations = await getObservationStore().loadByProject(effectiveProjectId, { status: 'active' }) as Array<{ type?: string; id?: number; createdAt?: string; title?: string; entityName?: string; relatedEntities?: string[]; status?: string }>;
+                const observations = filterDashboardObservations(
+                    await getObservationStore().loadByProject(effectiveProjectId, { status: 'active' }),
+                    effectiveProjectId,
+                ) as Array<{ type?: string; id?: number; createdAt?: string; title?: string; entityName?: string; relatedEntities?: string[]; status?: string }>;
                 const nextId = await getObservationStore().loadIdCounter();
 
                 // Project-scoped graph counts (must match /api/graph and /api/export)
@@ -362,7 +385,10 @@ async function handleApi(
             }
 
             case '/retention': {
-                const observations = await getObservationStore().loadByProject(effectiveProjectId, { status: 'active' }) as Array<{
+                const observations = filterDashboardObservations(
+                    await getObservationStore().loadByProject(effectiveProjectId, { status: 'active' }),
+                    effectiveProjectId,
+                ) as Array<{
                     id?: number;
                     title?: string;
                     type?: string;
@@ -423,7 +449,10 @@ async function handleApi(
 
                 await initMiniSkillStore(effectiveDataDir);
 
-                const allObs = await getObservationStore().loadByProject(effectiveProjectId, { status: 'active' });
+                const allObs = filterDashboardObservations(
+                    await getObservationStore().loadByProject(effectiveProjectId, { status: 'active' }),
+                    effectiveProjectId,
+                );
                 const skills = await getMiniSkillStore().loadByProject(effectiveProjectId);
 
                 const overview = generateKnowledgeBase({
@@ -444,7 +473,10 @@ async function handleApi(
                 await initMiniSkillStore(effectiveDataDir);
                 await initGraphStore(effectiveDataDir);
 
-                const allObs = await getObservationStore().loadByProject(effectiveProjectId, { status: 'active' });
+                const allObs = filterDashboardObservations(
+                    await getObservationStore().loadByProject(effectiveProjectId, { status: 'active' }),
+                    effectiveProjectId,
+                );
                 const skills = await getMiniSkillStore().loadByProject(effectiveProjectId);
 
                 const fullGraph = { entities: getGraphStore().loadEntities(), relations: getGraphStore().loadRelations() };
@@ -597,7 +629,7 @@ async function handleApi(
 
             case '/identity': {
                 // Project identity health — with classification layering (matches control-plane contract)
-                const allObs = await getObservationStore().loadAll() as Array<{ projectId?: string }>;
+                const allObs = filterReadableObservations(await getObservationStore().loadAll(), {}) as Array<{ projectId?: string }>;
                 const allProjectIds = [...new Set(allObs.map(o => o.projectId).filter(Boolean))] as string[];
 
                 // Classify every known ID (real / temporary / placeholder) + dirty axis
@@ -698,6 +730,8 @@ async function handleApi(
                     } else if (matchObs.projectId !== effectiveProjectId) {
                         // Cross-project deletion guard: reject if obs belongs to a different project
                         sendError(res, `Observation #${obsId} belongs to project "${matchObs.projectId}", not "${effectiveProjectId}"`, 403);
+                    } else if (!canManageObservation(matchObs, { projectId: effectiveProjectId })) {
+                        sendError(res, `Observation #${obsId} is not manageable from the unbound dashboard.`, 403);
                     } else {
                         await obsStore.remove(obsId);
 
@@ -722,7 +756,10 @@ async function handleApi(
                 if (apiPath === '/export') {
                     await initGraphStore(effectiveDataDir);
                     const fullGraph = { entities: getGraphStore().loadEntities(), relations: getGraphStore().loadRelations() };
-                    const observations = await getObservationStore().loadByProject(effectiveProjectId, { status: 'active' });
+                    const observations = filterDashboardObservations(
+                        await getObservationStore().loadByProject(effectiveProjectId, { status: 'active' }),
+                        effectiveProjectId,
+                    );
                     const nextId = await getObservationStore().loadIdCounter();
                     const scoped = scopeKnowledgeGraphToProject(fullGraph, observations);
                     const exportData = {

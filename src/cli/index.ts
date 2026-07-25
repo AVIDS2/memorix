@@ -19,6 +19,8 @@ import { execSync, spawn } from 'node:child_process';
 import { getCliVersion } from './version.js';
 import { importBundledMemcode } from './memcode-bootstrap.js';
 import { installCliPipeErrorGuard } from './pipe-errors.js';
+import { normalizeCliInvocation } from './invocation.js';
+import { printCliGuideForHelp, renderCliGuide } from './command-guide.js';
 
 installCliPipeErrorGuard();
 
@@ -129,8 +131,9 @@ async function getWorkbenchHeader(): Promise<string[]> {
         const dataDir = await getProjectDataDir(proj.id);
         await initStore(dataDir);
         const { getObservationStore: getStore } = await import('../store/obs-store.js');
-        const obs = await getStore().loadAll() as any[];
-        const active = obs.filter((o: any) => (o.status ?? 'active') === 'active').length;
+        const { filterReadableObservations } = await import('../memory/visibility.js');
+        const obs = filterReadableObservations(await getStore().loadAll(), { projectId: proj.id });
+        const active = obs.filter((o) => (o.status ?? 'active') === 'active').length;
         if (active > 0) {
           memLabel = `${BOLD}${active}${RESET} ${DIM}active${RESET}`;
         }
@@ -801,6 +804,7 @@ async function runSearch(query: string): Promise<void> {
   
   try {
     const { searchObservations, getDb, hydrateIndex } = await import('../store/orama-store.js');
+    const { filterReadableObservations } = await import('../memory/visibility.js');
     const { getProjectDataDir } = await import('../store/persistence.js');
     const { detectProject } = await import('../project/detector.js');
     const { initObservations } = await import('../memory/observations.js');
@@ -825,7 +829,7 @@ async function runSearch(query: string): Promise<void> {
     await hydrateIndex(allObs);
     mark('hydrateIndex');
     
-    const results = await searchObservations({ query, limit: 10, projectId: project.id });
+    const results = await searchObservations({ query, limit: 10, projectId: project.id, reader: { projectId: project.id } });
     mark('search');
     s.stop('Search complete');
     
@@ -855,14 +859,16 @@ async function runList(): Promise<void> {
     const { getProjectDataDir } = await import('../store/persistence.js');
     const { detectProject } = await import('../project/detector.js');
     const { initObservationStore: initStore, getObservationStore: getStore } = await import('../store/obs-store.js');
+    const { filterReadableObservations } = await import('../memory/visibility.js');
     
     const project = detectProject(process.cwd());
     if (!project) { s.stop('No git repo'); p.log.error(NO_GIT_MSG); return; }
     const dataDir = await getProjectDataDir(project.id);
     await initStore(dataDir);
-    const observations = await getStore().loadAll() as unknown as Array<{
-      id: number; title: string; type: string; timestamp: string; status?: string;
-    }>;
+    const observations = filterReadableObservations(
+      await getStore().loadAll(),
+      { projectId: project.id },
+    );
     
     const active = observations.filter(o => (o.status ?? 'active') === 'active');
     const recent = active.slice(-10).reverse();
@@ -876,7 +882,7 @@ async function runList(): Promise<void> {
     
     console.log('');
     for (const o of recent) {
-      const typeLabel = { gotcha: '[!]', decision: '[D]', 'problem-solution': '[S]', discovery: '[?]', 'how-it-works': '[H]', 'what-changed': '[C]' }[o.type] ?? '[·]';
+      const typeLabel = ({ gotcha: '[!]', decision: '[D]', 'problem-solution': '[S]', discovery: '[?]', 'how-it-works': '[H]', 'what-changed': '[C]' } as Record<string, string>)[o.type] ?? '[·]';
       console.log(`  ${typeLabel} #${o.id} ${o.title?.slice(0, 60) ?? '(untitled)'}`);
     }
     console.log('');
@@ -927,11 +933,26 @@ async function runCommand(cmd: string, _args: string[] = []): Promise<void> {
 // Main command
 // ============================================================
 
+async function runMemoryShortcut(action: string, args: Record<string, unknown>): Promise<void> {
+  const { detectProject } = await import('../project/detector.js');
+  if (!detectProject(process.cwd())) {
+    console.log(NO_GIT_MSG);
+    process.exitCode = 1;
+    return;
+  }
+  const memory = await import('./commands/memory.js');
+  await memory.default.run?.({
+    args: { ...args, _: [action] },
+    rawArgs: [],
+    cmd: memory.default,
+  } as any);
+}
+
 const main = defineCommand({
   meta: {
     name: 'memorix',
     version: getCliVersion(),
-    description: 'Local-first memory control plane for AI coding agents via MCP',
+    description: 'Local-first memory control plane for AI coding agents through CLI, MCP, and local workflows',
   },
   subCommands: {
     // One-shot product commands (primary user paths)
@@ -960,18 +981,55 @@ const main = defineCommand({
       },
     })),
     search: () => Promise.resolve(defineCommand({
-      meta: { name: 'search', description: 'Search memories' },
-      args: { query: { type: 'positional', description: 'Search query', required: true } },
-      async run({ args }) { await runSearch(args.query as string); },
+      meta: { name: 'search', description: 'Shortcut for `memorix memory search`' },
+      args: {
+        query: { type: 'positional', description: 'Search query', required: true },
+        limit: { type: 'string', description: 'Maximum results' },
+        json: { type: 'boolean', description: 'Emit machine-readable JSON output' },
+      },
+      async run({ args }) {
+        await runMemoryShortcut('search', {
+          query: args.query,
+          limit: args.limit,
+          json: args.json,
+        });
+      },
     })),
     remember: () => Promise.resolve(defineCommand({
-      meta: { name: 'remember', description: 'Store a quick memory' },
-      args: { text: { type: 'positional', description: 'Text to remember', required: true } },
-      async run({ args }) { await runRemember(args.text as string); },
+      meta: { name: 'remember', description: 'Shortcut for `memorix memory store`' },
+      args: {
+        text: { type: 'positional', description: 'Text to remember', required: true },
+        title: { type: 'string', description: 'Optional observation title' },
+        type: { type: 'string', description: 'Observation type' },
+        visibility: { type: 'string', description: 'project (default), personal, or team' },
+        json: { type: 'boolean', description: 'Emit machine-readable JSON output' },
+      },
+      async run({ args }) {
+        await runMemoryShortcut('store', {
+          text: args.text,
+          title: args.title,
+          type: args.type,
+          visibility: args.visibility,
+          json: args.json,
+        });
+      },
     })),
     recent: () => Promise.resolve(defineCommand({
-      meta: { name: 'recent', description: 'View recent memories' },
-      async run() { await runList(); },
+      meta: { name: 'recent', description: 'Shortcut for `memorix memory recent`' },
+      args: {
+        limit: { type: 'string', description: 'Maximum results' },
+        json: { type: 'boolean', description: 'Emit machine-readable JSON output' },
+      },
+      async run({ args }) { await runMemoryShortcut('recent', { limit: args.limit, json: args.json }); },
+    })),
+    help: () => Promise.resolve(defineCommand({
+      meta: { name: 'help', description: 'Show action-oriented help for a command group' },
+      args: {
+        command: { type: 'positional', description: 'Command group to inspect', required: false },
+      },
+      async run({ args }) {
+        console.log(renderCliGuide(args.command as string | undefined));
+      },
     })),
     // Infrastructure commands
     init: () => import('./commands/init.js').then(m => m.default),
@@ -996,6 +1054,7 @@ const main = defineCommand({
     audit: () => import('./commands/audit.js').then(m => m.default),
     transfer: () => import('./commands/transfer.js').then(m => m.default),
     skills: () => import('./commands/skills.js').then(m => m.default),
+    identity: () => import('./commands/identity.js').then(m => m.default),
     session: () => import('./commands/session.js').then(m => m.default),
     team: () => import('./commands/team.js').then(m => m.default),
     task: () => import('./commands/task.js').then(m => m.default),
@@ -1031,6 +1090,13 @@ const main = defineCommand({
     cleanup: () => import('./commands/cleanup.js').then(m => m.default),
     uninstall: () => import('./commands/uninstall.js').then(m => m.default),
     orchestrate: () => import('./commands/orchestrate.js').then(m => m.default),
+    workbench: () => Promise.resolve(defineCommand({
+      meta: { name: 'workbench', description: 'Open the interactive terminal memory control plane' },
+      async run() {
+        const { startWorkbench } = await import('./workbench.js');
+        await startWorkbench();
+      },
+    })),
     memcode: () => Promise.resolve(defineCommand({
       meta: { name: 'memcode', description: 'Enter memcode TUI — native coding agent with memory' },
       async run() {
@@ -1048,8 +1114,8 @@ const main = defineCommand({
     // Guard: if citty already resolved a subcommand, its run() was called before this.
     // Detect by checking if the first CLI arg matches a registered subcommand name.
     const firstArg = process.argv[2];
-    const knownSubs = ['ask', 'search', 'remember', 'recent', 'memcode', 'config',
-      'init', 'setup', 'integrate', 'memory', 'context', 'explain', 'codegraph', 'knowledge', 'reasoning', 'retention', 'formation', 'audit', 'transfer', 'skills',
+    const knownSubs = ['ask', 'search', 'remember', 'recent', 'help', 'workbench', 'memcode', 'config',
+      'init', 'setup', 'integrate', 'memory', 'context', 'explain', 'codegraph', 'knowledge', 'reasoning', 'retention', 'formation', 'audit', 'transfer', 'skills', 'identity',
       'session', 'team', 'task', 'message', 'lock', 'handoff', 'poll',
       'receipt',
       'serve', 'serve-http', 'status', 'sync',
@@ -1080,6 +1146,8 @@ const main = defineCommand({
       console.error(`Memorix v${getCliVersion()} — Local-first memory control plane\n`);
       console.error('Usage: memorix <command>\n');
       console.error('Commands:');
+      console.error('  help       Show action-oriented help (`memorix memory --help`)');
+      console.error('  workbench  Open interactive terminal memory control plane');
       console.error('  memcode    Enter memcode TUI (native coding agent)');
       console.error('  ask "q"    Ask Memorix a question (single-shot chat)');
       console.error('             Pipe: echo "q" | memorix ask');
@@ -1096,6 +1164,7 @@ const main = defineCommand({
       console.error('  audit      Audit trail and project attribution checks');
       console.error('  transfer   Export/import memory snapshots');
       console.error('  skills     List/generate/show project skills');
+      console.error('  identity   Select the explicit CLI actor for private/team memory');
       console.error('  team       Join/status/role operations for coordination state');
       console.error('  task       Create/claim/complete/list team tasks');
       console.error('  message    Send/broadcast/read team messages');
@@ -1121,4 +1190,12 @@ const main = defineCommand({
   },
 });
 
-runMain(main);
+try {
+  normalizeCliInvocation();
+  if (!printCliGuideForHelp()) {
+    runMain(main);
+  }
+} catch (error) {
+  console.error(`Memorix CLI invocation error: ${error instanceof Error ? error.message : String(error)}`);
+  process.exitCode = 1;
+}

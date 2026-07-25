@@ -65,21 +65,23 @@ export function MemoryView({ projectId, focusRefId, selectedIdx, onNavigateKnowl
     (async () => {
       try {
         setLoading(true);
-        const { getObservation, initObservations, getAllObservations } = await import('../../../memory/observations.js');
-        const { getProjectDataDir } = await import('../../../store/persistence.js');
+        const { initObservations, getAllObservations } = await import('../../../memory/observations.js');
+        const { filterReadableObservations } = await import('../../../memory/visibility.js');
         const { initObservationStore } = await import('../../../store/obs-store.js');
-        const { detectProject } = await import('../../../project/detector.js');
+        const { getTuiOperatorContext } = await import('../operator-context.js');
 
-        const proj = detectProject(process.cwd());
-        if (!proj) return;
+        const { project: proj, dataDir, reader } = await getTuiOperatorContext();
 
-        const dataDir = await getProjectDataDir(projectId || proj.id);
+        const effectiveProjectId = projectId || proj.id;
+        if (effectiveProjectId !== proj.id) return;
         await initObservationStore(dataDir);
         await initObservations(dataDir);
 
         const obsId = parseInt(idMatch[1], 10);
-        const allObs = getAllObservations();
-        const obs = allObs.find((o: any) => o.id === obsId);
+        const obs = filterReadableObservations(
+          getAllObservations().filter((observation) => observation.projectId === effectiveProjectId),
+          reader,
+        ).find((observation) => observation.id === obsId);
         if (obs) {
           setDetailItem({
             id: obs.id,

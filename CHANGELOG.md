@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.2] - 2026-07-25
+
+### Added
+- **Direct CLI control plane** -- Added a consistent terminal surface for memory, context, Code State, knowledge, coordination, audit, and transfer work. `--cwd` selects the Git project from any shell, `memorix workbench` explicitly opens the interactive terminal UI, and every action group now has task-oriented help.
+- **Explicit local CLI identity** -- Added `memorix identity status|join|use|clear`. A user can deliberately activate one project coordination identity for personal/team memory and task, message, lock, handoff, and poll commands without needing an MCP connection.
+- **Automation-friendly transfer** -- Memory exports can write directly to a file, and imports accept `--file` or `--stdin` as well as existing inline JSON.
+
+### Changed
+- **One visibility reader across terminal surfaces** -- CLI commands, Workbench search, recents, health, graph, knowledge, and chat now resolve the same project/actor reader. An unbound terminal remains project-scoped by default.
+- **CLI ergonomics** -- Root `search`, `remember`, and `recent` aliases now use the canonical memory commands; kebab-case flags are accepted alongside the existing camelCase forms.
+
+### Fixed
+- **Private evidence cannot become public indirectly** -- Personal and team observations are rejected when promoting shared skills or generating project skills.
+- **TUI visibility mismatch** -- The interactive terminal UI no longer falls back to an unbound reader after an explicit local identity has been activated.
+- **Transfer visibility bypass** -- CLI and MCP exports now include only observations readable by the current caller, rather than exporting personal/team records from the same project by default.
+
 ## [1.2.1] - 2026-07-19
 
 ### Added

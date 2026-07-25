@@ -1,5 +1,13 @@
 import { defineCommand } from 'citty';
-import { emitError, emitResult, getCliProjectContext, parseCsvList, parseOptionalJsonObject, shortId } from './operator-shared.js';
+import {
+  emitError,
+  emitResult,
+  getCliProjectContext,
+  parseCsvList,
+  parseOptionalJsonObject,
+  resolveCliActorId,
+  shortId,
+} from './operator-shared.js';
 
 export default defineCommand({
   meta: {
@@ -24,7 +32,8 @@ export default defineCommand({
     const asJson = !!args.json;
 
     try {
-      const { project, teamStore } = await getCliProjectContext();
+      const { project, teamStore, identity } = await getCliProjectContext();
+      const agentId = resolveCliActorId(args.agentId, identity);
 
       switch (action) {
         case 'create': {
@@ -51,7 +60,7 @@ export default defineCommand({
             description: args.description as string,
             deps: parseCsvList(args.deps as string | undefined),
             metadata,
-            createdBy: args.agentId as string | undefined,
+            createdBy: agentId,
             requiredRole: args.requiredRole as string | undefined,
             preferredRole: args.preferredRole as string | undefined,
           });
@@ -65,11 +74,11 @@ export default defineCommand({
         }
 
         case 'claim': {
-          if (!args.taskId || !args.agentId) {
-            emitError('taskId and agentId are required for "memorix task claim"', asJson);
+          if (!args.taskId || !agentId) {
+            emitError('taskId and an active CLI identity or agentId are required for "memorix task claim"', asJson);
             return;
           }
-          const result = teamStore.claimTask(args.taskId as string, args.agentId as string);
+          const result = teamStore.claimTask(args.taskId as string, agentId);
           if (!result.success) {
             emitError(result.reason ?? 'Unable to claim task', asJson);
             return;
@@ -83,11 +92,11 @@ export default defineCommand({
         }
 
         case 'complete': {
-          if (!args.taskId || !args.agentId || !args.result) {
-            emitError('taskId, agentId, and result are required for "memorix task complete"', asJson);
+          if (!args.taskId || !agentId || !args.result) {
+            emitError('taskId, result, and an active CLI identity or agentId are required for "memorix task complete"', asJson);
             return;
           }
-          const result = teamStore.completeTask(args.taskId as string, args.agentId as string, args.result as string);
+          const result = teamStore.completeTask(args.taskId as string, agentId, args.result as string);
           if (!result.success) {
             emitError(result.reason ?? 'Unable to complete task', asJson);
             return;
@@ -101,11 +110,11 @@ export default defineCommand({
         }
 
         case 'fail': {
-          if (!args.taskId || !args.agentId || !args.result) {
-            emitError('taskId, agentId, and result are required for "memorix task fail"', asJson);
+          if (!args.taskId || !agentId || !args.result) {
+            emitError('taskId, result, and an active CLI identity or agentId are required for "memorix task fail"', asJson);
             return;
           }
-          const result = teamStore.failTask(args.taskId as string, args.agentId as string, args.result as string);
+          const result = teamStore.failTask(args.taskId as string, agentId, args.result as string);
           if (!result.success) {
             emitError(result.reason ?? 'Unable to fail task', asJson);
             return;
@@ -119,11 +128,11 @@ export default defineCommand({
         }
 
         case 'release': {
-          if (!args.taskId || !args.agentId) {
-            emitError('taskId and agentId are required for "memorix task release"', asJson);
+          if (!args.taskId || !agentId) {
+            emitError('taskId and an active CLI identity or agentId are required for "memorix task release"', asJson);
             return;
           }
-          const result = teamStore.releaseTask(args.taskId as string, args.agentId as string);
+          const result = teamStore.releaseTask(args.taskId as string, agentId);
           if (!result.success) {
             emitError(result.reason ?? 'Unable to release task', asJson);
             return;
@@ -138,8 +147,8 @@ export default defineCommand({
 
         case 'list': {
           const tasks =
-            args.available && args.agentId
-              ? teamStore.listTasksForAgent(project.id, args.agentId as string)
+            args.available && agentId
+              ? teamStore.listTasksForAgent(project.id, agentId)
               : teamStore.listTasks(
                   project.id,
                   args.available

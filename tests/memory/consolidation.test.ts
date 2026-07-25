@@ -74,6 +74,25 @@ describe('Memory Consolidation', () => {
       expect(clusters[0].ids.length).toBeGreaterThanOrEqual(2);
     });
 
+    it('keeps similar pending automatic evidence individually inspectable', async () => {
+      for (const title of ['Pending auth edit one', 'Pending auth edit two']) {
+        await storeObservation({
+          entityName: 'auth',
+          type: 'what-changed',
+          title,
+          narrative: 'Changed session verification in src/auth.ts.',
+          filesModified: ['src/auth.ts'],
+          projectId: PROJECT_ID,
+          sourceDetail: 'hook',
+          valueCategory: 'contextual',
+          admissionState: 'candidate',
+          admissionReason: 'file mutation awaits Code Memory qualification',
+        });
+      }
+
+      expect(await findConsolidationCandidates(testDir, PROJECT_ID, { threshold: 0.1 })).toHaveLength(0);
+    });
+
     it('should not cluster across different entities', async () => {
       await storeObservation({
         entityName: 'auth', type: 'gotcha', title: 'Token expiry silent failure',

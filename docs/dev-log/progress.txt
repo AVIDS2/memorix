@@ -4,15 +4,15 @@
 > older notes when they conflict.
 
 ## Current State
-- Phase: 1.2 release validation and publication
-- Branch: `codex/1.2.0-multidimensional-memory`
-- Last updated: 2026-07-18
-- Released baseline: `memorix@1.1.13`, tag `v1.1.13`, PR #129 merged as
-  `7e8077f`.
-- Goal: turn Memorix from a useful narrative-memory layer into a task-ready
-  working-context layer where code state, change evidence, verification,
-  source-backed project knowledge, workflows, and durable decisions are ranked
-  together.
+- Phase: 1.2.2 memory-control-plane admission and visibility implementation
+- Branch: `codex/1.2.2-memory-control-plane`
+- Last updated: 2026-07-25
+- Released baseline: `memorix@1.2.1`, tag `v1.2.1`, `origin/main` at
+  `1b5bf7f`.
+- Goal: make the 1.2 multi-dimensional evidence layer behave as one bounded,
+  explainable control plane. A task Workset, hook handoff, lifecycle refresh,
+  and provider capability result must share evidence qualification, delivery
+  budgets, and privacy-safe receipts.
 
 ## 1.1.13 Closeout
 - Codex setup now stamps plugin versions and doctor distinguishes bundle,
@@ -102,7 +102,7 @@
 - The compiled CLI was smoke-tested in an isolated Git project through init,
   compile, apply, and lint with a source-backed claim.
 
-## 1.2 Delivery Complete, Release Checks In Progress
+## 1.2 Delivery Complete, Released As 1.2.1
 - Phase 4 added canonical Markdown workflows, safe adapter preview/apply, import,
   selection, and verification receipts. Agent instruction files are render
   targets, not the workflow source of truth.
@@ -123,4 +123,84 @@
 - Release audit also incorporated #130 before publication: the optional SQLite
   runtime now uses the Node-26-compatible `better-sqlite3` 12.x line, with a
   dedicated Node 26 CI smoke that opens an in-memory database.
-- Remaining remote gates: GitHub CI, npm publish, tag, and GitHub release.
+- The release was completed as `memorix@1.2.1`. Its next development line is
+  [1.2.2 Memory Control Plane](../1.2.2-MEMORY-CONTROL-PLANE.md), which
+  consolidates these capabilities instead of adding another disconnected
+  memory feature.
+
+## 1.2.2 Control Plane
+- `TaskWorkset` already has bounded rendering and source-aware claims, but
+  SessionStart handoff and legacy context surfaces need one shared admission,
+  budget, and receipt contract.
+- First implementation slice complete: the shared `ContextReceipt` records
+  delivery target, selected source ids/kinds, trust/freshness, exact budget
+  omissions, queued refreshes, and Workset selection time without entering the
+  agent prompt. Project Context, Context Pack, and full SessionStart injection
+  now carry the same delivery-target semantics; `memorix explain` exposes the
+  receipt in text and JSON.
+- Budget selection now keeps a knowledge page dependent on a Claim out of the
+  prompt when its qualifying Claim could not fit. The receipt records both as
+  withheld instead of presenting an orphaned page path as usable knowledge.
+- Phase 3 admission slice complete: automatic observations now persist an
+  `ephemeral`, `candidate`, or `qualified` state and a reason. Hooks and the
+  internal orchestrator capture concrete evidence as candidates, keep routine
+  success/telemetry ephemeral, and drop low-signal activity without writing it.
+  Automatic capture stays quiet in the host agent.
+- A deduplicated `observation-qualify` maintenance job runs after CodeGraph
+  refresh. It requires a scan no older than the capture and at least one
+  current code reference before upgrading a candidate. Qualification does not
+  create a Claim; explicit saves and Git remain the Claim boundary.
+- Auto Project Context, automatic session L1 delivery, Wiki/Knowledge Graph
+  compilation, and graph-context packets exclude candidates and ephemeral
+  traces. Ordinary search prefers qualified material, while explicit lookup
+  can still inspect pending evidence.
+- Pending automatic evidence is also excluded from automatic consolidation so
+  a later qualification can still inspect its original source grain. Retention
+  explanations no longer describe an unqualified `core` candidate as immune.
+- Actor and visibility enforcement is now one policy shared by MCP retrieval,
+  auto context, CLI/TUI, dashboards, knowledge/graph projections, and scoped
+  maintenance. Legacy observations remain project-visible; new records may be
+  `project`, `team`, or `personal` with an explicit creator and recipients.
+  Missing identity never grants private or team visibility.
+- Automatic hooks and orchestrator traces begin personal. A verified hook
+  candidate may become project evidence only when qualification proves a
+  current code reference. Targeted handoffs are readable by sender and
+  recipient but writable only by sender; broadcasts require an active project
+  team member.
+- Automatic orchestration lesson lookup is explicitly project-scoped, so its
+  prompt injection cannot read personal or team-scoped records.
+- Topic-key writes now check mutation scope before storage, and the
+  project-attribution guard receives only memories visible to its current
+  reader. This closes both guessed-key overwrite and cross-project existence
+  hints without hiding historical project knowledge after upgrade.
+- The embedded SDK remains project-visible when unbound. CLI and the local TUI
+  now share the same explicit actor reader: an unbound terminal sees project
+  memory only, while `memorix identity join|use` (or one-shot `--as`) grants
+  only that active project member's personal/team visibility and coordination
+  ergonomics. `identity clear` returns to project scope; private evidence
+  cannot be promoted into shared skills or generated project skills.
+- CLI control-plane ergonomics now include `--cwd`, kebab-case flag aliases,
+  action-oriented namespace help, explicit `memorix workbench`, and
+  file/stdin transfer import/export. Root memory aliases use the same
+  canonical command paths as `memorix memory`; CLI and MCP exports are filtered
+  by the same active reader so an unbound backup cannot contain private/team
+  observations.
+- Direct CLI and foreground Code Memory refreshes now enqueue qualification as
+  well as claim requalification, and they register the local project target
+  needed by the isolated control-plane worker. The host hook path persists its
+  candidate before scheduling a refresh, avoiding a fast-worker race where a
+  scan could predate the capture.
+- Compiled-artifact smoke: an isolated Codex `PostToolUse` hook returned only
+  `continue: true`, stored a `candidate`, and the isolated background control
+  plane upgraded it to `qualified` after a real Code Memory scan with one
+  current reference. Embeddings were deliberately disabled for this
+  deterministic local smoke. The full test suite, TypeScript check, and
+  production build also passed after the admission policy was reconciled with
+  OpenCode's concise technical response events.
+- #135 remains a contributor-owned session-handoff candidate for the bounded
+  `HandoffPacket` phase. It is not copied or silently replaced.
+- #133/#134 remain open pending an official provider-capability layer and a
+  safe agent-facing media path. The existing OpenRouter text embedding path is
+  the supported baseline.
+- See [1.2.2 Memory Control Plane](../1.2.2-MEMORY-CONTROL-PLANE.md) for
+  phases, acceptance gates, non-goals, and release criteria.

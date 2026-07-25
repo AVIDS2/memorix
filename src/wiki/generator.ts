@@ -1,4 +1,5 @@
 import type { Observation, MiniSkill } from '../types.js';
+import { isEligibleForKnowledgePromotion } from '../memory/admission.js';
 import type { KnowledgeSourceRef, KnowledgeItem, KnowledgeSection, ProjectKnowledgeOverview } from './types.js';
 
 const COMMAND_LOG_TITLE = /^(Ran:|Command:|Executed:)\s/i;
@@ -63,6 +64,7 @@ function isEligible(o: Observation, projectId: string): boolean {
   if (isCommandLog(o)) return false;
   if (isInactive(o)) return false;
   if (isOtherProject(o, projectId)) return false;
+  if (!isEligibleForKnowledgePromotion(o)) return false;
   if (o.valueCategory === 'ephemeral') return false;
   if (!contextualHasSubstance(o)) return false;
   return true;

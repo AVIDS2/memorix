@@ -25,7 +25,13 @@ import type {
   ProgressInfo,
   ProjectInfo,
   DetectionResult,
+  ObservationReader,
 } from './types.js';
+import {
+  canManageObservation,
+  canReadObservation,
+  filterReadableObservations,
+} from './memory/visibility.js';
 
 // ── Re-exports for convenience ──────────────────────────────────────
 
@@ -97,12 +103,17 @@ export interface ResolveResult {
  * Memorix observations without MCP overhead.
  *
  * Each client initializes its own SQLite backend and Orama search index,
- * scoped to a single project. Call `close()` when done to release resources.
+ * scoped to a single project. It is an unbound project reader by default, so
+ * it exposes only project-shared records and cannot alter personal or team
+ * records. Use an identity-bound MCP session for private coordination data.
+ * Call `close()` when done to release resources.
  */
 export class MemoryClient {
   private _projectId: string;
   private _projectRoot: string;
   private _dataDir: string;
+  /** SDK calls are unbound by default, so they see only project-shared records. */
+  private _reader: ObservationReader;
   private _closed = false;
 
   // Internal module references — loaded lazily to avoid top-level side effects
@@ -116,6 +127,7 @@ export class MemoryClient {
     this._projectId = projectId;
     this._projectRoot = projectRoot;
     this._dataDir = dataDir;
+    this._reader = { projectId };
   }
 
   /** The canonical project ID (derived from Git remote or local path) */
@@ -182,6 +194,7 @@ export class MemoryClient {
     return this._observations.storeObservation({
       ...input,
       projectId: this._projectId,
+      visibilityReader: this._reader,
     });
   }
 
@@ -207,6 +220,7 @@ export class MemoryClient {
       type: options.type,
       source: options.source,
       status: options.status === 'all' ? undefined : (options.status ?? 'active'),
+      reader: this._reader,
     };
 
     return this._oramaStore.searchObservations(searchOpts);
@@ -218,7 +232,8 @@ export class MemoryClient {
   async get(id: number): Promise<Observation | undefined> {
     this._ensureOpen();
     await this._freshness.withFreshIndex(() => {});
-    return this._observations.getObservation(id, this._projectId);
+    const observation = this._observations.getObservation(id, this._projectId);
+    return observation && canReadObservation(observation, this._reader) ? observation : undefined;
   }
 
   /**
@@ -227,7 +242,10 @@ export class MemoryClient {
   async getAll(): Promise<Observation[]> {
     this._ensureOpen();
     await this._freshness.withFreshIndex(() => {});
-    return this._observations.getProjectObservations(this._projectId);
+    return filterReadableObservations(
+      this._observations.getProjectObservations(this._projectId),
+      this._reader,
+    );
   }
 
   /**
@@ -236,7 +254,10 @@ export class MemoryClient {
   async count(): Promise<number> {
     this._ensureOpen();
     await this._freshness.withFreshIndex(() => {});
-    return this._observations.getProjectObservations(this._projectId).length;
+    return filterReadableObservations(
+      this._observations.getProjectObservations(this._projectId),
+      this._reader,
+    ).length;
   }
 
   /**
@@ -253,7 +274,16 @@ export class MemoryClient {
    */
   async resolve(ids: number[], status: ObservationStatus = 'resolved'): Promise<ResolveResult> {
     this._ensureOpen();
-    return this._observations.resolveObservations(ids, status);
+    const manageableIds = ids.filter((id) => {
+      const observation = this._observations.getObservation(id, this._projectId);
+      return observation && canManageObservation(observation, this._reader);
+    });
+    const deniedIds = ids.filter((id) => !manageableIds.includes(id));
+    const result = await this._observations.resolveObservations(manageableIds, status);
+    return {
+      resolved: result.resolved,
+      notFound: [...new Set([...result.notFound, ...deniedIds])],
+    };
   }
 
   /**

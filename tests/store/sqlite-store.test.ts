@@ -80,6 +80,23 @@ describe('SqliteBackend CRUD', () => {
     expect(all[0].type).toBe('discovery');
   });
 
+  it('round-trips control-plane admission metadata', async () => {
+    const obs = makeObs({
+      id: 1,
+      entityName: 'auth',
+      projectId: 'test/proj',
+      admissionState: 'candidate',
+      admissionReason: 'file mutation awaits Code Memory qualification',
+    });
+    await store.insert(obs);
+
+    const [stored] = await store.loadAll();
+    expect(stored).toMatchObject({
+      admissionState: 'candidate',
+      admissionReason: 'file mutation awaits Code Memory qualification',
+    });
+  });
+
   it('update modifies an existing observation', async () => {
     const obs = makeObs({ id: 1, entityName: 'e', projectId: 'p', title: 'Original' });
     await store.insert(obs);

@@ -3,11 +3,11 @@ import { loadDotenv } from '../../config/dotenv-loader.js';
 import { initLLM, isLLMEnabled, getLLMConfig, callLLMWithTools } from '../../llm/provider.js';
 import type { ChatMessage, ToolDefinition, ToolCall } from '../../llm/provider.js';
 import { initObservations, prepareSearchIndex, storeObservation, resolveObservations, getObservation, getAllObservations } from '../../memory/observations.js';
-import type { ObservationType } from '../../types.js';
-import { detectProject } from '../../project/detector.js';
+import { canManageObservation, filterReadableObservations } from '../../memory/visibility.js';
+import type { ObservationReader, ObservationType } from '../../types.js';
 import { getLastSearchMode } from '../../store/orama-store.js';
-import { getProjectDataDir } from '../../store/persistence.js';
 import type { MemorixDocument } from '../../types.js';
+import { getTuiOperatorContext } from './operator-context.js';
 
 export interface ChatHistoryTurn {
   role: 'user' | 'assistant';
@@ -208,19 +208,29 @@ async function prepareProjectSearch(projectId: string, dataDir: string): Promise
 
 interface ToolExecutionContext {
   projectId: string;
+  reader: ObservationReader;
+  writerAgentId?: string;
   collectedSources: ChatSource[];
+}
+
+async function resolveTuiContext() {
+  try {
+    return await getTuiOperatorContext();
+  } catch {
+    return null;
+  }
 }
 
 function executeSearchMemories(args: { query: string; limit?: number }, ctx: ToolExecutionContext): Promise<string> {
   const limit = Math.min(args.limit ?? SEARCH_LIMIT, 10);
-  return compactSearch({ query: args.query, limit, projectId: ctx.projectId, status: 'active' })
+  return compactSearch({ query: args.query, limit, projectId: ctx.projectId, status: 'active', reader: ctx.reader })
     .then((result) => {
       const entries = result.entries.slice(0, DETAIL_LIMIT);
       if (entries.length === 0) return 'No memories found for that query.';
 
       // Collect sources for citation tracking
       const refs = entries.map((e) => ({ id: e.id, projectId: ctx.projectId }));
-      return compactDetail(refs).then((detail) => {
+      return compactDetail(refs, { reader: ctx.reader }).then((detail) => {
         for (let i = 0; i < detail.documents.length; i++) {
           const doc = detail.documents[i];
           const score = entries[i]?.score ?? 0;
@@ -235,7 +245,7 @@ function executeSearchMemories(args: { query: string; limit?: number }, ctx: Too
 }
 
 function executeGetMemoryDetail(args: { id: number }, ctx: ToolExecutionContext): Promise<string> {
-  return compactDetail([{ id: args.id, projectId: ctx.projectId }])
+  return compactDetail([{ id: args.id, projectId: ctx.projectId }], { reader: ctx.reader })
     .then((detail) => {
       if (detail.documents.length === 0) return `Observation ${args.id} not found.`;
       const doc = detail.documents[0];
@@ -295,6 +305,8 @@ function executeStoreMemory(
     facts: args.facts,
     projectId: ctx.projectId,
     source: 'agent',
+    visibilityReader: ctx.reader,
+    ...(ctx.writerAgentId ? { createdByAgentId: ctx.writerAgentId } : {}),
   }).then((result) => {
     const obs = result.observation;
     ctx.collectedSources.push({
@@ -314,7 +326,7 @@ function executeUpdateMemory(
   ctx: ToolExecutionContext,
 ): string {
   const obs = getObservation(args.id, ctx.projectId);
-  if (!obs) return `Observation ${args.id} not found.`;
+  if (!obs || !canManageObservation(obs, ctx.reader)) return `Observation ${args.id} not found.`;
 
   const shouldAppend = args.append !== false; // default true
   const newNarrative = shouldAppend
@@ -334,6 +346,7 @@ function executeUpdateMemory(
     projectId: ctx.projectId,
     topicKey: obs.topicKey,
     source: 'agent',
+    visibilityReader: ctx.reader,
   }).catch(() => {/* non-blocking */});
 
   return `Updated observation [obs:${args.id}] — ${shouldAppend ? 'appended to' : 'replaced'} narrative${args.facts?.length ? ` and added ${args.facts.length} facts` : ''}. Changes will be persisted asynchronously.`;
@@ -344,7 +357,7 @@ function executeDeleteMemory(
   ctx: ToolExecutionContext,
 ): Promise<string> {
   const obs = getObservation(args.id, ctx.projectId);
-  if (!obs) return Promise.resolve(`Observation ${args.id} not found.`);
+  if (!obs || !canManageObservation(obs, ctx.reader)) return Promise.resolve(`Observation ${args.id} not found.`);
 
   return resolveObservations([args.id], 'resolved')
     .then((result) => {
@@ -361,8 +374,10 @@ function executeListRecentMemories(
   ctx: ToolExecutionContext,
 ): string {
   const limit = Math.min(args.limit ?? 10, 20);
-  let allObs = getAllObservations()
-    .filter(o => o.projectId === ctx.projectId && o.status !== 'archived' && o.status !== 'resolved');
+  let allObs = filterReadableObservations(
+    getAllObservations().filter(o => o.projectId === ctx.projectId && o.status !== 'archived' && o.status !== 'resolved'),
+    ctx.reader,
+  );
 
   if (args.type) {
     allObs = allObs.filter(o => o.type === args.type);
@@ -399,10 +414,10 @@ export async function askMemoryQuestion(
     };
   }
 
-  const project = detectProject(process.cwd());
+  const operatorContext = await resolveTuiContext();
 
   // No project + no LLM → dead end
-  if (!project) {
+  if (!operatorContext) {
     loadDotenv(process.cwd());
     initLLM({ scope: 'agent' });
     if (!isLLMEnabled()) {
@@ -438,10 +453,11 @@ export async function askMemoryQuestion(
     };
   }
 
+  const { project, dataDir, reader, identity } = operatorContext;
+
   loadDotenv(project.rootPath);
   initLLM({ scope: 'agent' });
 
-  const dataDir = await getProjectDataDir(project.id);
   await prepareProjectSearch(project.id, dataDir);
 
   const searchMode = normalizeSearchMode(getLastSearchMode(project.id) || 'fulltext');
@@ -453,11 +469,12 @@ export async function askMemoryQuestion(
       limit: SEARCH_LIMIT,
       projectId: project.id,
       status: 'active',
+      reader,
     });
     const topEntries = searchResult.entries.slice(0, DETAIL_LIMIT);
     const detailRefs = topEntries.map((entry) => ({ id: entry.id, projectId: project.id }));
     const detailResult = detailRefs.length > 0
-      ? await compactDetail(detailRefs)
+      ? await compactDetail(detailRefs, { reader })
       : { documents: [], formatted: '', totalTokens: 0 };
     const sources = detailResult.documents.map((doc, index) => toSource(doc, topEntries[index]?.score ?? 0));
 
@@ -488,6 +505,8 @@ export async function askMemoryQuestion(
 
   const ctx: ToolExecutionContext = {
     projectId: project.id,
+    reader,
+    ...(identity ? { writerAgentId: identity.agentId } : {}),
     collectedSources: [],
   };
 
@@ -584,10 +603,10 @@ export async function askMemoryQuestionStream(
     };
   }
 
-  const project = detectProject(process.cwd());
+  const operatorContext = await resolveTuiContext();
 
   // No project + no LLM → dead end
-  if (!project) {
+  if (!operatorContext) {
     loadDotenv(process.cwd());
     initLLM({ scope: 'agent' });
     if (!isLLMEnabled()) {
@@ -626,10 +645,11 @@ export async function askMemoryQuestionStream(
     };
   }
 
+  const { project, dataDir, reader, identity } = operatorContext;
+
   loadDotenv(project.rootPath);
   initLLM({ scope: 'agent' });
 
-  const dataDir = await getProjectDataDir(project.id);
   await prepareProjectSearch(project.id, dataDir);
 
   const searchMode = normalizeSearchMode(getLastSearchMode(project.id) || 'fulltext');
@@ -641,11 +661,12 @@ export async function askMemoryQuestionStream(
       limit: SEARCH_LIMIT,
       projectId: project.id,
       status: 'active',
+      reader,
     });
     const topEntries = searchResult.entries.slice(0, DETAIL_LIMIT);
     const detailRefs = topEntries.map((entry) => ({ id: entry.id, projectId: project.id }));
     const detailResult = detailRefs.length > 0
-      ? await compactDetail(detailRefs)
+      ? await compactDetail(detailRefs, { reader })
       : { documents: [], formatted: '', totalTokens: 0 };
     const sources = detailResult.documents.map((doc, index) => toSource(doc, topEntries[index]?.score ?? 0));
 
@@ -672,6 +693,8 @@ export async function askMemoryQuestionStream(
 
   const ctx: ToolExecutionContext = {
     projectId: project.id,
+    reader,
+    ...(identity ? { writerAgentId: identity.agentId } : {}),
     collectedSources: [],
   };
 

@@ -1,7 +1,14 @@
 import { defineCommand } from 'citty';
 import { compactSearch } from '../../compact/engine.js';
 import { storeObservation } from '../../memory/observations.js';
-import { emitError, emitResult, getCliProjectContext, parseCsvList, parsePositiveInt } from './operator-shared.js';
+import {
+  emitError,
+  emitResult,
+  getCliProjectContext,
+  parseCsvList,
+  parsePositiveInt,
+  resolveCliWriteScope,
+} from './operator-shared.js';
 
 export default defineCommand({
   meta: {
@@ -20,6 +27,7 @@ export default defineCommand({
     files: { type: 'string', description: 'Comma-separated file list' },
     relatedCommits: { type: 'string', description: 'Comma-separated related commit hashes' },
     relatedEntities: { type: 'string', description: 'Comma-separated related entity names' },
+    visibility: { type: 'string', description: 'Reasoning visibility: project (default), personal, or team' },
     query: { type: 'string', description: 'Search query for reasoning traces' },
     limit: { type: 'string', description: 'Search result limit' },
     scope: { type: 'string', description: 'project or global scope for search' },
@@ -30,7 +38,7 @@ export default defineCommand({
     const asJson = !!args.json;
 
     try {
-      const { project } = await getCliProjectContext({ searchIndex: action === 'search' });
+      const { project, reader, identity } = await getCliProjectContext({ searchIndex: action === 'search' });
 
       switch (action) {
         case 'store': {
@@ -63,6 +71,10 @@ export default defineCommand({
           if (risks.length > 0) {
             narrativeParts.push(`Risks: ${risks.join('; ')}`);
           }
+          const writeScope = resolveCliWriteScope(
+            { reader, identity },
+            args.visibility as string | undefined,
+          );
 
           const result = await storeObservation({
             entityName,
@@ -84,6 +96,7 @@ export default defineCommand({
             relatedEntities,
             projectId: project.id,
             source: 'manual',
+            ...writeScope,
           });
 
           emitResult(
@@ -108,6 +121,7 @@ export default defineCommand({
             type: 'reasoning',
             projectId: scope === 'global' ? undefined : project.id,
             status: 'active',
+            reader: scope === 'global' ? {} : reader,
           });
           emitResult(
             { project, scope, entries: result.entries },
@@ -121,7 +135,7 @@ export default defineCommand({
           console.log('Memorix Reasoning Commands');
           console.log('');
           console.log('Usage:');
-          console.log('  memorix reasoning store --entity auth --decision "Use SQLite" --rationale "..."');
+          console.log('  memorix reasoning store --entity auth --decision "Use SQLite" --rationale "..." [--visibility project|personal|team]');
           console.log('  memorix reasoning search --query "why sqlite" [--scope project|global --limit 10]');
       }
     } catch (error) {

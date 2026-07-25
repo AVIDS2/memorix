@@ -85,6 +85,37 @@ describe('Export', () => {
     expect(dataB.observations[0].title).toBe('Project B decision');
   });
 
+  it('filters private and team records through an explicit export reader', async () => {
+    await storeObservation({
+      entityName: 'auth', type: 'decision', title: 'Shared decision',
+      narrative: 'Everyone in the project can use this.', projectId: PROJECT_ID,
+    });
+    await storeObservation({
+      entityName: 'auth', type: 'discovery', title: 'Private triage',
+      narrative: 'Only its owner can export this.', projectId: PROJECT_ID,
+      visibility: 'personal', createdByAgentId: 'agent-owner',
+    });
+    await storeObservation({
+      entityName: 'auth', type: 'discovery', title: 'Team triage',
+      narrative: 'Only active team members can export this.', projectId: PROJECT_ID,
+      visibility: 'team', createdByAgentId: 'agent-owner',
+    });
+
+    const unbound = await exportAsJson(testDir, PROJECT_ID, { projectId: PROJECT_ID });
+    expect(unbound.observations.map((observation) => observation.title)).toEqual(['Shared decision']);
+
+    const owner = await exportAsJson(testDir, PROJECT_ID, {
+      projectId: PROJECT_ID,
+      agentId: 'agent-owner',
+      isTeamMember: true,
+    });
+    expect(owner.observations.map((observation) => observation.title)).toEqual([
+      'Shared decision',
+      'Private triage',
+      'Team triage',
+    ]);
+  });
+
   it('should export as readable Markdown', async () => {
     await storeObservation({
       entityName: 'auth', type: 'decision', title: 'Use JWT',

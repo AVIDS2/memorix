@@ -6,6 +6,14 @@ import { KnowledgeWorkspaceStore } from './workspace-store.js';
 import { loadKnowledgeWorkspace } from './workspace.js';
 import { WorkflowStore } from './workflow-store.js';
 import { selectWorkflows } from './workflows.js';
+import type {
+  ContextCandidateFreshness,
+  ContextCandidateKind,
+  ContextDeliveryTarget,
+  ContextReceipt,
+  ContextReceiptOmission,
+  ContextReceiptSelection,
+} from './context-assembly.js';
 import type { CodeGraphProviderQuality, ExternalCodeGraphOutline } from '../codegraph/types.js';
 import type { KnowledgeClaim, ClaimEvidenceRef } from './types.js';
 import type { KnowledgePageRecord, KnowledgeWorkspace } from './workspace-types.js';
@@ -98,6 +106,8 @@ export interface TaskWorkset {
     tokenCount: number;
     omitted: string[];
   };
+  /** Privacy-safe selection metadata for diagnostics, never appended to the prompt. */
+  receipt: ContextReceipt;
   prompt: string;
 }
 
@@ -128,6 +138,8 @@ export interface BuildTaskWorksetInput {
   };
   runtimeCautions?: WorksetCaution[];
   maxTokens?: number;
+  /** Delivery surface controls receipt semantics without changing prompt shape. */
+  deliveryTarget?: ContextDeliveryTarget;
 }
 
 function unique(values: string[]): string[] {
@@ -228,35 +240,104 @@ function appendLine(
   maxTokens: number,
   omitted: string[],
   omittedKind: string,
+  selected?: ContextReceiptSelection[],
+  receiptSelection?: ContextReceiptSelection,
 ): boolean {
   const next = lines.length ? lines.join('\n') + '\n' + candidate : candidate;
   if (countTextTokens(next) <= maxTokens) {
     lines.push(candidate);
+    if (receiptSelection) selected?.push(receiptSelection);
     return true;
   }
   omitted.push(omittedKind);
   return false;
 }
 
+function freshnessForMemory(status: WorksetMemorySource['status']): ContextCandidateFreshness {
+  if (status === 'current' || status === 'suspect' || status === 'stale') return status;
+  return 'unknown';
+}
+
+function receiptOmissionKind(raw: string): ContextCandidateKind | undefined {
+  if (raw.includes('task')) return 'task';
+  if (raw.includes('fact')) return 'current-fact';
+  if (raw.includes('state')) return 'code-state';
+  if (raw.includes('semantic')) return 'semantic-code';
+  if (raw.includes('start')) return 'start-here';
+  if (raw.includes('memory')) return 'memory';
+  if (raw.includes('claim')) return 'claim';
+  if (raw.includes('knowledge-page')) return 'knowledge-page';
+  if (raw.includes('workflow')) return 'workflow';
+  if (raw.includes('verification')) return 'verification';
+  if (raw.includes('caution')) return 'caution';
+  return undefined;
+}
+
+function receiptOmissions(omitted: string[], hiddenCautionMemoryCount: number): ContextReceiptOmission[] {
+  const counts = new Map<ContextCandidateKind, number>();
+  for (const raw of omitted) {
+    const kind = receiptOmissionKind(raw);
+    if (!kind || raw.endsWith('-heading')) continue;
+    counts.set(kind, (counts.get(kind) ?? 0) + 1);
+  }
+  const receipt: ContextReceiptOmission[] = [...counts.entries()].map(([kind, count]) => ({
+    kind,
+    reason: 'token-budget',
+    count,
+  }));
+  if (hiddenCautionMemoryCount > 0) {
+    receipt.push({
+      kind: 'caution',
+      reason: 'hidden-by-task-lens',
+      count: hiddenCautionMemoryCount,
+    });
+  }
+  return receipt;
+}
+
+function scheduledActions(cautions: WorksetCaution[]): string[] {
+  return cautions
+    .filter(caution => caution.kind === 'codegraph-refresh-queued')
+    .map(caution => short(caution.message, 28));
+}
+
 /**
  * Render a bounded prompt from whole evidence items. It never cuts a page,
  * workflow, or claim body into an untraceable partial fragment.
  */
-export function renderTaskWorksetPrompt(input: Omit<TaskWorkset, 'prompt' | 'budget'> & {
+export function renderTaskWorksetPrompt(input: Omit<TaskWorkset, 'prompt' | 'budget' | 'receipt'> & {
   budget?: Partial<TaskWorkset['budget']>;
-}): { prompt: string; tokenCount: number; omitted: string[] } {
+}): {
+  prompt: string;
+  tokenCount: number;
+  /** Compatibility summary: unique omission categories. */
+  omitted: string[];
+  /** Internal receipt input: one entry per candidate that did not fit. */
+  omittedItems: string[];
+  selected: ContextReceiptSelection[];
+} {
   const maxTokens = input.budget?.maxTokens ?? 180;
   const omitted: string[] = [];
+  const selected: ContextReceiptSelection[] = [];
   const lines: string[] = ['Memorix Autopilot Brief'];
   const task = short(input.task || 'Continue the current task.', 34);
-  appendLine(lines, 'Task: ' + task, maxTokens, omitted, 'task-detail');
+  appendLine(lines, 'Task: ' + task, maxTokens, omitted, 'task-detail', selected, {
+    kind: 'task',
+    reason: 'current task supplied by the caller',
+    trust: 'source-backed',
+  });
   appendLine(lines, 'Task lens: ' + input.lens, maxTokens, omitted, 'lens');
 
   if (input.cautions.length > 0 || input.cautionMemory.length > 0) {
     appendLine(lines, '', maxTokens, omitted, 'caution-heading');
     appendLine(lines, 'Cautions', maxTokens, omitted, 'caution-heading');
     for (const caution of input.cautions.slice(0, 6)) {
-      appendLine(lines, '- ' + short(caution.message, 22), maxTokens, omitted, 'caution');
+      appendLine(lines, '- ' + short(caution.message, 22), maxTokens, omitted, 'caution', selected, {
+        kind: 'caution',
+        id: 'caution:' + caution.kind,
+        reason: 'current project caution',
+        trust: 'source-backed',
+      });
     }
     for (const memory of input.cautionMemory.slice(0, 3)) {
       const location = memory.path
@@ -269,6 +350,14 @@ export function renderTaskWorksetPrompt(input: Omit<TaskWorkset, 'prompt' | 'bud
         maxTokens,
         omitted,
         'caution-memory',
+        selected,
+        {
+          kind: 'memory',
+          id: 'memory:' + memory.id,
+          reason: 'task-relevant memory requiring source verification',
+          freshness: freshnessForMemory(memory.status),
+          trust: 'historical',
+        },
       );
     }
     if (input.hiddenCautionMemoryCount > 0) {
@@ -280,14 +369,23 @@ export function renderTaskWorksetPrompt(input: Omit<TaskWorkset, 'prompt' | 'bud
     appendLine(lines, '', maxTokens, omitted, 'facts-heading');
     appendLine(lines, 'Current project facts', maxTokens, omitted, 'facts-heading');
     for (const fact of input.currentFacts.slice(0, 4)) {
-      appendLine(lines, '- ' + short(fact, 40), maxTokens, omitted, 'current-fact');
+      appendLine(lines, '- ' + short(fact, 40), maxTokens, omitted, 'current-fact', selected, {
+        kind: 'current-fact',
+        reason: 'current project state',
+        trust: 'source-backed',
+      });
     }
   }
 
   if (input.codeState) {
     appendLine(lines, '', maxTokens, omitted, 'state-heading');
     appendLine(lines, 'Project state', maxTokens, omitted, 'state-heading');
-    appendLine(lines, input.codeState, maxTokens, omitted, 'code-state');
+    appendLine(lines, input.codeState, maxTokens, omitted, 'code-state', selected, {
+      kind: 'code-state',
+      ...(input.provenance.snapshotId ? { id: 'snapshot:' + input.provenance.snapshotId } : {}),
+      reason: 'latest available Code State snapshot',
+      trust: 'source-backed',
+    });
   }
 
   if (input.semanticCode && (input.semanticCode.entryPoints.length > 0 || input.semanticCode.relations.length > 0)) {
@@ -301,6 +399,13 @@ export function renderTaskWorksetPrompt(input: Omit<TaskWorkset, 'prompt' | 'bud
         maxTokens,
         omitted,
         'semantic-relation',
+        selected,
+        {
+          kind: 'semantic-code',
+          id: 'code:' + location,
+          reason: 'validated optional semantic code relation',
+          trust: 'derived',
+        },
       );
     }
     if (input.semanticCode.relations.length === 0) {
@@ -312,6 +417,13 @@ export function renderTaskWorksetPrompt(input: Omit<TaskWorkset, 'prompt' | 'bud
           maxTokens,
           omitted,
           'semantic-entry',
+          selected,
+          {
+            kind: 'semantic-code',
+            id: 'code:' + location,
+            reason: 'validated optional semantic code entry point',
+            trust: 'derived',
+          },
         );
       }
     }
@@ -321,7 +433,12 @@ export function renderTaskWorksetPrompt(input: Omit<TaskWorkset, 'prompt' | 'bud
     appendLine(lines, '', maxTokens, omitted, 'start-heading');
     appendLine(lines, 'Start here', maxTokens, omitted, 'start-heading');
     for (const source of input.startHere.slice(0, 5)) {
-      appendLine(lines, '- ' + source, maxTokens, omitted, 'start-here');
+      appendLine(lines, '- ' + source, maxTokens, omitted, 'start-here', selected, {
+        kind: 'start-here',
+        id: 'path:' + source,
+        reason: 'task-lensed starting point',
+        trust: 'derived',
+      });
     }
   }
 
@@ -338,6 +455,14 @@ export function renderTaskWorksetPrompt(input: Omit<TaskWorkset, 'prompt' | 'bud
         maxTokens,
         omitted,
         'reliable-memory',
+        selected,
+        {
+          kind: 'memory',
+          id: 'memory:' + memory.id,
+          reason: 'current code-bound memory',
+          freshness: freshnessForMemory(memory.status),
+          trust: 'historical',
+        },
       );
     }
   }
@@ -346,10 +471,27 @@ export function renderTaskWorksetPrompt(input: Omit<TaskWorkset, 'prompt' | 'bud
     appendLine(lines, '', maxTokens, omitted, 'knowledge-heading');
     appendLine(lines, 'Project knowledge', maxTokens, omitted, 'knowledge-heading');
     for (const claim of input.claims.slice(0, 3)) {
-      appendLine(lines, '- ' + claim.assertion + ' [' + claim.id + ']', maxTokens, omitted, 'claim');
+      appendLine(lines, '- ' + claim.assertion + ' [' + claim.id + ']', maxTokens, omitted, 'claim', selected, {
+        kind: 'claim',
+        id: 'claim:' + claim.id,
+        reason: 'source-qualified task match',
+        trust: 'source-backed',
+      });
     }
     for (const page of input.pages.slice(0, 2)) {
-      appendLine(lines, '- page: ' + page.relativePath, maxTokens, omitted, 'knowledge-page');
+      const supportsDeliveredClaim = page.claimIds.some(claimId => selected.some(item => (
+        item.kind === 'claim' && item.id === 'claim:' + claimId
+      )));
+      if (!supportsDeliveredClaim) {
+        omitted.push('knowledge-page-dependency');
+        continue;
+      }
+      appendLine(lines, '- page: ' + page.relativePath, maxTokens, omitted, 'knowledge-page', selected, {
+        kind: 'knowledge-page',
+        id: 'page:' + page.id,
+        reason: 'approved page linked to a selected claim',
+        trust: 'source-backed',
+      });
     }
   }
 
@@ -363,6 +505,13 @@ export function renderTaskWorksetPrompt(input: Omit<TaskWorkset, 'prompt' | 'bud
         maxTokens,
         omitted,
         'workflow',
+        selected,
+        {
+          kind: 'workflow',
+          id: 'workflow:' + workflow.id,
+          reason: 'task-matching project workflow',
+          trust: 'source-backed',
+        },
       );
     }
   }
@@ -371,7 +520,11 @@ export function renderTaskWorksetPrompt(input: Omit<TaskWorkset, 'prompt' | 'bud
     appendLine(lines, '', maxTokens, omitted, 'verification-heading');
     appendLine(lines, 'Verify', maxTokens, omitted, 'verification-heading');
     for (const check of input.verification.slice(0, 4)) {
-      appendLine(lines, '- ' + short(check, 20), maxTokens, omitted, 'verification');
+      appendLine(lines, '- ' + short(check, 20), maxTokens, omitted, 'verification', selected, {
+        kind: 'verification',
+        reason: 'task-lensed verification guidance',
+        trust: 'derived',
+      });
     }
   }
 
@@ -379,6 +532,8 @@ export function renderTaskWorksetPrompt(input: Omit<TaskWorkset, 'prompt' | 'bud
     prompt: lines.join('\n'),
     tokenCount: countTextTokens(lines.join('\n')),
     omitted: unique(omitted),
+    omittedItems: omitted,
+    selected,
   };
 }
 
@@ -388,6 +543,7 @@ export function renderTaskWorksetPrompt(input: Omit<TaskWorkset, 'prompt' | 'bud
  * context response.
  */
 export async function buildTaskWorkset(input: BuildTaskWorksetInput): Promise<TaskWorkset> {
+  const startedAt = Date.now();
   const task = input.task?.trim() ?? '';
   const maxTokens = Math.max(96, Math.min(Math.floor(input.maxTokens ?? 180), 320));
   const cautions = [...(input.runtimeCautions ?? []), ...snapshotCautions(input)];
@@ -503,6 +659,18 @@ export async function buildTaskWorkset(input: BuildTaskWorksetInput): Promise<Ta
     ...base,
     budget: { maxTokens },
   });
+  const receipt: ContextReceipt = {
+    version: '1.2.2',
+    target: input.deliveryTarget ?? 'project-context',
+    elapsedMs: Math.max(0, Date.now() - startedAt),
+    budget: {
+      maxTokens,
+      tokenCount: rendered.tokenCount,
+    },
+    selected: rendered.selected,
+    omitted: receiptOmissions(rendered.omittedItems, base.hiddenCautionMemoryCount),
+    scheduledActions: scheduledActions(normalizedCautions),
+  };
   return {
     ...base,
     budget: {
@@ -510,6 +678,7 @@ export async function buildTaskWorkset(input: BuildTaskWorksetInput): Promise<Ta
       tokenCount: rendered.tokenCount,
       omitted: rendered.omitted,
     },
+    receipt,
     prompt: rendered.prompt,
   };
 }

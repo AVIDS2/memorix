@@ -53,12 +53,13 @@ export async function getSessionState(projectId?: string): Promise<SessionState>
 
 export async function bindSession(): Promise<SessionState> {
   try {
-    const proj = await resolveProject();
-    if (!proj) return { status: 'error', error: 'No project detected' };
+    const { getTuiOperatorContext } = await import('./operator-context.js');
+    const { project: proj, reader } = await getTuiOperatorContext();
 
     const { startSession } = await import('../../memory/session.js');
     const { session, previousContext } = await startSession(proj.rootPath, proj.id, {
       agent: 'memorix-tui',
+      reader,
     });
 
     return {

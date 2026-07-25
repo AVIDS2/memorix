@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.3] - 2026-07-25
+
+### Fixed
+- **Session context now respects observation visibility** -- Automatic session handoff and manual session-context reads in the CLI, MCP server, and Workbench apply the caller's project, team, and personal-memory reader. A new identity cannot receive another agent's personal observations through session startup.
+- **Identity before handoff** -- CLI and MCP coordination sessions establish their explicit identity before assembling prior context, so an owner's own personal records remain available while a newly joined agent fails closed.
+- **Graph-side disclosure guard** -- Agent-facing session handoff no longer derives graph-neighbor hints from graph relations that do not yet carry observation visibility metadata.
+
 ## [1.2.2] - 2026-07-25
 
 ### Added

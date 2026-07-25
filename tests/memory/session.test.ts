@@ -115,6 +115,38 @@ describe('Session Lifecycle', () => {
   });
 
   describe('getSessionContext', () => {
+    it('does not inject personal observations into a different agent session', async () => {
+      await storeObservation({
+        entityName: 'migration',
+        type: 'decision',
+        title: 'Project-visible migration policy',
+        narrative: 'All migrations must have a rollback plan.',
+        projectId: PROJECT_ID,
+      });
+      await storeObservation({
+        entityName: 'migration',
+        type: 'decision',
+        title: 'Owner-only migration checklist',
+        narrative: 'This private checklist must not cross agent identities.',
+        projectId: PROJECT_ID,
+        visibility: 'personal',
+        createdByAgentId: 'owner-agent',
+      });
+
+      const foreign = await startSession(testDir, PROJECT_ID, {
+        sessionId: 'foreign-session',
+        reader: { projectId: PROJECT_ID, agentId: 'foreign-agent', isTeamMember: true },
+      });
+      expect(foreign.previousContext).toContain('Project-visible migration policy');
+      expect(foreign.previousContext).not.toContain('Owner-only migration checklist');
+
+      const owner = await startSession(testDir, PROJECT_ID, {
+        sessionId: 'owner-session',
+        reader: { projectId: PROJECT_ID, agentId: 'owner-agent', isTeamMember: true },
+      });
+      expect(owner.previousContext).toContain('Owner-only migration checklist');
+    });
+
     it('loads only the current project aliases instead of scanning global sessions and observations', async () => {
       await storeObservation({
         entityName: 'current',
@@ -402,11 +434,26 @@ describe('Session Lifecycle', () => {
         narrative: 'Found via alias',
         projectId: ALIAS_A,
       });
+      await storeObservation({
+        entityName: 'auth',
+        type: 'gotcha',
+        title: 'Aliased private gotcha',
+        narrative: 'This stays with its owner across project aliases.',
+        projectId: ALIAS_A,
+        visibility: 'personal',
+        createdByAgentId: 'alias-owner',
+      });
 
-      // Query context under ALIAS_B
-      const context = await getSessionContext(testDir, ALIAS_B);
+      // Query context under ALIAS_B through a different agent identity. The
+      // project-visible record crosses the alias, while the personal one does not.
+      const context = await getSessionContext(testDir, ALIAS_B, 3, {
+        projectId: ALIAS_B,
+        agentId: 'alias-reader',
+        isTeamMember: true,
+      });
       expect(context).toContain('Alias context test');
       expect(context).toContain('Cross-agent gotcha');
+      expect(context).not.toContain('Aliased private gotcha');
     });
 
     it('should auto-close aliased active sessions on new start', async () => {

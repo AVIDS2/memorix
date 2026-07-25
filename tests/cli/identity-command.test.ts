@@ -187,4 +187,49 @@ describe('CLI identity control plane', () => {
     expect(status.exitCode).toBe(0);
     expect(JSON.parse(status.stdout).identity.agentId).toBe(startPayload.agent.agentId);
   });
+
+  it('does not inject a prior CLI identity personal memory when a new coordination session starts', async () => {
+    const shared = await runCommand(memoryCommand, {
+      _: ['store'],
+      text: 'The shared release checklist requires a package smoke test.',
+      title: 'Project release checklist',
+      json: true,
+    });
+    expect(shared.exitCode).toBe(0);
+
+    const owner = await runCommand(identityCommand, {
+      _: ['join'],
+      agentType: 'codex',
+      instanceId: 'private-owner-terminal',
+      name: 'Private owner terminal',
+      json: true,
+    });
+    expect(owner.exitCode).toBe(0);
+
+    const privateMemory = await runCommand(memoryCommand, {
+      _: ['store'],
+      text: 'Only the owner should see this migration credential checklist.',
+      title: 'Owner-only session memory',
+      visibility: 'personal',
+      json: true,
+    });
+    expect(privateMemory.exitCode).toBe(0);
+
+    const cleared = await runCommand(identityCommand, { _: ['clear'], json: true });
+    expect(cleared.exitCode).toBe(0);
+
+    const foreignSession = await runCommand(sessionCommand, {
+      _: ['start'],
+      agent: 'Foreign release terminal',
+      agentType: 'claude-code',
+      instanceId: 'foreign-release-terminal',
+      joinTeam: true,
+      use: true,
+      json: true,
+    });
+    expect(foreignSession.exitCode).toBe(0);
+    const payload = JSON.parse(foreignSession.stdout);
+    expect(payload.previousContext).toContain('Project release checklist');
+    expect(payload.previousContext).not.toContain('Owner-only session memory');
+  });
 });

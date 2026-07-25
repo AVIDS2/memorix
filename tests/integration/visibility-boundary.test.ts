@@ -74,6 +74,30 @@ describe('MCP observation visibility boundary', () => {
       const idB = agentId(await startB({ agent: 'visibility-b', agentType: 'claude-code', joinTeam: true }));
       agentId(await startC({ agent: 'visibility-c', agentType: 'windsurf', joinTeam: true }));
 
+      const storeA = getHandler(first.server as any, 'memorix_store');
+      const privateSessionMemory = await storeA({
+        entityName: 'private-session',
+        type: 'gotcha',
+        title: 'Owner-only session context',
+        narrative: 'This private observation must never be injected into another agent session.',
+        visibility: 'personal',
+      });
+      expect(privateSessionMemory.isError).not.toBe(true);
+
+      const foreignSession = text(await startC({
+        agent: 'visibility-c',
+        agentType: 'windsurf',
+        joinTeam: true,
+      }));
+      expect(foreignSession).not.toContain('Owner-only session context');
+
+      const ownerSession = text(await startA({
+        agent: 'visibility-a',
+        agentType: 'codex',
+        joinTeam: true,
+      }));
+      expect(ownerSession).toContain('Owner-only session context');
+
       const handoffA = getHandler(first.server as any, 'memorix_handoff');
       const created = await handoffA({
         fromAgentId: idA,

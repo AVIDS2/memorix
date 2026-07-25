@@ -3614,7 +3614,6 @@ export async function createMemorixServer(
       if (unresolved) return unresolved;
 
       const { startSession } = await import('./memory/session.js');
-      const result = await startSession(projectDir, project.id, { sessionId, agent });
 
       const llmStatus = isLLMEnabled()
         ? `LLM enhanced mode: ${getLLMConfig()?.provider}/${getLLMConfig()?.model} (fact extraction + auto-dedup active)`
@@ -3689,6 +3688,12 @@ export async function createMemorixServer(
           teamJoinNotice = 'Coordination join skipped: pass `agent` or `agentType` to create a coordination identity.';
         }
       } catch { /* team auto-registration is best-effort */ }
+
+      const result = await startSession(projectDir, project.id, {
+        sessionId,
+        agent,
+        reader: getObservationReader(),
+      });
 
       const lines = [
         `[OK] Session started: ${result.session.id}`,
@@ -3825,7 +3830,7 @@ export async function createMemorixServer(
     async ({ limit }) => {
       const safeLimit = limit != null ? coerceNumber(limit, 3) : 3;
       const { getSessionContext, listSessions } = await import('./memory/session.js');
-      const context = await getSessionContext(projectDir, project.id, safeLimit);
+      const context = await getSessionContext(projectDir, project.id, safeLimit, getObservationReader());
       const sessions = await listSessions(projectDir, project.id);
 
       const activeSessions = sessions.filter(s => s.status === 'active');

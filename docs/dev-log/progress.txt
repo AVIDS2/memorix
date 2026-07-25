@@ -4,15 +4,25 @@
 > older notes when they conflict.
 
 ## Current State
-- Phase: 1.2.2 memory-control-plane admission and visibility implementation
-- Branch: `codex/1.2.2-memory-control-plane`
+- Phase: 1.2.3 session-context visibility hotfix
+- Branch: `codex/1.2.3-session-visibility`
 - Last updated: 2026-07-25
-- Released baseline: `memorix@1.2.1`, tag `v1.2.1`, `origin/main` at
-  `1b5bf7f`.
-- Goal: make the 1.2 multi-dimensional evidence layer behave as one bounded,
-  explainable control plane. A task Workset, hook handoff, lifecycle refresh,
-  and provider capability result must share evidence qualification, delivery
-  budgets, and privacy-safe receipts.
+- Released baseline: `memorix@1.2.2`, tag `v1.2.2`, `origin/main` at
+  `2a7ebc7`.
+- Goal: close the agent-facing session-context visibility boundary before
+  further control-plane work.
+
+## 1.2.3 Session Context Visibility Hotfix
+- A real installed-package CLI smoke found that a second coordination identity
+  could receive the first identity's personal observation in automatic session
+  context. The root cause was a reader-less core session-context call.
+- `getSessionContext()` now accepts an `ObservationReader`; CLI, MCP, and TUI
+  session entry points pass their resolved caller identity. Alias-backed
+  project-visible records remain readable, while personal/team records fail
+  closed.
+- Graph-neighbor routing is omitted whenever a reader is present because graph
+  relations are not yet visibility-scoped. Core, CLI, MCP, and alias regression
+  tests cover the boundary.
 
 ## 1.1.13 Closeout
 - Codex setup now stamps plugin versions and doctor distinguishes bundle,

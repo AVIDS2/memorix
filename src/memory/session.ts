@@ -11,7 +11,7 @@
  * - Cross-agent session awareness (all agents share session data)
  */
 
-import type { Observation, Session } from '../types.js';
+import type { Observation, ObservationReader, Session } from '../types.js';
 import { isEligibleForAutomaticDelivery } from './admission.js';
 import { classifyLayer } from './disclosure-policy.js';
 import { resolveAliases } from '../project/aliases.js';
@@ -19,6 +19,7 @@ import { getObservationStore } from '../store/obs-store.js';
 import { getSessionStore } from '../store/session-store.js';
 import { KnowledgeGraphManager } from './graph.js';
 import { redactCredentials, sanitizeCredentials } from './secret-filter.js';
+import { canReadObservation } from './visibility.js';
 
 const PRIORITY_TYPES = new Set(['gotcha', 'decision', 'problem-solution', 'trade-off', 'discovery']);
 const TYPE_EMOJI: Record<string, string> = {
@@ -242,7 +243,7 @@ export function scoreObservationForSessionContext(obs: Observation, projectToken
 export async function startSession(
   projectDir: string,
   projectId: string,
-  opts?: { sessionId?: string; agent?: string },
+  opts?: { sessionId?: string; agent?: string; reader?: ObservationReader },
 ): Promise<{ session: Session; previousContext: string }> {
   const sessionId = opts?.sessionId || generateSessionId();
   const now = new Date().toISOString();
@@ -256,7 +257,7 @@ export async function startSession(
   };
 
   // Load previous context before creating new session
-  const previousContext = await getSessionContext(projectDir, projectId);
+  const previousContext = await getSessionContext(projectDir, projectId, 3, opts?.reader);
 
   // Atomic rollover: complete all active sessions for this project's aliases
   // and insert the new session in a single SQLite transaction.
@@ -306,17 +307,31 @@ export async function endSession(
  *   Key Memories   — durable explicit working context (L2)
  *   Session History— orientation log
  *   L3 Evidence    — pointers to git-memory and hook traces (on-demand)
+ *
+ * When a reader is supplied, automatic observation delivery follows that
+ * identity's visibility boundary. Omit it only for trusted maintenance paths.
  */
 export async function getSessionContext(
   projectDir: string,
   projectId: string,
   limit: number = 3,
+  reader?: ObservationReader,
 ): Promise<string> {
   const aliasSet = await resolveProjectIds(projectId);
   const [sessions, allObs] = await Promise.all([
     loadAliasSessions(aliasSet),
     loadAliasActiveObservations(aliasSet),
   ]);
+  const readableObs = reader
+    ? allObs.filter((observation) => {
+        // Aliases represent one project across moved/renamed worktrees. Preserve
+        // that project equivalence while still enforcing the caller's identity.
+        const observationReader = reader.projectId && aliasSet.has(observation.projectId)
+          ? { ...reader, projectId: observation.projectId }
+          : reader;
+        return canReadObservation(observation, observationReader);
+      })
+    : allObs;
   /** Check if a session summary contains noise/system-self content */
   const isNoisySummary = (summary: string | undefined): boolean => {
     if (!summary) return false;
@@ -329,7 +344,7 @@ export async function getSessionContext(
     .sort((a, b) => new Date(b.endedAt || b.startedAt).getTime() - new Date(a.endedAt || a.startedAt).getTime())
     .slice(0, limit);
 
-  if (projectSessions.length === 0 && allObs.length === 0) {
+  if (projectSessions.length === 0 && readableObs.length === 0) {
     return '';
   }
 
@@ -337,7 +352,7 @@ export async function getSessionContext(
   const projectTokens = tokenizeProjectId(projectId);
 
   // ── Partition project observations by disclosure layer ─────────────
-  const projectObs = allObs
+  const projectObs = readableObs
     .filter((obs) => !isNoiseObservation(obs) && !isSystemSelfObservation(obs));
 
   // L2: durable working context (explicit/undefined/core), priority types only
@@ -392,11 +407,11 @@ export async function getSessionContext(
   // Active entities enrich the section when it is shown but do not open it alone.
   const hasL1Content = l1HookObs.length > 0 || l3GitCount > 0;
   if (hasL1Content) {
-    // Graph neighbor routing hint: 1-hop neighbors of activeEntities from the
-    // knowledge graph. Routing only — no query expansion, no rerank, no 2-hop
-    // traversal. Silently skipped if graph is absent, empty, or throws.
+    // Graph relations do not yet carry observation visibility metadata, so an
+    // agent-facing reader must not use them as an indirect disclosure channel.
+    // Trusted maintenance paths retain the existing routing hint.
     let graphNeighbors: string[] = [];
-    if (activeEntities.length > 0) {
+    if (!reader && activeEntities.length > 0) {
       try {
         const graphMgr = new KnowledgeGraphManager(projectDir);
         await graphMgr.init();

@@ -32,7 +32,7 @@ export default defineCommand({
     const asJson = !!args.json;
 
     try {
-      const { project, dataDir, teamStore } = await getCliProjectContext({
+      const { project, dataDir, teamStore, reader } = await getCliProjectContext({
         projectRoot: args.projectRoot as string | undefined,
       });
 
@@ -46,11 +46,6 @@ export default defineCommand({
             emitError('use requires --agent or --agentType so Memorix can activate a coordination identity.', asJson);
             return;
           }
-          const result = await startSession(dataDir, project.id, {
-            sessionId: args.sessionId as string | undefined,
-            agent: args.agent as string | undefined,
-          });
-
           const shouldJoinTeam = !!args.joinTeam;
           let agentRecord: ReturnType<typeof teamStore.registerAgent> | null = null;
           let teamJoinNotice: string | null = null;
@@ -71,6 +66,19 @@ export default defineCommand({
           } else if (shouldJoinTeam) {
             teamJoinNotice = 'Coordination join skipped: provide --agent or --agentType to create a coordination identity.';
           }
+
+          const contextReader = agentRecord
+            ? {
+                projectId: project.id,
+                agentId: agentRecord.agent_id,
+                isTeamMember: agentRecord.status === 'active',
+              }
+            : reader;
+          const result = await startSession(dataDir, project.id, {
+            sessionId: args.sessionId as string | undefined,
+            agent: args.agent as string | undefined,
+            reader: contextReader,
+          });
 
           let identityActivated = false;
           if (args.use && agentRecord) {
@@ -178,7 +186,7 @@ export default defineCommand({
         case 'context': {
           const limit = parsePositiveInt(args.limit as string | undefined, 3);
           const [context, sessions] = await Promise.all([
-            getSessionContext(dataDir, project.id, limit),
+            getSessionContext(dataDir, project.id, limit, reader),
             listSessions(dataDir, project.id),
           ]);
           const active = sessions.filter((session) => session.status === 'active').length;

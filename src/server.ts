@@ -3864,7 +3864,7 @@ export async function createMemorixServer(
       title: 'Transfer Memories',
       description:
         'Export or import project memories. ' +
-        'Action "export": export observations and sessions (JSON or Markdown). ' +
+        'Action "export": export observations visible to the current agent and project sessions (JSON or Markdown). ' +
         'Action "import": import from a JSON export (re-assigns IDs, skips duplicate topicKeys).',
       inputSchema: {
         action: z.enum(['export', 'import']).describe('Operation: export or import'),
@@ -3876,10 +3876,10 @@ export async function createMemorixServer(
       if (action === 'export') {
         const { exportAsJson, exportAsMarkdown } = await import('./memory/export-import.js');
         if (format === 'markdown') {
-          const md = await exportAsMarkdown(projectDir, project.id);
+          const md = await exportAsMarkdown(projectDir, project.id, getObservationReader());
           return { content: [{ type: 'text' as const, text: md }] };
         }
-        const data = await exportAsJson(projectDir, project.id);
+        const data = await exportAsJson(projectDir, project.id, getObservationReader());
         const json = JSON.stringify(data, null, 2);
         return {
           content: [{

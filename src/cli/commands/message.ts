@@ -1,5 +1,5 @@
 import { defineCommand } from 'citty';
-import { emitError, emitResult, getCliProjectContext, shortId } from './operator-shared.js';
+import { emitError, emitResult, getCliProjectContext, resolveCliActorId, shortId } from './operator-shared.js';
 
 export default defineCommand({
   meta: {
@@ -22,12 +22,18 @@ export default defineCommand({
     const asJson = !!args.json;
 
     try {
-      const { project, teamStore } = await getCliProjectContext();
+      const { project, teamStore, identity } = await getCliProjectContext();
+      const senderAgentId = resolveCliActorId(args.from, identity, 'from');
+      const inboxAgentId = resolveCliActorId(
+        (args.agentId as string | undefined) ?? (args.from as string | undefined),
+        identity,
+        'agentId',
+      );
 
       switch (action) {
         case 'send': {
-          if (!args.from || !args.type || !args.content) {
-            emitError('from, type, and content are required for "memorix message send"', asJson);
+          if (!senderAgentId || !args.type || !args.content) {
+            emitError('type, content, and an active CLI identity or from agentId are required for "memorix message send"', asJson);
             return;
           }
           if (!args.to && !args.toRole) {
@@ -36,7 +42,7 @@ export default defineCommand({
           }
           const message = teamStore.sendMessage({
             projectId: project.id,
-            senderAgentId: args.from as string,
+            senderAgentId,
             recipientAgentId: (args.to as string | undefined) ?? null,
             type: args.type as string,
             content: args.content as string,
@@ -58,13 +64,13 @@ export default defineCommand({
         }
 
         case 'broadcast': {
-          if (!args.from || !args.type || !args.content) {
-            emitError('from, type, and content are required for "memorix message broadcast"', asJson);
+          if (!senderAgentId || !args.type || !args.content) {
+            emitError('type, content, and an active CLI identity or from agentId are required for "memorix message broadcast"', asJson);
             return;
           }
           const message = teamStore.sendMessage({
             projectId: project.id,
-            senderAgentId: args.from as string,
+            senderAgentId,
             recipientAgentId: null,
             type: args.type as string,
             content: args.content as string,
@@ -82,15 +88,14 @@ export default defineCommand({
         }
 
         case 'inbox': {
-          const agentId = (args.agentId as string | undefined) || (args.from as string | undefined);
-          if (!agentId) {
-            emitError('agentId is required for "memorix message inbox"', asJson);
+          if (!inboxAgentId) {
+            emitError('an active CLI identity or agentId is required for "memorix message inbox"', asJson);
             return;
           }
-          const messages = teamStore.getInbox(project.id, agentId);
-          const unreadCount = teamStore.getUnreadCount(project.id, agentId);
+          const messages = teamStore.getInbox(project.id, inboxAgentId);
+          const unreadCount = teamStore.getUnreadCount(project.id, inboxAgentId);
           if (args.markRead) {
-            teamStore.markAllRead(project.id, agentId);
+            teamStore.markAllRead(project.id, inboxAgentId);
           }
           emitResult(
             { project, unreadCount, messages },

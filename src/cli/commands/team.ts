@@ -1,6 +1,7 @@
 import { defineCommand } from 'citty';
 import { AGENT_TYPE_ROLE_MAP } from '../../team/team-store.js';
-import { emitError, emitResult, getCliProjectContext, parseCsvList, parsePositiveInt, shortId } from './operator-shared.js';
+import { clearCliIdentity } from '../identity.js';
+import { emitError, emitResult, getCliProjectContext, parseCsvList, parsePositiveInt, resolveCliActorId, shortId } from './operator-shared.js';
 
 export default defineCommand({
   meta: {
@@ -27,7 +28,8 @@ export default defineCommand({
     const asJson = !!args.json;
 
     try {
-      const { project, teamStore } = await getCliProjectContext();
+      const { project, dataDir, teamStore, identity } = await getCliProjectContext();
+      const selectedAgentId = resolveCliActorId(args.agentId, identity);
 
       switch (action) {
         case 'join': {
@@ -53,20 +55,22 @@ export default defineCommand({
         }
 
         case 'leave': {
-          const agentId = args.agentId as string | undefined;
-          if (!agentId) {
-            emitError('agentId is required for "memorix team leave"', asJson);
+          if (!selectedAgentId) {
+            emitError('an active CLI identity or agentId is required for "memorix team leave"', asJson);
             return;
           }
-          const left = teamStore.leaveAgent(agentId);
-          const releasedLocks = teamStore.releaseAllLocks(agentId);
-          const releasedTasks = teamStore.releaseTasksByAgent(agentId);
+          const left = teamStore.leaveAgent(selectedAgentId);
+          const releasedLocks = teamStore.releaseAllLocks(selectedAgentId);
+          const releasedTasks = teamStore.releaseTasksByAgent(selectedAgentId);
           if (!left) {
-            emitError(`Agent "${agentId}" not found`, asJson);
+            emitError(`Agent "${selectedAgentId}" not found`, asJson);
             return;
+          }
+          if (identity?.agentId === selectedAgentId) {
+            await clearCliIdentity(dataDir);
           }
           emitResult(
-            { project, agentId, releasedLocks, releasedTasks },
+            { project, agentId: selectedAgentId, releasedLocks, releasedTasks },
             `Left team: released ${releasedLocks} lock(s), ${releasedTasks} task(s)`,
             asJson,
           );

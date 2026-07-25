@@ -1,7 +1,7 @@
 import { defineCommand } from 'citty';
 import { storeObservation } from '../../memory/observations.js';
 import { createHandoffArtifact } from '../../team/handoff.js';
-import { emitError, emitResult, getCliProjectContext, parseCsvList, shortId } from './operator-shared.js';
+import { emitError, emitResult, getCliProjectContext, parseCsvList, resolveCliActorId, shortId } from './operator-shared.js';
 
 export default defineCommand({
   meta: {
@@ -23,19 +23,33 @@ export default defineCommand({
     const asJson = !!args.json;
 
     try {
-      const { project, teamStore } = await getCliProjectContext();
+      const { project, teamStore, identity } = await getCliProjectContext();
+      const fromAgentId = resolveCliActorId(args.fromAgentId, identity, 'fromAgentId');
 
       switch (action) {
         case 'send': {
-          if (!args.fromAgentId || !args.summary || !args.context) {
-            emitError('fromAgentId, summary, and context are required for "memorix handoff send"', asJson);
+          if (!fromAgentId || !args.summary || !args.context) {
+            emitError('summary, context, and an active CLI identity or fromAgentId are required for "memorix handoff send"', asJson);
             return;
+          }
+          const sender = teamStore.getAgent(fromAgentId);
+          if (!sender || sender.project_id !== project.id || sender.status !== 'active') {
+            emitError('The handoff sender must be an active coordination member of this project.', asJson);
+            return;
+          }
+          const toAgentId = (args.toAgentId as string | undefined)?.trim();
+          if (toAgentId) {
+            const recipient = teamStore.getAgent(toAgentId);
+            if (!recipient || recipient.project_id !== project.id || recipient.status !== 'active') {
+              emitError('The handoff recipient must be an active coordination member of this project.', asJson);
+              return;
+            }
           }
           const result = await createHandoffArtifact(
             {
               projectId: project.id,
-              fromAgentId: args.fromAgentId as string,
-              toAgentId: args.toAgentId as string | undefined,
+              fromAgentId,
+              toAgentId,
               taskId: args.taskId as string | undefined,
               summary: args.summary as string,
               context: args.context as string,
@@ -57,7 +71,7 @@ export default defineCommand({
           console.log('Memorix Handoff Commands');
           console.log('');
           console.log('Usage:');
-          console.log('  memorix handoff send --fromAgentId <id> --summary "..." --context "..." [--toAgentId <id>] [--taskId <id>]');
+          console.log('  memorix handoff send --summary "..." --context "..." [--fromAgentId <id>] [--toAgentId <id>] [--taskId <id>]');
       }
     } catch (error) {
       emitError(error instanceof Error ? error.message : String(error), asJson);

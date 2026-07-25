@@ -5,10 +5,9 @@ import type { ChatMessage, ToolDefinition, ToolCall } from '../../llm/provider.j
 import { initObservations, prepareSearchIndex, storeObservation, resolveObservations, getObservation, getAllObservations } from '../../memory/observations.js';
 import { canManageObservation, filterReadableObservations } from '../../memory/visibility.js';
 import type { ObservationReader, ObservationType } from '../../types.js';
-import { detectProject } from '../../project/detector.js';
 import { getLastSearchMode } from '../../store/orama-store.js';
-import { getProjectDataDir } from '../../store/persistence.js';
 import type { MemorixDocument } from '../../types.js';
+import { getTuiOperatorContext } from './operator-context.js';
 
 export interface ChatHistoryTurn {
   role: 'user' | 'assistant';
@@ -210,7 +209,16 @@ async function prepareProjectSearch(projectId: string, dataDir: string): Promise
 interface ToolExecutionContext {
   projectId: string;
   reader: ObservationReader;
+  writerAgentId?: string;
   collectedSources: ChatSource[];
+}
+
+async function resolveTuiContext() {
+  try {
+    return await getTuiOperatorContext();
+  } catch {
+    return null;
+  }
 }
 
 function executeSearchMemories(args: { query: string; limit?: number }, ctx: ToolExecutionContext): Promise<string> {
@@ -298,6 +306,7 @@ function executeStoreMemory(
     projectId: ctx.projectId,
     source: 'agent',
     visibilityReader: ctx.reader,
+    ...(ctx.writerAgentId ? { createdByAgentId: ctx.writerAgentId } : {}),
   }).then((result) => {
     const obs = result.observation;
     ctx.collectedSources.push({
@@ -405,10 +414,10 @@ export async function askMemoryQuestion(
     };
   }
 
-  const project = detectProject(process.cwd());
+  const operatorContext = await resolveTuiContext();
 
   // No project + no LLM → dead end
-  if (!project) {
+  if (!operatorContext) {
     loadDotenv(process.cwd());
     initLLM({ scope: 'agent' });
     if (!isLLMEnabled()) {
@@ -444,10 +453,11 @@ export async function askMemoryQuestion(
     };
   }
 
+  const { project, dataDir, reader, identity } = operatorContext;
+
   loadDotenv(project.rootPath);
   initLLM({ scope: 'agent' });
 
-  const dataDir = await getProjectDataDir(project.id);
   await prepareProjectSearch(project.id, dataDir);
 
   const searchMode = normalizeSearchMode(getLastSearchMode(project.id) || 'fulltext');
@@ -459,12 +469,12 @@ export async function askMemoryQuestion(
       limit: SEARCH_LIMIT,
       projectId: project.id,
       status: 'active',
-      reader: { projectId: project.id },
+      reader,
     });
     const topEntries = searchResult.entries.slice(0, DETAIL_LIMIT);
     const detailRefs = topEntries.map((entry) => ({ id: entry.id, projectId: project.id }));
     const detailResult = detailRefs.length > 0
-      ? await compactDetail(detailRefs, { reader: { projectId: project.id } })
+      ? await compactDetail(detailRefs, { reader })
       : { documents: [], formatted: '', totalTokens: 0 };
     const sources = detailResult.documents.map((doc, index) => toSource(doc, topEntries[index]?.score ?? 0));
 
@@ -495,7 +505,8 @@ export async function askMemoryQuestion(
 
   const ctx: ToolExecutionContext = {
     projectId: project.id,
-    reader: { projectId: project.id },
+    reader,
+    ...(identity ? { writerAgentId: identity.agentId } : {}),
     collectedSources: [],
   };
 
@@ -592,10 +603,10 @@ export async function askMemoryQuestionStream(
     };
   }
 
-  const project = detectProject(process.cwd());
+  const operatorContext = await resolveTuiContext();
 
   // No project + no LLM → dead end
-  if (!project) {
+  if (!operatorContext) {
     loadDotenv(process.cwd());
     initLLM({ scope: 'agent' });
     if (!isLLMEnabled()) {
@@ -634,10 +645,11 @@ export async function askMemoryQuestionStream(
     };
   }
 
+  const { project, dataDir, reader, identity } = operatorContext;
+
   loadDotenv(project.rootPath);
   initLLM({ scope: 'agent' });
 
-  const dataDir = await getProjectDataDir(project.id);
   await prepareProjectSearch(project.id, dataDir);
 
   const searchMode = normalizeSearchMode(getLastSearchMode(project.id) || 'fulltext');
@@ -649,12 +661,12 @@ export async function askMemoryQuestionStream(
       limit: SEARCH_LIMIT,
       projectId: project.id,
       status: 'active',
-      reader: { projectId: project.id },
+      reader,
     });
     const topEntries = searchResult.entries.slice(0, DETAIL_LIMIT);
     const detailRefs = topEntries.map((entry) => ({ id: entry.id, projectId: project.id }));
     const detailResult = detailRefs.length > 0
-      ? await compactDetail(detailRefs, { reader: { projectId: project.id } })
+      ? await compactDetail(detailRefs, { reader })
       : { documents: [], formatted: '', totalTokens: 0 };
     const sources = detailResult.documents.map((doc, index) => toSource(doc, topEntries[index]?.score ?? 0));
 
@@ -681,7 +693,8 @@ export async function askMemoryQuestionStream(
 
   const ctx: ToolExecutionContext = {
     projectId: project.id,
-    reader: { projectId: project.id },
+    reader,
+    ...(identity ? { writerAgentId: identity.agentId } : {}),
     collectedSources: [],
   };
 

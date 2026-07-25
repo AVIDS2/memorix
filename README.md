@@ -317,13 +317,24 @@ npm uninstall -g memorix
 ### Work from the CLI
 
 ```bash
-memorix context --task "continue release blocker"
+memorix --cwd /path/to/repo context --task "continue release blocker"
 memorix memory search --query "release blocker"
+memorix memory --help
+
+# Optional: activate one local agent identity for personal/team records and coordination.
+memorix identity join --agent-type codex --name codex-main
+memorix memory store --text "private investigation note" --visibility personal
+memorix task create --description "verify the release package"
+
+memorix transfer export --format json --out ./.memorix-export.json
+memorix transfer import --file ./.memorix-export.json
 memorix reasoning search --query "why sqlite"
 memorix git-hook --force
 memorix ingest log --count 20
-memorix dashboard
+memorix workbench
 ```
+
+The CLI is direct and does not depend on an MCP session. It binds to the current Git project, or to the project supplied with `--cwd`. Without an active identity it reads, writes, and exports project-visible memory only. Use `memorix identity join` or `memorix identity use --agent-id <id>` only when you intentionally need personal/team memory or coordinated task actions; `memorix identity clear` returns the terminal to project scope. `--as <active-agent-id>` is the one-command alternative for scripts. Both camelCase and kebab-case flags are accepted.
 
 ### Use the bundled terminal agent
 
@@ -358,6 +369,7 @@ Search is project-scoped by default. `scope="global"` searches across projects. 
 | Run shared HTTP MCP plus dashboard | `memorix background start` |
 | Debug HTTP MCP in the foreground | `memorix serve-http --port 3211` |
 | Inspect or manage memory directly | `memorix memory`, `memorix reasoning`, `memorix session`, `memorix ingest` |
+| Use the interactive terminal memory control plane | `memorix workbench` |
 | Use the bundled terminal agent | `memorix` or `memcode` |
 | Run orchestrated subagent work | `memorix orchestrate --goal "..."` |
 

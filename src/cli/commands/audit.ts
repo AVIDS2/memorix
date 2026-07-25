@@ -23,8 +23,8 @@ export default defineCommand({
     try {
       switch (action) {
         case 'memory': {
-          const { project } = await getCliProjectContext();
-          const report = auditMemoryQuality(filterReadableObservations(getAllObservations(), { projectId: project.id }), {
+          const { project, reader } = await getCliProjectContext();
+          const report = auditMemoryQuality(filterReadableObservations(getAllObservations(), reader), {
             projectId: project.id,
           });
           emitResult(
@@ -69,11 +69,11 @@ export default defineCommand({
         }
 
         case 'project': {
-          const { project } = await getCliProjectContext();
+          const { project, reader } = await getCliProjectContext();
           const threshold = Number.parseInt(String(args.threshold ?? '2'), 10) || 2;
           const entries = await auditProjectObservations(
             project.id,
-            filterReadableObservations(getAllObservations(), { projectId: project.id }),
+            filterReadableObservations(getAllObservations(), reader),
             threshold,
           );
           emitResult(

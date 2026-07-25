@@ -6,6 +6,7 @@ import { withFreshIndex } from '../../memory/freshness.js';
 import { getAllObservations } from '../../memory/observations.js';
 import { getObservationStore } from '../../store/obs-store.js';
 import { filterReadableObservations } from '../../memory/visibility.js';
+import { saveCliIdentity } from '../identity.js';
 import { emitError, emitResult, getCliProjectContext, parsePositiveInt } from './operator-shared.js';
 
 export default defineCommand({
@@ -19,6 +20,7 @@ export default defineCommand({
     instanceId: { type: 'string', description: 'Stable instance identity across restarts' },
     projectRoot: { type: 'string', description: 'Absolute project root used to bind the session context' },
     joinTeam: { type: 'boolean', description: 'Explicitly join orchestration coordination state for this session' },
+    use: { type: 'boolean', description: 'Make the joined coordination identity active for later CLI commands' },
     role: { type: 'string', description: 'Explicit role override used only when --joinTeam is set' },
     sessionId: { type: 'string', description: 'Custom session ID (optional)' },
     summary: { type: 'string', description: 'Structured session summary for session end' },
@@ -36,6 +38,14 @@ export default defineCommand({
 
       switch (action) {
         case 'start': {
+          if (args.use && !args.joinTeam) {
+            emitError('use requires --joinTeam when starting a session.', asJson);
+            return;
+          }
+          if (args.use && !args.agent && !args.agentType) {
+            emitError('use requires --agent or --agentType so Memorix can activate a coordination identity.', asJson);
+            return;
+          }
           const result = await startSession(dataDir, project.id, {
             sessionId: args.sessionId as string | undefined,
             agent: args.agent as string | undefined,
@@ -60,6 +70,16 @@ export default defineCommand({
             });
           } else if (shouldJoinTeam) {
             teamJoinNotice = 'Coordination join skipped: provide --agent or --agentType to create a coordination identity.';
+          }
+
+          let identityActivated = false;
+          if (args.use && agentRecord) {
+            await saveCliIdentity(dataDir, {
+              agentId: agentRecord.agent_id,
+              projectId: project.id,
+              activatedAt: new Date().toISOString(),
+            });
+            identityActivated = true;
           }
 
           let watermark = computeWatermark(0, 0, 0);
@@ -101,6 +121,7 @@ export default defineCommand({
               joined: !!agentRecord,
               notice: teamJoinNotice,
             },
+            identityActivated,
             watermark,
             rescue: {
               staleAgents: rescuedAgentIds,
@@ -117,6 +138,7 @@ export default defineCommand({
             agentRecord
               ? `Agent: ${agentRecord.name} [${agentRecord.agent_type}] as ${agentRecord.role} (${agentRecord.agent_id})`
               : '',
+            identityActivated ? 'CLI identity activated for follow-up memory and coordination commands.' : '',
             !agentRecord ? 'Coordination identity: not joined (memory/session context only)' : '',
             teamJoinNotice ?? '',
             agentRecord && watermark.newObservationCount > 0
@@ -177,7 +199,7 @@ export default defineCommand({
           console.log('Memorix Session Commands');
           console.log('');
           console.log('Usage:');
-          console.log('  memorix session start [--agent codex --agentType codex --instanceId abc] [--projectRoot <path>] [--joinTeam]');
+          console.log('  memorix session start [--agent codex --agentType codex --instanceId abc] [--projectRoot <path>] [--joinTeam --use]');
           console.log('  memorix session end --sessionId <id> [--summary "..."]');
           console.log('  memorix session context [--limit 3]');
           console.log('');

@@ -173,10 +173,18 @@
   project-attribution guard receives only memories visible to its current
   reader. This closes both guessed-key overwrite and cross-project existence
   hints without hiding historical project knowledge after upgrade.
-- The embedded SDK and unbound local TUI now use that same project-visible
-  reader. They cannot retrieve, resolve, or topic-key-update private/team
-  observations; identity-bound MCP remains the coordination path for those
-  records.
+- The embedded SDK remains project-visible when unbound. CLI and the local TUI
+  now share the same explicit actor reader: an unbound terminal sees project
+  memory only, while `memorix identity join|use` (or one-shot `--as`) grants
+  only that active project member's personal/team visibility and coordination
+  ergonomics. `identity clear` returns to project scope; private evidence
+  cannot be promoted into shared skills or generated project skills.
+- CLI control-plane ergonomics now include `--cwd`, kebab-case flag aliases,
+  action-oriented namespace help, explicit `memorix workbench`, and
+  file/stdin transfer import/export. Root memory aliases use the same
+  canonical command paths as `memorix memory`; CLI and MCP exports are filtered
+  by the same active reader so an unbound backup cannot contain private/team
+  observations.
 - Direct CLI and foreground Code Memory refreshes now enqueue qualification as
   well as claim requalification, and they register the local project target
   needed by the isolated control-plane worker. The host hook path persists its

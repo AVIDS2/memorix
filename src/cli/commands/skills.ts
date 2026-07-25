@@ -1,7 +1,7 @@
 import { defineCommand } from 'citty';
 import type { AgentTarget } from '../../types.js';
 import { getObservationStore } from '../../store/obs-store.js';
-import { filterReadableObservations } from '../../memory/visibility.js';
+import { filterReadableObservations, resolveObservationVisibility } from '../../memory/visibility.js';
 import { emitError, emitResult, getCliProjectContext } from './operator-shared.js';
 
 export default defineCommand({
@@ -20,7 +20,7 @@ export default defineCommand({
     const asJson = !!args.json;
 
     try {
-      const { project } = await getCliProjectContext();
+      const { project, reader } = await getCliProjectContext();
       const { SkillsEngine } = await import('../../skills/engine.js');
       const engine = new SkillsEngine(project.rootPath);
 
@@ -40,8 +40,8 @@ export default defineCommand({
         case 'generate': {
           const observations = filterReadableObservations(
             await getObservationStore().loadAll(),
-            { projectId: project.id },
-          )
+            reader,
+          ).filter((observation) => resolveObservationVisibility(observation) === 'project')
             .map((obs) => ({
               id: obs.id,
               entityName: obs.entityName,
@@ -87,8 +87,8 @@ export default defineCommand({
 
           const observations = filterReadableObservations(
             await getObservationStore().loadAll(),
-            { projectId: project.id },
-          )
+            reader,
+          ).filter((observation) => resolveObservationVisibility(observation) === 'project')
             .map((obs) => ({
               id: obs.id,
               entityName: obs.entityName,

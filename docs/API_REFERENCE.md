@@ -35,6 +35,7 @@ Use the **CLI** when:
 The current CLI namespaces are:
 
 - `memorix session`
+- `memorix identity`
 - `memorix memory`
 - `memorix codegraph`
 - `memorix knowledge`
@@ -53,13 +54,16 @@ The current CLI namespaces are:
 - `memorix receipt`
 - `memorix sync`
 - `memorix ingest`
+- `memorix workbench`
 
 Typical examples:
 
 ```bash
-memorix session start --agent codex-main --agentType codex
+memorix --cwd /path/to/repo context --task "continue auth bug"
+memorix identity join --agent-type codex --name codex-main
+memorix session start --agent codex-main --agent-type codex --join-team --use
 memorix memory search --query "release blocker"
-memorix context --task "continue auth bug"
+memorix memory store --text "private triage note" --visibility personal
 memorix codegraph refresh
 memorix codegraph status --json
 memorix knowledge status
@@ -70,7 +74,7 @@ memorix task claim --taskId <id> --agentId <agent-id>
 memorix message inbox --agentId <agent-id>
 memorix lock status --file src/cli/index.ts
 memorix audit project
-memorix transfer export --format markdown
+memorix transfer export --format markdown --out ./memorix-export.md
 memorix skills show --name auth-pattern
 memorix sync workspace --action scan
 memorix ingest image --path ./diagram.png
@@ -78,7 +82,7 @@ memorix poll --agentId <agent-id>
 memorix receipt --json --probe "release blocker"
 ```
 
-The CLI is for direct terminal use, not a 1:1 mirror of MCP tool names. The only MCP-only area is the optional graph-compatibility tools (`create_entities`, `read_graph`, and related tools) for workflows that expect the official memory-server style graph API.
+The CLI is for direct terminal use, not a 1:1 mirror of MCP tool names. It does not require an MCP connection. `--cwd` selects a Git project from any shell; an unbound terminal has project-visible access only, including transfer exports. `memorix identity join|use|clear` makes personal/team access and coordination explicit, while `--as <agent-id>` is the one-command equivalent for scripts. The only MCP-only area is the optional graph-compatibility tools (`create_entities`, `read_graph`, and related tools) for workflows that expect the official memory-server style graph API.
 
 ### Memory Autopilot, Code State, and Context Packs
 
@@ -463,6 +467,10 @@ Important inputs:
 ### `memorix_transfer`
 
 Export or import project memory.
+
+Exports contain only observations visible to the calling agent. An unbound
+agent receives project-visible observations only; personal and team records
+require its explicit active identity.
 
 Important inputs:
 

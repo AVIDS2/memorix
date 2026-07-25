@@ -3,16 +3,33 @@ import { getProjectDataDir } from '../../store/persistence.js';
 import { initObservations, prepareSearchIndex } from '../../memory/observations.js';
 import { initSessionStore } from '../../store/session-store.js';
 import { initTeamStore, type TeamStore } from '../../team/team-store.js';
-import type { ProjectInfo, ObservationType, ObservationStatus } from '../../types.js';
+import type {
+  ProjectInfo,
+  ObservationReader,
+  ObservationStatus,
+  ObservationType,
+  ObservationVisibility,
+} from '../../types.js';
+import { getCliInvocation } from '../invocation.js';
+import { resolveCliIdentity, type CliIdentity } from '../identity.js';
 
 export interface CliProjectContext {
   project: ProjectInfo;
   dataDir: string;
   teamStore: TeamStore;
+  reader: ObservationReader;
+  identity: CliIdentity | null;
+  identityWarning?: string;
 }
 
 export async function getCliProjectContext(options?: { searchIndex?: boolean; projectRoot?: string }): Promise<CliProjectContext> {
-  const detection = detectProjectWithDiagnostics(options?.projectRoot ?? process.cwd());
+  const invocation = getCliInvocation();
+  const detection = detectProjectWithDiagnostics(
+    options?.projectRoot
+      ?? invocation.projectRoot
+      ?? process.env.MEMORIX_PROJECT_ROOT
+      ?? process.cwd(),
+  );
   if (!detection.project) {
     const detail = detection.failure?.detail ?? 'No git repository found in the current directory.';
     throw new Error(detail);
@@ -38,7 +55,21 @@ export async function getCliProjectContext(options?: { searchIndex?: boolean; pr
     await prepareSearchIndex();
   }
 
-  return { project, dataDir, teamStore };
+  const identity = await resolveCliIdentity({
+    project,
+    dataDir,
+    teamStore,
+    explicitActorId: invocation.actorId,
+  });
+
+  return {
+    project,
+    dataDir,
+    teamStore,
+    reader: identity.reader,
+    identity: identity.identity,
+    ...(identity.warning ? { identityWarning: identity.warning } : {}),
+  };
 }
 
 export function emitResult<T>(data: T, text: string, asJson?: boolean): void {
@@ -117,4 +148,58 @@ export function coerceObservationStatus(input?: string): ObservationStatus {
     );
   }
   return normalized;
+}
+
+export function coerceObservationVisibility(input?: string): ObservationVisibility {
+  const normalized = (input ?? 'project').trim().toLowerCase();
+  if (normalized === 'personal' || normalized === 'project' || normalized === 'team') {
+    return normalized;
+  }
+  throw new Error('visibility must be personal, project, or team');
+}
+
+/**
+ * Project scope is deliberately the default. Private and team-scoped records
+ * require an identity selected by the operator, so a plain shell does not
+ * accidentally gain access to another agent's work.
+ */
+export function resolveCliWriteScope(
+  context: Pick<CliProjectContext, 'identity' | 'reader'>,
+  visibilityInput?: string,
+): {
+  visibility: ObservationVisibility;
+  createdByAgentId?: string;
+  visibilityReader: ObservationReader;
+} {
+  const visibility = coerceObservationVisibility(visibilityInput);
+  if (visibility !== 'project' && !context.identity) {
+    throw new Error(
+      `visibility=${visibility} requires an active CLI identity. Run "memorix identity join --agent-type <agent>" or "memorix identity use --agent-id <id>" first.`,
+    );
+  }
+  if (visibility === 'team' && context.reader.isTeamMember !== true) {
+    throw new Error('team visibility requires an active coordination identity for this project.');
+  }
+
+  return {
+    visibility,
+    ...(context.identity ? { createdByAgentId: context.identity.agentId } : {}),
+    visibilityReader: context.reader,
+  };
+}
+
+/**
+ * Coordination commands can use the current CLI identity implicitly, while
+ * retaining explicit IDs for scripts and backwards-compatible invocations.
+ */
+export function resolveCliActorId(
+  explicitValue: unknown,
+  identity: CliIdentity | null,
+  field = 'agentId',
+): string | undefined {
+  const explicit = typeof explicitValue === 'string' ? explicitValue.trim() : '';
+  if (identity && explicit && explicit !== identity.agentId) {
+    throw new Error(`${field} does not match the active CLI identity. Use "memorix identity clear" before acting as a different agent.`);
+  }
+  return explicit || identity?.agentId;
 }

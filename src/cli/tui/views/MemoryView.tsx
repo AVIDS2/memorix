@@ -67,22 +67,20 @@ export function MemoryView({ projectId, focusRefId, selectedIdx, onNavigateKnowl
         setLoading(true);
         const { initObservations, getAllObservations } = await import('../../../memory/observations.js');
         const { filterReadableObservations } = await import('../../../memory/visibility.js');
-        const { getProjectDataDir } = await import('../../../store/persistence.js');
         const { initObservationStore } = await import('../../../store/obs-store.js');
-        const { detectProject } = await import('../../../project/detector.js');
+        const { getTuiOperatorContext } = await import('../operator-context.js');
 
-        const proj = detectProject(process.cwd());
-        if (!proj) return;
+        const { project: proj, dataDir, reader } = await getTuiOperatorContext();
 
         const effectiveProjectId = projectId || proj.id;
-        const dataDir = await getProjectDataDir(effectiveProjectId);
+        if (effectiveProjectId !== proj.id) return;
         await initObservationStore(dataDir);
         await initObservations(dataDir);
 
         const obsId = parseInt(idMatch[1], 10);
         const obs = filterReadableObservations(
           getAllObservations().filter((observation) => observation.projectId === effectiveProjectId),
-          { projectId: effectiveProjectId },
+          reader,
         ).find((observation) => observation.id === obsId);
         if (obs) {
           setDetailItem({

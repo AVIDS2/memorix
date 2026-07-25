@@ -25,11 +25,11 @@ export default defineCommand({
     const asJson = !!args.json;
 
     try {
-      const { project, dataDir } = await getCliProjectContext();
+      const { project, dataDir, reader } = await getCliProjectContext();
       const context = await buildAutoProjectContext({
         project,
         dataDir,
-        observations: filterReadableObservations(getAllObservations(), { projectId: project.id }),
+        observations: filterReadableObservations(getAllObservations(), reader),
         refresh: coerceRefreshMode(args.refresh as string | undefined),
       });
 

@@ -10,8 +10,9 @@
  * Import: JSON format only (full fidelity restore)
  */
 
-import type { Observation } from '../types.js';
+import type { Observation, ObservationReader } from '../types.js';
 import type { Session } from '../types.js';
+import { filterReadableObservations } from './visibility.js';
 import { getObservationStore } from '../store/obs-store.js';
 import { getSessionStore } from '../store/session-store.js';
 
@@ -41,12 +42,18 @@ const OBSERVATION_ICONS: Record<string, string> = {
 export async function exportAsJson(
   projectDir: string,
   projectId: string,
+  reader?: ObservationReader,
 ): Promise<MemorixExport> {
   const store = getObservationStore();
   const allObs = await store.loadAll();
   const allSessions = await getSessionStore().loadAll();
 
-  const projectObs = allObs.filter(o => o.projectId === projectId);
+  // Agent-facing callers supply a reader; trusted maintenance callers may
+  // intentionally omit it for a complete local backup or migration.
+  const projectObs = filterReadableObservations(
+    allObs.filter(o => o.projectId === projectId),
+    reader,
+  );
   const projectSessions = allSessions.filter(s => s.projectId === projectId);
 
   // Type breakdown
@@ -75,8 +82,9 @@ export async function exportAsJson(
 export async function exportAsMarkdown(
   projectDir: string,
   projectId: string,
+  reader?: ObservationReader,
 ): Promise<string> {
-  const data = await exportAsJson(projectDir, projectId);
+  const data = await exportAsJson(projectDir, projectId, reader);
   const lines: string[] = [];
 
   lines.push(`# Memorix Export: ${projectId}`);

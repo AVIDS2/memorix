@@ -4,8 +4,7 @@ import { getObservationStore } from '../../store/obs-store.js';
 import { getAllObservations } from '../../memory/observations.js';
 import { withFreshIndex } from '../../memory/freshness.js';
 import { filterReadableObservations } from '../../memory/visibility.js';
-import type { ObservationReader } from '../../types.js';
-import { emitError, emitResult, getCliProjectContext, shortId } from './operator-shared.js';
+import { emitError, emitResult, getCliProjectContext, resolveCliActorId, shortId } from './operator-shared.js';
 
 export default defineCommand({
   meta: {
@@ -21,9 +20,9 @@ export default defineCommand({
     const asJson = !!args.json;
 
     try {
-      const { project, teamStore } = await getCliProjectContext();
-      const agentId = args.agentId as string | undefined;
-      let reader: ObservationReader = { projectId: project.id };
+      const { project, teamStore, identity, reader: activeReader } = await getCliProjectContext();
+      const agentId = resolveCliActorId(args.agentId, identity);
+      let reader = activeReader;
 
       let watermark = computeWatermark(0, 0, 0);
       if (agentId) {

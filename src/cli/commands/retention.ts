@@ -43,8 +43,7 @@ export default defineCommand({
     const asJson = !!args.json;
 
     try {
-      const { project, dataDir } = await getCliProjectContext();
-      const reader = { projectId: project.id };
+      const { project, dataDir, reader } = await getCliProjectContext();
       const activeDocs = filterReadableObservations(
         getAllObservations().filter((obs) => obs.projectId === project.id && (obs.status ?? 'active') === 'active'),
         reader,

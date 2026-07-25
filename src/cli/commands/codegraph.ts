@@ -93,7 +93,7 @@ export default defineCommand({
     const asJson = !!args.json;
 
     try {
-      const { project, dataDir } = await getCliProjectContext();
+      const { project, dataDir, reader } = await getCliProjectContext();
       const store = new CodeGraphStore();
       await store.init(dataDir);
       const explicitAction = Boolean(positional[0] || (args.action as string | undefined));
@@ -171,7 +171,7 @@ export default defineCommand({
           const limit = parsePositiveInt(args.limit as string | undefined, 20);
           const observations = filterReadableObservations(
             getAllObservations().filter(obs => obs.projectId === project.id && (obs.status ?? 'active') === 'active'),
-            { projectId: project.id },
+            reader,
           ).reverse();
           const basePack = assembleContextPackForTask({
             store,

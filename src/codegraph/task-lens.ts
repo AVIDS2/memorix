@@ -121,6 +121,7 @@ const KEYWORDS: Record<Exclude<TaskLensId, 'general'>, string[]> = {
     'fail',
     'failing',
     'fix',
+    'fixing',
     'issue',
     'regression',
     'repro',
@@ -138,6 +139,22 @@ const KEYWORDS: Record<Exclude<TaskLensId, 'general'>, string[]> = {
   docs: ['doc', 'docs', 'readme', '文档', '说明'],
   test: ['coverage', 'fixture', 'smoke', 'spec', 'test', 'tests', 'testing', 'vitest', '测试'],
 };
+
+// Continuation is a delivery intent, not a task lens. A request can both resume
+// prior work and be a bugfix, feature, or release task, so callers keep the
+// normal lens and add a bounded prior-work projection separately.
+const CONTINUATION_KEYWORDS = [
+  'continue',
+  'resume',
+  'pick up',
+  'carry on',
+  'previous session',
+  '继续',
+  '接手',
+  '恢复',
+  '延续',
+  '上次会话',
+];
 
 const LENS_PRIORITY: Exclude<TaskLensId, 'general'>[] = [
   'bugfix',
@@ -227,6 +244,18 @@ export function resolveTaskLens(task?: string): TaskLens {
   }
 
   return best.score > 0 ? LENSES[best.id] : LENSES.general;
+}
+
+/**
+ * Detect when the caller is asking to continue existing work. This stays
+ * separate from task-lens routing so "continue fixing the timeout" remains a
+ * bugfix, while still receiving a compact prior-work brief.
+ */
+export function isContinuationTask(task?: string): boolean {
+  const normalized = (task ?? '').trim().toLowerCase();
+  return normalized.length > 0 && CONTINUATION_KEYWORDS.some((keyword) =>
+    containsTaskKeyword(normalized, keyword),
+  );
 }
 
 function pathKindScore(path: string, lens: TaskLens): number {

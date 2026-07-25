@@ -39,7 +39,10 @@ const GUIDES: Record<string, CliCommandGuide> = {
   },
   context: {
     summary: 'Build the bounded task Workset used to resume or begin real work.',
-    usage: ['memorix context --task "continue the release fix" [--refresh auto|always|never]'],
+    usage: [
+      'memorix context "continue the release fix" [--refresh auto|always|never]',
+      'memorix resume "continue the release fix" [--refresh auto|always|never]',
+    ],
   },
   explain: {
     summary: 'Show why a task context contains its current facts and memory evidence.',

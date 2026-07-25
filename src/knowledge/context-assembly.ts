@@ -7,10 +7,12 @@ export type ContextDeliveryTarget =
   | 'project-context'
   | 'context-pack'
   | 'hook-session-start'
+  | 'hook-user-prompt'
   | 'session-handoff';
 
 export type ContextCandidateKind =
   | 'task'
+  | 'continuation'
   | 'current-fact'
   | 'code-state'
   | 'semantic-code'
@@ -41,7 +43,7 @@ export interface ContextReceiptOmission {
 }
 
 export interface ContextReceipt {
-  version: '1.2.2';
+  version: '1.2.4';
   target: ContextDeliveryTarget;
   elapsedMs: number;
   budget: {
@@ -58,6 +60,7 @@ function displayTarget(target: ContextDeliveryTarget): string {
     case 'project-context': return 'Project Context';
     case 'context-pack': return 'Context Pack';
     case 'hook-session-start': return 'SessionStart hook';
+    case 'hook-user-prompt': return 'UserPromptSubmit hook';
     case 'session-handoff': return 'session handoff';
   }
 }

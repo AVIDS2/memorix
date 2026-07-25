@@ -59,7 +59,7 @@ Memorix 不只是一个记忆库。它还负责安装 Agent 接入、保留有�
 
 | 能力 | 作用 | 入口 |
 | --- | --- | --- |
-| Memory Autopilot | 给新 Agent session 一份有预算的任务 Workset，包含起步文件、当前记忆、来源知识、工作流首步、风险提示和验证建议 | `memorix context --task "..."`、`memorix_project_context` |
+| Memory Autopilot | 给新 Agent session 一份有预算的任务 Workset，包含起步文件、当前记忆、来源知识、工作流首步、风险提示和验证建议 | `memorix context "..."`、`memorix resume "..."`、`memorix_project_context` |
 | Observation Memory | 当前 Git 项目内可检索的事实、修复、坑点、session 摘要和实现记录 | `memorix memory`、MCP memory tools |
 | Code State 和 Code Memory | 可版本化的本地代码快照、文件 / symbol 关联和 freshness 检查。内置 Lite 会如实说明边界；已有本地索引的 CodeGraph 可额外给出有预算的语义关系 | `memorix codegraph`、自动 context refresh |
 | Git Memory | 从 commit 中提取工程事实，回答改了什么、在哪里改、为什么重要 | `memorix ingest commit`、git hook |
@@ -317,7 +317,7 @@ npm uninstall -g memorix
 ### 从 CLI 管理记忆
 
 ```bash
-memorix --cwd /path/to/repo context --task "继续处理发布阻塞问题"
+memorix --cwd /path/to/repo resume "继续处理发布阻塞问题"
 memorix memory search --query "release blocker"
 memorix memory --help
 
@@ -357,7 +357,7 @@ memcode
 
 默认搜索当前项目。`scope="global"` 可以跨项目搜索。“改了什么”优先匹配 Git Memory，“为什么”优先匹配 reasoning / decision 记录。
 
-`memorix context --task "..."` 是默认的 Memory Autopilot 入口。它会按任务生成紧凑 brief：修 bug 时偏向测试和复现，发版时偏向 package/changelog/build 检查，接手项目时偏向文档和入口文件；过期或不相关的记忆只作为 warning，不会一股脑塞进 prompt。Agent 应该先读 suggested files，再相信历史记忆。
+`memorix context "..."` 是默认的 Memory Autopilot 入口。它会按任务生成紧凑 brief：修 bug 时偏向测试和复现，发版时偏向 package/changelog/build 检查，接手项目时偏向文档和入口文件；过期或不相关的记忆只作为 warning，不会一股脑塞进 prompt。普通新任务不会自动得到旧会话的文本倾倒；明确要继续之前工作时，用 `memorix resume "..."`，只会补入最近一份有用的会话总结和最多三条当前可读的长期记忆锚点。Agent 应该先读 suggested files，再相信历史记忆。
 
 <h2 id="运行模式"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/tags/light/section-runtime.svg"><img src="assets/tags/section-runtime.svg" alt="运行模式" height="32" /></picture></h2>
 

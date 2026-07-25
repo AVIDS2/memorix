@@ -80,4 +80,19 @@ describe('loadTomlConfig', () => {
     expect(cfg.git?.exclude_patterns).toEqual(['dist/**', '*.lock']);
     expect(cfg.codegraph?.exclude_patterns).toEqual(['vendor/**', '**/generated/**']);
   });
+
+  it('accepts TOML literal strings and preserves hashes inside them', () => {
+    writeFileSync(join(PROJECT, 'memorix.toml'), [
+      '[memory]',
+      "inject = 'minimal' # standard TOML literal string",
+      '',
+      '[agent]',
+      "model = 'provider/model # keep this hash'",
+    ].join('\n'), 'utf8');
+
+    const cfg = loadTomlConfig({ projectRoot: PROJECT, homeDir: HOME });
+
+    expect(cfg.memory?.inject).toBe('minimal');
+    expect(cfg.agent?.model).toBe('provider/model # keep this hash');
+  });
 });

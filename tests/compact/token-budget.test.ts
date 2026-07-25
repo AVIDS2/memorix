@@ -65,6 +65,15 @@ describe('Token Budget', () => {
       // Allow some slack for the "..." suffix
       expect(tokens).toBeLessThanOrEqual(budget + 5);
     });
+
+    it('does not leave a partial technical identifier at the truncation boundary', () => {
+      const text = 'Keep JWT refresh behind AUTH_REFRESH_V2 until the focused migration test passes.';
+      const result = truncateToTokenBudget(text, 14);
+
+      expect(result).not.toContain('AUTH...');
+      expect(result).not.toContain('AUTH_...');
+      expect(result).toMatch(/\.\.\.$/);
+    });
   });
 
   describe('estimateIndexEntryTokens', () => {

@@ -4,13 +4,54 @@
 > older notes when they conflict.
 
 ## Current State
-- Phase: 1.2.3 session-context visibility hotfix
-- Branch: `codex/1.2.3-session-visibility`
-- Last updated: 2026-07-25
-- Released baseline: `memorix@1.2.2`, tag `v1.2.2`, `origin/main` at
-  `2a7ebc7`.
-- Goal: close the agent-facing session-context visibility boundary before
-  further control-plane work.
+- Phase: 1.2.4 persistent memory delivery release candidate
+- Branch: `codex/1.2.4-persistent-memory-delivery`
+- Last updated: 2026-07-26
+- Released baseline: `memorix@1.2.3`, tag `v1.2.3`, `origin/main` at
+  `03ceb6d`.
+- Goal: make the existing persistent memory layer deliver useful prior work
+  naturally across MCP and CLI without turning ordinary tasks into historical
+  context dumps.
+
+## 1.2.4 Persistent Memory Delivery
+- Continuation is now a bounded delivery projection over existing sessions and
+  durable observations, not a second handoff database. `TaskWorkset` keeps its
+  task lens (`bugfix`, `feature`, and so on) while independently recognizing a
+  continuation request.
+- A continuation Workset includes at most the latest meaningful completed
+  session summary plus three readable durable memory anchors. Each item is
+  visible in the existing `ContextReceipt`; ordinary tasks do not receive it.
+- `memorix resume "<task>"` is the CLI-equivalent continuation entry. The
+  existing MCP `memorix_project_context` receives the same behavior from the
+  user's task text, so the micro MCP profile stays at seven tools.
+- Setup-generated rules now use a single fallback call when MCP is genuinely
+  unavailable: `memorix resume` for prior work or `memorix context` for new
+  work. They explicitly forbid help probing, command enumeration, and broad
+  search loops before the first brief.
+- The visibility reader is carried into continuation retrieval, preserving
+  project aliases while failing closed for other agents' personal memory.
+- Continuation text preserves whole technical identifiers instead of emitting a
+  misleading partial token. MCP Project Context also establishes a short-lived
+  delivery boundary: a follow-up search/detail request does not re-send an
+  already represented record unless the caller names a missing fact or the user
+  explicitly asks for the underlying detail.
+- A read-only or "do not modify files" Autopilot task blocks `memorix_store`
+  by default. The only override is an explicit user request to persist a
+  record, represented by `overrideReadOnly: true`.
+- A real Codex user-path smoke, in a fresh Git fixture seeded only through the
+  public CLI, made one natural-language continuation request. Codex received
+  the bounded brief, used one specific Context Pack expansion, was stopped
+  from re-reading already-covered memory, made no `memorix_store` write, and
+  returned the correct read-only next step.
+- Completed local gates: TypeScript check, production build, focused
+  continuation/hook/CLI regressions, and the full suite (`237` files / `2677`
+  tests). A fresh packed install with optional native dependencies omitted used
+  Node SQLite to persist the same `memorix.db`; CLI resume retained
+  `AUTH_REFRESH_V2`; the micro MCP package surface exposed exactly seven tools
+  and enforced duplicate-retrieval plus read-only-write boundaries; and an
+  isolated Codex global setup wrote/activated the versioned Personal-marketplace
+  plugin with the matching skill guidance. Pending release gates: CI and
+  publish.
 
 ## 1.2.3 Session Context Visibility Hotfix
 - A real installed-package CLI smoke found that a second coordination identity

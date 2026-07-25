@@ -59,7 +59,7 @@ Memorix is more than a memory store. It also installs agent integrations, keeps 
 
 | Capability | What it does | Entry point |
 | --- | --- | --- |
-| Memory Autopilot | A bounded task Workset with start files, current memory, source-backed knowledge, workflow starts, cautions, and verification | `memorix context --task "..."`, `memorix_project_context` |
+| Memory Autopilot | A bounded task Workset with start files, current memory, source-backed knowledge, workflow starts, cautions, and verification | `memorix context "..."`, `memorix resume "..."`, `memorix_project_context` |
 | Observation Memory | Searchable facts, fixes, gotchas, session summaries, and implementation notes scoped to the current Git project | `memorix memory`, MCP memory tools |
 | Code State and Code Memory | Versioned local code snapshots, file/symbol links, and freshness checks. The built-in Lite index is always honest about its limits; an already-indexed local CodeGraph can add a bounded semantic outline | `memorix codegraph`, automatic context refresh |
 | Git Memory | Commit-derived engineering facts that answer what changed, where, and why it matters | `memorix ingest commit`, git hook |
@@ -317,7 +317,7 @@ npm uninstall -g memorix
 ### Work from the CLI
 
 ```bash
-memorix --cwd /path/to/repo context --task "continue release blocker"
+memorix --cwd /path/to/repo resume "continue release blocker"
 memorix memory search --query "release blocker"
 memorix memory --help
 
@@ -357,7 +357,7 @@ This opens memcode, a terminal coding agent that uses the same Memorix project m
 
 Search is project-scoped by default. `scope="global"` searches across projects. The search boosts Git Memory for "what changed" questions and reasoning records for "why" questions.
 
-`memorix context --task "..."` is the default Memory Autopilot entry. It builds a compact task-lensed brief for agents: bugfix tasks lean toward tests and repros, release tasks lean toward package/changelog/build checks, onboarding tasks lean toward docs and entry points, and stale or unrelated memories stay in warning lanes instead of flooding the prompt. Agents should read the suggested files before trusting stored memory.
+`memorix context "..."` is the default Memory Autopilot entry. It builds a compact task-lensed brief for agents: bugfix tasks lean toward tests and repros, release tasks lean toward package/changelog/build checks, onboarding tasks lean toward docs and entry points, and stale or unrelated memories stay in warning lanes instead of flooding the prompt. A normal new task does not receive an old-session dump. For an explicit continuation, `memorix resume "..."` adds only the latest useful session summary and up to three readable durable anchors. Agents should read the suggested files before trusting stored memory.
 
 <h2 id="runtime-modes"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/tags/light/section-runtime.svg"><img src="assets/tags/section-runtime.svg" alt="Runtime Modes" height="32" /></picture></h2>
 

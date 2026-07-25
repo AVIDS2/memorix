@@ -17,7 +17,14 @@ vi.mock('../../src/embedding/provider.js', () => ({
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { startSession, endSession, getSessionContext, listSessions, getActiveSession } from '../../src/memory/session.js';
+import {
+  startSession,
+  endSession,
+  getSessionContext,
+  getSessionResumeBrief,
+  listSessions,
+  getActiveSession,
+} from '../../src/memory/session.js';
 import { storeObservation, initObservations, resolveObservations } from '../../src/memory/observations.js';
 import { resetDb } from '../../src/store/orama-store.js';
 import { getObservationStore, initObservationStore, resetObservationStore } from '../../src/store/obs-store.js';
@@ -115,6 +122,44 @@ describe('Session Lifecycle', () => {
   });
 
   describe('getSessionContext', () => {
+    it('builds a compact continuation brief without exposing another actor\'s personal memory', async () => {
+      await storeObservation({
+        entityName: 'migration',
+        type: 'decision',
+        title: 'Project migration policy',
+        narrative: 'Run the migration smoke before enabling the new schema.',
+        facts: ['Focused migration smoke is the next step.'],
+        projectId: PROJECT_ID,
+      });
+      await storeObservation({
+        entityName: 'migration',
+        type: 'decision',
+        title: 'Owner-only migration note',
+        narrative: 'This private note must not be delivered to another agent.',
+        projectId: PROJECT_ID,
+        visibility: 'personal',
+        createdByAgentId: 'owner-agent',
+      });
+      await startSession(testDir, PROJECT_ID, { sessionId: 'resume-session', agent: 'claude-code' });
+      await endSession(testDir, 'resume-session', 'Continue the schema migration after the focused smoke.');
+
+      const foreign = await getSessionResumeBrief(
+        PROJECT_ID,
+        'continue the schema migration',
+        { projectId: PROJECT_ID, agentId: 'foreign-agent', isTeamMember: true },
+      );
+      const owner = await getSessionResumeBrief(
+        PROJECT_ID,
+        'continue the schema migration',
+        { projectId: PROJECT_ID, agentId: 'owner-agent', isTeamMember: true },
+      );
+
+      expect(foreign.previousSession).toMatchObject({ id: 'resume-session', agent: 'claude-code' });
+      expect(foreign.memories.map((memory) => memory.title)).toContain('Project migration policy');
+      expect(foreign.memories.map((memory) => memory.title)).not.toContain('Owner-only migration note');
+      expect(owner.memories.map((memory) => memory.title)).toContain('Owner-only migration note');
+    });
+
     it('does not inject personal observations into a different agent session', async () => {
       await storeObservation({
         entityName: 'migration',

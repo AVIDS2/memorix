@@ -38,7 +38,7 @@ For the 1.2 release line, the visible product shape is:
 - model lanes are separate: `[memory.llm]` for formation/rerank/summaries, `[embedding]` for semantic search, `[agent]` for the model memcode talks to while coding
 - legacy `memorix.yml`, `.env`, and `~/.memorix/config.json` are compatibility inputs, not the recommended setup path
 - generated agent rules treat `memorix_session_start` as optional unless explicit session semantics matter
-- `memorix_project_context` / `memorix context --task "..."` is the normal black-box entry for non-trivial coding work: it assembles a bounded task Workset instead of injecting a generic memory dump
+- `memorix_project_context` / `memorix context "..."` is the normal black-box entry for non-trivial coding work: it assembles a bounded task Workset instead of injecting a generic memory dump; `memorix resume "..."` is the explicit CLI continuation projection
 - Code State keeps local snapshots and freshness links; a healthy pre-existing local CodeGraph index can add a bounded semantic outline, but Memorix never initializes or synchronizes that external index itself
 - `memorix knowledge` is an explicit review path for source-backed Markdown knowledge and canonical workflows. Do not initialize a versioned workspace or apply a proposal unless the user asks for that managed artifact
 - integration surfaces are agent-specific: Claude Code, Codex, GitHub Copilot CLI, Antigravity, and Hermes receive plugin packages; OpenClaw receives a compatible bundle; Pi and Oh-my-Pi receive package entries; Gemini CLI receives an extension package; OpenCode receives a plugin file and skill; Cursor and other agents receive MCP/rules/hooks where supported
@@ -765,6 +765,18 @@ memorix doctor
 ```
 
 to inspect active runtime status.
+
+### 9. Does a fresh CLI install report a `better-sqlite3` binding error?
+
+On the supported Node 22 runtime, current Memorix releases automatically use
+Node's built-in SQLite with the same local `memorix.db` when the optional
+`better-sqlite3` native binary is unavailable. Upgrade the package and rerun
+the command; do not delete the data directory or create a replacement database.
+
+Node may print its own experimental SQLite warning on that fallback path. It is
+not a memory-loss condition. If Memorix instead reports that SQLite is
+unavailable, confirm the installed Node version satisfies the package engine
+and include the exact error when filing an issue.
 
 ---
 

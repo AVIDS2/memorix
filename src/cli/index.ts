@@ -129,8 +129,9 @@ async function getWorkbenchHeader(): Promise<string[]> {
         const dataDir = await getProjectDataDir(proj.id);
         await initStore(dataDir);
         const { getObservationStore: getStore } = await import('../store/obs-store.js');
-        const obs = await getStore().loadAll() as any[];
-        const active = obs.filter((o: any) => (o.status ?? 'active') === 'active').length;
+        const { filterReadableObservations } = await import('../memory/visibility.js');
+        const obs = filterReadableObservations(await getStore().loadAll(), { projectId: proj.id });
+        const active = obs.filter((o) => (o.status ?? 'active') === 'active').length;
         if (active > 0) {
           memLabel = `${BOLD}${active}${RESET} ${DIM}active${RESET}`;
         }
@@ -801,6 +802,7 @@ async function runSearch(query: string): Promise<void> {
   
   try {
     const { searchObservations, getDb, hydrateIndex } = await import('../store/orama-store.js');
+    const { filterReadableObservations } = await import('../memory/visibility.js');
     const { getProjectDataDir } = await import('../store/persistence.js');
     const { detectProject } = await import('../project/detector.js');
     const { initObservations } = await import('../memory/observations.js');
@@ -825,7 +827,7 @@ async function runSearch(query: string): Promise<void> {
     await hydrateIndex(allObs);
     mark('hydrateIndex');
     
-    const results = await searchObservations({ query, limit: 10, projectId: project.id });
+    const results = await searchObservations({ query, limit: 10, projectId: project.id, reader: { projectId: project.id } });
     mark('search');
     s.stop('Search complete');
     
@@ -855,14 +857,16 @@ async function runList(): Promise<void> {
     const { getProjectDataDir } = await import('../store/persistence.js');
     const { detectProject } = await import('../project/detector.js');
     const { initObservationStore: initStore, getObservationStore: getStore } = await import('../store/obs-store.js');
+    const { filterReadableObservations } = await import('../memory/visibility.js');
     
     const project = detectProject(process.cwd());
     if (!project) { s.stop('No git repo'); p.log.error(NO_GIT_MSG); return; }
     const dataDir = await getProjectDataDir(project.id);
     await initStore(dataDir);
-    const observations = await getStore().loadAll() as unknown as Array<{
-      id: number; title: string; type: string; timestamp: string; status?: string;
-    }>;
+    const observations = filterReadableObservations(
+      await getStore().loadAll(),
+      { projectId: project.id },
+    );
     
     const active = observations.filter(o => (o.status ?? 'active') === 'active');
     const recent = active.slice(-10).reverse();
@@ -876,7 +880,7 @@ async function runList(): Promise<void> {
     
     console.log('');
     for (const o of recent) {
-      const typeLabel = { gotcha: '[!]', decision: '[D]', 'problem-solution': '[S]', discovery: '[?]', 'how-it-works': '[H]', 'what-changed': '[C]' }[o.type] ?? '[·]';
+      const typeLabel = ({ gotcha: '[!]', decision: '[D]', 'problem-solution': '[S]', discovery: '[?]', 'how-it-works': '[H]', 'what-changed': '[C]' } as Record<string, string>)[o.type] ?? '[·]';
       console.log(`  ${typeLabel} #${o.id} ${o.title?.slice(0, 60) ?? '(untitled)'}`);
     }
     console.log('');

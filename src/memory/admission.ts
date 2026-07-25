@@ -1,4 +1,5 @@
 import type { Observation, ObservationAdmissionState, ObservationType } from '../types.js';
+import { resolveObservationVisibility } from './visibility.js';
 
 const DURABLE_AUTOMATIC_TYPES = new Set<ObservationType>([
   'decision',
@@ -21,9 +22,11 @@ export function isCandidateObservation(observation: Pick<Observation, 'admission
 }
 
 export function isEligibleForKnowledgePromotion(
-  observation: Pick<Observation, 'admissionState' | 'valueCategory'>,
+  observation: Pick<Observation, 'admissionState' | 'valueCategory' | 'visibility'>,
 ): boolean {
-  return isEligibleForAutomaticDelivery(observation) && observation.valueCategory !== 'ephemeral';
+  return isEligibleForAutomaticDelivery(observation)
+    && observation.valueCategory !== 'ephemeral'
+    && resolveObservationVisibility(observation) === 'project';
 }
 
 export interface CandidateQualification {

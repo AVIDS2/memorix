@@ -5,6 +5,7 @@ import { computeWatermark } from '../../team/poll.js';
 import { withFreshIndex } from '../../memory/freshness.js';
 import { getAllObservations } from '../../memory/observations.js';
 import { getObservationStore } from '../../store/obs-store.js';
+import { filterReadableObservations } from '../../memory/visibility.js';
 import { emitError, emitResult, getCliProjectContext, parsePositiveInt } from './operator-shared.js';
 
 export default defineCommand({
@@ -70,8 +71,11 @@ export default defineCommand({
             const store = getObservationStore();
             const currentGen = store.getGeneration();
             const projectObs = await withFreshIndex(() =>
-              getAllObservations().filter(
-                (obs) => obs.projectId === project.id && (obs.writeGeneration ?? 0) > lastSeen,
+              filterReadableObservations(
+                getAllObservations().filter(
+                  (obs) => obs.projectId === project.id && (obs.writeGeneration ?? 0) > lastSeen,
+                ),
+                { projectId: project.id, agentId: agentRecord.agent_id, isTeamMember: agentRecord.status === 'active' },
               ),
             );
             watermark = computeWatermark(lastSeen, currentGen, projectObs.length);

@@ -9,9 +9,10 @@
  */
 
 import { create, insert, search, remove, update, count, getByID, type AnyOrama } from '@orama/orama';
-import type { MemorixDocument, SearchOptions, IndexEntry, KnowledgeLayer } from '../types.js';
+import type { MemorixDocument, SearchOptions, IndexEntry, KnowledgeLayer, ObservationReader } from '../types.js';
 import { OBSERVATION_ICONS, type ObservationType } from '../types.js';
 import { resolveKnowledgeLayer } from '../skills/mini-skills.js';
+import { canReadObservation } from '../memory/visibility.js';
 import { getEmbeddingProvider, type EmbeddingProvider } from '../embedding/provider.js';
 import { calculateProjectAffinity, extractProjectKeywords, type AffinityContext, type MemoryContent } from './project-affinity.js';
 import { detectQueryIntent, applyIntentBoost } from '../search/intent-detector.js';
@@ -177,6 +178,9 @@ async function initializeDb(
     valueCategory: 'string' as const,
     admissionState: 'string' as const,
     admissionReason: 'string' as const,
+    visibility: 'string' as const,
+    createdByAgentId: 'string' as const,
+    sharedWithAgentIds: 'string' as const,
     documentType: 'string' as const,
     knowledgeLayer: 'string' as const,
   };
@@ -396,6 +400,9 @@ export async function hydrateIndex(
         valueCategory: obs.valueCategory ?? '',
         admissionState: obs.admissionState ?? '',
         admissionReason: obs.admissionReason ?? '',
+        visibility: obs.visibility ?? 'project',
+        createdByAgentId: obs.createdByAgentId ?? '',
+        sharedWithAgentIds: JSON.stringify(obs.sharedWithAgentIds ?? []),
         documentType: 'observation',
         knowledgeLayer: resolveKnowledgeLayer('observation', obs.sourceDetail, obs.source),
         ...(compatibleVector ? { embedding: compatibleVector } : {}),
@@ -457,7 +464,7 @@ export async function insertObservation(doc: MemorixDocument): Promise<void> {
 export async function updateObservationMetadata(
   projectId: string,
   observationId: number,
-  patch: Pick<MemorixDocument, 'admissionState' | 'admissionReason'>,
+  patch: Partial<Pick<MemorixDocument, 'admissionState' | 'admissionReason' | 'visibility' | 'createdByAgentId' | 'sharedWithAgentIds'>>,
 ): Promise<boolean> {
   const database = await getDb();
   const id = makeOramaObservationId(projectId, observationId);
@@ -669,6 +676,9 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
       const doc = hit.document as unknown as MemorixDocument;
       return projectIds.includes(doc.projectId);
     })
+    // Visibility is enforced before scoring/ranking so private records cannot
+    // affect result order, fallback behavior, or downstream detail reads.
+    .filter((hit) => canReadObservation(hit.document as unknown as MemorixDocument, options.reader))
     // Post-filter by status (active/resolved/archived)
     .filter((hit) => {
       if (statusFilter === 'all') return true;
@@ -709,6 +719,7 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
         sourceDetail: (doc.sourceDetail || undefined) as 'explicit' | 'hook' | 'git-ingest' | undefined,
         valueCategory: (doc.valueCategory || undefined) as 'core' | 'contextual' | 'ephemeral' | undefined,
         admissionState: (doc.admissionState || undefined) as IndexEntry['admissionState'],
+        visibility: (doc.visibility || undefined) as IndexEntry['visibility'],
         entityName: doc.entityName || undefined,
         documentType: (doc.documentType || 'observation') as 'observation' | 'mini-skill',
         knowledgeLayer: (doc.knowledgeLayer || 'project-truth') as KnowledgeLayer,
@@ -997,7 +1008,8 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
   let entries: IndexEntry[] = intermediate.map(({ rawTime: _, _isCommandLog: _c, ...rest }: any) => rest);
 
   for (const hit of results.hits) {
-    rememberObservationDoc(hit.document as unknown as MemorixDocument);
+    const doc = hit.document as unknown as MemorixDocument;
+    if (canReadObservation(doc, options.reader)) rememberObservationDoc(doc);
   }
 
   // Explainable recall: annotate entries with match reasons (O(1) lookup via Map)
@@ -1050,7 +1062,10 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
 
   // Record access for returned results (fire-and-forget, non-blocking).
   if (options.trackAccess !== false) {
-    const hitDocs = results.hits.map((h) => ({ id: h.id, doc: h.document as unknown as MemorixDocument }));
+    const returnedKeys = new Set(entries.map((entry) => makeEntryKey(entry.projectId, entry.id)));
+    const hitDocs = results.hits
+      .map((hit) => ({ id: hit.id, doc: hit.document as unknown as MemorixDocument }))
+      .filter(({ doc }) => returnedKeys.has(makeEntryKey(doc.projectId, doc.observationId)));
     recordAccessBatch(hitDocs).catch(() => {});
   }
 
@@ -1108,6 +1123,7 @@ export async function getTimeline(
   projectId?: string,
   depthBefore = 3,
   depthAfter = 3,
+  reader?: ObservationReader,
 ): Promise<{ before: IndexEntry[]; anchor: IndexEntry | null; after: IndexEntry[] }> {
   // Use in-memory observations for reliable lookup
   // (Orama search with empty term is unreliable — same fix as compactDetail)
@@ -1116,9 +1132,9 @@ export async function getTimeline(
   const rawObs = await withFreshIndex(() => getAllObservations());
 
   // Filter by project if specified — prevents cross-project context leaking
-  const allObs = projectId
+  const allObs = (projectId
     ? rawObs.filter((o) => o.projectId === projectId)
-    : rawObs;
+    : rawObs).filter((observation) => canReadObservation(observation, reader));
 
   // Sort by creation time
   const sorted = allObs.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
@@ -1130,7 +1146,7 @@ export async function getTimeline(
 
   const toIndexEntry = (obs: {
     id: number; type: string; title: string; tokens: number; createdAt: string;
-    source?: string; sourceDetail?: string; valueCategory?: string; admissionState?: string;
+    source?: string; sourceDetail?: string; valueCategory?: string; admissionState?: string; visibility?: string;
   }): IndexEntry => {
     const obsType = obs.type as ObservationType;
     return {
@@ -1144,6 +1160,7 @@ export async function getTimeline(
       sourceDetail: (obs.sourceDetail as IndexEntry['sourceDetail']) || undefined,
       valueCategory: (obs.valueCategory as IndexEntry['valueCategory']) || undefined,
       admissionState: (obs.admissionState as IndexEntry['admissionState']) || undefined,
+      visibility: (obs.visibility as IndexEntry['visibility']) || undefined,
     };
   };
 

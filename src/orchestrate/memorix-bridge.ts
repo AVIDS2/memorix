@@ -90,6 +90,14 @@ async function getSearchObservations() {
   return _searchObservations;
 }
 
+function automaticActorId(...parts: string[]): string {
+  return `orchestrator:${createHash('sha256').update(parts.join('\u0000')).digest('hex').slice(0, 24)}`;
+}
+
+function isEligibleAutomaticLesson(entry: { admissionState?: string }): boolean {
+  return entry.admissionState !== 'candidate' && entry.admissionState !== 'ephemeral';
+}
+
 // ── 5a. Fix Loop Memory (CORE — always on) ────────────────────────
 
 /**
@@ -104,6 +112,7 @@ export function storeVerifiedFix(fix: FixResult): void {
 
   const errorHash = hashErrorPattern(fix.errorOutput);
   const confidence = fix.fixAttempt === 1 ? 'high' : fix.fixAttempt === 2 ? 'medium' : 'low';
+  const createdByAgentId = automaticActorId(fix.projectId, 'verified-fix', fix.gate, errorHash);
 
   // Fire-and-forget — catches all errors silently
   void (async () => {
@@ -128,6 +137,9 @@ export function storeVerifiedFix(fix: FixResult): void {
         valueCategory: confidence === 'high' ? 'core' : 'contextual',
         admissionState: 'candidate',
         admissionReason: 'verified orchestration fix awaits current Code Memory qualification',
+        visibility: 'personal',
+        createdByAgentId,
+        visibilityReader: { projectId: fix.projectId, agentId: createdByAgentId },
       });
     } catch { /* fire-and-forget */ }
   })();
@@ -140,6 +152,7 @@ export function storeVerifiedFix(fix: FixResult): void {
  */
 export function storeFixExhausted(fix: FixResult): void {
   const errorHash = hashErrorPattern(fix.errorOutput);
+  const createdByAgentId = automaticActorId(fix.projectId, 'fix-exhausted', fix.gate, errorHash);
 
   void (async () => {
     try {
@@ -162,6 +175,9 @@ export function storeFixExhausted(fix: FixResult): void {
         valueCategory: 'contextual',
         admissionState: 'candidate',
         admissionReason: 'automatic orchestration failure awaits current Code Memory qualification',
+        visibility: 'personal',
+        createdByAgentId,
+        visibilityReader: { projectId: fix.projectId, agentId: createdByAgentId },
       });
     } catch { /* fire-and-forget */ }
   })();
@@ -186,6 +202,7 @@ export async function searchKnownFixes(
       search({
         query: searchQuery,
         projectId,
+        reader: { projectId },
         type: 'problem-solution',
         limit: 3,
         status: 'active',
@@ -194,6 +211,7 @@ export async function searchKnownFixes(
     ]);
 
     return (results as any[])
+      .filter(isEligibleAutomaticLesson)
       .filter((r: any) => (r.score ?? 1) > 0.3) // Only reasonably relevant
       .map((r: any) => ({
         id: r.id ?? 0,
@@ -230,6 +248,7 @@ export async function searchLessons(
       search({
         query,
         projectId,
+        reader: { projectId },
         limit: config.maxLessons + 2, // Fetch extra for filtering
         status: 'active',
       }),
@@ -237,6 +256,7 @@ export async function searchLessons(
     ]);
 
     const lessons = (results as any[])
+      .filter(isEligibleAutomaticLesson)
       .filter((r: any) =>
         (r.type === 'problem-solution' || r.type === 'gotcha') &&
         (r.score ?? 1) > 0.5, // Only high-relevance (Safeguard 5: project isolation already handled by projectId filter)
@@ -286,6 +306,8 @@ export function storeTaskCompletion(opts: {
   durationMs: number;
   tailOutput: string;
 }): void {
+  const createdByAgentId = automaticActorId(opts.projectId, opts.pipelineId, opts.taskId, opts.agentName);
+
   void (async () => {
     try {
       const store = await getStoreObservation();
@@ -306,6 +328,9 @@ export function storeTaskCompletion(opts: {
         valueCategory: 'ephemeral',
         admissionState: 'ephemeral',
         admissionReason: 'pipeline completion retained only as a short-lived trace',
+        visibility: 'personal',
+        createdByAgentId,
+        visibilityReader: { projectId: opts.projectId, agentId: createdByAgentId },
       });
     } catch { /* fire-and-forget */ }
   })();
@@ -324,6 +349,8 @@ export function storePipelineSummary(opts: {
   failed: number;
   elapsedMs: number;
 }): void {
+  const createdByAgentId = automaticActorId(opts.projectId, opts.pipelineId, 'summary');
+
   void (async () => {
     try {
       const store = await getStoreObservation();
@@ -346,6 +373,9 @@ export function storePipelineSummary(opts: {
         valueCategory: 'contextual',
         admissionState: 'candidate',
         admissionReason: 'automatic pipeline summary awaits current Code Memory qualification',
+        visibility: 'personal',
+        createdByAgentId,
+        visibilityReader: { projectId: opts.projectId, agentId: createdByAgentId },
       });
     } catch { /* fire-and-forget */ }
   })();

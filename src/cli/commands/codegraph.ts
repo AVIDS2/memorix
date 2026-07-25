@@ -9,6 +9,7 @@ import { getExternalCodeGraphContext, inspectExternalCodeGraph } from '../../cod
 import type { CodeGraphProviderQuality } from '../../codegraph/types.js';
 import { getResolvedConfig } from '../../config/resolved-config.js';
 import { getAllObservations } from '../../memory/observations.js';
+import { filterReadableObservations } from '../../memory/visibility.js';
 import { emitError, emitResult, getCliProjectContext, parsePositiveInt } from './operator-shared.js';
 
 function formatSnapshotStatus(status: ReturnType<CodeGraphStore['status']>): string[] {
@@ -168,9 +169,10 @@ export default defineCommand({
             return;
           }
           const limit = parsePositiveInt(args.limit as string | undefined, 20);
-          const observations = getAllObservations()
-            .filter(obs => obs.projectId === project.id && (obs.status ?? 'active') === 'active')
-            .reverse();
+          const observations = filterReadableObservations(
+            getAllObservations().filter(obs => obs.projectId === project.id && (obs.status ?? 'active') === 'active'),
+            { projectId: project.id },
+          ).reverse();
           const basePack = assembleContextPackForTask({
             store,
             projectId: project.id,

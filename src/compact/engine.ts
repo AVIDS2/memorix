@@ -9,7 +9,7 @@
  * Layer 3 (detail)   → Full observation content (~500-1000 tokens/result)
  */
 
-import type { SearchOptions, IndexEntry, TimelineContext, MemorixDocument, ObservationRef, MemoryRef, MiniSkill, SourceSnapshot } from '../types.js';
+import type { SearchOptions, IndexEntry, TimelineContext, MemorixDocument, ObservationRef, MemoryRef, MiniSkill, SourceSnapshot, ObservationReader } from '../types.js';
 import { searchObservations, getTimeline, getObservationsByIds, makeOramaObservationId } from '../store/orama-store.js';
 import { getObservation, getAllObservations } from '../memory/observations.js';
 import { ensureFreshIndex } from '../memory/freshness.js';
@@ -21,6 +21,7 @@ import { getObservationStore } from '../store/obs-store.js';
 import { getMiniSkillStore } from '../store/mini-skill-store.js';
 import { miniSkillToDocument, resolveProvenanceStatus, type ProvenanceStatus } from '../skills/mini-skills.js';
 import { redactCredentials } from '../memory/secret-filter.js';
+import { canReadObservation, filterReadableObservations } from '../memory/visibility.js';
 
 export function normalizeMemoryBrowseQuery(query: string): string {
   const trimmed = query.trim();
@@ -76,14 +77,17 @@ export async function compactSearch(options: SearchOptions): Promise<{
   let formatted = formatIndexTable(entries, searchOptions.query, !options.projectId);
 
   if (entries.length === 0 && options.projectId) {
-    const allObservations = getAllObservations();
+    const allObservations = filterReadableObservations(getAllObservations(), options.reader);
     const projectAliases = new Set(await resolveAliases(options.projectId).catch(() => [options.projectId]));
     const projectHasStoredMemory = allObservations.some((obs) => obs.projectId && projectAliases.has(obs.projectId));
     if (!projectHasStoredMemory) {
       formatted =
-        `This project does not have any Memorix memories yet.\n\n` +
-        `It looks like a fresh project: the tool call worked, but there is nothing stored to retrieve yet.\n\n` +
-        `Memories will start appearing after observations, session summaries, hook captures, or git-memory are written.`;
+        options.reader
+          ? `No Memorix memories are available to this session yet.\n\n` +
+            `The tool call worked, but this session has no project-visible memory to retrieve.`
+          : `This project does not have any Memorix memories yet.\n\n` +
+            `It looks like a fresh project: the tool call worked, but there is nothing stored to retrieve yet.\n\n` +
+            `Memories will start appearing after observations, session summaries, hook captures, or git-memory are written.`;
     } else {
       formatted =
         `No memories found matching "${options.query}".\n\n` +
@@ -106,12 +110,13 @@ export async function compactTimeline(
   projectId?: string,
   depthBefore = 3,
   depthAfter = 3,
+  reader?: ObservationReader,
 ): Promise<{
   timeline: TimelineContext;
   formatted: string;
   totalTokens: number;
 }> {
-  const result = await getTimeline(anchorId, projectId, depthBefore, depthAfter);
+  const result = await getTimeline(anchorId, projectId, depthBefore, depthAfter, reader);
 
   const timeline: TimelineContext = {
     anchorId,
@@ -135,6 +140,7 @@ export async function compactTimeline(
  */
 export async function compactDetail(
   idsOrRefs: number[] | ObservationRef[] | string[],
+  options: { reader?: ObservationReader } = {},
 ): Promise<{
   documents: MemorixDocument[];
   formatted: string;
@@ -212,7 +218,7 @@ export async function compactDetail(
   const missingRefs: ObservationRef[] = [];
   for (const ref of refs) {
     const obs = getObservation(ref.id, ref.projectId);
-    if (obs && (ref.projectId ? obs.projectId === ref.projectId : true)) {
+    if (obs && (ref.projectId ? obs.projectId === ref.projectId : true) && canReadObservation(obs, options.reader)) {
       documentMap.set(toRefKey(ref), {
         id: makeOramaObservationId(obs.projectId, obs.id),
         observationId: obs.id,
@@ -234,6 +240,9 @@ export async function compactDetail(
         valueCategory: obs.valueCategory ?? '',
         admissionState: obs.admissionState ?? '',
         admissionReason: obs.admissionReason ?? '',
+        visibility: obs.visibility ?? 'project',
+        createdByAgentId: obs.createdByAgentId ?? '',
+        sharedWithAgentIds: JSON.stringify(obs.sharedWithAgentIds ?? []),
       });
     } else {
       missingRefs.push(ref);
@@ -244,19 +253,19 @@ export async function compactDetail(
     for (const ref of missingRefs) {
       const fallbackDocs = await getObservationsByIds([ref.id], ref.projectId);
       const doc = fallbackDocs[0];
-      if (doc) {
+      if (doc && canReadObservation(doc, options.reader)) {
         documentMap.set(toRefKey(ref), doc);
         continue;
       }
       const stored = await getPersistedObservation(ref);
-      if (stored) {
+      if (stored && canReadObservation(stored, options.reader)) {
         documentMap.set(toRefKey(ref), observationToDocument(stored));
       }
     }
   }
 
   // Build cross-reference map for all requested observations
-  const allObs = getAllObservations();
+  const allObs = filterReadableObservations(getAllObservations(), options.reader);
   const crossRefMap = new Map<string, string[]>();
   for (const ref of refs) {
     const obs = getObservation(ref.id, ref.projectId);
@@ -405,6 +414,9 @@ function observationToDocument(obs: ReturnType<typeof getAllObservations>[number
     valueCategory: obs.valueCategory ?? '',
     admissionState: obs.admissionState ?? '',
     admissionReason: obs.admissionReason ?? '',
+    visibility: obs.visibility ?? 'project',
+    createdByAgentId: obs.createdByAgentId ?? '',
+    sharedWithAgentIds: JSON.stringify(obs.sharedWithAgentIds ?? []),
   };
 }
 

@@ -1,14 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { storeObservation } = vi.hoisted(() => ({
+const { storeObservation, searchObservations } = vi.hoisted(() => ({
   storeObservation: vi.fn(),
+  searchObservations: vi.fn(),
 }));
 
 vi.mock('../../src/memory/observations.js', () => ({ storeObservation }));
+vi.mock('../../src/store/orama-store.js', () => ({ searchObservations }));
 
 import {
   hashErrorPattern,
   sanitizeErrorPattern,
+  searchKnownFixes,
+  searchLessons,
   storeFixExhausted,
   storePipelineSummary,
   storeTaskCompletion,
@@ -18,6 +22,8 @@ import {
 beforeEach(() => {
   storeObservation.mockReset();
   storeObservation.mockResolvedValue(undefined);
+  searchObservations.mockReset();
+  searchObservations.mockResolvedValue([]);
 });
 
 describe('sanitizeErrorPattern', () => {
@@ -97,7 +103,13 @@ describe('automatic bridge admission', () => {
     expect(storeObservation).toHaveBeenCalledWith(expect.objectContaining({
       admissionState: 'candidate',
       admissionReason: expect.stringContaining('awaits current Code Memory qualification'),
+      visibility: 'personal',
     }));
+    const write = storeObservation.mock.calls[0][0];
+    expect(write.visibilityReader).toEqual({
+      projectId: 'org/repo',
+      agentId: write.createdByAgentId,
+    });
   });
 
   it('keeps exhausted fix evidence as a candidate rather than auto-delivering it', async () => {
@@ -114,7 +126,13 @@ describe('automatic bridge admission', () => {
     await vi.waitFor(() => expect(storeObservation).toHaveBeenCalledTimes(1));
     expect(storeObservation).toHaveBeenCalledWith(expect.objectContaining({
       admissionState: 'candidate',
+      visibility: 'personal',
     }));
+    const write = storeObservation.mock.calls[0][0];
+    expect(write.visibilityReader).toEqual({
+      projectId: 'org/repo',
+      agentId: write.createdByAgentId,
+    });
   });
 
   it('keeps task completion as an ephemeral trace and pipeline summary as a candidate', async () => {
@@ -131,7 +149,13 @@ describe('automatic bridge admission', () => {
     expect(storeObservation).toHaveBeenLastCalledWith(expect.objectContaining({
       admissionState: 'ephemeral',
       valueCategory: 'ephemeral',
+      visibility: 'personal',
     }));
+    let write = storeObservation.mock.calls[0][0];
+    expect(write.visibilityReader).toEqual({
+      projectId: 'org/repo',
+      agentId: write.createdByAgentId,
+    });
 
     storePipelineSummary({
       projectId: 'org/repo',
@@ -145,6 +169,37 @@ describe('automatic bridge admission', () => {
     await vi.waitFor(() => expect(storeObservation).toHaveBeenCalledTimes(2));
     expect(storeObservation).toHaveBeenLastCalledWith(expect.objectContaining({
       admissionState: 'candidate',
+      visibility: 'personal',
+    }));
+    write = storeObservation.mock.calls[1][0];
+    expect(write.visibilityReader).toEqual({
+      projectId: 'org/repo',
+      agentId: write.createdByAgentId,
+    });
+  });
+
+  it('uses an unbound project reader before injecting automatic lessons', async () => {
+    searchObservations.mockResolvedValue([
+      {
+        id: 7,
+        title: 'Known fix',
+        narrative: 'Use the focused verification command.',
+        type: 'problem-solution',
+        score: 0.9,
+        admissionState: 'qualified',
+      },
+    ]);
+
+    await expect(searchKnownFixes('test failed', 'org/repo')).resolves.toHaveLength(1);
+    expect(searchObservations).toHaveBeenLastCalledWith(expect.objectContaining({
+      projectId: 'org/repo',
+      reader: { projectId: 'org/repo' },
+    }));
+
+    await expect(searchLessons('fix the failing test', 'org/repo')).resolves.toContain('Known fix');
+    expect(searchObservations).toHaveBeenLastCalledWith(expect.objectContaining({
+      projectId: 'org/repo',
+      reader: { projectId: 'org/repo' },
     }));
   });
 });

@@ -31,6 +31,7 @@ export default defineCommand({
 
     try {
       const { project } = await getCliProjectContext({ searchIndex: action === 'search' });
+      const reader = { projectId: project.id };
 
       switch (action) {
         case 'store': {
@@ -108,6 +109,7 @@ export default defineCommand({
             type: 'reasoning',
             projectId: scope === 'global' ? undefined : project.id,
             status: 'active',
+            reader: scope === 'global' ? {} : reader,
           });
           emitResult(
             { project, scope, entries: result.entries },

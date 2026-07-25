@@ -208,6 +208,13 @@ Important inputs:
 - optional `source`
 - optional `relatedCommits`
 - optional `relatedEntities`
+- optional `visibility`: `project` (default), `personal`, or `team`
+
+Visibility controls who can retrieve a record through agent-facing memory
+tools. Normal memories default to `project`. `personal` and `team` writes
+require a joined coordination identity; a personal record is readable only by
+its creator and explicitly named recipients. Supplying a `topicKey` never
+lets an agent overwrite a record outside its write scope.
 
 Example:
 
@@ -665,6 +672,11 @@ Important inputs:
 - optional `context`
 
 Use it when work should survive agent/session boundaries without relying on an IDE chat window staying alive.
+
+A targeted handoff is private to its sender and recipient. A handoff without
+`toAgentId` is visible only to active members of that project's team. Reading a
+targeted handoff does not give its recipient permission to rewrite or resolve
+it on behalf of the sender.
 
 ---
 

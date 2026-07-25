@@ -19,6 +19,7 @@ import { detectProject } from '../../project/detector.js';
 import { getProjectDataDir } from '../../store/persistence.js';
 import type { ObservationStore } from '../../store/obs-store.js';
 import { getObservationStore, initObservationStore } from '../../store/obs-store.js';
+import { filterReadableObservations } from '../../memory/visibility.js';
 
 /** Patterns that indicate auto-generated, low-value observations */
 const LOW_QUALITY_PATTERNS = [
@@ -148,7 +149,10 @@ export default defineCommand({
         const dataDir = await getProjectDataDir(projectId);
         await initObservationStore(dataDir);
         const store = getObservationStore();
-        const projectObs = await store.loadByProject(projectId, { status: 'active' }) as Array<{
+        const projectObs = filterReadableObservations(
+            await store.loadByProject(projectId, { status: 'active' }),
+            { projectId },
+        ) as Array<{
             id?: number;
             type?: string;
             title?: string;

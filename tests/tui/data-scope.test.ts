@@ -50,9 +50,10 @@ beforeEach(async () => {
     { id: 3, entityName: 'auth', type: 'discovery', title: 'Old entry', narrative: 'Resolved', facts: [], projectId: PROJECT_A, status: 'resolved', createdAt: '2024-06-01T00:00:00Z' },
     { id: 4, entityName: 'billing', type: 'decision', title: 'Use Stripe', narrative: 'Stripe billing', facts: [], projectId: PROJECT_B, status: 'active', createdAt: '2025-01-03T00:00:00Z' },
     { id: 5, entityName: 'billing', type: 'gotcha', title: 'Webhook retry', narrative: 'Retry logic', facts: [], projectId: PROJECT_B, status: 'active', createdAt: '2025-01-04T00:00:00Z' },
+    { id: 6, entityName: 'auth', type: 'discovery', title: 'Private operator note', narrative: 'Not visible to an unbound TUI.', facts: [], projectId: PROJECT_A, status: 'active', createdAt: '2025-01-05T00:00:00Z', visibility: 'personal', createdByAgentId: 'private-agent' },
   ];
   await obsStore.bulkReplace(observations as any);
-  await obsStore.saveIdCounter(6);
+  await obsStore.saveIdCounter(7);
 
   await initSessionStore(dataDir);
   const sessStore = getSessionStore();

@@ -3,6 +3,7 @@ import { getAllAuditEntries, getProjectId } from '../../audit/index.js';
 import { auditProjectObservations } from '../../memory/attribution-guard.js';
 import { getAllObservations } from '../../memory/observations.js';
 import { auditMemoryQuality } from '../../memory/quality-audit.js';
+import { filterReadableObservations } from '../../memory/visibility.js';
 import { emitError, emitResult, getCliProjectContext } from './operator-shared.js';
 
 export default defineCommand({
@@ -23,7 +24,7 @@ export default defineCommand({
       switch (action) {
         case 'memory': {
           const { project } = await getCliProjectContext();
-          const report = auditMemoryQuality(getAllObservations(), {
+          const report = auditMemoryQuality(filterReadableObservations(getAllObservations(), { projectId: project.id }), {
             projectId: project.id,
           });
           emitResult(
@@ -70,7 +71,11 @@ export default defineCommand({
         case 'project': {
           const { project } = await getCliProjectContext();
           const threshold = Number.parseInt(String(args.threshold ?? '2'), 10) || 2;
-          const entries = await auditProjectObservations(project.id, getAllObservations(), threshold);
+          const entries = await auditProjectObservations(
+            project.id,
+            filterReadableObservations(getAllObservations(), { projectId: project.id }),
+            threshold,
+          );
           emitResult(
             { project, entries, threshold },
             entries.length === 0

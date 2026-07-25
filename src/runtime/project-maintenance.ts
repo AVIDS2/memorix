@@ -345,6 +345,9 @@ export function createProjectMaintenanceHandler(
           observationId: observation.id,
           projectId,
           expectedState: 'candidate',
+          // Automatic capture earns project visibility only after a current
+          // Code Memory link exists. Explicit/private records retain scope.
+          ...(observation.sourceDetail === 'hook' ? { visibility: 'project' as const } : {}),
           ...qualification,
         });
       }

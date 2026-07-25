@@ -144,8 +144,9 @@ export async function getHealthInfo(projectId?: string): Promise<HealthInfo> {
     const dataDir = await getProjectDataDir(effectiveProjectId);
     await initStore(dataDir);
     const allObs = (await getStore().loadAll()) as any[];
-    // Filter by project — flat storage shares one observations.json across projects
-    const obs = allObs.filter((o: any) => o.projectId === effectiveProjectId);
+    const { filterReadableObservations } = await import('../../memory/visibility.js');
+    // The TUI is an unbound local reader, so it renders only project-visible facts.
+    const obs = filterReadableObservations(allObs, { projectId: effectiveProjectId });
     const active = obs.filter((o: any) => (o.status ?? 'active') === 'active');
 
     defaults.totalMemories = obs.length;
@@ -230,8 +231,8 @@ export async function getRecentMemories(limit = 8, projectId?: string): Promise<
     const dataDir = await getProjectDataDir(effectiveProjectId);
     await initStore(dataDir);
     const allObs = (await getStore().loadAll()) as any[];
-    // Filter by project — flat storage shares one observations.json
-    const projectObs = allObs.filter((o: any) => o.projectId === effectiveProjectId);
+    const { filterReadableObservations } = await import('../../memory/visibility.js');
+    const projectObs = filterReadableObservations(allObs, { projectId: effectiveProjectId });
     const active = projectObs.filter((o: any) => (o.status ?? 'active') === 'active');
     const filtered = active.filter((o: any) => !/^(Ran:|Command:|Executed:)\s/i.test(o.title || ''));
 
@@ -262,7 +263,7 @@ export async function searchMemories(query: string, limit = 10): Promise<SearchR
     await initObservations(dataDir);
     await prepareSearchIndex();
 
-    const results = await searchObservations({ query, limit, projectId: proj.id });
+    const results = await searchObservations({ query, limit, projectId: proj.id, reader: { projectId: proj.id } });
 
     const typeIcons: Record<string, string> = {
       gotcha: '!',
@@ -488,6 +489,7 @@ export async function getKnowledgeGraph(
     const { getProjectDataDir } = await import('../../store/persistence.js');
     const { initObservationStore } = await import('../../store/obs-store.js');
     const { initObservations, getAllObservations } = await import('../../memory/observations.js');
+    const { filterReadableObservations } = await import('../../memory/visibility.js');
     const { initMiniSkillStore, getMiniSkillStore } = await import('../../store/mini-skill-store.js');
     const { generateKnowledgeGraph } = await import('../../wiki/knowledge-graph.js');
 
@@ -500,7 +502,7 @@ export async function getKnowledgeGraph(
     await initObservations(dataDir);
     await initMiniSkillStore(dataDir);
 
-    const observations = getAllObservations();
+    const observations = filterReadableObservations(getAllObservations(), { projectId: effectiveProjectId });
     const skills = await getMiniSkillStore().loadByProject(effectiveProjectId);
 
     return generateKnowledgeGraph({
@@ -519,6 +521,7 @@ export async function getKnowledgeBase(projectId?: string): Promise<import('../.
     const { getProjectDataDir } = await import('../../store/persistence.js');
     const { initObservationStore } = await import('../../store/obs-store.js');
     const { initObservations, getAllObservations } = await import('../../memory/observations.js');
+    const { filterReadableObservations } = await import('../../memory/visibility.js');
     const { initMiniSkillStore, getMiniSkillStore } = await import('../../store/mini-skill-store.js');
     const { generateKnowledgeBase } = await import('../../wiki/generator.js');
 
@@ -531,7 +534,7 @@ export async function getKnowledgeBase(projectId?: string): Promise<import('../.
     await initObservations(dataDir);
     await initMiniSkillStore(dataDir);
 
-    const observations = getAllObservations();
+    const observations = filterReadableObservations(getAllObservations(), { projectId: effectiveProjectId });
     const skills = await getMiniSkillStore().loadByProject(effectiveProjectId);
 
     return generateKnowledgeBase({

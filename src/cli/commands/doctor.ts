@@ -257,8 +257,10 @@ export default defineCommand({
         await initObservationStore(dataDir);
         const store = getObservationStore();
         backendName = store.getBackendName();
-        const obs = await store.loadAll();
-        projectObservations = obs.filter((o: any) => o.projectId === projectId);
+        const { filterReadableObservations } = await import('../../memory/visibility.js');
+        projectObservations = projectId
+          ? filterReadableObservations(await store.loadAll(), { projectId })
+          : [];
         obsCount = projectObservations.length;
         activeCount = projectObservations.filter((o: any) => (o.status ?? 'active') === 'active').length;
         ranCount = projectObservations.filter((o: any) => /^Ran:\s/i.test(o.title ?? '')).length;

@@ -1,6 +1,7 @@
 import { defineCommand } from 'citty';
 import { getAllObservations } from '../../memory/observations.js';
 import { archiveExpired, explainRetention, getArchiveCandidates, getRetentionSummary, getRetentionZone, rankByRelevance } from '../../memory/retention.js';
+import { filterReadableObservations } from '../../memory/visibility.js';
 import type { MemorixDocument } from '../../types.js';
 import { emitError, emitResult, getCliProjectContext } from './operator-shared.js';
 
@@ -43,8 +44,11 @@ export default defineCommand({
 
     try {
       const { project, dataDir } = await getCliProjectContext();
-      const activeDocs = getAllObservations()
-        .filter((obs) => obs.projectId === project.id && (obs.status ?? 'active') === 'active')
+      const reader = { projectId: project.id };
+      const activeDocs = filterReadableObservations(
+        getAllObservations().filter((obs) => obs.projectId === project.id && (obs.status ?? 'active') === 'active'),
+        reader,
+      )
         .map(toDocument);
 
       switch (action) {
@@ -67,7 +71,7 @@ export default defineCommand({
         }
 
         case 'archive': {
-          const result = await archiveExpired(dataDir, undefined, undefined, project.id);
+          const result = await archiveExpired(dataDir, undefined, undefined, project.id, reader);
           emitResult(
             { project, result },
             result.archived === 0

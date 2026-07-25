@@ -10,6 +10,7 @@
  * - Pattern = classification only: determines observation type, not storage
  */
 
+import { createHash } from 'node:crypto';
 import type { ObservationType } from '../types.js';
 import {
   assessHookAdmission,
@@ -39,6 +40,11 @@ const MIN_PROMPT_LENGTH = 20;
 
 /** Max content length (truncate beyond this) */
 const MAX_CONTENT_LENGTH = 4000;
+
+function deriveHookActorId(input: NormalizedHookInput): string {
+  const material = `${input.agent ?? 'unknown'}\u0000${input.sessionId ?? 'unknown'}`;
+  return `hook:${createHash('sha256').update(material).digest('hex').slice(0, 24)}`;
+}
 
 /** Truly trivial commands — standalone navigation/inspection only */
 const NOISE_COMMANDS = [
@@ -266,6 +272,10 @@ function buildObservation(
       valueCategory: admission.valueCategory,
       admissionState: admission.admissionState,
       admissionReason: admission.admissionReason,
+      // Automatic capture is private until current code can qualify it for
+      // shared project delivery. The opaque actor is stable within a hook session.
+      visibility: 'personal' as const,
+      createdByAgentId: deriveHookActorId(input),
     } : {}),
   };
 }
@@ -298,6 +308,7 @@ async function handleSessionStart(input: NormalizedHookInput): Promise<{
       const { initAliasRegistry, registerAlias } = await import('../project/aliases.js');
       const { MaintenanceTargetStore } = await import('../runtime/maintenance-targets.js');
       const { buildAutoProjectContext, formatAutoProjectContextPrompt } = await import('../codegraph/auto-context.js');
+      const { filterReadableObservations } = await import('../memory/visibility.js');
 
       const rawProject = detectProject(input.cwd || process.cwd());
       if (!rawProject) throw new Error('No .git found');
@@ -313,7 +324,10 @@ async function handleSessionStart(input: NormalizedHookInput): Promise<{
       await initObservationStore(dataDir);
       await initMiniSkillStore(dataDir);
       await initSessionStore(dataDir);
-      const activeObservations = await getStore().loadByProject(canonicalId, { status: 'active' });
+      const activeObservations = filterReadableObservations(
+        await getStore().loadByProject(canonicalId, { status: 'active' }),
+        { projectId: canonicalId },
+      );
       const context = await buildAutoProjectContext({
         project: { ...rawProject, id: canonicalId },
         dataDir,

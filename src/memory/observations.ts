@@ -11,6 +11,8 @@
 import type {
   Observation,
   ObservationAdmissionState,
+  ObservationReader,
+  ObservationVisibility,
   ObservationType,
   ObservationStatus,
   MemorixDocument,
@@ -40,6 +42,7 @@ import { extractEntities, enrichConcepts } from './entity-extractor.js';
 import { getEmbeddingProvider, isEmbeddingExplicitlyDisabled } from '../embedding/provider.js';
 import { sanitizeCredentials } from './secret-filter.js';
 import { enqueueClaimDerivation, enqueueObservationQualification } from '../runtime/lifecycle.js';
+import { canManageObservation, resolveObservationVisibility } from './visibility.js';
 
 /** In-memory observation list (loaded from persistence on init) */
 let observations: Observation[] = [];
@@ -277,7 +280,11 @@ export async function storeObservation(input: {
   valueCategory?: 'core' | 'contextual' | 'ephemeral';
   admissionState?: ObservationAdmissionState;
   admissionReason?: string;
+  visibility?: ObservationVisibility;
+  sharedWithAgentIds?: string[];
   createdByAgentId?: string;
+  /** Optional caller-bound write scope for topic-key upserts. */
+  visibilityReader?: ObservationReader;
 }): Promise<{ observation: Observation; upserted: boolean }> {
   const now = new Date().toISOString();
 
@@ -297,6 +304,9 @@ export async function storeObservation(input: {
       o => o.topicKey === input.topicKey && o.projectId === input.projectId,
     );
     if (existing) {
+      if (input.visibilityReader && !canManageObservation(existing, input.visibilityReader)) {
+        throw new Error('Cannot update a memory outside this session\'s write scope.');
+      }
       return { observation: await upsertObservation(existing, input, now), upserted: true };
     }
   }
@@ -344,6 +354,9 @@ export async function storeObservation(input: {
         if (input.topicKey) {
           const diskExisting = await tx.findByTopicKey(input.projectId, input.topicKey);
           if (diskExisting) {
+            if (input.visibilityReader && !canManageObservation(diskExisting, input.visibilityReader)) {
+              throw new Error('Cannot update a memory outside this session\'s write scope.');
+            }
             // Switch to upsert path — update the existing observation after this
             // short transaction has released its lock.
             upsertedInsideLock = true;
@@ -381,6 +394,8 @@ export async function storeObservation(input: {
           valueCategory: input.valueCategory,
           admissionState: input.admissionState,
           admissionReason: input.admissionReason ? sanitizeCredentials(input.admissionReason) : undefined,
+          visibility: input.visibility ?? 'project',
+          sharedWithAgentIds: input.sharedWithAgentIds,
           createdByAgentId: input.createdByAgentId,
           // Predict the generation that atomic() will commit after this callback.
           // bumpGeneration() runs after fn(tx) returns, incrementing by 1.
@@ -437,6 +452,8 @@ export async function storeObservation(input: {
         valueCategory: input.valueCategory,
         admissionState: input.admissionState,
         admissionReason: input.admissionReason ? sanitizeCredentials(input.admissionReason) : undefined,
+        visibility: input.visibility ?? 'project',
+        sharedWithAgentIds: input.sharedWithAgentIds,
         createdByAgentId: input.createdByAgentId,
         writeGeneration: 0,
       };
@@ -465,6 +482,9 @@ export async function storeObservation(input: {
       valueCategory: input.valueCategory ?? '',
       admissionState: input.admissionState ?? '',
       admissionReason: input.admissionReason ? sanitizeCredentials(input.admissionReason) : '',
+      visibility: input.visibility ?? 'project',
+      createdByAgentId: input.createdByAgentId ?? '',
+      sharedWithAgentIds: JSON.stringify(input.sharedWithAgentIds ?? []),
     };
 
     await insertObservation(doc);
@@ -479,7 +499,9 @@ export async function storeObservation(input: {
 
   await bindObservationCodeRefsBestEffort(observation);
   queueObservationQualification(observation);
-  queueClaimDerivation(observation);
+  if (resolveObservationVisibility(observation) === 'project') {
+    queueClaimDerivation(observation);
+  }
 
   // Generate embedding async (fire-and-forget) — never blocks MCP response
   // Track in vectorMissingIds until embedding is successfully written.
@@ -551,6 +573,8 @@ async function upsertObservation(
     valueCategory?: 'core' | 'contextual' | 'ephemeral';
     admissionState?: ObservationAdmissionState;
     admissionReason?: string;
+    visibility?: ObservationVisibility;
+    sharedWithAgentIds?: string[];
   },
   now: string,
 ): Promise<Observation> {
@@ -591,6 +615,8 @@ async function upsertObservation(
   if (input.valueCategory !== undefined) existing.valueCategory = input.valueCategory;
   if (input.admissionState !== undefined) existing.admissionState = input.admissionState;
   if (input.admissionReason !== undefined) existing.admissionReason = sanitizeCredentials(input.admissionReason);
+  if (input.visibility !== undefined) existing.visibility = input.visibility;
+  if (input.sharedWithAgentIds !== undefined) existing.sharedWithAgentIds = input.sharedWithAgentIds;
 
   // Re-index in Orama WITHOUT embedding first (non-blocking)
   const doc: MemorixDocument = {
@@ -614,6 +640,9 @@ async function upsertObservation(
     valueCategory: existing.valueCategory ?? '',
     admissionState: existing.admissionState ?? '',
     admissionReason: existing.admissionReason ?? '',
+    visibility: existing.visibility ?? 'project',
+    createdByAgentId: existing.createdByAgentId ?? '',
+    sharedWithAgentIds: JSON.stringify(existing.sharedWithAgentIds ?? []),
   };
 
   // Remove old doc and insert updated one (with retry for concurrent upsert race)
@@ -641,7 +670,9 @@ async function upsertObservation(
 
   await bindObservationCodeRefsBestEffort(existing);
   queueObservationQualification(existing);
-  queueClaimDerivation(existing);
+  if (resolveObservationVisibility(existing) === 'project') {
+    queueClaimDerivation(existing);
+  }
 
   // Generate embedding async (fire-and-forget) — never blocks MCP response
   const searchableText = [input.title, input.narrative, ...(input.facts ?? [])].join(' ');
@@ -700,6 +731,7 @@ export async function updateObservationAdmission(input: {
   expectedState?: ObservationAdmissionState;
   admissionState: ObservationAdmissionState;
   admissionReason: string;
+  visibility?: ObservationVisibility;
 }): Promise<Observation | undefined> {
   await ensureFreshObservations();
   const cached = observations.find((observation) =>
@@ -717,6 +749,7 @@ export async function updateObservationAdmission(input: {
       ...current,
       admissionState: input.admissionState,
       admissionReason,
+      ...(input.visibility !== undefined ? { visibility: input.visibility } : {}),
       updatedAt: now,
     };
   };
@@ -747,9 +780,14 @@ export async function updateObservationAdmission(input: {
     await updateObservationMetadata(updated.projectId, updated.id, {
       admissionState: updated.admissionState,
       admissionReason: updated.admissionReason,
+      ...(updated.visibility !== undefined ? { visibility: updated.visibility } : {}),
     });
   } catch {
     // SQLite is canonical. The next index hydration repairs a missed update.
+  }
+
+  if (updated.admissionState === 'qualified' && resolveObservationVisibility(updated) === 'project') {
+    queueClaimDerivation(updated);
   }
 
   return updated;
@@ -807,6 +845,9 @@ export async function resolveObservations(
         valueCategory: obs.valueCategory ?? '',
         admissionState: obs.admissionState ?? '',
         admissionReason: obs.admissionReason ?? '',
+        visibility: obs.visibility ?? 'project',
+        createdByAgentId: obs.createdByAgentId ?? '',
+        sharedWithAgentIds: JSON.stringify(obs.sharedWithAgentIds ?? []),
       };
       await insertObservation(doc);
       // Async embedding update (fire-and-forget)
@@ -1012,6 +1053,9 @@ export async function reindexObservations(): Promise<number> {
         valueCategory: obs.valueCategory ?? '',
         admissionState: obs.admissionState ?? '',
         admissionReason: obs.admissionReason ?? '',
+        visibility: obs.visibility ?? 'project',
+        createdByAgentId: obs.createdByAgentId ?? '',
+        sharedWithAgentIds: JSON.stringify(obs.sharedWithAgentIds ?? []),
         ...(compatibleEmbedding ? { embedding: compatibleEmbedding } : {}),
       };
       await insertObservation(doc);
@@ -1136,6 +1180,7 @@ export async function probeSearchIndex(projectId: string): Promise<string> {
   await searchObservations({
     query: 'semantic memory retrieval status',
     projectId,
+    reader: { projectId },
     limit: 1,
     status: 'all',
     trackAccess: false,
@@ -1224,6 +1269,9 @@ export async function backfillVectorEmbeddings(options: {
             valueCategory: obs.valueCategory ?? '',
             admissionState: obs.admissionState ?? '',
             admissionReason: obs.admissionReason ?? '',
+            visibility: obs.visibility ?? 'project',
+            createdByAgentId: obs.createdByAgentId ?? '',
+            sharedWithAgentIds: JSON.stringify(obs.sharedWithAgentIds ?? []),
             embedding,
           };
           await insertObservation(doc);

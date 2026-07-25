@@ -3,6 +3,8 @@ import { computePoll, computeWatermark } from '../../team/poll.js';
 import { getObservationStore } from '../../store/obs-store.js';
 import { getAllObservations } from '../../memory/observations.js';
 import { withFreshIndex } from '../../memory/freshness.js';
+import { filterReadableObservations } from '../../memory/visibility.js';
+import type { ObservationReader } from '../../types.js';
 import { emitError, emitResult, getCliProjectContext, shortId } from './operator-shared.js';
 
 export default defineCommand({
@@ -21,20 +23,29 @@ export default defineCommand({
     try {
       const { project, teamStore } = await getCliProjectContext();
       const agentId = args.agentId as string | undefined;
+      let reader: ObservationReader = { projectId: project.id };
 
       let watermark = computeWatermark(0, 0, 0);
       if (agentId) {
         const agent = teamStore.getAgent(agentId);
-        if (!agent) {
+        if (!agent || agent.project_id !== project.id) {
           emitError(`Unknown agent "${agentId}"`, asJson);
           return;
         }
+        reader = {
+          projectId: project.id,
+          agentId,
+          isTeamMember: agent.status === 'active',
+        };
 
         const lastSeen = agent.last_seen_obs_generation;
         const currentGen = getObservationStore().getGeneration();
         const projectObs = await withFreshIndex(() =>
-          getAllObservations().filter(
-            (obs) => obs.projectId === project.id && (obs.writeGeneration ?? 0) > lastSeen,
+          filterReadableObservations(
+            getAllObservations().filter(
+              (obs) => obs.projectId === project.id && (obs.writeGeneration ?? 0) > lastSeen,
+            ),
+            reader,
           ),
         );
         watermark = computeWatermark(lastSeen, currentGen, projectObs.length);

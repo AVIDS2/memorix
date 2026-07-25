@@ -1,6 +1,7 @@
 import { defineCommand } from 'citty';
 import type { AgentTarget } from '../../types.js';
 import { getObservationStore } from '../../store/obs-store.js';
+import { filterReadableObservations } from '../../memory/visibility.js';
 import { emitError, emitResult, getCliProjectContext } from './operator-shared.js';
 
 export default defineCommand({
@@ -37,8 +38,10 @@ export default defineCommand({
         }
 
         case 'generate': {
-          const observations = (await getObservationStore().loadAll())
-            .filter((obs) => obs.projectId === project.id)
+          const observations = filterReadableObservations(
+            await getObservationStore().loadAll(),
+            { projectId: project.id },
+          )
             .map((obs) => ({
               id: obs.id,
               entityName: obs.entityName,
@@ -82,8 +85,10 @@ export default defineCommand({
             return;
           }
 
-          const observations = (await getObservationStore().loadAll())
-            .filter((obs) => obs.projectId === project.id)
+          const observations = filterReadableObservations(
+            await getObservationStore().loadAll(),
+            { projectId: project.id },
+          )
             .map((obs) => ({
               id: obs.id,
               entityName: obs.entityName,

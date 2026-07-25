@@ -59,7 +59,9 @@ CREATE TABLE IF NOT EXISTS observations (
   sourceDetail    TEXT,
   valueCategory   TEXT,
   admissionState  TEXT,
-  admissionReason TEXT
+  admissionReason TEXT,
+  visibility      TEXT,
+  sharedWithAgentIds TEXT
 );
 `;
 
@@ -532,6 +534,7 @@ CREATE INDEX IF NOT EXISTS idx_observations_topicKey ON observations(projectId, 
 CREATE INDEX IF NOT EXISTS idx_observations_status ON observations(status);
 CREATE INDEX IF NOT EXISTS idx_observations_project_status_id ON observations(projectId, status, id);
 CREATE INDEX IF NOT EXISTS idx_observations_project_admission ON observations(projectId, status, admissionState, id);
+CREATE INDEX IF NOT EXISTS idx_observations_project_visibility ON observations(projectId, status, visibility, id);
 CREATE INDEX IF NOT EXISTS idx_mini_skills_projectId ON mini_skills(projectId);
 CREATE INDEX IF NOT EXISTS idx_sessions_projectId ON sessions(projectId);
 CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(projectId, status);
@@ -599,6 +602,14 @@ const SCHEMA_MIGRATIONS: SchemaMigration[] = [
       addColumnIfMissing(db, 'observations', 'admissionState', 'admissionState TEXT');
       addColumnIfMissing(db, 'observations', 'admissionReason', 'admissionReason TEXT');
       db.exec('CREATE INDEX IF NOT EXISTS idx_observations_project_admission ON observations(projectId, status, admissionState, id)');
+    },
+  },
+  {
+    id: '1.2.2-observation-visibility',
+    apply: (db) => {
+      addColumnIfMissing(db, 'observations', 'visibility', 'visibility TEXT');
+      addColumnIfMissing(db, 'observations', 'sharedWithAgentIds', 'sharedWithAgentIds TEXT');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_observations_project_visibility ON observations(projectId, status, visibility, id)');
     },
   },
   {

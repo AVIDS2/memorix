@@ -29,12 +29,13 @@ import { checkProjectAttribution, auditProjectObservations } from './memory/attr
 import { createAutoRelations } from './memory/auto-relations.js';
 import { extractEntities } from './memory/entity-extractor.js';
 import { scopeKnowledgeGraphToProject } from './memory/graph-scope.js';
+import { canManageObservation, canReadObservation, filterReadableObservations, resolveObservationVisibility } from './memory/visibility.js';
 import { compactSearch, compactTimeline, compactDetail } from './compact/engine.js';
 import { buildGraphContextPacket, formatGraphContextPrompt } from './memory/graph-context.js';
 import { detectProject } from './project/detector.js';
 import { registerAlias, initAliasRegistry, resolveAliases, autoMergeByBaseName } from './project/aliases.js';
 import { getProjectDataDir } from './store/persistence.js';
-import type { ObservationType, RuleSource, AgentTarget, MCPServerEntry } from './types.js';
+import type { ObservationType, RuleSource, AgentTarget, MCPServerEntry, ObservationReader } from './types.js';
 import { RulesSyncer } from './rules/syncer.js';
 import { WorkspaceSyncEngine } from './workspace/engine.js';
 import {
@@ -261,8 +262,10 @@ export async function createMemorixServer(
   let rawProject: import('./types.js').ProjectInfo;
   let projectResolved = true;
   let projectResolutionError: string | null = null;
-    let explicitProjectBound = false; // Set true when memorix_session_start binds via projectRoot
-    let currentAgentId: string | undefined; // Session-scoped coordination identity for attribution after explicit join
+  let explicitProjectBound = false; // Set true when memorix_session_start binds via projectRoot
+  let currentAgentId: string | undefined; // Session-scoped coordination identity for attribution after explicit join
+  let teamStore!: import('./team/team-store.js').TeamStore;
+  let initTeamStoreForProject: ((dataDir: string) => Promise<import('./team/team-store.js').TeamStore>) | undefined;
   if (detectedProject) {
     rawProject = detectedProject;
   } else {
@@ -582,6 +585,23 @@ export async function createMemorixServer(
     return (originalRegisterTool as (...innerArgs: unknown[]) => unknown)(name, ...args) as never;
   }) as typeof server.registerTool;
 
+  const getObservationReader = (scope: 'project' | 'global' = 'project'): ObservationReader => {
+    let isTeamMember = false;
+    if (teamFeaturesEnabled && currentAgentId) {
+      try {
+        const agent = teamStore.getAgent(currentAgentId);
+        isTeamMember = agent?.project_id === project.id && agent.status === 'active';
+      } catch {
+        // A missing coordination store must never grant team visibility.
+      }
+    }
+    return {
+      ...(scope === 'project' ? { projectId: project.id } : {}),
+      ...(currentAgentId ? { agentId: currentAgentId } : {}),
+      isTeamMember,
+    };
+  };
+
   // ================================================================
   // Memorix Extended Tools (3-layer Progressive Disclosure)
   // ================================================================
@@ -602,7 +622,7 @@ export async function createMemorixServer(
         'problem-solution ([FIX] bug fix), how-it-works ([INFO] explanation), what-changed ([CHANGE] change), ' +
         'discovery ([DISCOVERY] insight), why-it-exists ([WHY] rationale), trade-off ([TRADEOFF] compromise), ' +
         'session-request ([SESSION] original goal). ' +
-        'Stored memories persist across sessions and are shared with other IDEs and agents (Cursor, Windsurf, Claude Code, Codex, Copilot, Gemini CLI, OpenCode, OpenClaw, Hermes Agent, Oh-my-Pi, Kiro, Antigravity, Trae) via the same local data directory.',
+        'Project visibility is the default. Personal or team visibility requires an explicitly joined coordination identity.',
       inputSchema: {
         entityName: z.string().describe('The entity this observation belongs to (e.g., "auth-module", "port-config")'),
         type: z.enum(OBSERVATION_TYPES).describe('Observation type for classification'),
@@ -623,12 +643,30 @@ export async function createMemorixServer(
         }).optional().describe('Progress tracking for task/feature observations'),
         relatedCommits: z.array(z.string()).optional().describe('Git commit hashes this memory relates to (links ground truth ↔ reasoning)'),
         relatedEntities: z.array(z.string()).optional().describe('Other entity names this memory cross-references'),
+        visibility: z.enum(['personal', 'project', 'team']).optional().describe(
+          'Retrieval scope. Project is the normal shared default; personal/team require memorix_session_start with joinTeam=true.',
+        ),
       },
     },
-    async ({ entityName: rawEntityName, type: rawType, title: rawTitle, narrative, facts, filesModified, concepts, topicKey, progress, relatedCommits, relatedEntities }) => {
+    async ({ entityName: rawEntityName, type: rawType, title: rawTitle, narrative, facts, filesModified, concepts, topicKey, progress, relatedCommits, relatedEntities, visibility }) => {
       const unresolved = requireResolvedProject('store memory in the current project');
       if (unresolved) return unresolved;
-      return withFreshIndex(async () => {
+      const requestedVisibility = (visibility ?? 'project') as 'personal' | 'project' | 'team';
+      const reader = getObservationReader();
+      if (requestedVisibility !== 'project' && !currentAgentId) {
+        return {
+          content: [{ type: 'text' as const, text: 'Personal or team memory requires memorix_session_start with joinTeam=true so Memorix can bind an owner.' }],
+          isError: true as const,
+        };
+      }
+      if (requestedVisibility === 'team' && !reader.isTeamMember) {
+        return {
+          content: [{ type: 'text' as const, text: 'Team memory requires an active coordination membership in the current project.' }],
+          isError: true as const,
+        };
+      }
+      try {
+      return await withFreshIndex(async () => {
 
       // Mutable copies — Formation Pipeline may improve these
       let entityName = rawEntityName;
@@ -678,9 +716,9 @@ export async function createMemorixServer(
             useLLM: isLLMEnabled(),
             minValueScore: 0.3,
             searchMemories: async (q: string, limit: number, pid: string): Promise<SearchHit[]> => {
-              const result = await compactSearch({ query: q, limit, projectId: pid, status: 'active' });
+              const result = await compactSearch({ query: q, limit, projectId: pid, status: 'active', reader });
               if (result.entries.length === 0) return [];
-              const details = await compactDetail(result.entries.map(e => e.id));
+              const details = await compactDetail(result.entries.map(e => e.id), { reader });
               return details.documents.map((d, i) => ({
                 id: Number(d.id.replace('obs-', '')),
                 observationId: d.observationId,
@@ -694,7 +732,7 @@ export async function createMemorixServer(
             },
             getObservation: (id: number) => {
               const o = getObservation(id);
-              if (!o) return null;
+              if (!o || o.projectId !== project.id || !canReadObservation(o, reader)) return null;
               return {
                 id: o.id,
                 entityName: o.entityName,
@@ -753,7 +791,7 @@ export async function createMemorixServer(
         if (action === 'merge' && targetId) {
           // Merge into existing observation
           const targetObs = getObservation(targetId);
-          if (targetObs) {
+          if (targetObs && targetObs.projectId === project.id && canReadObservation(targetObs, reader)) {
             await storeObservation({
               entityName: targetObs.entityName,
               type: targetObs.type,
@@ -767,6 +805,8 @@ export async function createMemorixServer(
               progress: progress as import('./types.js').ProgressInfo | undefined,
               sourceDetail: 'explicit',
               createdByAgentId: currentAgentId,
+              visibility,
+              visibilityReader: reader,
             });
             return {
               content: [{
@@ -778,7 +818,7 @@ export async function createMemorixServer(
         } else if (action === 'evolve' && targetId) {
           // Evolve existing observation
           const targetObs = getObservation(targetId);
-          if (targetObs) {
+          if (targetObs && targetObs.projectId === project.id && canReadObservation(targetObs, reader)) {
             await storeObservation({
               entityName: targetObs.entityName,
               type: targetObs.type,
@@ -792,6 +832,8 @@ export async function createMemorixServer(
               progress: progress as import('./types.js').ProgressInfo | undefined,
               sourceDetail: 'explicit',
               createdByAgentId: currentAgentId,
+              visibility,
+              visibilityReader: reader,
             });
             return {
               content: [{
@@ -824,12 +866,13 @@ export async function createMemorixServer(
             limit: 5,
             projectId: project.id,
             status: 'active',
+            reader,
           });
           const similarEntries = searchResult.entries.map(e => e);
           if (similarEntries.length > 0) {
             // Fetch full details for comparison
             const similarIds = similarEntries.map(e => e.id);
-            const details = await compactDetail(similarIds);
+            const details = await compactDetail(similarIds, { reader });
             const existingMemories: ExistingMemory[] = details.documents.map((d, i) => ({
               id: d.observationId,
               title: d.title,
@@ -850,7 +893,7 @@ export async function createMemorixServer(
             if (decision.action === 'UPDATE' && decision.targetId) {
               // Merge into existing memory (Mem0-style UPDATE)
               const targetObs = getObservation(decision.targetId);
-              if (targetObs) {
+              if (targetObs && targetObs.projectId === project.id && canReadObservation(targetObs, reader)) {
                 await storeObservation({
                   entityName: targetObs.entityName,
                   type: targetObs.type,
@@ -864,6 +907,8 @@ export async function createMemorixServer(
                   progress: progress as import('./types.js').ProgressInfo | undefined,
                   sourceDetail: 'explicit',
                   createdByAgentId: currentAgentId,
+                  visibility,
+                  visibilityReader: reader,
                 });
                 compactAction = `[UPDATED] Compact UPDATE: merged into #${decision.targetId} (${decision.reason})`;
                 compactMerged = true;
@@ -963,7 +1008,11 @@ export async function createMemorixServer(
       // in a different project — signals a potential wrong-bucket write.
       let attributionWarning = '';
       try {
-        const attrCheck = await checkProjectAttribution(entityName, project.id, getAllObservations());
+        const attrCheck = await checkProjectAttribution(
+          entityName,
+          project.id,
+          filterReadableObservations(getAllObservations(), reader),
+        );
         if (attrCheck.suspicious) {
           attributionWarning = `\n[WARN] Attribution notice: entity "${entityName}" has 0 observations in ` +
             `"${project.id}" but ${attrCheck.count} in "${attrCheck.knownIn}" ` +
@@ -989,6 +1038,8 @@ export async function createMemorixServer(
         sourceDetail: 'explicit',
         valueCategory: formationResult?.evaluation.category,
         createdByAgentId: currentAgentId,
+        visibility,
+        visibilityReader: reader,
       });
 
       // Add a reference to the entity's observations
@@ -1023,14 +1074,15 @@ export async function createMemorixServer(
             const compactStart = Date.now();
             const searchResult = await compactSearch({
               query: `${title} ${narrative.substring(0, 200)}`,
-              limit: 5,
-              projectId: project.id,
-              status: 'active',
+            limit: 5,
+            projectId: project.id,
+            status: 'active',
+            reader,
             });
             const similarEntries = searchResult.entries.map(e => e);
             if (similarEntries.length > 0) {
               const similarIds = similarEntries.map(e => e.id);
-              const details = await compactDetail(similarIds);
+              const details = await compactDetail(similarIds, { reader });
               const existingMemories: ExistingMemory[] = details.documents.map((d, i) => ({
                 id: d.observationId,
                 title: d.title,
@@ -1056,9 +1108,9 @@ export async function createMemorixServer(
             useLLM: isLLMEnabled(),
             minValueScore: 0.3,
             searchMemories: async (q: string, limit: number, pid: string): Promise<SearchHit[]> => {
-              const result = await compactSearch({ query: q, limit, projectId: pid, status: 'active' });
+              const result = await compactSearch({ query: q, limit, projectId: pid, status: 'active', reader });
               if (result.entries.length === 0) return [];
-              const details = await compactDetail(result.entries.map(e => e.id));
+              const details = await compactDetail(result.entries.map(e => e.id), { reader });
               return details.documents.map((d, i) => ({
                 id: Number(d.id.replace('obs-', '')),
                 observationId: d.observationId,
@@ -1072,7 +1124,7 @@ export async function createMemorixServer(
             },
             getObservation: (id: number) => {
               const o = getObservation(id);
-              if (!o) return null;
+              if (!o || o.projectId !== project.id || !canReadObservation(o, reader)) return null;
               return { id: o.id, entityName: o.entityName, type: o.type, title: o.title, narrative: o.narrative, facts: o.facts, topicKey: o.topicKey };
             },
             getEntityNames: () => graphManager.getEntityNames(),
@@ -1112,6 +1164,15 @@ export async function createMemorixServer(
         ],
       };
       }); // withFreshIndex
+      } catch (error) {
+        return {
+          content: [{
+            type: 'text' as const,
+            text: error instanceof Error ? error.message : 'Failed to store memory.',
+          }],
+          isError: true as const,
+        };
+      }
     },
   );
 
@@ -1208,6 +1269,7 @@ export async function createMemorixServer(
         projectId: scope === 'global' ? undefined : project.id,
         status: (status as 'active' | 'resolved' | 'archived' | 'all') ?? 'active',
         source: source as 'agent' | 'git' | 'manual' | undefined,
+        reader: getObservationReader(scope === 'global' ? 'global' : 'project'),
       });
 
       const timeoutPromise = new Promise<never>((_, reject) =>
@@ -1279,7 +1341,10 @@ export async function createMemorixServer(
       if (unresolved) return unresolved;
 
       const { getObservationStore } = await import('./store/obs-store.js');
-      const observations = await getObservationStore().loadByProject(project.id);
+      const observations = filterReadableObservations(
+        await getObservationStore().loadByProject(project.id),
+        getObservationReader(),
+      );
       const packet = buildGraphContextPacket(observations, {
         projectId: project.id,
         query,
@@ -1339,7 +1404,10 @@ export async function createMemorixServer(
         import('./runtime/maintenance-jobs.js'),
         import('./runtime/lifecycle.js'),
       ]);
-      const observations = await getObservationStore().loadByProject(project.id, { status: 'active' });
+      const observations = filterReadableObservations(
+        await getObservationStore().loadByProject(project.id, { status: 'active' }),
+        getObservationReader(),
+      );
       const context = await buildAutoProjectContext({
         project,
         dataDir: projectDir,
@@ -1441,7 +1509,10 @@ export async function createMemorixServer(
       await store.init(projectDir);
       const codegraphConfig = getResolvedConfig({ projectRoot: project.rootPath }).codegraph;
       const exclude = codegraphConfig.excludePatterns;
-      const observations = await getObservationStore().loadByProject(project.id, { status: 'active' });
+      const observations = filterReadableObservations(
+        await getObservationStore().loadByProject(project.id, { status: 'active' }),
+        getObservationReader(),
+      );
       observations.reverse();
       const basePack = assembleContextPackForTask({
         store,
@@ -1863,9 +1934,15 @@ export async function createMemorixServer(
       },
     },
     async ({ ids, status }) => {
-      const { resolveObservations } = await import('./memory/observations.js');
+      const { resolveObservations, getObservation } = await import('./memory/observations.js');
       const safeIds = (Array.isArray(ids) ? ids : [ids]).map(id => coerceNumber(id, 0)).filter(id => id > 0);
-      const result = await resolveObservations(safeIds, (status as 'resolved' | 'archived') ?? 'resolved');
+      const reader = getObservationReader();
+      const authorizedIds = safeIds.filter((id) => {
+        const observation = getObservation(id, project.id);
+        return observation ? canManageObservation(observation, reader) : false;
+      });
+      const result = await resolveObservations(authorizedIds, (status as 'resolved' | 'archived') ?? 'resolved');
+      const deniedCount = safeIds.length - authorizedIds.length;
 
       const parts: string[] = [];
       if (result.resolved.length > 0) {
@@ -1873,6 +1950,9 @@ export async function createMemorixServer(
       }
       if (result.notFound.length > 0) {
         parts.push(`[WARN] Not found: #${result.notFound.join(', #')}`);
+      }
+      if (deniedCount > 0) {
+        parts.push(`[WARN] Skipped ${deniedCount} observation(s) outside this session's write scope.`);
       }
       parts.push('\nResolved memories are hidden from default search. Use status="all" to include them.');
       parts.push('[STATS] Run `memorix_retention` with `action: "report"` to check remaining cleanup status.');
@@ -1919,6 +1999,7 @@ export async function createMemorixServer(
     async ({ entityName, decision, alternatives, rationale, constraints, expectedOutcome, risks, concepts, filesModified, relatedCommits, relatedEntities }) => {
       const unresolved = requireResolvedProject('store reasoning in the current project');
       if (unresolved) return unresolved;
+      const reader = getObservationReader();
       return withFreshIndex(async () => {
 
       // Build structured narrative from reasoning fields
@@ -1948,7 +2029,11 @@ export async function createMemorixServer(
       // ── Attribution guard (passive, non-blocking) ─────────────────
       let reasoningAttributionWarning = '';
       try {
-        const attrCheck = await checkProjectAttribution(entityName, project.id, getAllObservations());
+        const attrCheck = await checkProjectAttribution(
+          entityName,
+          project.id,
+          filterReadableObservations(getAllObservations(), reader),
+        );
         if (attrCheck.suspicious) {
           reasoningAttributionWarning = `\n[WARN] Attribution notice: entity "${entityName}" has 0 observations in ` +
             `"${project.id}" but ${attrCheck.count} in "${attrCheck.knownIn}" ` +
@@ -1970,6 +2055,7 @@ export async function createMemorixServer(
         relatedEntities,
         sourceDetail: 'explicit',
         createdByAgentId: currentAgentId,
+        visibility: 'project',
       });
 
       await graphManager.addObservations([
@@ -2013,7 +2099,11 @@ export async function createMemorixServer(
       const minCount = threshold ?? 2;
       let entries: import('./memory/attribution-guard.js').AuditEntry[];
       try {
-        entries = await auditProjectObservations(project.id, await withFreshIndex(() => getAllObservations()), minCount);
+        entries = await auditProjectObservations(
+          project.id,
+          await withFreshIndex(() => filterReadableObservations(getAllObservations(), getObservationReader())),
+          minCount,
+        );
       } catch (err) {
         return {
           content: [{
@@ -2096,6 +2186,7 @@ export async function createMemorixServer(
         type: 'reasoning' as ObservationType,
         projectId: scope === 'global' ? undefined : project.id,
         status: 'active',
+        reader: getObservationReader(scope === 'global' ? 'global' : 'project'),
       }));
 
       if (result.entries.length === 0) {
@@ -2132,7 +2223,11 @@ export async function createMemorixServer(
     },
     async ({ query, dryRun }) => {
       const { getAllObservations, resolveObservations } = await import('./memory/observations.js');
-      const allObs = await withFreshIndex(() => getAllObservations().filter(o => (o.status ?? 'active') === 'active' && o.projectId === project.id));
+      const reader = getObservationReader();
+      const allObs = await withFreshIndex(() => filterReadableObservations(
+        getAllObservations().filter(o => (o.status ?? 'active') === 'active' && o.projectId === project.id),
+        reader,
+      ).filter((observation) => canManageObservation(observation, reader)));
 
       if (allObs.length < 2) {
         return { content: [{ type: 'text' as const, text: 'Not enough active memories to deduplicate.' }] };
@@ -2151,7 +2246,7 @@ export async function createMemorixServer(
       // If query provided, search for relevant memories; otherwise take latest 20
       let candidates: typeof allObs;
       if (query) {
-        const searchResult = await compactSearch({ query, limit: 20, projectId: project.id, status: 'active' });
+        const searchResult = await compactSearch({ query, limit: 20, projectId: project.id, status: 'active', reader });
         const idSet = new Set(searchResult.entries.map(e => e.id));
         candidates = allObs.filter(o => idSet.has(o.id));
       } else {
@@ -2257,6 +2352,7 @@ export async function createMemorixServer(
         project.id,
         safeBefore,
         safeAfter,
+        getObservationReader(),
       );
 
       return {
@@ -2307,14 +2403,17 @@ export async function createMemorixServer(
       // Priority: typedRefs > refs > ids (each is a complete, homogeneous input path)
       let result;
       try {
+        const hasCrossProjectRef = safeRefs.some((ref) => ref.projectId && ref.projectId !== project.id)
+          || safeTypedRefs.some((ref) => ref.includes('@') && !ref.endsWith(`@${project.id}`));
+        const reader = getObservationReader(hasCrossProjectRef ? 'global' : 'project');
         if (safeTypedRefs.length > 0) {
           // Pass typed ref strings directly — compactDetail handles parsing
-          result = await compactDetail(safeTypedRefs);
+          result = await compactDetail(safeTypedRefs, { reader });
         } else if (safeRefs.length > 0) {
-          result = await compactDetail(safeRefs);
+          result = await compactDetail(safeRefs, { reader });
         } else {
           // Bare numeric IDs are scoped to the current project
-          result = await compactDetail(safeIds.map(id => ({ id, projectId: project.id })));
+          result = await compactDetail(safeIds.map(id => ({ id, projectId: project.id })), { reader });
         }
       } catch (err) {
         return { content: [{ type: 'text' as const, text: err instanceof Error ? err.message : String(err) }], isError: true };
@@ -2363,13 +2462,17 @@ export async function createMemorixServer(
     },
     async (args: { action?: string }) => {
       const action = args.action ?? 'report';
-      const { getRetentionSummary, getArchiveCandidates, rankByRelevance, archiveExpired, getRetentionZone, explainRetention } = await import('./memory/retention.js');
+      const { getRetentionSummary, getArchiveCandidates, rankByRelevance, getRetentionZone, explainRetention } = await import('./memory/retention.js');
       const { getDb } = await import('./store/orama-store.js');
       const { search } = await import('@orama/orama');
 
       // Shared: build MemorixDocument[] from in-memory observations
-      const { getAllObservations } = await import('./memory/observations.js');
-      const allObs = await withFreshIndex(() => getAllObservations());
+      const { getAllObservations, resolveObservations } = await import('./memory/observations.js');
+      const reader = getObservationReader();
+      const allObs = await withFreshIndex(() => filterReadableObservations(
+        getAllObservations().filter((observation) => observation.projectId === project.id),
+        reader,
+      ));
 
       // Pull current access metadata from the live Orama index so access-based
       // immunity (e.g. accessCount >= 3) still works in retention/report/archive
@@ -2393,19 +2496,6 @@ export async function createMemorixServer(
         // less precise immunity/reporting.
       }
 
-      // Handle archive action
-      if (action === 'archive') {
-        const result = await archiveExpired(projectDir, undefined, accessMap, project.id);
-        if (result.archived === 0) {
-          return {
-            content: [{ type: 'text' as const, text: '[OK] No expired observations to archive. All memories are within their retention period.' }],
-          };
-        }
-        return {
-          content: [{ type: 'text' as const, text: `[ARCHIVED] Archived ${result.archived} expired observations (status set to 'archived' in-place)\n${result.remaining} active observations remaining.\n\nArchived memories are hidden from default search but can be found with status: "all".` }],
-        };
-      }
-
       const docs: import('./types.js').MemorixDocument[] = allObs.map(obs => ({
         id: `obs-${obs.id}`,
         observationId: obs.id,
@@ -2427,11 +2517,32 @@ export async function createMemorixServer(
         valueCategory: obs.valueCategory ?? '',
         admissionState: obs.admissionState ?? '',
         admissionReason: obs.admissionReason ?? '',
+        visibility: obs.visibility ?? 'project',
+        createdByAgentId: obs.createdByAgentId ?? '',
+        sharedWithAgentIds: JSON.stringify(obs.sharedWithAgentIds ?? []),
       }));
 
       if (docs.length === 0) {
         return {
           content: [{ type: 'text' as const, text: 'No observations found for this project.' }],
+        };
+      }
+
+      if (action === 'archive') {
+        const managedIds = new Set(
+          allObs
+            .filter((observation) => canManageObservation(observation, reader))
+            .map((observation) => observation.id),
+        );
+        const candidates = getArchiveCandidates(docs).filter((document) => managedIds.has(document.observationId));
+        if (candidates.length === 0) {
+          return {
+            content: [{ type: 'text' as const, text: '[OK] No expired memories in this session\'s write scope to archive.' }],
+          };
+        }
+        const result = await resolveObservations(candidates.map((document) => document.observationId), 'archived');
+        return {
+          content: [{ type: 'text' as const, text: `[ARCHIVED] Archived ${result.resolved.length} expired observation(s) in this session's write scope.\n${Math.max(0, managedIds.size - result.resolved.length)} visible writable observations remaining.` }],
         };
       }
 
@@ -2809,7 +2920,10 @@ export async function createMemorixServer(
     const allObs = await withFreshIndex(() => getAllObservations());
     const scoped = scopeKnowledgeGraphToProject(
       graph,
-      allObs.filter(observation => observation.projectId === project.id),
+      filterReadableObservations(
+        allObs.filter(observation => observation.projectId === project.id),
+        getObservationReader(),
+      ),
     );
     return { entities: scoped.entities, relations: scoped.relations };
   }
@@ -3151,12 +3265,10 @@ export async function createMemorixServer(
 
       // action === 'generate'
       const { getObservationStore: getStore } = await import('./store/obs-store.js');
-      const allObs = await getStore().loadAll() as Array<{
-        id?: number; entityName?: string; type?: string; title?: string;
-        narrative?: string; facts?: string[]; concepts?: string[];
-        filesModified?: string[]; createdAt?: string;
-        status?: string; source?: 'agent' | 'git' | 'manual';
-      }>;
+      const allObs = filterReadableObservations(
+        (await getStore().loadAll()).filter((observation) => observation.projectId === project.id),
+        getObservationReader(),
+      );
 
       const obsData = allObs.map(o => ({
         id: o.id || 0,
@@ -3288,7 +3400,11 @@ export async function createMemorixServer(
       // Load observations by ID — only active observations can be promoted
       const { getAllObservations } = await import('./memory/observations.js');
       const allObs = await withFreshIndex(() => getAllObservations());
-      const matched = allObs.filter(o => observationIds.includes(o.id));
+      const reader = getObservationReader();
+      const matched = filterReadableObservations(
+        allObs.filter((observation) => observation.projectId === project.id && observationIds.includes(observation.id)),
+        reader,
+      );
 
       if (matched.length === 0) {
         return { content: [{ type: 'text' as const, text: `No observations found for IDs: [${observationIds.join(', ')}]. Use \`memorix_search\` to find valid IDs.` }], isError: true };
@@ -3298,6 +3414,14 @@ export async function createMemorixServer(
       const nonActive = matched.filter(o => (o.status ?? 'active') !== 'active');
       if (nonActive.length > 0) {
         return { content: [{ type: 'text' as const, text: `Cannot promote: ${nonActive.length} observation(s) are not active: ${nonActive.map(o => `#${o.id} (${o.status})`).join(', ')}. Only active observations can be promoted to permanent knowledge.` }], isError: true };
+      }
+
+      const nonProjectShared = matched.filter((observation) => resolveObservationVisibility(observation) !== 'project');
+      if (nonProjectShared.length > 0) {
+        return {
+          content: [{ type: 'text' as const, text: `Cannot promote private or team-scoped observations: ${nonProjectShared.map((observation) => `#${observation.id}`).join(', ')}. Promote only deliberate project-shared knowledge.` }],
+          isError: true,
+        };
       }
 
       const skill = await promoteToMiniSkill(projectDir, project.id, matched, { trigger, instruction, tags });
@@ -3533,8 +3657,11 @@ export async function createMemorixServer(
           const lastSeen = registeredAgent.last_seen_obs_generation;
           const store = getObservationStore();
           const currentGen = store.getGeneration();
-          const projectObs = await withFreshIndex(() => getAllObservations().filter(
-            o => o.projectId === project.id && (o.writeGeneration ?? 0) > lastSeen,
+          const projectObs = await withFreshIndex(() => filterReadableObservations(
+            getAllObservations().filter(
+              o => o.projectId === project.id && (o.writeGeneration ?? 0) > lastSeen,
+            ),
+            getObservationReader(),
           ));
           const wm = computeWatermark(lastSeen, currentGen, projectObs.length);
           if (wm.newObservationCount > 0) {
@@ -3974,8 +4101,6 @@ export async function createMemorixServer(
 
   // Use shared TeamStore (from HTTP server) or create new one (stdio mode).
   // All team state is canonical in SQLite — no JSON persistence, no sync/flush.
-  let teamStore!: import('./team/team-store.js').TeamStore;
-  let initTeamStoreForProject: ((dataDir: string) => Promise<import('./team/team-store.js').TeamStore>) | undefined;
   if (teamFeaturesEnabled) {
     const { initTeamStore } = await import('./team/team-store.js');
     initTeamStoreForProject = initTeamStore;
@@ -4261,7 +4386,7 @@ export async function createMemorixServer(
         'Action "inbox": read this agent\'s inbox.',
       inputSchema: {
         action: z.enum(['send', 'broadcast', 'inbox']).describe('Operation to perform'),
-        from: z.string().optional().describe('Sender agent ID (for send/broadcast)'),
+        from: z.string().optional().describe('Your sender agent ID. Omit it to use this session identity.'),
         to: z.string().optional().describe('Receiver agent ID (for send)'),
         type: z.enum(['request', 'response', 'info', 'announcement', 'contract', 'error', 'handoff']).optional().describe('Message type (for send/broadcast)'),
         content: z.string().optional().describe('Message content (for send/broadcast)'),
@@ -4272,13 +4397,20 @@ export async function createMemorixServer(
       },
     },
     async ({ action, from, to, type: msgType, content, agentId, markRead, toRole, handoffStatus }) => {
+      const requireCurrentTeamAgent = () => {
+        if (!currentAgentId) return null;
+        const agent = teamStore.getAgent(currentAgentId);
+        return agent?.project_id === project.id && agent.status === 'active' ? agent : null;
+      };
       if (action === 'send') {
-        if (!from || !msgType || !content) return { content: [{ type: 'text' as const, text: '[ERROR] from, type, and content required for send' }], isError: true };
+        const sender = requireCurrentTeamAgent();
+        if (!sender || !msgType || !content) return { content: [{ type: 'text' as const, text: '[ERROR] active session identity, type, and content required for send' }], isError: true };
+        if (from && from !== currentAgentId) return { content: [{ type: 'text' as const, text: '[ERROR] from must match the current session identity' }], isError: true };
         if (!to && !toRole) return { content: [{ type: 'text' as const, text: '[ERROR] either to (agent ID) or toRole is required for send' }], isError: true };
         if (content.length > 10_000) return { content: [{ type: 'text' as const, text: '[ERROR] Message too large (max 10KB)' }], isError: true };
         const msg = teamStore.sendMessage({
           projectId: project.id,
-          senderAgentId: from,
+          senderAgentId: currentAgentId!,
           recipientAgentId: to ?? null,
           type: msgType,
           content,
@@ -4290,11 +4422,13 @@ export async function createMemorixServer(
         return { content: [{ type: 'text' as const, text: `Message sent (${msgType}) to ${target} | ID: ${msg.id.slice(0, 8)}…${toRole ? ` [role: ${toRole}]` : ''}` }] };
       }
       if (action === 'broadcast') {
-        if (!from || !msgType || !content) return { content: [{ type: 'text' as const, text: '[ERROR] from, type, and content required for broadcast' }], isError: true };
+        const sender = requireCurrentTeamAgent();
+        if (!sender || !msgType || !content) return { content: [{ type: 'text' as const, text: '[ERROR] active session identity, type, and content required for broadcast' }], isError: true };
+        if (from && from !== currentAgentId) return { content: [{ type: 'text' as const, text: '[ERROR] from must match the current session identity' }], isError: true };
         if (content.length > 10_000) return { content: [{ type: 'text' as const, text: '[ERROR] Message too large (max 10KB)' }], isError: true };
         const msg = teamStore.sendMessage({
           projectId: project.id,
-          senderAgentId: from,
+          senderAgentId: currentAgentId!,
           recipientAgentId: null,
           type: msgType,
           content,
@@ -4303,8 +4437,12 @@ export async function createMemorixServer(
         return { content: [{ type: 'text' as const, text: `Broadcast (${msgType}) | ID: ${msg.id.slice(0, 8)}…` }] };
       }
       // inbox
-      const inboxId = agentId || from || '';
-      if (!inboxId) return { content: [{ type: 'text' as const, text: '[ERROR] agentId required for inbox' }], isError: true };
+      const inboxAgent = requireCurrentTeamAgent();
+      if (!inboxAgent) return { content: [{ type: 'text' as const, text: '[ERROR] active session identity required for inbox' }], isError: true };
+      if ((agentId && agentId !== currentAgentId) || (from && from !== currentAgentId)) {
+        return { content: [{ type: 'text' as const, text: '[ERROR] inbox access is limited to the current session identity' }], isError: true };
+      }
+      const inboxId = currentAgentId!;
       const inbox = teamStore.getInbox(project.id, inboxId);
       const unread = teamStore.getUnreadCount(project.id, inboxId);
       if (inbox.length === 0) return { content: [{ type: 'text' as const, text: 'Inbox empty' }] };
@@ -4336,32 +4474,42 @@ export async function createMemorixServer(
     },
     async ({ agentId, markInboxRead }) => {
       const { computeWatermark, computePoll } = await import('./team/poll.js');
+      if (agentId && agentId !== currentAgentId) {
+        return {
+          content: [{ type: 'text' as const, text: '[ERROR] agentId must match the current session identity.' }],
+          isError: true as const,
+        };
+      }
+      const effectiveAgentId = currentAgentId;
 
       // Compute watermark — requires observation store access
       let watermark = computeWatermark(0, 0, 0);
-      if (agentId) {
-        const agent = teamStore.getAgent(agentId);
+      if (effectiveAgentId) {
+        const agent = teamStore.getAgent(effectiveAgentId);
         if (agent) {
           const lastSeen = agent.last_seen_obs_generation;
           const store = getObservationStore();
           const currentGen = store.getGeneration();
-          const projectObs = await withFreshIndex(() => getAllObservations().filter(
-            o => o.projectId === project.id && (o.writeGeneration ?? 0) > lastSeen,
+          const projectObs = await withFreshIndex(() => filterReadableObservations(
+            getAllObservations().filter(
+              o => o.projectId === project.id && (o.writeGeneration ?? 0) > lastSeen,
+            ),
+            getObservationReader(),
           ));
           watermark = computeWatermark(lastSeen, currentGen, projectObs.length);
 
           // Advance watermark so next poll sees only truly new observations
-          teamStore.updateWatermark(agentId, currentGen);
+          teamStore.updateWatermark(effectiveAgentId, currentGen);
           // Heartbeat — proves this agent is alive
-          teamStore.heartbeat(agentId);
+          teamStore.heartbeat(effectiveAgentId);
         }
       }
 
-      const poll = computePoll(teamStore, project.id, agentId ?? null, watermark);
+      const poll = computePoll(teamStore, project.id, effectiveAgentId ?? null, watermark);
 
       // Optionally mark inbox as read
-      if (markInboxRead && agentId) {
-        teamStore.markAllRead(project.id, agentId);
+      if (markInboxRead && effectiveAgentId) {
+        teamStore.markAllRead(project.id, effectiveAgentId);
       }
 
       // Format as readable text
@@ -4434,7 +4582,8 @@ export async function createMemorixServer(
       title: 'Team Handoff — Agent Context Transfer',
       description:
         'Create a structured handoff artifact when passing work to another agent. ' +
-        'The handoff is stored as a durable observation (searchable, immune to archival) ' +
+        'A targeted handoff is visible only to its sender and recipient; a broadcast handoff is team-visible. ' +
+        'The handoff is stored as a durable observation (immune to archival) ' +
         'and a notification message is sent to the recipient. ' +
         'Use this when completing a task and another agent should continue, ' +
         'or when you want to leave context for whoever works on this next.',
@@ -4450,6 +4599,34 @@ export async function createMemorixServer(
     },
     async ({ fromAgentId, summary, context, toAgentId, taskId, filesModified, concepts }) => {
       const { createHandoffArtifact } = await import('./team/handoff.js');
+      if (!currentAgentId) {
+        return {
+          content: [{ type: 'text' as const, text: 'Create a coordination identity first: call memorix_session_start with joinTeam=true.' }],
+          isError: true as const,
+        };
+      }
+      if (fromAgentId !== currentAgentId) {
+        return {
+          content: [{ type: 'text' as const, text: 'fromAgentId must match the identity returned for this session. Memorix will not create a handoff on behalf of another agent.' }],
+          isError: true as const,
+        };
+      }
+      const sender = teamStore.getAgent(currentAgentId);
+      if (!sender || sender.project_id !== project.id || sender.status !== 'active') {
+        return {
+          content: [{ type: 'text' as const, text: 'The current coordination identity is not an active member of this project.' }],
+          isError: true as const,
+        };
+      }
+      if (toAgentId) {
+        const recipient = teamStore.getAgent(toAgentId);
+        if (!recipient || recipient.project_id !== project.id) {
+          return {
+            content: [{ type: 'text' as const, text: 'The handoff recipient must be an agent registered in the current project.' }],
+            isError: true as const,
+          };
+        }
+      }
 
       const result = await createHandoffArtifact(
         {

@@ -91,9 +91,10 @@ describe('Standalone Dashboard Project Scope', () => {
       { id: 4, entityName: 'billing-service', type: 'problem-solution', title: 'Webhook retry', narrative: 'Fixed webhook retries', facts: [], projectId: PROJECT_B, status: 'active', createdAt: new Date().toISOString() },
       { id: 5, entityName: 'auth-module', type: 'session-request', title: 'Old handoff', narrative: 'Superseded request', facts: [], projectId: PROJECT_A, status: 'resolved', createdAt: new Date().toISOString() },
       { id: 6, entityName: 'billing-service', type: 'session-request', title: 'Archived note', narrative: 'No longer current', facts: [], projectId: PROJECT_B, status: 'resolved', createdAt: new Date().toISOString() },
+      { id: 7, entityName: 'auth-module', type: 'session-request', title: 'Private handoff', narrative: 'Only the owning agent may inspect this.', facts: [], projectId: PROJECT_A, status: 'active', visibility: 'personal', createdByAgentId: 'private-agent', createdAt: new Date().toISOString() },
     ];
     await fs.writeFile(path.join(dataDir, 'observations.json'), JSON.stringify(observations));
-    await fs.writeFile(path.join(dataDir, 'counter.json'), JSON.stringify({ nextId: 7 }));
+    await fs.writeFile(path.join(dataDir, 'counter.json'), JSON.stringify({ nextId: 8 }));
 
     // Seed graph with entities from both projects
     const graphLines = [
@@ -188,6 +189,16 @@ describe('Standalone Dashboard Project Scope', () => {
     expect(ids).toEqual([1, 2]);
   });
 
+  it('keeps personal observations out of the unbound dashboard and rejects deletion', async () => {
+    const { status: observationsStatus, body: observations } = await fetchJson('/api/observations');
+    expect(observationsStatus).toBe(200);
+    expect(observations.map((observation: any) => observation.id)).not.toContain(7);
+
+    const { status, body } = await fetchJson('/api/observations/7', { method: 'DELETE' });
+    expect(status).toBe(403);
+    expect(body.error).toContain('not manageable');
+  });
+
   it('does not expose standalone dashboard JSON to arbitrary origins', async () => {
     const response = await fetch(`${DASH_BASE}/api/project`, {
       headers: { Origin: 'https://evil.example' },
@@ -202,7 +213,7 @@ describe('Standalone Dashboard Project Scope', () => {
     expect(status).toBe(200);
 
     expect(body.observations).toBe(2);
-    expect(body.nextId).toBe(7);
+    expect(body.nextId).toBe(8);
   });
 
   it('GET /api/maintenance exposes project-scoped background work state', async () => {

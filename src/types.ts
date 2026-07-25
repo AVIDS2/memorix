@@ -93,6 +93,25 @@ export type ObservationStatus = 'active' | 'resolved' | 'archived';
  */
 export type ObservationAdmissionState = 'ephemeral' | 'candidate' | 'qualified';
 
+/**
+ * Who may retrieve an observation through agent-facing memory surfaces.
+ * Missing visibility is a legacy record and resolves to `project`.
+ */
+export type ObservationVisibility = 'personal' | 'project' | 'team';
+
+/**
+ * Identity available to an agent-facing retrieval call. Internal maintenance
+ * deliberately omits this and may inspect all project records for lifecycle work.
+ */
+export interface ObservationReader {
+  /** Bound project for a normal project-scoped call. Omit only for explicit global search. */
+  projectId?: string;
+  /** Stable coordination identity, available after an explicit team join. */
+  agentId?: string;
+  /** True only when agentId is an active member of the bound project team. */
+  isTeamMember?: boolean;
+}
+
 /** Progress tracking for task/feature observations */
 export interface ProgressInfo {
   feature: string;
@@ -144,6 +163,10 @@ export interface Observation {
   admissionState?: ObservationAdmissionState;
   /** Short, sanitized explanation for the latest admission decision. */
   admissionReason?: string;
+  /** Retrieval scope. Legacy records without a value remain project-visible. */
+  visibility?: ObservationVisibility;
+  /** Explicit additional readers for a personal record, used by targeted handoffs. */
+  sharedWithAgentIds?: string[];
   /** Phase 4a: Agent ID that created this observation (team attribution) */
   createdByAgentId?: string;
   /** Phase 4a: Monotonic write generation — snapshot of storage_generation at write time (watermark coherence) */
@@ -190,6 +213,8 @@ export interface IndexEntry {
   valueCategory?: 'core' | 'contextual' | 'ephemeral';
   /** Control-plane admission state when known. */
   admissionState?: ObservationAdmissionState;
+  /** Retrieval scope when known. */
+  visibility?: ObservationVisibility;
   /** Explainable recall: why this result matched. */
   matchedFields?: string[];
   /** Entity name — used for entity-affinity scoring and workstream deduplication. */
@@ -230,6 +255,8 @@ export interface SearchOptions {
   source?: 'agent' | 'git' | 'manual';
   /** Internal observability probes can disable access tracking without affecting normal search behavior. */
   trackAccess?: boolean;
+  /** Internal reader context for agent-facing visibility filtering. */
+  reader?: ObservationReader;
 }
 
 /** Topic key family heuristics for suggesting stable topic keys */
@@ -276,6 +303,12 @@ export interface MemorixDocument {
   admissionState?: string;
   /** Short, sanitized explanation for the latest admission decision. */
   admissionReason?: string;
+  /** Retrieval scope for agent-facing filtering. */
+  visibility?: string;
+  /** Agent that owns a personal record, or authored a shared record. */
+  createdByAgentId?: string;
+  /** Explicit readers for a targeted personal record. */
+  sharedWithAgentIds?: string;
   /** Optional vector embedding for semantic/hybrid retrieval */
   embedding?: number[];
   /** Document type: observation or mini-skill (Phase 3a) */

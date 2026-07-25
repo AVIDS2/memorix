@@ -17,7 +17,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { createDatabase, loadSqlite } from './bun-sqlite-compat.js';
 
-// Dynamic require for SQLite (better-sqlite3 or bun:sqlite)
+// Dynamic require for SQLite (better-sqlite3, node:sqlite, or bun:sqlite)
 let BetterSqlite3: any;
 
 export function loadBetterSqlite3(): any {
@@ -26,7 +26,7 @@ export function loadBetterSqlite3(): any {
     BetterSqlite3 = loadSqlite();
     return BetterSqlite3;
   } catch {
-    throw new Error('[memorix] SQLite is not available (neither better-sqlite3 nor bun:sqlite)');
+    throw new Error('[memorix] SQLite is not available (better-sqlite3, node:sqlite, and bun:sqlite all failed)');
   }
 }
 
@@ -688,7 +688,7 @@ function applySchemaMigrations(db: any): void {
 const _dbCache = new Map<string, any>();
 
 /**
- * Get or create a shared better-sqlite3 database handle for the given data directory.
+ * Get or create a shared SQLite database handle for the given data directory.
  *
  * The handle is cached per normalized dataDir path. All stores (observations,
  * mini-skills, sessions) share the same connection and the same DB file.

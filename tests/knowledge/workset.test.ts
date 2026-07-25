@@ -147,7 +147,7 @@ describe('Task Workset', () => {
     expect(workset.prompt).toContain('Project workflow');
     expect(workset.budget.tokenCount).toBeLessThanOrEqual(workset.budget.maxTokens);
     expect(workset.receipt).toMatchObject({
-      version: '1.2.2',
+      version: '1.2.4',
       target: 'project-context',
       budget: {
         maxTokens: workset.budget.maxTokens,
@@ -188,6 +188,46 @@ describe('Task Workset', () => {
     expect(workset.workflows).toHaveLength(0);
     expect(workset.prompt).not.toContain('Project knowledge');
     expect(workset.prompt).not.toContain('Project workflow');
+  });
+
+  it('puts a bounded continuation projection ahead of optional project detail', async () => {
+    const root = tempDir();
+    const workset = await buildTaskWorkset({
+      projectId: 'org/repo',
+      dataDir: root,
+      task: 'Continue the authentication rollout.',
+      lens: 'feature',
+      currentFacts: ['Git: clean worktree'],
+      continuation: {
+        previousSession: {
+          id: 'session:auth',
+          agent: 'claude-code',
+          endedAt: '2026-07-25T08:00:00.000Z',
+          summary: 'Run the focused migration test before enabling the authentication rollout flag.',
+        },
+        memories: [{
+          id: 42,
+          type: 'decision',
+          title: 'Authentication rollout stays behind the feature flag',
+          detail: 'Keep JWT refresh behind AUTH_REFRESH_V2 until the focused migration test passes.',
+        }],
+      },
+      startHere: ['src/auth.ts', 'tests/auth.test.ts'],
+      reliableMemory: [],
+      cautionMemory: [],
+      verificationHints: ['Run the focused authentication test.'],
+      worktreeDirty: false,
+      freshness: { suspect: 0, stale: 0 },
+      maxTokens: 120,
+    });
+
+    expect(workset.prompt).toContain('Resume from prior work');
+    expect(workset.prompt).toContain('focused migration test');
+    expect(workset.prompt).toContain('AUTH_REFRESH_V2');
+    expect(workset.receipt.selected).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'continuation', id: 'session:session:auth' }),
+    ]));
+    expect(workset.budget.tokenCount).toBeLessThanOrEqual(120);
   });
 
   it('puts state cautions ahead of optional detail when the token budget is tight', async () => {

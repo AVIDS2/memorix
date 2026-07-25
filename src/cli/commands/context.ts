@@ -22,11 +22,16 @@ export default defineCommand({
   },
   args: {
     task: { type: 'string', description: 'Current task for context shaping' },
+    input: { type: 'positional', description: 'Current task for context shaping (ergonomic positional form)' },
+    resume: { type: 'boolean', description: 'Always include the bounded prior-work projection' },
     refresh: { type: 'string', description: 'Project scan policy: auto, always, or never' },
     json: { type: 'boolean', description: 'Emit machine-readable JSON output' },
   },
   run: async ({ args }) => {
     const asJson = !!args.json;
+    const task = (args.task as string | undefined)?.trim()
+      || (args.input as string | undefined)?.trim()
+      || undefined;
 
     try {
       const { project, dataDir, reader } = await getCliProjectContext();
@@ -34,8 +39,10 @@ export default defineCommand({
         project,
         dataDir,
         observations: filterReadableObservations(getAllObservations(), reader),
-        task: args.task as string | undefined,
+        task,
         refresh: coerceRefreshMode(args.refresh as string | undefined),
+        reader,
+        ...(args.resume ? { continuation: 'always' as const } : {}),
       });
 
       emitResult(
@@ -49,6 +56,7 @@ export default defineCommand({
           providerQuality: context.providerQuality,
           workset: context.workset,
           ...(context.task ? { task: context.task } : {}),
+          ...(context.continuation ? { continuation: context.continuation } : {}),
         },
         formatAutoProjectContextPrompt(context),
         asJson,

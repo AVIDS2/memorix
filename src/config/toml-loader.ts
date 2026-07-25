@@ -144,6 +144,9 @@ function parseTomlValue(raw: string, filePath: string, line: number): unknown {
   if (raw.startsWith('"') && raw.endsWith('"')) {
     return raw.slice(1, -1).replace(/\\"/g, '"').replace(/\\\\/g, '\\');
   }
+  if (raw.startsWith("'") && raw.endsWith("'")) {
+    return raw.slice(1, -1);
+  }
   if (raw === 'true') return true;
   if (raw === 'false') return false;
   if (/^-?\d+$/.test(raw)) return Number.parseInt(raw, 10);
@@ -157,7 +160,7 @@ function parseTomlValue(raw: string, filePath: string, line: number): unknown {
 }
 
 function stripComment(line: string): string {
-  let inString = false;
+  let quote: '"' | "'" | null = null;
   let escaped = false;
   for (let i = 0; i < line.length; i++) {
     const char = line[i];
@@ -165,15 +168,16 @@ function stripComment(line: string): string {
       escaped = false;
       continue;
     }
-    if (char === '\\' && inString) {
+    if (char === '\\' && quote === '"') {
       escaped = true;
       continue;
     }
-    if (char === '"') {
-      inString = !inString;
+    if (char === '"' || char === "'") {
+      if (quote === char) quote = null;
+      else if (quote === null) quote = char;
       continue;
     }
-    if (char === '#' && !inString) {
+    if (char === '#' && quote === null) {
       return line.slice(0, i);
     }
   }

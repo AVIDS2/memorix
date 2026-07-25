@@ -29,9 +29,11 @@ import { CodeGraphStore } from '../../src/codegraph/store.js';
 import { resetResolvedConfigCache } from '../../src/config/resolved-config.js';
 import { resetTomlConfigCache } from '../../src/config/toml-loader.js';
 import { storeObservation } from '../../src/memory/observations.js';
+import { endSession, startSession } from '../../src/memory/session.js';
 import { getProjectDataDir } from '../../src/store/persistence.js';
 import { resetDb } from '../../src/store/orama-store.js';
 import { resetObservationStore } from '../../src/store/obs-store.js';
+import { resetSessionStore } from '../../src/store/session-store.js';
 import { closeAllDatabases } from '../../src/store/sqlite-db.js';
 
 let testDir: string;
@@ -340,6 +342,142 @@ describe('Tool profile registration', () => {
     expect(text).toContain('Memorix Autopilot Brief');
     expect(text).toContain('Task lens: bugfix');
     expect(text).toContain('run the smallest failing test or repro first');
+  }, 30000);
+
+  it('keeps bounded prior-work evidence when MCP clients request summary format', async () => {
+    const dir = await createGitProjectDir('memorix-profile-summary-continuation-');
+    const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'memorix-profile-summary-data-'));
+    const previousDataDir = process.env.MEMORIX_DATA_DIR;
+    process.env.MEMORIX_DATA_DIR = dataDir;
+    resetTomlConfigCache();
+    resetResolvedConfigCache();
+    resetObservationStore();
+    resetSessionStore();
+    await resetDb();
+
+    try {
+      const { server, projectId } = await createMemorixServer(
+        dir,
+        undefined,
+        undefined,
+        { toolProfile: 'micro' } as any,
+      );
+      await storeObservation({
+        entityName: 'auth',
+        type: 'decision',
+        title: 'Keep JWT refresh behind AUTH_REFRESH_V2',
+        narrative: 'Do not enable refresh until the focused migration test is green.',
+        projectId,
+      });
+      const prior = await startSession(dir, projectId, {
+        sessionId: 'prior-jwt-refresh',
+        agent: 'claude-code',
+      });
+      await endSession(
+        dir,
+        prior.session.id,
+        'The refresh gate remains disabled; run the focused migration test before enabling it.',
+      );
+
+      const projectContext = getHandler(server as any, 'memorix_project_context');
+      const text = getText(await projectContext({
+        task: 'Continue JWT refresh rollout. Determine the current state and safest next step.',
+        refresh: 'never',
+        format: 'summary',
+      }));
+
+      expect(text).toContain('Resume from prior work');
+      expect(text).toContain('The refresh gate remains disabled');
+      expect(text).toContain('Keep JWT refresh behind AUTH_REFRESH_V2');
+    } finally {
+      if (previousDataDir === undefined) {
+        delete process.env.MEMORIX_DATA_DIR;
+      } else {
+        process.env.MEMORIX_DATA_DIR = previousDataDir;
+      }
+      resetTomlConfigCache();
+      resetResolvedConfigCache();
+      resetObservationStore();
+      resetSessionStore();
+      await resetDb();
+      closeAllDatabases();
+      await fs.rm(dataDir, { recursive: true, force: true });
+    }
+  }, 30000);
+
+  it('keeps a completed Autopilot brief as the default MCP retrieval boundary', async () => {
+    const dir = await createGitProjectDir('memorix-profile-autopilot-boundary-');
+    const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'memorix-profile-autopilot-boundary-data-'));
+    const previousDataDir = process.env.MEMORIX_DATA_DIR;
+    process.env.MEMORIX_DATA_DIR = dataDir;
+    resetTomlConfigCache();
+    resetResolvedConfigCache();
+    resetObservationStore();
+    await resetDb();
+
+    try {
+      const { server, projectId } = await createMemorixServer(
+        dir,
+        undefined,
+        undefined,
+        { toolProfile: 'micro' } as any,
+      );
+      const observation = await storeObservation({
+        entityName: 'auth',
+        type: 'decision',
+        title: 'Keep JWT refresh behind AUTH_REFRESH_V2',
+        narrative: 'Do not enable refresh until the focused migration test is green.',
+        projectId,
+      });
+      const projectContext = getHandler(server as any, 'memorix_project_context');
+      const search = getHandler(server as any, 'memorix_search');
+      const detail = getHandler(server as any, 'memorix_detail');
+      const contextPack = getHandler(server as any, 'memorix_context_pack');
+      const store = getHandler(server as any, 'memorix_store');
+
+      await projectContext({ task: 'Continue the JWT refresh rollout safely. Do not modify any files.', refresh: 'never' });
+
+      expect(getText(await search({ query: 'JWT refresh rollout' }))).toContain('Autopilot retrieval boundary');
+      expect(getText(await detail({ ids: [observation.observation.id] }))).toContain('Autopilot retrieval boundary');
+      expect(getText(await contextPack({ task: 'Continue the JWT refresh rollout safely.' }))).toContain('Autopilot retrieval boundary');
+      expect(getText(await store({
+        entityName: 'auth',
+        type: 'discovery',
+        title: 'Read-only assessment',
+        narrative: 'This should not persist without explicit user approval.',
+      }))).toContain('Memorix write boundary');
+
+      expect(getText(await search({
+        query: 'JWT refresh rollout',
+        purpose: 'The user explicitly asked for the full decision record.',
+      }))).toContain('already represented');
+      expect(getText(await detail({
+        ids: [observation.observation.id],
+        purpose: 'The user explicitly asked for the full decision record.',
+      }))).toContain('already represented');
+      expect(getText(await search({
+        query: 'JWT refresh rollout',
+        purpose: 'The user explicitly asked for the full decision record.',
+        force: true,
+      }))).toContain('Found 1 observation');
+      expect(getText(await detail({
+        ids: [observation.observation.id],
+        purpose: 'The user explicitly asked for the full decision record.',
+        force: true,
+      }))).toContain('AUTH_REFRESH_V2');
+    } finally {
+      if (previousDataDir === undefined) {
+        delete process.env.MEMORIX_DATA_DIR;
+      } else {
+        process.env.MEMORIX_DATA_DIR = previousDataDir;
+      }
+      resetTomlConfigCache();
+      resetResolvedConfigCache();
+      resetObservationStore();
+      await resetDb();
+      closeAllDatabases();
+      await fs.rm(dataDir, { recursive: true, force: true });
+    }
   }, 30000);
 
   it('should apply CodeGraph exclude patterns to the MCP context pack handler', async () => {

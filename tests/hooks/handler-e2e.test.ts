@@ -13,12 +13,13 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { normalizeHookInput } from '../../src/hooks/normalizer.js';
-import { handleHookEvent, resetCooldowns } from '../../src/hooks/handler.js';
+import { formatHookOutput, handleHookEvent, resetCooldowns } from '../../src/hooks/handler.js';
 import { initObservations, storeObservation } from '../../src/memory/observations.js';
+import { endSession, startSession } from '../../src/memory/session.js';
 import { closeAllDatabases } from '../../src/store/sqlite-db.js';
 import { resetObservationStore } from '../../src/store/obs-store.js';
 import { resetDb } from '../../src/store/orama-store.js';
-import { resetSessionStore } from '../../src/store/session-store.js';
+import { initSessionStore, resetSessionStore } from '../../src/store/session-store.js';
 import { resetTeamStore } from '../../src/team/team-store.js';
 import { MaintenanceJobStore } from '../../src/runtime/maintenance-jobs.js';
 
@@ -260,6 +261,99 @@ export function verifyToken(token: string) {
     const { observation } = await handleHookEvent(input);
     // "fix it" is only 6 chars < 20 → correctly skipped
     expect(observation).toBeNull();
+  });
+
+  it('injects one bounded prior-work brief for an explicit Claude continuation prompt', async () => {
+    const sandboxRoot = mkdtempSync(path.join(tmpdir(), 'memorix-hook-continuation-'));
+    const repoDir = path.join(sandboxRoot, 'repo');
+    const dataDir = path.join(sandboxRoot, 'data');
+    const projectId = 'local/repo';
+    try {
+      mkdirSync(path.join(repoDir, 'src'), { recursive: true });
+      writeFileSync(path.join(repoDir, 'src', 'auth.ts'), 'export const authFlag = "AUTH_REFRESH_V2";\n', 'utf8');
+      execSync('git init', { cwd: repoDir, stdio: 'ignore' });
+      process.chdir(repoDir);
+      process.env.MEMORIX_DATA_DIR = dataDir;
+      process.env.MEMORIX_EMBEDDING = 'off';
+      vi.doMock('../../src/config/behavior.js', () => ({
+        getBehaviorConfig: () => ({
+          sessionInject: 'minimal',
+          syncAdvisory: true,
+          autoCleanup: true,
+          formationMode: 'active',
+        }),
+      }));
+      await initObservations(dataDir);
+      await initSessionStore(dataDir);
+      await storeObservation({
+        entityName: 'auth-rollout',
+        type: 'decision',
+        title: 'JWT refresh remains behind AUTH_REFRESH_V2',
+        narrative: 'Keep the flag disabled until the focused migration test is green.',
+        projectId,
+      });
+      await startSession(dataDir, projectId, { sessionId: 'claude-auth', agent: 'claude-code' });
+      await endSession(
+        dataDir,
+        'claude-auth',
+        'The prior agent left AUTH_REFRESH_V2 disabled. Run the focused migration test before enabling it.',
+      );
+
+      const input = normalizeHookInput({
+        hook_event_name: 'UserPromptSubmit',
+        session_id: 'sess-claude-continuation',
+        cwd: repoDir,
+        prompt: 'Please continue the JWT refresh rollout and tell me the next safe step.',
+      });
+      const { output } = await handleHookEvent(input);
+
+      expect(output.systemMessage).toContain('bounded prior-work brief');
+      expect(output.systemMessage).toContain('Resume from prior work');
+      expect(output.systemMessage).toContain('AUTH_REFRESH_V2');
+      const formatted = formatHookOutput('claude', 'UserPromptSubmit', output);
+      expect(formatted).toMatchObject({
+        hookSpecificOutput: {
+          hookEventName: 'UserPromptSubmit',
+          additionalContext: expect.stringContaining('Resume from prior work'),
+        },
+      });
+    } finally {
+      process.chdir(originalCwd);
+      closeAllDatabases();
+      rmSync(sandboxRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps Claude user prompts quiet when they do not ask to continue prior work', async () => {
+    const input = normalizeHookInput({
+      hook_event_name: 'UserPromptSubmit',
+      session_id: 'sess-claude-new-task',
+      cwd: '/home/user/project',
+      prompt: 'Document the current worker API and explain its public options.',
+    });
+
+    const { output } = await handleHookEvent(input);
+    expect(output.systemMessage).toBeUndefined();
+  });
+
+  it('respects silent injection mode for Claude continuation prompts', async () => {
+    vi.doMock('../../src/config/behavior.js', () => ({
+      getBehaviorConfig: () => ({
+        sessionInject: 'silent',
+        syncAdvisory: true,
+        autoCleanup: true,
+        formationMode: 'active',
+      }),
+    }));
+    const input = normalizeHookInput({
+      hook_event_name: 'UserPromptSubmit',
+      session_id: 'sess-claude-silent',
+      cwd: '/home/user/project',
+      prompt: 'Continue the previous authentication rollout with the known context.',
+    });
+
+    const { output } = await handleHookEvent(input);
+    expect(output.systemMessage).toBeUndefined();
   });
 
   // ─── SessionStart ───

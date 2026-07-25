@@ -117,6 +117,9 @@ describe('agent doctor and repair', () => {
       '## Memory Autopilot',
       '',
       '- Default first step for non-trivial coding work: call `memorix_project_context` with the user task.',
+      '- Continuation fallback is mandatory: `memorix resume "<task>"` for prior work.',
+      '- Do not call more Memorix retrieval tools after a complete brief.',
+      '- For read-only work, do not call `memorix_store` unless the user asks to preserve a record.',
       '',
     ].join('\n'), 'utf-8');
   }

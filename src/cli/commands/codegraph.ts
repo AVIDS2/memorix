@@ -60,7 +60,7 @@ function formatUsageHint(): string {
     '  memorix codegraph status --json',
     '  memorix codegraph context-pack --task "continue auth bug"',
     '',
-    'Tip: use `memorix context --task "..."` for the default agent-ready project context.',
+    'Tip: use `memorix context "..."` for new work or `memorix resume "..."` for prior work.',
   ].join('\n');
 }
 

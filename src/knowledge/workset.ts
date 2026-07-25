@@ -77,11 +77,28 @@ export interface WorksetMemorySource {
   reason?: string;
 }
 
+/** Prior-work evidence selected only for an explicit or inferred continuation. */
+export interface WorksetContinuation {
+  previousSession?: {
+    id: string;
+    agent?: string;
+    endedAt?: string;
+    summary: string;
+  };
+  memories: Array<{
+    id: number;
+    title: string;
+    type: string;
+    detail?: string;
+  }>;
+}
+
 export interface TaskWorkset {
   version: '1.2';
   task: string;
   lens: string;
   currentFacts: string[];
+  continuation?: WorksetContinuation;
   codeState?: string;
   startHere: string[];
   /** Bounded task-specific relations from a validated local semantic graph. */
@@ -117,6 +134,7 @@ export interface BuildTaskWorksetInput {
   task?: string;
   lens: string;
   currentFacts?: string[];
+  continuation?: WorksetContinuation;
   codeState?: string;
   startHere: string[];
   semanticCode?: ExternalCodeGraphOutline;
@@ -150,6 +168,11 @@ function short(text: string, budget = 28): string {
   const safe = sanitizeCredentials(text).replace(/\s+/g, ' ').trim();
   return countTextTokens(safe) <= budget ? safe : truncateToTokenBudget(safe, budget);
 }
+
+// A continuation anchor often contains the exact flag, path, or command that
+// makes the handoff actionable. Preserve a little more of it than generic
+// display detail; the enclosing Workset budget still decides whether it fits.
+const CONTINUATION_DETAIL_TOKEN_BUDGET = 20;
 
 function claimAssertion(claim: KnowledgeClaim): string {
   return short([claim.subject, claim.predicate, claim.objectValue].join(' '));
@@ -259,6 +282,7 @@ function freshnessForMemory(status: WorksetMemorySource['status']): ContextCandi
 }
 
 function receiptOmissionKind(raw: string): ContextCandidateKind | undefined {
+  if (raw.includes('continuation')) return 'continuation';
   if (raw.includes('task')) return 'task';
   if (raw.includes('fact')) return 'current-fact';
   if (raw.includes('state')) return 'code-state';
@@ -327,6 +351,51 @@ export function renderTaskWorksetPrompt(input: Omit<TaskWorkset, 'prompt' | 'bud
     trust: 'source-backed',
   });
   appendLine(lines, 'Task lens: ' + input.lens, maxTokens, omitted, 'lens');
+
+  const hasContinuation = Boolean(
+    input.continuation?.previousSession || (input.continuation?.memories.length ?? 0) > 0,
+  );
+  if (hasContinuation && input.continuation) {
+    appendLine(lines, '', maxTokens, omitted, 'continuation-heading');
+    appendLine(lines, 'Resume from prior work', maxTokens, omitted, 'continuation-heading');
+    if (input.continuation.previousSession) {
+      const session = input.continuation.previousSession;
+      const source = [session.agent, session.endedAt ? session.endedAt.slice(0, 10) : undefined]
+        .filter(Boolean)
+        .join(', ');
+      appendLine(
+        lines,
+        '- Previous session' + (source ? ` (${source})` : '') + ': ' + short(session.summary, 44),
+        maxTokens,
+        omitted,
+        'continuation-session',
+        selected,
+        {
+          kind: 'continuation',
+          id: 'session:' + session.id,
+          reason: 'latest meaningful project session summary',
+          trust: 'historical',
+        },
+      );
+    }
+    for (const memory of input.continuation.memories.slice(0, 3)) {
+      const detail = memory.detail ? ': ' + short(memory.detail, CONTINUATION_DETAIL_TOKEN_BUDGET) : '';
+      appendLine(
+        lines,
+        '- #' + memory.id + ' ' + memory.type + ': ' + short(memory.title, 18) + detail,
+        maxTokens,
+        omitted,
+        'continuation-memory',
+        selected,
+        {
+          kind: 'continuation',
+          id: 'memory:' + memory.id,
+          reason: 'durable prior-work memory',
+          trust: 'historical',
+        },
+      );
+    }
+  }
 
   if (input.cautions.length > 0 || input.cautionMemory.length > 0) {
     appendLine(lines, '', maxTokens, omitted, 'caution-heading');
@@ -629,6 +698,24 @@ export async function buildTaskWorkset(input: BuildTaskWorksetInput): Promise<Ta
   const normalizedCautions = unique(cautions.map(caution => caution.kind))
     .map(kind => cautions.find(caution => caution.kind === kind)!)
     .slice(0, 6);
+  const continuation = input.continuation
+    && (input.continuation.previousSession || input.continuation.memories.length > 0)
+    ? {
+      ...(input.continuation.previousSession
+        ? {
+          previousSession: {
+            ...input.continuation.previousSession,
+            summary: short(input.continuation.previousSession.summary, 52),
+          },
+        }
+        : {}),
+      memories: input.continuation.memories.slice(0, 3).map((memory) => ({
+        ...memory,
+        title: short(memory.title, 20),
+        ...(memory.detail ? { detail: short(memory.detail, CONTINUATION_DETAIL_TOKEN_BUDGET) } : {}),
+      })),
+    }
+    : undefined;
   const base = {
     version: '1.2' as const,
     task,
@@ -636,6 +723,7 @@ export async function buildTaskWorkset(input: BuildTaskWorksetInput): Promise<Ta
     currentFacts: input.currentFacts?.map(fact => fact.startsWith('Historical note:')
       ? short(fact, 48)
       : short(fact, 28)).slice(0, 4) ?? [],
+    ...(continuation ? { continuation } : {}),
     ...(input.codeState ? { codeState: short(input.codeState, 28) } : {}),
     startHere: unique(input.startHere).slice(0, 5),
     ...(input.semanticCode ? { semanticCode: input.semanticCode } : {}),
@@ -660,7 +748,7 @@ export async function buildTaskWorkset(input: BuildTaskWorksetInput): Promise<Ta
     budget: { maxTokens },
   });
   const receipt: ContextReceipt = {
-    version: '1.2.2',
+    version: '1.2.4',
     target: input.deliveryTarget ?? 'project-context',
     elapsedMs: Math.max(0, Date.now() - startedAt),
     budget: {

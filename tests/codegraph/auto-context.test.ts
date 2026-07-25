@@ -6,14 +6,16 @@ import path from 'node:path';
 import {
   buildAutoProjectContext,
   formatAutoProjectContextPrompt,
+  formatAutoProjectContextSummary,
 } from '../../src/codegraph/auto-context.js';
 import { CodeGraphStore } from '../../src/codegraph/store.js';
 import { getAllObservations, initObservations, storeObservation } from '../../src/memory/observations.js';
+import { endSession, startSession } from '../../src/memory/session.js';
 import { closeAllDatabases } from '../../src/store/sqlite-db.js';
 import { initObservationStore, resetObservationStore } from '../../src/store/obs-store.js';
 import { resetDb } from '../../src/store/orama-store.js';
 import { MaintenanceJobStore } from '../../src/runtime/maintenance-jobs.js';
-import { resetSessionStore } from '../../src/store/session-store.js';
+import { initSessionStore, resetSessionStore } from '../../src/store/session-store.js';
 import { resetTeamStore } from '../../src/team/team-store.js';
 
 describe('auto project context', () => {
@@ -61,6 +63,16 @@ describe('auto project context', () => {
       filesModified: ['src/auth.ts'],
       projectId: 'local/repo',
     });
+    await initSessionStore(dataDir);
+    const prior = await startSession(repoDir, 'local/repo', {
+      sessionId: 'prior-auth-work',
+      agent: 'claude-code',
+    });
+    await endSession(
+      repoDir,
+      prior.session.id,
+      'Keep JWT refresh behind AUTH_REFRESH_V2 until the focused migration test passes.',
+    );
 
     const context = await buildAutoProjectContext({
       project: { id: 'local/repo', name: 'repo', rootPath: repoDir },
@@ -96,6 +108,17 @@ describe('auto project context', () => {
     expect(text).toContain('Code state:');
     expect(text).toContain('continue auth work');
     expect(text).toContain('src/auth.ts');
+    expect(text).toContain('Resume from prior work');
+    expect(context.continuation).toMatchObject({
+      previousSession: expect.objectContaining({
+        summary: 'Keep JWT refresh behind AUTH_REFRESH_V2 until the focused migration test passes.',
+      }),
+      memories: [expect.objectContaining({ title: 'authMiddleware owns token verification' })],
+    });
+    const summary = formatAutoProjectContextSummary(context);
+    expect(summary).toContain('Resume from prior work');
+    expect(summary).toContain('Keep JWT refresh behind AUTH_REFRESH_V2');
+    expect(summary).toContain('authMiddleware owns token verification');
     expect(text).not.toContain('SQLite');
     expect(text).toBe(context.workset.prompt);
     expect(context.workset.budget.tokenCount).toBeLessThanOrEqual(context.workset.budget.maxTokens);

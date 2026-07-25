@@ -7,13 +7,15 @@ import codegraphCommand from '../../src/cli/commands/codegraph.js';
 import contextCommand from '../../src/cli/commands/context.js';
 import doctorCommand from '../../src/cli/commands/doctor.js';
 import explainCommand from '../../src/cli/commands/explain.js';
+import resumeCommand from '../../src/cli/commands/resume.js';
 import { resetResolvedConfigCache } from '../../src/config/resolved-config.js';
 import { resetTomlConfigCache } from '../../src/config/toml-loader.js';
 import { initObservations, storeObservation } from '../../src/memory/observations.js';
+import { endSession, startSession } from '../../src/memory/session.js';
 import { closeAllDatabases } from '../../src/store/sqlite-db.js';
 import { resetObservationStore } from '../../src/store/obs-store.js';
 import { resetDb } from '../../src/store/orama-store.js';
-import { resetSessionStore } from '../../src/store/session-store.js';
+import { initSessionStore, resetSessionStore } from '../../src/store/session-store.js';
 import { resetTeamStore } from '../../src/team/team-store.js';
 
 async function runCommand(command: any, args: Record<string, unknown>) {
@@ -219,13 +221,98 @@ describe('project context CLI commands', () => {
     });
     expect(parsed.explain.overview.code.files).toBe(3);
     expect(parsed.receipt).toMatchObject({
-      version: '1.2.2',
+      version: '1.2.4',
       target: 'project-context',
       budget: {
         maxTokens: expect.any(Number),
         tokenCount: expect.any(Number),
       },
     });
+  });
+
+  it('uses one positional context call to resume a prior session and durable unbound memory', async () => {
+    await initObservations(dataDir);
+    await initSessionStore(dataDir);
+    await storeObservation({
+      entityName: 'auth-rollover',
+      type: 'decision',
+      title: 'JWT refresh rollout remains behind the auth flag',
+      narrative: 'Keep the refresh rollout behind AUTH_REFRESH_V2 until the migration test is green.',
+      facts: ['Next step: run the focused auth migration test before changing the flag.'],
+      projectId: 'local/repo',
+    });
+    await startSession(dataDir, 'local/repo', { sessionId: 'claude-auth', agent: 'claude-code' });
+    await endSession(
+      dataDir,
+      'claude-auth',
+      '## Goal\nContinue the JWT refresh rollout.\n\n## Next\nRun the focused auth migration test before changing the flag.',
+    );
+
+    const result = await runCommand(contextCommand, {
+      input: 'continue the JWT refresh rollout',
+      refresh: 'never',
+      json: true,
+    });
+
+    expect(result.exitCode).toBe(0);
+    const parsed = JSON.parse(result.stdout);
+    expect(parsed.task).toBe('continue the JWT refresh rollout');
+    expect(parsed.workset.prompt).toContain('Resume from prior work');
+    expect(parsed.workset.prompt).toContain('Continue the JWT refresh rollout');
+    expect(parsed.workset.prompt).toContain('JWT refresh rollout remains behind the auth flag');
+    expect(parsed.workset.receipt.selected).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'continuation', id: 'session:claude-auth' }),
+    ]));
+    expect(parsed.continuation.previousSession).toMatchObject({
+      id: 'claude-auth',
+      agent: 'claude-code',
+    });
+  });
+
+  it('uses the explicit resume command without requiring a command-discovery loop', async () => {
+    await initObservations(dataDir);
+    await initSessionStore(dataDir);
+    await storeObservation({
+      entityName: 'auth-rollover',
+      type: 'decision',
+      title: 'JWT refresh rollout remains behind the auth flag',
+      narrative: 'Keep the refresh rollout behind AUTH_REFRESH_V2 until the migration test is green.',
+      projectId: 'local/repo',
+    });
+    await startSession(dataDir, 'local/repo', { sessionId: 'codex-auth', agent: 'codex' });
+    await endSession(dataDir, 'codex-auth', 'Run the focused auth migration test before changing the flag.');
+
+    const result = await runCommand(resumeCommand, {
+      task: 'finish fixing the JWT refresh rollout',
+      refresh: 'never',
+      json: true,
+    });
+
+    expect(result.exitCode).toBe(0);
+    const parsed = JSON.parse(result.stdout);
+    expect(parsed.task).toBe('finish fixing the JWT refresh rollout');
+    expect(parsed.workset.prompt).toContain('Resume from prior work');
+    expect(parsed.workset.prompt).toContain('JWT refresh rollout remains behind the auth flag');
+    expect(parsed.workset.receipt.selected).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'continuation', id: 'session:codex-auth' }),
+    ]));
+  });
+
+  it('does not inject prior-work context for an unrelated new task', async () => {
+    await initObservations(dataDir);
+    await initSessionStore(dataDir);
+    await startSession(dataDir, 'local/repo', { sessionId: 'old-auth', agent: 'claude-code' });
+    await endSession(dataDir, 'old-auth', 'Continue the old authentication rollout.');
+
+    const result = await runCommand(contextCommand, {
+      input: 'document the current worker API',
+      refresh: 'never',
+      json: true,
+    });
+
+    const parsed = JSON.parse(result.stdout);
+    expect(parsed.workset.prompt).not.toContain('Resume from prior work');
+    expect(parsed.continuation).toBeUndefined();
   });
 
   it('includes code memory health in doctor JSON', async () => {

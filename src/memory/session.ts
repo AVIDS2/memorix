@@ -22,6 +22,17 @@ import { redactCredentials, sanitizeCredentials } from './secret-filter.js';
 import { canReadObservation } from './visibility.js';
 
 const PRIORITY_TYPES = new Set(['gotcha', 'decision', 'problem-solution', 'trade-off', 'discovery']);
+const RESUME_TYPES = new Set([
+  'gotcha',
+  'decision',
+  'problem-solution',
+  'trade-off',
+  'discovery',
+  'how-it-works',
+  'what-changed',
+  'reasoning',
+  'session-request',
+]);
 const TYPE_EMOJI: Record<string, string> = {
   'gotcha': '[DISCOVERY]',
   'decision': '[WHY]',
@@ -178,6 +189,138 @@ function isSystemSelfObservation(obs: Observation): boolean {
   return SYSTEM_SELF_PATTERNS.some((pattern) => pattern.test(text));
 }
 
+export interface SessionResumeMemory {
+  id: number;
+  title: string;
+  type: string;
+  detail?: string;
+}
+
+/** A compact, source-aware view of prior work for a task continuation. */
+export interface SessionResumeBrief {
+  previousSession?: {
+    id: string;
+    agent?: string;
+    endedAt?: string;
+    summary: string;
+  };
+  memories: SessionResumeMemory[];
+}
+
+function readerForAlias(
+  reader: ObservationReader | undefined,
+  aliases: Set<string>,
+  observation: Observation,
+): ObservationReader | undefined {
+  if (!reader) return undefined;
+  return reader.projectId && aliases.has(observation.projectId)
+    ? { ...reader, projectId: observation.projectId }
+    : reader;
+}
+
+function readableAliasObservations(
+  observations: Observation[],
+  aliases: Set<string>,
+  reader?: ObservationReader,
+): Observation[] {
+  return reader
+    ? observations.filter((observation) => canReadObservation(
+      observation,
+      readerForAlias(reader, aliases, observation),
+    ))
+    : observations;
+}
+
+function isUsefulSessionSummary(summary: string | undefined): summary is string {
+  return Boolean(summary)
+    && !NOISE_PATTERNS.some((pattern) => pattern.test(summary!))
+    && !SYSTEM_SELF_PATTERNS.some((pattern) => pattern.test(summary!));
+}
+
+function continuationTaskTokens(task?: string): string[] {
+  return [...new Set(
+    (task?.toLowerCase().match(/[a-z0-9_./-]+|[\u4e00-\u9fff]+/g) ?? [])
+      .map((token) => token.trim())
+      .filter((token) => token.length > 1 && !['continue', 'resume', '继续', '接手', '恢复'].includes(token)),
+  )].slice(0, 8);
+}
+
+function continuationScore(observation: Observation, projectTokens: string[], task?: string): number {
+  let score = scoreObservationForSessionContext(observation, projectTokens);
+  if (observation.type === 'session-request' || observation.type === 'what-changed') score += 1;
+  const text = stringifyObservation(observation);
+  const matches = continuationTaskTokens(task).filter((token) => text.includes(token)).length;
+  score += Math.min(matches, 2) * 2;
+  return score;
+}
+
+/**
+ * Return only the latest meaningful session summary and a few durable memory
+ * anchors. It is deliberately separate from the verbose session-context view:
+ * this is a delivery projection for one bounded Task Workset, not another
+ * storage model or an automatic transcript dump.
+ */
+export async function getSessionResumeBrief(
+  projectId: string,
+  task?: string,
+  reader?: ObservationReader,
+): Promise<SessionResumeBrief> {
+  const aliasSet = await resolveProjectIds(projectId);
+  const [sessions, allObs] = await Promise.all([
+    loadAliasSessions(aliasSet),
+    loadAliasActiveObservations(aliasSet),
+  ]);
+  const readableObs = readableAliasObservations(allObs, aliasSet, reader);
+  const previous = sessions
+    .filter((session) => session.status === 'completed')
+    .sort((a, b) => new Date(b.endedAt || b.startedAt).getTime() - new Date(a.endedAt || a.startedAt).getTime())
+    .find((session) => (
+      session.summary
+      && session.summary !== '(session ended implicitly by new session start)'
+      && isUsefulSessionSummary(session.summary)
+    ));
+
+  const projectTokens = tokenizeProjectId(projectId);
+  const memories = readableObs
+    .filter((observation) => RESUME_TYPES.has(observation.type))
+    .filter((observation) => classifyLayer(observation) === 'L2')
+    .filter((observation) => !isNoiseObservation(observation) && !isSystemSelfObservation(observation))
+    .map((observation) => ({
+      observation,
+      score: continuationScore(observation, projectTokens, task),
+    }))
+    .sort((a, b) => (
+      b.score - a.score
+      || new Date(b.observation.createdAt).getTime() - new Date(a.observation.createdAt).getTime()
+      || a.observation.id - b.observation.id
+    ))
+    .slice(0, 3)
+    .map(({ observation }) => ({
+      id: observation.id,
+      title: sanitizeCredentials(observation.title),
+      type: observation.type,
+      ...(observation.facts?.[0]
+        ? { detail: sanitizeCredentials(observation.facts[0]) }
+        : observation.narrative
+          ? { detail: sanitizeCredentials(observation.narrative) }
+          : {}),
+    }));
+
+  return {
+    ...(previous?.summary
+      ? {
+        previousSession: {
+          id: previous.id,
+          ...(previous.agent ? { agent: previous.agent } : {}),
+          ...(previous.endedAt ? { endedAt: previous.endedAt } : {}),
+          summary: sanitizeCredentials(previous.summary),
+        },
+      }
+      : {}),
+    memories,
+  };
+}
+
 export function scoreObservationForSessionContext(obs: Observation, projectTokens: string[], now = Date.now()): number {
   let score = TYPE_WEIGHTS[obs.type] ?? 1;
   const text = stringifyObservation(obs);
@@ -322,16 +465,7 @@ export async function getSessionContext(
     loadAliasSessions(aliasSet),
     loadAliasActiveObservations(aliasSet),
   ]);
-  const readableObs = reader
-    ? allObs.filter((observation) => {
-        // Aliases represent one project across moved/renamed worktrees. Preserve
-        // that project equivalence while still enforcing the caller's identity.
-        const observationReader = reader.projectId && aliasSet.has(observation.projectId)
-          ? { ...reader, projectId: observation.projectId }
-          : reader;
-        return canReadObservation(observation, observationReader);
-      })
-    : allObs;
+  const readableObs = readableAliasObservations(allObs, aliasSet, reader);
   /** Check if a session summary contains noise/system-self content */
   const isNoisySummary = (summary: string | undefined): boolean => {
     if (!summary) return false;

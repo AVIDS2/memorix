@@ -228,6 +228,9 @@ export const BOOTSTRAP_SAFE_TOOL_NAMES = new Set([
   'memorix_context_pack',
 ]);
 
+const AUTOPILOT_RETRIEVAL_BOUNDARY_TTL_MS = 2 * 60 * 1000;
+const READ_ONLY_TASK_PATTERN = /\b(?:do not|don't|never)\s+(?:modify|edit|change|write)\b|\bread[- ]only\b|(?:不要|不准|勿|禁止).{0,6}(?:修改|编辑|写入)|只读/i;
+
 export function shouldAwaitProjectRuntime(toolName: string): boolean {
   return !BOOTSTRAP_SAFE_TOOL_NAMES.has(toolName);
 }
@@ -602,6 +605,63 @@ export async function createMemorixServer(
     };
   };
 
+  // A complete Autopilot brief is the normal retrieval boundary for one coding
+  // turn. Keep accidental search/detail loops cheap, while preserving an
+  // explicit escape hatch when a caller really needs deeper history.
+  let autopilotRetrievalBoundary: {
+    projectId: string;
+    issuedAt: number;
+    coveredObservationIds: Set<number>;
+    readOnly: boolean;
+  } | null = null;
+  const getActiveAutopilotRetrievalBoundary = () => {
+    const boundary = autopilotRetrievalBoundary;
+    if (!boundary) return null;
+    if (boundary.projectId === project.id && Date.now() - boundary.issuedAt <= AUTOPILOT_RETRIEVAL_BOUNDARY_TTL_MS) {
+      return boundary;
+    }
+    autopilotRetrievalBoundary = null;
+    return null;
+  };
+  const requireExplicitAutopilotExpansion = (toolName: string, purpose?: string) => {
+    if (!getActiveAutopilotRetrievalBoundary() || purpose?.trim()) return null;
+
+    return {
+      content: [{
+        type: 'text' as const,
+        text:
+          'Memorix Autopilot retrieval boundary: the latest `memorix_project_context` already supplied the default bounded brief for this coding turn, so no additional memory was retrieved. ' +
+          'Verify the current project first. To intentionally expand beyond that brief, call `' + toolName + '` again with `purpose` naming the specific missing fact or the user\'s explicit request.',
+      }],
+    };
+  };
+  const blockCoveredAutopilotEvidence = (toolName: string, observationIds: number[], force?: boolean) => {
+    const boundary = getActiveAutopilotRetrievalBoundary();
+    if (!boundary || force || observationIds.length === 0 || !observationIds.every(id => boundary.coveredObservationIds.has(id))) {
+      return null;
+    }
+    return {
+      content: [{
+        type: 'text' as const,
+        text:
+          'Memorix Autopilot retrieval boundary: every requested memory is already represented in the latest project brief, so no duplicate detail was retrieved. ' +
+          'Inspect the current project or seek a new source. Retry with `force: true` only when the user explicitly asks to read the underlying record in full.',
+      }],
+    };
+  };
+  const blockReadOnlyAutopilotWrite = (overrideReadOnly?: boolean) => {
+    const boundary = getActiveAutopilotRetrievalBoundary();
+    if (!boundary?.readOnly || overrideReadOnly) return null;
+    return {
+      content: [{
+        type: 'text' as const,
+        text:
+          'Memorix write boundary: the latest task is read-only or asks not to modify files, so no memory was stored. ' +
+          'Persist a record only when the user explicitly asks to save it, then retry with `overrideReadOnly: true`.',
+      }],
+    };
+  };
+
   // ================================================================
   // Memorix Extended Tools (3-layer Progressive Disclosure)
   // ================================================================
@@ -622,7 +682,8 @@ export async function createMemorixServer(
         'problem-solution ([FIX] bug fix), how-it-works ([INFO] explanation), what-changed ([CHANGE] change), ' +
         'discovery ([DISCOVERY] insight), why-it-exists ([WHY] rationale), trade-off ([TRADEOFF] compromise), ' +
         'session-request ([SESSION] original goal). ' +
-        'Project visibility is the default. Personal or team visibility requires an explicitly joined coordination identity.',
+        'Project visibility is the default. Personal or team visibility requires an explicitly joined coordination identity. ' +
+        'For a read-only task, do not store unless the user explicitly asks to save a record.',
       inputSchema: {
         entityName: z.string().describe('The entity this observation belongs to (e.g., "auth-module", "port-config")'),
         type: z.enum(OBSERVATION_TYPES).describe('Observation type for classification'),
@@ -646,11 +707,16 @@ export async function createMemorixServer(
         visibility: z.enum(['personal', 'project', 'team']).optional().describe(
           'Retrieval scope. Project is the normal shared default; personal/team require memorix_session_start with joinTeam=true.',
         ),
+        overrideReadOnly: z.boolean().optional().describe(
+          'Use only when the user explicitly asks to save memory during a read-only or no-modification task.',
+        ),
       },
     },
-    async ({ entityName: rawEntityName, type: rawType, title: rawTitle, narrative, facts, filesModified, concepts, topicKey, progress, relatedCommits, relatedEntities, visibility }) => {
+    async ({ entityName: rawEntityName, type: rawType, title: rawTitle, narrative, facts, filesModified, concepts, topicKey, progress, relatedCommits, relatedEntities, visibility, overrideReadOnly }) => {
       const unresolved = requireResolvedProject('store memory in the current project');
       if (unresolved) return unresolved;
+      const readOnlyBoundary = blockReadOnlyAutopilotWrite(overrideReadOnly);
+      if (readOnlyBoundary) return readOnlyBoundary;
       const requestedVisibility = (visibility ?? 'project') as 'personal' | 'project' | 'team';
       const reader = getObservationReader();
       if (requestedVisibility !== 'project' && !currentAgentId) {
@@ -1224,6 +1290,7 @@ export async function createMemorixServer(
       title: 'Search Memory',
       description:
         'Search project memory. Returns a compact index (~50-100 tokens/result). ' +
+        'Do not use as a follow-up to a complete memorix_project_context brief unless a specific fact is still missing or the user asks for deeper history; provide purpose when intentionally expanding. ' +
         'Use memorix_detail to fetch full content for specific IDs. ' +
         'Use memorix_timeline to see chronological context. ' +
         'Searches across all observations stored from any IDE session — enabling cross-session and cross-agent context retrieval.',
@@ -1243,12 +1310,22 @@ export async function createMemorixServer(
         source: z.enum(['agent', 'git', 'manual']).optional().describe(
           'Filter by memory source. "git" returns only commit-derived ground truth memories. Omit for all sources.',
         ),
+        purpose: z.string().optional().describe(
+          'Why this must expand beyond the latest Autopilot brief. Name the missing fact or the user\'s explicit request.',
+        ),
+        force: z.boolean().optional().describe(
+          'Use only when the user explicitly asks to read a record already represented in the latest Autopilot brief.',
+        ),
       },
     },
-    async ({ query, limit, type, maxTokens, scope, since, until, status, source }) => {
+    async ({ query, limit, type, maxTokens, scope, since, until, status, source, purpose, force }) => {
       if (scope !== 'global') {
         const unresolved = requireResolvedProject('search the current project');
         if (unresolved) return unresolved;
+      }
+      if (scope !== 'global') {
+        const boundary = requireExplicitAutopilotExpansion('memorix_search', purpose);
+        if (boundary) return boundary;
       }
       return withFreshIndex(async () => {
 
@@ -1293,6 +1370,18 @@ export async function createMemorixServer(
           };
         }
         throw error;
+      }
+
+      const activeBoundary = getActiveAutopilotRetrievalBoundary();
+      if (
+        scope !== 'global'
+        && activeBoundary
+        && !force
+        && result.entries.length > 0
+        && result.entries.every(entry => activeBoundary.coveredObservationIds.has(entry.id))
+      ) {
+        const duplicate = blockCoveredAutopilotEvidence('memorix_search', result.entries.map(entry => entry.id), force);
+        if (duplicate) return duplicate;
       }
 
       // Append retrieval diagnostics only; do not mix workspace-sync guidance into memory results.
@@ -1414,6 +1503,7 @@ export async function createMemorixServer(
         observations,
         task,
         refresh: refresh ?? 'auto',
+        reader: getObservationReader(),
         enqueueRefresh: () => {
           enqueueCodegraphRefresh({
             dataDir: projectDir,
@@ -1429,6 +1519,17 @@ export async function createMemorixServer(
         : format === 'summary'
           ? formatAutoProjectContextSummary(context)
           : formatAutoProjectContextPrompt(context);
+
+      autopilotRetrievalBoundary = {
+        projectId: project.id,
+        issuedAt: Date.now(),
+        coveredObservationIds: new Set([
+          ...(context.workset.continuation?.memories.map(memory => memory.id) ?? []),
+          ...context.workset.reliableMemory.map(memory => memory.id),
+          ...context.workset.cautionMemory.map(memory => memory.id),
+        ]),
+        readOnly: READ_ONLY_TASK_PATTERN.test(task ?? ''),
+      };
 
       return {
         content: [{ type: 'text' as const, text }],
@@ -1475,18 +1576,24 @@ export async function createMemorixServer(
       title: 'Context Pack',
       description:
         'Build a prompt-ready working context pack for a coding task. ' +
-        'Combines relevant memories, CodeGraph Memory facts, freshness warnings, suggested reads, and verification hints.',
+        'Combines relevant memories, CodeGraph Memory facts, freshness warnings, suggested reads, and verification hints. ' +
+        'After a complete memorix_project_context brief, provide purpose only when deliberately expanding beyond it.',
       inputSchema: {
         task: z.string().describe('Current coding task or question'),
         limit: z.preprocess(
           value => (typeof value === 'string' && value.trim() !== '' ? Number(value) : value),
           z.number().int().positive().max(100),
         ).optional().describe('Max active memories to inspect before code-ref filtering (default: 20)'),
+        purpose: z.string().optional().describe(
+          'Why this must expand beyond the latest Autopilot brief. Name the missing fact or the user\'s explicit request.',
+        ),
       },
     },
-    async ({ task, limit }) => {
+    async ({ task, limit, purpose }) => {
       const unresolved = requireResolvedProject('build a context pack for the current project');
       if (unresolved) return unresolved;
+      const boundary = requireExplicitAutopilotExpansion('memorix_context_pack', purpose);
+      if (boundary) return boundary;
 
       const [
         { CodeGraphStore },
@@ -2380,6 +2487,7 @@ export async function createMemorixServer(
       description:
         'Fetch full observation or mini-skill details — includes source kind (explicit memory / hook trace / git evidence), ' +
         'value category, and cross-references (~500-1000 tokens each). ' +
+        'Do not re-fetch content already covered by a complete memorix_project_context brief unless a specific fact is still missing or the user asks for deeper history; provide purpose when intentionally expanding. ' +
         'Always use memorix_search first to find relevant IDs, then fetch only what you need. ' +
         'Accepts typed refs from search results (e.g. "obs:42", "skill:3") via the typedRefs field, ' +
         'or legacy numeric ids / object refs for backward compatibility.',
@@ -2392,19 +2500,39 @@ export async function createMemorixServer(
           }),
         ).optional().describe('Explicit observation refs. Prefer this for global search results.'),
         typedRefs: z.array(z.string()).optional().describe('Typed memory refs from search results, e.g. "obs:42", "skill:3", "obs:42@org/proj"'),
+        purpose: z.string().optional().describe(
+          'Why this must expand beyond the latest Autopilot brief. Name the missing fact or the user\'s explicit request.',
+        ),
+        force: z.boolean().optional().describe(
+          'Use only when the user explicitly asks to read a record already represented in the latest Autopilot brief.',
+        ),
       },
     },
-    async ({ ids, refs, typedRefs }) => {
+    async ({ ids, refs, typedRefs, purpose, force }) => {
       // Defensive coercion: Claude Code CLI + GLM may send "[16]" instead of [16]
       const safeIds = coerceNumberArray(ids);
       const safeRefs = coerceObservationRefs(refs);
       const safeTypedRefs = coerceStringArray(typedRefs);
+      const hasCrossProjectRef = safeRefs.some((ref) => ref.projectId && ref.projectId !== project.id)
+        || safeTypedRefs.some((ref) => ref.includes('@') && !ref.endsWith(`@${project.id}`));
+      if (!hasCrossProjectRef) {
+        const boundary = requireExplicitAutopilotExpansion('memorix_detail', purpose);
+        if (boundary) return boundary;
+        const requestedObservationIds = [
+          ...safeIds,
+          ...safeRefs.map(ref => ref.id),
+          ...safeTypedRefs.flatMap((ref) => {
+            const match = /^obs:(\d+)(?:@.+)?$/i.exec(ref.trim());
+            return match ? [Number(match[1])] : [];
+          }),
+        ];
+        const duplicate = blockCoveredAutopilotEvidence('memorix_detail', requestedObservationIds, force);
+        if (duplicate) return duplicate;
+      }
 
       // Priority: typedRefs > refs > ids (each is a complete, homogeneous input path)
       let result;
       try {
-        const hasCrossProjectRef = safeRefs.some((ref) => ref.projectId && ref.projectId !== project.id)
-          || safeTypedRefs.some((ref) => ref.includes('@') && !ref.endsWith(`@${project.id}`));
         const reader = getObservationReader(hasCrossProjectRef ? 'global' : 'project');
         if (safeTypedRefs.length > 0) {
           // Pass typed ref strings directly — compactDetail handles parsing
@@ -4825,6 +4953,7 @@ export async function createMemorixServer(
 
     // Phase 4a: clear agent identity — old project's agent is not valid in new project
     currentAgentId = undefined;
+    autopilotRetrievalBoundary = null;
 
     // Re-resolve data dir with canonical ID (may differ from raw detected ID)
     const canonicalProjectDir = newCanonicalId !== newDetected.id

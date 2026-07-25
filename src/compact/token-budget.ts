@@ -56,7 +56,22 @@ export function truncateToTokenBudget(text: string, budget: number): string {
       result = result.slice(0, Math.floor(result.length * 0.9));
     }
     if (result.length < text.length) {
-      result += '...';
+      // A character estimate can end halfway through a flag, path, or symbol.
+      // Drop the incomplete whitespace-delimited token instead of returning
+      // misleading fragments such as `AUTH...`.
+      const nextCharacter = text.charAt(result.length);
+      if (nextCharacter && !/[\s.,;:!?)}\]]/.test(nextCharacter)) {
+        const boundary = result.search(/\s+\S*$/);
+        result = boundary > 0 ? result.slice(0, boundary).trimEnd() : '';
+      }
+
+      // Keep the suffix inside the stated budget when there is room. An empty
+      // prefix is more honest than a partial identifier that appears valid.
+      while (result && fitsInBudget(result + '...', budget) === false) {
+        const boundary = result.lastIndexOf(' ');
+        result = boundary > 0 ? result.slice(0, boundary).trimEnd() : '';
+      }
+      result = result ? result + '...' : '...';
     }
   }
 

@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.4] - 2026-07-26
+
+### Added
+- **One-call continuation for CLI-only agents** -- Added `memorix resume "<task>"`, a direct terminal entry that returns the same bounded Memory Autopilot Workset as Project Context without requiring MCP discovery or command probing.
+
+### Changed
+- **Continuation is a delivery choice, not a separate memory silo** -- Project Context now recognizes continuation language independently of its task lens. It adds only the latest meaningful session summary and up to three readable durable anchors, with source records in the existing context receipt. Ordinary new tasks remain free of old-session dumps.
+- **Stable agent fallback guidance** -- Generated skills and rules now direct an agent with unavailable MCP to make exactly one task-aware CLI call: `memorix resume` for prior work or `memorix context` for a new task. Continuation requests must take that brief before local file/Git archaeology, and an absent `.memorix` directory is not treated as proof that no durable memory exists. This prevents broad command enumeration, repeated search loops, and false cold-start conclusions.
+
+### Fixed
+- **Claude continuation delivery** -- Claude Code now receives an explicit continuation's bounded prior-work Workset through its official `UserPromptSubmit.additionalContext` response, rather than relying on an advisory rule or a SessionStart message the host does not place in model context. `memory.inject = "silent"` still disables automatic injection.
+- **Fresh-install SQLite resilience** -- When the optional `better-sqlite3` native binary is missing on a supported Node 22 runtime, Memorix now opens the same local `memorix.db` through Node's built-in SQLite instead of losing session and durable-memory reads across CLI or hook processes. No data migration or configuration change is required.
+- **Standard TOML literal strings** -- Project and global configuration now accepts single-quoted TOML strings, including `#` characters inside the literal value.
+- **MCP continuation summary parity** -- `memorix_project_context` now includes the same bounded prior-session and durable-memory evidence in `format: "summary"` as it does in the default prompt format, so agents that request a compact summary do not lose a valid handoff.
+- **Actionable continuation anchors** -- Bounded continuation text no longer cuts a technical flag or symbol halfway through. The shared guidance also avoids redundant Context Pack/search/detail calls after a complete Autopilot brief, keeping the default agent path compact.
+- **Autopilot duplicate retrieval** -- A completed MCP Project Context now holds a short-lived delivery boundary. Follow-up search/detail calls do not re-send memories already represented in that brief unless the user explicitly asks to inspect the underlying record.
+- **Read-only memory mutation** -- A task that asks for read-only work or says not to modify files now rejects automatic `memorix_store` writes. An agent must have an explicit user request before it can override that boundary.
+- **Prior-work privacy parity** -- Continuation retrieval applies the same project, team, and personal-memory visibility reader as session context, including canonical project aliases. A different identity cannot receive another agent's personal durable memory through the new delivery path.
+- **Rule-surface drift** -- The shared automatic-memory rule file now carries the same one-call CLI fallback contract as setup-generated agent guidance.
+
 ## [1.2.3] - 2026-07-25
 
 ### Fixed

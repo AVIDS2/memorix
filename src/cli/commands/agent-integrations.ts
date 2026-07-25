@@ -776,7 +776,11 @@ function isCurrentGuidance(content: string): boolean {
   return (
     content.includes('Memory Autopilot') &&
     content.includes('Default first step for non-trivial coding work') &&
-    content.includes('memorix_project_context')
+    content.includes('memorix_project_context') &&
+    content.includes('memorix resume') &&
+    content.includes('Continuation fallback is mandatory') &&
+    content.includes('Do not call more Memorix retrieval tools') &&
+    content.includes('read-only work')
   );
 }
 

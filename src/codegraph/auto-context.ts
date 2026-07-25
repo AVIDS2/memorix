@@ -1,9 +1,11 @@
 import { existsSync, statSync } from 'node:fs';
 import path from 'node:path';
+import { truncateToTokenBudget } from '../compact/token-budget.js';
 import { getResolvedConfig } from '../config/resolved-config.js';
 import { buildTaskWorkset, type TaskWorkset, type WorksetCaution } from '../knowledge/workset.js';
 import type { ContextDeliveryTarget } from '../knowledge/context-assembly.js';
-import type { ProjectInfo } from '../types.js';
+import { sanitizeCredentials } from '../memory/secret-filter.js';
+import type { ObservationReader, ProjectInfo } from '../types.js';
 import { backfillMissingObservationCodeRefs, type CodeRefBackfillResult } from './binder.js';
 import { collectCurrentProjectFacts, formatGitFact, type CurrentProjectFacts } from './current-facts.js';
 import { refreshProjectLite } from './lite-provider.js';
@@ -21,7 +23,10 @@ import {
 } from './project-context.js';
 import { CodeGraphStore } from './store.js';
 import { isEligibleForAutomaticDelivery } from '../memory/admission.js';
+import { getSessionResumeBrief, type SessionResumeBrief } from '../memory/session.js';
+import { initSessionStore } from '../store/session-store.js';
 import {
+  isContinuationTask,
   lensPathCandidates,
   lensVerificationHints,
   rankLensPaths,
@@ -50,6 +55,8 @@ export interface AutoProjectContext {
   explain: ProjectContextExplain;
   refresh: AutoContextRefreshResult;
   providerQuality: CodeGraphProviderQuality;
+  /** Present only when the caller asked to continue prior work. */
+  continuation?: SessionResumeBrief;
   workset: TaskWorkset;
 }
 
@@ -123,6 +130,10 @@ export async function buildAutoProjectContext(input: {
   maxFileBytes?: number;
   /** Test-only injection point; production uses the bounded local runner. */
   externalRunner?: ExternalCodeGraphRunner;
+  /** Reader used when continuation retrieval loads session and durable memory evidence. */
+  reader?: ObservationReader;
+  /** Auto detects continuation language; always is used by the explicit resume path. */
+  continuation?: 'auto' | 'always' | 'never';
   /**
    * When supplied, a needed refresh is queued instead of running in this
    * request. MCP and hook callers use this to keep their response path fast.
@@ -135,6 +146,8 @@ export async function buildAutoProjectContext(input: {
   const now = input.now ?? new Date();
   const task = input.task?.trim();
   const lens = resolveTaskLens(task);
+  const continuationRequested = input.continuation === 'always'
+    || (input.continuation !== 'never' && isContinuationTask(task));
   const codegraphConfig = getResolvedConfig({ projectRoot: input.project.rootPath }).codegraph;
   const exclude = input.exclude ?? codegraphConfig.excludePatterns;
   const maxFileBytes = input.maxFileBytes ?? codegraphConfig.maxFileBytes;
@@ -278,6 +291,14 @@ export async function buildAutoProjectContext(input: {
   if (externalCaution) {
     runtimeCautions.push({ kind: 'external-codegraph-fallback', message: externalCaution });
   }
+  // Project Context is also used by lightweight callers that have not touched
+  // session APIs yet. Initialize only when continuation was requested so a
+  // normal Workset remains independent of session persistence.
+  let continuation: SessionResumeBrief | undefined;
+  if (continuationRequested) {
+    await initSessionStore(input.dataDir);
+    continuation = await getSessionResumeBrief(input.project.id, task, input.reader);
+  }
   const workset = await buildTaskWorkset({
     projectId: input.project.id,
     dataDir: input.dataDir,
@@ -287,6 +308,7 @@ export async function buildAutoProjectContext(input: {
     ...(externalOutline ? { semanticCode: externalOutline } : {}),
     providerQuality,
     currentFacts: worksetFactLines(currentFacts),
+    ...(continuation ? { continuation } : {}),
     codeState: codeStateLine(overview),
     reliableMemory: sourceSets.reliableSources
       .slice(0, lens.sourceLimit)
@@ -340,6 +362,7 @@ export async function buildAutoProjectContext(input: {
     explain,
     refresh,
     providerQuality,
+    ...(continuationRequested && workset.continuation ? { continuation: workset.continuation } : {}),
     workset,
   };
 }
@@ -348,6 +371,13 @@ function formatLanguages(overview: ProjectContextOverview): string {
   return overview.code.languages.length > 0
     ? overview.code.languages.map(item => `${item.language} ${item.files}`).join(', ')
     : 'none indexed yet';
+}
+
+function compactContinuationText(text: string, budget: number): string {
+  return truncateToTokenBudget(
+    sanitizeCredentials(text).replace(/\s+/g, ' ').trim(),
+    budget,
+  );
 }
 
 function codeStateLine(overview: ProjectContextOverview): string {
@@ -532,6 +562,29 @@ export function formatAutoProjectContextSummary(context: AutoProjectContext): st
       ? `- ${reliableSources.length} current code-bound memory link(s)`
       : '- none yet',
   );
+
+  const continuation = context.workset.continuation;
+  if (continuation?.previousSession || continuation?.memories.length) {
+    lines.push('', 'Resume from prior work');
+    if (continuation.previousSession) {
+      const session = continuation.previousSession;
+      const source = [session.agent, session.endedAt ? session.endedAt.slice(0, 10) : undefined]
+        .filter(Boolean)
+        .join(', ');
+      lines.push(
+        '- Previous session' + (source ? ` (${source})` : '') + ': '
+          + compactContinuationText(session.summary, 44),
+      );
+    }
+    for (const memory of continuation.memories.slice(0, 3)) {
+      const detail = memory.detail ? ': ' + compactContinuationText(memory.detail, 20) : '';
+      lines.push(
+        '- #' + memory.id + ' ' + memory.type + ': '
+          + compactContinuationText(memory.title, 18)
+          + detail,
+      );
+    }
+  }
 
   return lines.join('\n');
 }

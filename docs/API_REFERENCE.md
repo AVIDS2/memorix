@@ -59,7 +59,7 @@ The current CLI namespaces are:
 Typical examples:
 
 ```bash
-memorix --cwd /path/to/repo context --task "continue auth bug"
+memorix --cwd /path/to/repo resume "continue auth bug"
 memorix identity join --agent-type codex --name codex-main
 memorix session start --agent codex-main --agent-type codex --join-team --use
 memorix memory search --query "release blocker"
@@ -96,6 +96,8 @@ memorix codegraph status
 memorix codegraph status --json
 memorix context
 memorix context --task "continue auth bug"
+memorix context "continue auth bug"
+memorix resume "continue auth bug"
 memorix context --task "prepare 1.1.7 release"
 memorix explain
 memorix codegraph context-pack --task "continue auth bug"
@@ -107,11 +109,11 @@ MCP:
 - `memorix_codegraph_status` returns provider/index counts for the current project.
 - `memorix_context_pack` builds a task-specific packet with reliable current memories, lower-trust unbound memories, current code facts, freshness warnings, suggested reads, and suggested verification.
 
-`memorix context` defaults to `--refresh auto`, so first use can seed Code State without a separate manual `memorix codegraph refresh`. Its brief puts live package/changelog/Git facts before memory hints and flags old `progress.txt` / dev-log notes as historical when they predate the latest changelog, so agents should treat current facts as the source of truth when files disagree. Task lenses keep the packet shaped to the work: bugfix briefs prefer failing tests and repros, release briefs prefer metadata/changelog/package checks, and onboarding briefs prefer docs and entry points while hiding unrelated suspect details. Use `--refresh never` for read-only inspection and `--refresh always` when you want to force a fresh scan.
+`memorix context` defaults to `--refresh auto`, so first use can seed Code State without a separate manual `memorix codegraph refresh`. Its brief puts live package/changelog/Git facts before memory hints and flags old `progress.txt` / dev-log notes as historical when they predate the latest changelog, so agents should treat current facts as the source of truth when files disagree. Task lenses keep the packet shaped to the work: bugfix briefs prefer failing tests and repros, release briefs prefer metadata/changelog/package checks, and onboarding briefs prefer docs and entry points while hiding unrelated suspect details. Continuation delivery is separate from the task lens: continuation language in `memorix_project_context` enables a bounded prior-work projection, and `memorix resume "..."` makes that choice explicit. It includes only the latest useful session summary and up to three readable durable memories; ordinary new tasks do not receive historical-session context. A completed MCP brief is the default retrieval boundary: search, detail, or Context Pack should expand it only for a named missing fact or an explicit request for deeper history. Use `--refresh never` for read-only inspection and `--refresh always` when you want to force a fresh scan.
 
 Project-specific generated, vendored, or cache paths can be excluded from Code State with `[codegraph].exclude_patterns` in `memorix.toml` or `~/.memorix/config.toml` (`codegraph.excludePatterns` in legacy YAML). User patterns extend the built-in excludes and are applied to indexing, Project Context suggested reads, and Context Pack suggested reads.
 
-SessionStart hooks keep the default minimal hint lightweight. When memory behavior is configured with `sessionInject=full`, Memorix injects the compact Memory Autopilot brief at session start instead of only listing recent text memories.
+SessionStart hooks keep the default minimal hint lightweight. When memory behavior is configured with `sessionInject=full`, Codex receives the compact Memory Autopilot brief at session start instead of only listing recent text memories. Claude Code delivers an explicit continuation through its official `UserPromptSubmit` context channel, so a user saying “continue” receives the bounded prior-work brief even under the default minimal setting. Set `memory.inject = "silent"` to disable automatic hook delivery.
 
 The intended loop for agents is: get the project brief when it helps, inspect the suggested current files, use stale or unbound memory only as a lead, store durable outcomes after the work changes the project, and resolve obsolete memories.
 
@@ -220,6 +222,10 @@ require a joined coordination identity; a personal record is readable only by
 its creator and explicitly named recipients. Supplying a `topicKey` never
 lets an agent overwrite a record outside its write scope.
 
+When the current Autopilot task is read-only or explicitly says not to modify
+files, `memorix_store` returns without writing. Use `overrideReadOnly: true`
+only when the user explicitly asks to preserve a record during that task.
+
 Example:
 
 ```json
@@ -252,6 +258,8 @@ Important inputs:
 - `since`
 - `until`
 - `maxTokens`
+- `purpose` when deliberately expanding beyond the current Autopilot brief
+- `force: true` only when the user explicitly asks to re-read a record already represented in that brief
 
 Typical uses:
 
@@ -280,6 +288,8 @@ Global example:
 ### `memorix_detail`
 
 Fetch full observation detail.
+
+After `memorix_project_context`, use `purpose` only for a named missing fact. Set `force: true` only when the user explicitly asks for the full underlying record already represented in the brief.
 
 Supports two modes:
 

@@ -7,13 +7,15 @@ You have access to Memorix memory tools. Follow these rules to maintain persiste
 At the beginning of non-trivial coding work, use Memorix Memory Autopilot before local progress notes or broad file exploration. A session bind is not required for every conversation.
 
 1. Default first step for non-trivial coding work: call `memorix_project_context` with the user's actual task before progress files, dev-log reads, ad-hoc file reads, or git archaeology. Memorix will choose a task-lensed brief (bugfix, feature, release, onboarding, refactor, docs, test, or general). Treat its "Start here" files as the first code or docs to inspect.
-2. If the MCP tool is not visible yet but the client supports tool discovery or dynamic loading, search/select `memorix_project_context` first. Run `memorix context --task "<task>"` only after MCP is unavailable, disabled, or not discoverable, and pass the user's real task text. Do not skip memory, wait indefinitely on MCP startup, or hand-write tool-call syntax.
-3. Use `memorix_context_pack` when you need structured refs and freshness for code-bound memories.
-4. For broad memory graph questions, call `memorix_graph_context` to get a compact background packet.
-5. For specific past decisions, bugs, files, or changes, call `memorix_search` with a focused query.
-6. If search results are found, use `memorix_detail` only for the few refs you actually need.
-7. Call `memorix_session_start` only when explicit session semantics are useful: handoff, long-running work, orchestration coordination, restoring prior session context, or HTTP project binding.
-8. Reference relevant memories naturally in your response; do not just list them.
+2. If the MCP tool is not visible yet but the client supports tool discovery or dynamic loading, search/select `memorix_project_context` first. Continuation fallback is mandatory: when the user asks to continue, resume, take over, or explain prior work and MCP cannot be called in this turn, run exactly one CLI brief with the user's real task before inspecting files, Git history, progress notes, or guessing: use `memorix resume "<task>" --json`. For a new task, use `memorix context "<task>" --json` instead. The absence of `.memorix` or visible memory files never proves project memory is empty. If that one command fails, report it and proceed normally. Do not probe help, enumerate commands, chain broad searches, wait indefinitely on MCP startup, or hand-write tool-call syntax.
+3. After a successful `memorix_project_context` result, the brief is the default retrieval boundary. Do not call more Memorix retrieval tools after a complete brief. Use `memorix_context_pack`, `memorix_search`, or `memorix_detail` only when the brief lacks a specific reference, freshness field, or fact needed for the task, or when the user explicitly asks for deeper history. In MCP, name that missing fact in `purpose` when intentionally expanding beyond the brief. Do not retrieve the same decision twice just to confirm an already-complete brief.
+   If the user asks for read-only work or says not to modify files, do not call `memorix_store` just to record an assessment. Store only when the user explicitly asks to preserve it.
+4. Use `memorix_context_pack` when you need structured refs and freshness for code-bound memories.
+5. For broad memory graph questions, call `memorix_graph_context` to get a compact background packet after the Autopilot brief is not enough.
+6. For a specific past decision, bug, file, or change that the brief did not answer, call `memorix_search` with a focused query.
+7. If search results are found, use `memorix_detail` only for the few refs you actually need.
+8. Call `memorix_session_start` only when explicit session semantics are useful: handoff, long-running work, orchestration coordination, restoring prior session context, or HTTP project binding.
+9. Reference relevant memories naturally in your response; do not just list them.
 
 If `memorix_search` says this is a fresh project with no Memorix memories yet, treat that as a successful cold-start signal. Do not repeat `memorix_search` again in the same turn unless the user explicitly asks for history/context, or new memories were written during the turn.
 

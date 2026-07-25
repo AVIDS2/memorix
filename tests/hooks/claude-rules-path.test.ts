@@ -43,8 +43,11 @@ describe('Claude integration guidance path', () => {
       expect(content).toContain('# Memorix');
       expect(content).toContain('memorix_project_context');
       expect(content).toContain('task-lensed brief');
-      expect(content).toContain('memorix context --task "<task>"');
-      expect(content).toContain('MCP is unavailable, disabled, or not discoverable');
+      expect(content).toContain('memorix context "<task>" --json');
+      expect(content).toContain('memorix resume "<task>" --json');
+      expect(content).toContain('Continuation fallback is mandatory');
+      expect(content).toContain('Do not call more Memorix retrieval tools');
+      expect(content).toContain('The absence of `.memorix` or visible memory files never proves project memory is empty.');
       await expect(fs.access(copilotInstructions)).rejects.toThrow();
     } finally {
       await fs.rm(tmpDir, { recursive: true, force: true });
@@ -126,8 +129,11 @@ describe('global guidance scope', () => {
       expect(content).toContain('active workspace');
       expect(content).toContain('memorix_project_context');
       expect(content).toContain('task-lensed brief');
-      expect(content).toContain('memorix context --task "<task>"');
-      expect(content).toContain('MCP is unavailable, disabled, or not discoverable');
+      expect(content).toContain('memorix context "<task>" --json');
+      expect(content).toContain('memorix resume "<task>" --json');
+      expect(content).toContain('Continuation fallback is mandatory');
+      expect(content).toContain('Do not call more Memorix retrieval tools');
+      expect(content).toContain('The absence of `.memorix` or visible memory files never proves project memory is empty.');
       expect(content).not.toContain('This project uses Memorix');
       await expect(fs.access(path.join(projectDir, '.codex', 'AGENTS.md'))).rejects.toThrow();
     } finally {

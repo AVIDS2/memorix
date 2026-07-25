@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { resolveTaskLens } from '../../src/codegraph/task-lens.js';
+import { isContinuationTask, resolveTaskLens } from '../../src/codegraph/task-lens.js';
 
 describe('task lens routing', () => {
   it('does not treat a prohibited publish command as release intent', () => {
@@ -17,5 +17,12 @@ describe('task lens routing', () => {
 
   it('does not promote a Chinese no-publish instruction to release', () => {
     expect(resolveTaskLens('\u4e0d\u8981\u53d1\u5e03\uff0c\u5148\u6392\u67e5\u8ba4\u8bc1\u6545\u969c\u5e76\u8fd0\u884c\u5b9a\u5411\u6d4b\u8bd5\u3002').id).toBe('bugfix');
+  });
+
+  it('keeps continuation delivery separate from the underlying task lens', () => {
+    expect(isContinuationTask('Continue fixing the authentication timeout.')).toBe(true);
+    expect(resolveTaskLens('Continue fixing the authentication timeout.').id).toBe('bugfix');
+    expect(isContinuationTask('请接手上次留下的登录问题。')).toBe(true);
+    expect(isContinuationTask('Document the current worker API.')).toBe(false);
   });
 });

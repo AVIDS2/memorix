@@ -88,6 +88,27 @@ export function getResolvedConfig(options: ResolvedLaneOptions = {}): ResolvedMe
   const legacy = loadFileConfig();
   const embeddingBaseUrl = first(process.env.MEMORIX_EMBEDDING_BASE_URL, toml.embedding?.base_url, yaml.embedding?.baseUrl, legacy.embeddingApi?.baseUrl);
   const openRouterEmbeddingApiKey = isOpenRouterUrl(embeddingBaseUrl) ? process.env.OPENROUTER_API_KEY : undefined;
+  const memoryLlmProvider = first(
+    process.env.MEMORIX_LLM_PROVIDER,
+    toml.memory?.llm?.provider,
+    yaml.llm?.provider,
+    legacy.llm?.provider,
+  );
+  const memoryLlmModel = first(
+    process.env.MEMORIX_LLM_MODEL,
+    toml.memory?.llm?.model,
+    yaml.llm?.model,
+    legacy.llm?.model,
+  );
+  const memoryLlmBaseUrl = first(
+    process.env.MEMORIX_LLM_BASE_URL,
+    toml.memory?.llm?.base_url,
+    yaml.llm?.baseUrl,
+    legacy.llm?.baseUrl,
+  );
+  const openRouterMemoryLlmApiKey = isOpenRouterMemoryLane(memoryLlmProvider, memoryLlmBaseUrl)
+    ? process.env.OPENROUTER_API_KEY
+    : undefined;
 
   const resolved: ResolvedMemorixConfig = {
     agent: {
@@ -126,9 +147,9 @@ export function getResolvedConfig(options: ResolvedLaneOptions = {}): ResolvedMe
       autoCleanup: firstBool(toml.memory?.auto_cleanup, yaml.behavior?.autoCleanup),
       syncAdvisory: firstBool(toml.memory?.sync_advisory, yaml.behavior?.syncAdvisory),
       llm: {
-        provider: first(process.env.MEMORIX_LLM_PROVIDER, toml.memory?.llm?.provider, yaml.llm?.provider, legacy.llm?.provider),
-        model: first(process.env.MEMORIX_LLM_MODEL, toml.memory?.llm?.model, yaml.llm?.model, legacy.llm?.model),
-        baseUrl: first(process.env.MEMORIX_LLM_BASE_URL, toml.memory?.llm?.base_url, yaml.llm?.baseUrl, legacy.llm?.baseUrl),
+        provider: memoryLlmProvider,
+        model: memoryLlmModel,
+        baseUrl: memoryLlmBaseUrl,
         apiKey: first(
           process.env.MEMORIX_LLM_API_KEY,
           process.env.MEMORIX_API_KEY,
@@ -137,7 +158,7 @@ export function getResolvedConfig(options: ResolvedLaneOptions = {}): ResolvedMe
           legacy.llm?.apiKey,
           process.env.OPENAI_API_KEY,
           process.env.ANTHROPIC_API_KEY,
-          process.env.OPENROUTER_API_KEY,
+          openRouterMemoryLlmApiKey,
         ),
       },
     },
@@ -288,6 +309,10 @@ function isOpenRouterUrl(value: string | undefined): boolean {
   } catch {
     return /(^|\.)openrouter\.ai(?::|\/|$)/i.test(value);
   }
+}
+
+function isOpenRouterMemoryLane(provider: string | undefined, baseUrl: string | undefined): boolean {
+  return provider?.trim().toLowerCase() === 'openrouter' || isOpenRouterUrl(baseUrl);
 }
 
 function normalizeExternalContext(value: string | undefined): 'auto' | 'off' | undefined {

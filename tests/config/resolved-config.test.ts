@@ -36,6 +36,8 @@ const ENV_KEYS = [
   'MEMORIX_CODEGRAPH_EXTERNAL_COMMAND',
   'MEMORIX_CODEGRAPH_EXTERNAL_TIMEOUT_MS',
   'OPENAI_API_KEY',
+  'ANTHROPIC_API_KEY',
+  'OPENROUTER_API_KEY',
 ];
 
 describe('resolved config', () => {
@@ -103,6 +105,34 @@ describe('resolved config', () => {
     process.env.MEMORIX_AGENT_API_KEY = 'agent-key';
 
     expect(getResolvedEmbeddingLane({ projectRoot: null, homeDir: HOME }).apiKey).toBeUndefined();
+  });
+
+  it('uses an OpenRouter key for its embedding lane without enabling the memory LLM lane', () => {
+    process.env.OPENROUTER_API_KEY = 'embedding-only-key';
+    writeFileSync(join(HOME, '.memorix', 'config.toml'), [
+      '[embedding]',
+      'provider = "api"',
+      'base_url = "https://openrouter.ai/api/v1"',
+    ].join('\n'), 'utf8');
+
+    const cfg = getResolvedConfig({ projectRoot: null, homeDir: HOME });
+
+    expect(cfg.embedding.apiKey).toBe('embedding-only-key');
+    expect(cfg.memory.llm.apiKey).toBeUndefined();
+  });
+
+  it('allows an OpenRouter key for an explicitly configured memory LLM lane', () => {
+    process.env.OPENROUTER_API_KEY = 'memory-openrouter-key';
+    process.env.MEMORIX_LLM_PROVIDER = 'openrouter';
+
+    expect(getResolvedMemoryLane({ projectRoot: null, homeDir: HOME }).llm.apiKey).toBe('memory-openrouter-key');
+  });
+
+  it('recognizes an explicit OpenRouter memory base URL without a provider label', () => {
+    process.env.OPENROUTER_API_KEY = 'memory-openrouter-base-url-key';
+    process.env.MEMORIX_LLM_BASE_URL = 'https://openrouter.ai/api/v1';
+
+    expect(getResolvedMemoryLane({ projectRoot: null, homeDir: HOME }).llm.apiKey).toBe('memory-openrouter-base-url-key');
   });
 
   it('returns memory LLM simple key from MEMORIX_API_KEY', () => {

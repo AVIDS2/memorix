@@ -268,7 +268,35 @@ describe('orama-store semantic hybrid search', () => {
     expect(entries[0]?.title).toContain('semantic retrieval weak');
   });
 
-  it('expands CJK natural-language queries to recover cross-lingual memories', async () => {
+  it('keeps default balanced CJK search free of LLM query expansion', async () => {
+    const { searchObservations } = await import('../../src/store/orama-store.js');
+
+    await searchObservations({
+      query: '语义检索为什么变弱',
+      projectId: 'AVIDS2/memorix',
+      limit: 5,
+      quality: 'balanced',
+    });
+
+    expect(mockCallLLM).not.toHaveBeenCalled();
+  });
+
+  it('keeps fast search on the bounded local retrieval path', async () => {
+    const { getLastSearchMode, searchObservations } = await import('../../src/store/orama-store.js');
+
+    await searchObservations({
+      query: '语义检索为什么变弱',
+      projectId: 'AVIDS2/memorix',
+      limit: 5,
+      quality: 'fast',
+    });
+
+    expect(mockInitLLM).not.toHaveBeenCalled();
+    expect(mockCallLLM).not.toHaveBeenCalled();
+    expect(getLastSearchMode('AVIDS2/memorix')).toBe('fulltext (fast profile)');
+  });
+
+  it('expands CJK natural-language queries in thorough mode to recover cross-lingual memories', async () => {
     const {
       insertObservation,
       makeOramaObservationId,
@@ -321,6 +349,7 @@ describe('orama-store semantic hybrid search', () => {
       query: '语义检索为什么变弱',
       projectId: 'AVIDS2/memorix',
       limit: 5,
+      quality: 'thorough',
     });
 
     expect(mockCallLLM).toHaveBeenCalled();

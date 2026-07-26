@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.5] - 2026-07-27
+
+### Added
+- **Explicit retrieval profiles** -- Search now accepts `fast`, `balanced` (default), or `thorough` through the CLI, MCP, and SDK. Fast is fully local, balanced keeps optional LLM work out of everyday retrieval, and thorough explicitly opts into configured LLM query refinement.
+- **Reproducible retrieval evidence** -- Added `npm run benchmark:retrieval` for a clearly-labelled hot in-process SDK lexical benchmark with p50/p95/p99 output. It does not present CLI startup, MCP transport, remote embedding, or LLM latency as the same metric.
+
+### Changed
+- **Lighter read-only CLI path** -- Memory search, detail, timeline, recent, graph context, and help no longer create session bookkeeping or maintenance-target metadata. Identity and visibility checks remain unchanged.
+
+### Fixed
+- **Completed searches no longer retain timeout watchdogs** -- Embedding, rerank, MCP search, and maintenance timeout paths share a helper that clears the timer when work settles. This removes the avoidable CLI exit delay caused by an already-completed optional rerank.
+- **OpenRouter lane isolation** -- An embedding-only `OPENROUTER_API_KEY` no longer silently enables the memory LLM lane. It remains valid for a memory LLM only when that lane explicitly selects an OpenRouter provider or base URL.
+
 ## [1.2.4] - 2026-07-26
 
 ### Added

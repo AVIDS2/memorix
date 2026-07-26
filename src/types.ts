@@ -239,6 +239,9 @@ export interface TimelineContext {
   after: IndexEntry[];
 }
 
+/** Retrieval work allowed for a search request. */
+export type RetrievalQuality = 'fast' | 'balanced' | 'thorough';
+
 /** Search options for the compact engine */
 export interface SearchOptions {
   query: string;
@@ -257,6 +260,11 @@ export interface SearchOptions {
   trackAccess?: boolean;
   /** Internal reader context for agent-facing visibility filtering. */
   reader?: ObservationReader;
+  /**
+   * `fast` stays fully local, `balanced` (default) permits embeddings, and
+   * `thorough` explicitly permits optional LLM query rewrite and reranking.
+   */
+  quality?: RetrievalQuality;
 }
 
 /** Topic key family heuristics for suggesting stable topic keys */

@@ -14,6 +14,24 @@ Memorix is designed to be light for everyday memory use and explicit about heavi
 
 The default memory path uses local SQLite as the canonical store and Orama for search/indexing. No cloud service is required.
 
+## Retrieval Profiles
+
+| Profile | Default? | Network work | Best fit |
+| --- | --- | --- | --- |
+| `fast` | No | Never | Scripts, probes, latency-sensitive agent steps |
+| `balanced` | Yes | Optional embedding only | Everyday search |
+| `thorough` | No | Optional embedding plus explicitly enabled memory LLM work | A deliberate deep investigation |
+
+Use `--quality fast|balanced|thorough` with `memorix memory search` or
+`memorix search`; the `memorix_search` MCP tool and SDK expose the same field.
+`fast` is fully local. `balanced` keeps optional LLM query rewriting and
+reranking out of the normal search path. `thorough` is opt-in because it can
+add provider latency and cost.
+
+`OPENROUTER_API_KEY` may provide an API key for an OpenRouter embedding endpoint.
+It does not enable the memory-LLM lane unless that lane explicitly selects
+OpenRouter through its provider or base URL.
+
 ## Interactive and Maintenance Boundaries
 
 MCP transport readiness is separate from full search-index readiness. The first
@@ -58,6 +76,8 @@ On the release development machine used for this check, the healthy HTTP service
 | `MEMORIX_LLM_API_KEY` / `OPENAI_API_KEY` | unset | Enable LLM-backed enrichment, extraction, rerank, or skill generation |
 | `MEMORIX_LLM_TIMEOUT_MS` | `30000` (30 s) | Bound a single LLM-backed extraction/resolve call |
 | `MEMORIX_RERANK_TIMEOUT_MS` | provider default | Bound slow LLM rerank calls |
+| `memorix memory search --quality fast` | n/a | Force a fully local retrieval path for a latency-sensitive call |
+| `npm run benchmark:retrieval -- --records 1000 --runs 100` | n/a | Reproduce hot in-process lexical retrieval latency; not an end-to-end claim |
 | `[codegraph].max_file_bytes` | `2097152` | Raise only when a large file is intentional source that should enter Code Memory |
 | `memorix retention status` | report only | Inspect whether memory growth needs cleanup |
 | `memorix retention archive` | explicit | Archive expired memories when the project gets noisy |
@@ -71,6 +91,7 @@ On the release development machine used for this check, the healthy HTTP service
 - For Docker, use it when you want a managed HTTP service. Do not use image size alone as the runtime memory estimate.
 - For orchestrated subagent work, expect CPU and disk activity proportional to the spawned agents and verification commands.
 - For release checks, measure build/test/pack separately from idle service cost.
+- When comparing retrieval latency, report cold CLI, warm in-process SDK, MCP/HTTP, remote embedding, and LLM-enhanced paths separately. They have materially different costs.
 - When Dashboard shows queued or failed maintenance work, inspect
   `/api/maintenance` on that local dashboard before assuming a Code Memory scan
   or lifecycle task completed.
@@ -79,7 +100,7 @@ On the release development machine used for this check, the healthy HTTP service
 
 These are not release blockers, but they are reasonable future improvements:
 
-- Add a lightweight benchmark command that reports startup time, index size, SQLite size, and search latency.
+- Extend the retrieval benchmark with separately labelled cold CLI, MCP, and remote-provider cases when a release needs those comparisons.
 - Add dashboard-side performance telemetry for API latency and payload sizes.
 - Document recommended retention schedules for large projects.
 - Evaluate a persistent cross-process retrieval index only as a major-version

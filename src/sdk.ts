@@ -26,6 +26,7 @@ import type {
   ProjectInfo,
   DetectionResult,
   ObservationReader,
+  RetrievalQuality,
 } from './types.js';
 import {
   canManageObservation,
@@ -90,6 +91,8 @@ export interface ClientSearchOptions {
   status?: ObservationStatus | 'all';
   /** Maximum results. Default: 20 */
   limit?: number;
+  /** Retrieval profile. Default: balanced. */
+  quality?: RetrievalQuality;
 }
 
 /** Result from resolving observations */
@@ -220,6 +223,7 @@ export class MemoryClient {
       type: options.type,
       source: options.source,
       status: options.status === 'all' ? undefined : (options.status ?? 'active'),
+      quality: options.quality,
       reader: this._reader,
     };
 

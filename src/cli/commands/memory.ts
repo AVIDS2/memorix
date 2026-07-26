@@ -7,8 +7,10 @@ import { canManageObservation, filterReadableObservations, resolveObservationVis
 import {
   coerceObservationStatus,
   coerceObservationType,
+  coerceRetrievalQuality,
   emitError,
   emitResult,
+  getCliReadContext,
   getCliProjectContext,
   parseCsvList,
   parsePositiveInt,
@@ -36,6 +38,7 @@ export default defineCommand({
     topicKey: { type: 'string', description: 'Stable topic key override' },
     action: { type: 'string', description: 'Secondary action for advanced memory commands' },
     limit: { type: 'string', description: 'Limit for search/recent output' },
+    quality: { type: 'string', description: 'Retrieval profile: fast, balanced (default), or thorough' },
     graphLimit: { type: 'string', description: 'Limit for graph-context output' },
     graphQuery: { type: 'string', description: 'Query for graph-context packet' },
     format: { type: 'string', description: 'Output format for graph-context: summary or prompt' },
@@ -56,7 +59,12 @@ export default defineCommand({
     const asJson = !!args.json;
 
     try {
-      const { project, dataDir, reader, identity } = await getCliProjectContext({ searchIndex: true });
+      const readOnlyActions = new Set(['', 'search', 'graph-context', 'recent', 'suggest-topic-key', 'detail', 'timeline']);
+      const needsSearchIndex = action === 'search' || action === 'detail' || action === 'timeline';
+      const context = readOnlyActions.has(action)
+        ? await getCliReadContext({ searchIndex: needsSearchIndex })
+        : await getCliProjectContext({ searchIndex: true });
+      const { project, dataDir, reader, identity } = context;
 
       switch (action) {
         case 'search': {
@@ -66,7 +74,8 @@ export default defineCommand({
             return;
           }
           const limit = parsePositiveInt(args.limit as string | undefined, 10);
-          const result = await compactSearch({ query, limit, projectId: project.id, reader });
+          const quality = coerceRetrievalQuality(args.quality as string | undefined);
+          const result = await compactSearch({ query, limit, quality, projectId: project.id, reader });
           emitResult({ project, entries: result.entries }, result.formatted, asJson);
           return;
         }
@@ -420,7 +429,7 @@ export default defineCommand({
           console.log('Memorix Memory Commands');
           console.log('');
           console.log('Usage:');
-          console.log('  memorix memory search --query "timeout bug" [--limit 10]');
+          console.log('  memorix memory search --query "timeout bug" [--limit 10] [--quality fast|balanced|thorough]');
           console.log('  memorix memory recent [--limit 10]');
           console.log('  memorix memory store --text "..." [--title "..."] [--type discovery] [--visibility project|personal|team]');
           console.log('  memorix memory suggest-topic-key --type decision --title "..."');

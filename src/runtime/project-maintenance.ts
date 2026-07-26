@@ -9,6 +9,7 @@ import {
   enqueueObservationQualification,
   type MaintenanceQueue,
 } from './lifecycle.js';
+import { withTimeout } from '../timeout.js';
 
 const DEFAULT_VECTOR_BATCH_SIZE = 12;
 const DEFAULT_RETENTION_BATCH_SIZE = 100;
@@ -108,20 +109,6 @@ async function loadWorkspaceForMaintenance(
     loadKnowledgeWorkspace({ projectId, dataDir: projectDir, mode: 'local' }),
   ]);
   return versioned ?? local;
-}
-
-/**
- * Creates handlers for one initialized project runtime. The worker itself is
- * project-scoped so it never claims a different project's queued work.
- */
-function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
-    promise.then(
-      (value) => { clearTimeout(timer); resolve(value); },
-      (error) => { clearTimeout(timer); reject(error); },
-    );
-  });
 }
 
 async function runAutomaticConsolidation(

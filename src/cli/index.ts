@@ -985,12 +985,14 @@ const main = defineCommand({
       args: {
         query: { type: 'positional', description: 'Search query', required: true },
         limit: { type: 'string', description: 'Maximum results' },
+        quality: { type: 'string', description: 'Retrieval profile: fast, balanced (default), or thorough' },
         json: { type: 'boolean', description: 'Emit machine-readable JSON output' },
       },
       async run({ args }) {
         await runMemoryShortcut('search', {
           query: args.query,
           limit: args.limit,
+          quality: args.quality,
           json: args.json,
         });
       },

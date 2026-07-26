@@ -9,9 +9,10 @@ import type {
   ObservationStatus,
   ObservationType,
   ObservationVisibility,
+  RetrievalQuality,
 } from '../../types.js';
 import { getCliInvocation } from '../invocation.js';
-import { resolveCliIdentity, type CliIdentity } from '../identity.js';
+import { loadCliIdentity, resolveCliIdentity, type CliIdentity } from '../identity.js';
 
 export interface CliProjectContext {
   project: ProjectInfo;
@@ -22,7 +23,24 @@ export interface CliProjectContext {
   identityWarning?: string;
 }
 
-export async function getCliProjectContext(options?: { searchIndex?: boolean; projectRoot?: string }): Promise<CliProjectContext> {
+export interface CliReadContext {
+  project: ProjectInfo;
+  dataDir: string;
+  reader: ObservationReader;
+  identity: CliIdentity | null;
+  identityWarning?: string;
+}
+
+interface CliContextOptions {
+  searchIndex?: boolean;
+  projectRoot?: string;
+}
+
+async function resolveCliProjectContext(options?: CliContextOptions): Promise<{
+  project: ProjectInfo;
+  dataDir: string;
+  invocation: ReturnType<typeof getCliInvocation>;
+}> {
   const invocation = getCliInvocation();
   const detection = detectProjectWithDiagnostics(
     options?.projectRoot
@@ -37,6 +55,51 @@ export async function getCliProjectContext(options?: { searchIndex?: boolean; pr
 
   const project = detection.project;
   const dataDir = await getProjectDataDir(project.id);
+  return { project, dataDir, invocation };
+}
+
+/**
+ * Read-only memory commands do not need session bookkeeping or maintenance
+ * target registration. Identity resolution remains intact so visibility rules
+ * stay identical to the full operator context.
+ */
+export async function getCliReadContext(options?: CliContextOptions): Promise<CliReadContext> {
+  const { project, dataDir, invocation } = await resolveCliProjectContext(options);
+  await initObservations(dataDir);
+
+  if (options?.searchIndex) {
+    await prepareSearchIndex();
+  }
+
+  const storedIdentity = await loadCliIdentity(dataDir, project.id);
+  if (!invocation.actorId && !storedIdentity) {
+    return {
+      project,
+      dataDir,
+      reader: { projectId: project.id },
+      identity: null,
+    };
+  }
+
+  const teamStore = await initTeamStore(dataDir);
+  const identity = await resolveCliIdentity({
+    project,
+    dataDir,
+    teamStore,
+    explicitActorId: invocation.actorId,
+  });
+
+  return {
+    project,
+    dataDir,
+    reader: identity.reader,
+    identity: identity.identity,
+    ...(identity.warning ? { identityWarning: identity.warning } : {}),
+  };
+}
+
+export async function getCliProjectContext(options?: CliContextOptions): Promise<CliProjectContext> {
+  const { project, dataDir, invocation } = await resolveCliProjectContext(options);
   try {
     const { MaintenanceTargetStore } = await import('../../runtime/maintenance-targets.js');
     new MaintenanceTargetStore(dataDir).register({
@@ -129,6 +192,7 @@ const OBSERVATION_TYPES: ObservationType[] = [
 ];
 
 const OBSERVATION_STATUSES: ObservationStatus[] = ['active', 'resolved', 'archived'];
+const RETRIEVAL_QUALITIES: RetrievalQuality[] = ['fast', 'balanced', 'thorough'];
 
 export function coerceObservationType(input?: string): ObservationType {
   const normalized = (input ?? 'discovery') as ObservationType;
@@ -146,6 +210,14 @@ export function coerceObservationStatus(input?: string): ObservationStatus {
     throw new Error(
       `Unknown observation status "${input}". Valid statuses: ${OBSERVATION_STATUSES.join(', ')}`,
     );
+  }
+  return normalized;
+}
+
+export function coerceRetrievalQuality(input?: string): RetrievalQuality {
+  const normalized = (input ?? 'balanced').trim().toLowerCase() as RetrievalQuality;
+  if (!RETRIEVAL_QUALITIES.includes(normalized)) {
+    throw new Error('quality must be fast, balanced, or thorough');
   }
   return normalized;
 }

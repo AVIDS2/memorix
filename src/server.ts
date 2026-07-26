@@ -50,22 +50,12 @@ import type { ExistingMemory } from './llm/memory-manager.js';
 import { runFormation, getMetricsSummary, getBeforeAfterMetrics } from './memory/formation/index.js';
 import type { FormationConfig, SearchHit, FormedMemory, FormationStage, FormationStageEvent } from './memory/formation/types.js';
 import { parseFormationTimeoutMs } from './server/formation-timeout.js';
+import { withTimeout } from './timeout.js';
 
 // ── Timeout budgets for LLM-heavy paths ──────────────────────────
 const FORMATION_TIMEOUT_MS = parseFormationTimeoutMs(process.env.MEMORIX_FORMATION_TIMEOUT_MS); // Formation pipeline (extract+resolve+evaluate)
 const COMPACT_ON_WRITE_TIMEOUT_MS = 12_000; // Legacy compact-on-write fallback path
 const COMPRESSION_TIMEOUT_MS = 5_000;  // Narrative compression
-
-/** Race a promise against a timeout. Rejects with a descriptive Error on timeout. */
-function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
-  let timer: ReturnType<typeof setTimeout>;
-  return Promise.race([
-    promise,
-    new Promise<never>((_, reject) => {
-      timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
-    }),
-  ]).finally(() => clearTimeout(timer!));
-}
 
 function formatFormationStageDurations(stageDurationsMs: Partial<Record<FormationStage, number>>): string {
   const orderedStages: FormationStage[] = ['extract', 'resolve', 'evaluate'];
@@ -1310,6 +1300,9 @@ export async function createMemorixServer(
         source: z.enum(['agent', 'git', 'manual']).optional().describe(
           'Filter by memory source. "git" returns only commit-derived ground truth memories. Omit for all sources.',
         ),
+        quality: z.enum(['fast', 'balanced', 'thorough']).optional().default('balanced').describe(
+          'Retrieval profile: fast stays local, balanced uses configured embeddings, thorough explicitly permits optional LLM refinement.',
+        ),
         purpose: z.string().optional().describe(
           'Why this must expand beyond the latest Autopilot brief. Name the missing fact or the user\'s explicit request.',
         ),
@@ -1318,7 +1311,7 @@ export async function createMemorixServer(
         ),
       },
     },
-    async ({ query, limit, type, maxTokens, scope, since, until, status, source, purpose, force }) => {
+    async ({ query, limit, type, maxTokens, scope, since, until, status, source, quality, purpose, force }) => {
       if (scope !== 'global') {
         const unresolved = requireResolvedProject('search the current project');
         if (unresolved) return unresolved;
@@ -1346,18 +1339,15 @@ export async function createMemorixServer(
         projectId: scope === 'global' ? undefined : project.id,
         status: (status as 'active' | 'resolved' | 'archived' | 'all') ?? 'active',
         source: source as 'agent' | 'git' | 'manual' | undefined,
+        quality: quality as 'fast' | 'balanced' | 'thorough',
         reader: getObservationReader(scope === 'global' ? 'global' : 'project'),
       });
 
-      const timeoutPromise = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error(`Search timeout after ${TIMEOUT_MS}ms`)), TIMEOUT_MS)
-      );
-
       let result;
       try {
-        result = await Promise.race([searchPromise, timeoutPromise]);
+        result = await withTimeout(searchPromise, TIMEOUT_MS, 'Search');
       } catch (error) {
-        if (error instanceof Error && error.message.includes('timeout')) {
+        if (error instanceof Error && /\btimeout\b|timed out/i.test(error.message)) {
           // Timeout: return empty result with error message
           return {
             content: [

@@ -4,14 +4,39 @@
 > older notes when they conflict.
 
 ## Current State
-- Phase: 1.2.4 persistent memory delivery release candidate
-- Branch: `codex/1.2.4-persistent-memory-delivery`
-- Last updated: 2026-07-26
-- Released baseline: `memorix@1.2.3`, tag `v1.2.3`, `origin/main` at
-  `03ceb6d`.
-- Goal: make the existing persistent memory layer deliver useful prior work
-  naturally across MCP and CLI without turning ordinary tasks into historical
-  context dumps.
+- Phase: 1.2.5 retrieval performance and reliability release candidate
+- Branch: `codex/1.2.5-retrieval-performance`
+- Last updated: 2026-07-27
+- Released baseline: `memorix@1.2.4`, tag `v1.2.4`, `origin/main` at
+  `24f3b9b`.
+- Goal: make ordinary retrieval deterministic and bounded without changing the
+  local SQLite + in-process Orama architecture.
+
+## 1.2.5 Retrieval Performance and Reliability
+- Retrieval now has three explicit profiles: `fast` is fully local, `balanced`
+  is the default vector-capable path without LLM query work, and `thorough`
+  explicitly opts into configured LLM query rewrite/reranking.
+- `OPENROUTER_API_KEY` remains an embedding fallback only. It activates the
+  memory LLM lane only when that lane explicitly names an OpenRouter provider
+  or base URL, preventing embedding-only configurations from adding hidden
+  network work to normal search.
+- Embedding, rerank, MCP search, and maintenance share one timeout helper that
+  clears watchdog timers after settlement. This removes the previously measured
+  avoidable CLI exit delay from a completed rerank path while preserving real
+  timeouts for stalled work.
+- Read-only memory CLI commands skip session-store and maintenance-target setup
+  while retaining the existing project/identity visibility boundary.
+- Local verification completed before release: TypeScript check; focused
+  timeout/config/search/CLI/SDK tests; a full serial suite that reached a
+  single stale Codex plugin-manifest version assertion, followed by its
+  dedicated passing recheck after the template was synced; production build;
+  package SDK benchmark; real CLI smoke; and an in-memory MCP client smoke
+  confirming `memorix_search.quality` and `fast` mode.
+- Current benchmark evidence on Windows/Node 22: a 1,000-record hot in-process
+  SDK lexical fixture measured specific lookup p50 44.603 ms / p95 96.085 ms
+  and broad-query p50 160.903 ms / p95 171.878 ms. This excludes CLI startup,
+  MCP transport, remote embeddings, and LLM work by design; the two query
+  shapes are reported separately rather than averaged into a marketing number.
 
 ## 1.2.4 Persistent Memory Delivery
 - Continuation is now a bounded delivery projection over existing sessions and

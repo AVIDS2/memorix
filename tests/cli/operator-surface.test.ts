@@ -356,6 +356,29 @@ describe('CLI operator surface', () => {
     expect(JSON.parse(typedDetail.stdout).documents[0].title).toBe('Positional memory');
   });
 
+  it('forwards an explicit fast retrieval profile through the memory CLI', async () => {
+    await runCommand(memoryCommand, {
+      _: ['store'],
+      text: 'Fast profile should avoid optional remote retrieval work.',
+      title: 'Fast retrieval contract',
+      entity: 'cli-memory',
+      type: 'decision',
+      json: true,
+    });
+
+    const search = await runCommand(memoryCommand, {
+      _: ['search'],
+      query: 'fast retrieval contract',
+      quality: 'fast',
+      json: true,
+    });
+
+    expect(search.exitCode).toBe(0);
+    expect(JSON.parse(search.stdout).entries[0].title).toBe('Fast retrieval contract');
+    const { getLastSearchMode } = await import('../../src/store/orama-store.js');
+    expect(getLastSearchMode('local/repo')).toContain('fast profile');
+  });
+
   it('audits project memory quality from the audit namespace', async () => {
     await runCommand(memoryCommand, {
       _: ['store'],

@@ -17,6 +17,7 @@ import { getEmbeddingProvider, type EmbeddingProvider } from '../embedding/provi
 import { calculateProjectAffinity, extractProjectKeywords, type AffinityContext, type MemoryContent } from './project-affinity.js';
 import { detectQueryIntent, applyIntentBoost } from '../search/intent-detector.js';
 import { maybeExpandSearchQuery } from '../search/query-expansion.js';
+import { withTimeout } from '../timeout.js';
 
 let db: AnyOrama | null = null;
 let dbInitPromise: Promise<AnyOrama> | null = null;
@@ -501,8 +502,12 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
   const t0 = perf ? performance.now() : 0;
   const mark = (label: string) => { if (perf) { const now = performance.now(); process.stderr.write(`  [search-perf] ${label}: ${(now - t0).toFixed(0)}ms\n`); } };
   const modeKey = options.projectId ?? SEARCH_MODE_DEFAULT_KEY;
-  lastSearchModeByProject.set(modeKey, embeddingEnabled ? 'hybrid' : 'fulltext');
+  const quality = options.quality ?? 'balanced';
   const database = await getDb();
+  lastSearchModeByProject.set(
+    modeKey,
+    quality === 'fast' ? 'fulltext (fast profile)' : embeddingEnabled ? 'hybrid' : 'fulltext',
+  );
 
   // Resolve project aliases — safety net for observations not yet migrated to canonical ID.
   // After migration, this is typically a single-element array matching options.projectId.
@@ -531,17 +536,28 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
   // Determine search mode: hybrid (with vector) or fulltext (default)
   const hasQuery = options.query && options.query.trim().length > 0;
   const originalQuery = options.query;
-  const tier = hasQuery ? classifyQueryTier(originalQuery!) : 'fast' as QueryTier;
+  // The fast profile is a bounded local probe, not a lower-quality spelling
+  // corrector. Skip query classification and the expensive recall enrichments
+  // it would otherwise inherit from the balanced path.
+  const tier = quality === 'fast' ? 'fast' as QueryTier : hasQuery ? classifyQueryTier(originalQuery!) : 'fast' as QueryTier;
   mark(`tier=${tier}`);
 
-  // Query expansion: only for heavy-tier (CJK) queries
-  const expandedEmbeddingQuery = tier === 'heavy' ? await maybeExpandSearchQuery(options.query!) : options.query;
+  // LLM quality work is explicit. It never runs on the default search path.
+  if (quality === 'thorough' && hasQuery) {
+    const { initLLM, isLLMEnabled } = await import('../llm/provider.js');
+    if (!isLLMEnabled()) initLLM();
+  }
+
+  // Query expansion: only for thorough heavy-tier (CJK) searches.
+  const expandedEmbeddingQuery = quality === 'thorough' && tier === 'heavy'
+    ? await maybeExpandSearchQuery(options.query!)
+    : options.query;
   mark('queryExpansion');
 
   // ── Intent-Aware Recall ──────────────────────────────────────
   // Detect query intent (why/when/how/what/problem) and adjust
   // field weights and type boosting accordingly.
-  const intentResult = hasQuery ? detectQueryIntent(originalQuery!) : null;
+  const intentResult = quality === 'fast' || !hasQuery ? null : detectQueryIntent(originalQuery!);
 
   // Orama's vector/hybrid search can leak cross-project hits even when `where`
   // is present, so always keep enough headroom for a deterministic post-filter.
@@ -565,20 +581,24 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
   let searchParams: Record<string, unknown> = {
     term: originalQuery,
     limit: requestLimit,
-    includeVectors: true,
+    // Fast search never uses vectors, so returning them only adds work and
+    // payload pressure to an explicitly latency-sensitive path.
+    includeVectors: quality !== 'fast',
     ...(Object.keys(filters).length > 0 ? { where: filters } : {}),
     // Search specific fields (not tokens, accessCount, etc.)
     properties: ['title', 'entityName', 'narrative', 'facts', 'concepts', 'filesModified'],
     // Field boosting: intent-aware or default
     boost: fieldBoost,
     // Fuzzy tolerance: allow 1-char typos for short queries, 2 for longer
-    ...(hasQuery ? { tolerance: originalQuery!.length > 6 ? 2 : 1 } : {}),
+    // Fuzzy matching is useful for ordinary recall, but grows sharply with
+    // corpus size. The fast profile deliberately uses exact lexical matching.
+    ...(hasQuery && quality !== 'fast' ? { tolerance: originalQuery!.length > 6 ? 2 : 1 } : {}),
   };
 
   // If embedding provider is available and query tier warrants it, use hybrid search
   // Fast-tier queries skip embedding entirely (fulltext is sufficient)
   let queryVector: number[] | null = null;
-  if (embeddingEnabled && hasQuery && tier !== 'fast') {
+  if (quality !== 'fast' && embeddingEnabled && hasQuery && tier !== 'fast') {
     try {
       const provider = await getEmbeddingProvider();
       if (provider) {
@@ -594,11 +614,11 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
         } else {
           // Embedding timeout: 15 seconds
           const EMBEDDING_TIMEOUT_MS = 15000;
-          const embedPromise = provider.embed(expandedEmbeddingQuery!);
-          const timeoutPromise = new Promise<never>((_, reject) =>
-            setTimeout(() => reject(new Error(`Embedding timeout after ${EMBEDDING_TIMEOUT_MS}ms`)), EMBEDDING_TIMEOUT_MS)
+          queryVector = await withTimeout(
+            provider.embed(expandedEmbeddingQuery!),
+            EMBEDDING_TIMEOUT_MS,
+            'Embedding',
           );
-          queryVector = await Promise.race([embedPromise, timeoutPromise]);
           mark('embedding');
           // Detect CJK-heavy queries: BM25 can't tokenize Chinese/Japanese/Korean well
           const cjkRatio = (originalQuery!.match(/[\u4e00-\u9fff\u3040-\u309f\u30a0-\u30ff\uac00-\ud7af]/g) || []).length / originalQuery!.length;
@@ -946,9 +966,10 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
 
   // ── LLM Reranking (heavy-tier only) ────────────────────────────
   // Only triggered for heavy-tier queries with ambiguous top results.
-  // Fast and standard tiers skip entirely.
+  // Non-thorough profiles, fast, and standard tiers skip entirely.
   // Ambiguity check: top-2 scores within 30% → results are uncertain.
-  const shouldRerank = tier === 'heavy'
+  const shouldRerank = quality === 'thorough'
+    && tier === 'heavy'
     && hasQuery
     && intermediate.length > 2
     && (() => {
@@ -979,11 +1000,11 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
       // LLM rerank timeout: configurable via MEMORIX_RERANK_TIMEOUT_MS, default 5s
       const _parsedRerank = parseInt(process.env.MEMORIX_RERANK_TIMEOUT_MS || '', 10);
       const RERANK_TIMEOUT_MS = Number.isFinite(_parsedRerank) && _parsedRerank > 0 ? _parsedRerank : 5000;
-      const rerankPromise = rerankResults(originalQuery!, candidates);
-      const timeoutPromise = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error(`LLM rerank timeout after ${RERANK_TIMEOUT_MS}ms`)), RERANK_TIMEOUT_MS)
+      const { reranked, usedLLM } = await withTimeout(
+        rerankResults(originalQuery!, candidates),
+        RERANK_TIMEOUT_MS,
+        'LLM rerank',
       );
-      const { reranked, usedLLM } = await Promise.race([rerankPromise, timeoutPromise]);
       mark(`rerank(usedLLM=${usedLLM})`);
       
       if (usedLLM) {

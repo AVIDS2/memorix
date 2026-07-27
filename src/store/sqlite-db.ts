@@ -528,6 +528,34 @@ CREATE TABLE IF NOT EXISTS maintenance_targets (
 );
 `;
 
+// ── 1.2.7 Cross-Agent Compaction Checkpoints ───────────────────────
+
+const CREATE_COMPACTION_CHECKPOINTS_TABLE = `
+CREATE TABLE IF NOT EXISTS compaction_checkpoints (
+  id                   TEXT PRIMARY KEY,
+  project_id           TEXT NOT NULL,
+  session_id           TEXT NOT NULL,
+  agent                TEXT NOT NULL,
+  phase                TEXT NOT NULL,
+  capture_kind         TEXT NOT NULL,
+  reason               TEXT NOT NULL DEFAULT 'unknown',
+  source_event         TEXT NOT NULL,
+  source_key           TEXT NOT NULL,
+  summary              TEXT,
+  tokens_before        INTEGER,
+  first_kept_entry_id  TEXT,
+  details_json         TEXT NOT NULL DEFAULT '{}',
+  transcript_available INTEGER NOT NULL DEFAULT 0,
+  status               TEXT NOT NULL DEFAULT 'active',
+  pre_captured_at      TEXT NOT NULL,
+  completed_at         TEXT,
+  delivered_at         TEXT,
+  delivery_count       INTEGER NOT NULL DEFAULT 0,
+  created_at           TEXT NOT NULL,
+  updated_at           TEXT NOT NULL
+);
+`;
+
 const CREATE_INDEXES = `
 CREATE INDEX IF NOT EXISTS idx_observations_projectId ON observations(projectId);
 CREATE INDEX IF NOT EXISTS idx_observations_topicKey ON observations(projectId, topicKey);
@@ -574,6 +602,9 @@ CREATE INDEX IF NOT EXISTS idx_knowledge_workflow_runs_project_workflow ON knowl
 CREATE INDEX IF NOT EXISTS idx_maintenance_jobs_ready ON maintenance_jobs(status, run_after);
 CREATE INDEX IF NOT EXISTS idx_maintenance_jobs_project ON maintenance_jobs(project_id, status, run_after);
 CREATE INDEX IF NOT EXISTS idx_maintenance_targets_updated ON maintenance_targets(updated_at);
+CREATE INDEX IF NOT EXISTS idx_compaction_checkpoints_project_recent ON compaction_checkpoints(project_id, status, completed_at DESC, pre_captured_at DESC);
+CREATE INDEX IF NOT EXISTS idx_compaction_checkpoints_session_pending ON compaction_checkpoints(project_id, session_id, agent, phase, status, pre_captured_at DESC);
+CREATE INDEX IF NOT EXISTS idx_compaction_checkpoints_source ON compaction_checkpoints(project_id, source_key);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_maintenance_jobs_active_dedupe
   ON maintenance_jobs(project_id, kind, dedupe_key)
   WHERE status IN ('pending', 'running', 'retry');
@@ -665,6 +696,15 @@ const SCHEMA_MIGRATIONS: SchemaMigration[] = [
       db.exec('CREATE INDEX IF NOT EXISTS idx_knowledge_workflow_runs_project_workflow ON knowledge_workflow_runs(projectId, workflowId, startedAt DESC)');
     },
   },
+  {
+    id: '1.2.7-compaction-checkpoints',
+    apply: (db) => {
+      db.exec(CREATE_COMPACTION_CHECKPOINTS_TABLE);
+      db.exec('CREATE INDEX IF NOT EXISTS idx_compaction_checkpoints_project_recent ON compaction_checkpoints(project_id, status, completed_at DESC, pre_captured_at DESC)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_compaction_checkpoints_session_pending ON compaction_checkpoints(project_id, session_id, agent, phase, status, pre_captured_at DESC)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_compaction_checkpoints_source ON compaction_checkpoints(project_id, source_key)');
+    },
+  },
 ];
 
 function applySchemaMigrations(db: any): void {
@@ -732,6 +772,7 @@ export function getDatabase(dataDir: string): any {
   db.exec(CREATE_OBSERVATION_CODE_REFS_TABLE);
   db.exec(CREATE_MAINTENANCE_JOBS_TABLE);
   db.exec(CREATE_MAINTENANCE_TARGETS_TABLE);
+  db.exec(CREATE_COMPACTION_CHECKPOINTS_TABLE);
 
   // Phase 3a migration: add sourceSnapshot + updatedAt to mini_skills
   // Idempotent — ALTER TABLE ADD COLUMN throws if column already exists

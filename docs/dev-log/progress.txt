@@ -316,3 +316,26 @@
   `memcode` version parity, all seven versioned plugin manifests, both Context
   CLI forms, and a real stdio MCP handshake: 43 tools were discoverable and
   `memorix_project_context` returned an Autopilot Brief.
+
+## 1.2.7 Native Context Continuity
+- Added a project-scoped SQLite checkpoint store that separates host-native
+  compaction evidence from Observations, claims, Knowledge Workspace pages,
+  and transcript storage. It captures preflight markers, native summaries
+  where the host exposes them, lifecycle-only completion where it does not,
+  idempotent retry handling, one-time delivery state, and archival.
+- Pi and Oh-my-Pi extensions now pass through their real `compactionEntry`
+  fields. Codex and Claude Code use their documented compact lifecycle paths
+  without fabricating a host summary or changing the host compactor.
+- Codex consumes one bounded checkpoint at compact `SessionStart`; Claude Code
+  consumes one on the next official `UserPromptSubmit` delivery point. Explicit
+  CLI/MCP continuation can carry at most one recent source-labelled checkpoint
+  across configured agents, while ordinary new tasks remain free of it.
+- Added `memorix checkpoint list|show|context|archive` and the full-profile
+  `memorix_compaction_checkpoint` MCP action. The default MCP profile remains
+  unchanged to protect agent context budgets.
+- Final verification passed: focused compaction, hook, Workset, CLI, and MCP
+  tests; the full root test suite; TypeScript check; production build; npm
+  package dry-run; an isolated installed-artifact Codex/CLI/MCP smoke; and an
+  isolated Claude Code handoff/continuation smoke. `npm publish --dry-run
+  --ignore-scripts` accepted the public 1.2.7 tarball; the full prepublish
+  build/test path is covered by the root release gates above.

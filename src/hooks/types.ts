@@ -16,6 +16,16 @@ export type HookEvent =
   | 'session_end'
   | 'post_response';
 
+/** Native compact metadata exposed by a host hook or package extension. */
+export interface NativeCompactionMetadata {
+  reason?: 'manual' | 'auto' | 'unknown';
+  sourceKey?: string;
+  summary?: string;
+  tokensBefore?: number;
+  firstKeptEntryId?: string;
+  details?: Record<string, unknown>;
+}
+
 /** Supported agent identifiers */
 export type AgentName =
   | 'claude'
@@ -91,6 +101,12 @@ export interface NormalizedHookInput {
 
   /** Full transcript path (for pre_compact / session_end) */
   transcriptPath?: string;
+
+  /** Host-provided SessionStart source (for example, `compact` in Codex). */
+  sessionStartReason?: string;
+
+  /** Native compaction metadata when the host makes it available. */
+  compaction?: NativeCompactionMetadata;
 
   /** Raw agent-specific payload (preserved for debugging) */
   raw: Record<string, unknown>;

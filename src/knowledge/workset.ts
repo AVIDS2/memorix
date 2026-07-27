@@ -91,6 +91,15 @@ export interface WorksetContinuation {
     type: string;
     detail?: string;
   }>;
+  /** Recent host-native compaction evidence, kept distinct from durable memory. */
+  compactCheckpoint?: {
+    id: string;
+    agent: string;
+    captureKind: 'native-summary' | 'lifecycle';
+    reason: 'manual' | 'auto' | 'unknown';
+    completedAt?: string;
+    summary: string;
+  };
 }
 
 export interface TaskWorkset {
@@ -353,7 +362,9 @@ export function renderTaskWorksetPrompt(input: Omit<TaskWorkset, 'prompt' | 'bud
   appendLine(lines, 'Task lens: ' + input.lens, maxTokens, omitted, 'lens');
 
   const hasContinuation = Boolean(
-    input.continuation?.previousSession || (input.continuation?.memories.length ?? 0) > 0,
+    input.continuation?.previousSession
+      || (input.continuation?.memories.length ?? 0) > 0
+      || input.continuation?.compactCheckpoint,
   );
   if (hasContinuation && input.continuation) {
     appendLine(lines, '', maxTokens, omitted, 'continuation-heading');
@@ -391,6 +402,24 @@ export function renderTaskWorksetPrompt(input: Omit<TaskWorkset, 'prompt' | 'bud
           kind: 'continuation',
           id: 'memory:' + memory.id,
           reason: 'durable prior-work memory',
+          trust: 'historical',
+        },
+      );
+    }
+    if (input.continuation.compactCheckpoint) {
+      const checkpoint = input.continuation.compactCheckpoint;
+      const source = `${checkpoint.agent}, ${checkpoint.captureKind}, ${checkpoint.reason}`;
+      appendLine(
+        lines,
+        '- Recent host compact checkpoint (' + source + '): ' + short(checkpoint.summary, 36),
+        maxTokens,
+        omitted,
+        'continuation-compact-checkpoint',
+        selected,
+        {
+          kind: 'continuation',
+          id: 'compact:' + checkpoint.id,
+          reason: 'recent host-native compact lifecycle evidence',
           trust: 'historical',
         },
       );
@@ -699,7 +728,11 @@ export async function buildTaskWorkset(input: BuildTaskWorksetInput): Promise<Ta
     .map(kind => cautions.find(caution => caution.kind === kind)!)
     .slice(0, 6);
   const continuation = input.continuation
-    && (input.continuation.previousSession || input.continuation.memories.length > 0)
+    && (
+      input.continuation.previousSession
+      || input.continuation.memories.length > 0
+      || input.continuation.compactCheckpoint
+    )
     ? {
       ...(input.continuation.previousSession
         ? {
@@ -714,6 +747,14 @@ export async function buildTaskWorkset(input: BuildTaskWorksetInput): Promise<Ta
         title: short(memory.title, 20),
         ...(memory.detail ? { detail: short(memory.detail, CONTINUATION_DETAIL_TOKEN_BUDGET) } : {}),
       })),
+      ...(input.continuation.compactCheckpoint
+        ? {
+          compactCheckpoint: {
+            ...input.continuation.compactCheckpoint,
+            summary: short(input.continuation.compactCheckpoint.summary, 44),
+          },
+        }
+        : {}),
     }
     : undefined;
   const base = {

@@ -68,7 +68,8 @@ memorix hook <normalized_event> [--agent <agent_name>]
 | `post_edit` | 分析变更 → 记录 what-changed |
 | `post_command` | 分析命令结果 → 记录 problem-solution (如有错误) |
 | `post_tool` | 分析 MCP 工具调用 → 记录相关操作 |
-| `pre_compact` | 压缩前保存当前上下文摘要 |
+| `pre_compact` | 记录压缩前检查点；不把宿主未提供的内容伪造成摘要 |
+| `post_compact` | 完成检查点；仅在宿主真实提供原生摘要时保存该摘要 |
 | `session_end` | 总结本次会话 → 记录决策和发现 |
 | `user_prompt` | 模式检测 → 判断是否需要注入记忆 |
 

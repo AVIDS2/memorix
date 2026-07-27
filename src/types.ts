@@ -190,6 +190,52 @@ export interface Session {
 }
 
 // ============================================================
+// Cross-Agent Compaction Continuity
+// ============================================================
+
+/** Whether a checkpoint is still waiting for host compaction or has completed. */
+export type CompactionCheckpointPhase = 'pre' | 'complete';
+
+/** Native compaction reason when the host exposes it. */
+export type CompactionReason = 'manual' | 'auto' | 'unknown';
+
+/** How much first-party compaction evidence the host actually exposed. */
+export type CompactionCaptureKind = 'preflight' | 'lifecycle' | 'native-summary';
+
+/** Lifecycle state for a persisted compaction checkpoint. */
+export type CompactionCheckpointStatus = 'active' | 'archived';
+
+/**
+ * A source-aware record of one host-native context compaction.
+ *
+ * This is intentionally not an Observation: a host summary is evidence for
+ * continuation, not automatically durable project truth.
+ */
+export interface CompactionCheckpoint {
+  id: string;
+  projectId: string;
+  sessionId: string;
+  agent: string;
+  phase: CompactionCheckpointPhase;
+  captureKind: CompactionCaptureKind;
+  reason: CompactionReason;
+  sourceEvent: string;
+  sourceKey: string;
+  summary?: string;
+  tokensBefore?: number;
+  firstKeptEntryId?: string;
+  details?: Record<string, unknown>;
+  transcriptAvailable: boolean;
+  status: CompactionCheckpointStatus;
+  preCapturedAt: string;
+  completedAt?: string;
+  deliveredAt?: string;
+  deliveryCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// ============================================================
 // Compact Engine (adopted from claude-mem 3-layer workflow)
 // ============================================================
 

@@ -35,6 +35,7 @@ import { resetDb } from '../../src/store/orama-store.js';
 import { resetObservationStore } from '../../src/store/obs-store.js';
 import { resetSessionStore } from '../../src/store/session-store.js';
 import { closeAllDatabases } from '../../src/store/sqlite-db.js';
+import { CompactionCheckpointStore } from '../../src/store/compaction-checkpoint-store.js';
 
 let testDir: string;
 
@@ -111,6 +112,7 @@ describe('Tool profile registration', () => {
     expect(liteTools).not.toContain('team_manage');
     expect(liteTools).not.toContain('memorix_poll');
     expect(liteTools).not.toContain('memorix_rules_sync');
+    expect(liteTools).not.toContain('memorix_compaction_checkpoint');
     expect(liteTools).not.toContain('create_entities');
 
     const { server: teamServer } = await createMemorixServer(
@@ -140,6 +142,57 @@ describe('Tool profile registration', () => {
     expect(fullTools).toContain('create_entities');
     expect(fullTools).toContain('memorix_graph_context');
     expect(fullTools).toContain('memorix_knowledge');
+    expect(fullTools).toContain('memorix_compaction_checkpoint');
+  }, 30000);
+
+  it('keeps compact checkpoint inspection full-profile only and supports preview plus archive', async () => {
+    const isolatedDataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'memorix-profile-checkpoint-data-'));
+    const previousDataDir = process.env.MEMORIX_DATA_DIR;
+    process.env.MEMORIX_DATA_DIR = isolatedDataDir;
+    resetObservationStore();
+    await resetDb();
+    try {
+      const dir = await createGitProjectDir('memorix-profile-checkpoint-');
+      const { server, projectId } = await createMemorixServer(
+        dir,
+        undefined,
+        undefined,
+        { toolProfile: 'full' } as any,
+      );
+      const dataDir = await getProjectDataDir(projectId);
+      const store = new CompactionCheckpointStore(dataDir);
+      const checkpoint = store.complete({
+        projectId,
+        sessionId: 'pi-checkpoint-session',
+        agent: 'pi',
+        sourceEvent: 'pi.session_compact',
+        sourceKey: 'profile-test-checkpoint',
+        summary: 'Run the focused release test before publishing the package.',
+      });
+      const handler = getHandler(server as any, 'memorix_compaction_checkpoint');
+
+      const preview = getText(await handler({
+        action: 'context',
+        id: checkpoint.id,
+        task: 'continue the release verification',
+      }));
+      expect(preview).toContain('## Compact Continuation');
+      expect(preview).toContain('focused release test');
+
+      const archived = getText(await handler({ action: 'archive', id: checkpoint.id }));
+      expect(archived).toContain('Archived compact checkpoint');
+      expect(store.get(checkpoint.id)?.status).toBe('archived');
+    } finally {
+      closeAllDatabases();
+      resetObservationStore();
+      await resetDb();
+      if (previousDataDir === undefined) {
+        delete process.env.MEMORIX_DATA_DIR;
+      } else {
+        process.env.MEMORIX_DATA_DIR = previousDataDir;
+      }
+      await fs.rm(isolatedDataDir, { recursive: true, force: true });
+    }
   }, 30000);
 
   it('keeps reviewable Knowledge Workspace operations behind one advanced MCP tool', async () => {

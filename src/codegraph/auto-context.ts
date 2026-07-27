@@ -2,7 +2,12 @@ import { existsSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { truncateToTokenBudget } from '../compact/token-budget.js';
 import { getResolvedConfig } from '../config/resolved-config.js';
-import { buildTaskWorkset, type TaskWorkset, type WorksetCaution } from '../knowledge/workset.js';
+import {
+  buildTaskWorkset,
+  type TaskWorkset,
+  type WorksetCaution,
+  type WorksetContinuation,
+} from '../knowledge/workset.js';
 import type { ContextDeliveryTarget } from '../knowledge/context-assembly.js';
 import { sanitizeCredentials } from '../memory/secret-filter.js';
 import type { ObservationReader, ProjectInfo } from '../types.js';
@@ -23,7 +28,7 @@ import {
 } from './project-context.js';
 import { CodeGraphStore } from './store.js';
 import { isEligibleForAutomaticDelivery } from '../memory/admission.js';
-import { getSessionResumeBrief, type SessionResumeBrief } from '../memory/session.js';
+import { getSessionResumeBrief } from '../memory/session.js';
 import { initSessionStore } from '../store/session-store.js';
 import {
   isContinuationTask,
@@ -56,7 +61,7 @@ export interface AutoProjectContext {
   refresh: AutoContextRefreshResult;
   providerQuality: CodeGraphProviderQuality;
   /** Present only when the caller asked to continue prior work. */
-  continuation?: SessionResumeBrief;
+  continuation?: WorksetContinuation;
   workset: TaskWorkset;
 }
 
@@ -72,6 +77,7 @@ export interface AutoProjectBrief {
 }
 
 const DEFAULT_MAX_AGE_MS = 10 * 60 * 1000;
+const COMPACT_CHECKPOINT_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
 function activeProjectObservations(
   observations: ProjectContextObservation[],
@@ -134,6 +140,14 @@ export async function buildAutoProjectContext(input: {
   reader?: ObservationReader;
   /** Auto detects continuation language; always is used by the explicit resume path. */
   continuation?: 'auto' | 'always' | 'never';
+  /**
+   * Suppress a checkpoint already delivered through a host-native channel in
+   * this exact session. Other agents and later sessions remain eligible.
+   */
+  excludeCompactionCheckpointFor?: {
+    sessionId: string;
+    agent: string;
+  };
   /**
    * When supplied, a needed refresh is queued instead of running in this
    * request. MCP and hook callers use this to keep their response path fast.
@@ -294,10 +308,34 @@ export async function buildAutoProjectContext(input: {
   // Project Context is also used by lightweight callers that have not touched
   // session APIs yet. Initialize only when continuation was requested so a
   // normal Workset remains independent of session persistence.
-  let continuation: SessionResumeBrief | undefined;
+  let continuation: WorksetContinuation | undefined;
   if (continuationRequested) {
     await initSessionStore(input.dataDir);
     continuation = await getSessionResumeBrief(input.project.id, task, input.reader);
+    const { CompactionCheckpointStore } = await import('../store/compaction-checkpoint-store.js');
+    const checkpoint = new CompactionCheckpointStore(input.dataDir).findLatestCompleted(
+      input.project.id,
+      input.excludeCompactionCheckpointFor
+        ? { excludeSession: input.excludeCompactionCheckpointFor }
+        : undefined,
+    );
+    const completedAtMs = checkpoint ? Date.parse(checkpoint.completedAt ?? checkpoint.preCapturedAt) : Number.NaN;
+    if (
+      checkpoint
+      && Number.isFinite(completedAtMs)
+      && completedAtMs <= now.getTime()
+      && now.getTime() - completedAtMs <= COMPACT_CHECKPOINT_MAX_AGE_MS
+    ) {
+      continuation.compactCheckpoint = {
+        id: checkpoint.id,
+        agent: checkpoint.agent,
+        captureKind: checkpoint.captureKind === 'native-summary' ? 'native-summary' : 'lifecycle',
+        reason: checkpoint.reason,
+        ...(checkpoint.completedAt ? { completedAt: checkpoint.completedAt } : {}),
+        summary: checkpoint.summary
+          ?? 'The host completed context compaction without exposing a native summary. Reconstruct only what the current task needs from current code and durable evidence.',
+      };
+    }
   }
   const workset = await buildTaskWorkset({
     projectId: input.project.id,
@@ -564,7 +602,7 @@ export function formatAutoProjectContextSummary(context: AutoProjectContext): st
   );
 
   const continuation = context.workset.continuation;
-  if (continuation?.previousSession || continuation?.memories.length) {
+  if (continuation?.previousSession || continuation?.memories.length || continuation?.compactCheckpoint) {
     lines.push('', 'Resume from prior work');
     if (continuation.previousSession) {
       const session = continuation.previousSession;
@@ -582,6 +620,14 @@ export function formatAutoProjectContextSummary(context: AutoProjectContext): st
         '- #' + memory.id + ' ' + memory.type + ': '
           + compactContinuationText(memory.title, 18)
           + detail,
+      );
+    }
+    if (continuation.compactCheckpoint) {
+      const checkpoint = continuation.compactCheckpoint;
+      lines.push(
+        '- Recent host compact checkpoint ('
+          + [checkpoint.agent, checkpoint.captureKind, checkpoint.reason].join(', ')
+          + '): ' + compactContinuationText(checkpoint.summary, 36),
       );
     }
   }

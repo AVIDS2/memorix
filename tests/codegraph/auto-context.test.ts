@@ -16,6 +16,7 @@ import { initObservationStore, resetObservationStore } from '../../src/store/obs
 import { resetDb } from '../../src/store/orama-store.js';
 import { MaintenanceJobStore } from '../../src/runtime/maintenance-jobs.js';
 import { initSessionStore, resetSessionStore } from '../../src/store/session-store.js';
+import { CompactionCheckpointStore } from '../../src/store/compaction-checkpoint-store.js';
 import { resetTeamStore } from '../../src/team/team-store.js';
 
 describe('auto project context', () => {
@@ -149,6 +150,52 @@ describe('auto project context', () => {
 
     expect(context.explain.sources.map((source) => source.title)).not.toContain('Automatic auth hook capture');
     expect(formatAutoProjectContextPrompt(context)).not.toContain('Automatic auth hook capture');
+  });
+
+  it('adds only a recent, source-labelled compact checkpoint to an explicit continuation', async () => {
+    const checkpoints = new CompactionCheckpointStore(dataDir);
+    const completed = checkpoints.complete({
+      projectId: 'local/repo',
+      sessionId: 'pi-session',
+      agent: 'pi',
+      sourceEvent: 'pi.session_compact',
+      sourceKey: 'pi-entry-auto-context',
+      summary: 'Finish the focused authentication regression before changing the token refresh retry.',
+      completedAt: new Date().toISOString(),
+    });
+
+    const continuation = await buildAutoProjectContext({
+      project: { id: 'local/repo', name: 'repo', rootPath: repoDir },
+      dataDir,
+      observations: getAllObservations(),
+      refresh: 'never',
+      task: 'continue the authentication regression',
+    });
+    const ordinaryTask = await buildAutoProjectContext({
+      project: { id: 'local/repo', name: 'repo', rootPath: repoDir },
+      dataDir,
+      observations: getAllObservations(),
+      refresh: 'never',
+      task: 'add an unrelated status endpoint',
+    });
+    const sameHostSession = await buildAutoProjectContext({
+      project: { id: 'local/repo', name: 'repo', rootPath: repoDir },
+      dataDir,
+      observations: getAllObservations(),
+      refresh: 'never',
+      task: 'continue the authentication regression',
+      excludeCompactionCheckpointFor: { sessionId: 'pi-session', agent: 'pi' },
+    });
+
+    expect(continuation.workset.continuation?.compactCheckpoint).toMatchObject({
+      id: completed.id,
+      agent: 'pi',
+      captureKind: 'native-summary',
+    });
+    expect(formatAutoProjectContextPrompt(continuation)).toContain('Recent host compact checkpoint (pi, native-summary, unknown)');
+    expect(formatAutoProjectContextPrompt(continuation)).toContain('focused authentication regression');
+    expect(formatAutoProjectContextPrompt(ordinaryTask)).not.toContain('Recent host compact checkpoint');
+    expect(formatAutoProjectContextPrompt(sameHostSession)).not.toContain('Recent host compact checkpoint');
   });
 
   it('queues candidate qualification after a foreground Code Memory refresh', async () => {

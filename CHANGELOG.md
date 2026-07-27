@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.9] - 2026-07-28
+
+### Fixed
+- **One retention truth across the product** -- Dashboard, HTTP control-plane, and background cleanup now use the same canonical retention projection. Permanent, active, stale, and archive-ready memory states no longer disagree across surfaces.
+- **More useful session continuation** -- Resume and handoff-shaped requests prioritize the prior task, what changed, and remaining work without treating ordinary verification or compatibility language as disposable noise. Delivery stays bounded rather than replaying a transcript.
+- **Responsive CLI writes with remote embeddings** -- `memorix memory store` now persists the memory and queues durable vector work before starting a detached backfill worker. A slow embedding API no longer keeps a one-shot CLI command open; lexical recall remains available while vector search catches up.
+
 ## [1.2.8] - 2026-07-27
 
 ### Fixed

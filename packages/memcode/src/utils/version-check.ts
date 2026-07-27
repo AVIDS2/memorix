@@ -1,13 +1,16 @@
-import { getPiUserAgent } from "./pi-user-agent.ts";
+import { getMemcodeUserAgent } from "./pi-user-agent.ts";
 
 const LATEST_VERSION_URL = "https://registry.npmjs.org/memorix/latest";
 const DEFAULT_VERSION_CHECK_TIMEOUT_MS = 10000;
 
-export interface LatestPiRelease {
+export interface LatestMemcodeRelease {
 	version: string;
 	packageName?: string;
 	note?: string;
 }
+
+/** @deprecated Use LatestMemcodeRelease. */
+export type LatestPiRelease = LatestMemcodeRelease;
 
 interface ParsedVersion {
 	major: number;
@@ -53,15 +56,15 @@ export function isNewerPackageVersion(candidateVersion: string, currentVersion: 
 	return candidateVersion.trim() !== currentVersion.trim();
 }
 
-export async function getLatestPiRelease(
+export async function getLatestMemcodeRelease(
 	currentVersion: string,
 	options: { timeoutMs?: number } = {},
-): Promise<LatestPiRelease | undefined> {
+): Promise<LatestMemcodeRelease | undefined> {
 	if (process.env.MEMCODE_SKIP_VERSION_CHECK || process.env.PI_SKIP_VERSION_CHECK || process.env.MEMCODE_OFFLINE || process.env.PI_OFFLINE) return undefined;
 
 	const response = await fetch(LATEST_VERSION_URL, {
 		headers: {
-			"User-Agent": getPiUserAgent(currentVersion),
+			"User-Agent": getMemcodeUserAgent(currentVersion),
 			accept: "application/json",
 		},
 		signal: AbortSignal.timeout(options.timeoutMs ?? DEFAULT_VERSION_CHECK_TIMEOUT_MS),
@@ -89,16 +92,16 @@ export async function getLatestPiRelease(
 	};
 }
 
-export async function getLatestPiVersion(
+export async function getLatestMemcodeVersion(
 	currentVersion: string,
 	options: { timeoutMs?: number } = {},
 ): Promise<string | undefined> {
-	return (await getLatestPiRelease(currentVersion, options))?.version;
+	return (await getLatestMemcodeRelease(currentVersion, options))?.version;
 }
 
-export async function checkForNewPiVersion(currentVersion: string): Promise<LatestPiRelease | undefined> {
+export async function checkForNewMemcodeVersion(currentVersion: string): Promise<LatestMemcodeRelease | undefined> {
 	try {
-		const latestRelease = await getLatestPiRelease(currentVersion);
+		const latestRelease = await getLatestMemcodeRelease(currentVersion);
 		if (latestRelease && isNewerPackageVersion(latestRelease.version, currentVersion)) {
 			return latestRelease;
 		}
@@ -107,3 +110,10 @@ export async function checkForNewPiVersion(currentVersion: string): Promise<Late
 		return undefined;
 	}
 }
+
+/** @deprecated Use getLatestMemcodeRelease. */
+export const getLatestPiRelease = getLatestMemcodeRelease;
+/** @deprecated Use getLatestMemcodeVersion. */
+export const getLatestPiVersion = getLatestMemcodeVersion;
+/** @deprecated Use checkForNewMemcodeVersion. */
+export const checkForNewPiVersion = checkForNewMemcodeVersion;

@@ -717,6 +717,33 @@ describe("InteractiveMode.setupAutocompleteProvider", () => {
 	});
 });
 
+describe("InteractiveMode.createBaseAutocompleteProvider", () => {
+	test("offers executable Memorix memory subcommands in the real interactive editor", async () => {
+		const fakeThis = {
+			session: {
+				scopedModels: [],
+				modelRegistry: { getAvailable: () => [] },
+				promptTemplates: [],
+				extensionRunner: { getRegisteredCommands: () => [] },
+				resourceLoader: { getSkills: () => ({ skills: [] }) },
+			},
+			settingsManager: { getEnableSkillCommands: () => false },
+			skillCommands: new Map(),
+			sessionManager: { getCwd: () => process.cwd() },
+			fdPath: undefined,
+		};
+		const provider = (InteractiveMode as any).prototype.createBaseAutocompleteProvider.call(fakeThis);
+		const signal = new AbortController().signal;
+
+		const rootSuggestions = await provider.getSuggestions(["/memory"], 0, 7, { signal });
+		const nestedSuggestions = await provider.getSuggestions(["/memory "], 0, 8, { signal });
+
+		expect(rootSuggestions?.items.map((item: { value: string }) => item.value)).toContain("memory search");
+		expect(nestedSuggestions?.items.map((item: { value: string }) => item.value)).toContain("search");
+		expect(nestedSuggestions?.items.map((item: { value: string }) => item.value)).toContain("status");
+	});
+});
+
 describe("InteractiveMode.showLoadedResources", () => {
 	beforeAll(() => {
 		initTheme("dark");

@@ -3,6 +3,7 @@ import { execSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { parseArgs } from 'citty';
 import codegraphCommand from '../../src/cli/commands/codegraph.js';
 import contextCommand from '../../src/cli/commands/context.js';
 import doctorCommand from '../../src/cli/commands/doctor.js';
@@ -109,6 +110,16 @@ describe('project context CLI commands', () => {
       projectId: 'local/repo',
     });
   }
+
+  it('accepts --task without requiring the ergonomic positional task', () => {
+    const args = parseArgs(
+      ['--task', 'prepare the release'],
+      contextCommand.args as Record<string, { type?: 'boolean' | 'string' | 'positional'; required?: boolean }>,
+    );
+
+    expect(args.task).toBe('prepare the release');
+    expect(args.input).toBeUndefined();
+  });
 
   it('auto-refreshes code memory when context runs before a manual scan', async () => {
     await seedMemoryOnly();

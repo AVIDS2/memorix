@@ -5,6 +5,7 @@ const initObservations = vi.hoisted(() => vi.fn());
 const ensureFreshObservations = vi.hoisted(() => vi.fn());
 const prepareSearchIndex = vi.hoisted(() => vi.fn());
 const resolveMemorixProjectContext = vi.hoisted(() => vi.fn());
+const resolveObservations = vi.hoisted(() => vi.fn());
 
 vi.mock("../src/core/memorix-resolve.ts", () => ({
 	importFromMemorix: async (specifier: string) => {
@@ -16,6 +17,7 @@ vi.mock("../src/core/memorix-resolve.ts", () => ({
 				initObservations,
 				ensureFreshObservations,
 				prepareSearchIndex,
+				resolveObservations,
 			};
 		}
 		throw new Error(`Unexpected import: ${specifier}`);
@@ -57,5 +59,27 @@ describe("TUI /memory commands", () => {
 		});
 		expect(addMessage).toHaveBeenCalledWith("Found project memory");
 		expect(result.toast).toEqual({ msg: "1 result(s), ~4 tokens", type: "info" });
+	});
+
+	test("resolves an explicit memory ID instead of only listing deletion candidates", async () => {
+		initObservations.mockClear();
+		ensureFreshObservations.mockClear();
+		resolveMemorixProjectContext.mockResolvedValue({
+			canonicalId: "AVIDS2/memorix",
+			dataDir: "C:\\Users\\Lenovo\\.memorix\\data",
+		});
+		resolveObservations.mockResolvedValue({ resolved: [42], notFound: [] });
+		const toast = vi.fn();
+
+		const result = await MEMORY_COMMANDS.delete("42", {
+			cwd: "E:\\project\\memorix",
+			toast,
+			addMessage: vi.fn(),
+		});
+
+		expect(resolveObservations).toHaveBeenCalledWith([42], "resolved");
+		expect(initObservations).toHaveBeenCalledWith("C:\\Users\\Lenovo\\.memorix\\data");
+		expect(toast).toHaveBeenCalledWith("Memory #42 resolved", "success");
+		expect(result.toast).toEqual({ msg: "Deleted memory #42", type: "success" });
 	});
 });

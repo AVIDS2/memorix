@@ -1,3 +1,5 @@
+import { BUILTIN_SLASH_COMMANDS } from "../core/slash-commands.ts";
+
 export type TuiSlashCommandMode = "no-arg" | "selector" | "text-input";
 
 export interface TuiSlashCommandEntry {
@@ -26,36 +28,44 @@ export function getTuiSlashCommandRows(): TuiSlashCommandRow[] {
 	}));
 }
 
-export const TUI_SLASH_COMMANDS: readonly TuiSlashCommandEntry[] = [
-	{ name: "/clear", description: "Clear conversation history", mode: "no-arg" },
-	{ name: "/help", description: "Show available commands", mode: "no-arg" },
-	{ name: "/vim", description: "Toggle vim keybindings", mode: "no-arg" },
-	{ name: "/doctor", description: "Run diagnostic checks", mode: "no-arg" },
-	{ name: "/inspect", description: "Inspect last assistant message", mode: "no-arg" },
-	{ name: "/clone", description: "Clone current session", mode: "no-arg" },
-	{ name: "/git status", description: "Show git working-tree status", mode: "no-arg" },
+const BUILTIN_COMMAND_MODES: Readonly<Partial<Record<string, TuiSlashCommandMode>>> = {
+	commands: "text-input",
+	settings: "selector",
+	model: "selector",
+	"scoped-models": "selector",
+	export: "text-input",
+	import: "text-input",
+	name: "text-input",
+	fork: "selector",
+	tree: "selector",
+	trust: "selector",
+	login: "selector",
+	logout: "selector",
+	compact: "text-input",
+	resume: "selector",
+};
+
+const MEMORIX_MEMORY_SUBCOMMANDS: readonly TuiSlashCommandEntry[] = [
 	{ name: "/memory status", description: "Show native Memorix runtime status", mode: "no-arg" },
-	{ name: "/memory stats", description: "Show memory statistics", mode: "no-arg" },
-	{ name: "/memory hooks", description: "Show native hook status", mode: "no-arg" },
-	{ name: "/memory diff", description: "Show pending memory changes", mode: "no-arg" },
-	{ name: "/session export", description: "Export session to file", mode: "no-arg" },
-	{ name: "/session", description: "Show current session info", mode: "no-arg" },
-	{ name: "/config", description: "Open configuration", mode: "no-arg" },
-	{ name: "/exit", description: "Exit memcode", mode: "no-arg" },
-	{ name: "/session load", description: "Load a saved session", mode: "selector" },
-	{ name: "/session delete", description: "Delete a saved session", mode: "selector" },
-	{ name: "/session new", description: "Create a new session", mode: "selector" },
-	{ name: "/resume", description: "Resume a previous session", mode: "selector" },
-	{ name: "/tree", description: "Navigate the session tree", mode: "selector" },
-	{ name: "/fork", description: "Fork session at a point", mode: "selector" },
-	{ name: "/memory show", description: "Browse stored memories", mode: "selector" },
-	{ name: "/memory delete", description: "Delete a memory", mode: "selector" },
-	{ name: "/memory promote", description: "Promote a memory to permanent", mode: "selector" },
-	{ name: "/model switch", description: "Switch AI model", mode: "selector" },
-	{ name: "/theme", description: "Switch color theme", mode: "selector" },
-	{ name: "/git commit", description: "Create a git commit", mode: "selector" },
-	{ name: "/memory search", description: "Search memories by query", mode: "text-input" },
-	{ name: "/remember", description: "Store a new memory", mode: "text-input" },
-	{ name: "/label", description: "Label the current session", mode: "text-input" },
-	{ name: "/git diff", description: "Show diff for a file", mode: "text-input" },
-] as const;
+	{ name: "/memory stats", description: "Show project memory statistics", mode: "no-arg" },
+	{ name: "/memory hooks", description: "Show native hook capture status", mode: "no-arg" },
+	{ name: "/memory search", description: "Search shared project memory", mode: "text-input" },
+	{ name: "/memory show", description: "List recent project memories", mode: "no-arg" },
+	{ name: "/memory diff", description: "Show recent project memory changes", mode: "no-arg" },
+	{ name: "/memory promote", description: "Promote the last agent response to memory", mode: "no-arg" },
+	{ name: "/memory delete", description: "Resolve a project memory entry by ID", mode: "text-input" },
+];
+
+/**
+ * The autocomplete and `/commands` surface must only advertise commands that
+ * InteractiveMode can execute. Generic commands derive from the canonical
+ * Pi-compatible built-in registry; Memorix adds only its native memory verbs.
+ */
+export const TUI_SLASH_COMMANDS: readonly TuiSlashCommandEntry[] = [
+	...BUILTIN_SLASH_COMMANDS.map((command) => ({
+		name: `/${command.name}`,
+		description: command.description,
+		mode: BUILTIN_COMMAND_MODES[command.name] ?? "no-arg",
+	})),
+	...MEMORIX_MEMORY_SUBCOMMANDS,
+];

@@ -7,7 +7,7 @@
  *   /memory show      — list recent memories (returns picker items)
  *   /memory diff      — show memory changes from current session
  *   /memory promote   — promote last AI response to a stored memory
- *   /memory delete    — show memories for deletion (returns picker items)
+ *   /memory delete ID — resolve one memory from active search
  *
  * Each handler calls the appropriate memorix core function via importFromMemorix
  * and returns structured results (toasts, messages, picker items) for the TUI
@@ -366,7 +366,15 @@ async function handlePromote(_args: string, ctx: MemoryCommandContext): Promise<
 
 // ── /memory delete ─────────────────────────────────────────────────────────
 
-async function handleDelete(_args: string, ctx: MemoryCommandContext): Promise<MemoryCommandResult> {
+async function handleDelete(args: string, ctx: MemoryCommandContext): Promise<MemoryCommandResult> {
+	const requestedId = args.trim();
+	if (requestedId) {
+		if (!/^\d+$/.test(requestedId)) {
+			return { toast: { msg: "Usage: /memory delete <id>", type: "error" } };
+		}
+		return executeDelete(Number.parseInt(requestedId, 10), ctx);
+	}
+
 	try {
 		const { projectId } = await prepareMemoryProject(ctx.cwd, { searchIndex: true });
 		const compactSearch = await getCompactSearch();
@@ -383,7 +391,7 @@ async function handleDelete(_args: string, ctx: MemoryCommandContext): Promise<M
 		}));
 
 		return {
-			message: "Select a memory to delete (resolves it from active search):",
+			message: "Use `/memory delete <id>` to resolve a memory from active search:",
 			items,
 		};
 	} catch (err) {
@@ -463,6 +471,7 @@ async function handleStatus(_args: string, ctx: MemoryCommandContext): Promise<M
 
 export async function executeDelete(id: number, ctx: MemoryCommandContext): Promise<MemoryCommandResult> {
 	try {
+		await prepareMemoryProject(ctx.cwd);
 		const resolveObservations = await getResolveObservations();
 		const result = await resolveObservations([id], "resolved");
 

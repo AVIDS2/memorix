@@ -312,6 +312,8 @@ export interface ExtensionContext {
 	modelRegistry: ModelRegistry;
 	/** Current model (may be undefined) */
 	model: Model<any> | undefined;
+	/** Current thinking level, when provided by the session runtime. */
+	thinkingLevel?: ThinkingLevel;
 	/** Whether the agent is idle (not streaming) */
 	isIdle(): boolean;
 	/** The current abort signal, or undefined when the agent is not streaming. */

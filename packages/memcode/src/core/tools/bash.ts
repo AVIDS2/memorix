@@ -15,7 +15,7 @@ import {
 	trackDetachedChildPid,
 	untrackDetachedChildPid,
 } from "../../utils/shell.ts";
-import type { ToolDefinition, ToolRenderResultOptions } from "../extensions/types.ts";
+import type { ExtensionContext, ToolDefinition, ToolRenderResultOptions } from "../extensions/types.ts";
 import { OutputAccumulator } from "./output-accumulator.ts";
 import { getTextOutput, invalidArgText, str } from "./render-utils.ts";
 import { wrapToolDefinition } from "./tool-definition-wrapper.ts";
@@ -133,8 +133,36 @@ export interface BashSpawnContext {
 
 export type BashSpawnHook = (context: BashSpawnContext) => BashSpawnContext;
 
-function resolveSpawnContext(command: string, cwd: string, spawnHook?: BashSpawnHook): BashSpawnContext {
-	const baseContext: BashSpawnContext = { command, cwd, env: { ...getShellEnv() } };
+function resolveSpawnContext(
+	command: string,
+	cwd: string,
+	spawnHook: BashSpawnHook | undefined,
+	exposeSessionEnvironment: boolean,
+	ctx: ExtensionContext | undefined,
+): BashSpawnContext {
+	const env = { ...getShellEnv() };
+
+	// Avoid leaking stale metadata when memcode is launched from another session.
+	delete env.PI_SESSION_ID;
+	delete env.PI_SESSION_FILE;
+	delete env.PI_PROVIDER;
+	delete env.PI_MODEL;
+	delete env.PI_REASONING_LEVEL;
+
+	const sessionManager = ctx?.sessionManager;
+	if (exposeSessionEnvironment && sessionManager && typeof sessionManager.getSessionId === "function") {
+		const sessionId = sessionManager.getSessionId();
+		if (sessionId) env.PI_SESSION_ID = sessionId;
+		const sessionFile = sessionManager.getSessionFile?.();
+		if (sessionFile) env.PI_SESSION_FILE = sessionFile;
+		if (ctx?.model) {
+			env.PI_PROVIDER = ctx.model.provider;
+			env.PI_MODEL = ctx.model.id;
+		}
+		if (ctx?.thinkingLevel) env.PI_REASONING_LEVEL = ctx.thinkingLevel;
+	}
+
+	const baseContext: BashSpawnContext = { command, cwd, env };
 	return spawnHook ? spawnHook(baseContext) : baseContext;
 }
 
@@ -145,6 +173,8 @@ export interface BashToolOptions {
 	commandPrefix?: string;
 	/** Optional explicit shell path from settings */
 	shellPath?: string;
+	/** Expose current Pi-compatible session metadata as PI_* environment variables. Default: true. */
+	exposeSessionEnvironment?: boolean;
 	/** Hook to adjust command, cwd, or env before execution */
 	spawnHook?: BashSpawnHook;
 }
@@ -273,6 +303,7 @@ export function createBashToolDefinition(
 	const ops = options?.operations ?? createLocalBashOperations({ shellPath: options?.shellPath });
 	const commandPrefix = options?.commandPrefix;
 	const spawnHook = options?.spawnHook;
+	const exposeSessionEnvironment = options?.exposeSessionEnvironment ?? true;
 	const shellGuidance =
 		process.platform === "win32"
 			? "On Windows, prefer PowerShell-compatible commands, `rg`, and scoped `Get-ChildItem`/`Select-String`; quote paths and never run Unix root scans like `find /`."
@@ -285,16 +316,25 @@ export function createBashToolDefinition(
 			process.platform === "win32"
 				? "Execute Windows shell commands; prefer rg/Get-ChildItem/Select-String and scoped paths"
 				: "Execute scoped shell commands; prefer rg over grep/find where available",
+		promptGuidelines: exposeSessionEnvironment
+			? ["Inspect PI_* environment variables for current model and session details."]
+			: undefined,
 		parameters: bashSchema,
 		async execute(
 			_toolCallId,
 			{ command, timeout }: { command: string; timeout?: number },
-			signal?: AbortSignal,
-			onUpdate?,
-			_ctx?,
+			signal: AbortSignal | undefined,
+			onUpdate,
+			ctx,
 		) {
 			const resolvedCommand = commandPrefix ? `${commandPrefix}\n${command}` : command;
-			const spawnContext = resolveSpawnContext(resolvedCommand, cwd, spawnHook);
+			const spawnContext = resolveSpawnContext(
+				resolvedCommand,
+				cwd,
+				spawnHook,
+				exposeSessionEnvironment,
+				ctx,
+			);
 			const output = new OutputAccumulator({ tempFilePrefix: "memcode-bash" });
 			let updateTimer: NodeJS.Timeout | undefined;
 			let updateDirty = false;

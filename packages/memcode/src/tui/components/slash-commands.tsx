@@ -2,8 +2,8 @@
  * Slash command system for the memcode TUI.
  *
  * Defines three execution modes:
- *   - "no-arg":    Execute directly (e.g. /clear, /help, /vim)
- *   - "selector":  Show a picker for choices (e.g. /model switch, /theme)
+ *   - "no-arg":    Execute directly (e.g. /commands, /memory status)
+ *   - "selector":  Show a picker for choices (e.g. /model, /settings)
  *   - "text-input": Fill the input with the command prefix (e.g. /memory search)
  *
  * The CommandPicker component renders a filtered, keyboard-navigable
@@ -25,7 +25,7 @@ export type CommandMode = "no-arg" | "selector" | "text-input";
 
 /** Definition of a single slash command. */
 export interface Command {
-	/** Full command name including leading slash (e.g. "/clear", "/model switch"). */
+	/** Full command name including leading slash (e.g. "/commands", "/model"). */
 	name: string;
 	/** Human-readable description shown alongside the command. */
 	description: string;

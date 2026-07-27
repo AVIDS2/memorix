@@ -280,3 +280,39 @@
   the supported baseline.
 - See [1.2.2 Memory Control Plane](../1.2.2-MEMORY-CONTROL-PLANE.md) for
   phases, acceptance gates, non-goals, and release criteria.
+
+## 1.2.6 Pi Overlay Integrity
+- Replaced the stale Memcode TUI command list with one registry derived from
+  the executable Pi-compatible built-ins plus Memorix-native memory actions.
+  `/commands` and editor completion no longer advertise non-dispatched `/git`,
+  `/help`, `/config`, or synthetic session commands; nested `/memory `
+  completion is available in the live input path.
+- Made `/memory delete <id>` execute the intended project-memory resolution,
+  including fresh project-store initialization. The no-argument form remains a
+  safe list-and-select prompt.
+- Adopted Pi's current model-initiated bash session contract without changing
+  general harness behavior: Memcode supplies current `PI_*` session/model
+  metadata by default, removes stale inherited values, and lets an extension
+  opt out explicitly.
+- Added a pinned, read-only Pi upstream audit manifest and maintainer command.
+  Large upstream comparisons fall back from GitHub's capped file list to a
+  recursive official Git-tree diff before any manual adoption decision.
+- Completed the Node built-in SQLite compatibility path instead of treating it
+  as a degraded happy-path fallback: prepared statements now accept complete
+  row objects like `better-sqlite3`, and synchronous transactions implement
+  deferred, immediate, and exclusive entry points. This unblocks task claims,
+  coordination, and Knowledge Workspace review when the optional native module
+  is absent.
+- Release polish: bundled `memcode --version` resolves the verified public
+  Memorix package version; `memorix context --task "..."` no longer requires a
+  redundant positional argument; and every shipped versioned plugin manifest
+  is aligned with the public release version.
+- Final verification after the last Memcode change: `npm run lint`, the root
+  production build, the root test suite, and the complete Memcode suite all
+  passed. The Memcode suite reported 158 passing files / 1474 passing tests
+  (with its 5 opt-in skipped files / 43 skipped tests). Pi upstream audit
+  through `v0.82.1` also passed.
+- A fresh isolated installation of the final tarball verified `memorix` and
+  `memcode` version parity, all seven versioned plugin manifests, both Context
+  CLI forms, and a real stdio MCP handshake: 43 tools were discoverable and
+  `memorix_project_context` returned an Autopilot Brief.

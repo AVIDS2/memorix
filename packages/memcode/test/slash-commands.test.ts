@@ -18,12 +18,13 @@ describe("BUILTIN_SLASH_COMMANDS", () => {
 		expect(new Set(names).size).toBe(names.length);
 	});
 
-	test("keeps TUI-only discoverability commands separate from legacy built-ins", () => {
+	test("keeps only real Memorix subcommands separate from built-ins", () => {
 		const builtinNames = new Set(BUILTIN_SLASH_COMMANDS.map((command) => `/${command.name}`));
 		const tuiRows = getTuiSlashCommandRows();
 
 		expect(tuiRows.some((row) => row.name === "/memory hooks")).toBe(true);
-		expect(tuiRows.some((row) => row.name === "/git status")).toBe(true);
+		expect(tuiRows.some((row) => row.name === "/memory search")).toBe(true);
+		expect(tuiRows.some((row) => row.name === "/git status")).toBe(false);
 		expect(builtinNames.has("/memory")).toBe(true);
 		expect(builtinNames.has("/memory hooks")).toBe(false);
 	});

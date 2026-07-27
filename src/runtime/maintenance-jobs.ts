@@ -67,7 +67,18 @@ export interface MaintenanceJobSummary {
 
 export type MaintenanceJobRunResult =
   | { action: 'complete' }
-  | { action: 'reschedule'; delayMs: number; resetAttempts?: boolean; payload?: Record<string, unknown> };
+  | {
+    action: 'reschedule';
+    delayMs: number;
+    resetAttempts?: boolean;
+    payload?: Record<string, unknown>;
+    /** Keep recoverable work out of the immediate pending queue during a cooldown. */
+    status?: 'pending' | 'retry';
+    /** Persist a sanitized diagnostic without consuming the job's retry budget. */
+    lastError?: string;
+    /** Clear a stale transient diagnostic after the job makes progress. */
+    clearLastError?: boolean;
+  };
 
 export type MaintenanceJobHandler = (
   job: MaintenanceJob,
@@ -160,6 +171,12 @@ export class MaintenanceJobStore {
       `).get(input.projectId, input.kind, dedupeKey);
 
       if (existing) {
+        // A vector backfill in cooldown is a circuit-breaker state. A new MCP
+        // process must not pull it forward and recreate the original retry storm.
+        if (input.kind === 'vector-backfill' && existing.status === 'retry') {
+          this.commit();
+          return rowToJob(existing);
+        }
         const nextRunAfter = Math.min(Number(existing.run_after), runAfter);
         this.db.prepare(`
           UPDATE maintenance_jobs
@@ -169,6 +186,30 @@ export class MaintenanceJobStore {
         const updated = this.getRow(existing.id)!;
         this.commit();
         return rowToJob(updated);
+      }
+
+      // Older releases exhausted vector jobs on transient provider/index errors.
+      // Reuse one failed record so the next healthy session recovers work instead
+      // of adding another permanent failure row for the same project.
+      if (input.kind === 'vector-backfill') {
+        const failed = this.db.prepare(`
+          SELECT * FROM maintenance_jobs
+          WHERE project_id = ? AND kind = ? AND dedupe_key = ? AND status = 'failed'
+          ORDER BY updated_at DESC
+          LIMIT 1
+        `).get(input.projectId, input.kind, dedupeKey);
+        if (failed) {
+          this.db.prepare(`
+            UPDATE maintenance_jobs
+            SET status = 'pending', attempts = 0, max_attempts = ?, run_after = ?,
+                payload_json = ?, lease_owner = NULL, lease_expires_at = NULL,
+                last_error = NULL, completed_at = NULL, updated_at = ?
+            WHERE id = ?
+          `).run(maxAttempts, runAfter, payloadJson, now, failed.id);
+          const revived = this.getRow(failed.id)!;
+          this.commit();
+          return rowToJob(revived);
+        }
       }
 
       const id = randomUUID();
@@ -361,19 +402,55 @@ export class MaintenanceJobStore {
   reschedule(
     id: string,
     workerId: string,
-    options: { delayMs: number; resetAttempts?: boolean; payload?: Record<string, unknown>; now?: number },
+    options: {
+      delayMs: number;
+      resetAttempts?: boolean;
+      payload?: Record<string, unknown>;
+      status?: 'pending' | 'retry';
+      lastError?: string;
+      clearLastError?: boolean;
+      now?: number;
+    },
   ): MaintenanceJob | undefined {
     const now = options.now ?? Date.now();
     const delayMs = Number.isFinite(options.delayMs) ? Math.max(0, Math.floor(options.delayMs)) : 0;
     const payloadJson = options.payload === undefined ? null : JSON.stringify(options.payload);
+    const status = options.status === 'retry' ? 'retry' : 'pending';
+    const hasLastError = options.lastError !== undefined;
+    const lastError = hasLastError ? errorText(options.lastError) : null;
     this.db.prepare(`
       UPDATE maintenance_jobs
-      SET status = 'pending', run_after = ?, attempts = CASE WHEN ? THEN 0 ELSE attempts END,
+      SET status = ?, run_after = ?, attempts = CASE WHEN ? THEN 0 ELSE attempts END,
           payload_json = COALESCE(?, payload_json),
+          last_error = CASE
+            WHEN ? THEN NULL
+            WHEN ? THEN ?
+            ELSE last_error
+          END,
           lease_owner = NULL, lease_expires_at = NULL, updated_at = ?
       WHERE id = ? AND status = 'running' AND lease_owner = ?
-    `).run(now + delayMs, options.resetAttempts ? 1 : 0, payloadJson, now, id, workerId);
+    `).run(
+      status,
+      now + delayMs,
+      options.resetAttempts ? 1 : 0,
+      payloadJson,
+      options.clearLastError ? 1 : 0,
+      hasLastError ? 1 : 0,
+      lastError,
+      now,
+      id,
+      workerId,
+    );
     return this.get(id);
+  }
+
+  resolveFailedVectorBackfills(projectId: string, dedupeKey = 'vector-backfill', now = Date.now()): number {
+    const result = this.db.prepare(`
+      UPDATE maintenance_jobs
+      SET status = 'completed', completed_at = ?, updated_at = ?
+      WHERE project_id = ? AND kind = 'vector-backfill' AND dedupe_key = ? AND status = 'failed'
+    `).run(now, now, projectId, dedupeKey);
+    return Number(result.changes ?? 0);
   }
 
   fail(id: string, workerId: string, error: unknown, now = Date.now()): MaintenanceJob | undefined {
@@ -486,6 +563,9 @@ export class MaintenanceJobWorker {
             delayMs: result.delayMs,
             resetAttempts: result.resetAttempts,
             payload: result.payload,
+            status: result.status,
+            lastError: result.lastError,
+            clearLastError: result.clearLastError,
             now,
           });
           return { state: 'rescheduled', job: updated };

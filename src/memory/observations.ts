@@ -102,6 +102,10 @@ function normalizeEmbeddingFailure(error: unknown): { key: string; message: stri
   };
 }
 
+function vectorBackfillError(error: unknown): string {
+  return sanitizeCredentials(normalizeEmbeddingFailure(error).message).slice(0, 1_000);
+}
+
 function queueVectorBackfill(projectId: string): void {
   const dataDir = projectDir;
   if (!dataDir) return;
@@ -1202,6 +1206,7 @@ export async function backfillVectorEmbeddings(options: {
   attempted: number;
   succeeded: number;
   failed: number;
+  lastError?: string;
 }> {
   if (vectorBackfillRunning) {
     return { attempted: 0, succeeded: 0, failed: 0 };
@@ -1218,19 +1223,63 @@ export async function backfillVectorEmbeddings(options: {
   let succeeded = 0;
   let failed = 0;
   let lastFailure: string | undefined;
+  const recordFailure = (message: string): void => {
+    // A single batch may have several symptoms after one root cause. Preserve
+    // the first one so an informative provider/index error is not overwritten
+    // by later missing-result fallout.
+    if (!lastFailure) lastFailure = message;
+  };
+
+  const candidates: Array<{ id: number; observation: Observation; text: string }> = [];
+  for (const id of ids) {
+    const observation = observationById.get(id);
+    if (!observation) {
+      vectorMissingIds.delete(id);
+      continue;
+    }
+    candidates.push({
+      id,
+      observation,
+      text: [observation.title, observation.narrative, ...observation.facts].join(' '),
+    });
+  }
 
   try {
-    for (const id of ids) {
-      const obs = observationById.get(id);
-      if (!obs) {
-        vectorMissingIds.delete(id);
-        continue;
-      }
+    if (candidates.length === 0) {
+      return { attempted: ids.length, succeeded, failed };
+    }
 
-      const text = [obs.title, obs.narrative, ...obs.facts].join(' ');
-      try {
-        const embedding = await generateEmbedding(text);
-        if (embedding) {
+    let embeddings: number[][] | null = null;
+    try {
+      const provider = await getEmbeddingProvider();
+      if (!provider) {
+        if (isEmbeddingExplicitlyDisabled()) {
+          for (const candidate of candidates) vectorMissingIds.delete(candidate.id);
+        } else {
+          recordFailure('embedding provider unavailable');
+          failed += candidates.length;
+        }
+      } else {
+        // API providers batch and cache this efficiently; local providers can use
+        // their native batch path. Index writes stay sequential because Orama is
+        // process-local mutable state.
+        embeddings = await provider.embedBatch(candidates.map((candidate) => candidate.text));
+      }
+    } catch (error) {
+      recordFailure(vectorBackfillError(error));
+      failed += candidates.length;
+    }
+
+    if (embeddings) {
+      for (let index = 0; index < candidates.length; index++) {
+        const { id, observation: obs } = candidates[index];
+        const embedding = embeddings[index];
+        if (!embedding || embedding.length === 0) {
+          recordFailure('embedding provider returned no vector');
+          failed++;
+          continue;
+        }
+        try {
           if (!isVectorCompatibleWithCurrentIndex(embedding)) {
             await upgradeVectorSchemaAfterFirstEmbedding(embedding);
           }
@@ -1239,7 +1288,7 @@ export async function backfillVectorEmbeddings(options: {
             console.error(
               `[memorix] Backfill embedding mismatch for obs-${id}: provider returned ${embedding.length}d, index expects ${vectorDimensions ?? 'unknown'}d (kept in queue)`,
             );
-            lastFailure = `dimension mismatch: provider returned ${embedding.length}d, index expects ${vectorDimensions ?? 'unknown'}d`;
+            recordFailure(`dimension mismatch: provider returned ${embedding.length}d, index expects ${vectorDimensions ?? 'unknown'}d`);
             failed++;
             continue;
           }
@@ -1277,17 +1326,10 @@ export async function backfillVectorEmbeddings(options: {
           await insertObservation(doc);
           vectorMissingIds.delete(id);
           succeeded++;
-        } else if (isEmbeddingExplicitlyDisabled()) {
-          // Embedding explicitly off — nothing to backfill from
-          vectorMissingIds.delete(id);
-        } else {
-          // Provider temporarily unavailable — keep in queue for next backfill cycle
-          lastFailure = 'embedding provider unavailable';
+        } catch (error) {
+          recordFailure(vectorBackfillError(error));
           failed++;
         }
-      } catch (err) {
-        lastFailure = err instanceof Error ? err.message : String(err);
-        failed++;
       }
     }
   } finally {
@@ -1301,5 +1343,10 @@ export async function backfillVectorEmbeddings(options: {
     };
   }
 
-  return { attempted: ids.length, succeeded, failed };
+  return {
+    attempted: ids.length,
+    succeeded,
+    failed,
+    ...(lastFailure ? { lastError: lastFailure } : {}),
+  };
 }

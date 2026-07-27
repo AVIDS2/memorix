@@ -26,6 +26,8 @@ export interface AgentMcpCheck {
   exists: boolean;
   status: AgentIntegrationStatus;
   issues: string[];
+  /** This endpoint is supplied by an enabled Codex plugin, not config.toml. */
+  managedByPlugin?: boolean;
   server?: {
     transport: 'stdio' | 'http';
     command?: string;
@@ -229,6 +231,10 @@ function codexPluginPath(): string {
   return `${homedir()}/.codex/plugins/${CODEX_PLUGIN_NAME}`;
 }
 
+function codexPluginMcpPath(): string {
+  return `${codexPluginPath()}/.mcp.json`;
+}
+
 function codexMarketplacePath(): string {
   return `${homedir()}/.agents/plugins/marketplace.json`;
 }
@@ -267,6 +273,7 @@ async function inspectCodexPluginBundle(): Promise<AgentPluginCheck> {
   const pluginPath = codexPluginPath();
   const manifestPath = `${pluginPath}/.codex-plugin/plugin.json`;
   const hooksPath = `${pluginPath}/hooks/hooks.json`;
+  const mcpPath = codexPluginMcpPath();
   if (!existsSync(pluginPath)) {
     return {
       scope: 'global',
@@ -316,6 +323,20 @@ async function inspectCodexPluginBundle(): Promise<AgentPluginCheck> {
   const issues: string[] = [];
   if (version !== getCliVersion()) issues.push('codex-plugin-version-mismatch');
   if (manifest.hooks !== './hooks/hooks.json') issues.push('codex-hook-manifest-missing');
+
+  if (!existsSync(mcpPath)) {
+    issues.push('codex-plugin-mcp-manifest-missing');
+  } else {
+    try {
+      const mcpConfig = asRecord(JSON.parse(await readFile(mcpPath, 'utf-8')));
+      const server = coerceMcpServer('memorix', asRecord(mcpConfig?.mcpServers)?.memorix);
+      if (!server || !isRecommendedStdioServer(server)) {
+        issues.push('codex-plugin-mcp-manifest-invalid');
+      }
+    } catch {
+      issues.push('codex-plugin-mcp-manifest-unreadable');
+    }
+  }
 
   let declared: string[] = [];
   if (!existsSync(hooksPath)) {
@@ -479,7 +500,9 @@ async function inspectCodexHookTrust(): Promise<AgentPluginCheck> {
     kind: 'hook-trust',
     path: configPath,
     exists: true,
-    status: issues.length > 0 ? 'repairable' : 'ok',
+    // Codex records hook approval only after the user has reviewed it. Memorix
+    // must not treat an intentional, host-owned consent step as a broken setup.
+    status: issues.length > 0 ? 'skipped' : 'ok',
     issues,
     hookTrust: { trusted, expected: [...CODEX_HOOK_STATE_NAMES] },
   };
@@ -562,7 +585,7 @@ function getClaudeLocalConfigPath(): string {
   return `${homedir()}/.claude.json`;
 }
 
-function coerceClaudeLocalServer(name: string, value: unknown): MCPServerEntry | null {
+function coerceMcpServer(name: string, value: unknown): MCPServerEntry | null {
   const entry = asRecord(value);
   if (!entry) return null;
   const args = Array.isArray(entry.args) ? entry.args.map(String) : [];
@@ -626,7 +649,7 @@ async function inspectClaudeLocalMcp(projectRoot: string): Promise<AgentMcpCheck
   }
 
   const servers = asRecord(localProject.project.mcpServers);
-  const server = coerceClaudeLocalServer('memorix', servers?.memorix);
+  const server = coerceMcpServer('memorix', servers?.memorix);
   if (!server) {
     return {
       scope: 'local',
@@ -683,6 +706,59 @@ async function installClaudeLocalMcpConfig(projectRoot: string): Promise<void> {
   await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf-8');
 }
 
+async function inspectCodexPluginMcp(): Promise<AgentMcpCheck | null> {
+  const runtime = inspectCodexPluginRuntime();
+  if (!runtime.runtime?.installed || !runtime.runtime.enabled) return null;
+
+  const mcpPath = codexPluginMcpPath();
+  if (!existsSync(mcpPath)) {
+    return {
+      scope: 'global',
+      path: mcpPath,
+      exists: false,
+      status: 'repairable',
+      issues: ['codex-plugin-mcp-manifest-missing'],
+      managedByPlugin: true,
+    };
+  }
+
+  try {
+    const config = asRecord(JSON.parse(await readFile(mcpPath, 'utf-8')));
+    const server = coerceMcpServer('memorix', asRecord(config?.mcpServers)?.memorix);
+    if (!server) {
+      return {
+        scope: 'global',
+        path: mcpPath,
+        exists: true,
+        status: 'repairable',
+        issues: ['codex-plugin-mcp-manifest-invalid'],
+        managedByPlugin: true,
+      };
+    }
+    const issues: string[] = [];
+    if (looksLikeStaleMemorixCommand(server)) issues.push('stale-command-path');
+    if (!isRecommendedStdioServer(server)) issues.push('nonstandard-mcp-command');
+    return {
+      scope: 'global',
+      path: mcpPath,
+      exists: true,
+      status: issues.length > 0 ? 'repairable' : 'ok',
+      issues,
+      managedByPlugin: true,
+      server: sanitizeServer(server),
+    };
+  } catch {
+    return {
+      scope: 'global',
+      path: mcpPath,
+      exists: true,
+      status: 'repairable',
+      issues: ['codex-plugin-mcp-manifest-unreadable'],
+      managedByPlugin: true,
+    };
+  }
+}
+
 async function inspectMcp(agent: AgentName, projectRoot: string, scope: AgentIntegrationScope): Promise<AgentIntegrationEntry['mcp']> {
   if (!isMcpConfigAgent(agent)) {
     return { status: 'skipped', issues: ['mcp-managed-by-package'], checks: [] };
@@ -695,6 +771,14 @@ async function inspectMcp(agent: AgentName, projectRoot: string, scope: AgentInt
     if (agent === 'claude' && targetScope === 'local') {
       checks.push(await inspectClaudeLocalMcp(projectRoot));
       continue;
+    }
+
+    if (agent === 'codex' && targetScope === 'global') {
+      const pluginCheck = await inspectCodexPluginMcp();
+      if (pluginCheck) {
+        checks.push(pluginCheck);
+        continue;
+      }
     }
 
     const configPath = adapter.getConfigPath(targetScope === 'project' ? projectRoot : undefined);
@@ -872,11 +956,20 @@ export function formatAgentIntegrationReport(report: AgentIntegrationReport): st
     lines.push(`${entry.agent}: ${status}`);
     if (entry.mcp.issues.length > 0) lines.push(`  MCP: ${entry.mcp.issues.join(', ')}`);
     if (entry.guidance.issues.length > 0) lines.push(`  Guidance: ${entry.guidance.issues.join(', ')}`);
-    if (entry.plugin.issues.length > 0) lines.push(`  Plugin: ${entry.plugin.issues.join(', ')}`);
+    const hookTrustPending = entry.plugin.issues.includes('codex-hook-trust-pending');
+    const pluginIssues = entry.plugin.issues.filter((issue) => issue !== 'codex-hook-trust-pending');
+    if (pluginIssues.length > 0) lines.push(`  Plugin: ${pluginIssues.join(', ')}`);
+    if (hookTrustPending) {
+      lines.push('  Hooks: waiting for Codex approval on first use; MCP remains available.');
+    }
   }
 
   lines.push('');
-  lines.push(`Repair: ${report.repairCommand}`);
+  if (report.summary.missing > 0 || report.summary.repairable > 0) {
+    lines.push(`Repair: ${report.repairCommand}`);
+  } else {
+    lines.push('No file repair needed.');
+  }
   return lines.join('\n');
 }
 
@@ -899,6 +992,10 @@ export async function repairAgentIntegrations(options: {
     if (isMcpConfigAgent(entry.agent)) {
       for (const check of entry.mcp.checks) {
         if (check.status === 'ok' || check.status === 'skipped') continue;
+        if (check.managedByPlugin) {
+          skipped.push(`${entry.agent}:mcp:${check.scope}:plugin-managed`);
+          continue;
+        }
         if (check.status === 'missing' && !canInstallMissing) {
           skipped.push(`${entry.agent}:mcp:${check.scope}:missing`);
           continue;

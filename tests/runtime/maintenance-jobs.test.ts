@@ -120,6 +120,104 @@ describe('MaintenanceJobStore', () => {
     expect(failed?.lastError).not.toContain('sk-abcdefghijklmnopqrstuvwxyz123456');
   });
 
+  it('keeps vector recovery in cooldown when another MCP process enqueues the same work', async () => {
+    const store = new MaintenanceJobStore(dataDir);
+    const job = store.enqueue({
+      projectId: 'project-a',
+      kind: 'vector-backfill',
+      dedupeKey: 'vectors',
+      payload: { limit: 12 },
+      now: 1_000,
+    });
+    const worker = new MaintenanceJobWorker(store, async () => ({
+      action: 'reschedule' as const,
+      status: 'retry' as const,
+      delayMs: 60_000,
+      resetAttempts: true,
+      payload: { limit: 12, vectorBackfillFailureStreak: 1 },
+      lastError: 'provider unavailable',
+    }), { workerId: 'vector-worker', leaseMs: 100 });
+
+    await worker.runOnce(1_000);
+    const cooled = store.get(job.id)!;
+    const duplicate = store.enqueue({
+      projectId: 'project-a',
+      kind: 'vector-backfill',
+      dedupeKey: 'vectors',
+      payload: { limit: 12 },
+      now: 2_000,
+    });
+
+    expect(cooled).toMatchObject({
+      status: 'retry',
+      attempts: 0,
+      lastError: 'provider unavailable',
+      payload: { limit: 12, vectorBackfillFailureStreak: 1 },
+    });
+    expect(duplicate).toMatchObject({
+      id: job.id,
+      status: 'retry',
+      runAfter: cooled.runAfter,
+      payload: { limit: 12, vectorBackfillFailureStreak: 1 },
+    });
+  });
+
+  it('revives one failed vector backfill instead of adding another failed row', () => {
+    const store = new MaintenanceJobStore(dataDir);
+    const job = store.enqueue({
+      projectId: 'project-a',
+      kind: 'vector-backfill',
+      dedupeKey: 'vectors',
+      maxAttempts: 1,
+      now: 1_000,
+    });
+    store.claimNext({ workerId: 'worker-a', now: 1_000, leaseMs: 100 });
+    expect(store.fail(job.id, 'worker-a', new Error('old transient failure'), 1_100)?.status).toBe('failed');
+
+    const revived = store.enqueue({
+      projectId: 'project-a',
+      kind: 'vector-backfill',
+      dedupeKey: 'vectors',
+      payload: { limit: 12 },
+      now: 2_000,
+    });
+
+    expect(revived).toMatchObject({
+      id: job.id,
+      status: 'pending',
+      attempts: 0,
+      payload: { limit: 12 },
+    });
+    expect(revived.lastError).toBeUndefined();
+  });
+
+  it('resolves historical vector failures after a later backfill completes', () => {
+    const store = new MaintenanceJobStore(dataDir);
+    const failed = store.enqueue({
+      projectId: 'project-a',
+      kind: 'vector-backfill',
+      dedupeKey: 'vectors',
+      maxAttempts: 1,
+      now: 1_000,
+    });
+    store.claimNext({ workerId: 'worker-a', now: 1_000, leaseMs: 100 });
+    expect(store.fail(failed.id, 'worker-a', new Error('old provider failure'), 1_100)?.status).toBe('failed');
+
+    const unrelated = store.enqueue({
+      projectId: 'project-b',
+      kind: 'vector-backfill',
+      dedupeKey: 'vectors',
+      maxAttempts: 1,
+      now: 1_000,
+    });
+    store.claimNext({ workerId: 'worker-b', now: 1_000, leaseMs: 100 });
+    expect(store.fail(unrelated.id, 'worker-b', new Error('other project failure'), 1_100)?.status).toBe('failed');
+
+    expect(store.resolveFailedVectorBackfills('project-a', 'vectors', 2_000)).toBe(1);
+    expect(store.get(failed.id)).toMatchObject({ status: 'completed', completedAt: 2_000 });
+    expect(store.get(unrelated.id)?.status).toBe('failed');
+  });
+
   it('prunes completed history after its retention window without deleting failed diagnostics', () => {
     const store = new MaintenanceJobStore(dataDir);
     const completed = store.enqueue({

@@ -839,10 +839,21 @@ export default defineCommand({
             };
           } catch { /* best effort */ }
 
-          let vectorStatus = { total: 0, missing: 0, missingIds: [] as number[], backfillRunning: false };
+          let vectorStatus = {
+            available: false,
+            total: 0,
+            missing: 0,
+            missingIds: [] as number[],
+            backfillRunning: false,
+          };
           try {
-            const { getVectorStatus } = await import('../../memory/observations.js');
-            vectorStatus = getVectorStatus(statsProjectId);
+            const { getSearchIndexStatus, getVectorStatus } = await import('../../memory/observations.js');
+            // The HTTP control plane has a different module graph from stdio MCP.
+            // Only report vector counts when this process actually owns a hydrated
+            // index; an empty singleton must not look like a healthy 0/0 state.
+            if (getSearchIndexStatus(statsProjectId).prepared) {
+              vectorStatus = { available: true, ...getVectorStatus(statsProjectId) };
+            }
           } catch { /* best effort */ }
 
           // Real search mode from the last actual search execution

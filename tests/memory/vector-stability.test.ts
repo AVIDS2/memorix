@@ -260,6 +260,45 @@ describe('Vector Stability', () => {
     expect(getVectorMissingIds()).toContain(observation.id);
   });
 
+  it('backfills queued observations through one provider batch request', async () => {
+    const oramaStore = await import('../../src/store/orama-store.js');
+    const embeddingProvider = await import('../../src/embedding/provider.js');
+    const vector = [0.1, 0.2, 0.3];
+    const embedBatch = vi.fn().mockResolvedValue([vector]);
+
+    vi.mocked(oramaStore.generateEmbedding).mockResolvedValue(null);
+    vi.mocked(oramaStore.getVectorDimensions).mockReturnValue(3);
+    vi.mocked(embeddingProvider.isEmbeddingExplicitlyDisabled).mockReturnValue(false);
+    vi.mocked(embeddingProvider.getEmbeddingProvider).mockResolvedValue({
+      name: 'api-test',
+      dimensions: 3,
+      embed: vi.fn(),
+      embedBatch,
+    });
+
+    const { storeObservation, backfillVectorEmbeddings, getVectorMissingIds } =
+      await import('../../src/memory/observations.ts');
+    const { observation } = await storeObservation({
+      entityName: 'batched-backfill',
+      type: 'gotcha',
+      title: 'Batched vector recovery',
+      narrative: 'The retry lane should use the provider batch endpoint.',
+      projectId: 'test/vector-batch',
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(getVectorMissingIds()).toContain(observation.id);
+
+    const result = await backfillVectorEmbeddings({ projectId: 'test/vector-batch', limit: 1 });
+
+    expect(embedBatch).toHaveBeenCalledTimes(1);
+    expect(embedBatch).toHaveBeenCalledWith([
+      'Batched vector recovery The retry lane should use the provider batch endpoint.',
+    ]);
+    expect(result).toMatchObject({ attempted: 1, succeeded: 1, failed: 0 });
+    expect(getVectorMissingIds()).not.toContain(observation.id);
+  });
+
   it('backfill keeps items queued when the generated embedding dimensions do not match the index', async () => {
     const oramaStore = await import('../../src/store/orama-store.js');
 

@@ -216,6 +216,7 @@ const i18n = {
     backfillPending: 'Backfill Pending',
     vectorsMissing: 'vectors missing',
     noBackfillNeeded: 'All vectors indexed',
+    vectorStatusSessionLocal: 'Active MCP session',
     providerReady: 'Ready',
     providerUnavailable: 'Unavailable',
     providerDisabled: 'Disabled (BM25 only)',
@@ -647,6 +648,7 @@ const i18n = {
     backfillPending: '回填待处理',
     vectorsMissing: '条向量缺失',
     noBackfillNeeded: '所有向量已索引',
+    vectorStatusSessionLocal: '由活动 MCP 会话统计',
     providerReady: '就绪',
     providerUnavailable: '不可用',
     providerDisabled: '已禁用 (仅 BM25)',
@@ -1357,6 +1359,9 @@ async function loadDashboard() {
     : pendingProposals > 0
       ? { color: 'var(--accent-blue)', text: `${pendingProposals} ${t('pendingProposals')}` }
       : { color: 'var(--accent-green)', text: t('knowledgeReady') };
+  // Standalone dashboards and older control planes do not own the MCP process's
+  // in-memory index. Absence of a proof is not proof that every vector exists.
+  const vectorStatusAvailable = stats.vectorStatus?.available === true;
 
   const typeIcons = {
     'session-request': '<span class="iconify" data-icon="lucide:target" style="color:#f87171;"></span>', gotcha: '<span class="iconify" data-icon="lucide:alert-octagon" style="color:#ef4444;"></span>', 'problem-solution': '<span class="iconify" data-icon="lucide:lightbulb" style="color:#fbbf24;"></span>',
@@ -1418,8 +1423,8 @@ async function loadDashboard() {
             </div>
             <div>
               <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">${t('backfillPending')}</div>
-              <div style="font-size:14px;font-weight:600;color:${(stats.vectorStatus?.missing || 0) > 0 ? 'var(--accent-amber)' : 'var(--accent-green)'};">
-                ${(stats.vectorStatus?.missing || 0) > 0 ? stats.vectorStatus.missing + ' ' + t('vectorsMissing') : t('noBackfillNeeded')}
+              <div style="font-size:14px;font-weight:600;color:${!vectorStatusAvailable ? 'var(--text-muted)' : (stats.vectorStatus?.missing || 0) > 0 ? 'var(--accent-amber)' : 'var(--accent-green)'};">
+                ${!vectorStatusAvailable ? t('vectorStatusSessionLocal') : (stats.vectorStatus?.missing || 0) > 0 ? stats.vectorStatus.missing + ' ' + t('vectorsMissing') : t('noBackfillNeeded')}
               </div>
             </div>
             <div>

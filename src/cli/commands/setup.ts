@@ -484,6 +484,40 @@ function mergeTomlMcpConfig(existingContent: string | null, generatedContent: st
   return `${parts.join('\n\n')}\n`;
 }
 
+function isLegacyCodexMemorixNodeServer(server: MCPServerEntry): boolean {
+  if (server.name !== 'memorix' || server.command.trim().toLowerCase() !== 'node') return false;
+  const startsMemorixStdio = server.args.some((arg) => arg.trim().toLowerCase() === 'serve');
+  const sourceEntry = server.args.some((arg) => {
+    const normalized = arg.replace(/\\/g, '/').toLowerCase();
+    return /\/memorix\/dist\/cli\/index\.(?:[cm]?js)$/.test(normalized);
+  });
+  return startsMemorixStdio && sourceEntry;
+}
+
+/**
+ * Codex plugins now own Memorix stdio MCP registration. Remove only the old
+ * source-path form emitted by pre-plugin setup, never a user's custom server.
+ */
+export async function removeLegacyCodexMemorixMcpConfig(
+  configPath = path.join(homedir(), '.codex', 'config.toml'),
+): Promise<{ configPath: string; removed: boolean }> {
+  let existingContent: string;
+  try {
+    existingContent = await readFile(configPath, 'utf-8');
+  } catch {
+    return { configPath, removed: false };
+  }
+
+  const adapter = new CodexMCPAdapter();
+  const legacyServer = adapter.parse(existingContent).find(isLegacyCodexMemorixNodeServer);
+  if (!legacyServer) return { configPath, removed: false };
+
+  let nextContent = removeTomlSection(existingContent, 'mcp_servers.memorix.env');
+  nextContent = removeTomlSection(nextContent, 'mcp_servers.memorix');
+  await writeFile(configPath, nextContent ? `${nextContent}\n` : '', 'utf-8');
+  return { configPath, removed: true };
+}
+
 function mergeYamlMcpConfig(existingContent: string | null, generatedContent: string): string {
   let existing: Record<string, unknown> = {};
   try {
@@ -1091,6 +1125,16 @@ export async function installAgentSetup(agent: AgentName, plan: SetupPlan, globa
       const install = tryInstallCodexPlugin();
       if (install.ok) p.log.success(install.message);
       else p.log.warn(install.message);
+      if (install.ok) {
+        try {
+          const migration = await removeLegacyCodexMemorixMcpConfig();
+          if (migration.removed) {
+            p.log.info(`codex: removed legacy source-path MCP config from ${migration.configPath}`);
+          }
+        } catch {
+          p.log.warn('codex: plugin installed, but the legacy MCP config could not be checked');
+        }
+      }
     } else if (agent === 'claude' && result.marketplaceRoot) {
       const install = tryInstallClaudePlugin(result.marketplaceRoot);
       if (install.ok) p.log.success(install.message);

@@ -23,8 +23,22 @@ import { resetDotenv } from '../config/dotenv-loader.js';
 import { initProjectRoot } from '../config/yaml-loader.js';
 import { clearProjectRoot } from '../config/yaml-loader.js';
 import { scopeKnowledgeGraphToProject } from '../memory/graph-scope.js';
+import { isImmune } from '../memory/retention.js';
+
+/**
+ * Adapt a raw loaded observation into the MemorixDocument shape isImmune expects.
+ * Raw Observation.concepts is a string[] at runtime; isImmune calls .split on it,
+ * so concepts must be joined to a string before the call (Gap #7 runtime fix).
+ */
+function toImmuneDoc(obs: unknown): MemorixDocument {
+    const o = obs as Record<string, unknown>;
+    return {
+        ...o,
+        concepts: Array.isArray(o.concepts) ? o.concepts.join(', ') : ((o.concepts as string) ?? ''),
+    } as unknown as MemorixDocument;
+}
 import { canManageObservation, filterReadableObservations } from '../memory/visibility.js';
-import type { Observation } from '../types.js';
+import type { Observation, MemorixDocument } from '../types.js';
 
 // MIME types for static file serving
 const MIME_TYPES: Record<string, string> = {
@@ -299,8 +313,8 @@ async function handleApi(
                     const accessCount = (obs as any).accessCount ?? 0;
                     const lambda = 0.01;
                     const score = Math.min(importance * Math.exp(-lambda * ageHours) + Math.min(accessCount * 0.5, 3), 10);
-                    const isImmune = importance >= 8 || obs.type === 'gotcha' || obs.type === 'decision';
-                    if (isImmune) retentionSummary.immune++;
+                    const immune = isImmune(toImmuneDoc(obs));
+                    if (immune) retentionSummary.immune++;
                     if (score >= 3) retentionSummary.active++;
                     else if (score >= 1) retentionSummary.stale++;
                     else retentionSummary.archive++;
@@ -413,8 +427,7 @@ async function handleApi(
                     const accessBonus = Math.min(accessCount * 0.5, 3);
                     const score = Math.min(decayScore + accessBonus, 10);
 
-                    // Immune if importance >= 8 or type is 'gotcha' or 'decision'
-                    const isImmune = importance >= 8 || obs.type === 'gotcha' || obs.type === 'decision';
+                    const immune = isImmune(toImmuneDoc(obs));
 
                     return {
                         id: obs.id,
@@ -422,7 +435,7 @@ async function handleApi(
                         type: obs.type,
                         entityName: obs.entityName,
                         score: Math.round(score * 100) / 100,
-                        isImmune,
+                        isImmune: immune,
                         ageHours: Math.round(ageHours * 10) / 10,
                         accessCount,
                     };

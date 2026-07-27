@@ -12,6 +12,27 @@ reproducible cohort, and the stricter preregistered confirmatory protocol. A
 public cohort can support only its stated fixed-model, fixed-task observations;
 confirmatory claims remain locked until independent execution is complete.
 
+## Plain-language overview
+
+Think of a precursor development session as a student's earlier study notes and
+the next coding session as an exam after the project has changed. The current
+repository and tests are the exam paper and permitted reference material; every
+condition may inspect and verify them normally. The question is whether a
+bounded, freshness-labelled project memory helps the fresh agent solve a task,
+or instead distracts it or makes it follow an obsolete note.
+
+The primary study holds the agent and actual model configuration fixed within a
+cohort. It compares what the agent receives: no predecessor memory, bounded raw
+replay, approved baseline systems, or bounded Memorix retrieval. It records
+task correctness, stale-conflict actions, time, context use, and cost. A
+no-memory win on a task that current source already explains is a valid result,
+not a failed baseline.
+
+Model capability may change this boundary, but that is not a claim of the
+current paper. It needs a separately preregistered interaction study with a
+held-out capability calibration and enough independent model-agent
+configurations. See `MODEL-CAPABILITY-EXTENSION.md`.
+
 ## Research tracks
 
 1. Deterministic retrieval checks reuse the existing Workset fixture corpus.
@@ -41,6 +62,8 @@ confirmatory claims remain locked until independent execution is complete.
   diagnostics, kept separate from public and confirmatory evidence.
 - LOCAL-AGENT-UX-DIAGNOSTIC.md: one documented Pi Coding Agent usability
   observation and its explicit non-efficacy boundary.
+- MODEL-CAPABILITY-EXTENSION.md: proposed future study of model capability as
+  a preregistered moderator, kept outside the current paper's claims.
 
 ## Baseline runtime gates
 

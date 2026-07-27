@@ -20,6 +20,19 @@ C6-C7 are a separate preregistered product-surface family with one read-only
 call and its own receipt, as defined in `NATIVE-MCP-BUDGET-CONTRACT.md`; it is
 never silently pooled into the canonical cross-provider primary estimate.
 
+## Scope Boundary: Model Capability
+
+The current paper pins an agent client and provider-reported actual model as a
+cohort. It does not estimate whether model capability changes the benefit or
+harm of project memory, and it does not claim that a model's parameter count,
+vendor label, or a small number of cross-model runs measures capability.
+
+Any future claim about capability moderation requires a separately frozen
+calibration set, a preregistered `memory condition x model-agent configuration
+x task stratum` analysis, and adequate independent configurations. The proposed
+extension is documented in `MODEL-CAPABILITY-EXTENSION.md`; it is not an
+additional claim in this ledger.
+
 ## Forbidden shortcuts
 
 - Deterministic retrieval-fixture success cannot establish coding-task success.

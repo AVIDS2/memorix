@@ -19,7 +19,14 @@ import { getSessionStore } from '../store/session-store.js';
 import { KnowledgeGraphManager } from './graph.js';
 import { redactCredentials, sanitizeCredentials } from './secret-filter.js';
 
-const PRIORITY_TYPES = new Set(['gotcha', 'decision', 'problem-solution', 'trade-off', 'discovery']);
+// Types eligible for L2 "Key Project Memories" injection. `session-request` and
+// `what-changed` belong here for handoff continuity: the former carries the task's
+// original goal, the latter what actually moved — both are exactly what a resuming
+// agent needs, and excluding them made deliberate handoff notes unreachable.
+const PRIORITY_TYPES = new Set([
+  'gotcha', 'decision', 'problem-solution', 'trade-off', 'discovery',
+  'session-request', 'what-changed',
+]);
 const TYPE_EMOJI: Record<string, string> = {
   'gotcha': '[DISCOVERY]',
   'decision': '[WHY]',
@@ -37,19 +44,24 @@ const TYPE_WEIGHTS: Record<string, number> = {
   'decision': 5.5,
   'problem-solution': 5.25,
   'trade-off': 4.75,
+  'session-request': 4.5,
   'discovery': 4.25,
+  'what-changed': 4,
 };
+// Markers that identify a memory as a demo/scratch artifact rather than real
+// working context. These are TITLE conventions — see isNoiseObservation.
+//
+// Deliberately excluded: 验证 / 兼容 / compat / 交接 / handoff. Those are ordinary
+// engineering vocabulary, not noise signals. Matching them silently dropped real
+// memories: any Chinese note about verification or compatibility, and any handoff
+// note that merely named a handoff tool, disappeared from session context with no
+// diagnostic. A noise filter must not veto the words its users normally write.
 const NOISE_PATTERNS = [
   /\[测试\]/i,
   /\[test\]/i,
-  /验证/i,
-  /兼容/i,
-  /\bcompat(?:ibility)?\b/i,
   /\bdemo\b/i,
   /展示/i,
   /全能力/i,
-  /handoff/i,
-  /交接/i,
   /for_memmcp_test/i,
   /\bbenchmark\b/i,
   /\bsandbox\b/i,
@@ -167,8 +179,13 @@ function isCommandTrace(obs: Observation): boolean {
 }
 
 function isNoiseObservation(obs: Observation): boolean {
-  const text = stringifyObservation(obs, false);
-  return NOISE_PATTERNS.some((pattern) => pattern.test(text)) || isCommandTrace(obs);
+  // Match the title only. Demo/scratch markers are a titling convention, so scanning
+  // the narrative/facts/concepts produced false positives on real memories that merely
+  // *mentioned* one of these words in prose — and because this filter runs before the
+  // PRIORITY_TYPES check and drops the observation outright (not a score penalty), a
+  // single unlucky word in a long narrative made the whole memory unreachable.
+  const title = obs.title ?? '';
+  return NOISE_PATTERNS.some((pattern) => pattern.test(title)) || isCommandTrace(obs);
 }
 
 function isSystemSelfObservation(obs: Observation): boolean {

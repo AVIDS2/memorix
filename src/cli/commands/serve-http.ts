@@ -24,6 +24,21 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { ObservationStore } from '../../store/obs-store.js';
 import { resolveToolProfile } from '../../server/tool-profile.js';
 import { scopeKnowledgeGraphToProject } from '../../memory/graph-scope.js';
+import { isImmune } from '../../memory/retention.js';
+import type { MemorixDocument } from '../../types.js';
+
+/**
+ * Adapt a raw loaded observation into the MemorixDocument shape isImmune expects.
+ * Raw Observation.concepts is a string[] at runtime; isImmune calls .split on it,
+ * so concepts must be joined to a string before the call (Gap #7 runtime fix).
+ */
+function toImmuneDoc(obs: unknown): MemorixDocument {
+  const o = obs as Record<string, unknown>;
+  return {
+    ...o,
+    concepts: Array.isArray(o.concepts) ? o.concepts.join(', ') : ((o.concepts as string) ?? ''),
+  } as unknown as MemorixDocument;
+}
 import { canManageObservation, filterReadableObservations } from '../../memory/visibility.js';
 
 export const DEFAULT_SESSION_TIMEOUT_MS = 30 * 60 * 1000;
@@ -819,8 +834,8 @@ export default defineCommand({
             const accessCount = obs.accessCount ?? 0;
             const lambda = 0.01;
             const score = Math.min(importance * Math.exp(-lambda * ageHours) + Math.min(accessCount * 0.5, 3), 10);
-            const isImmune = importance >= 8 || obs.type === 'gotcha' || obs.type === 'decision';
-            if (isImmune) retentionSummary.immune++;
+            const immune = isImmune(toImmuneDoc(obs));
+            if (immune) retentionSummary.immune++;
             if (score >= 3) retentionSummary.active++;
             else if (score >= 1) retentionSummary.stale++;
             else retentionSummary.archive++;
@@ -970,8 +985,8 @@ export default defineCommand({
             const decayScore = importance * Math.exp(-lambda * ageHours);
             const accessBonus = Math.min(accessCount * 0.5, 3);
             const score = Math.min(decayScore + accessBonus, 10);
-            const isImmune = importance >= 8 || obs.type === 'gotcha' || obs.type === 'decision';
-            return { id: obs.id, title: obs.title, type: obs.type, entityName: obs.entityName, score: Math.round(score * 100) / 100, isImmune, ageHours: Math.round(ageHours * 10) / 10, accessCount };
+            const immune = isImmune(toImmuneDoc(obs));
+            return { id: obs.id, title: obs.title, type: obs.type, entityName: obs.entityName, score: Math.round(score * 100) / 100, isImmune: immune, ageHours: Math.round(ageHours * 10) / 10, accessCount };
           });
           scored.sort((a, b) => b.score - a.score);
           const activeCount = scored.filter(s => s.score >= 3).length;

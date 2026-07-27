@@ -24,21 +24,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { ObservationStore } from '../../store/obs-store.js';
 import { resolveToolProfile } from '../../server/tool-profile.js';
 import { scopeKnowledgeGraphToProject } from '../../memory/graph-scope.js';
-import { isImmune } from '../../memory/retention.js';
-import type { MemorixDocument } from '../../types.js';
-
-/**
- * Adapt a raw loaded observation into the MemorixDocument shape isImmune expects.
- * Raw Observation.concepts is a string[] at runtime; isImmune calls .split on it,
- * so concepts must be joined to a string before the call (Gap #7 runtime fix).
- */
-function toImmuneDoc(obs: unknown): MemorixDocument {
-  const o = obs as Record<string, unknown>;
-  return {
-    ...o,
-    concepts: Array.isArray(o.concepts) ? o.concepts.join(', ') : ((o.concepts as string) ?? ''),
-  } as unknown as MemorixDocument;
-}
+import { projectObservationRetention, summarizeRetentionProjections } from '../../memory/retention.js';
 import { canManageObservation, filterReadableObservations } from '../../memory/visibility.js';
 
 export const DEFAULT_SESSION_TIMEOUT_MS = 30 * 60 * 1000;
@@ -775,20 +761,7 @@ export default defineCommand({
           await initGraphStore(statsDataDir);
           const graph = { entities: getGraphStore().loadEntities(), relations: getGraphStore().loadRelations() };
 
-          const observations = await loadDashboardProjectObservations(statsDataDir, statsProjectId, 'active') as Array<{
-            type?: string;
-            id?: number;
-            title?: string;
-            entityName?: string;
-            createdAt?: string;
-            source?: string;
-            commitHash?: string;
-            filesModified?: string[];
-            relatedEntities?: string[];
-            status?: string;
-            importance?: number;
-            accessCount?: number;
-          }>;
+          const observations = await loadDashboardProjectObservations(statsDataDir, statsProjectId, 'active');
           const statsStore = await getDashboardObservationStore(statsDataDir);
           const nextId = await statsStore.loadIdCounter();
           const typeCounts: Record<string, number> = {};
@@ -826,20 +799,17 @@ export default defineCommand({
             filesModified: o.filesModified,
           }));
 
-          let retentionSummary = { active: 0, stale: 0, archive: 0, immune: 0 };
-          for (const obs of observations) {
-            const age = now - new Date(obs.createdAt || now).getTime();
-            const ageHours = age / (1000 * 60 * 60);
-            const importance = obs.importance ?? 5;
-            const accessCount = obs.accessCount ?? 0;
-            const lambda = 0.01;
-            const score = Math.min(importance * Math.exp(-lambda * ageHours) + Math.min(accessCount * 0.5, 3), 10);
-            const immune = isImmune(toImmuneDoc(obs));
-            if (immune) retentionSummary.immune++;
-            if (score >= 3) retentionSummary.active++;
-            else if (score >= 1) retentionSummary.stale++;
-            else retentionSummary.archive++;
-          }
+          const retention = summarizeRetentionProjections(
+            observations
+              .filter((observation) => observation.type !== 'probe')
+              .map((observation) => projectObservationRetention(observation, { referenceTime: new Date(now) })),
+          );
+          const retentionSummary = {
+            active: retention.active,
+            stale: retention.stale,
+            archive: retention.archiveCandidates,
+            immune: retention.immune,
+          };
 
           const sorted = [...observations].filter(o => o.type !== 'probe').sort((a, b) => (b.id || 0) - (a.id || 0)).slice(0, 10);
 
@@ -974,26 +944,38 @@ export default defineCommand({
 
         if (apiPath === '/retention') {
           const { projectId: retProjectId, dataDir: retDataDir } = await resolveRequestProject(url);
-          const observations = await loadDashboardProjectObservations(retDataDir, retProjectId, 'active') as Array<{ id?: number; title?: string; type?: string; importance?: number; accessCount?: number; lastAccessedAt?: string; createdAt?: string; entityName?: string }>;
-          const now = Date.now();
-          const scored = observations.map(obs => {
-            const age = now - new Date(obs.createdAt || now).getTime();
-            const ageHours = age / (1000 * 60 * 60);
-            const importance = obs.importance ?? 5;
-            const accessCount = obs.accessCount ?? 0;
-            const lambda = 0.01;
-            const decayScore = importance * Math.exp(-lambda * ageHours);
-            const accessBonus = Math.min(accessCount * 0.5, 3);
-            const score = Math.min(decayScore + accessBonus, 10);
-            const immune = isImmune(toImmuneDoc(obs));
-            return { id: obs.id, title: obs.title, type: obs.type, entityName: obs.entityName, score: Math.round(score * 100) / 100, isImmune: immune, ageHours: Math.round(ageHours * 10) / 10, accessCount };
+          const observations = await loadDashboardProjectObservations(retDataDir, retProjectId, 'active');
+          const referenceTime = new Date();
+          const rows = observations
+            .filter((observation) => observation.type !== 'probe')
+            .map((observation) => ({
+              observation,
+              retention: projectObservationRetention(observation, { referenceTime }),
+            }))
+            .sort((a, b) => b.retention.displayScore - a.retention.displayScore);
+          const summary = summarizeRetentionProjections(rows.map((row) => row.retention));
+          const items = rows.map(({ observation, retention }) => ({
+            id: observation.id,
+            title: observation.title,
+            type: observation.type,
+            entityName: observation.entityName,
+            score: retention.displayScore,
+            isImmune: retention.immune,
+            zone: retention.zone,
+            ageHours: retention.ageHours,
+            accessCount: retention.accessCount,
+            effectiveRetentionDays: retention.effectiveRetentionDays,
+            immunityReason: retention.immunityReason,
+          }));
+          sendJson({
+            summary: {
+              active: summary.active,
+              stale: summary.stale,
+              archive: summary.archiveCandidates,
+              immune: summary.immune,
+            },
+            items,
           });
-          scored.sort((a, b) => b.score - a.score);
-          const activeCount = scored.filter(s => s.score >= 3).length;
-          const staleCount = scored.filter(s => s.score < 3 && s.score >= 1).length;
-          const archiveCount = scored.filter(s => s.score < 1).length;
-          const immuneCount = scored.filter(s => s.isImmune).length;
-          sendJson({ summary: { active: activeCount, stale: staleCount, archive: archiveCount, immune: immuneCount }, items: scored });
           return;
         }
 

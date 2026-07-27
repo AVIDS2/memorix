@@ -7,6 +7,11 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
+const { enqueueVectorBackfill, launchDetachedVectorBackfill } = vi.hoisted(() => ({
+  enqueueVectorBackfill: vi.fn(),
+  launchDetachedVectorBackfill: vi.fn(),
+}));
+
 // Mock orama-store before importing observations
 vi.mock('../../src/store/orama-store.js', () => ({
   insertObservation: vi.fn().mockResolvedValue(undefined),
@@ -34,6 +39,18 @@ vi.mock('../../src/embedding/provider.js', () => ({
   resetProvider: vi.fn(),
 }));
 
+vi.mock('../../src/runtime/maintenance-jobs.js', () => ({
+  MaintenanceJobStore: class {
+    enqueue(input: unknown) {
+      enqueueVectorBackfill(input);
+    }
+  },
+}));
+
+vi.mock('../../src/runtime/vector-backfill-runner.js', () => ({
+  launchDetachedVectorBackfill,
+}));
+
 vi.mock('../../src/store/persistence.js', () => ({
   saveObservationsJson: vi.fn().mockResolvedValue(undefined),
   loadObservationsJson: vi.fn().mockResolvedValue([]),
@@ -59,6 +76,13 @@ const mockStore = {
   saveIdCounter: vi.fn(),
   getGeneration: vi.fn().mockReturnValue(1),
   ensureFresh: vi.fn().mockResolvedValue(false),
+  atomic: vi.fn().mockImplementation(async (fn: Function) => fn({
+    getGeneration: vi.fn().mockResolvedValue(1),
+    findByTopicKey: vi.fn().mockResolvedValue(undefined),
+    loadIdCounter: vi.fn().mockResolvedValue(1),
+    insert: vi.fn().mockResolvedValue(undefined),
+    saveIdCounter: vi.fn().mockResolvedValue(undefined),
+  })),
   transaction: vi.fn().mockImplementation(async (fn: Function) => fn({
     loadAll: vi.fn(),
     saveAll: vi.fn(),
@@ -67,6 +91,7 @@ const mockStore = {
     upsert: vi.fn(),
     remove: vi.fn(),
   })),
+  update: vi.fn().mockResolvedValue(undefined),
   close: vi.fn(),
   getBackendName: vi.fn().mockReturnValue('sqlite'),
 };
@@ -151,6 +176,44 @@ describe('Vector Stability', () => {
     const status = getVectorStatus();
     // The observation should be in the missing set since embedding failed
     expect(status.missing).toBeGreaterThanOrEqual(0);
+  });
+
+  it('defers a CLI write without starting a remote embedding request in the parent process', async () => {
+    const oramaStore = await import('../../src/store/orama-store.js');
+    const { initObservations, storeObservation, getVectorMissingIds } =
+      await import('../../src/memory/observations.js');
+
+    mockStore.loadAll.mockResolvedValue([]);
+    mockStore.loadIdCounter.mockResolvedValue(1);
+    await initObservations('/tmp/memorix-vector-cli-write', {
+      embeddingWriteMode: 'deferred',
+      projectRoot: 'E:/repo',
+    });
+    vi.mocked(oramaStore.generateEmbedding).mockImplementation(() => new Promise(() => {}));
+
+    const { observation } = await storeObservation({
+      entityName: 'cli-write',
+      type: 'decision',
+      title: 'CLI writes must not wait for embedding',
+      narrative: 'The durable memory record is visible immediately while vector work runs elsewhere.',
+      projectId: 'test/vector-cli-write',
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(oramaStore.generateEmbedding).not.toHaveBeenCalled();
+    expect(enqueueVectorBackfill).toHaveBeenCalledWith(expect.objectContaining({
+      projectId: 'test/vector-cli-write',
+      kind: 'vector-backfill',
+    }));
+    expect(launchDetachedVectorBackfill).toHaveBeenCalledWith({
+      projectId: 'test/vector-cli-write',
+      projectRoot: 'E:/repo',
+      dataDir: '/tmp/memorix-vector-cli-write',
+    });
+    expect(getVectorMissingIds('test/vector-cli-write')).toContain(observation.id);
+
+    await initObservations('/tmp/memorix-vector-default-write', { embeddingWriteMode: 'background' });
   });
 
   it('keeps obs in vectorMissingIds when provider is temporarily unavailable (not disabled)', async () => {

@@ -110,6 +110,29 @@ describe('createProjectMaintenanceHandler', () => {
     expect(result).toEqual({ action: 'reschedule', delayMs: 0, resetAttempts: true });
   });
 
+  it('keeps a no-progress vector batch in durable cooldown with its real diagnostic', async () => {
+    getVectorStatus
+      .mockReturnValueOnce({ missing: 3 })
+      .mockReturnValueOnce({ missing: 3 });
+    backfillVectorEmbeddings.mockResolvedValue({
+      attempted: 2,
+      succeeded: 0,
+      failed: 2,
+      lastError: 'Embedding API timed out; using BM25 until embedding recovers',
+    });
+
+    const result = await createProjectMaintenanceHandler('project-a', 'C:/memorix-data')(makeJob());
+
+    expect(result).toEqual({
+      action: 'reschedule',
+      status: 'retry',
+      delayMs: 60_000,
+      resetAttempts: true,
+      payload: { limit: 2, vectorBackfillFailureStreak: 1 },
+      lastError: 'Embedding API timed out; using BM25 until embedding recovers',
+    });
+  });
+
   it('completes vector work immediately when embeddings are explicitly disabled', async () => {
     isEmbeddingExplicitlyDisabled.mockReturnValue(true);
 

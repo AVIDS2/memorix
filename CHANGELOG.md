@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.8] - 2026-07-27
+
+### Fixed
+- **Recoverable vector backfill** -- Temporary embedding or index failures no longer exhaust a shared background job. Memorix keeps one diagnosable retry with bounded backoff, batches provider requests, and lets a later healthy MCP session resume the same recovery work instead of accumulating permanent failures.
+- **Accurate vector status outside MCP** -- The standalone dashboard and HTTP control plane no longer present an unhydrated in-memory index as a healthy `0 / 0` result. They now explicitly say that vector status belongs to the active MCP session when they cannot observe it.
+- **Codex plugin ownership** -- Agent Doctor recognizes the enabled Codex plugin as the owner of `memorix serve`, reports first-use hook approval as a host consent step instead of a broken install, and avoids suggesting a redundant config repair.
+- **Safe Codex migration** -- `memorix setup --agent codex --global` removes only the known old source-path Memorix MCP entry after the official plugin installation succeeds. Custom user-managed MCP entries remain untouched.
+
 ## [1.2.7] - 2026-07-27
 
 ### Added

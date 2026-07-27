@@ -151,7 +151,8 @@ describe('agent doctor and repair', () => {
     }, null, 2), 'utf-8');
   }
 
-  function writeCurrentCodexPluginSetup() {
+  function writeCurrentCodexPluginSetup(options: { trustedHooks?: boolean } = {}) {
+    const trustedHooks = options.trustedHooks ?? true;
     const pluginPath = path.join(sandboxRoot, '.codex', 'plugins', 'memorix');
     mkdirSync(path.join(pluginPath, '.codex-plugin'), { recursive: true });
     mkdirSync(path.join(pluginPath, 'hooks'), { recursive: true });
@@ -171,7 +172,12 @@ describe('agent doctor and repair', () => {
         Stop: [],
       },
     }, null, 2), 'utf-8');
-    writeFileSync(path.join(sandboxRoot, '.codex', 'config.toml'), [
+    writeFileSync(path.join(pluginPath, '.mcp.json'), JSON.stringify({
+      mcpServers: {
+        memorix: { command: 'memorix', args: ['serve'] },
+      },
+    }, null, 2), 'utf-8');
+    const hookTrust = [
       '[hooks.state."memorix@personal:hooks/hooks.json:session_start:0:0"]',
       'trusted_hash = "sha256:test"',
       '[hooks.state."memorix@personal:hooks/hooks.json:user_prompt_submit:0:0"]',
@@ -182,7 +188,10 @@ describe('agent doctor and repair', () => {
       'trusted_hash = "sha256:test"',
       '[hooks.state."memorix@personal:hooks/hooks.json:stop:0:0"]',
       'trusted_hash = "sha256:test"',
-    ].join('\n'), 'utf-8');
+    ];
+    writeFileSync(path.join(sandboxRoot, '.codex', 'config.toml'), trustedHooks
+      ? hookTrust.join('\n')
+      : '[plugins."memorix@personal"]\nenabled = true\n', 'utf-8');
     writeFileSync(path.join(sandboxRoot, '.agents', 'plugins', 'marketplace.json'), JSON.stringify({
       name: 'personal',
       plugins: [{
@@ -190,6 +199,22 @@ describe('agent doctor and repair', () => {
         source: { source: 'local', path: './.codex/plugins/memorix' },
       }],
     }, null, 2), 'utf-8');
+  }
+
+  function writeCurrentCodexGuidance() {
+    const codexDir = path.join(sandboxRoot, '.codex');
+    mkdirSync(codexDir, { recursive: true });
+    writeFileSync(path.join(codexDir, 'AGENTS.md'), [
+      '# Memorix - Agent Instructions for Codex',
+      '',
+      '## Memory Autopilot',
+      '',
+      '- Default first step for non-trivial coding work: call `memorix_project_context` with the user task.',
+      '- Continuation fallback is mandatory: `memorix resume "<task>"` for prior work.',
+      '- Do not call more Memorix retrieval tools after a complete brief.',
+      '- For read-only work, do not call `memorix_store` unless the user asks to preserve a record.',
+      '',
+    ].join('\n'), 'utf-8');
   }
 
   function mockCodexPluginList(enabled = true) {
@@ -362,6 +387,42 @@ describe('agent doctor and repair', () => {
     ]));
     expect(codex.plugin.checks[2].runtime).toMatchObject({ installed: true, enabled: true });
     expect(codex.plugin.checks[3].hookTrust.trusted).toHaveLength(5);
+    expect(codex.mcp).toMatchObject({ status: 'ok', issues: [] });
+    expect(codex.mcp.checks[0]).toMatchObject({
+      managedByPlugin: true,
+      server: { command: 'memorix', args: ['serve'] },
+    });
+  });
+
+  it('uses the enabled Codex plugin MCP before hooks receive user trust', async () => {
+    writeCurrentCodexPluginSetup({ trustedHooks: false });
+    writeCurrentCodexGuidance();
+    mockCodexPluginList(true);
+
+    const result = await runCommand(doctorCommand, {
+      _: ['agents'],
+      agent: 'codex',
+      scope: 'global',
+      json: true,
+    });
+
+    const parsed = JSON.parse(result.stdout);
+    const codex = parsed.agents.entries.find((entry: any) => entry.agent === 'codex');
+
+    expect(codex.mcp).toMatchObject({ status: 'ok', issues: [] });
+    expect(codex.plugin.status).toBe('ok');
+    expect(codex.plugin.issues).toContain('codex-hook-trust-pending');
+    expect(parsed.agents.summary).toMatchObject({ ok: 1, repairable: 0 });
+
+    const humanResult = await runCommand(doctorCommand, {
+      _: ['agents'],
+      agent: 'codex',
+      scope: 'global',
+      json: false,
+    });
+    expect(humanResult.stdout).toContain('Hooks: waiting for Codex approval on first use; MCP remains available.');
+    expect(humanResult.stdout).toContain('No file repair needed.');
+    expect(humanResult.stdout).not.toContain('Repair:');
   });
 
   it('doctor agents reports a disabled Codex plugin as repairable', async () => {

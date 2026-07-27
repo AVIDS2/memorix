@@ -351,6 +351,17 @@ async function handleApi(
                     sourceCounts,
                     recentObservations: sorted,
                     embedding: embeddingStatus,
+                    // A standalone dashboard has no access to an active MCP
+                    // process's in-memory Orama index. Keep this explicit so the
+                    // UI never presents an empty local singleton as a healthy
+                    // all-vectors-indexed result.
+                    vectorStatus: {
+                        available: false,
+                        total: 0,
+                        missing: 0,
+                        missingIds: [],
+                        backfillRunning: false,
+                    },
                     storage: storageInfo,
                     maintenance,
                     ...(lifecycle ? { lifecycle } : {}),

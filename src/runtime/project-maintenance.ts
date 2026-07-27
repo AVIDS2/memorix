@@ -1,6 +1,7 @@
-import type {
-  MaintenanceJobHandler,
-  MaintenanceJobRunResult,
+import {
+  MaintenanceJobStore,
+  type MaintenanceJobHandler,
+  type MaintenanceJobRunResult,
 } from './maintenance-jobs.js';
 import { runMaintenanceInChildProcess } from './isolated-maintenance.js';
 import {
@@ -18,12 +19,41 @@ const DEFAULT_CODEGRAPH_MAX_FILES = 5_000;
 const DEFAULT_CLAIM_DERIVATION_BATCH_SIZE = 100;
 const DEFAULT_OBSERVATION_QUALIFICATION_BATCH_SIZE = 100;
 const VECTOR_RETRY_DELAY_MS = 5_000;
+const VECTOR_FAILURE_BASE_RETRY_DELAY_MS = 60_000;
+const VECTOR_FAILURE_MAX_RETRY_DELAY_MS = 15 * 60_000;
 const DEDUP_PER_PAIR_TIMEOUT_MS = 5_000;
 
 function vectorBatchSize(payload: Record<string, unknown>): number {
   const value = payload.limit;
   if (typeof value !== 'number' || !Number.isFinite(value)) return DEFAULT_VECTOR_BATCH_SIZE;
   return Math.min(100, Math.max(1, Math.floor(value)));
+}
+
+function vectorBackfillFailureStreak(payload: Record<string, unknown>): number {
+  const value = payload.vectorBackfillFailureStreak;
+  return typeof value === 'number' && Number.isFinite(value)
+    ? Math.min(16, Math.max(0, Math.floor(value)))
+    : 0;
+}
+
+function vectorBackfillRetryDelayMs(streak: number): number {
+  return Math.min(
+    VECTOR_FAILURE_MAX_RETRY_DELAY_MS,
+    VECTOR_FAILURE_BASE_RETRY_DELAY_MS * (2 ** Math.max(0, streak - 1)),
+  );
+}
+
+function withoutVectorBackfillFailureStreak(payload: Record<string, unknown>): Record<string, unknown> {
+  const { vectorBackfillFailureStreak: _streak, ...rest } = payload;
+  return rest;
+}
+
+function resolveSupersededVectorFailures(projectDir: string, projectId: string): void {
+  try {
+    new MaintenanceJobStore(projectDir).resolveFailedVectorBackfills(projectId);
+  } catch {
+    // Health cleanup must never block the live memory path.
+  }
 }
 
 function retentionBatchSize(payload: Record<string, unknown>): number {
@@ -498,23 +528,50 @@ export function createProjectMaintenanceHandler(
 
     const { backfillVectorEmbeddings, getVectorStatus } = await import('../memory/observations.js');
     const before = getVectorStatus(projectId);
-    if (before.missing === 0) return { action: 'complete' };
+    if (before.missing === 0) {
+      resolveSupersededVectorFailures(projectDir, projectId);
+      return { action: 'complete' };
+    }
 
     const result = await backfillVectorEmbeddings({
       projectId,
       limit: vectorBatchSize(job.payload),
     });
     const after = getVectorStatus(projectId);
-    if (after.missing === 0) return { action: 'complete' };
-
-    if (result.failed > 0 && result.succeeded === 0) {
-      throw new Error(`vector backfill made no progress (${result.failed}/${result.attempted} failed)`);
+    if (after.missing === 0) {
+      resolveSupersededVectorFailures(projectDir, projectId);
+      return { action: 'complete' };
     }
 
+    if (result.failed > 0 && result.succeeded === 0) {
+      const streak = vectorBackfillFailureStreak(job.payload) + 1;
+      return {
+        action: 'reschedule',
+        status: 'retry',
+        delayMs: vectorBackfillRetryDelayMs(streak),
+        // This is a recoverable provider/index state, not a terminal job error.
+        // Keeping one retry row prevents new MCP processes from creating a storm.
+        resetAttempts: true,
+        payload: {
+          ...job.payload,
+          vectorBackfillFailureStreak: streak,
+        },
+        lastError: result.lastError ?? `vector backfill made no progress (${result.failed}/${result.attempted} failed)`,
+      };
+    }
+
+    const priorFailureStreak = vectorBackfillFailureStreak(job.payload);
+    const payload = withoutVectorBackfillFailureStreak(job.payload);
     return {
       action: 'reschedule',
       delayMs: result.attempted === 0 ? VECTOR_RETRY_DELAY_MS : 0,
       resetAttempts: result.succeeded > 0,
+      ...(result.succeeded > 0 ? {
+        ...(priorFailureStreak > 0 ? { payload } : {}),
+        ...(result.failed > 0 && result.lastError
+          ? { lastError: result.lastError }
+          : priorFailureStreak > 0 ? { clearLastError: true } : {}),
+      } : {}),
     };
   };
 }

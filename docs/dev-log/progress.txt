@@ -339,3 +339,28 @@
   isolated Claude Code handoff/continuation smoke. `npm publish --dry-run
   --ignore-scripts` accepted the public 1.2.7 tarball; the full prepublish
   build/test path is covered by the root release gates above.
+
+## 1.2.8 Vector Recovery and Codex Installation Clarity
+- Reworked vector backfill failure handling so transient provider or local
+  index failures leave one durable, diagnosable retry with bounded backoff
+  instead of consuming the maintenance retry budget in each new MCP process.
+  Healthy work clears stale diagnostics, revives an old failed vector job when
+  needed, and resolves superseded historical failure rows once recovery is
+  complete. Provider calls are batched while process-local Orama writes remain
+  serialized.
+- Corrected dashboard and HTTP control-plane vector reporting. A process that
+  does not own a hydrated MCP search index now states that vector status belongs
+  to the active MCP session rather than showing a misleading green `0 / 0`.
+- Corrected Codex install diagnostics: an enabled official Codex plugin owns
+  its `.mcp.json` `memorix serve` endpoint, while first-use hook approval is an
+  explicit host consent step rather than a broken installation. Plugin setup
+  removes only the legacy source-path `memorix` entry after successful plugin
+  installation; custom user-managed MCP entries are preserved.
+- Release verification: focused regression tests (96 assertions), `npm run
+  lint`, production build, and the full root test suite (all passed, 280s).
+  A live OpenRouter `qwen/qwen3-embedding-8b` batch returned two 4096d vectors.
+  An isolated tarball install reported CLI version `1.2.8`; its stdio MCP
+  handshake exposed 44 tools and completed `memorix_project_context`, and its
+  CLI `context --json` path returned a structured Workset. `npm pack --dry-run`
+  and `npm publish --dry-run --ignore-scripts` both accepted the final tarball
+  without manifest normalization warnings.

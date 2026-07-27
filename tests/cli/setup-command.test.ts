@@ -17,6 +17,7 @@ import {
   installOpenClawBundlePackage,
   installPiPackage,
   installPluginPackage,
+  removeLegacyCodexMemorixMcpConfig,
   getSetupAgentTargets,
 } from '../../src/cli/commands/setup.js';
 
@@ -591,6 +592,61 @@ describe('setup MCP config installer', () => {
       expect(content).toContain('command = "memorix"');
       expect(content).toContain('args = ["serve"]');
       expect(content).not.toContain('command = "old"');
+    } finally {
+      await cleanup(tmpDir);
+    }
+  });
+
+  it('migrates only the legacy Codex source-path MCP server after plugin setup', async () => {
+    const tmpDir = makeTmpDir();
+    try {
+      const configPath = path.join(tmpDir, 'config.toml');
+      await fs.writeFile(
+        configPath,
+        [
+          '[mcp_servers.other]',
+          'command = "other"',
+          'args = []',
+          '',
+          '[mcp_servers.memorix]',
+          'command = "node"',
+          'args = ["E:/work/memorix/dist/cli/index.js", "serve"]',
+          '',
+          '[mcp_servers.memorix.env]',
+          'LEGACY_FLAG = "1"',
+          '',
+        ].join('\n'),
+        'utf-8',
+      );
+
+      const result = await removeLegacyCodexMemorixMcpConfig(configPath);
+      const content = await fs.readFile(configPath, 'utf-8');
+
+      expect(result).toMatchObject({ configPath, removed: true });
+      expect(content).toContain('[mcp_servers.other]');
+      expect(content).not.toContain('[mcp_servers.memorix]');
+      expect(content).not.toContain('LEGACY_FLAG');
+    } finally {
+      await cleanup(tmpDir);
+    }
+  });
+
+  it('does not remove a user-managed Codex memorix MCP server', async () => {
+    const tmpDir = makeTmpDir();
+    try {
+      const configPath = path.join(tmpDir, 'config.toml');
+      const customConfig = [
+        '[mcp_servers.memorix]',
+        'command = "node"',
+        'args = ["C:/tools/custom-memorix-server.js", "serve"]',
+        '',
+      ].join('\n');
+      await fs.writeFile(configPath, customConfig, 'utf-8');
+
+      const result = await removeLegacyCodexMemorixMcpConfig(configPath);
+
+      expect(result).toMatchObject({ configPath, removed: false });
+      expect(await fs.readFile(configPath, 'utf-8')).toBe(customConfig);
     } finally {
       await cleanup(tmpDir);
     }

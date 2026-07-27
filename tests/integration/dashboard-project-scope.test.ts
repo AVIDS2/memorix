@@ -214,6 +214,9 @@ describe('Standalone Dashboard Project Scope', () => {
 
     expect(body.observations).toBe(2);
     expect(body.nextId).toBe(8);
+    // Standalone Dashboard cannot inspect an MCP process-local Orama index.
+    // It must not claim the project has a fully indexed vector corpus.
+    expect(body.vectorStatus).toMatchObject({ available: false, total: 0, missing: 0 });
   });
 
   it('GET /api/maintenance exposes project-scoped background work state', async () => {

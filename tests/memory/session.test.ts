@@ -92,6 +92,33 @@ describe('Session Lifecycle', () => {
       expect(sessions).toHaveLength(1);
       expect(sessions[0].id).toBe('persist-test');
     });
+
+    it('returns a bounded resume card instead of auto-injecting full history', async () => {
+      await storeObservation({
+        entityName: 'release',
+        type: 'decision',
+        title: 'Keep the release verification gate',
+        narrative: `MEMORY_BODY_SHOULD_NOT_AUTO_INJECT ${'detail '.repeat(400)}`,
+        projectId: PROJECT_ID,
+      });
+      await startSession(testDir, PROJECT_ID, { sessionId: 'previous-session' });
+      await endSession(
+        testDir,
+        'previous-session',
+        `Continue release verification. ${'summary '.repeat(400)} SESSION_TAIL_SHOULD_NOT_AUTO_INJECT`,
+      );
+
+      const resumed = await startSession(testDir, PROJECT_ID, { sessionId: 'resumed-session' });
+      const expanded = await getSessionContext(testDir, PROJECT_ID);
+
+      expect(resumed.previousContext).toContain('## Memorix Resume');
+      expect(resumed.previousContext).toContain('Keep the release verification gate');
+      expect(resumed.previousContext).not.toContain('MEMORY_BODY_SHOULD_NOT_AUTO_INJECT');
+      expect(resumed.previousContext).not.toContain('SESSION_TAIL_SHOULD_NOT_AUTO_INJECT');
+      expect(resumed.previousContext.length).toBeLessThan(1_000);
+      expect(expanded).toContain('## Key Project Memories');
+      expect(expanded).toContain('Keep the release verification gate');
+    });
   });
 
   describe('endSession', () => {

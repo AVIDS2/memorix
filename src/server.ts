@@ -3637,7 +3637,7 @@ export async function createMemorixServer(
   /**
    * memorix_session_start — Start a new coding session
    *
-   * Creates a session record and returns context from previous sessions.
+   * Creates a session record and returns a compact continuation card.
    * This is the entry point for session-aware memory management.
    */
   server.registerTool(
@@ -3645,10 +3645,10 @@ export async function createMemorixServer(
     {
       title: 'Start Session',
       description:
-        'Start a new coding session. Returns context from previous sessions so you can resume work seamlessly. ' +
-        'Call this at the beginning of a session to track activity and get injected context. ' +
+        'Start a new coding session. Returns a compact continuation card with the latest handoff and a few memory references. ' +
+        'Call this at the beginning of a session to track activity; retrieve a referenced memory only when it is relevant. ' +
         'Any previous active session for this project will be auto-closed. ' +
-        'By default this is lightweight: it binds the project, opens a session, and injects context only. ' +
+        'By default this is lightweight: it binds the project, opens a session, and avoids dumping full history into the new context. ' +
         'Coordination identity is opt-in via `joinTeam: true` or a separate `team_manage` join call.\n\n' +
         'IMPORTANT for HTTP/control-plane mode: pass `projectRoot` with the absolute path to your ' +
         'workspace root (e.g., the directory open in your IDE). Memorix uses this to detect the git ' +
@@ -3851,7 +3851,7 @@ export async function createMemorixServer(
       } catch { /* mini-skills not available yet — skip */ }
 
       if (result.previousContext) {
-        lines.push('---', '[TASK] **Context from previous sessions:**', '', result.previousContext);
+        lines.push('---', '[TASK] **Continuation card:**', '', result.previousContext);
       } else {
         lines.push('No previous session context found. This appears to be a fresh project.');
       }

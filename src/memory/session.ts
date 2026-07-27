@@ -341,6 +341,42 @@ export async function getSessionResumeBrief(
   };
 }
 
+const AUTO_RESUME_SUMMARY_LIMIT = 480;
+const AUTO_RESUME_TITLE_LIMIT = 180;
+
+function compactResumeText(text: string, limit: number): string {
+  const normalized = text.replace(/\s+/g, ' ').trim();
+  return normalized.length <= limit ? normalized : `${normalized.slice(0, Math.max(0, limit - 3)).trimEnd()}...`;
+}
+
+/**
+ * Render the bounded automatic delivery form of a resume brief.
+ *
+ * Full session context remains available through getSessionContext() and
+ * individual memory details remain on demand. Automatic session start gets an
+ * index, not a transcript, so it cannot crowd out the new task's context.
+ */
+export function renderSessionResumeCard(brief: SessionResumeBrief): string {
+  if (!brief.previousSession && brief.memories.length === 0) return '';
+
+  const lines = ['## Memorix Resume'];
+  if (brief.previousSession) {
+    const agent = brief.previousSession.agent ? ` (${brief.previousSession.agent})` : '';
+    lines.push(`Previous session: ${brief.previousSession.id}${agent}`);
+    lines.push(compactResumeText(brief.previousSession.summary, AUTO_RESUME_SUMMARY_LIMIT));
+  }
+
+  if (brief.memories.length > 0) {
+    lines.push('', 'Relevant memory references:');
+    for (const memory of brief.memories) {
+      lines.push(`- #${memory.id} [${memory.type}] ${compactResumeText(memory.title, AUTO_RESUME_TITLE_LIMIT)}`);
+    }
+    lines.push('Read a listed memory only when its title is relevant to the current task.');
+  }
+
+  return lines.join('\n');
+}
+
 export function scoreObservationForSessionContext(obs: Observation, projectTokens: string[], now = Date.now()): number {
   let score = TYPE_WEIGHTS[obs.type] ?? 1;
   const text = stringifyObservation(obs);
@@ -404,7 +440,7 @@ export function scoreObservationForSessionContext(obs: Observation, projectToken
  * so the agent can resume work without re-explaining everything.
  */
 export async function startSession(
-  projectDir: string,
+  _projectDir: string,
   projectId: string,
   opts?: { sessionId?: string; agent?: string; reader?: ObservationReader },
 ): Promise<{ session: Session; previousContext: string }> {
@@ -419,8 +455,11 @@ export async function startSession(
     agent: opts?.agent,
   };
 
-  // Load previous context before creating new session
-  const previousContext = await getSessionContext(projectDir, projectId, 3, opts?.reader);
+  // Automatic delivery stays intentionally small. The explicit context tool can
+  // still provide the expanded packet when an agent chooses to inspect it.
+  const previousContext = renderSessionResumeCard(
+    await getSessionResumeBrief(projectId, undefined, opts?.reader),
+  );
 
   // Atomic rollover: complete all active sessions for this project's aliases
   // and insert the new session in a single SQLite transaction.

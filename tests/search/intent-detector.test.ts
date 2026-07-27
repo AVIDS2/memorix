@@ -123,4 +123,27 @@ describe('applyIntentBoost', () => {
     // Higher confidence → higher boost
     expect(highBoosted).toBeGreaterThanOrEqual(lowBoosted);
   });
+
+  describe('state intent (resumption queries)', () => {
+    it('detects English resumption phrasing', () => {
+      expect(detectQueryIntent('what is the progress and what are the next steps').intent).toBe('state');
+      expect(detectQueryIntent('where did we leave off, anything remaining?').intent).toBe('state');
+    });
+
+    it('detects Chinese resumption phrasing', () => {
+      expect(detectQueryIntent('现在进度怎么样，下一步做什么').intent).toBe('state');
+      expect(detectQueryIntent('上次做到哪了，还剩下什么待办').intent).toBe('state');
+    });
+
+    it('prefers the types that carry handoff state', () => {
+      const intent = detectQueryIntent('当前进度如何，下一步待办是什么');
+      const sessionRequest = applyIntentBoost(1.0, 'session-request', intent);
+      const howItWorks = applyIntentBoost(1.0, 'how-it-works', intent);
+      expect(sessionRequest).toBeGreaterThan(howItWorks);
+    });
+
+    it('leaves unrelated queries alone', () => {
+      expect(detectQueryIntent('why did we choose this database').intent).toBe('why');
+    });
+  });
 });

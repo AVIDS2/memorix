@@ -12,7 +12,7 @@ import type { ObservationType } from '../types.js';
 
 // ─── Types ───
 
-export type QueryIntent = 'why' | 'when' | 'how' | 'what_changed' | 'problem' | 'general';
+export type QueryIntent = 'why' | 'when' | 'how' | 'what_changed' | 'problem' | 'state' | 'general';
 
 export interface IntentResult {
   /** Detected intent category */
@@ -39,6 +39,30 @@ interface IntentPattern {
 }
 
 const INTENT_PATTERNS: IntentPattern[] = [
+  {
+    // Resumption queries — "where were we", "what's left". Weighted just above the
+    // others because these are asked at handoff time, when returning the current
+    // state matters more than returning the best semantic match.
+    intent: 'state',
+    patterns: [
+      /\bprogress\b/i,
+      /\bstatus\b/i,
+      /\bremaining\b/i,
+      /\bnext steps?\b/i,
+      /\bwhere (?:did|are) we\b/i,
+      /\bpick(?:ing)? up\b/i,
+      /\bresume\b/i,
+      /\bto-?do\b/i,
+      /进度/,
+      /做到哪/,
+      /下一步/,
+      /待办/,
+      /剩下/,
+      /继续/,
+      /接着做/,
+    ],
+    weight: 1.1,
+  },
   {
     intent: 'why',
     patterns: [
@@ -139,6 +163,12 @@ const INTENT_PATTERNS: IntentPattern[] = [
 // ─── Type Boost Maps ───
 
 const INTENT_TYPE_BOOSTS: Record<QueryIntent, Partial<Record<ObservationType, number>>> = {
+  state: {
+    'session-request': 2.5,
+    'what-changed': 2.0,
+    'discovery': 1.5,
+    'problem-solution': 1.2,
+  },
   why: {
     'decision': 3.0,
     'why-it-exists': 3.0,
@@ -198,6 +228,14 @@ const INTENT_SOURCE_BOOSTS: Partial<Record<QueryIntent, Partial<Record<'agent' |
 };
 
 const INTENT_FIELD_BOOSTS: Partial<Record<QueryIntent, Record<string, number>>> = {
+  state: {
+    title: 3,           // State notes are titled by topic — the title carries the signal
+    entityName: 1.5,
+    narrative: 2,
+    facts: 2.5,         // Progress lines usually live in facts
+    concepts: 1,
+    filesModified: 0.5,
+  },
   why: {
     title: 2,
     entityName: 1.5,

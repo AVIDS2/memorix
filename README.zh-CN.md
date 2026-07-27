@@ -177,7 +177,7 @@ Memorix 通过目标 Agent 已有的接口接入：插件包、MCP、项目规�
 | Setup 命令 | 一次性安装推荐的用户级 Memorix 接入 | `memorix setup --agent <agent> --global` |
 | MCP | 给 Agent 提供搜索、详情检索、写入、reasoning 和协同工具 | setup 包内置，或手动运行 `memorix serve` |
 | 使用规范 | 告诉 Agent 什么时候、怎么使用 Memorix，而不是每轮都强制查记忆 | 由 `memorix setup` 打包或生成 |
-| Hooks | 在 Agent 支持时可选地自动捕获 prompt、tool 事件、文件编辑和 session 生命周期 | 由 `memorix setup` 打包或生成 |
+| Hooks | 在 Agent 支持时可选地捕获 prompt、tool 事件、文件编辑、session 生命周期和原生上下文压缩检查点 | 由 `memorix setup` 打包或生成 |
 | 插件 / Bundle / Package | 给支持插件、兼容 bundle 或 package 的 Agent 安装对应文件 | Claude Code、Codex、GitHub Copilot CLI、Antigravity、OpenClaw、Hermes Agent、Oh-my-Pi、Pi |
 | Extension | 给支持 extension 的 Agent 安装对应文件 | Gemini CLI |
 | 本地插件 | 给直接加载本地插件文件的 Agent 安装插件 | OpenCode |
@@ -318,6 +318,7 @@ npm uninstall -g memorix
 
 ```bash
 memorix --cwd /path/to/repo resume "继续处理发布阻塞问题"
+memorix checkpoint list
 memorix memory search --query "release blocker"
 memorix memory --help
 
@@ -354,10 +355,11 @@ memcode
 | Reasoning Memory | 原因、替代方案、约束、风险 | “当时为什么这么选？” |
 | Git Memory | 从 commit 提炼出的工程事实 | “最近改了什么，在哪些文件？” |
 | Code Memory | 文件、符号、import 关系、记忆到代码的新鲜度 | “现在应该先看哪些代码？” |
+| Compact Continuity | 最近一次宿主原生压缩的摘要或生命周期标记 | “上次上下文压缩后留下了什么？” |
 
 默认搜索当前项目。`scope="global"` 可以跨项目搜索。“改了什么”优先匹配 Git Memory，“为什么”优先匹配 reasoning / decision 记录。
 
-`memorix context "..."` 是默认的 Memory Autopilot 入口。它会按任务生成紧凑 brief：修 bug 时偏向测试和复现，发版时偏向 package/changelog/build 检查，接手项目时偏向文档和入口文件；过期或不相关的记忆只作为 warning，不会一股脑塞进 prompt。普通新任务不会自动得到旧会话的文本倾倒；明确要继续之前工作时，用 `memorix resume "..."`，只会补入最近一份有用的会话总结和最多三条当前可读的长期记忆锚点。Agent 应该先读 suggested files，再相信历史记忆。
+`memorix context "..."` 是默认的 Memory Autopilot 入口。它会按任务生成紧凑 brief：修 bug 时偏向测试和复现，发版时偏向 package/changelog/build 检查，接手项目时偏向文档和入口文件；过期或不相关的记忆只作为 warning，不会一股脑塞进 prompt。普通新任务不会自动得到旧会话的文本倾倒；明确要继续之前工作时，用 `memorix resume "..."`，只会补入最近一份有用的会话总结、最多三条当前可读的长期记忆锚点，以及最多一条带来源标识的近期宿主压缩检查点。检查点只是生命周期证据，不是长期记忆，也不是聊天记录备份。Agent 应该先读 suggested files，再相信历史记忆。
 
 <h2 id="运行模式"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/tags/light/section-runtime.svg"><img src="assets/tags/section-runtime.svg" alt="运行模式" height="32" /></picture></h2>
 
@@ -369,6 +371,7 @@ memcode
 | 启动共享 HTTP MCP 和 Dashboard | `memorix background start` |
 | 前台调试 HTTP MCP | `memorix serve-http --port 3211` |
 | 直接检查或管理记忆 | `memorix memory`、`memorix reasoning`、`memorix session`、`memorix ingest` |
+| 检查原生上下文压缩连续性 | `memorix checkpoint list|show|context|archive` |
 | 使用交互式终端记忆控制台 | `memorix workbench` |
 | 使用内置终端 Agent | `memorix` 或 `memcode` |
 | 运行编排式 subagent 工作 | `memorix orchestrate --goal "..."` |

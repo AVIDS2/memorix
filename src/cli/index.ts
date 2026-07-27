@@ -1050,6 +1050,7 @@ const main = defineCommand({
     resume: () => import('./commands/resume.js').then(m => m.default),
     explain: () => import('./commands/explain.js').then(m => m.default),
     codegraph: () => import('./commands/codegraph.js').then(m => m.default),
+    checkpoint: () => import('./commands/checkpoint.js').then(m => m.default),
     knowledge: () => import('./commands/knowledge.js').then(m => m.default),
     reasoning: () => import('./commands/reasoning.js').then(m => m.default),
     retention: () => import('./commands/retention.js').then(m => m.default),
@@ -1118,7 +1119,7 @@ const main = defineCommand({
     // Detect by checking if the first CLI arg matches a registered subcommand name.
     const firstArg = process.argv[2];
     const knownSubs = ['ask', 'search', 'remember', 'recent', 'help', 'workbench', 'memcode', 'config',
-      'init', 'setup', 'integrate', 'memory', 'context', 'resume', 'explain', 'codegraph', 'knowledge', 'reasoning', 'retention', 'formation', 'audit', 'transfer', 'skills', 'identity',
+      'init', 'setup', 'integrate', 'memory', 'context', 'resume', 'explain', 'codegraph', 'checkpoint', 'knowledge', 'reasoning', 'retention', 'formation', 'audit', 'transfer', 'skills', 'identity',
       'session', 'team', 'task', 'message', 'lock', 'handoff', 'poll',
       'receipt',
       'serve', 'serve-http', 'status', 'sync',
@@ -1161,6 +1162,7 @@ const main = defineCommand({
       console.error('  resume     Resume prior work with one bounded project brief');
       console.error('  explain    Explain where Memorix project context comes from');
       console.error('  codegraph  Refresh/status/context-pack for CodeGraph Memory');
+      console.error('  checkpoint Inspect native compact continuity checkpoints');
       console.error('  knowledge  Review source-backed knowledge pages and project workflows');
       console.error('  reasoning  Store/search decision rationale');
       console.error('  retention  Inspect stale/archive status');

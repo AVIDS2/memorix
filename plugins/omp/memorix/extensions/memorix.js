@@ -38,6 +38,20 @@ function latestAssistantText(messages) {
   return '';
 }
 
+function compactionEntryPayload(entry) {
+  if (!entry || typeof entry !== 'object') return undefined;
+  const payload = {
+    id: typeof entry.id === 'string' ? entry.id : undefined,
+    summary: typeof entry.summary === 'string' ? entry.summary : undefined,
+    tokensBefore: typeof entry.tokensBefore === 'number' ? entry.tokensBefore : undefined,
+    firstKeptEntryId: typeof entry.firstKeptEntryId === 'string' ? entry.firstKeptEntryId : undefined,
+  };
+  if (entry.details && typeof entry.details === 'object') {
+    payload.details = entry.details;
+  }
+  return payload;
+}
+
 function runMemorix(args, input) {
   const command = process.platform === 'win32' ? 'memorix.cmd' : 'memorix';
   const result = spawnSync(command, args, {
@@ -147,6 +161,7 @@ export default function memorixOmpExtension(pi) {
     runHook({
       hook_event_name: 'omp.session_before_compact',
       cwd: ctx.cwd,
+      compaction_reason: 'unknown',
     });
   });
 
@@ -154,6 +169,8 @@ export default function memorixOmpExtension(pi) {
     runHook({
       hook_event_name: 'omp.session_compact',
       cwd: ctx.cwd,
+      compaction_entry: compactionEntryPayload(event.compactionEntry),
+      from_extension: event.fromExtension === true,
     });
   });
 

@@ -68,6 +68,7 @@ export const TOOL_PROFILES: Record<string, ReadonlyArray<ToolProfile>> = Object.
   memorix_rules_sync:         ['full'],
   memorix_workspace_sync:     ['full'],
   memorix_ingest_image:       ['full'],
+  memorix_compaction_checkpoint: ['full'],
 
   // ── MCP Official Memory Server compatibility (KG tools) ──────────
   // These are only useful to users specifically migrating from the

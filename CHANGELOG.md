@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.7] - 2026-07-27
+
+### Added
+- **Native compaction continuity** -- Memorix records host-native compaction lifecycle checkpoints separately from durable memory. Pi and Oh-my-Pi preserve the native summary fields their extension API exposes; Codex and Claude Code keep an honest lifecycle marker when their hook payload exposes no summary.
+- **One-time host recovery** -- Codex receives one bounded checkpoint through its documented `SessionStart` compact path. Claude Code receives the same bounded checkpoint through its documented next `UserPromptSubmit` context path. Neither path replays a transcript or repeats delivery.
+- **Claude handoff routing** -- Claude Code now receives a compact official `UserPromptSubmit` hint for handoff and continuation requests, directing one Memory Autopilot call before broad file or Git exploration without injecting a broad brief into unrelated prompts.
+- **Cross-agent continuation evidence** -- Explicit `memorix resume` / task continuation Worksets can include one recent, source-labelled compact checkpoint from the same Git project. It remains historical lifecycle evidence, not promoted knowledge.
+- **Checkpoint CLI and advanced MCP inspection** -- Added `memorix checkpoint list|show|context|archive`; the matching `memorix_compaction_checkpoint` MCP action is available only in the `full` profile.
+
+### Fixed
+- **Repeated compact lifecycle safety** -- Retried pre-compact and post-compact hook delivery is idempotent. Multiple real compactions in one long host session retain separate checkpoints when the host exposes a new preflight marker or native compaction event ID.
+
 ## [1.2.6] - 2026-07-27
 
 ### Added

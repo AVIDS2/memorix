@@ -5,6 +5,7 @@ export const CLI_NATIVE_PARITY: Record<string, string> = Object.freeze({
   memorix_graph_context: 'memorix memory graph-context',
   memorix_project_context: 'memorix context|resume',
   memorix_context_pack: 'memorix codegraph context-pack',
+  memorix_compaction_checkpoint: 'memorix checkpoint list|show|context|archive',
   memorix_codegraph_status: 'memorix codegraph status',
   memorix_knowledge: 'memorix knowledge init|status|compile|lint|apply|workflow',
   memorix_resolve: 'memorix memory resolve',

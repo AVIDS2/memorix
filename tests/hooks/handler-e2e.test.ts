@@ -336,6 +336,26 @@ export function verifyToken(token: string) {
     expect(output.systemMessage).toBeUndefined();
   });
 
+  it('routes Claude handoff prompts to one Autopilot brief without injecting broad context', async () => {
+    const input = normalizeHookInput({
+      hook_event_name: 'UserPromptSubmit',
+      session_id: 'sess-claude-handoff',
+      cwd: '/home/user/project',
+      prompt: 'I am taking over this project. Please understand the current state and recommend the next step.',
+    });
+
+    const { output } = await handleHookEvent(input);
+    expect(output.systemMessage).toContain('memorix_project_context');
+    expect(output.systemMessage).toContain('Before broad file or Git exploration');
+    expect(output.systemMessage).not.toContain('Memorix Autopilot Brief');
+    expect(formatHookOutput('claude', 'UserPromptSubmit', output)).toMatchObject({
+      hookSpecificOutput: {
+        hookEventName: 'UserPromptSubmit',
+        additionalContext: expect.stringContaining('memorix_project_context'),
+      },
+    });
+  });
+
   it('respects silent injection mode for Claude continuation prompts', async () => {
     vi.doMock('../../src/config/behavior.js', () => ({
       getBehaviorConfig: () => ({

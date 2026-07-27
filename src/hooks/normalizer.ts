@@ -6,7 +6,7 @@
  * but they all communicate via stdin/stdout JSON.
  */
 
-import type { AgentName, HookEvent, NormalizedHookInput } from './types.js';
+import type { AgentName, HookEvent, NativeCompactionMetadata, NormalizedHookInput } from './types.js';
 
 /**
  * Map agent-specific event names → normalized event names.
@@ -141,6 +141,59 @@ function stringifyValue(value: unknown): string | undefined {
   } catch {
     return String(value);
   }
+}
+
+function firstNumber(...values: unknown[]): number | undefined {
+  for (const value of values) {
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+    if (typeof value === 'string' && value.trim()) {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed)) return parsed;
+    }
+  }
+  return undefined;
+}
+
+function normalizeCompactionReason(value: string | undefined): NativeCompactionMetadata['reason'] {
+  const normalized = value?.trim().toLowerCase();
+  if (normalized === 'manual' || normalized === 'auto') return normalized;
+  return 'unknown';
+}
+
+/**
+ * Read only documented/explicit compact fields. Unknown host payloads remain
+ * lifecycle markers; we never fabricate a native summary from a transcript.
+ */
+function normalizeCompactionMetadata(
+  payload: Record<string, unknown>,
+  ...records: Array<Record<string, unknown> | undefined>
+): NativeCompactionMetadata | undefined {
+  const nestedSources = records.filter((record): record is Record<string, unknown> => Boolean(record));
+  const sources = [payload, ...nestedSources];
+  const from = (field: string): unknown[] => sources.map((source) => source[field]);
+  const fromNested = (field: string): unknown[] => nestedSources.map((source) => source[field]);
+  const summary = firstString(...from('summary'), ...from('compaction_summary'));
+  // A hook payload's top-level `id` is often a session or transcript ID. Only
+  // use an explicit compact ID at the top level, or an entry ID nested under a
+  // documented compaction object, for idempotency.
+  const sourceKey = firstString(...from('compaction_id'), ...from('entry_id'), ...fromNested('id'));
+  const reasonValue = firstString(...from('trigger'), ...from('reason'), ...from('compaction_reason'));
+  const tokensBefore = firstNumber(...from('tokensBefore'), ...from('tokens_before'));
+  const firstKeptEntryId = firstString(...from('firstKeptEntryId'), ...from('first_kept_entry_id'));
+  const details = sources
+    .map((source) => asRecord(source.details))
+    .find((value): value is Record<string, unknown> => Boolean(value));
+  if (!summary && !sourceKey && !tokensBefore && !firstKeptEntryId && !details && !reasonValue) {
+    return undefined;
+  }
+  return {
+    ...(reasonValue ? { reason: normalizeCompactionReason(reasonValue) } : {}),
+    ...(sourceKey ? { sourceKey } : {}),
+    ...(summary ? { summary } : {}),
+    ...(tokensBefore !== undefined ? { tokensBefore } : {}),
+    ...(firstKeptEntryId ? { firstKeptEntryId } : {}),
+    ...(details ? { details } : {}),
+  };
 }
 
 /**
@@ -285,6 +338,11 @@ function normalizeClaude(payload: Record<string, unknown>, event: HookEvent): Pa
   );
   if (assistantMessage) {
     result.aiResponse = assistantMessage;
+  }
+
+  if (event === 'session_start') {
+    const source = firstString(payload.source, payload.session_start_reason, payload.reason);
+    if (source) result.sessionStartReason = source;
   }
 
   return result;
@@ -463,6 +521,10 @@ function normalizeGemini(payload: Record<string, unknown>, event: HookEvent): Pa
   if (event === 'user_prompt') {
     result.userPrompt = (payload.prompt as string) ?? '';
   }
+  if (event === 'session_start') {
+    const source = firstString(payload.source, payload.session_start_reason, payload.reason);
+    if (source) result.sessionStartReason = source;
+  }
 
   return result;
 }
@@ -514,6 +576,7 @@ function normalizePi(payload: Record<string, unknown>, event: HookEvent): Partia
   const result: Partial<NormalizedHookInput> = {
     sessionId: (payload.session_id as string) ?? (payload.sessionId as string) ?? '',
     cwd: (payload.cwd as string) ?? '',
+    transcriptPath: (payload.transcript_path as string) ?? (payload.transcriptPath as string),
   };
 
   const toolName = (payload.tool_name as string) ?? '';
@@ -536,6 +599,10 @@ function normalizePi(payload: Record<string, unknown>, event: HookEvent): Partia
   }
   if (event === 'post_command') {
     result.command = (payload.command as string) ?? '';
+  }
+  if (event === 'session_start') {
+    const source = firstString(payload.source, payload.reason);
+    if (source) result.sessionStartReason = source;
   }
 
   if (result.toolInput && typeof result.toolInput === 'object') {
@@ -604,6 +671,10 @@ function normalizeBridgePayload(payload: Record<string, unknown>, event: HookEve
       openclawContext?.message,
     ) ?? stringifyValue(openclawEvent?.message) ?? '';
   }
+  if (event === 'session_start') {
+    const source = firstString(payload.source, bridgePayload?.source, bridgeKwargs?.source, openclawEvent?.reason);
+    if (source) result.sessionStartReason = source;
+  }
 
   return result;
 }
@@ -660,6 +731,18 @@ export function normalizeHookInput(payload: Record<string, unknown>): Normalized
       agentSpecific = { sessionId: '', cwd: '' };
   }
 
+  const openclawEvent = asRecord(payload.openclaw_event);
+  const genericCompaction = event === 'pre_compact' || event === 'post_compact'
+    ? normalizeCompactionMetadata(
+      payload,
+      asRecord(payload.compaction),
+      asRecord(payload.compaction_entry),
+      asRecord(payload.compactionEntry),
+      asRecord(openclawEvent?.compaction),
+      asRecord(openclawEvent?.compaction_entry),
+    )
+    : undefined;
+
   return {
     event,
     agent,
@@ -668,5 +751,6 @@ export function normalizeHookInput(payload: Record<string, unknown>): Normalized
     cwd: agentSpecific.cwd ?? '',
     raw: payload,
     ...agentSpecific,
+    ...(genericCompaction ? { compaction: genericCompaction } : {}),
   };
 }

@@ -98,6 +98,8 @@ memorix context
 memorix context --task "continue auth bug"
 memorix context "continue auth bug"
 memorix resume "continue auth bug"
+memorix checkpoint list
+memorix checkpoint context --task "continue auth bug"
 memorix context --task "prepare 1.1.7 release"
 memorix explain
 memorix codegraph context-pack --task "continue auth bug"
@@ -109,11 +111,11 @@ MCP:
 - `memorix_codegraph_status` returns provider/index counts for the current project.
 - `memorix_context_pack` builds a task-specific packet with reliable current memories, lower-trust unbound memories, current code facts, freshness warnings, suggested reads, and suggested verification.
 
-`memorix context` defaults to `--refresh auto`, so first use can seed Code State without a separate manual `memorix codegraph refresh`. Its brief puts live package/changelog/Git facts before memory hints and flags old `progress.txt` / dev-log notes as historical when they predate the latest changelog, so agents should treat current facts as the source of truth when files disagree. Task lenses keep the packet shaped to the work: bugfix briefs prefer failing tests and repros, release briefs prefer metadata/changelog/package checks, and onboarding briefs prefer docs and entry points while hiding unrelated suspect details. Continuation delivery is separate from the task lens: continuation language in `memorix_project_context` enables a bounded prior-work projection, and `memorix resume "..."` makes that choice explicit. It includes only the latest useful session summary and up to three readable durable memories; ordinary new tasks do not receive historical-session context. A completed MCP brief is the default retrieval boundary: search, detail, or Context Pack should expand it only for a named missing fact or an explicit request for deeper history. Use `--refresh never` for read-only inspection and `--refresh always` when you want to force a fresh scan.
+`memorix context` defaults to `--refresh auto`, so first use can seed Code State without a separate manual `memorix codegraph refresh`. Its brief puts live package/changelog/Git facts before memory hints and flags old `progress.txt` / dev-log notes as historical when they predate the latest changelog, so agents should treat current facts as the source of truth when files disagree. Task lenses keep the packet shaped to the work: bugfix briefs prefer failing tests and repros, release briefs prefer metadata/changelog/package checks, and onboarding briefs prefer docs and entry points while hiding unrelated suspect details. Continuation delivery is separate from the task lens: continuation language in `memorix_project_context` enables a bounded prior-work projection, and `memorix resume "..."` makes that choice explicit. It includes only the latest useful session summary, up to three readable durable memories, and at most one recent source-labelled compact checkpoint. Checkpoints are host lifecycle evidence, not durable memory or transcript backups; ordinary new tasks do not receive historical-session context. A completed MCP brief is the default retrieval boundary: search, detail, or Context Pack should expand it only for a named missing fact or an explicit request for deeper history. Use `--refresh never` for read-only inspection and `--refresh always` when you want to force a fresh scan.
 
 Project-specific generated, vendored, or cache paths can be excluded from Code State with `[codegraph].exclude_patterns` in `memorix.toml` or `~/.memorix/config.toml` (`codegraph.excludePatterns` in legacy YAML). User patterns extend the built-in excludes and are applied to indexing, Project Context suggested reads, and Context Pack suggested reads.
 
-SessionStart hooks keep the default minimal hint lightweight. When memory behavior is configured with `sessionInject=full`, Codex receives the compact Memory Autopilot brief at session start instead of only listing recent text memories. Claude Code delivers an explicit continuation through its official `UserPromptSubmit` context channel, so a user saying “continue” receives the bounded prior-work brief even under the default minimal setting. Set `memory.inject = "silent"` to disable automatic hook delivery.
+SessionStart hooks keep the default minimal hint lightweight. When memory behavior is configured with `sessionInject=full`, Codex receives the compact Memory Autopilot brief at session start instead of only listing recent text memories. After a native compact, Codex receives one bounded checkpoint through its official `SessionStart` compact context channel. Claude Code receives one bounded checkpoint through the next official `UserPromptSubmit` context channel, then delivery stops. Pi and Oh-my-Pi retain the native summary fields their extension API exposes; hosts that do not expose a summary remain labelled as lifecycle-only. Set `memory.inject = "silent"` to disable automatic hook delivery.
 
 The intended loop for agents is: get the project brief when it helps, inspect the suggested current files, use stale or unbound memory only as a lead, store durable outcomes after the work changes the project, and resolve obsolete memories.
 
@@ -137,6 +139,8 @@ memorix knowledge workflow preview --id <workflow-id> --agent codex
 ```
 
 The advanced MCP action tool is `memorix_knowledge`. It is registered only in the `team` and `full` tool profiles so normal agents keep the compact micro/lite tool surface. Its actions are `workspace_init`, `status`, `claim_list`, `claim_review`, `compile`, `lint`, `proposal_apply`, `workflow_import`, `workflow_list`, `workflow_select`, `workflow_preview`, `workflow_apply`, and `workflow_run`. Explicit agent observations become `needs-review` claim candidates: check their source evidence, then use `claim_review` with a reason to approve or reject them. Only approved claims can be compiled into publishable Knowledge Workspace pages. Ordinary coding work should stay on `memorix_project_context`.
+
+`memorix_compaction_checkpoint` is a separate advanced MCP action tool registered only in the `full` profile. Its `list`, `show`, `context`, and `archive` actions match `memorix checkpoint` for explicit continuity inspection. Normal agents should not call it during ordinary work; automatic recovery and `memorix_project_context` already handle the bounded path.
 
 ### Cross-Agent Handoff Receipt
 

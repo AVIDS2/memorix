@@ -3974,6 +3974,100 @@ export async function createMemorixServer(
     },
   );
 
+  /**
+   * memorix_compaction_checkpoint — Advanced inspection of native host
+   * compaction checkpoints. Automatic recovery does not need this tool; it is
+   * deliberately full-profile only so normal MCP startup stays compact.
+   */
+  server.registerTool(
+    'memorix_compaction_checkpoint',
+    {
+      title: 'Compact Continuity Checkpoints',
+      description:
+        'Inspect, preview, or archive bounded checkpoints recorded around a host-native context compaction. ' +
+        'Use only to debug or explicitly review compaction continuity. These are lifecycle records, not durable memories or transcript backups. ' +
+        'CLI equivalent: memorix checkpoint list|show|context|archive.',
+      inputSchema: {
+        action: z.enum(['list', 'show', 'context', 'archive']).default('list'),
+        id: z.string().optional().describe('Checkpoint ID for show, context, or archive'),
+        sessionId: z.string().optional().describe('Optional host session ID filter'),
+        agent: z.string().optional().describe('Optional host agent filter'),
+        task: z.string().optional().describe('Current task for a bounded context preview'),
+        maxTokens: z.number().optional().describe('Maximum tokens for action=context (default: 420)'),
+        limit: z.number().optional().describe('Maximum records for action=list (default: 20)'),
+        includeArchived: z.boolean().optional().default(false).describe('Include archived records in action=list'),
+      },
+    },
+    async ({ action, id, sessionId, agent, task, maxTokens, limit, includeArchived }) => {
+      const unresolved = requireResolvedProject('inspect compact continuity checkpoints');
+      if (unresolved) return unresolved;
+
+      const [{ CompactionCheckpointStore }, { buildCompactionWorkset }] = await Promise.all([
+        import('./store/compaction-checkpoint-store.js'),
+        import('./memory/compaction.js'),
+      ]);
+      const store = new CompactionCheckpointStore(projectDir);
+      const assertCheckpoint = (checkpointId: string) => {
+        const checkpoint = store.get(checkpointId);
+        if (!checkpoint || checkpoint.projectId !== project.id) return null;
+        return checkpoint;
+      };
+
+      if (action === 'list') {
+        const checkpoints = store.list({
+          projectId: project.id,
+          sessionId: sessionId?.trim() || undefined,
+          agent: agent?.trim() || undefined,
+          includeArchived: Boolean(includeArchived),
+          limit: limit != null ? Math.max(1, Math.min(100, coerceNumber(limit, 20))) : 20,
+        });
+        return {
+          content: [{ type: 'text' as const, text: JSON.stringify({ projectId: project.id, checkpoints }, null, 2) }],
+        };
+      }
+
+      if (!id?.trim()) {
+        return {
+          content: [{ type: 'text' as const, text: 'id is required for this checkpoint action.' }],
+          isError: true,
+        };
+      }
+      const checkpoint = assertCheckpoint(id.trim());
+      if (!checkpoint) {
+        return {
+          content: [{ type: 'text' as const, text: `Checkpoint "${id.trim()}" was not found for the current project.` }],
+          isError: true,
+        };
+      }
+
+      if (action === 'show') {
+        return {
+          content: [{ type: 'text' as const, text: JSON.stringify({ projectId: project.id, checkpoint }, null, 2) }],
+        };
+      }
+      if (action === 'context') {
+        const workset = buildCompactionWorkset(checkpoint, {
+          task: task?.trim(),
+          maxTokens: maxTokens != null ? coerceNumber(maxTokens, 420) : 420,
+        });
+        return {
+          content: [{ type: 'text' as const, text: workset.text }],
+        };
+      }
+
+      const archived = store.archive(checkpoint.id);
+      if (!archived) {
+        return {
+          content: [{ type: 'text' as const, text: `Checkpoint "${checkpoint.id}" is already archived.` }],
+          isError: true,
+        };
+      }
+      return {
+        content: [{ type: 'text' as const, text: `Archived compact checkpoint ${archived.id}.` }],
+      };
+    },
+  );
+
   // ============================================================
   // Export / Import
   // ============================================================

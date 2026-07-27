@@ -19,4 +19,12 @@ describe('CLI command guide', () => {
       logSpy.mockRestore();
     }
   });
+
+  it('keeps checkpoint guide actions aligned with the checkpoint command', () => {
+    const guide = renderCliGuide('checkpoint');
+    expect(guide).toContain('memorix checkpoint list');
+    expect(guide).toContain('memorix checkpoint show --id <checkpoint-id>');
+    expect(guide).toContain('memorix checkpoint context');
+    expect(guide).toContain('memorix checkpoint archive');
+  });
 });

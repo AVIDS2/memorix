@@ -38,6 +38,20 @@ function latestAssistantText(messages) {
   return '';
 }
 
+function compactionEntryPayload(entry) {
+  if (!entry || typeof entry !== 'object') return undefined;
+  const payload = {
+    id: typeof entry.id === 'string' ? entry.id : undefined,
+    summary: typeof entry.summary === 'string' ? entry.summary : undefined,
+    tokensBefore: typeof entry.tokensBefore === 'number' ? entry.tokensBefore : undefined,
+    firstKeptEntryId: typeof entry.firstKeptEntryId === 'string' ? entry.firstKeptEntryId : undefined,
+  };
+  if (entry.details && typeof entry.details === 'object') {
+    payload.details = entry.details;
+  }
+  return payload;
+}
+
 function runHook(payload) {
   const data = JSON.stringify({
     agent: 'pi',
@@ -137,6 +151,7 @@ export default function memorixPiExtension(pi) {
     runHook({
       hook_event_name: 'pi.session_before_compact',
       cwd: ctx.cwd,
+      compaction_reason: 'unknown',
     });
   });
 
@@ -144,6 +159,8 @@ export default function memorixPiExtension(pi) {
     runHook({
       hook_event_name: 'pi.session_compact',
       cwd: ctx.cwd,
+      compaction_entry: compactionEntryPayload(event.compactionEntry),
+      from_extension: event.fromExtension === true,
     });
   });
 

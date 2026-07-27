@@ -340,6 +340,17 @@ async function buildHookProjectContext(
       refresh: 'auto',
       reader: { projectId: canonicalId },
       continuation: 'always',
+      ...(input.sessionId
+        ? {
+            // A native compact recovery is delivered once per host session.
+            // Do not echo that same checkpoint back through the generic
+            // continuation brief on later events from this session.
+            excludeCompactionCheckpointFor: {
+              sessionId: input.sessionId,
+              agent: input.agent,
+            },
+          }
+        : {}),
       enqueueRefresh: () => import('../runtime/lifecycle.js').then(({ enqueueCodegraphRefresh }) => {
         enqueueCodegraphRefresh({
           dataDir,
@@ -365,6 +376,30 @@ async function buildHookProjectContext(
   }
 }
 
+function isCompactSessionStart(input: NormalizedHookInput): boolean {
+  return input.event === 'session_start'
+    && input.sessionStartReason?.trim().toLowerCase() === 'compact';
+}
+
+/**
+ * Consume one host-scoped checkpoint at a delivery point the host actually
+ * supports. This is intentionally best-effort: a local checkpoint failure
+ * must never interfere with the host's native compactor or current turn.
+ */
+async function consumeCompactContinuation(
+  input: NormalizedHookInput,
+  task: string,
+): Promise<string | undefined> {
+  try {
+    const { consumeCompactionWorkset } = await import('../memory/compaction.js');
+    const workset = await consumeCompactionWorkset(input, { task, maxTokens: 420 });
+    return workset?.text;
+  } catch (error) {
+    console.error('[memorix] compact continuation failed:', (error as Error)?.message ?? error);
+    return undefined;
+  }
+}
+
 /**
  * Claude Code ignores SessionStart systemMessage as model context. Its official
  * UserPromptSubmit output accepts additionalContext, so explicit continuation
@@ -375,20 +410,46 @@ async function buildClaudeContinuationPromptContext(input: NormalizedHookInput):
     return undefined;
   }
 
-  const { isContinuationTask } = await import('../codegraph/task-lens.js');
-  if (!isContinuationTask(input.userPrompt)) return undefined;
-
   if (await getHookInjectionMode(input) === 'silent') return undefined;
 
-  const context = await buildHookProjectContext(input, input.userPrompt, 'hook-user-prompt');
-  if (!context?.hasContinuation) return undefined;
+  const compactContinuation = await consumeCompactContinuation(input, input.userPrompt);
+  if (compactContinuation) {
+    return [
+      'Memorix recovered one bounded checkpoint after the host compacted this session.',
+      'Treat it as background context; current code and the user request win.',
+      '',
+      compactContinuation,
+    ].join('\n');
+  }
 
-  return [
-    'Memorix prepared a bounded prior-work brief for this explicit continuation request.',
-    'Treat it as background context; current code wins. Use it before broad Git or file-history archaeology.',
-    '',
-    context.prompt,
-  ].join('\n');
+  const { isContinuationTask, resolveTaskLens } = await import('../codegraph/task-lens.js');
+  const continuationRequested = isContinuationTask(input.userPrompt);
+  if (continuationRequested) {
+    const context = await buildHookProjectContext(input, input.userPrompt, 'hook-user-prompt');
+    if (context?.hasContinuation) {
+      return [
+        'Memorix prepared a bounded prior-work brief for this explicit continuation request.',
+        'Treat it as background context; current code wins. Use it before broad Git or file-history archaeology.',
+        '',
+        context.prompt,
+      ].join('\n');
+    }
+  }
+
+  // Claude Code skills are user-invoked rather than automatically injected.
+  // For the narrow cases where prior project context is materially useful,
+  // provide a small routing nudge instead of silently adding a broad brief to
+  // every prompt. This keeps new feature work quiet while making handoffs and
+  // onboarding naturally discover the one-call Autopilot path.
+  if (continuationRequested || resolveTaskLens(input.userPrompt).id === 'onboarding') {
+    return [
+      'Memorix is available for this handoff or continuation.',
+      'Before broad file or Git exploration, call memorix_project_context with the user\'s actual task.',
+      'If it is not visible yet, use Claude Code tool search for memorix_project_context; use CLI only when MCP discovery is unavailable.',
+    ].join(' ');
+  }
+
+  return undefined;
 }
 
 async function handleSessionStart(input: NormalizedHookInput): Promise<{
@@ -399,6 +460,29 @@ async function handleSessionStart(input: NormalizedHookInput): Promise<{
 
   if (injectMode === 'silent') {
     return { observation: null, output: { continue: true } };
+  }
+
+  // Codex officially supports SessionStart additionalContext. Deliver the
+  // compact checkpoint there, before the generic startup brief can add noise.
+  if (input.agent === 'codex' && isCompactSessionStart(input)) {
+    const compactContinuation = await consumeCompactContinuation(
+      input,
+      'Continue after the host compacted the current session.',
+    );
+    if (compactContinuation) {
+      return {
+        observation: null,
+        output: {
+          continue: true,
+          systemMessage: [
+            'Memorix recovered one bounded checkpoint after the host compacted this session.',
+            'Treat it as background context; current code and the user request win.',
+            '',
+            compactContinuation,
+          ].join('\n'),
+        },
+      };
+    }
   }
 
   let contextSummary = '';
@@ -706,6 +790,14 @@ export async function runHook(agentOverride?: string, eventOverride?: string): P
   }
 
   const input = normalizeHookInput(payload);
+  try {
+    const { captureCompactionCheckpoint } = await import('../memory/compaction.js');
+    await captureCompactionCheckpoint(input);
+  } catch (checkpointError) {
+    // Host-native compaction is authoritative. Checkpoint persistence is an
+    // additive recovery layer and must never block it.
+    console.error('[memorix] compact checkpoint failed:', (checkpointError as Error)?.message ?? checkpointError);
+  }
   const { observation, output } = await handleHookEvent(input, { deferMaintenance: true });
 
   if (observation) {

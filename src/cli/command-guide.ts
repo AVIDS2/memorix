@@ -56,6 +56,16 @@ const GUIDES: Record<string, CliCommandGuide> = {
       'memorix codegraph context-pack --task "trace the auth flow" [--limit 20]',
     ],
   },
+  checkpoint: {
+    summary: 'Inspect bounded recovery checkpoints created around host-native context compaction.',
+    usage: [
+      'memorix checkpoint list [--session <id>] [--agent <name>]',
+      'memorix checkpoint show --id <checkpoint-id>',
+      'memorix checkpoint context [--id <checkpoint-id>] [--task "continue auth fix"]',
+      'memorix checkpoint archive --id <checkpoint-id>',
+    ],
+    notes: ['Checkpoints are host lifecycle evidence, not durable project memory and not transcript backups.'],
+  },
   knowledge: {
     summary: 'Manage the reviewed, source-backed Knowledge Workspace and project workflows.',
     usage: [

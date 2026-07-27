@@ -16,6 +16,9 @@ export default defineConfig([
       // separate from the MCP host prevents graph scans and consolidation from
       // blocking an agent request on the main event loop.
       'maintenance-runner': 'src/runtime/maintenance-runner.ts',
+      // Short-lived CLI writes hand remote embedding work to this detached
+      // worker so a slow provider never holds the user's terminal open.
+      'vector-backfill-runner': 'src/runtime/vector-backfill-runner.ts',
     },
     format: ['esm'],
     target: 'node20',

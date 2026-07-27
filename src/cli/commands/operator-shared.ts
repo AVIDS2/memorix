@@ -110,7 +110,10 @@ export async function getCliProjectContext(options?: CliContextOptions): Promise
   } catch {
     // CLI reads remain available even if optional background maintenance metadata fails.
   }
-  await initObservations(dataDir);
+  await initObservations(dataDir, {
+    embeddingWriteMode: 'deferred',
+    projectRoot: project.rootPath,
+  });
   await initSessionStore(dataDir);
   const teamStore = await initTeamStore(dataDir);
 

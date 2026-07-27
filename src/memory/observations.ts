@@ -49,6 +49,17 @@ let observations: Observation[] = [];
 let nextId = 1;
 let projectDir: string | null = null;
 let searchIndexPrepared = false;
+export type ObservationEmbeddingWriteMode = 'background' | 'deferred';
+
+export interface ObservationRuntimeOptions {
+  /** Defer remote/local embedding to a detached worker for short-lived CLI writes. */
+  embeddingWriteMode?: ObservationEmbeddingWriteMode;
+  /** Git root used by the detached vector worker. */
+  projectRoot?: string;
+}
+
+let embeddingWriteMode: ObservationEmbeddingWriteMode = 'background';
+let embeddingWorkerProjectRoot: string | undefined;
 
 // ── Vector-missing tracking ──────────────────────────────────────
 // Tracks observation IDs whose async embedding write failed or was skipped.
@@ -106,7 +117,10 @@ function vectorBackfillError(error: unknown): string {
   return sanitizeCredentials(normalizeEmbeddingFailure(error).message).slice(0, 1_000);
 }
 
-function queueVectorBackfill(projectId: string): void {
+function queueVectorBackfill(
+  projectId: string,
+  options: { detachedWorker?: boolean; projectRoot?: string } = {},
+): void {
   const dataDir = projectDir;
   if (!dataDir) return;
   void import('../runtime/maintenance-jobs.js')
@@ -117,6 +131,19 @@ function queueVectorBackfill(projectId: string): void {
         dedupeKey: 'vector-backfill',
         payload: { limit: 12 },
       });
+      if (options.detachedWorker && options.projectRoot) {
+        void import('../runtime/vector-backfill-runner.js')
+          .then(({ launchDetachedVectorBackfill }) => {
+            launchDetachedVectorBackfill({
+              projectId,
+              projectRoot: options.projectRoot!,
+              dataDir,
+            });
+          })
+          .catch(() => {
+            // The durable queue remains available to a later MCP session.
+          });
+      }
     })
     .catch(() => {
       // Memory writes remain durable even when the optional maintenance queue is unavailable.
@@ -199,7 +226,12 @@ async function upgradeVectorSchemaAfterFirstEmbedding(embedding: number[]): Prom
  * Initialize the observations manager with a project directory.
  * Auto-initializes the ObservationStore if not already set.
  */
-export async function initObservations(dir: string): Promise<void> {
+export async function initObservations(
+  dir: string,
+  options: ObservationRuntimeOptions = {},
+): Promise<void> {
+  embeddingWriteMode = options.embeddingWriteMode ?? 'background';
+  embeddingWorkerProjectRoot = options.projectRoot;
   if (projectDir === dir) return;
   await initObservationStore(dir);
   const store = getObservationStore();
@@ -208,6 +240,70 @@ export async function initObservations(dir: string): Promise<void> {
   projectDir = dir;
   searchIndexPrepared = false;
   vectorSchemaUpgradePromise = null;
+}
+
+function scheduleObservationEmbedding(input: {
+  observationId: number;
+  projectId: string;
+  searchableText: string;
+  doc: MemorixDocument;
+}): void {
+  const { observationId, projectId, searchableText, doc } = input;
+  vectorMissingIds.add(observationId);
+
+  // A network fetch keeps Node's event loop alive even when its Promise is not
+  // awaited. One-shot CLI commands therefore persist first and let a detached
+  // worker consume the same durable queue.
+  if (embeddingWriteMode === 'deferred') {
+    if (isEmbeddingExplicitlyDisabled()) {
+      vectorMissingIds.delete(observationId);
+      return;
+    }
+    queueVectorBackfill(projectId, {
+      detachedWorker: true,
+      projectRoot: embeddingWorkerProjectRoot,
+    });
+    return;
+  }
+
+  void generateEmbedding(searchableText).then(async (embedding) => {
+    if (embedding) {
+      if (!isVectorCompatibleWithCurrentIndex(embedding)) {
+        await upgradeVectorSchemaAfterFirstEmbedding(embedding);
+      }
+      if (!isVectorCompatibleWithCurrentIndex(embedding)) {
+        const vectorDimensions = getVectorDimensions();
+        console.error(
+          `[memorix] Embedding dimension mismatch for obs-${observationId}: provider returned ${embedding.length}d, index expects ${vectorDimensions ?? 'unknown'}d (kept in backfill queue)`,
+        );
+        queueVectorBackfill(projectId);
+        return;
+      }
+      try {
+        await removeObservation(makeOramaObservationId(projectId, observationId));
+        await insertObservation(Object.assign({}, doc, { embedding }));
+        vectorMissingIds.delete(observationId);
+      } catch {
+        console.error(`[memorix] Embedding index update failed for obs-${observationId} (kept in backfill queue)`);
+        queueVectorBackfill(projectId);
+      }
+    } else if (isEmbeddingExplicitlyDisabled()) {
+      vectorMissingIds.delete(observationId);
+    } else {
+      queueVectorBackfill(projectId);
+      logEmbeddingFailureOnce(
+        'provider-unavailable',
+        `[memorix] Embedding provider unavailable (using BM25 until embedding recovers; queued obs-${observationId} for retry)`,
+      );
+    }
+  }).catch((err) => {
+    queueVectorBackfill(projectId);
+    const failure = normalizeEmbeddingFailure(err);
+    logEmbeddingFailureOnce(
+      failure.key,
+      `[memorix] Async embedding failed (using BM25 until embedding recovers; queued obs-${observationId} for retry): ${failure.message}`,
+    );
+  });
 }
 
 /**
@@ -507,49 +603,11 @@ export async function storeObservation(input: {
     queueClaimDerivation(observation);
   }
 
-  // Generate embedding async (fire-and-forget) — never blocks MCP response
-  // Track in vectorMissingIds until embedding is successfully written.
-  const obsId = observation.id;
-  vectorMissingIds.add(obsId);
-  const searchableText = [input.title, input.narrative, ...(input.facts ?? [])].join(' ');
-  generateEmbedding(searchableText).then(async (embedding) => {
-    if (embedding) {
-      if (!isVectorCompatibleWithCurrentIndex(embedding)) {
-        await upgradeVectorSchemaAfterFirstEmbedding(embedding);
-      }
-      if (!isVectorCompatibleWithCurrentIndex(embedding)) {
-        const vectorDimensions = getVectorDimensions();
-        console.error(
-          `[memorix] Embedding dimension mismatch for obs-${obsId}: provider returned ${embedding.length}d, index expects ${vectorDimensions ?? 'unknown'}d (kept in backfill queue)`,
-        );
-        queueVectorBackfill(input.projectId);
-        return;
-      }
-      try {
-        const { removeObservation: removeObs } = await import('../store/orama-store.js');
-        await removeObs(makeOramaObservationId(input.projectId, obsId));
-        await insertObservation(Object.assign({}, doc, { embedding }));
-        vectorMissingIds.delete(obsId);
-      } catch {
-        console.error(`[memorix] Embedding index update failed for obs-${obsId} (kept in backfill queue)`);
-        queueVectorBackfill(input.projectId);
-      }
-    } else if (isEmbeddingExplicitlyDisabled()) {
-      vectorMissingIds.delete(obsId);
-    } else {
-      queueVectorBackfill(input.projectId);
-      logEmbeddingFailureOnce(
-        'provider-unavailable',
-        `[memorix] Embedding provider unavailable (using BM25 until embedding recovers; queued obs-${obsId} for retry)`,
-      );
-    }
-  }).catch((err) => {
-    queueVectorBackfill(input.projectId);
-    const failure = normalizeEmbeddingFailure(err);
-    logEmbeddingFailureOnce(
-      failure.key,
-      `[memorix] Async embedding failed (using BM25 until embedding recovers; queued obs-${obsId} for retry): ${failure.message}`,
-    );
+  scheduleObservationEmbedding({
+    observationId: observation.id,
+    projectId: input.projectId,
+    searchableText: [input.title, input.narrative, ...(input.facts ?? [])].join(' '),
+    doc,
   });
 
   return { observation, upserted: false };
@@ -678,40 +736,11 @@ async function upsertObservation(
     queueClaimDerivation(existing);
   }
 
-  // Generate embedding async (fire-and-forget) — never blocks MCP response
-  const searchableText = [input.title, input.narrative, ...(input.facts ?? [])].join(' ');
-  const obsId = existing.id;
-  vectorMissingIds.add(obsId);
-  generateEmbedding(searchableText).then(async (embedding) => {
-    if (embedding) {
-      if (!isVectorCompatibleWithCurrentIndex(embedding)) {
-        await upgradeVectorSchemaAfterFirstEmbedding(embedding);
-      }
-      if (!isVectorCompatibleWithCurrentIndex(embedding)) {
-        queueVectorBackfill(existing.projectId);
-        return;
-      }
-      try {
-        const { removeObservation: removeObs } = await import('../store/orama-store.js');
-        await removeObs(makeOramaObservationId(existing.projectId, obsId));
-        await insertObservation(Object.assign({}, doc, { embedding }));
-        vectorMissingIds.delete(obsId);
-      } catch {
-        // Embedding index update failed — observation still persisted without vector
-        queueVectorBackfill(existing.projectId);
-      }
-    } else if (isEmbeddingExplicitlyDisabled()) {
-      vectorMissingIds.delete(obsId);
-    } else {
-      queueVectorBackfill(existing.projectId);
-    }
-  }).catch((err) => {
-    queueVectorBackfill(existing.projectId);
-    const failure = normalizeEmbeddingFailure(err);
-    logEmbeddingFailureOnce(
-      failure.key,
-      `[memorix] Async embedding failed (using BM25 until embedding recovers; queued obs-${obsId} for retry): ${failure.message}`,
-    );
+  scheduleObservationEmbedding({
+    observationId: existing.id,
+    projectId: existing.projectId,
+    searchableText: [input.title, input.narrative, ...(input.facts ?? [])].join(' '),
+    doc,
   });
 
   return existing;

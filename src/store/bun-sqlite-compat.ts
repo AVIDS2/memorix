@@ -23,6 +23,26 @@ function isNativeBindingFailure(error: unknown): boolean {
 }
 
 function addCompatibility(db: any): any {
+  // Node's StatementSync is stricter than better-sqlite3: it rejects a
+  // parameter object with harmless extra keys. Memorix stores commonly pass a
+  // complete row object to statements that only use part of that row, so keep
+  // the established better-sqlite3 behavior on the fallback driver.
+  if (!db.__memorixPreparedStatementCompatibility) {
+    const prepare = db.prepare.bind(db);
+    db.prepare = function (...args: any[]) {
+      const statement = prepare(...args);
+      statement.setAllowBareNamedParameters?.(true);
+      statement.setAllowUnknownNamedParameters?.(true);
+      return statement;
+    };
+    Object.defineProperty(db, '__memorixPreparedStatementCompatibility', {
+      value: true,
+      configurable: false,
+      enumerable: false,
+      writable: false,
+    });
+  }
+
   // Bun and node:sqlite do not expose better-sqlite3's pragma helper.
   if (!db.pragma) {
     db.pragma = function (pragma: string, options?: { simple?: boolean }) {
@@ -37,15 +57,17 @@ function addCompatibility(db: any): any {
 
   // Stores use better-sqlite3's synchronous transaction factory. Keep nested
   // calls correct with savepoints instead of silently committing inner work.
+  // Match its callable transaction variants as well: default/deferred,
+  // immediate, and exclusive.
   if (!db.transaction) {
     let depth = 0;
     let sequence = 0;
     db.transaction = function <T>(fn: (...args: any[]) => T) {
-      return (...args: any[]): T => {
+      const run = (mode: 'DEFERRED' | 'IMMEDIATE' | 'EXCLUSIVE', args: any[]): T => {
         const outermost = depth === 0;
         const savepoint = `memorix_tx_${++sequence}`;
         if (outermost) {
-          db.exec('BEGIN IMMEDIATE');
+          db.exec(`BEGIN ${mode}`);
         } else {
           db.exec(`SAVEPOINT ${savepoint}`);
         }
@@ -77,6 +99,13 @@ function addCompatibility(db: any): any {
           throw error;
         }
       };
+
+      const transaction = (...args: any[]): T => run('DEFERRED', args);
+      transaction.default = transaction;
+      transaction.deferred = (...args: any[]): T => run('DEFERRED', args);
+      transaction.immediate = (...args: any[]): T => run('IMMEDIATE', args);
+      transaction.exclusive = (...args: any[]): T => run('EXCLUSIVE', args);
+      return transaction;
     };
   }
 

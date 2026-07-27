@@ -13,7 +13,7 @@ describe('node:sqlite compatibility fallback', () => {
     resetSqliteDriverForTests();
   });
 
-  it('keeps the better-sqlite3 pragma and transaction contract on Node 22', () => {
+  it('keeps better-sqlite3 pragma, statement, and transaction contracts on Node 22', () => {
     process.env.MEMORIX_SQLITE_DRIVER = 'node';
     resetSqliteDriverForTests();
     const db = createDatabase(':memory:');
@@ -26,10 +26,21 @@ describe('node:sqlite compatibility fallback', () => {
       const write = db.transaction((values: string[]) => {
         for (const value of values) insert.run(value);
       });
-      write(['first', 'second']);
+      write(['default']);
+      write.deferred(['deferred']);
+      write.immediate(['immediate']);
+      write.exclusive(['exclusive']);
 
       expect(db.prepare('SELECT value FROM entries ORDER BY id').all())
-        .toEqual([{ value: 'first' }, { value: 'second' }]);
+        .toEqual([
+          { value: 'default' },
+          { value: 'deferred' },
+          { value: 'immediate' },
+          { value: 'exclusive' },
+        ]);
+
+      const lookup = db.prepare('SELECT @id AS id');
+      expect(lookup.get({ id: 7, projectId: 'unused-row-field' })).toEqual({ id: 7 });
     } finally {
       db.close();
     }

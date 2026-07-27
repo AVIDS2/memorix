@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-	checkForNewPiVersion,
+	checkForNewMemcodeVersion,
 	comparePackageVersions,
+	getLatestMemcodeRelease,
+	getLatestMemcodeVersion,
 	getLatestPiRelease,
-	getLatestPiVersion,
 	isNewerPackageVersion,
 } from "../src/utils/version-check.ts";
 
@@ -37,15 +38,15 @@ describe("version checks", () => {
 		const fetchMock = vi.fn(async () => Response.json({ version: "1.2.3" }));
 		vi.stubGlobal("fetch", fetchMock);
 
-		await expect(checkForNewPiVersion("1.2.3")).resolves.toBeUndefined();
-		await expect(checkForNewPiVersion("1.2.2")).resolves.toEqual({ version: "1.2.3" });
+		await expect(checkForNewMemcodeVersion("1.2.3")).resolves.toBeUndefined();
+		await expect(checkForNewMemcodeVersion("1.2.2")).resolves.toEqual({ version: "1.2.3" });
 	});
 
 	it("uses the npm registry version check api with a memcode user agent", async () => {
 		const fetchMock = vi.fn(async () => Response.json({ version: "1.2.4" }));
 		vi.stubGlobal("fetch", fetchMock);
 
-		await expect(getLatestPiVersion("1.2.3")).resolves.toBe("1.2.4");
+		await expect(getLatestMemcodeVersion("1.2.3")).resolves.toBe("1.2.4");
 		expect(fetchMock).toHaveBeenCalledWith(
 			"https://registry.npmjs.org/memorix/latest",
 			expect.objectContaining({
@@ -66,7 +67,7 @@ describe("version checks", () => {
 		);
 		vi.stubGlobal("fetch", fetchMock);
 
-		await expect(getLatestPiRelease("1.2.3")).resolves.toEqual({
+		await expect(getLatestMemcodeRelease("1.2.3")).resolves.toEqual({
 			packageName: "memorix",
 			version: "1.2.4",
 		});
@@ -76,7 +77,7 @@ describe("version checks", () => {
 		const fetchMock = vi.fn(async () => Response.json({ note: " **Read this** ", version: "1.2.4" }));
 		vi.stubGlobal("fetch", fetchMock);
 
-		await expect(getLatestPiRelease("1.2.3")).resolves.toEqual({ note: "**Read this**", version: "1.2.4" });
+		await expect(getLatestMemcodeRelease("1.2.3")).resolves.toEqual({ note: "**Read this**", version: "1.2.4" });
 	});
 
 	it("skips api calls when version checks are disabled", async () => {
@@ -84,7 +85,11 @@ describe("version checks", () => {
 		const fetchMock = vi.fn();
 		vi.stubGlobal("fetch", fetchMock);
 
-		await expect(getLatestPiVersion("1.2.3")).resolves.toBeUndefined();
+		await expect(getLatestMemcodeVersion("1.2.3")).resolves.toBeUndefined();
 		expect(fetchMock).not.toHaveBeenCalled();
+	});
+
+	it("keeps deprecated Pi-named exports as compatibility aliases", () => {
+		expect(getLatestPiRelease).toBe(getLatestMemcodeRelease);
 	});
 });

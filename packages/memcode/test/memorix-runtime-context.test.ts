@@ -99,11 +99,12 @@ describe("Memorix runtime context", () => {
 		expect(context.hooks.active).toBe(true);
 
 		const formatted = formatMemorixRuntimeStatus(context);
-		expect(formatted).toContain("Project: AVIDS2/memorix");
-		expect(formatted).toContain("Shared aliases: AVIDS2/memorix, local/memorix");
-		expect(formatted).toContain("Search: hybrid + LLM rerank");
-		expect(formatted).toContain("Embedding: api-text-embedding-v4 (1024d)");
-		expect(formatted).toContain("Memory LLM: openai/deepseek-chat");
-		expect(formatted).toContain("Native hooks: active");
+		expect(formatted).toContain("## Memorix Status");
+		expect(formatted).toContain("- Project: AVIDS2/memorix");
+		expect(formatted).toContain("- Memory: 2 active / 2 shared");
+		expect(formatted).toContain("- Search: semantic warming (BM25/fulltext until vectors finish)");
+		expect(formatted).toContain("- Embedding: api-text-embedding-v4 · 2/3 vectors · 1024d · backfill running");
+		expect(formatted).toContain("- Memory LLM: openai/deepseek-chat");
+		expect(formatted).toContain("- Hooks: active · user_prompt 2, agent_end 1");
 	});
 });

@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.6] - 2026-07-27
+
+### Added
+- **Truthful Memcode command discovery** -- The interactive command list and editor autocomplete now derive from the same executable Pi-compatible command registry. Memorix-native `/memory` actions, including nested completion after `/memory `, are available without advertising dead commands.
+- **Deterministic memory resolution** -- `/memory delete <id>` now resolves the selected project-memory entry instead of only showing a candidate list.
+- **Pi-compatible shell session context** -- Model-initiated Memcode bash calls now receive current `PI_SESSION_ID`, `PI_SESSION_FILE`, `PI_PROVIDER`, `PI_MODEL`, and `PI_REASONING_LEVEL` metadata. Extensions can explicitly disable this exposure.
+- **Maintainer Pi-upstream audit** -- Added a pinned upstream manifest, `npm run audit:pi-upstream`, and a documented review policy. The read-only audit detects GitHub compare truncation and falls back to a full official Git-tree comparison.
+
+### Fixed
+- **No misleading terminal actions** -- Removed stale, non-dispatched TUI entries and unreachable `/git` actions, including the former implicit stage-all commit path.
+- **Memcode release identity** -- Version-check and user-agent internals now identify the published Memorix/Memcode package rather than incorrectly calling it a Pi release; bundled `memcode --version` now reports the installed Memorix release instead of an internal workspace version.
+- **Task-flag parity** -- `memorix context --task "..."` now works without a redundant positional task argument.
+- **Plugin release metadata** -- All shipped versioned plugin manifests now match the published Memorix release, including Claude Code, Codex, Copilot, Gemini CLI, OpenClaw, Oh-my-Pi, and Pi.
+- **Complete Node SQLite fallback** -- The supported Node built-in SQLite fallback now matches the transaction variants and permissive named-parameter behavior Memorix uses with `better-sqlite3`. Team task claims, Knowledge Workspace review, and other row-object writes no longer fail when the optional native binding is unavailable.
+
 ## [1.2.5] - 2026-07-27
 
 ### Added

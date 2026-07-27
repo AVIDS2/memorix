@@ -98,9 +98,9 @@ import { getCwdRelativePath } from "../../utils/paths.ts";
 import { getPiUserAgent } from "../../utils/pi-user-agent.ts";
 import { killTrackedDetachedChildren } from "../../utils/shell.ts";
 import { ensureTool } from "../../utils/tools-manager.ts";
-import { checkForNewPiVersion, type LatestPiRelease } from "../../utils/version-check.ts";
+import { checkForNewMemcodeVersion, type LatestMemcodeRelease } from "../../utils/version-check.ts";
 import { MEMORY_COMMANDS, type MemoryCommandResult } from "../../tui/commands/memory-commands.ts";
-import { getTuiSlashCommandRows } from "../../tui/command-registry.ts";
+import { getTuiSlashCommandRows, TUI_SLASH_COMMANDS } from "../../tui/command-registry.ts";
 import { createViewportWheelInputListener } from "./mouse-wheel.ts";
 import {
 	ActivityStatus,
@@ -553,7 +553,7 @@ export class InteractiveMode {
 	}
 
 	private getBuiltInCommandConflictDiagnostics(extensionRunner: ExtensionRunner): ResourceDiagnostic[] {
-		const builtinNames = new Set(BUILTIN_SLASH_COMMANDS.map((command) => command.name));
+		const builtinNames = new Set(TUI_SLASH_COMMANDS.map((command) => command.name.slice(1)));
 		return extensionRunner
 			.getRegisteredCommands()
 			.filter((command) => builtinNames.has(command.name))
@@ -568,9 +568,10 @@ export class InteractiveMode {
 	}
 
 	private createBaseAutocompleteProvider(): AutocompleteProvider {
-		// Define commands for autocomplete
-		const slashCommands: SlashCommand[] = BUILTIN_SLASH_COMMANDS.map((command) => ({
-			name: command.name,
+		// Keep actual editor autocomplete on the same executable command registry
+		// used by `/commands`; this includes Memorix-native memory subcommands.
+		const slashCommands: SlashCommand[] = TUI_SLASH_COMMANDS.map((command) => ({
+			name: command.name.slice(1),
 			description: command.description,
 		}));
 
@@ -603,6 +604,25 @@ export class InteractiveMode {
 					description: item.provider,
 				}));
 			};
+		}
+
+		const memoryCommand = slashCommands.find((command) => command.name === "memory");
+		if (memoryCommand) {
+			const memorySubcommands = TUI_SLASH_COMMANDS.filter((command) => command.name.startsWith("/memory ")).map(
+				(command) => ({
+					value: command.name.slice("/memory ".length),
+					label: command.name.slice("/memory ".length),
+					description: command.description,
+				}),
+			);
+			memoryCommand.getArgumentCompletions = (prefix: string): AutocompleteItem[] =>
+				fuzzyFilter(memorySubcommands, prefix, (command) => `${command.value} ${command.description}`).map(
+					(command) => ({
+						value: command.value,
+						label: command.label,
+						description: command.description,
+					}),
+				);
 		}
 
 		// Convert prompt templates to SlashCommand format for autocomplete
@@ -856,7 +876,7 @@ export class InteractiveMode {
 		await this.init();
 
 		// Start version check asynchronously
-		checkForNewPiVersion(this.version).then((newRelease) => {
+		checkForNewMemcodeVersion(this.version).then((newRelease) => {
 			if (newRelease) {
 				this.showNewVersionNotification(newRelease);
 			}
@@ -4084,7 +4104,7 @@ export class InteractiveMode {
 		this.ui.requestRender();
 	}
 
-	showNewVersionNotification(release: LatestPiRelease): void {
+	showNewVersionNotification(release: LatestMemcodeRelease): void {
 		const action = theme.fg("accent", `${APP_NAME} update`);
 		const updateInstruction = theme.fg("muted", `New version ${release.version} is available. Run `) + action;
 		const changelogUrl = "https://github.com/AVIDS2/memorix/releases/latest";
@@ -5928,7 +5948,7 @@ export class InteractiveMode {
 			"| `/memory show` | List recent project memories |",
 			"| `/memory diff` | Show recent memory changes |",
 			"| `/memory promote` | Store the last assistant response as memory |",
-			"| `/memory delete` | Resolve a memory entry |",
+			"| `/memory delete <id>` | Resolve a memory entry |",
 			"",
 			"Production path: search first to recover context, promote only durable decisions/fixes, use stats to spot stale or missing project memory.",
 		].filter((line): line is string => line !== undefined);

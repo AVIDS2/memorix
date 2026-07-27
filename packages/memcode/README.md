@@ -27,9 +27,10 @@ Both routes enter the same memcode TUI.
 | Native project memory | memcode reads and writes the same Memorix memory pool as MCP-connected agents |
 | Hook capture | prompts, tool calls, assistant output, and session lifecycle feed the Memorix hook pipeline |
 | Session continuity | continue, resume, fork, name, export, and inspect coding sessions |
-| Model control | provider/model flags, `/model switch`, thinking levels, scoped model cycling |
+| Model control | provider/model flags, `/model`, thinking levels, scoped model cycling |
 | Tool control | read, bash, edit, write, grep, find, ls plus allow/deny lists |
-| Memory commands | `/memory status`, `/memory search`, `/memory show`, `/memory stats`, `/memory hooks` |
+| Shell context | model-initiated bash calls receive Pi-compatible `PI_*` session and model metadata |
+| Memory commands | `/memory status`, `/memory search`, `/memory show`, `/memory stats`, `/memory hooks`, `/memory delete <id>` |
 | Extensions | user/project skills, prompt templates, themes, and extension packages |
 | Scriptable modes | interactive TUI, print mode, JSON event stream, and RPC mode |
 
@@ -67,18 +68,18 @@ memcode @README.md @src/index.ts "what should change before release?"
 Common slash commands:
 
 ```text
-/help             show available commands
-/model switch     switch model or thinking profile
+/commands         show available commands
+/model            switch model or filter the model picker
 /memory status    inspect Memorix runtime and memory health
 /memory search    search shared project memory
 /memory show      browse stored memories
 /memory hooks     inspect native hook state
+/memory delete 7  resolve memory entry 7
 /resume           resume a previous session
 /tree             navigate the session tree
 /fork             fork the current session
-/git status       show working-tree status
-/git diff         inspect a file diff
-/config           open configuration
+/settings         open configuration
+/quit             exit memcode
 ```
 
 The TUI works like a normal coding agent: keep a session open, let the agent inspect files and run commands, then resume later without re-explaining the project.

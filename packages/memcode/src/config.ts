@@ -452,6 +452,30 @@ interface PackageJson {
 	};
 }
 
+/**
+ * The bundled Memcode runtime has its own internal workspace manifest. When
+ * it is launched through the public Memorix package, report the public
+ * package version instead so update checks and `memcode --version` agree.
+ */
+export function resolveMemcodeVersion(
+	runtimePackage: Pick<PackageJson, "version">,
+	memorixPackageRoot = process.env.MEMORIX_PACKAGE_ROOT,
+): string {
+	const root = memorixPackageRoot?.trim();
+	if (root) {
+		try {
+			const bundledPackage = JSON.parse(readFileSync(join(resolve(root), "package.json"), "utf-8")) as PackageJson;
+			if (bundledPackage.name === "memorix" && bundledPackage.version?.trim()) {
+				return bundledPackage.version.trim();
+			}
+		} catch {
+			// The root hint is optional. Fall back to the runtime manifest when it is unavailable or invalid.
+		}
+	}
+
+	return runtimePackage.version?.trim() || "0.0.0";
+}
+
 let pkg: PackageJson = {};
 try {
 	pkg = JSON.parse(readFileSync(getPackageJsonPath(), "utf-8")) as PackageJson;
@@ -465,7 +489,7 @@ export const PACKAGE_NAME: string = pkg.name || "@memorix/memcode";
 export const APP_NAME: string = piConfigName || "memcode";
 export const APP_TITLE: string = piConfigName ? APP_NAME : "memcode";
 export const CONFIG_DIR_NAME: string = pkg.piConfig?.configDir || ".memorix";
-export const VERSION: string = pkg.version || "0.0.0";
+export const VERSION: string = resolveMemcodeVersion(pkg);
 
 // e.g., MEMCODE_CODING_AGENT_DIR
 export const ENV_AGENT_DIR = `${APP_NAME.toUpperCase()}_CODING_AGENT_DIR`;

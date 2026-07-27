@@ -4,10 +4,9 @@ import {
 	importFromMemorix,
 	resetMemorixModuleRootForTests,
 } from "../src/core/memorix-resolve.ts";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 
 describe("importFromMemorix", () => {
 	let tempRoot: string | undefined;
@@ -27,14 +26,18 @@ describe("importFromMemorix", () => {
 		expect(mod.AGENT_SUPPORT_TIER.codex).toBe("extended");
 	});
 
-	test("prefers repo TypeScript sources over stale sibling js files", () => {
-		const currentDir = dirname(fileURLToPath(import.meta.url));
-		const projectRoot = join(currentDir, "..", "..", "..");
-		const tsSource = readFileSync(join(projectRoot, "src", "memory", "observations.ts"), "utf8");
-		const jsSource = readFileSync(join(projectRoot, "src", "memory", "observations.js"), "utf8");
+	test("prefers configured TypeScript sources over stale sibling js files", async () => {
+		tempRoot = mkdtempSync(join(tmpdir(), "memorix-source-precedence-"));
+		mkdirSync(join(tempRoot, "src", "memory"), { recursive: true });
+		writeFileSync(join(tempRoot, "src", "memory", "observations.ts"), "export const marker = 'fresh-source';");
+		writeFileSync(join(tempRoot, "src", "memory", "observations.js"), "export const marker = 'stale-sidecar';");
 
-		expect(tsSource).toContain("using BM25 until embedding recovers");
-		expect(jsSource).not.toContain("using BM25 until embedding recovers");
+		process.env.MEMORIX_PACKAGE_ROOT = tempRoot;
+		resetMemorixModuleRootForTests();
+
+		const mod = await importFromMemorix("memory/observations.js");
+
+		expect(mod.marker).toBe("fresh-source");
 	});
 
 	test("uses MEMORIX_PACKAGE_ROOT src files for npm-installed root package layouts", () => {

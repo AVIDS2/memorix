@@ -8,6 +8,7 @@ import {
 	getSelfUpdateUnavailableInstruction,
 	getShareViewerUrl,
 	getUpdateInstruction,
+	resolveMemcodeVersion,
 } from "../src/config.ts";
 
 const execPathDescriptor = Object.getOwnPropertyDescriptor(process, "execPath");
@@ -70,6 +71,24 @@ describe("getShareViewerUrl", () => {
 		expect(getShareViewerUrl("abc123", "https://gist.github.com/user/abc123")).toBe(
 			"https://viewer.example/session/#abc123",
 		);
+	});
+});
+
+describe("resolveMemcodeVersion", () => {
+	test("uses the verified public Memorix package version for a bundled runtime", () => {
+		const root = mkdtempSync(join(tmpdir(), "memorix-runtime-root-"));
+		tempDir = root;
+		writeFileSync(join(root, "package.json"), JSON.stringify({ name: "memorix", version: "1.2.6" }), "utf-8");
+
+		expect(resolveMemcodeVersion({ version: "1.1.12" }, root)).toBe("1.2.6");
+	});
+
+	test("falls back to the runtime version when the root is not a Memorix package", () => {
+		const root = mkdtempSync(join(tmpdir(), "memcode-unverified-root-"));
+		tempDir = root;
+		writeFileSync(join(root, "package.json"), JSON.stringify({ name: "another-package", version: "9.9.9" }), "utf-8");
+
+		expect(resolveMemcodeVersion({ version: "1.1.12" }, root)).toBe("1.1.12");
 	});
 });
 

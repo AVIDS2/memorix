@@ -22,7 +22,11 @@ export default defineCommand({
   },
   args: {
     task: { type: 'string', description: 'Current task for context shaping' },
-    input: { type: 'positional', description: 'Current task for context shaping (ergonomic positional form)' },
+    input: {
+      type: 'positional',
+      description: 'Current task for context shaping (ergonomic positional form)',
+      required: false,
+    },
     resume: { type: 'boolean', description: 'Always include the bounded prior-work projection' },
     refresh: { type: 'string', description: 'Project scan policy: auto, always, or never' },
     json: { type: 'boolean', description: 'Emit machine-readable JSON output' },

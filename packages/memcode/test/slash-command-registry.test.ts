@@ -3,21 +3,44 @@ import { BUILTIN_SLASH_COMMANDS } from "../src/core/slash-commands.ts";
 import { getTuiSlashCommandsByMode, TUI_SLASH_COMMANDS } from "../src/tui/command-registry.ts";
 
 describe("TUI_SLASH_COMMANDS", () => {
-	test("contains the shared TUI-discoverable memory, git, and session commands", () => {
+	test("contains every executable built-in command for autocomplete", () => {
 		const names = TUI_SLASH_COMMANDS.map((command) => command.name);
 
-		expect(names).toContain("/memory hooks");
-		expect(names).toContain("/git status");
-		expect(names).toContain("/session export");
+		for (const command of BUILTIN_SLASH_COMMANDS) {
+			expect(names).toContain(`/${command.name}`);
+		}
 	});
 
-	test("stays aligned with the built-in interactive command surface for core slash commands", () => {
-		const builtinNames = new Set(BUILTIN_SLASH_COMMANDS.map((command) => `/${command.name}`));
+	test("contains the executable Memorix memory subcommands", () => {
+		const names = TUI_SLASH_COMMANDS.map((command) => command.name);
 
-		expect(builtinNames.has("/memory")).toBe(true);
-		expect(builtinNames.has("/session")).toBe(true);
-		expect(builtinNames.has("/model")).toBe(true);
-		expect(builtinNames.has("/tree")).toBe(true);
+		expect(names).toContain("/memory status");
+		expect(names).toContain("/memory stats");
+		expect(names).toContain("/memory hooks");
+		expect(names).toContain("/memory search");
+		expect(names).toContain("/memory show");
+		expect(names).toContain("/memory diff");
+		expect(names).toContain("/memory promote");
+		expect(names).toContain("/memory delete");
+	});
+
+	test("does not advertise legacy commands that interactive mode cannot execute", () => {
+		const names = new Set(TUI_SLASH_COMMANDS.map((command) => command.name));
+
+		for (const staleCommand of [
+			"/clear",
+			"/help",
+			"/config",
+			"/exit",
+			"/git status",
+			"/git diff",
+			"/git commit",
+			"/model switch",
+			"/remember",
+			"/session export",
+		]) {
+			expect(names.has(staleCommand)).toBe(false);
+		}
 	});
 
 	test("does not register duplicate TUI slash command names", () => {
@@ -27,8 +50,11 @@ describe("TUI_SLASH_COMMANDS", () => {
 
 	test("can filter TUI slash commands by mode from the shared registry", () => {
 		expect(getTuiSlashCommandsByMode("no-arg").some((command) => command.name === "/memory hooks")).toBe(true);
-		expect(getTuiSlashCommandsByMode("selector").some((command) => command.name === "/memory show")).toBe(true);
+		expect(getTuiSlashCommandsByMode("selector").some((command) => command.name === "/settings")).toBe(true);
 		expect(getTuiSlashCommandsByMode("text-input").some((command) => command.name === "/memory search")).toBe(
+			true,
+		);
+		expect(getTuiSlashCommandsByMode("text-input").some((command) => command.name === "/memory delete")).toBe(
 			true,
 		);
 	});

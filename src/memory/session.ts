@@ -21,7 +21,18 @@ import { KnowledgeGraphManager } from './graph.js';
 import { redactCredentials, sanitizeCredentials } from './secret-filter.js';
 import { canReadObservation } from './visibility.js';
 
-const PRIORITY_TYPES = new Set(['gotcha', 'decision', 'problem-solution', 'trade-off', 'discovery']);
+// Types eligible for L2 "Key Project Memories" injection. Session requests carry
+// the original goal and change records carry the latest outcome, so both matter
+// when an agent resumes work after a handoff.
+const PRIORITY_TYPES = new Set([
+  'gotcha',
+  'decision',
+  'problem-solution',
+  'trade-off',
+  'discovery',
+  'session-request',
+  'what-changed',
+]);
 const RESUME_TYPES = new Set([
   'gotcha',
   'decision',
@@ -31,7 +42,6 @@ const RESUME_TYPES = new Set([
   'how-it-works',
   'what-changed',
   'reasoning',
-  'session-request',
 ]);
 const TYPE_EMOJI: Record<string, string> = {
   'gotcha': '[DISCOVERY]',
@@ -50,19 +60,24 @@ const TYPE_WEIGHTS: Record<string, number> = {
   'decision': 5.5,
   'problem-solution': 5.25,
   'trade-off': 4.75,
+  'session-request': 4.5,
   'discovery': 4.25,
+  'what-changed': 4,
 };
+// Markers that identify a memory as a demo/scratch artifact rather than real
+// working context. These are TITLE conventions — see isNoiseObservation.
+//
+// Deliberately excluded: 验证 / 兼容 / compat / 交接 / handoff. Those are ordinary
+// engineering vocabulary, not noise signals. Matching them silently dropped real
+// memories: any Chinese note about verification or compatibility, and any handoff
+// note that merely named a handoff tool, disappeared from session context with no
+// diagnostic. A noise filter must not veto the words its users normally write.
 const NOISE_PATTERNS = [
   /\[测试\]/i,
   /\[test\]/i,
-  /验证/i,
-  /兼容/i,
-  /\bcompat(?:ibility)?\b/i,
   /\bdemo\b/i,
   /展示/i,
   /全能力/i,
-  /handoff/i,
-  /交接/i,
   /for_memmcp_test/i,
   /\bbenchmark\b/i,
   /\bsandbox\b/i,
@@ -180,8 +195,13 @@ function isCommandTrace(obs: Observation): boolean {
 }
 
 function isNoiseObservation(obs: Observation): boolean {
-  const text = stringifyObservation(obs, false);
-  return NOISE_PATTERNS.some((pattern) => pattern.test(text)) || isCommandTrace(obs);
+  // Match the title only. Demo/scratch markers are a titling convention, so scanning
+  // the narrative/facts/concepts produced false positives on real memories that merely
+  // *mentioned* one of these words in prose — and because this filter runs before the
+  // PRIORITY_TYPES check and drops the observation outright (not a score penalty), a
+  // single unlucky word in a long narrative made the whole memory unreachable.
+  const title = obs.title ?? '';
+  return NOISE_PATTERNS.some((pattern) => pattern.test(title)) || isCommandTrace(obs);
 }
 
 function isSystemSelfObservation(obs: Observation): boolean {
@@ -321,6 +341,42 @@ export async function getSessionResumeBrief(
   };
 }
 
+const AUTO_RESUME_SUMMARY_LIMIT = 480;
+const AUTO_RESUME_TITLE_LIMIT = 180;
+
+function compactResumeText(text: string, limit: number): string {
+  const normalized = text.replace(/\s+/g, ' ').trim();
+  return normalized.length <= limit ? normalized : `${normalized.slice(0, Math.max(0, limit - 3)).trimEnd()}...`;
+}
+
+/**
+ * Render the bounded automatic delivery form of a resume brief.
+ *
+ * Full session context remains available through getSessionContext() and
+ * individual memory details remain on demand. Automatic session start gets an
+ * index, not a transcript, so it cannot crowd out the new task's context.
+ */
+export function renderSessionResumeCard(brief: SessionResumeBrief): string {
+  if (!brief.previousSession && brief.memories.length === 0) return '';
+
+  const lines = ['## Memorix Resume'];
+  if (brief.previousSession) {
+    const agent = brief.previousSession.agent ? ` (${brief.previousSession.agent})` : '';
+    lines.push(`Previous session: ${brief.previousSession.id}${agent}`);
+    lines.push(compactResumeText(brief.previousSession.summary, AUTO_RESUME_SUMMARY_LIMIT));
+  }
+
+  if (brief.memories.length > 0) {
+    lines.push('', 'Relevant memory references:');
+    for (const memory of brief.memories) {
+      lines.push(`- #${memory.id} [${memory.type}] ${compactResumeText(memory.title, AUTO_RESUME_TITLE_LIMIT)}`);
+    }
+    lines.push('Read a listed memory only when its title is relevant to the current task.');
+  }
+
+  return lines.join('\n');
+}
+
 export function scoreObservationForSessionContext(obs: Observation, projectTokens: string[], now = Date.now()): number {
   let score = TYPE_WEIGHTS[obs.type] ?? 1;
   const text = stringifyObservation(obs);
@@ -384,7 +440,7 @@ export function scoreObservationForSessionContext(obs: Observation, projectToken
  * so the agent can resume work without re-explaining everything.
  */
 export async function startSession(
-  projectDir: string,
+  _projectDir: string,
   projectId: string,
   opts?: { sessionId?: string; agent?: string; reader?: ObservationReader },
 ): Promise<{ session: Session; previousContext: string }> {
@@ -399,8 +455,11 @@ export async function startSession(
     agent: opts?.agent,
   };
 
-  // Load previous context before creating new session
-  const previousContext = await getSessionContext(projectDir, projectId, 3, opts?.reader);
+  // Automatic delivery stays intentionally small. The explicit context tool can
+  // still provide the expanded packet when an agent chooses to inspect it.
+  const previousContext = renderSessionResumeCard(
+    await getSessionResumeBrief(projectId, undefined, opts?.reader),
+  );
 
   // Atomic rollover: complete all active sessions for this project's aliases
   // and insert the new session in a single SQLite transaction.

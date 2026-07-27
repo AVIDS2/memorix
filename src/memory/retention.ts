@@ -319,6 +319,40 @@ export interface RetentionExplanation {
   summary: string;
 }
 
+/** Access metadata maintained outside the persisted observation record. */
+export type ObservationAccessMap = ReadonlyMap<number, {
+  accessCount: number;
+  lastAccessedAt: string;
+}>;
+
+/**
+ * One canonical retention result for a persisted observation.
+ *
+ * Consumers should use this projection instead of recreating a local decay
+ * formula. That keeps the UI, HTTP control plane, and archive worker aligned
+ * on the same retention state.
+ */
+export interface RetentionProjection extends RetentionExplanation {
+  relevance: RelevanceScore;
+  /** A backwards-compatible 0-10 display value derived from relevance. */
+  displayScore: number;
+  ageHours: number;
+  accessCount: number;
+  lastAccessedAt: string;
+}
+
+export interface ObservationRetentionProjectionOptions {
+  referenceTime?: Date;
+  accessMap?: ObservationAccessMap;
+}
+
+export interface RetentionProjectionSummary {
+  active: number;
+  stale: number;
+  archiveCandidates: number;
+  immune: number;
+}
+
 /**
  * Produce a structured explanation of why an observation has its current
  * retention posture.  Designed for operator-facing reporting.
@@ -371,27 +405,16 @@ export function explainRetention(
   };
 }
 
-// ── Auto-Archive ────────────────────────────────────────────────────
-
-export interface ArchiveExpiredBatchOptions {
-  projectId: string;
-  afterId?: number;
-  limit?: number;
-  referenceTime?: Date;
-  accessMap?: Map<number, { accessCount: number; lastAccessedAt: string }>;
-  /** Omit only for trusted background maintenance. */
-  reader?: ObservationReader;
-}
-
-export interface ArchiveExpiredBatchResult {
-  archived: number;
-  scanned: number;
-  nextCursor?: number;
-}
-
-function toRetentionDocument(
+/**
+ * Convert a stored observation into the search/retention document shape.
+ *
+ * Observation fields such as concepts are arrays, while the retrieval schema
+ * intentionally stores them as strings. Centralising that conversion prevents
+ * callers from accidentally feeding raw observations into retention helpers.
+ */
+export function toRetentionDocument(
   obs: Observation,
-  accessMap?: Map<number, { accessCount: number; lastAccessedAt: string }>,
+  accessMap?: ObservationAccessMap,
 ): MemorixDocument {
   const access = accessMap?.get(obs.id);
   return {
@@ -418,6 +441,62 @@ function toRetentionDocument(
   };
 }
 
+/** Build the canonical retention result used by every Observation consumer. */
+export function projectObservationRetention(
+  observation: Observation,
+  options: ObservationRetentionProjectionOptions = {},
+): RetentionProjection {
+  const document = toRetentionDocument(observation, options.accessMap);
+  const relevance = calculateRelevance(document, options.referenceTime);
+  const explanation = explainRetention(document, options.referenceTime);
+
+  return {
+    ...explanation,
+    relevance,
+    displayScore: Math.round(Math.min(10, relevance.totalScore * 10) * 100) / 100,
+    ageHours: Math.round(relevance.ageDays * 24 * 10) / 10,
+    accessCount: document.accessCount,
+    lastAccessedAt: document.lastAccessedAt,
+  };
+}
+
+/** Summarise canonical projections without reimplementing retention thresholds. */
+export function summarizeRetentionProjections(
+  projections: readonly Pick<RetentionProjection, 'zone' | 'immune'>[],
+): RetentionProjectionSummary {
+  let active = 0;
+  let stale = 0;
+  let archiveCandidates = 0;
+  let immune = 0;
+
+  for (const projection of projections) {
+    if (projection.zone === 'active') active++;
+    else if (projection.zone === 'stale') stale++;
+    else archiveCandidates++;
+    if (projection.immune) immune++;
+  }
+
+  return { active, stale, archiveCandidates, immune };
+}
+
+// ── Auto-Archive ────────────────────────────────────────────────────
+
+export interface ArchiveExpiredBatchOptions {
+  projectId: string;
+  afterId?: number;
+  limit?: number;
+  referenceTime?: Date;
+  accessMap?: ObservationAccessMap;
+  /** Omit only for trusted background maintenance. */
+  reader?: ObservationReader;
+}
+
+export interface ArchiveExpiredBatchResult {
+  archived: number;
+  scanned: number;
+  nextCursor?: number;
+}
+
 /**
  * Archive one bounded page of a project's active memories. The caller owns the
  * cursor, which makes the operation safe to run from a durable maintenance job.
@@ -438,10 +517,10 @@ export async function archiveExpiredBatch(
   const scanned = hasMore ? page.slice(0, limit) : page;
   const candidateIds = scanned
     .filter((observation) => !options.reader || canManageObservation(observation, options.reader))
-    .filter((observation) => getRetentionZone(
-      toRetentionDocument(observation, options.accessMap),
-      options.referenceTime,
-    ) === 'archive-candidate')
+    .filter((observation) => projectObservationRetention(observation, {
+      accessMap: options.accessMap,
+      referenceTime: options.referenceTime,
+    }).zone === 'archive-candidate')
     .map((observation) => observation.id);
 
   const archived = candidateIds.length === 0
@@ -474,7 +553,7 @@ export async function archiveExpiredBatch(
 export async function archiveExpired(
   projectDir: string,
   referenceTime?: Date,
-  accessMap?: Map<number, { accessCount: number; lastAccessedAt: string }>,
+  accessMap?: ObservationAccessMap,
   projectId?: string,
   reader?: ObservationReader,
 ): Promise<{ archived: number; remaining: number }> {
@@ -512,9 +591,8 @@ export async function archiveExpired(
     const archivedIds: number[] = [];
 
     for (const obs of activeObs) {
-      const doc = toRetentionDocument(obs, accessMap);
-      const zone = getRetentionZone(doc, referenceTime);
-      if (zone === 'archive-candidate') {
+      const retention = projectObservationRetention(obs, { accessMap, referenceTime });
+      if (retention.zone === 'archive-candidate') {
         archivedIds.push(obs.id);
       }
     }

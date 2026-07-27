@@ -23,6 +23,7 @@ import { resetDotenv } from '../config/dotenv-loader.js';
 import { initProjectRoot } from '../config/yaml-loader.js';
 import { clearProjectRoot } from '../config/yaml-loader.js';
 import { scopeKnowledgeGraphToProject } from '../memory/graph-scope.js';
+import { projectObservationRetention, summarizeRetentionProjections } from '../memory/retention.js';
 import { canManageObservation, filterReadableObservations } from '../memory/visibility.js';
 import type { Observation } from '../types.js';
 
@@ -249,7 +250,7 @@ async function handleApi(
                 const observations = filterDashboardObservations(
                     await getObservationStore().loadByProject(effectiveProjectId, { status: 'active' }),
                     effectiveProjectId,
-                ) as Array<{ type?: string; id?: number; createdAt?: string; title?: string; entityName?: string; relatedEntities?: string[]; status?: string }>;
+                );
                 const nextId = await getObservationStore().loadIdCounter();
 
                 // Project-scoped graph counts (must match /api/graph and /api/export)
@@ -290,21 +291,18 @@ async function handleApi(
                     filesModified: (o as any).filesModified,
                 }));
 
-                // Retention summary
-                let retentionSummary = { active: 0, stale: 0, archive: 0, immune: 0 };
-                for (const obs of observations) {
-                    const age = now - new Date((obs as any).createdAt || now).getTime();
-                    const ageHours = age / (1000 * 60 * 60);
-                    const importance = (obs as any).importance ?? 5;
-                    const accessCount = (obs as any).accessCount ?? 0;
-                    const lambda = 0.01;
-                    const score = Math.min(importance * Math.exp(-lambda * ageHours) + Math.min(accessCount * 0.5, 3), 10);
-                    const isImmune = importance >= 8 || obs.type === 'gotcha' || obs.type === 'decision';
-                    if (isImmune) retentionSummary.immune++;
-                    if (score >= 3) retentionSummary.active++;
-                    else if (score >= 1) retentionSummary.stale++;
-                    else retentionSummary.archive++;
-                }
+                const retentionReferenceTime = new Date(now);
+                const retention = summarizeRetentionProjections(
+                    observations
+                        .filter((observation) => observation.type !== 'probe')
+                        .map((observation) => projectObservationRetention(observation, { referenceTime: retentionReferenceTime })),
+                );
+                const retentionSummary = {
+                    active: retention.active,
+                    stale: retention.stale,
+                    archive: retention.archiveCandidates,
+                    immune: retention.immune,
+                };
 
                 // Recent observations (last 10, exclude probe)
                 const sorted = [...observations].filter(o => o.type !== 'probe')
@@ -399,56 +397,38 @@ async function handleApi(
                 const observations = filterDashboardObservations(
                     await getObservationStore().loadByProject(effectiveProjectId, { status: 'active' }),
                     effectiveProjectId,
-                ) as Array<{
-                    id?: number;
-                    title?: string;
-                    type?: string;
-                    importance?: number;
-                    accessCount?: number;
-                    lastAccessedAt?: string;
-                    createdAt?: string;
-                    entityName?: string;
-                }>;
+                );
 
-                const now = Date.now();
-                // Exclude probe from retention display -- not durable knowledge
-                const scored = observations.filter(obs => obs.type !== 'probe').map((obs) => {
-                    const age = now - new Date(obs.createdAt || now).getTime();
-                    const ageHours = age / (1000 * 60 * 60);
-                    const importance = obs.importance ?? 5;
-                    const accessCount = obs.accessCount ?? 0;
-
-                    // Exponential decay: score = importance * e^(-λt) + access_bonus
-                    const lambda = 0.01;
-                    const decayScore = importance * Math.exp(-lambda * ageHours);
-                    const accessBonus = Math.min(accessCount * 0.5, 3);
-                    const score = Math.min(decayScore + accessBonus, 10);
-
-                    // Immune if importance >= 8 or type is 'gotcha' or 'decision'
-                    const isImmune = importance >= 8 || obs.type === 'gotcha' || obs.type === 'decision';
-
-                    return {
-                        id: obs.id,
-                        title: obs.title,
-                        type: obs.type,
-                        entityName: obs.entityName,
-                        score: Math.round(score * 100) / 100,
-                        isImmune,
-                        ageHours: Math.round(ageHours * 10) / 10,
-                        accessCount,
-                    };
-                });
-
-                // Sort by score descending
-                scored.sort((a, b) => b.score - a.score);
-
-                const activeCount = scored.filter((s) => s.score >= 3).length;
-                const staleCount = scored.filter((s) => s.score < 3 && s.score >= 1).length;
-                const archiveCount = scored.filter((s) => s.score < 1).length;
-                const immuneCount = scored.filter((s) => s.isImmune).length;
+                const referenceTime = new Date();
+                const rows = observations
+                    .filter((observation) => observation.type !== 'probe')
+                    .map((observation) => ({
+                        observation,
+                        retention: projectObservationRetention(observation, { referenceTime }),
+                    }))
+                    .sort((a, b) => b.retention.displayScore - a.retention.displayScore);
+                const summary = summarizeRetentionProjections(rows.map((row) => row.retention));
+                const scored = rows.map(({ observation, retention }) => ({
+                    id: observation.id,
+                    title: observation.title,
+                    type: observation.type,
+                    entityName: observation.entityName,
+                    score: retention.displayScore,
+                    isImmune: retention.immune,
+                    zone: retention.zone,
+                    ageHours: retention.ageHours,
+                    accessCount: retention.accessCount,
+                    effectiveRetentionDays: retention.effectiveRetentionDays,
+                    immunityReason: retention.immunityReason,
+                }));
 
                 sendJson(res, {
-                    summary: { active: activeCount, stale: staleCount, archive: archiveCount, immune: immuneCount },
+                    summary: {
+                        active: summary.active,
+                        stale: summary.stale,
+                        archive: summary.archiveCandidates,
+                        immune: summary.immune,
+                    },
                     items: scored,
                 });
                 break;

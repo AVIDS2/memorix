@@ -66,6 +66,19 @@ const COPILOT_STATIC_HEADERS = {
 	"Copilot-Integration-Id": "vscode-chat",
 } as const;
 
+/**
+ * Build the input modality list for a MiniMax model from models.dev modality
+ * data. MiniMax models expose text, image, and (for newer models such as
+ * MiniMax-M3) video inputs through their Anthropic-compatible API, so we mirror
+ * whatever the upstream catalog reports instead of hard-coding a single pair.
+ */
+function buildMiniMaxInputModalities(input?: string[]): ("text" | "image" | "video")[] {
+	const modalities: ("text" | "image" | "video")[] = ["text"];
+	if (input?.includes("image")) modalities.push("image");
+	if (input?.includes("video")) modalities.push("video");
+	return modalities;
+}
+
 const KIMI_STATIC_HEADERS = {
 	"User-Agent": "KimiCLI/1.5",
 } as const;
@@ -1197,7 +1210,7 @@ async function loadModelsDevData(): Promise<Model<any>[]> {
 						// MiniMax's Anthropic-compatible API - SDK appends /v1/messages
 						baseUrl,
 						reasoning: m.reasoning === true,
-						input: m.modalities?.input?.includes("image") ? ["text", "image"] : ["text"],
+						input: buildMiniMaxInputModalities(m.modalities?.input),
 						cost: {
 							input: m.cost?.input || 0,
 							output: m.cost?.output || 0,

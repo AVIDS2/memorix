@@ -254,6 +254,12 @@ export interface ImageContent {
 	mimeType: string; // e.g., "image/jpeg", "image/png"
 }
 
+export interface VideoContent {
+	type: "video";
+	data: string; // base64 encoded video data
+	mimeType: string; // e.g., "video/mp4", "video/quicktime", "video/webm"
+}
+
 export interface ToolCall {
 	type: "toolCall";
 	id: string;
@@ -281,7 +287,7 @@ export type StopReason = "stop" | "length" | "toolUse" | "error" | "aborted";
 
 export interface UserMessage {
 	role: "user";
-	content: string | (TextContent | ImageContent)[];
+	content: string | (TextContent | ImageContent | VideoContent)[];
 	timestamp: number; // Unix timestamp in milliseconds
 }
 
@@ -304,7 +310,7 @@ export interface ToolResultMessage<TDetails = any> {
 	role: "toolResult";
 	toolCallId: string;
 	toolName: string;
-	content: (TextContent | ImageContent)[]; // Supports text and images
+	content: (TextContent | ImageContent | VideoContent)[]; // Supports text, images, and video
 	details?: TDetails;
 	isError: boolean;
 	timestamp: number; // Unix timestamp in milliseconds
@@ -577,7 +583,7 @@ export interface Model<TApi extends Api> {
 	 * Missing keys use provider defaults. null marks a level as unsupported.
 	 */
 	thinkingLevelMap?: ThinkingLevelMap;
-	input: ("text" | "image")[];
+	input: ("text" | "image" | "video")[];
 	cost: {
 		input: number; // $/million tokens
 		output: number; // $/million tokens

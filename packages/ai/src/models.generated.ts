@@ -6364,7 +6364,7 @@ export const MODELS = {
 			provider: "minimax",
 			baseUrl: "https://api.minimax.io/anthropic",
 			reasoning: true,
-			input: ["text", "image"],
+			input: ["text", "image", "video"],
 			cost: {
 				input: 0.3,
 				output: 1.2,
@@ -6417,7 +6417,7 @@ export const MODELS = {
 			provider: "minimax-cn",
 			baseUrl: "https://api.minimaxi.com/anthropic",
 			reasoning: true,
-			input: ["text", "image"],
+			input: ["text", "image", "video"],
 			cost: {
 				input: 0.3,
 				output: 1.2,

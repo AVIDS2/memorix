@@ -1,3 +1,5 @@
+[![MCP Toplist](https://mcptoplist.com/badge/glama%2FAVIDS2%2Fmemorix.svg)](https://mcptoplist.com/server/glama%2FAVIDS2%2Fmemorix)
+
 <p align="center">
   <img src="https://raw.githubusercontent.com/AVIDS2/memorix/main/assets/readme-hero.svg" alt="Memorix" width="720">
 </p>

@@ -162,7 +162,9 @@ const OPENCLAW_BUNDLE_AGENTS = new Set<AgentName>(['openclaw']);
 const ANTIGRAVITY_PLUGIN_AGENTS = new Set<AgentName>(['antigravity']);
 const HERMES_PLUGIN_AGENTS = new Set<AgentName>(['hermes']);
 const OMP_PACKAGE_AGENTS = new Set<AgentName>(['omp']);
-const PACKAGE_OWNED_INTEGRATION_AGENTS = new Set<AgentName>(['antigravity', 'openclaw', 'hermes', 'omp']);
+// These hosts have a native package/plugin surface. Their default setup must not
+// create project-local fallback files beside the user's own agent configuration.
+const PACKAGE_OWNED_INTEGRATION_AGENTS = new Set<AgentName>(['codex', 'antigravity', 'openclaw', 'hermes', 'omp']);
 const SUPPORTED_SETUP_AGENTS: AgentName[] = [
   'claude',
   'codex',
@@ -484,6 +486,32 @@ function mergeTomlMcpConfig(existingContent: string | null, generatedContent: st
   return `${parts.join('\n\n')}\n`;
 }
 
+type LegacyArtifactStatus = 'removed' | 'preserved' | 'missing';
+
+export interface CodexLegacyMigrationResult {
+  mcp: LegacyArtifactStatus;
+  projectHooks: LegacyArtifactStatus;
+  pluginFolder: LegacyArtifactStatus;
+}
+
+function getTomlSection(content: string, section: string): string | null {
+  const lines = content.split(/\r?\n/);
+  const header = `[${section}]`;
+  const start = lines.findIndex((line) => line.trim() === header);
+  if (start < 0) return null;
+
+  let end = lines.length;
+  for (let index = start + 1; index < lines.length; index += 1) {
+    const trimmed = lines[index].trim();
+    if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+      end = index;
+      break;
+    }
+  }
+
+  return lines.slice(start + 1, end).join('\n');
+}
+
 function isLegacyCodexMemorixNodeServer(server: MCPServerEntry): boolean {
   if (server.name !== 'memorix' || server.command.trim().toLowerCase() !== 'node') return false;
   const startsMemorixStdio = server.args.some((arg) => arg.trim().toLowerCase() === 'serve');
@@ -492,6 +520,22 @@ function isLegacyCodexMemorixNodeServer(server: MCPServerEntry): boolean {
     return /\/memorix\/dist\/cli\/index\.(?:[cm]?js)$/.test(normalized);
   });
   return startsMemorixStdio && sourceEntry;
+}
+
+function isOwnedLegacyCodexMcp(content: string): boolean {
+  const section = getTomlSection(content, 'mcp_servers.memorix');
+  if (section === null || getTomlSection(content, 'mcp_servers.memorix.env') !== null) return false;
+
+  const allowedKeys = new Set(['command', 'args', 'type', 'startup_timeout_sec', 'tool_timeout_sec', 'enabled']);
+  for (const rawLine of section.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith('#')) continue;
+    const key = line.match(/^([A-Za-z0-9_]+)\s*=/)?.[1];
+    if (!key || !allowedKeys.has(key)) return false;
+  }
+
+  const server = new CodexMCPAdapter().parse(content).find((entry) => entry.name === 'memorix');
+  return Boolean(server && isLegacyCodexMemorixNodeServer(server));
 }
 
 /**
@@ -508,14 +552,94 @@ export async function removeLegacyCodexMemorixMcpConfig(
     return { configPath, removed: false };
   }
 
-  const adapter = new CodexMCPAdapter();
-  const legacyServer = adapter.parse(existingContent).find(isLegacyCodexMemorixNodeServer);
-  if (!legacyServer) return { configPath, removed: false };
+  if (!isOwnedLegacyCodexMcp(existingContent)) return { configPath, removed: false };
 
   let nextContent = removeTomlSection(existingContent, 'mcp_servers.memorix.env');
   nextContent = removeTomlSection(nextContent, 'mcp_servers.memorix');
   await writeFile(configPath, nextContent ? `${nextContent}\n` : '', 'utf-8');
   return { configPath, removed: true };
+}
+
+function collectHookCommands(value: unknown, commands: string[]): void {
+  if (Array.isArray(value)) {
+    for (const item of value) collectHookCommands(item, commands);
+    return;
+  }
+  if (!value || typeof value !== 'object') return;
+
+  for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+    if ((key === 'command' || key === 'commandWindows') && typeof child === 'string') {
+      commands.push(child);
+    } else {
+      collectHookCommands(child, commands);
+    }
+  }
+}
+
+function isOwnedLegacyCodexHooks(content: string): boolean {
+  try {
+    const parsed = JSON.parse(content) as { hooks?: unknown };
+    if (!parsed.hooks || typeof parsed.hooks !== 'object') return false;
+    const commands: string[] = [];
+    collectHookCommands(parsed.hooks, commands);
+    return commands.length > 0
+      && commands.every((command) => /^memorix(?:\.cmd)?\s+hook(?:\s|$)/i.test(command.trim()));
+  } catch {
+    return false;
+  }
+}
+
+async function removeOwnedLegacyCodexPluginFolder(homeDir: string): Promise<LegacyArtifactStatus> {
+  const canonicalPath = path.join(homeDir, 'plugins', 'memorix');
+  const legacyPath = path.join(homeDir, '.codex', 'plugins', 'memorix');
+  if (!existsSync(legacyPath)) return 'missing';
+  if (!existsSync(canonicalPath)) return 'preserved';
+
+  try {
+    const manifest = JSON.parse(await readFile(path.join(legacyPath, '.codex-plugin', 'plugin.json'), 'utf-8')) as Record<string, unknown>;
+    const repository = String(manifest.repository ?? '');
+    if (manifest.name !== 'memorix' || !repository.includes('github.com/AVIDS2/memorix')) return 'preserved';
+    await rm(legacyPath, { recursive: true, force: true });
+    return 'removed';
+  } catch {
+    return 'preserved';
+  }
+}
+
+export async function migrateLegacyCodexIntegration(options: {
+  homeDir?: string;
+  projectRoot?: string;
+} = {}): Promise<CodexLegacyMigrationResult> {
+  const homeDir = options.homeDir ?? homedir();
+  const projectRoot = options.projectRoot ?? process.cwd();
+  const configPath = path.join(homeDir, '.codex', 'config.toml');
+  let mcp: LegacyArtifactStatus = 'missing';
+
+  try {
+    const content = await readFile(configPath, 'utf-8');
+    if (getTomlSection(content, 'mcp_servers.memorix') !== null) {
+      mcp = (await removeLegacyCodexMemorixMcpConfig(configPath)).removed ? 'removed' : 'preserved';
+    }
+  } catch {
+    mcp = 'missing';
+  }
+
+  const hooksPath = path.join(projectRoot, '.codex', 'hooks.json');
+  let projectHooks: LegacyArtifactStatus = 'missing';
+  try {
+    const content = await readFile(hooksPath, 'utf-8');
+    if (isOwnedLegacyCodexHooks(content)) {
+      await rm(hooksPath, { force: true });
+      projectHooks = 'removed';
+    } else {
+      projectHooks = 'preserved';
+    }
+  } catch {
+    projectHooks = 'missing';
+  }
+
+  const pluginFolder = await removeOwnedLegacyCodexPluginFolder(homeDir);
+  return { mcp, projectHooks, pluginFolder };
 }
 
 function mergeYamlMcpConfig(existingContent: string | null, generatedContent: string): string {
@@ -678,7 +802,9 @@ export async function installPluginPackage(options: PluginInstallOptions): Promi
   }
 
   if (options.agent === 'codex') {
-    const pluginPath = path.join(home, '.codex', 'plugins', 'memorix');
+    // Codex discovers personal plugins from the user marketplace. Keep the
+    // package outside ~/.codex so setup does not look like project/config state.
+    const pluginPath = path.join(home, 'plugins', 'memorix');
     const marketplacePath = path.join(home, '.agents', 'plugins', 'marketplace.json');
     await copyDir(source, pluginPath);
     await stampCodexPluginVersion(pluginPath);
@@ -908,6 +1034,39 @@ function tryInstallClaudePlugin(marketplaceRoot: string): { ok: boolean; message
   };
 }
 
+export type CodexPluginState = 'ready' | 'disabled' | 'missing' | 'unknown';
+
+export function parseCodexPluginState(content: string): CodexPluginState {
+  try {
+    // Some Windows builds emit a one-line diagnostic before the requested JSON.
+    const start = content.indexOf('{');
+    const end = content.lastIndexOf('}');
+    if (start < 0 || end < start) return 'unknown';
+    const parsed = JSON.parse(content.slice(start, end + 1)) as { installed?: unknown };
+    if (!Array.isArray(parsed.installed)) return 'unknown';
+
+    const plugin = parsed.installed.find((entry): entry is Record<string, unknown> => (
+      Boolean(entry)
+      && typeof entry === 'object'
+      && (entry as Record<string, unknown>).pluginId === 'memorix@personal'
+    ));
+    if (!plugin || plugin.installed !== true) return 'missing';
+    return plugin.enabled === true ? 'ready' : 'disabled';
+  } catch {
+    return 'unknown';
+  }
+}
+
+function getCodexPluginState(): CodexPluginState {
+  const result = spawnSync('codex', ['plugin', 'list', '--json'], {
+    encoding: 'utf-8',
+    stdio: 'pipe',
+    shell: process.platform === 'win32',
+  });
+  if (result.status !== 0) return 'unknown';
+  return parseCodexPluginState(result.stdout || '');
+}
+
 export function tryInstallCodexPlugin(): { ok: boolean; message: string } {
   const result = spawnSync('codex', ['plugin', 'add', 'memorix@personal', '--json'], {
     encoding: 'utf-8',
@@ -915,13 +1074,28 @@ export function tryInstallCodexPlugin(): { ok: boolean; message: string } {
     shell: process.platform === 'win32',
   });
 
-  if (result.status === 0) {
-    return { ok: true, message: 'codex: plugin installed from Personal marketplace' };
-  }
-
   const output = `${result.stderr || ''}\n${result.stdout || ''}`.toLowerCase();
-  if (output.includes('already')) {
-    return { ok: true, message: 'codex: plugin already installed from Personal marketplace' };
+  const addFinished = result.status === 0 || output.includes('already');
+  if (addFinished) {
+    const pluginState = getCodexPluginState();
+    if (pluginState === 'ready') {
+      return {
+        ok: true,
+        message: result.status === 0
+          ? 'codex: plugin installed and enabled from Personal marketplace'
+          : 'codex: plugin already installed and enabled from Personal marketplace',
+      };
+    }
+    if (pluginState === 'disabled') {
+      return {
+        ok: false,
+        message: 'codex: Memorix plugin is installed but disabled. Enable it in Codex Plugins before any legacy MCP or project hooks are removed.',
+      };
+    }
+    return {
+      ok: false,
+      message: 'codex: plugin registration finished, but Codex did not confirm an enabled Memorix plugin. Legacy MCP and project hooks were kept unchanged.',
+    };
   }
 
   const detail = (result.stderr || result.stdout || result.error?.message || '').trim();
@@ -1106,7 +1280,9 @@ export async function installAgentSetup(agent: AgentName, plan: SetupPlan, globa
   const hasAntigravityPlugin = plan.actions.includes('antigravity-plugin') && agent === 'antigravity';
   const hasHermesPlugin = plan.actions.includes('hermes-plugin') && agent === 'hermes';
   const hasOmpPackage = plan.actions.includes('omp-package') && agent === 'omp';
-  const wantsMcpConfig = plan.mcp !== 'none' && agent !== 'pi';
+  // Codex's supported default is the user-level plugin. Never create a
+  // project-local .codex/config.toml as an implicit fallback.
+  const wantsMcpConfig = plan.mcp !== 'none' && agent !== 'pi' && !(agent === 'codex' && !global);
 
   if (PLUGIN_PACKAGE_AGENTS.has(agent) && plan.includePlugin && !global) {
     p.log.info(`${agent}: project setup leaves user-level plugins untouched. Run \`memorix setup --agent ${agent} --global\` to install its plugin, skills, and lifecycle hooks.`);
@@ -1115,7 +1291,7 @@ export async function installAgentSetup(agent: AgentName, plan: SetupPlan, globa
   if (hasPluginPackage) {
     const result = await installPluginPackage({
       agent: agent as PluginInstallOptions['agent'],
-      includeHooks: plan.actions.includes('hooks'),
+      includeHooks: plan.includeHooks,
     });
     p.log.success(`${agent}: plugin package -> ${result.pluginPath}`);
     if (result.marketplacePath) {
@@ -1123,17 +1299,16 @@ export async function installAgentSetup(agent: AgentName, plan: SetupPlan, globa
     }
     if (agent === 'codex') {
       const install = tryInstallCodexPlugin();
-      if (install.ok) p.log.success(install.message);
-      else p.log.warn(install.message);
       if (install.ok) {
-        try {
-          const migration = await removeLegacyCodexMemorixMcpConfig();
-          if (migration.removed) {
-            p.log.info(`codex: removed legacy source-path MCP config from ${migration.configPath}`);
-          }
-        } catch {
-          p.log.warn('codex: plugin installed, but the legacy MCP config could not be checked');
-        }
+        p.log.success(install.message);
+        const migration = await migrateLegacyCodexIntegration({ projectRoot: process.cwd() });
+        if (migration.mcp === 'removed') p.log.info('codex: removed the legacy source-path MCP block; the enabled plugin now owns MCP.');
+        if (migration.mcp === 'preserved') p.log.warn('codex: kept a customized legacy Memorix MCP block; remove it manually only after confirming plugin MCP works.');
+        if (migration.projectHooks === 'removed') p.log.info('codex: removed a legacy project-local Memorix hooks.json; plugin hooks now own lifecycle capture.');
+        if (migration.projectHooks === 'preserved') p.log.warn('codex: kept a project .codex/hooks.json because it contains non-Memorix commands.');
+        if (migration.pluginFolder === 'removed') p.log.info('codex: removed the migrated legacy plugin folder under ~/.codex/plugins.');
+      } else {
+        p.log.warn(install.message);
       }
     } else if (agent === 'claude' && result.marketplaceRoot) {
       const install = tryInstallClaudePlugin(result.marketplaceRoot);
@@ -1224,6 +1399,8 @@ export async function installAgentSetup(agent: AgentName, plan: SetupPlan, globa
       const result = await installMcpConfig({ agent: agent as McpConfigAgent, projectRoot: targetRoot, global, mcp });
       p.log.success(`${agent}: MCP config -> ${result.configPath}`);
     }
+  } else if (agent === 'codex' && !global && plan.mcp !== 'none') {
+    p.log.info('codex: project-local .codex config is intentionally untouched. Run `memorix setup --agent codex --global` to install the user-level plugin.');
   }
 
   if (hasPluginPackage) {

@@ -13,6 +13,8 @@ import {
   installGeminiExtensionPackage,
   installHermesPluginPackage,
   installAgentSetup,
+  migrateLegacyCodexIntegration,
+  parseCodexPluginState,
   installOmpPackage,
   installOpenClawBundlePackage,
   installPiPackage,
@@ -49,12 +51,28 @@ async function expectOfficialSkills(skillsRoot: string): Promise<void> {
 }
 
 describe('setup command planning', () => {
-  it('defaults to project-scoped stdio MCP without changing user plugins', () => {
+  it('keeps Codex project setup plugin-only and leaves .codex untouched', () => {
     const plan = buildSetupPlan({ agent: 'codex', mcp: 'stdio' });
     expect(plan.mcp).toBe('stdio');
     expect(plan.actions).not.toContain('plugin-package');
-    expect(plan.actions).toContain('project-guidance');
+    expect(plan.actions).not.toContain('project-guidance');
+    expect(plan.actions).not.toContain('hooks');
     expect(plan.actions).not.toContain('http-control-plane');
+  });
+
+  it('does not create project-local Codex config during non-global setup', async () => {
+    const tmpDir = makeTmpDir();
+    const originalCwd = process.cwd();
+    try {
+      process.chdir(tmpDir);
+      await installAgentSetup('codex', buildSetupPlan({ agent: 'codex', mcp: 'stdio' }), false);
+
+      await expect(fs.access(path.join(tmpDir, '.codex', 'config.toml'))).rejects.toThrow();
+      await expect(fs.access(path.join(tmpDir, 'AGENTS.md'))).rejects.toThrow();
+    } finally {
+      process.chdir(originalCwd);
+      await cleanup(tmpDir);
+    }
   });
 
   it('uses the user-level plugin package only when --global is requested', () => {
@@ -180,12 +198,12 @@ describe('plugin package installer', () => {
         homeDir: tmpDir,
       });
 
-      const pluginManifest = path.join(tmpDir, '.codex', 'plugins', 'memorix', '.codex-plugin', 'plugin.json');
-      const hooksConfig = path.join(tmpDir, '.codex', 'plugins', 'memorix', 'hooks', 'hooks.json');
+      const pluginManifest = path.join(tmpDir, 'plugins', 'memorix', '.codex-plugin', 'plugin.json');
+      const hooksConfig = path.join(tmpDir, 'plugins', 'memorix', 'hooks', 'hooks.json');
       const marketplace = path.join(tmpDir, '.agents', 'plugins', 'marketplace.json');
-      const skillsRoot = path.join(tmpDir, '.codex', 'plugins', 'memorix', 'skills');
+      const skillsRoot = path.join(tmpDir, 'plugins', 'memorix', 'skills');
 
-      expect(result.pluginPath).toBe(path.join(tmpDir, '.codex', 'plugins', 'memorix'));
+      expect(result.pluginPath).toBe(path.join(tmpDir, 'plugins', 'memorix'));
       expect(result.marketplacePath).toBe(marketplace);
       const manifest = JSON.parse(await fs.readFile(pluginManifest, 'utf-8'));
       const hooks = JSON.parse(await fs.readFile(hooksConfig, 'utf-8'));
@@ -205,7 +223,7 @@ describe('plugin package installer', () => {
       expect(catalog.name).toBe('personal');
       expect(catalog.plugins[0]).toMatchObject({
         name: 'memorix',
-        source: { source: 'local', path: './.codex/plugins/memorix' },
+        source: { source: 'local', path: './plugins/memorix' },
         policy: { installation: 'AVAILABLE', authentication: 'ON_INSTALL' },
         category: 'Developer Tools',
       });
@@ -306,6 +324,108 @@ describe('plugin package installer', () => {
     }
   });
 
+});
+
+describe('Codex legacy integration migration', () => {
+  it('requires the exact Personal marketplace plugin to be enabled before migration', () => {
+    expect(parseCodexPluginState(JSON.stringify({
+      installed: [{ pluginId: 'memorix@personal', installed: true, enabled: true }],
+    }))).toBe('ready');
+    expect(parseCodexPluginState(JSON.stringify({
+      installed: [{ pluginId: 'memorix@personal', installed: true, enabled: false }],
+    }))).toBe('disabled');
+    expect(parseCodexPluginState(JSON.stringify({
+      installed: [{ pluginId: 'memorix@other', installed: true, enabled: true }],
+    }))).toBe('missing');
+    expect(parseCodexPluginState(`warning from Codex\n${JSON.stringify({
+      installed: [{ pluginId: 'memorix@personal', installed: true, enabled: true }],
+    })}`)).toBe('ready');
+    expect(parseCodexPluginState('not json')).toBe('unknown');
+  });
+
+  it('removes only Memorix-owned legacy MCP, hooks, and plugin files', async () => {
+    const tmpDir = makeTmpDir();
+    const homeDir = path.join(tmpDir, 'home');
+    const projectRoot = path.join(tmpDir, 'project');
+    try {
+      const configPath = path.join(homeDir, '.codex', 'config.toml');
+      const hooksPath = path.join(projectRoot, '.codex', 'hooks.json');
+      const legacyPluginPath = path.join(homeDir, '.codex', 'plugins', 'memorix');
+      const canonicalPluginPath = path.join(homeDir, 'plugins', 'memorix');
+      await fs.mkdir(path.dirname(configPath), { recursive: true });
+      await fs.mkdir(path.dirname(hooksPath), { recursive: true });
+      await fs.mkdir(path.join(legacyPluginPath, '.codex-plugin'), { recursive: true });
+      await fs.mkdir(canonicalPluginPath, { recursive: true });
+      await fs.writeFile(configPath, [
+        '[mcp_servers.other]',
+        'command = "other"',
+        'args = []',
+        '',
+        '[mcp_servers.memorix]',
+        'command = "node"',
+        'args = ["e:/projects/memorix/dist/cli/index.js", "serve"]',
+        '',
+      ].join('\n'), 'utf-8');
+      await fs.writeFile(hooksPath, JSON.stringify({
+        hooks: {
+          SessionStart: [{ type: 'command', command: 'memorix hook', timeout: 10 }],
+          Stop: [{ type: 'command', command: 'memorix hook', timeout: 10 }],
+        },
+      }), 'utf-8');
+      await fs.writeFile(path.join(legacyPluginPath, '.codex-plugin', 'plugin.json'), JSON.stringify({
+        name: 'memorix',
+        repository: 'https://github.com/AVIDS2/memorix',
+      }), 'utf-8');
+
+      const result = await migrateLegacyCodexIntegration({ homeDir, projectRoot });
+      const config = await fs.readFile(configPath, 'utf-8');
+
+      expect(result).toEqual({ mcp: 'removed', projectHooks: 'removed', pluginFolder: 'removed' });
+      expect(config).toContain('[mcp_servers.other]');
+      expect(config).not.toContain('[mcp_servers.memorix]');
+      await expect(fs.access(hooksPath)).rejects.toThrow();
+      await expect(fs.access(legacyPluginPath)).rejects.toThrow();
+      await expect(fs.access(canonicalPluginPath)).resolves.toBeUndefined();
+    } finally {
+      await cleanup(tmpDir);
+    }
+  });
+
+  it('preserves Codex entries that contain user customization or foreign hooks', async () => {
+    const tmpDir = makeTmpDir();
+    const homeDir = path.join(tmpDir, 'home');
+    const projectRoot = path.join(tmpDir, 'project');
+    try {
+      const configPath = path.join(homeDir, '.codex', 'config.toml');
+      const hooksPath = path.join(projectRoot, '.codex', 'hooks.json');
+      await fs.mkdir(path.dirname(configPath), { recursive: true });
+      await fs.mkdir(path.dirname(hooksPath), { recursive: true });
+      await fs.writeFile(configPath, [
+        '[mcp_servers.memorix]',
+        'command = "memorix"',
+        'args = ["serve"]',
+        '',
+        '[mcp_servers.memorix.env]',
+        'MEMORIX_MODE = "team"',
+        '',
+      ].join('\n'), 'utf-8');
+      await fs.writeFile(hooksPath, JSON.stringify({
+        hooks: {
+          SessionStart: [{ type: 'command', command: 'memorix hook' }],
+          Stop: [{ type: 'command', command: 'other-agent hook' }],
+        },
+      }), 'utf-8');
+
+      const result = await migrateLegacyCodexIntegration({ homeDir, projectRoot });
+
+      expect(result.mcp).toBe('preserved');
+      expect(result.projectHooks).toBe('preserved');
+      await expect(fs.readFile(configPath, 'utf-8')).resolves.toContain('MEMORIX_MODE');
+      await expect(fs.readFile(hooksPath, 'utf-8')).resolves.toContain('other-agent hook');
+    } finally {
+      await cleanup(tmpDir);
+    }
+  });
 });
 
 describe('extension package installer', () => {
@@ -612,9 +732,6 @@ describe('setup MCP config installer', () => {
           'command = "node"',
           'args = ["E:/work/memorix/dist/cli/index.js", "serve"]',
           '',
-          '[mcp_servers.memorix.env]',
-          'LEGACY_FLAG = "1"',
-          '',
         ].join('\n'),
         'utf-8',
       );
@@ -625,7 +742,6 @@ describe('setup MCP config installer', () => {
       expect(result).toMatchObject({ configPath, removed: true });
       expect(content).toContain('[mcp_servers.other]');
       expect(content).not.toContain('[mcp_servers.memorix]');
-      expect(content).not.toContain('LEGACY_FLAG');
     } finally {
       await cleanup(tmpDir);
     }
@@ -639,6 +755,9 @@ describe('setup MCP config installer', () => {
         '[mcp_servers.memorix]',
         'command = "node"',
         'args = ["C:/tools/custom-memorix-server.js", "serve"]',
+        '',
+        '[mcp_servers.memorix.env]',
+        'MEMORIX_MODE = "team"',
         '',
       ].join('\n');
       await fs.writeFile(configPath, customConfig, 'utf-8');

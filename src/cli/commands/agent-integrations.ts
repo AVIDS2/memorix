@@ -12,6 +12,7 @@ import {
   getSetupAgentTargets,
   installPluginPackage,
   installMcpConfig,
+  migrateLegacyCodexIntegration,
   tryInstallCodexPlugin,
   type McpConfigAgent,
 } from './setup.js';
@@ -228,7 +229,7 @@ function asRecordArray(value: unknown): JsonRecord[] {
 }
 
 function codexPluginPath(): string {
-  return `${homedir()}/.codex/plugins/${CODEX_PLUGIN_NAME}`;
+  return `${homedir()}/plugins/${CODEX_PLUGIN_NAME}`;
 }
 
 function codexPluginMcpPath(): string {
@@ -254,7 +255,10 @@ function isMemorixCodexPlugin(value: JsonRecord): boolean {
 
 export function parseCodexPluginList(output: string): AgentPluginCheck['runtime'] | null {
   try {
-    const parsed = asRecord(JSON.parse(output));
+    const start = output.indexOf('{');
+    const end = output.lastIndexOf('}');
+    if (start < 0 || end < start) return null;
+    const parsed = asRecord(JSON.parse(output.slice(start, end + 1)));
     if (!parsed) return null;
     const entries = [...asRecordArray(parsed.installed), ...asRecordArray(parsed.available)];
     const plugin = entries.find(isMemorixCodexPlugin);
@@ -407,7 +411,7 @@ async function inspectCodexMarketplace(): Promise<AgentPluginCheck> {
 
   const source = asRecord(entry.source);
   const sourcePath = typeof source?.path === 'string' ? source.path : '';
-  const issues = source?.source === 'local' && normalizeMarketplacePath(sourcePath) === '.codex/plugins/memorix'
+  const issues = source?.source === 'local' && normalizeMarketplacePath(sourcePath) === 'plugins/memorix'
     ? []
     : ['codex-marketplace-entry-stale'];
   return {
@@ -1060,9 +1064,11 @@ export async function repairAgentIntegrations(options: {
         } else {
           if (!options.dry) {
             await installPluginPackage({ agent: 'codex' });
-            if (needsInstall) {
-              const install = tryInstallCodexPlugin();
-              if (!install.ok) skipped.push('codex:plugin:global:install-pending');
+            const install = tryInstallCodexPlugin();
+            if (install.ok) {
+              await migrateLegacyCodexIntegration({ projectRoot });
+            } else {
+              skipped.push('codex:plugin:global:install-pending');
             }
           }
           changed.push('codex:plugin:global');

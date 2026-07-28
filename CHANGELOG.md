@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.10] - 2026-07-28
+
+### Added
+- **Official MCP Registry publication path** -- Ships the checked `server.json` manifest and a GitHub OIDC publication step that runs after npm succeeds. This release is the first package version eligible for official Registry registration.
+
+### Fixed
+- **Codex plugin ownership** -- `memorix setup --agent codex --global` now uses Codex's personal marketplace plugin path and never creates project-local `.codex` configuration as a fallback. Custom user MCP configuration stays untouched; legacy Memorix files are migrated only after Codex confirms the plugin is enabled.
+- **Glama-compatible Docker build** -- Docker now installs every workspace dependency set before compiling. CI builds and starts the HTTP control-plane image, so a future container regression is caught on the pull request instead of by an external registry scan.
+
 ## [1.2.9] - 2026-07-28
 
 ### Fixed

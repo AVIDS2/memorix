@@ -243,7 +243,7 @@ memorix setup --agent omp --global
 What this installs depends on the target agent:
 
 - Claude Code: local `memorix-local` marketplace plugin, best-effort `claude plugin install memorix@memorix-local`, plugin-bundled stdio MCP, hooks, skills, plus `CLAUDE.md` guidance.
-- Codex: local Personal marketplace plugin under `~/.codex/plugins/memorix`, marketplace entry at `~/.agents/plugins/marketplace.json`, best-effort `codex plugin add memorix@personal`, plugin-bundled stdio MCP, skills, and `SessionStart` / `UserPromptSubmit` / `PostToolUse` / `PreCompact` / `Stop` hooks, plus `AGENTS.md` guidance. Codex asks the user to review plugin hooks once in `/hooks` before non-managed hooks run.
+- Codex: local Personal marketplace plugin under `~/plugins/memorix`, marketplace entry at `~/.agents/plugins/marketplace.json`, best-effort `codex plugin add memorix@personal`, plugin-bundled stdio MCP, skills, and `SessionStart` / `UserPromptSubmit` / `PostToolUse` / `PreCompact` / `Stop` hooks. It does not create project `.codex` files or overwrite model, approval, or sandbox settings. Codex asks the user to review plugin hooks once in `/hooks` before non-managed hooks run.
 - GitHub Copilot CLI: local plugin package under `~/.copilot/plugins/local/memorix`, best-effort `copilot plugin install <local-path>`, plugin-bundled stdio MCP, hooks, and skills.
 - Cursor: Cursor MCP config, `.cursor/rules/memorix.mdc`, skills, and hook guidance through Cursor's project config surfaces.
 - Pi: user Pi package with extension-based hook capture and a Memorix skill, registered through `pi install <path> --approve`; project-local setup uses `-l`.
@@ -668,7 +668,7 @@ If it reports stale MCP command paths, missing `memorix` MCP entries, missing Cl
 memorix repair agents --agent <agent>
 ```
 
-Repair only rewrites Memorix-owned MCP entries, Memorix-owned guidance blocks, and an explicitly targeted Codex Memorix plugin bundle. It does not edit unrelated user config or turn on a user-disabled Codex plugin; enable that one from `/plugins`.
+Repair only rewrites Memorix-owned MCP entries, Memorix-owned guidance blocks, and an explicitly targeted Codex Memorix plugin bundle. It does not edit unrelated user config, grant Codex hook trust, or turn on a user-disabled Codex plugin; review hooks in `/hooks` and enable a disabled plugin in `/plugins`.
 
 ### 1. Is the workspace a Git repo?
 

@@ -6,6 +6,7 @@ import path from 'node:path';
 
 import doctorCommand from '../../src/cli/commands/doctor.js';
 import repairCommand from '../../src/cli/commands/repair.js';
+import { parseCodexPluginList } from '../../src/cli/commands/agent-integrations.js';
 import { getCliVersion } from '../../src/cli/version.js';
 
 vi.mock('node:child_process', async (importOriginal) => {
@@ -153,9 +154,10 @@ describe('agent doctor and repair', () => {
 
   function writeCurrentCodexPluginSetup(options: { trustedHooks?: boolean } = {}) {
     const trustedHooks = options.trustedHooks ?? true;
-    const pluginPath = path.join(sandboxRoot, '.codex', 'plugins', 'memorix');
+    const pluginPath = path.join(sandboxRoot, 'plugins', 'memorix');
     mkdirSync(path.join(pluginPath, '.codex-plugin'), { recursive: true });
     mkdirSync(path.join(pluginPath, 'hooks'), { recursive: true });
+    mkdirSync(path.join(sandboxRoot, '.codex'), { recursive: true });
     mkdirSync(path.join(sandboxRoot, '.agents', 'plugins'), { recursive: true });
 
     writeFileSync(path.join(pluginPath, '.codex-plugin', 'plugin.json'), JSON.stringify({
@@ -196,7 +198,7 @@ describe('agent doctor and repair', () => {
       name: 'personal',
       plugins: [{
         name: 'memorix',
-        source: { source: 'local', path: './.codex/plugins/memorix' },
+        source: { source: 'local', path: './plugins/memorix' },
       }],
     }, null, 2), 'utf-8');
   }
@@ -423,6 +425,19 @@ describe('agent doctor and repair', () => {
     expect(humanResult.stdout).toContain('Hooks: waiting for Codex approval on first use; MCP remains available.');
     expect(humanResult.stdout).toContain('No file repair needed.');
     expect(humanResult.stdout).not.toContain('Repair:');
+  });
+
+  it('parses a Codex plugin list even when a Windows diagnostic precedes its JSON', () => {
+    const parsed = parseCodexPluginList(`warning from Codex\n${JSON.stringify({
+      installed: [{
+        pluginId: 'memorix@personal',
+        installed: true,
+        enabled: true,
+      }],
+      available: [],
+    })}`);
+
+    expect(parsed).toMatchObject({ installed: true, enabled: true });
   });
 
   it('doctor agents reports a disabled Codex plugin as repairable', async () => {

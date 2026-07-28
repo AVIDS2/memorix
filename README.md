@@ -218,7 +218,7 @@ memorix setup --agent claude --global   # or codex, copilot, cursor, pi, gemini-
 
 Legacy `memorix.yml`, `.env`, and `~/.memorix/config.json` are still read for compatibility, but new setup flows use TOML.
 
-If you want repo-local guidance or hooks for a specific repository, run the same setup command from inside that repo without `--global`.
+If you want repo-local guidance or hooks for a specific repository, run the same setup command from inside that repo without `--global`. Codex is the exception: its supported path is the user-level plugin install, so Memorix leaves project `.codex` configuration alone.
 
 <h2 id="quick-start"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/tags/light/section-quick-start.svg"><img src="assets/tags/section-quick-start.svg" alt="Quick Start" height="32" /></picture></h2>
 
@@ -246,7 +246,7 @@ memorix setup --agent omp --global
 What it installs depends on the target agent, but the goal is the same: make Memorix available wherever you open that agent without asking you to wire every repo by hand.
 
 - Claude Code: installs the Memorix plugin package, adds `CLAUDE.md` guidance, and enables hook capture when you do not pass `--noHooks`.
-- Codex: installs the Memorix plugin package with stdio MCP, skills, and lifecycle hooks, then adds `AGENTS.md` guidance. When Codex asks, review the plugin hook definition once with `/hooks`; `--noHooks` skips automatic capture.
+- Codex: installs one user-level Memorix plugin with bundled stdio MCP, skills, and lifecycle hooks. It does not write project-local `.codex` config or change your model, approval, or sandbox settings. When Codex asks, review the plugin hook definition once with `/hooks`; `--noHooks` skips automatic capture.
 - GitHub Copilot CLI: installs the Copilot plugin package and official Memorix skills.
 - Pi: installs the user-level Pi package and official skills.
 - Cursor: writes Cursor MCP/rules/config entries in the chosen scope.

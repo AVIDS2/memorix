@@ -76,7 +76,7 @@ memorix setup --agent omp --global
 What this does:
 
 - Claude Code: installs a local marketplace plugin, attempts `claude plugin install memorix@memorix-local`, and writes `CLAUDE.md` guidance.
-- Codex: installs a local Personal marketplace plugin, attempts `codex plugin add memorix@personal`, and writes `AGENTS.md` guidance.
+- Codex: installs a user-level Personal marketplace plugin under `~/plugins/memorix`, attempts `codex plugin add memorix@personal`, and keeps project-local `.codex` configuration untouched. The plugin owns its MCP server, skills, and optional hooks without changing your model, approval, or sandbox settings.
 - GitHub Copilot CLI: installs a local plugin package and attempts `copilot plugin install <local-path>`.
 - Cursor: writes Cursor MCP config, rules, skills, and hook guidance.
 - Pi: installs the user-level Memorix Pi package and attempts `pi install <path> --approve`.
@@ -132,9 +132,9 @@ memorix doctor agents --agent <agent>
 memorix repair agents --agent <agent>
 ```
 
-The doctor checks Memorix-owned MCP entries and guidance files for stale command paths, missing `memorix` MCP servers, missing Claude `alwaysLoad`, and outdated Memory Autopilot rules. For `codex --scope global`, it also checks the local plugin bundle, Personal marketplace entry, five declared lifecycle hooks, Codex's trusted hook state, and the installed/enabled state reported by `codex plugin list`.
+The doctor checks Memorix-owned MCP entries and guidance files for stale command paths, missing `memorix` MCP servers, missing Claude `alwaysLoad`, and outdated Memory Autopilot rules. For `codex --scope global`, MCP is owned by the user-level plugin rather than a direct `config.toml` entry. The doctor checks the plugin bundle, Personal marketplace entry, five declared lifecycle hooks, and the installed/enabled state reported by `codex plugin list`; it reports, but never auto-grants, any hook review Codex still requires.
 
-After Codex setup, start a new thread so enabled plugins can load. Codex does not expose a command that proves hooks are already active inside the current thread. If doctor reports `codex-plugin-disabled`, open `/plugins` and turn Memorix on there; repair does not toggle a user-disabled plugin.
+After Codex setup, start a new thread so enabled plugins can load. If Codex asks to review plugin hooks, approve or decline them in `/hooks`; this is user-level plugin consent, not project trust. If doctor reports `codex-plugin-disabled`, open `/plugins` and turn Memorix on there; repair does not toggle a user-disabled plugin.
 
 ### Option B: manual stdio MCP
 
@@ -330,7 +330,9 @@ HTTP variants in Windsurf-like clients may use `serverUrl`:
 }
 ```
 
-### Codex fallback
+### Codex manual MCP compatibility
+
+The user-level plugin is the default and should be the only Memorix route for Codex. Use this compatibility fallback only when the Codex plugin system is unavailable; do not add it alongside `memorix@personal`, because that creates duplicate MCP ownership.
 
 Config file: `~/.codex/config.toml`
 

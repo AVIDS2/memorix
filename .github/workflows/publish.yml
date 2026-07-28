@@ -1,4 +1,4 @@
-name: Publish to npm
+name: Publish to npm and MCP Registry
 
 on:
   workflow_dispatch:
@@ -17,8 +17,25 @@ jobs:
           registry-url: https://registry.npmjs.org
           cache: npm
       - run: npm ci
+      - run: npm run check:mcp-registry
       - run: npm run build
       - run: npm test
       - run: npm publish --provenance --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Install the official MCP Registry publisher
+        env:
+          MCP_PUBLISHER_VERSION: 1.8.0
+        run: |
+          set -euo pipefail
+          archive="mcp-publisher_linux_amd64.tar.gz"
+          base_url="https://github.com/modelcontextprotocol/registry/releases/download/v${MCP_PUBLISHER_VERSION}"
+          curl --fail --location --silent --show-error --output "$archive" "$base_url/$archive"
+          curl --fail --location --silent --show-error --output checksums.txt "$base_url/registry_${MCP_PUBLISHER_VERSION}_checksums.txt"
+          grep " $archive$" checksums.txt | sha256sum --check --
+          tar --extract --gzip --file "$archive"
+          install --mode 0755 mcp-publisher /usr/local/bin/mcp-publisher
+      - name: Publish to the official MCP Registry
+        run: |
+          mcp-publisher login github-oidc
+          mcp-publisher publish server.json

@@ -321,7 +321,13 @@ npm publish --access public
 
 Notes:
 
-- `prepublishOnly` runs build + test, but does not contact live model catalog APIs
+- `prepublishOnly` synchronizes and checks Registry metadata, then runs build + test; it does not contact live model catalog APIs
+- `server.json` is the official MCP Registry record. Keep it synchronized with
+  `package.json` by running `npm run sync:mcp-registry`; verify it with
+  `npm run check:mcp-registry` before a release.
+- The GitHub publish workflow publishes npm first, then uses GitHub OIDC to
+  publish the same verified version to the official MCP Registry. It does not
+  require a Registry token or private key in repository secrets.
 - `@memorix/ai`, `@memorix/agent-core`, `@memorix/tui`, and `@memorix/memcode` are internal workspaces. Their code is bundled into the root `memorix` distribution and they must stay `private` unless the project deliberately establishes an owned npm scope and a separate package-support contract.
 - npm publish is usually manual, especially when 2FA is enabled
 - GitHub release automation should not be treated as a substitute for manual runtime validation

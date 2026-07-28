@@ -46,3 +46,34 @@ jobs:
       - name: Verify the optional SQLite runtime loads on Node 26
         run: >-
           node -e "const Database = require('better-sqlite3'); const db = new Database(':memory:'); const row = db.prepare('select 1 as value').get(); db.close(); if (row.value !== 1) process.exit(1);"
+
+  docker-control-plane:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the published HTTP control-plane image
+        run: docker build --tag memorix:ci .
+      - name: Verify the image starts and becomes healthy
+        run: |
+          set -euo pipefail
+          docker run --detach --rm --name memorix-ci -p 3211:3211 memorix:ci
+          for attempt in {1..30}; do
+            if curl --fail --silent --show-error http://127.0.0.1:3211/health; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs memorix-ci
+          exit 1
+      - name: Remove the verification container
+        if: always()
+        run: docker rm --force memorix-ci || true
+
+  mcp-registry-metadata:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm run check:mcp-registry

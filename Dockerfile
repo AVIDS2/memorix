@@ -7,6 +7,10 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/*
 
 COPY package*.json ./
+COPY packages/ai/package.json ./packages/ai/package.json
+COPY packages/agent-core/package.json ./packages/agent-core/package.json
+COPY packages/tui/package.json ./packages/tui/package.json
+COPY packages/memcode/package.json ./packages/memcode/package.json
 RUN npm ci
 
 FROM deps AS build
@@ -23,6 +27,10 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/*
 
 COPY package*.json ./
+COPY packages/ai/package.json ./packages/ai/package.json
+COPY packages/agent-core/package.json ./packages/agent-core/package.json
+COPY packages/tui/package.json ./packages/tui/package.json
+COPY packages/memcode/package.json ./packages/memcode/package.json
 RUN npm ci --omit=dev
 
 FROM node:22-bookworm-slim AS runtime

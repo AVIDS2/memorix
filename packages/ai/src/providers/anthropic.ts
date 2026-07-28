@@ -25,6 +25,7 @@ import type {
 	Tool,
 	ToolCall,
 	ToolResultMessage,
+	VideoContent,
 } from "../types.ts";
 import { AssistantMessageEventStream } from "../utils/event-stream.ts";
 import { headersToRecord } from "../utils/headers.ts";
@@ -107,32 +108,33 @@ const fromClaudeCodeName = (name: string, tools?: Tool[]) => {
 /**
  * Convert content blocks to Anthropic API format
  */
-function convertContentBlocks(content: (TextContent | ImageContent)[]):
-	| string
-	| Array<
-			| { type: "text"; text: string }
-			| {
-					type: "image";
-					source: {
-						type: "base64";
-						media_type: "image/jpeg" | "image/png" | "image/gif" | "image/webp";
-						data: string;
-					};
-			  }
-	  > {
+function convertContentBlocks(content: (TextContent | ImageContent | VideoContent)[]): string | ContentBlockParam[] {
 	// If only text blocks, return as concatenated string for simplicity
-	const hasImages = content.some((c) => c.type === "image");
-	if (!hasImages) {
+	const hasMedia = content.some((c) => c.type === "image" || c.type === "video");
+	if (!hasMedia) {
 		return sanitizeSurrogates(content.map((c) => (c as TextContent).text).join("\n"));
 	}
 
-	// If we have images, convert to content block array
-	const blocks = content.map((block) => {
+	// If we have media (images/video), convert to content block array
+	const blocks: ContentBlockParam[] = content.map((block) => {
 		if (block.type === "text") {
 			return {
 				type: "text" as const,
 				text: sanitizeSurrogates(block.text),
 			};
+		}
+		if (block.type === "video") {
+			// MiniMax's Anthropic-compatible API accepts base64 video sources; the
+			// @anthropic-ai/sdk type union does not yet include a video block, so cast
+			// through unknown to keep the SDK payload shape intact.
+			return {
+				type: "video",
+				source: {
+					type: "base64",
+					media_type: block.mimeType as "video/mp4" | "video/quicktime" | "video/webm",
+					data: block.data,
+				},
+			} as unknown as ContentBlockParam;
 		}
 		return {
 			type: "image" as const,
@@ -144,12 +146,12 @@ function convertContentBlocks(content: (TextContent | ImageContent)[]):
 		};
 	});
 
-	// If only images (no text), add placeholder text block
+	// If only media (no text), add placeholder text block
 	const hasText = blocks.some((b) => b.type === "text");
 	if (!hasText) {
 		blocks.unshift({
 			type: "text" as const,
-			text: "(see attached image)",
+			text: "(see attached media)",
 		});
 	}
 
@@ -1030,6 +1032,15 @@ function convertMessages(
 							type: "text",
 							text: sanitizeSurrogates(item.text),
 						};
+					} else if (item.type === "video") {
+						return {
+							type: "video",
+							source: {
+								type: "base64",
+								media_type: item.mimeType as "video/mp4" | "video/quicktime" | "video/webm",
+								data: item.data,
+							},
+						} as unknown as ContentBlockParam;
 					} else {
 						return {
 							type: "image",
@@ -1118,9 +1129,11 @@ function convertMessages(
 			toolResults.push({
 				type: "tool_result",
 				tool_use_id: msg.toolCallId,
-				content: convertContentBlocks(msg.content),
+				// MiniMax's Anthropic-compatible API accepts video in tool results;
+				// the SDK's ToolResultBlockParam.content type predates video support.
+				content: convertContentBlocks(msg.content) as ContentBlockParam[] | string,
 				is_error: msg.isError,
-			});
+			} as ContentBlockParam);
 
 			// Look ahead for consecutive toolResult messages
 			let j = i + 1;
@@ -1129,9 +1142,9 @@ function convertMessages(
 				toolResults.push({
 					type: "tool_result",
 					tool_use_id: nextMsg.toolCallId,
-					content: convertContentBlocks(nextMsg.content),
+					content: convertContentBlocks(nextMsg.content) as ContentBlockParam[] | string,
 					is_error: nextMsg.isError,
-				});
+				} as ContentBlockParam);
 				j++;
 			}
 
@@ -1154,7 +1167,7 @@ function convertMessages(
 				const lastBlock = lastMessage.content[lastMessage.content.length - 1];
 				if (
 					lastBlock &&
-					(lastBlock.type === "text" || lastBlock.type === "image" || lastBlock.type === "tool_result")
+					(lastBlock.type === "text" || lastBlock.type === "image" || (lastBlock as { type: string }).type === "video" || lastBlock.type === "tool_result")
 				) {
 					(lastBlock as any).cache_control = cacheControl;
 				}

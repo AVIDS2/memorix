@@ -42,6 +42,7 @@ import type {
 	Tool,
 	ToolCall,
 	ToolResultMessage,
+	VideoContent,
 } from "../types.ts";
 import { AssistantMessageEventStream } from "../utils/event-stream.ts";
 import { parseStreamingJson } from "../utils/json-parse.ts";
@@ -663,11 +664,15 @@ function createRequiredTextBlock(text: string): ContentBlock.TextMember {
 	return createNonBlankTextBlock(text) ?? { text: EMPTY_TEXT_PLACEHOLDER };
 }
 
-function convertToolResultContent(content: (TextContent | ImageContent)[]): ToolResultContentBlock[] {
+function convertToolResultContent(content: (TextContent | ImageContent | VideoContent)[]): ToolResultContentBlock[] {
 	const result: ToolResultContentBlock[] = [];
 	for (const c of content) {
 		if (c.type === "image") {
 			result.push({ image: createImageBlock(c.mimeType, c.data) });
+		} else if (c.type === "video") {
+			// Bedrock video inputs are provider-specific and not wired here; downgrade
+			// to a placeholder note so the payload stays valid for image/text models.
+			result.push({ text: "(video omitted: bedrock does not support video tool results)" });
 		} else {
 			const textBlock = createNonBlankTextBlock(c.text);
 			if (textBlock) result.push(textBlock);

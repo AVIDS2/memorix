@@ -51,17 +51,30 @@ export default defineCommand({
     instruction: { type: 'string', description: 'Custom instruction for promoted mini-skills' },
     tags: { type: 'string', description: 'Comma-separated extra tags for promoted mini-skills' },
     skillId: { type: 'string', description: 'Mini-skill ID for list/delete actions' },
+    kind: { type: 'string', description: 'Long-term memory kind: episodic, semantic, or procedural' },
+    scope: { type: 'string', description: 'Long-term memory scope: project, user, or team' },
+    portability: { type: 'string', description: 'Long-term memory portability: project-bound or portable' },
+    applicability: { type: 'string', description: 'When a long-term memory applies' },
+    fromObservation: { type: 'string', description: 'Observation ID to promote into long-term memory' },
+    supersededBy: { type: 'string', description: 'Qualified or approved long-term memory that replaces the current record' },
+    'superseded-by': { type: 'string', description: 'Kebab-case alias for --supersededBy' },
+    reason: { type: 'string', description: 'Evidence review reason for qualify, approve, or archive' },
+    all: { type: 'boolean', description: 'Include archived and superseded long-term memories in list output' },
     json: { type: 'boolean', description: 'Emit machine-readable JSON output' },
   },
   run: async ({ args }) => {
     const action = (args._ as string[])?.[0] || '';
     const positional = ((args._ as string[]) ?? []).slice(1);
+    const longTermAction = action === 'long-term'
+      ? (positional[0] || (args.action as string | undefined) || 'list').trim().toLowerCase()
+      : undefined;
     const asJson = !!args.json;
 
     try {
       const readOnlyActions = new Set(['', 'search', 'graph-context', 'recent', 'suggest-topic-key', 'detail', 'timeline']);
       const needsSearchIndex = action === 'search' || action === 'detail' || action === 'timeline';
-      const context = readOnlyActions.has(action)
+      const longTermReadOnly = longTermAction === 'list' || longTermAction === 'show';
+      const context = readOnlyActions.has(action) || longTermReadOnly
         ? await getCliReadContext({ searchIndex: needsSearchIndex })
         : await getCliProjectContext({ searchIndex: true });
       const { project, dataDir, reader, identity } = context;
@@ -425,6 +438,178 @@ export default defineCommand({
           return;
         }
 
+        case 'long-term': {
+          const resolvedLongTermAction = longTermAction ?? 'list';
+          const longTermPositional = positional.slice(1);
+          const {
+            archiveLongTermMemory,
+            approveLongTermMemory,
+            createManualLongTermMemory,
+            getLongTermMemoryDetail,
+            listLongTermMemories,
+            promoteObservationToLongTermMemory,
+            qualifyLongTermMemory,
+            supersedeLongTermMemory,
+          } = await import('../../memory/long-term.js');
+          const { resolveLocalMemoryOwner } = await import('../../memory/owner.js');
+          const owner = await resolveLocalMemoryOwner(dataDir, { create: false });
+          const longTermReader = {
+            projectId: project.id,
+            ...(owner ? { ownerId: owner.id } : {}),
+            ...(reader.agentId ? { agentId: reader.agentId } : {}),
+            ...(reader.isTeamMember ? { isTeamMember: true } : {}),
+          };
+
+          const memoryId = (): string => {
+            const id = (args.id as string | undefined)?.trim()
+              || (args.fromObservation as string | undefined)?.trim()
+              || longTermPositional[0]?.trim();
+            if (!id) throw new Error('long-term memory id is required.');
+            return id;
+          };
+          const scope = () => longTermScope(args.scope as string | undefined);
+          const kind = () => longTermKind(args.kind as string | undefined);
+          const portability = () => longTermPortability(args.portability as string | undefined);
+          const reason = () => requiredLongTermReason(args.reason as string | undefined);
+
+          switch (resolvedLongTermAction) {
+            case 'list': {
+              const memories = await listLongTermMemories({
+                dataDir,
+                reader: longTermReader,
+                includeInactive: !!args.all,
+                limit: parsePositiveInt(args.limit as string | undefined, 50),
+              });
+              emitResult(
+                { project, memories },
+                memories.length === 0
+                  ? 'No long-term memories are visible in the active scope.'
+                  : memories.map(item => `- ${item.memory.id} [${item.memory.state}/${item.memory.kind}/${item.memory.scope}] ${item.memory.title}`).join('\n'),
+                asJson,
+              );
+              return;
+            }
+
+            case 'show': {
+              const detail = await getLongTermMemoryDetail({ dataDir, id: memoryId(), reader: longTermReader });
+              emitResult(
+                { project, ...detail },
+                [
+                  `${detail.memory.id} [${detail.memory.state}/${detail.memory.kind}/${detail.memory.scope}]`,
+                  detail.memory.title,
+                  detail.memory.content,
+                  `Evidence: ${detail.evidence.length}`,
+                  `Audit events: ${detail.events.length}`,
+                ].join('\n'),
+                asJson,
+              );
+              return;
+            }
+
+            case 'add': {
+              const content = getStringArg(args.text as string | undefined, longTermPositional);
+              if (!content) {
+                emitError('text is required for "memorix memory long-term add"', asJson);
+                return;
+              }
+              const result = await createManualLongTermMemory({
+                dataDir,
+                projectId: project.id,
+                scope: scope(),
+                kind: kind(),
+                title: (args.title as string | undefined)?.trim() || content.slice(0, 100),
+                content,
+                facts: parseCsvList(args.facts as string | undefined),
+                tags: parseCsvList(args.tags as string | undefined),
+                applicability: (args.applicability as string | undefined)?.trim(),
+                portability: portability(),
+                reader: longTermReader,
+              });
+              emitResult(
+                { project, ...result },
+                `Created long-term memory candidate ${result.memory.id}. Qualify it after checking its evidence.`,
+                asJson,
+              );
+              return;
+            }
+
+            case 'promote': {
+              const rawId = (args.fromObservation as string | undefined)?.trim()
+                || (args.id as string | undefined)?.trim()
+                || longTermPositional[0]?.trim();
+              const observationId = Number.parseInt(rawId || '', 10);
+              if (!Number.isFinite(observationId)) {
+                emitError('fromObservation or id must be an observation ID for "memorix memory long-term promote"', asJson);
+                return;
+              }
+              const observation = getObservation(observationId, project.id);
+              if (!observation || !canManageObservation(observation, reader)) {
+                emitError('Observation was not found or is outside the active write scope.', asJson);
+                return;
+              }
+              const result = await promoteObservationToLongTermMemory({
+                dataDir,
+                observation,
+                scope: scope(),
+                kind: kind(),
+                tags: parseCsvList(args.tags as string | undefined),
+                applicability: (args.applicability as string | undefined)?.trim(),
+                reader: longTermReader,
+              });
+              emitResult(
+                { project, sourceObservationId: observation.id, ...result },
+                `Promoted observation #${observation.id} to long-term memory candidate ${result.memory.id}.`,
+                asJson,
+              );
+              return;
+            }
+
+            case 'qualify': {
+              await getLongTermMemoryDetail({ dataDir, id: memoryId(), reader: longTermReader });
+              const memory = await qualifyLongTermMemory({ dataDir, id: memoryId(), reason: reason() });
+              emitResult({ project, memory }, `Qualified long-term memory ${memory.id}.`, asJson);
+              return;
+            }
+
+            case 'approve': {
+              await getLongTermMemoryDetail({ dataDir, id: memoryId(), reader: longTermReader });
+              const memory = await approveLongTermMemory({ dataDir, id: memoryId(), reason: reason() });
+              emitResult({ project, memory }, `Approved long-term memory ${memory.id}.`, asJson);
+              return;
+            }
+
+            case 'archive': {
+              await getLongTermMemoryDetail({ dataDir, id: memoryId(), reader: longTermReader });
+              const memory = await archiveLongTermMemory({ dataDir, id: memoryId(), reason: reason() });
+              emitResult({ project, memory }, `Archived long-term memory ${memory.id}.`, asJson);
+              return;
+            }
+
+            case 'supersede': {
+              const supersededBy = (args.supersededBy as string | undefined)?.trim()
+                || (args['superseded-by'] as string | undefined)?.trim();
+              if (!supersededBy) {
+                emitError('supersededBy is required for "memorix memory long-term supersede"', asJson);
+                return;
+              }
+              await getLongTermMemoryDetail({ dataDir, id: memoryId(), reader: longTermReader });
+              await getLongTermMemoryDetail({ dataDir, id: supersededBy, reader: longTermReader });
+              const memory = await supersedeLongTermMemory({
+                dataDir,
+                id: memoryId(),
+                supersededBy,
+                reason: reason(),
+              });
+              emitResult({ project, memory }, `Superseded long-term memory ${memory.id} with ${supersededBy}.`, asJson);
+              return;
+            }
+
+            default:
+              emitError('long-term action must be list, show, add, promote, qualify, approve, archive, or supersede.', asJson);
+          }
+          return;
+        }
+
         default:
           console.log('Memorix Memory Commands');
           console.log('');
@@ -440,6 +625,13 @@ export default defineCommand({
           console.log('  memorix memory deduplicate [--query "..."] [--dryRun]');
           console.log('  memorix memory consolidate [--action preview|execute] [--threshold 0.45]');
           console.log('  memorix memory promote --ids 42,43 [--trigger "..."] [--instruction "..."]');
+          console.log('  memorix memory long-term list [--all]');
+          console.log('  memorix memory long-term add --kind semantic --scope user --portability portable --title "..." --text "..." [--tags "..."] [--applicability "..."]');
+          console.log('  memorix memory long-term promote --fromObservation 42 --kind procedural --scope project');
+          console.log('  memorix memory long-term qualify --id <id> --reason "verified against evidence"');
+          console.log('  memorix memory long-term approve --id <id> --reason "reviewed by operator"');
+          console.log('  memorix memory long-term archive --id <id> --reason "no longer current"');
+          console.log('  memorix memory long-term supersede --id <old-id> --superseded-by <qualified-id> --reason "replaced"');
       }
     } catch (error) {
       emitError(error instanceof Error ? error.message : String(error), asJson);
@@ -458,4 +650,28 @@ function getIdArg(args: Record<string, unknown>, positional: string[]): string {
     (args.id as string | undefined) ||
     positional.join(',')
   );
+}
+
+function longTermKind(value: string | undefined): 'episodic' | 'semantic' | 'procedural' {
+  const normalized = (value ?? 'semantic').trim().toLowerCase();
+  if (normalized === 'episodic' || normalized === 'semantic' || normalized === 'procedural') return normalized;
+  throw new Error('long-term kind must be episodic, semantic, or procedural.');
+}
+
+function longTermScope(value: string | undefined): 'project' | 'user' | 'team' {
+  const normalized = (value ?? 'project').trim().toLowerCase();
+  if (normalized === 'project' || normalized === 'user' || normalized === 'team') return normalized;
+  throw new Error('long-term scope must be project, user, or team.');
+}
+
+function longTermPortability(value: string | undefined): 'project-bound' | 'portable' {
+  const normalized = (value ?? 'project-bound').trim().toLowerCase();
+  if (normalized === 'project-bound' || normalized === 'portable') return normalized;
+  throw new Error('long-term portability must be project-bound or portable.');
+}
+
+function requiredLongTermReason(value: string | undefined): string {
+  const reason = value?.trim();
+  if (!reason) throw new Error('reason is required for this long-term memory transition.');
+  return reason;
 }

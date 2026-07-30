@@ -32,6 +32,7 @@ The public docs are organized by user intent:
 | --- | --- |
 | CLI commands and MCP tools | [API_REFERENCE.md](API_REFERENCE.md) |
 | Memory Autopilot, Code State, and context packs | [API_REFERENCE.md § Memory Autopilot, Code State, and Context Packs](API_REFERENCE.md#memory-autopilot-code-state-and-context-packs), [1.2 Code State](1.2.0-CODE-STATE.md), and [1.2 Workset Retrieval](1.2.0-WORKSET-RETRIEVAL.md) |
+| Reviewed episodic, semantic, and procedural long-term memory | [1.3 Memory Architecture](1.3-MEMORY-ARCHITECTURE.md) |
 | Reviewable knowledge pages and workflow inheritance | [API_REFERENCE.md § Knowledge Workspace and Workflows](API_REFERENCE.md#knowledge-workspace-and-workflows), [1.2 Knowledge Workspace](1.2.0-KNOWLEDGE-WORKSPACE.md), and [1.2 Workflow Inheritance](1.2.0-WORKFLOW-INHERITANCE.md) |
 | Git-derived engineering memory | [GIT_MEMORY.md](GIT_MEMORY.md) |
 | Memory formation and quality pipeline | [MEMORY_FORMATION_PIPELINE.md](MEMORY_FORMATION_PIPELINE.md) |
@@ -87,6 +88,7 @@ The public docs are organized by user intent:
 | 1.2 task-shaped evidence selection | [1.2 Workset Retrieval](1.2.0-WORKSET-RETRIEVAL.md) |
 | 1.2 non-blocking refresh and maintenance contract | [1.2 Dynamic Lifecycle](1.2.0-DYNAMIC-LIFECYCLE.md) |
 | 1.2 honest Lite and optional semantic CodeGraph provider contract | [1.2 Provider Quality](1.2.0-PROVIDER-QUALITY.md) |
+| 1.3 long-term memory model, source boundary, and lifecycle | [1.3 Memory Architecture](1.3-MEMORY-ARCHITECTURE.md) |
 | Active context-control work | [1.2.2 Memory Control Plane](1.2.2-MEMORY-CONTROL-PLANE.md) |
 | Historical cloud sync and multi-agent research | [CLOUD_SYNC_AND_MULTI_AGENT_RESEARCH.md](CLOUD_SYNC_AND_MULTI_AGENT_RESEARCH.md) |
 | Known issues and old roadmap notes | [KNOWN_ISSUES_AND_ROADMAP.md](KNOWN_ISSUES_AND_ROADMAP.md) |
@@ -115,9 +117,7 @@ Historical/deep-reference documents may describe older designs. If they conflict
 
 ## Current Product Line
 
-The released product is on the **1.1 line**. Active 1.2 design work is tracked
-in the [1.2 Development Charter](1.2.0-DEVELOPMENT-CHARTER.md). The current
-released baseline has:
+The released product is on the **1.3 line**. The current baseline has:
 
 - `memorix setup --agent <agent> --global` is the default agent integration command
 - `memorix serve` is the manual stdio MCP server for external agents

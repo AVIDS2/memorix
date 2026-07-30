@@ -27,15 +27,22 @@
  * Architecture inspired by Mem0's multi-provider embedding design.
  */
 
+export interface EmbeddingRequestOptions {
+  /** Bound one remote embedding request without changing the provider default. */
+  timeoutMs?: number;
+  /** Disable provider retries for latency-sensitive best-effort work. */
+  retry?: boolean;
+}
+
 export interface EmbeddingProvider {
   /** Provider name for logging/cache keys */
   readonly name: string;
   /** Vector dimensions (e.g., 384 for bge-small) */
   readonly dimensions: number;
   /** Generate embedding for a single text */
-  embed(text: string): Promise<number[]>;
+  embed(text: string, options?: EmbeddingRequestOptions): Promise<number[]>;
   /** Generate embeddings for multiple texts (batch) */
-  embedBatch(texts: string[]): Promise<number[][]>;
+  embedBatch(texts: string[], options?: EmbeddingRequestOptions): Promise<number[][]>;
   /** Return already-persisted embeddings without generating new vectors. */
   getCachedEmbeddings?(texts: string[]): Promise<(number[] | null)[]>;
 }
@@ -43,6 +50,10 @@ export interface EmbeddingProvider {
 export interface GetEmbeddingProviderOptions {
   /** Avoid remote API dimension probes while preparing a startup index. */
   allowNetworkProbe?: boolean;
+  /** Bound a remote API dimension probe for a latency-sensitive caller. */
+  requestTimeoutMs?: number;
+  /** Disable retries while resolving a best-effort provider. */
+  retry?: boolean;
 }
 
 /** Singleton provider instance (null = not available) */
@@ -205,9 +216,9 @@ function wrapProvider(candidate: EmbeddingProvider): EmbeddingProvider {
   return {
     name: candidate.name,
     dimensions: candidate.dimensions,
-    async embed(text: string): Promise<number[]> {
+    async embed(text: string, options?: EmbeddingRequestOptions): Promise<number[]> {
       try {
-        return await candidate.embed(text);
+        return await candidate.embed(text, options);
       } catch (error) {
         if (kind === 'api' && getEmbeddingMode() === 'auto' && isTemporaryEmbeddingFailure(error)) {
           warnOnce('[memorix] API embedding temporarily unavailable — switching to local fallback provider');
@@ -215,7 +226,7 @@ function wrapProvider(candidate: EmbeddingProvider): EmbeddingProvider {
           if (fallback) {
             provider = wrapProvider(fallback);
             warnOnce(`[memorix] Embedding fallback activated: ${provider.name} (${provider.dimensions}d)`);
-            return provider.embed(text);
+            return provider.embed(text, options);
           }
         }
 
@@ -225,9 +236,9 @@ function wrapProvider(candidate: EmbeddingProvider): EmbeddingProvider {
         throw error;
       }
     },
-    async embedBatch(texts: string[]): Promise<number[][]> {
+    async embedBatch(texts: string[], options?: EmbeddingRequestOptions): Promise<number[][]> {
       try {
-        return await candidate.embedBatch(texts);
+        return await candidate.embedBatch(texts, options);
       } catch (error) {
         if (kind === 'api' && getEmbeddingMode() === 'auto' && isTemporaryEmbeddingFailure(error)) {
           warnOnce('[memorix] API embedding temporarily unavailable — switching to local fallback provider');
@@ -235,7 +246,7 @@ function wrapProvider(candidate: EmbeddingProvider): EmbeddingProvider {
           if (fallback) {
             provider = wrapProvider(fallback);
             warnOnce(`[memorix] Embedding fallback activated: ${provider.name} (${provider.dimensions}d)`);
-            return provider.embedBatch(texts);
+            return provider.embedBatch(texts, options);
           }
         }
 
@@ -331,7 +342,7 @@ export async function getEmbeddingProvider(
 
     // API mode: remote embedding via OpenAI-compatible endpoint
     if (mode === 'api') {
-      const initialized = await createAPIProvider();
+      const initialized = await createAPIProvider(options);
       if (!initialized) return null;
       provider = wrapProvider(initialized);
       warnOnce(`[memorix] Embedding provider: ${provider.name} (${provider.dimensions}d)`);
@@ -340,7 +351,7 @@ export async function getEmbeddingProvider(
 
     // Auto mode: try configured API first, then local fallbacks
     if (hasAPIEmbeddingConfig()) {
-      const initialized = await createAPIProvider();
+      const initialized = await createAPIProvider(options);
       if (initialized) {
         provider = wrapProvider(initialized);
         warnOnce(`[memorix] Embedding provider: ${provider.name} (${provider.dimensions}d)`);

@@ -1,7 +1,11 @@
 # Memorix 模块详解
 
-> 最后更新: 2026-03-09 (v1.0.0)
+> 最后更新: 2026-07-30 (v1.3.0)
 > 本文档详细记录每个模块的实现细节、关键算法和注意事项
+
+> 本文档中的早期 JSON/Orama 章节保留为历史模块说明。当前运行时的
+> SQLite 数据层和长期记忆生命周期以 `docs/ARCHITECTURE.md`、
+> `docs/1.3-MEMORY-ARCHITECTURE.md` 及对应源码为准。
 
 ---
 
@@ -145,6 +149,28 @@ Archive-candidate: age > 100% retention & !immune
 - 免疫的 observation 最低 relevance 为 0.5
 - `high` 重要性的 observation 也被视为免疫 — 这意味着 `gotcha`, `decision`, `trade-off` 永远不会被自动归档
 - `archiveExpired()` 可自动归档过期记忆，`deferredInit` 启动时自动执行
+
+---
+
+## 5. 长期记忆 (`memory/long-term.ts`, `memory/long-term-store.ts`)
+
+长期记忆不是把所有 observation 再复制一遍。它是由已有证据支撑、经过
+明确管理的少量长期知识，面向跨会话持续使用。
+
+| 维度 | 取值 | 含义 |
+|---|---|---|
+| 认知类型 | `episodic` / `semantic` / `procedural` | 完成经历、稳定事实、可复用流程 |
+| 范围 | `project` / `user` / `team` | 项目、同一安装的用户、显式团队 |
+| 生命周期 | `candidate` -> `qualified` -> `approved` -> `archived` / `superseded` | 候选不会自动注入；只有合格或已批准的记录才会进入受限 Workset |
+
+### 核心边界
+
+- 每条记录保存来源 observation 和生命周期事件，便于审计和追溯。
+- `portable` 只允许用户范围、并且来源是显式手工或用户输入的记录。
+- Git、代码、会话、项目、团队和模型生成的证据不能因为标记为长期记忆就跨项目共享。
+- 用户通过 `memorix memory long-term` 管理记录；MCP 的 `memorix_store`
+  只能创建候选，不会偷偷把日常对话升级成长期知识。
+- 检索遵守任务相关性和 token 预算，最多放入少量合格/批准记录，不回填完整历史。
 
 ---
 

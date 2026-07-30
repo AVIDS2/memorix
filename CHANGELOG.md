@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.0] - 2026-07-30
+
+### Added
+- **Curated long-term memory** -- Added source-bound episodic, semantic, and procedural memory records with explicit `candidate -> qualified -> approved -> archived/superseded` lifecycle states, evidence references, audit events, and task-aware delivery.
+- **Deliberate local portability** -- A user may explicitly create a `user + portable` memory for reuse across projects on the same local installation. Project and team facts remain project-bound, and source-derived evidence can never be made portable.
+- **Long-term memory CLI** -- Added `memorix memory long-term list|show|add|promote|qualify|approve|archive|supersede` for reviewable lifecycle management without requiring an MCP connection.
+
+### Changed
+- **Bounded Worksets** -- Task context can now select up to three relevant qualified or approved long-term records, with source and lifecycle status preserved in the context receipt. Candidates, archived records, and superseded records are never injected.
+- **Low-noise agent guidance** -- Generated rules and shipped plugin skills tell agents to create long-term candidates only for stable facts, reusable procedures, or completed episodes; approval remains an explicit operator action.
+- **Bounded semantic recall** -- Keyword matching remains the deterministic first path. A configured embedding provider gets one 1.8-second, no-retry fallback only when no reviewed long-term item matched, so a slow remote service cannot turn context delivery into a long foreground wait.
+
+### Fixed
+- **Long-term CLI discoverability** -- `memorix memory` help now documents the existing `--title`, `--tags`, and `--applicability` fields for curated long-term records.
+
 ## [1.2.10] - 2026-07-28
 
 ### Added

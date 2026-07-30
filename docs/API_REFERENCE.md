@@ -219,6 +219,7 @@ Important inputs:
 - optional `relatedCommits`
 - optional `relatedEntities`
 - optional `visibility`: `project` (default), `personal`, or `team`
+- optional `longTerm`: an explicit source-backed long-term candidate with `kind` (`episodic`, `semantic`, or `procedural`), an optional `scope` (`project`, `user`, or `team`), tags, and applicability
 
 Visibility controls who can retrieve a record through agent-facing memory
 tools. Normal memories default to `project`. `personal` and `team` writes
@@ -229,6 +230,13 @@ lets an agent overwrite a record outside its write scope.
 When the current Autopilot task is read-only or explicitly says not to modify
 files, `memorix_store` returns without writing. Use `overrideReadOnly: true`
 only when the user explicitly asks to preserve a record during that task.
+
+`longTerm` is deliberately opt-in. It stores the normal Observation first, then
+creates a separate candidate with an evidence reference. Candidates are not
+inserted into a Task Workset. Review them with `memorix memory long-term
+list|show|qualify|approve|archive|supersede`. Source-derived entries remain
+project-bound; only a manual or user-confirmed `user + portable` record created
+through the CLI may cross local projects for the same local installation.
 
 Example:
 
@@ -291,7 +299,7 @@ Global example:
 
 ### `memorix_detail`
 
-Fetch full observation detail.
+Fetch full observation, mini-skill, or curated long-term memory detail.
 
 After `memorix_project_context`, use `purpose` only for a named missing fact. Set `force: true` only when the user explicitly asks for the full underlying record already represented in the brief.
 
@@ -299,6 +307,10 @@ Supports two modes:
 
 - `ids` for current-project observations
 - `refs` for project-aware cross-project lookup
+- `typedRefs` for typed observation/skill refs and a `durable:<uuid>` reference
+  emitted by a Task Workset. A matching `user + portable` durable item is
+  intentionally reusable across local projects, but remains background guidance
+  rather than a current-project fact.
 
 Examples:
 
@@ -313,6 +325,13 @@ Examples:
   "refs": [
     { "id": 84, "projectId": "AVIDS2/test-memorix-demo" }
   ]
+}
+```
+
+```json
+{
+  "typedRefs": ["durable:9f3d9a6d-1111-4222-8333-abcdefabcdef"],
+  "purpose": "Need the full verified release procedure before publishing."
 }
 ```
 

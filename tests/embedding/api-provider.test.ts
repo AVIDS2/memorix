@@ -383,6 +383,22 @@ describe('API Embedding Provider', () => {
   });
 
   describe('error handling & retry', () => {
+    it('allows a bounded caller to disable API retries', async () => {
+      const probeVec = makeVector(1536);
+      mockFetch.mockResolvedValueOnce(mockEmbeddingResponse([probeVec]));
+      const provider = await APIEmbeddingProvider.create();
+
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 429,
+        headers: mockHeaders([['retry-after', '0']]),
+        text: () => Promise.resolve('rate limited'),
+      });
+
+      await expect(provider.embed('no-retry test', { timeoutMs: 100, retry: false })).rejects.toThrow('429');
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+    });
+
     it('should retry on 429 rate limit', async () => {
       const probeVec = makeVector(1536);
       mockFetch.mockResolvedValueOnce(mockEmbeddingResponse([probeVec]));

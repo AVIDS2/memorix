@@ -67,6 +67,7 @@ Memorix is more than a memory store. It also installs agent integrations, keeps 
 | --- | --- | --- |
 | Memory Autopilot | A bounded task Workset with start files, current memory, source-backed knowledge, workflow starts, cautions, and verification | `memorix context "..."`, `memorix resume "..."`, `memorix_project_context` |
 | Observation Memory | Searchable facts, fixes, gotchas, session summaries, and implementation notes scoped to the current Git project | `memorix memory`, MCP memory tools |
+| Curated Long-term Memory | Deliberately reviewed episodic, semantic, and procedural memory with source evidence. Only an explicitly portable user item can cross local projects | `memorix memory long-term` |
 | Code State and Code Memory | Versioned local code snapshots, file/symbol links, and freshness checks. The built-in Lite index is always honest about its limits; an already-indexed local CodeGraph can add a bounded semantic outline | `memorix codegraph`, automatic context refresh |
 | Git Memory | Commit-derived engineering facts that answer what changed, where, and why it matters | `memorix ingest commit`, git hook |
 | Reasoning Memory | Design rationale, alternatives, trade-offs, and risks that should survive beyond one chat | `memorix reasoning`, memory formation |
@@ -333,6 +334,11 @@ memorix identity join --agent-type codex --name codex-main
 memorix memory store --text "private investigation note" --visibility personal
 memorix task create --description "verify the release package"
 
+# Deliberate durable memory: create a candidate, then review it before it can enter a Workset.
+memorix memory long-term add --kind procedural --scope user --portability portable --title "Release verification preference" --text "Run focused tests and a packed-package smoke before publishing." --applicability "When publishing an npm package."
+memorix memory long-term qualify --id <id> --reason "The user explicitly confirmed this preference."
+memorix memory long-term approve --id <id> --reason "Reviewed for future local projects."
+
 memorix transfer export --format json --out ./.memorix-export.json
 memorix transfer import --file ./.memorix-export.json
 memorix reasoning search --query "why sqlite"
@@ -361,11 +367,14 @@ This opens memcode, a terminal coding agent that uses the same Memorix project m
 | Reasoning Memory | rationale, alternatives, constraints, risks | "Why did we choose this?" |
 | Git Memory | commit-derived engineering facts | "What changed and where?" |
 | Code Memory | files, symbols, import edges, and memory-to-code freshness | "Which current code should I inspect first?" |
+| Curated Long-term Memory | reviewed episodic events, stable facts, or reusable procedures with evidence | "What should this agent still know or do later?" |
 | Compact Continuity | recent host-native compact summaries or lifecycle markers | "What survived the last context compaction?" |
 
 Search is project-scoped by default. `scope="global"` searches across projects. The search boosts Git Memory for "what changed" questions and reasoning records for "why" questions.
 
-`memorix context "..."` is the default Memory Autopilot entry. It builds a compact task-lensed brief for agents: bugfix tasks lean toward tests and repros, release tasks lean toward package/changelog/build checks, onboarding tasks lean toward docs and entry points, and stale or unrelated memories stay in warning lanes instead of flooding the prompt. A normal new task does not receive an old-session dump. For an explicit continuation, `memorix resume "..."` adds only the latest useful session summary, up to three readable durable anchors, and at most one recent source-labelled host compact checkpoint. A checkpoint is lifecycle evidence, not durable memory or a transcript backup. Agents should read the suggested files before trusting stored memory.
+Long-term memory is deliberately not an automatic dump of every note. A source observation, Claim, workflow, session, and code snapshot keep their existing roles. An agent may ask `memorix_store` to create an additional long-term **candidate**, but candidates never enter task context. Use `memorix memory long-term qualify|approve|archive|supersede` to record the evidence-backed lifecycle. Only a manually created or user-confirmed `user + portable` item may be considered in another local project; project code, Git facts, tests, workflows, sessions, and observations cannot be promoted into portable user memory.
+
+`memorix context "..."` is the default Memory Autopilot entry. It builds a compact task-lensed brief for agents: bugfix tasks lean toward tests and repros, release tasks lean toward package/changelog/build checks, onboarding tasks lean toward docs and entry points, and stale or unrelated memories stay in warning lanes instead of flooding the prompt. A normal new task does not receive an old-session dump. For an explicit continuation, `memorix resume "..."` adds only the latest useful session summary, up to three readable durable anchors, and at most one recent source-labelled host compact checkpoint. A durable anchor carries a `durable:<id>` reference, so an agent can expand the full reviewed record through `memorix_detail` only when needed. Keyword matches stay primary; when no reviewed durable item matches and an embedding provider is configured, Memorix makes one 1.8-second, no-retry semantic fallback for paraphrases or cross-language tasks. A slow or unavailable provider simply leaves the normal keyword-only Workset intact. A checkpoint is lifecycle evidence, not durable memory or a transcript backup. Agents should read the suggested files before trusting stored memory.
 
 <h2 id="runtime-modes"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/tags/light/section-runtime.svg"><img src="assets/tags/section-runtime.svg" alt="Runtime Modes" height="32" /></picture></h2>
 
@@ -377,6 +386,7 @@ Search is project-scoped by default. `scope="global"` searches across projects. 
 | Run shared HTTP MCP plus dashboard | `memorix background start` |
 | Debug HTTP MCP in the foreground | `memorix serve-http --port 3211` |
 | Inspect or manage memory directly | `memorix memory`, `memorix reasoning`, `memorix session`, `memorix ingest` |
+| Manage reviewed long-term memory | `memorix memory long-term list|show|add|promote|qualify|approve|archive|supersede` |
 | Inspect native compaction continuity | `memorix checkpoint list|show|context|archive` |
 | Use the interactive terminal memory control plane | `memorix workbench` |
 | Use the bundled terminal agent | `memorix` or `memcode` |

@@ -1,6 +1,6 @@
 {
   "name": "memorix-omp-package",
-  "version": "1.2.10",
+  "version": "1.3.0",
   "description": "Memorix shared workspace memory package for Oh-my-Pi.",
   "license": "Apache-2.0",
   "keywords": [

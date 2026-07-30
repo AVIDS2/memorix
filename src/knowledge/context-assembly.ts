@@ -18,6 +18,7 @@ export type ContextCandidateKind =
   | 'semantic-code'
   | 'start-here'
   | 'memory'
+  | 'durable-memory'
   | 'claim'
   | 'knowledge-page'
   | 'workflow'
@@ -43,7 +44,7 @@ export interface ContextReceiptOmission {
 }
 
 export interface ContextReceipt {
-  version: '1.2.4';
+  version: '1.3';
   target: ContextDeliveryTarget;
   elapsedMs: number;
   budget: {

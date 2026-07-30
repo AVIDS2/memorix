@@ -217,6 +217,7 @@ export default defineCommand({
             ...(external.caution
               ? { runtimeCautions: [{ kind: 'external-codegraph-fallback' as const, message: external.caution }] }
               : {}),
+            reader,
           });
           emitResult({ project, pack, providerQuality: external.quality }, buildContextPackPrompt(pack), asJson);
           return;

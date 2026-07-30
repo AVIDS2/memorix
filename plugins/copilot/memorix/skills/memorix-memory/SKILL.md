@@ -18,6 +18,7 @@ Use Memorix as the shared memory layer for the active workspace when Memorix too
 | Need the full source for a search hit | `memorix_detail` | `memorix memory detail --id <id>` |
 | Need the sequence around one memory | `memorix_timeline` | `memorix memory timeline --id <id>` |
 | Learned reusable project knowledge | `memorix_store` | `memorix memory store --type <type> --entity <name> --title "<title>" "<text>"` |
+| Stable source-backed fact or procedure needing long-term review | `memorix_store` with `longTerm` | `memorix memory long-term qualify|approve --id <id> --reason "..."` |
 | Task or bug is complete/outdated | `memorix_resolve` | `memorix memory resolve --ids <ids>` |
 
 ## Search Rules
@@ -42,4 +43,6 @@ Use Memorix as the shared memory layer for the active workspace when Memorix too
 | Accepted compromise | `trade-off` |
 
 - Use concise titles, stable entity names, relevant `filesModified`, and `topicKey` for evolving topics.
+- Use `longTerm` only for a stable fact, reusable procedure, or completed episode that merits explicit review. It creates a candidate, not live context; keep the default project scope and do not use it for routine updates.
+- A `user` + `portable` durable memory in a task brief is intentionally reusable across projects. When it matches the task, use it as background even if it originated elsewhere; it is not a current-project fact. Expand it only when needed with `memorix_detail` and `typedRefs: ["durable:<id>"]`, stating the missing fact as `purpose`.
 - Do not store secrets, credentials, raw private transcripts, trivial commands, or routine file reads.

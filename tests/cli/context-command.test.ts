@@ -189,7 +189,7 @@ describe('project context CLI commands', () => {
     expect(parsed.currentFacts.packageVersion).toBe('9.9.9');
     expect(parsed.currentFacts.latestChangelog).toEqual({ version: '9.9.9', date: '2026-07-02' });
     expect(parsed.workset).toMatchObject({
-      version: '1.2',
+      version: '1.3',
       lens: 'release',
       startHere: expect.arrayContaining(['CHANGELOG.md', 'package.json']),
     });
@@ -232,7 +232,7 @@ describe('project context CLI commands', () => {
     });
     expect(parsed.explain.overview.code.files).toBe(3);
     expect(parsed.receipt).toMatchObject({
-      version: '1.2.4',
+      version: '1.3',
       target: 'project-context',
       budget: {
         maxTokens: expect.any(Number),

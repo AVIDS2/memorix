@@ -10,6 +10,7 @@ import type {
 } from './types.js';
 import type { CodeGraphStore } from './store.js';
 import { isCodeGraphExcludedPath } from './exclude.js';
+import type { ObservationReader } from '../types.js';
 
 export interface ContextPackMemory {
   id: number;
@@ -276,6 +277,7 @@ export async function attachTaskWorkset(input: {
   semanticCode?: ExternalCodeGraphOutline;
   providerQuality?: CodeGraphProviderQuality;
   runtimeCautions?: WorksetCaution[];
+  reader?: ObservationReader;
 }): Promise<ContextPack> {
   const semanticStartHere = input.semanticCode
     ? [...input.semanticCode.relatedFiles, ...input.semanticCode.entryPoints.map(entry => entry.path)]
@@ -316,6 +318,7 @@ export async function attachTaskWorkset(input: {
       stale: input.pack.warnings.filter(warning => warning.status === 'stale').length,
     },
     runtimeCautions: input.runtimeCautions,
+    ...(input.reader ? { reader: input.reader } : {}),
     deliveryTarget: 'context-pack',
   });
   return { ...input.pack, workset };

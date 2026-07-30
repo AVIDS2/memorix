@@ -11,6 +11,8 @@ Use Memorix when prior workspace context, decisions, fixes, or handoff state wou
 - Use `memorix_search` for focused lookup.
 - Use `memorix_detail` before relying on a specific memory.
 - Use `memorix_store` for durable workspace knowledge.
+- Use `longTerm` on `memorix_store` only for a stable fact, reusable procedure, or completed episode that merits explicit review. It creates a candidate, not live context; keep the default project scope and do not use it for routine updates.
+- A `user` + `portable` durable memory in a task brief is intentionally reusable across projects. When it matches the task, use it as background even if it originated elsewhere; it is not a current-project fact. Expand it only when needed with `memorix_detail` and `typedRefs: ["durable:<id>"]`, stating the missing fact as `purpose`.
 - Use `memorix_store_reasoning` for the reason behind a technical decision.
 - Use `memorix_resolve` when completed or outdated memories should stop surfacing.
 

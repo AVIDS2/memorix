@@ -11,6 +11,7 @@ import {
 import { CodeGraphStore } from '../../src/codegraph/store.js';
 import { getAllObservations, initObservations, storeObservation } from '../../src/memory/observations.js';
 import { endSession, startSession } from '../../src/memory/session.js';
+import { createManualLongTermMemory, qualifyLongTermMemory } from '../../src/memory/long-term.js';
 import { closeAllDatabases } from '../../src/store/sqlite-db.js';
 import { initObservationStore, resetObservationStore } from '../../src/store/obs-store.js';
 import { resetDb } from '../../src/store/orama-store.js';
@@ -124,6 +125,39 @@ describe('auto project context', () => {
     expect(text).toBe(context.workset.prompt);
     expect(context.workset.budget.tokenCount).toBeLessThanOrEqual(context.workset.budget.maxTokens);
     expect(context.workset.receipt.target).toBe('project-context');
+  });
+
+  it('keeps approved long-term memory visible in prompt and summary formats', async () => {
+    const candidate = await createManualLongTermMemory({
+      dataDir,
+      projectId: 'local/repo',
+      scope: 'project',
+      kind: 'procedural',
+      title: 'Release verification procedure',
+      content: 'Run focused tests and package smoke before publishing.',
+      tags: ['release', 'verify'],
+    });
+    await qualifyLongTermMemory({
+      dataDir,
+      id: candidate.memory.id,
+      reason: 'Verified in the release workflow.',
+    });
+
+    const context = await buildAutoProjectContext({
+      project: { id: 'local/repo', name: 'repo', rootPath: repoDir },
+      dataDir,
+      observations: getAllObservations(),
+      refresh: 'never',
+      task: 'Prepare a release with focused verification.',
+    });
+
+    expect(context.workset.durableMemory).toEqual([
+      expect.objectContaining({ title: 'Release verification procedure', state: 'qualified' }),
+    ]);
+    expect(formatAutoProjectContextPrompt(context)).toContain('Release verification procedure');
+    const summary = formatAutoProjectContextSummary(context);
+    expect(summary).toContain('Durable memory');
+    expect(summary).toContain('Release verification procedure');
   });
 
   it('does not source an unqualified automatic capture in an agent brief', async () => {

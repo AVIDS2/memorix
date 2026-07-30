@@ -6,6 +6,7 @@ import { KnowledgeWorkspaceStore } from './workspace-store.js';
 import { loadKnowledgeWorkspace } from './workspace.js';
 import { WorkflowStore } from './workflow-store.js';
 import { selectWorkflows } from './workflows.js';
+import { renderLongTermMemorySummary, selectLongTermMemoriesForTask } from '../memory/long-term.js';
 import type {
   ContextCandidateFreshness,
   ContextCandidateKind,
@@ -18,6 +19,8 @@ import type { CodeGraphProviderQuality, ExternalCodeGraphOutline } from '../code
 import type { KnowledgeClaim, ClaimEvidenceRef } from './types.js';
 import type { KnowledgePageRecord, KnowledgeWorkspace } from './workspace-types.js';
 import type { WorkflowSelection } from './workflow-types.js';
+import type { ObservationReader } from '../types.js';
+import type { LongTermMemory, LongTermMemoryEvidence } from '../memory/long-term-types.js';
 
 export type WorksetCautionKind =
   | 'dirty-worktree'
@@ -77,6 +80,18 @@ export interface WorksetMemorySource {
   reason?: string;
 }
 
+/** A task-matching curated long-term item. The full record stays behind CLI detail. */
+export interface WorksetLongTermMemory {
+  id: string;
+  kind: LongTermMemory['kind'];
+  scope: LongTermMemory['scope'];
+  state: LongTermMemory['state'];
+  title: string;
+  summary: string;
+  evidenceRefs: string[];
+  reason: string;
+}
+
 /** Prior-work evidence selected only for an explicit or inferred continuation. */
 export interface WorksetContinuation {
   previousSession?: {
@@ -103,7 +118,7 @@ export interface WorksetContinuation {
 }
 
 export interface TaskWorkset {
-  version: '1.2';
+  version: '1.3';
   task: string;
   lens: string;
   currentFacts: string[];
@@ -117,6 +132,7 @@ export interface TaskWorkset {
   hiddenCautionMemoryCount: number;
   claims: WorksetClaim[];
   pages: WorksetPage[];
+  durableMemory: WorksetLongTermMemory[];
   workflows: WorksetWorkflow[];
   cautions: WorksetCaution[];
   verification: string[];
@@ -164,6 +180,8 @@ export interface BuildTaskWorksetInput {
     stale: number;
   };
   runtimeCautions?: WorksetCaution[];
+  /** Reader identity used only for team-scoped durable memory filtering. */
+  reader?: ObservationReader;
   maxTokens?: number;
   /** Delivery surface controls receipt semantics without changing prompt shape. */
   deliveryTarget?: ContextDeliveryTarget;
@@ -297,6 +315,7 @@ function receiptOmissionKind(raw: string): ContextCandidateKind | undefined {
   if (raw.includes('state')) return 'code-state';
   if (raw.includes('semantic')) return 'semantic-code';
   if (raw.includes('start')) return 'start-here';
+  if (raw.includes('durable-memory')) return 'durable-memory';
   if (raw.includes('memory')) return 'memory';
   if (raw.includes('claim')) return 'claim';
   if (raw.includes('knowledge-page')) return 'knowledge-page';
@@ -593,6 +612,27 @@ export function renderTaskWorksetPrompt(input: Omit<TaskWorkset, 'prompt' | 'bud
     }
   }
 
+  if (input.durableMemory.length > 0) {
+    appendLine(lines, '', maxTokens, omitted, 'durable-memory-heading');
+    appendLine(lines, 'Durable memory', maxTokens, omitted, 'durable-memory-heading');
+    for (const memory of input.durableMemory.slice(0, 3)) {
+      appendLine(
+        lines,
+        '- ' + memory.kind + ' (' + memory.scope + ', ' + memory.state + '; ref durable:' + memory.id + '): ' + memory.summary,
+        maxTokens,
+        omitted,
+        'durable-memory',
+        selected,
+        {
+          kind: 'durable-memory',
+          id: 'durable:' + memory.id,
+          reason: memory.reason,
+          trust: 'source-backed',
+        },
+      );
+    }
+  }
+
   if (input.workflows.length > 0) {
     appendLine(lines, '', maxTokens, omitted, 'workflow-heading');
     appendLine(lines, 'Project workflow', maxTokens, omitted, 'workflow-heading');
@@ -674,6 +714,35 @@ export async function buildTaskWorkset(input: BuildTaskWorksetInput): Promise<Ta
     reason: selection.reasons[claim.id] ?? 'source-qualified task match',
   }));
 
+  let durableMemory: WorksetLongTermMemory[] = [];
+  let durableEvidence: LongTermMemoryEvidence[] = [];
+  if (task) {
+    try {
+      const selected = await selectLongTermMemoriesForTask({
+        dataDir: input.dataDir,
+        projectId: input.projectId,
+        task,
+        ...(input.reader?.agentId ? { agentId: input.reader.agentId } : {}),
+        ...(input.reader?.isTeamMember ? { isTeamMember: true } : {}),
+        limit: 3,
+      });
+      durableMemory = selected.map(item => ({
+        id: item.memory.id,
+        kind: item.memory.kind,
+        scope: item.memory.scope,
+        state: item.memory.state,
+        title: item.memory.title,
+        summary: renderLongTermMemorySummary(item.memory, 20),
+        evidenceRefs: item.evidence.map(evidence => evidence.id),
+        reason: item.reason,
+      }));
+      durableEvidence = selected.flatMap(item => item.evidence);
+    } catch {
+      // Long-term memory is optional enrichment; a local identity or schema
+      // problem must never block current source/code context delivery.
+    }
+  }
+
   let workspace: KnowledgeWorkspace | undefined;
   let pages: WorksetPage[] = [];
   let workflows: WorksetWorkflow[] = [];
@@ -719,7 +788,10 @@ export async function buildTaskWorkset(input: BuildTaskWorksetInput): Promise<Ta
   const evidenceIds = unique(selection.claims.flatMap(claim => evidenceIdsForClaim(
     claim,
     evidenceByClaim.get(claim.id) ?? [],
-  )));
+  )).concat(
+    durableMemory.map(memory => 'durable:' + memory.id),
+    durableEvidence.map(evidence => 'durable-evidence:' + evidence.id),
+  ));
   const verification = unique([
     ...workflows.flatMap(workflow => workflow.verificationGates),
     ...input.verificationHints,
@@ -758,7 +830,7 @@ export async function buildTaskWorkset(input: BuildTaskWorksetInput): Promise<Ta
     }
     : undefined;
   const base = {
-    version: '1.2' as const,
+    version: '1.3' as const,
     task,
     lens: input.lens,
     currentFacts: input.currentFacts?.map(fact => fact.startsWith('Historical note:')
@@ -773,6 +845,7 @@ export async function buildTaskWorkset(input: BuildTaskWorksetInput): Promise<Ta
     hiddenCautionMemoryCount: input.hiddenCautionMemoryCount ?? 0,
     claims,
     pages,
+    durableMemory,
     workflows,
     cautions: normalizedCautions,
     verification,
@@ -789,7 +862,7 @@ export async function buildTaskWorkset(input: BuildTaskWorksetInput): Promise<Ta
     budget: { maxTokens },
   });
   const receipt: ContextReceipt = {
-    version: '1.2.4',
+    version: '1.3',
     target: input.deliveryTarget ?? 'project-context',
     elapsedMs: Math.max(0, Date.now() - startedAt),
     budget: {

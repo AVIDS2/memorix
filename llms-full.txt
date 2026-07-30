@@ -6,7 +6,7 @@ Memorix is a TypeScript/Node.js project that gives AI coding agents persistent, 
 
 If you are an AI coding agent helping a user install, operate, or troubleshoot Memorix, read `docs/AGENT_OPERATOR_PLAYBOOK.md` before taking action. It is the main reference for install, runtime selection, Git/project binding, MCP integration, hooks, and troubleshooting.
 
-## 1.2 Multi-Dimensional Memory Model
+## 1.3 Multi-Dimensional Memory Model
 
 Memorix is not a transcript dump. The normal agent path is `memorix_project_context` or `memorix context --task "..."`, which assembles a bounded task Workset: current Git/package facts, selected observations and reasoning, Code State freshness, source-backed claims, matching knowledge/workflow starts, cautions, and verification hints.
 
@@ -15,6 +15,7 @@ Memorix is not a transcript dump. The normal agent path is `memorix_project_cont
 - **Claim Ledger** keeps provenance, confidence, conflicts, and lifecycle state separate from prose.
 - **Knowledge Workspace** compiles claims into reviewable Markdown proposals; it does not silently overwrite manually edited pages.
 - **Canonical Workflows** represent project process once and render conservative agent-specific adapters only on explicit request.
+- **Curated Long-Term Memory** keeps source-bound episodic, semantic, and procedural records separate from ordinary observations. A record is a candidate first, then can be explicitly qualified or approved; candidates, archived records, and superseded records never enter a Workset. A portable record is allowed only for explicit local `user + portable` knowledge with manual/user evidence. Project, team, Git, code, session, workflow, test, and observation evidence always remains project-bound. Keyword retrieval is primary; an optional semantic fallback is scope-filtered, limited to 1.8 seconds with no retry, and never blocks a lexical Workset when an embedding provider is slow or unavailable.
 - **Lifecycle maintenance** uses durable, resumable jobs so indexing, claim requalification, knowledge compile/lint, retention, and consolidation do not turn an interactive MCP request into a corpus-sized foreground job.
 
 The built-in CodeGraph Lite provider is a structural local fallback, not a complete semantic graph. If a project already has a healthy local CodeGraph index, `[codegraph].external_context = "auto"` can add a small validated semantic outline. Memorix never runs `codegraph init`, `index`, or `sync`, does not transmit the repository, and does not persist raw external code output.
@@ -111,6 +112,9 @@ Typical commands:
 ```bash
 memorix memory search --query "release blocker"
 memorix memory store --text "Auth tokens expire after 24h" --title "Auth token TTL" --entity auth --type decision
+memorix memory long-term add --kind procedural --scope user --portability portable --text "Always run focused tests before a patch release"
+memorix memory long-term qualify --id <memory-id> --reason "Verified in the release workflow"
+memorix memory long-term approve --id <memory-id> --reason "Approved for local reuse"
 memorix reasoning search --query "why sqlite"
 memorix session start --agent codex-main --agentType codex
 memorix receipt --json

@@ -24,11 +24,11 @@ describe('release contract', () => {
     expect(workflow).not.toContain('npm publish --workspace @memorix/');
   });
 
-  it('links both READMEs to the official MCP Registry without stale listing images', async () => {
+  it('links both READMEs to the official MCP Registry and verified Toplist badge', async () => {
     for (const readme of ['README.md', 'README.zh-CN.md']) {
       const content = await readFile(path.join(repoRoot, readme), 'utf-8');
       expect(content).toContain('https://registry.modelcontextprotocol.io/v0/servers?search=io.github.AVIDS2%2Fmemorix');
-      expect(content).not.toContain('mcptoplist.com');
+      expect(content).toContain('https://mcptoplist.com/badge/io.github.AVIDS2%2Fmemorix.svg');
       expect(content).not.toContain('api.star-history.com');
       expect(content).toContain('https://github.com/AVIDS2/memorix/stargazers');
       expect(content).toContain('assets/star-history-light.svg');

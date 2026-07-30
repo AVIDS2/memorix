@@ -30,6 +30,24 @@ describe('release contract', () => {
       expect(content).toContain('https://registry.modelcontextprotocol.io/v0/servers?search=io.github.AVIDS2%2Fmemorix');
       expect(content).not.toContain('mcptoplist.com');
       expect(content).not.toContain('api.star-history.com');
+      expect(content).toContain('https://github.com/AVIDS2/memorix/stargazers');
+      expect(content).toContain('assets/star-history-light.svg');
+      expect(content).toContain('assets/star-history-dark.svg');
     }
+
+    for (const asset of ['star-history.json', 'star-history-light.svg', 'star-history-dark.svg']) {
+      const content = await readFile(path.join(repoRoot, 'assets', asset), 'utf-8');
+      expect(content.length, asset).toBeGreaterThan(0);
+    }
+  });
+
+  it('refreshes self-hosted star history assets without a long-lived secret', async () => {
+    const workflow = await readFile(path.join(repoRoot, '.github', 'workflows', 'star-history.yml'), 'utf-8');
+
+    expect(workflow).toContain('schedule:');
+    expect(workflow).toContain('workflow_dispatch:');
+    expect(workflow).toContain('GITHUB_TOKEN: ${{ github.token }}');
+    expect(workflow).toContain('contents: write');
+    expect(workflow).not.toContain('STAR_HISTORY_TOKEN');
   });
 });

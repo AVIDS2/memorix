@@ -493,3 +493,15 @@ Memorix 借鉴了 MCP 生态和 mcp-memory-service、MemCP、claude-mem、Mem0 �
 <h2 id="license"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/tags/light/section-license.svg"><img src="assets/tags/section-license.svg" alt="License" height="32" /></picture></h2>
 
 [Apache 2.0](LICENSE)
+
+<h2 id="star-history">Star 历史</h2>
+
+<a href="https://github.com/AVIDS2/memorix/stargazers">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/star-history-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="assets/star-history-light.svg">
+    <img alt="Memorix Star History" src="assets/star-history-light.svg" width="100%">
+  </picture>
+</a>
+
+<sub>由 GitHub Actions 根据 GitHub stargazer 事件每日生成。</sub>

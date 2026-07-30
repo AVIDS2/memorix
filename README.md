@@ -495,3 +495,15 @@ Memorix draws from the MCP ecosystem and prior memory projects such as mcp-memor
 <h2 id="license"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/tags/light/section-license.svg"><img src="assets/tags/section-license.svg" alt="License" height="32" /></picture></h2>
 
 [Apache 2.0](LICENSE)
+
+<h2 id="star-history">Star History</h2>
+
+<a href="https://github.com/AVIDS2/memorix/stargazers">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/star-history-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="assets/star-history-light.svg">
+    <img alt="Memorix Star History" src="assets/star-history-light.svg" width="100%">
+  </picture>
+</a>
+
+<sub>Generated daily from GitHub stargazer events by GitHub Actions.</sub>

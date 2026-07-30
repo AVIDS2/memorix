@@ -65,6 +65,7 @@
     "test:e2e": "vitest run tests/e2e/",
     "benchmark:codegraph": "node scripts/benchmark-codegraph-provider.cjs",
     "benchmark:retrieval": "npm run build && node scripts/benchmark-retrieval.mjs",
+    "generate:star-history": "node scripts/generate-star-history.mjs",
     "sync:mcp-registry": "node scripts/sync-mcp-registry-manifest.mjs",
     "check:mcp-registry": "node scripts/check-mcp-registry-manifest.mjs",
     "audit:pi-upstream": "node scripts/pi-upstream-audit.mjs",

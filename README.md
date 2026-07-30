@@ -1,5 +1,3 @@
-![MCP Toplist](https://mcptoplist.com/badge/io.github.AVIDS2%2Fmemorix.svg)
-
 <p align="center">
   <img src="https://raw.githubusercontent.com/AVIDS2/memorix/main/assets/readme-hero.svg" alt="Memorix" width="720">
 </p>
@@ -17,6 +15,10 @@
   <a href="https://github.com/AVIDS2/memorix/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/AVIDS2/memorix/ci.yml?style=for-the-badge&label=CI&logo=github" alt="CI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-2563eb?style=for-the-badge" alt="license"></a>
   <a href="https://github.com/AVIDS2/memorix"><img src="https://img.shields.io/github/stars/AVIDS2/memorix?style=for-the-badge&logo=github&color=facc15" alt="stars"></a>
+</p>
+
+<p align="center">
+  <a href="https://registry.modelcontextprotocol.io/v0/servers?search=io.github.AVIDS2%2Fmemorix">Listed in the official MCP Registry</a>
 </p>
 
 <p align="center">
@@ -493,5 +495,3 @@ Memorix draws from the MCP ecosystem and prior memory projects such as mcp-memor
 <h2 id="license"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/tags/light/section-license.svg"><img src="assets/tags/section-license.svg" alt="License" height="32" /></picture></h2>
 
 [Apache 2.0](LICENSE)
-
-[![Star History Chart](https://api.star-history.com/image?repos=AVIDS2/memorix&type=Date)](https://star-history.com/#AVIDS2/memorix&Date)

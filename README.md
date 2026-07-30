@@ -19,6 +19,8 @@
 
 <p align="center">
   <a href="https://registry.modelcontextprotocol.io/v0/servers?search=io.github.AVIDS2%2Fmemorix">Listed in the official MCP Registry</a>
+  <br>
+  <img src="https://mcptoplist.com/badge/io.github.AVIDS2%2Fmemorix.svg" alt="MCP Toplist ranking">
 </p>
 
 <p align="center">

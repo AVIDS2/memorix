@@ -364,3 +364,25 @@
   CLI `context --json` path returned a structured Workset. `npm pack --dry-run`
   and `npm publish --dry-run --ignore-scripts` both accepted the final tarball
   without manifest normalization warnings.
+
+## 1.3 Curated Long-Term Memory
+- Added an additive SQLite long-term-memory layer with explicit episodic,
+  semantic, and procedural kinds; independent scope and portability; source
+  evidence; and an auditable `candidate -> qualified -> approved ->
+  archived/superseded` lifecycle. Existing Observation, Claim, Wiki, Workflow,
+  Session, and Code State stores remain their own canonical sources.
+- Added the complete CLI lifecycle surface and extended the existing MCP store/
+  detail routes without increasing the default seven-tool micro profile. Task
+  Worksets expose at most three relevant approved or qualified records as short
+  `durable:<id>` references for progressive expansion.
+- Explicit `user + portable` manual/user-confirmed records can be reused across
+  local projects for the same owner. Code, Git, tests, sessions, workflows,
+  observations, claims, and team/project evidence remain project-bound.
+- Semantic durable retrieval is an optional cross-language/paraphrase fallback
+  after lexical selection. Provider initialization and the one batch request use
+  a 1.8-second no-retry budget; API request cancellation is propagated to the
+  remote fetch so an unavailable embedding service cannot retain a CLI process.
+- Verification in progress: focused lifecycle/CLI/MCP/embedding tests, a real
+  packed-package cross-project Chinese-to-English retrieval smoke, and an
+  isolated Claude Code plugin user test that returned the reviewed release
+  procedure without inspecting project files.

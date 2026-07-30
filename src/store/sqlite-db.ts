@@ -497,6 +497,62 @@ const CREATE_KNOWLEDGE_WORKFLOW_RUNS_TABLE = [
   ');',
 ].join('\n');
 
+// ── 1.3 Durable cognitive memory ───────────────────────────────────
+
+const CREATE_LONG_TERM_MEMORIES_TABLE = `
+CREATE TABLE IF NOT EXISTS long_term_memories (
+  id                TEXT PRIMARY KEY,
+  originProjectId   TEXT NOT NULL,
+  ownerId           TEXT NOT NULL,
+  scope             TEXT NOT NULL,
+  kind              TEXT NOT NULL,
+  state             TEXT NOT NULL,
+  portability       TEXT NOT NULL DEFAULT 'project-bound',
+  title             TEXT NOT NULL,
+  content           TEXT NOT NULL,
+  factsJson         TEXT NOT NULL DEFAULT '[]',
+  tagsJson          TEXT NOT NULL DEFAULT '[]',
+  applicability     TEXT,
+  origin            TEXT NOT NULL,
+  createdAt         TEXT NOT NULL,
+  updatedAt         TEXT NOT NULL,
+  qualifiedAt       TEXT,
+  approvedAt        TEXT,
+  archivedAt        TEXT,
+  supersededBy      TEXT,
+  lastValidatedAt   TEXT,
+  accessCount       INTEGER NOT NULL DEFAULT 0,
+  lastAccessedAt    TEXT
+);
+`;
+
+const CREATE_LONG_TERM_MEMORY_EVIDENCE_TABLE = `
+CREATE TABLE IF NOT EXISTS long_term_memory_evidence (
+  id             TEXT PRIMARY KEY,
+  memoryId       TEXT NOT NULL,
+  kind           TEXT NOT NULL,
+  referenceId    TEXT NOT NULL,
+  relation       TEXT NOT NULL,
+  locator        TEXT,
+  capturedHash   TEXT,
+  createdAt      TEXT NOT NULL,
+  FOREIGN KEY (memoryId) REFERENCES long_term_memories(id) ON DELETE CASCADE
+);
+`;
+
+const CREATE_LONG_TERM_MEMORY_EVENTS_TABLE = `
+CREATE TABLE IF NOT EXISTS long_term_memory_events (
+  id          TEXT PRIMARY KEY,
+  memoryId    TEXT NOT NULL,
+  kind        TEXT NOT NULL,
+  fromState   TEXT,
+  toState     TEXT,
+  detail      TEXT,
+  createdAt   TEXT NOT NULL,
+  FOREIGN KEY (memoryId) REFERENCES long_term_memories(id) ON DELETE CASCADE
+);
+`;
+
 // ── Runtime maintenance jobs ───────────────────────────────────────
 
 const CREATE_MAINTENANCE_JOBS_TABLE = `
@@ -599,6 +655,11 @@ CREATE INDEX IF NOT EXISTS idx_knowledge_page_claims_claim ON knowledge_page_cla
 CREATE INDEX IF NOT EXISTS idx_knowledge_proposals_workspace_status ON knowledge_proposals(workspaceId, status, createdAt DESC);
 CREATE INDEX IF NOT EXISTS idx_knowledge_workflows_workspace_status ON knowledge_workflows(workspaceId, status, updatedAt DESC);
 CREATE INDEX IF NOT EXISTS idx_knowledge_workflow_runs_project_workflow ON knowledge_workflow_runs(projectId, workflowId, startedAt DESC);
+CREATE INDEX IF NOT EXISTS idx_long_term_memories_owner_state ON long_term_memories(ownerId, state, updatedAt DESC);
+CREATE INDEX IF NOT EXISTS idx_long_term_memories_project_state ON long_term_memories(originProjectId, state, updatedAt DESC);
+CREATE INDEX IF NOT EXISTS idx_long_term_memories_scope_portability ON long_term_memories(scope, portability, state, updatedAt DESC);
+CREATE INDEX IF NOT EXISTS idx_long_term_memory_evidence_memory ON long_term_memory_evidence(memoryId, createdAt);
+CREATE INDEX IF NOT EXISTS idx_long_term_memory_events_memory ON long_term_memory_events(memoryId, createdAt);
 CREATE INDEX IF NOT EXISTS idx_maintenance_jobs_ready ON maintenance_jobs(status, run_after);
 CREATE INDEX IF NOT EXISTS idx_maintenance_jobs_project ON maintenance_jobs(project_id, status, run_after);
 CREATE INDEX IF NOT EXISTS idx_maintenance_targets_updated ON maintenance_targets(updated_at);
@@ -703,6 +764,19 @@ const SCHEMA_MIGRATIONS: SchemaMigration[] = [
       db.exec('CREATE INDEX IF NOT EXISTS idx_compaction_checkpoints_project_recent ON compaction_checkpoints(project_id, status, completed_at DESC, pre_captured_at DESC)');
       db.exec('CREATE INDEX IF NOT EXISTS idx_compaction_checkpoints_session_pending ON compaction_checkpoints(project_id, session_id, agent, phase, status, pre_captured_at DESC)');
       db.exec('CREATE INDEX IF NOT EXISTS idx_compaction_checkpoints_source ON compaction_checkpoints(project_id, source_key)');
+    },
+  },
+  {
+    id: '1.3-long-term-memory',
+    apply: (db) => {
+      db.exec(CREATE_LONG_TERM_MEMORIES_TABLE);
+      db.exec(CREATE_LONG_TERM_MEMORY_EVIDENCE_TABLE);
+      db.exec(CREATE_LONG_TERM_MEMORY_EVENTS_TABLE);
+      db.exec('CREATE INDEX IF NOT EXISTS idx_long_term_memories_owner_state ON long_term_memories(ownerId, state, updatedAt DESC)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_long_term_memories_project_state ON long_term_memories(originProjectId, state, updatedAt DESC)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_long_term_memories_scope_portability ON long_term_memories(scope, portability, state, updatedAt DESC)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_long_term_memory_evidence_memory ON long_term_memory_evidence(memoryId, createdAt)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_long_term_memory_events_memory ON long_term_memory_events(memoryId, createdAt)');
     },
   },
 ];

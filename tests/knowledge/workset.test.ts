@@ -7,6 +7,7 @@ import { writeClaim } from '../../src/knowledge/claims.js';
 import { applyKnowledgeProposal, compileKnowledgeWorkspace } from '../../src/knowledge/wiki.js';
 import { initializeKnowledgeWorkspace } from '../../src/knowledge/workspace.js';
 import { buildTaskWorkset } from '../../src/knowledge/workset.js';
+import { createManualLongTermMemory, qualifyLongTermMemory } from '../../src/memory/long-term.js';
 import { recordWorkflowRun, writeCanonicalWorkflow } from '../../src/knowledge/workflows.js';
 import { closeAllDatabases } from '../../src/store/sqlite-db.js';
 
@@ -147,7 +148,7 @@ describe('Task Workset', () => {
     expect(workset.prompt).toContain('Project workflow');
     expect(workset.budget.tokenCount).toBeLessThanOrEqual(workset.budget.maxTokens);
     expect(workset.receipt).toMatchObject({
-      version: '1.2.4',
+      version: '1.3',
       target: 'project-context',
       budget: {
         maxTokens: workset.budget.maxTokens,
@@ -188,6 +189,52 @@ describe('Task Workset', () => {
     expect(workset.workflows).toHaveLength(0);
     expect(workset.prompt).not.toContain('Project knowledge');
     expect(workset.prompt).not.toContain('Project workflow');
+  });
+
+  it('adds only qualified task-matching durable memory within the Workset budget', async () => {
+    const root = tempDir();
+    const durable = await createManualLongTermMemory({
+      dataDir: root,
+      projectId: 'org/project-a',
+      scope: 'user',
+      kind: 'procedural',
+      portability: 'portable',
+      title: 'Verify package before release',
+      content: 'Run the focused package smoke before publishing an npm release.',
+      tags: ['release', 'package'],
+      applicability: 'When publishing a package from any local project.',
+    });
+    await qualifyLongTermMemory({
+      dataDir: root,
+      id: durable.memory.id,
+      reason: 'The local user explicitly confirmed this release workflow.',
+    });
+
+    const workset = await buildTaskWorkset({
+      projectId: 'org/project-b',
+      dataDir: root,
+      task: 'Prepare the npm release and verify the package.',
+      lens: 'release',
+      currentFacts: ['Git: clean worktree'],
+      startHere: ['package.json'],
+      reliableMemory: [],
+      cautionMemory: [],
+      verificationHints: ['Run the package smoke.'],
+      worktreeDirty: false,
+      freshness: { suspect: 0, stale: 0 },
+      maxTokens: 180,
+    });
+
+    expect(workset.durableMemory).toEqual([
+      expect.objectContaining({ id: durable.memory.id, scope: 'user', kind: 'procedural' }),
+    ]);
+    expect(workset.prompt).toContain('Durable memory');
+    expect(workset.prompt).toContain('Verify package before release');
+    expect(workset.prompt).toContain('durable:' + durable.memory.id);
+    expect(workset.receipt.selected).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'durable-memory', id: 'durable:' + durable.memory.id }),
+    ]));
+    expect(workset.budget.tokenCount).toBeLessThanOrEqual(workset.budget.maxTokens);
   });
 
   it('puts a bounded continuation projection ahead of optional project detail', async () => {

@@ -671,9 +671,10 @@ export async function createMemorixServer(
         'Use type to classify: gotcha ([GOTCHA] critical pitfall), decision ([DECISION] architecture choice), ' +
         'problem-solution ([FIX] bug fix), how-it-works ([INFO] explanation), what-changed ([CHANGE] change), ' +
         'discovery ([DISCOVERY] insight), why-it-exists ([WHY] rationale), trade-off ([TRADEOFF] compromise), ' +
-        'session-request ([SESSION] original goal). ' +
-        'Project visibility is the default. Personal or team visibility requires an explicitly joined coordination identity. ' +
-        'For a read-only task, do not store unless the user explicitly asks to save a record.',
+         'session-request ([SESSION] original goal). ' +
+         'Project visibility is the default. Personal or team visibility requires an explicitly joined coordination identity. ' +
+         'Set longTerm only when the caller explicitly wants an additional source-backed long-term candidate; it is never injected until an operator records a review through the CLI. ' +
+         'For a read-only task, do not store unless the user explicitly asks to save a record.',
       inputSchema: {
         entityName: z.string().describe('The entity this observation belongs to (e.g., "auth-module", "port-config")'),
         type: z.enum(OBSERVATION_TYPES).describe('Observation type for classification'),
@@ -697,27 +698,50 @@ export async function createMemorixServer(
         visibility: z.enum(['personal', 'project', 'team']).optional().describe(
           'Retrieval scope. Project is the normal shared default; personal/team require memorix_session_start with joinTeam=true.',
         ),
+        longTerm: z.object({
+          kind: z.enum(['episodic', 'semantic', 'procedural']).describe('Cognitive kind for an additional long-term candidate.'),
+          scope: z.enum(['project', 'user', 'team']).optional().default('project').describe('Long-term scope. User capture is private source evidence and needs a bound agent identity.'),
+          tags: z.array(z.string()).optional().describe('Small set of retrieval tags for the candidate.'),
+          applicability: z.string().optional().describe('When this durable fact or procedure applies.'),
+        }).optional().describe('Optional explicit request to create a source-backed long-term candidate alongside this observation. Candidates are not automatically injected.'),
         overrideReadOnly: z.boolean().optional().describe(
           'Use only when the user explicitly asks to save memory during a read-only or no-modification task.',
         ),
       },
     },
-    async ({ entityName: rawEntityName, type: rawType, title: rawTitle, narrative, facts, filesModified, concepts, topicKey, progress, relatedCommits, relatedEntities, visibility, overrideReadOnly }) => {
+    async ({ entityName: rawEntityName, type: rawType, title: rawTitle, narrative, facts, filesModified, concepts, topicKey, progress, relatedCommits, relatedEntities, visibility, longTerm, overrideReadOnly }) => {
       const unresolved = requireResolvedProject('store memory in the current project');
       if (unresolved) return unresolved;
       const readOnlyBoundary = blockReadOnlyAutopilotWrite(overrideReadOnly);
       if (readOnlyBoundary) return readOnlyBoundary;
-      const requestedVisibility = (visibility ?? 'project') as 'personal' | 'project' | 'team';
+      // Keep visibility undefined for an ordinary upsert. storeObservation then
+      // preserves an existing targeted/personal record instead of silently
+      // widening it to project scope. A long-term scope is explicit and must
+      // still set the source observation's corresponding visibility.
+      const requestedVisibility = (
+        longTerm?.scope === 'user'
+          ? 'personal'
+          : longTerm?.scope === 'team'
+            ? 'team'
+            : visibility
+      ) as 'personal' | 'project' | 'team' | undefined;
+      const effectiveVisibility = requestedVisibility ?? 'project';
       const reader = getObservationReader();
-      if (requestedVisibility !== 'project' && !currentAgentId) {
+      if (effectiveVisibility !== 'project' && !currentAgentId) {
         return {
           content: [{ type: 'text' as const, text: 'Personal or team memory requires memorix_session_start with joinTeam=true so Memorix can bind an owner.' }],
           isError: true as const,
         };
       }
-      if (requestedVisibility === 'team' && !reader.isTeamMember) {
+      if (effectiveVisibility === 'team' && !reader.isTeamMember) {
         return {
           content: [{ type: 'text' as const, text: 'Team memory requires an active coordination membership in the current project.' }],
+          isError: true as const,
+        };
+      }
+      if (longTerm?.scope === 'team' && !reader.isTeamMember) {
+        return {
+          content: [{ type: 'text' as const, text: 'Team long-term memory requires an active coordination membership in the current project.' }],
           isError: true as const,
         };
       }
@@ -752,7 +776,7 @@ export async function createMemorixServer(
       // ── Formation Pipeline (active mode: decides storage) ─────────────
       let formationResult: FormedMemory | null = null;
       let formationNote = '';
-      if (useFormation && !topicKey && !progress) {
+      if (useFormation && !topicKey && !progress && !longTerm) {
         let currentFormationStage: FormationStage | 'setup' = 'setup';
         const completedFormationStages: Partial<Record<FormationStage, number>> = {};
         const formationStartTime = Date.now();
@@ -915,7 +939,7 @@ export async function createMemorixServer(
       // This keeps memory count low and prevents duplication (Mem0-style).
       let compactAction = '';
       let compactMerged = false;
-      if (!useFormation && !topicKey && !progress) {
+      if (!useFormation && !topicKey && !progress && !longTerm) {
         try {
           const searchResult = await compactSearch({
             query: `${title} ${narrative.substring(0, 200)}`,
@@ -1094,9 +1118,32 @@ export async function createMemorixServer(
         sourceDetail: 'explicit',
         valueCategory: formationResult?.evaluation.category,
         createdByAgentId: currentAgentId,
-        visibility,
+        visibility: requestedVisibility,
         visibilityReader: reader,
       });
+
+      let longTermNote = '';
+      if (longTerm) {
+        try {
+          const { promoteObservationToLongTermMemory } = await import('./memory/long-term.js');
+          const promoted = await promoteObservationToLongTermMemory({
+            dataDir: projectDir,
+            observation: obs,
+            scope: longTerm.scope,
+            kind: longTerm.kind,
+            tags: longTerm.tags,
+            applicability: longTerm.applicability,
+            reader: {
+              projectId: project.id,
+              ...(reader.agentId ? { agentId: reader.agentId } : {}),
+              ...(reader.isTeamMember ? { isTeamMember: true } : {}),
+            },
+          });
+          longTermNote = `\nLong-term candidate: ${promoted.memory.id} (${promoted.memory.kind}/${promoted.memory.scope}). Review it with the CLI before it is delivered automatically.`;
+        } catch (longTermError) {
+          longTermNote = `\n[WARN] Observation stored, but long-term candidate was not created: ${longTermError instanceof Error ? longTermError.message : 'unknown error'}`;
+        }
+      }
 
       // Add a reference to the entity's observations
       await graphManager.addObservations([
@@ -1123,7 +1170,7 @@ export async function createMemorixServer(
       // ── Formation Pipeline (shadow/fallback mode: observe only) ─────
       // Fire-and-forget: runs after storage to collect metrics.
       // Never blocks the MCP response — purely for A/B comparison data.
-      if (!useFormation && !topicKey && !progress) {
+      if (!useFormation && !topicKey && !progress && !longTerm) {
         const shadowFormation = async () => {
           let oldCompactDecision: { action: string, targetId?: number, reason?: string, durationMs?: number } | null = null;
           try {
@@ -1215,7 +1262,7 @@ export async function createMemorixServer(
         content: [
           {
             type: 'text' as const,
-            text: `${action} observation #${obs.id} "${title}" (~${obs.tokens} tokens)\nEntity: ${entityName} | Type: ${type} | Project: ${project.id}${obs.topicKey ? ` | Topic: ${obs.topicKey}` : ''}${compactAction}${compressionNote}${enrichment}${formationNote}${attributionWarning}`,
+            text: `${action} observation #${obs.id} "${title}" (~${obs.tokens} tokens)\nEntity: ${entityName} | Type: ${type} | Project: ${project.id}${obs.topicKey ? ` | Topic: ${obs.topicKey}` : ''}${compactAction}${compressionNote}${enrichment}${formationNote}${attributionWarning}${longTermNote}`,
           },
         ],
       };
@@ -1667,6 +1714,7 @@ export async function createMemorixServer(
         ...(external.caution
           ? { runtimeCautions: [{ kind: 'external-codegraph-fallback' as const, message: external.caution }] }
           : {}),
+        reader: getObservationReader(),
       });
       const text = buildContextPackPrompt(pack);
 
@@ -2475,11 +2523,11 @@ export async function createMemorixServer(
     {
       title: 'Memory Details',
       description:
-        'Fetch full observation or mini-skill details — includes source kind (explicit memory / hook trace / git evidence), ' +
+        'Fetch full observation, mini-skill, or curated durable-memory details — includes source kind (explicit memory / hook trace / git evidence), ' +
         'value category, and cross-references (~500-1000 tokens each). ' +
         'Do not re-fetch content already covered by a complete memorix_project_context brief unless a specific fact is still missing or the user asks for deeper history; provide purpose when intentionally expanding. ' +
         'Always use memorix_search first to find relevant IDs, then fetch only what you need. ' +
-        'Accepts typed refs from search results (e.g. "obs:42", "skill:3") via the typedRefs field, ' +
+        'Accepts typed refs from search results (e.g. "obs:42", "skill:3") and durable refs from a project brief (e.g. "durable:<uuid>") via the typedRefs field, ' +
         'or legacy numeric ids / object refs for backward compatibility.',
       inputSchema: {
         ids: z.array(z.number()).optional().describe('Observation IDs to fetch (legacy, from memorix_search results)'),
@@ -2489,7 +2537,7 @@ export async function createMemorixServer(
             projectId: z.string().optional().describe('Project ID for global-search disambiguation'),
           }),
         ).optional().describe('Explicit observation refs. Prefer this for global search results.'),
-        typedRefs: z.array(z.string()).optional().describe('Typed memory refs from search results, e.g. "obs:42", "skill:3", "obs:42@org/proj"'),
+        typedRefs: z.array(z.string()).optional().describe('Typed memory refs from search results or a project brief, e.g. "obs:42", "skill:3", "durable:<uuid>", "obs:42@org/proj"'),
         purpose: z.string().optional().describe(
           'Why this must expand beyond the latest Autopilot brief. Name the missing fact or the user\'s explicit request.',
         ),
@@ -2503,15 +2551,20 @@ export async function createMemorixServer(
       const safeIds = coerceNumberArray(ids);
       const safeRefs = coerceObservationRefs(refs);
       const safeTypedRefs = coerceStringArray(typedRefs);
+      const durableIds = safeTypedRefs.flatMap((ref) => {
+        const match = /^durable:([0-9a-f-]{36})$/i.exec(ref.trim());
+        return match ? [match[1]] : [];
+      });
+      const observationTypedRefs = safeTypedRefs.filter(ref => !/^durable:/i.test(ref.trim()));
       const hasCrossProjectRef = safeRefs.some((ref) => ref.projectId && ref.projectId !== project.id)
-        || safeTypedRefs.some((ref) => ref.includes('@') && !ref.endsWith(`@${project.id}`));
+        || observationTypedRefs.some((ref) => ref.includes('@') && !ref.endsWith(`@${project.id}`));
       if (!hasCrossProjectRef) {
         const boundary = requireExplicitAutopilotExpansion('memorix_detail', purpose);
         if (boundary) return boundary;
         const requestedObservationIds = [
           ...safeIds,
           ...safeRefs.map(ref => ref.id),
-          ...safeTypedRefs.flatMap((ref) => {
+          ...observationTypedRefs.flatMap((ref) => {
             const match = /^obs:(\d+)(?:@.+)?$/i.exec(ref.trim());
             return match ? [Number(match[1])] : [];
           }),
@@ -2520,18 +2573,47 @@ export async function createMemorixServer(
         if (duplicate) return duplicate;
       }
 
-      // Priority: typedRefs > refs > ids (each is a complete, homogeneous input path)
-      let result;
+      const formatted: string[] = [];
       try {
-        const reader = getObservationReader(hasCrossProjectRef ? 'global' : 'project');
-        if (safeTypedRefs.length > 0) {
-          // Pass typed ref strings directly — compactDetail handles parsing
-          result = await compactDetail(safeTypedRefs, { reader });
-        } else if (safeRefs.length > 0) {
-          result = await compactDetail(safeRefs, { reader });
-        } else {
-          // Bare numeric IDs are scoped to the current project
-          result = await compactDetail(safeIds.map(id => ({ id, projectId: project.id })), { reader });
+        if (durableIds.length > 0) {
+          const [{ getLongTermMemoryDetail }, { resolveLocalMemoryOwner }] = await Promise.all([
+            import('./memory/long-term.js'),
+            import('./memory/owner.js'),
+          ]);
+          const owner = await resolveLocalMemoryOwner(projectDir, { create: false });
+          const observationReader = getObservationReader();
+          const durableReader = {
+            projectId: project.id,
+            ...(owner ? { ownerId: owner.id } : {}),
+            ...(observationReader.agentId ? { agentId: observationReader.agentId } : {}),
+            ...(observationReader.isTeamMember ? { isTeamMember: true } : {}),
+          };
+          const details = await Promise.all(durableIds.slice(0, 5).map(async (id) => {
+            try {
+              return await getLongTermMemoryDetail({ dataDir: projectDir, id, reader: durableReader });
+            } catch (error) {
+              return { error: error instanceof Error ? error.message : String(error), id };
+            }
+          }));
+          formatted.push(JSON.stringify({ durableMemory: details }, null, 2));
+        }
+
+        if (observationTypedRefs.length > 0 || safeRefs.length > 0 || safeIds.length > 0) {
+          const reader = getObservationReader(hasCrossProjectRef ? 'global' : 'project');
+          const result = observationTypedRefs.length > 0
+            ? await compactDetail(observationTypedRefs, { reader })
+            : safeRefs.length > 0
+              ? await compactDetail(safeRefs, { reader })
+              : await compactDetail(safeIds.map(id => ({ id, projectId: project.id })), { reader });
+          formatted.push(
+            result.documents.length > 0
+              ? result.formatted
+              : observationTypedRefs.length > 0
+                ? `No memories found for refs: ${observationTypedRefs.join(', ')}`
+                : safeRefs.length > 0
+                  ? `No memories found for refs: ${safeRefs.map((ref) => `${ref.projectId ?? 'current'}#${ref.id}`).join(', ')}`
+                  : `No memories found for IDs: ${safeIds.join(', ')}`,
+          );
         }
       } catch (err) {
         return { content: [{ type: 'text' as const, text: err instanceof Error ? err.message : String(err) }], isError: true };
@@ -2541,8 +2623,8 @@ export async function createMemorixServer(
         content: [
           {
             type: 'text' as const,
-            text: result.documents.length > 0
-              ? result.formatted
+            text: formatted.length > 0
+              ? formatted.join('\n\n')
               : safeTypedRefs.length > 0
                 ? `No memories found for refs: ${safeTypedRefs.join(', ')}`
                 : safeRefs.length > 0

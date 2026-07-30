@@ -50,11 +50,13 @@ For the 1.2 release line, the visible product shape is:
 
 ### CLI is the direct command surface; MCP is the integration layer
 
-For direct use, prefer `memorix ...` commands first. In the 1.2 line, the CLI covers session, memory, Code State, knowledge workspaces, reasoning, retention, formation, audit, transfer, skills, orchestration coordination, sync, ingest workflows, and the bundled terminal agent.
+For direct use, prefer `memorix ...` commands first. In the 1.3 line, the CLI covers session, memory, reviewed long-term memory, Code State, knowledge workspaces, reasoning, retention, formation, audit, transfer, skills, orchestration coordination, sync, ingest workflows, and the bundled terminal agent.
 
 Do not ask memory-only users to join coordination state. A lightweight session is enough for memory, retrieval, reasoning, and continuation. Use `joinTeam` / `team_manage(join)` only for explicit task/message/lock coordination or for CLI-agent work managed by `memorix orchestrate`.
 
 An unbound terminal is intentionally project-scoped: it reads and writes project-visible memory only. Use `memorix identity join --agent-type <agent>` or `memorix identity use --agent-id <id>` only when an operator explicitly needs personal/team memory or coordinated task actions. `memorix identity clear` removes that local selection; `--as <agent-id>` is the one-command script form and still requires an active member of the current project.
+
+Long-term memory is a reviewed layer, not a generic global note store. `memorix memory long-term add` creates a candidate; `qualify` and `approve` are explicit audit transitions before it can appear in a bounded task Workset. A project-derived observation, code fact, Git fact, test, session, Claim, or workflow stays project-bound. Only manual or user-confirmed `user + portable` records can cross local projects for the same local installation identity. When one is task-matched in a Workset, it is intentionally usable background even if its origin differs; use its `durable:<id>` reference with `memorix_detail` only when the full record is needed. Use `archive` or `supersede` when a durable item is no longer current.
 
 `--cwd <git-project>` is the canonical way to run direct CLI work from outside a repository. It changes the command's project anchor only; Git remains the source of truth for final project identity.
 

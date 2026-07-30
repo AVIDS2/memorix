@@ -15,8 +15,16 @@ const GUIDES: Record<string, CliCommandGuide> = {
       'memorix memory resolve --ids 42,43 [--status resolved|archived]',
       'memorix memory consolidate --action preview|execute',
       'memorix memory promote --ids 42,43 [--trigger "..."] [--instruction "..."]',
+      'memorix memory long-term list [--all]',
+      'memorix memory long-term add --kind semantic --scope user --portability portable --title "..." --text "..." [--tags "..."] [--applicability "..."]',
+      'memorix memory long-term promote --from-observation 42 --kind procedural --scope project',
+      'memorix memory long-term qualify|approve|archive --id <id> --reason "..."',
+      'memorix memory long-term supersede --id <old-id> --superseded-by <qualified-id> --reason "..."',
     ],
-    notes: ['Personal and team visibility require `memorix identity join` or `memorix identity use` first.'],
+    notes: [
+      'Personal and team visibility require `memorix identity join` or `memorix identity use` first.',
+      'Candidates never enter a task Workset. Only manual or user-confirmed `user + portable` memory may cross local projects.',
+    ],
   },
   identity: {
     summary: 'Select the active local actor for private memory and coordination commands.',

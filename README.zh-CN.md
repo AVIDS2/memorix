@@ -67,6 +67,7 @@ Memorix 不只是一个记忆库。它还负责安装 Agent 接入、保留有�
 | --- | --- | --- |
 | Memory Autopilot | 给新 Agent session 一份有预算的任务 Workset，包含起步文件、当前记忆、来源知识、工作流首步、风险提示和验证建议 | `memorix context "..."`、`memorix resume "..."`、`memorix_project_context` |
 | Observation Memory | 当前 Git 项目内可检索的事实、修复、坑点、session 摘要和实现记录 | `memorix memory`、MCP memory tools |
+| 受管理的长期记忆 | 有来源证据、可审核的情景/语义/程序记忆；只有明确标为可携带的用户记忆才可在本机跨项目使用 | `memorix memory long-term` |
 | Code State 和 Code Memory | 可版本化的本地代码快照、文件 / symbol 关联和 freshness 检查。内置 Lite 会如实说明边界；已有本地索引的 CodeGraph 可额外给出有预算的语义关系 | `memorix codegraph`、自动 context refresh |
 | Git Memory | 从 commit 中提取工程事实，回答改了什么、在哪里改、为什么重要 | `memorix ingest commit`、git hook |
 | Reasoning Memory | 保存设计原因、备选方案、trade-off 和风险，不让决策只留在一次聊天里 | `memorix reasoning`、memory formation |
@@ -333,6 +334,11 @@ memorix identity join --agent-type codex --name codex-main
 memorix memory store --text "个人排查笔记" --visibility personal
 memorix task create --description "验证发布包"
 
+# 有意沉淀长期记忆：先创建候选，再审核，审核前不会进入 Agent 的 Workset。
+memorix memory long-term add --kind procedural --scope user --portability portable --title "发布验证偏好" --text "发布 npm 包前运行 focused tests 和打包后的 package smoke。" --applicability "发布 npm 包时。"
+memorix memory long-term qualify --id <id> --reason "用户明确确认了这项偏好。"
+memorix memory long-term approve --id <id> --reason "已审核，可在本机其它项目中使用。"
+
 memorix transfer export --format json --out ./.memorix-export.json
 memorix transfer import --file ./.memorix-export.json
 memorix reasoning search --query "why sqlite"
@@ -361,11 +367,14 @@ memcode
 | Reasoning Memory | 原因、替代方案、约束、风险 | “当时为什么这么选？” |
 | Git Memory | 从 commit 提炼出的工程事实 | “最近改了什么，在哪些文件？” |
 | Code Memory | 文件、符号、import 关系、记忆到代码的新鲜度 | “现在应该先看哪些代码？” |
+| 受管理的长期记忆 | 有来源证据、经过审核的情景事件、稳定事实或可复用流程 | “以后还应记住什么、按什么方式做？” |
 | Compact Continuity | 最近一次宿主原生压缩的摘要或生命周期标记 | “上次上下文压缩后留下了什么？” |
 
 默认搜索当前项目。`scope="global"` 可以跨项目搜索。“改了什么”优先匹配 Git Memory，“为什么”优先匹配 reasoning / decision 记录。
 
-`memorix context "..."` 是默认的 Memory Autopilot 入口。它会按任务生成紧凑 brief：修 bug 时偏向测试和复现，发版时偏向 package/changelog/build 检查，接手项目时偏向文档和入口文件；过期或不相关的记忆只作为 warning，不会一股脑塞进 prompt。普通新任务不会自动得到旧会话的文本倾倒；明确要继续之前工作时，用 `memorix resume "..."`，只会补入最近一份有用的会话总结、最多三条当前可读的长期记忆锚点，以及最多一条带来源标识的近期宿主压缩检查点。检查点只是生命周期证据，不是长期记忆，也不是聊天记录备份。Agent 应该先读 suggested files，再相信历史记忆。
+长期记忆不是把所有笔记自动堆进去。Observation、Claim、工作流、session 和代码快照仍各自承担原来的职责。Agent 可以在 `memorix_store` 时要求额外生成长期记忆**候选**，但候选绝不会自动进入任务上下文；用 `memorix memory long-term qualify|approve|archive|supersede` 留下带证据的生命周期记录。只有人工创建或用户确认的 `user + portable` 记忆，才可能在同一台机器的其它项目中按任务相关性被使用；项目代码、Git 事实、测试、工作流、session 和 Observation 都不能被提升成可携带的用户记忆。
+
+`memorix context "..."` 是默认的 Memory Autopilot 入口。它会按任务生成紧凑 brief：修 bug 时偏向测试和复现，发版时偏向 package/changelog/build 检查，接手项目时偏向文档和入口文件；过期或不相关的记忆只作为 warning，不会一股脑塞进 prompt。普通新任务不会自动得到旧会话的文本倾倒；明确要继续之前工作时，用 `memorix resume "..."`，只会补入最近一份有用的会话总结、最多三条当前可读的长期记忆锚点，以及最多一条带来源标识的近期宿主压缩检查点。每个长期锚点都有 `durable:<id>` 引用，Agent 只在确实需要完整已审核记录时才通过 `memorix_detail` 展开。关键词仍优先；没有命中而且用户已配置 embedding 时，Memorix 才会做一次 1.8 秒、不重试的语义回退，用于模型改写或跨语言任务。服务变慢或不可用时，正常的关键词 Workset 会原样返回。检查点只是生命周期证据，不是长期记忆，也不是聊天记录备份。Agent 应该先读 suggested files，再相信历史记忆。
 
 <h2 id="运行模式"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/tags/light/section-runtime.svg"><img src="assets/tags/section-runtime.svg" alt="运行模式" height="32" /></picture></h2>
 
@@ -377,6 +386,7 @@ memcode
 | 启动共享 HTTP MCP 和 Dashboard | `memorix background start` |
 | 前台调试 HTTP MCP | `memorix serve-http --port 3211` |
 | 直接检查或管理记忆 | `memorix memory`、`memorix reasoning`、`memorix session`、`memorix ingest` |
+| 管理已审核的长期记忆 | `memorix memory long-term list|show|add|promote|qualify|approve|archive|supersede` |
 | 检查原生上下文压缩连续性 | `memorix checkpoint list|show|context|archive` |
 | 使用交互式终端记忆控制台 | `memorix workbench` |
 | 使用内置终端 Agent | `memorix` 或 `memcode` |

@@ -2,11 +2,16 @@
 
 Memorix is an open-source cross-agent memory layer for coding agents via MCP.
 
-It combines three core memory layers:
+It combines three source-of-truth memory layers and a curated long-term memory layer:
 
 - **Observation Memory** for what changed and how things work
 - **Reasoning Memory** for why choices were made
 - **Git Memory** for engineering truth derived from commits
+- **Long-term Memory** for explicitly curated episodic, semantic, and procedural knowledge that should outlive a single project session
+
+Observation, reasoning, and Git records remain the canonical evidence. Long-term
+memory references that evidence and has its own lifecycle; it is not a second
+copy of every conversation or a global dump shared between unrelated projects.
 
 These layers are exposed through MCP tools, CLI workflows, and an HTTP service.
 
@@ -36,6 +41,7 @@ flowchart LR
         C2["Reasoning store"]
         C3["Git memory store"]
         C4["Session / team registry"]
+        C5["Curated long-term memory"]
     end
 
     subgraph Intelligence["Intelligence and Quality"]
@@ -65,6 +71,7 @@ flowchart LR
     B3 --> C2
     B3 --> C3
     B3 --> C4
+    B3 --> C5
 
     C1 --> D1
     C1 --> D2
@@ -74,6 +81,8 @@ flowchart LR
     C2 --> D3
     C3 --> D2
     C4 --> D3
+    C5 --> D4
+    C5 --> E1
 
     D1 --> E1
     D2 --> E1
@@ -114,6 +123,8 @@ Main pieces:
 - `src/memory/retention.ts`
 - `src/memory/graph.ts`
 - `src/memory/consolidation.ts`
+- `src/memory/long-term.ts`
+- `src/memory/long-term-store.ts`
 
 Responsibilities:
 
@@ -123,6 +134,8 @@ Responsibilities:
 - manage session state
 - retention, archive, and deduplication
 - knowledge graph entities and relations
+- curate long-lived episodes, facts, and procedures with source evidence,
+  qualification, approval, archival, and supersession
 
 ### Intelligence and Quality Layer
 
@@ -211,6 +224,26 @@ Git Memory turns commits into structured memory with source provenance:
 - extracted concepts
 
 This creates an engineering truth layer that complements human- or agent-authored observations.
+
+### Curated Long-term Memory
+
+Long-term memory holds a deliberately small set of records that remain useful
+after a project session ends:
+
+- **episodic**: a completed, reusable episode
+- **semantic**: a stable fact or principle
+- **procedural**: a repeatable workflow
+
+It is separate from ordinary observations so the two jobs do not get confused:
+
+- an observation records what happened in context;
+- a long-term record says that the fact or procedure has earned durable reuse.
+
+Each record is source-bound, auditable, and moves through
+`candidate -> qualified -> approved -> archived/superseded`. Candidates are
+never injected into an agent context. A record can be portable only when it is
+user-owned and based on explicit manual or user evidence; project, team, Git,
+session, code, and claim evidence never crosses that boundary.
 
 ---
 

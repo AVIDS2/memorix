@@ -648,3 +648,23 @@ export interface MCPConfigAdapter {
   /** Get the default config file path for this agent */
   getConfigPath(projectRoot?: string): string;
 }
+
+// Durable cognitive memory is intentionally kept in its own module so the
+// legacy Observation contract remains source/provenance focused.
+export type {
+  CreateLongTermMemoryInput,
+  LongTermMemory,
+  LongTermMemoryEvidence,
+  LongTermMemoryEvidenceInput,
+  LongTermMemoryEvidenceKind,
+  LongTermMemoryEvidenceRelation,
+  LongTermMemoryEvent,
+  LongTermMemoryEventKind,
+  LongTermMemoryKind,
+  LongTermMemoryOrigin,
+  LongTermMemoryPortability,
+  LongTermMemoryReader,
+  LongTermMemoryScope,
+  LongTermMemorySelection,
+  LongTermMemoryState,
+} from './memory/long-term-types.js';

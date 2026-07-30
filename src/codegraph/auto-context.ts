@@ -388,6 +388,7 @@ export async function buildAutoProjectContext(input: {
       stale: overview.freshness.stale,
     },
     runtimeCautions,
+    ...(input.reader ? { reader: input.reader } : {}),
     ...(input.deliveryTarget ? { deliveryTarget: input.deliveryTarget } : {}),
   });
 
@@ -600,6 +601,16 @@ export function formatAutoProjectContextSummary(context: AutoProjectContext): st
       ? `- ${reliableSources.length} current code-bound memory link(s)`
       : '- none yet',
   );
+
+  if (context.workset.durableMemory.length > 0) {
+    lines.push('', 'Durable memory');
+    for (const memory of context.workset.durableMemory.slice(0, 3)) {
+      lines.push(
+        '- ' + memory.kind + ' (' + memory.scope + ', ' + memory.state + '): '
+          + compactContinuationText(memory.summary, 28),
+      );
+    }
+  }
 
   const continuation = context.workset.continuation;
   if (continuation?.previousSession || continuation?.memories.length || continuation?.compactCheckpoint) {

@@ -362,7 +362,7 @@ describe('buildContextPackPrompt', () => {
       });
 
       expect(pack.workset?.receipt).toMatchObject({
-        version: '1.2.4',
+        version: '1.3',
         target: 'context-pack',
       });
       expect(pack.workset?.receipt.selected).toEqual(expect.arrayContaining([

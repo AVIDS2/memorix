@@ -9,7 +9,7 @@ import { createHash } from 'node:crypto';
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
-import type { EmbeddingProvider } from './provider.js';
+import type { EmbeddingProvider, EmbeddingRequestOptions } from './provider.js';
 
 const CACHE_DIR = process.env.MEMORIX_DATA_DIR || join(homedir(), '.memorix', 'data');
 const CACHE_FILE = join(CACHE_DIR, '.embedding-api-cache.json');
@@ -306,6 +306,10 @@ export interface APIEmbeddingProviderCreateOptions {
    * the provider. This keeps startup/cache hydration off the remote API path.
    */
   allowNetworkProbe?: boolean;
+  /** Bound the one-off remote dimension probe used on a cold API start. */
+  requestTimeoutMs?: number;
+  /** Disable retries for a bounded, best-effort API initialization. */
+  retry?: boolean;
 }
 
 function resolveEnvEmbeddingApiKey(): string | undefined {
@@ -370,7 +374,10 @@ export class APIEmbeddingProvider implements EmbeddingProvider {
       }
     } else {
       if (!allowNetworkProbe) return null;
-      probeDimensions = await APIEmbeddingProvider.probeAPI(config);
+      probeDimensions = await APIEmbeddingProvider.probeAPI(config, {
+        timeoutMs: options.requestTimeoutMs,
+        retry: options.retry,
+      });
       console.error(`[memorix] API embedding: ${config.model} @ ${config.baseUrl} (${probeDimensions}d)`);
       // Persist for next cold start
       saveCachedDims(config, probeDimensions).catch(() => {});
@@ -430,7 +437,7 @@ export class APIEmbeddingProvider implements EmbeddingProvider {
     return { apiKey, baseUrl, model, requestedDimensions };
   }
 
-  private static async probeAPI(config: APIEmbeddingConfig): Promise<number> {
+  private static async probeAPI(config: APIEmbeddingConfig, options?: EmbeddingRequestOptions): Promise<number> {
     const body: Record<string, unknown> = {
       model: config.model,
       input: 'dimension probe',
@@ -443,6 +450,7 @@ export class APIEmbeddingProvider implements EmbeddingProvider {
       `${config.baseUrl}/embeddings`,
       config.apiKey,
       body,
+      options,
     );
 
     if (response.data.length === 0 || !response.data[0].embedding) {
@@ -452,7 +460,7 @@ export class APIEmbeddingProvider implements EmbeddingProvider {
     return response.data[0].embedding.length;
   }
 
-  async embed(text: string): Promise<number[]> {
+  async embed(text: string, options?: EmbeddingRequestOptions): Promise<number[]> {
     const normalized = normalizeText(text);
     const hash = textHash(normalized, this.cacheKeyNamespace);
 
@@ -477,6 +485,7 @@ export class APIEmbeddingProvider implements EmbeddingProvider {
         `${this.config.baseUrl}/embeddings`,
         this.config.apiKey,
         body,
+        options,
       );
       const embedding = response.data[0].embedding;
       if (embedding.length !== this.dimensions) {
@@ -521,7 +530,7 @@ export class APIEmbeddingProvider implements EmbeddingProvider {
     return embedding;
   }
 
-  async embedBatch(texts: string[]): Promise<number[][]> {
+  async embedBatch(texts: string[], options?: EmbeddingRequestOptions): Promise<number[][]> {
     await ensureDiskCacheLoaded();
     const normalizedTexts = texts.map(normalizeText);
     const results: number[][] = new Array(texts.length);
@@ -562,6 +571,7 @@ export class APIEmbeddingProvider implements EmbeddingProvider {
           `${this.config.baseUrl}/embeddings`,
           this.config.apiKey,
           body,
+          options,
         );
 
         this.trackUsage(response);
@@ -638,10 +648,14 @@ async function fetchWithRetry(
   url: string,
   apiKey: string,
   body: Record<string, unknown>,
+  options: EmbeddingRequestOptions = {},
   attempt = 0,
 ): Promise<EmbeddingAPIResponse> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 10_000);
+  const timeoutMs = typeof options.timeoutMs === 'number' && Number.isFinite(options.timeoutMs)
+    ? Math.max(100, Math.min(Math.floor(options.timeoutMs), 60_000))
+    : 10_000;
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
   let response: Response;
   try {
     response = await fetch(url, {
@@ -656,7 +670,7 @@ async function fetchWithRetry(
   } catch (err: unknown) {
     clearTimeout(timeout);
     if (err instanceof Error && err.name === 'AbortError') {
-      throw new Error(`Embedding API timeout after 10s: ${url}`);
+      throw new Error(`Embedding API timeout after ${timeoutMs}ms: ${url}`);
     }
     throw err;
   }
@@ -666,13 +680,13 @@ async function fetchWithRetry(
     return response.json() as Promise<EmbeddingAPIResponse>;
   }
 
-  if ((response.status === 429 || response.status >= 500) && attempt < MAX_RETRIES) {
+  if (options.retry !== false && (response.status === 429 || response.status >= 500) && attempt < MAX_RETRIES) {
     const delay = BASE_DELAY_MS * Math.pow(2, attempt);
     const retryAfter = response.headers.get('retry-after');
     const waitMs = retryAfter ? parseInt(retryAfter, 10) * 1000 : delay;
     console.error(`[memorix] Embedding API ${response.status}, retry ${attempt + 1}/${MAX_RETRIES} in ${waitMs}ms`);
     await new Promise(resolve => setTimeout(resolve, waitMs));
-    return fetchWithRetry(url, apiKey, body, attempt + 1);
+    return fetchWithRetry(url, apiKey, body, options, attempt + 1);
   }
 
   const errorText = await response.text().catch(() => 'unknown error');

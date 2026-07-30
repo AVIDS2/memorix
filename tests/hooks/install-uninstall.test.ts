@@ -72,6 +72,8 @@ describe('Hooks install/uninstall lifecycle', () => {
     expect(content).toContain('The absence of `.memorix` or visible memory files never proves project memory is empty.');
     expect(content).toContain('memorix_search');
     expect(content).toContain('When to store memory');
+    expect(content).toContain('longTerm');
+    expect(content).toContain('candidate only');
   });
 
   it('should record audit entry when creating new GEMINI.md (gemini-cli)', async () => {

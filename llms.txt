@@ -25,6 +25,7 @@ Memorix combines durable memory with a bounded task Workset:
 - **Code State**: versioned local file/symbol/import facts and freshness links that keep memory tied to the current checkout
 - **Claim Ledger and Knowledge Workspace**: source-backed claims compiled into reviewable Markdown proposals, never silent overwrites
 - **Canonical Workflows**: project workflows with safe per-agent adapters and recorded verification outcomes
+- **Curated Long-Term Memory**: source-bound episodic, semantic, and procedural records that stay candidates until explicitly qualified or approved; only deliberately created `user + portable` records can be reused across projects on the same local installation. Keyword retrieval stays primary; optional cross-language/paraphrase fallback is bounded to 1.8 seconds and never blocks lexical delivery.
 
 For non-trivial coding work, agents normally call `memorix_project_context` (or `memorix context --task "...")`. It selects a small task Workset with current facts, relevant evidence, start files, cautions, and verification hints instead of dumping all old text memory. Search is project-scoped by default. Use global scope only when cross-project recall is intentional.
 
@@ -109,4 +110,5 @@ Endpoint: `http://localhost:3211/mcp`.
 - Git Memory: https://github.com/AVIDS2/memorix/blob/main/docs/GIT_MEMORY.md
 - memcode: https://github.com/AVIDS2/memorix/blob/main/docs/MEMCODE.md
 - Agent Playbook: https://github.com/AVIDS2/memorix/blob/main/docs/AGENT_OPERATOR_PLAYBOOK.md
+- Long-Term Memory Architecture: https://github.com/AVIDS2/memorix/blob/main/docs/1.3-MEMORY-ARCHITECTURE.md
 - Full AI context: https://github.com/AVIDS2/memorix/blob/main/llms-full.txt

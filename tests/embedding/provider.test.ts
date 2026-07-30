@@ -223,6 +223,25 @@ describe('Embedding Provider', () => {
   });
 
   describe('strict api mode runtime degradation', () => {
+    it('forwards a bounded provider-init budget to the API provider', async () => {
+      process.env.MEMORIX_EMBEDDING = 'api';
+      process.env.MEMORIX_EMBEDDING_API_KEY = 'api-key';
+      process.env.MEMORIX_EMBEDDING_BASE_URL = 'https://embeddings.example/v1';
+      process.env.MEMORIX_EMBEDDING_MODEL = 'text-embedding-3-small';
+
+      const apiProvider = {
+        name: 'api-text-embedding-3-small',
+        dimensions: 1536,
+        embed: vi.fn(),
+        embedBatch: vi.fn(),
+      };
+      mockApiProviderCreate.mockResolvedValue(apiProvider);
+
+      await getEmbeddingProvider({ requestTimeoutMs: 1_800, retry: false });
+
+      expect(mockApiProviderCreate).toHaveBeenCalledWith({ requestTimeoutMs: 1_800, retry: false });
+    });
+
     it('opens a cooldown circuit after runtime API failures in strict api mode', async () => {
       process.env.MEMORIX_EMBEDDING = 'api';
       process.env.MEMORIX_EMBEDDING_API_KEY = 'api-key';

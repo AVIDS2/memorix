@@ -24,10 +24,12 @@ describe('release contract', () => {
     expect(workflow).not.toContain('npm publish --workspace @memorix/');
   });
 
-  it('keeps the live Star History image at the end of both READMEs', async () => {
+  it('links both READMEs to the official MCP Registry without stale listing images', async () => {
     for (const readme of ['README.md', 'README.zh-CN.md']) {
       const content = await readFile(path.join(repoRoot, readme), 'utf-8');
-      expect(content.trimEnd()).toMatch(/\[!\[Star History Chart\]\(https:\/\/api\.star-history\.com\/image\?repos=AVIDS2\/memorix&type=Date\)\]\(https:\/\/star-history\.com\/#AVIDS2\/memorix&Date\)$/);
+      expect(content).toContain('https://registry.modelcontextprotocol.io/v0/servers?search=io.github.AVIDS2%2Fmemorix');
+      expect(content).not.toContain('mcptoplist.com');
+      expect(content).not.toContain('api.star-history.com');
     }
   });
 });

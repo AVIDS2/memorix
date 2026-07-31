@@ -18,7 +18,11 @@ export function openBrowser(target: string): void {
 	// spawn reports launcher failures (for example, missing xdg-open) via an
 	// error event. Browser launch is best-effort: callers still present the target
 	// to the user, so keep the launcher failure from becoming a process crash.
-	spawn(cmd, args, { stdio: "ignore", detached: true })
+	spawn(cmd, args, {
+		stdio: "ignore",
+		detached: process.platform !== "win32",
+		windowsHide: true,
+	})
 		.on("error", () => {})
 		.unref();
 }

@@ -136,7 +136,12 @@ function generateCopilotConfig(): Record<string, unknown> {
  */
 function detectPwsh(): boolean {
   try {
-    execSync('pwsh --version', { encoding: 'utf-8', timeout: 3000, stdio: ['pipe', 'pipe', 'ignore'] });
+    execSync('pwsh --version', {
+      encoding: 'utf-8',
+      timeout: 3000,
+      stdio: ['pipe', 'pipe', 'ignore'],
+      windowsHide: true,
+    });
     return true;
   } catch {
     return false;
@@ -447,6 +452,7 @@ export const MemorixPlugin = async ({ project, client, $, directory, worktree })
         encoding: 'utf-8',
         stdio: ['pipe', 'pipe', 'pipe'],
         shell: process.platform === 'win32',
+        windowsHide: true,
       });
       if (result.status !== 0) {
         reportHookFailure(eventName, {
@@ -818,7 +824,7 @@ export async function detectInstalledAgents(): Promise<AgentName[]> {
   try {
     const { execSync } = await import('node:child_process');
     const whereCmd = process.platform === 'win32' ? 'where gemini' : 'which gemini';
-    execSync(whereCmd, { stdio: 'ignore' });
+    execSync(whereCmd, { stdio: 'ignore', windowsHide: true });
     agents.push('gemini-cli');
   } catch { /* not installed */ }
 

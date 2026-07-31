@@ -998,6 +998,7 @@ function tryInstallClaudePlugin(marketplaceRoot: string): { ok: boolean; message
     encoding: 'utf-8',
     stdio: 'pipe',
     shell: process.platform === 'win32',
+    windowsHide: true,
   });
 
   const alreadyAdded = `${add.stderr || ''}\n${add.stdout || ''}`.toLowerCase().includes('already');
@@ -1015,6 +1016,7 @@ function tryInstallClaudePlugin(marketplaceRoot: string): { ok: boolean; message
     encoding: 'utf-8',
     stdio: 'pipe',
     shell: process.platform === 'win32',
+    windowsHide: true,
   });
 
   const installOutput = `${install.stderr || ''}\n${install.stdout || ''}`.toLowerCase();
@@ -1062,6 +1064,7 @@ function getCodexPluginState(): CodexPluginState {
     encoding: 'utf-8',
     stdio: 'pipe',
     shell: process.platform === 'win32',
+    windowsHide: true,
   });
   if (result.status !== 0) return 'unknown';
   return parseCodexPluginState(result.stdout || '');
@@ -1072,6 +1075,7 @@ export function tryInstallCodexPlugin(): { ok: boolean; message: string } {
     encoding: 'utf-8',
     stdio: 'pipe',
     shell: process.platform === 'win32',
+    windowsHide: true,
   });
 
   const output = `${result.stderr || ''}\n${result.stdout || ''}`.toLowerCase();
@@ -1112,6 +1116,7 @@ function tryInstallCopilotPlugin(pluginPath: string): { ok: boolean; message: st
     encoding: 'utf-8',
     stdio: 'pipe',
     shell: process.platform === 'win32',
+    windowsHide: true,
   });
 
   if (result.status === 0) {
@@ -1140,6 +1145,7 @@ function tryInstallPiPackage(packagePath: string, global = false): { ok: boolean
     encoding: 'utf-8',
     stdio: 'pipe',
     shell: process.platform === 'win32',
+    windowsHide: true,
   });
 
   if (result.status === 0) {
@@ -1178,6 +1184,7 @@ function tryInstallOpenClawBundle(bundlePath: string): { ok: boolean; message: s
     encoding: 'utf-8',
     stdio: 'pipe',
     shell: process.platform === 'win32',
+    windowsHide: true,
   });
 
   const installOutput = `${install.stderr || ''}\n${install.stdout || ''}`.toLowerCase();
@@ -1195,6 +1202,7 @@ function tryInstallOpenClawBundle(bundlePath: string): { ok: boolean; message: s
     encoding: 'utf-8',
     stdio: 'pipe',
     shell: process.platform === 'win32',
+    windowsHide: true,
   });
   const hookOutput = `${hook.stderr || ''}\n${hook.stdout || ''}`.toLowerCase();
   if (hook.status === 0 || hookOutput.includes('already') || hookOutput.includes('enabled')) {
@@ -1225,6 +1233,7 @@ function tryEnableHermesPlugin(pluginName = 'memorix', hermesHome = resolveHerme
     env: { ...process.env, HERMES_HOME: hermesHome },
     stdio: 'pipe',
     shell: process.platform === 'win32' && command === 'hermes',
+    windowsHide: true,
   });
 
   if (result.status === 0) {
@@ -1250,6 +1259,7 @@ function tryInstallOmpPackage(packagePath: string): { ok: boolean; message: stri
     encoding: 'utf-8',
     stdio: 'pipe',
     shell: process.platform === 'win32',
+    windowsHide: true,
   });
 
   if (result.status === 0) {

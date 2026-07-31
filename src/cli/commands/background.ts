@@ -217,12 +217,11 @@ export async function doStart(port: number): Promise<void> {
   // The entry point is the same binary that's running now
   const cliEntry = process.argv[1]; // e.g., dist/cli/index.js or node_modules/.bin/memorix
 
-  // 6. Spawn detached process
-  // On Windows, detached:true + stdio:['ignore', fd, fd] + unref() is the correct
-  // pattern. The child gets its own console and survives the parent terminal closing.
-  // Note: Node.js spawn does NOT support a 'flags' option — that was a dead code path.
+  // 6. Spawn the background service. The service can safely outlive this CLI through
+  // unref() and file-backed stdio. Avoid detached on Windows because it can create a
+  // visible console even when windowsHide is set.
   const child = spawn(process.execPath, [cliEntry, 'serve-http', '--port', String(port)], {
-    detached: true,
+    detached: process.platform !== 'win32',
     stdio: ['ignore', logFd, logFd],
     env: { ...process.env },
     cwd: process.cwd(),
@@ -331,7 +330,7 @@ export async function doStop(): Promise<void> {
     console.log('  This may be a PID-reused unrelated process. Force-killing and cleaning up stale state.');
     try {
       if (process.platform === 'win32') {
-        execSync(`taskkill /F /PID ${state.pid}`, { stdio: 'ignore' });
+        execSync(`taskkill /F /PID ${state.pid}`, { stdio: 'ignore', windowsHide: true });
       } else {
         process.kill(state.pid, 'SIGKILL');
       }
@@ -373,7 +372,7 @@ export async function doStop(): Promise<void> {
     // Force kill on Windows
     try {
       if (process.platform === 'win32') {
-        execSync(`taskkill /F /PID ${state.pid}`, { stdio: 'ignore' });
+        execSync(`taskkill /F /PID ${state.pid}`, { stdio: 'ignore', windowsHide: true });
       } else {
         process.kill(state.pid, 'SIGKILL');
       }

@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.1] - 2026-07-31
+
+### Fixed
+- **Windows CLI window flicker** -- Memorix now hides Windows child-process windows across normal CLI work: startup restart, Git/project probes, hook runners, setup checks, background controls, orchestration, and memcode utility commands no longer flash a console for each invocation.
+- **Recoverable vector backfill** -- One-shot vector backfill no longer launches as a detached Windows process. The durable queue still preserves and retries the work, while `unref()` lets the foreground CLI return without a visible extra console.
+
 ## [1.3.0] - 2026-07-30
 
 ### Added

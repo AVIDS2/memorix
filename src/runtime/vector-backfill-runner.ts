@@ -84,7 +84,9 @@ export function launchDetachedVectorBackfill(
   try {
     const child = (options.spawn ?? spawn)(process.execPath, [runnerPath], {
       cwd: request.projectRoot,
-      detached: true,
+      // Windows creates a console for detached children. This worker is backed
+      // by the durable queue, so unref alone is sufficient there.
+      detached: process.platform !== 'win32',
       stdio: 'ignore',
       // The request contains only local project metadata, never credentials.
       // Environment transport avoids a live stdin pipe keeping the CLI alive.

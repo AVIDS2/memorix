@@ -133,6 +133,7 @@ export class ExtensionEditorComponent extends Container implements Focusable {
 				const child = spawn(editor, [...editorArgs, tmpFile], {
 					stdio: "inherit",
 					shell: process.platform === "win32",
+					windowsHide: true,
 				});
 				child.on("error", () => resolve(null));
 				child.on("close", (code) => resolve(code));

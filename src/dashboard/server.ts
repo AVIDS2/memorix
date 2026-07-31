@@ -833,7 +833,7 @@ function openBrowser(url: string) {
         process.platform === 'win32' ? `start "" "${url}"` :
             process.platform === 'darwin' ? `open "${url}"` :
                 `xdg-open "${url}"`;
-    exec(cmd, () => { /* ignore errors */ });
+    exec(cmd, { windowsHide: true }, () => { /* ignore errors */ });
 }
 
 /** Mutable dashboard state — updated at runtime when project changes */

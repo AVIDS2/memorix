@@ -101,6 +101,7 @@ function collectFileTree(projectDir: string, maxEntries: number): string {
       encoding: 'utf-8',
       timeout: 5_000,
       maxBuffer: 512 * 1024,
+      windowsHide: true,
     }).trim();
 
     if (!raw) return '';
@@ -139,6 +140,7 @@ function collectGitLog(projectDir: string, maxEntries: number): string {
       cwd: projectDir,
       encoding: 'utf-8',
       timeout: 5_000,
+      windowsHide: true,
     }).trim();
   } catch {
     return '';

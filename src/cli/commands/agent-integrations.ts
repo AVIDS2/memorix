@@ -430,6 +430,7 @@ function inspectCodexPluginRuntime(): AgentPluginCheck {
     encoding: 'utf-8',
     stdio: 'pipe',
     shell: process.platform === 'win32',
+    windowsHide: true,
   });
   if (result.error || result.status !== 0) {
     return {

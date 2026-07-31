@@ -4251,7 +4251,7 @@ export async function createMemorixServer(
           process.platform === 'win32' ? `start "" "${projectUrl}"` :
             process.platform === 'darwin' ? `open "${projectUrl}"` :
               `xdg-open "${projectUrl}"`;
-        exec(cmd, () => { });
+        exec(cmd, { windowsHide: true }, () => { });
 
         return {
           content: [{
@@ -4300,7 +4300,7 @@ export async function createMemorixServer(
             process.platform === 'win32' ? `start "" "${projectUrl}"` :
               process.platform === 'darwin' ? `open "${projectUrl}"` :
                 `xdg-open "${projectUrl}"`;
-          exec(cmd, () => { });
+          exec(cmd, { windowsHide: true }, () => { });
           return {
             content: [{ type: 'text' as const, text: `Dashboard is already running at ${url}. Switched to project: ${project.name} (${project.id}).` }],
           };

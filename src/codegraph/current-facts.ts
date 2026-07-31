@@ -66,6 +66,7 @@ function runGit(rootPath: string, args: string[]): string | undefined {
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'ignore'],
       timeout: 3000,
+      windowsHide: true,
     }).trim() || undefined;
   } catch {
     return undefined;

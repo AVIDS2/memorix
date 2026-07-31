@@ -73,7 +73,7 @@ const TOOLS: Record<string, ToolConfig> = {
 // Check if a command exists in PATH by trying to run it
 function commandExists(cmd: string): boolean {
 	try {
-		const result = spawnSync(cmd, ["--version"], { stdio: "pipe" });
+		const result = spawnSync(cmd, ["--version"], { stdio: "pipe", windowsHide: true });
 		// Check for ENOENT error (command not found)
 		return result.error === undefined || result.error === null;
 	} catch {
@@ -174,7 +174,7 @@ function formatSpawnFailure(result: SpawnSyncReturns<Buffer>): string {
 }
 
 function runExtractionCommand(command: string, args: string[]): string | null {
-	const result = spawnSync(command, args, { stdio: "pipe" });
+	const result = spawnSync(command, args, { stdio: "pipe", windowsHide: true });
 	if (!result.error && result.status === 0) {
 		return null;
 	}

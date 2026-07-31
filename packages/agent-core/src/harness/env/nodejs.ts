@@ -192,11 +192,12 @@ function getShellEnv(baseEnv?: NodeJS.ProcessEnv, extraEnv?: Record<string, stri
 function killProcessTree(pid: number): void {
 	if (process.platform === "win32") {
 		try {
-			spawn("taskkill", ["/F", "/T", "/PID", String(pid)], {
+			const child = spawn("taskkill", ["/F", "/T", "/PID", String(pid)], {
 				stdio: "ignore",
-				detached: true,
+				detached: false,
 				windowsHide: true,
 			});
+			child.unref();
 		} catch {
 			// Ignore errors.
 		}

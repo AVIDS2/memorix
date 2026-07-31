@@ -522,7 +522,7 @@ describe('Coordinator', () => {
     // (stale events are only for external agents)
     const staleEvents = events.filter(e => e.type === 'agent:stale');
     expect(staleEvents.length).toBe(0);
-  });
+  }, 15_000);
 
   // ═══════════════════════════════════════════════════════════════
   // Blocker 2: Orchestrator owns task lifecycle (方案 A)

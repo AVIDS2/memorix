@@ -43,6 +43,7 @@ export function createWorktree(
     cwd: projectDir,
     encoding: 'utf-8',
     timeout: 30_000,
+    windowsHide: true,
   });
 
   return { worktreePath, branch };
@@ -78,18 +79,21 @@ export function mergeWorktree(
         cwd: worktreePath,
         encoding: 'utf-8',
         timeout: 15_000,
+        windowsHide: true,
       });
       // Check if there's anything to commit
       const status = execSync('git status --porcelain', {
         cwd: worktreePath,
         encoding: 'utf-8',
         timeout: 5_000,
+        windowsHide: true,
       }).trim();
       if (status) {
         execSync('git commit -m "task: agent work" --no-verify', {
           cwd: worktreePath,
           encoding: 'utf-8',
           timeout: 15_000,
+          windowsHide: true,
         });
       }
       // else: nothing to commit — merge will be a no-op
@@ -106,12 +110,18 @@ export function mergeWorktree(
       cwd: projectDir,
       encoding: 'utf-8',
       timeout: 30_000,
+      windowsHide: true,
     });
     return { success: true };
   } catch (err) {
     // Abort the failed merge to leave working tree clean
     try {
-      execSync('git merge --abort', { cwd: projectDir, encoding: 'utf-8', timeout: 5_000 });
+      execSync('git merge --abort', {
+        cwd: projectDir,
+        encoding: 'utf-8',
+        timeout: 5_000,
+        windowsHide: true,
+      });
     } catch { /* best-effort */ }
 
     const msg = err instanceof Error ? err.message : String(err);
@@ -134,6 +144,7 @@ export function removeWorktree(
       cwd: projectDir,
       encoding: 'utf-8',
       timeout: 10_000,
+      windowsHide: true,
     });
   } catch {
     // If git worktree remove fails, try manual cleanup
@@ -141,7 +152,12 @@ export function removeWorktree(
       try { rmSync(worktreePath, { recursive: true, force: true }); } catch { /* best-effort */ }
     }
     try {
-      execSync('git worktree prune', { cwd: projectDir, encoding: 'utf-8', timeout: 5_000 });
+      execSync('git worktree prune', {
+        cwd: projectDir,
+        encoding: 'utf-8',
+        timeout: 5_000,
+        windowsHide: true,
+      });
     } catch { /* best-effort */ }
   }
 
@@ -152,6 +168,7 @@ export function removeWorktree(
         cwd: projectDir,
         encoding: 'utf-8',
         timeout: 5_000,
+        windowsHide: true,
       });
     } catch { /* may already be deleted or is current branch */ }
   }
@@ -169,6 +186,7 @@ export function listWorktrees(projectDir: string): Array<{ path: string; branch:
       cwd: projectDir,
       encoding: 'utf-8',
       timeout: 5_000,
+      windowsHide: true,
     });
 
     const worktrees: Array<{ path: string; branch: string | null }> = [];

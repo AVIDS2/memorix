@@ -41,7 +41,7 @@ export function getCommitInfo(cwd: string, ref = 'HEAD'): CommitInfo {
   const FORMAT = '%H%n%h%n%aN%n%aI%n%s%n%b';
   const raw = execSync(
     `git log -1 --format="${FORMAT}" ${ref}`,
-    { cwd, encoding: 'utf-8', timeout: 10000 },
+    { cwd, encoding: 'utf-8', timeout: 10000, windowsHide: true },
   ).trim();
 
   const lines = raw.split('\n');
@@ -55,7 +55,7 @@ export function getCommitInfo(cwd: string, ref = 'HEAD'): CommitInfo {
   // Get diff stat
   const stat = execSync(
     `git diff-tree --no-commit-id --numstat ${hash}`,
-    { cwd, encoding: 'utf-8', timeout: 10000 },
+    { cwd, encoding: 'utf-8', timeout: 10000, windowsHide: true },
   ).trim();
 
   let insertions = 0;
@@ -78,7 +78,7 @@ export function getCommitInfo(cwd: string, ref = 'HEAD'): CommitInfo {
   try {
     const diff = execSync(
       `git diff-tree -p --no-commit-id ${hash}`,
-      { cwd, encoding: 'utf-8', timeout: 10000, maxBuffer: 1024 * 100 },
+      { cwd, encoding: 'utf-8', timeout: 10000, maxBuffer: 1024 * 100, windowsHide: true },
     );
     diffSummary = diff.substring(0, 500);
   } catch { /* diff may be too large */ }
@@ -95,7 +95,7 @@ export function getCommitInfo(cwd: string, ref = 'HEAD'): CommitInfo {
 export function getRecentCommits(cwd: string, count = 10): CommitInfo[] {
   const hashes = execSync(
     `git log --format="%H" -${count}`,
-    { cwd, encoding: 'utf-8', timeout: 10000 },
+    { cwd, encoding: 'utf-8', timeout: 10000, windowsHide: true },
   ).trim().split('\n').filter(Boolean);
 
   return hashes.map(hash => getCommitInfo(cwd, hash));

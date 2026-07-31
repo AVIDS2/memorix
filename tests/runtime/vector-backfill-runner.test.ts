@@ -8,6 +8,14 @@ import {
   resolveVectorBackfillRunnerPath,
 } from '../../src/runtime/vector-backfill-runner.js';
 
+type SpawnOptions = {
+  cwd?: string;
+  detached?: boolean;
+  stdio?: unknown;
+  windowsHide?: boolean;
+  env?: NodeJS.ProcessEnv;
+};
+
 describe('detached vector backfill runner', () => {
   const request = {
     projectId: 'AVIDS2/memorix',
@@ -40,19 +48,44 @@ describe('detached vector backfill runner', () => {
     });
 
     expect(started).toBe(true);
-    expect(spawn).toHaveBeenCalledWith(
-      process.execPath,
-      ['E:/pkg/dist/vector-backfill-runner.js'],
-      expect.objectContaining({
-        cwd: request.projectRoot,
-        detached: true,
-        stdio: 'ignore',
-        windowsHide: true,
-        env: expect.objectContaining({
-          MEMORIX_VECTOR_BACKFILL_REQUEST: JSON.stringify(request),
-        }),
-      }),
-    );
+    expect(spawn).toHaveBeenCalledOnce();
+    const [command, args, rawOptions] = spawn.mock.calls[0]!;
+    const options = rawOptions as SpawnOptions;
+    expect(command).toBe(process.execPath);
+    expect(args).toEqual(['E:/pkg/dist/vector-backfill-runner.js']);
+    expect(options.cwd).toBe(request.projectRoot);
+    expect(options.detached).toBe(process.platform !== 'win32');
+    expect(options.stdio).toBe('ignore');
+    expect(options.windowsHide).toBe(true);
+    expect(options.env?.MEMORIX_VECTOR_BACKFILL_REQUEST).toBe(JSON.stringify(request));
     expect(unref).toHaveBeenCalledOnce();
+  });
+
+  it('does not create a detached Windows console for a recoverable backfill job', () => {
+    const platform = Object.getOwnPropertyDescriptor(process, 'platform');
+    const unref = vi.fn();
+    const spawn = vi.fn(() => ({ unref }));
+
+    Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
+    try {
+      const started = launchDetachedVectorBackfill(request, {
+        runnerPath: 'E:/pkg/dist/vector-backfill-runner.js',
+        exists: () => true,
+        spawn: spawn as never,
+      });
+
+      expect(started).toBe(true);
+      expect(spawn).toHaveBeenCalledOnce();
+      const [command, args, rawOptions] = spawn.mock.calls[0]!;
+      const options = rawOptions as SpawnOptions;
+      expect(command).toBe(process.execPath);
+      expect(args).toEqual(['E:/pkg/dist/vector-backfill-runner.js']);
+      expect(options.detached).toBe(false);
+      expect(options.stdio).toBe('ignore');
+      expect(options.windowsHide).toBe(true);
+      expect(unref).toHaveBeenCalledOnce();
+    } finally {
+      Object.defineProperty(process, 'platform', platform!);
+    }
   });
 });

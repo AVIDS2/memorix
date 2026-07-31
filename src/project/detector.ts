@@ -127,6 +127,7 @@ function getGitRootWithDiagnostics(cwd: string): { root: string | null; failure:
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
       timeout: 5000,
+      windowsHide: true,
     }).trim();
     return root ? { root, failure: null } : { root: null, failure: null };
   } catch (err) {
@@ -166,6 +167,7 @@ function getGitRemote(cwd: string): string | null {
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
       timeout: 5000,
+      windowsHide: true,
     }).trim();
     return remote || null;
   } catch {

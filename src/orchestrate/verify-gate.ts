@@ -79,6 +79,7 @@ export function runGate(
       detached: process.platform !== 'win32',
       stdio: ['ignore', 'pipe', 'pipe'],
       env: { ...process.env, FORCE_COLOR: '0', NO_COLOR: '1' },
+      windowsHide: true,
     });
 
     const collectOutput = (data: Buffer) => {

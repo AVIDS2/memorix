@@ -167,7 +167,7 @@ function installUpdateInBackground(targetVersion: string, currentVersion: string
     const child = execFile(
       npmCmd,
       ['install', '-g', `${PACKAGE_NAME}@${targetVersion}`],
-      { timeout: timeoutMs },
+      { timeout: timeoutMs, windowsHide: true },
       async (error) => {
         const failure = error ? describeAutoUpdateFailure(error, timeoutMs) : null;
         const updatedCache: UpdateCache = {

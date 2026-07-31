@@ -7,6 +7,7 @@ type NativeClipboardExecOptions = {
 	input: string;
 	timeout: number;
 	stdio: ["pipe", "ignore", "ignore"];
+	windowsHide: true;
 };
 
 function copyToX11Clipboard(options: NativeClipboardExecOptions): void {
@@ -61,7 +62,12 @@ export async function copyToClipboard(text: string): Promise<void> {
 		return;
 	}
 
-	const options: NativeClipboardExecOptions = { input: text, timeout: 5000, stdio: ["pipe", "ignore", "ignore"] };
+	const options: NativeClipboardExecOptions = {
+		input: text,
+		timeout: 5000,
+		stdio: ["pipe", "ignore", "ignore"],
+		windowsHide: true,
+	};
 
 	if (!copied) {
 		try {
@@ -89,9 +95,12 @@ export async function copyToClipboard(text: string): Promise<void> {
 					if (isWayland && hasWaylandDisplay) {
 						try {
 							// Verify wl-copy exists (spawn errors are async and won't be caught)
-							execSync("which wl-copy", { stdio: "ignore" });
+							execSync("which wl-copy", { stdio: "ignore", windowsHide: true });
 							// wl-copy with execSync hangs due to fork behavior; use spawn instead
-							const proc = spawn("wl-copy", [], { stdio: ["pipe", "ignore", "ignore"] });
+							const proc = spawn("wl-copy", [], {
+								stdio: ["pipe", "ignore", "ignore"],
+								windowsHide: true,
+							});
 							proc.stdin.on("error", () => {
 								// Ignore EPIPE errors if wl-copy exits early
 							});

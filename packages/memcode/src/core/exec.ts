@@ -42,6 +42,7 @@ export async function execCommand(
 			cwd,
 			shell: false,
 			stdio: ["ignore", "pipe", "pipe"],
+			windowsHide: true,
 		});
 
 		let stdout = "";

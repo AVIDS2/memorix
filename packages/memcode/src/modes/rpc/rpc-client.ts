@@ -93,6 +93,7 @@ export class RpcClient {
 			cwd: this.options.cwd,
 			env: { ...process.env, ...this.options.env },
 			stdio: ["pipe", "pipe", "pipe"],
+			windowsHide: true,
 		});
 		this.process = childProcess;
 

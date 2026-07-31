@@ -1169,6 +1169,7 @@ function isGitRepository(projectDir: string): boolean {
       encoding: 'utf-8',
       timeout: 5_000,
       stdio: ['ignore', 'pipe', 'ignore'],
+      windowsHide: true,
     });
     return true;
   } catch {
@@ -1183,6 +1184,7 @@ function getGitStatus(projectDir: string): string {
       encoding: 'utf-8',
       timeout: 5_000,
       stdio: ['ignore', 'pipe', 'ignore'],
+      windowsHide: true,
     }).trim();
   } catch {
     return '';

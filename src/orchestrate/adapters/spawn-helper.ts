@@ -21,7 +21,7 @@ const DEFAULT_TIMEOUT_MS = 600_000;  // 10 minutes
 export function isCommandAvailable(command: string): boolean {
   const probe = process.platform === 'win32' ? `where ${command}` : `which ${command}`;
   try {
-    execSync(probe, { stdio: 'ignore', timeout: 5_000 });
+    execSync(probe, { stdio: 'ignore', timeout: 5_000, windowsHide: true });
     return true;
   } catch {
     return false;

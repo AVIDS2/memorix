@@ -50,7 +50,7 @@ export default defineConfig([
         'import {spawnSync as __ms} from "node:child_process";',
         'import {fileURLToPath as __fu} from "node:url";',
         'if(!process.env.__MEMORIX_HEAP){process.env.__MEMORIX_HEAP="1";',
-        'let r=__ms(process.execPath,["--max-old-space-size=4096",__fu(import.meta.url),...process.argv.slice(2)],{stdio:"inherit",env:process.env});',
+        'let r=__ms(process.execPath,["--max-old-space-size=4096",__fu(import.meta.url),...process.argv.slice(2)],{stdio:"inherit",env:process.env,windowsHide:true});',
         'process.exit(r.status??1);}',
         'import {createRequire as __memorix_cjsRequire} from "module";',
         'const require = __memorix_cjsRequire(import.meta.url);',

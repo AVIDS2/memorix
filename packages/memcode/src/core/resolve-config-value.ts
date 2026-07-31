@@ -191,6 +191,7 @@ function executeWithDefaultShell(command: string): string | undefined {
 			encoding: "utf-8",
 			timeout: 10000,
 			stdio: ["ignore", "pipe", "ignore"],
+			windowsHide: true,
 		});
 		return output.trim() || undefined;
 	} catch {

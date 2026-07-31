@@ -122,7 +122,12 @@ async function installSingleAgent(agent: string, cwd: string, global: boolean): 
     if (agent === 'copilot' && process.platform === 'win32') {
       try {
         const { execSync } = await import('node:child_process');
-        execSync('pwsh --version', { encoding: 'utf-8', timeout: 3000, stdio: ['pipe', 'pipe', 'ignore'] });
+        execSync('pwsh --version', {
+          encoding: 'utf-8',
+          timeout: 3000,
+          stdio: ['pipe', 'pipe', 'ignore'],
+          windowsHide: true,
+        });
       } catch {
         console.warn(`[WARN]  ${agent}: pwsh (PowerShell v7+) not found. Copilot hooks will use the bash field via Git Bash.`);
         console.warn(`   For best Windows support, install PowerShell v7+: winget install Microsoft.PowerShell`);

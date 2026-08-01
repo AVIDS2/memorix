@@ -1,14 +1,32 @@
 import { registerImagesApiProvider } from "../../images-api-registry.ts";
-import type { AssistantImages, ImagesContext, ImagesFunction, ImagesModel, ImagesOptions } from "../../types.ts";
+import type {
+	AssistantImages,
+	ImagesApi,
+	ImagesContext,
+	ImagesFunction,
+	ImagesModel,
+	ImagesOptions,
+} from "../../types.ts";
+import type {
+	generateImagesMiniMax as generateImagesMiniMaxFunction,
+	MiniMaxImagesOptions,
+} from "./minimax.ts";
 import type { generateImagesOpenRouter as generateImagesOpenRouterFunction } from "./openrouter.ts";
+
+export type { MiniMaxImagesOptions } from "./minimax.ts";
+
+interface MiniMaxImagesProviderModule {
+	generateImagesMiniMax: typeof generateImagesMiniMaxFunction;
+}
 
 interface OpenRouterImagesProviderModule {
 	generateImagesOpenRouter: typeof generateImagesOpenRouterFunction;
 }
 
 let openRouterImagesProviderModulePromise: Promise<OpenRouterImagesProviderModule> | undefined;
+let miniMaxImagesProviderModulePromise: Promise<MiniMaxImagesProviderModule> | undefined;
 
-function createLazyLoadErrorImages(model: ImagesModel<"openrouter-images">, error: unknown): AssistantImages {
+function createLazyLoadErrorImages<TApi extends ImagesApi>(model: ImagesModel<TApi>, error: unknown): AssistantImages {
 	return {
 		api: model.api,
 		provider: model.provider,
@@ -18,6 +36,13 @@ function createLazyLoadErrorImages(model: ImagesModel<"openrouter-images">, erro
 		errorMessage: error instanceof Error ? error.message : String(error),
 		timestamp: Date.now(),
 	};
+}
+
+function loadMiniMaxImagesProviderModule(): Promise<MiniMaxImagesProviderModule> {
+	miniMaxImagesProviderModulePromise ||= import("./minimax.ts").then(
+		(module) => module as MiniMaxImagesProviderModule,
+	);
+	return miniMaxImagesProviderModulePromise;
 }
 
 function loadOpenRouterImagesProviderModule(): Promise<OpenRouterImagesProviderModule> {
@@ -40,10 +65,27 @@ export const generateImagesOpenRouter: ImagesFunction<"openrouter-images", Image
 	}
 };
 
+export const generateImagesMiniMax: ImagesFunction<"minimax-images", MiniMaxImagesOptions> = async (
+	model: ImagesModel<"minimax-images">,
+	context: ImagesContext,
+	options?: MiniMaxImagesOptions,
+) => {
+	try {
+		const module = await loadMiniMaxImagesProviderModule();
+		return await module.generateImagesMiniMax(model, context, options);
+	} catch (error) {
+		return createLazyLoadErrorImages(model, error);
+	}
+};
+
 export function registerBuiltInImagesApiProviders(): void {
 	registerImagesApiProvider({
 		api: "openrouter-images",
 		generateImages: generateImagesOpenRouter,
+	});
+	registerImagesApiProvider({
+		api: "minimax-images",
+		generateImages: generateImagesMiniMax,
 	});
 }
 

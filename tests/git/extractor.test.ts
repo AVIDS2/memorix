@@ -69,6 +69,12 @@ describe('Git Commit Parsing', () => {
       expect(c.subject).toBeTruthy();
     }
   }, 30_000);
+
+  it('rejects option-like commit refs and invalid counts', () => {
+    expect(() => getCommitInfo(process.cwd(), '--all')).toThrow('Invalid git commit ref');
+    expect(() => getRecentCommits(process.cwd(), 0)).toThrow('Commit count must be an integer');
+    expect(() => getRecentCommits(process.cwd(), 101)).toThrow('Commit count must be an integer');
+  });
 });
 
 describe('Git Ingest (commit → memory)', () => {

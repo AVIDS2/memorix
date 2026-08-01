@@ -19,8 +19,9 @@
 
 import { defineCommand } from 'citty';
 import * as fs from 'node:fs';
-import { spawn, execSync } from 'node:child_process';
+import { spawn, execFileSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
+import { parseTcpPort } from '../port.js';
 
 // ============================================================
 // Paths & Types
@@ -54,6 +55,33 @@ function getStateFilePath(): string {
 
 function getLogFilePath(): string {
   return getMemorixDir() + '/background.log';
+}
+
+function parseBoundedPositiveInteger(value: string | undefined, fallback: number, label: string, maximum: number): number {
+  const raw = value ?? String(fallback);
+  if (!/^[0-9]+$/u.test(raw)) {
+    throw new Error(`${label} must be a whole number between 1 and ${maximum}.`);
+  }
+  const parsed = Number(raw);
+  if (!Number.isSafeInteger(parsed) || parsed < 1 || parsed > maximum) {
+    throw new Error(`${label} must be a whole number between 1 and ${maximum}.`);
+  }
+  return parsed;
+}
+
+function parseBackgroundPort(value: string | undefined): number {
+  return parseTcpPort(value, 3211);
+}
+
+function parseLogLines(value: string | undefined): number {
+  return parseBoundedPositiveInteger(value, 50, 'Log line count', 10_000);
+}
+
+function formatBackgroundCommandError(error: unknown, includeStack = process.env.MEMORIX_DEBUG === '1'): string {
+  const message = error instanceof Error ? error.message : String(error);
+  const base = `[memorix background] Error: ${message}\n`;
+  if (!includeStack || !(error instanceof Error) || !error.stack) return base;
+  return `${base}${error.stack}\n`;
 }
 
 // ============================================================
@@ -104,6 +132,108 @@ function killProcess(pid: number): boolean {
   }
 }
 
+function forceTerminateProcess(pid: number): void {
+  if (process.platform === 'win32') {
+    execFileSync('taskkill', ['/F', '/PID', String(pid)], { stdio: 'ignore', windowsHide: true });
+    return;
+  }
+  process.kill(pid, 'SIGKILL');
+}
+
+function quotePowerShellLiteral(value: string): string {
+  return `'${value.replace(/'/g, "''")}'`;
+}
+
+function quoteWindowsCommandArgument(value: string): string {
+  if (value.length > 0 && !/[\s"]/u.test(value)) return value;
+  return `"${value.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\*)$/g, '$1$1')}"`;
+}
+
+interface WindowsBackgroundLaunchOptions {
+  nodePath: string;
+  cliEntry: string;
+  port: number;
+  cwd: string;
+  stdoutLogFile: string;
+  stderrLogFile: string;
+}
+
+function buildWindowsBackgroundStartScript(options: WindowsBackgroundLaunchOptions): string {
+  const commandLine = [options.cliEntry, 'serve-http', '--port', String(options.port)]
+    .map(quoteWindowsCommandArgument)
+    .join(' ');
+  return [
+    '$ErrorActionPreference = "Stop";',
+    `$process = Start-Process -FilePath ${quotePowerShellLiteral(options.nodePath)}`,
+    `-ArgumentList ${quotePowerShellLiteral(commandLine)}`,
+    `-WorkingDirectory ${quotePowerShellLiteral(options.cwd)}`,
+    '-WindowStyle Hidden',
+    `-RedirectStandardOutput ${quotePowerShellLiteral(options.stdoutLogFile)}`,
+    `-RedirectStandardError ${quotePowerShellLiteral(options.stderrLogFile)}`,
+    '-PassThru;',
+    '[Console]::Out.Write($process.Id);',
+  ].join(' ');
+}
+
+async function startWindowsBackgroundService(options: WindowsBackgroundLaunchOptions): Promise<number> {
+  const script = buildWindowsBackgroundStartScript(options);
+  return new Promise((resolve, reject) => {
+    const launcher = spawn('powershell.exe', [
+      '-NoLogo',
+      '-NoProfile',
+      '-NonInteractive',
+      '-WindowStyle', 'Hidden',
+      '-Command', script,
+    ], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true,
+    });
+    let stdout = '';
+    let stderr = '';
+    let settled = false;
+    const finish = (result: { pid?: number; error?: Error }): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+
+      // Start-Process may keep the launcher's inherited pipe open after it has
+      // already returned the child PID. We only need that first PID, so release
+      // the pipe instead of keeping the CLI alive waiting for PowerShell to exit.
+      launcher.stdout?.destroy();
+      launcher.stderr?.destroy();
+      launcher.unref();
+
+      if (result.pid !== undefined) resolve(result.pid);
+      else reject(result.error ?? new Error('Windows background launcher failed'));
+    };
+    const tryResolvePid = (): void => {
+      const match = stdout.match(/^\s*(\d+)\b/u);
+      if (!match) return;
+      const pid = Number.parseInt(match[1], 10);
+      if (Number.isSafeInteger(pid) && pid > 0) finish({ pid });
+    };
+    const timeout = setTimeout(() => {
+      finish({ error: new Error('Windows background launcher timed out before returning a process ID') });
+    }, 10_000);
+
+    launcher.stdout?.on('data', (chunk: Buffer) => {
+      stdout += chunk.toString();
+      tryResolvePid();
+    });
+    launcher.stderr?.on('data', (chunk: Buffer) => { stderr += chunk.toString(); });
+    launcher.on('error', (error) => finish({ error }));
+    launcher.on('close', (code) => {
+      if (settled) return;
+      const pid = Number.parseInt(stdout.trim(), 10);
+      if (code === 0 && Number.isSafeInteger(pid) && pid > 0) {
+        finish({ pid });
+        return;
+      }
+      finish({ error: new Error(`Windows background launcher failed${stderr ? `: ${stderr.trim()}` : ''}`) });
+    });
+  });
+}
+
 async function healthCheck(port: number, timeoutMs = 3000): Promise<{ ok: boolean; data?: any; error?: string }> {
   try {
     const controller = new AbortController();
@@ -152,9 +282,10 @@ export async function doStart(port: number): Promise<void> {
         console.log(`  MCP:        http://127.0.0.1:${state.port}/mcp`);
         return;
       }
-      // Stale or PID-reused — kill and auto-restart
-      console.log(`[WARN] Stale process ${state.pid} detected (PID alive but port ${state.port} not responding), cleaning up...`);
-      killProcess(state.pid);
+      // A live PID without a matching health response may have been reused by an
+      // unrelated process. Never kill it based on stale local state alone.
+      console.log(`[WARN] Registered process ${state.pid} is alive but port ${state.port} is not responding.`);
+      console.log('  Cleared stale Memorix state without stopping that process.');
       clearState();
       // Fall through to auto-restart below
     } else {
@@ -210,30 +341,41 @@ export async function doStart(port: number): Promise<void> {
     try { fs.renameSync(logFile, logFile + '.prev'); } catch { /* ok */ }
   }
 
-  const logFd = fs.openSync(logFile, 'a');
-
   // 5. Find the memorix CLI entry point
   // We need to spawn `node <cli-entry> serve-http --port <port>`
   // The entry point is the same binary that's running now
   const cliEntry = process.argv[1]; // e.g., dist/cli/index.js or node_modules/.bin/memorix
 
-  // 6. Spawn the background service. The service can safely outlive this CLI through
-  // unref() and file-backed stdio. Avoid detached on Windows because it can create a
-  // visible console even when windowsHide is set.
-  const child = spawn(process.execPath, [cliEntry, 'serve-http', '--port', String(port)], {
-    detached: process.platform !== 'win32',
-    stdio: ['ignore', logFd, logFd],
-    env: { ...process.env },
-    cwd: process.cwd(),
-    windowsHide: true,
-  });
-
-  child.unref();
-  fs.closeSync(logFd);
-
-  const pid = child.pid;
-  if (!pid) {
-    console.error('[ERROR] Failed to spawn background process');
+  // 6. Start the service without a visible console. A regular non-detached child
+  // can be reclaimed with its parent by terminal hosts on Windows; a detached Node
+  // child can flash a console. Start-Process gives us a hidden, independent child
+  // and its real Node PID. POSIX retains the direct detached child path.
+  let pid: number;
+  try {
+    if (process.platform === 'win32') {
+      pid = await startWindowsBackgroundService({
+        nodePath: process.execPath,
+        cliEntry,
+        port,
+        cwd: process.cwd(),
+        stdoutLogFile: `${logFile}.stdout`,
+        stderrLogFile: logFile,
+      });
+    } else {
+      const logFd = fs.openSync(logFile, 'a');
+      const child = spawn(process.execPath, [cliEntry, 'serve-http', '--port', String(port)], {
+        detached: true,
+        stdio: ['ignore', logFd, logFd],
+        env: { ...process.env },
+        cwd: process.cwd(),
+      });
+      child.unref();
+      fs.closeSync(logFd);
+      if (!child.pid) throw new Error('Failed to obtain background process ID');
+      pid = child.pid;
+    }
+  } catch (err) {
+    console.error(`[ERROR] Failed to start background process: ${err instanceof Error ? err.message : err}`);
     process.exitCode = 1;
     return;
   }
@@ -327,14 +469,7 @@ export async function doStop(): Promise<void> {
   if (!health.ok) {
     // PID alive but port not responding — likely PID-reused or process stuck
     console.log(`[WARN] PID ${state.pid} is alive but port ${state.port} is not responding.`);
-    console.log('  This may be a PID-reused unrelated process. Force-killing and cleaning up stale state.');
-    try {
-      if (process.platform === 'win32') {
-        execSync(`taskkill /F /PID ${state.pid}`, { stdio: 'ignore', windowsHide: true });
-      } else {
-        process.kill(state.pid, 'SIGKILL');
-      }
-    } catch { /* best effort */ }
+    console.log('  It may be a PID-reused unrelated process, so Memorix will not kill it.');
     clearState();
     try { fs.unlinkSync(getMemorixDir() + '/background.ready'); } catch { /* ignore */ }
     return;
@@ -369,13 +504,9 @@ export async function doStop(): Promise<void> {
   } catch { /* process may already be gone */ }
 
   if (!graceful && isProcessRunning(state.pid)) {
-    // Force kill on Windows
+    // Health previously proved this PID belongs to the registered Memorix service.
     try {
-      if (process.platform === 'win32') {
-        execSync(`taskkill /F /PID ${state.pid}`, { stdio: 'ignore', windowsHide: true });
-      } else {
-        process.kill(state.pid, 'SIGKILL');
-      }
+      forceTerminateProcess(state.pid);
     } catch { /* best effort */ }
   }
 
@@ -514,8 +645,8 @@ async function doEnsure(port: number): Promise<void> {
       // Already running and healthy — silent success
       return;
     }
-    // PID alive but unhealthy — kill and restart
-    killProcess(state.pid);
+    // A live PID without a matching health response may have been reused by an
+    // unrelated process. Clear stale state but never kill based on it alone.
     clearState();
   } else if (state) {
     // PID dead — clean up
@@ -600,7 +731,7 @@ export default defineCommand({
   run: async ({ args }) => {
     try {
       const subcommand = (args._ as string[])?.[0] || '';
-      const port = parseInt(args.port || '3211', 10);
+      const port = parseBackgroundPort(args.port);
 
       switch (subcommand) {
         case 'start':
@@ -622,7 +753,7 @@ export default defineCommand({
           await doEnsure(port);
           break;
         case 'logs':
-          doLogs(!!args.follow, parseInt(args.lines || '50', 10));
+          doLogs(!!args.follow, parseLogLines(args.lines));
           break;
         default:
           console.log('Memorix Background Control Plane');
@@ -648,11 +779,17 @@ export default defineCommand({
       }
     } catch (err) {
       // Ensure errors are never silently swallowed by citty
-      process.stderr.write(`[memorix background] Error: ${err instanceof Error ? err.message : err}\n`);
-      if (err instanceof Error && err.stack) {
-        process.stderr.write(err.stack + '\n');
-      }
+      process.stderr.write(formatBackgroundCommandError(err));
       process.exitCode = 1;
     }
   },
 });
+
+/** @internal Test-only helpers for Windows launcher construction. */
+export const _testing = {
+  buildWindowsBackgroundStartScript,
+  quoteWindowsCommandArgument,
+  parseBackgroundPort,
+  parseLogLines,
+  formatBackgroundCommandError,
+};

@@ -9,7 +9,7 @@ import { CodeGraphStore } from '../../src/codegraph/store.js';
 import { closeAllDatabases } from '../../src/store/sqlite-db.js';
 
 vi.mock('node:child_process', () => ({
-  execSync: vi.fn(),
+  execFileSync: vi.fn(),
 }));
 
 vi.mock('node:fs', async (importOriginal) => ({
@@ -29,9 +29,9 @@ describe('context-collector', () => {
 
   describe('collectPlanningContext', () => {
     it('should collect file tree via git ls-files', () => {
-      vi.mocked(cp.execSync).mockImplementation((cmd: string) => {
-        if (cmd.includes('ls-files')) return 'src/index.ts\nsrc/main.ts\npackage.json';
-        if (cmd.includes('git log')) return 'abc1234 initial commit';
+      vi.mocked(cp.execFileSync).mockImplementation((file: string, args: readonly string[] | undefined) => {
+        if (file === 'git' && args?.includes('ls-files')) return 'src/index.ts\nsrc/main.ts\npackage.json';
+        if (file === 'git' && args?.includes('log')) return 'abc1234 initial commit';
         return '';
       });
       vi.mocked(fs.existsSync).mockReturnValue(false);
@@ -43,8 +43,8 @@ describe('context-collector', () => {
 
     it('should truncate file tree to maxFileTreeEntries', () => {
       const files = Array.from({ length: 200 }, (_, i) => `file${i}.ts`).join('\n');
-      vi.mocked(cp.execSync).mockImplementation((cmd: string) => {
-        if (cmd.includes('ls-files')) return files;
+      vi.mocked(cp.execFileSync).mockImplementation((file: string, args: readonly string[] | undefined) => {
+        if (file === 'git' && args?.includes('ls-files')) return files;
         return '';
       });
       vi.mocked(fs.existsSync).mockReturnValue(false);
@@ -56,7 +56,7 @@ describe('context-collector', () => {
     });
 
     it('should collect dependencies from package.json', () => {
-      vi.mocked(cp.execSync).mockReturnValue('');
+      vi.mocked(cp.execFileSync).mockReturnValue('');
       vi.mocked(fs.existsSync).mockReturnValue(true);
       vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({
         dependencies: { react: '^18', zod: '^3' },
@@ -69,7 +69,7 @@ describe('context-collector', () => {
     });
 
     it('should return empty strings when commands fail', () => {
-      vi.mocked(cp.execSync).mockImplementation(() => { throw new Error('not a git repo'); });
+      vi.mocked(cp.execFileSync).mockImplementation(() => { throw new Error('not a git repo'); });
       vi.mocked(fs.existsSync).mockReturnValue(false);
 
       const ctx = collectPlanningContext({ projectDir: '/fake', agents: ['codex'] });

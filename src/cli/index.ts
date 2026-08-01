@@ -15,7 +15,6 @@
 
 import { defineCommand, runMain } from 'citty';
 import * as p from '@clack/prompts';
-import { execSync, spawn } from 'node:child_process';
 import { getCliVersion } from './version.js';
 import { importBundledMemcode } from './memcode-bootstrap.js';
 import { installCliPipeErrorGuard } from './pipe-errors.js';

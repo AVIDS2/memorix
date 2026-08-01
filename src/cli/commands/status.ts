@@ -10,7 +10,11 @@ export default defineCommand({
     name: 'status',
     description: 'Show project info and rules sync status',
   },
-  run: async () => {
+  args: {
+    json: { type: 'boolean', description: 'Emit machine-readable JSON output' },
+  },
+  run: async ({ args }) => {
+    const asJson = !!args.json;
     const { detectProject } = await import('../../project/detector.js');
     const { RulesSyncer } = await import('../../rules/syncer.js');
     const { getProjectDataDir } = await import('../../store/persistence.js');
@@ -18,11 +22,18 @@ export default defineCommand({
     const { getResolvedConfig, getResolvedAgentLane } = await import('../../config/resolved-config.js');
     const { existsSync, readFileSync } = await import('node:fs');
 
-    p.intro('memorix status');
-
     const project = detectProject();
     if (!project) {
-      p.log.error('Memorix requires a git repo to establish project identity. Run `git init` in this workspace first.');
+      const message = 'Memorix requires a git repo to establish project identity. Run `git init` in this workspace first.';
+      if (asJson) {
+        console.log(JSON.stringify({
+          ok: false,
+          error: { code: 'NO_GIT_REPOSITORY', message },
+        }, null, 2));
+      } else {
+        p.intro('memorix status');
+        p.log.error(message);
+      }
       return;
     }
 
@@ -45,25 +56,15 @@ export default defineCommand({
       activeCount = projectObs.filter(o => (o.status ?? 'active') === 'active').length;
     } catch { /* ignore */ }
 
-    p.note(
-      [
-        `Name:         ${project.name}`,
-        `ID:           ${project.id}`,
-        `Root:         ${project.rootPath}`,
-        `Git remote:   ${project.gitRemote || 'none'}`,
-        `Data dir:     ${dataDir}`,
-        `Observations: ${obsCount} (${activeCount} active)`,
-      ].join('\n'),
-      'Project',
-    );
-
     // Embedding / vector search status
     let embeddingStatus = 'None (fulltext/BM25 only)';
     let embeddingHint = '';
+    let embeddingProvider: { name: string; dimensions: number } | null = null;
     const embeddingMode = process.env.MEMORIX_EMBEDDING?.toLowerCase()?.trim() || 'off';
     try {
       const provider = await getEmbeddingProvider();
       if (provider) {
+        embeddingProvider = provider;
         embeddingStatus = `${provider.name} (${provider.dimensions}d)`;
         if (embeddingMode === 'api') {
           const model = process.env.MEMORIX_EMBEDDING_MODEL || 'text-embedding-3-small';
@@ -80,13 +81,9 @@ export default defineCommand({
       embeddingHint = '\n  Hint: Set MEMORIX_EMBEDDING=api for best quality, or install @huggingface/transformers or fastembed for local';
     }
 
-    p.note(
-      `Search:    BM25 fulltext (Orama)\n` +
-      `Embedding: ${embeddingStatus}${embeddingHint}`,
-      'Search Engine',
-    );
-
     // ── TOML-first Config Snapshot ──
+    let configuration: Record<string, unknown> | null = null;
+    let configNote: string | null = null;
     try {
       const { getLoadedEnvFiles } = await import('../../config/dotenv-loader.js');
       const resolved = getResolvedConfig({ projectRoot: project.rootPath });
@@ -132,12 +129,113 @@ export default defineCommand({
         diagLines.push('[TIP] Run "memorix init" to create TOML config');
       }
 
-      p.note(diagLines.join('\n'), 'Configuration');
+      configNote = diagLines.join('\n');
+      configuration = {
+        sources: {
+          toml: resolved.sources.toml,
+          compatibility: resolved.sources.legacy,
+          dotenv: loadedEnv,
+          environment: resolved.sources.env,
+        },
+        lanes: {
+          agent: summarizeLane(agent.provider, agent.model, agent.baseUrl, agent.apiKey),
+          memoryLlm: summarizeLane(resolved.memory.llm.provider, resolved.memory.llm.model, resolved.memory.llm.baseUrl, resolved.memory.llm.apiKey),
+          embedding: summarizeLane(resolved.embedding.provider, resolved.embedding.model, resolved.embedding.baseUrl, resolved.embedding.apiKey),
+        },
+        memory: {
+          inject: resolved.memory.inject ?? 'default',
+          formation: resolved.memory.formation ?? 'default',
+          autoCleanup: resolved.memory.autoCleanup ?? 'default',
+        },
+        git: {
+          autoHook: resolved.git.autoHook ?? 'default',
+          ingestOnCommit: resolved.git.ingestOnCommit ?? 'default',
+          maxDiffSize: resolved.git.maxDiffSize ?? 'default',
+          skipMergeCommits: resolved.git.skipMergeCommits ?? 'default',
+        },
+        server: {
+          transport: resolved.server.transport ?? 'default',
+          dashboard: resolved.server.dashboard ?? 'default',
+          dashboardPort: resolved.server.dashboardPort ?? 'default',
+        },
+      };
     } catch { /* best effort */ }
 
     const syncer = new RulesSyncer(project.rootPath);
     const status = await syncer.syncStatus();
 
+    // Count by source
+    const memorySources: string[] = [];
+    try {
+      const { initObservationStore, getObservationStore } = await import('../../store/obs-store.js');
+      await initObservationStore(dataDir);
+      const store = getObservationStore();
+      const { filterReadableObservations } = await import('../../memory/visibility.js');
+      const allObs = filterReadableObservations(await store.loadAll(), { projectId: project.id });
+      const gitCount = allObs.filter(o => o.source === 'git').length;
+      const reasoningCount = allObs.filter(o => o.type === 'reasoning').length;
+      if (gitCount > 0 || reasoningCount > 0) {
+        if (gitCount > 0) memorySources.push(`Git memories: ${gitCount}`);
+        if (reasoningCount > 0) memorySources.push(`Reasoning traces: ${reasoningCount}`);
+      }
+    } catch { /* best effort */ }
+
+    if (asJson) {
+      console.log(JSON.stringify({
+        ok: true,
+        project: {
+          name: project.name,
+          id: project.id,
+          rootPath: project.rootPath,
+          gitRemote: project.gitRemote ?? null,
+          dataDir,
+        },
+        observations: { total: obsCount, active: activeCount },
+        search: {
+          fulltext: 'orama-bm25',
+          embedding: {
+            mode: embeddingMode,
+            available: embeddingProvider !== null,
+            provider: embeddingProvider?.name ?? null,
+            dimensions: embeddingProvider?.dimensions ?? null,
+            status: embeddingStatus,
+            hint: embeddingHint.trim() || null,
+          },
+        },
+        configuration,
+        rules: {
+          sources: status.sources,
+          total: status.totalRules,
+          unique: status.uniqueRules,
+          conflicts: status.conflicts.map((conflict) => ({
+            left: { source: conflict.ruleA.source, id: conflict.ruleA.id },
+            right: { source: conflict.ruleB.source, id: conflict.ruleB.id },
+            reason: conflict.reason,
+          })),
+        },
+        memorySources,
+      }, null, 2));
+      return;
+    }
+
+    p.intro('memorix status');
+    p.note(
+      [
+        `Name:         ${project.name}`,
+        `ID:           ${project.id}`,
+        `Root:         ${project.rootPath}`,
+        `Git remote:   ${project.gitRemote || 'none'}`,
+        `Data dir:     ${dataDir}`,
+        `Observations: ${obsCount} (${activeCount} active)`,
+      ].join('\n'),
+      'Project',
+    );
+    p.note(
+      `Search:    BM25 fulltext (Orama)\n` +
+      `Embedding: ${embeddingStatus}${embeddingHint}`,
+      'Search Engine',
+    );
+    if (configNote) p.note(configNote, 'Configuration');
     p.note(
       [
         `Sources:      ${status.sources.join(', ') || 'none detected'}`,
@@ -152,7 +250,7 @@ export default defineCommand({
       p.log.warn('Conflicts detected:');
       for (const c of status.conflicts) {
         p.log.warn(`  ${c.ruleA.source}:${c.ruleA.id} vs ${c.ruleB.source}:${c.ruleB.id}`);
-        p.log.warn(`  → ${c.reason}`);
+        p.log.warn(`  -> ${c.reason}`);
       }
     }
 
@@ -160,22 +258,7 @@ export default defineCommand({
       p.log.info('No rule files found. Create .cursorrules, CLAUDE.md, or .windsurfrules to get started.');
     }
 
-    // Count by source
-    try {
-      const { initObservationStore, getObservationStore } = await import('../../store/obs-store.js');
-      await initObservationStore(dataDir);
-      const store = getObservationStore();
-      const { filterReadableObservations } = await import('../../memory/visibility.js');
-      const allObs = filterReadableObservations(await store.loadAll(), { projectId: project.id });
-      const gitCount = allObs.filter(o => o.source === 'git').length;
-      const reasoningCount = allObs.filter(o => o.type === 'reasoning').length;
-      if (gitCount > 0 || reasoningCount > 0) {
-        const parts: string[] = [];
-        if (gitCount > 0) parts.push(`Git memories: ${gitCount}`);
-        if (reasoningCount > 0) parts.push(`Reasoning traces: ${reasoningCount}`);
-        p.note(parts.join('\n'), 'Memory Sources');
-      }
-    } catch { /* best effort */ }
+    if (memorySources.length > 0) p.note(memorySources.join('\n'), 'Memory Sources');
 
     p.outro('Done');
   },
@@ -193,4 +276,13 @@ function formatLane(provider?: string, model?: string, baseUrl?: string, apiKey?
   if (baseUrl) parts.push(`baseUrl=${baseUrl}`);
   parts.push(`apiKey=${apiKey ? '<redacted>' : 'not set'}`);
   return parts.join(' / ');
+}
+
+function summarizeLane(provider?: string, model?: string, baseUrl?: string, apiKey?: string): Record<string, string | boolean | null> {
+  return {
+    provider: provider ?? null,
+    model: model ?? null,
+    baseUrl: baseUrl ?? null,
+    apiKeyConfigured: Boolean(apiKey),
+  };
 }

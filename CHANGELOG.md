@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.2] - 2026-08-02
+
+### Fixed
+- **Windows background lifecycle** -- Background Control Plane startup now uses a hidden, independent Windows launcher that returns the real Node PID immediately, writes managed state before readiness checks, and avoids both console flashes and host-reclaimed child processes.
+- **Safe stale-process handling** -- Background start, stop, and ensure no longer kill a live PID merely because old local state is unhealthy. A forced stop happens only after the health endpoint proves the PID belongs to the registered Memorix service.
+- **Truthful setup preview** -- `memorix setup --dry-run`, including `--global`, now performs no file, plugin, hook, MCP, or agent-setting changes. This is covered for Codex user-level paths.
+- **CLI failure boundaries** -- `background`, `serve-http`, and `dashboard` now reject malformed or out-of-range ports before starting a service; background log line limits are bounded, and these expected input errors are concise rather than internal stack traces.
+- **Recoverable orchestration work** -- Failed or timed-out orchestration worktrees retain uncommitted work for inspection rather than being force-removed; Git helper calls use argument arrays and bounded inputs.
+- **Dependency hardening** -- Refreshed the MCP SDK and transitive package overrides; production dependency audit is clean.
+
 ## [1.3.1] - 2026-07-31
 
 ### Fixed

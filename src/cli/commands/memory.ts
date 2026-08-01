@@ -88,7 +88,7 @@ export default defineCommand({
           }
           const limit = parsePositiveInt(args.limit as string | undefined, 10);
           const quality = coerceRetrievalQuality(args.quality as string | undefined);
-          const result = await compactSearch({ query, limit, quality, projectId: project.id, reader });
+          const result = await compactSearch({ query, limit, quality, projectId: project.id, reader }, 'cli');
           emitResult({ project, entries: result.entries }, result.formatted, asJson);
           return;
         }
@@ -206,13 +206,20 @@ export default defineCommand({
               : ref;
           });
           const result = await compactDetail(scopedRefs, { reader });
+          if (scopedRefs.length === 1 && result.documents.length === 0) {
+            emitError(`No readable memory found for ${scopedRefs[0]}.`, asJson);
+            return;
+          }
           emitResult({ project, documents: result.documents }, result.formatted, asJson);
           return;
         }
 
         case 'timeline': {
-          const id = Number.parseInt((args.id as string | undefined) || positional[0] || '', 10);
-          if (!Number.isFinite(id)) {
+          const rawId = (args.id as string | undefined) || positional[0] || '';
+          let id: number;
+          try {
+            id = parseObservationId(rawId);
+          } catch {
             emitError('Provide --id <n> for "memorix memory timeline"', asJson);
             return;
           }
@@ -222,15 +229,18 @@ export default defineCommand({
             parsePositiveInt(args.before as string | undefined, 3),
             parsePositiveInt(args.after as string | undefined, 3),
             reader,
+            'cli',
           );
+          if (!result.timeline.anchorEntry) {
+            emitError(`Observation #${id} was not found.`, asJson);
+            return;
+          }
           emitResult({ project, timeline: result.timeline }, result.formatted, asJson);
           return;
         }
 
         case 'resolve': {
-          const ids = parseCsvList(getIdArg(args, positional))
-            .map((value) => Number.parseInt(value, 10))
-            .filter((value) => Number.isFinite(value));
+          const ids = parseObservationIds(getIdArg(args, positional));
           if (ids.length === 0) {
             emitError('Provide --id <n> or --ids 1,2,3 for "memorix memory resolve"', asJson);
             return;
@@ -242,6 +252,16 @@ export default defineCommand({
           });
           if (authorizedIds.length === 0) {
             emitError('No requested observations are manageable with the active CLI scope.', asJson);
+            return;
+          }
+          const dryRun = !!args.dryRun || !!args['dry-run'];
+          if (dryRun) {
+            const unavailableIds = ids.filter((id) => !authorizedIds.includes(id));
+            emitResult(
+              { project, dryRun: true, status, wouldResolve: authorizedIds, unavailableIds },
+              `Would resolve ${authorizedIds.length} observation(s) to ${status}${unavailableIds.length > 0 ? `; unavailable: ${unavailableIds.join(', ')}` : ''}`,
+              asJson,
+            );
             return;
           }
           const result = await resolveObservations(authorizedIds, status);
@@ -409,9 +429,7 @@ export default defineCommand({
             return;
           }
 
-          const ids = parseCsvList(getIdArg(args, positional))
-            .map((value) => Number.parseInt(value, 10))
-            .filter((value) => Number.isFinite(value));
+          const ids = parseObservationIds(getIdArg(args, positional));
           if (ids.length === 0) {
             emitError('Provide --id <n> or --ids 1,2,3 for "memorix memory promote"', asJson);
             return;
@@ -611,27 +629,12 @@ export default defineCommand({
         }
 
         default:
-          console.log('Memorix Memory Commands');
-          console.log('');
-          console.log('Usage:');
-          console.log('  memorix memory search --query "timeout bug" [--limit 10] [--quality fast|balanced|thorough]');
-          console.log('  memorix memory recent [--limit 10]');
-          console.log('  memorix memory store --text "..." [--title "..."] [--type discovery] [--visibility project|personal|team]');
-          console.log('  memorix memory suggest-topic-key --type decision --title "..."');
-          console.log('  memorix memory detail --id 42');
-          console.log('  memorix memory detail obs:42@org/project');
-          console.log('  memorix memory timeline --id 42 [--before 3 --after 3]');
-          console.log('  memorix memory resolve --ids 42,43 [--status resolved|archived]');
-          console.log('  memorix memory deduplicate [--query "..."] [--dryRun]');
-          console.log('  memorix memory consolidate [--action preview|execute] [--threshold 0.45]');
-          console.log('  memorix memory promote --ids 42,43 [--trigger "..."] [--instruction "..."]');
-          console.log('  memorix memory long-term list [--all]');
-          console.log('  memorix memory long-term add --kind semantic --scope user --portability portable --title "..." --text "..." [--tags "..."] [--applicability "..."]');
-          console.log('  memorix memory long-term promote --fromObservation 42 --kind procedural --scope project');
-          console.log('  memorix memory long-term qualify --id <id> --reason "verified against evidence"');
-          console.log('  memorix memory long-term approve --id <id> --reason "reviewed by operator"');
-          console.log('  memorix memory long-term archive --id <id> --reason "no longer current"');
-          console.log('  memorix memory long-term supersede --id <old-id> --superseded-by <qualified-id> --reason "replaced"');
+          if (!action) {
+            printMemoryUsage();
+            return;
+          }
+          if (!asJson) printMemoryUsage();
+          emitError(`Unknown memory action "${action}".`, asJson);
       }
     } catch (error) {
       emitError(error instanceof Error ? error.message : String(error), asJson);
@@ -650,6 +653,46 @@ function getIdArg(args: Record<string, unknown>, positional: string[]): string {
     (args.id as string | undefined) ||
     positional.join(',')
   );
+}
+
+function parseObservationId(value: string): number {
+  const normalized = value.trim();
+  if (!/^[1-9]\d*$/.test(normalized)) {
+    throw new Error(`Invalid observation ID: ${value}`);
+  }
+  const id = Number(normalized);
+  if (!Number.isSafeInteger(id)) throw new Error(`Invalid observation ID: ${value}`);
+  return id;
+}
+
+function parseObservationIds(value: string): number[] {
+  const values = parseCsvList(value);
+  if (values.length === 0) return [];
+  return values.map(parseObservationId);
+}
+
+function printMemoryUsage(): void {
+  console.log('Memorix Memory Commands');
+  console.log('');
+  console.log('Usage:');
+  console.log('  memorix memory search --query "timeout bug" [--limit 10] [--quality fast|balanced|thorough]');
+  console.log('  memorix memory recent [--limit 10]');
+  console.log('  memorix memory store --text "..." [--title "..."] [--type discovery] [--visibility project|personal|team]');
+  console.log('  memorix memory suggest-topic-key --type decision --title "..."');
+  console.log('  memorix memory detail --id 42');
+  console.log('  memorix memory detail obs:42@org/project');
+  console.log('  memorix memory timeline --id 42 [--before 3 --after 3]');
+  console.log('  memorix memory resolve --ids 42,43 [--status resolved|archived] [--dry-run]');
+  console.log('  memorix memory deduplicate [--query "..."] [--dryRun]');
+  console.log('  memorix memory consolidate [--action preview|execute] [--threshold 0.45]');
+  console.log('  memorix memory promote --ids 42,43 [--trigger "..."] [--instruction "..."]');
+  console.log('  memorix memory long-term list [--all]');
+  console.log('  memorix memory long-term add --kind semantic --scope user --portability portable --title "..." --text "..." [--tags "..."] [--applicability "..."]');
+  console.log('  memorix memory long-term promote --fromObservation 42 --kind procedural --scope project');
+  console.log('  memorix memory long-term qualify --id <id> --reason "verified against evidence"');
+  console.log('  memorix memory long-term approve --id <id> --reason "reviewed by operator"');
+  console.log('  memorix memory long-term archive --id <id> --reason "no longer current"');
+  console.log('  memorix memory long-term supersede --id <old-id> --superseded-by <qualified-id> --reason "replaced"');
 }
 
 function longTermKind(value: string | undefined): 'episodic' | 'semantic' | 'procedural' {

@@ -13,7 +13,7 @@ import type { SearchOptions, IndexEntry, TimelineContext, MemorixDocument, Obser
 import { searchObservations, getTimeline, getObservationsByIds, makeOramaObservationId } from '../store/orama-store.js';
 import { getObservation, getAllObservations } from '../memory/observations.js';
 import { ensureFreshIndex } from '../memory/freshness.js';
-import { formatIndexTable, formatTimeline, formatObservationDetail } from './index-format.js';
+import { formatIndexTable, formatTimeline, formatObservationDetail, type RetrievalSurface } from './index-format.js';
 import { countTextTokens } from './token-budget.js';
 import { resolveAliases } from '../project/aliases.js';
 import { parseMemoryRef } from '../memory/refs.js';
@@ -64,7 +64,7 @@ export function normalizeMemoryBrowseQuery(query: string): string {
  * Layer 1: Search and return a compact index.
  * Agent scans this to decide which observations to fetch in detail.
  */
-export async function compactSearch(options: SearchOptions): Promise<{
+export async function compactSearch(options: SearchOptions, surface: RetrievalSurface = 'mcp'): Promise<{
   entries: IndexEntry[];
   formatted: string;
   totalTokens: number;
@@ -74,7 +74,7 @@ export async function compactSearch(options: SearchOptions): Promise<{
   const entries = (await searchObservations(searchOptions)).map((entry) =>
     entry.projectId || !options.projectId ? entry : { ...entry, projectId: options.projectId },
   );
-  let formatted = formatIndexTable(entries, searchOptions.query, !options.projectId);
+  let formatted = formatIndexTable(entries, searchOptions.query, !options.projectId, surface);
 
   if (entries.length === 0 && options.projectId) {
     const allObservations = filterReadableObservations(getAllObservations(), options.reader);
@@ -111,6 +111,7 @@ export async function compactTimeline(
   depthBefore = 3,
   depthAfter = 3,
   reader?: ObservationReader,
+  surface: RetrievalSurface = 'mcp',
 ): Promise<{
   timeline: TimelineContext;
   formatted: string;
@@ -125,7 +126,7 @@ export async function compactTimeline(
     after: result.after,
   };
 
-  const formatted = formatTimeline(timeline);
+  const formatted = formatTimeline(timeline, surface);
   const totalTokens = countTextTokens(formatted);
 
   return { timeline, formatted, totalTokens };

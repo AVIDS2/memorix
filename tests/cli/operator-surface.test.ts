@@ -324,6 +324,70 @@ describe('CLI operator surface', () => {
     expect(resolvedJson.result.resolved).toContain(obsId);
   });
 
+  it('makes memory resolve dry-run non-mutating and reports the planned change', async () => {
+    const stored = await runCommand(memoryCommand, {
+      _: ['store'],
+      text: 'Dry runs must not resolve a real observation.',
+      title: 'Resolve dry-run contract',
+      entity: 'cli-memory',
+      type: 'decision',
+      json: true,
+    });
+    const obsId = JSON.parse(stored.stdout).observation.id;
+
+    const dryRun = await runCommand(memoryCommand, {
+      _: ['resolve'],
+      id: String(obsId),
+      status: 'resolved',
+      'dry-run': true,
+      json: true,
+    });
+
+    expect(dryRun.exitCode).toBe(0);
+    expect(JSON.parse(dryRun.stdout)).toMatchObject({ dryRun: true, wouldResolve: [obsId] });
+
+    const detail = await runCommand(memoryCommand, { _: ['detail'], id: String(obsId), json: true });
+    expect(detail.exitCode).toBe(0);
+    expect(JSON.parse(detail.stdout).documents).toHaveLength(1);
+  });
+
+  it('fails closed for unknown memory actions, invalid limits, and missing details', async () => {
+    const unknown = await runCommand(memoryCommand, { _: ['nope'], json: true });
+    expect(unknown.exitCode).toBe(1);
+    expect(JSON.parse(unknown.stderr).error).toContain('Unknown memory action');
+
+    const invalidLimit = await runCommand(memoryCommand, {
+      _: ['recent'],
+      limit: 'nope',
+      json: true,
+    });
+    expect(invalidLimit.exitCode).toBe(1);
+    expect(JSON.parse(invalidLimit.stderr).error).toContain('Expected a positive integer');
+
+    const missing = await runCommand(memoryCommand, { _: ['detail'], id: '999', json: true });
+    expect(missing.exitCode).toBe(1);
+    expect(JSON.parse(missing.stderr).error).toContain('No readable memory found');
+  });
+
+  it('uses CLI commands, not MCP tool names, in CLI search guidance', async () => {
+    await runCommand(memoryCommand, {
+      _: ['store'],
+      text: 'The CLI must advertise commands users can actually run.',
+      title: 'CLI progressive disclosure',
+      entity: 'cli-memory',
+      type: 'decision',
+      json: true,
+    });
+
+    const search = await runCommand(memoryCommand, {
+      _: ['search'],
+      query: 'progressive disclosure',
+    });
+    expect(search.exitCode).toBe(0);
+    expect(search.stdout).toContain('memorix memory detail');
+    expect(search.stdout).not.toContain('memorix_detail');
+  });
+
   it('accepts positional arguments for common memory commands', async () => {
     const stored = await runCommand(memoryCommand, {
       _: ['store', 'Positional memory text should be accepted.'],

@@ -20,6 +20,18 @@ type IngestLogResult = {
   errSkipped: number;
 };
 
+export function parseCommitCount(value?: string): number {
+  const raw = value?.trim() || '10';
+  if (!/^\d+$/.test(raw)) {
+    throw new Error('Commit count must be an integer between 1 and 100.');
+  }
+  const count = Number(raw);
+  if (!Number.isSafeInteger(count) || count < 1 || count > 100) {
+    throw new Error('Commit count must be an integer between 1 and 100.');
+  }
+  return count;
+}
+
 /**
  * Shared dedup logic for batch git ingest.
  * Exported so tests can exercise the production path rather than reimplementing it.
@@ -72,7 +84,14 @@ export default defineCommand({
     let cwd: string;
     try { cwd = process.cwd(); } catch { cwd = os.homedir(); }
 
-    const count = parseInt(args.count || '10', 10);
+    let count: number;
+    try {
+      count = parseCommitCount(args.count);
+    } catch (err) {
+      p.log.error(err instanceof Error ? err.message : String(err));
+      process.exitCode = 1;
+      return;
+    }
 
     p.intro(`Ingest recent ${count} commits`);
 
@@ -178,6 +197,7 @@ export default defineCommand({
     } catch (err) {
       console.error(`Failed to ingest log: ${err}`);
       p.outro('Ingest failed. Make sure you are in a git repository.');
+      process.exitCode = 1;
     }
   },
 });

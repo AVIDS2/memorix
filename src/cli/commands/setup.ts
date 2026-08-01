@@ -1513,6 +1513,16 @@ export default defineCommand({
       description: 'Skip plugin package installation',
       required: false,
     },
+    dryRun: {
+      type: 'boolean',
+      description: 'Preview setup actions without changing files or agent settings',
+      required: false,
+    },
+    'dry-run': {
+      type: 'boolean',
+      description: 'Alias for --dryRun',
+      required: false,
+    },
     list: {
       type: 'boolean',
       description: 'List supported agent entrypoints',
@@ -1530,6 +1540,7 @@ export default defineCommand({
       mcp = parseMcp(args.mcp);
     } catch (error) {
       p.log.error(error instanceof Error ? error.message : String(error));
+      process.exitCode = 1;
       return;
     }
 
@@ -1561,6 +1572,7 @@ export default defineCommand({
 
     if (selectedAgent !== 'all' && !SUPPORTED_SETUP_AGENTS.includes(selectedAgent as AgentName)) {
       p.log.error(`Unsupported agent: ${selectedAgent}`);
+      process.exitCode = 1;
       return;
     }
 
@@ -1568,16 +1580,37 @@ export default defineCommand({
       ? SUPPORTED_SETUP_AGENTS
       : [selectedAgent as AgentName];
 
-    p.intro('Memorix Setup');
-    for (const agent of targets) {
-      const plan = buildSetupPlan({
+    const plans = targets.map((agent) => buildSetupPlan({
         agent,
         mcp,
         hooks: !args.noHooks,
         rules: !args.noRules,
         plugin: !args.noPlugin,
         global: Boolean(args.global),
-      });
+      }));
+    const dryRun = Boolean(args.dryRun || args['dry-run']);
+
+    if (dryRun) {
+      p.intro('Memorix Setup (dry run)');
+      for (const plan of plans) {
+        p.note(
+          [
+            `Scope: ${args.global ? 'global user configuration' : 'current project only'}`,
+            `MCP transport: ${plan.mcp}`,
+            `Actions: ${plan.actions.join(', ') || 'none'}`,
+            `Hooks: ${plan.includeHooks ? 'included' : 'skipped'}`,
+            `Rules: ${plan.includeRules ? 'included' : 'skipped'}`,
+          ].join('\n'),
+          plan.agent,
+        );
+      }
+      p.outro('Dry run complete. No files, plugins, hooks, or agent settings were changed.');
+      return;
+    }
+
+    p.intro('Memorix Setup');
+    for (const plan of plans) {
+      const agent = plan.agent as AgentName;
       await installAgentSetup(agent, plan, Boolean(args.global));
     }
 

@@ -839,9 +839,14 @@ export async function runCoordinationLoop(config: CoordinatorConfig): Promise<Co
                   } catch { /* evidence is best-effort */ }
                 }
 
-                // Worktree cleanup on fix exhaustion
+                // Preserve failed work so a user can inspect or recover an
+                // agent's partial result. Retries receive a fresh suffixed
+                // worktree instead of overwriting this one.
                 if (dispatch.worktreePath) {
-                  try { removeWorktree(projectDir, dispatch.worktreePath, dispatch.worktreeBranch); } catch { /* best-effort */ }
+                  emit('worktree:preserve', `Fix loop exhausted; preserved worktree ${dispatch.worktreePath} for recovery`, {
+                    taskId: dispatch.taskId,
+                    agentName: dispatch.adapterName,
+                  });
                 }
 
                 // Check if we can retry from scratch
@@ -946,10 +951,10 @@ export async function runCoordinationLoop(config: CoordinatorConfig): Promise<Co
                     try {
                       teamStore.getDb().prepare(
                         'UPDATE team_tasks SET status = ?, result = ?, updated_at = ? WHERE task_id = ?',
-                      ).run('failed', `Merge conflict — manual recovery required. Worktree preserved at ${dispatch.worktreePath}. Conflicts: ${mergeResult.conflicts?.slice(0, 200)}`, Date.now(), dispatch.taskId);
+                      ).run('failed', `Worktree integration failed — manual recovery required. Worktree preserved at ${dispatch.worktreePath}. Details: ${mergeResult.conflicts?.slice(0, 200)}`, Date.now(), dispatch.taskId);
                     } catch { /* best-effort */ }
                     // Conflict → PRESERVE worktree+branch for manual recovery
-                    emit('task:failed', `Worktree merge conflict for "${taskDesc}" — preserving ${dispatch.worktreePath} for manual recovery`, {
+                    emit('task:failed', `Worktree integration failed for "${taskDesc}" — preserving ${dispatch.worktreePath} for manual recovery`, {
                       taskId: dispatch.taskId,
                       agentName: dispatch.adapterName,
                     });
@@ -968,7 +973,7 @@ export async function runCoordinationLoop(config: CoordinatorConfig): Promise<Co
                   agent: dispatch.adapterName,
                   status: mergeConflict ? 'failed' : 'completed',
                   summary: mergeConflict
-                    ? `Merge conflict — manual recovery required at ${dispatch.worktreePath}`
+                    ? `Worktree integration failed — manual recovery required at ${dispatch.worktreePath}`
                     : (result.tailOutput.slice(-200) || 'Completed'),
                   outputFiles: [],
                   durationMs: Date.now() - dispatch.dispatchedAt,
@@ -1060,9 +1065,13 @@ export async function runCoordinationLoop(config: CoordinatorConfig): Promise<Co
               } catch { /* ledger is best-effort */ }
             }
 
-            // Phase 6i: Remove worktree without merge on failure
+            // A non-zero exit or timeout can still leave useful partial work.
+            // Preserve it rather than deleting a user's only recovery path.
             if (dispatch.worktreePath) {
-              try { removeWorktree(projectDir, dispatch.worktreePath, dispatch.worktreeBranch); } catch { /* best-effort */ }
+              emit('worktree:preserve', `Task did not finish; preserved worktree ${dispatch.worktreePath} for recovery`, {
+                taskId: dispatch.taskId,
+                agentName: dispatch.adapterName,
+              });
             }
 
             // Phase 7: Error recovery classification
@@ -1142,12 +1151,16 @@ export async function runCoordinationLoop(config: CoordinatorConfig): Promise<Co
     process.off('SIGINT', cleanup);
     process.off('SIGTERM', cleanup);
     try { teamStore.leaveAgent(orchAgentId); } catch { /* best-effort */ }
-    // Phase 6i: Freeze remaining worktrees on exit
+    // Do not delete active worktrees during shutdown. They can contain
+    // uncommitted agent changes and are safe to recover on the next run.
     if (useWorktrees) {
       try {
         const remaining = activeDispatches.filter(d => d.worktreePath);
         for (const d of remaining) {
-          try { removeWorktree(projectDir, d.worktreePath!, d.worktreeBranch); } catch { /* best-effort */ }
+          emit('worktree:preserve', `Coordinator stopped; preserved worktree ${d.worktreePath} for recovery`, {
+            taskId: d.taskId,
+            agentName: d.adapterName,
+          });
         }
       } catch { /* best-effort */ }
     }

@@ -379,6 +379,54 @@ describe('Coordinator', () => {
     }
   }, 30_000);
 
+  it('should preserve partial agent work after a failed task', async () => {
+    const projectDir = makeTmpDir();
+    const dataDir = makeTmpDir();
+    const failedStore = new TeamStore();
+    await failedStore.init(dataDir);
+    try {
+      initGitRepo(projectDir);
+      failedStore.createTask({ projectId: 'proj1', description: 'Task A' });
+      let workerCwd = '';
+      const adapter: AgentAdapter = {
+        name: 'partial-failure',
+        async available() { return true; },
+        spawn(_prompt: string, opts: SpawnOptions): AgentProcess {
+          workerCwd = opts.cwd;
+          fs.writeFileSync(path.join(workerCwd, 'partial.txt'), 'recover me');
+          return {
+            pid: 99999,
+            completion: Promise.resolve({ exitCode: 1, signal: null, tailOutput: 'failed after writing', killed: false }),
+            abort() {},
+          };
+        },
+      };
+      const events: CoordinatorEvent[] = [];
+
+      const result = await runCoordinationLoop({
+        projectDir,
+        projectId: 'proj1',
+        adapters: [adapter],
+        teamStore: failedStore,
+        maxRetries: 0,
+        pollIntervalMs: 50,
+        taskTimeoutMs: 5_000,
+        pipelineId: 'test-pipe-123',
+        worktreeMode: 'always',
+        onProgress: (event) => events.push(event),
+      });
+
+      expect(result.failed).toBe(1);
+      expect(fs.existsSync(workerCwd)).toBe(true);
+      expect(fs.readFileSync(path.join(workerCwd, 'partial.txt'), 'utf8')).toBe('recover me');
+      expect(events.some((event) => event.type === 'worktree:preserve')).toBe(true);
+    } finally {
+      closeDatabase(dataDir);
+      cleanup(dataDir);
+      fs.rmSync(projectDir, { recursive: true, force: true });
+    }
+  }, 30_000);
+
   it('should show plan in dry-run mode without spawning', async () => {
     store.createTask({ projectId: 'proj1', description: 'Task DryRun' });
 
@@ -896,7 +944,7 @@ describe('Coordinator', () => {
     const worktreeCreated = events.some(e => e.type === 'worktree:create');
     if (worktreeCreated && conflictWritten) {
       const conflictEvent = events.find(e =>
-        e.type === 'task:failed' && e.message.includes('merge conflict'),
+        e.type === 'task:failed' && e.message.includes('integration failed'),
       );
       const mergeSuccessEvent = events.find(e => e.type === 'worktree:merge');
 

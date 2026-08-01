@@ -147,6 +147,7 @@ export default defineCommand({
       } else {
         console.error(`Failed to ingest commit: ${err}`);
         p.outro('Ingest failed. Make sure you are in a git repository.');
+        process.exitCode = 1;
       }
     }
   },

@@ -6,7 +6,7 @@
  * Startup cleanup handles orphaned worktrees (pays D6 debt).
  */
 
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { existsSync, rmSync } from 'node:fs';
 import { join, basename } from 'node:path';
 
@@ -20,6 +20,46 @@ export interface WorktreeInfo {
 // ── Constants ──────────────────────────────────────────────────────
 
 const WORKTREE_DIR = '.worktrees';
+
+function runGit(cwd: string, args: string[], timeout = 5_000): string {
+  return String(execFileSync('git', args, {
+    cwd,
+    encoding: 'utf-8',
+    timeout,
+    windowsHide: true,
+  }));
+}
+
+function formatGitError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function hasUncommittedChanges(worktreePath: string): boolean | null {
+  try {
+    return runGit(worktreePath, ['status', '--porcelain']).trim().length > 0;
+  } catch {
+    return null;
+  }
+}
+
+function isBranchMergedIntoHead(projectDir: string, branch: string): boolean {
+  try {
+    runGit(projectDir, ['merge-base', '--is-ancestor', branch, 'HEAD']);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function isManagedWorktreePath(worktreePath: string, worktreeBase: string): boolean {
+  const normalize = (value: string) => {
+    const normalized = value.replace(/\\/g, '/').replace(/\/+$/, '');
+    return process.platform === 'win32' ? normalized.toLowerCase() : normalized;
+  };
+  const path = normalize(worktreePath);
+  const base = normalize(worktreeBase);
+  return path === base || path.startsWith(`${base}/`);
+}
 
 // ── Create ─────────────────────────────────────────────────────────
 
@@ -35,18 +75,34 @@ export function createWorktree(
 ): WorktreeInfo {
   const shortId = taskId.slice(0, 8);
   const shortPipeline = pipelineId.slice(0, 8);
-  const worktreePath = join(projectDir, WORKTREE_DIR, `task-${shortId}`);
-  const branch = `pipeline/${shortPipeline}/task-${shortId}`;
+  const worktreeBase = join(projectDir, WORKTREE_DIR, `task-${shortId}`);
+  const branchBase = `pipeline/${shortPipeline}/task-${shortId}`;
 
-  // Ensure .worktrees directory exists (git worktree add handles the rest)
-  execSync(`git worktree add "${worktreePath}" -b "${branch}"`, {
-    cwd: projectDir,
-    encoding: 'utf-8',
-    timeout: 30_000,
-    windowsHide: true,
-  });
+  // A failed attempt is preserved for recovery. Pick a new suffix for retries
+  // instead of reusing and overwriting that evidence.
+  for (let attempt = 1; attempt <= 100; attempt++) {
+    const suffix = attempt === 1 ? '' : `-${attempt}`;
+    const worktreePath = `${worktreeBase}${suffix}`;
+    const branch = `${branchBase}${suffix}`;
+    if (existsSync(worktreePath)) continue;
+    // Check refs before merge-base so a fresh branch does not emit Git's
+    // noisy "Not a valid object name" diagnostic on every allocation.
+    if (!isBranchAvailable(projectDir, branch)) continue;
 
-  return { worktreePath, branch };
+    runGit(projectDir, ['worktree', 'add', '-b', branch, worktreePath], 30_000);
+    return { worktreePath, branch };
+  }
+
+  throw new Error(`Unable to allocate an isolated worktree for task ${shortId}`);
+}
+
+function isBranchAvailable(projectDir: string, branch: string): boolean {
+  try {
+    runGit(projectDir, ['show-ref', '--verify', '--quiet', `refs/heads/${branch}`]);
+    return false;
+  } catch {
+    return true;
+  }
 }
 
 // ── Merge ──────────────────────────────────────────────────────────
@@ -74,58 +130,37 @@ export function mergeWorktree(
   // Without this, files written by the agent are untracked and the merge
   // will be a no-op (no commits on the branch beyond the checkout base).
   if (worktreePath) {
-    try {
-      execSync('git add -A', {
-        cwd: worktreePath,
-        encoding: 'utf-8',
-        timeout: 15_000,
-        windowsHide: true,
-      });
-      // Check if there's anything to commit
-      const status = execSync('git status --porcelain', {
-        cwd: worktreePath,
-        encoding: 'utf-8',
-        timeout: 5_000,
-        windowsHide: true,
-      }).trim();
-      if (status) {
-        execSync('git commit -m "task: agent work" --no-verify', {
-          cwd: worktreePath,
-          encoding: 'utf-8',
-          timeout: 15_000,
-          windowsHide: true,
-        });
+    const changes = hasUncommittedChanges(worktreePath);
+    if (changes === null) {
+      return {
+        success: false,
+        conflicts: `Could not inspect worktree changes; preserved at ${worktreePath}.`,
+      };
+    }
+    if (changes) {
+      try {
+        runGit(worktreePath, ['add', '-A'], 15_000);
+        runGit(worktreePath, ['commit', '-m', 'task: agent work', '--no-verify'], 15_000);
+      } catch (error) {
+        return {
+          success: false,
+          conflicts: `Could not commit agent changes; preserved at ${worktreePath}. ${formatGitError(error)}`,
+        };
       }
-      // else: nothing to commit — merge will be a no-op
-    } catch {
-      // "nothing to commit" is fine — the merge will just be a no-op.
-      // Any other git error here (e.g., invalid index) is also non-fatal;
-      // we still attempt the merge which will correctly report as no-op.
     }
   }
 
   // Step 2: Merge the branch into the main repo.
   try {
-    execSync(`git merge --no-ff "${branch}" -m "merge: ${branch}"`, {
-      cwd: projectDir,
-      encoding: 'utf-8',
-      timeout: 30_000,
-      windowsHide: true,
-    });
+    runGit(projectDir, ['merge', '--no-ff', branch, '-m', `merge: ${branch}`], 30_000);
     return { success: true };
   } catch (err) {
     // Abort the failed merge to leave working tree clean
     try {
-      execSync('git merge --abort', {
-        cwd: projectDir,
-        encoding: 'utf-8',
-        timeout: 5_000,
-        windowsHide: true,
-      });
+      runGit(projectDir, ['merge', '--abort']);
     } catch { /* best-effort */ }
 
-    const msg = err instanceof Error ? err.message : String(err);
-    return { success: false, conflicts: msg };
+    return { success: false, conflicts: formatGitError(err) };
   }
 }
 
@@ -140,36 +175,21 @@ export function removeWorktree(
   branch?: string,
 ): void {
   try {
-    execSync(`git worktree remove "${worktreePath}" --force`, {
-      cwd: projectDir,
-      encoding: 'utf-8',
-      timeout: 10_000,
-      windowsHide: true,
-    });
+    runGit(projectDir, ['worktree', 'remove', worktreePath, '--force'], 10_000);
   } catch {
     // If git worktree remove fails, try manual cleanup
     if (existsSync(worktreePath)) {
       try { rmSync(worktreePath, { recursive: true, force: true }); } catch { /* best-effort */ }
     }
     try {
-      execSync('git worktree prune', {
-        cwd: projectDir,
-        encoding: 'utf-8',
-        timeout: 5_000,
-        windowsHide: true,
-      });
+      runGit(projectDir, ['worktree', 'prune']);
     } catch { /* best-effort */ }
   }
 
   // Delete the branch (best-effort)
   if (branch) {
     try {
-      execSync(`git branch -D "${branch}"`, {
-        cwd: projectDir,
-        encoding: 'utf-8',
-        timeout: 5_000,
-        windowsHide: true,
-      });
+      runGit(projectDir, ['branch', '-D', branch]);
     } catch { /* may already be deleted or is current branch */ }
   }
 }
@@ -182,12 +202,7 @@ export function removeWorktree(
  */
 export function listWorktrees(projectDir: string): Array<{ path: string; branch: string | null }> {
   try {
-    const raw = execSync('git worktree list --porcelain', {
-      cwd: projectDir,
-      encoding: 'utf-8',
-      timeout: 5_000,
-      windowsHide: true,
-    });
+    const raw = runGit(projectDir, ['worktree', 'list', '--porcelain']);
 
     const worktrees: Array<{ path: string; branch: string | null }> = [];
     let current: { path: string; branch: string | null } | null = null;
@@ -204,9 +219,10 @@ export function listWorktrees(projectDir: string): Array<{ path: string; branch:
     }
     if (current) worktrees.push(current);
 
-    // Filter to only our managed worktrees (normalize slashes for Windows compat)
-    const worktreeBase = join(projectDir, WORKTREE_DIR).replace(/\\/g, '/');
-    return worktrees.filter(w => w.path.replace(/\\/g, '/').startsWith(worktreeBase));
+    // Filter to only our managed worktrees; require a path boundary so a
+    // sibling such as `.worktrees-old` is never treated as ours.
+    const worktreeBase = join(projectDir, WORKTREE_DIR);
+    return worktrees.filter(w => isManagedWorktreePath(w.path, worktreeBase));
   } catch {
     return [];
   }
@@ -218,7 +234,7 @@ export function listWorktrees(projectDir: string): Array<{ path: string; branch:
  */
 export function extractTaskIdFromPath(worktreePath: string): string | null {
   const name = basename(worktreePath);
-  const match = name.match(/^task-([a-f0-9]+)$/);
+  const match = name.match(/^task-([a-f0-9]+)(?:-\d+)?$/);
   return match ? match[1] : null;
 }
 
@@ -241,8 +257,11 @@ export function cleanupOrphanWorktrees(
     if (!shortId) continue;
 
     if (isTaskTerminal(shortId)) {
-      removeWorktree(projectDir, wt.path, wt.branch ?? undefined);
-      removed++;
+      const changes = hasUncommittedChanges(wt.path);
+      if (changes === false && wt.branch && isBranchMergedIntoHead(projectDir, wt.branch)) {
+        removeWorktree(projectDir, wt.path, wt.branch);
+        removed++;
+      }
     }
   }
 

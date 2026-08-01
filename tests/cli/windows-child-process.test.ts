@@ -21,10 +21,18 @@ describe('Windows CLI child process behavior', () => {
     expect(config).toContain('windowsHide:true');
   });
 
-  it('does not create a detached Windows console for the background service', () => {
+  it('uses the hidden Windows launcher for the background service', () => {
     const command = readFileSync(join(process.cwd(), 'src/cli/commands/background.ts'), 'utf8');
-    expect(command).toContain("detached: process.platform !== 'win32'");
+    expect(command).toContain("spawn('powershell.exe'");
+    expect(command).toContain('Start-Process');
+    expect(command).toContain('-WindowStyle Hidden');
     expect(command).toContain('windowsHide: true');
+  });
+
+  it('hides verification commands launched by orchestration', () => {
+    const verifyGate = readFileSync(join(process.cwd(), 'src/orchestrate/verify-gate.ts'), 'utf8');
+    expect(verifyGate).toContain('shell: true');
+    expect(verifyGate).toContain('windowsHide: true');
   });
 
   it('hides the slow-path Git probes used by normal CLI commands', () => {

@@ -16,7 +16,7 @@ export type KnownApi =
 
 export type Api = KnownApi | (string & {});
 
-export type KnownImagesApi = "openrouter-images";
+export type KnownImagesApi = "openrouter-images" | "minimax-images";
 
 export type ImagesApi = KnownImagesApi | (string & {});
 
@@ -58,7 +58,7 @@ export type KnownProvider =
 	| "xiaomi-token-plan-sgp";
 export type Provider = KnownProvider | string;
 
-export type KnownImagesProvider = "openrouter";
+export type KnownImagesProvider = "openrouter" | "minimax" | "minimax-cn";
 
 export type ImagesProvider = KnownImagesProvider | string;
 

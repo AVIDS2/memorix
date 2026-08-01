@@ -3,12 +3,17 @@
 import { writeFileSync } from "fs";
 import { dirname, join } from "path";
 import { fileURLToPath, pathToFileURL } from "url";
-import type { ImagesModel } from "../src/types.ts";
+import type { ImagesApi, ImagesModel } from "../src/types.ts";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const packageRoot = join(__dirname, "..");
 const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
+const MINIMAX_IMAGE_MODEL_IDS = ["image-01", "image-01-live"] as const;
+const MINIMAX_IMAGE_VARIANTS = [
+	{ provider: "minimax", baseUrl: "https://api.minimax.io/v1/image_generation" },
+	{ provider: "minimax-cn", baseUrl: "https://api.minimaxi.com/v1/image_generation" },
+] as const;
 const MIN_GENERATED_IMAGE_MODEL_COUNT = 1;
 const CATALOG_SHRINK_OVERRIDE_ENV = "MEMORIX_ALLOW_MODEL_CATALOG_SHRINK";
 
@@ -78,6 +83,21 @@ async function fetchOpenRouterImageModels(): Promise<ImagesModel<"openrouter-ima
 	}
 }
 
+function getMiniMaxImageModels(): ImagesModel<"minimax-images">[] {
+	return MINIMAX_IMAGE_VARIANTS.flatMap(({ provider, baseUrl }) =>
+		MINIMAX_IMAGE_MODEL_IDS.map((modelId) => ({
+			id: modelId,
+			name: modelId,
+			api: "minimax-images",
+			provider,
+			baseUrl,
+			input: ["text"],
+			output: ["image"],
+			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+		})),
+	);
+}
+
 export async function loadExistingGeneratedImageModelCount(): Promise<number> {
 	try {
 		const generatedUrl = new URL("../src/image-models.generated.ts", import.meta.url).href;
@@ -104,14 +124,8 @@ export function assertImageModelCatalogRefreshSafe(nextCount: number, existingCo
 	);
 }
 
-function generateImageModelsFile(models: ImagesModel<"openrouter-images">[]): string {
-	const imageModelsByProvider = {
-		openrouter: Object.fromEntries(
-			models
-				.sort((a, b) => a.id.localeCompare(b.id))
-				.map((model) => [
-					model.id,
-					`{
+function serializeImageModel(model: ImagesModel<ImagesApi>): string {
+	return `{
 			id: ${JSON.stringify(model.id)},
 			name: ${JSON.stringify(model.name)},
 			api: ${JSON.stringify(model.api)},
@@ -120,14 +134,24 @@ function generateImageModelsFile(models: ImagesModel<"openrouter-images">[]): st
 			input: ${JSON.stringify(model.input)},
 			output: ${JSON.stringify(model.output)},
 			cost: ${JSON.stringify(model.cost, null, 2).replace(/^/gm, "\t")}
-		} satisfies ImagesModel<${JSON.stringify(model.api)}>`,
-				]),
-		),
-	};
+		} satisfies ImagesModel<${JSON.stringify(model.api)}>`;
+}
 
-	const providerEntries = Object.entries(imageModelsByProvider)
+function generateImageModelsFile(models: ImagesModel<ImagesApi>[]): string {
+	const imageModelsByProvider = new Map<string, Map<string, string>>();
+	for (const model of models) {
+		let providerModels = imageModelsByProvider.get(model.provider);
+		if (!providerModels) {
+			providerModels = new Map();
+			imageModelsByProvider.set(model.provider, providerModels);
+		}
+		providerModels.set(model.id, serializeImageModel(model));
+	}
+
+	const providerEntries = Array.from(imageModelsByProvider.entries())
 		.map(([provider, providerModels]) => {
-			const modelEntries = Object.entries(providerModels)
+			const modelEntries = Array.from(providerModels.entries())
+				.sort(([left], [right]) => left.localeCompare(right))
 				.map(([id, serialized]) => `\t\t${JSON.stringify(id)}: ${serialized},`)
 				.join("\n");
 			return `\t${JSON.stringify(provider)}: {\n${modelEntries}\n\t},`;
@@ -146,7 +170,7 @@ ${providerEntries}
 }
 
 async function main(): Promise<void> {
-	const models = await fetchOpenRouterImageModels();
+	const models: ImagesModel<ImagesApi>[] = [...(await fetchOpenRouterImageModels()), ...getMiniMaxImageModels()];
 	const existingModelCount = await loadExistingGeneratedImageModelCount();
 	assertImageModelCatalogRefreshSafe(models.length, existingModelCount);
 	const output = generateImageModelsFile(models);

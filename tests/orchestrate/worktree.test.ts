@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
+  mergeWorktree,
   extractTaskIdFromPath,
   cleanupOrphanWorktrees,
   listWorktrees,
@@ -7,7 +8,7 @@ import {
 import * as cp from 'node:child_process';
 
 vi.mock('node:child_process', () => ({
-  execSync: vi.fn(),
+  execFileSync: vi.fn(),
 }));
 
 vi.mock('node:fs', () => ({
@@ -23,6 +24,10 @@ describe('worktree', () => {
   describe('extractTaskIdFromPath', () => {
     it('should extract short ID from valid path', () => {
       expect(extractTaskIdFromPath('/project/.worktrees/task-abc12345')).toBe('abc12345');
+    });
+
+    it('should extract the original ID from a retry worktree path', () => {
+      expect(extractTaskIdFromPath('/project/.worktrees/task-abc12345-2')).toBe('abc12345');
     });
 
     it('should return null for non-matching path', () => {
@@ -47,7 +52,7 @@ describe('worktree', () => {
         '',
       ].join('\n');
 
-      vi.mocked(cp.execSync).mockReturnValue(porcelainOutput);
+      vi.mocked(cp.execFileSync).mockReturnValue(porcelainOutput as never);
 
       const result = listWorktrees('/project');
       // Only the .worktrees one should be returned
@@ -57,7 +62,7 @@ describe('worktree', () => {
     });
 
     it('should return empty array on error', () => {
-      vi.mocked(cp.execSync).mockImplementation(() => { throw new Error('not a repo'); });
+      vi.mocked(cp.execFileSync).mockImplementation(() => { throw new Error('not a repo'); });
       expect(listWorktrees('/fake')).toEqual([]);
     });
   });
@@ -79,12 +84,9 @@ describe('worktree', () => {
         '',
       ].join('\n');
 
-      // First call: list, subsequent calls: remove operations
-      let callCount = 0;
-      vi.mocked(cp.execSync).mockImplementation((cmd: string) => {
-        if (cmd.includes('worktree list')) return porcelainOutput;
-        callCount++;
-        return '';
+      vi.mocked(cp.execFileSync).mockImplementation((_file, args) => {
+        if (args[0] === 'worktree' && args[1] === 'list') return porcelainOutput as never;
+        return '' as never;
       });
 
       const removed = cleanupOrphanWorktrees('/project', (shortId) => {
@@ -96,13 +98,33 @@ describe('worktree', () => {
     });
 
     it('should return 0 when no orphans exist', () => {
-      vi.mocked(cp.execSync).mockImplementation((cmd: string) => {
-        if (cmd.includes('worktree list')) return 'worktree /project\nHEAD abc\nbranch refs/heads/main\n';
-        return '';
+      vi.mocked(cp.execFileSync).mockImplementation((_file, args) => {
+        if (args[0] === 'worktree' && args[1] === 'list') return 'worktree /project\nHEAD abc\nbranch refs/heads/main\n' as never;
+        return '' as never;
       });
 
       const removed = cleanupOrphanWorktrees('/project', () => false);
       expect(removed).toBe(0);
+    });
+  });
+
+  describe('mergeWorktree', () => {
+    it('preserves uncommitted agent changes when the commit cannot be created', () => {
+      vi.mocked(cp.execFileSync).mockImplementation((_file, args) => {
+        if (args[0] === 'status') return '?? partial.txt\n' as never;
+        if (args[0] === 'commit') throw new Error('Author identity unknown');
+        return '' as never;
+      });
+
+      const result = mergeWorktree('/project', 'pipeline/test/task-deadbeef', '/project/.worktrees/task-deadbeef');
+
+      expect(result.success).toBe(false);
+      expect(result.conflicts).toContain('Could not commit agent changes');
+      expect(cp.execFileSync).not.toHaveBeenCalledWith(
+        'git',
+        expect.arrayContaining(['merge']),
+        expect.any(Object),
+      );
     });
   });
 });

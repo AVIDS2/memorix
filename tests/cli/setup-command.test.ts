@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { getCliVersion } from '../../src/cli/version.js';
 
-import {
+import setupCommand, {
   buildSetupPlan,
   getSetupIntegrationRows,
   installAntigravityPluginPackage,
@@ -51,6 +51,51 @@ async function expectOfficialSkills(skillsRoot: string): Promise<void> {
 }
 
 describe('setup command planning', () => {
+  it('does not modify the project during setup dry-run', async () => {
+    const tmpDir = makeTmpDir();
+    const originalCwd = process.cwd();
+    try {
+      process.chdir(tmpDir);
+      await setupCommand.run?.({
+        args: { agent: 'claude', mcp: 'stdio', dryRun: true },
+        rawArgs: ['--agent', 'claude', '--dry-run'],
+        cmd: setupCommand,
+      } as any);
+
+      expect(fsSync.existsSync(path.join(tmpDir, 'CLAUDE.md'))).toBe(false);
+      expect(fsSync.existsSync(path.join(tmpDir, '.claude'))).toBe(false);
+    } finally {
+      process.chdir(originalCwd);
+      await cleanup(tmpDir);
+    }
+  });
+
+  it('does not modify user-level Codex files during global setup dry-run', async () => {
+    const tmpDir = makeTmpDir();
+    const homeDir = path.join(tmpDir, 'home');
+    const originalHome = process.env.HOME;
+    const originalUserProfile = process.env.USERPROFILE;
+    try {
+      process.env.HOME = homeDir;
+      process.env.USERPROFILE = homeDir;
+      await setupCommand.run?.({
+        args: { agent: 'codex', mcp: 'stdio', global: true, dryRun: true },
+        rawArgs: ['--agent', 'codex', '--global', '--dry-run'],
+        cmd: setupCommand,
+      } as any);
+
+      expect(fsSync.existsSync(path.join(homeDir, 'plugins', 'memorix'))).toBe(false);
+      expect(fsSync.existsSync(path.join(homeDir, '.agents', 'plugins', 'marketplace.json'))).toBe(false);
+      expect(fsSync.existsSync(path.join(homeDir, '.codex', 'config.toml'))).toBe(false);
+    } finally {
+      if (originalHome === undefined) delete process.env.HOME;
+      else process.env.HOME = originalHome;
+      if (originalUserProfile === undefined) delete process.env.USERPROFILE;
+      else process.env.USERPROFILE = originalUserProfile;
+      await cleanup(tmpDir);
+    }
+  });
+
   it('keeps Codex project setup plugin-only and leaves .codex untouched', () => {
     const plan = buildSetupPlan({ agent: 'codex', mcp: 'stdio' });
     expect(plan.mcp).toBe('stdio');

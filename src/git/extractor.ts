@@ -8,7 +8,7 @@
  * This module bridges the gap.
  */
 
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 
 export interface CommitInfo {
   hash: string;
@@ -34,15 +34,38 @@ export interface IngestResult {
   filesModified: string[];
 }
 
+function runGit(cwd: string, args: string[], maxBuffer?: number): string {
+  return execFileSync('git', args, {
+    cwd,
+    encoding: 'utf-8',
+    timeout: 10_000,
+    ...(maxBuffer ? { maxBuffer } : {}),
+    windowsHide: true,
+  });
+}
+
+function normalizeCommitRef(ref: string): string {
+  const normalized = ref.trim();
+  if (!normalized || normalized.startsWith('-') || normalized.includes('\0')) {
+    throw new Error('Invalid git commit ref. Use a revision such as HEAD, main, or a commit hash.');
+  }
+  return normalized;
+}
+
+function normalizeCommitCount(count: number): number {
+  if (!Number.isSafeInteger(count) || count < 1 || count > 100) {
+    throw new Error('Commit count must be an integer between 1 and 100.');
+  }
+  return count;
+}
+
 /**
  * Get commit info by hash (or HEAD).
  */
 export function getCommitInfo(cwd: string, ref = 'HEAD'): CommitInfo {
   const FORMAT = '%H%n%h%n%aN%n%aI%n%s%n%b';
-  const raw = execSync(
-    `git log -1 --format="${FORMAT}" ${ref}`,
-    { cwd, encoding: 'utf-8', timeout: 10000, windowsHide: true },
-  ).trim();
+  const revision = normalizeCommitRef(ref);
+  const raw = runGit(cwd, ['log', '-1', `--format=${FORMAT}`, '--end-of-options', revision]).trim();
 
   const lines = raw.split('\n');
   const hash = lines[0];
@@ -53,10 +76,7 @@ export function getCommitInfo(cwd: string, ref = 'HEAD'): CommitInfo {
   const body = lines.slice(5).join('\n').trim();
 
   // Get diff stat
-  const stat = execSync(
-    `git diff-tree --no-commit-id --numstat ${hash}`,
-    { cwd, encoding: 'utf-8', timeout: 10000, windowsHide: true },
-  ).trim();
+  const stat = runGit(cwd, ['diff-tree', '--no-commit-id', '--numstat', hash]).trim();
 
   let insertions = 0;
   let deletions = 0;
@@ -76,10 +96,7 @@ export function getCommitInfo(cwd: string, ref = 'HEAD'): CommitInfo {
   // Get short diff summary (first 500 chars of diff)
   let diffSummary = '';
   try {
-    const diff = execSync(
-      `git diff-tree -p --no-commit-id ${hash}`,
-      { cwd, encoding: 'utf-8', timeout: 10000, maxBuffer: 1024 * 100, windowsHide: true },
-    );
+    const diff = runGit(cwd, ['diff-tree', '-p', '--no-commit-id', hash], 1024 * 100);
     diffSummary = diff.substring(0, 500);
   } catch { /* diff may be too large */ }
 
@@ -93,10 +110,11 @@ export function getCommitInfo(cwd: string, ref = 'HEAD'): CommitInfo {
  * Get recent N commits.
  */
 export function getRecentCommits(cwd: string, count = 10): CommitInfo[] {
-  const hashes = execSync(
-    `git log --format="%H" -${count}`,
-    { cwd, encoding: 'utf-8', timeout: 10000, windowsHide: true },
-  ).trim().split('\n').filter(Boolean);
+  const normalizedCount = normalizeCommitCount(count);
+  const hashes = runGit(cwd, ['log', '--format=%H', '-n', String(normalizedCount)])
+    .trim()
+    .split('\n')
+    .filter(Boolean);
 
   return hashes.map(hash => getCommitInfo(cwd, hash));
 }

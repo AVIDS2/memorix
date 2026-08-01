@@ -25,7 +25,7 @@ vi.mock('../../src/embedding/provider.js', () => ({
 import { storeObservation, initObservations } from '../../src/memory/observations.js';
 import { resetDb } from '../../src/store/orama-store.js';
 import { getObservationStore } from '../../src/store/obs-store.js';
-import { ingestCommitsWithDedup } from '../../src/cli/commands/ingest-log.js';
+import { ingestCommitsWithDedup, parseCommitCount } from '../../src/cli/commands/ingest-log.js';
 
 const PROJECT_ID = 'test/ingest-log-dedup';
 
@@ -78,6 +78,15 @@ describe('Issue #48: ingest-log commitHash dedup', () => {
     { hash: 'bbb2222bbb2222bbb2222bbb2222bbb2222bbb222', subject: 'fix: token expiry bug' },
     { hash: 'ccc3333ccc3333ccc3333ccc3333ccc3333ccc333', subject: 'refactor: clean up utils' },
   ];
+
+  it('accepts only bounded positive commit counts', () => {
+    expect(parseCommitCount()).toBe(10);
+    expect(parseCommitCount('25')).toBe(25);
+    expect(() => parseCommitCount('0')).toThrow('Commit count must be an integer');
+    expect(() => parseCommitCount('-1')).toThrow('Commit count must be an integer');
+    expect(() => parseCommitCount('abc')).toThrow('Commit count must be an integer');
+    expect(() => parseCommitCount('101')).toThrow('Commit count must be an integer');
+  });
 
   it('first ingest stores all commits', async () => {
     const result = await ingestWithDedup(COMMITS);

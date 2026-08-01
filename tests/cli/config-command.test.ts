@@ -160,6 +160,33 @@ describe('memorix config commands', () => {
     expect(notes).not.toContain('status-secret-key');
   });
 
+  it('emits parseable redacted JSON for status', async () => {
+    detectProjectMock.mockReturnValue({
+      id: 'demo-id',
+      name: 'demo',
+      rootPath: 'E:\\repo\\demo',
+      gitRemote: null,
+    });
+    process.env.MEMORIX_AGENT_API_KEY = 'status-secret-key';
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const command = (await import('../../src/cli/commands/status.js')).default;
+
+    await command.run?.({ args: { json: true }, rawArgs: ['--json'], cmd: command } as any);
+
+    const output = String(consoleLog.mock.calls[0]?.[0] ?? '');
+    const result = JSON.parse(output);
+    expect(result).toMatchObject({
+      ok: true,
+      project: { id: 'demo-id', name: 'demo' },
+      observations: { total: 0, active: 0 },
+      configuration: { lanes: { agent: { apiKeyConfigured: true } } },
+    });
+    expect(output).not.toContain('status-secret-key');
+    expect(introMock).not.toHaveBeenCalled();
+    expect(noteMock).not.toHaveBeenCalled();
+    consoleLog.mockRestore();
+  });
+
   it('migrates legacy YAML into project memorix.toml without deleting legacy files or env secrets', async () => {
     tempDir = mkdtempSync(join(process.env.TEMP ?? process.cwd(), 'memorix-config-migrate-'));
     const homeDir = join(tempDir, 'home');

@@ -175,9 +175,15 @@ export function shortId(id?: string | null): string {
 }
 
 export function parsePositiveInt(input: string | undefined, fallback: number): number {
-  if (!input) return fallback;
-  const parsed = Number.parseInt(input, 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+  if (input == null || input.trim() === '') return fallback;
+  if (!/^\d+$/.test(input.trim())) {
+    throw new Error(`Expected a positive integer, received "${input}".`);
+  }
+  const parsed = Number(input);
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) {
+    throw new Error(`Expected a positive integer, received "${input}".`);
+  }
+  return parsed;
 }
 
 const OBSERVATION_TYPES: ObservationType[] = [

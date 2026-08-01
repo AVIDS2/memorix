@@ -1,4 +1,4 @@
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 
 export type ImageProtocol = "kitty" | "iterm2" | null;
 
@@ -48,10 +48,11 @@ export function setCellDimensions(dims: CellDimensions): void {
  */
 function probeTmuxHyperlinks(): boolean {
 	try {
-		const termfeatures = execSync("tmux display-message -p '#{client_termfeatures}'", {
+		const termfeatures = execFileSync("tmux", ["display-message", "-p", "#{client_termfeatures}"], {
 			encoding: "utf8",
 			timeout: 250,
 			stdio: ["ignore", "pipe", "ignore"],
+			windowsHide: true,
 		});
 		return termfeatures
 			.split(",")

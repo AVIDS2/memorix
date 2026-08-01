@@ -26,6 +26,7 @@ import { resolveToolProfile } from '../../server/tool-profile.js';
 import { scopeKnowledgeGraphToProject } from '../../memory/graph-scope.js';
 import { projectObservationRetention, summarizeRetentionProjections } from '../../memory/retention.js';
 import { canManageObservation, filterReadableObservations } from '../../memory/visibility.js';
+import { parseTcpPortOrReport } from '../port.js';
 
 export const DEFAULT_SESSION_TIMEOUT_MS = 30 * 60 * 1000;
 
@@ -79,7 +80,11 @@ export default defineCommand({
     const { homedir } = await import('node:os');
     const earlyPath = await import('node:path');
 
-    const port = parseInt(args.port || '3211', 10);
+    const port = parseTcpPortOrReport(args.port, 3211);
+    if (port === undefined) {
+      process.exitCode = 1;
+      return;
+    }
     const host = args.host || '127.0.0.1';
     const toolProfile = resolveToolProfile({ explicit: args.mode, envValue: process.env.MEMORIX_MODE, fallback: 'team' });
 
@@ -1599,4 +1604,5 @@ export default defineCommand({
 export const _testing = {
   DEFAULT_SESSION_TIMEOUT_MS,
   parseSessionTimeoutMs,
+  parseTcpPortOrReport,
 };

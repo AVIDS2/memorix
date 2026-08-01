@@ -11,7 +11,14 @@ import { redactCredentials } from '../memory/secret-filter.js';
 /**
  * Format a list of IndexEntries as a compact markdown table.
  */
-export function formatIndexTable(entries: IndexEntry[], query?: string, forceProjectColumn = false): string {
+export type RetrievalSurface = 'cli' | 'mcp';
+
+export function formatIndexTable(
+  entries: IndexEntry[],
+  query?: string,
+  forceProjectColumn = false,
+  surface: RetrievalSurface = 'mcp',
+): string {
   if (entries.length === 0) {
     return query
       ? `No memories found matching "${query}".`
@@ -84,7 +91,7 @@ export function formatIndexTable(entries: IndexEntry[], query?: string, forcePro
   }
 
   lines.push('');
-  lines.push(getProgressiveDisclosureHint(hasProject));
+  lines.push(getProgressiveDisclosureHint(hasProject, surface));
 
   return lines.join('\n');
 }
@@ -95,7 +102,7 @@ export function formatIndexTable(entries: IndexEntry[], query?: string, forcePro
  * annotates the anchor with its evidence kind. Falls back to the original
  * table format when no provenance is present (backward-compat).
  */
-export function formatTimeline(timeline: TimelineContext): string {
+export function formatTimeline(timeline: TimelineContext, surface: RetrievalSurface = 'mcp'): string {
   if (!timeline.anchorEntry) {
     return `Observation #${timeline.anchorId} not found.`;
   }
@@ -156,7 +163,7 @@ export function formatTimeline(timeline: TimelineContext): string {
     lines.push('');
   }
 
-  lines.push(getProgressiveDisclosureHint(false));
+  lines.push(getProgressiveDisclosureHint(false, surface));
   return lines.join('\n');
 }
 
@@ -313,11 +320,13 @@ function getTypeIcon(type: string): string {
   return icons[type] ?? '[UNKNOWN]';
 }
 
-function getProgressiveDisclosureHint(hasProject: boolean): string {
+function getProgressiveDisclosureHint(hasProject: boolean, surface: RetrievalSurface): string {
+  const detailCommand = surface === 'cli' ? 'memorix memory detail' : 'memorix_detail';
+  const timelineCommand = surface === 'cli' ? 'memorix memory timeline' : 'memorix_timeline';
   const lines = [
     '[TIP] **Progressive Disclosure:** This index shows WHAT exists and retrieval COST.',
-    '- Use `memorix_detail` with typed refs (obs:42@org/project, skill:3) to fetch full details',
-    '- Use `memorix_timeline` to see chronological context around an observation',
+    `- Use \`${detailCommand}\` with typed refs (obs:42@org/project, skill:3) to fetch full details`,
+    `- Use \`${timelineCommand}\` to see chronological context around an observation`,
     '- Critical types ([GOTCHA] gotcha, [DECISION] decision, [TRADEOFF] trade-off) are often worth fetching immediately',
   ];
 

@@ -12,6 +12,7 @@
 import { defineCommand } from 'citty';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import { parseTcpPortOrReport } from '../port.js';
 
 export default defineCommand({
     meta: {
@@ -36,7 +37,11 @@ export default defineCommand({
             process.exit(1);
         }
         const dataDir = await getProjectDataDir(project.id);
-        const port = parseInt(args.port as string, 10) || 3210;
+        const port = parseTcpPortOrReport(args.port as string | undefined, 3210);
+        if (port === undefined) {
+            process.exitCode = 1;
+            return;
+        }
 
         // Resolve static directory relative to the compiled CLI entry point
         // CLI is at dist/cli/index.js; static files are at dist/dashboard/static.

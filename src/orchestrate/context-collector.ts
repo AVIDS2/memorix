@@ -6,7 +6,7 @@
  * Pure side-effect-free reads — no LLM calls.
  */
 
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { CodeGraphStore } from '../codegraph/store.js';
@@ -41,6 +41,11 @@ export interface ContextCollectorOpts {
   maxGitLogEntries?: number;
 }
 
+function normalizeEntryLimit(value: number, fallback: number): number {
+  if (!Number.isSafeInteger(value) || value < 1) return fallback;
+  return Math.min(value, 500);
+}
+
 // ── Implementation ─────────────────────────────────────────────────
 
 /**
@@ -51,9 +56,11 @@ export function collectPlanningContext(opts: ContextCollectorOpts): PlanningCont
   const {
     projectDir,
     agents,
-    maxFileTreeEntries = 80,
-    maxGitLogEntries = 10,
+    maxFileTreeEntries: rawMaxFileTreeEntries = 80,
+    maxGitLogEntries: rawMaxGitLogEntries = 10,
   } = opts;
+  const maxFileTreeEntries = normalizeEntryLimit(rawMaxFileTreeEntries, 80);
+  const maxGitLogEntries = normalizeEntryLimit(rawMaxGitLogEntries, 10);
 
   return {
     fileTree: collectFileTree(projectDir, maxFileTreeEntries),
@@ -96,7 +103,7 @@ export function contextToPromptSection(ctx: PlanningContext): string {
 function collectFileTree(projectDir: string, maxEntries: number): string {
   try {
     // Use git ls-files to respect .gitignore
-    const raw = execSync('git ls-files --cached --others --exclude-standard', {
+    const raw = execFileSync('git', ['ls-files', '--cached', '--others', '--exclude-standard'], {
       cwd: projectDir,
       encoding: 'utf-8',
       timeout: 5_000,
@@ -136,7 +143,7 @@ function collectDependencies(projectDir: string): string {
 
 function collectGitLog(projectDir: string, maxEntries: number): string {
   try {
-    return execSync(`git log --oneline -${maxEntries}`, {
+    return execFileSync('git', ['log', '--oneline', '-n', String(normalizeEntryLimit(maxEntries, 10))], {
       cwd: projectDir,
       encoding: 'utf-8',
       timeout: 5_000,

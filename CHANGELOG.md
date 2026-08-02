@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.4.0] - 2026-08-02
+
+### Changed
+- **Stable multimodal release** -- Promoted the controlled media lifecycle, explicit MiniMax image/video generation, and honest multimodal embedding foundation introduced in 1.3.3 to the stable line after the 1.3.4 Windows, MCP binding, cancellation, cleanup, configuration-migration, and fresh-package hardening work.
+
+### Verified
+- **Release evidence** -- Full local regression, fresh npm-package MCP smoke, GitHub Actions on Windows and Ubuntu, Docker control-plane startup, native SQLite compatibility, npm provenance publication, and official MCP Registry publication all passed before this release.
+- **Release boundary** -- “Stable” means no known release blocker after those gates. It does not claim that any software is mathematically free of future defects.
+
 ## [1.3.4] - 2026-08-02
 
 ### Fixed

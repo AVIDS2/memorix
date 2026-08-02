@@ -32,6 +32,9 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      # Root source imports the private @memorix/* workspaces through their
+      # published dist/type entrypoints, so typecheck needs those artifacts.
+      - run: npm run build:workspaces
       - run: npm run lint
 
   native-sqlite-node26:

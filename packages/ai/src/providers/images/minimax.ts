@@ -6,8 +6,12 @@ import type {
 	ImagesModel,
 	ImagesOptions,
 } from "../../types.ts";
+import { isIP } from "node:net";
 import { headersToRecord } from "../../utils/headers.ts";
 import { sanitizeSurrogates } from "../../utils/sanitize-unicode.ts";
+
+const MAX_GENERATED_IMAGE_BYTES = 100 * 1024 * 1024;
+const MAX_IMAGE_COUNT = 4;
 
 export interface MiniMaxImagesOptions extends ImagesOptions {
 	aspectRatio?: "1:1" | "16:9" | "4:3" | "3:2" | "2:3" | "3:4" | "9:16" | "21:9";
@@ -128,6 +132,9 @@ function buildPayload(
 	if (!prompt) {
 		throw new Error("MiniMax image generation requires a text prompt");
 	}
+	if (options?.n !== undefined && (!Number.isSafeInteger(options.n) || options.n < 1 || options.n > MAX_IMAGE_COUNT)) {
+		throw new Error(`MiniMax image generation n must be an integer between 1 and ${MAX_IMAGE_COUNT}`);
+	}
 
 	return {
 		model: model.id,
@@ -184,37 +191,104 @@ function getErrorMessage(response: Response, responseBody: MiniMaxImageGeneratio
 
 async function imageUrlToContent(imageUrl: string, options?: MiniMaxImagesOptions): Promise<ImageContent> {
 	if (imageUrl.startsWith("data:")) return base64ToContent(imageUrl);
-	const url = new URL(imageUrl);
-	if (url.protocol !== "http:" && url.protocol !== "https:") {
-		throw new Error("MiniMax image generation returned an unsupported image URL");
-	}
+	const url = assertSafeImageUrl(imageUrl);
 
-	const response = await fetch(url, { signal: createRequestSignal(options) });
+	const response = await fetch(url, { redirect: "error", signal: createRequestSignal(options) });
 	if (!response.ok) {
 		throw new Error(`Failed to download generated image: HTTP ${response.status}`);
 	}
-	const data = Buffer.from(await response.arrayBuffer()).toString("base64");
-	const contentType = response.headers.get("content-type")?.split(";", 1)[0]?.trim();
+	const bytes = await readBoundedImageResponse(response);
+	const mimeType = detectImageMimeType(bytes);
+	if (!mimeType) throw new Error("MiniMax image generation returned an unrecognized image payload");
 	return {
 		type: "image",
-		mimeType: contentType || detectImageMimeType(data),
-		data,
+		mimeType,
+		data: Buffer.from(bytes).toString("base64"),
 	};
 }
 
 function base64ToContent(value: string): ImageContent {
 	const dataUrlMatch = value.match(/^data:([^;,]+);base64,(.+)$/s);
 	const data = (dataUrlMatch?.[2] ?? value).replace(/\s+/g, "");
+	if (!/^[A-Za-z0-9+/]*={0,2}$/.test(data)) {
+		throw new Error("MiniMax image generation returned invalid base64 image data");
+	}
+	const bytes = Buffer.from(data, "base64");
+	if (bytes.length === 0 || bytes.length > MAX_GENERATED_IMAGE_BYTES) {
+		throw new Error(`MiniMax image generation returned an image outside the ${MAX_GENERATED_IMAGE_BYTES}-byte limit`);
+	}
+	const mimeType = detectImageMimeType(bytes);
+	if (!mimeType) throw new Error("MiniMax image generation returned an unrecognized image payload");
 	return {
 		type: "image",
-		mimeType: dataUrlMatch?.[1] ?? detectImageMimeType(data),
+		mimeType,
 		data,
 	};
 }
 
-function detectImageMimeType(data: string): string {
-	if (data.startsWith("iVBORw0KGgo")) return "image/png";
-	if (data.startsWith("R0lGOD")) return "image/gif";
-	if (data.startsWith("UklGR")) return "image/webp";
-	return "image/jpeg";
+function assertSafeImageUrl(value: string): URL {
+	let url: URL;
+	try {
+		url = new URL(value);
+	} catch {
+		throw new Error("MiniMax image generation returned an invalid image URL");
+	}
+	if (url.protocol !== "https:" || url.username || url.password) {
+		throw new Error("MiniMax image generation returned an unsafe image URL");
+	}
+	if (isBlockedLiteralAddress(url.hostname)) {
+		throw new Error("MiniMax image generation returned a private image URL");
+	}
+	return url;
+}
+
+function isBlockedLiteralAddress(hostname: string): boolean {
+	if (!isIP(hostname)) return false;
+	const normalized = hostname.toLowerCase();
+	if (normalized === "::1" || normalized === "::" || normalized.startsWith("fe80:") || /^f[cd][0-9a-f:]*$/i.test(normalized)) {
+		return true;
+	}
+	if (!/^\d+\.\d+\.\d+\.\d+$/.test(hostname)) return false;
+	const [first, second] = hostname.split(".").map(Number);
+	return first === 0
+		|| first === 10
+		|| first === 127
+		|| (first === 169 && second === 254)
+		|| (first === 172 && second >= 16 && second <= 31)
+		|| (first === 192 && second === 168)
+		|| first >= 224;
+}
+
+async function readBoundedImageResponse(response: Response): Promise<Buffer> {
+	const header = response.headers.get("content-length");
+	if (header && (!/^\d+$/.test(header) || Number(header) > MAX_GENERATED_IMAGE_BYTES)) {
+		throw new Error(`MiniMax image generation returned an image above the ${MAX_GENERATED_IMAGE_BYTES}-byte limit`);
+	}
+	if (!response.body) throw new Error("MiniMax image generation returned an empty image response");
+	const reader = response.body.getReader();
+	const chunks: Uint8Array[] = [];
+	let total = 0;
+	try {
+		while (true) {
+			const { done, value } = await reader.read();
+			if (done) break;
+			if (!value) continue;
+			total += value.byteLength;
+			if (total > MAX_GENERATED_IMAGE_BYTES) {
+				throw new Error(`MiniMax image generation returned an image above the ${MAX_GENERATED_IMAGE_BYTES}-byte limit`);
+			}
+			chunks.push(value);
+		}
+	} finally {
+		reader.releaseLock();
+	}
+	return Buffer.concat(chunks);
+}
+
+function detectImageMimeType(bytes: Uint8Array): string | undefined {
+	if (bytes.length >= 8 && bytes.subarray(0, 8).every((value, index) => value === [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a][index])) return "image/png";
+	if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return "image/jpeg";
+	if (bytes.length >= 6 && (Buffer.from(bytes.subarray(0, 6)).toString("ascii") === "GIF87a" || Buffer.from(bytes.subarray(0, 6)).toString("ascii") === "GIF89a")) return "image/gif";
+	if (bytes.length >= 12 && Buffer.from(bytes.subarray(0, 4)).toString("ascii") === "RIFF" && Buffer.from(bytes.subarray(8, 12)).toString("ascii") === "WEBP") return "image/webp";
+	return undefined;
 }

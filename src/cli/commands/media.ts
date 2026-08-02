@@ -8,6 +8,7 @@ import {
   removeMediaAsset,
 } from '../../media/asset-store.js';
 import { MediaStore } from '../../media/media-store.js';
+import { generateMiniMaxImages, type MiniMaxImageGenerationInput } from '../../media/minimax.js';
 import type { MediaKind } from '../../media/types.js';
 import {
   emitError,
@@ -39,6 +40,37 @@ function parseByteLimit(value: unknown, fallback: number): number {
   return parsed;
 }
 
+function parseOptionalInteger(value: unknown, label: string, minimum: number, maximum: number): number | undefined {
+  if (value === undefined || value === null || value === '') return undefined;
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < minimum || parsed > maximum) {
+    throw new Error(`${label} must be a whole number between ${minimum} and ${maximum}`);
+  }
+  return parsed;
+}
+
+function parseAspectRatio(value: unknown): MiniMaxImageGenerationInput['aspectRatio'] | undefined {
+  if (value === undefined || value === null || value === '') return undefined;
+  const ratio = String(value).trim();
+  const allowed = new Set(['1:1', '16:9', '4:3', '3:2', '2:3', '3:4', '9:16', '21:9']);
+  if (!allowed.has(ratio)) throw new Error('ratio must be one of 1:1, 16:9, 4:3, 3:2, 2:3, 3:4, 9:16, or 21:9');
+  return ratio as MiniMaxImageGenerationInput['aspectRatio'];
+}
+
+function parseMiniMaxModel(value: unknown): MiniMaxImageGenerationInput['model'] | undefined {
+  if (value === undefined || value === null || value === '') return undefined;
+  const model = String(value).trim();
+  if (model === 'image-01' || model === 'image-01-live') return model;
+  throw new Error('MiniMax image model must be image-01 or image-01-live');
+}
+
+function parseMiniMaxRegion(value: unknown): MiniMaxImageGenerationInput['region'] | undefined {
+  if (value === undefined || value === null || value === '') return undefined;
+  const region = String(value).trim().toLowerCase();
+  if (region === 'global' || region === 'cn') return region;
+  throw new Error('MiniMax region must be global or cn');
+}
+
 function help(): string {
   return [
     'Memorix Media Commands',
@@ -49,10 +81,11 @@ function help(): string {
     '  memorix media attach --asset <asset-id> [--title "Architecture"] [--text "..."]',
     '  memorix media embed --asset <asset-id>',
     '  memorix media similar --asset <asset-id> [--limit 10]',
+    '  memorix media generate image --prompt "..." [--model image-01] [--attach]',
     '  memorix media remove --asset <asset-id> [--force]',
     '  memorix media cleanup [--maxBytes 1073741824]',
     '',
-    'Generated images and videos use the same asset lifecycle and are added in the 1.3.3 provider phase.',
+    'Generated output is stored as a controlled asset. Use --attach to add it to memory explicitly.',
   ].join('\n');
 }
 
@@ -71,6 +104,17 @@ export default defineCommand({
     entity: { type: 'string', description: 'Observation entity when attaching' },
     concepts: { type: 'string', description: 'Comma-separated concepts when attaching' },
     visibility: { type: 'string', description: 'Observation visibility when attaching' },
+    prompt: { type: 'string', description: 'Generation prompt' },
+    model: { type: 'string', description: 'Provider model' },
+    region: { type: 'string', description: 'MiniMax region: global or cn' },
+    n: { type: 'string', description: 'Generated image count (1-4)' },
+    ratio: { type: 'string', description: 'Image aspect ratio' },
+    width: { type: 'string', description: 'Requested image width' },
+    height: { type: 'string', description: 'Requested image height' },
+    seed: { type: 'string', description: 'Optional image seed' },
+    attach: { type: 'boolean', description: 'Explicitly attach generated output to memory' },
+    promptOptimizer: { type: 'boolean', description: 'Enable MiniMax prompt optimization' },
+    'prompt-optimizer': { type: 'boolean', description: 'Kebab-case alias for --promptOptimizer' },
     limit: { type: 'string', description: 'List limit' },
     maxBytes: { type: 'string', description: 'Import or cleanup byte limit' },
     'max-bytes': { type: 'string', description: 'Kebab-case alias for --maxBytes' },
@@ -84,6 +128,47 @@ export default defineCommand({
 
     try {
       switch (action) {
+        case 'generate':
+        case 'generate-image': {
+          const target = action === 'generate' ? (positional.shift() ?? '').trim().toLowerCase() : 'image';
+          if (target !== 'image') {
+            throw new Error(`Unsupported media generation target: ${target || '(missing)'}. Only "image" is available in this command.`);
+          }
+          const prompt = getValue(args.prompt, positional);
+          if (!prompt) throw new Error('prompt is required for "memorix media generate image"');
+          const { project, dataDir, reader, identity } = await getCliProjectContext();
+          const generated = await generateMiniMaxImages({
+            dataDir,
+            projectId: project.id,
+            prompt,
+            model: parseMiniMaxModel(args.model),
+            region: parseMiniMaxRegion(args.region),
+            n: parseOptionalInteger(args.n, 'n', 1, 4),
+            aspectRatio: parseAspectRatio(args.ratio),
+            width: parseOptionalInteger(args.width, 'width', 1, 8_192),
+            height: parseOptionalInteger(args.height, 'height', 1, 8_192),
+            seed: parseOptionalInteger(args.seed, 'seed', 0, 2_147_483_647),
+            promptOptimizer: args.promptOptimizer === true || args['prompt-optimizer'] === true,
+            maxBytes: parseByteLimit(args.maxBytes ?? args['max-bytes'], 100 * 1024 * 1024),
+          });
+          const observations = args.attach === true
+            ? await Promise.all(generated.assets.map(({ asset }) => attachMediaAssetToObservation({
+              dataDir,
+              projectId: project.id,
+              asset,
+              title: `MiniMax image: ${asset.sourceLabel ?? asset.id}`,
+              narrative: `Generated with ${generated.provider}/${generated.model}. Prompt: ${prompt}`,
+              concepts: ['generated-image', 'minimax', generated.model],
+              ...resolveCliWriteScope({ reader, identity }, args.visibility as string | undefined),
+            })))
+            : [];
+          emitResult(
+            { project, ...generated, observations },
+            `Generated ${generated.assets.length} controlled image asset(s)${observations.length > 0 ? ` and attached ${observations.length} to memory` : ''}.`,
+            asJson,
+          );
+          return;
+        }
         case 'import': {
           const filePath = getValue(args.path, positional);
           if (!filePath) throw new Error('path is required for "memorix media import"');

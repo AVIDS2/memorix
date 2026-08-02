@@ -135,6 +135,40 @@ describe("MiniMax images", () => {
 		expect(output.errorMessage).toBe("MiniMax image generation failed: Invalid input");
 	});
 
+	it("refuses unsafe generated URLs before downloading them", async () => {
+		const fetchMock = vi.fn(async () =>
+			new Response(
+				JSON.stringify({
+					data: { image_urls: ["http://127.0.0.1/internal.png"] },
+					base_resp: { status_code: 0 },
+				}),
+				{ status: 200, headers: { "Content-Type": "application/json" } },
+			),
+		);
+		vi.stubGlobal("fetch", fetchMock);
+
+		const output = await generateImages(getImageModel("minimax", "image-01"), {
+			input: [{ type: "text", text: "Generate an image" }],
+		}, { apiKey: "test-key" });
+
+		expect(output.stopReason).toBe("error");
+		expect(output.errorMessage).toContain("unsafe image URL");
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+	});
+
+	it("bounds the requested image count before calling MiniMax", async () => {
+		const fetchMock = vi.fn();
+		vi.stubGlobal("fetch", fetchMock);
+
+		const output = await generateImages(getImageModel("minimax", "image-01"), {
+			input: [{ type: "text", text: "Generate an image" }],
+		}, { apiKey: "test-key", n: 5 });
+
+		expect(output.stopReason).toBe("error");
+		expect(output.errorMessage).toContain("between 1 and 4");
+		expect(fetchMock).not.toHaveBeenCalled();
+	});
+
 	it("returns an aborted result for an aborted signal", async () => {
 		const fetchMock = vi.fn();
 		vi.stubGlobal("fetch", fetchMock);

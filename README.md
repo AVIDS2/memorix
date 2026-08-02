@@ -18,9 +18,9 @@
 </p>
 
 <p align="center">
-  <a href="https://registry.modelcontextprotocol.io/v0/servers?search=io.github.AVIDS2%2Fmemorix">Listed in the official MCP Registry</a>
+  <a href="https://registry.modelcontextprotocol.io/?q=io.github.AVIDS2%2Fmemorix">Listed in the official MCP Registry</a>
   <br>
-  <img src="https://mcptoplist.com/badge/io.github.AVIDS2%2Fmemorix.svg" alt="MCP Toplist ranking">
+  <a href="https://mcptoplist.com/server/io.github.AVIDS2%2Fmemorix"><img src="https://mcptoplist.com/badge/io.github.AVIDS2%2Fmemorix.svg" alt="View Memorix on MCP Toplist"></a>
 </p>
 
 <p align="center">

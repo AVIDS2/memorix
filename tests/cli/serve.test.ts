@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import { mcpFileUriToPath } from '../../src/cli/mcp-root-path.js';
 import { resolveServeProject } from '../../src/cli/commands/serve-shared.js';
 import type { ProjectInfo } from '../../src/types.js';
 
@@ -48,12 +49,11 @@ describe('serve-shared', () => {
     expect(result.source).toBe('subdir');
   });
 
-  it('restores the last known project when launched from a system directory', () => {
+  it('refuses to restore a last known project when launched from a system directory', () => {
     const result = resolveServeProject(
       {
         processCwd: 'C:/Windows/System32',
         homeDir: 'C:/Users/tester',
-        lastKnownProjectRoot: 'E:/repo',
       },
       {
         detectProject: (cwd) => (cwd === 'E:/repo' ? makeProject('AVIDS2/repo', cwd) : null),
@@ -62,9 +62,10 @@ describe('serve-shared', () => {
       },
     );
 
-    expect(result.detectedProject?.id).toBe('AVIDS2/repo');
-    expect(result.projectRoot).toBe('E:/repo');
-    expect(result.source).toBe('last-known');
+    expect(result.detectedProject).toBeNull();
+    expect(result.projectRoot).toBe('C:/Windows/System32');
+    expect(result.source).toBe('unresolved');
+    expect(result.messages.join('\n')).toContain('will not restore a previous project automatically');
   });
 
   it('fails fast instead of falling back to untracked/* when no reliable project can be found', () => {
@@ -86,7 +87,7 @@ describe('serve-shared', () => {
     expect(result.messages.join('\n')).toContain('refuses to silently fall back');
   });
 
-  it('fails fast for system directories when neither last-known nor home scan yields a repo', () => {
+  it('fails closed for system directories without probing home or a prior project', () => {
     const result = resolveServeProject(
       {
         processCwd: 'C:/Windows/System32',
@@ -100,7 +101,13 @@ describe('serve-shared', () => {
     );
 
     expect(result.detectedProject).toBeNull();
-    expect(result.error).toContain('No git project could be resolved');
-    expect(result.messages.join('\n')).toContain('System directory detected');
+    expect(result.error).toContain('No reliable git project');
+    expect(result.messages.join('\n')).toContain('Unreliable launch directory');
+  });
+
+  it('keeps MCP file roots native to the host platform', () => {
+    expect(mcpFileUriToPath('file:///home/tester/project', 'linux')).toBe('/home/tester/project');
+    expect(mcpFileUriToPath('file:///E:/repo/project', 'win32')).toBe('E:\\repo\\project');
+    expect(mcpFileUriToPath('https://example.com/repo', 'linux')).toBeNull();
   });
 });

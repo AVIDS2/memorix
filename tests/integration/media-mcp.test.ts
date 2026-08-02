@@ -139,6 +139,14 @@ describe('controlled media through MCP', () => {
       maintenanceJob: { kind: 'media-video-generation' },
     });
     expect(JSON.stringify(queued)).not.toContain('mcp-test-key');
+
+    delete process.env.MEMORIX_MCP_MEDIA_GENERATION;
+    const cancelled = readJson(await media({ action: 'cancel', jobId: queued.mediaJob.id }));
+    expect(cancelled).toMatchObject({
+      action: 'cancel',
+      projectId: queued.projectId,
+      job: { id: queued.mediaJob.id, status: 'cancelled' },
+    });
   });
 
   it('keeps the legacy image tool on the controlled asset lifecycle', async () => {

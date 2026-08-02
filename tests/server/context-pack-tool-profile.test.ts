@@ -12,10 +12,12 @@ describe('context pack tool profile', () => {
 
   it('keeps the default micro profile compact enough for agent tool lists', () => {
     expect(countToolsInProfile('micro')).toBeLessThan(countToolsInProfile('lite'));
-    expect(countToolsInProfile('micro')).toBeLessThanOrEqual(8);
+    expect(countToolsInProfile('micro')).toBeLessThanOrEqual(9);
     expect(isToolInProfile('memorix_store', 'micro')).toBe(true);
     expect(isToolInProfile('memorix_search', 'micro')).toBe(true);
     expect(isToolInProfile('memorix_detail', 'micro')).toBe(true);
+    expect(isToolInProfile('memorix_session_start', 'micro')).toBe(true);
+    expect(isToolInProfile('memorix_media', 'micro')).toBe(true);
     expect(isToolInProfile('memorix_session_end', 'micro')).toBe(false);
     expect(isToolInProfile('memorix_transfer', 'micro')).toBe(false);
     expect(isToolInProfile('team_manage', 'micro')).toBe(false);

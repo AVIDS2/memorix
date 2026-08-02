@@ -4,6 +4,7 @@
 
 import { defineCommand } from 'citty';
 import { resolveToolProfile } from '../../server/tool-profile.js';
+import { mcpFileUriToPath } from '../mcp-root-path.js';
 
 export default defineCommand({
   meta: {
@@ -45,18 +46,6 @@ export default defineCommand({
     // Priority: explicit --cwd arg > MEMORIX_PROJECT_ROOT env > INIT_CWD (npm lifecycle) > process.cwd()
     let safeCwd: string;
     try { safeCwd = process.cwd(); } catch { safeCwd = homedir(); }
-    const { existsSync, readFileSync } = await import('node:fs');
-    const path = await import('node:path');
-    const lastRootFile = path.join(homedir(), '.memorix', 'last-project-root');
-    let lastKnownProjectRoot: string | undefined;
-    if (existsSync(lastRootFile)) {
-      try {
-        const lastRoot = readFileSync(lastRootFile, 'utf-8').trim();
-        if (lastRoot && existsSync(lastRoot)) {
-          lastKnownProjectRoot = lastRoot;
-        }
-      } catch { /* ignore read errors */ }
-    }
 
     const resolution = resolveServeProject(
       {
@@ -65,7 +54,6 @@ export default defineCommand({
         initCwd: process.env.INIT_CWD,
         processCwd: safeCwd,
         homeDir: homedir(),
-        lastKnownProjectRoot,
       },
       { detectProject, findGitInSubdirs, isSystemDirectory },
     );
@@ -83,16 +71,6 @@ export default defineCommand({
 
     const detected = resolution.detectedProject;
     const projectRoot = resolution.projectRoot;
-
-    // Persist successful project root for future system-directory fallback
-    if (detected) {
-      try {
-        const { writeFileSync, mkdirSync } = await import('node:fs');
-        const memorixDir = path.join(homedir(), '.memorix');
-        mkdirSync(memorixDir, { recursive: true });
-        writeFileSync(path.join(memorixDir, 'last-project-root'), detected.rootPath, 'utf-8');
-      } catch { /* non-critical */ }
-    }
 
     // Always register ALL tools BEFORE connecting transport.
     // This ensures tools/list returns the full tool set immediately on connect.
@@ -113,16 +91,6 @@ export default defineCommand({
     // After connect, request workspace roots from the client (IDE).
     // This is the proper way to discover the user's workspace —
     // no --cwd needed if the IDE supports roots capability.
-    const persistRoot = async (rootPath: string) => {
-      try {
-        const { writeFileSync, mkdirSync } = await import('node:fs');
-        const pathMod = await import('node:path');
-        const memorixDir = pathMod.join(homedir(), '.memorix');
-        mkdirSync(memorixDir, { recursive: true });
-        writeFileSync(pathMod.join(memorixDir, 'last-project-root'), rootPath, 'utf-8');
-      } catch { /* non-critical */ }
-    };
-
     const tryRootsSwitch = async () => {
       try {
         const { roots } = await server.server.listRoots();
@@ -130,18 +98,14 @@ export default defineCommand({
 
         for (const root of roots) {
           if (!root.uri.startsWith('file://')) continue;
-          // Convert file:// URI to filesystem path
-          let rootPath = decodeURIComponent(root.uri.replace('file://', ''));
-          // Windows: file:///E:/... → E:/...
-          if (/^\/[A-Za-z]:/.test(rootPath)) rootPath = rootPath.slice(1);
-          rootPath = rootPath.replace(/\//g, '\\'); // normalize to Windows backslashes
+          const rootPath = mcpFileUriToPath(root.uri);
+          if (!rootPath) continue;
 
           const rootDetected = detectProject(rootPath);
           if (rootDetected) {
             const switched = await switchProject(rootPath);
             if (switched) {
               console.error(`[memorix] [UPDATED] Project updated via MCP roots: ${rootDetected.id}`);
-              await persistRoot(rootDetected.rootPath);
             }
             return; // use first valid root
           }
@@ -151,8 +115,6 @@ export default defineCommand({
             const switched = await switchProject(subGit);
             if (switched) {
               console.error(`[memorix] [UPDATED] Project updated via MCP roots (subdir): ${subGit}`);
-              const subDetected = detectProject(subGit);
-              if (subDetected) await persistRoot(subDetected.rootPath);
             }
             return;
           }

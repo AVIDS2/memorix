@@ -359,7 +359,13 @@ export default defineCommand({
             assetId,
             force: args.force === true,
           });
-          emitResult({ project, ...result }, `Removed media asset ${assetId}`, asJson);
+          emitResult(
+            { project, ...result },
+            result.pendingDelete
+              ? `Removed media asset ${assetId}; its staged file is pending cleanup because another process still holds it.`
+              : `Removed media asset ${assetId}`,
+            asJson,
+          );
           return;
         }
         case 'embed': {
@@ -404,7 +410,9 @@ export default defineCommand({
           });
           emitResult(
             { project, ...result },
-            `Media cleanup: ${result.removed.length} asset(s), ${result.beforeBytes} -> ${result.afterBytes} bytes`,
+            `Media cleanup: ${result.removed.length} asset(s), ${result.beforeBytes} -> ${result.afterBytes} active bytes` +
+              `${result.reclaimedTrashBytes > 0 ? `; reclaimed ${result.reclaimedTrashBytes} staged bytes` : ''}` +
+              `${result.pendingTrashFiles > 0 ? `; ${result.pendingTrashFiles} staged file(s) (${result.pendingTrashBytes} bytes) still pending` : ''}`,
             asJson,
           );
           return;

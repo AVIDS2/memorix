@@ -1,3 +1,5 @@
+import path from 'node:path';
+
 import type { ProjectInfo } from '../../types.js';
 
 export interface ResolveServeProjectOptions {
@@ -6,7 +8,6 @@ export interface ResolveServeProjectOptions {
   initCwd?: string;
   processCwd: string;
   homeDir: string;
-  lastKnownProjectRoot?: string;
 }
 
 export interface ResolveServeProjectDeps {
@@ -18,7 +19,7 @@ export interface ResolveServeProjectDeps {
 export interface ServeProjectResolution {
   projectRoot: string;
   detectedProject: ProjectInfo | null;
-  source: 'direct' | 'subdir' | 'last-known' | 'home' | 'home-subdir' | 'unresolved';
+  source: 'direct' | 'subdir' | 'unresolved';
   messages: string[];
   error?: string;
 }
@@ -45,6 +46,21 @@ export function resolveServeProject(
     };
   }
 
+  const hasExplicitRoot = Boolean(options.cwdArg || options.envProjectRoot || options.initCwd);
+  const startsAtHome = path.resolve(projectRoot) === path.resolve(options.homeDir);
+  if (deps.isSystemDirectory(projectRoot) || (!hasExplicitRoot && startsAtHome)) {
+    messages.push(`[memorix] Unreliable launch directory detected: ${projectRoot}`);
+    messages.push('[memorix] Memorix will wait for MCP Roots or an explicit memorix_session_start projectRoot.');
+    messages.push('[memorix] It will not restore a previous project automatically, to prevent cross-project memory access.');
+    return {
+      projectRoot,
+      detectedProject: null,
+      source: 'unresolved',
+      messages,
+      error: 'No reliable git project was provided by the launcher.',
+    };
+  }
+
   const subGit = deps.findGitInSubdirs(projectRoot);
   if (subGit) {
     projectRoot = subGit;
@@ -57,50 +73,6 @@ export function resolveServeProject(
         source: 'subdir',
         messages,
       };
-    }
-  }
-
-  if (deps.isSystemDirectory(projectRoot)) {
-    messages.push(`[memorix] System directory detected: ${projectRoot}`);
-    messages.push('[memorix] Your IDE launched memorix from a non-workspace directory.');
-    messages.push('[memorix] Fix: add --cwd to your MCP config, or use an IDE/client that exposes workspace roots.');
-
-    if (options.lastKnownProjectRoot) {
-      detected = deps.detectProject(options.lastKnownProjectRoot);
-      if (detected) {
-        messages.push(`[memorix] Restored last known project: ${options.lastKnownProjectRoot}`);
-        return {
-          projectRoot: options.lastKnownProjectRoot,
-          detectedProject: detected,
-          source: 'last-known',
-          messages,
-        };
-      }
-    }
-
-    detected = deps.detectProject(options.homeDir);
-    if (detected) {
-      messages.push(`[memorix] Restored project from home directory: ${options.homeDir}`);
-      return {
-        projectRoot: options.homeDir,
-        detectedProject: detected,
-        source: 'home',
-        messages,
-      };
-    }
-
-    const homeSubGit = deps.findGitInSubdirs(options.homeDir);
-    if (homeSubGit) {
-      detected = deps.detectProject(homeSubGit);
-      if (detected) {
-        messages.push(`[memorix] Found .git in home subdirectory: ${homeSubGit}`);
-        return {
-          projectRoot: homeSubGit,
-          detectedProject: detected,
-          source: 'home-subdir',
-          messages,
-        };
-      }
     }
   }
 

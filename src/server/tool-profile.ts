@@ -6,7 +6,7 @@
  * tools/list time causes cognitive overload.
  *
  * We provide four profiles:
- *   - "micro" (stdio default): Agent-ready project context + basic memory CRUD — 7 tools.
+ *   - "micro" (stdio default): Agent-ready project context + bounded recovery/media controls — 9 tools.
  *     Suitable for normal MCP clients where every tool schema costs context tokens.
  *   - "lite": Core memory CRUD, sessions, reasoning, retention, backup — 18 tools.
  *     Suitable for solo users who want the full memory surface without team tools.
@@ -35,19 +35,22 @@ export const TOOL_PROFILES: Record<string, ReadonlyArray<ToolProfile>> = Object.
   memorix_context_pack:       ['micro', 'lite', 'team', 'full'],
   memorix_codegraph_status:   ['micro', 'lite', 'team', 'full'],
   memorix_resolve:            ['micro', 'lite', 'team', 'full'],
+  // A fail-closed stdio server needs an explicit recovery path when a client
+  // did not launch it from the workspace. The unified media tool keeps
+  // multimodal support to one additional schema rather than enabling lite.
+  memorix_session_start:      ['micro', 'lite', 'team', 'full'],
+  memorix_media:              ['micro', 'lite', 'team', 'full'],
 
   // ── lite: extended solo memory surface ────────────────────────────
   memorix_graph_context:      ['lite', 'team', 'full'],
   memorix_timeline:           ['lite', 'team', 'full'],
   memorix_suggest_topic_key:  ['lite', 'team', 'full'],
-  memorix_session_start:      ['lite', 'team', 'full'],
   memorix_session_end:        ['lite', 'team', 'full'],
   memorix_session_context:    ['lite', 'team', 'full'],
   memorix_store_reasoning:    ['lite', 'team', 'full'],
   memorix_search_reasoning:   ['lite', 'team', 'full'],
   memorix_transfer:           ['lite', 'team', 'full'],
   memorix_retention:          ['lite', 'team', 'full'],
-  memorix_media:              ['lite', 'team', 'full'],
 
   // ── team: orchestration coordination surfaces — HTTP default ──────
   memorix_dashboard:          ['team', 'full'],
@@ -136,7 +139,7 @@ export function resolveToolProfile(opts: ResolveToolProfileOpts): ToolProfile {
  */
 export function describeProfile(profile: ToolProfile): string {
   switch (profile) {
-    case 'micro': return 'micro (agent-ready context + basic memory, ~7 tools)';
+    case 'micro': return 'micro (agent-ready context + bounded recovery/media, ~9 tools)';
     case 'lite': return 'lite (core memory + sessions, ~18 tools)';
     case 'team': return 'team (lite + coordination tools + dashboard + knowledge workspace, ~26 tools)';
     case 'full': return 'full (all tools including advanced / KG-compat)';

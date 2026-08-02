@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.4] - 2026-08-02
+
+### Fixed
+- **Fail-closed project binding** -- Stdio and HTTP MCP servers no longer restore or keep writing a remembered project root. A launch without a reliable workspace now waits for an explicit root, MCP Roots, or `memorix_session_start`, preventing cross-project memory access.
+- **Portable MCP Roots** -- File URI roots now remain POSIX paths on Linux/macOS and convert correctly on Windows, including drive-letter paths and UNC roots.
+- **Atomic media attachments** -- A media retrieval observation and its asset link now commit in one SQLite transaction. If linking fails, no dangling observation survives. Completed video downloads also persist their local asset before a retryable attachment step.
+- **Authoritative video cancellation** -- A cancellation that lands while a video worker is downloading or finishing can no longer be overwritten back to `completed`; MCP can cancel an existing job even when new MCP media generation is disabled.
+- **Recoverable media cleanup** -- Files Windows cannot immediately release are visibly staged for retry, and media cleanup reports reclaimed or still-pending staged bytes instead of silently implying deletion succeeded.
+- **Non-destructive Codex migration** -- Legacy Codex hook cleanup now preserves customized hook files instead of deleting a file merely because its commands begin with `memorix hook`.
+- **One stdio runtime** -- Direct `node dist/index.js` invocation now delegates to `memorix serve`; importing the package no longer starts an MCP server as a side effect.
+
+### Changed
+- **Bounded default MCP surface** -- The `micro` profile exposes nine tools: agent-ready context, retrieval, one explicit session recovery path, and one controlled media operation. Advanced tools remain opt-in through higher profiles.
+
 ## [1.3.3] - 2026-08-02
 
 ### Added

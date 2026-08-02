@@ -139,12 +139,19 @@ async function finishWithAsset(input: {
   dependencies: MediaVideoGenerationDependencies;
 }): Promise<MaintenanceJobRunResult> {
   const { dataDir, projectId, store, mediaJob, request, providerTask, dependencies } = input;
-  let asset: MediaAsset | undefined = mediaJob.assetId
-    ? store.getAsset(projectId, mediaJob.assetId)
+  let activeJob = store.getJob(projectId, mediaJob.id);
+  if (!activeJob || terminal(activeJob)) return { action: 'complete' };
+  let asset: MediaAsset | undefined = activeJob.assetId
+    ? store.getAsset(projectId, activeJob.assetId)
     : undefined;
   if (!asset) {
     if (!providerTask.downloadUrl) throw new Error('Succeeded MiniMax video task did not include a download URL');
-    store.updateJob(projectId, mediaJob.id, { status: 'downloading', providerTaskId: providerTask.taskId });
+    const downloading = store.updateJobIfNotCancelled(projectId, activeJob.id, {
+      status: 'downloading',
+      providerTaskId: providerTask.taskId,
+    });
+    if (!downloading) return { action: 'complete' };
+    activeJob = downloading;
     const bytes = await (dependencies.download ?? ((downloadInput) => downloadProviderMedia(downloadInput)))({
       url: providerTask.downloadUrl,
       maxBytes: request.maxBytes,
@@ -161,9 +168,20 @@ async function finishWithAsset(input: {
       maxBytes: request.maxBytes,
     });
     asset = imported.asset;
+    // Persist the local result before optional attachment. A later retry can
+    // resume attachment even if the provider's signed URL has expired.
+    const persistedAsset = store.updateJobIfNotCancelled(projectId, activeJob.id, {
+      status: 'downloading',
+      providerTaskId: providerTask.taskId,
+      assetId: asset.id,
+    });
+    if (!persistedAsset) return { action: 'complete' };
+    activeJob = persistedAsset;
   }
 
-  if (mediaJob.attachOnComplete) {
+  if (activeJob.attachOnComplete) {
+    activeJob = store.getJob(projectId, activeJob.id);
+    if (!activeJob || terminal(activeJob)) return { action: 'complete' };
     const hasAttachment = store.listLinks(projectId, asset.id)
       .some((link) => link.role === 'attachment' && link.observationId !== undefined);
     if (!hasAttachment) {
@@ -171,13 +189,13 @@ async function finishWithAsset(input: {
         dataDir,
         projectId,
         asset,
-        title: mediaJob.observationTitle ?? `MiniMax video: ${asset.sourceLabel ?? asset.id}`,
+        title: activeJob.observationTitle ?? `MiniMax video: ${asset.sourceLabel ?? asset.id}`,
         narrative: `Generated with ${request.provider}/${request.model}. Prompt: ${request.prompt}`,
         concepts: ['generated-video', 'minimax', request.model],
       });
     }
   }
-  store.updateJob(projectId, mediaJob.id, {
+  store.updateJobIfNotCancelled(projectId, activeJob.id, {
     status: 'completed',
     providerTaskId: providerTask.taskId,
     assetId: asset.id,
@@ -194,10 +212,12 @@ function retryAfterProviderError(
 ): MaintenanceJobRunResult {
   const message = safeError(error);
   if (maintenanceJob.attempts >= maintenanceJob.maxAttempts) {
-    store.updateJob(projectId, mediaJob.id, { status: 'failed', lastError: message, incrementAttempts: true });
+    store.updateJobIfNotCancelled(projectId, mediaJob.id, { status: 'failed', lastError: message, incrementAttempts: true });
     return { action: 'complete' };
   }
-  store.updateJob(projectId, mediaJob.id, { status: 'retry', lastError: message, incrementAttempts: true });
+  if (!store.updateJobIfNotCancelled(projectId, mediaJob.id, { status: 'retry', lastError: message, incrementAttempts: true })) {
+    return { action: 'complete' };
+  }
   return { action: 'reschedule', delayMs: MINI_MAX_VIDEO_POLL_MS, status: 'retry', lastError: message };
 }
 
@@ -250,24 +270,27 @@ export async function runMiniMaxVideoGenerationJob(
   const request = parseStoredRequest(mediaJob.request);
 
   if (!mediaJob.providerTaskId) {
-    store.updateJob(context.projectId, mediaJob.id, { status: 'submitting', incrementAttempts: true });
+    if (!store.updateJobIfNotCancelled(context.projectId, mediaJob.id, { status: 'submitting', incrementAttempts: true })) {
+      return { action: 'complete' };
+    }
     let submitted: MiniMaxVideoTask;
     try {
       submitted = await (dependencies.createTask ?? createMiniMaxVideoTask)(toVideoRequest(request));
     } catch (error) {
       // A submit timeout can mean the provider accepted a billable request. Do
       // not retry automatically without a task ID; the operator can resubmit.
-      store.updateJob(context.projectId, mediaJob.id, { status: 'failed', lastError: safeError(error) });
+      store.updateJobIfNotCancelled(context.projectId, mediaJob.id, { status: 'failed', lastError: safeError(error) });
       return { action: 'complete' };
     }
     if (submitted.status === 'failed') {
-      store.updateJob(context.projectId, mediaJob.id, { status: 'failed', providerTaskId: submitted.taskId, lastError: submitted.error });
+      store.updateJobIfNotCancelled(context.projectId, mediaJob.id, { status: 'failed', providerTaskId: submitted.taskId, lastError: submitted.error });
       return { action: 'complete' };
     }
-    const pending = store.updateJob(context.projectId, mediaJob.id, {
+    const pending = store.updateJobIfNotCancelled(context.projectId, mediaJob.id, {
       status: submitted.status === 'succeeded' ? 'downloading' : 'provider-pending',
       providerTaskId: submitted.taskId,
     });
+    if (!pending) return { action: 'complete' };
     if (submitted.status === 'succeeded') {
       try {
         return await finishWithAsset({
@@ -296,11 +319,13 @@ export async function runMiniMaxVideoGenerationJob(
     return retryAfterProviderError(store, context.projectId, mediaJob, maintenanceJob, error);
   }
   if (task.status === 'pending') {
-    store.updateJob(context.projectId, mediaJob.id, { status: 'provider-pending', providerTaskId: task.taskId });
+    if (!store.updateJobIfNotCancelled(context.projectId, mediaJob.id, { status: 'provider-pending', providerTaskId: task.taskId })) {
+      return { action: 'complete' };
+    }
     return { action: 'reschedule', delayMs: MINI_MAX_VIDEO_POLL_MS, resetAttempts: true, clearLastError: true };
   }
   if (task.status === 'failed') {
-    store.updateJob(context.projectId, mediaJob.id, { status: 'failed', providerTaskId: task.taskId, lastError: task.error, incrementAttempts: true });
+    store.updateJobIfNotCancelled(context.projectId, mediaJob.id, { status: 'failed', providerTaskId: task.taskId, lastError: task.error, incrementAttempts: true });
     return { action: 'complete' };
   }
   try {

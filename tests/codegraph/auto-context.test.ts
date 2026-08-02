@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -34,12 +34,12 @@ describe('auto project context', () => {
     mkdirSync(path.join(repoDir, 'src'), { recursive: true });
     writeFileSync(path.join(repoDir, 'src', 'auth.ts'), 'export function authMiddleware(token: string) { return token.length > 0; }\n', 'utf8');
     writeFileSync(path.join(repoDir, 'src', 'worker.py'), 'def dispatch_job(name: str):\n    return name.upper()\n', 'utf8');
-    execSync('git init', { cwd: repoDir, stdio: 'ignore' });
+    execFileSync('git', ['init'], { cwd: repoDir, stdio: 'ignore', windowsHide: true });
     process.chdir(repoDir);
     process.env.MEMORIX_EMBEDDING = 'off';
     await initObservationStore(dataDir);
     await initObservations(dataDir);
-  });
+  }, 30_000);
 
   afterEach(async () => {
     process.chdir(originalCwd);

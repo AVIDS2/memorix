@@ -27,6 +27,7 @@ import { scopeKnowledgeGraphToProject } from '../../memory/graph-scope.js';
 import { projectObservationRetention, summarizeRetentionProjections } from '../../memory/retention.js';
 import { canManageObservation, filterReadableObservations } from '../../memory/visibility.js';
 import { parseTcpPortOrReport } from '../port.js';
+import { mcpFileUriToPath } from '../mcp-root-path.js';
 
 export const DEFAULT_SESSION_TIMEOUT_MS = 30 * 60 * 1000;
 
@@ -76,10 +77,9 @@ export default defineCommand({
     );
     const { createMemorixServer } = await import('../../server.js');
     const { createProjectBindingController } = await import('../../server/request-context.js');
-    const { findGitInSubdirs, detectProjectWithDiagnostics } = await import('../../project/detector.js');
-    const { existsSync, readFileSync, writeFileSync, mkdirSync } = await import('node:fs');
+    const { findGitInSubdirs } = await import('../../project/detector.js');
+    const { writeFileSync, mkdirSync } = await import('node:fs');
     const { homedir } = await import('node:os');
-    const earlyPath = await import('node:path');
 
     const port = parseTcpPortOrReport(args.port, 3211);
     if (port === undefined) {
@@ -89,26 +89,11 @@ export default defineCommand({
     const host = args.host || '127.0.0.1';
     const toolProfile = resolveToolProfile({ explicit: args.mode, envValue: process.env.MEMORIX_MODE, fallback: 'team' });
 
-    // Priority: explicit --cwd arg > MEMORIX_PROJECT_ROOT env > last-project-root fallback > process.cwd()
+    // Priority: explicit --cwd arg > MEMORIX_PROJECT_ROOT env > process.cwd().
+    // Do not silently bind a control plane to another project's remembered root.
     let safeCwd: string;
     try { safeCwd = process.cwd(); } catch { safeCwd = homedir(); }
     let projectRoot = args.cwd || process.env.MEMORIX_PROJECT_ROOT || safeCwd;
-
-    // Fallback: if projectRoot has no git, try last-project-root
-    const lastRootFile = earlyPath.join(homedir(), '.memorix', 'last-project-root');
-    const initialCheck = detectProjectWithDiagnostics(projectRoot);
-    if (!initialCheck.project && existsSync(lastRootFile)) {
-      try {
-        const lastRoot = readFileSync(lastRootFile, 'utf-8').trim();
-        if (lastRoot && existsSync(lastRoot)) {
-          const lastCheck = detectProjectWithDiagnostics(lastRoot);
-          if (lastCheck.project) {
-            console.error(`[memorix] No git at "${projectRoot}", restored last known project: ${lastRoot}`);
-            projectRoot = lastRoot;
-          }
-        }
-      } catch { /* ignore */ }
-    }
 
     console.error(`[memorix] HTTP transport starting on ${host}:${port}`);
     console.error(`[memorix] Project root: ${projectRoot}`);
@@ -398,17 +383,6 @@ export default defineCommand({
         createdState = { transport, server, switchProject, binding };
         await server.connect(transport);
 
-        const persistRoot = async (rootPath: string) => {
-          try {
-            const { writeFileSync, mkdirSync } = await import('node:fs');
-            const pathMod = await import('node:path');
-            const { homedir } = await import('node:os');
-            const memorixDir = pathMod.join(homedir(), '.memorix');
-            mkdirSync(memorixDir, { recursive: true });
-            writeFileSync(pathMod.join(memorixDir, 'last-project-root'), rootPath, 'utf-8');
-          } catch { /* non-critical */ }
-        };
-
         const tryRootsSwitch = async () => {
           try {
             // If session was explicitly bound via projectRoot in memorix_session_start,
@@ -422,16 +396,12 @@ export default defineCommand({
 
             for (const root of roots) {
               if (!root.uri.startsWith('file://')) continue;
-              let rootPath = decodeURIComponent(root.uri.replace('file://', ''));
-              // Cross-platform: strip leading slash on Windows drive paths
-              if (/^\/[A-Za-z]:/.test(rootPath)) rootPath = rootPath.slice(1);
-              // Normalize to OS-native separators
-              rootPath = earlyPath.normalize(rootPath);
+              const rootPath = mcpFileUriToPath(root.uri);
+              if (!rootPath) continue;
 
               const switched = await switchProject(rootPath);
               if (switched) {
                 console.error(`[memorix] Session ${transport.sessionId?.slice(0, 8) ?? 'pending'} roots switched to: ${rootPath}`);
-                await persistRoot(rootPath);
                 return;
               }
 
@@ -440,7 +410,6 @@ export default defineCommand({
                 const subSwitched = await switchProject(subGit);
                 if (subSwitched) {
                   console.error(`[memorix] Session ${transport.sessionId?.slice(0, 8) ?? 'pending'} roots switched via subdir: ${subGit}`);
-                  await persistRoot(subGit);
                   return;
                 }
               }

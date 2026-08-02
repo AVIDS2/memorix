@@ -560,30 +560,33 @@ export async function removeLegacyCodexMemorixMcpConfig(
   return { configPath, removed: true };
 }
 
-function collectHookCommands(value: unknown, commands: string[]): void {
-  if (Array.isArray(value)) {
-    for (const item of value) collectHookCommands(item, commands);
-    return;
-  }
-  if (!value || typeof value !== 'object') return;
-
-  for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
-    if ((key === 'command' || key === 'commandWindows') && typeof child === 'string') {
-      commands.push(child);
-    } else {
-      collectHookCommands(child, commands);
-    }
-  }
-}
-
 function isOwnedLegacyCodexHooks(content: string): boolean {
   try {
     const parsed = JSON.parse(content) as { hooks?: unknown };
-    if (!parsed.hooks || typeof parsed.hooks !== 'object') return false;
-    const commands: string[] = [];
-    collectHookCommands(parsed.hooks, commands);
-    return commands.length > 0
-      && commands.every((command) => /^memorix(?:\.cmd)?\s+hook(?:\s|$)/i.test(command.trim()));
+    if (!parsed.hooks || typeof parsed.hooks !== 'object' || Array.isArray(parsed.hooks)) return false;
+    // There was no ownership marker in the old project-local file. Treat any
+    // timeout, matcher, extra field, or extra top-level metadata as user-owned
+    // rather than guessing from a command prefix and deleting their config.
+    if (Object.keys(parsed).some((key) => key !== 'hooks')) return false;
+    const hooks = parsed.hooks as Record<string, unknown>;
+    const allowedEntryKeys = new Set(['type', 'command', 'commandWindows']);
+    let entryCount = 0;
+    for (const entries of Object.values(hooks)) {
+      if (!Array.isArray(entries) || entries.length === 0) return false;
+      for (const entry of entries) {
+        if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return false;
+        const record = entry as Record<string, unknown>;
+        if (Object.keys(record).some((key) => !allowedEntryKeys.has(key))) return false;
+        if (record.type !== 'command') return false;
+        const commands = [record.command, record.commandWindows]
+          .filter((command): command is string => typeof command === 'string');
+        if (commands.length === 0 || !commands.every((command) => /^memorix(?:\.cmd)?\s+hook(?:\s|$)/i.test(command.trim()))) {
+          return false;
+        }
+        entryCount += 1;
+      }
+    }
+    return entryCount > 0;
   } catch {
     return false;
   }

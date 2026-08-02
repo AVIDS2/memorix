@@ -122,6 +122,104 @@ describe('MiniMax durable video jobs', () => {
     expect(createCalled).toBe(false);
   });
 
+  it('keeps a cancellation authoritative when it arrives during a completed-result download', async () => {
+    const fixture = await createFixture();
+    const queued = queueMiniMaxVideoGeneration({
+      dataDir: fixture.dataDir,
+      projectId: fixture.projectId,
+      prompt: 'Cancel during the result download',
+    });
+    let releaseDownload: (() => void) | undefined;
+    const downloadMayFinish = new Promise<void>((resolve) => { releaseDownload = resolve; });
+    let signalDownloadStarted: (() => void) | undefined;
+    const downloadStarted = new Promise<void>((resolve) => { signalDownloadStarted = resolve; });
+
+    const running = runMiniMaxVideoGenerationJob(
+      queued.maintenanceJob,
+      fixture,
+      {
+        createTask: async () => ({
+          taskId: 'provider-video-cancel-race',
+          status: 'succeeded',
+          downloadUrl: 'https://cdn.example.test/cancel-race.mp4',
+        }),
+        download: async () => {
+          signalDownloadStarted?.();
+          await downloadMayFinish;
+          return MP4_BYTES;
+        },
+      },
+    );
+    await downloadStarted;
+    new MediaStore(fixture.dataDir).cancelJob(fixture.projectId, queued.mediaJob.id);
+    releaseDownload?.();
+    await expect(running).resolves.toEqual({ action: 'complete' });
+
+    const job = new MediaStore(fixture.dataDir).getJob(fixture.projectId, queued.mediaJob.id)!;
+    expect(job).toMatchObject({ status: 'cancelled' });
+    expect(job.assetId).toBeUndefined();
+    const store = new MediaStore(fixture.dataDir);
+    const [downloadedAsset] = store.listAssets(fixture.projectId);
+    expect(downloadedAsset).toBeDefined();
+    expect(store.listLinks(fixture.projectId, downloadedAsset.id)).toEqual([]);
+  });
+
+  it('persists the downloaded asset before attachment so a retry does not need the provider URL', async () => {
+    const fixture = await createFixture();
+    const queued = queueMiniMaxVideoGeneration({
+      dataDir: fixture.dataDir,
+      projectId: fixture.projectId,
+      prompt: 'Resume after an attachment failure',
+      attachOnComplete: true,
+    });
+    let downloadCalls = 0;
+    let attachCalls = 0;
+
+    const first = await runMiniMaxVideoGenerationJob(
+      queued.maintenanceJob,
+      fixture,
+      {
+        createTask: async () => ({
+          taskId: 'provider-video-resume',
+          status: 'succeeded',
+          downloadUrl: 'https://cdn.example.test/resume.mp4',
+        }),
+        download: async () => {
+          downloadCalls += 1;
+          return MP4_BYTES;
+        },
+        attach: async () => {
+          attachCalls += 1;
+          throw new Error('simulated attachment interruption');
+        },
+      },
+    );
+    expect(first.action).toBe('reschedule');
+    const interrupted = new MediaStore(fixture.dataDir).getJob(fixture.projectId, queued.mediaJob.id)!;
+    expect(interrupted).toMatchObject({ status: 'retry', providerTaskId: 'provider-video-resume' });
+    expect(interrupted.assetId).toBeTruthy();
+
+    const second = await runMiniMaxVideoGenerationJob(
+      queued.maintenanceJob,
+      fixture,
+      {
+        queryTask: async () => ({ taskId: 'provider-video-resume', status: 'succeeded' }),
+        download: async () => {
+          downloadCalls += 1;
+          throw new Error('retry must not redownload an already-persisted result');
+        },
+        attach: async () => {
+          attachCalls += 1;
+          return { id: 1 } as any;
+        },
+      },
+    );
+    expect(second).toEqual({ action: 'complete' });
+    expect(downloadCalls).toBe(1);
+    expect(attachCalls).toBe(2);
+    expect(new MediaStore(fixture.dataDir).getJob(fixture.projectId, queued.mediaJob.id)).toMatchObject({ status: 'completed' });
+  });
+
   it('sanitizes request text and the deferred observation title before job persistence', async () => {
     const fixture = await createFixture();
     const promptSecret = 'sk-abcdefghijklmnopqrstuvwxyz1234';

@@ -14,6 +14,9 @@ const DEFAULT_IMAGE_TIMEOUT_MS = 90_000;
 
 export type MiniMaxImageModel = typeof IMAGE_MODELS[number];
 export type MiniMaxRegion = 'global' | 'cn';
+export type MiniMaxVideoModel = 'MiniMax-H3';
+export type MiniMaxVideoResolution = '2K';
+export type MiniMaxVideoRatio = 'adaptive' | '16:9' | '9:16' | '1:1';
 
 export interface MiniMaxImageGenerationInput {
   dataDir: string;
@@ -38,6 +41,29 @@ export interface GeneratedMiniMaxImages {
   model: MiniMaxImageModel;
   responseId?: string;
   assets: MediaImportResult[];
+}
+
+export interface MiniMaxVideoGenerationRequest {
+  prompt: string;
+  model?: MiniMaxVideoModel;
+  region?: MiniMaxRegion;
+  apiKey?: string;
+  baseUrl?: string;
+  resolution?: MiniMaxVideoResolution;
+  duration?: 5 | 10;
+  ratio?: MiniMaxVideoRatio;
+  timeoutMs?: number;
+}
+
+export interface MiniMaxVideoTask {
+  taskId: string;
+  status: 'pending' | 'succeeded' | 'failed';
+  downloadUrl?: string;
+  error?: string;
+}
+
+export interface MiniMaxVideoTransport {
+  fetch?: typeof fetch;
 }
 
 export interface MiniMaxImageGenerator {
@@ -91,6 +117,22 @@ function resolveBaseUrl(value: string | undefined): string | undefined {
   return parsed.toString().replace(/\/$/, '');
 }
 
+function resolveVideoBaseUrl(region: MiniMaxRegion, value: string | undefined): string {
+  const configured = value?.trim()
+    || process.env.MINIMAX_VIDEO_BASE_URL?.trim()
+    || (region === 'cn' ? 'https://api.minimaxi.com' : 'https://api.minimax.io');
+  let parsed: URL;
+  try {
+    parsed = new URL(configured);
+  } catch {
+    throw new Error('MINIMAX_VIDEO_BASE_URL must be a valid HTTPS URL');
+  }
+  if (parsed.protocol !== 'https:' || parsed.username || parsed.password) {
+    throw new Error('MINIMAX_VIDEO_BASE_URL must be an HTTPS URL without credentials');
+  }
+  return parsed.toString().replace(/\/$/, '');
+}
+
 function normalizePrompt(value: string): string {
   const prompt = value.trim();
   if (!prompt) throw new Error('MiniMax image generation requires a non-empty prompt');
@@ -107,6 +149,173 @@ function sourceLabel(model: MiniMaxImageModel, index: number): string {
 function safeError(error: unknown): Error {
   const message = sanitizeCredentials(error instanceof Error ? error.message : String(error));
   return new Error(message.slice(0, 1_000));
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+export function normalizeMiniMaxVideoRequest(input: MiniMaxVideoGenerationRequest): {
+  region: MiniMaxRegion;
+  model: MiniMaxVideoModel;
+  prompt: string;
+  resolution: MiniMaxVideoResolution;
+  duration: 5 | 10;
+  ratio: MiniMaxVideoRatio;
+} {
+  const region = resolveRegion(input.region);
+  const model = input.model ?? (process.env.MINIMAX_VIDEO_MODEL?.trim() as MiniMaxVideoModel | undefined) ?? 'MiniMax-H3';
+  if (model !== 'MiniMax-H3') throw new Error(`Unsupported MiniMax video model: ${model}`);
+  const prompt = normalizePrompt(input.prompt);
+  const resolution = input.resolution ?? '2K';
+  if (resolution !== '2K') throw new Error(`Unsupported MiniMax video resolution: ${resolution}`);
+  const duration = input.duration ?? 5;
+  if (duration !== 5 && duration !== 10) throw new Error('MiniMax video duration must be 5 or 10 seconds');
+  const ratio = input.ratio ?? 'adaptive';
+  if (ratio !== 'adaptive' && ratio !== '16:9' && ratio !== '9:16' && ratio !== '1:1') {
+    throw new Error('MiniMax video ratio must be adaptive, 16:9, 9:16, or 1:1');
+  }
+  return { region, model, prompt, resolution, duration, ratio };
+}
+
+function videoRequestConfig(input: MiniMaxVideoGenerationRequest): {
+  region: MiniMaxRegion;
+  apiKey: string;
+  baseUrl: string;
+  model: MiniMaxVideoModel;
+  prompt: string;
+  resolution: MiniMaxVideoResolution;
+  duration: 5 | 10;
+  ratio: MiniMaxVideoRatio;
+  timeoutMs: number;
+} {
+  const normalized = normalizeMiniMaxVideoRequest(input);
+  const timeoutMs = input.timeoutMs ?? DEFAULT_IMAGE_TIMEOUT_MS;
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1_000 || timeoutMs > 5 * 60_000) {
+    throw new Error('MiniMax video timeout must be between 1000 and 300000 milliseconds');
+  }
+  return {
+    ...normalized,
+    apiKey: requiredString(
+      input.apiKey ?? (normalized.region === 'cn' ? process.env.MINIMAX_CN_API_KEY : process.env.MINIMAX_API_KEY),
+      normalized.region === 'cn' ? 'MINIMAX_CN_API_KEY' : 'MINIMAX_API_KEY',
+    ),
+    baseUrl: resolveVideoBaseUrl(normalized.region, input.baseUrl),
+    timeoutMs,
+  };
+}
+
+async function readMiniMaxJson(response: Response): Promise<Record<string, unknown>> {
+  const text = await response.text();
+  let body: Record<string, unknown> = {};
+  if (text) {
+    try {
+      const parsed = JSON.parse(text);
+      if (isRecord(parsed)) body = parsed;
+    } catch {
+      throw new Error('MiniMax video API returned invalid JSON');
+    }
+  }
+  if (!response.ok) {
+    const error = isRecord(body.error) && typeof body.error.message === 'string'
+      ? body.error.message
+      : typeof body.message === 'string'
+        ? body.message
+        : `HTTP ${response.status}`;
+    throw new Error(`MiniMax video API failed: ${error}`);
+  }
+  if (isRecord(body.error) && typeof body.error.message === 'string') {
+    throw new Error(`MiniMax video API failed: ${body.error.message}`);
+  }
+  return body;
+}
+
+function videoHeaders(apiKey: string): Headers {
+  return new Headers({
+    Authorization: `Bearer ${apiKey}`,
+    'Content-Type': 'application/json',
+  });
+}
+
+function nestedTask(body: Record<string, unknown>): Record<string, unknown> | undefined {
+  if (!isRecord(body.task)) return undefined;
+  return isRecord(body.task.task) ? body.task.task : body.task;
+}
+
+function taskError(task: Record<string, unknown>): string | undefined {
+  if (typeof task.error === 'string') return task.error;
+  if (isRecord(task.error) && typeof task.error.message === 'string') return task.error.message;
+  return undefined;
+}
+
+function parseVideoTask(body: Record<string, unknown>): MiniMaxVideoTask {
+  const task = nestedTask(body);
+  const taskId = typeof body.task_id === 'string'
+    ? body.task_id
+    : typeof task?.id === 'string'
+      ? task.id
+      : undefined;
+  if (!taskId) throw new Error('MiniMax video API response did not include a task ID');
+  const providerStatus = typeof task?.status === 'string' ? task.status.toLowerCase() : 'pending';
+  if (providerStatus === 'succeeded' || providerStatus === 'success' || providerStatus === 'completed') {
+    const content = isRecord(task?.content) ? task.content : undefined;
+    const downloadUrl = typeof content?.url === 'string' ? content.url : undefined;
+    if (!downloadUrl) throw new Error('MiniMax video task succeeded without a download URL');
+    return { taskId, status: 'succeeded', downloadUrl };
+  }
+  if (providerStatus === 'failed' || providerStatus === 'error' || providerStatus === 'cancelled' || providerStatus === 'canceled') {
+    return { taskId, status: 'failed', ...(taskError(task ?? {}) ? { error: taskError(task ?? {}) } : {}) };
+  }
+  return { taskId, status: 'pending' };
+}
+
+/** Submit a billable MiniMax V2 task exactly once. Queue retry policy belongs to the caller. */
+export async function createMiniMaxVideoTask(
+  input: MiniMaxVideoGenerationRequest,
+  dependencies: MiniMaxVideoTransport = {},
+): Promise<MiniMaxVideoTask> {
+  const config = videoRequestConfig(input);
+  try {
+    const response = await (dependencies.fetch ?? fetch)(`${config.baseUrl}/v2/video_generation`, {
+      method: 'POST',
+      headers: videoHeaders(config.apiKey),
+      body: JSON.stringify({
+        model: config.model,
+        content: [{ type: 'text', text: config.prompt }],
+        resolution: config.resolution,
+        duration: config.duration,
+        ratio: config.ratio,
+      }),
+      signal: AbortSignal.timeout(config.timeoutMs),
+    });
+    return parseVideoTask(await readMiniMaxJson(response));
+  } catch (error) {
+    throw safeError(error);
+  }
+}
+
+/** Query only the durable provider task. The temporary result URL is returned to the caller, never persisted. */
+export async function queryMiniMaxVideoTask(
+  input: Omit<MiniMaxVideoGenerationRequest, 'prompt'> & { taskId: string },
+  dependencies: MiniMaxVideoTransport = {},
+): Promise<MiniMaxVideoTask> {
+  const taskId = requiredString(input.taskId, 'MiniMax video task ID');
+  const config = videoRequestConfig({ ...input, prompt: 'query' });
+  try {
+    const response = await (dependencies.fetch ?? fetch)(
+      `${config.baseUrl}/v2/query/video_generation/${encodeURIComponent(taskId)}`,
+      {
+        method: 'GET',
+        headers: videoHeaders(config.apiKey),
+        signal: AbortSignal.timeout(config.timeoutMs),
+      },
+    );
+    const result = parseVideoTask(await readMiniMaxJson(response));
+    if (result.taskId !== taskId) throw new Error('MiniMax video API returned a mismatched task ID');
+    return result;
+  } catch (error) {
+    throw safeError(error);
+  }
 }
 
 const defaultImageGenerator: MiniMaxImageGenerator = async (input) => {

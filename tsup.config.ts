@@ -19,6 +19,9 @@ export default defineConfig([
       // Short-lived CLI writes hand remote embedding work to this detached
       // worker so a slow provider never holds the user's terminal open.
       'vector-backfill-runner': 'src/runtime/vector-backfill-runner.ts',
+      // Durable MiniMax video generation is polled outside the CLI process.
+      // This runner intentionally has no detached Windows console.
+      'media-video-runner': 'src/runtime/media-video-runner.ts',
     },
     format: ['esm'],
     target: 'node20',

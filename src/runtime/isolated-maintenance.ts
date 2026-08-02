@@ -9,6 +9,7 @@ import { sanitizeCredentials } from '../memory/secret-filter.js';
 export const MAINTENANCE_RESULT_PREFIX = '__MEMORIX_MAINTENANCE_RESULT__';
 
 export const ISOLATED_MAINTENANCE_JOB_KINDS: readonly MaintenanceJobKind[] = [
+  'media-video-generation',
   'retention-archive',
   'consolidation',
   'codegraph-refresh',

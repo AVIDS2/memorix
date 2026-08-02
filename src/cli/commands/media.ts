@@ -1,5 +1,6 @@
 import { defineCommand } from 'citty';
 
+import { loadDotenv } from '../../config/dotenv-loader.js';
 import { attachMediaAssetToObservation } from '../../media/attachment.js';
 import { embedMediaAsset, findSimilarMediaAssets } from '../../media/embedding.js';
 import {
@@ -8,7 +9,12 @@ import {
   removeMediaAsset,
 } from '../../media/asset-store.js';
 import { MediaStore } from '../../media/media-store.js';
-import { generateMiniMaxImages, type MiniMaxImageGenerationInput } from '../../media/minimax.js';
+import {
+  generateMiniMaxImages,
+  type MiniMaxImageGenerationInput,
+  type MiniMaxVideoGenerationRequest,
+} from '../../media/minimax.js';
+import { launchMediaVideoRunner, queueMiniMaxVideoGeneration } from '../../media/video-jobs.js';
 import type { MediaKind } from '../../media/types.js';
 import {
   emitError,
@@ -71,6 +77,33 @@ function parseMiniMaxRegion(value: unknown): MiniMaxImageGenerationInput['region
   throw new Error('MiniMax region must be global or cn');
 }
 
+function parseMiniMaxVideoModel(value: unknown): MiniMaxVideoGenerationRequest['model'] | undefined {
+  if (value === undefined || value === null || value === '') return undefined;
+  const model = String(value).trim();
+  if (model === 'MiniMax-H3') return model;
+  throw new Error('MiniMax video model must be MiniMax-H3');
+}
+
+function parseMiniMaxVideoRatio(value: unknown): MiniMaxVideoGenerationRequest['ratio'] | undefined {
+  if (value === undefined || value === null || value === '') return undefined;
+  const ratio = String(value).trim();
+  if (ratio === 'adaptive' || ratio === '16:9' || ratio === '9:16' || ratio === '1:1') return ratio;
+  throw new Error('MiniMax video ratio must be adaptive, 16:9, 9:16, or 1:1');
+}
+
+function parseMiniMaxVideoDuration(value: unknown): MiniMaxVideoGenerationRequest['duration'] | undefined {
+  if (value === undefined || value === null || value === '') return undefined;
+  const duration = Number(value);
+  if (duration === 5 || duration === 10) return duration;
+  throw new Error('MiniMax video duration must be 5 or 10 seconds');
+}
+
+function parseMiniMaxVideoResolution(value: unknown): MiniMaxVideoGenerationRequest['resolution'] | undefined {
+  if (value === undefined || value === null || value === '') return undefined;
+  if (String(value).trim() === '2K') return '2K';
+  throw new Error('MiniMax video resolution must be 2K');
+}
+
 function help(): string {
   return [
     'Memorix Media Commands',
@@ -82,6 +115,9 @@ function help(): string {
     '  memorix media embed --asset <asset-id>',
     '  memorix media similar --asset <asset-id> [--limit 10]',
     '  memorix media generate image --prompt "..." [--model image-01] [--attach]',
+    '  memorix media generate video --prompt "..." [--model MiniMax-H3] [--duration 5] [--ratio 16:9] [--attach]',
+    '  memorix media status --job <media-job-id>',
+    '  memorix media cancel --job <media-job-id>',
     '  memorix media remove --asset <asset-id> [--force]',
     '  memorix media cleanup [--maxBytes 1073741824]',
     '',
@@ -108,10 +144,13 @@ export default defineCommand({
     model: { type: 'string', description: 'Provider model' },
     region: { type: 'string', description: 'MiniMax region: global or cn' },
     n: { type: 'string', description: 'Generated image count (1-4)' },
-    ratio: { type: 'string', description: 'Image aspect ratio' },
+    ratio: { type: 'string', description: 'Image or video aspect ratio' },
     width: { type: 'string', description: 'Requested image width' },
     height: { type: 'string', description: 'Requested image height' },
     seed: { type: 'string', description: 'Optional image seed' },
+    duration: { type: 'string', description: 'MiniMax video duration: 5 or 10 seconds' },
+    resolution: { type: 'string', description: 'MiniMax video resolution: 2K' },
+    job: { type: 'string', description: 'Media job ID for status or cancellation' },
     attach: { type: 'boolean', description: 'Explicitly attach generated output to memory' },
     promptOptimizer: { type: 'boolean', description: 'Enable MiniMax prompt optimization' },
     'prompt-optimizer': { type: 'boolean', description: 'Kebab-case alias for --promptOptimizer' },
@@ -129,14 +168,49 @@ export default defineCommand({
     try {
       switch (action) {
         case 'generate':
-        case 'generate-image': {
-          const target = action === 'generate' ? (positional.shift() ?? '').trim().toLowerCase() : 'image';
-          if (target !== 'image') {
-            throw new Error(`Unsupported media generation target: ${target || '(missing)'}. Only "image" is available in this command.`);
+        case 'generate-image':
+        case 'generate-video': {
+          const target = action === 'generate'
+            ? (positional.shift() ?? '').trim().toLowerCase()
+            : action === 'generate-video' ? 'video' : 'image';
+          if (target !== 'image' && target !== 'video') {
+            throw new Error(`Unsupported media generation target: ${target || '(missing)'}. Use "image" or "video".`);
           }
           const prompt = getValue(args.prompt, positional);
-          if (!prompt) throw new Error('prompt is required for "memorix media generate image"');
+          if (!prompt) throw new Error(`prompt is required for "memorix media generate ${target}"`);
           const { project, dataDir, reader, identity } = await getCliProjectContext();
+          // Image/video credentials can live in a project .env. This must be
+          // loaded before the explicit request is validated or submitted.
+          loadDotenv(project.rootPath);
+          if (target === 'video') {
+            const queued = queueMiniMaxVideoGeneration({
+              dataDir,
+              projectId: project.id,
+              prompt,
+              model: parseMiniMaxVideoModel(args.model),
+              region: parseMiniMaxRegion(args.region),
+              duration: parseMiniMaxVideoDuration(args.duration),
+              ratio: parseMiniMaxVideoRatio(args.ratio),
+              resolution: parseMiniMaxVideoResolution(args.resolution),
+              maxBytes: parseByteLimit(args.maxBytes ?? args['max-bytes'], 100 * 1024 * 1024),
+              attachOnComplete: args.attach === true,
+              observationTitle: (args.title as string | undefined)?.trim(),
+            });
+            const runner = launchMediaVideoRunner({
+              projectId: project.id,
+              projectRoot: project.rootPath,
+              dataDir,
+              mediaJobId: queued.mediaJob.id,
+            });
+            emitResult(
+              { project, ...queued, runner },
+              runner.launched
+                ? `Queued MiniMax video job ${queued.mediaJob.id}; generation continues in the background.`
+                : `Queued MiniMax video job ${queued.mediaJob.id}. ${runner.reason ?? 'Run a Memorix server or invoke media status after building to resume it.'}`,
+              asJson,
+            );
+            return;
+          }
           const generated = await generateMiniMaxImages({
             dataDir,
             projectId: project.id,
@@ -167,6 +241,35 @@ export default defineCommand({
             `Generated ${generated.assets.length} controlled image asset(s)${observations.length > 0 ? ` and attached ${observations.length} to memory` : ''}.`,
             asJson,
           );
+          return;
+        }
+        case 'status': {
+          const jobId = getValue(args.job, positional);
+          if (!jobId) throw new Error('job is required for "memorix media status"');
+          const { project, dataDir } = await getCliProjectContext();
+          const job = new MediaStore(dataDir).getJob(project.id, jobId);
+          if (!job) throw new Error(`Media job not found: ${jobId}`);
+          const runner = job.status === 'completed' || job.status === 'failed' || job.status === 'cancelled'
+            ? undefined
+            : launchMediaVideoRunner({
+              projectId: project.id,
+              projectRoot: project.rootPath,
+              dataDir,
+              mediaJobId: job.id,
+            });
+          emitResult(
+            { project, job, ...(runner ? { runner } : {}) },
+            `${job.kind} ${job.id}: ${job.status}${job.assetId ? ` (${job.assetId})` : ''}`,
+            asJson,
+          );
+          return;
+        }
+        case 'cancel': {
+          const jobId = getValue(args.job, positional);
+          if (!jobId) throw new Error('job is required for "memorix media cancel"');
+          const { project, dataDir } = await getCliProjectContext();
+          const job = new MediaStore(dataDir).cancelJob(project.id, jobId);
+          emitResult({ project, job }, `Cancelled media job ${job.id}`, asJson);
           return;
         }
         case 'import': {

@@ -13,6 +13,7 @@ import formationCommand from '../../src/cli/commands/formation.js';
 import auditCommand from '../../src/cli/commands/audit.js';
 import transferCommand from '../../src/cli/commands/transfer.js';
 import skillsCommand from '../../src/cli/commands/skills.js';
+import mediaCommand from '../../src/cli/commands/media.js';
 import { CLI_NATIVE_PARITY } from '../../src/cli/capability-map.js';
 import { TOOL_PROFILES } from '../../src/server/tool-profile.js';
 import { closeAllDatabases } from '../../src/store/sqlite-db.js';
@@ -255,6 +256,28 @@ describe('CLI native parity', () => {
     // Visual analysis is optional. A controlled asset and text fallback remain
     // useful when a project's LLM lane has not been configured.
     expect(ingestedImage.analysisWarning).toContain('LLM');
+
+    const mediaList = await runCommand(mediaCommand, {
+      _: ['list'],
+      kind: 'image',
+      json: true,
+    });
+    expect(mediaList.exitCode).toBe(0);
+    const listedAssets = JSON.parse(mediaList.stdout).assets;
+    expect(listedAssets).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: ingestedImage.asset.id, kind: 'image' }),
+    ]));
+
+    const mediaShow = await runCommand(mediaCommand, {
+      _: ['show'],
+      asset: ingestedImage.asset.id,
+      json: true,
+    });
+    expect(mediaShow.exitCode).toBe(0);
+    expect(JSON.parse(mediaShow.stdout)).toMatchObject({
+      asset: { id: ingestedImage.asset.id },
+      links: [expect.any(Object)],
+    });
   }, 30000);
 
   it('generates and shows project skills through the dedicated skills namespace', async () => {

@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { copyFile, lstat, mkdir, open, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
+import { sanitizeCredentials } from '../memory/secret-filter.js';
 import { MediaStore } from './media-store.js';
 import {
   DEFAULT_MAX_MEDIA_BYTES,
@@ -60,7 +61,9 @@ function validateUnderRoot(root: string, candidate: string): string {
 
 function sanitizeLabel(value: string | undefined): string | undefined {
   if (!value) return undefined;
-  const basename = path.basename(value).replace(/[\u0000-\u001f<>:"|?*]/g, '_').trim();
+  const basename = sanitizeCredentials(path.basename(value))
+    .replace(/[\u0000-\u001f<>:"|?*]/g, '_')
+    .trim();
   return basename ? basename.slice(0, 180) : undefined;
 }
 
@@ -118,6 +121,10 @@ async function sha256File(filePath: string): Promise<string> {
 function destinationFor(root: string, projectId: string, sha256: string, extension: string): { absolute: string; relative: string } {
   const relative = path.join('assets', projectStorageKey(projectId), sha256.slice(0, 2), `${sha256}${extension}`);
   return { relative, absolute: validateUnderRoot(root, path.join(root, relative)) };
+}
+
+function deletionStagingPath(root: string, assetId: string): string {
+  return validateUnderRoot(root, path.join(root, '.trash', `${assetId}.${randomUUID()}.pending-delete`));
 }
 
 async function destinationExists(destination: string): Promise<boolean> {
@@ -275,10 +282,29 @@ export async function removeMediaAsset(input: {
     throw new Error(`Media asset ${asset.id} is attached to ${links.length} memory record(s); rerun with --force to detach it`);
   }
   const assetPath = getMediaAssetPath(input.dataDir, asset);
-  await rm(assetPath, { force: true });
-  const detachedLinks = links.length > 0 ? store.unlinkAsset(input.projectId, asset.id) : 0;
-  store.deleteDerivedData(input.projectId, asset.id);
-  store.markAssetDeleted(input.projectId, asset.id);
+  const stagedPath = deletionStagingPath(mediaRoot(input.dataDir), asset.id);
+  await mkdir(path.dirname(stagedPath), { recursive: true });
+
+  // A failed metadata transaction must not turn into data loss. Moving within
+  // the media root is atomic on a single volume and makes the rollback simple.
+  await rename(assetPath, stagedPath);
+  let detachedLinks: number;
+  try {
+    ({ detachedLinks } = store.removeAssetMetadata(input.projectId, asset.id, { force: input.force }));
+  } catch (error) {
+    try {
+      await rename(stagedPath, assetPath);
+    } catch (restoreError: any) {
+      const original = error instanceof Error ? error.message : String(error);
+      const restore = restoreError instanceof Error ? restoreError.message : String(restoreError);
+      throw new Error(`Media removal metadata update failed and the file could not be restored: ${original}; restore error: ${restore}`);
+    }
+    throw error;
+  }
+
+  // A locked file can be retried by a later cleanup; it is already outside the
+  // active asset tree and no database row refers to it anymore.
+  await rm(stagedPath, { force: true }).catch(() => {});
   return { asset, detachedLinks };
 }
 

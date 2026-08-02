@@ -32,6 +32,7 @@ let StreamableHTTPClientTransport: any;
 let Client: any;
 let isInitializeRequest: any;
 let createMemorixServer: any;
+let createProjectBindingController: any;
 let initTeamStore: any;
 let CallToolResultSchema: any;
 let ListRootsRequestSchema: any;
@@ -47,7 +48,7 @@ let projectBDir: string;
 const originalHome = process.env.HOME;
 const originalUserProfile = process.env.USERPROFILE;
 const originalHomePath = process.env.HOMEPATH;
-const sessions = new Map<string, { transport: any; server: any; switchProject: any }>();
+const sessions = new Map<string, { transport: any; server: any; switchProject: any; binding: any }>();
 
 async function createFakeGitRepo(root: string, remote?: string) {
   await fs.mkdir(path.join(root, '.git'), { recursive: true });
@@ -143,6 +144,8 @@ beforeAll(async () => {
   ListRootsRequestSchema = typesMod.ListRootsRequestSchema;
   const serverMod = await import('../../src/server.js');
   createMemorixServer = serverMod.createMemorixServer;
+  const bindingMod = await import('../../src/server/request-context.js');
+  createProjectBindingController = bindingMod.createProjectBindingController;
   const teamMod = await import('../../src/team/team-store.js');
   initTeamStore = teamMod.initTeamStore;
 
@@ -186,7 +189,7 @@ beforeAll(async () => {
         if (sessionId && sessions.has(sessionId)) {
           await sessions.get(sessionId)!.transport.handleRequest(req, res, body);
         } else if (!sessionId && isInitializeRequest(body)) {
-          let createdState: { transport: any; server: any; switchProject: any; isExplicitlyBound: any } | null = null;
+          let createdState: { transport: any; server: any; switchProject: any; binding: any } | null = null;
           let handleTransportClose = () => {};
           const transport = new StreamableHTTPServerTransport({
             sessionIdGenerator: () => randomUUID(),
@@ -199,7 +202,8 @@ beforeAll(async () => {
             if (sid) sessions.delete(sid);
             handleTransportClose();
           };
-          const { server, switchProject, isExplicitlyBound, handleTransportClose: onTransportClose } = await createMemorixServer(
+          const binding = createProjectBindingController(testDir);
+          const { server, switchProject, handleTransportClose: onTransportClose } = await createMemorixServer(
             testDir,
             undefined,
             { teamStore: sharedTeamStore },
@@ -207,16 +211,17 @@ beforeAll(async () => {
               allowUntrackedFallback: false,
               deferProjectInitUntilBound: true,
               toolProfile: 'team',
+              projectBinding: binding,
             },
           );
           handleTransportClose = onTransportClose;
-          createdState = { transport, server, switchProject, isExplicitlyBound };
+          createdState = { transport, server, switchProject, binding };
           await server.connect(transport);
 
           const tryRootsSwitch = async () => {
             try {
               // Guard: explicit projectRoot binding prevents roots override
-              if (isExplicitlyBound()) return;
+              if (binding.isExplicit()) return;
               const { roots } = await server.server.listRoots();
               if (!roots || roots.length === 0) return;
               for (const root of roots) {

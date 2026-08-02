@@ -32,6 +32,19 @@ function parseRequest(value: unknown): Record<string, unknown> {
   }
 }
 
+function sanitizeRequest(value: Record<string, unknown>): Record<string, unknown> {
+  const visit = (candidate: unknown): unknown => {
+    if (typeof candidate === 'string') return sanitizeCredentials(candidate);
+    if (Array.isArray(candidate)) return candidate.map(visit);
+    if (candidate && typeof candidate === 'object') {
+      return Object.fromEntries(Object.entries(candidate as Record<string, unknown>)
+        .map(([key, nested]) => [key, visit(nested)]));
+    }
+    return candidate;
+  };
+  return visit(value) as Record<string, unknown>;
+}
+
 function parseVector(value: unknown): number[] | undefined {
   if (typeof value !== 'string' || !value) return undefined;
   try {
@@ -208,6 +221,36 @@ export class MediaStore {
     if (Number(result.changes ?? 0) !== 1) throw new Error(`Media asset not found: ${assetId}`);
   }
 
+  /**
+   * Remove all active metadata for an asset as one SQLite transaction. The
+   * caller owns the corresponding file move and can restore it if this fails.
+   */
+  removeAssetMetadata(projectId: string, assetId: string, options: { force?: boolean } = {}): { detachedLinks: number } {
+    return this.db.transaction(() => {
+      const asset = this.getAsset(projectId, assetId);
+      if (!asset) throw new Error(`Media asset not found: ${assetId}`);
+
+      const linkCount = Number(this.db.prepare(`
+        SELECT COUNT(*) AS count FROM media_asset_links WHERE project_id = ? AND asset_id = ?
+      `).get(projectId, assetId)?.count ?? 0);
+      if (linkCount > 0 && !options.force) {
+        throw new Error(`Media asset ${assetId} is attached to ${linkCount} memory record(s); rerun with --force to detach it`);
+      }
+
+      const detachedLinks = Number(this.db.prepare(`
+        DELETE FROM media_asset_links WHERE project_id = ? AND asset_id = ?
+      `).run(projectId, assetId).changes ?? 0);
+      this.db.prepare('DELETE FROM media_derivations WHERE project_id = ? AND asset_id = ?').run(projectId, assetId);
+      this.db.prepare('DELETE FROM media_embeddings WHERE project_id = ? AND asset_id = ?').run(projectId, assetId);
+      const result = this.db.prepare(`
+        UPDATE media_assets SET deleted_at = ?, updated_at = ?
+        WHERE project_id = ? AND id = ? AND deleted_at IS NULL
+      `).run(Date.now(), Date.now(), projectId, assetId);
+      if (Number(result.changes ?? 0) !== 1) throw new Error(`Media asset not found: ${assetId}`);
+      return { detachedLinks };
+    })();
+  }
+
   linkAsset(input: { projectId: string; assetId: string; observationId?: number; role: MediaLinkRole }): MediaAssetLink {
     const existing = this.db.prepare(`
       SELECT * FROM media_asset_links
@@ -243,6 +286,8 @@ export class MediaStore {
 
   addDerivation(input: Omit<MediaDerivation, 'id' | 'createdAt' | 'updatedAt'>): MediaDerivation {
     const now = Date.now();
+    const content = sanitizeCredentials(input.content);
+    const error = input.error ? sanitizeCredentials(input.error).slice(0, 1_000) : undefined;
     const existing = this.db.prepare(`
       SELECT * FROM media_derivations
       WHERE asset_id = ? AND kind = ? AND profile_key IS ? LIMIT 1
@@ -250,10 +295,17 @@ export class MediaStore {
     if (existing) {
       this.db.prepare(`
         UPDATE media_derivations SET content = ?, status = ?, error = ?, updated_at = ? WHERE id = ?
-      `).run(input.content, input.status, input.error ?? null, now, existing.id);
+      `).run(content, input.status, error ?? null, now, existing.id);
       return rowToDerivation(this.db.prepare('SELECT * FROM media_derivations WHERE id = ?').get(existing.id));
     }
-    const derivation: MediaDerivation = { id: randomUUID(), ...input, createdAt: now, updatedAt: now };
+    const derivation: MediaDerivation = {
+      id: randomUUID(),
+      ...input,
+      content,
+      ...(error ? { error } : {}),
+      createdAt: now,
+      updatedAt: now,
+    };
     this.db.prepare(`
       INSERT INTO media_derivations (id, asset_id, project_id, kind, profile_key, content, status, error, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -265,7 +317,7 @@ export class MediaStore {
       derivation.profileKey ?? null,
       derivation.content,
       derivation.status,
-      derivation.error ?? null,
+      error ?? null,
       now,
       now,
     );
@@ -348,10 +400,10 @@ export class MediaStore {
       projectId: input.projectId,
       kind: input.kind,
       status: 'queued',
-      request: input.request,
+      request: sanitizeRequest(input.request),
       attempts: 0,
       attachOnComplete: input.attachOnComplete === true,
-      ...(input.observationTitle ? { observationTitle: input.observationTitle } : {}),
+      ...(input.observationTitle ? { observationTitle: sanitizeCredentials(input.observationTitle) } : {}),
       createdAt: now,
       updatedAt: now,
     };

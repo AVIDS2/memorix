@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../../src/embedding/provider.js', () => ({
   getEmbeddingProvider: async () => null,
@@ -37,12 +37,33 @@ import { resetSessionStore } from '../../src/store/session-store.js';
 import { closeAllDatabases } from '../../src/store/sqlite-db.js';
 import { CompactionCheckpointStore } from '../../src/store/compaction-checkpoint-store.js';
 
-let testDir: string;
+const originalDataDir = process.env.MEMORIX_DATA_DIR;
+const temporaryProjectDirs: string[] = [];
+let testDataDir = '';
 
 beforeEach(async () => {
-  testDir = await fs.mkdtemp(path.join(os.tmpdir(), 'memorix-profile-'));
-  await fs.mkdir(path.join(testDir, '.git'));
+  testDataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'memorix-profile-data-'));
+  process.env.MEMORIX_DATA_DIR = testDataDir;
+  resetObservationStore();
+  resetSessionStore();
+  resetTomlConfigCache();
+  resetResolvedConfigCache();
   await resetDb();
+});
+
+afterEach(async () => {
+  closeAllDatabases();
+  resetObservationStore();
+  resetSessionStore();
+  resetTomlConfigCache();
+  resetResolvedConfigCache();
+  await resetDb();
+  if (originalDataDir === undefined) delete process.env.MEMORIX_DATA_DIR;
+  else process.env.MEMORIX_DATA_DIR = originalDataDir;
+  await Promise.all([
+    fs.rm(testDataDir, { recursive: true, force: true }),
+    ...temporaryProjectDirs.splice(0).map((dir) => fs.rm(dir, { recursive: true, force: true })),
+  ]);
 });
 
 function getToolNames(server: any): string[] {
@@ -70,6 +91,7 @@ function extractAgentId(text: string): string {
 
 async function createGitProjectDir(prefix: string): Promise<string> {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), prefix));
+  temporaryProjectDirs.push(dir);
   await fs.mkdir(path.join(dir, '.git'));
   return dir;
 }

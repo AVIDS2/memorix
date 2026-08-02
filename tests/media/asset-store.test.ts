@@ -108,6 +108,32 @@ describe('controlled media asset store', () => {
     });
     expect(removed.detachedLinks).toBe(1);
     expect(store.getAsset(fixture.projectId, linked.asset.id)).toBeUndefined();
+    expect(store.getAsset(fixture.projectId, linked.asset.id, { includeDeleted: true })?.deletedAt).toBeTypeOf('number');
+    expect(store.listLinks(fixture.projectId, linked.asset.id)).toEqual([]);
+  });
+
+  it('restores the file when the metadata transaction fails', async () => {
+    const fixture = await createFixture();
+    const imported = await importMediaBuffer({
+      dataDir: fixture.dataDir,
+      projectId: fixture.projectId,
+      bytes: PNG_BYTES,
+      filename: 'recoverable.png',
+      sourceKind: 'import',
+    });
+    const failure = vi.spyOn(MediaStore.prototype, 'removeAssetMetadata')
+      .mockImplementationOnce(() => { throw new Error('simulated metadata failure'); });
+
+    await expect(removeMediaAsset({
+      dataDir: fixture.dataDir,
+      projectId: fixture.projectId,
+      assetId: imported.asset.id,
+    })).rejects.toThrow('simulated metadata failure');
+    failure.mockRestore();
+
+    const store = new MediaStore(fixture.dataDir);
+    expect(store.getAsset(fixture.projectId, imported.asset.id)).toBeDefined();
+    await expect(readMediaAsset(fixture.dataDir, imported.asset)).resolves.toEqual(PNG_BYTES);
   });
 
   it('rejects unknown media instead of trusting a filename or caller claim', async () => {
@@ -143,6 +169,47 @@ describe('controlled media asset store', () => {
     failure.mockRestore();
 
     await expect(readMediaAsset(fixture.dataDir, first.asset)).resolves.toEqual(PNG_BYTES);
+  });
+
+  it('sanitizes media derivation content and diagnostics before persistence', async () => {
+    const fixture = await createFixture();
+    const imported = await importMediaBuffer({
+      dataDir: fixture.dataDir,
+      projectId: fixture.projectId,
+      bytes: PNG_BYTES,
+      filename: 'secret-safe.png',
+      sourceKind: 'import',
+    });
+    const store = new MediaStore(fixture.dataDir);
+    store.addDerivation({
+      projectId: fixture.projectId,
+      assetId: imported.asset.id,
+      kind: 'description',
+      content: 'Visible api_key=supersecretvalue',
+      status: 'failed',
+      error: 'Bearer abcdefghijklmnopqrstuvwxyz123456',
+    });
+
+    const saved = store.listDerivations(fixture.projectId, imported.asset.id)[0];
+    expect(saved.content).toContain('[REDACTED]');
+    expect(saved.error).toContain('[REDACTED]');
+    expect(JSON.stringify(saved)).not.toContain('supersecretvalue');
+    expect(JSON.stringify(saved)).not.toContain('abcdefghijklmnopqrstuvwxyz123456');
+  });
+
+  it('sanitizes credential-like source labels before they enter asset metadata', async () => {
+    const fixture = await createFixture();
+    const secret = 'sk-abcdefghijklmnopqrstuvwxyz1234';
+    const imported = await importMediaBuffer({
+      dataDir: fixture.dataDir,
+      projectId: fixture.projectId,
+      bytes: PNG_BYTES,
+      filename: `${secret}.png`,
+      sourceKind: 'import',
+    });
+
+    expect(imported.asset.sourceLabel).toContain('[REDACTED]');
+    expect(JSON.stringify(imported.asset)).not.toContain(secret);
   });
 
   it('writes media vectors only for declared modality support and searches compatible profiles', async () => {

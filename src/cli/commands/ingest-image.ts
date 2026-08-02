@@ -1,6 +1,8 @@
 import { defineCommand } from 'citty';
 import path from 'node:path';
 import { analyzeImage } from '../../multimodal/image-loader.js';
+import { MAX_VISION_IMAGE_BYTES } from '../../multimodal/image-payload.js';
+import { sanitizeCredentials } from '../../memory/secret-filter.js';
 import { attachMediaAssetToObservation } from '../../media/attachment.js';
 import { importMediaFile, readMediaAsset } from '../../media/asset-store.js';
 import { MediaStore } from '../../media/media-store.js';
@@ -43,7 +45,7 @@ export default defineCommand({
       let analysis: { description: string; tags: string[]; entities: string[] };
       let analysisWarning: string | undefined;
       try {
-        const bytes = await readMediaAsset(dataDir, imported.asset);
+        const bytes = await readMediaAsset(dataDir, imported.asset, MAX_VISION_IMAGE_BYTES);
         analysis = await analyzeImage({
           base64: bytes.toString('base64'),
           filename,
@@ -56,7 +58,9 @@ export default defineCommand({
           tags: ['image', imported.asset.mimeType],
           entities: [],
         };
-        analysisWarning = error instanceof Error ? error.message : String(error);
+        analysisWarning = sanitizeCredentials(
+          error instanceof Error ? error.message : String(error),
+        ).slice(0, 500);
       }
 
       new MediaStore(dataDir).addDerivation({

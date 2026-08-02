@@ -54,6 +54,7 @@ The current CLI namespaces are:
 - `memorix receipt`
 - `memorix sync`
 - `memorix ingest`
+- `memorix media`
 - `memorix workbench`
 
 Typical examples:
@@ -78,6 +79,8 @@ memorix transfer export --format markdown --out ./memorix-export.md
 memorix skills show --name auth-pattern
 memorix sync workspace --action scan
 memorix ingest image --path ./diagram.png
+memorix media import --path ./architecture.png
+memorix media attach --asset <asset-id> --title "Architecture diagram"
 memorix poll --agentId <agent-id>
 memorix receipt --json --probe "release blocker"
 ```
@@ -721,18 +724,58 @@ it on behalf of the sender.
 
 ---
 
-## 10. Ingestion Tools
+## 10. Controlled Media and Legacy Ingestion
+
+### `memorix media`
+
+`memorix media` is the complete operator surface for local media assets. It
+accepts an explicit local regular file, validates its type and size, stores a
+content-addressed copy outside the Git worktree, and only enters normal memory
+when attached. It does not ingest arbitrary URLs or capture screenshots
+automatically.
+
+The default controlled-asset limit is 100 MiB. `memorix ingest image` and the
+legacy MCP image path limit automatic vision analysis to 20 MiB. Larger images
+can still be imported and attached; they receive a text fallback instead of an
+oversized provider request.
+
+```bash
+memorix media import --path ./architecture.png --json
+memorix media list --kind image --json
+memorix media show --asset <asset-id> --json
+memorix media attach --asset <asset-id> --title "Architecture diagram" --json
+memorix media remove --asset <asset-id> --force --json
+memorix media cleanup --max-bytes 1073741824 --json
+```
+
+MiniMax image creation is an explicit CLI action. Video creation is queued as a
+durable job, so it survives process restarts and can be inspected or cancelled.
+
+```bash
+memorix media generate image --prompt "..." --json
+memorix media generate video --prompt "..." --json
+memorix media status --job <media-job-id> --json
+memorix media cancel --job <media-job-id> --json
+```
+
+Set `MINIMAX_API_KEY` (or `MINIMAX_CN_API_KEY`) outside Git before using
+generation. `memorix_media` is the matching single MCP tool in `lite`, `team`,
+and `full` profiles. Its import/attach/list/show/status actions are available
+normally; generation requires `MEMORIX_MCP_MEDIA_GENERATION=1` because it can
+incur provider charges. Text-only embedding providers never produce a pretend
+image, audio, video, or document vector.
 
 ### `memorix_ingest_image`
 
-Ingest an image as memory context when visual artifacts are relevant to the project.
+This is the legacy full-profile MCP compatibility tool. It accepts image bytes,
+imports the verified image into the same controlled media library, then creates
+a text retrieval projection. Prefer `memorix_media` for new agent integrations.
 
 Important inputs:
 
-- `path`
-- optional `title`
-- optional `entityName`
-- optional `type`
+- `base64`
+- optional `filename`
+- optional `prompt`
 
 CLI equivalent:
 

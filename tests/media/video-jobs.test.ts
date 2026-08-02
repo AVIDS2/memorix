@@ -121,4 +121,21 @@ describe('MiniMax durable video jobs', () => {
 
     expect(createCalled).toBe(false);
   });
+
+  it('sanitizes request text and the deferred observation title before job persistence', async () => {
+    const fixture = await createFixture();
+    const promptSecret = 'sk-abcdefghijklmnopqrstuvwxyz1234';
+    const titleSecret = 'api_key=supersecretvalue';
+    const queued = queueMiniMaxVideoGeneration({
+      dataDir: fixture.dataDir,
+      projectId: fixture.projectId,
+      prompt: `Render this token ${promptSecret}`,
+      observationTitle: `Generated media ${titleSecret}`,
+    });
+
+    const stored = new MediaStore(fixture.dataDir).getJob(fixture.projectId, queued.mediaJob.id)!;
+    expect(JSON.stringify(stored)).toContain('[REDACTED]');
+    expect(JSON.stringify(stored)).not.toContain(promptSecret);
+    expect(JSON.stringify(stored)).not.toContain('supersecretvalue');
+  });
 });

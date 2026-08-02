@@ -180,6 +180,27 @@ Then set `OPENROUTER_API_KEY` in your shell, user environment, or `.env`. You
 can still set `MEMORIX_EMBEDDING_API_KEY` when you want an explicit embedding
 key override; it takes priority over `OPENROUTER_API_KEY`.
 
+### Controlled MiniMax media
+
+MiniMax generation is separate from the text embedding lane. Set one of these
+outside Git only when you deliberately use image or video generation:
+
+- `MINIMAX_API_KEY` for the global endpoint
+- `MINIMAX_CN_API_KEY` for the China endpoint
+- optional `MINIMAX_REGION=global|cn`
+- optional image/video model and endpoint overrides for self-managed routing
+
+The CLI is the normal generation path. `memorix_media` can import, attach, and
+inspect assets through MCP, but MCP generation is off by default. Set
+`MEMORIX_MCP_MEDIA_GENERATION=1` only after you intentionally allow an agent to
+create provider-billed output. The default OpenRouter text embedder remains
+text-only; Memorix produces a media vector only when a provider explicitly
+declares compatibility with that media modality.
+
+Controlled assets default to a 100 MiB import limit. Vision analysis has a
+separate 20 MiB cap so a large local file can remain a usable asset without
+creating an oversized chat-completions request.
+
 ### `[memory]`
 
 Runtime memory behavior.

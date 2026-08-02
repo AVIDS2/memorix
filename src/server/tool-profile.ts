@@ -8,9 +8,9 @@
  * We provide four profiles:
  *   - "micro" (stdio default): Agent-ready project context + basic memory CRUD — 7 tools.
  *     Suitable for normal MCP clients where every tool schema costs context tokens.
- *   - "lite": Core memory CRUD, sessions, reasoning, retention, backup — 17 tools.
+ *   - "lite": Core memory CRUD, sessions, reasoning, retention, backup — 18 tools.
  *     Suitable for solo users who want the full memory surface without team tools.
- *   - "team" (HTTP default): lite + orchestration coordination tools, dashboard, and Knowledge Workspace — 25 tools.
+ *   - "team" (HTTP default): lite + orchestration coordination tools, dashboard, and Knowledge Workspace — 26 tools.
  *     Suitable when an operator explicitly wants task/message/lock surfaces.
  *   - "full": Everything, including niche / advanced tools (consolidate, dedup,
  *     formation metrics, skills, rules/workspace sync, KG-official, image ingest).
@@ -47,6 +47,7 @@ export const TOOL_PROFILES: Record<string, ReadonlyArray<ToolProfile>> = Object.
   memorix_search_reasoning:   ['lite', 'team', 'full'],
   memorix_transfer:           ['lite', 'team', 'full'],
   memorix_retention:          ['lite', 'team', 'full'],
+  memorix_media:              ['lite', 'team', 'full'],
 
   // ── team: orchestration coordination surfaces — HTTP default ──────
   memorix_dashboard:          ['team', 'full'],
@@ -136,8 +137,8 @@ export function resolveToolProfile(opts: ResolveToolProfileOpts): ToolProfile {
 export function describeProfile(profile: ToolProfile): string {
   switch (profile) {
     case 'micro': return 'micro (agent-ready context + basic memory, ~7 tools)';
-    case 'lite': return 'lite (core memory + sessions, ~17 tools)';
-    case 'team': return 'team (lite + coordination tools + dashboard + knowledge workspace, ~25 tools)';
+    case 'lite': return 'lite (core memory + sessions, ~18 tools)';
+    case 'team': return 'team (lite + coordination tools + dashboard + knowledge workspace, ~26 tools)';
     case 'full': return 'full (all tools including advanced / KG-compat)';
   }
 }

@@ -75,6 +75,7 @@ export default defineCommand({
       '@modelcontextprotocol/sdk/types.js'
     );
     const { createMemorixServer } = await import('../../server.js');
+    const { createProjectBindingController } = await import('../../server/request-context.js');
     const { findGitInSubdirs, detectProjectWithDiagnostics } = await import('../../project/detector.js');
     const { existsSync, readFileSync, writeFileSync, mkdirSync } = await import('node:fs');
     const { homedir } = await import('node:os');
@@ -138,7 +139,7 @@ export default defineCommand({
       transport: InstanceType<typeof StreamableHTTPServerTransport>;
       server: Awaited<ReturnType<typeof createMemorixServer>>['server'];
       switchProject: Awaited<ReturnType<typeof createMemorixServer>>['switchProject'];
-      isExplicitlyBound: Awaited<ReturnType<typeof createMemorixServer>>['isExplicitlyBound'];
+      binding: import('../../server/request-context.js').ProjectBindingController;
     };
 
     // Session map: sessionId → transport + per-session server state
@@ -377,8 +378,11 @@ export default defineCommand({
           handleTransportClose();
         };
 
+        // Legacy Mcp-Session-Id only routes requests. Project ownership lives
+        // in this transport-neutral binding object, ready for stateless MCP.
+        const binding = createProjectBindingController(projectRoot);
         // Create a fresh MCP server for this session (with shared team state)
-        const { server, switchProject, isExplicitlyBound, handleTransportClose } = await createMemorixServer(
+        const { server, switchProject, handleTransportClose } = await createMemorixServer(
           projectRoot,
           undefined,
           { teamStore: sharedTeamStore },
@@ -388,9 +392,10 @@ export default defineCommand({
             dashboardMode: 'control-plane',
             dashboardPort: port,
             toolProfile,
+            projectBinding: binding,
           },
         );
-        createdState = { transport, server, switchProject, isExplicitlyBound };
+        createdState = { transport, server, switchProject, binding };
         await server.connect(transport);
 
         const persistRoot = async (rootPath: string) => {
@@ -408,7 +413,7 @@ export default defineCommand({
           try {
             // If session was explicitly bound via projectRoot in memorix_session_start,
             // do NOT allow roots notifications to override the binding.
-            if (isExplicitlyBound()) {
+            if (binding.isExplicit()) {
               console.error(`[memorix] Session ${transport.sessionId?.slice(0, 8) ?? 'pending'} roots switch skipped: session was explicitly bound via projectRoot`);
               return;
             }

@@ -9,12 +9,29 @@ import { createHash } from 'node:crypto';
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
-import type { EmbeddingProvider, EmbeddingRequestOptions } from './provider.js';
+import {
+  EmbeddingInputError,
+  UnsupportedEmbeddingModalityError,
+  validateEmbeddingInput,
+  type EmbeddingInput,
+  type EmbeddingModality,
+  type EmbeddingOptions,
+  type EmbeddingProvider,
+  type EmbeddingRequestOptions,
+} from './provider.js';
 
-const CACHE_DIR = process.env.MEMORIX_DATA_DIR || join(homedir(), '.memorix', 'data');
-const CACHE_FILE = join(CACHE_DIR, '.embedding-api-cache.json');
-const DIMS_CACHE_FILE = join(CACHE_DIR, '.embedding-dims-cache.json');
-const CACHE_META_FILE = join(CACHE_DIR, '.embedding-api-cache-meta.json');
+function cacheDir(): string {
+  return process.env.MEMORIX_DATA_DIR || join(homedir(), '.memorix', 'data');
+}
+function cacheFile(): string {
+  return join(cacheDir(), '.embedding-api-cache.json');
+}
+function dimsCacheFile(): string {
+  return join(cacheDir(), '.embedding-dims-cache.json');
+}
+function cacheMetaFile(): string {
+  return join(cacheDir(), '.embedding-api-cache-meta.json');
+}
 
 const cache = new Map<string, number[]>();
 const MAX_CACHE_SIZE = 10000;
@@ -49,10 +66,98 @@ function textHash(text: string, namespace: string): string {
   return createHash('sha256').update(`${namespace}\u0000${text}`).digest('hex').slice(0, 16);
 }
 
+function inputIdentity(input: EmbeddingInput, options: EmbeddingOptions = {}): string {
+  return JSON.stringify({
+    modality: input.modality,
+    input,
+    intent: options.intent ?? 'document',
+    instruction: options.instruction ?? '',
+  });
+}
+
+function isJinaEndpoint(baseUrl: string): boolean {
+  return /jina\.ai/i.test(baseUrl);
+}
+
+function isGoogleEmbeddingEndpoint(baseUrl: string): boolean {
+  return /generativelanguage\.googleapis\.com/i.test(baseUrl);
+}
+
+function isNativeGeminiEndpoint(baseUrl: string): boolean {
+  if (!isGoogleEmbeddingEndpoint(baseUrl)) return false;
+  return !new URL(baseUrl).pathname.split('/').includes('openai');
+}
+
+function geminiModelName(model: string): string {
+  return model.replace(/^models\//, '');
+}
+
+function geminiBody(
+  input: EmbeddingInput,
+  model: string,
+  requestedDimensions: number | null,
+  options: EmbeddingOptions = {},
+): Record<string, unknown> {
+  if (options.instruction) {
+    throw new EmbeddingInputError(`Gemini native ${model} does not support embedding instructions`);
+  }
+  if (input.modality !== 'text' && !('data' in input && input.data !== undefined)) {
+    throw new UnsupportedEmbeddingModalityError(`Gemini native ${model}`, input.modality);
+  }
+  const part = input.modality === 'text'
+    ? { text: input.text }
+    : { inlineData: { mimeType: input.mimeType, data: input.data } };
+  const body: Record<string, unknown> = {
+    content: { parts: [part] },
+  };
+  if (requestedDimensions) body.outputDimensionality = requestedDimensions;
+  if (!/^gemini-embedding-2(?:-|$)/i.test(geminiModelName(model))) {
+    body.taskType = (options.intent ?? 'document') === 'query' ? 'RETRIEVAL_QUERY' : 'RETRIEVAL_DOCUMENT';
+  }
+  return body;
+}
+
+function geminiUrl(baseUrl: string, model: string): string {
+  return `${baseUrl}/models/${geminiModelName(model)}:embedContent`;
+}
+
+function mapIntentTask(baseUrl: string, model: string, options: EmbeddingOptions = {}): Record<string, unknown> {
+  const intent = options.intent ?? 'document';
+  if (isJinaEndpoint(baseUrl)) {
+    return { task: intent === 'query' ? 'retrieval.query' : 'retrieval.passage' };
+  }
+  if (isGoogleEmbeddingEndpoint(baseUrl)) {
+    const out: Record<string, unknown> = {
+      task_type: intent === 'query' ? 'RETRIEVAL_QUERY' : 'RETRIEVAL_DOCUMENT',
+    };
+    if (options.instruction) out.instruction = options.instruction;
+    return out;
+  }
+  return options.instruction ? { instruction: options.instruction } : {};
+}
+
+function toProviderInput(input: EmbeddingInput, baseUrl: string): unknown {
+  if (input.modality === 'text') {
+    return isJinaEndpoint(baseUrl) ? { text: input.text } : input.text;
+  }
+  if (isJinaEndpoint(baseUrl)) {
+    const key = input.modality === 'document' ? 'pdf' : input.modality;
+    if ('data' in input && input.data !== undefined) {
+      return { [key]: `data:${input.mimeType};base64,${input.data}` };
+    }
+    return { [key]: input.url };
+  }
+  // Generic OpenAI-compatible multimodal transport for capable Google-style endpoints.
+  if ('data' in input && input.data !== undefined) {
+    return { type: input.modality, data: input.data, media_type: input.mimeType };
+  }
+  return { type: input.modality, url: input.url };
+}
+
 async function loadDiskCache(): Promise<void> {
   if (diskCacheLoaded) return;
   try {
-    const raw = await readFile(CACHE_FILE, 'utf-8');
+    const raw = await readFile(cacheFile(), 'utf-8');
     const entries: [string, number[]][] = JSON.parse(raw);
     for (const [k, v] of entries) cache.set(k, v);
     console.error(`[memorix] Loaded ${entries.length} cached API embeddings from disk`);
@@ -101,7 +206,7 @@ async function loadCachedVectorDimensions(
   config: Pick<APIEmbeddingConfig, 'baseUrl' | 'model' | 'requestedDimensions'>,
 ): Promise<number | null> {
   try {
-    const raw = await readFile(CACHE_META_FILE, 'utf-8');
+    const raw = await readFile(cacheMetaFile(), 'utf-8');
     const data = JSON.parse(raw);
     const namespace = cacheNamespace(config);
     if (!Array.isArray(data?.entries)) return null;
@@ -123,10 +228,10 @@ async function saveCachedVectorDimensions(
 ): Promise<void> {
   if (!isValidDimension(dimensions)) return;
   try {
-    await mkdir(CACHE_DIR, { recursive: true });
+    await mkdir(cacheDir(), { recursive: true });
     let entries: CacheMetadataEntry[] = [];
     try {
-      const raw = await readFile(CACHE_META_FILE, 'utf-8');
+      const raw = await readFile(cacheMetaFile(), 'utf-8');
       const data = JSON.parse(raw);
       if (Array.isArray(data?.entries)) {
         entries = data.entries.filter((candidate: unknown): candidate is CacheMetadataEntry =>
@@ -144,7 +249,7 @@ async function saveCachedVectorDimensions(
     const namespace = cacheNamespace(config);
     entries = entries.filter((entry) => entry.namespace !== namespace);
     entries.push({ namespace, dimensions, ts: Date.now() });
-    await writeFile(CACHE_META_FILE, JSON.stringify({ version: 1, entries }));
+    await writeFile(cacheMetaFile(), JSON.stringify({ version: 1, entries }));
   } catch {
     // A missing or read-only cache must never block embedding requests.
   }
@@ -153,7 +258,7 @@ async function saveCachedVectorDimensions(
 /** Load cached probe dimensions from disk. Returns null if not cached. */
 async function loadCachedDims(config: Pick<APIEmbeddingConfig, 'baseUrl' | 'model' | 'requestedDimensions'>): Promise<number | null> {
   try {
-    const raw = await readFile(DIMS_CACHE_FILE, 'utf-8');
+    const raw = await readFile(dimsCacheFile(), 'utf-8');
     const data = JSON.parse(raw);
 
     const key = dimsCacheKey(config);
@@ -195,12 +300,12 @@ async function loadCachedDims(config: Pick<APIEmbeddingConfig, 'baseUrl' | 'mode
 /** Persist probe dimensions for fast subsequent starts. */
 async function saveCachedDims(config: Pick<APIEmbeddingConfig, 'baseUrl' | 'model' | 'requestedDimensions'>, dimensions: number): Promise<void> {
   try {
-    await mkdir(CACHE_DIR, { recursive: true });
+    await mkdir(cacheDir(), { recursive: true });
     const key = dimsCacheKey(config);
     let entries: Array<{ key: string; baseUrl: string; model: string; requestedDimensions: number | null; dimensions: number; ts: number }> = [];
 
     try {
-      const raw = await readFile(DIMS_CACHE_FILE, 'utf-8');
+      const raw = await readFile(dimsCacheFile(), 'utf-8');
       const data = JSON.parse(raw);
       if (Array.isArray(data.entries)) {
         entries = data.entries.filter((entry: unknown) =>
@@ -245,7 +350,7 @@ async function saveCachedDims(config: Pick<APIEmbeddingConfig, 'baseUrl' | 'mode
     entries = entries.filter((entry) => entry.key !== key);
     entries.push(nextEntry);
 
-    await writeFile(DIMS_CACHE_FILE, JSON.stringify({ entries }));
+    await writeFile(dimsCacheFile(), JSON.stringify({ entries }));
   } catch { /* best-effort */ }
   await saveCachedVectorDimensions(config, dimensions);
 }
@@ -253,9 +358,9 @@ async function saveCachedDims(config: Pick<APIEmbeddingConfig, 'baseUrl' | 'mode
 async function saveDiskCacheNow(): Promise<void> {
   if (!diskCacheDirty) return;
   try {
-    await mkdir(CACHE_DIR, { recursive: true });
+    await mkdir(cacheDir(), { recursive: true });
     const entries = Array.from(cache.entries());
-    await writeFile(CACHE_FILE, JSON.stringify(entries));
+    await writeFile(cacheFile(), JSON.stringify(entries));
     diskCacheDirty = false;
   } catch {
     // Cache persistence is best-effort only.
@@ -280,7 +385,8 @@ function cacheSet(hash: string, value: number[]): void {
 }
 
 interface EmbeddingAPIResponse {
-  object: string;
+  object?: string;
+  embedding?: { values: number[] };
   data: Array<{
     object: string;
     index: number;
@@ -340,6 +446,7 @@ function parseBatchLimit(error: unknown): number | null {
 export class APIEmbeddingProvider implements EmbeddingProvider {
   readonly name: string;
   readonly dimensions: number;
+  readonly supportedModalities: readonly EmbeddingModality[];
 
   private config: APIEmbeddingConfig;
   private readonly cacheKeyNamespace: string;
@@ -351,6 +458,11 @@ export class APIEmbeddingProvider implements EmbeddingProvider {
     this.cacheKeyNamespace = cacheNamespace(config);
     this.dimensions = detectedDimensions;
     this.name = `api-${config.model.replace(/\//g, '-')}`;
+    this.supportedModalities = isJinaEndpoint(config.baseUrl)
+      ? ['text', 'image', 'audio', 'video', 'document']
+      : isNativeGeminiEndpoint(config.baseUrl) && /embedding-2/i.test(config.model)
+        ? ['text', 'image', 'audio', 'video', 'document']
+        : ['text'];
   }
 
   static async create(): Promise<APIEmbeddingProvider>;
@@ -438,6 +550,19 @@ export class APIEmbeddingProvider implements EmbeddingProvider {
   }
 
   private static async probeAPI(config: APIEmbeddingConfig, options?: EmbeddingRequestOptions): Promise<number> {
+    if (isNativeGeminiEndpoint(config.baseUrl)) {
+      const response = await fetchWithRetry(
+        geminiUrl(config.baseUrl, config.model),
+        config.apiKey,
+        geminiBody({ modality: 'text', text: 'dimension probe' }, config.model, config.requestedDimensions),
+        options,
+        0,
+        true,
+      );
+      const embedding = response.embedding?.values;
+      if (!embedding) throw new Error('API probe returned no embeddings; check model name and API key');
+      return embedding.length;
+    }
     const body: Record<string, unknown> = {
       model: config.model,
       input: 'dimension probe',
@@ -453,15 +578,16 @@ export class APIEmbeddingProvider implements EmbeddingProvider {
       options,
     );
 
-    if (response.data.length === 0 || !response.data[0].embedding) {
-      throw new Error('API probe returned no embeddings; check model name and API key');
-    }
-
-    return response.data[0].embedding.length;
+    const embedding = response.data?.[0]?.embedding;
+    if (!embedding) throw new Error('API probe returned no embeddings; check model name and API key');
+    return embedding.length;
   }
 
   async embed(text: string, options?: EmbeddingRequestOptions): Promise<number[]> {
     const normalized = normalizeText(text);
+    if (isNativeGeminiEndpoint(this.config.baseUrl)) {
+      return this.embedInput({ modality: 'text', text: normalized }, { intent: 'document', ...options });
+    }
     const hash = textHash(normalized, this.cacheKeyNamespace);
 
     // Fast path: cache already loaded (warm process) — instant lookup
@@ -531,6 +657,9 @@ export class APIEmbeddingProvider implements EmbeddingProvider {
   }
 
   async embedBatch(texts: string[], options?: EmbeddingRequestOptions): Promise<number[][]> {
+    if (isNativeGeminiEndpoint(this.config.baseUrl)) {
+      return Promise.all(texts.map((text) => this.embedInput({ modality: 'text', text }, { intent: 'document', ...options })));
+    }
     await ensureDiskCacheLoaded();
     const normalizedTexts = texts.map(normalizeText);
     const results: number[][] = new Array(texts.length);
@@ -628,6 +757,62 @@ export class APIEmbeddingProvider implements EmbeddingProvider {
     });
   }
 
+  private supportsModality(modality: EmbeddingInput['modality']): boolean {
+    return this.supportedModalities.includes(modality);
+  }
+
+  async embedInput(input: EmbeddingInput, options: EmbeddingOptions = {}): Promise<number[]> {
+    validateEmbeddingInput(input);
+    if (!this.supportsModality(input.modality)) {
+      throw new UnsupportedEmbeddingModalityError(this.name, input.modality);
+    }
+    if (input.modality === 'text' && !options.intent && !options.instruction && !isJinaEndpoint(this.config.baseUrl) && !isGoogleEmbeddingEndpoint(this.config.baseUrl)) {
+      return this.embed(input.text);
+    }
+
+    await ensureDiskCacheLoaded();
+    const identity = inputIdentity(input, options);
+    const hash = textHash(identity, this.cacheKeyNamespace);
+    const cached = cache.get(hash);
+    if (cached) return cached;
+
+    const nativeGemini = isNativeGeminiEndpoint(this.config.baseUrl);
+    const body: Record<string, unknown> = nativeGemini
+      ? geminiBody(input, this.config.model, this.config.requestedDimensions, options)
+      : {
+          model: this.config.model,
+          input: input.modality === 'text' && !isJinaEndpoint(this.config.baseUrl)
+            ? input.text
+            : [toProviderInput(input, this.config.baseUrl)],
+          ...mapIntentTask(this.config.baseUrl, this.config.model, options),
+          ...(this.config.requestedDimensions ? { dimensions: this.config.requestedDimensions } : {}),
+        };
+
+    const response = await fetchWithRetry(
+      nativeGemini ? geminiUrl(this.config.baseUrl, this.config.model) : `${this.config.baseUrl}/embeddings`,
+      this.config.apiKey,
+      body,
+      options,
+      0,
+      nativeGemini,
+    );
+    const embedding = nativeGemini ? response.embedding?.values : response.data[0]?.embedding;
+    if (!embedding) throw new Error('Embedding API returned no vectors');
+    if (embedding.length !== this.dimensions) {
+      throw new Error(`Expected ${this.dimensions}d, got ${embedding.length}d; dimension mismatch`);
+    }
+    this.trackUsage(response);
+    cacheSet(hash, embedding);
+    scheduleDiskSave();
+    return embedding;
+  }
+
+  async embedInputs(inputs: EmbeddingInput[], options: EmbeddingOptions = {}): Promise<number[][]> {
+    const out: number[][] = [];
+    for (const input of inputs) out.push(await this.embedInput(input, options));
+    return out;
+  }
+
   getStats(): { totalTokens: number; totalApiCalls: number; cacheSize: number } {
     return {
       totalTokens: this.totalTokensUsed,
@@ -650,6 +835,7 @@ async function fetchWithRetry(
   body: Record<string, unknown>,
   options: EmbeddingRequestOptions = {},
   attempt = 0,
+  nativeGemini = false,
 ): Promise<EmbeddingAPIResponse> {
   const controller = new AbortController();
   const timeoutMs = typeof options.timeoutMs === 'number' && Number.isFinite(options.timeoutMs)
@@ -660,10 +846,9 @@ async function fetchWithRetry(
   try {
     response = await fetch(url, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
-      },
+      headers: nativeGemini
+        ? { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey }
+        : { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
       body: JSON.stringify(body),
       signal: controller.signal,
     });
@@ -686,7 +871,7 @@ async function fetchWithRetry(
     const waitMs = retryAfter ? parseInt(retryAfter, 10) * 1000 : delay;
     console.error(`[memorix] Embedding API ${response.status}, retry ${attempt + 1}/${MAX_RETRIES} in ${waitMs}ms`);
     await new Promise(resolve => setTimeout(resolve, waitMs));
-    return fetchWithRetry(url, apiKey, body, options, attempt + 1);
+    return fetchWithRetry(url, apiKey, body, options, attempt + 1, nativeGemini);
   }
 
   const errorText = await response.text().catch(() => 'unknown error');

@@ -2,6 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.3] - 2026-08-02
+
+### Added
+- **Controlled media assets** -- Added a local content-addressed asset library for explicit images, audio, video, and PDFs. Assets live outside the Git worktree, keep validated MIME/hash/size provenance, support explicit attachment to normal memory, and have link-aware quota cleanup.
+- **MiniMax media generation** -- Added explicit MiniMax image generation and durable MiniMax-H3 video jobs. Video tasks survive process restarts, expose status/cancellation, and import completed output only after bounded safe download validation.
+- **Honest multimodal embedding foundation** -- Added typed media embedding inputs, profile/modality compatibility checks, and separate media-vector storage. Text-only embedding providers now return a capability fallback instead of inventing a visual vector.
+- **One MCP media operation** -- Added `memorix_media` for agent-facing import, attachment, inspection, and job status while retaining CLI as the complete management surface.
+
+### Changed
+- **Legacy image ingestion joins the asset lifecycle** -- `memorix ingest image` and the full-profile compatibility tool now keep a verified controlled image asset alongside the text retrieval projection instead of discarding the binary.
+- **MCP binding boundary** -- Project binding is now a transport-neutral request context. Legacy HTTP session IDs only route transport requests; explicit project roots cannot be overwritten by Roots discovery, including a workspace that contains a nested Git project.
+
+### Fixed
+- **Atomic media removal** -- Asset removal stages a file in a controlled recovery directory, then atomically detaches links, removes derivations/vectors, and marks the asset deleted. A database failure restores the file instead of silently losing it.
+- **No ambient paid generation** -- MCP image/video generation is disabled until `MEMORIX_MCP_MEDIA_GENERATION=1` is explicitly set. CLI generation remains deliberate and auditable.
+- **Bounded image analysis** -- Legacy base64 image ingestion validates canonical input before decoding, caps visual analysis at 20 MiB, and sanitizes provider-derived descriptions and diagnostics before persistence.
+- **Test data isolation** -- Tool-profile integration tests now always use temporary Memorix data directories instead of a developer's real local memory database.
+- **Smaller install artifact** -- Excluded runtime-unneeded distribution sourcemaps from the npm package while retaining compiled code, source, documentation, and memcode runtime assets.
+
 ## [1.3.2] - 2026-08-02
 
 ### Fixed

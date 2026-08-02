@@ -349,6 +349,33 @@ memorix workbench
 
 CLI 是直接入口，不依赖 MCP 会话。它默认绑定当前 Git 项目，也可以用 `--cwd` 指定项目。没有激活身份时，只会读写和导出项目公开记忆；只有明确需要个人/团队记忆或协同任务时，才运行 `memorix identity join` 或 `memorix identity use --agent-id <id>`。`memorix identity clear` 会回到项目公开范围；脚本可用一次性的 `--as <active-agent-id>`。已有 camelCase 参数仍兼容，kebab-case 也可直接使用。
 
+### 管理受控媒体
+
+媒体是显式、可控的。导入本地文件后，Memorix 会将其复制到本地数据目录、计算哈希，并放在 Git 工作区之外；只有执行附着操作后，资产才会进入普通项目记忆。它不会自动抓取每一张截图或工具输出。默认媒体资产上限为 100 MiB；自动视觉分析单独限制为 20 MiB。更大的图片仍可保存和附着，但不会被强行发送给模型，而是会留下明确的文本回退说明。
+
+```bash
+memorix media import --path ./architecture.png --json
+memorix media attach --asset <asset-id> --title "架构图" --json
+memorix media list --kind image --json
+memorix media show --asset <asset-id> --json
+memorix media remove --asset <asset-id> --force --json
+
+# 旧的图像分析命令现在也会走同一套受控资产生命周期。
+memorix ingest image --path ./architecture.png --json
+```
+
+MiniMax 图像生成是需要明确执行的 CLI 操作。视频生成会立即返回一个可持久查询的任务，不会把 Agent 请求卡在等待生成结果上。
+
+```bash
+# 在用户环境变量或 .env 中配置 MINIMAX_API_KEY，绝不要提交进 Git。
+memorix media generate image --prompt "清晰的系统架构图" --json
+memorix media generate video --prompt "简短的产品演示" --json
+memorix media status --job <media-job-id> --json
+memorix media cancel --job <media-job-id> --json
+```
+
+`memorix_media` 是 `lite`、`team`、`full` profile 中紧凑的 MCP 对应入口，可导入、附着、列出、查看和查询任务状态。因为图像/视频生成可能产生 provider 费用，MCP 默认禁止生成；只有你明确允许 Agent 付费调用时，才设置 `MEMORIX_MCP_MEDIA_GENERATION=1`。默认的 OpenRouter 文本 embedding 仍然只是文本向量；只有明确声明支持该模态的 provider 才会生成媒体向量。文本描述和附着信息仍可通过普通检索使用。
+
 ### 使用内置终端 Agent
 
 ```bash
@@ -385,7 +412,7 @@ memcode
 | 手动暴露 stdio MCP | `memorix serve` |
 | 启动共享 HTTP MCP 和 Dashboard | `memorix background start` |
 | 前台调试 HTTP MCP | `memorix serve-http --port 3211` |
-| 直接检查或管理记忆 | `memorix memory`、`memorix reasoning`、`memorix session`、`memorix ingest` |
+| 直接检查或管理记忆 | `memorix memory`、`memorix reasoning`、`memorix session`、`memorix ingest`、`memorix media` |
 | 管理已审核的长期记忆 | `memorix memory long-term list|show|add|promote|qualify|approve|archive|supersede` |
 | 检查原生上下文压缩连续性 | `memorix checkpoint list|show|context|archive` |
 | 使用交互式终端记忆控制台 | `memorix workbench` |
@@ -432,6 +459,8 @@ formation = "active"
 `[memory.llm]` 和 `[embedding]` 负责记忆质量和检索；`[agent]` 是 memcode 编码时使用的模型。凭据放全局配置或环境变量，不要提交 secrets。
 
 如果使用 OpenRouter embedding，可以设置 `provider = "api"`、`base_url = "https://openrouter.ai/api/v1"`、`model = "qwen/qwen3-embedding-8b"`。这个 endpoint 下 Memorix 会读取官方 `OPENROUTER_API_KEY`；需要单独覆盖 embedding key 时仍可用 `MEMORIX_EMBEDDING_API_KEY`。
+
+受控 MiniMax 媒体生成可在环境变量或 `.env` 中设置全局 `MINIMAX_API_KEY`，或中国区 `MINIMAX_CN_API_KEY`。媒体库不会保存该 key、临时签名 URL 或 base64 负载。CLI 生成本身就是显式操作；若要让 MCP 中的 Agent 发起生成，还必须明确设置 `MEMORIX_MCP_MEDIA_GENERATION=1`。
 
 <h2 id="docker"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/tags/light/section-docker.svg"><img src="assets/tags/section-docker.svg" alt="Docker" height="32" /></picture></h2>
 

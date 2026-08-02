@@ -7,9 +7,19 @@
 
 import { getLLMApiKey, getLLMBaseUrl, getLLMModel } from '../config.js';
 import { isLLMEnabled, getLLMConfig } from '../llm/provider.js';
+import { sanitizeCredentials } from '../memory/secret-filter.js';
+import {
+  decodeBase64ImagePayload,
+  MAX_VISION_IMAGE_BYTES,
+  normalizeVisionImageMimeType,
+} from './image-payload.js';
 
 // Providers that use the OpenAI-compatible /chat/completions Vision endpoint
 const OPENAI_COMPATIBLE_PROVIDERS = new Set(['openai', 'openrouter', 'custom']);
+const MAX_VISION_PROMPT_CHARS = 12_000;
+const MAX_VISION_DESCRIPTION_CHARS = 12_000;
+const MAX_VISION_LABELS = 50;
+const MAX_VISION_LABEL_CHARS = 256;
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -75,7 +85,7 @@ async function callVisionLLM(
 
   if (!response.ok) {
     const errorText = await response.text().catch(() => 'unknown error');
-    throw new Error(`Vision LLM error (${response.status}): ${errorText}`);
+    throw new Error(`Vision LLM error (${response.status}): ${sanitizeCredentials(errorText).slice(0, 1_000)}`);
   }
 
   const data = await response.json() as {
@@ -90,6 +100,23 @@ async function callVisionLLM(
 const DEFAULT_PROMPT =
   'Analyze this image. Return ONLY a JSON object with this exact format: ' +
   '{"description": "detailed description", "tags": ["tag1", "tag2"], "entities": ["entity1", "entity2"]}';
+
+function normalizeText(value: unknown, fallback = ''): string {
+  const text = typeof value === 'string' && value.trim() ? value.trim() : fallback;
+  return sanitizeCredentials(text).slice(0, MAX_VISION_DESCRIPTION_CHARS);
+}
+
+function normalizeLabels(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const labels = new Set<string>();
+  for (const item of value) {
+    if (typeof item !== 'string') continue;
+    const label = sanitizeCredentials(item.trim()).slice(0, MAX_VISION_LABEL_CHARS);
+    if (label) labels.add(label);
+    if (labels.size >= MAX_VISION_LABELS) break;
+  }
+  return [...labels];
+}
 
 /**
  * Analyze an image using Vision LLM.
@@ -113,10 +140,16 @@ export async function analyzeImage(input: ImageInput): Promise<ImageAnalysisResu
     );
   }
 
-  const mimeType = input.mimeType ?? 'image/png';
-  const prompt = input.prompt ?? DEFAULT_PROMPT;
+  const bytes = decodeBase64ImagePayload(input.base64, MAX_VISION_IMAGE_BYTES);
+  const imageBase64 = bytes.toString('base64');
+  const mimeType = normalizeVisionImageMimeType(input.mimeType);
+  const prompt = (input.prompt ?? DEFAULT_PROMPT).trim();
+  if (!prompt) throw new Error('Image analysis prompt must be non-empty');
+  if (prompt.length > MAX_VISION_PROMPT_CHARS) {
+    throw new Error(`Image analysis prompt exceeds the ${MAX_VISION_PROMPT_CHARS}-character limit`);
+  }
 
-  const response = await callVisionLLM(prompt, input.base64, mimeType);
+  const response = await callVisionLLM(prompt, imageBase64, mimeType);
 
   // Try to parse structured JSON response
   try {
@@ -125,9 +158,9 @@ export async function analyzeImage(input: ImageInput): Promise<ImageAnalysisResu
     if (jsonMatch) {
       const parsed = JSON.parse(jsonMatch[0]);
       return {
-        description: parsed.description ?? response,
-        tags: Array.isArray(parsed.tags) ? parsed.tags : [],
-        entities: Array.isArray(parsed.entities) ? parsed.entities : [],
+        description: normalizeText(parsed.description, response),
+        tags: normalizeLabels(parsed.tags),
+        entities: normalizeLabels(parsed.entities),
       };
     }
   } catch {
@@ -136,7 +169,7 @@ export async function analyzeImage(input: ImageInput): Promise<ImageAnalysisResu
 
   // Fallback: treat entire response as description
   return {
-    description: response,
+    description: normalizeText(response),
     tags: [],
     entities: [],
   };

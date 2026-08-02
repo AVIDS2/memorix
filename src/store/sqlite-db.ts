@@ -553,6 +553,104 @@ CREATE TABLE IF NOT EXISTS long_term_memory_events (
 );
 `;
 
+// ── 1.3.3 Controlled media assets ─────────────────────────────────
+
+const CREATE_MEDIA_ASSETS_TABLE = `
+CREATE TABLE IF NOT EXISTS media_assets (
+  id               TEXT PRIMARY KEY,
+  project_id       TEXT NOT NULL,
+  sha256           TEXT NOT NULL,
+  kind             TEXT NOT NULL,
+  mime_type        TEXT NOT NULL,
+  byte_size        INTEGER NOT NULL,
+  storage_rel_path TEXT NOT NULL,
+  source_kind      TEXT NOT NULL,
+  source_label     TEXT,
+  provider         TEXT,
+  model            TEXT,
+  created_at       INTEGER NOT NULL,
+  updated_at       INTEGER NOT NULL,
+  deleted_at       INTEGER,
+  UNIQUE(project_id, sha256)
+);
+`;
+
+const CREATE_MEDIA_ASSET_LINKS_TABLE = `
+CREATE TABLE IF NOT EXISTS media_asset_links (
+  id             TEXT PRIMARY KEY,
+  asset_id       TEXT NOT NULL,
+  project_id     TEXT NOT NULL,
+  observation_id INTEGER,
+  role           TEXT NOT NULL,
+  created_at     INTEGER NOT NULL,
+  FOREIGN KEY (asset_id) REFERENCES media_assets(id) ON DELETE CASCADE,
+  FOREIGN KEY (observation_id) REFERENCES observations(id) ON DELETE CASCADE
+);
+`;
+
+const CREATE_MEDIA_DERIVATIONS_TABLE = `
+CREATE TABLE IF NOT EXISTS media_derivations (
+  id          TEXT PRIMARY KEY,
+  asset_id    TEXT NOT NULL,
+  project_id  TEXT NOT NULL,
+  kind        TEXT NOT NULL,
+  profile_key TEXT,
+  content     TEXT NOT NULL DEFAULT '',
+  status      TEXT NOT NULL DEFAULT 'ready',
+  error       TEXT,
+  created_at  INTEGER NOT NULL,
+  updated_at  INTEGER NOT NULL,
+  FOREIGN KEY (asset_id) REFERENCES media_assets(id) ON DELETE CASCADE
+);
+`;
+
+const CREATE_MEDIA_EMBEDDING_PROFILES_TABLE = `
+CREATE TABLE IF NOT EXISTS media_embedding_profiles (
+  profile_key TEXT PRIMARY KEY,
+  provider    TEXT NOT NULL,
+  model       TEXT NOT NULL,
+  dimensions  INTEGER NOT NULL,
+  modality    TEXT NOT NULL,
+  created_at  INTEGER NOT NULL
+);
+`;
+
+const CREATE_MEDIA_EMBEDDINGS_TABLE = `
+CREATE TABLE IF NOT EXISTS media_embeddings (
+  asset_id    TEXT NOT NULL,
+  project_id  TEXT NOT NULL,
+  profile_key TEXT NOT NULL,
+  intent      TEXT NOT NULL,
+  dimensions  INTEGER NOT NULL,
+  vector_json TEXT NOT NULL,
+  created_at  INTEGER NOT NULL,
+  updated_at  INTEGER NOT NULL,
+  PRIMARY KEY (asset_id, profile_key, intent),
+  FOREIGN KEY (asset_id) REFERENCES media_assets(id) ON DELETE CASCADE,
+  FOREIGN KEY (profile_key) REFERENCES media_embedding_profiles(profile_key) ON DELETE CASCADE
+);
+`;
+
+const CREATE_MEDIA_JOBS_TABLE = `
+CREATE TABLE IF NOT EXISTS media_jobs (
+  id                   TEXT PRIMARY KEY,
+  project_id           TEXT NOT NULL,
+  kind                 TEXT NOT NULL,
+  status               TEXT NOT NULL,
+  request_json         TEXT NOT NULL DEFAULT '{}',
+  provider_task_id     TEXT,
+  asset_id             TEXT,
+  last_error           TEXT,
+  attempts             INTEGER NOT NULL DEFAULT 0,
+  attach_on_complete   INTEGER NOT NULL DEFAULT 0,
+  observation_title    TEXT,
+  created_at           INTEGER NOT NULL,
+  updated_at           INTEGER NOT NULL,
+  completed_at         INTEGER,
+  FOREIGN KEY (asset_id) REFERENCES media_assets(id) ON DELETE SET NULL
+);
+`;
+
 // ── Runtime maintenance jobs ───────────────────────────────────────
 
 const CREATE_MAINTENANCE_JOBS_TABLE = `
@@ -660,6 +758,13 @@ CREATE INDEX IF NOT EXISTS idx_long_term_memories_project_state ON long_term_mem
 CREATE INDEX IF NOT EXISTS idx_long_term_memories_scope_portability ON long_term_memories(scope, portability, state, updatedAt DESC);
 CREATE INDEX IF NOT EXISTS idx_long_term_memory_evidence_memory ON long_term_memory_evidence(memoryId, createdAt);
 CREATE INDEX IF NOT EXISTS idx_long_term_memory_events_memory ON long_term_memory_events(memoryId, createdAt);
+CREATE INDEX IF NOT EXISTS idx_media_assets_project_active ON media_assets(project_id, deleted_at, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_media_assets_project_hash ON media_assets(project_id, sha256);
+CREATE INDEX IF NOT EXISTS idx_media_links_asset ON media_asset_links(project_id, asset_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_media_links_observation ON media_asset_links(project_id, observation_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_media_derivations_asset ON media_derivations(project_id, asset_id, kind);
+CREATE INDEX IF NOT EXISTS idx_media_embeddings_profile ON media_embeddings(project_id, profile_key, asset_id);
+CREATE INDEX IF NOT EXISTS idx_media_jobs_project_status ON media_jobs(project_id, status, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_maintenance_jobs_ready ON maintenance_jobs(status, run_after);
 CREATE INDEX IF NOT EXISTS idx_maintenance_jobs_project ON maintenance_jobs(project_id, status, run_after);
 CREATE INDEX IF NOT EXISTS idx_maintenance_targets_updated ON maintenance_targets(updated_at);
@@ -777,6 +882,30 @@ const SCHEMA_MIGRATIONS: SchemaMigration[] = [
       db.exec('CREATE INDEX IF NOT EXISTS idx_long_term_memories_scope_portability ON long_term_memories(scope, portability, state, updatedAt DESC)');
       db.exec('CREATE INDEX IF NOT EXISTS idx_long_term_memory_evidence_memory ON long_term_memory_evidence(memoryId, createdAt)');
       db.exec('CREATE INDEX IF NOT EXISTS idx_long_term_memory_events_memory ON long_term_memory_events(memoryId, createdAt)');
+    },
+  },
+  {
+    id: '1.2-observation-attachments',
+    apply: (db) => {
+      try { db.exec('ALTER TABLE observations ADD COLUMN attachments TEXT'); } catch { /* already exists */ }
+    },
+  },
+  {
+    id: '1.3.3-media-assets',
+    apply: (db) => {
+      db.exec(CREATE_MEDIA_ASSETS_TABLE);
+      db.exec(CREATE_MEDIA_ASSET_LINKS_TABLE);
+      db.exec(CREATE_MEDIA_DERIVATIONS_TABLE);
+      db.exec(CREATE_MEDIA_EMBEDDING_PROFILES_TABLE);
+      db.exec(CREATE_MEDIA_EMBEDDINGS_TABLE);
+      db.exec(CREATE_MEDIA_JOBS_TABLE);
+      db.exec('CREATE INDEX IF NOT EXISTS idx_media_assets_project_active ON media_assets(project_id, deleted_at, created_at DESC)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_media_assets_project_hash ON media_assets(project_id, sha256)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_media_links_asset ON media_asset_links(project_id, asset_id, created_at)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_media_links_observation ON media_asset_links(project_id, observation_id, created_at)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_media_derivations_asset ON media_derivations(project_id, asset_id, kind)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_media_embeddings_profile ON media_embeddings(project_id, profile_key, asset_id)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_media_jobs_project_status ON media_jobs(project_id, status, updated_at DESC)');
     },
   },
 ];

@@ -121,3 +121,11 @@ export function getLoadedEnvFiles(): readonly string[] {
 // OPENAI_API_KEY            — OpenAI compatibility fallback
 // ANTHROPIC_API_KEY         — Anthropic compatibility fallback
 // OPENROUTER_API_KEY        — OpenRouter compatibility fallback
+// MINIMAX_API_KEY           — MiniMax global image/video generation key
+// MINIMAX_CN_API_KEY        — MiniMax China-region image/video generation key
+// MINIMAX_REGION            — MiniMax region: global or cn
+// MINIMAX_IMAGE_MODEL       — MiniMax image model override
+// MINIMAX_IMAGE_BASE_URL    — MiniMax image endpoint override
+// MINIMAX_VIDEO_BASE_URL    — MiniMax video endpoint override
+// MINIMAX_VIDEO_MODEL       — MiniMax video model override
+// MEMORIX_MCP_MEDIA_GENERATION — Set to 1 only to allow billed MiniMax generation through MCP

@@ -13,7 +13,13 @@ import type { MemorixDocument, SearchOptions, IndexEntry, KnowledgeLayer, Observ
 import { OBSERVATION_ICONS, type ObservationType } from '../types.js';
 import { resolveKnowledgeLayer } from '../skills/mini-skills.js';
 import { canReadObservation } from '../memory/visibility.js';
-import { getEmbeddingProvider, type EmbeddingProvider } from '../embedding/provider.js';
+import {
+  getEmbeddingProvider,
+  UnsupportedEmbeddingModalityError,
+  type EmbeddingInput,
+  type EmbeddingOptions,
+  type EmbeddingProvider,
+} from '../embedding/provider.js';
 import { calculateProjectAffinity, extractProjectKeywords, type AffinityContext, type MemoryContent } from './project-affinity.js';
 import { detectQueryIntent, applyIntentBoost } from '../search/intent-detector.js';
 import { maybeExpandSearchQuery } from '../search/query-expansion.js';
@@ -168,6 +174,7 @@ async function initializeDb(
     facts: 'string' as const,
     filesModified: 'string' as const,
     concepts: 'string' as const,
+    attachments: 'string' as const,
     tokens: 'number' as const,
     createdAt: 'string' as const,
     projectId: 'string' as const,
@@ -261,7 +268,26 @@ export function getVectorDimensions(): number | null {
 export async function generateEmbedding(text: string): Promise<number[] | null> {
   const provider = await getEmbeddingProvider();
   if (!provider) return null;
-  return provider.embed(text);
+  return provider.embedInput
+    ? provider.embedInput({ modality: 'text', text }, { intent: 'document' })
+    : provider.embed(text);
+}
+
+/** Generate a typed embedding; unsupported media returns null so callers retain BM25. */
+export async function generateEmbeddingInput(
+  input: EmbeddingInput,
+  options: EmbeddingOptions = {},
+): Promise<number[] | null> {
+  const provider = await getEmbeddingProvider();
+  if (!provider) return null;
+  try {
+    if (provider.embedInput) return await provider.embedInput(input, options);
+    if (input.modality === 'text') return provider.embed(input.text);
+    return null;
+  } catch (error) {
+    if (error instanceof UnsupportedEmbeddingModalityError) return null;
+    throw error;
+  }
 }
 
 /**
@@ -586,7 +612,7 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
     includeVectors: quality !== 'fast',
     ...(Object.keys(filters).length > 0 ? { where: filters } : {}),
     // Search specific fields (not tokens, accessCount, etc.)
-    properties: ['title', 'entityName', 'narrative', 'facts', 'concepts', 'filesModified'],
+    properties: ['title', 'entityName', 'narrative', 'facts', 'concepts', 'filesModified', 'attachments'],
     // Field boosting: intent-aware or default
     boost: fieldBoost,
     // Fuzzy tolerance: allow 1-char typos for short queries, 2 for longer
@@ -615,7 +641,15 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
           // Embedding timeout: 15 seconds
           const EMBEDDING_TIMEOUT_MS = 15000;
           queryVector = await withTimeout(
-            provider.embed(expandedEmbeddingQuery!),
+            provider.embedInput
+              ? provider.embedInput(
+                { modality: 'text', text: expandedEmbeddingQuery! },
+                { intent: 'query', timeoutMs: EMBEDDING_TIMEOUT_MS, retry: false },
+              )
+              : provider.embed(expandedEmbeddingQuery!, {
+                timeoutMs: EMBEDDING_TIMEOUT_MS,
+                retry: false,
+              }),
             EMBEDDING_TIMEOUT_MS,
             'Embedding',
           );

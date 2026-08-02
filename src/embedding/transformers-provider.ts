@@ -15,7 +15,14 @@
  * Inspired by Mem0's multi-provider embedding architecture.
  */
 
-import type { EmbeddingProvider } from './provider.js';
+import {
+  UnsupportedEmbeddingModalityError,
+  validateEmbeddingInput,
+  type EmbeddingInput,
+  type EmbeddingModality,
+  type EmbeddingOptions,
+  type EmbeddingProvider,
+} from './provider.js';
 
 // In-memory LRU cache
 const cache = new Map<string, number[]>();
@@ -24,6 +31,7 @@ const MAX_CACHE_SIZE = 5000;
 export class TransformersProvider implements EmbeddingProvider {
     readonly name = 'transformers-minilm';
     readonly dimensions = 384;
+    readonly supportedModalities: readonly EmbeddingModality[] = ['text'];
 
     private extractor: any; // Pipeline instance
 
@@ -44,6 +52,18 @@ export class TransformersProvider implements EmbeddingProvider {
             { dtype: 'q8' }, // Quantized for small footprint
         );
         return new TransformersProvider(extractor);
+    }
+
+    async embedInput(input: EmbeddingInput, _options: EmbeddingOptions = {}): Promise<number[]> {
+        validateEmbeddingInput(input);
+        if (input.modality !== 'text') {
+            throw new UnsupportedEmbeddingModalityError(this.name, input.modality);
+        }
+        return this.embed(input.text);
+    }
+
+    async embedInputs(inputs: EmbeddingInput[], options: EmbeddingOptions = {}): Promise<number[][]> {
+        return Promise.all(inputs.map((input) => this.embedInput(input, options)));
     }
 
     async embed(text: string): Promise<number[]> {

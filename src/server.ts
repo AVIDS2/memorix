@@ -51,6 +51,12 @@ import { runFormation, getMetricsSummary, getBeforeAfterMetrics } from './memory
 import type { FormationConfig, SearchHit, FormedMemory, FormationStage, FormationStageEvent } from './memory/formation/types.js';
 import { parseFormationTimeoutMs } from './server/formation-timeout.js';
 import { withTimeout } from './timeout.js';
+import { sanitizeCredentials } from './memory/secret-filter.js';
+import {
+  createProjectBindingController,
+  type ProjectBindingController,
+  type ProjectBindingSource,
+} from './server/request-context.js';
 
 // ── Timeout budgets for LLM-heavy paths ──────────────────────────
 const FORMATION_TIMEOUT_MS = parseFormationTimeoutMs(process.env.MEMORIX_FORMATION_TIMEOUT_MS); // Formation pipeline (extract+resolve+evaluate)
@@ -203,6 +209,11 @@ export interface CreateMemorixServerOptions {
   dashboardMode?: 'standalone' | 'control-plane';
   dashboardPort?: number;
   toolProfile?: ToolProfile;
+  /**
+   * Product-scoped project binding. HTTP transports may keep it beside a
+   * legacy session adapter today; no project operation reads session headers.
+   */
+  projectBinding?: ProjectBindingController;
 }
 
 /**
@@ -237,6 +248,7 @@ export async function createMemorixServer(
   deferredInit: () => Promise<void>;
   switchProject: (newCwd: string) => Promise<boolean>;
   isExplicitlyBound: () => boolean;
+  getRequestContext: () => import('./server/request-context.js').MemorixRequestContext;
   handleTransportClose: () => void;
 }> {
   // Detect current project — strict .git-based detection
@@ -251,11 +263,11 @@ export async function createMemorixServer(
     fallback: sharedTeam ? 'team' : 'lite',
   });
   const teamFeaturesEnabled = isToolInProfile('team_manage', toolProfile);
+  const projectBinding = options.projectBinding ?? createProjectBindingController(cwd ?? process.cwd());
   const detectedProject = detectProject(cwd);
   let rawProject: import('./types.js').ProjectInfo;
   let projectResolved = true;
   let projectResolutionError: string | null = null;
-  let explicitProjectBound = false; // Set true when memorix_session_start binds via projectRoot
   let currentAgentId: string | undefined; // Session-scoped coordination identity for attribution after explicit join
   let teamStore!: import('./team/team-store.js').TeamStore;
   let initTeamStoreForProject: ((dataDir: string) => Promise<import('./team/team-store.js').TeamStore>) | undefined;
@@ -300,6 +312,9 @@ export async function createMemorixServer(
     if (canonicalId !== rawProject.id) {
       console.error(`[memorix] Alias resolved: ${rawProject.id} -> ${canonicalId}`);
     }
+  }
+  if (projectResolved) {
+    projectBinding.recordResolvedProject(project.id, project.rootPath);
   }
 
   const registerMaintenanceTarget = async (): Promise<void> => {
@@ -578,19 +593,21 @@ export async function createMemorixServer(
     return (originalRegisterTool as (...innerArgs: unknown[]) => unknown)(name, ...args) as never;
   }) as typeof server.registerTool;
 
+  const getRequestContext = () => projectBinding.requestContext(currentAgentId);
   const getObservationReader = (scope: 'project' | 'global' = 'project'): ObservationReader => {
+    const requestContext = getRequestContext();
     let isTeamMember = false;
-    if (teamFeaturesEnabled && currentAgentId) {
+    if (teamFeaturesEnabled && requestContext.actorId) {
       try {
-        const agent = teamStore.getAgent(currentAgentId);
+        const agent = teamStore.getAgent(requestContext.actorId);
         isTeamMember = agent?.project_id === project.id && agent.status === 'active';
       } catch {
         // A missing coordination store must never grant team visibility.
       }
     }
     return {
-      ...(scope === 'project' ? { projectId: project.id } : {}),
-      ...(currentAgentId ? { agentId: currentAgentId } : {}),
+      ...(scope === 'project' ? { projectId: requestContext.projectId ?? project.id } : {}),
+      ...(requestContext.actorId ? { agentId: requestContext.actorId } : {}),
       isTeamMember,
     };
   };
@@ -707,9 +724,18 @@ export async function createMemorixServer(
         overrideReadOnly: z.boolean().optional().describe(
           'Use only when the user explicitly asks to save memory during a read-only or no-modification task.',
         ),
+        attachments: z.array(z.object({
+          modality: z.enum(['image', 'audio', 'video', 'document']),
+          url: z.string().describe(
+            'Public HTTPS provenance reference without query parameters or fragments. ' +
+            'Memorix does not fetch this URL: attachment metadata is persisted and BM25-searchable, while observation vectors remain text-only.',
+          ),
+          mimeType: z.string().optional(),
+          name: z.string().optional(),
+        })).optional().describe('Safe public provenance references. They are stored as metadata for lexical retrieval; raw inline media is never stored.'),
       },
     },
-    async ({ entityName: rawEntityName, type: rawType, title: rawTitle, narrative, facts, filesModified, concepts, topicKey, progress, relatedCommits, relatedEntities, visibility, longTerm, overrideReadOnly }) => {
+    async ({ entityName: rawEntityName, type: rawType, title: rawTitle, narrative, facts, filesModified, concepts, topicKey, progress, relatedCommits, relatedEntities, visibility, longTerm, overrideReadOnly, attachments }) => {
       const unresolved = requireResolvedProject('store memory in the current project');
       if (unresolved) return unresolved;
       const readOnlyBoundary = blockReadOnlyAutopilotWrite(overrideReadOnly);
@@ -1115,6 +1141,7 @@ export async function createMemorixServer(
         progress: progress as import('./types.js').ProgressInfo | undefined,
         relatedCommits,
         relatedEntities,
+        attachments,
         sourceDetail: 'explicit',
         valueCategory: formationResult?.evaluation.category,
         createdByAgentId: currentAgentId,
@@ -3759,7 +3786,7 @@ export async function createMemorixServer(
       // BEFORE checking whether the project is resolved. This is the primary
       // mechanism for HTTP/control-plane multi-project support.
       if (explicitRoot && typeof explicitRoot === 'string') {
-        let bound = await switchProject(explicitRoot);
+        let bound = await switchProject(explicitRoot, 'explicit-project-root');
         // switchProject returns false for both "same project, no-op" and "no git repo".
         // Only scan subdirectories when explicitRoot is not itself a git repo; otherwise
         // a same-project no-op can be hijacked by the first nested/vendored repo.
@@ -3778,7 +3805,7 @@ export async function createMemorixServer(
             const { findGitInSubdirs } = await import('./project/detector.js');
             const subGit = findGitInSubdirs(explicitRoot);
             if (subGit) {
-              bound = await switchProject(subGit);
+              bound = await switchProject(subGit, 'explicit-project-root');
             }
           }
         }
@@ -3806,8 +3833,8 @@ export async function createMemorixServer(
             isError: true as const,
           };
         }
-        // Bound successfully — mark as explicitly bound so roots won't override
-        explicitProjectBound = true;
+        // `switchProject` records the explicit binding in the transport-neutral
+        // ProjectBindingController, so Roots can no longer override it.
       }
 
       const unresolved = requireResolvedProject('start a project session');
@@ -4960,47 +4987,273 @@ export async function createMemorixServer(
     },
   );
   server.registerTool(
+    'memorix_media',
+    {
+      title: 'Manage Controlled Media',
+      description:
+        'Use the controlled local media library for an explicit import, attachment, inspection, or MiniMax generation request. ' +
+        'Assets stay outside the Git worktree and enter normal memory only when attach is explicitly true. ' +
+        'Use the CLI for destructive removal, quota cleanup, job cancellation, and direct generation. ' +
+        'MCP generation is disabled by default and requires MEMORIX_MCP_MEDIA_GENERATION=1 after the operator reviews provider billing.',
+      inputSchema: {
+        action: z.enum(['import', 'attach', 'list', 'show', 'generate-image', 'generate-video', 'status']),
+        path: z.string().optional().describe('Explicit local image/audio/video/PDF path for import.'),
+        assetId: z.string().optional().describe('Controlled MediaAsset ID for attach/show.'),
+        jobId: z.string().optional().describe('Durable media job ID for status.'),
+        kind: z.enum(['image', 'audio', 'video', 'document']).optional().describe('Optional asset list filter.'),
+        limit: z.number().int().min(1).max(100).optional().describe('Maximum assets to list.'),
+        title: z.string().optional().describe('Observation title when attaching generated/imported output.'),
+        narrative: z.string().optional().describe('Short retrieval text when attaching an asset.'),
+        prompt: z.string().optional().describe('Explicit MiniMax generation prompt.'),
+        model: z.enum(['image-01', 'image-01-live', 'MiniMax-H3']).optional().describe('MiniMax image or video model.'),
+        region: z.enum(['global', 'cn']).optional().describe('MiniMax deployment region.'),
+        n: z.number().int().min(1).max(4).optional().describe('Image output count.'),
+        ratio: z.enum(['adaptive', '1:1', '16:9', '4:3', '3:2', '2:3', '3:4', '9:16', '21:9']).optional().describe('Image or video aspect ratio.'),
+        width: z.number().int().min(1).max(8192).optional().describe('Requested image width.'),
+        height: z.number().int().min(1).max(8192).optional().describe('Requested image height.'),
+        duration: z.union([z.literal(5), z.literal(10)]).optional().describe('MiniMax video duration in seconds.'),
+        attach: z.boolean().optional().describe('Attach generated/imported output to normal project memory explicitly.'),
+      },
+    },
+    async ({ action, path: assetPath, assetId, jobId, kind, limit, title, narrative, prompt, model, region, n, ratio, width, height, duration, attach }) => {
+      const unresolved = requireResolvedProject('manage controlled media');
+      if (unresolved) return unresolved;
+      const safeError = (error: unknown) => sanitizeCredentials(
+        error instanceof Error ? error.message : String(error),
+      ).slice(0, 1_000);
+      const attachAsset = async (asset: import('./media/types.js').MediaAsset, attachmentTitle?: string, attachmentNarrative?: string) => {
+        const { attachMediaAssetToObservation } = await import('./media/attachment.js');
+        const requestContext = getRequestContext();
+        return attachMediaAssetToObservation({
+          dataDir: projectDir,
+          projectId: project.id,
+          asset,
+          title: attachmentTitle?.trim() || `Media asset: ${asset.sourceLabel ?? asset.id}`,
+          narrative: attachmentNarrative,
+          concepts: ['mcp-media'],
+          visibility: 'project',
+          visibilityReader: getObservationReader(),
+          ...(requestContext.actorId ? { createdByAgentId: requestContext.actorId } : {}),
+        });
+      };
+      const result = (value: Record<string, unknown>) => ({
+        content: [{ type: 'text' as const, text: JSON.stringify(value) }],
+      });
+      const mcpGenerationEnabled = process.env.MEMORIX_MCP_MEDIA_GENERATION === '1';
+
+      try {
+        const { MediaStore } = await import('./media/media-store.js');
+        const store = new MediaStore(projectDir);
+        if (action === 'list') {
+          return result({
+            action,
+            projectId: project.id,
+            assets: store.listAssets(project.id, { kind, limit: limit ?? 50 }),
+          });
+        }
+        if (action === 'show') {
+          if (!assetId?.trim()) throw new Error('assetId is required for media show');
+          const asset = store.getAsset(project.id, assetId);
+          if (!asset) throw new Error(`Media asset not found: ${assetId}`);
+          return result({
+            action,
+            projectId: project.id,
+            asset,
+            links: store.listLinks(project.id, asset.id),
+            derivations: store.listDerivations(project.id, asset.id),
+          });
+        }
+        if (action === 'status') {
+          if (!jobId?.trim()) throw new Error('jobId is required for media status');
+          const job = store.getJob(project.id, jobId);
+          if (!job) throw new Error(`Media job not found: ${jobId}`);
+          return result({ action, projectId: project.id, job });
+        }
+        if (action === 'attach') {
+          if (!assetId?.trim()) throw new Error('assetId is required for media attach');
+          const asset = store.getAsset(project.id, assetId);
+          if (!asset) throw new Error(`Media asset not found: ${assetId}`);
+          const description = store.listDerivations(project.id, asset.id)
+            .find((item) => item.kind === 'description' && item.status === 'ready')?.content;
+          const observation = await attachAsset(asset, title, narrative ?? description);
+          return result({ action, projectId: project.id, asset, observation });
+        }
+        if (action === 'import') {
+          if (!assetPath?.trim()) throw new Error('path is required for media import');
+          const { importMediaFile } = await import('./media/asset-store.js');
+          const imported = await importMediaFile({
+            dataDir: projectDir,
+            projectId: project.id,
+            filePath: assetPath,
+          });
+          const observation = attach === true
+            ? await attachAsset(imported.asset, title, narrative)
+            : undefined;
+          return result({ action, projectId: project.id, ...imported, ...(observation ? { observation } : {}) });
+        }
+        if (action === 'generate-image') {
+          if (!mcpGenerationEnabled) {
+            throw new Error('MCP media generation is disabled. Use the CLI, or set MEMORIX_MCP_MEDIA_GENERATION=1 after reviewing provider billing.');
+          }
+          if (!prompt?.trim()) throw new Error('prompt is required for image generation');
+          const imageModel: 'image-01' | 'image-01-live' | undefined = model === 'image-01' || model === 'image-01-live'
+            ? model
+            : undefined;
+          if (model && !imageModel) throw new Error('generate-image accepts image-01 or image-01-live');
+          const imageRatio: '1:1' | '16:9' | '4:3' | '3:2' | '2:3' | '3:4' | '9:16' | '21:9' | undefined =
+            ratio === '1:1' || ratio === '16:9' || ratio === '4:3' || ratio === '3:2' || ratio === '2:3'
+              || ratio === '3:4' || ratio === '9:16' || ratio === '21:9'
+              ? ratio
+              : undefined;
+          if (ratio && !imageRatio) throw new Error('generate-image received an unsupported aspect ratio');
+          const { generateMiniMaxImages } = await import('./media/minimax.js');
+          const generated = await generateMiniMaxImages({
+            dataDir: projectDir,
+            projectId: project.id,
+            prompt,
+            model: imageModel,
+            region,
+            n,
+            aspectRatio: imageRatio,
+            width,
+            height,
+          });
+          const observations = attach === true
+            ? await Promise.all(generated.assets.map(({ asset }) => attachAsset(
+              asset,
+              title ?? `MiniMax image: ${asset.sourceLabel ?? asset.id}`,
+              narrative ?? `Generated with ${generated.provider}/${generated.model}. Prompt: ${prompt}`,
+            )))
+            : [];
+          return result({ action, projectId: project.id, ...generated, observations });
+        }
+        if (action === 'generate-video') {
+          if (!mcpGenerationEnabled) {
+            throw new Error('MCP media generation is disabled. Use the CLI, or set MEMORIX_MCP_MEDIA_GENERATION=1 after reviewing provider billing.');
+          }
+          if (!prompt?.trim()) throw new Error('prompt is required for video generation');
+          if (model && model !== 'MiniMax-H3') throw new Error('generate-video accepts MiniMax-H3');
+          const videoRatio: 'adaptive' | '1:1' | '16:9' | '9:16' | undefined =
+            ratio === 'adaptive' || ratio === '1:1' || ratio === '16:9' || ratio === '9:16'
+              ? ratio
+              : undefined;
+          if (ratio && !videoRatio) throw new Error('generate-video received an unsupported aspect ratio');
+          const { queueMiniMaxVideoGeneration } = await import('./media/video-jobs.js');
+          const queued = queueMiniMaxVideoGeneration({
+            dataDir: projectDir,
+            projectId: project.id,
+            prompt,
+            ...(model === 'MiniMax-H3' ? { model } : {}),
+            ...(region ? { region } : {}),
+            ...(videoRatio ? { ratio: videoRatio } : {}),
+            ...(duration ? { duration } : {}),
+            attachOnComplete: attach === true,
+            observationTitle: title,
+          });
+          return result({ action, projectId: project.id, ...queued });
+        }
+        throw new Error(`Unsupported media action: ${action}`);
+      } catch (error) {
+        return {
+          content: [{ type: 'text' as const, text: `Media operation failed: ${safeError(error)}` }],
+          isError: true as const,
+        };
+      }
+    },
+  );
+
+  server.registerTool(
     'memorix_ingest_image',
     {
       title: 'Ingest Image',
       description:
-        'Analyze an image via Vision LLM and store the analysis as a memory observation. ' +
-        'Returns description, tags, and entities extracted from the image.',
+        'Legacy compatibility path: import caller-provided image bytes into the controlled local asset library, then store a text retrieval projection. ' +
+        'For durable media operations, prefer memorix_media or the media CLI.',
       inputSchema: {
         base64: z.string().describe('Base64-encoded image data'),
-        mimeType: z.string().optional().describe('Image MIME type (e.g. image/png, image/jpeg)'),
+        mimeType: z.string().optional().describe('Deprecated compatibility hint. Memorix detects the actual MIME type from the image bytes.'),
         filename: z.string().optional().describe('Original filename'),
         prompt: z.string().optional().describe('Custom analysis prompt'),
       },
     },
     async (args) => {
       try {
-        const { analyzeImage } = await import('./multimodal/image-loader.js');
-        const analysis = await analyzeImage(args);
-        const entityName = args.filename?.replace(/\.[^.]+$/, '') ?? `image-${Date.now()}`;
-        const { observation } = await storeObservation({
-          entityName,
-          type: 'discovery',
-          title: `Image analysis: ${entityName}`,
+        const { decodeBase64ImagePayload } = await import('./multimodal/image-payload.js');
+        const bytes = decodeBase64ImagePayload(args.base64);
+        const filename = args.filename?.trim() || `image-${Date.now()}.png`;
+        const { importMediaBuffer, readMediaAsset } = await import('./media/asset-store.js');
+        const imported = await importMediaBuffer({
+          dataDir: projectDir,
+          projectId: project.id,
+          bytes,
+          filename,
+          sourceKind: 'import',
+        });
+        if (imported.asset.kind !== 'image') {
+          throw new Error(`Expected an image payload, detected ${imported.asset.mimeType}`);
+        }
+
+        let analysis: { description: string; tags: string[]; entities: string[] };
+        let analysisWarning: string | undefined;
+        try {
+          const { analyzeImage } = await import('./multimodal/image-loader.js');
+          const controlledBytes = await readMediaAsset(projectDir, imported.asset);
+          analysis = await analyzeImage({
+            base64: controlledBytes.toString('base64'),
+            mimeType: imported.asset.mimeType,
+            filename,
+            prompt: args.prompt,
+          });
+        } catch (analysisError) {
+          analysis = {
+            description: `Imported image asset ${filename}. Visual analysis is unavailable; use the controlled asset reference for high-fidelity inspection.`,
+            tags: ['image', imported.asset.mimeType],
+            entities: [],
+          };
+          analysisWarning = sanitizeCredentials(
+            analysisError instanceof Error ? analysisError.message : String(analysisError),
+          ).slice(0, 500);
+        }
+
+        const { MediaStore } = await import('./media/media-store.js');
+        new MediaStore(projectDir).addDerivation({
+          projectId: project.id,
+          assetId: imported.asset.id,
+          kind: 'description',
+          content: analysis.description,
+          status: 'ready',
+        });
+        const { attachMediaAssetToObservation } = await import('./media/attachment.js');
+        const requestContext = getRequestContext();
+        const observation = await attachMediaAssetToObservation({
+          dataDir: projectDir,
+          projectId: project.id,
+          asset: imported.asset,
+          entityName: filename.replace(/\.[^.]+$/, '') || `image-${Date.now()}`,
+          title: `Image analysis: ${filename}`,
           narrative: analysis.description,
           concepts: analysis.tags,
           facts: analysis.entities,
-          projectId: project.id,
+          visibility: 'project',
+          visibilityReader: getObservationReader(),
+          ...(requestContext.actorId ? { createdByAgentId: requestContext.actorId } : {}),
         });
         return {
           content: [{
             type: 'text' as const,
-            text: `\uD83D\uDDBC\uFE0F Image analyzed\n` +
+            text: `\uD83D\uDDBC\uFE0F Image imported and analyzed\n` +
+              `Asset: ${imported.asset.id}\n` +
               `Observation #${observation.id}\n` +
               `Tags: ${analysis.tags.join(', ') || 'none'}\n` +
-              `Preview: ${analysis.description.slice(0, 300)}${analysis.description.length > 300 ? '\u2026' : ''}`,
+              `Preview: ${analysis.description.slice(0, 300)}${analysis.description.length > 300 ? '\u2026' : ''}` +
+              (analysisWarning ? '\nVisual analysis fallback was used.' : ''),
           }],
         };
       } catch (err: unknown) {
         return {
           content: [{
             type: 'text' as const,
-            text: `[ERROR] Image ingestion failed: ${err instanceof Error ? err.message : String(err)}`,
+            text: `[ERROR] Image ingestion failed: ${sanitizeCredentials(err instanceof Error ? err.message : String(err))}`,
           }],
           isError: true,
         };
@@ -5094,7 +5347,11 @@ export async function createMemorixServer(
 
   // Runtime project switch — called when MCP roots change, projectRoot binding, or new workspace detected.
   // Updates all mutable state; tool closures automatically pick up new values.
-  const switchProject = async (newCwd: string): Promise<boolean> => {
+  const switchProject = async (
+    newCwd: string,
+    source: ProjectBindingSource = 'mcp-roots',
+  ): Promise<boolean> => {
+    if (source === 'mcp-roots' && projectBinding.isExplicit()) return false;
     const { detectProjectWithDiagnostics } = await import('./project/detector.js');
     const result = detectProjectWithDiagnostics(newCwd);
     if (!result.project) {
@@ -5104,8 +5361,6 @@ export async function createMemorixServer(
       return false;
     }
     const newDetected = result.project;
-    maintenanceWorker?.stop();
-    maintenanceWorker = null;
 
     // Resolve data dir FIRST (was buggy: used before declaration)
     const newProjectDir = await getProjectDataDir(newDetected.id);
@@ -5113,7 +5368,16 @@ export async function createMemorixServer(
     const newCanonicalId = await registerAlias(newDetected);
 
     // Allow switch if: different project OR current project is unresolved (__unresolved__)
-    if (newCanonicalId === project.id && projectResolved) return false; // same project, no-op
+    if (newCanonicalId === project.id && projectResolved) {
+      if (source === 'explicit-project-root') projectBinding.bindExplicit(newDetected.rootPath);
+      else if (source === 'mcp-roots') projectBinding.bindFromRoots(newDetected.rootPath);
+      else projectBinding.bindStartup(newDetected.rootPath);
+      projectBinding.recordResolvedProject(project.id, project.rootPath);
+      return false; // same project, no-op
+    }
+
+    maintenanceWorker?.stop();
+    maintenanceWorker = null;
 
     console.error(`[memorix] Switching project: ${project.id} → ${newCanonicalId}`);
 
@@ -5131,6 +5395,10 @@ export async function createMemorixServer(
     projectResolutionError = null;
     project = { ...newDetected, id: newCanonicalId };
     projectDir = canonicalProjectDir;
+    if (source === 'explicit-project-root') projectBinding.bindExplicit(project.rootPath);
+    else if (source === 'mcp-roots') projectBinding.bindFromRoots(project.rootPath);
+    else projectBinding.bindStartup(project.rootPath);
+    projectBinding.recordResolvedProject(project.id, project.rootPath);
     await registerMaintenanceTarget();
 
     // Update YAML config root and reload .env for the new project
@@ -5187,7 +5455,8 @@ export async function createMemorixServer(
 
   return {
     server, graphManager, projectId: project.id, deferredInit, switchProject,
-    isExplicitlyBound: () => explicitProjectBound,
+    isExplicitlyBound: () => projectBinding.isExplicit(),
+    getRequestContext,
     handleTransportClose,
   };
 }

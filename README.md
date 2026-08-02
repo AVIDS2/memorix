@@ -349,6 +349,48 @@ memorix workbench
 
 The CLI is direct and does not depend on an MCP session. It binds to the current Git project, or to the project supplied with `--cwd`. Without an active identity it reads, writes, and exports project-visible memory only. Use `memorix identity join` or `memorix identity use --agent-id <id>` only when you intentionally need personal/team memory or coordinated task actions; `memorix identity clear` returns the terminal to project scope. `--as <active-agent-id>` is the one-command alternative for scripts. Both camelCase and kebab-case flags are accepted.
 
+### Manage controlled media
+
+Media is opt-in. An explicit local import is copied into Memorix's local data
+directory, hashed, and kept outside the Git worktree. It becomes normal memory
+only when you attach it. Memorix never captures every screenshot or tool output.
+An asset may be up to the configured media limit (100 MiB by default). Automatic
+vision analysis is deliberately capped at 20 MiB; a larger image is still kept
+and can be attached, but Memorix records a clear text fallback instead of
+sending an oversized payload to a model provider.
+
+```bash
+memorix media import --path ./architecture.png --json
+memorix media attach --asset <asset-id> --title "Architecture diagram" --json
+memorix media list --kind image --json
+memorix media show --asset <asset-id> --json
+memorix media remove --asset <asset-id> --force --json
+
+# Legacy image analysis now uses the same controlled asset lifecycle.
+memorix ingest image --path ./architecture.png --json
+```
+
+MiniMax image generation is a deliberate CLI operation. Video generation returns
+a durable job immediately; inspect or cancel that job rather than waiting in an
+agent request.
+
+```bash
+# Configure MINIMAX_API_KEY in your user environment or .env, never in Git.
+memorix media generate image --prompt "A clean system architecture diagram" --json
+memorix media generate video --prompt "A short product walkthrough" --json
+memorix media status --job <media-job-id> --json
+memorix media cancel --job <media-job-id> --json
+```
+
+`memorix_media` is the compact MCP companion in the `lite`, `team`, and `full`
+profiles. It supports import, attach, list, show, and job status. MCP image and
+video generation are disabled by default because they may incur provider costs.
+Set `MEMORIX_MCP_MEDIA_GENERATION=1` only after you deliberately want an agent
+to request billed MiniMax output. The normal OpenRouter text embedding lane is
+still text-only; media vectors are created only by a provider that explicitly
+declares support for that modality. Text descriptions and attachments remain a
+useful ordinary retrieval fallback.
+
 ### Use the bundled terminal agent
 
 ```bash
@@ -385,7 +427,7 @@ Long-term memory is deliberately not an automatic dump of every note. A source o
 | Manually expose stdio MCP | `memorix serve` |
 | Run shared HTTP MCP plus dashboard | `memorix background start` |
 | Debug HTTP MCP in the foreground | `memorix serve-http --port 3211` |
-| Inspect or manage memory directly | `memorix memory`, `memorix reasoning`, `memorix session`, `memorix ingest` |
+| Inspect or manage memory directly | `memorix memory`, `memorix reasoning`, `memorix session`, `memorix ingest`, `memorix media` |
 | Manage reviewed long-term memory | `memorix memory long-term list|show|add|promote|qualify|approve|archive|supersede` |
 | Inspect native compaction continuity | `memorix checkpoint list|show|context|archive` |
 | Use the interactive terminal memory control plane | `memorix workbench` |
@@ -434,6 +476,12 @@ formation = "active"
 Use `[memory.llm]` and `[embedding]` for Memorix memory quality and retrieval. Use `[agent]` for the model memcode talks to while coding. Keep credentials in global config or environment variables, and do not commit secrets.
 
 For OpenRouter embeddings, use `provider = "api"`, `base_url = "https://openrouter.ai/api/v1"`, and `model = "qwen/qwen3-embedding-8b"`. Memorix accepts `OPENROUTER_API_KEY` for that embedding endpoint; `MEMORIX_EMBEDDING_API_KEY` remains the explicit override.
+
+For controlled MiniMax media generation, set `MINIMAX_API_KEY` (global) or
+`MINIMAX_CN_API_KEY` (China region) in your environment or `.env`. The media
+library never stores that key, a signed output URL, or base64 payloads. CLI
+generation is explicit; MCP generation additionally requires
+`MEMORIX_MCP_MEDIA_GENERATION=1`.
 
 <h2 id="docker"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/tags/light/section-docker.svg"><img src="assets/tags/section-docker.svg" alt="Docker" height="32" /></picture></h2>
 

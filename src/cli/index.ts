@@ -1073,6 +1073,7 @@ const main = defineCommand({
     hook: () => import('./commands/hook.js').then(m => m.default),
     hooks: () => import('./commands/hooks.js').then(m => m.default),
     ingest: () => import('./commands/ingest.js').then(m => m.default),
+    media: () => import('./commands/media.js').then(m => m.default),
     'git-hook': () => import('./commands/git-hook-install.js').then(m => m.default),
     'git-hook-uninstall': () => import('./commands/git-hook-uninstall.js').then(m => m.default),
     background: () => import('./commands/background.js').then(m => m.default),
@@ -1122,7 +1123,7 @@ const main = defineCommand({
       'session', 'team', 'task', 'message', 'lock', 'handoff', 'poll',
       'receipt',
       'serve', 'serve-http', 'status', 'sync',
-      'hook', 'hooks', 'ingest', 'git-hook', 'git-hook-uninstall',
+      'hook', 'hooks', 'ingest', 'media', 'git-hook', 'git-hook-uninstall',
       'background', 'bg', 'bs', 'doctor', 'repair', 'dashboard', 'cleanup', 'uninstall', 'orchestrate'];
     if (firstArg && knownSubs.includes(firstArg)) return;
 

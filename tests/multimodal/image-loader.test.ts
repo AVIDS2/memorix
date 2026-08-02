@@ -1,5 +1,9 @@
 import { describe, it, expect, afterEach, beforeEach } from 'vitest';
 import { analyzeImage } from '../../src/multimodal/image-loader.js';
+import {
+  decodeBase64ImagePayload,
+  MAX_VISION_IMAGE_BYTES,
+} from '../../src/multimodal/image-payload.js';
 import { resetConfigCache } from '../../src/config.js';
 import { setLLMConfig } from '../../src/llm/provider.js';
 
@@ -146,5 +150,45 @@ describe('image-loader', () => {
     await expect(
       analyzeImage({ base64: 'dGVzdA==' }),
     ).rejects.toThrow('Vision LLM error (404)');
+  });
+
+  it('rejects non-canonical and oversized base64 before a vision request', async () => {
+    expect(() => decodeBase64ImagePayload('not base64')).toThrow('invalid');
+    expect(() => decodeBase64ImagePayload('AAAA', 1)).toThrow('exceeds');
+    expect(MAX_VISION_IMAGE_BYTES).toBe(20 * 1024 * 1024);
+
+    process.env.OPENAI_API_KEY = 'test-key';
+    setLLMConfig({ provider: 'openai', apiKey: 'test-key', model: 'gpt-4o', baseUrl: 'https://api.openai.com/v1' });
+    let called = false;
+    globalThis.fetch = (async () => {
+      called = true;
+      return new Response('{}', { status: 200 });
+    }) as typeof fetch;
+
+    await expect(analyzeImage({ base64: 'not base64' })).rejects.toThrow('invalid');
+    expect(called).toBe(false);
+  });
+
+  it('sanitizes provider descriptions, labels, and diagnostics before returning them', async () => {
+    process.env.OPENAI_API_KEY = 'test-key';
+    setLLMConfig({ provider: 'openai', apiKey: 'test-key', model: 'gpt-4o', baseUrl: 'https://api.openai.com/v1' });
+    globalThis.fetch = (async () => {
+      return new Response(JSON.stringify({
+        choices: [{
+          message: {
+            content: JSON.stringify({
+              description: 'Screenshot shows api_key=supersecretvalue',
+              tags: ['api_key=supersecretvalue', 'diagram'],
+              entities: ['sk-abcdefghijklmnopqrstuvwxyz123456'],
+            }),
+          },
+        }],
+      }), { status: 200 });
+    }) as typeof fetch;
+
+    const result = await analyzeImage({ base64: 'dGVzdA==' });
+    expect(JSON.stringify(result)).toContain('[REDACTED]');
+    expect(JSON.stringify(result)).not.toContain('supersecretvalue');
+    expect(JSON.stringify(result)).not.toContain('abcdefghijklmnopqrstuvwxyz123456');
   });
 });

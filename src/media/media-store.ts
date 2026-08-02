@@ -242,6 +242,13 @@ export class MediaStore {
       `).run(projectId, assetId).changes ?? 0);
       this.db.prepare('DELETE FROM media_derivations WHERE project_id = ? AND asset_id = ?').run(projectId, assetId);
       this.db.prepare('DELETE FROM media_embeddings WHERE project_id = ? AND asset_id = ?').run(projectId, assetId);
+      // Assets are soft-deleted so SQLite's ON DELETE SET NULL does not fire.
+      // Do not leave completed jobs advertising an asset that `media show` can
+      // no longer retrieve.
+      this.db.prepare(`
+        UPDATE media_jobs SET asset_id = NULL, updated_at = ?
+        WHERE project_id = ? AND asset_id = ?
+      `).run(Date.now(), projectId, assetId);
       const result = this.db.prepare(`
         UPDATE media_assets SET deleted_at = ?, updated_at = ?
         WHERE project_id = ? AND id = ? AND deleted_at IS NULL
@@ -431,16 +438,42 @@ export class MediaStore {
     lastError?: string;
     incrementAttempts?: boolean;
   }): MediaJob {
+    const updated = this.updateJobInternal(projectId, id, input, false);
+    if (!updated) throw new Error(`Media job not found: ${id}`);
+    return updated;
+  }
+
+  /**
+   * Atomically preserve a user cancellation against a worker that was already
+   * downloading or attaching media when the cancellation arrived.
+   */
+  updateJobIfNotCancelled(projectId: string, id: string, input: {
+    status: MediaJobStatus;
+    providerTaskId?: string;
+    assetId?: string;
+    lastError?: string;
+    incrementAttempts?: boolean;
+  }): MediaJob | undefined {
+    return this.updateJobInternal(projectId, id, input, true);
+  }
+
+  private updateJobInternal(projectId: string, id: string, input: {
+    status: MediaJobStatus;
+    providerTaskId?: string;
+    assetId?: string;
+    lastError?: string;
+    incrementAttempts?: boolean;
+  }, rejectCancelled: boolean): MediaJob | undefined {
     const existing = this.getJob(projectId, id);
-    if (!existing) throw new Error(`Media job not found: ${id}`);
+    if (!existing) return undefined;
     const now = Date.now();
     const attempts = existing.attempts + (input.incrementAttempts ? 1 : 0);
     const completedAt = input.status === 'completed' ? now : null;
-    this.db.prepare(`
+    const result = this.db.prepare(`
       UPDATE media_jobs
       SET status = ?, provider_task_id = COALESCE(?, provider_task_id), asset_id = COALESCE(?, asset_id),
           last_error = ?, attempts = ?, updated_at = ?, completed_at = ?
-      WHERE project_id = ? AND id = ?
+      WHERE project_id = ? AND id = ? ${rejectCancelled ? "AND status <> 'cancelled'" : ''}
     `).run(
       input.status,
       input.providerTaskId ?? null,
@@ -452,7 +485,8 @@ export class MediaStore {
       projectId,
       id,
     );
-    return this.getJob(projectId, id)!;
+    if (Number(result.changes ?? 0) !== 1) return undefined;
+    return this.getJob(projectId, id);
   }
 
   cancelJob(projectId: string, id: string): MediaJob {

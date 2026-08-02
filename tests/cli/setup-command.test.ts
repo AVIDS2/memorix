@@ -413,8 +413,8 @@ describe('Codex legacy integration migration', () => {
       ].join('\n'), 'utf-8');
       await fs.writeFile(hooksPath, JSON.stringify({
         hooks: {
-          SessionStart: [{ type: 'command', command: 'memorix hook', timeout: 10 }],
-          Stop: [{ type: 'command', command: 'memorix hook', timeout: 10 }],
+          SessionStart: [{ type: 'command', command: 'memorix hook' }],
+          Stop: [{ type: 'command', command: 'memorix hook' }],
         },
       }), 'utf-8');
       await fs.writeFile(path.join(legacyPluginPath, '.codex-plugin', 'plugin.json'), JSON.stringify({
@@ -467,6 +467,28 @@ describe('Codex legacy integration migration', () => {
       expect(result.projectHooks).toBe('preserved');
       await expect(fs.readFile(configPath, 'utf-8')).resolves.toContain('MEMORIX_MODE');
       await expect(fs.readFile(hooksPath, 'utf-8')).resolves.toContain('other-agent hook');
+    } finally {
+      await cleanup(tmpDir);
+    }
+  });
+
+  it('preserves an all-Memorix legacy hooks file when the user added hook options', async () => {
+    const tmpDir = makeTmpDir();
+    const homeDir = path.join(tmpDir, 'home');
+    const projectRoot = path.join(tmpDir, 'project');
+    try {
+      const hooksPath = path.join(projectRoot, '.codex', 'hooks.json');
+      await fs.mkdir(path.dirname(hooksPath), { recursive: true });
+      await fs.writeFile(hooksPath, JSON.stringify({
+        hooks: {
+          SessionStart: [{ type: 'command', command: 'memorix hook', timeout: 10 }],
+        },
+      }), 'utf-8');
+
+      const result = await migrateLegacyCodexIntegration({ homeDir, projectRoot });
+
+      expect(result.projectHooks).toBe('preserved');
+      await expect(fs.readFile(hooksPath, 'utf-8')).resolves.toContain('"timeout":10');
     } finally {
       await cleanup(tmpDir);
     }

@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { copyFile, lstat, mkdir, open, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { copyFile, lstat, mkdir, open, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { sanitizeCredentials } from '../memory/secret-filter.js';
@@ -273,7 +273,7 @@ export async function removeMediaAsset(input: {
   projectId: string;
   assetId: string;
   force?: boolean;
-}): Promise<{ asset: MediaAsset; detachedLinks: number }> {
+}): Promise<{ asset: MediaAsset; detachedLinks: number; pendingDelete: boolean }> {
   const store = new MediaStore(input.dataDir);
   const asset = store.getAsset(input.projectId, input.assetId);
   if (!asset) throw new Error(`Media asset not found: ${input.assetId}`);
@@ -305,21 +305,81 @@ export async function removeMediaAsset(input: {
   // A locked file can be retried by a later cleanup; it is already outside the
   // active asset tree and no database row refers to it anymore.
   await rm(stagedPath, { force: true }).catch(() => {});
-  return { asset, detachedLinks };
+  return { asset, detachedLinks, pendingDelete: await destinationExists(stagedPath) };
+}
+
+export interface MediaTrashCleanupResult {
+  reclaimedBytes: number;
+  pendingBytes: number;
+  pendingFiles: number;
+}
+
+/** Retry files that were atomically staged after a metadata deletion but were
+ * locked by Windows or another process. Only Memorix's own staging suffix is
+ * considered, so cleanup never sweeps arbitrary files from the data directory.
+ */
+export async function cleanupMediaTrash(dataDir: string): Promise<MediaTrashCleanupResult> {
+  const root = mediaRoot(dataDir);
+  const trashDir = validateUnderRoot(root, path.join(root, '.trash'));
+  let entries: string[];
+  try {
+    entries = await readdir(trashDir);
+  } catch (error: any) {
+    if (error?.code === 'ENOENT') return { reclaimedBytes: 0, pendingBytes: 0, pendingFiles: 0 };
+    throw error;
+  }
+
+  let reclaimedBytes = 0;
+  let pendingBytes = 0;
+  let pendingFiles = 0;
+  for (const name of entries) {
+    if (!name.endsWith('.pending-delete')) continue;
+    const candidate = validateUnderRoot(trashDir, path.join(trashDir, name));
+    try {
+      const metadata = await lstat(candidate);
+      if (!metadata.isFile()) continue;
+      await rm(candidate, { force: true });
+      reclaimedBytes += metadata.size;
+    } catch (error: any) {
+      if (error?.code === 'ENOENT') continue;
+      try {
+        pendingBytes += (await stat(candidate)).size;
+      } catch { /* The file disappeared or cannot be measured; keep its count. */ }
+      pendingFiles += 1;
+    }
+  }
+  return { reclaimedBytes, pendingBytes, pendingFiles };
 }
 
 export async function cleanupMediaQuota(input: {
   dataDir: string;
   projectId: string;
   maxBytes?: number;
-}): Promise<{ beforeBytes: number; afterBytes: number; removed: MediaAsset[] }> {
+}): Promise<{
+  beforeBytes: number;
+  afterBytes: number;
+  removed: MediaAsset[];
+  reclaimedTrashBytes: number;
+  pendingTrashBytes: number;
+  pendingTrashFiles: number;
+}> {
   const store = new MediaStore(input.dataDir);
   const maxBytes = input.maxBytes ?? DEFAULT_MEDIA_QUOTA_BYTES;
   if (!Number.isSafeInteger(maxBytes) || maxBytes < 0) throw new Error('maxBytes must be a non-negative integer');
+  const initialTrash = await cleanupMediaTrash(input.dataDir);
   const beforeBytes = store.activeByteSize(input.projectId);
   let currentBytes = beforeBytes;
   const removed: MediaAsset[] = [];
-  if (currentBytes <= maxBytes) return { beforeBytes, afterBytes: currentBytes, removed };
+  if (currentBytes <= maxBytes) {
+    return {
+      beforeBytes,
+      afterBytes: currentBytes,
+      removed,
+      reclaimedTrashBytes: initialTrash.reclaimedBytes,
+      pendingTrashBytes: initialTrash.pendingBytes,
+      pendingTrashFiles: initialTrash.pendingFiles,
+    };
+  }
 
   // Fail closed: all candidates come from the link-aware query. A query error leaves all assets intact.
   const candidates = store.listUnlinkedAssets(input.projectId);
@@ -334,5 +394,13 @@ export async function cleanupMediaQuota(input: {
     currentBytes -= asset.byteSize;
     removed.push(asset);
   }
-  return { beforeBytes, afterBytes: Math.max(0, currentBytes), removed };
+  const finalTrash = await cleanupMediaTrash(input.dataDir);
+  return {
+    beforeBytes,
+    afterBytes: Math.max(0, currentBytes),
+    removed,
+    reclaimedTrashBytes: initialTrash.reclaimedBytes + finalTrash.reclaimedBytes,
+    pendingTrashBytes: finalTrash.pendingBytes,
+    pendingTrashFiles: finalTrash.pendingFiles,
+  };
 }

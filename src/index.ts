@@ -1,68 +1,50 @@
 #!/usr/bin/env node
 
 /**
- * Memorix — Cross-Agent Memory Bridge
+ * Package entry point.
  *
- * Entry point for the MCP Server.
- * Connects via stdio transport for compatibility with all MCP-supporting agents.
- *
- * Usage:
- *   node dist/index.js          # Start as MCP server (stdio)
- *   memorix init                # CLI: Initialize project (P1)
- *   memorix sync                # CLI: Sync rules across agents (P2)
+ * `memorix serve` is the documented MCP command. Keep the historical
+ * `node dist/index.js` route working by delegating to that exact runtime,
+ * while making a normal package import side-effect free.
  */
 
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { createMemorixServer } from './server.js';
+import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 
-async function main(): Promise<void> {
-  const { homedir } = await import('node:os');
-  const { existsSync, readFileSync } = await import('node:fs');
-  const path = await import('node:path');
-  const { detectProject, findGitInSubdirs, isSystemDirectory } = await import('./project/detector.js');
-  const { resolveServeProject } = await import('./cli/commands/serve-shared.js');
+export { createMemorixServer } from './server.js';
+export type { CreateMemorixServerOptions } from './server.js';
 
-  let safeCwd: string;
-  try { safeCwd = process.cwd(); } catch { safeCwd = homedir(); }
-
-  const lastRootFile = path.join(homedir(), '.memorix', 'last-project-root');
-  let lastKnownProjectRoot: string | undefined;
-  if (existsSync(lastRootFile)) {
-    try {
-      const lastRoot = readFileSync(lastRootFile, 'utf-8').trim();
-      if (lastRoot && existsSync(lastRoot)) {
-        lastKnownProjectRoot = lastRoot;
-      }
-    } catch { /* ignore */ }
-  }
-
-  const resolution = resolveServeProject(
-    {
-      processCwd: safeCwd,
-      homeDir: homedir(),
-      lastKnownProjectRoot,
-    },
-    { detectProject, findGitInSubdirs, isSystemDirectory },
-  );
-
-  for (const message of resolution.messages) {
-    console.error(message);
-  }
-
-  if (!resolution.detectedProject) {
-    throw new Error(resolution.error);
-  }
-
-  const { server, projectId, deferredInit } = await createMemorixServer(resolution.projectRoot);
-
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
-
-  console.error(`[memorix] MCP Server running on stdio (project: ${projectId})`);
-  deferredInit().catch(e => console.error(`[memorix] Deferred init error:`, e));
+function isDirectEntrypoint(): boolean {
+  const entry = process.argv[1];
+  return Boolean(entry && import.meta.url === pathToFileURL(path.resolve(entry)).href);
 }
 
-main().catch((error) => {
-  console.error('[memorix] Fatal error:', error);
-  process.exit(1);
-});
+function directServeArgs(argv: string[]): { cwd?: string; mode?: string; 'allow-untracked': boolean } {
+  const args: { cwd?: string; mode?: string; 'allow-untracked': boolean } = { 'allow-untracked': false };
+  for (let index = 0; index < argv.length; index += 1) {
+    const value = argv[index];
+    if (value === '--allow-untracked') {
+      args['allow-untracked'] = true;
+      continue;
+    }
+    if ((value === '--cwd' || value === '--mode') && argv[index + 1]) {
+      args[value.slice(2) as 'cwd' | 'mode'] = argv[index + 1];
+      index += 1;
+    }
+  }
+  return args;
+}
+
+async function runDirectStdioServer(): Promise<void> {
+  const { default: serveCommand } = await import('./cli/commands/serve.js');
+  const run = serveCommand.run as ((input: { args: ReturnType<typeof directServeArgs> }) => Promise<void>) | undefined;
+  if (!run) throw new Error('Memorix stdio server command is unavailable');
+  await run({ args: directServeArgs(process.argv.slice(2)) });
+}
+
+if (isDirectEntrypoint()) {
+  runDirectStdioServer().catch((error) => {
+    console.error('[memorix] Fatal error:', error);
+    process.exitCode = 1;
+  });
+}

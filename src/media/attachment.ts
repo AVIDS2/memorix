@@ -19,9 +19,9 @@ export interface AttachMediaAssetInput {
 }
 
 /**
- * Create normal text retrieval evidence first, then add an explicit asset link.
- * The media row remains the binary source of truth; the Observation is only a
- * small, auditable retrieval projection.
+ * Create normal text retrieval evidence and its explicit asset link in the
+ * same SQLite transaction. The media row remains the binary source of truth;
+ * the Observation is only a small, auditable retrieval projection.
  */
 export async function attachMediaAssetToObservation(input: AttachMediaAssetInput): Promise<Observation> {
   const asset = input.asset;
@@ -34,6 +34,7 @@ export async function attachMediaAssetToObservation(input: AttachMediaAssetInput
     `MIME type: ${asset.mimeType}`,
     ...(input.facts ?? []),
   ];
+  const store = new MediaStore(input.dataDir);
   const result = await storeObservation({
     entityName: input.entityName?.trim() || sourceLabel.replace(/\.[^.]+$/, '') || 'media-asset',
     type: 'discovery',
@@ -47,12 +48,14 @@ export async function attachMediaAssetToObservation(input: AttachMediaAssetInput
     ...(input.visibility ? { visibility: input.visibility } : {}),
     ...(input.createdByAgentId ? { createdByAgentId: input.createdByAgentId } : {}),
     ...(input.visibilityReader ? { visibilityReader: input.visibilityReader } : {}),
-  });
-  new MediaStore(input.dataDir).linkAsset({
-    projectId: input.projectId,
-    assetId: asset.id,
-    observationId: result.observation.id,
-    role: input.role ?? 'attachment',
+    onPersisted: (observation) => {
+      store.linkAsset({
+        projectId: input.projectId,
+        assetId: asset.id,
+        observationId: observation.id,
+        role: input.role ?? 'attachment',
+      });
+    },
   });
   return result.observation;
 }

@@ -397,6 +397,12 @@ export async function storeObservation(input: {
   createdByAgentId?: string;
   /** Optional caller-bound write scope for topic-key upserts. */
   visibilityReader?: ObservationReader;
+  /**
+   * Internal transaction callback for a second SQLite record that must either
+   * commit with this observation or not exist at all. It is intentionally not
+   * exposed through the SDK input surface.
+   */
+  onPersisted?: (observation: Observation) => void | Promise<void>;
 }): Promise<{ observation: Observation; upserted: boolean }> {
   const now = new Date().toISOString();
 
@@ -431,7 +437,9 @@ export async function storeObservation(input: {
       if (input.visibilityReader && !canManageObservation(existing, input.visibilityReader)) {
         throw new Error('Cannot update a memory outside this session\'s write scope.');
       }
-      return { observation: await upsertObservation(existing, input, now), upserted: true };
+      const observation = await upsertObservation(existing, input, now);
+      await input.onPersisted?.(observation);
+      return { observation, upserted: true };
     }
   }
 
@@ -460,6 +468,7 @@ export async function storeObservation(input: {
 
   let upsertedInsideLock = false;
   let reloadCacheAfterCommit = false;
+  let persistedCallbackInvoked = false;
   const assignAndPersist = async () => {
     if (projectDir) {
       const store = getObservationStore();
@@ -528,6 +537,8 @@ export async function storeObservation(input: {
         };
 
         await tx.insert(observation);
+        await input.onPersisted?.(observation);
+        persistedCallbackInvoked = true;
         await tx.saveIdCounter(id + 1);
       });
 
@@ -584,6 +595,8 @@ export async function storeObservation(input: {
         writeGeneration: 0,
       };
       observations.push(observation);
+      await input.onPersisted?.(observation);
+      persistedCallbackInvoked = true;
     }
 
     // Build Orama doc AFTER id is assigned
@@ -621,8 +634,14 @@ export async function storeObservation(input: {
 
   // If the lock discovered a topicKey duplicate on disk, delegate to upsert
   if (upsertedInsideLock) {
-    return { observation: await upsertObservation(observation, input, now), upserted: true };
+    const updated = await upsertObservation(observation, input, now);
+    await input.onPersisted?.(updated);
+    return { observation: updated, upserted: true };
   }
+
+  // The normal persistent path invokes the callback inside the SQLite
+  // transaction. Keep the in-memory fallback defensively covered too.
+  if (!persistedCallbackInvoked) await input.onPersisted?.(observation);
 
   await bindObservationCodeRefsBestEffort(observation);
   queueObservationQualification(observation);

@@ -404,10 +404,11 @@ At startup, `serve-http` seeds its default project root from:
 
 1. `--cwd`
 2. `MEMORIX_PROJECT_ROOT`
-3. `~/.memorix/last-project-root`
-4. `process.cwd()`
+3. `process.cwd()`
 
-That startup root is useful for dashboard and server boot, but it does not replace explicit session binding.
+Memorix deliberately does not restore a previously remembered project root: a
+server launched from an unrelated directory must wait for an explicit project
+root or MCP/session binding rather than risk cross-project memory access.
 
 ### Step 4. Bind each HTTP session explicitly
 

@@ -43,6 +43,7 @@ export function spawnAgent(
     stdio: [stdinData ? 'pipe' : 'ignore', 'pipe', 'pipe'],
     // Windows: use shell to resolve CLI tools on PATH
     shell: process.platform === 'win32',
+    windowsHide: true,
   });
 
   // Write prompt via stdin to avoid shell argument escaping issues.
@@ -134,6 +135,7 @@ export function spawnAgentWithStream(
     env: { ...process.env, ...opts.env },
     stdio: [stdinData ? 'pipe' : 'ignore', 'pipe', 'pipe'],
     shell: process.platform === 'win32',
+    windowsHide: true,
   });
 
   let stdinError: string | undefined;

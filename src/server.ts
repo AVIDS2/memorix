@@ -4993,10 +4993,10 @@ export async function createMemorixServer(
       description:
         'Use the controlled local media library for an explicit import, attachment, inspection, or MiniMax generation request. ' +
         'Assets stay outside the Git worktree and enter normal memory only when attach is explicitly true. ' +
-        'Use the CLI for destructive removal, quota cleanup, job cancellation, and direct generation. ' +
+        'Use the CLI for destructive removal, quota cleanup, and direct generation. ' +
         'MCP generation is disabled by default and requires MEMORIX_MCP_MEDIA_GENERATION=1 after the operator reviews provider billing.',
       inputSchema: {
-        action: z.enum(['import', 'attach', 'list', 'show', 'generate-image', 'generate-video', 'status']),
+        action: z.enum(['import', 'attach', 'list', 'show', 'generate-image', 'generate-video', 'status', 'cancel']),
         path: z.string().optional().describe('Explicit local image/audio/video/PDF path for import.'),
         assetId: z.string().optional().describe('Controlled MediaAsset ID for attach/show.'),
         jobId: z.string().optional().describe('Durable media job ID for status.'),
@@ -5068,6 +5068,10 @@ export async function createMemorixServer(
           const job = store.getJob(project.id, jobId);
           if (!job) throw new Error(`Media job not found: ${jobId}`);
           return result({ action, projectId: project.id, job });
+        }
+        if (action === 'cancel') {
+          if (!jobId?.trim()) throw new Error('jobId is required for media cancel');
+          return result({ action, projectId: project.id, job: store.cancelJob(project.id, jobId) });
         }
         if (action === 'attach') {
           if (!assetId?.trim()) throw new Error('assetId is required for media attach');

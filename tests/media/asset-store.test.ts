@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { access as fsAccess, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   cleanupMediaQuota,
+  cleanupMediaTrash,
   importMediaBuffer,
   readMediaAsset,
   removeMediaAsset,
@@ -134,6 +135,51 @@ describe('controlled media asset store', () => {
     const store = new MediaStore(fixture.dataDir);
     expect(store.getAsset(fixture.projectId, imported.asset.id)).toBeDefined();
     await expect(readMediaAsset(fixture.dataDir, imported.asset)).resolves.toEqual(PNG_BYTES);
+  });
+
+  it('retries only Memorix-staged trash and reports reclaimed bytes', async () => {
+    const fixture = await createFixture();
+    const trashDir = path.join(fixture.dataDir, 'media', '.trash');
+    const staged = path.join(trashDir, 'asset.pending-delete');
+    await mkdir(trashDir, { recursive: true });
+    await writeFile(staged, Buffer.from('staged-delete'));
+    await writeFile(path.join(trashDir, 'leave-alone.txt'), Buffer.from('not-a-staged-delete'));
+
+    const direct = await cleanupMediaTrash(fixture.dataDir);
+    expect(direct.reclaimedBytes).toBe(Buffer.byteLength('staged-delete'));
+    expect(direct.pendingFiles).toBe(0);
+    await expect(fsAccess(staged)).rejects.toThrow();
+    await expect(fsAccess(path.join(trashDir, 'leave-alone.txt'))).resolves.toBeUndefined();
+
+    const quota = await cleanupMediaQuota({ dataDir: fixture.dataDir, projectId: fixture.projectId });
+    expect(quota.reclaimedTrashBytes).toBe(0);
+    expect(quota.pendingTrashFiles).toBe(0);
+  });
+
+  it('clears a generated job reference when its controlled asset is deleted', async () => {
+    const fixture = await createFixture();
+    const imported = await importMediaBuffer({
+      dataDir: fixture.dataDir,
+      projectId: fixture.projectId,
+      bytes: PNG_BYTES,
+      filename: 'generated.png',
+      sourceKind: 'import',
+    });
+    const store = new MediaStore(fixture.dataDir);
+    const job = store.createJob({
+      projectId: fixture.projectId,
+      kind: 'minimax-video-generation',
+      request: { prompt: 'test' },
+    });
+    store.updateJob(fixture.projectId, job.id, { status: 'completed', assetId: imported.asset.id });
+
+    await removeMediaAsset({
+      dataDir: fixture.dataDir,
+      projectId: fixture.projectId,
+      assetId: imported.asset.id,
+    });
+
+    expect(store.getJob(fixture.projectId, job.id)?.assetId).toBeUndefined();
   });
 
   it('rejects unknown media instead of trusting a filename or caller claim', async () => {

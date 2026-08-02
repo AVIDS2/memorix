@@ -19,6 +19,7 @@ import {
   UnsupportedEmbeddingModalityError,
   validateEmbeddingInput,
   type EmbeddingInput,
+  type EmbeddingModality,
   type EmbeddingOptions,
   type EmbeddingProvider,
 } from './provider.js';
@@ -30,6 +31,7 @@ const MAX_CACHE_SIZE = 5000;
 export class TransformersProvider implements EmbeddingProvider {
     readonly name = 'transformers-minilm';
     readonly dimensions = 384;
+    readonly supportedModalities: readonly EmbeddingModality[] = ['text'];
 
     private extractor: any; // Pipeline instance
 

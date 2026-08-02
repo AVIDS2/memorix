@@ -1,24 +1,10 @@
 import { defineCommand } from 'citty';
-import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { analyzeImage } from '../../multimodal/image-loader.js';
-import { storeObservation } from '../../memory/observations.js';
+import { attachMediaAssetToObservation } from '../../media/attachment.js';
+import { importMediaFile, readMediaAsset } from '../../media/asset-store.js';
+import { MediaStore } from '../../media/media-store.js';
 import { emitError, emitResult, getCliProjectContext, resolveCliWriteScope } from './operator-shared.js';
-
-function inferMimeType(filePath: string): string {
-  const ext = path.extname(filePath).toLowerCase();
-  switch (ext) {
-    case '.jpg':
-    case '.jpeg':
-      return 'image/jpeg';
-    case '.gif':
-      return 'image/gif';
-    case '.webp':
-      return 'image/webp';
-    default:
-      return 'image/png';
-  }
-}
 
 export default defineCommand({
   meta: {
@@ -40,32 +26,61 @@ export default defineCommand({
         emitError('path is required for "memorix ingest image"', asJson);
         return;
       }
-      const { project, reader, identity } = await getCliProjectContext();
+      const { project, dataDir, reader, identity } = await getCliProjectContext();
       const resolvedPath = path.resolve(project.rootPath, imagePath);
-      const base64 = readFileSync(resolvedPath).toString('base64');
       const filename = path.basename(resolvedPath);
-      const analysis = await analyzeImage({
-        base64,
-        filename,
-        mimeType: (args.mimeType as string | undefined) || inferMimeType(resolvedPath),
-        prompt: args.prompt as string | undefined,
+      const imported = await importMediaFile({
+        dataDir,
+        projectId: project.id,
+        filePath: resolvedPath,
+        sourceKind: 'import',
+        sourceLabel: filename,
       });
+      if (imported.asset.kind !== 'image') {
+        throw new Error(`Expected an image file, detected ${imported.asset.mimeType}`);
+      }
 
-      const result = await storeObservation({
+      let analysis: { description: string; tags: string[]; entities: string[] };
+      let analysisWarning: string | undefined;
+      try {
+        const bytes = await readMediaAsset(dataDir, imported.asset);
+        analysis = await analyzeImage({
+          base64: bytes.toString('base64'),
+          filename,
+          mimeType: (args.mimeType as string | undefined) || imported.asset.mimeType,
+          prompt: args.prompt as string | undefined,
+        });
+      } catch (error) {
+        analysis = {
+          description: `Imported image asset ${filename}. Visual analysis is unavailable; use the asset reference for high-fidelity inspection.`,
+          tags: ['image', imported.asset.mimeType],
+          entities: [],
+        };
+        analysisWarning = error instanceof Error ? error.message : String(error);
+      }
+
+      new MediaStore(dataDir).addDerivation({
+        projectId: project.id,
+        assetId: imported.asset.id,
+        kind: 'description',
+        content: analysis.description,
+        status: 'ready',
+      });
+      const observation = await attachMediaAssetToObservation({
+        dataDir,
+        projectId: project.id,
+        asset: imported.asset,
         entityName: filename.replace(/\.[^.]+$/, '') || `image-${Date.now()}`,
-        type: 'discovery',
         title: `Image analysis: ${filename}`,
         narrative: analysis.description,
         concepts: analysis.tags,
         facts: analysis.entities,
-        projectId: project.id,
-        source: 'manual',
         ...resolveCliWriteScope({ reader, identity }, args.visibility as string | undefined),
       });
 
       emitResult(
-        { project, analysis, observation: result.observation },
-        `Stored image analysis #${result.observation.id}: ${filename}`,
+        { project, asset: imported.asset, deduplicated: imported.deduplicated, analysis, analysisWarning, observation },
+        `Stored image analysis #${observation.id}: ${filename}`,
         asJson,
       );
     } catch (error) {

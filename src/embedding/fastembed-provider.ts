@@ -19,6 +19,7 @@ import {
   UnsupportedEmbeddingModalityError,
   validateEmbeddingInput,
   type EmbeddingInput,
+  type EmbeddingModality,
   type EmbeddingOptions,
   type EmbeddingProvider,
 } from './provider.js';
@@ -61,6 +62,7 @@ async function saveDiskCache(): Promise<void> {
 export class FastEmbedProvider implements EmbeddingProvider {
   readonly name = 'fastembed-bge-small';
   readonly dimensions = 384;
+  readonly supportedModalities: readonly EmbeddingModality[] = ['text'];
 
   private model: { embed: (docs: string[], batchSize?: number) => AsyncGenerator<number[][]>; queryEmbed: (query: string) => Promise<number[]> };
 

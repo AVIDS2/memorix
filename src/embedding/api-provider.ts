@@ -14,6 +14,7 @@ import {
   UnsupportedEmbeddingModalityError,
   validateEmbeddingInput,
   type EmbeddingInput,
+  type EmbeddingModality,
   type EmbeddingOptions,
   type EmbeddingProvider,
   type EmbeddingRequestOptions,
@@ -445,6 +446,7 @@ function parseBatchLimit(error: unknown): number | null {
 export class APIEmbeddingProvider implements EmbeddingProvider {
   readonly name: string;
   readonly dimensions: number;
+  readonly supportedModalities: readonly EmbeddingModality[];
 
   private config: APIEmbeddingConfig;
   private readonly cacheKeyNamespace: string;
@@ -456,6 +458,11 @@ export class APIEmbeddingProvider implements EmbeddingProvider {
     this.cacheKeyNamespace = cacheNamespace(config);
     this.dimensions = detectedDimensions;
     this.name = `api-${config.model.replace(/\//g, '-')}`;
+    this.supportedModalities = isJinaEndpoint(config.baseUrl)
+      ? ['text', 'image', 'audio', 'video', 'document']
+      : isNativeGeminiEndpoint(config.baseUrl) && /embedding-2/i.test(config.model)
+        ? ['text', 'image', 'audio', 'video', 'document']
+        : ['text'];
   }
 
   static async create(): Promise<APIEmbeddingProvider>;
@@ -751,10 +758,7 @@ export class APIEmbeddingProvider implements EmbeddingProvider {
   }
 
   private supportsModality(modality: EmbeddingInput['modality']): boolean {
-    if (modality === 'text') return true;
-    if (isJinaEndpoint(this.config.baseUrl)) return true;
-    if (isNativeGeminiEndpoint(this.config.baseUrl) && /embedding-2/i.test(this.config.model)) return true;
-    return false;
+    return this.supportedModalities.includes(modality);
   }
 
   async embedInput(input: EmbeddingInput, options: EmbeddingOptions = {}): Promise<number[]> {

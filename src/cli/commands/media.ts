@@ -1,0 +1,231 @@
+import { defineCommand } from 'citty';
+
+import { attachMediaAssetToObservation } from '../../media/attachment.js';
+import { embedMediaAsset, findSimilarMediaAssets } from '../../media/embedding.js';
+import {
+  cleanupMediaQuota,
+  importMediaFile,
+  removeMediaAsset,
+} from '../../media/asset-store.js';
+import { MediaStore } from '../../media/media-store.js';
+import type { MediaKind } from '../../media/types.js';
+import {
+  emitError,
+  emitResult,
+  getCliProjectContext,
+  getCliReadContext,
+  parsePositiveInt,
+  resolveCliWriteScope,
+} from './operator-shared.js';
+
+function getValue(value: unknown, positional: string[] = []): string | undefined {
+  return typeof value === 'string' && value.trim() ? value.trim() : positional[0]?.trim() || undefined;
+}
+
+function parseMediaKind(value: unknown): MediaKind | undefined {
+  if (typeof value !== 'string' || !value.trim()) return undefined;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'image' || normalized === 'audio' || normalized === 'video' || normalized === 'document') {
+    return normalized;
+  }
+  throw new Error('kind must be image, audio, video, or document');
+}
+
+function parseByteLimit(value: unknown, fallback: number): number {
+  if (value === undefined || value === null || value === '') return fallback;
+  if (typeof value !== 'string' && typeof value !== 'number') throw new Error('maxBytes must be a positive integer');
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < 0) throw new Error('maxBytes must be a non-negative integer');
+  return parsed;
+}
+
+function help(): string {
+  return [
+    'Memorix Media Commands',
+    '',
+    '  memorix media import --path ./diagram.png',
+    '  memorix media list [--kind image]',
+    '  memorix media show --asset <asset-id>',
+    '  memorix media attach --asset <asset-id> [--title "Architecture"] [--text "..."]',
+    '  memorix media embed --asset <asset-id>',
+    '  memorix media similar --asset <asset-id> [--limit 10]',
+    '  memorix media remove --asset <asset-id> [--force]',
+    '  memorix media cleanup [--maxBytes 1073741824]',
+    '',
+    'Generated images and videos use the same asset lifecycle and are added in the 1.3.3 provider phase.',
+  ].join('\n');
+}
+
+export default defineCommand({
+  meta: {
+    name: 'media',
+    description: 'Import, attach, inspect, and clean controlled local media assets',
+  },
+  args: {
+    action: { type: 'string', description: 'Media action' },
+    path: { type: 'string', description: 'Local file to import' },
+    asset: { type: 'string', description: 'Media asset ID' },
+    kind: { type: 'string', description: 'Filter: image, audio, video, or document' },
+    title: { type: 'string', description: 'Observation title when attaching' },
+    text: { type: 'string', description: 'Observation narrative when attaching' },
+    entity: { type: 'string', description: 'Observation entity when attaching' },
+    concepts: { type: 'string', description: 'Comma-separated concepts when attaching' },
+    visibility: { type: 'string', description: 'Observation visibility when attaching' },
+    limit: { type: 'string', description: 'List limit' },
+    maxBytes: { type: 'string', description: 'Import or cleanup byte limit' },
+    'max-bytes': { type: 'string', description: 'Kebab-case alias for --maxBytes' },
+    force: { type: 'boolean', description: 'Detach linked observations before removal' },
+    json: { type: 'boolean', description: 'Emit machine-readable JSON output' },
+  },
+  run: async ({ args }) => {
+    const action = ((args._ as string[])?.[0] || (args.action as string | undefined) || '').trim().toLowerCase();
+    const positional = ((args._ as string[]) ?? []).slice(1);
+    const asJson = !!args.json;
+
+    try {
+      switch (action) {
+        case 'import': {
+          const filePath = getValue(args.path, positional);
+          if (!filePath) throw new Error('path is required for "memorix media import"');
+          const { project, dataDir } = await getCliProjectContext();
+          const result = await importMediaFile({
+            dataDir,
+            projectId: project.id,
+            filePath,
+            maxBytes: parseByteLimit(args.maxBytes ?? args['max-bytes'], 100 * 1024 * 1024),
+          });
+          emitResult(
+            { project, ...result },
+            `${result.deduplicated ? 'Reused' : 'Imported'} ${result.asset.kind} asset ${result.asset.id}`,
+            asJson,
+          );
+          return;
+        }
+        case 'list': {
+          const { project, dataDir } = await getCliReadContext();
+          const assets = new MediaStore(dataDir).listAssets(project.id, {
+            kind: parseMediaKind(args.kind),
+            limit: parsePositiveInt(args.limit as string | undefined, 50),
+          });
+          emitResult(
+            { project, assets },
+            assets.length === 0
+              ? 'No media assets.'
+              : assets.map((asset) => `- ${asset.id} ${asset.kind} ${asset.sourceLabel ?? asset.sha256.slice(0, 12)}`).join('\n'),
+            asJson,
+          );
+          return;
+        }
+        case 'show': {
+          const assetId = getValue(args.asset, positional);
+          if (!assetId) throw new Error('asset is required for "memorix media show"');
+          const { project, dataDir } = await getCliReadContext();
+          const store = new MediaStore(dataDir);
+          const asset = store.getAsset(project.id, assetId);
+          if (!asset) throw new Error(`Media asset not found: ${assetId}`);
+          const links = store.listLinks(project.id, asset.id);
+          const derivations = store.listDerivations(project.id, asset.id);
+          emitResult(
+            { project, asset, links, derivations },
+            `${asset.kind} ${asset.id}\n${asset.mimeType}, ${asset.byteSize} bytes, ${links.length} link(s)`,
+            asJson,
+          );
+          return;
+        }
+        case 'attach': {
+          const assetId = getValue(args.asset, positional);
+          if (!assetId) throw new Error('asset is required for "memorix media attach"');
+          const { project, dataDir, reader, identity } = await getCliProjectContext();
+          const store = new MediaStore(dataDir);
+          const asset = store.getAsset(project.id, assetId);
+          if (!asset) throw new Error(`Media asset not found: ${assetId}`);
+          const description = store.listDerivations(project.id, asset.id)
+            .find((item) => item.kind === 'description' && item.status === 'ready')?.content;
+          const concepts = typeof args.concepts === 'string'
+            ? args.concepts.split(',').map((value) => value.trim()).filter(Boolean)
+            : [];
+          const observation = await attachMediaAssetToObservation({
+            dataDir,
+            projectId: project.id,
+            asset,
+            title: (args.title as string | undefined)?.trim() || `Media asset: ${asset.sourceLabel ?? asset.id}`,
+            narrative: (args.text as string | undefined)?.trim() || description,
+            entityName: (args.entity as string | undefined)?.trim(),
+            concepts,
+            ...resolveCliWriteScope({ reader, identity }, args.visibility as string | undefined),
+          });
+          emitResult(
+            { project, asset, observation },
+            `Attached ${asset.id} to memory #${observation.id}`,
+            asJson,
+          );
+          return;
+        }
+        case 'remove': {
+          const assetId = getValue(args.asset, positional);
+          if (!assetId) throw new Error('asset is required for "memorix media remove"');
+          const { project, dataDir } = await getCliProjectContext();
+          const result = await removeMediaAsset({
+            dataDir,
+            projectId: project.id,
+            assetId,
+            force: args.force === true,
+          });
+          emitResult({ project, ...result }, `Removed media asset ${assetId}`, asJson);
+          return;
+        }
+        case 'embed': {
+          const assetId = getValue(args.asset, positional);
+          if (!assetId) throw new Error('asset is required for "memorix media embed"');
+          const { project, dataDir } = await getCliProjectContext();
+          const result = await embedMediaAsset({ dataDir, projectId: project.id, assetId, timeoutMs: 8_000 });
+          emitResult(
+            { project, ...result },
+            result.status === 'embedded'
+              ? `Embedded ${assetId} with profile ${result.profileKey}`
+              : result.reason,
+            asJson,
+          );
+          return;
+        }
+        case 'similar': {
+          const assetId = getValue(args.asset, positional);
+          if (!assetId) throw new Error('asset is required for "memorix media similar"');
+          const { project, dataDir } = await getCliReadContext();
+          const matches = findSimilarMediaAssets({
+            dataDir,
+            projectId: project.id,
+            assetId,
+            limit: parsePositiveInt(args.limit as string | undefined, 10),
+          });
+          emitResult(
+            { project, assetId, matches },
+            matches.length === 0
+              ? 'No compatible media embeddings found. Run "memorix media embed --asset <id>" with a multimodal embedding provider first.'
+              : matches.map((match) => `- ${match.asset.id} ${match.score.toFixed(3)} ${match.asset.sourceLabel ?? ''}`).join('\n'),
+            asJson,
+          );
+          return;
+        }
+        case 'cleanup': {
+          const { project, dataDir } = await getCliProjectContext();
+          const result = await cleanupMediaQuota({
+            dataDir,
+            projectId: project.id,
+            maxBytes: parseByteLimit(args.maxBytes ?? args['max-bytes'], 1024 * 1024 * 1024),
+          });
+          emitResult(
+            { project, ...result },
+            `Media cleanup: ${result.removed.length} asset(s), ${result.beforeBytes} -> ${result.afterBytes} bytes`,
+            asJson,
+          );
+          return;
+        }
+        default:
+          emitResult({ usage: help() }, help(), asJson);
+      }
+    } catch (error) {
+      emitError(error instanceof Error ? error.message : String(error), asJson);
+    }
+  },
+});

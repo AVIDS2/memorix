@@ -248,8 +248,13 @@ describe('CLI native parity', () => {
       path: imagePath,
       json: true,
     });
-    expect(ingestImage.exitCode).toBe(1);
-    expect(JSON.parse(ingestImage.stderr).error).toContain('LLM');
+    expect(ingestImage.exitCode).toBe(0);
+    const ingestedImage = JSON.parse(ingestImage.stdout);
+    expect(ingestedImage.asset.kind).toBe('image');
+    expect(ingestedImage.observation.id).toBeTypeOf('number');
+    // Visual analysis is optional. A controlled asset and text fallback remain
+    // useful when a project's LLM lane has not been configured.
+    expect(ingestedImage.analysisWarning).toContain('LLM');
   }, 30000);
 
   it('generates and shows project skills through the dedicated skills namespace', async () => {

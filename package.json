@@ -1,7 +1,7 @@
 {
   "name": "memorix",
   "mcpName": "io.github.AVIDS2/memorix",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "description": "Local-first shared memory layer for AI coding agents across MCP clients, Git history, reasoning context, and project sessions.",
   "type": "module",
   "sideEffects": false,
@@ -70,9 +70,11 @@
     "generate:star-history": "node scripts/generate-star-history.mjs",
     "sync:mcp-registry": "node scripts/sync-mcp-registry-manifest.mjs",
     "check:mcp-registry": "node scripts/check-mcp-registry-manifest.mjs",
+    "sync:plugin-release": "node scripts/sync-plugin-release-manifests.mjs",
+    "check:plugin-release": "node scripts/sync-plugin-release-manifests.mjs --check",
     "audit:pi-upstream": "node scripts/pi-upstream-audit.mjs",
     "lint": "tsc --noEmit",
-    "prepublishOnly": "npm run sync:mcp-registry && npm run check:mcp-registry && npm run build && npm test"
+    "prepublishOnly": "npm run sync:mcp-registry && npm run sync:plugin-release && npm run check:mcp-registry && npm run check:plugin-release && npm run build && npm test"
   },
   "keywords": [
     "mcp",

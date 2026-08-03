@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.4.1] - 2026-08-03
+
+### Added
+- **MiniMax M3 video input** -- The bundled `@memorix/ai` provider layer now advertises and routes MiniMax M3 video content through MiniMax's Anthropic-compatible API. Base64 video is covered by focused request-shape tests, and image-only models still receive a clear text fallback instead of an invalid video block. Contributed by [@octo-patch](https://github.com/octo-patch) in #153.
+
+### Changed
+- **Maintained product roadmap** -- Replaced the stale version-by-version roadmap with current product boundaries, operating constraints, and public directions. Release facts now live in this changelog and active maintainer work lives in `ACTIVE_WORK.md`. Contributed by [@FBISiri](https://github.com/FBISiri) in #140.
+
+### Fixed
+- **Deterministic provider tests** -- `@memorix/ai` unit tests no longer discover local API keys or Pi OAuth credentials and unexpectedly call paid, changing provider endpoints. Routine tests are offline by default; deliberate live validation requires `MEMORIX_AI_LIVE_TESTS=1` plus the required credentials.
+- **Stable model metadata assertion** -- Removed a test-only assumption that OpenRouter will permanently list `moonshotai/kimi-k2.6:free`; the bundled catalog snapshot no longer contains that route, while coverage remains for the supported Kimi K2.6 compatibility metadata.
+
 ## [1.4.0] - 2026-08-02
 
 ### Changed

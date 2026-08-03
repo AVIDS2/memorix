@@ -3,8 +3,9 @@
 This is the deliberately small execution core for exploratory project-memory
 trials. It is not a general sandbox and it is not a confirmatory study runner.
 
-The model receives only four ordinary coding tools: list files, read files,
-write allowed files, and run a trusted verifier. The verifier is supplied by
+The model receives only five ordinary coding tools: list files, read files,
+write allowed files, replace one exact writable text fragment, and run a trusted
+verifier. The verifier is supplied by
 the controller in an external oracle file, so its location and content are not
 visible to the model. The `raw-record` condition adds one explicit read of a
 fixed predecessor record; `memorix-native` adds one normal `memorix context

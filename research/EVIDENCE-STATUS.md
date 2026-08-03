@@ -31,6 +31,7 @@ current `1.4.1` product effect.
 | Memorix 1.4.1 | Released product with its own tests and package smoke evidence. | That it improves coding-task success. |
 | Public pilot receipts | Preserved as sanitized aggregate JSON. | Generalization beyond the fixed public fixtures and routes. |
 | Sealed-local trial protocol | The runner passed deterministic contracts plus two synthetic 3-by-3 matrices: `native-product` and matched `canonical-information`. All receipts remain external and are excluded from efficacy analysis. The no-memory condition also solved the synthetic durable-decision task by ordinary exploration. | An information-effect estimate, independent isolation, or a confirmatory experimental result. |
+| Source-backed operational preflight | One complete three-condition `canonical-information` screen was retained externally. All agents read the checkout but made no source edit because the original runner offered only whole-file rewriting. It is superseded by a new runner baseline with one bounded exact-text replacement tool. | A task or memory outcome, or a valid comparison with the repaired cohort. |
 | Anonymous NIER draft | A locally compiled candidate paper describes the cleaned protocol and archival evidence. | Venue acceptance, peer review, or a general performance claim. |
 
 ## Claims currently supported
@@ -48,8 +49,9 @@ memory, Mem0, AgentMemory, or any other system.
 
 ## What must happen next
 
-1. Exploration must collect complete matched rows on independently reviewable
-   cases and preserve failures.
+1. Exploration must rerun the preserved preflight under its separately frozen
+   repaired baseline, then collect complete matched rows on independently
+   reviewable cases and preserve failures.
 2. The paper must continue to identify every archival number as a `1.2.1`
    observation and label the new runner by its study tier.
 3. The anonymous supplement must be materialized from an explicit allowlist

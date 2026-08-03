@@ -131,8 +131,9 @@ condition loses ordinary current-code capability, the workspace differs, the
 model route is missing or mixed, the oracle changes, or the memory adapter
 fails. Assigning such a failure a zero would manufacture a memory effect.
 
-The exploratory runner gives the model only list, read, write, and trusted
-verification tools. It has no shell, network, process, host-filesystem, or
+The exploratory runner gives the model only list, read, bounded write,
+exact-text replacement, and trusted verification tools. It has no shell,
+network, process, host-filesystem, or
 oracle-file tool. The controller retains the private verifier outside the
 agent-visible checkout and writes only hashes and sanitized events to an
 external receipt. This is a useful local isolation boundary, not a claim of an

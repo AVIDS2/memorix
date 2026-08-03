@@ -14,7 +14,9 @@ not a confirmatory effectiveness study, and not a public artifact release.
   public case cards, and matched nine-row external synthetic matrices under
   both `native-product` and `canonical-information`. Every row completed; the
   no-memory condition also solved the synthetic durable case through ordinary
-  exploration. Both matrices are excluded from efficacy analysis.
+  exploration. Both matrices are excluded from efficacy analysis. A retained
+  source-backed three-condition preflight found a runner edit-surface defect;
+  it is excluded and must be rerun under a separately frozen repaired baseline.
 - The local anonymous NIER candidate compiles, passes bibliography and strict
   format checks, and has been visually reviewed. It remains a candidate rather
   than a completed empirical paper.

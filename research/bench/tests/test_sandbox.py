@@ -58,3 +58,39 @@ class ToolSandboxTests(unittest.TestCase):
             second = sandbox.run_verification({})
             self.assertTrue(second["passed"])
             self.assertEqual(second["output"], "verification passed")
+
+    def test_replace_text_requires_one_writable_match(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "workspace"
+            (root / "src").mkdir(parents=True)
+            target = root / "src" / "task.py"
+            target.write_text("state = 'pending'\n", encoding="utf-8")
+            sandbox = self._sandbox(root)
+
+            result = sandbox.replace_text(
+                {"path": "src/task.py", "old_text": "'pending'", "new_text": "'done'"}
+            )
+            self.assertTrue(result["replaced"])
+            self.assertEqual(target.read_text(encoding="utf-8"), "state = 'done'\n")
+            with self.assertRaises(ValueError):
+                sandbox.replace_text(
+                    {"path": "src/task.py", "old_text": "missing", "new_text": "x"}
+                )
+            with self.assertRaises(ValueError):
+                sandbox.replace_text(
+                    {"path": "README.md", "old_text": "x", "new_text": "y"}
+                )
+
+    def test_replace_text_preserves_existing_crlf_line_endings(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "workspace"
+            (root / "src").mkdir(parents=True)
+            target = root / "src" / "task.py"
+            target.write_bytes(b"state = 'pending'\r\nlabel = 'keep'\r\n")
+            sandbox = self._sandbox(root)
+
+            sandbox.replace_text(
+                {"path": "src/task.py", "old_text": "'pending'", "new_text": "'done'"}
+            )
+
+            self.assertEqual(target.read_bytes(), b"state = 'done'\r\nlabel = 'keep'\r\n")

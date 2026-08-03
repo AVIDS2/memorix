@@ -107,6 +107,42 @@ class ToolSandbox:
         )
         return {"path": relative, "written": True}
 
+    def replace_text(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        old_text = arguments.get("old_text")
+        new_text = arguments.get("new_text")
+        if not isinstance(old_text, str) or not old_text:
+            raise ValueError("old_text must be a non-empty string")
+        if not isinstance(new_text, str):
+            raise ValueError("new_text must be a string")
+        if len(old_text.encode("utf-8")) > MAX_WRITE_BYTES or len(new_text.encode("utf-8")) > MAX_WRITE_BYTES:
+            raise ValueError("replacement text exceeds the write limit")
+        candidate, relative = self._resolve(str(arguments.get("path", "")))
+        if not candidate.is_file():
+            raise ValueError("path is not a file")
+        if not self._is_writable(candidate):
+            raise ValueError("path is not writable in this case")
+        payload = candidate.read_bytes()
+        if len(payload) > MAX_WRITE_BYTES:
+            raise ValueError("file exceeds the editable size limit")
+        try:
+            content = payload.decode("utf-8")
+        except UnicodeDecodeError as error:
+            raise ValueError("file is not UTF-8 text") from error
+        matches = content.count(old_text)
+        if matches != 1:
+            raise ValueError("old_text must match exactly one location")
+        updated = content.replace(old_text, new_text, 1)
+        candidate.write_text(updated, encoding="utf-8", newline="")
+        self.events.append(
+            ToolEvent(
+                name="replace_text",
+                path=relative,
+                success=True,
+                content_sha256=sha256_text(updated),
+            )
+        )
+        return {"path": relative, "replaced": True}
+
     def run_verification(self, _arguments: dict[str, Any]) -> dict[str, Any]:
         command = [item.replace("{workspace}", str(self.root)) for item in self.oracle.command]
         environment = os.environ.copy()
@@ -150,6 +186,8 @@ class ToolSandbox:
             return self.read_file(arguments)
         if name == "write_file":
             return self.write_file(arguments)
+        if name == "replace_text":
+            return self.replace_text(arguments)
         if name == "run_verification":
             return self.run_verification(arguments)
         raise ValueError("tool is not available")

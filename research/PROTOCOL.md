@@ -1,6 +1,6 @@
 # MemorixBench Protocol
 
-**Protocol version:** 1.0-draft
+**Protocol version:** 1.1-draft
 
 **Target system:** Memorix 1.4.1
 **Status:** exploratory protocol; deterministic contracts and matched synthetic
@@ -108,8 +108,8 @@ task failure for one condition.
 
 The first operational tier uses a local controller with these boundaries:
 
-- the agent sees only the transfer checkout through list, read, write, and
-  trusted-test tools;
+- the agent sees only the transfer checkout through list, read, bounded write,
+  exact-text replacement, and trusted-test tools;
 - it has no shell, host filesystem, network, process, or oracle-file tool;
 - private tests and expected behavior remain outside the checkout;
 - each condition starts from a new materialized tree and fresh memory store;
@@ -121,6 +121,18 @@ This is a useful engineering and methodology gate, not an independent sandbox
 or a confirmatory result tier. Matched synthetic all-condition matrices have
 exercised both evidence-surface profiles; they are not entered into an efficacy
 comparison. The tier cannot establish a general Memorix effect.
+
+### Operational preflights and reruns
+
+An execution can reveal that the runner prevents ordinary task work rather than
+measure memory. For example, if every condition reads a real source checkout
+but cannot make a normal surgical edit because only full-file rewriting is
+available, its receipt is retained as an operational preflight. It is not
+silently deleted, relabeled as an agent failure, or compared with a later run
+that has a different editing surface. A repaired runner requires a new source
+tree hash, tool-schema hash, and cohort plan; analysis treats it as a distinct
+cohort. The preflight may motivate a runner change, but it never supplies an
+efficacy result.
 
 ## Confirmatory gate
 

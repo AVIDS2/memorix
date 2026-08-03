@@ -17,7 +17,7 @@ from .sandbox import ToolSandbox
 
 Condition = Literal["no-memory", "raw-record", "memorix-native"]
 SurfaceProfile = Literal["native-product", "canonical-information"]
-PROTOCOL_VERSION = "1.0-draft"
+PROTOCOL_VERSION = "1.1-draft"
 
 
 class AgentClient(Protocol):
@@ -58,6 +58,12 @@ def ordinary_tools() -> list[dict[str, Any]]:
         _tool_definition("list_files", "List visible workspace files below a relative directory.", {"path": {"type": "string"}}),
         _tool_definition("read_file", "Read one UTF-8 workspace file by relative path.", {"path": {"type": "string"}}, ["path"]),
         _tool_definition("write_file", "Write one UTF-8 file within an allowed source directory.", {"path": {"type": "string"}, "content": {"type": "string"}}, ["path", "content"]),
+        _tool_definition(
+            "replace_text",
+            "Replace one exact UTF-8 text fragment in a writable workspace file. The old text must occur exactly once.",
+            {"path": {"type": "string"}, "old_text": {"type": "string"}, "new_text": {"type": "string"}},
+            ["path", "old_text", "new_text"],
+        ),
         _tool_definition("run_verification", "Run the trusted project verification. It accepts no arbitrary command.", {}),
     ]
 
@@ -496,7 +502,7 @@ def run_trial(config: TrialConfig, client: AgentClient) -> dict[str, Any]:
                         if memory_tool is None:
                             raise ValueError("tool is not available")
                         result = memory_tool.detail(call.arguments.get("id"))
-                    elif call.name in {"list_files", "read_file", "write_file", "run_verification"}:
+                    elif call.name in {"list_files", "read_file", "write_file", "replace_text", "run_verification"}:
                         result = sandbox.dispatch(call.name, call.arguments)
                     else:
                         raise ValueError("tool is not available")

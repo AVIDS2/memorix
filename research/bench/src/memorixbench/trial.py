@@ -1,0 +1,605 @@
+from __future__ import annotations
+
+from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
+import json
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+import time
+from typing import Any, Literal, Protocol
+from uuid import uuid4
+
+from .models import CaseSpec, ModelReply, OracleSpec, ToolCall, compact_json, sha256_text, sha256_tree
+from .sandbox import ToolSandbox
+
+
+Condition = Literal["no-memory", "raw-record", "memorix-native"]
+SurfaceProfile = Literal["native-product", "canonical-information"]
+PROTOCOL_VERSION = "1.0-draft"
+
+
+class AgentClient(Protocol):
+    def chat(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]]) -> ModelReply: ...
+
+
+@dataclass(frozen=True)
+class TrialConfig:
+    case: CaseSpec
+    oracle: OracleSpec
+    condition: Condition
+    requested_model: str
+    artifact_root: Path
+    memorix_cli: str = "memorix"
+    max_steps: int = 24
+    memorix_timeout_seconds: int = 120
+    surface_profile: SurfaceProfile = "native-product"
+
+
+def _tool_definition(name: str, description: str, properties: dict[str, Any], required: list[str] | None = None) -> dict[str, Any]:
+    return {
+        "type": "function",
+        "function": {
+            "name": name,
+            "description": description,
+            "parameters": {
+                "type": "object",
+                "properties": properties,
+                "required": required or [],
+                "additionalProperties": False,
+            },
+        },
+    }
+
+
+def ordinary_tools() -> list[dict[str, Any]]:
+    return [
+        _tool_definition("list_files", "List visible workspace files below a relative directory.", {"path": {"type": "string"}}),
+        _tool_definition("read_file", "Read one UTF-8 workspace file by relative path.", {"path": {"type": "string"}}, ["path"]),
+        _tool_definition("write_file", "Write one UTF-8 file within an allowed source directory.", {"path": {"type": "string"}, "content": {"type": "string"}}, ["path", "content"]),
+        _tool_definition("run_verification", "Run the trusted project verification. It accepts no arbitrary command.", {}),
+    ]
+
+
+def canonical_information_tools() -> list[dict[str, Any]]:
+    return [
+        _tool_definition(
+            "project_predecessor_context",
+            "Read the bounded index of predecessor project evidence. It may be called once when prior evidence would materially change the plan.",
+            {},
+        ),
+        _tool_definition(
+            "project_predecessor_detail",
+            "Expand one predecessor record cited by the bounded index. Pass the numeric record id. It may be called once.",
+            {"id": {"type": "integer"}},
+            ["id"],
+        ),
+    ]
+
+
+def agent_tools(condition: Condition, surface_profile: SurfaceProfile = "native-product") -> list[dict[str, Any]]:
+    tools = ordinary_tools()
+    if surface_profile == "canonical-information":
+        return tools + canonical_information_tools()
+    if surface_profile != "native-product":
+        raise ValueError("unsupported surface profile")
+    if condition == "raw-record":
+        tools.append(
+            _tool_definition(
+                "read_predecessor_record",
+                "Read one fixed predecessor record under the case evidence-size cap. It may be called once when prior evidence would materially change the plan.",
+                {},
+            )
+        )
+    if condition == "memorix-native":
+        tools.append(
+            _tool_definition(
+                "memorix_project_context",
+                "Read bounded Memorix project context for the current task. It may be called once when prior project evidence would materially change the plan.",
+                {},
+            )
+        )
+        tools.append(
+            _tool_definition(
+                "memorix_memory_detail",
+                "Expand one memory cited by the Memorix project-context brief. Pass the numeric observation id shown after #. It may be called once.",
+                {"id": {"type": "integer"}},
+                ["id"],
+            )
+        )
+    return tools
+
+
+def _truncate_evidence(value: str, limit: int) -> str:
+    if len(value) <= limit:
+        return value
+    suffix = "... [truncated by research runner]"
+    if limit <= len(suffix):
+        return value[:limit]
+    return value[: limit - len(suffix)] + suffix
+
+
+def _copy_source(source: Path, target: Path) -> None:
+    ignored = shutil.ignore_patterns(".git", ".memorix", ".venv", "__pycache__", ".pytest_cache")
+    shutil.copytree(source, target, ignore=ignored)
+
+
+def _run(command: list[str], *, cwd: Path, timeout_seconds: int) -> subprocess.CompletedProcess[str]:
+    options: dict[str, Any] = {}
+    if sys.platform == "win32":
+        options["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    return subprocess.run(
+        command,
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=timeout_seconds,
+        check=False,
+        **options,
+    )
+
+
+def _resolve_executable(command: str) -> str:
+    """Resolve npm's Windows command shim before entering the isolated runner."""
+    if Path(command).is_absolute():
+        return command
+    located = shutil.which(command)
+    if located:
+        return located
+    if sys.platform == "win32" and not Path(command).suffix:
+        shim = shutil.which(command + ".cmd")
+        if shim:
+            return shim
+    return command
+
+
+def _initialize_git(workspace: Path) -> None:
+    for command in (["git", "init", "--quiet"], ["git", "config", "user.name", "MemorixBench"], ["git", "config", "user.email", "memorixbench@example.invalid"]):
+        completed = _run(list(command), cwd=workspace, timeout_seconds=30)
+        if completed.returncode != 0:
+            raise RuntimeError("unable to initialize isolated Git workspace")
+
+
+class RawRecordTool:
+    def __init__(self, case: CaseSpec):
+        self.case = case
+        self.calls = 0
+        self.retrieved_chars = 0
+        self.record_hashes: list[str] = []
+
+    def read(self) -> dict[str, Any]:
+        if self.calls >= 1:
+            raise ValueError("read_predecessor_record may be called once per exploratory trial")
+        self.calls += 1
+        rendered = _truncate_evidence(self.case.predecessor_record, self.case.evidence_char_budget)
+        self.retrieved_chars += len(rendered)
+        record_sha256 = sha256_text(rendered)
+        self.record_hashes.append(record_sha256)
+        return {
+            "record": rendered,
+            "record_sha256": record_sha256,
+            "truncated": len(rendered) < len(self.case.predecessor_record),
+        }
+
+
+class CanonicalEvidenceTool:
+    """Give every condition the same neutral predecessor-evidence tool shape."""
+
+    def __init__(self, case: CaseSpec, condition: Condition):
+        self.case = case
+        self.condition = condition
+        self.context_calls = 0
+        self.detail_calls = 0
+        self.retrieved_chars = 0
+        self.context_hashes: list[str] = []
+        self.detail_hashes: list[str] = []
+
+    def context(self) -> dict[str, Any]:
+        if self.context_calls >= 1:
+            raise ValueError("project_predecessor_context may be called once per exploratory trial")
+        self.context_calls += 1
+        if self.condition == "no-memory":
+            rendered = "No predecessor evidence is available for this transfer task."
+        else:
+            rendered = "One predecessor record is available as #1. Expand it only if it is relevant to the current task."
+        context_sha256 = sha256_text(rendered)
+        self.context_hashes.append(context_sha256)
+        return {"context": rendered, "context_sha256": context_sha256, "truncated": False}
+
+    def detail(self, record_id: object) -> dict[str, Any]:
+        if self.detail_calls >= 1:
+            raise ValueError("project_predecessor_detail may be called once per exploratory trial")
+        if self.context_calls < 1:
+            raise ValueError("project_predecessor_context must be called before detail")
+        if not isinstance(record_id, int) or record_id != 1:
+            raise ValueError("id must be the record id 1 from the predecessor index")
+        self.detail_calls += 1
+        if self.condition == "no-memory":
+            rendered = "No predecessor evidence is available for this transfer task."
+        else:
+            remaining = self.case.evidence_char_budget - self.retrieved_chars
+            if remaining < 1:
+                raise ValueError("case evidence-size budget is exhausted")
+            rendered = _truncate_evidence(self.case.predecessor_record, remaining)
+            self.retrieved_chars += len(rendered)
+        detail_sha256 = sha256_text(rendered)
+        self.detail_hashes.append(detail_sha256)
+        return {
+            "detail": rendered,
+            "detail_sha256": detail_sha256,
+            "truncated": self.condition != "no-memory" and len(rendered) < len(self.case.predecessor_record),
+        }
+
+
+class MemorixContextTool:
+    def __init__(self, *, config: TrialConfig, workspace: Path):
+        self.config = config
+        self.workspace = workspace
+        self.cli = _resolve_executable(config.memorix_cli)
+        self.calls = 0
+        self.detail_calls = 0
+        self.seed_receipt: dict[str, Any] | None = None
+        self.version: str | None = None
+        self.context_hashes: list[str] = []
+        self.detail_hashes: list[str] = []
+        self.retrieved_chars = 0
+        self.formation_elapsed_ms: int | None = None
+
+    def _bounded_evidence(self, rendered: str) -> tuple[str, bool]:
+        remaining = self.config.case.evidence_char_budget - self.retrieved_chars
+        if remaining < 1:
+            raise ValueError("case evidence-size budget is exhausted")
+        bounded = _truncate_evidence(rendered, remaining)
+        self.retrieved_chars += len(bounded)
+        return bounded, len(bounded) < len(rendered)
+
+    def seed(self) -> None:
+        started = time.monotonic()
+        version_probe = _run(
+            [self.cli, "--version"],
+            cwd=self.workspace,
+            timeout_seconds=30,
+        )
+        if version_probe.returncode != 0:
+            raise RuntimeError("Memorix version probe failed")
+        self.version = version_probe.stdout.strip() or None
+        completed = _run(
+            [
+                self.cli,
+                "memory",
+                "store",
+                "--text",
+                self.config.case.predecessor_record,
+                "--title",
+                f"Research precursor: {self.config.case.title}",
+                "--cwd",
+                str(self.workspace),
+                "--json",
+            ],
+            cwd=self.workspace,
+            timeout_seconds=self.config.memorix_timeout_seconds,
+        )
+        self.seed_receipt = {
+            "returncode": completed.returncode,
+            "stdout_sha256": sha256_text(completed.stdout),
+            "stderr_sha256": sha256_text(completed.stderr),
+        }
+        if completed.returncode != 0:
+            raise RuntimeError("Memorix precursor formation failed")
+        self.formation_elapsed_ms = round((time.monotonic() - started) * 1000)
+
+    def context(self) -> dict[str, Any]:
+        if self.calls >= 1:
+            raise ValueError("memorix_project_context may be called once per exploratory trial")
+        self.calls += 1
+        completed = _run(
+            [
+                self.cli,
+                "context",
+                self.config.case.task,
+                "--cwd",
+                str(self.workspace),
+                "--json",
+            ],
+            cwd=self.workspace,
+            timeout_seconds=self.config.memorix_timeout_seconds,
+        )
+        if completed.returncode != 0:
+            raise RuntimeError("Memorix project context failed")
+        try:
+            payload = json.loads(completed.stdout)
+        except json.JSONDecodeError as error:
+            raise RuntimeError("Memorix project context returned invalid JSON") from error
+        rendered, truncated = self._bounded_evidence(_native_context_prompt(payload))
+        context_sha256 = sha256_text(rendered)
+        self.context_hashes.append(context_sha256)
+        return {"context": rendered, "context_sha256": context_sha256, "truncated": truncated}
+
+    def detail(self, observation_id: object) -> dict[str, Any]:
+        if self.detail_calls >= 1:
+            raise ValueError("memorix_memory_detail may be called once per exploratory trial")
+        if not isinstance(observation_id, int) or observation_id < 1:
+            raise ValueError("id must be a positive observation id")
+        self.detail_calls += 1
+        completed = _run(
+            [
+                self.cli,
+                "memory",
+                "detail",
+                "--id",
+                str(observation_id),
+                "--cwd",
+                str(self.workspace),
+                "--json",
+            ],
+            cwd=self.workspace,
+            timeout_seconds=self.config.memorix_timeout_seconds,
+        )
+        if completed.returncode != 0:
+            raise RuntimeError("Memorix memory detail failed")
+        try:
+            payload = json.loads(completed.stdout)
+        except json.JSONDecodeError as error:
+            raise RuntimeError("Memorix memory detail returned invalid JSON") from error
+        rendered, truncated = self._bounded_evidence(_native_memory_detail(payload))
+        detail_sha256 = sha256_text(rendered)
+        self.detail_hashes.append(detail_sha256)
+        return {"detail": rendered, "detail_sha256": detail_sha256, "truncated": truncated}
+
+
+def _native_context_prompt(payload: object) -> str:
+    """Expose the same bounded agent brief, never the operator JSON envelope."""
+    if isinstance(payload, dict):
+        workset = payload.get("workset")
+        if isinstance(workset, dict):
+            prompt = workset.get("prompt")
+            if isinstance(prompt, str) and prompt.strip():
+                return prompt.strip()
+        prompt = payload.get("prompt")
+        if isinstance(prompt, str) and prompt.strip():
+            return prompt.strip()
+    raise RuntimeError("Memorix project context has no bounded agent prompt")
+
+
+def _native_memory_detail(payload: object) -> str:
+    """Retain agent-relevant fields and remove operator-only project metadata."""
+    if not isinstance(payload, dict) or not isinstance(payload.get("documents"), list):
+        raise RuntimeError("Memorix memory detail has no documents")
+    allowed_fields = ("id", "observationId", "type", "title", "narrative", "facts", "filesModified", "concepts", "status")
+    documents: list[dict[str, object]] = []
+    for document in payload["documents"]:
+        if not isinstance(document, dict):
+            continue
+        cleaned = {field: document[field] for field in allowed_fields if document.get(field) not in (None, "")}
+        if cleaned:
+            documents.append(cleaned)
+    if not documents:
+        raise RuntimeError("Memorix memory detail has no usable document")
+    return compact_json({"documents": documents})
+
+
+def _messages(case: CaseSpec) -> list[dict[str, str]]:
+    system = (
+        "You are a coding agent working in an isolated project. Use the supplied tools to inspect, edit, and verify the current checkout. "
+        "Do not claim a change is complete until the trusted verification passes. You have no shell, network, process, or host-file access beyond these tools."
+    )
+    return [{"role": "system", "content": system}, {"role": "user", "content": case.task}]
+
+
+def _assistant_wire(reply: ModelReply) -> dict[str, Any]:
+    payload: dict[str, Any] = {"role": "assistant", "content": reply.content}
+    if reply.tool_calls:
+        payload["tool_calls"] = [
+            {
+                "id": call.call_id,
+                "type": "function",
+                "function": {"name": call.name, "arguments": compact_json(call.arguments)},
+            }
+            for call in reply.tool_calls
+        ]
+    return payload
+
+
+def _receipt_path(root: Path, run_id: str) -> Path:
+    return root / "receipts" / f"{run_id}.json"
+
+
+def _runner_source_tree_sha256() -> str:
+    """Fingerprint the executable study surface without recording a local path."""
+    return sha256_tree(Path(__file__).resolve().parents[2])
+
+
+def run_trial(config: TrialConfig, client: AgentClient) -> dict[str, Any]:
+    if config.max_steps < 1 or config.max_steps > 80:
+        raise ValueError("max_steps must be between 1 and 80")
+    if config.surface_profile not in {"native-product", "canonical-information"}:
+        raise ValueError("unsupported surface profile")
+    run_id = f"exploratory-{config.case.case_id}-{uuid4().hex[:12]}"
+    artifact_root = config.artifact_root.resolve()
+    workspace = artifact_root / "workspaces" / run_id
+    receipt_path = _receipt_path(artifact_root, run_id)
+    receipt_path.parent.mkdir(parents=True, exist_ok=True)
+    if workspace.exists():
+        raise RuntimeError("trial workspace collision")
+    _copy_source(config.case.source_root, workspace)
+    _initialize_git(workspace)
+    sandbox = ToolSandbox(workspace, config.case.writable_paths, config.oracle)
+    raw_record_tool = RawRecordTool(config.case) if config.surface_profile == "native-product" and config.condition == "raw-record" else None
+    canonical_tool = CanonicalEvidenceTool(config.case, config.condition) if config.surface_profile == "canonical-information" and config.condition != "memorix-native" else None
+    memory_tool = MemorixContextTool(config=config, workspace=workspace) if config.condition == "memorix-native" else None
+    tool_definitions = agent_tools(config.condition, config.surface_profile)
+    tool_schema_sha256 = sha256_text(compact_json(tool_definitions))
+    start_hash = sha256_tree(workspace)
+    messages: list[dict[str, Any]] = _messages(config.case)
+    actual_models: list[str] = []
+    response_ids: list[str] = []
+    input_tokens = 0
+    output_tokens = 0
+    costs: list[float] = []
+    final_sha256: str | None = None
+    invalid_reason: str | None = None
+    failure_stage = "setup"
+    transfer_started: float | None = None
+    try:
+        if memory_tool is not None:
+            failure_stage = "memory-seed"
+            memory_tool.seed()
+        transfer_started = time.monotonic()
+        for _step in range(config.max_steps):
+            failure_stage = "provider-chat"
+            reply = client.chat(messages, tool_definitions)
+            if reply.model:
+                actual_models.append(reply.model)
+            if reply.response_id:
+                response_ids.append(reply.response_id)
+            input_tokens += reply.input_tokens or 0
+            output_tokens += reply.output_tokens or 0
+            if reply.cost_usd is not None:
+                costs.append(reply.cost_usd)
+            messages.append(_assistant_wire(reply))
+            if not reply.tool_calls:
+                final_sha256 = sha256_text(reply.content or "")
+                break
+            for call in reply.tool_calls:
+                try:
+                    failure_stage = f"tool:{call.name}"
+                    if call.name == "read_predecessor_record":
+                        if raw_record_tool is None:
+                            raise ValueError("tool is not available")
+                        result = raw_record_tool.read()
+                    elif call.name == "project_predecessor_context":
+                        if config.condition == "memorix-native":
+                            if memory_tool is None:
+                                raise ValueError("tool is not available")
+                            result = memory_tool.context()
+                        else:
+                            if canonical_tool is None:
+                                raise ValueError("tool is not available")
+                            result = canonical_tool.context()
+                    elif call.name == "project_predecessor_detail":
+                        if config.condition == "memorix-native":
+                            if memory_tool is None:
+                                raise ValueError("tool is not available")
+                            result = memory_tool.detail(call.arguments.get("id"))
+                        else:
+                            if canonical_tool is None:
+                                raise ValueError("tool is not available")
+                            result = canonical_tool.detail(call.arguments.get("id"))
+                    elif call.name == "memorix_project_context":
+                        if memory_tool is None:
+                            raise ValueError("tool is not available")
+                        result = memory_tool.context()
+                    elif call.name == "memorix_memory_detail":
+                        if memory_tool is None:
+                            raise ValueError("tool is not available")
+                        result = memory_tool.detail(call.arguments.get("id"))
+                    elif call.name in {"list_files", "read_file", "write_file", "run_verification"}:
+                        result = sandbox.dispatch(call.name, call.arguments)
+                    else:
+                        raise ValueError("tool is not available")
+                except RuntimeError:
+                    # A native-memory failure is an infrastructure failure, not a
+                    # disguised no-memory task outcome.
+                    raise
+                except ValueError as error:
+                    result = {"error": str(error)}
+                messages.append({"role": "tool", "tool_call_id": call.call_id, "content": compact_json(result)})
+        else:
+            invalid_reason = "tool-step-limit"
+    except Exception as error:  # The receipt must preserve infrastructure failures.
+        invalid_reason = f"infrastructure:{failure_stage}:{type(error).__name__}"
+
+    final_verification = sandbox.run_verification({})
+    status = "invalid" if invalid_reason else "completed"
+    evidence_tool_calls = (
+        canonical_tool.context_calls + canonical_tool.detail_calls
+        if canonical_tool is not None
+        else (raw_record_tool.calls if raw_record_tool is not None else (memory_tool.calls + memory_tool.detail_calls if memory_tool else 0))
+    )
+    evidence_chars_retrieved = (
+        canonical_tool.retrieved_chars
+        if canonical_tool is not None
+        else (raw_record_tool.retrieved_chars if raw_record_tool is not None else (memory_tool.retrieved_chars if memory_tool else 0))
+    )
+    payload = {
+        "schema_version": "exploratory-sealed-local-v2",
+        "evidence_tier": "exploratory-sealed-local",
+        "runner": {
+            "protocol_version": PROTOCOL_VERSION,
+            "source_tree_sha256": _runner_source_tree_sha256(),
+        },
+        "run_id": run_id,
+        "case_id": config.case.case_id,
+        "condition": config.condition,
+        "surface_profile": config.surface_profile,
+        "tool_schema_sha256": tool_schema_sha256,
+        "requested_model": config.requested_model,
+        "actual_models": sorted(set(actual_models)),
+        "response_id_sha256": [sha256_text(value) for value in response_ids],
+        "status": status,
+        "invalid_reason": invalid_reason,
+        "task_success": final_verification["passed"] if status == "completed" else None,
+        "verification": {"passed": final_verification["passed"]},
+        "resource_usage": {
+            "input_tokens": input_tokens or None,
+            "output_tokens": output_tokens or None,
+            "cost_usd": sum(costs) if costs else None,
+            "transfer_elapsed_ms": round((time.monotonic() - transfer_started) * 1000) if transfer_started is not None else None,
+            "tool_call_count": len(sandbox.events) + evidence_tool_calls,
+            "ordinary_tool_call_count": len(sandbox.events),
+            "evidence_tool_call_count": evidence_tool_calls,
+            "evidence_chars_retrieved": evidence_chars_retrieved,
+            "memory_context_calls": memory_tool.calls if memory_tool else 0,
+            "memory_detail_calls": memory_tool.detail_calls if memory_tool else 0,
+            "raw_record_calls": raw_record_tool.calls if raw_record_tool else 0,
+            "canonical_context_calls": canonical_tool.context_calls if canonical_tool else 0,
+            "canonical_detail_calls": canonical_tool.detail_calls if canonical_tool else 0,
+        },
+        "case": {
+            "class": config.case.case_class,
+            "tier": config.case.case_tier,
+            "evidence_char_budget": config.case.evidence_char_budget,
+            "source_tree_before_sha256": start_hash,
+            "source_tree_after_sha256": sha256_tree(workspace),
+            "predecessor_record_sha256": sha256_text(config.case.predecessor_record),
+            "task_sha256": sha256_text(config.case.task),
+            "oracle_definition_sha256": config.oracle.definition_sha256,
+        },
+        "memorix_formation": (
+            {
+                "cli_version": memory_tool.version,
+                "seed": memory_tool.seed_receipt,
+                "context_sha256": memory_tool.context_hashes,
+                "detail_sha256": memory_tool.detail_hashes,
+                "retrieved_chars": memory_tool.retrieved_chars,
+                "formation_elapsed_ms": memory_tool.formation_elapsed_ms,
+            }
+            if memory_tool
+            else None
+        ),
+        "raw_record": (
+            {
+                "record_sha256": raw_record_tool.record_hashes,
+                "retrieved_chars": raw_record_tool.retrieved_chars,
+            }
+            if raw_record_tool
+            else None
+        ),
+        "canonical_evidence": (
+            {
+                "context_sha256": canonical_tool.context_hashes,
+                "detail_sha256": canonical_tool.detail_hashes,
+                "retrieved_chars": canonical_tool.retrieved_chars,
+            }
+            if canonical_tool
+            else None
+        ),
+        "tool_events": sandbox.event_payload(),
+        "final_response_sha256": final_sha256,
+        "finished_at": datetime.now(timezone.utc).isoformat(),
+    }
+    receipt_path.write_text(json.dumps(payload, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
+    return {"receipt_path": receipt_path, "payload": payload}

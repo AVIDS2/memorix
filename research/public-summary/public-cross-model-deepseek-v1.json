@@ -1,0 +1,138 @@
+{
+  "analysis": {
+    "evidence_tier": "public-reproducible",
+    "failure_summaries": [
+      {
+        "condition": "no-memory",
+        "failure_reason_counts": {},
+        "task_failure_rows": 0,
+        "task_success_rows": 36,
+        "valid_rows": 36
+      },
+      {
+        "condition": "memorix-1.2.1-canonical-local",
+        "failure_reason_counts": {},
+        "task_failure_rows": 0,
+        "task_success_rows": 36,
+        "valid_rows": 36
+      }
+    ],
+    "inference_status": "descriptive-public-cohort-not-confirmatory-v1",
+    "plan_id": "memorixbench-public-cross-model-deepseek-v1",
+    "primary_resources": [
+      {
+        "clusters": 12,
+        "confidence_interval": [
+          -1.4758888888868074,
+          8.097166666668878
+        ],
+        "control_favored_clusters": 7,
+        "control_mean": 29.727055555554724,
+        "descriptive_sign_flip_p": 0.2216796875,
+        "direction": "lower-is-better",
+        "metric": "wall_seconds",
+        "treatment_favored_clusters": 5,
+        "treatment_mean": 33.020916666667794,
+        "treatment_minus_control": 3.2938611111130727
+      },
+      {
+        "clusters": 12,
+        "confidence_interval": [
+          1069.6944444444443,
+          3428.1388888888887
+        ],
+        "control_favored_clusters": 11,
+        "control_mean": 9192.305555555557,
+        "descriptive_sign_flip_p": 0.00439453125,
+        "direction": "lower-is-better",
+        "metric": "input_tokens",
+        "treatment_favored_clusters": 1,
+        "treatment_mean": 11397.861111111111,
+        "treatment_minus_control": 2205.555555555555
+      },
+      {
+        "clusters": 12,
+        "confidence_interval": [
+          23.638888888888896,
+          180.66666666666666
+        ],
+        "control_favored_clusters": 9,
+        "control_mean": 963.9722222222222,
+        "descriptive_sign_flip_p": 0.03564453125,
+        "direction": "lower-is-better",
+        "metric": "output_tokens",
+        "treatment_favored_clusters": 3,
+        "treatment_mean": 1063.0277777777778,
+        "treatment_minus_control": 99.0555555555555
+      },
+      {
+        "clusters": 12,
+        "confidence_interval": [
+          0.00010578771,
+          0.00024684694999999995
+        ],
+        "control_favored_clusters": 10,
+        "control_mean": 0.0009363664922222223,
+        "descriptive_sign_flip_p": 0.001953125,
+        "direction": "lower-is-better",
+        "metric": "cost_usd",
+        "treatment_favored_clusters": 2,
+        "treatment_mean": 0.0011107447577777777,
+        "treatment_minus_control": 0.00017437826555555554
+      },
+      {
+        "clusters": 12,
+        "confidence_interval": [
+          -0.16666666666666682,
+          1.0277777777777775
+        ],
+        "control_favored_clusters": 6,
+        "control_mean": 6.388888888888889,
+        "descriptive_sign_flip_p": 0.2578125,
+        "direction": "lower-is-better",
+        "metric": "tool_call_count",
+        "treatment_favored_clusters": 3,
+        "treatment_mean": 6.8055555555555545,
+        "treatment_minus_control": 0.41666666666666646
+      }
+    ],
+    "primary_success": {
+      "absolute_difference": 0.0,
+      "analysis_unit": "case-within-agent-actual-model-cohort-v1",
+      "cluster_sign_flip_p": 1.0,
+      "clusters": 12,
+      "confidence_interval": [
+        0.0,
+        0.0
+      ],
+      "control": "no-memory",
+      "control_favored_clusters": 0,
+      "control_success_rate": 1.0,
+      "excluded_invalid_runs": 0,
+      "pairs": 36,
+      "treatment": "memorix-1.2.1-canonical-local",
+      "treatment_favored_clusters": 0,
+      "treatment_success_rate": 1.0,
+      "unmatched_runs": 0
+    },
+    "registry_id": "memorixbench-public-reproducible-v1",
+    "registry_sha256": "eb0f3dc1e39545da2f508df9f33840dae88ec0131dafba1a020957cf58c81667",
+    "result_validation": {
+      "expected_rows": 72,
+      "full_tool_policy_sha256": "2ec323c63d9d0c37d4e24324e16c2865a622fd722c4b884d088978a5301a6970",
+      "invalid_rows": 0,
+      "memorix_cli_sha256": "aa60d12917a9e4a7d7040ca4b0e75bfc18990cbed225f832d1b72f1f5bd057d0",
+      "observed_rows": 72,
+      "plan_id": "memorixbench-public-cross-model-deepseek-v1",
+      "registry_id": "memorixbench-public-reproducible-v1",
+      "registry_sha256": "eb0f3dc1e39545da2f508df9f33840dae88ec0131dafba1a020957cf58c81667",
+      "task_success_rows": 72,
+      "valid_rows": 72
+    },
+    "schema_version": "public-reproducible-cohort-analysis-v1",
+    "secondary_success": []
+  },
+  "analysis_sha256": "99df26fa0e830835bd9df5a775e9150221c4c5779f9f79226ecb6f38387fadad",
+  "evidence_tier": "public-reproducible",
+  "schema_version": "public-cohort-summary-v1"
+}

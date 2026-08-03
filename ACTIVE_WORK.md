@@ -20,8 +20,9 @@
 
 1. Keep the public repository free of operator state, local paths, credentials,
    raw session captures, and one-off development artifacts.
-2. Turn MemorixBench from a local harness into a reproducible study with public
-   permissive-license task sources, isolated trials, and provenance receipts.
+2. Recover MemorixBench into a small reproducible study: public pilot evidence
+   stays clearly labeled as historical, while new `1.4.1` trials use isolated
+   workspaces, frozen routes, and reviewable provenance receipts.
 
 ## Completed Contribution Decisions
 
@@ -31,14 +32,21 @@
 - #33, #31, #30: not merged into the superseding media/retrieval architecture.
   Their original authorship is preserved through #173 (PDF derivations), #174
   (audio derivatives), and #175 (graph-assisted evidence expansion).
-- #136 and #151: research-only work. Keep it outside npm releases until the
-  experimental protocol and evidence are independently complete.
+- #136 and #151: research-only work. Their useful public protocol and paper
+  assets are being recovered on a clean branch; do not merge their old
+  product-interface changes or local-development records into a release.
 
 ## Research Boundary
 
-The current benchmark harness is a pilot, not a paper result. Confirmatory
-claims require public task provenance, isolated execution, frozen routes and
-models, blinded grading where applicable, and reported failures as well as wins.
+The archived public benchmark pilot is not a current-product paper result and
+was produced on an earlier build. A `1.4.1` exploratory sealed-local runner has
+passed deterministic contracts and a nine-row synthetic `native-product`
+engineering matrix. Those receipts show that the three integration paths can
+complete under the real product surface; they are excluded from efficacy claims.
+The matched `canonical-information` profile and source-backed cases remain
+open. Confirmatory claims still require reviewed task provenance, isolated
+execution, frozen routes and models, blinded grading where applicable, and
+reported failures as well as wins.
 
 ## Operating Rules
 
@@ -53,7 +61,8 @@ models, blinded grading where applicable, and reported failures as well as wins.
 
 ## Immediate Next Step
 
-Advance MemorixBench from a pilot harness to a reproducible study with public
-task sources, isolated trials, frozen model routes, and reviewable provenance.
-Keep research work separate from npm release claims until the experimental
-protocol and evidence are independently complete.
+Curate independently reviewable durable-decision and stale-conflict cases, run
+matched exploratory cohorts without dropping failures, then revise the
+anonymous NIER candidate from evidence explicitly labeled by product version and
+study tier. Keep research work separate from npm release claims until the
+experimental protocol and evidence are complete.

@@ -129,6 +129,7 @@ function detectStaleProgressNotes(input: {
   now: Date;
 }): ProjectStaleNote[] {
   const candidates = [
+    'ACTIVE_WORK.md',
     'progress.txt',
     'docs/dev-log/progress.txt',
     'docs/memcode/dev-log/progress.txt',

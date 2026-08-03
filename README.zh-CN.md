@@ -35,10 +35,14 @@
   <a href="#快速开始">快速开始</a> |
   <a href="#记忆模型">记忆模型</a> |
   <a href="#memcode内置终端-agent">memcode</a> |
+  <a href="ACTIVE_WORK.md">当前工作</a> |
   <a href="#文档">文档</a>
 </p>
 
 ---
+
+> 维护者当前工作状态和公开边界统一记录在
+> [ACTIVE_WORK.md](ACTIVE_WORK.md)，这是仓库唯一的活动工作文档。
 
 <h2 id="memorix-是什么"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/tags/light/section-overview.svg"><img src="assets/tags/section-overview.svg" alt="Memorix" height="32" /></picture></h2>
 

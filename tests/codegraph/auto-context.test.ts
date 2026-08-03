@@ -381,8 +381,7 @@ describe('auto project context', () => {
     expect(listReferencedSymbols).toHaveBeenCalledTimes(1);
   });
 
-  it('puts current project facts ahead of stale progress notes', async () => {
-    mkdirSync(path.join(repoDir, 'docs', 'memcode', 'dev-log'), { recursive: true });
+  it('puts current project facts ahead of a stale active-work note', async () => {
     writeFileSync(
       path.join(repoDir, 'package.json'),
       JSON.stringify({ name: 'repo', version: '9.9.9' }, null, 2),
@@ -394,11 +393,11 @@ describe('auto project context', () => {
       'utf8',
     );
     writeFileSync(
-      path.join(repoDir, 'docs', 'memcode', 'dev-log', 'progress.txt'),
+      path.join(repoDir, 'ACTIVE_WORK.md'),
       [
-        '# memcode Development Progress',
+        '# Active Work',
         '',
-        '> Auto-updated by agent. New sessions: read this file first.',
+        '> The single living work-status document.',
         '',
         '## Current State',
         '- **Phase**: Release hardening',
@@ -421,7 +420,7 @@ describe('auto project context', () => {
     expect(context.currentFacts.packageVersion).toBe('9.9.9');
     expect(context.currentFacts.latestChangelog).toEqual({ version: '9.9.9', date: '2026-07-02' });
     expect(context.currentFacts.staleNotes[0]).toMatchObject({
-      path: 'docs/memcode/dev-log/progress.txt',
+      path: 'ACTIVE_WORK.md',
       lastUpdated: '2026-06-18',
       branchHint: 'feat/memcode-agent',
     });
@@ -431,7 +430,7 @@ describe('auto project context', () => {
     expect(text).toContain('Package version: 9.9.9');
     expect(text).toContain('Latest changelog: 9.9.9 (2026-07-02)');
     expect(text).toContain('Historical note:');
-    expect(text).toContain('docs/memcode/dev-log/progress.txt');
+    expect(text).toContain('ACTIVE_WORK.md');
     expect(text.indexOf('Current project facts')).toBeLessThan(text.indexOf('Start here'));
   });
 

@@ -29,6 +29,19 @@ image/
 .tmp-*
 *.tmp
 
+# Private operator state and one-off local artifacts. Keep the checked-in
+# OpenCode integration while ignoring user-local OpenCode state.
+.demokiller/
+.opencode/*
+!.opencode/plugins/
+!.opencode/plugins/memorix.js
+docs/dev-log/
+docs/memcode/dev-log/
+test-smoke.txt
+/e2e_*.mjs
+/packages/agent-core/test/scratch/
+/packages/memcode/test/fixtures/before-compaction.jsonl
+
 # Test/demo artifacts
 .pipeline/
 .worktrees/

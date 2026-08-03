@@ -9,27 +9,27 @@
 ## Current Product State
 
 - `1.4.0` is the current published release.
-- The next product track is `1.4.1`: admit or reject pending contributions one
-  at a time, with focused tests and user-visible acceptance evidence.
-- `1.4.1` is not a release authorization by itself. A release needs its own
-  changelog, package smoke, and verification evidence.
+- `1.4.1` is the release candidate. It includes the accepted MiniMax M3 video
+  input contribution (#153), the maintained public roadmap contribution (#140),
+  and deterministic provider-test boundaries.
+- Publication is still gated on the release PR, full local checks, fresh-package
+  smoke, GitHub Actions, and npm publication evidence.
 
 ## Active Objectives
 
 1. Keep the public repository free of operator state, local paths, credentials,
    raw session captures, and one-off development artifacts.
-2. Review pending feature contributions individually. Do not merge unrelated
-   work as a bundle.
-3. Turn MemorixBench from a local harness into a reproducible study with public
+2. Turn MemorixBench from a local harness into a reproducible study with public
    permissive-license task sources, isolated trials, and provenance receipts.
 
 ## Pending Admission Work
 
-- #153: assess MiniMax M3 video input separately from the completed image/video
-  generation path.
-- #140: refresh the public roadmap without restating stale product plans.
-- #33, #31, #30: review PDF ingestion, audio ingestion, and graph-search fusion
-  as independent changes with their own tests and release rationale.
+- #153: accepted and merged with focused MiniMax M3 video-input tests.
+- #140: accepted and merged after replacing its stale release timeline with a
+  maintained boundary-and-roadmap document.
+- #33, #31, #30: not merged into the superseding media/retrieval architecture.
+  Their original authorship is preserved through #173 (PDF derivations), #174
+  (audio derivatives), and #175 (graph-assisted evidence expansion).
 - #136 and #151: research-only work. Keep it outside npm releases until the
   experimental protocol and evidence are independently complete.
 
@@ -52,6 +52,6 @@ models, blinded grading where applicable, and reported failures as well as wins.
 
 ## Immediate Next Step
 
-The repository privacy-hygiene baseline is merged. Resume contribution admission
-with one focused PR at a time, then advance the benchmark from local fixtures to
-public, reproducible task sources.
+Complete the 1.4.1 release gates. Once published, advance MemorixBench from
+local fixtures to public, reproducible task sources and keep research work
+separate from npm release claims.

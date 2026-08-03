@@ -1,6 +1,6 @@
 # MemorixBench Protocol
 
-**Protocol version:** 1.1-draft
+**Protocol version:** 1.3-draft
 
 **Target system:** Memorix 1.4.1
 **Status:** exploratory protocol; deterministic contracts and matched synthetic
@@ -74,6 +74,30 @@ is an expected warning that a runner smoke is not a causal result. Future causal
 claims require the `canonical-information` profile on admitted source-backed
 cases as well.
 
+Within `canonical-information`, policy is recorded separately:
+
+- **optional:** the agent may decide whether to use the neutral predecessor
+  tools. This is a deployment/adoption observation, not evidence that the
+  underlying record was delivered.
+- **fixed-index:** every condition receives the same task-neutral instruction
+  to read the predecessor index once before its first source edit, then expand
+  the listed record once when one exists. The runner marks a noncompliant row
+  invalid rather than treating it as a task failure.
+
+The fixed index is a common structured `records` list. A listed record uses the
+same case-local alias (`1`) in every condition; for the native path the runner
+first verifies that real Memorix selected the seeded observation, then maps the
+alias to that private observation ID. The actual native brief is retained only
+in the private sidecar. This prevents a condition-specific index shape or local
+observation number from deciding whether the agent can expand evidence.
+
+The latter estimates the conditional effect of delivered predecessor evidence
+against an explicit empty-index control. It does not estimate natural tool
+adoption or the end-to-end product effect. `raw-record` versus `memorix-native`
+is a system-level comparison because their rendered evidence can differ; it is
+not a retrieval-mechanism claim without a separately declared golden-injection
+condition.
+
 ## Model capability as a moderator
 
 Models are grouped into frozen capability tiers only after route verification.
@@ -112,9 +136,14 @@ The first operational tier uses a local controller with these boundaries:
   exact-text replacement, and trusted-test tools;
 - it has no shell, host filesystem, network, process, or oracle-file tool;
 - private tests and expected behavior remain outside the checkout;
-- each condition starts from a new materialized tree and fresh memory store;
+- each condition starts from a new materialized tree, a clean Git baseline
+  commit, and a fresh memory store;
+- every version-2 case card declares the precursor observation type, relevant
+  source files, and concepts used to form the native Memorix record;
 - routes, prompts, supplied predecessor evidence, edits, tool calls, and test
-  results are written into an external ignored artifact directory; and
+  results are written into an external ignored artifact directory. Exact
+  delivered evidence is retained only in a private external sidecar; the
+  shareable receipt keeps hashes and counters; and
 - all rows are marked `exploratory-sealed-local`, including failures.
 
 This is a useful engineering and methodology gate, not an independent sandbox
@@ -133,6 +162,12 @@ that has a different editing surface. A repaired runner requires a new source
 tree hash, tool-schema hash, and cohort plan; analysis treats it as a distinct
 cohort. The preflight may motivate a runner change, but it never supplies an
 efficacy result.
+
+An optional-access preflight is also retained when agents do not consult an
+available evidence tool. That is useful adoption evidence, but it is not pooled
+with the `fixed-index` conditional-evidence cohort. The latter has an explicit
+manipulation check: context/detail call counts, source-edit ordering, and (for
+the native path) whether the seeded observation entered the Memorix workset.
 
 ## Confirmatory gate
 

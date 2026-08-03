@@ -42,12 +42,12 @@ The archived public benchmark pilot is not a current-product paper result and
 was produced on an earlier build. A `1.4.1` exploratory sealed-local runner has
 passed deterministic contracts and matched nine-row synthetic matrices under
 both evidence-surface profiles. Those receipts show that the three integration
-paths can complete; they are excluded from efficacy claims. One three-row,
-source-backed preflight is also preserved outside the repository: every agent
-read the source but none edited it because the original runner only exposed
-whole-file writing. It is a runner-UX finding, not a memory outcome and will
-not be compared with a rerun that has the bounded replacement tool. The matched
-`canonical-information` source-backed cohort remains open. Confirmatory claims
+paths can complete; they are excluded from efficacy claims. Two three-row,
+source-backed optional-access preflights are also preserved outside the
+repository. They exposed runner edit-surface, clean-Git-baseline, and native
+formation-semantics defects; raw/native evidence was not actually delivered to
+the agent. They are runner/product-integration findings, not memory outcomes
+and will not be compared with a new fixed-index cohort. Confirmatory claims
 still require reviewed task provenance, isolated execution, frozen routes and
 models, blinded grading where applicable, and reported failures as well as
 wins.
@@ -65,10 +65,9 @@ wins.
 
 ## Immediate Next Step
 
-Freeze the repaired runner as a new local baseline, rerun the preserved
-source-backed preflight as a distinct cohort, then curate independently
-reviewable durable-decision and stale-conflict cases. Run matched exploratory
-cohorts without dropping failures, then revise the anonymous NIER candidate
-from evidence explicitly labeled by product version and study tier. Keep
-research work separate from npm release claims until the experimental protocol
-and evidence are complete.
+Freeze the repaired fixed-index runner as a new local baseline, run its first
+source-backed cohort without dropping failures or noncompliant rows, then
+curate independently reviewable durable-decision and stale-conflict cases. Revise
+the anonymous NIER candidate only from evidence explicitly labeled by product
+version and study tier. Keep research work separate from npm release claims
+until the experimental protocol and evidence are complete.

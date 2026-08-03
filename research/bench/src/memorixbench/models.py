@@ -22,6 +22,22 @@ CASE_TIERS = frozenset(
     }
 )
 
+OBSERVATION_TYPES = frozenset(
+    {
+        "session-request",
+        "gotcha",
+        "problem-solution",
+        "how-it-works",
+        "what-changed",
+        "discovery",
+        "why-it-exists",
+        "decision",
+        "trade-off",
+        "reasoning",
+        "probe",
+    }
+)
+
 
 def sha256_text(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
@@ -65,14 +81,18 @@ class CaseSpec:
     source_root: Path
     writable_paths: tuple[str, ...]
     predecessor_record: str
+    predecessor_observation_type: str
+    predecessor_files: tuple[str, ...]
+    predecessor_concepts: tuple[str, ...]
     evidence_char_budget: int
 
     @classmethod
     def load(cls, path: str | Path) -> "CaseSpec":
         manifest_path = Path(path).resolve()
         data = json.loads(manifest_path.read_text(encoding="utf-8"))
-        if data.get("schema_version") != 1:
-            raise ValueError("case schema_version must be 1")
+        schema_version = data.get("schema_version")
+        if schema_version not in {1, 2}:
+            raise ValueError("case schema_version must be 1 or 2")
         case_id = str(data.get("id", "")).strip()
         title = str(data.get("title", "")).strip()
         case_class = str(data.get("case_class", "")).strip()
@@ -103,6 +123,31 @@ class CaseSpec:
         writable_paths = tuple(
             _safe_relative(str(item), field="writable_paths item") for item in raw_writable
         )
+        predecessor_memory = data.get("predecessor_memory")
+        if schema_version == 1:
+            predecessor_observation_type = "discovery"
+            predecessor_files: tuple[str, ...] = ()
+            predecessor_concepts: tuple[str, ...] = ()
+        else:
+            if not isinstance(predecessor_memory, dict):
+                raise ValueError("schema_version 2 requires a predecessor_memory object")
+            predecessor_observation_type = str(predecessor_memory.get("type", "")).strip()
+            if predecessor_observation_type not in OBSERVATION_TYPES:
+                choices = ", ".join(sorted(OBSERVATION_TYPES))
+                raise ValueError(f"predecessor_memory.type must be one of: {choices}")
+            raw_files = predecessor_memory.get("files")
+            if not isinstance(raw_files, list) or not raw_files:
+                raise ValueError("predecessor_memory.files must contain at least one source-relative file")
+            predecessor_files = tuple(
+                _safe_relative(str(item), field="predecessor_memory.files item") for item in raw_files
+            )
+            for relative in predecessor_files:
+                if not (source_root / relative).is_file():
+                    raise ValueError("predecessor_memory.files must name files in source_root")
+            raw_concepts = predecessor_memory.get("concepts", [])
+            if not isinstance(raw_concepts, list) or any(not isinstance(item, str) or not item.strip() for item in raw_concepts):
+                raise ValueError("predecessor_memory.concepts must be a list of non-empty strings")
+            predecessor_concepts = tuple(item.strip() for item in raw_concepts)
         return cls(
             case_id=case_id,
             title=title,
@@ -112,6 +157,9 @@ class CaseSpec:
             source_root=source_root,
             writable_paths=writable_paths,
             predecessor_record=record,
+            predecessor_observation_type=predecessor_observation_type,
+            predecessor_files=predecessor_files,
+            predecessor_concepts=predecessor_concepts,
             evidence_char_budget=evidence_char_budget,
         )
 

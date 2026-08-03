@@ -13,7 +13,9 @@ Every admitted case records, outside the agent-visible checkout:
 3. the case class selected before runs;
 4. why the current snapshot does or does not reveal the decisive behavior;
 5. the private oracle's pass criteria and a reference repair; and
-6. the case-defined evidence-size cap and writable-path policy.
+6. the case-defined evidence-size cap and writable-path policy; and
+7. the precursor observation type, relevant source-relative files, and
+   concepts used to form the native-memory record.
 
 The committed public case card may describe the seed and task, but never the
 private oracle, reference repair, raw session transcript, or local artifact
@@ -65,6 +67,8 @@ Reject a case when any of the following holds:
   goal;
 - source provenance or license is unclear;
 - the predecessor record is merely a copy of the final repair; or
+- the declared precursor metadata cannot be validated against the transfer
+  source tree; or
 - the expected behavior cannot be checked deterministically.
 
 ## Evidence Tiers

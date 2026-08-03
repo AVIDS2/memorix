@@ -9,7 +9,7 @@ import unittest
 
 from memorixbench.models import CaseSpec, ModelReply, OracleSpec, ToolCall
 from memorixbench import trial
-from memorixbench.trial import CanonicalEvidenceTool, RawRecordTool, TrialConfig, _messages, agent_tools, _native_context_prompt, _native_memory_detail, run_trial
+from memorixbench.trial import CanonicalEvidenceTool, RawRecordTool, TrialConfig, _messages, _workset_includes_observation, agent_tools, _native_context_prompt, _native_memory_detail, run_trial
 
 
 @dataclass
@@ -33,7 +33,7 @@ class TrialTests(unittest.TestCase):
         (case_root / "case.json").write_text(
             json.dumps(
                 {
-                    "schema_version": 1,
+                    "schema_version": 2,
                     "id": "example",
                     "title": "Example policy",
                     "case_class": "durable-decision-dependency",
@@ -42,6 +42,11 @@ class TrialTests(unittest.TestCase):
                     "source_root": "seed",
                     "writable_paths": ["src"],
                     "predecessor_record": "The durable decision is to use done.",
+                    "predecessor_memory": {
+                        "type": "decision",
+                        "files": ["src/task.py"],
+                        "concepts": ["task state"],
+                    },
                     "evidence_char_budget": 256,
                 }
             ),
@@ -102,13 +107,15 @@ class TrialTests(unittest.TestCase):
             payload = outcome["payload"]
             self.assertEqual(payload["status"], "completed")
             self.assertTrue(payload["task_success"])
-            self.assertEqual(payload["runner"]["protocol_version"], "1.1-draft")
+            self.assertEqual(payload["runner"]["protocol_version"], "1.3-draft")
             self.assertRegex(payload["runner"]["source_tree_sha256"], r"^[0-9a-f]{64}$")
             self.assertEqual(payload["resource_usage"]["memory_context_calls"], 0)
             self.assertEqual(payload["resource_usage"]["raw_record_calls"], 1)
             self.assertEqual(payload["resource_usage"]["input_tokens"], 32)
             self.assertNotIn(str(root), outcome["receipt_path"].read_text(encoding="utf-8"))
             self.assertNotIn("durable decision", client.messages[0][1]["content"])
+            self.assertIn("durable decision", outcome["evidence_path"].read_text(encoding="utf-8"))
+            self.assertNotIn(str(root), outcome["evidence_path"].read_text(encoding="utf-8"))
 
     def test_infrastructure_receipt_names_the_safe_failure_stage(self) -> None:
         class FailingClient:
@@ -154,26 +161,111 @@ class TrialTests(unittest.TestCase):
             self.assertEqual(tool_name_sets["raw-record"], tool_name_sets["memorix-native"])
             self.assertIn("project_predecessor_context", tool_name_sets["no-memory"])
             self.assertIn("project_predecessor_detail", tool_name_sets["no-memory"])
+            fixed_prompt = _messages(case, "fixed-index")[0]["content"]
+            self.assertIn("project_predecessor_context", fixed_prompt)
+            self.assertIn("project_predecessor_detail", fixed_prompt)
+            self.assertNotIn(case.predecessor_record, fixed_prompt)
 
             raw = CanonicalEvidenceTool(case, "raw-record")
             raw_context = raw.context()
             raw_detail = raw.detail(1)
-            self.assertIn("#1", raw_context["context"])
+            self.assertEqual(raw_context["records"], [{"id": 1}])
+            self.assertTrue(raw.record_available)
             self.assertIn("durable decision", raw_detail["detail"])
             self.assertEqual(raw.retrieved_chars, len(raw_detail["detail"]))
 
             none = CanonicalEvidenceTool(case, "no-memory")
-            none.context()
+            none_context = none.context()
+            self.assertEqual(none_context["records"], [])
+            self.assertFalse(none.record_available)
             none_detail = none.detail(1)
             self.assertIn("No predecessor evidence", none_detail["detail"])
             self.assertEqual(none.retrieved_chars, 0)
+
+    def test_fixed_index_policy_delivers_evidence_before_a_source_edit(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            case, oracle = self._case_and_oracle(root)
+            client = ScriptedClient(
+                [
+                    ModelReply(None, (ToolCall("context", "project_predecessor_context", {}),), "example/model", "response-1", 1, 1, None),
+                    ModelReply(None, (ToolCall("detail", "project_predecessor_detail", {"id": 1}),), "example/model", "response-2", 1, 1, None),
+                    ModelReply(None, (ToolCall("replace", "replace_text", {"path": "src/task.py", "old_text": "pending", "new_text": "done"}),), "example/model", "response-3", 1, 1, None),
+                    ModelReply("finished", (), "example/model", "response-4", 1, 1, None),
+                ]
+            )
+            outcome = run_trial(
+                TrialConfig(
+                    case=case,
+                    oracle=oracle,
+                    condition="raw-record",
+                    requested_model="example/model",
+                    artifact_root=root / "artifacts",
+                    surface_profile="canonical-information",
+                    evidence_policy="fixed-index",
+                ),
+                client,
+            )
+            payload = outcome["payload"]
+            self.assertEqual(payload["status"], "completed")
+            self.assertTrue(payload["task_success"])
+            self.assertTrue(payload["evidence_policy"]["compliant"])
+            self.assertEqual(payload["evidence_policy"]["context_calls"], 1)
+            self.assertEqual(payload["evidence_policy"]["detail_calls"], 1)
+            self.assertTrue(payload["evidence_policy"]["index_record_available"])
+            self.assertNotIn(case.predecessor_record, outcome["receipt_path"].read_text(encoding="utf-8"))
+            self.assertIn(case.predecessor_record, outcome["evidence_path"].read_text(encoding="utf-8"))
+
+    def test_fixed_index_policy_marks_early_edits_invalid(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            case, oracle = self._case_and_oracle(root)
+            client = ScriptedClient(
+                [
+                    ModelReply(None, (ToolCall("write", "write_file", {"path": "src/task.py", "content": "done\n"}),), "example/model", "response-1", 1, 1, None),
+                    ModelReply("finished", (), "example/model", "response-2", 1, 1, None),
+                ]
+            )
+            outcome = run_trial(
+                TrialConfig(
+                    case=case,
+                    oracle=oracle,
+                    condition="raw-record",
+                    requested_model="example/model",
+                    artifact_root=root / "artifacts",
+                    surface_profile="canonical-information",
+                    evidence_policy="fixed-index",
+                ),
+                client,
+            )
+            payload = outcome["payload"]
+            self.assertEqual(payload["status"], "invalid")
+            self.assertEqual(payload["task_success"], None)
+            self.assertFalse(payload["evidence_policy"]["compliant"])
+            self.assertIn("predecessor index", payload["invalid_reason"])
+
+    def test_transfer_workspace_starts_with_a_clean_git_baseline(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary) / "workspace"
+            (workspace / "src").mkdir(parents=True)
+            (workspace / "src" / "task.py").write_text("pending\n", encoding="utf-8")
+            trial._initialize_git(workspace)
+            status = trial._run(["git", "status", "--porcelain"], cwd=workspace, timeout_seconds=10)
+            self.assertEqual(status.returncode, 0)
+            self.assertEqual(status.stdout.strip(), "")
+
+    def test_native_workset_membership_requires_the_seed_observation(self) -> None:
+        payload = {"workset": {"reliableMemory": [{"id": 7}], "evidenceIds": []}}
+        self.assertTrue(_workset_includes_observation(payload, 7))
+        self.assertFalse(_workset_includes_observation(payload, 8))
+        self.assertIsNone(_workset_includes_observation(payload, None))
 
     def test_case_rejects_escape_path(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             manifest = root / "case.json"
             manifest.write_text(
-                json.dumps({"schema_version": 1, "id": "bad", "title": "Bad", "case_class": "source-sufficient-control", "case_tier": "synthetic-engineering-smoke", "task": "x", "source_root": "../outside", "writable_paths": ["src"], "predecessor_record": "x", "evidence_char_budget": 256}),
+                json.dumps({"schema_version": 2, "id": "bad", "title": "Bad", "case_class": "source-sufficient-control", "case_tier": "synthetic-engineering-smoke", "task": "x", "source_root": "../outside", "writable_paths": ["src"], "predecessor_record": "x", "predecessor_memory": {"type": "discovery", "files": ["src/task.py"], "concepts": []}, "evidence_char_budget": 256}),
                 encoding="utf-8",
             )
             with self.assertRaises(ValueError):

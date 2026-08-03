@@ -40,6 +40,7 @@ def _run_trial(args: argparse.Namespace) -> int:
         memorix_cli=args.memorix_cli,
         max_steps=args.max_steps,
         surface_profile=args.surface_profile,
+        evidence_policy=args.evidence_policy,
     )
     outcome = run_trial(
         config,
@@ -68,6 +69,7 @@ def build_parser() -> argparse.ArgumentParser:
     trial.add_argument("--model", required=True)
     trial.add_argument("--memorix-cli", default="memorix")
     trial.add_argument("--surface-profile", choices=("native-product", "canonical-information"), default="native-product")
+    trial.add_argument("--evidence-policy", choices=("optional", "fixed-index"), default="optional")
     trial.add_argument("--max-steps", type=int, default=24)
     trial.add_argument("--max-output-tokens", type=int, default=1200)
     trial.add_argument("--provider-timeout-seconds", type=int, default=90)

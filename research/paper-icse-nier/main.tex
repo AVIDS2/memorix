@@ -132,12 +132,21 @@ model route is missing or mixed, the oracle changes, or the memory adapter
 fails. Assigning such a failure a zero would manufacture a memory effect.
 
 The exploratory runner gives the model only list, read, bounded write,
-exact-text replacement, and trusted verification tools. It has no shell,
-network, process, host-filesystem, or
-oracle-file tool. The controller retains the private verifier outside the
-agent-visible checkout and writes only hashes and sanitized events to an
-external receipt. This is a useful local isolation boundary, not a claim of an
-independent confirmatory sandbox.
+exact-text replacement, and trusted verification tools. Each transfer checkout
+starts from a clean baseline commit, and the declared precursor record carries
+its observation type plus code-bound metadata. It has no shell, network,
+process, host-filesystem, or oracle-file tool. The controller retains the
+private verifier outside the agent-visible checkout and writes only hashes and
+sanitized events to an external receipt. This is a useful local isolation
+boundary, not a claim of an independent confirmatory sandbox.
+
+For controlled evidence-delivery cohorts, every condition receives the same
+neutral instruction to read a predecessor index before the first source edit and
+expand one listed record. The empty condition returns an explicit empty index.
+This estimates conditional evidence delivery rather than natural tool adoption;
+optional-access rows remain a separate deployment observation. Exact delivered
+evidence is retained in a private external sidecar, while the receipt contains
+only a digest for later audit.
 
 \section{Initial Evidence and Scope}
 

@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "id": "durable-policy-smoke",
   "title": "Preserve the retry-disable policy",
   "case_class": "durable-decision-dependency",
@@ -8,5 +8,10 @@
   "source_root": "seed",
   "writable_paths": ["src"],
   "predecessor_record": "Durable retry policy: merge_retry_options returns a new mapping and never mutates either input. A request value for max_attempts overrides the default when it is an integer from 1 through 6. A request value of 0 explicitly disables retries and must remain 0. A request value of None means use the default. A missing request mapping behaves as an empty mapping.",
+  "predecessor_memory": {
+    "type": "decision",
+    "files": ["src/retry_policy.py"],
+    "concepts": ["retry policy", "explicit disable"]
+  },
   "evidence_char_budget": 12000
 }

@@ -15,8 +15,9 @@ not a confirmatory effectiveness study, and not a public artifact release.
   both `native-product` and `canonical-information`. Every row completed; the
   no-memory condition also solved the synthetic durable case through ordinary
   exploration. Both matrices are excluded from efficacy analysis. A retained
-  source-backed three-condition preflight found a runner edit-surface defect;
-  it is excluded and must be rerun under a separately frozen repaired baseline.
+  source-backed optional-access preflights found runner edit-surface and
+  formation-semantics defects. They are excluded and must be followed by a
+  separately frozen fixed-index cohort with auditable evidence sidecars.
 - The local anonymous NIER candidate compiles, passes bibliography and strict
   format checks, and has been visually reviewed. It remains a candidate rather
   than a completed empirical paper.
@@ -28,8 +29,8 @@ not a confirmatory effectiveness study, and not a public artifact release.
    collection, and documented provenance.
 2. **Complete exploratory cohorts:** run every planned condition, repetition,
    valid row, invalid row, timeout, and cost record. Complete the matched
-   `canonical-information` profile before estimating an information effect; do
-   not select successful examples after the fact.
+   `canonical-information` fixed-index profile before estimating a conditional
+   evidence effect; do not select successful examples after the fact.
 3. **Confirmatory protocol:** freeze cases, routes, analysis, and target sample
    before reading labels; keep a private oracle separate from the agent worker.
 4. **Independent review:** obtain review of case classification and the final

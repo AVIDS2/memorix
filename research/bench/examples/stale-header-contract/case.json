@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "id": "stale-header-contract",
   "title": "Honor the current request-header contract",
   "case_class": "stale-conflict",
@@ -8,5 +8,10 @@
   "source_root": "seed",
   "writable_paths": ["src"],
   "predecessor_record": "Before the request-header migration, the gateway required the X-Request-ID header. The old compatibility layer rejected X-Request-Key, so use X-Request-ID for all outgoing calls.",
+  "predecessor_memory": {
+    "type": "what-changed",
+    "files": ["src/headers.py"],
+    "concepts": ["request header", "compatibility migration"]
+  },
   "evidence_char_budget": 12000
 }

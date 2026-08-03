@@ -29,6 +29,25 @@ record, and `memorix-native` uses the real Memorix brief/detail backend. This
 is the profile for causal information comparisons; its neutral tools deliberately
 do not claim to reproduce the exact product UX.
 
+The `optional` policy leaves those tools available for the agent to choose. The
+`fixed-index` policy is a separate controlled cohort: the runner gives all
+conditions the same instruction to consult the index before the first source
+edit and expands a listed record once. Noncompliance becomes an invalid row.
+It estimates evidence delivery against an explicit empty index, not natural
+tool adoption or an end-to-end product claim.
+
+The controlled index always returns the same `records` shape. Native retrieval
+first checks whether real Memorix selected the seeded observation, then exposes
+the case-local alias `1`; the real backend brief remains in the private
+sidecar. This avoids treating a condition-specific record ID or text layout as
+an information effect.
+
+Version-2 case cards also declare the precursor observation type, source files,
+and concepts. The native path stores that declared record only after the copied
+source has a clean baseline commit, matching Memorix's normal code-bound memory
+selection. Delivered evidence is retained in an ignored external sidecar for
+audit; receipts retain only its SHA-256 digest.
+
 Run deterministic tests:
 
 ```powershell

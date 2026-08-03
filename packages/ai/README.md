@@ -32,3 +32,7 @@ npx memorix-ai login anthropic
 ## Notes
 
 This package is a Memorix-scoped distribution of the agent provider layer inherited from the Pi codebase. Public imports should use `@memorix/ai`.
+
+## Testing
+
+`npm test` is intentionally offline and deterministic, even when the shell has provider credentials. To run provider-backed integration tests deliberately, set `MEMORIX_AI_LIVE_TESTS=1` together with the required provider credentials. This can make network requests and incur provider charges.

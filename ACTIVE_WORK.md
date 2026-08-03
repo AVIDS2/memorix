@@ -8,12 +8,13 @@
 
 ## Current Product State
 
-- `1.4.0` is the current published release.
-- `1.4.1` is the release candidate. It includes the accepted MiniMax M3 video
-  input contribution (#153), the maintained public roadmap contribution (#140),
-  and deterministic provider-test boundaries.
-- Publication is still gated on the release PR, full local checks, fresh-package
-  smoke, GitHub Actions, and npm publication evidence.
+- `1.4.1` is the current published release.
+- It includes the accepted MiniMax M3 video-input contribution (#153), the
+  maintained public-roadmap contribution (#140), deterministic provider-test
+  boundaries, and synchronized plugin/MCP Registry release metadata.
+- Release evidence is complete: full local checks, a fresh-package CLI/MCP
+  smoke, Ubuntu and Windows CI, npm provenance, the official MCP Registry, and
+  the GitHub Release `v1.4.1`.
 
 ## Active Objectives
 
@@ -22,7 +23,7 @@
 2. Turn MemorixBench from a local harness into a reproducible study with public
    permissive-license task sources, isolated trials, and provenance receipts.
 
-## Pending Admission Work
+## Completed Contribution Decisions
 
 - #153: accepted and merged with focused MiniMax M3 video-input tests.
 - #140: accepted and merged after replacing its stale release timeline with a
@@ -52,6 +53,7 @@ models, blinded grading where applicable, and reported failures as well as wins.
 
 ## Immediate Next Step
 
-Complete the 1.4.1 release gates. Once published, advance MemorixBench from
-local fixtures to public, reproducible task sources and keep research work
-separate from npm release claims.
+Advance MemorixBench from a pilot harness to a reproducible study with public
+task sources, isolated trials, frozen model routes, and reviewable provenance.
+Keep research work separate from npm release claims until the experimental
+protocol and evidence are independently complete.

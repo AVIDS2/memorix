@@ -52,6 +52,6 @@ models, blinded grading where applicable, and reported failures as well as wins.
 
 ## Immediate Next Step
 
-Finish the repository privacy-hygiene change, verify the public tree and package
-contents, then open a focused PR. Resume contribution admission and benchmark
-work only after that baseline is merged.
+The repository privacy-hygiene baseline is merged. Resume contribution admission
+with one focused PR at a time, then advance the benchmark from local fixtures to
+public, reproducible task sources.

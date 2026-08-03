@@ -14,6 +14,15 @@ output/
 *.tmp
 *.log
 *.tgz
+.demokiller/
+.opencode/
+docs/dev-log/
+docs/memcode/dev-log/
+test-smoke.txt
+e2e_*.mjs
+packages/agent-core/test/scratch/
+packages/memcode/test/fixtures/before-compaction.jsonl
+ACTIVE_WORK.md
 *.pyc
 __pycache__/
 **/__pycache__/

@@ -35,10 +35,15 @@
   <a href="#quick-start">Quick Start</a> |
   <a href="#memory-model">Memory Model</a> |
   <a href="#memcode-bundled-terminal-agent">memcode</a> |
+  <a href="ACTIVE_WORK.md">Active Work</a> |
   <a href="#docs">Docs</a>
 </p>
 
 ---
+
+> Maintainer status and the current public work boundary live in
+> [ACTIVE_WORK.md](ACTIVE_WORK.md). It is the repository's single living work
+> tracker.
 
 <h2 id="what-memorix-is"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/tags/light/section-overview.svg"><img src="assets/tags/section-overview.svg" alt="Memorix" height="32" /></picture></h2>
 

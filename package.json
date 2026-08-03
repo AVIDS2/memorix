@@ -44,6 +44,7 @@
     "README.zh-CN.md",
     "assets",
     "docs",
+    "!docs/dev-log",
     "!docs/memcode",
     "!docs/superpowers",
     "plugins",

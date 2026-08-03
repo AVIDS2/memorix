@@ -77,12 +77,12 @@ Use `memorix_resolve` when a task is done or a bug is fixed. This keeps future s
 | `memorix_rules_sync` | Inspect or sync rules across agents |
 | `memorix_workspace_sync` | Inspect or migrate workspace integrations |
 
-## Dev Log
+## Active Work
 
-- **Repository-wide current state**: `docs/dev-log/progress.txt`
-- Read that root progress file after the Memory Autopilot step for long-running
-  release/development work.
-- Package-specific historical notes may live under subdirectories such as
-  `docs/memcode/dev-log/`; treat them as historical unless the current task is
-  explicitly about that package.
-- Update the root progress file when completing substantial cross-session work.
+- **Repository-wide current state**: `ACTIVE_WORK.md`
+- Read that file after the Memory Autopilot step for long-running release or
+  development work.
+- It is the only living work-status document. Update it after material
+  cross-session work; do not create parallel progress or dev-log files.
+- It must stay public-safe: no local absolute paths, account identifiers,
+  credentials, raw chat transcripts, or local tool state.

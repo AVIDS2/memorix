@@ -55,6 +55,28 @@ Disagreement is resolved by a third reviewer or by excluding the case. For the
 confirmatory tier, reviewers must not see condition outcomes and must sign the
 frozen case manifest before any run begins.
 
+### Outcome-Blind Review Packet
+
+The classification reviewers receive the candidate ID, source provenance and
+license, transfer-base commit, task, predecessor record, proposed class, and
+the relevant current-source files. They do **not** receive model receipts,
+aggregate outcomes, private-oracle code or paths, baseline/reference pass
+results, or a reference repair. Their form records:
+
+1. the proposed class and an independently selected class;
+2. whether the current source provides a recoverable reason to accept, ignore,
+   or reject the predecessor record;
+3. whether the task or supplied record leaks a patch-shaped answer;
+4. whether provenance, license, source boundary, and writable scope are
+   adequate; and
+5. `admit`, `revise`, or `reject`, with a short rationale.
+
+An oracle auditor may separately inspect the private verifier and reference
+repair for determinism and leakage, but must not disclose their contents to
+classification reviewers or the model worker. The owner records only the
+admission decision and sanitized rationale in a shareable ledger; review forms,
+private oracles, and raw outcome artifacts remain external.
+
 Before a condition-effect cohort, run a separate non-comparative action
 calibration with the same model route, ordinary tool surface, and repair-loop
 contract. It must show that the worker can request a permitted source edit and

@@ -3,8 +3,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 import hashlib
 import json
+from math import isfinite
 from pathlib import Path
+import re
 from typing import Any
+import zipfile
 
 
 CASE_CLASSES = frozenset(
@@ -37,6 +40,9 @@ OBSERVATION_TYPES = frozenset(
         "probe",
     }
 )
+SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
+GIT_COMMIT_PATTERN = re.compile(r"^[0-9a-f]{40}$")
+IGNORED_TREE_PARTS = frozenset({".git", ".memorix", ".venv", "__pycache__", ".pytest_cache"})
 
 
 def sha256_text(value: str) -> str:
@@ -53,10 +59,17 @@ def sha256_file(path: Path) -> str:
 
 def sha256_tree(root: Path) -> str:
     digest = hashlib.sha256()
-    for path in sorted(candidate for candidate in root.rglob("*") if candidate.is_file()):
-        if any(part in {".git", ".memorix", ".venv", "__pycache__", ".pytest_cache"} for part in path.parts):
+    files = sorted(
+        (
+            (path.relative_to(root).as_posix(), path)
+            for path in root.rglob("*")
+            if path.is_file()
+        ),
+        key=lambda item: item[0],
+    )
+    for relative, path in files:
+        if any(part in IGNORED_TREE_PARTS for part in path.parts):
             continue
-        relative = path.relative_to(root).as_posix()
         digest.update(relative.encode("utf-8"))
         digest.update(b"\0")
         digest.update(path.read_bytes())
@@ -64,11 +77,82 @@ def sha256_tree(root: Path) -> str:
     return digest.hexdigest()
 
 
+def sha256_zip_tree(archive: Path, archive_root: str) -> str:
+    """Hash a ZIP snapshot as the source tree rooted at ``archive_root``."""
+    if not archive_root or "/" in archive_root or "\\" in archive_root:
+        raise ValueError("source_archive_root must be one safe ZIP directory name")
+    members: dict[str, zipfile.ZipInfo] = {}
+    try:
+        with zipfile.ZipFile(archive) as bundle:
+            for info in bundle.infolist():
+                name = info.filename
+                if info.is_dir():
+                    continue
+                parts = name.split("/")
+                if (
+                    not name
+                    or "\\" in name
+                    or name.startswith("/")
+                    or any(part in {"", ".", ".."} for part in parts)
+                    or parts[0] != archive_root
+                ):
+                    raise ValueError("source_archive contains an unsafe or unexpected member path")
+                if len(parts) == 1:
+                    raise ValueError("source_archive contains a file at the archive root")
+                mode = info.external_attr >> 16
+                if mode and (mode & 0o170000) == 0o120000:
+                    raise ValueError("source_archive must not contain symbolic links")
+                relative = "/".join(parts[1:])
+                if any(part in IGNORED_TREE_PARTS for part in parts[1:]):
+                    continue
+                if relative in members:
+                    raise ValueError("source_archive contains duplicate member paths")
+                members[relative] = info
+            digest = hashlib.sha256()
+            for relative, info in sorted(members.items()):
+                digest.update(relative.encode("utf-8"))
+                digest.update(b"\0")
+                with bundle.open(info) as handle:
+                    for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                        digest.update(chunk)
+                digest.update(b"\0")
+            return digest.hexdigest()
+    except zipfile.BadZipFile as error:
+        raise ValueError("source_archive must be a valid ZIP snapshot") from error
+
+
 def _safe_relative(value: str, *, field: str) -> str:
     candidate = Path(value)
     if not value or candidate.is_absolute() or ".." in candidate.parts or "\0" in value:
         raise ValueError(f"{field} must be a non-empty relative path")
     return candidate.as_posix()
+
+
+def _required_sha256(value: object, *, field: str) -> str:
+    digest = str(value or "").strip().lower()
+    if not SHA256_PATTERN.fullmatch(digest):
+        raise ValueError(f"{field} must be a lowercase SHA-256 digest")
+    return digest
+
+
+def _required_git_commit(value: object, *, field: str) -> str:
+    commit = str(value or "").strip().lower()
+    if not GIT_COMMIT_PATTERN.fullmatch(commit):
+        raise ValueError(f"{field} must be a 40-character lowercase Git commit")
+    return commit
+
+
+def _is_nonnegative_int(value: object) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 0
+
+
+def _is_nonnegative_finite_number(value: object) -> bool:
+    return (
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and isfinite(float(value))
+        and float(value) >= 0
+    )
 
 
 @dataclass(frozen=True)
@@ -79,6 +163,11 @@ class CaseSpec:
     case_tier: str
     task: str
     source_root: Path
+    source_tree_sha256: str | None
+    source_commit: str | None
+    source_archive_path: Path | None
+    source_archive_sha256: str | None
+    source_archive_root: str | None
     writable_paths: tuple[str, ...]
     predecessor_record: str
     predecessor_observation_type: str
@@ -91,8 +180,8 @@ class CaseSpec:
         manifest_path = Path(path).resolve()
         data = json.loads(manifest_path.read_text(encoding="utf-8"))
         schema_version = data.get("schema_version")
-        if schema_version not in {1, 2}:
-            raise ValueError("case schema_version must be 1 or 2")
+        if schema_version not in {1, 2, 3, 4}:
+            raise ValueError("case schema_version must be 1, 2, 3, or 4")
         case_id = str(data.get("id", "")).strip()
         title = str(data.get("title", "")).strip()
         case_class = str(data.get("case_class", "")).strip()
@@ -117,6 +206,50 @@ class CaseSpec:
         source_root = (manifest_path.parent / source_relative).resolve()
         if not source_root.is_dir() or source_root == manifest_path.parent.resolve() or manifest_path.parent.resolve() not in source_root.parents:
             raise ValueError("source_root must be a directory below the case card")
+        source_tree_sha256: str | None = None
+        source_commit: str | None = None
+        source_archive_path: Path | None = None
+        source_archive_sha256: str | None = None
+        source_archive_root: str | None = None
+        if schema_version == 4:
+            source_tree_sha256 = _required_sha256(
+                data.get("source_tree_sha256"),
+                field="source_tree_sha256",
+            )
+            source_commit = _required_git_commit(
+                data.get("source_commit"),
+                field="source_commit",
+            )
+            archive_relative = _safe_relative(
+                str(data.get("source_archive", "")),
+                field="source_archive",
+            )
+            source_archive_path = (manifest_path.parent / archive_relative).resolve()
+            if (
+                not source_archive_path.is_file()
+                or source_archive_path == manifest_path.parent.resolve()
+                or manifest_path.parent.resolve() not in source_archive_path.parents
+            ):
+                raise ValueError("source_archive must be a file below the case card")
+            source_archive_sha256 = _required_sha256(
+                data.get("source_archive_sha256"),
+                field="source_archive_sha256",
+            )
+            if sha256_file(source_archive_path) != source_archive_sha256:
+                raise ValueError("source_archive does not match source_archive_sha256")
+            if sha256_tree(source_root) != source_tree_sha256:
+                raise ValueError("source_root does not match source_tree_sha256")
+            if schema_version == 4:
+                source_archive_root = _safe_relative(
+                    str(data.get("source_archive_root", "")),
+                    field="source_archive_root",
+                )
+                if "/" in source_archive_root or source_root.name != source_archive_root:
+                    raise ValueError("source_archive_root must match the source_root directory name")
+                if sha256_zip_tree(source_archive_path, source_archive_root) != source_tree_sha256:
+                    raise ValueError("source_archive contents do not match source_tree_sha256")
+        elif case_tier in {"exploratory-source-backed", "confirmatory-held-out"}:
+            raise ValueError("source-backed cases require schema_version 4 snapshot identity")
         raw_writable = data.get("writable_paths")
         if not isinstance(raw_writable, list) or not raw_writable:
             raise ValueError("writable_paths must contain at least one relative path")
@@ -155,6 +288,11 @@ class CaseSpec:
             case_tier=case_tier,
             task=task,
             source_root=source_root,
+            source_tree_sha256=source_tree_sha256,
+            source_commit=source_commit,
+            source_archive_path=source_archive_path,
+            source_archive_sha256=source_archive_sha256,
+            source_archive_root=source_archive_root,
             writable_paths=writable_paths,
             predecessor_record=record,
             predecessor_observation_type=predecessor_observation_type,
@@ -165,16 +303,29 @@ class CaseSpec:
 
 
 @dataclass(frozen=True)
+class OracleAsset:
+    relative_path: str
+    path: Path
+    sha256: str
+
+
+@dataclass(frozen=True)
 class OracleSpec:
     command: tuple[str, ...]
     timeout_seconds: int
     reveal_output: bool
     definition_sha256: str
+    oracle_root: Path
+    assets: tuple[OracleAsset, ...]
+    assets_sha256: str | None
 
     @classmethod
     def load(cls, path: str | Path) -> "OracleSpec":
         oracle_path = Path(path).resolve()
         data: dict[str, Any] = json.loads(oracle_path.read_text(encoding="utf-8"))
+        schema_version = data.get("schema_version", 1)
+        if schema_version not in {1, 2}:
+            raise ValueError("oracle schema_version must be 1 or 2")
         raw_command = data.get("command")
         if not isinstance(raw_command, list) or not raw_command:
             raise ValueError("oracle command must be a non-empty list")
@@ -185,12 +336,59 @@ class OracleSpec:
         if timeout_seconds < 1 or timeout_seconds > 600:
             raise ValueError("oracle timeout_seconds must be between 1 and 600")
         reveal_output = bool(data.get("reveal_output", False))
+        raw_assets = data.get("assets", [])
+        if not isinstance(raw_assets, list):
+            raise ValueError("oracle assets must be a list")
+        if schema_version == 2 and not raw_assets:
+            raise ValueError("oracle schema_version 2 requires at least one asset")
+        assets: list[OracleAsset] = []
+        seen_assets: set[str] = set()
+        for raw_asset in raw_assets:
+            if not isinstance(raw_asset, dict):
+                raise ValueError("oracle asset must be an object")
+            relative = _safe_relative(str(raw_asset.get("path", "")), field="oracle asset path")
+            if relative in seen_assets:
+                raise ValueError("oracle asset paths must be unique")
+            seen_assets.add(relative)
+            asset_path = (oracle_path.parent / relative).resolve()
+            if asset_path == oracle_path.parent or oracle_path.parent not in asset_path.parents or not asset_path.is_file():
+                raise ValueError("oracle asset must be a file below the oracle manifest")
+            digest = _required_sha256(raw_asset.get("sha256"), field="oracle asset sha256")
+            if sha256_file(asset_path) != digest:
+                raise ValueError("oracle asset does not match its declared SHA-256")
+            assets.append(OracleAsset(relative, asset_path, digest))
+        assets_sha256 = (
+            sha256_text(
+                compact_json(
+                    [
+                        {"path": asset.relative_path, "sha256": asset.sha256}
+                        for asset in assets
+                    ]
+                )
+            )
+            if assets
+            else None
+        )
         return cls(
             command=command,
             timeout_seconds=timeout_seconds,
             reveal_output=reveal_output,
             definition_sha256=sha256_file(oracle_path),
+            oracle_root=oracle_path.parent,
+            assets=tuple(assets),
+            assets_sha256=assets_sha256,
         )
+
+    def verify_integrity(self) -> None:
+        for asset in self.assets:
+            if not asset.path.is_file() or sha256_file(asset.path) != asset.sha256:
+                raise RuntimeError("private oracle asset changed after manifest validation")
+
+    def render_command(self, workspace: Path) -> list[str]:
+        return [
+            item.replace("{workspace}", str(workspace)).replace("{oracle_dir}", str(self.oracle_root))
+            for item in self.command
+        ]
 
 
 @dataclass(frozen=True)
@@ -209,6 +407,100 @@ class ModelReply:
     input_tokens: int | None
     output_tokens: int | None
     cost_usd: float | None
+
+
+@dataclass(frozen=True)
+class RouteSpec:
+    provider: str
+    requested_model: str
+    expected_actual_model: str
+    provider_timeout_seconds: int
+    max_output_tokens: int
+    max_cost_usd: float
+    temperature: float
+    tool_choice: str
+    definition_sha256: str
+
+    @classmethod
+    def load(cls, path: str | Path) -> "RouteSpec":
+        manifest_path = Path(path).resolve()
+        data: dict[str, Any] = json.loads(manifest_path.read_text(encoding="utf-8"))
+        if data.get("schema_version") != 1:
+            raise ValueError("route schema_version must be 1")
+        provider = str(data.get("provider", "")).strip()
+        if provider != "openrouter":
+            raise ValueError("route provider must be openrouter")
+        requested_model = str(data.get("requested_model", "")).strip()
+        expected_actual_model = str(data.get("expected_actual_model", "")).strip()
+        if not requested_model or not expected_actual_model:
+            raise ValueError("route requested_model and expected_actual_model are required")
+        timeout_seconds = data.get("provider_timeout_seconds")
+        if not _is_nonnegative_int(timeout_seconds):
+            raise ValueError("route provider_timeout_seconds must be an integer")
+        if timeout_seconds < 1 or timeout_seconds > 600:
+            raise ValueError("route provider_timeout_seconds must be between 1 and 600")
+        max_output_tokens = data.get("max_output_tokens")
+        if not _is_nonnegative_int(max_output_tokens):
+            raise ValueError("route max_output_tokens must be an integer")
+        if max_output_tokens < 1 or max_output_tokens > 4096:
+            raise ValueError("route max_output_tokens must be between 1 and 4096")
+        max_cost_usd = data.get("max_cost_usd")
+        if not _is_nonnegative_finite_number(max_cost_usd):
+            raise ValueError("route max_cost_usd must be numeric")
+        max_cost_usd = float(max_cost_usd)
+        if not 0 < max_cost_usd <= 100:
+            raise ValueError("route max_cost_usd must be between 0 and 100")
+        temperature = data.get("temperature")
+        if not _is_nonnegative_finite_number(temperature):
+            raise ValueError("route temperature must be numeric")
+        temperature = float(temperature)
+        if temperature != 0:
+            raise ValueError("route temperature must be exactly 0 for matched trials")
+        tool_choice = str(data.get("tool_choice", "")).strip()
+        if tool_choice != "auto":
+            raise ValueError("route tool_choice must be auto")
+        return cls(
+            provider=provider,
+            requested_model=requested_model,
+            expected_actual_model=expected_actual_model,
+            provider_timeout_seconds=timeout_seconds,
+            max_output_tokens=max_output_tokens,
+            max_cost_usd=max_cost_usd,
+            temperature=temperature,
+            tool_choice=tool_choice,
+            definition_sha256=sha256_file(manifest_path),
+        )
+
+    def receipt_payload(self) -> dict[str, object]:
+        return {
+            "definition_sha256": self.definition_sha256,
+            "provider": self.provider,
+            "requested_model": self.requested_model,
+            "expected_actual_model": self.expected_actual_model,
+            "provider_timeout_seconds": self.provider_timeout_seconds,
+            "max_output_tokens": self.max_output_tokens,
+            "max_cost_usd": self.max_cost_usd,
+            "temperature": self.temperature,
+            "tool_choice": self.tool_choice,
+        }
+
+    def reply_violation(self, reply: ModelReply, total_cost_usd: float) -> str | None:
+        if reply.model != self.expected_actual_model:
+            return "actual-model-mismatch"
+        if reply.input_tokens is None or reply.output_tokens is None or reply.cost_usd is None:
+            return "provider-usage-missing"
+        if (
+            not _is_nonnegative_int(reply.input_tokens)
+            or not _is_nonnegative_int(reply.output_tokens)
+            or not _is_nonnegative_finite_number(reply.cost_usd)
+            or not _is_nonnegative_finite_number(total_cost_usd)
+        ):
+            return "provider-usage-invalid"
+        if reply.output_tokens > self.max_output_tokens:
+            return "output-budget-exceeded"
+        if total_cost_usd > self.max_cost_usd:
+            return "cost-budget-exceeded"
+        return None
 
 
 @dataclass(frozen=True)

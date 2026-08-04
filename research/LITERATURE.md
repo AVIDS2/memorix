@@ -1,24 +1,34 @@
 # Literature And Comparison Boundary
 
-This is a working reading matrix, not a source of additional paper claims. The
-arXiv entries used by `paper/references.bib` were cross-checked against the
-official arXiv Atom metadata and paper pages on 2026-07-23; the OpenAI
-SWE-bench contamination post was cross-checked against its official page on the
-same date. The manuscript cites preprints as preprints and does not assume a
-venue version unless it is independently verified at submission time.
+This is a working reading matrix, not a source of additional paper claims. It
+was refreshed on 2026-08-04 against official ACL Anthology, TACL, ICLR, and
+OpenReview pages. A work is called peer reviewed here only when its official
+venue page was verified; preprints and workshop papers stay explicitly labelled
+as such. The manuscript should prefer the venue version whenever one exists and
+must not turn a related result into evidence that MemorixBench has already
+measured an effect.
 
 | Work | What it establishes | What it does not establish for this study |
 | --- | --- | --- |
-| [Mem0](https://arxiv.org/abs/2504.19413) | A practical long-term memory design and conversational-memory evaluation framing. | Whether a memory layer improves a fresh coding agent's patch after repository evolution. |
-| [LongMemEval](https://arxiv.org/abs/2410.10813) | Long-horizon session retrieval and update evaluation. | Repository-state freshness, stale-symbol handling, or hidden-test patch correctness. |
-| [MemoryAgentBench](https://arxiv.org/abs/2507.05257) | Incremental multi-turn evaluation across retrieval, test-time learning, long-range understanding, and conflict resolution. | A controlled repository transition followed by a dependent implementation task. |
-| [MemoryArena](https://arxiv.org/abs/2602.16313) | Agentic-memory evaluation on agentic tasks, closer in spirit to downstream use than conversation-only recall. | The exact multi-session code-ownership and freshness intervention implemented by MemorixBench. |
-| [Agent Workflow Memory](https://arxiv.org/abs/2409.07429) | Induces and selectively retrieves reusable routines for later web-navigation tasks. | A fair fresh-coding-agent patch comparison after controlled repository evolution. |
-| [EvoArena / EvoMem](https://arxiv.org/abs/2606.13681) | Progressive environment updates across terminal, software, and social domains; a patch-based memory representation for evolving environments. | A reason to avoid any "first dynamic-memory benchmark" claim. The abstract does not establish the same fresh-transfer, equal-evidence multi-system coding-memory comparison or private post-snapshot construction used here. |
-| [RepoQA](https://arxiv.org/abs/2406.06025) | Repository-level code understanding and retrieval questions across real projects. | Whether memory retained from an earlier session changes a later agent's patch success. |
-| [OpenAI's SWE-bench contamination audit](https://openai.com/index/why-we-no-longer-evaluate-swe-bench-verified) | Public benchmark tasks and solutions can enter training data; contamination checks must be part of evaluation design. | That any individual MemorixBench case is unseen by every model, or that private task construction removes all pretraining exposure. |
-| [SWE-EVO](https://arxiv.org/abs/2512.18470) | Long-horizon multi-file repository evolution tasks reconstructed from release notes and version history. | An explicit memory intervention or a fresh-agent transfer experiment. It rules out claiming that multi-step software evolution itself is new. |
-| [ChainSWE](https://arxiv.org/abs/2607.02606) | Chronological dependent bug-fix chains in shared codebases, with chain-level coding-agent evaluation. | A fair comparison of memory systems under one bounded predecessor-evidence budget and a sealed private transition. It rules out claiming that dependent coding chains themselves are new. |
+| [Mem0 (preprint)](https://arxiv.org/abs/2504.19413) | A practical long-term memory design and conversational-memory evaluation framing. | Whether a memory layer improves a fresh coding agent's patch after repository evolution. |
+| [LongMemEval (ICLR 2025)](https://openreview.net/forum?id=pZiyCaVuti) | Long-horizon session retrieval, temporal reasoning, knowledge updates, and abstention. | Repository-state freshness, stale-symbol handling, or hidden-test patch correctness. |
+| [LoCoMo (ACL 2024)](https://aclanthology.org/2024.acl-long.747/) | Very long-term conversational-memory evaluation across multi-session dialogue. | A controlled predecessor-evidence intervention on a repository patch. |
+| [MemBench (Findings ACL 2025)](https://aclanthology.org/2025.findings-acl.989/) | A broader peer-reviewed evaluation frame for the memory of LLM-based agents. | That a memory backend improves a fresh coding agent after source evolution. |
+| [Mem2ActBench (ACL 2026)](https://aclanthology.org/2026.acl-long.370/) | Whether task-oriented agents can infer and use long-term memory for action rather than merely answer an explicit recall question. | The fresh-agent, equal-current-code coding-transfer intervention used here. |
+| [Memory OS of AI Agent (EMNLP 2025)](https://aclanthology.org/2025.emnlp-main.1318/) | A peer-reviewed architecture for organizing agent memory as an explicit system concern. | A fair fresh-coding-agent patch comparison after repository evolution. |
+| [MemoryAgentBench (preprint)](https://arxiv.org/abs/2507.05257) | Incremental multi-turn evaluation across retrieval, test-time learning, long-range understanding, and conflict resolution. | A controlled repository transition followed by a dependent implementation task. |
+| [MemoryArena (preprint)](https://arxiv.org/abs/2602.16313) | Agentic-memory evaluation on agentic tasks, closer in spirit to downstream use than conversation-only recall. | The exact multi-session code-ownership and freshness intervention implemented by MemorixBench. |
+| [Agent Workflow Memory (ICLR 2025)](https://openreview.net/forum?id=NTAhi2JEEE) | Induces and selectively retrieves reusable routines for later web-navigation tasks. | A fair fresh-coding-agent patch comparison after controlled repository evolution. |
+| [Lost in the Middle (TACL 2024)](https://aclanthology.org/2024.tacl-1.9/) | Relevant evidence is not used uniformly across long prompts; position matters. | The size or direction of a project-memory effect in coding agents. |
+| [Same Task, More Tokens (ACL 2024)](https://aclanthology.org/2024.acl-long.818/) | Extra input can hurt reasoning before a model reaches its nominal context limit. | That all retained memory is noise, or that retrieval never helps. |
+| [LongCodeU (ACL 2025)](https://aclanthology.org/2025.acl-long.1324/) | Long-code understanding and selecting repository context are distinct evaluated capabilities. | Whether predecessor-session memory changes a later patch outcome. |
+| [ProjectEval (Findings ACL 2025)](https://aclanthology.org/2025.findings-acl.1036/) | Project-level automated evaluation for programming agents. | A predecessor-memory intervention, a sealed transition, or a stale-guidance outcome. |
+| [Exploring the Pre-conditions for Memory-Learning Agents (ICLR 2025 workshop)](https://openreview.net/forum?id=WZV7I3PT90) | A directly relevant but non-main-track result: effective memory induction can depend on backbone strength, and stronger agents may transfer useful memory to weaker ones. | A general causal law about model strength or MemorixBench's future coding-agent results. It is directional motivation only. |
+| [EvoArena / EvoMem (preprint)](https://arxiv.org/abs/2606.13681) | Progressive environment updates across terminal, software, and social domains; a patch-based memory representation for evolving environments. | A reason to avoid any "first dynamic-memory benchmark" claim. The abstract does not establish the same fresh-transfer, equal-evidence multi-system coding-memory comparison or private post-snapshot construction used here. |
+| [RepoQA (preprint)](https://arxiv.org/abs/2406.06025) | Repository-level code understanding and retrieval questions across real projects. | Whether memory retained from an earlier session changes a later patch outcome. |
+| [OpenAI SWE-bench contamination audit (research post)](https://openai.com/index/why-we-no-longer-evaluate-swe-bench-verified) | Public benchmark tasks and solutions can enter training data; contamination checks must be part of evaluation design. | That any individual MemorixBench case is unseen by every model, or that private task construction removes all pretraining exposure. |
+| [SWE-EVO (preprint)](https://arxiv.org/abs/2512.18470) | Long-horizon multi-file repository evolution tasks reconstructed from release notes and version history. | An explicit memory intervention or a fresh-agent transfer experiment. It rules out claiming that multi-step software evolution itself is new. |
+| [ChainSWE (preprint)](https://arxiv.org/abs/2607.02606) | Chronological dependent bug-fix chains in shared codebases, with chain-level coding-agent evaluation. | A fair comparison of memory systems under one bounded predecessor-evidence budget and a sealed private transition. It rules out claiming that dependent coding chains themselves are new. |
 | [Cognee](https://github.com/topoteretes/cognee) | A graph-plus-vector knowledge layer with ontology and ingestion emphasis. | A ready-made fair baseline for coding-agent transfer without a pinned adapter and equal evidence budget. |
 | [AgentMemory benchmark notes](https://github.com/rohitg00/agentmemory/blob/main/benchmark/COMPARISON.md) | Useful public discussion of retrieval-oriented coding-memory comparisons and the apples-to-oranges risk. | A head-to-head patch-success result on an identical harness. |
 

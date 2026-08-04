@@ -3,11 +3,12 @@ from __future__ import annotations
 from dataclasses import asdict
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 from typing import Any
 
-from .models import OracleSpec, ToolEvent, sha256_text
+from .models import OracleSpec, ToolEvent, sha256_file, sha256_text
 
 
 IGNORED_PATH_PARTS = {".git", ".memorix", "__pycache__", ".pytest_cache"}
@@ -29,6 +30,15 @@ class ToolSandbox:
         for candidate in self.writable_roots:
             if candidate != self.root and self.root not in candidate.parents:
                 raise ValueError("writable path escapes workspace")
+        self.oracle.verify_integrity()
+        self.oracle_runtime_sha256 = _oracle_runtime_sha256(self.oracle.command[0])
+
+    def oracle_identity(self) -> dict[str, str | None]:
+        return {
+            "definition_sha256": self.oracle.definition_sha256,
+            "assets_sha256": self.oracle.assets_sha256,
+            "runtime_sha256": self.oracle_runtime_sha256,
+        }
 
     def _resolve(self, raw_path: str, *, create: bool = False) -> tuple[Path, str]:
         if not isinstance(raw_path, str) or not raw_path or "\0" in raw_path:
@@ -144,7 +154,8 @@ class ToolSandbox:
         return {"path": relative, "replaced": True}
 
     def run_verification(self, _arguments: dict[str, Any]) -> dict[str, Any]:
-        command = [item.replace("{workspace}", str(self.root)) for item in self.oracle.command]
+        self.oracle.verify_integrity()
+        command = self.oracle.render_command(self.root)
         environment = os.environ.copy()
         options: dict[str, Any] = {}
         if sys.platform == "win32":
@@ -194,3 +205,15 @@ class ToolSandbox:
 
     def event_payload(self) -> list[dict[str, Any]]:
         return [asdict(event) for event in self.events]
+
+
+def _oracle_runtime_sha256(command: str) -> str:
+    candidate = Path(command)
+    if candidate.is_file():
+        executable = candidate.resolve()
+    else:
+        resolved = shutil.which(command)
+        if not resolved:
+            raise RuntimeError("oracle runtime executable cannot be resolved")
+        executable = Path(resolved).resolve()
+    return sha256_file(executable)

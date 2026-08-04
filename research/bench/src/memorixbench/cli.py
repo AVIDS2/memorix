@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 import sys
 
-from .models import CaseSpec, OracleSpec
+from .models import CaseSpec, OracleSpec, RouteSpec
 from .openrouter import OpenRouterClient
 from .preflight import run_native_preflight
 from .trial import TrialConfig, run_trial
@@ -32,24 +32,22 @@ def _validate_case(args: argparse.Namespace) -> int:
 def _run_trial(args: argparse.Namespace) -> int:
     case = CaseSpec.load(args.case)
     oracle = OracleSpec.load(args.oracle)
+    route = RouteSpec.load(args.route)
     config = TrialConfig(
         case=case,
         oracle=oracle,
         condition=args.condition,
-        requested_model=args.model,
+        requested_model=route.requested_model,
         artifact_root=args.artifact_root,
         memorix_cli=args.memorix_cli,
         max_steps=args.max_steps,
         surface_profile=args.surface_profile,
         evidence_policy=args.evidence_policy,
+        route=route,
     )
     outcome = run_trial(
         config,
-        OpenRouterClient(
-            args.model,
-            timeout_seconds=args.provider_timeout_seconds,
-            max_output_tokens=args.max_output_tokens,
-        ),
+        OpenRouterClient(route),
     )
     payload = outcome["payload"]
     print(json.dumps({"receipt": str(outcome["receipt_path"]), "status": payload["status"], "task_success": payload["task_success"]}, indent=2))
@@ -96,13 +94,11 @@ def build_parser() -> argparse.ArgumentParser:
     trial.add_argument("--oracle", type=Path, required=True)
     trial.add_argument("--artifact-root", type=Path, required=True)
     trial.add_argument("--condition", choices=("no-memory", "raw-record", "memorix-native"), required=True)
-    trial.add_argument("--model", required=True)
+    trial.add_argument("--route", type=Path, required=True)
     trial.add_argument("--memorix-cli", default="memorix")
     trial.add_argument("--surface-profile", choices=("native-product", "canonical-information"), default="native-product")
     trial.add_argument("--evidence-policy", choices=("optional", "fixed-index"), default="optional")
     trial.add_argument("--max-steps", type=int, default=24)
-    trial.add_argument("--max-output-tokens", type=int, default=1200)
-    trial.add_argument("--provider-timeout-seconds", type=int, default=90)
     trial.set_defaults(handler=_run_trial)
     return parser
 

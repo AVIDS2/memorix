@@ -1,14 +1,19 @@
 # MemorixBench Protocol
 
-**Protocol version:** 1.5-draft
+**Protocol version:** 1.6-draft
 
 **Target system:** Memorix 1.4.1
 **Status:** exploratory protocol; deterministic contracts and matched synthetic
 engineering matrices under both evidence-surface profiles have passed. One
 source-backed protocol-1.3 cohort is retained as a non-discriminative no-action
 calibration. A separate protocol-1.4 source-sufficient action calibration has
-passed. Three source-backed protocol-1.5 lifecycle preflights have passed;
-no confirmatory or condition-effect outcome has been collected.
+passed. Three source-backed protocol-1.5 lifecycle preflights are retained as
+historical lifecycle calibration. Three source-backed protocol-1.6 no-model
+lifecycle preflights have passed with sealed source archives, unpacked trees,
+and oracle inputs; one
+separate CodeGraph-refresh infrastructure failure is retained externally rather
+than overwritten. No confirmatory or condition-effect outcome has been
+collected.
 
 ## Research question
 
@@ -41,8 +46,9 @@ The classification is a hypothesis about task structure, not an outcome label.
 
 ## Matched conditions
 
-Each case/model/repetition uses the same source snapshot, task prompt, writable
-paths, bounded tools, timeout, verification command, and maximum spend.
+Each case/model/repetition uses the same frozen source snapshot, task prompt,
+writable paths, bounded tools, private-oracle assets, route manifest, timeout,
+verification command, and maximum spend.
 
 They also share one versioned repair-loop contract: an agent must not stop
 solely because an agent-visible verification call failed. It should use its
@@ -57,15 +63,21 @@ mode from masquerading as a memory result.
 | `raw-record` | One explicit read of a fixed predecessor record. |
 | `memorix-native` | A normal read-only Memorix project-context call plus one cited memory-detail expansion. |
 
-Every memory-providing condition uses the same case-defined evidence-size cap.
-This controls maximum rendered evidence, while provider-reported input tokens
-remain a separate recorded outcome because routes can tokenize the same text
-differently. `raw-record` and `memorix-native` both require an explicit tool
-call; the latter is progressive disclosure, where one bounded brief can name a
-memory and the agent may expand one cited detail. It must not expose
-research-only product switches. Any internal ablation belongs in a research-side
-renderer and must be reported as an exploratory mechanism probe, never as
-product behavior.
+Within `canonical-information`, every evidence-providing condition uses the
+same case-defined evidence-size cap. This controls the matched rendered detail
+surface, while provider-reported input tokens remain a separate recorded outcome
+because routes can tokenize the same text differently. `raw-record` and
+`memorix-native` both require an explicit tool call; the latter is progressive
+disclosure, where one bounded brief can name a memory and the agent may expand
+one cited detail. It must not expose research-only product switches.
+
+`native-product` instead delivers Memorix's actual bounded Workset prompt and
+its real cited observation IDs. The runner never replaces that product brief
+with a synthetic index or silently truncates it to the canonical cap; it records
+the rendered brief characters separately. This is why native-product measures
+end-to-end product experience, not an isolated information effect. Any internal
+ablation belongs in a research-side renderer and must be reported as an
+exploratory mechanism probe, never as product behavior.
 
 Two evidence-surface profiles answer different questions:
 
@@ -95,11 +107,13 @@ Within `canonical-information`, policy is recorded separately:
   invalid rather than treating it as a task failure.
 
 The fixed index is a common structured `records` list. A listed record uses the
-same case-local alias (`1`) in every condition; for the native path the runner
-first verifies that real Memorix selected the seeded observation, then maps the
-alias to that private observation ID. The actual native brief is retained only
-in the private sidecar. This prevents a condition-specific index shape or local
-observation number from deciding whether the agent can expand evidence.
+same case-local alias (`1`) in every condition; for the canonical native path
+the runner first verifies that real Memorix selected the seeded observation,
+then maps the alias to that private observation ID. Native-product keeps the
+real workset brief and citations instead. The actual native brief is retained
+only in the private sidecar. This prevents a condition-specific index shape or
+local observation number from deciding whether the agent can expand evidence in
+the causal comparison.
 
 The latter estimates the conditional effect of delivered predecessor evidence
 against an explicit empty-index control. It does not estimate natural tool
@@ -157,8 +171,17 @@ The first operational tier uses a local controller with these boundaries:
 - private tests and expected behavior remain outside the checkout;
 - each condition starts from a new materialized tree, a clean Git baseline
   commit, and a fresh memory store;
-- every version-2 case card declares the precursor observation type, relevant
-  source files, and concepts used to form the native Memorix record;
+- every source-backed version-4 case card declares the precursor observation
+  type, relevant source files, concepts, frozen source commit, archive file and
+  digest, archive top-level directory, and source-tree digest used to form the
+  native Memorix record; the runner revalidates the archive bytes, its normalized
+  contents, and the unpacked-tree digest before execution;
+- every source-backed oracle manifest hashes its declared executable assets and
+  revalidates them before verification; and
+- every live source-backed run loads one frozen route manifest. It pins the
+  requested and expected actual model, provider timeout, output cap, cost cap,
+  temperature, and tool-choice policy. A missing usage receipt, model mismatch,
+  output overrun, or cost overrun invalidates the row;
 - routes, prompts, supplied predecessor evidence, edits, tool calls, and test
   results are written into an external ignored artifact directory. Exact
   delivered evidence is retained only in a private external sidecar; the
@@ -184,13 +207,15 @@ efficacy result.
 
 For a native-memory transfer, a successful `memory store` alone does not prove
 that the record is eligible for a task Workset. Memorix binds project evidence
-to the current CodeGraph during its normal maintenance lifecycle. Beginning
-with protocol 1.5, the runner performs the supported `memorix codegraph
-refresh` after seeding the precursor and before the fresh agent begins. It
-records the refresh return code and output hashes separately from the agent's
-task time. A failed refresh or a seed that remains absent from the native
-context/detail path invalidates the row. This is a pre-transfer lifecycle
-check, not an evaluation-only product switch and not a model-visible tool.
+to the current CodeGraph during its normal maintenance lifecycle. Protocol 1.5
+introduced the supported `memorix codegraph refresh` after seeding the precursor
+and before the fresh agent begins. Protocol 1.6 keeps that lifecycle and
+requires native-product to deliver the actual Workset prompt and cited detail,
+rather than a research-made replacement index. It records the refresh return
+code and output hashes separately from the agent's task time. A failed refresh
+or a seed that remains absent from the native context/detail path invalidates
+the row. This is a pre-transfer lifecycle check, not an evaluation-only product
+switch and not a model-visible tool.
 
 An optional-access preflight is also retained when agents do not consult an
 available evidence tool. That is useful adoption evidence, but it is not pooled
@@ -204,7 +229,21 @@ condition made no source edit is therefore retained as an inconclusive
 no-action calibration, not labeled as an agent stopping after a failed
 verification. Protocol 1.4 adds this attribution before any new cohort runs.
 Protocol 1.5 additionally records a completed CodeGraph binding refresh before
-new native-memory source-backed cohorts run.
+new native-memory source-backed cohorts run. Protocol 1.6 additionally seals
+the source archive, its normalized contents, the unpacked source tree, private
+oracle executable assets, and live model route; source-tree hashing uses POSIX
+relative-path ordering so the value is portable across operating systems. The
+earlier 1.5 lifecycle preflights are retained as calibration rather than
+evidence for a 1.6 cohort. The 1.6 runner also gives every preflight an opaque
+run-specific transfer directory so no-remote local project IDs cannot collide
+between cases. Fresh v14 no-model preflights supersede earlier v11 tree hashes,
+which exposed and then corrected a Windows-specific sorting ambiguity, and v12
+receipts, whose runner fingerprint still included non-executable tests and
+documentation. v13 is also retained because the final runner now rejects
+malformed provider token or cost values before they can affect a budget. The v14
+fingerprint covers only the loaded runner package. A
+retained 1.6 CodeGraph-refresh failure was rerun only in a new artifact directory
+and did not enter an outcome cohort.
 
 ## Confirmatory gate
 

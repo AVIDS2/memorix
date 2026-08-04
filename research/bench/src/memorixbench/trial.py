@@ -4,6 +4,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 import json
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -11,14 +12,14 @@ import time
 from typing import Any, Literal, Protocol
 from uuid import uuid4
 
-from .models import CaseSpec, ModelReply, OracleSpec, ToolCall, compact_json, sha256_text, sha256_tree
+from .models import CaseSpec, ModelReply, OracleSpec, RouteSpec, ToolCall, compact_json, sha256_text, sha256_tree
 from .sandbox import ToolSandbox
 
 
 Condition = Literal["no-memory", "raw-record", "memorix-native"]
 SurfaceProfile = Literal["native-product", "canonical-information"]
 EvidencePolicy = Literal["optional", "fixed-index"]
-PROTOCOL_VERSION = "1.5-draft"
+PROTOCOL_VERSION = "1.6-draft"
 
 
 class AgentClient(Protocol):
@@ -37,6 +38,7 @@ class TrialConfig:
     memorix_timeout_seconds: int = 120
     surface_profile: SurfaceProfile = "native-product"
     evidence_policy: EvidencePolicy = "optional"
+    route: RouteSpec | None = None
 
 
 def _tool_definition(name: str, description: str, properties: dict[str, Any], required: list[str] | None = None) -> dict[str, Any]:
@@ -263,6 +265,7 @@ class MemorixContextTool:
         self.context_hashes: list[str] = []
         self.detail_hashes: list[str] = []
         self.retrieved_chars = 0
+        self.context_retrieved_chars = 0
         self.formation_elapsed_ms: int | None = None
         self.codegraph_refresh_receipt: dict[str, object] | None = None
         self.codegraph_refresh_elapsed_ms: int | None = None
@@ -271,6 +274,7 @@ class MemorixContextTool:
         self.context_includes_seed: bool | None = None
         self.detail_delivered = False
         self.backend_context_audit: str | None = None
+        self.cited_observation_ids: tuple[int, ...] = ()
 
     def _bounded_evidence(self, rendered: str) -> tuple[str, bool]:
         remaining = self.config.case.evidence_char_budget - self.retrieved_chars
@@ -374,8 +378,24 @@ class MemorixContextTool:
             payload = json.loads(completed.stdout)
         except json.JSONDecodeError as error:
             raise RuntimeError("Memorix project context returned invalid JSON") from error
-        self.context_includes_seed = _workset_includes_observation(payload, self.seed_observation_id)
+        workset_includes_seed = _workset_includes_observation(payload, self.seed_observation_id)
         self.backend_context_audit = _native_context_prompt(payload)
+        self.cited_observation_ids = _native_cited_observation_ids(self.backend_context_audit)
+        self.context_includes_seed = (
+            workset_includes_seed is True
+            and self.seed_observation_id in self.cited_observation_ids
+        )
+        if self.config.surface_profile == "native-product":
+            rendered = self.backend_context_audit
+            self.context_retrieved_chars += len(rendered)
+            context_sha256 = sha256_text(rendered)
+            self.context_hashes.append(context_sha256)
+            return {
+                "brief": rendered,
+                "cited_memory_ids": list(self.cited_observation_ids),
+                "context_sha256": context_sha256,
+                "truncated": False,
+            }
         records = [{"id": 1}] if self.context_includes_seed else []
         rendered = compact_json({"records": records})
         truncated = False
@@ -386,10 +406,16 @@ class MemorixContextTool:
     def detail(self, observation_id: object) -> dict[str, Any]:
         if self.detail_calls >= 1:
             raise ValueError("memorix_memory_detail may be called once per exploratory trial")
-        if not isinstance(observation_id, int) or observation_id != 1:
-            raise ValueError("id must be the record id 1 from the predecessor index")
         if self.context_includes_seed is not True or self.seed_observation_id is None:
             raise ValueError("the native predecessor index did not list an expandable record")
+        if self.config.surface_profile == "native-product":
+            if not isinstance(observation_id, int) or observation_id not in self.cited_observation_ids:
+                raise ValueError("id must be a memory citation from the Memorix project-context brief")
+            backend_observation_id = observation_id
+        else:
+            if not isinstance(observation_id, int) or observation_id != 1:
+                raise ValueError("id must be the record id 1 from the predecessor index")
+            backend_observation_id = self.seed_observation_id
         self.detail_calls += 1
         completed = _run(
             [
@@ -397,7 +423,7 @@ class MemorixContextTool:
                 "memory",
                 "detail",
                 "--id",
-                str(self.seed_observation_id),
+                str(backend_observation_id),
                 "--cwd",
                 str(self.workspace),
                 "--json",
@@ -447,6 +473,10 @@ def _native_memory_detail(payload: object) -> str:
     if not documents:
         raise RuntimeError("Memorix memory detail has no usable document")
     return compact_json({"documents": documents})
+
+
+def _native_cited_observation_ids(prompt: str) -> tuple[int, ...]:
+    return tuple(sorted({int(value) for value in re.findall(r"(?<!\w)#(\d+)\b", prompt)}))
 
 
 def _workset_includes_observation(payload: object, observation_id: int | None) -> bool | None:
@@ -538,8 +568,8 @@ def _receipt_path(root: Path, run_id: str) -> Path:
 
 
 def _runner_source_tree_sha256() -> str:
-    """Fingerprint the executable study surface without recording a local path."""
-    return sha256_tree(Path(__file__).resolve().parents[2])
+    """Fingerprint the loaded runner package without recording a local path."""
+    return sha256_tree(Path(__file__).resolve().parent)
 
 
 def run_trial(config: TrialConfig, client: AgentClient) -> dict[str, Any]:
@@ -551,6 +581,13 @@ def run_trial(config: TrialConfig, client: AgentClient) -> dict[str, Any]:
         raise ValueError("unsupported evidence policy")
     if config.evidence_policy == "fixed-index" and config.surface_profile != "canonical-information":
         raise ValueError("fixed-index policy requires the canonical-information profile")
+    if config.route is not None and config.route.requested_model != config.requested_model:
+        raise ValueError("requested_model must match the frozen route manifest")
+    if (
+        config.case.case_tier in {"exploratory-source-backed", "confirmatory-held-out"}
+        and (config.oracle.assets_sha256 is None or config.route is None)
+    ):
+        raise ValueError("source-backed trials require frozen oracle and route manifests")
     run_id = f"exploratory-{config.case.case_id}-{uuid4().hex[:12]}"
     artifact_root = config.artifact_root.resolve()
     workspace = artifact_root / "workspaces" / run_id
@@ -567,6 +604,11 @@ def run_trial(config: TrialConfig, client: AgentClient) -> dict[str, Any]:
     tool_definitions = agent_tools(config.condition, config.surface_profile)
     tool_schema_sha256 = sha256_text(compact_json(tool_definitions))
     start_hash = sha256_tree(workspace)
+    if (
+        config.case.source_tree_sha256 is not None
+        and start_hash != config.case.source_tree_sha256
+    ):
+        raise RuntimeError("transfer workspace does not match the frozen source snapshot")
     messages: list[dict[str, Any]] = _messages(config.case, config.evidence_policy)
     actual_models: list[str] = []
     response_ids: list[str] = []
@@ -600,6 +642,14 @@ def run_trial(config: TrialConfig, client: AgentClient) -> dict[str, Any]:
                 actual_models.append(reply.model)
             if reply.response_id:
                 response_ids.append(reply.response_id)
+            if config.route is not None:
+                prospective_cost = sum(costs)
+                if isinstance(reply.cost_usd, (int, float)) and not isinstance(reply.cost_usd, bool):
+                    prospective_cost += float(reply.cost_usd)
+                violation = config.route.reply_violation(reply, prospective_cost)
+                if violation is not None:
+                    invalid_reason = f"route:{violation}"
+                    break
             input_tokens += reply.input_tokens or 0
             output_tokens += reply.output_tokens or 0
             if reply.cost_usd is not None:
@@ -682,7 +732,11 @@ def run_trial(config: TrialConfig, client: AgentClient) -> dict[str, Any]:
                         "tool": call.name,
                         "result": result,
                     }
-                    if call.name == "project_predecessor_context" and memory_tool is not None:
+                    if (
+                        call.name == "project_predecessor_context"
+                        and memory_tool is not None
+                        and config.surface_profile == "canonical-information"
+                    ):
                         event["native_backend_context"] = memory_tool.backend_context_audit
                     evidence_payload_events.append(event)
                 messages.append({"role": "tool", "tool_call_id": call.call_id, "content": compact_json(result)})
@@ -720,7 +774,15 @@ def run_trial(config: TrialConfig, client: AgentClient) -> dict[str, Any]:
     evidence_chars_retrieved = (
         canonical_tool.retrieved_chars
         if canonical_tool is not None
-        else (raw_record_tool.retrieved_chars if raw_record_tool is not None else (memory_tool.retrieved_chars if memory_tool else 0))
+        else (
+            raw_record_tool.retrieved_chars
+            if raw_record_tool is not None
+            else (
+                memory_tool.context_retrieved_chars + memory_tool.retrieved_chars
+                if memory_tool
+                else 0
+            )
+        )
     )
     evidence_sidecar = {
         "schema_version": "exploratory-evidence-payload-v1",
@@ -760,6 +822,7 @@ def run_trial(config: TrialConfig, client: AgentClient) -> dict[str, Any]:
         },
         "tool_schema_sha256": tool_schema_sha256,
         "requested_model": config.requested_model,
+        "route": config.route.receipt_payload() if config.route is not None else None,
         "actual_models": sorted(set(actual_models)),
         "response_id_sha256": [sha256_text(value) for value in response_ids],
         "status": status,
@@ -788,6 +851,10 @@ def run_trial(config: TrialConfig, client: AgentClient) -> dict[str, Any]:
             "evidence_char_budget": config.case.evidence_char_budget,
             "source_tree_before_sha256": start_hash,
             "source_tree_after_sha256": source_tree_after_hash,
+            "source_tree_expected_sha256": config.case.source_tree_sha256,
+            "source_commit": config.case.source_commit,
+            "source_archive_sha256": config.case.source_archive_sha256,
+            "source_archive_root": config.case.source_archive_root,
             "predecessor_record_sha256": sha256_text(config.case.predecessor_record),
             "predecessor_memory": {
                 "type": config.case.predecessor_observation_type,
@@ -795,7 +862,7 @@ def run_trial(config: TrialConfig, client: AgentClient) -> dict[str, Any]:
                 "concepts_sha256": sha256_text(compact_json(list(config.case.predecessor_concepts))),
             },
             "task_sha256": sha256_text(config.case.task),
-            "oracle_definition_sha256": config.oracle.definition_sha256,
+            "oracle": sandbox.oracle_identity(),
         },
         "memorix_formation": (
             {
@@ -805,6 +872,7 @@ def run_trial(config: TrialConfig, client: AgentClient) -> dict[str, Any]:
                 "context_sha256": memory_tool.context_hashes,
                 "detail_sha256": memory_tool.detail_hashes,
                 "retrieved_chars": memory_tool.retrieved_chars,
+                "context_retrieved_chars": memory_tool.context_retrieved_chars,
                 "formation_elapsed_ms": memory_tool.formation_elapsed_ms,
                 "codegraph_refresh_elapsed_ms": memory_tool.codegraph_refresh_elapsed_ms,
                 "seed_observation_id_sha256": (
@@ -814,6 +882,10 @@ def run_trial(config: TrialConfig, client: AgentClient) -> dict[str, Any]:
                 ),
                 "context_includes_seed": memory_tool.context_includes_seed,
                 "detail_delivered": memory_tool.detail_delivered,
+                "cited_observation_count": len(memory_tool.cited_observation_ids),
+                "cited_observation_ids_sha256": sha256_text(
+                    compact_json(list(memory_tool.cited_observation_ids))
+                ),
             }
             if memory_tool
             else None

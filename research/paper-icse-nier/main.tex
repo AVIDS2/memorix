@@ -44,10 +44,11 @@ agent memory, coding agents, evaluation, software evolution, reproducibility
 Long-term-memory systems are usually justified by a simple intuition: an agent
 that retains useful prior information should perform better later. This is often
 reasonable, and existing work evaluates long-horizon retrieval and updates in
-conversational settings~\cite{wu2024longmemeval}, practical long-term memory
-architectures~\cite{chhikara2025mem0}, and incremental agent-memory
-competencies~\cite{hu2025memoryagentbench}. Workflow-memory work further shows
-that reusable routines can matter across agent runs~\cite{wang2024agentworkflowmemory}.
+conversational settings~\cite{wu2024longmemeval,maharana2024locomo}, broad
+agent-memory competencies~\cite{tan2025membench,shen2026mem2actbench}, and
+practical long-term-memory architectures~\cite{chhikara2025mem0,kang2025memoryos}. Workflow-memory
+work further shows that reusable routines can matter across agent
+runs~\cite{wang2024agentworkflowmemory}.
 
 Coding agents create a different control problem. A later agent can inspect the
 current repository, search symbols, edit files, and run focused tests. For a
@@ -57,6 +58,22 @@ memory may reduce ambiguity. After a repository change, a previously correct
 claim may also become stale. The central question is therefore conditional:
 \emph{under which task, freshness, and model-capability conditions does project
 memory improve or harm a later coding task?}
+
+This question cannot be reduced to a model's advertised context-window size.
+Controlled studies find that reasoning can degrade with longer inputs before the
+nominal limit and that relevant evidence is not used uniformly across a long
+prompt~\cite{liu2024lostmiddle,levy2024sametask}. Repository-level long-code
+evaluation likewise treats selecting and using current code context as a
+distinct capability~\cite{li2025longcodeu}, while ProjectEval establishes a
+peer-reviewed project-level setting for programming-agent evaluation~\cite{liu2025projecteval}.
+These results motivate bounded
+evidence, a current-source-first control, and a preregistered model-capability
+moderator instead of assuming that more retained text helps every agent.
+A directly relevant ICLR 2025 workshop study further suggests that backbone
+strength can affect whether reusable memory is induced and that memory from a
+stronger agent can transfer to a weaker one~\cite{shah2025preconditions}. This
+is directional motivation, not evidence that the same boundary holds for
+fresh-agent coding transfer.
 
 This is not the first study of dynamic or sequential agent environments.
 MemoryArena studies interdependent multi-session tasks~\cite{he2026memoryarena},

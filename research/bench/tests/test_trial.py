@@ -7,7 +7,7 @@ import sys
 import tempfile
 import unittest
 
-from memorixbench.models import CaseSpec, ModelReply, OracleSpec, ToolCall, sha256_file, sha256_text
+from memorixbench.models import CaseSpec, ModelReply, OracleSpec, RouteSpec, ToolCall, sha256_file, sha256_text, sha256_tree
 from memorixbench import preflight, trial
 from memorixbench.trial import CanonicalEvidenceTool, RawRecordTool, TrialConfig, _messages, _workset_includes_observation, agent_tools, _native_context_prompt, _native_memory_detail, run_trial
 
@@ -25,6 +25,14 @@ class ScriptedClient:
 
 
 class TrialTests(unittest.TestCase):
+    def test_runner_hash_covers_only_the_loaded_runner_package(self) -> None:
+        package_root = Path(trial.__file__).resolve().parent
+        self.assertEqual(trial._runner_source_tree_sha256(), sha256_tree(package_root))
+        self.assertNotEqual(
+            trial._runner_source_tree_sha256(),
+            sha256_tree(package_root.parents[1]),
+        )
+
     def _case_and_oracle(self, root: Path) -> tuple[CaseSpec, OracleSpec]:
         case_root = root / "case"
         source_root = case_root / "seed" / "src"
@@ -107,7 +115,7 @@ class TrialTests(unittest.TestCase):
             payload = outcome["payload"]
             self.assertEqual(payload["status"], "completed")
             self.assertTrue(payload["task_success"])
-            self.assertEqual(payload["runner"]["protocol_version"], "1.5-draft")
+            self.assertEqual(payload["runner"]["protocol_version"], "1.6-draft")
             self.assertRegex(payload["runner"]["source_tree_sha256"], r"^[0-9a-f]{64}$")
             self.assertEqual(payload["resource_usage"]["memory_context_calls"], 0)
             self.assertEqual(payload["resource_usage"]["raw_record_calls"], 1)
@@ -123,6 +131,52 @@ class TrialTests(unittest.TestCase):
             self.assertIn("durable decision", outcome["evidence_path"].read_text(encoding="utf-8"))
             self.assertNotIn(str(root), outcome["evidence_path"].read_text(encoding="utf-8"))
             self.assertEqual(payload["evidence_payload_sha256"], sha256_file(outcome["evidence_path"]))
+
+    def test_trial_marks_gateway_model_substitution_invalid_before_tools(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            case, oracle = self._case_and_oracle(root)
+            route = RouteSpec(
+                provider="openrouter",
+                requested_model="provider/requested-model",
+                expected_actual_model="provider/actual-model",
+                provider_timeout_seconds=90,
+                max_output_tokens=1200,
+                max_cost_usd=0.5,
+                temperature=0,
+                tool_choice="auto",
+                definition_sha256="d" * 64,
+            )
+            client = ScriptedClient(
+                [
+                    ModelReply(
+                        content=None,
+                        tool_calls=(ToolCall("call-1", "write_file", {"path": "src/task.py", "content": "done\n"}),),
+                        model="provider/substituted-model",
+                        response_id="private-response-id",
+                        input_tokens=10,
+                        output_tokens=5,
+                        cost_usd=0.001,
+                    )
+                ]
+            )
+            outcome = run_trial(
+                TrialConfig(
+                    case=case,
+                    oracle=oracle,
+                    condition="no-memory",
+                    requested_model="provider/requested-model",
+                    artifact_root=root / "artifacts",
+                    route=route,
+                ),
+                client,
+            )
+            payload = outcome["payload"]
+            self.assertEqual(payload["status"], "invalid")
+            self.assertEqual(payload["invalid_reason"], "route:actual-model-mismatch")
+            self.assertEqual(payload["actual_models"], ["provider/substituted-model"])
+            self.assertEqual(payload["resource_usage"]["ordinary_tool_call_count"], 0)
+            self.assertFalse(payload["agent_action"]["source_edit_attempted"])
 
     def test_receipt_distinguishes_agent_stop_after_failed_verification(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -341,6 +395,151 @@ class TrialTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             _native_context_prompt({"workset": {"prompt": ""}})
 
+    def test_native_product_delivers_the_real_brief_and_cited_detail(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            case, oracle = self._case_and_oracle(root)
+            native = trial.MemorixContextTool(
+                config=TrialConfig(
+                    case=case,
+                    oracle=oracle,
+                    condition="memorix-native",
+                    requested_model="example/model",
+                    artifact_root=root / "artifacts",
+                ),
+                workspace=root,
+            )
+            native.seed_receipt = {"returncode": 0}
+            native.seed_observation_id = 7
+            native.transfer_prepared = True
+            calls: list[list[str]] = []
+            original_run = trial._run
+            try:
+                def fake_run(command, **_kwargs):
+                    calls.append(command)
+                    if command[1] == "context":
+                        return type(
+                            "Completed",
+                            (),
+                            {
+                                "returncode": 0,
+                                "stderr": "",
+                                "stdout": json.dumps(
+                                    {
+                                        "workset": {
+                                            "prompt": "Memorix Autopilot Brief\\nReliable memory\\n- #7 decision: durable rule",
+                                            "reliableMemory": [{"id": 7}],
+                                        }
+                                    }
+                                ),
+                            },
+                        )()
+                    return type(
+                        "Completed",
+                        (),
+                        {
+                            "returncode": 0,
+                            "stderr": "",
+                            "stdout": json.dumps(
+                                {
+                                    "documents": [
+                                        {
+                                            "observationId": 7,
+                                            "title": "Durable rule",
+                                            "narrative": "Use the current decision.",
+                                        }
+                                    ]
+                                }
+                            ),
+                        },
+                    )()
+
+                trial._run = fake_run
+                context = native.context()
+                self.assertIn("#7 decision", context["brief"])
+                self.assertEqual(context["cited_memory_ids"], [7])
+                self.assertNotIn("records", context)
+                self.assertTrue(native.context_includes_seed)
+                with self.assertRaises(ValueError):
+                    native.detail(1)
+                detail = native.detail(7)
+            finally:
+                trial._run = original_run
+            self.assertIn("Durable rule", detail["detail"])
+            self.assertIn("7", calls[-1])
+            self.assertEqual(native.context_retrieved_chars, len(context["brief"]))
+
+    def test_canonical_profile_hides_native_ids_behind_the_common_alias(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            case, oracle = self._case_and_oracle(root)
+            canonical = trial.MemorixContextTool(
+                config=TrialConfig(
+                    case=case,
+                    oracle=oracle,
+                    condition="memorix-native",
+                    requested_model="example/model",
+                    artifact_root=root / "artifacts",
+                    surface_profile="canonical-information",
+                    evidence_policy="fixed-index",
+                ),
+                workspace=root,
+            )
+            canonical.seed_receipt = {"returncode": 0}
+            canonical.seed_observation_id = 7
+            canonical.transfer_prepared = True
+            calls: list[list[str]] = []
+            original_run = trial._run
+            try:
+                def fake_run(command, **_kwargs):
+                    calls.append(command)
+                    if command[1] == "context":
+                        return type(
+                            "Completed",
+                            (),
+                            {
+                                "returncode": 0,
+                                "stderr": "",
+                                "stdout": json.dumps(
+                                    {
+                                        "workset": {
+                                            "prompt": "Memorix Autopilot Brief\\nReliable memory\\n- #7 decision: durable rule",
+                                            "reliableMemory": [{"id": 7}],
+                                        }
+                                    }
+                                ),
+                            },
+                        )()
+                    return type(
+                        "Completed",
+                        (),
+                        {
+                            "returncode": 0,
+                            "stderr": "",
+                            "stdout": json.dumps(
+                                {
+                                    "documents": [
+                                        {
+                                            "observationId": 7,
+                                            "title": "Durable rule",
+                                            "narrative": "Use the current decision.",
+                                        }
+                                    ]
+                                }
+                            ),
+                        },
+                    )()
+
+                trial._run = fake_run
+                context = canonical.context()
+                self.assertEqual(context["records"], [{"id": 1}])
+                self.assertNotIn("brief", context)
+                canonical.detail(1)
+            finally:
+                trial._run = original_run
+            self.assertIn("7", calls[-1])
+            self.assertEqual(canonical.context_retrieved_chars, 0)
+
     def test_memory_detail_strips_operator_metadata(self) -> None:
         detail = _native_memory_detail(
             {
@@ -386,7 +585,9 @@ class TrialTests(unittest.TestCase):
                 self.context_hashes: list[str] = []
                 self.detail_hashes: list[str] = []
                 self.retrieved_chars = 0
+                self.context_retrieved_chars = 0
                 self.formation_elapsed_ms = None
+                self.cited_observation_ids = (7,)
 
             def seed(self) -> None:
                 self.version = "fake-memorix"
@@ -405,8 +606,8 @@ class TrialTests(unittest.TestCase):
                 self.codegraph_refresh_elapsed_ms = 1
 
             def detail(self, observation_id: int) -> dict[str, object]:
-                if observation_id != 1:
-                    raise ValueError("wrong alias")
+                if observation_id != 7:
+                    raise ValueError("wrong observation")
                 self.detail_delivered = True
                 self.retrieved_chars = 20
                 digest = sha256_text("detail")
@@ -426,7 +627,7 @@ class TrialTests(unittest.TestCase):
                 )
                 payload = outcome["payload"]
                 self.assertEqual(payload["status"], "passed")
-                self.assertEqual(payload["runner"]["protocol_version"], "1.5-draft")
+                self.assertEqual(payload["runner"]["protocol_version"], "1.6-draft")
                 self.assertRegex(payload["runner"]["source_tree_sha256"], r"^[0-9a-f]{64}$")
                 self.assertFalse(payload["oracle"]["baseline_passed"])
                 self.assertTrue(payload["workspace"]["source_unchanged"])
@@ -444,6 +645,15 @@ class TrialTests(unittest.TestCase):
                     )
         finally:
             preflight.MemorixContextTool = original_tool
+
+    def test_preflight_workspaces_have_distinct_local_project_identities(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            first = preflight._preflight_workspace_path(root / "left" / "same-run", "case-a")
+            second = preflight._preflight_workspace_path(root / "right" / "same-run", "case-a")
+            self.assertNotEqual(first.name, "workspace")
+            self.assertNotEqual(first.name, second.name)
+            self.assertTrue(first.name.startswith("workspace-"))
 
     def test_native_transfer_preparation_requires_a_seed_and_records_refresh(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

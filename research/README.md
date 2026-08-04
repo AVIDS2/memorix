@@ -76,9 +76,12 @@ contains stable protocol, code, and sanitized evidence only.
 ## Current next step
 
 Three external, permissively licensed candidate cases now cover the
-source-sufficient, durable-decision, and stale-conflict hypotheses. Each has
-passed a no-model native lifecycle preflight, but none is admitted yet. Obtain
-independent outcome-blind review under `CASE-ADMISSION.md`, then freeze the
-case list and run complete matched exploratory rows without discarding
-failures. Every resulting run remains exploratory until the separate
-confirmatory gate is satisfied.
+source-sufficient, durable-decision, and stale-conflict hypotheses. Their
+protocol-1.5 lifecycle receipts are retained as historical calibration; all
+three have also passed fresh v14 protocol-1.6 no-model preflights with sealed
+original source archives, normalized archive contents, unpacked trees, and
+oracle inputs plus unique local-project identities. None is admitted yet.
+Obtain independent outcome-blind review under `CASE-ADMISSION.md`, then freeze
+the case list and verify a live route before complete matched exploratory rows
+run without discarding failures. Every resulting run remains exploratory until
+the separate confirmatory gate is satisfied.

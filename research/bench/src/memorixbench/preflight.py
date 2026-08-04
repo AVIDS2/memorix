@@ -19,6 +19,12 @@ from .trial import (
 PREFLIGHT_VERSION = "1"
 
 
+def _preflight_workspace_path(artifact_root: Path, case_id: str) -> Path:
+    """Avoid reusing Memorix's local-project identity across isolated cases."""
+    token = sha256_text(f"{artifact_root.resolve()}:{case_id}")[:16]
+    return artifact_root / f"workspace-{token}"
+
+
 def _native_payload(tool: MemorixContextTool | None) -> dict[str, Any] | None:
     if tool is None:
         return None
@@ -54,7 +60,7 @@ def run_native_preflight(
     if artifact_root.exists():
         raise RuntimeError("native preflight artifact root must not already exist")
     artifact_root.mkdir(parents=True)
-    workspace = artifact_root / "workspace"
+    workspace = _preflight_workspace_path(artifact_root, case.case_id)
     receipt_path = artifact_root / "native-preflight-receipt.json"
 
     stage = "source-copy"
@@ -63,6 +69,7 @@ def run_native_preflight(
     end_tree_sha256: str | None = None
     baseline_oracle_passed: bool | None = None
     baseline_oracle_exit_code: int | None = None
+    oracle_identity: dict[str, object] | None = None
     codegraph_refresh: dict[str, object] | None = None
     tool: MemorixContextTool | None = None
 
@@ -74,6 +81,7 @@ def run_native_preflight(
 
         stage = "baseline-oracle"
         sandbox = ToolSandbox(workspace, case.writable_paths, oracle)
+        oracle_identity = sandbox.oracle_identity()
         baseline = sandbox.run_verification({})
         baseline_oracle_passed = bool(baseline["passed"])
         baseline_oracle_exit_code = sandbox.events[-1].exit_code if sandbox.events else None
@@ -96,9 +104,9 @@ def run_native_preflight(
 
         stage = "native-context"
         tool.context()
-        if tool.context_includes_seed:
+        if tool.context_includes_seed and tool.seed_observation_id is not None:
             stage = "native-detail"
-            tool.detail(1)
+            tool.detail(tool.seed_observation_id)
     except Exception as error:
         failure = f"{stage}:{type(error).__name__}"
     finally:
@@ -128,9 +136,17 @@ def run_native_preflight(
             "tier": case.case_tier,
             "task_sha256": sha256_text(case.task),
             "predecessor_record_sha256": sha256_text(case.predecessor_record),
+            "source_commit": case.source_commit,
+            "source_archive_sha256": case.source_archive_sha256,
+            "source_archive_root": case.source_archive_root,
+            "source_tree_sha256": case.source_tree_sha256,
         },
         "oracle": {
-            "definition_sha256": oracle.definition_sha256,
+            **(oracle_identity or {
+                "definition_sha256": oracle.definition_sha256,
+                "assets_sha256": oracle.assets_sha256,
+                "runtime_sha256": None,
+            }),
             "baseline_passed": baseline_oracle_passed,
             "baseline_exit_code": baseline_oracle_exit_code,
         },
@@ -138,6 +154,7 @@ def run_native_preflight(
         "workspace": {
             "start_tree_sha256": start_tree_sha256,
             "end_tree_sha256": end_tree_sha256,
+            "expected_tree_sha256": case.source_tree_sha256,
             "source_unchanged": (
                 start_tree_sha256 is not None and start_tree_sha256 == end_tree_sha256
             ),

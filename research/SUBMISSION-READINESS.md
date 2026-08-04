@@ -16,19 +16,25 @@ not a confirmatory effectiveness study, and not a public artifact release.
   no-memory condition also solved the synthetic durable case through ordinary
   exploration. Both matrices are excluded from efficacy analysis. A retained
   source-backed optional-access preflights found runner edit-surface and
-  formation-semantics defects. They are excluded and must be followed by a
-  separately frozen fixed-index cohort with auditable evidence sidecars.
+  formation-semantics defects. They are excluded. Protocol 1.6 now additionally
+  seals original source archives, unpacked trees, and oracle assets; it also
+  requires a frozen route for every live row and corrects the native-product
+  delivery surface. All three source-backed candidates have passed fresh v14 no-model
+  preflights; a separately frozen fixed-index cohort still needs auditable
+  evidence sidecars, independent admission, and a verified live route.
 - The local anonymous NIER candidate compiles, passes bibliography and strict
   format checks, and has been visually reviewed. It remains a candidate rather
   than a completed empirical paper.
 
 ## Gates Still Open
 
-1. **Case admission:** the three source-backed candidate classes
-   (source-sufficient, durable-decision, and stale-conflict) need the rubric
-   in `CASE-ADMISSION.md`, independent review before outcome collection, and
-   documented provenance.
-2. **Complete exploratory cohorts:** run every planned condition, repetition,
+1. **Case admission:** the three source-backed candidates have passed the
+   sealed-input no-model lifecycle preflight. Their candidate classes
+   (source-sufficient, durable-decision, and stale-conflict) still need the
+   rubric in `CASE-ADMISSION.md`, independent review before outcome collection,
+   and documented provenance.
+2. **Route verification and complete exploratory cohorts:** verify a frozen
+   provider route, then run every planned condition, repetition,
    valid row, invalid row, timeout, and cost record. Complete the matched
    `canonical-information` fixed-index profile before estimating a conditional
    evidence effect; do not select successful examples after the fact.

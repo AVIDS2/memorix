@@ -65,13 +65,32 @@ an empty common index: the worker made a permitted source edit, requested
 verification itself, and produced a byte-verifiable receipt. This clears the
 runner/contract prerequisite only; it is not a memory outcome.
 
-Protocol 1.5 now makes the native pre-transfer lifecycle explicit: after a
-precursor is stored, the supported CodeGraph refresh must bind it to the clean
-transfer source before a new agent can receive native context. Three external,
+Protocol 1.5 made the native pre-transfer lifecycle explicit: after a precursor
+is stored, the supported CodeGraph refresh must bind it to the clean transfer
+source before a new agent can receive native context. Three external,
 permissively licensed candidate cases (two from `pypa/packaging`, one from
-`pallets/click`) have passed that lifecycle preflight with baseline/reference
-oracle separation. No model has attempted any case, and independent
-outcome-blind admission review remains required.
+`pallets/click`) passed that lifecycle preflight with baseline/reference oracle
+separation. They remain historical calibration only.
+
+Protocol 1.6 corrects three methodological boundaries before any model run: the
+native-product condition must deliver the actual Memorix Workset brief instead
+of a research-made index; each source case seals its commit/archive/tree and
+each oracle seals its executable assets; and a live run requires a frozen route
+that rejects actual-model substitutions, missing usage, output overruns, and
+cost overruns. The archive check covers both the original source archive and
+its unpacked source tree, using the same POSIX relative-path ordering on every
+platform. It also assigns opaque unique transfer-workspace names, avoiding
+cross-case reuse of Memorix local-project identities. All three candidates have
+now passed fresh v14 protocol-1.6 no-model preflights. Earlier v11 tree hashes
+were superseded after the runner corrected a Windows-specific path-sorting
+ambiguity; v12 then exposed that the runner fingerprint wrongly included
+non-executable test and documentation files. v13 then predated fail-closed
+validation of malformed provider usage values. The final v14 fingerprint covers
+only the loaded runner package. All earlier artifacts remain retained rather
+than overwritten. One CodeGraph-refresh infrastructure failure was retained
+externally and rerun only in a new artifact directory. No model has attempted
+any case; independent outcome-blind admission review and live-route verification
+remain required.
 
 ## Operating Rules
 
@@ -86,8 +105,8 @@ outcome-blind admission review remains required.
 
 ## Immediate Next Step
 
-Obtain independent outcome-blind admission review for the three source-backed
-candidate cases, then freeze a new protocol-1.5 cohort. Revise the anonymous
-NIER candidate only from evidence explicitly labeled by product version and
-study tier. Keep research work separate from npm release claims until the
-experimental protocol and evidence are complete.
+Obtain independent outcome-blind admission review for the three frozen
+source-backed candidates, then verify a frozen live route before any cohort.
+Revise the anonymous NIER candidate only from evidence explicitly labeled by
+product version and study tier. Keep research work separate from npm release
+claims until the experimental protocol and evidence are complete.

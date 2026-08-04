@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import json
+from math import isfinite
 import os
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-from .models import ModelReply, ToolCall
+from .models import ModelReply, RouteSpec, ToolCall
 
 
 class OpenRouterClient:
@@ -14,12 +15,8 @@ class OpenRouterClient:
 
     endpoint = "https://openrouter.ai/api/v1/chat/completions"
 
-    def __init__(self, model: str, *, timeout_seconds: int = 90, max_output_tokens: int = 1200):
-        self.model = model
-        self.timeout_seconds = timeout_seconds
-        self.max_output_tokens = max_output_tokens
-        if max_output_tokens < 1 or max_output_tokens > 4096:
-            raise ValueError("max_output_tokens must be between 1 and 4096")
+    def __init__(self, route: RouteSpec):
+        self.route = route
         self.api_key = os.environ.get("OPENROUTER_API_KEY")
         if not self.api_key:
             raise RuntimeError("OPENROUTER_API_KEY is required for a live trial")
@@ -27,12 +24,12 @@ class OpenRouterClient:
     def chat(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]]) -> ModelReply:
         payload = json.dumps(
             {
-                "model": self.model,
+                "model": self.route.requested_model,
                 "messages": messages,
                 "tools": tools,
                 "tool_choice": "auto",
-                "temperature": 0,
-                "max_tokens": self.max_output_tokens,
+                "temperature": self.route.temperature,
+                "max_tokens": self.route.max_output_tokens,
             }
         ).encode("utf-8")
         request = Request(
@@ -45,7 +42,7 @@ class OpenRouterClient:
             method="POST",
         )
         try:
-            with urlopen(request, timeout=self.timeout_seconds) as response:
+            with urlopen(request, timeout=self.route.provider_timeout_seconds) as response:
                 data = json.loads(response.read().decode("utf-8"))
         except HTTPError as error:
             detail = error.read().decode("utf-8", errors="replace")[:500]
@@ -86,8 +83,15 @@ class OpenRouterClient:
 
 
 def _optional_int(value: object) -> int | None:
-    return int(value) if isinstance(value, (int, float)) else None
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        return None
+    return value
 
 
 def _optional_float(value: object) -> float | None:
-    return float(value) if isinstance(value, (int, float)) else None
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    normalized = float(value)
+    if not isfinite(normalized) or normalized < 0:
+        return None
+    return normalized

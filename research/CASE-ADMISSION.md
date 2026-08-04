@@ -15,7 +15,11 @@ Every admitted case records, outside the agent-visible checkout:
 5. the private oracle's pass criteria and a reference repair; and
 6. the case-defined evidence-size cap and writable-path policy; and
 7. the precursor observation type, relevant source-relative files, and
-   concepts used to form the native-memory record.
+   concepts used to form the native-memory record; and
+8. for source-backed cases, the immutable transfer commit, source archive
+   digest, archive top-level directory, archive-to-tree integrity check,
+   source-tree digest, and the private oracle manifest's executable asset
+   digests.
 
 The committed public case card may describe the seed and task, but never the
 private oracle, reference repair, raw session transcript, or local artifact
@@ -84,6 +88,12 @@ that agent-requested verification is distinguishable from the controller's
 final oracle check. If this calibration fails, retain it as a runner/contract
 finding and do not collect a matched memory comparison yet.
 
+Before any live source-backed cohort, independently verify the frozen route
+manifest against the provider. The manifest must pin requested and expected
+actual model IDs, provider timeout, output cap, aggregate cost cap, temperature
+zero, and automatic tool choice. A model substitution, missing provider usage,
+or route-budget breach invalidates a row rather than becoming an outcome.
+
 ## Exclusion Rules
 
 Reject a case when any of the following holds:
@@ -95,6 +105,9 @@ Reject a case when any of the following holds:
 - the task prompt names the expected implementation rather than the engineering
   goal;
 - source provenance or license is unclear;
+- the declared source commit, archive digest, archive-to-tree integrity,
+  source-tree digest, or private oracle executable-asset digest cannot be
+  revalidated;
 - the predecessor record is merely a copy of the final repair; or
 - the declared precursor metadata cannot be validated against the transfer
   source tree; or

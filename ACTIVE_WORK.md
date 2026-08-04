@@ -4,7 +4,7 @@
 > before resuming substantial work, update it after a material decision or
 > milestone, and do not create parallel progress logs.
 
-**Last updated:** 2026-08-03
+**Last updated:** 2026-08-04
 
 ## Current Product State
 
@@ -52,6 +52,14 @@ still require reviewed task provenance, isolated execution, frozen routes and
 models, blinded grading where applicable, and reported failures as well as
 wins.
 
+One source-backed protocol-1.3 fixed-index pipx cohort has now completed with
+clean baselines, a code-bound decision seed, real native retrieval, and
+byte-verifiable sidecars. All three rows made no source edit, so it is retained
+as an inconclusive no-action calibration rather than a condition-effect result.
+The old receipt format cannot attribute an apparent verification event to the
+agent or controller; protocol 1.4 corrects that distinction before another
+comparison cohort runs.
+
 ## Operating Rules
 
 - Git, `package.json`, and `CHANGELOG.md` are live product facts; this document
@@ -65,10 +73,9 @@ wins.
 
 ## Immediate Next Step
 
-The repaired fixed-index runner has now completed one byte-verifiable synthetic
-native smoke. Freeze its first source-backed cohort without dropping failures or
-noncompliant rows, then curate independently reviewable durable-decision and
-stale-conflict cases. Revise
+Freeze and run a non-comparative protocol-1.4 repair-loop calibration, then
+curate independently reviewable durable-decision and stale-conflict cases.
+Revise
 the anonymous NIER candidate only from evidence explicitly labeled by product
 version and study tier. Keep research work separate from npm release claims
 until the experimental protocol and evidence are complete.

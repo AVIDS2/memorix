@@ -107,16 +107,60 @@ class TrialTests(unittest.TestCase):
             payload = outcome["payload"]
             self.assertEqual(payload["status"], "completed")
             self.assertTrue(payload["task_success"])
-            self.assertEqual(payload["runner"]["protocol_version"], "1.3-draft")
+            self.assertEqual(payload["runner"]["protocol_version"], "1.4-draft")
             self.assertRegex(payload["runner"]["source_tree_sha256"], r"^[0-9a-f]{64}$")
             self.assertEqual(payload["resource_usage"]["memory_context_calls"], 0)
             self.assertEqual(payload["resource_usage"]["raw_record_calls"], 1)
             self.assertEqual(payload["resource_usage"]["input_tokens"], 32)
+            self.assertEqual(payload["resource_usage"]["ordinary_tool_call_count"], 1)
+            self.assertEqual(payload["resource_usage"]["trusted_final_verification_count"], 1)
+            self.assertTrue(payload["agent_action"]["source_edit_attempted"])
+            self.assertTrue(payload["agent_action"]["source_edit_succeeded"])
+            self.assertTrue(payload["agent_action"]["source_changed"])
+            self.assertEqual(payload["agent_action"]["termination_reason"], "verification-passed")
             self.assertNotIn(str(root), outcome["receipt_path"].read_text(encoding="utf-8"))
             self.assertNotIn("durable decision", client.messages[0][1]["content"])
             self.assertIn("durable decision", outcome["evidence_path"].read_text(encoding="utf-8"))
             self.assertNotIn(str(root), outcome["evidence_path"].read_text(encoding="utf-8"))
             self.assertEqual(payload["evidence_payload_sha256"], sha256_file(outcome["evidence_path"]))
+
+    def test_receipt_distinguishes_agent_stop_after_failed_verification(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            case, oracle = self._case_and_oracle(root)
+            client = ScriptedClient(
+                [
+                    ModelReply(
+                        content=None,
+                        tool_calls=(ToolCall("call-1", "run_verification", {}),),
+                        model="example/model",
+                        response_id="private-response-id",
+                        input_tokens=10,
+                        output_tokens=5,
+                        cost_usd=0.001,
+                    ),
+                    ModelReply(
+                        content="cannot continue",
+                        tool_calls=(),
+                        model="example/model",
+                        response_id="private-response-id-2",
+                        input_tokens=10,
+                        output_tokens=5,
+                        cost_usd=0.001,
+                    ),
+                ]
+            )
+            outcome = run_trial(
+                TrialConfig(case=case, oracle=oracle, condition="no-memory", requested_model="example/model", artifact_root=root / "artifacts"),
+                client,
+            )
+            action = outcome["payload"]["agent_action"]
+            self.assertFalse(outcome["payload"]["task_success"])
+            self.assertEqual(action["ordinary_tool_sequence"], ["run_verification"])
+            self.assertFalse(action["source_edit_attempted"])
+            self.assertEqual(action["agent_verification_call_count"], 1)
+            self.assertEqual(action["agent_verification_failure_count"], 1)
+            self.assertEqual(action["termination_reason"], "assistant-stopped-after-failed-verification")
 
     def test_infrastructure_receipt_names_the_safe_failure_stage(self) -> None:
         class FailingClient:
@@ -165,6 +209,7 @@ class TrialTests(unittest.TestCase):
             fixed_prompt = _messages(case, "fixed-index")[0]["content"]
             self.assertIn("project_predecessor_context", fixed_prompt)
             self.assertIn("project_predecessor_detail", fixed_prompt)
+            self.assertIn("Do not stop solely because verification failed", fixed_prompt)
             self.assertNotIn(case.predecessor_record, fixed_prompt)
 
             raw = CanonicalEvidenceTool(case, "raw-record")

@@ -36,6 +36,14 @@ edit and expands a listed record once. Noncompliance becomes an invalid row.
 It estimates evidence delivery against an explicit empty index, not natural
 tool adoption or an end-to-end product claim.
 
+Every condition also receives the same repair-loop contract: after an
+agent-visible failed verification, it must keep diagnosing, editing allowed
+source, and verifying while budget remains. Receipts distinguish the agent's
+ordinary tool requests from the controller's final private-oracle check, then
+record edit attempts, source changes, and a structured termination reason
+without retaining model prose. A case where all matched rows make no edit is a
+retained no-action calibration, not a memory-effect result.
+
 The controlled index always returns the same `records` shape. Native retrieval
 first checks whether real Memorix selected the seeded observation, then exposes
 the case-local alias `1`; the real backend brief remains in the private

@@ -18,7 +18,7 @@ from .sandbox import ToolSandbox
 Condition = Literal["no-memory", "raw-record", "memorix-native"]
 SurfaceProfile = Literal["native-product", "canonical-information"]
 EvidencePolicy = Literal["optional", "fixed-index"]
-PROTOCOL_VERSION = "1.3-draft"
+PROTOCOL_VERSION = "1.4-draft"
 
 
 class AgentClient(Protocol):
@@ -441,7 +441,9 @@ def _workset_includes_observation(payload: object, observation_id: int | None) -
 def _messages(case: CaseSpec, evidence_policy: EvidencePolicy = "optional") -> list[dict[str, str]]:
     system = (
         "You are a coding agent working in an isolated project. Use the supplied tools to inspect, edit, and verify the current checkout. "
-        "Do not claim a change is complete until the trusted verification passes. You have no shell, network, process, or host-file access beyond these tools."
+        "Do not claim a change is complete until the trusted verification passes. If trusted verification fails, use the remaining steps to diagnose, "
+        "make an allowed source edit when a repair is available, and verify again. Do not stop solely because verification failed. "
+        "You have no shell, network, process, or host-file access beyond these tools."
     )
     if evidence_policy == "fixed-index":
         system += (
@@ -468,6 +470,26 @@ def _fixed_index_violation(
     if record_available and detail_calls != 1:
         return "listed predecessor record was not expanded exactly once"
     return None
+
+
+def _termination_reason(
+    *,
+    invalid_reason: str | None,
+    final_verification_passed: bool,
+    assistant_finished: bool,
+    agent_verification_results: list[bool],
+) -> str:
+    if invalid_reason == "tool-step-limit":
+        return "tool-step-budget-exhausted"
+    if invalid_reason:
+        return "invalid-run"
+    if final_verification_passed:
+        return "verification-passed"
+    if assistant_finished and any(not passed for passed in agent_verification_results):
+        return "assistant-stopped-after-failed-verification"
+    if assistant_finished:
+        return "assistant-stopped-before-passing-verification"
+    return "runner-ended-without-passing-verification"
 
 
 def _assistant_wire(reply: ModelReply) -> dict[str, Any]:
@@ -530,6 +552,12 @@ def run_trial(config: TrialConfig, client: AgentClient) -> dict[str, Any]:
     transfer_started: float | None = None
     policy_violations: list[str] = []
     evidence_payload_events: list[dict[str, Any]] = []
+    agent_turn_count = 0
+    assistant_finished = False
+    agent_ordinary_tool_sequence: list[str] = []
+    agent_verification_results: list[bool] = []
+    source_edit_attempted = False
+    source_edit_succeeded = False
     try:
         if memory_tool is not None:
             failure_stage = "memory-seed"
@@ -538,6 +566,7 @@ def run_trial(config: TrialConfig, client: AgentClient) -> dict[str, Any]:
         for _step in range(config.max_steps):
             failure_stage = "provider-chat"
             reply = client.chat(messages, tool_definitions)
+            agent_turn_count += 1
             if reply.model:
                 actual_models.append(reply.model)
             if reply.response_id:
@@ -549,8 +578,13 @@ def run_trial(config: TrialConfig, client: AgentClient) -> dict[str, Any]:
             messages.append(_assistant_wire(reply))
             if not reply.tool_calls:
                 final_sha256 = sha256_text(reply.content or "")
+                assistant_finished = True
                 break
             for call in reply.tool_calls:
+                if call.name in {"list_files", "read_file", "write_file", "replace_text", "run_verification"}:
+                    agent_ordinary_tool_sequence.append(call.name)
+                if call.name in {"write_file", "replace_text"}:
+                    source_edit_attempted = True
                 try:
                     failure_stage = f"tool:{call.name}"
                     if call.name == "read_predecessor_record":
@@ -602,6 +636,10 @@ def run_trial(config: TrialConfig, client: AgentClient) -> dict[str, Any]:
                     raise
                 except ValueError as error:
                     result = {"error": str(error)}
+                if call.name == "run_verification":
+                    agent_verification_results.append(bool(result.get("passed")))
+                if call.name in {"write_file", "replace_text"} and (result.get("written") or result.get("replaced")):
+                    source_edit_succeeded = True
                 if call.name in {
                     "read_predecessor_record",
                     "project_predecessor_context",
@@ -638,6 +676,13 @@ def run_trial(config: TrialConfig, client: AgentClient) -> dict[str, Any]:
 
     final_verification = sandbox.run_verification({})
     status = "invalid" if invalid_reason else "completed"
+    source_tree_after_hash = sha256_tree(workspace)
+    termination_reason = _termination_reason(
+        invalid_reason=invalid_reason,
+        final_verification_passed=bool(final_verification["passed"]),
+        assistant_finished=assistant_finished,
+        agent_verification_results=agent_verification_results,
+    )
     evidence_tool_calls = (
         canonical_tool.context_calls + canonical_tool.detail_calls
         if canonical_tool is not None
@@ -697,8 +742,9 @@ def run_trial(config: TrialConfig, client: AgentClient) -> dict[str, Any]:
             "output_tokens": output_tokens or None,
             "cost_usd": sum(costs) if costs else None,
             "transfer_elapsed_ms": round((time.monotonic() - transfer_started) * 1000) if transfer_started is not None else None,
-            "tool_call_count": len(sandbox.events) + evidence_tool_calls,
-            "ordinary_tool_call_count": len(sandbox.events),
+            "tool_call_count": len(agent_ordinary_tool_sequence) + evidence_tool_calls,
+            "ordinary_tool_call_count": len(agent_ordinary_tool_sequence),
+            "trusted_final_verification_count": 1,
             "evidence_tool_call_count": evidence_tool_calls,
             "evidence_chars_retrieved": evidence_chars_retrieved,
             "memory_context_calls": memory_tool.calls if memory_tool else 0,
@@ -712,7 +758,7 @@ def run_trial(config: TrialConfig, client: AgentClient) -> dict[str, Any]:
             "tier": config.case.case_tier,
             "evidence_char_budget": config.case.evidence_char_budget,
             "source_tree_before_sha256": start_hash,
-            "source_tree_after_sha256": sha256_tree(workspace),
+            "source_tree_after_sha256": source_tree_after_hash,
             "predecessor_record_sha256": sha256_text(config.case.predecessor_record),
             "predecessor_memory": {
                 "type": config.case.predecessor_observation_type,
@@ -758,6 +804,17 @@ def run_trial(config: TrialConfig, client: AgentClient) -> dict[str, Any]:
             if canonical_tool
             else None
         ),
+        "agent_action": {
+            "turn_count": agent_turn_count,
+            "max_steps": config.max_steps,
+            "ordinary_tool_sequence": agent_ordinary_tool_sequence,
+            "source_edit_attempted": source_edit_attempted,
+            "source_edit_succeeded": source_edit_succeeded,
+            "source_changed": start_hash != source_tree_after_hash,
+            "agent_verification_call_count": len(agent_verification_results),
+            "agent_verification_failure_count": sum(not passed for passed in agent_verification_results),
+            "termination_reason": termination_reason,
+        },
         "tool_events": sandbox.event_payload(),
         "evidence_payload_sha256": sha256_text(evidence_serialized),
         "final_response_sha256": final_sha256,

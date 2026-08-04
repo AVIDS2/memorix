@@ -55,6 +55,13 @@ Disagreement is resolved by a third reviewer or by excluding the case. For the
 confirmatory tier, reviewers must not see condition outcomes and must sign the
 frozen case manifest before any run begins.
 
+Before a condition-effect cohort, run a separate non-comparative action
+calibration with the same model route, ordinary tool surface, and repair-loop
+contract. It must show that the worker can request a permitted source edit and
+that agent-requested verification is distinguishable from the controller's
+final oracle check. If this calibration fails, retain it as a runner/contract
+finding and do not collect a matched memory comparison yet.
+
 ## Exclusion Rules
 
 Reject a case when any of the following holds:

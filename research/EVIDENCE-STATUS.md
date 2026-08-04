@@ -34,6 +34,7 @@ current `1.4.1` product effect.
 | First native fixed-index synthetic smoke | The task oracle passed and native Memorix retrieved the seeded decision, but the original Windows text-mode sidecar write changed its byte hash after the receipt was calculated. The row is preserved externally as a harness finding and excluded from all analyses; the runner now writes exact UTF-8 bytes and has a hash-equality regression test. | A valid smoke result or any memory-effect claim. |
 | Byte-stable native fixed-index synthetic smoke | A fresh rerun after the byte-stable write repair completed: real Memorix selected the seeded decision, the agent consulted the common index and detail before editing, the task oracle passed, and the receipt digest matched the private sidecar byte-for-byte. | A comparison against no memory, a general product claim, or any publication result. This is one synthetic engineering row only. |
 | Source-backed optional-access preflights | Two complete three-condition `canonical-information` screens were retained externally. The first exposed only whole-file writing; the second added bounded replacement but still had an uncommitted transfer tree and unbound `discovery` seed. Raw/native agents did not consult predecessor evidence. A separate isolated product diagnostic confirmed that a clean baseline plus a `decision` record bound to the target source is retrievable by Memorix. | A task or memory outcome, an information-effect estimate, or a comparison with the repaired fixed-index cohort. |
+| Source-backed fixed-index pipx cohort (protocol 1.3) | One frozen MIT-licensed pipx case completed all three matched rows with byte-verifiable sidecars and confirmed raw/native evidence delivery. No row changed source or passed the oracle. Because protocol 1.3 did not separate agent-requested verification from the controller's final verifier, the cohort is retained as an inconclusive no-action calibration. | A raw-versus-native result, a failure-after-verification claim, or any product-effect conclusion. |
 | Anonymous NIER draft | A locally compiled candidate paper describes the cleaned protocol and archival evidence. | Venue acceptance, peer review, or a general performance claim. |
 
 ## Claims currently supported
@@ -51,10 +52,9 @@ memory, Mem0, AgentMemory, or any other system.
 
 ## What must happen next
 
-1. Exploration must run the separately frozen `fixed-index` cohort with clean
-   transfer commits, case-declared precursor metadata, delivery sidecars, and
-   complete matched rows on independently reviewable cases. It must preserve
-   all failures and noncompliant rows.
+1. Protocol 1.4 must pass a separately frozen non-comparative repair-loop and
+   action-attribution calibration before another source-backed condition-effect
+   cohort is collected.
 2. The paper must continue to identify every archival number as a `1.2.1`
    observation and label the new runner by its study tier.
 3. The anonymous supplement must be materialized from an explicit allowlist

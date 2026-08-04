@@ -1,11 +1,12 @@
 # MemorixBench Protocol
 
-**Protocol version:** 1.3-draft
+**Protocol version:** 1.4-draft
 
 **Target system:** Memorix 1.4.1
 **Status:** exploratory protocol; deterministic contracts and matched synthetic
-engineering matrices under both evidence-surface profiles have passed, but no
-confirmatory outcome has been collected
+engineering matrices under both evidence-surface profiles have passed. One
+source-backed protocol-1.3 cohort is retained as a non-discriminative no-action
+calibration; no confirmatory or condition-effect outcome has been collected.
 
 ## Research question
 
@@ -40,6 +41,13 @@ The classification is a hypothesis about task structure, not an outcome label.
 
 Each case/model/repetition uses the same source snapshot, task prompt, writable
 paths, bounded tools, timeout, verification command, and maximum spend.
+
+They also share one versioned repair-loop contract: an agent must not stop
+solely because an agent-visible verification call failed. It should use its
+remaining budget to diagnose, make an allowed source edit when a repair is
+available, and verify again. This common instruction does not prescribe a
+patch or favor a memory condition; it prevents a shared passive termination
+mode from masquerading as a memory result.
 
 | ID | Intervention |
 | --- | --- |
@@ -124,6 +132,15 @@ finishes. Secondary outcomes stay separate from correctness:
   labeled; and
 - stale-action rate, only when the case has a predeclared private label.
 
+The receipt separates agent-requested ordinary tool calls from the controller's
+one final trusted verification. It records whether an edit was requested or
+succeeded, whether the source changed, agent-visible verification outcomes, and
+a structured termination reason without retaining raw model prose. If every
+matched row for a bug-fix case makes no source edit, the matrix is retained as a
+**non-discriminative no-action calibration** and excluded from condition-effect
+summaries. It is evidence about the common agent contract or task surface, not
+evidence that a memory treatment helped or hurt.
+
 An adapter error, leaked workspace, mixed model route, missing receipt, or
 unequal tool policy invalidates a matched row. It is never converted into a
 task failure for one condition.
@@ -169,6 +186,12 @@ with the `fixed-index` conditional-evidence cohort. The latter has an explicit
 manipulation check: context/detail call counts, source-edit ordering, and (for
 the native path) whether the seeded observation entered the Memorix workset.
 
+Protocol 1.3 receipts did not distinguish an agent's verification request from
+the controller's final verifier. A source-backed 1.3 cohort in which every
+condition made no source edit is therefore retained as an inconclusive
+no-action calibration, not labeled as an agent stopping after a failed
+verification. Protocol 1.4 adds this attribution before any new cohort runs.
+
 ## Confirmatory gate
 
 A result may be upgraded only after all of the following are true:
@@ -181,6 +204,8 @@ A result may be upgraded only after all of the following are true:
 4. Model routes, analysis plan, case list, and sample target are frozen before
    reading outcome labels.
 5. All valid, invalid, timed-out, and failed rows are retained and reported.
+6. The common repair-loop contract and agent-action attribution are calibrated
+   separately before collecting a condition-effect cohort.
 
 Until then, paper wording must say "exploratory" or "descriptive" and must not
 claim a broad performance advantage.

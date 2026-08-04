@@ -65,9 +65,10 @@ wins.
 
 ## Immediate Next Step
 
-Freeze the repaired fixed-index runner as a new local baseline, run its first
-source-backed cohort without dropping failures or noncompliant rows, then
-curate independently reviewable durable-decision and stale-conflict cases. Revise
+The repaired fixed-index runner has now completed one byte-verifiable synthetic
+native smoke. Freeze its first source-backed cohort without dropping failures or
+noncompliant rows, then curate independently reviewable durable-decision and
+stale-conflict cases. Revise
 the anonymous NIER candidate only from evidence explicitly labeled by product
 version and study tier. Keep research work separate from npm release claims
 until the experimental protocol and evidence are complete.

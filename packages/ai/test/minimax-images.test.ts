@@ -15,7 +15,7 @@ describe("MiniMax images", () => {
 			api: "minimax-images",
 			provider: "minimax",
 			baseUrl: "https://api.minimax.io/v1/image_generation",
-			input: ["text"],
+			input: ["text", "image"],
 			output: ["image"],
 		});
 		expect(chinaModel).toMatchObject({
@@ -82,6 +82,41 @@ describe("MiniMax images", () => {
 			{ status: 200, headers: expect.objectContaining({ "x-request-id": "image-request-1" }) },
 			expect.objectContaining({ id: "image-01" }),
 		);
+	});
+
+	it("builds subject_reference from image input for image-to-image", async () => {
+		const fetchMock = vi.fn(async () =>
+			new Response(
+				JSON.stringify({
+					data: { image_base64: ["iVBORw0KGgo="] },
+					metadata: { success_count: 1, failed_count: 0 },
+					base_resp: { status_code: 0, status_msg: "success" },
+				}),
+				{ status: 200, headers: { "Content-Type": "application/json" } },
+			),
+		);
+		vi.stubGlobal("fetch", fetchMock);
+
+		const output = await generateImages(
+			getImageModel("minimax", "image-01"),
+			{
+				input: [
+					{ type: "image", data: "aGVsbG8=", mimeType: "image/png" },
+					{ type: "text", text: "Turn this portrait into a poster" },
+				],
+			},
+			{ apiKey: "test-key", responseFormat: "base64" },
+		);
+
+		expect(output.stopReason).toBe("stop");
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+		const [, request] = fetchMock.mock.calls[0];
+		expect(JSON.parse(String(request?.body))).toEqual({
+			model: "image-01",
+			prompt: "Turn this portrait into a poster",
+			subject_reference: [{ type: "character", image_file: "data:image/png;base64,aGVsbG8=" }],
+			response_format: "base64",
+		});
 	});
 
 	it("downloads URL output from the China endpoint", async () => {

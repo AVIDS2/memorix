@@ -67,6 +67,34 @@ describe('MiniMax controlled image generation', () => {
     await expect(readMediaAsset(fixture.dataDir, result.assets[0].asset)).resolves.toEqual(PNG_BYTES);
   });
 
+  it('forwards reference images to the image generator for image-to-image', async () => {
+    const fixture = await createFixture();
+    const generate = async (request: any) => {
+      expect(request).toMatchObject({
+        provider: 'minimax',
+        model: 'image-01',
+        apiKey: 'test-key',
+        prompt: 'Keep the subject and change the background',
+        subjectImages: [{ data: PNG_BYTES.toString('base64'), mimeType: 'image/png' }],
+      });
+      return {
+        responseId: 'provider-image-request-2',
+        output: [{ type: 'image' as const, mimeType: 'image/png', data: PNG_BYTES.toString('base64') }],
+      };
+    };
+
+    const result = await generateMiniMaxImages({
+      dataDir: fixture.dataDir,
+      projectId: fixture.projectId,
+      apiKey: 'test-key',
+      prompt: 'Keep the subject and change the background',
+      subjectImages: [{ data: PNG_BYTES.toString('base64'), mimeType: 'image/png' }],
+    }, { generate });
+
+    expect(result).toMatchObject({ provider: 'minimax', model: 'image-01', responseId: 'provider-image-request-2' });
+    expect(result.assets).toHaveLength(1);
+  });
+
   it('requires a configured API key before creating a billable request', async () => {
     const fixture = await createFixture();
     await expect(generateMiniMaxImages({

@@ -397,6 +397,8 @@ class ToolCall:
     call_id: str
     name: str
     arguments: dict[str, Any]
+    raw_arguments: str | None = None
+    argument_error: str | None = None
 
 
 @dataclass(frozen=True)

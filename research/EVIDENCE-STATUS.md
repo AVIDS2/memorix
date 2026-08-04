@@ -42,6 +42,7 @@ current `1.4.1` product effect.
 | Protocol-1.7 verification handoff | Frozen live routes now require an agent-requested verification before an agent can finish. One condition-neutral reminder is permitted only when the first completion skips that call; a second unverified finish is an invalid agent-protocol row, and the reminder count is retained in the receipt. The controller's private final verification remains separate. | A successful source-backed action calibration or a memory-effect result. |
 | Pre-1.8 DeepSeek tool-loop diagnostics | A direct DeepSeek smoke, a synthetic action calibration, two packaging calibrations, three no-memory source-backed rows, and one interrupted raw-record row were retained externally. Afterward, DeepSeek's official tool-call documentation showed that thinking-mode `reasoning_content` must be returned after tool calls; the runner had omitted it. These artifacts are excluded as transport diagnostics and are never analyzed as model or Memorix outcomes. | Any action-calibration success, baseline, or memory-effect result. |
 | Protocol-1.8 DeepSeek continuity contract | The runner now preserves `reasoning_content` only in transient provider state after a DeepSeek tool call, and a fresh route must freeze thinking mode and effort. Tests verify outbound configuration and ensure the field does not enter receipts. | A completed corrected cohort or a memory-effect result. |
+| Protocol-1.9 DeepSeek repairable tool contract | The runner now preserves non-null DeepSeek reasoning state across provider-only continuation messages for a tool route. A malformed tool-argument payload is not executed and does not crash the row: it is normalized to a valid provider-history object, receives a fixed error response, and is counted without retaining raw arguments or model prose. A live two-turn transport check passed. The v2 core plan's initial no-memory row and an excluded replay both exposed the prior invalid-argument crash; neither is an analysis row. | A source-backed task outcome or a memory-effect result. |
 | Anonymous NIER draft | A locally compiled candidate paper describes the cleaned protocol and archival evidence. | Venue acceptance, peer review, or a general performance claim. |
 
 ## Claims currently supported
@@ -59,7 +60,7 @@ memory, Mem0, AgentMemory, or any other system.
 
 ## What must happen next
 
-1. Verify a frozen live route against its provider, complete an action
+1. Freeze a new protocol-1.9 live route and plan, complete an action
    calibration with that same route, then collect the explicitly exploratory
    three-case cohort. Do not promote the owner-attested admission record to a
    confirmatory review record.

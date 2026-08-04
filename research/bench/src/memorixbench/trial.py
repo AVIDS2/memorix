@@ -19,7 +19,7 @@ from .sandbox import ToolSandbox
 Condition = Literal["no-memory", "raw-record", "memorix-native"]
 SurfaceProfile = Literal["native-product", "canonical-information"]
 EvidencePolicy = Literal["optional", "fixed-index"]
-PROTOCOL_VERSION = "1.8-draft"
+PROTOCOL_VERSION = "1.9-draft"
 
 
 class AgentClient(Protocol):
@@ -559,18 +559,28 @@ def _termination_reason(
     return "runner-ended-without-passing-verification"
 
 
-def _assistant_wire(reply: ModelReply) -> dict[str, Any]:
+def _assistant_wire(reply: ModelReply, *, preserve_reasoning: bool = False) -> dict[str, Any]:
     payload: dict[str, Any] = {"role": "assistant", "content": reply.content}
-    # DeepSeek requires this exact tool-call reasoning state on the next turn.
+    # DeepSeek tool routes require this state in every later provider request.
     # It remains transient in provider messages and is never written to receipts.
-    if reply.tool_calls and reply.reasoning_content is not None:
+    if preserve_reasoning and reply.reasoning_content is not None:
         payload["reasoning_content"] = reply.reasoning_content
     if reply.tool_calls:
         payload["tool_calls"] = [
             {
                 "id": call.call_id,
                 "type": "function",
-                "function": {"name": call.name, "arguments": compact_json(call.arguments)},
+                # The provider must receive valid JSON in prior tool-call history.
+                # A malformed model argument is represented as an empty object and
+                # receives a tool-error reply, giving the agent one normal repair path.
+                "function": {
+                    "name": call.name,
+                    "arguments": (
+                        call.raw_arguments
+                        if call.argument_error is None and call.raw_arguments is not None
+                        else compact_json(call.arguments)
+                    ),
+                },
             }
             for call in reply.tool_calls
         ]
@@ -643,6 +653,7 @@ def run_trial(config: TrialConfig, client: AgentClient) -> dict[str, Any]:
     agent_turn_count = 0
     assistant_finished = False
     agent_ordinary_tool_sequence: list[str] = []
+    malformed_tool_argument_count = 0
     agent_verification_results: list[bool] = []
     source_edit_attempted = False
     source_edit_succeeded = False
@@ -674,7 +685,12 @@ def run_trial(config: TrialConfig, client: AgentClient) -> dict[str, Any]:
             output_tokens += reply.output_tokens or 0
             if reply.cost_usd is not None:
                 costs.append(reply.cost_usd)
-            messages.append(_assistant_wire(reply))
+            messages.append(
+                _assistant_wire(
+                    reply,
+                    preserve_reasoning=config.route is not None and config.route.provider == "deepseek",
+                )
+            )
             if not reply.tool_calls:
                 if require_agent_verification and not agent_verification_results:
                     if completion_reprompt_count == 0:
@@ -699,57 +715,63 @@ def run_trial(config: TrialConfig, client: AgentClient) -> dict[str, Any]:
                     agent_ordinary_tool_sequence.append(call.name)
                 if call.name in {"write_file", "replace_text"}:
                     source_edit_attempted = True
-                try:
-                    failure_stage = f"tool:{call.name}"
-                    if call.name == "read_predecessor_record":
-                        if raw_record_tool is None:
-                            raise ValueError("tool is not available")
-                        result = raw_record_tool.read()
-                    elif call.name == "project_predecessor_context":
-                        if config.condition == "memorix-native":
+                if call.argument_error is not None:
+                    malformed_tool_argument_count += 1
+                    result = {
+                        "error": "tool arguments must be a JSON object; no tool was run. Correct the arguments and try again."
+                    }
+                else:
+                    try:
+                        failure_stage = f"tool:{call.name}"
+                        if call.name == "read_predecessor_record":
+                            if raw_record_tool is None:
+                                raise ValueError("tool is not available")
+                            result = raw_record_tool.read()
+                        elif call.name == "project_predecessor_context":
+                            if config.condition == "memorix-native":
+                                if memory_tool is None:
+                                    raise ValueError("tool is not available")
+                                result = memory_tool.context()
+                            else:
+                                if canonical_tool is None:
+                                    raise ValueError("tool is not available")
+                                result = canonical_tool.context()
+                        elif call.name == "project_predecessor_detail":
+                            if config.condition == "memorix-native":
+                                if memory_tool is None:
+                                    raise ValueError("tool is not available")
+                                result = memory_tool.detail(call.arguments.get("id"))
+                            else:
+                                if canonical_tool is None:
+                                    raise ValueError("tool is not available")
+                                result = canonical_tool.detail(call.arguments.get("id"))
+                        elif call.name == "memorix_project_context":
                             if memory_tool is None:
                                 raise ValueError("tool is not available")
                             result = memory_tool.context()
-                        else:
-                            if canonical_tool is None:
-                                raise ValueError("tool is not available")
-                            result = canonical_tool.context()
-                    elif call.name == "project_predecessor_detail":
-                        if config.condition == "memorix-native":
+                        elif call.name == "memorix_memory_detail":
                             if memory_tool is None:
                                 raise ValueError("tool is not available")
                             result = memory_tool.detail(call.arguments.get("id"))
-                        else:
-                            if canonical_tool is None:
-                                raise ValueError("tool is not available")
-                            result = canonical_tool.detail(call.arguments.get("id"))
-                    elif call.name == "memorix_project_context":
-                        if memory_tool is None:
-                            raise ValueError("tool is not available")
-                        result = memory_tool.context()
-                    elif call.name == "memorix_memory_detail":
-                        if memory_tool is None:
-                            raise ValueError("tool is not available")
-                        result = memory_tool.detail(call.arguments.get("id"))
-                    elif call.name in {"list_files", "read_file", "write_file", "replace_text", "run_verification"}:
-                        if config.evidence_policy == "fixed-index" and call.name in {"write_file", "replace_text"}:
-                            violation = _fixed_index_violation(canonical_tool, memory_tool)
-                            if violation:
-                                if violation not in policy_violations:
-                                    policy_violations.append(violation)
-                                result = {"error": "fixed-index policy requires predecessor evidence before source edits"}
+                        elif call.name in {"list_files", "read_file", "write_file", "replace_text", "run_verification"}:
+                            if config.evidence_policy == "fixed-index" and call.name in {"write_file", "replace_text"}:
+                                violation = _fixed_index_violation(canonical_tool, memory_tool)
+                                if violation:
+                                    if violation not in policy_violations:
+                                        policy_violations.append(violation)
+                                    result = {"error": "fixed-index policy requires predecessor evidence before source edits"}
+                                else:
+                                    result = sandbox.dispatch(call.name, call.arguments)
                             else:
                                 result = sandbox.dispatch(call.name, call.arguments)
                         else:
-                            result = sandbox.dispatch(call.name, call.arguments)
-                    else:
-                        raise ValueError("tool is not available")
-                except RuntimeError:
-                    # A native-memory failure is an infrastructure failure, not a
-                    # disguised no-memory task outcome.
-                    raise
-                except ValueError as error:
-                    result = {"error": str(error)}
+                            raise ValueError("tool is not available")
+                    except RuntimeError:
+                        # A native-memory failure is an infrastructure failure, not a
+                        # disguised no-memory task outcome.
+                        raise
+                    except ValueError as error:
+                        result = {"error": str(error)}
                 if call.name == "run_verification":
                     agent_verification_results.append(bool(result.get("passed")))
                 if call.name in {"write_file", "replace_text"} and (result.get("written") or result.get("replaced")):
@@ -950,6 +972,7 @@ def run_trial(config: TrialConfig, client: AgentClient) -> dict[str, Any]:
             "ordinary_tool_sequence": agent_ordinary_tool_sequence,
             "source_edit_attempted": source_edit_attempted,
             "source_edit_succeeded": source_edit_succeeded,
+            "malformed_tool_argument_count": malformed_tool_argument_count,
             "source_changed": start_hash != source_tree_after_hash,
             "agent_verification_call_count": len(agent_verification_results),
             "agent_verification_failure_count": sum(not passed for passed in agent_verification_results),

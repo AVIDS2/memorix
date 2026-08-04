@@ -115,7 +115,7 @@ class TrialTests(unittest.TestCase):
             payload = outcome["payload"]
             self.assertEqual(payload["status"], "completed")
             self.assertTrue(payload["task_success"])
-            self.assertEqual(payload["runner"]["protocol_version"], "1.8-draft")
+            self.assertEqual(payload["runner"]["protocol_version"], "1.9-draft")
             self.assertRegex(payload["runner"]["source_tree_sha256"], r"^[0-9a-f]{64}$")
             self.assertEqual(payload["resource_usage"]["memory_context_calls"], 0)
             self.assertEqual(payload["resource_usage"]["raw_record_calls"], 1)
@@ -190,7 +190,10 @@ class TrialTests(unittest.TestCase):
             cost_usd=0.001,
             reasoning_content="private reasoning state",
         )
-        self.assertEqual(_assistant_wire(reply)["reasoning_content"], "private reasoning state")
+        self.assertEqual(
+            _assistant_wire(reply, preserve_reasoning=True)["reasoning_content"],
+            "private reasoning state",
+        )
         final_reply = ModelReply(
             content="finished",
             tool_calls=(),
@@ -202,6 +205,86 @@ class TrialTests(unittest.TestCase):
             reasoning_content="unneeded final reasoning",
         )
         self.assertNotIn("reasoning_content", _assistant_wire(final_reply))
+        self.assertEqual(
+            _assistant_wire(final_reply, preserve_reasoning=True)["reasoning_content"],
+            "unneeded final reasoning",
+        )
+
+    def test_assistant_wire_normalizes_malformed_tool_arguments_for_provider_repair(self) -> None:
+        reply = ModelReply(
+            content=None,
+            tool_calls=(
+                ToolCall(
+                    "call-1",
+                    "read_file",
+                    {},
+                    raw_arguments='{"path":',
+                    argument_error="arguments-invalid-json",
+                ),
+            ),
+            model="deepseek-v4-flash",
+            response_id="private-response",
+            input_tokens=1,
+            output_tokens=1,
+            cost_usd=0.001,
+            reasoning_content="private tool reasoning",
+        )
+        wire = _assistant_wire(reply, preserve_reasoning=True)
+        self.assertEqual(wire["reasoning_content"], "private tool reasoning")
+        self.assertEqual(wire["tool_calls"][0]["function"]["arguments"], "{}")
+
+    def test_trial_returns_malformed_tool_argument_feedback_and_allows_repair(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            case, oracle = self._case_and_oracle(root)
+            client = ScriptedClient(
+                [
+                    ModelReply(
+                        content=None,
+                        tool_calls=(
+                            ToolCall(
+                                "call-invalid",
+                                "read_file",
+                                {},
+                                raw_arguments='{"path":',
+                                argument_error="arguments-invalid-json",
+                            ),
+                        ),
+                        model="example/model",
+                        response_id="private-response-1",
+                        input_tokens=10,
+                        output_tokens=5,
+                        cost_usd=0.001,
+                    ),
+                    ModelReply(
+                        content=None,
+                        tool_calls=(ToolCall("call-write", "write_file", {"path": "src/task.py", "content": "done\n"}),),
+                        model="example/model",
+                        response_id="private-response-2",
+                        input_tokens=10,
+                        output_tokens=5,
+                        cost_usd=0.001,
+                    ),
+                    ModelReply(
+                        content="finished",
+                        tool_calls=(),
+                        model="example/model",
+                        response_id="private-response-3",
+                        input_tokens=10,
+                        output_tokens=5,
+                        cost_usd=0.001,
+                    ),
+                ]
+            )
+            outcome = run_trial(
+                TrialConfig(case=case, oracle=oracle, condition="no-memory", requested_model="example/model", artifact_root=root / "artifacts"),
+                client,
+            )
+            payload = outcome["payload"]
+            self.assertEqual(payload["status"], "completed")
+            self.assertTrue(payload["task_success"])
+            self.assertEqual(payload["agent_action"]["malformed_tool_argument_count"], 1)
+            self.assertIn("tool arguments must be a JSON object", client.messages[1][-1]["content"])
 
     def test_frozen_route_reprompts_once_before_an_unverified_finish(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -757,7 +840,7 @@ class TrialTests(unittest.TestCase):
                 )
                 payload = outcome["payload"]
                 self.assertEqual(payload["status"], "passed")
-                self.assertEqual(payload["runner"]["protocol_version"], "1.8-draft")
+                self.assertEqual(payload["runner"]["protocol_version"], "1.9-draft")
                 self.assertRegex(payload["runner"]["source_tree_sha256"], r"^[0-9a-f]{64}$")
                 self.assertFalse(payload["oracle"]["baseline_passed"])
                 self.assertTrue(payload["workspace"]["source_unchanged"])

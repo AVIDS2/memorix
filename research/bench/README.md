@@ -130,12 +130,15 @@ per-response dollar amount. The receipt carries the accounting basis and the
 official pricing URL, so an estimate cannot be mistaken for an invoice.
 
 Schema version 3 is the required DeepSeek form for a fresh multi-turn tool
-cohort. It freezes `thinking.type` and `reasoning_effort`; when a DeepSeek
-assistant tool-calls, the runner carries its `reasoning_content` only in the
-next in-memory provider message, as required by DeepSeek's official tool-call
-contract. It never writes that reasoning content to a receipt, sidecar, or Git
-file. Earlier DeepSeek tool-loop artifacts made before this continuity rule are
-transport diagnostics, not analysis rows.
+cohort. It freezes `thinking.type` and `reasoning_effort`; for that provider,
+the runner carries every non-null assistant `reasoning_content` only in the
+in-memory provider transcript, as required by DeepSeek's tool-call contract.
+It never writes that reasoning content to a receipt, sidecar, or Git file. A
+malformed model tool-argument payload is never executed: the runner normalizes
+the prior provider message to a valid empty argument object, returns a fixed
+tool error, and records only a count in the sanitized receipt so the model may
+repair the call. Earlier DeepSeek tool-loop artifacts made before these
+continuity and repair rules are transport diagnostics, not analysis rows.
 
 For every frozen live route, the repair-loop contract also requires one
 agent-requested `run_verification` before the agent may finish. If the first

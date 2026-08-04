@@ -65,17 +65,29 @@ class _OpenAICompatibleRouteClient:
         calls: list[ToolCall] = []
         for raw_call in message.get("tool_calls") or []:
             function = raw_call.get("function") or {}
-            try:
-                arguments = json.loads(function.get("arguments") or "{}")
-            except json.JSONDecodeError as error:
-                raise RuntimeError("model emitted invalid JSON tool arguments") from error
-            if not isinstance(arguments, dict):
-                raise RuntimeError("model emitted non-object tool arguments")
+            raw_arguments = function.get("arguments")
+            argument_error: str | None = None
+            arguments: dict[str, Any] = {}
+            if not isinstance(raw_arguments, str):
+                argument_error = "arguments-not-a-string"
+                raw_arguments = None
+            else:
+                try:
+                    parsed_arguments = json.loads(raw_arguments)
+                except json.JSONDecodeError:
+                    argument_error = "arguments-invalid-json"
+                else:
+                    if isinstance(parsed_arguments, dict):
+                        arguments = parsed_arguments
+                    else:
+                        argument_error = "arguments-not-an-object"
             calls.append(
                 ToolCall(
                     call_id=str(raw_call.get("id") or ""),
                     name=str(function.get("name") or ""),
                     arguments=arguments,
+                    raw_arguments=raw_arguments,
+                    argument_error=argument_error,
                 )
             )
         usage = data.get("usage") or {}

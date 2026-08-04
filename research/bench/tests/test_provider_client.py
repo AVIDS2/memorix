@@ -77,3 +77,63 @@ class ProviderClientTests(unittest.TestCase):
             self.assertEqual(reply.cost_accounting, "frozen-rate-card-conservative")
             self.assertEqual(reply.reasoning_content, "private tool reasoning")
             self.assertAlmostEqual(reply.cost_usd or 0, (100 * 0.14 + 50 * 0.28) / 1_000_000)
+
+    def test_deepseek_client_returns_a_repairable_malformed_tool_call(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            route_path = Path(temporary) / "route.json"
+            route_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 3,
+                        "provider": "deepseek",
+                        "requested_model": "deepseek-v4-flash",
+                        "expected_actual_model": "deepseek-v4-flash",
+                        "provider_timeout_seconds": 90,
+                        "max_output_tokens": 1200,
+                        "max_cost_usd": 0.5,
+                        "temperature": 0,
+                        "tool_choice": "auto",
+                        "cost_policy": {
+                            "kind": "frozen-rate-card-conservative",
+                            "input_cache_miss_usd_per_million_tokens": 0.14,
+                            "output_usd_per_million_tokens": 0.28,
+                            "pricing_source": "https://api-docs.deepseek.com/quick_start/pricing",
+                            "pricing_verified_on": "2026-08-04",
+                        },
+                        "thinking": {"type": "enabled"},
+                        "reasoning_effort": "high",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            response = _Response(
+                {
+                    "id": "response-id",
+                    "model": "deepseek-v4-flash",
+                    "choices": [
+                        {
+                            "message": {
+                                "content": "",
+                                "reasoning_content": "private tool reasoning",
+                                "tool_calls": [
+                                    {
+                                        "id": "call-1",
+                                        "type": "function",
+                                        "function": {"name": "read_file", "arguments": '{"path":'},
+                                    }
+                                ],
+                            }
+                        }
+                    ],
+                    "usage": {"prompt_tokens": 100, "completion_tokens": 50},
+                }
+            )
+            with patch.dict(os.environ, {"DEEPSEEK_API_KEY": "test-key"}):
+                with patch("memorixbench.openrouter.urlopen", return_value=response):
+                    reply = client_for_route(RouteSpec.load(route_path)).chat([], [])
+
+            self.assertEqual(len(reply.tool_calls), 1)
+            call = reply.tool_calls[0]
+            self.assertEqual(call.arguments, {})
+            self.assertEqual(call.raw_arguments, '{"path":')
+            self.assertEqual(call.argument_error, "arguments-invalid-json")

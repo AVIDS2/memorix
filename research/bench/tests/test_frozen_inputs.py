@@ -62,31 +62,78 @@ class FrozenInputTests(unittest.TestCase):
             route = RouteSpec.load(route_path)
             self.assertEqual(route.requested_model, "provider/requested-model")
             self.assertRegex(route.definition_sha256, r"^[0-9a-f]{64}$")
-            matching = ModelReply(None, (), "provider/actual-model", None, 1, 1200, 0.1)
+            matching = ModelReply(None, (), "provider/actual-model", None, 1, 1200, 0.1, "provider-reported")
             self.assertIsNone(route.reply_violation(matching, 0.1))
             self.assertEqual(
-                route.reply_violation(ModelReply(None, (), "other/model", None, 1, 1, 0.1), 0.1),
+                route.reply_violation(ModelReply(None, (), "other/model", None, 1, 1, 0.1, "provider-reported"), 0.1),
                 "actual-model-mismatch",
             )
             self.assertEqual(
-                route.reply_violation(ModelReply(None, (), "provider/actual-model", None, 1, 1201, 0.1), 0.1),
+                route.reply_violation(ModelReply(None, (), "provider/actual-model", None, 1, 1201, 0.1, "provider-reported"), 0.1),
                 "output-budget-exceeded",
             )
             self.assertEqual(
-                route.reply_violation(ModelReply(None, (), "provider/actual-model", None, 1, 1, 0.1), 0.6),
+                route.reply_violation(ModelReply(None, (), "provider/actual-model", None, 1, 1, 0.1, "provider-reported"), 0.6),
                 "cost-budget-exceeded",
             )
             self.assertEqual(
-                route.reply_violation(ModelReply(None, (), "provider/actual-model", None, -1, 1, 0.1), 0.1),
+                route.reply_violation(ModelReply(None, (), "provider/actual-model", None, -1, 1, 0.1, "provider-reported"), 0.1),
                 "provider-usage-invalid",
             )
             self.assertEqual(
-                route.reply_violation(ModelReply(None, (), "provider/actual-model", None, 1, 1, float("nan")), 0.1),
+                route.reply_violation(ModelReply(None, (), "provider/actual-model", None, 1, 1, float("nan"), "provider-reported"), 0.1),
                 "provider-usage-invalid",
             )
             self.assertEqual(
-                route.reply_violation(ModelReply(None, (), "provider/actual-model", None, 1, 1, 0.1), float("inf")),
+                route.reply_violation(ModelReply(None, (), "provider/actual-model", None, 1, 1, 0.1, "provider-reported"), float("inf")),
                 "provider-usage-invalid",
+            )
+
+    def test_deepseek_route_freezes_a_conservative_official_rate_card(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            route_path = Path(temporary) / "route.json"
+            route_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 2,
+                        "provider": "deepseek",
+                        "requested_model": "deepseek-v4-flash",
+                        "expected_actual_model": "deepseek-v4-flash",
+                        "provider_timeout_seconds": 90,
+                        "max_output_tokens": 1200,
+                        "max_cost_usd": 0.5,
+                        "temperature": 0,
+                        "tool_choice": "auto",
+                        "cost_policy": {
+                            "kind": "frozen-rate-card-conservative",
+                            "input_cache_miss_usd_per_million_tokens": 0.14,
+                            "output_usd_per_million_tokens": 0.28,
+                            "pricing_source": "https://api-docs.deepseek.com/quick_start/pricing",
+                            "pricing_verified_on": "2026-08-04",
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            route = RouteSpec.load(route_path)
+            self.assertAlmostEqual(route.cost_policy.estimate_cost_usd(1_000_000, 1_000_000) or 0, 0.42)
+            matching = ModelReply(
+                None,
+                (),
+                "deepseek-v4-flash",
+                None,
+                10,
+                20,
+                route.cost_policy.estimate_cost_usd(10, 20),
+                "frozen-rate-card-conservative",
+            )
+            self.assertIsNone(route.reply_violation(matching, matching.cost_usd or 0))
+            self.assertEqual(
+                route.reply_violation(
+                    ModelReply(None, (), "deepseek-v4-flash", None, 10, 20, 0.01, "provider-reported"),
+                    0.01,
+                ),
+                "cost-accounting-mismatch",
             )
 
     def test_openrouter_usage_parsing_rejects_lossy_or_unsafe_values(self) -> None:

@@ -7,7 +7,7 @@ import sys
 import tempfile
 import unittest
 
-from memorixbench.models import CaseSpec, ModelReply, OracleSpec, RouteSpec, ToolCall, sha256_file, sha256_text, sha256_tree
+from memorixbench.models import CaseSpec, CostPolicy, ModelReply, OracleSpec, RouteSpec, ToolCall, sha256_file, sha256_text, sha256_tree
 from memorixbench import preflight, trial
 from memorixbench.trial import CanonicalEvidenceTool, RawRecordTool, TrialConfig, _messages, _workset_includes_observation, agent_tools, _native_context_prompt, _native_memory_detail, run_trial
 
@@ -20,7 +20,7 @@ class ScriptedClient:
         self.messages: list[list[dict[str, object]]] = []
 
     def chat(self, messages, _tools):
-        self.messages.append(messages)
+        self.messages.append(list(messages))
         return self.replies.pop(0)
 
 
@@ -115,7 +115,7 @@ class TrialTests(unittest.TestCase):
             payload = outcome["payload"]
             self.assertEqual(payload["status"], "completed")
             self.assertTrue(payload["task_success"])
-            self.assertEqual(payload["runner"]["protocol_version"], "1.6-draft")
+            self.assertEqual(payload["runner"]["protocol_version"], "1.7-draft")
             self.assertRegex(payload["runner"]["source_tree_sha256"], r"^[0-9a-f]{64}$")
             self.assertEqual(payload["resource_usage"]["memory_context_calls"], 0)
             self.assertEqual(payload["resource_usage"]["raw_record_calls"], 1)
@@ -145,6 +145,7 @@ class TrialTests(unittest.TestCase):
                 max_cost_usd=0.5,
                 temperature=0,
                 tool_choice="auto",
+                cost_policy=CostPolicy.provider_reported(),
                 definition_sha256="d" * 64,
             )
             client = ScriptedClient(
@@ -177,6 +178,111 @@ class TrialTests(unittest.TestCase):
             self.assertEqual(payload["actual_models"], ["provider/substituted-model"])
             self.assertEqual(payload["resource_usage"]["ordinary_tool_call_count"], 0)
             self.assertFalse(payload["agent_action"]["source_edit_attempted"])
+
+    def test_frozen_route_reprompts_once_before_an_unverified_finish(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            case, oracle = self._case_and_oracle(root)
+            route = RouteSpec(
+                provider="openrouter",
+                requested_model="provider/requested-model",
+                expected_actual_model="provider/actual-model",
+                provider_timeout_seconds=90,
+                max_output_tokens=1200,
+                max_cost_usd=0.5,
+                temperature=0,
+                tool_choice="auto",
+                cost_policy=CostPolicy.provider_reported(),
+                definition_sha256="e" * 64,
+            )
+            reply_kwargs = {
+                "model": "provider/actual-model",
+                "input_tokens": 10,
+                "output_tokens": 5,
+                "cost_usd": 0.001,
+                "cost_accounting": "provider-reported",
+            }
+            client = ScriptedClient(
+                [
+                    ModelReply(content="ready", tool_calls=(), response_id="private-1", **reply_kwargs),
+                    ModelReply(
+                        content=None,
+                        tool_calls=(ToolCall("call-1", "write_file", {"path": "src/task.py", "content": "done\n"}),),
+                        response_id="private-2",
+                        **reply_kwargs,
+                    ),
+                    ModelReply(
+                        content=None,
+                        tool_calls=(ToolCall("call-2", "run_verification", {}),),
+                        response_id="private-3",
+                        **reply_kwargs,
+                    ),
+                    ModelReply(content="finished", tool_calls=(), response_id="private-4", **reply_kwargs),
+                ]
+            )
+            outcome = run_trial(
+                TrialConfig(
+                    case=case,
+                    oracle=oracle,
+                    condition="no-memory",
+                    requested_model="provider/requested-model",
+                    artifact_root=root / "artifacts",
+                    route=route,
+                ),
+                client,
+            )
+            action = outcome["payload"]["agent_action"]
+            self.assertTrue(outcome["payload"]["task_success"])
+            self.assertTrue(action["verification_required_before_finish"])
+            self.assertEqual(action["verification_before_finish_reprompt_count"], 1)
+            self.assertEqual(action["ordinary_tool_sequence"], ["write_file", "run_verification"])
+            self.assertIn("call run_verification once", client.messages[1][-1]["content"])
+
+    def test_frozen_route_marks_a_second_unverified_finish_invalid(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            case, oracle = self._case_and_oracle(root)
+            route = RouteSpec(
+                provider="openrouter",
+                requested_model="provider/requested-model",
+                expected_actual_model="provider/actual-model",
+                provider_timeout_seconds=90,
+                max_output_tokens=1200,
+                max_cost_usd=0.5,
+                temperature=0,
+                tool_choice="auto",
+                cost_policy=CostPolicy.provider_reported(),
+                definition_sha256="f" * 64,
+            )
+            reply_kwargs = {
+                "model": "provider/actual-model",
+                "input_tokens": 10,
+                "output_tokens": 5,
+                "cost_usd": 0.001,
+                "cost_accounting": "provider-reported",
+            }
+            client = ScriptedClient(
+                [
+                    ModelReply(content="ready", tool_calls=(), response_id="private-1", **reply_kwargs),
+                    ModelReply(content="still done", tool_calls=(), response_id="private-2", **reply_kwargs),
+                ]
+            )
+            outcome = run_trial(
+                TrialConfig(
+                    case=case,
+                    oracle=oracle,
+                    condition="no-memory",
+                    requested_model="provider/requested-model",
+                    artifact_root=root / "artifacts",
+                    route=route,
+                ),
+                client,
+            )
+            action = outcome["payload"]["agent_action"]
+            self.assertEqual(outcome["payload"]["status"], "invalid")
+            self.assertEqual(outcome["payload"]["invalid_reason"], "agent-protocol:stopped-before-verification")
+            self.assertEqual(action["verification_before_finish_reprompt_count"], 1)
+            self.assertEqual(action["agent_verification_call_count"], 0)
 
     def test_receipt_distinguishes_agent_stop_after_failed_verification(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -627,7 +733,7 @@ class TrialTests(unittest.TestCase):
                 )
                 payload = outcome["payload"]
                 self.assertEqual(payload["status"], "passed")
-                self.assertEqual(payload["runner"]["protocol_version"], "1.6-draft")
+                self.assertEqual(payload["runner"]["protocol_version"], "1.7-draft")
                 self.assertRegex(payload["runner"]["source_tree_sha256"], r"^[0-9a-f]{64}$")
                 self.assertFalse(payload["oracle"]["baseline_passed"])
                 self.assertTrue(payload["workspace"]["source_unchanged"])

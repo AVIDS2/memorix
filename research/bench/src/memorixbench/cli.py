@@ -6,7 +6,7 @@ from pathlib import Path
 import sys
 
 from .models import CaseSpec, OracleSpec, RouteSpec
-from .openrouter import OpenRouterClient
+from .openrouter import client_for_route
 from .preflight import run_native_preflight
 from .trial import TrialConfig, run_trial
 
@@ -47,7 +47,7 @@ def _run_trial(args: argparse.Namespace) -> int:
     )
     outcome = run_trial(
         config,
-        OpenRouterClient(route),
+        client_for_route(route),
     )
     payload = outcome["payload"]
     print(json.dumps({"receipt": str(outcome["receipt_path"]), "status": payload["status"], "task_success": payload["task_success"]}, indent=2))

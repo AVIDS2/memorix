@@ -38,6 +38,8 @@ current `1.4.1` product effect.
 | Protocol-1.4 source-sufficient action calibration | One frozen no-memory synthetic row completed with an empty common index, a permitted source edit, an agent-requested verification pass, a separately counted controller verifier, and a byte-verifiable sidecar. | A memory benefit, cost, or retrieval result. It only clears the action-and-attribution prerequisite for future cohorts. |
 | Protocol-1.5 source-backed lifecycle preflights | Three permissively licensed candidate cases (two `pypa/packaging`, one `pallets/click`) passed external baseline/reference checks and native preflights: clean Git transfer, private baseline oracle failure, real seed, supported CodeGraph refresh, native Workset inclusion, and detail delivery. No model was asked to solve any task. These receipts are historical lifecycle calibration because the later 1.6 runner strengthened what native-product delivers and how inputs are frozen. | A protocol-1.6 preflight, a condition effect, a case-class claim, or a result for Memorix versus any baseline. |
 | Protocol-1.6 sealed-input runner | Unit contracts reject original-source-archive drift, archive-to-tree mismatch, unpacked source-tree drift, private oracle-asset drift, missing source-backed route manifests, provider model substitution, missing or malformed usage, and output/cost-cap breaches. Source-tree hashing uses portable POSIX relative-path ordering. Native-product hands the agent the real Workset brief and real citations; canonical-information retains a controlled alias index. Three source-backed candidates passed fresh v14 no-model lifecycle preflights with unique local-project identities and a runner fingerprint limited to the loaded package. Earlier v11 tree hashes, v12 whole-directory runner fingerprints, and v13 receipts before malformed-usage validation are retained as superseded artifacts, not overwritten. One CodeGraph-refresh infrastructure failure was retained externally and rerun only in a new artifact directory. | A completed cohort, model performance, independent review, or any effect claim. |
+| Owner-attested exploratory admission | On 2026-08-04, the owner reported that two outcome-blind non-owner reviewers found no blocker in the three candidates. A sanitized external ledger records the anonymous count and case decisions only; it intentionally contains neither reviewer identities nor individual rationales. | A retained independent-review record, confirmatory admission, or any result. |
+| Protocol-1.7 verification handoff | Frozen live routes now require an agent-requested verification before an agent can finish. One condition-neutral reminder is permitted only when the first completion skips that call; a second unverified finish is an invalid agent-protocol row, and the reminder count is retained in the receipt. The controller's private final verification remains separate. | A successful source-backed action calibration or a memory-effect result. |
 | Anonymous NIER draft | A locally compiled candidate paper describes the cleaned protocol and archival evidence. | Venue acceptance, peer review, or a general performance claim. |
 
 ## Claims currently supported
@@ -55,10 +57,10 @@ memory, Mem0, AgentMemory, or any other system.
 
 ## What must happen next
 
-1. Obtain independent outcome-blind review of the curated
-   source-sufficient, durable-decision, and stale-conflict candidates, then
-   verify a frozen live route, then freeze a reviewed cohort before outcomes
-   are read.
+1. Verify a frozen live route against its provider, complete an action
+   calibration with that same route, then collect the explicitly exploratory
+   three-case cohort. Do not promote the owner-attested admission record to a
+   confirmatory review record.
 2. The paper must continue to identify every archival number as a `1.2.1`
    observation and label the new runner by its study tier.
 3. The anonymous supplement must be materialized from an explicit allowlist

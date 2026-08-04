@@ -59,6 +59,17 @@ Disagreement is resolved by a third reviewer or by excluding the case. For the
 confirmatory tier, reviewers must not see condition outcomes and must sign the
 frozen case manifest before any run begins.
 
+### Current Exploratory Admission Record
+
+On 2026-08-04, the project owner reported that two non-owner, outcome-blind
+reviewers examined the three source-backed candidates and found no admission
+blocker. An external, anonymous ledger records only the count, date, scope, and
+case-level exploratory decisions; it contains no personal information, private
+oracle material, or model outcome. Individual signed forms and rationales were
+not retained. This permits an explicitly labeled exploratory cohort only. A
+confirmatory corpus still requires independently retained forms, the full
+rubric, and a frozen manifest signed before any outcome is collected.
+
 ### Outcome-Blind Review Packet
 
 The classification reviewers receive the candidate ID, source provenance and

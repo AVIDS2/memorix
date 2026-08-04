@@ -122,6 +122,20 @@ model and usage, or when the output or aggregate cost exceeds the frozen route.
 No live route is committed here, and no model cohort is authorized until review
 and route verification are complete.
 
+Route schema version 1 is reserved for OpenRouter because that provider returns
+per-response cost. Schema version 2 is reserved for the official DeepSeek API:
+it still requires provider-reported token counts, but it records cost as a
+conservative frozen rate-card upper bound because the API does not return a
+per-response dollar amount. The receipt carries the accounting basis and the
+official pricing URL, so an estimate cannot be mistaken for an invoice.
+
+For every frozen live route, the repair-loop contract also requires one
+agent-requested `run_verification` before the agent may finish. If the first
+completion omits it, the runner emits one identical condition-neutral reminder
+and records that reminder count; a second unverified finish is an invalid
+agent-protocol row, not a task failure. It never exposes the private oracle
+source or turns the controller's final check into an agent-visible pass.
+
 ```powershell
 uv run --directory research/bench memorixbench run-trial `
   --case <case.json> --oracle <private-oracle.json> --route <frozen-route.json> `

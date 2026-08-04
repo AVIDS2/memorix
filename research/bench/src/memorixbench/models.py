@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date
 import hashlib
 import json
 from math import isfinite
@@ -407,6 +408,80 @@ class ModelReply:
     input_tokens: int | None
     output_tokens: int | None
     cost_usd: float | None
+    cost_accounting: str | None = None
+
+
+@dataclass(frozen=True)
+class CostPolicy:
+    """How a route accounts for cost without conflating estimates and invoices."""
+
+    kind: str
+    input_cache_miss_usd_per_million_tokens: float | None = None
+    output_usd_per_million_tokens: float | None = None
+    pricing_source: str | None = None
+    pricing_verified_on: str | None = None
+
+    @classmethod
+    def provider_reported(cls) -> "CostPolicy":
+        return cls(kind="provider-reported")
+
+    @classmethod
+    def load_deepseek(cls, value: object) -> "CostPolicy":
+        if not isinstance(value, dict):
+            raise ValueError("deepseek route cost_policy must be an object")
+        kind = str(value.get("kind", "")).strip()
+        if kind != "frozen-rate-card-conservative":
+            raise ValueError("deepseek route cost_policy kind must be frozen-rate-card-conservative")
+        input_rate = value.get("input_cache_miss_usd_per_million_tokens")
+        output_rate = value.get("output_usd_per_million_tokens")
+        if not _is_nonnegative_finite_number(input_rate) or float(input_rate) <= 0:
+            raise ValueError("deepseek route input_cache_miss_usd_per_million_tokens must be positive")
+        if not _is_nonnegative_finite_number(output_rate) or float(output_rate) <= 0:
+            raise ValueError("deepseek route output_usd_per_million_tokens must be positive")
+        pricing_source = str(value.get("pricing_source", "")).strip()
+        if not pricing_source.startswith("https://api-docs.deepseek.com/"):
+            raise ValueError("deepseek route pricing_source must be an official DeepSeek API docs URL")
+        pricing_verified_on = str(value.get("pricing_verified_on", "")).strip()
+        try:
+            date.fromisoformat(pricing_verified_on)
+        except ValueError as error:
+            raise ValueError("deepseek route pricing_verified_on must be an ISO date") from error
+        return cls(
+            kind=kind,
+            input_cache_miss_usd_per_million_tokens=float(input_rate),
+            output_usd_per_million_tokens=float(output_rate),
+            pricing_source=pricing_source,
+            pricing_verified_on=pricing_verified_on,
+        )
+
+    def estimate_cost_usd(self, input_tokens: int | None, output_tokens: int | None) -> float | None:
+        if self.kind != "frozen-rate-card-conservative":
+            return None
+        if not _is_nonnegative_int(input_tokens) or not _is_nonnegative_int(output_tokens):
+            return None
+        if (
+            self.input_cache_miss_usd_per_million_tokens is None
+            or self.output_usd_per_million_tokens is None
+        ):
+            return None
+        return (
+            input_tokens * self.input_cache_miss_usd_per_million_tokens
+            + output_tokens * self.output_usd_per_million_tokens
+        ) / 1_000_000
+
+    def receipt_payload(self) -> dict[str, object]:
+        payload: dict[str, object] = {"kind": self.kind}
+        if self.kind == "frozen-rate-card-conservative":
+            payload.update(
+                {
+                    "input_cache_miss_usd_per_million_tokens": self.input_cache_miss_usd_per_million_tokens,
+                    "output_usd_per_million_tokens": self.output_usd_per_million_tokens,
+                    "pricing_source": self.pricing_source,
+                    "pricing_verified_on": self.pricing_verified_on,
+                    "interpretation": "upper-bound estimate using all prompt tokens at the cache-miss rate",
+                }
+            )
+        return payload
 
 
 @dataclass(frozen=True)
@@ -419,17 +494,25 @@ class RouteSpec:
     max_cost_usd: float
     temperature: float
     tool_choice: str
+    cost_policy: CostPolicy
     definition_sha256: str
 
     @classmethod
     def load(cls, path: str | Path) -> "RouteSpec":
         manifest_path = Path(path).resolve()
         data: dict[str, Any] = json.loads(manifest_path.read_text(encoding="utf-8"))
-        if data.get("schema_version") != 1:
-            raise ValueError("route schema_version must be 1")
+        schema_version = data.get("schema_version")
+        if schema_version not in {1, 2}:
+            raise ValueError("route schema_version must be 1 or 2")
         provider = str(data.get("provider", "")).strip()
-        if provider != "openrouter":
-            raise ValueError("route provider must be openrouter")
+        if schema_version == 1:
+            if provider != "openrouter":
+                raise ValueError("route schema_version 1 provider must be openrouter")
+            cost_policy = CostPolicy.provider_reported()
+        else:
+            if provider != "deepseek":
+                raise ValueError("route schema_version 2 provider must be deepseek")
+            cost_policy = CostPolicy.load_deepseek(data.get("cost_policy"))
         requested_model = str(data.get("requested_model", "")).strip()
         expected_actual_model = str(data.get("expected_actual_model", "")).strip()
         if not requested_model or not expected_actual_model:
@@ -468,6 +551,7 @@ class RouteSpec:
             max_cost_usd=max_cost_usd,
             temperature=temperature,
             tool_choice=tool_choice,
+            cost_policy=cost_policy,
             definition_sha256=sha256_file(manifest_path),
         )
 
@@ -482,6 +566,7 @@ class RouteSpec:
             "max_cost_usd": self.max_cost_usd,
             "temperature": self.temperature,
             "tool_choice": self.tool_choice,
+            "cost_policy": self.cost_policy.receipt_payload(),
         }
 
     def reply_violation(self, reply: ModelReply, total_cost_usd: float) -> str | None:
@@ -489,6 +574,8 @@ class RouteSpec:
             return "actual-model-mismatch"
         if reply.input_tokens is None or reply.output_tokens is None or reply.cost_usd is None:
             return "provider-usage-missing"
+        if reply.cost_accounting != self.cost_policy.kind:
+            return "cost-accounting-mismatch"
         if (
             not _is_nonnegative_int(reply.input_tokens)
             or not _is_nonnegative_int(reply.output_tokens)

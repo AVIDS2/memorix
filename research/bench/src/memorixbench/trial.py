@@ -19,7 +19,7 @@ from .sandbox import ToolSandbox
 Condition = Literal["no-memory", "raw-record", "memorix-native"]
 SurfaceProfile = Literal["native-product", "canonical-information"]
 EvidencePolicy = Literal["optional", "fixed-index"]
-PROTOCOL_VERSION = "1.6-draft"
+PROTOCOL_VERSION = "1.7-draft"
 
 
 class AgentClient(Protocol):
@@ -495,7 +495,12 @@ def _workset_includes_observation(payload: object, observation_id: int | None) -
     return isinstance(evidence_ids, list) and f"memory:{observation_id}" in evidence_ids
 
 
-def _messages(case: CaseSpec, evidence_policy: EvidencePolicy = "optional") -> list[dict[str, str]]:
+def _messages(
+    case: CaseSpec,
+    evidence_policy: EvidencePolicy = "optional",
+    *,
+    require_agent_verification: bool = False,
+) -> list[dict[str, str]]:
     system = (
         "You are a coding agent working in an isolated project. Use the supplied tools to inspect, edit, and verify the current checkout. "
         "Do not claim a change is complete until the trusted verification passes. If trusted verification fails, use the remaining steps to diagnose, "
@@ -507,6 +512,11 @@ def _messages(case: CaseSpec, evidence_policy: EvidencePolicy = "optional") -> l
             " Before your first source edit, call project_predecessor_context once. "
             "If its index lists a numbered record, call project_predecessor_detail once for that listed record before your first source edit. "
             "This neutral evidence policy applies to every study condition; an empty index is an explicit empty result."
+        )
+    if require_agent_verification:
+        system += (
+            " Before you finish, you must call run_verification at least once. "
+            "This is a condition-neutral repair-loop requirement and does not reveal private verifier details."
         )
     return [{"role": "system", "content": system}, {"role": "user", "content": case.task}]
 
@@ -609,7 +619,12 @@ def run_trial(config: TrialConfig, client: AgentClient) -> dict[str, Any]:
         and start_hash != config.case.source_tree_sha256
     ):
         raise RuntimeError("transfer workspace does not match the frozen source snapshot")
-    messages: list[dict[str, Any]] = _messages(config.case, config.evidence_policy)
+    require_agent_verification = config.route is not None
+    messages: list[dict[str, Any]] = _messages(
+        config.case,
+        config.evidence_policy,
+        require_agent_verification=require_agent_verification,
+    )
     actual_models: list[str] = []
     response_ids: list[str] = []
     input_tokens = 0
@@ -627,6 +642,7 @@ def run_trial(config: TrialConfig, client: AgentClient) -> dict[str, Any]:
     agent_verification_results: list[bool] = []
     source_edit_attempted = False
     source_edit_succeeded = False
+    completion_reprompt_count = 0
     try:
         if memory_tool is not None:
             failure_stage = "memory-seed"
@@ -656,6 +672,21 @@ def run_trial(config: TrialConfig, client: AgentClient) -> dict[str, Any]:
                 costs.append(reply.cost_usd)
             messages.append(_assistant_wire(reply))
             if not reply.tool_calls:
+                if require_agent_verification and not agent_verification_results:
+                    if completion_reprompt_count == 0:
+                        completion_reprompt_count += 1
+                        messages.append(
+                            {
+                                "role": "user",
+                                "content": (
+                                    "Before ending, call run_verification once. Then continue using the supplied tools "
+                                    "if it reports a failure; do not rely on a final controller check."
+                                ),
+                            }
+                        )
+                        continue
+                    invalid_reason = "agent-protocol:stopped-before-verification"
+                    break
                 final_sha256 = sha256_text(reply.content or "")
                 assistant_finished = True
                 break
@@ -910,6 +941,8 @@ def run_trial(config: TrialConfig, client: AgentClient) -> dict[str, Any]:
         "agent_action": {
             "turn_count": agent_turn_count,
             "max_steps": config.max_steps,
+            "verification_required_before_finish": require_agent_verification,
+            "verification_before_finish_reprompt_count": completion_reprompt_count,
             "ordinary_tool_sequence": agent_ordinary_tool_sequence,
             "source_edit_attempted": source_edit_attempted,
             "source_edit_succeeded": source_edit_succeeded,

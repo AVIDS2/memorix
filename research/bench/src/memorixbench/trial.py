@@ -19,7 +19,7 @@ from .sandbox import ToolSandbox
 Condition = Literal["no-memory", "raw-record", "memorix-native"]
 SurfaceProfile = Literal["native-product", "canonical-information"]
 EvidencePolicy = Literal["optional", "fixed-index"]
-PROTOCOL_VERSION = "1.7-draft"
+PROTOCOL_VERSION = "1.8-draft"
 
 
 class AgentClient(Protocol):
@@ -561,6 +561,10 @@ def _termination_reason(
 
 def _assistant_wire(reply: ModelReply) -> dict[str, Any]:
     payload: dict[str, Any] = {"role": "assistant", "content": reply.content}
+    # DeepSeek requires this exact tool-call reasoning state on the next turn.
+    # It remains transient in provider messages and is never written to receipts.
+    if reply.tool_calls and reply.reasoning_content is not None:
+        payload["reasoning_content"] = reply.reasoning_content
     if reply.tool_calls:
         payload["tool_calls"] = [
             {

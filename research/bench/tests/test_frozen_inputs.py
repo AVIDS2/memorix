@@ -136,6 +136,37 @@ class FrozenInputTests(unittest.TestCase):
                 "cost-accounting-mismatch",
             )
 
+    def test_deepseek_schema_three_requires_a_frozen_thinking_contract(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            route_path = Path(temporary) / "route.json"
+            baseline = {
+                "schema_version": 3,
+                "provider": "deepseek",
+                "requested_model": "deepseek-v4-flash",
+                "expected_actual_model": "deepseek-v4-flash",
+                "provider_timeout_seconds": 90,
+                "max_output_tokens": 1200,
+                "max_cost_usd": 0.5,
+                "temperature": 0,
+                "tool_choice": "auto",
+                "cost_policy": {
+                    "kind": "frozen-rate-card-conservative",
+                    "input_cache_miss_usd_per_million_tokens": 0.14,
+                    "output_usd_per_million_tokens": 0.28,
+                    "pricing_source": "https://api-docs.deepseek.com/quick_start/pricing",
+                    "pricing_verified_on": "2026-08-04",
+                },
+                "thinking": {"type": "enabled"},
+                "reasoning_effort": "high",
+            }
+            route_path.write_text(json.dumps(baseline), encoding="utf-8")
+            route = RouteSpec.load(route_path)
+            self.assertEqual(route.thinking_mode, "enabled")
+            self.assertEqual(route.reasoning_effort, "high")
+            route_path.write_text(json.dumps({**baseline, "reasoning_effort": ""}), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "reasoning_effort"):
+                RouteSpec.load(route_path)
+
     def test_openrouter_usage_parsing_rejects_lossy_or_unsafe_values(self) -> None:
         self.assertEqual(_optional_int(3), 3)
         self.assertIsNone(_optional_int(3.0))

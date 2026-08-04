@@ -9,7 +9,7 @@ import unittest
 
 from memorixbench.models import CaseSpec, CostPolicy, ModelReply, OracleSpec, RouteSpec, ToolCall, sha256_file, sha256_text, sha256_tree
 from memorixbench import preflight, trial
-from memorixbench.trial import CanonicalEvidenceTool, RawRecordTool, TrialConfig, _messages, _workset_includes_observation, agent_tools, _native_context_prompt, _native_memory_detail, run_trial
+from memorixbench.trial import CanonicalEvidenceTool, RawRecordTool, TrialConfig, _assistant_wire, _messages, _workset_includes_observation, agent_tools, _native_context_prompt, _native_memory_detail, run_trial
 
 
 @dataclass
@@ -115,7 +115,7 @@ class TrialTests(unittest.TestCase):
             payload = outcome["payload"]
             self.assertEqual(payload["status"], "completed")
             self.assertTrue(payload["task_success"])
-            self.assertEqual(payload["runner"]["protocol_version"], "1.7-draft")
+            self.assertEqual(payload["runner"]["protocol_version"], "1.8-draft")
             self.assertRegex(payload["runner"]["source_tree_sha256"], r"^[0-9a-f]{64}$")
             self.assertEqual(payload["resource_usage"]["memory_context_calls"], 0)
             self.assertEqual(payload["resource_usage"]["raw_record_calls"], 1)
@@ -178,6 +178,30 @@ class TrialTests(unittest.TestCase):
             self.assertEqual(payload["actual_models"], ["provider/substituted-model"])
             self.assertEqual(payload["resource_usage"]["ordinary_tool_call_count"], 0)
             self.assertFalse(payload["agent_action"]["source_edit_attempted"])
+
+    def test_assistant_wire_preserves_tool_reasoning_only_in_provider_state(self) -> None:
+        reply = ModelReply(
+            content=None,
+            tool_calls=(ToolCall("call-1", "read_file", {"path": "src/task.py"}),),
+            model="deepseek-v4-flash",
+            response_id="private-response",
+            input_tokens=1,
+            output_tokens=1,
+            cost_usd=0.001,
+            reasoning_content="private reasoning state",
+        )
+        self.assertEqual(_assistant_wire(reply)["reasoning_content"], "private reasoning state")
+        final_reply = ModelReply(
+            content="finished",
+            tool_calls=(),
+            model="deepseek-v4-flash",
+            response_id="private-response-final",
+            input_tokens=1,
+            output_tokens=1,
+            cost_usd=0.001,
+            reasoning_content="unneeded final reasoning",
+        )
+        self.assertNotIn("reasoning_content", _assistant_wire(final_reply))
 
     def test_frozen_route_reprompts_once_before_an_unverified_finish(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -733,7 +757,7 @@ class TrialTests(unittest.TestCase):
                 )
                 payload = outcome["payload"]
                 self.assertEqual(payload["status"], "passed")
-                self.assertEqual(payload["runner"]["protocol_version"], "1.7-draft")
+                self.assertEqual(payload["runner"]["protocol_version"], "1.8-draft")
                 self.assertRegex(payload["runner"]["source_tree_sha256"], r"^[0-9a-f]{64}$")
                 self.assertFalse(payload["oracle"]["baseline_passed"])
                 self.assertTrue(payload["workspace"]["source_unchanged"])

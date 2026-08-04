@@ -32,7 +32,7 @@ class ProviderClientTests(unittest.TestCase):
             route_path.write_text(
                 json.dumps(
                     {
-                        "schema_version": 2,
+                        "schema_version": 3,
                         "provider": "deepseek",
                         "requested_model": "deepseek-v4-flash",
                         "expected_actual_model": "deepseek-v4-flash",
@@ -48,6 +48,8 @@ class ProviderClientTests(unittest.TestCase):
                             "pricing_source": "https://api-docs.deepseek.com/quick_start/pricing",
                             "pricing_verified_on": "2026-08-04",
                         },
+                        "thinking": {"type": "enabled"},
+                        "reasoning_effort": "high",
                     }
                 ),
                 encoding="utf-8",
@@ -57,7 +59,7 @@ class ProviderClientTests(unittest.TestCase):
                 {
                     "id": "response-id",
                     "model": "deepseek-v4-flash",
-                    "choices": [{"message": {"content": "done"}}],
+                    "choices": [{"message": {"content": "done", "reasoning_content": "private tool reasoning"}}],
                     "usage": {"prompt_tokens": 100, "completion_tokens": 50},
                 }
             )
@@ -69,6 +71,9 @@ class ProviderClientTests(unittest.TestCase):
 
             request = open_call.call_args.args[0]
             self.assertEqual(request.full_url, "https://api.deepseek.com/chat/completions")
+            request_body = json.loads(request.data.decode("utf-8"))
+            self.assertEqual(request_body["thinking"], {"type": "enabled"})
+            self.assertEqual(request_body["reasoning_effort"], "high")
             self.assertEqual(reply.cost_accounting, "frozen-rate-card-conservative")
+            self.assertEqual(reply.reasoning_content, "private tool reasoning")
             self.assertAlmostEqual(reply.cost_usd or 0, (100 * 0.14 + 50 * 0.28) / 1_000_000)
-

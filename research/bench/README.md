@@ -129,6 +129,14 @@ conservative frozen rate-card upper bound because the API does not return a
 per-response dollar amount. The receipt carries the accounting basis and the
 official pricing URL, so an estimate cannot be mistaken for an invoice.
 
+Schema version 3 is the required DeepSeek form for a fresh multi-turn tool
+cohort. It freezes `thinking.type` and `reasoning_effort`; when a DeepSeek
+assistant tool-calls, the runner carries its `reasoning_content` only in the
+next in-memory provider message, as required by DeepSeek's official tool-call
+contract. It never writes that reasoning content to a receipt, sidecar, or Git
+file. Earlier DeepSeek tool-loop artifacts made before this continuity rule are
+transport diagnostics, not analysis rows.
+
 For every frozen live route, the repair-loop contract also requires one
 agent-requested `run_verification` before the agent may finish. If the first
 completion omits it, the runner emits one identical condition-neutral reminder

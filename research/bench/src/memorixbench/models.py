@@ -409,6 +409,7 @@ class ModelReply:
     output_tokens: int | None
     cost_usd: float | None
     cost_accounting: str | None = None
+    reasoning_content: str | None = None
 
 
 @dataclass(frozen=True)
@@ -496,23 +497,44 @@ class RouteSpec:
     tool_choice: str
     cost_policy: CostPolicy
     definition_sha256: str
+    thinking_mode: str | None = None
+    reasoning_effort: str | None = None
 
     @classmethod
     def load(cls, path: str | Path) -> "RouteSpec":
         manifest_path = Path(path).resolve()
         data: dict[str, Any] = json.loads(manifest_path.read_text(encoding="utf-8"))
         schema_version = data.get("schema_version")
-        if schema_version not in {1, 2}:
-            raise ValueError("route schema_version must be 1 or 2")
+        if schema_version not in {1, 2, 3}:
+            raise ValueError("route schema_version must be 1, 2, or 3")
         provider = str(data.get("provider", "")).strip()
+        thinking_mode: str | None = None
+        reasoning_effort: str | None = None
         if schema_version == 1:
             if provider != "openrouter":
                 raise ValueError("route schema_version 1 provider must be openrouter")
             cost_policy = CostPolicy.provider_reported()
-        else:
+        elif schema_version == 2:
             if provider != "deepseek":
                 raise ValueError("route schema_version 2 provider must be deepseek")
             cost_policy = CostPolicy.load_deepseek(data.get("cost_policy"))
+        else:
+            if provider != "deepseek":
+                raise ValueError("route schema_version 3 provider must be deepseek")
+            cost_policy = CostPolicy.load_deepseek(data.get("cost_policy"))
+            thinking = data.get("thinking")
+            if not isinstance(thinking, dict):
+                raise ValueError("deepseek route thinking must be an object")
+            thinking_mode = str(thinking.get("type", "")).strip()
+            if thinking_mode not in {"enabled", "disabled"}:
+                raise ValueError("deepseek route thinking type must be enabled or disabled")
+            raw_effort = data.get("reasoning_effort")
+            if thinking_mode == "enabled":
+                reasoning_effort = str(raw_effort or "").strip()
+                if reasoning_effort not in {"low", "high", "max"}:
+                    raise ValueError("deepseek route reasoning_effort must be low, high, or max when thinking is enabled")
+            elif raw_effort is not None:
+                raise ValueError("deepseek route reasoning_effort must be omitted when thinking is disabled")
         requested_model = str(data.get("requested_model", "")).strip()
         expected_actual_model = str(data.get("expected_actual_model", "")).strip()
         if not requested_model or not expected_actual_model:
@@ -553,6 +575,8 @@ class RouteSpec:
             tool_choice=tool_choice,
             cost_policy=cost_policy,
             definition_sha256=sha256_file(manifest_path),
+            thinking_mode=thinking_mode,
+            reasoning_effort=reasoning_effort,
         )
 
     def receipt_payload(self) -> dict[str, object]:
@@ -567,6 +591,8 @@ class RouteSpec:
             "temperature": self.temperature,
             "tool_choice": self.tool_choice,
             "cost_policy": self.cost_policy.receipt_payload(),
+            "thinking": {"type": self.thinking_mode} if self.thinking_mode is not None else None,
+            "reasoning_effort": self.reasoning_effort,
         }
 
     def reply_violation(self, reply: ModelReply, total_cost_usd: float) -> str | None:

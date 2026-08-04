@@ -27,16 +27,19 @@ class _OpenAICompatibleRouteClient:
             raise RuntimeError(f"{self.api_key_env} is required for a live trial")
 
     def chat(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]]) -> ModelReply:
-        payload = json.dumps(
-            {
-                "model": self.route.requested_model,
-                "messages": messages,
-                "tools": tools,
-                "tool_choice": "auto",
-                "temperature": self.route.temperature,
-                "max_tokens": self.route.max_output_tokens,
-            }
-        ).encode("utf-8")
+        request_payload: dict[str, Any] = {
+            "model": self.route.requested_model,
+            "messages": messages,
+            "tools": tools,
+            "tool_choice": "auto",
+            "temperature": self.route.temperature,
+            "max_tokens": self.route.max_output_tokens,
+        }
+        if self.route.thinking_mode is not None:
+            request_payload["thinking"] = {"type": self.route.thinking_mode}
+        if self.route.reasoning_effort is not None:
+            request_payload["reasoning_effort"] = self.route.reasoning_effort
+        payload = json.dumps(request_payload).encode("utf-8")
         request = Request(
             self.endpoint,
             data=payload,
@@ -87,6 +90,11 @@ class _OpenAICompatibleRouteClient:
             output_tokens=output_tokens,
             cost_usd=self._cost_usd(usage, input_tokens, output_tokens),
             cost_accounting=self.route.cost_policy.kind,
+            reasoning_content=(
+                message.get("reasoning_content")
+                if isinstance(message.get("reasoning_content"), str)
+                else None
+            ),
         )
 
     def _cost_usd(

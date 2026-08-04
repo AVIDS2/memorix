@@ -7,7 +7,7 @@ import sys
 import tempfile
 import unittest
 
-from memorixbench.models import CaseSpec, ModelReply, OracleSpec, ToolCall
+from memorixbench.models import CaseSpec, ModelReply, OracleSpec, ToolCall, sha256_file
 from memorixbench import trial
 from memorixbench.trial import CanonicalEvidenceTool, RawRecordTool, TrialConfig, _messages, _workset_includes_observation, agent_tools, _native_context_prompt, _native_memory_detail, run_trial
 
@@ -116,6 +116,7 @@ class TrialTests(unittest.TestCase):
             self.assertNotIn("durable decision", client.messages[0][1]["content"])
             self.assertIn("durable decision", outcome["evidence_path"].read_text(encoding="utf-8"))
             self.assertNotIn(str(root), outcome["evidence_path"].read_text(encoding="utf-8"))
+            self.assertEqual(payload["evidence_payload_sha256"], sha256_file(outcome["evidence_path"]))
 
     def test_infrastructure_receipt_names_the_safe_failure_stage(self) -> None:
         class FailingClient:

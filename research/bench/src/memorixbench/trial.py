@@ -661,7 +661,9 @@ def run_trial(config: TrialConfig, client: AgentClient) -> dict[str, Any]:
     evidence_serialized = json.dumps(evidence_sidecar, indent=2, ensure_ascii=True) + "\n"
     evidence_path = artifact_root / "evidence-payloads" / f"{run_id}.json"
     evidence_path.parent.mkdir(parents=True, exist_ok=True)
-    evidence_path.write_text(evidence_serialized, encoding="utf-8")
+    # The digest is calculated from this exact UTF-8 representation. Text-mode
+    # writes would translate newlines on Windows and make the receipt unverifiable.
+    evidence_path.write_bytes(evidence_serialized.encode("utf-8"))
     payload = {
         "schema_version": "exploratory-sealed-local-v2",
         "evidence_tier": "exploratory-sealed-local",

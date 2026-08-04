@@ -65,6 +65,14 @@ an empty common index: the worker made a permitted source edit, requested
 verification itself, and produced a byte-verifiable receipt. This clears the
 runner/contract prerequisite only; it is not a memory outcome.
 
+Protocol 1.5 now makes the native pre-transfer lifecycle explicit: after a
+precursor is stored, the supported CodeGraph refresh must bind it to the clean
+transfer source before a new agent can receive native context. Three external,
+permissively licensed candidate cases (two from `pypa/packaging`, one from
+`pallets/click`) have passed that lifecycle preflight with baseline/reference
+oracle separation. No model has attempted any case, and independent
+outcome-blind admission review remains required.
+
 ## Operating Rules
 
 - Git, `package.json`, and `CHANGELOG.md` are live product facts; this document
@@ -78,8 +86,8 @@ runner/contract prerequisite only; it is not a memory outcome.
 
 ## Immediate Next Step
 
-Curate independently reviewable durable-decision and stale-conflict cases, then
-freeze a new protocol-1.4 source-backed cohort. Revise
-the anonymous NIER candidate only from evidence explicitly labeled by product
-version and study tier. Keep research work separate from npm release claims
-until the experimental protocol and evidence are complete.
+Obtain independent outcome-blind admission review for the three source-backed
+candidate cases, then freeze a new protocol-1.5 cohort. Revise the anonymous
+NIER candidate only from evidence explicitly labeled by product version and
+study tier. Keep research work separate from npm release claims until the
+experimental protocol and evidence are complete.

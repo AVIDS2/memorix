@@ -75,7 +75,10 @@ contains stable protocol, code, and sanitized evidence only.
 
 ## Current next step
 
-Admit a small set of independently reviewable durable-decision and
-stale-conflict cases, then run complete matched exploratory rows without
-discarding failures. Every resulting run remains exploratory until the separate
+Three external, permissively licensed candidate cases now cover the
+source-sufficient, durable-decision, and stale-conflict hypotheses. Each has
+passed a no-model native lifecycle preflight, but none is admitted yet. Obtain
+independent outcome-blind review under `CASE-ADMISSION.md`, then freeze the
+case list and run complete matched exploratory rows without discarding
+failures. Every resulting run remains exploratory until the separate
 confirmatory gate is satisfied.

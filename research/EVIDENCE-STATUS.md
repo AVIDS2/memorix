@@ -36,6 +36,7 @@ current `1.4.1` product effect.
 | Source-backed optional-access preflights | Two complete three-condition `canonical-information` screens were retained externally. The first exposed only whole-file writing; the second added bounded replacement but still had an uncommitted transfer tree and unbound `discovery` seed. Raw/native agents did not consult predecessor evidence. A separate isolated product diagnostic confirmed that a clean baseline plus a `decision` record bound to the target source is retrievable by Memorix. | A task or memory outcome, an information-effect estimate, or a comparison with the repaired fixed-index cohort. |
 | Source-backed fixed-index pipx cohort (protocol 1.3) | One frozen MIT-licensed pipx case completed all three matched rows with byte-verifiable sidecars and confirmed raw/native evidence delivery. No row changed source or passed the oracle. Because protocol 1.3 did not separate agent-requested verification from the controller's final verifier, the cohort is retained as an inconclusive no-action calibration. | A raw-versus-native result, a failure-after-verification claim, or any product-effect conclusion. |
 | Protocol-1.4 source-sufficient action calibration | One frozen no-memory synthetic row completed with an empty common index, a permitted source edit, an agent-requested verification pass, a separately counted controller verifier, and a byte-verifiable sidecar. | A memory benefit, cost, or retrieval result. It only clears the action-and-attribution prerequisite for future cohorts. |
+| Protocol-1.5 source-backed lifecycle preflights | Three permissively licensed candidate cases (two `pypa/packaging`, one `pallets/click`) passed external baseline/reference checks and native preflights: clean Git transfer, private baseline oracle failure, real seed, supported CodeGraph refresh, native Workset inclusion, and detail delivery. No model was asked to solve any task. | A condition effect, a case-class claim, or a result for Memorix versus any baseline. Independent outcome-blind case review is still required. |
 | Anonymous NIER draft | A locally compiled candidate paper describes the cleaned protocol and archival evidence. | Venue acceptance, peer review, or a general performance claim. |
 
 ## Claims currently supported
@@ -53,8 +54,9 @@ memory, Mem0, AgentMemory, or any other system.
 
 ## What must happen next
 
-1. Curate independently reviewable durable-decision and stale-conflict cases,
-   then freeze a new protocol-1.4 source-backed cohort before outcomes are read.
+1. Obtain independent outcome-blind review of the curated
+   source-sufficient, durable-decision, and stale-conflict candidates, then
+   freeze a new protocol-1.5 source-backed cohort before outcomes are read.
 2. The paper must continue to identify every archival number as a `1.2.1`
    observation and label the new runner by its study tier.
 3. The anonymous supplement must be materialized from an explicit allowlist

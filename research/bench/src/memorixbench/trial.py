@@ -18,7 +18,7 @@ from .sandbox import ToolSandbox
 Condition = Literal["no-memory", "raw-record", "memorix-native"]
 SurfaceProfile = Literal["native-product", "canonical-information"]
 EvidencePolicy = Literal["optional", "fixed-index"]
-PROTOCOL_VERSION = "1.4-draft"
+PROTOCOL_VERSION = "1.5-draft"
 
 
 class AgentClient(Protocol):
@@ -264,6 +264,9 @@ class MemorixContextTool:
         self.detail_hashes: list[str] = []
         self.retrieved_chars = 0
         self.formation_elapsed_ms: int | None = None
+        self.codegraph_refresh_receipt: dict[str, object] | None = None
+        self.codegraph_refresh_elapsed_ms: int | None = None
+        self.transfer_prepared = False
         self.seed_observation_id: int | None = None
         self.context_includes_seed: bool | None = None
         self.detail_delivered = False
@@ -325,9 +328,33 @@ class MemorixContextTool:
                 self.seed_observation_id = observation_id
         self.formation_elapsed_ms = round((time.monotonic() - started) * 1000)
 
+    def prepare_transfer(self) -> None:
+        """Finish the normal CodeGraph lifecycle before a fresh agent receives context."""
+        if self.seed_receipt is None:
+            raise RuntimeError("Memorix transfer preparation requires a completed seed")
+        if self.transfer_prepared:
+            raise ValueError("Memorix transfer preparation may run once per exploratory trial")
+        started = time.monotonic()
+        completed = _run(
+            [self.cli, "codegraph", "refresh", "--cwd", str(self.workspace), "--json"],
+            cwd=self.workspace,
+            timeout_seconds=self.config.memorix_timeout_seconds,
+        )
+        self.codegraph_refresh_receipt = {
+            "returncode": completed.returncode,
+            "stdout_sha256": sha256_text(completed.stdout),
+            "stderr_sha256": sha256_text(completed.stderr),
+        }
+        self.codegraph_refresh_elapsed_ms = round((time.monotonic() - started) * 1000)
+        if completed.returncode != 0:
+            raise RuntimeError("Memorix CodeGraph refresh failed")
+        self.transfer_prepared = True
+
     def context(self) -> dict[str, Any]:
         if self.calls >= 1:
             raise ValueError("memorix_project_context may be called once per exploratory trial")
+        if not self.transfer_prepared:
+            raise RuntimeError("Memorix transfer preparation must finish before project context")
         self.calls += 1
         completed = _run(
             [
@@ -562,6 +589,8 @@ def run_trial(config: TrialConfig, client: AgentClient) -> dict[str, Any]:
         if memory_tool is not None:
             failure_stage = "memory-seed"
             memory_tool.seed()
+            failure_stage = "memory-codegraph-refresh"
+            memory_tool.prepare_transfer()
         transfer_started = time.monotonic()
         for _step in range(config.max_steps):
             failure_stage = "provider-chat"
@@ -772,10 +801,12 @@ def run_trial(config: TrialConfig, client: AgentClient) -> dict[str, Any]:
             {
                 "cli_version": memory_tool.version,
                 "seed": memory_tool.seed_receipt,
+                "codegraph_refresh": memory_tool.codegraph_refresh_receipt,
                 "context_sha256": memory_tool.context_hashes,
                 "detail_sha256": memory_tool.detail_hashes,
                 "retrieved_chars": memory_tool.retrieved_chars,
                 "formation_elapsed_ms": memory_tool.formation_elapsed_ms,
+                "codegraph_refresh_elapsed_ms": memory_tool.codegraph_refresh_elapsed_ms,
                 "seed_observation_id_sha256": (
                     sha256_text(str(memory_tool.seed_observation_id))
                     if memory_tool.seed_observation_id is not None

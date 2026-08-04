@@ -7,6 +7,7 @@ import sys
 
 from .models import CaseSpec, OracleSpec
 from .openrouter import OpenRouterClient
+from .preflight import run_native_preflight
 from .trial import TrialConfig, run_trial
 
 
@@ -55,12 +56,41 @@ def _run_trial(args: argparse.Namespace) -> int:
     return 0 if payload["status"] == "completed" else 2
 
 
+def _preflight_native(args: argparse.Namespace) -> int:
+    outcome = run_native_preflight(
+        case=CaseSpec.load(args.case),
+        oracle=OracleSpec.load(args.oracle),
+        artifact_root=args.artifact_root,
+        memorix_cli=args.memorix_cli,
+        memorix_timeout_seconds=args.memorix_timeout_seconds,
+    )
+    payload = outcome["payload"]
+    print(
+        json.dumps(
+            {
+                "receipt": str(outcome["receipt_path"]),
+                "status": payload["status"],
+                "failure": payload["failure"],
+            },
+            indent=2,
+        )
+    )
+    return 0 if payload["status"] == "passed" else 2
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="memorixbench")
     subparsers = parser.add_subparsers(dest="command", required=True)
     validate = subparsers.add_parser("validate-case")
     validate.add_argument("case", type=Path)
     validate.set_defaults(handler=_validate_case)
+    preflight = subparsers.add_parser("preflight-native")
+    preflight.add_argument("--case", type=Path, required=True)
+    preflight.add_argument("--oracle", type=Path, required=True)
+    preflight.add_argument("--artifact-root", type=Path, required=True)
+    preflight.add_argument("--memorix-cli", default="memorix")
+    preflight.add_argument("--memorix-timeout-seconds", type=int, default=120)
+    preflight.set_defaults(handler=_preflight_native)
     trial = subparsers.add_parser("run-trial")
     trial.add_argument("--case", type=Path, required=True)
     trial.add_argument("--oracle", type=Path, required=True)

@@ -1,13 +1,14 @@
 # MemorixBench Protocol
 
-**Protocol version:** 1.4-draft
+**Protocol version:** 1.5-draft
 
 **Target system:** Memorix 1.4.1
 **Status:** exploratory protocol; deterministic contracts and matched synthetic
 engineering matrices under both evidence-surface profiles have passed. One
 source-backed protocol-1.3 cohort is retained as a non-discriminative no-action
 calibration. A separate protocol-1.4 source-sufficient action calibration has
-passed; no confirmatory or condition-effect outcome has been collected.
+passed. Three source-backed protocol-1.5 lifecycle preflights have passed;
+no confirmatory or condition-effect outcome has been collected.
 
 ## Research question
 
@@ -181,6 +182,16 @@ tree hash, tool-schema hash, and cohort plan; analysis treats it as a distinct
 cohort. The preflight may motivate a runner change, but it never supplies an
 efficacy result.
 
+For a native-memory transfer, a successful `memory store` alone does not prove
+that the record is eligible for a task Workset. Memorix binds project evidence
+to the current CodeGraph during its normal maintenance lifecycle. Beginning
+with protocol 1.5, the runner performs the supported `memorix codegraph
+refresh` after seeding the precursor and before the fresh agent begins. It
+records the refresh return code and output hashes separately from the agent's
+task time. A failed refresh or a seed that remains absent from the native
+context/detail path invalidates the row. This is a pre-transfer lifecycle
+check, not an evaluation-only product switch and not a model-visible tool.
+
 An optional-access preflight is also retained when agents do not consult an
 available evidence tool. That is useful adoption evidence, but it is not pooled
 with the `fixed-index` conditional-evidence cohort. The latter has an explicit
@@ -192,6 +203,8 @@ the controller's final verifier. A source-backed 1.3 cohort in which every
 condition made no source edit is therefore retained as an inconclusive
 no-action calibration, not labeled as an agent stopping after a failed
 verification. Protocol 1.4 adds this attribution before any new cohort runs.
+Protocol 1.5 additionally records a completed CodeGraph binding refresh before
+new native-memory source-backed cohorts run.
 
 ## Confirmatory gate
 

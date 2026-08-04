@@ -68,6 +68,20 @@ Validate a public case card:
 uv run --directory research/bench memorixbench validate-case <case.json>
 ```
 
+Before a source-backed case is allowed to enter a model cohort, run the native
+preflight against a new external artifact directory. It initializes a clean
+Git transfer workspace, verifies that the baseline still fails the private
+oracle, completes the supported CodeGraph refresh that binds the predecessor
+to current source, then checks real Memorix seed/context/detail delivery
+without making a model request. The emitted receipt contains only hashes and
+status fields.
+
+```powershell
+uv run --directory research/bench memorixbench preflight-native `
+  --case <case.json> --oracle <private-oracle.json> `
+  --artifact-root <new-external-artifact-directory>
+```
+
 A real run additionally needs an external oracle JSON file and an external
 artifact directory. Both must stay outside the Git checkout. Raw model output
 and oracle paths are never written into the receipt. Each current receipt also

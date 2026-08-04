@@ -24,9 +24,10 @@ not a confirmatory effectiveness study, and not a public artifact release.
 
 ## Gates Still Open
 
-1. **Case admission:** source-backed durable-decision and stale-conflict cases
-   need the rubric in `CASE-ADMISSION.md`, independent review before outcome
-   collection, and documented provenance.
+1. **Case admission:** the three source-backed candidate classes
+   (source-sufficient, durable-decision, and stale-conflict) need the rubric
+   in `CASE-ADMISSION.md`, independent review before outcome collection, and
+   documented provenance.
 2. **Complete exploratory cohorts:** run every planned condition, repetition,
    valid row, invalid row, timeout, and cost record. Complete the matched
    `canonical-information` fixed-index profile before estimating a conditional

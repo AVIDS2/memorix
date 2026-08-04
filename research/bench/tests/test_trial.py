@@ -7,8 +7,8 @@ import sys
 import tempfile
 import unittest
 
-from memorixbench.models import CaseSpec, ModelReply, OracleSpec, ToolCall, sha256_file
-from memorixbench import trial
+from memorixbench.models import CaseSpec, ModelReply, OracleSpec, ToolCall, sha256_file, sha256_text
+from memorixbench import preflight, trial
 from memorixbench.trial import CanonicalEvidenceTool, RawRecordTool, TrialConfig, _messages, _workset_includes_observation, agent_tools, _native_context_prompt, _native_memory_detail, run_trial
 
 
@@ -107,7 +107,7 @@ class TrialTests(unittest.TestCase):
             payload = outcome["payload"]
             self.assertEqual(payload["status"], "completed")
             self.assertTrue(payload["task_success"])
-            self.assertEqual(payload["runner"]["protocol_version"], "1.4-draft")
+            self.assertEqual(payload["runner"]["protocol_version"], "1.5-draft")
             self.assertRegex(payload["runner"]["source_tree_sha256"], r"^[0-9a-f]{64}$")
             self.assertEqual(payload["resource_usage"]["memory_context_calls"], 0)
             self.assertEqual(payload["resource_usage"]["raw_record_calls"], 1)
@@ -369,3 +369,177 @@ class TrialTests(unittest.TestCase):
         finally:
             trial.shutil.which = original_which
             trial.sys.platform = original_platform
+
+    def test_native_preflight_records_delivery_without_model_execution(self) -> None:
+        class FakeMemorixContextTool:
+            def __init__(self, *, config, workspace) -> None:
+                self.config = config
+                self.workspace = workspace
+                self.cli = "fake-memorix"
+                self.version = None
+                self.seed_receipt = None
+                self.seed_observation_id = None
+                self.codegraph_refresh_receipt = None
+                self.codegraph_refresh_elapsed_ms = None
+                self.context_includes_seed = None
+                self.detail_delivered = False
+                self.context_hashes: list[str] = []
+                self.detail_hashes: list[str] = []
+                self.retrieved_chars = 0
+                self.formation_elapsed_ms = None
+
+            def seed(self) -> None:
+                self.version = "fake-memorix"
+                self.seed_receipt = {"returncode": 0, "stdout_sha256": "a" * 64, "stderr_sha256": "b" * 64}
+                self.seed_observation_id = 7
+                self.formation_elapsed_ms = 1
+
+            def context(self) -> dict[str, object]:
+                self.context_includes_seed = True
+                digest = sha256_text("index")
+                self.context_hashes.append(digest)
+                return {"context_sha256": digest}
+
+            def prepare_transfer(self) -> None:
+                self.codegraph_refresh_receipt = {"returncode": 0, "stdout_sha256": "c" * 64, "stderr_sha256": "d" * 64}
+                self.codegraph_refresh_elapsed_ms = 1
+
+            def detail(self, observation_id: int) -> dict[str, object]:
+                if observation_id != 1:
+                    raise ValueError("wrong alias")
+                self.detail_delivered = True
+                self.retrieved_chars = 20
+                digest = sha256_text("detail")
+                self.detail_hashes.append(digest)
+                return {"detail_sha256": digest}
+
+        original_tool = preflight.MemorixContextTool
+        try:
+            preflight.MemorixContextTool = FakeMemorixContextTool
+            with tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                case, oracle = self._case_and_oracle(root)
+                outcome = preflight.run_native_preflight(
+                    case=case,
+                    oracle=oracle,
+                    artifact_root=root / "preflight",
+                )
+                payload = outcome["payload"]
+                self.assertEqual(payload["status"], "passed")
+                self.assertEqual(payload["runner"]["protocol_version"], "1.5-draft")
+                self.assertRegex(payload["runner"]["source_tree_sha256"], r"^[0-9a-f]{64}$")
+                self.assertFalse(payload["oracle"]["baseline_passed"])
+                self.assertTrue(payload["workspace"]["source_unchanged"])
+                self.assertTrue(payload["native"]["context_includes_seed"])
+                self.assertTrue(payload["native"]["detail_delivered"])
+                self.assertEqual(payload["codegraph_refresh"]["returncode"], 0)
+                receipt = outcome["receipt_path"].read_text(encoding="utf-8")
+                self.assertNotIn(str(root), receipt)
+                self.assertNotIn(case.predecessor_record, receipt)
+                with self.assertRaises(RuntimeError):
+                    preflight.run_native_preflight(
+                        case=case,
+                        oracle=oracle,
+                        artifact_root=root / "preflight",
+                    )
+        finally:
+            preflight.MemorixContextTool = original_tool
+
+    def test_native_transfer_preparation_requires_a_seed_and_records_refresh(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            case, oracle = self._case_and_oracle(root)
+            tool = trial.MemorixContextTool(
+                config=TrialConfig(
+                    case=case,
+                    oracle=oracle,
+                    condition="memorix-native",
+                    requested_model="example/model",
+                    artifact_root=root / "artifacts",
+                ),
+                workspace=root,
+            )
+            with self.assertRaises(RuntimeError):
+                tool.prepare_transfer()
+            with self.assertRaises(RuntimeError):
+                tool.context()
+            tool.seed_receipt = {"returncode": 0, "stdout_sha256": "a" * 64, "stderr_sha256": "b" * 64}
+            original_run = trial._run
+            calls: list[list[str]] = []
+            try:
+                def fake_run(command, **_kwargs):
+                    calls.append(command)
+                    return type("Completed", (), {"returncode": 0, "stdout": "{}", "stderr": ""})()
+
+                trial._run = fake_run
+                tool.prepare_transfer()
+            finally:
+                trial._run = original_run
+            self.assertTrue(tool.transfer_prepared)
+            self.assertEqual(calls[0][1:3], ["codegraph", "refresh"])
+            self.assertEqual(tool.codegraph_refresh_receipt["returncode"], 0)
+            with self.assertRaises(ValueError):
+                tool.prepare_transfer()
+
+            failed_tool = trial.MemorixContextTool(
+                config=tool.config,
+                workspace=root,
+            )
+            failed_tool.seed_receipt = tool.seed_receipt
+            try:
+                def failed_run(_command, **_kwargs):
+                    return type("Completed", (), {"returncode": 1, "stdout": "", "stderr": "refresh failed"})()
+
+                trial._run = failed_run
+                with self.assertRaises(RuntimeError):
+                    failed_tool.prepare_transfer()
+            finally:
+                trial._run = original_run
+            self.assertFalse(failed_tool.transfer_prepared)
+            self.assertEqual(failed_tool.codegraph_refresh_receipt["returncode"], 1)
+
+    def test_native_preflight_retains_a_failed_refresh_receipt(self) -> None:
+        class FailingRefreshTool:
+            def __init__(self, *, config, workspace) -> None:
+                self.config = config
+                self.workspace = workspace
+                self.version = "fake-memorix"
+                self.seed_receipt = None
+                self.seed_observation_id = None
+                self.codegraph_refresh_receipt = None
+                self.codegraph_refresh_elapsed_ms = None
+                self.context_includes_seed = None
+                self.detail_delivered = False
+                self.context_hashes: list[str] = []
+                self.detail_hashes: list[str] = []
+                self.retrieved_chars = 0
+                self.formation_elapsed_ms = None
+
+            def seed(self) -> None:
+                self.seed_receipt = {"returncode": 0, "stdout_sha256": "a" * 64, "stderr_sha256": "b" * 64}
+                self.seed_observation_id = 7
+                self.formation_elapsed_ms = 1
+
+            def prepare_transfer(self) -> None:
+                self.codegraph_refresh_receipt = {"returncode": 1, "stdout_sha256": "c" * 64, "stderr_sha256": "d" * 64}
+                self.codegraph_refresh_elapsed_ms = 1
+                raise RuntimeError("refresh failed")
+
+        original_tool = preflight.MemorixContextTool
+        try:
+            preflight.MemorixContextTool = FailingRefreshTool
+            with tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                case, oracle = self._case_and_oracle(root)
+                outcome = preflight.run_native_preflight(
+                    case=case,
+                    oracle=oracle,
+                    artifact_root=root / "preflight",
+                )
+                payload = outcome["payload"]
+                self.assertEqual(payload["status"], "failed")
+                self.assertEqual(payload["failure"], "codegraph-refresh:RuntimeError")
+                self.assertEqual(payload["codegraph_refresh"]["returncode"], 1)
+                self.assertTrue(payload["workspace"]["source_unchanged"])
+        finally:
+            preflight.MemorixContextTool = original_tool

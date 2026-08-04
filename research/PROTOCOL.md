@@ -6,7 +6,8 @@
 **Status:** exploratory protocol; deterministic contracts and matched synthetic
 engineering matrices under both evidence-surface profiles have passed. One
 source-backed protocol-1.3 cohort is retained as a non-discriminative no-action
-calibration; no confirmatory or condition-effect outcome has been collected.
+calibration. A separate protocol-1.4 source-sufficient action calibration has
+passed; no confirmatory or condition-effect outcome has been collected.
 
 ## Research question
 

@@ -60,6 +60,11 @@ The old receipt format cannot attribute an apparent verification event to the
 agent or controller; protocol 1.4 corrects that distinction before another
 comparison cohort runs.
 
+The separate protocol-1.4 source-sufficient action calibration has passed under
+an empty common index: the worker made a permitted source edit, requested
+verification itself, and produced a byte-verifiable receipt. This clears the
+runner/contract prerequisite only; it is not a memory outcome.
+
 ## Operating Rules
 
 - Git, `package.json`, and `CHANGELOG.md` are live product facts; this document
@@ -73,9 +78,8 @@ comparison cohort runs.
 
 ## Immediate Next Step
 
-Freeze and run a non-comparative protocol-1.4 repair-loop calibration, then
-curate independently reviewable durable-decision and stale-conflict cases.
-Revise
+Curate independently reviewable durable-decision and stale-conflict cases, then
+freeze a new protocol-1.4 source-backed cohort. Revise
 the anonymous NIER candidate only from evidence explicitly labeled by product
 version and study tier. Keep research work separate from npm release claims
 until the experimental protocol and evidence are complete.

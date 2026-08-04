@@ -167,6 +167,47 @@ class FrozenInputTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "reasoning_effort"):
                 RouteSpec.load(route_path)
 
+    def test_opencode_go_route_freezes_subscription_usage_without_a_fake_usd_cap(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            route_path = Path(temporary) / "route.json"
+            route_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 4,
+                        "provider": "opencode-go",
+                        "requested_model": "glm-5.2",
+                        "expected_actual_model": "glm-5.2",
+                        "provider_timeout_seconds": 90,
+                        "max_output_tokens": 1200,
+                        "temperature": 0,
+                        "tool_choice": "auto",
+                        "cost_policy": {
+                            "kind": "subscription-quota",
+                            "subscription_name": "OpenCode Go",
+                            "usage_source": "https://opencode.ai/docs/go",
+                        },
+                        "reasoning_effort": "low",
+                        "preserve_reasoning_content": True,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            route = RouteSpec.load(route_path)
+            self.assertIsNone(route.max_cost_usd)
+            self.assertTrue(route.preserve_reasoning_content)
+            reply = ModelReply(None, (), "glm-5.2", None, 10, 20, 0.0, "subscription-quota")
+            self.assertIsNone(route.reply_violation(reply, 0.0))
+            self.assertEqual(
+                route.reply_violation(ModelReply(None, (), "glm-5.2", None, 10, 20, 0.0, "provider-reported"), 0.0),
+                "cost-accounting-mismatch",
+            )
+            route_path.write_text(
+                json.dumps({**json.loads(route_path.read_text(encoding="utf-8")), "max_cost_usd": 0.5}),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ValueError, "omit max_cost_usd"):
+                RouteSpec.load(route_path)
+
     def test_openrouter_usage_parsing_rejects_lossy_or_unsafe_values(self) -> None:
         self.assertEqual(_optional_int(3), 3)
         self.assertIsNone(_optional_int(3.0))

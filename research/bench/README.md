@@ -93,15 +93,32 @@ uv run --directory research/bench memorixbench preflight-native `
   --artifact-root <new-external-artifact-directory>
 ```
 
-A real source-backed run additionally needs a frozen external oracle JSON file,
-a frozen external route JSON file, and an external artifact directory. Both
-manifests and all artifacts stay outside the Git checkout. The oracle declares
-and hashes every executable asset; the route pins the requested and expected
-actual model, timeout, output cap, cost cap, temperature, and tool policy.
-Raw model output and local paths are never written into the receipt. Each
-current receipt also contains a protocol version and a hash of the runner source
-tree, so later source-backed trials can identify the exact executable study
-surface without recording a local checkout path.
+A real source-backed run additionally needs a frozen external oracle JSON file
+and a frozen external route JSON file. The oracle declares and hashes every
+executable asset; the route pins the requested and expected actual model,
+timeout, output cap, cost policy, temperature, and tool policy. Raw model
+output and local paths are never written into the receipt. Each current receipt
+also contains a protocol version and a hash of the runner source tree, so later
+source-backed trials can identify the exact executable study surface without
+recording a local checkout path.
+
+For Docker execution, exported artifacts must stay under
+`research/artifacts/`; that directory is ignored except for its README. The
+worker's deep source workspace lives in an ephemeral Docker named volume, not
+under a host drive root. It receives source/oracle inputs through `docker cp`,
+never through a source bind mount, and removes its container and volume after
+export.
+
+```powershell
+uv run --directory research/bench memorixbench build-worker-image `
+  --docker-image memorixbench:1.4.1 --memorix-version 1.4.1
+
+uv run --directory research/bench memorixbench run-trial `
+  --case <case.json> --oracle <private-oracle.json> --route <frozen-route.json> `
+  --artifact-root research/artifacts/<new-run> `
+  --condition <no-memory|raw-record|memorix-native> `
+  --execution-mode docker --docker-image memorixbench:1.4.1
+```
 
 ```json
 {
@@ -139,6 +156,14 @@ the prior provider message to a valid empty argument object, returns a fixed
 tool error, and records only a count in the sanitized receipt so the model may
 repair the call. Earlier DeepSeek tool-loop artifacts made before these
 continuity and repair rules are transport diagnostics, not analysis rows.
+
+Schema version 4 supports OpenCode Go Chat Completions routes such as
+`glm-5.2`. It requires `OPENCODE_API_KEY` at runtime and the official Go
+endpoint documented at `https://opencode.ai/docs/go/`. Go uses subscription
+quota accounting: receipts retain usage and an optional provider-reported
+request-price field as non-invoice telemetry, and schema 4 deliberately has no
+fake USD cap. The client identifies itself as MemorixBench rather than
+impersonating an OpenCode client.
 
 For every frozen live route, the repair-loop contract also requires one
 agent-requested `run_verification` before the agent may finish. If the first

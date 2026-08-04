@@ -1,19 +1,39 @@
 # MemorixBench Protocol
 
-**Protocol version:** 1.6-draft
+**Protocol version:** 2.0-draft
 
 **Target system:** Memorix 1.4.1
-**Status:** exploratory protocol; deterministic contracts and matched synthetic
-engineering matrices under both evidence-surface profiles have passed. One
-source-backed protocol-1.3 cohort is retained as a non-discriminative no-action
-calibration. A separate protocol-1.4 source-sufficient action calibration has
-passed. Three source-backed protocol-1.5 lifecycle preflights are retained as
-historical lifecycle calibration. Three source-backed protocol-1.6 no-model
-lifecycle preflights have passed with sealed source archives, unpacked trees,
-and oracle inputs; one
-separate CodeGraph-refresh infrastructure failure is retained externally rather
-than overwritten. No confirmatory or condition-effect outcome has been
-collected.
+**Status:** exploratory protocol. Deterministic contracts and matched synthetic
+engineering matrices under both evidence-surface profiles have passed. Historical
+source-backed calibrations remain retained but excluded from efficacy analysis.
+Protocol 2.0 adds a Docker-isolated worker and OpenCode Go route qualification;
+no confirmatory or condition-effect outcome has been collected.
+
+## Protocol 2.0 execution boundary
+
+Every new live source-backed row runs in a fresh Docker container with a fresh
+named volume. The copied source, temporary Git baseline, Memorix data, and
+private oracle execution stay inside that volume. The host receives only a
+sanitized receipt and evidence sidecar below the ignored research artifact
+boundary; no row may create a drive-root workspace or bind-mount a source tree.
+
+The worker explicitly sets `HOME` and `MEMORIX_DATA_DIR` under `/runs`, rather
+than inheriting a data path from any locally available base image. Credentials
+are supplied to the running container only and never enter the image, receipt,
+or Git tree.
+
+OpenCode Go routes use the provider's documented Chat Completions endpoint with
+`OPENCODE_API_KEY`, a truthful MemorixBench user agent, frozen model identity,
+and preserved tool reasoning where the route declares it. Go is a subscription
+quota: token usage and any provider response-price field are retained as
+telemetry, not presented as a billable USD invoice.
+
+Two non-cohort P1 qualifications passed under this boundary: a bounded source
+edit, and a durable-decision task whose answer was absent from source. In the
+latter, the model called real Memorix context and one cited detail expansion,
+the seeded decision was present in the Workset, and the private oracle passed.
+They establish that the execution path works. They are not cohort rows and do
+not support a memory-effect claim.
 
 ## Research question
 

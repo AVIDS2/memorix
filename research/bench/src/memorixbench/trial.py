@@ -19,7 +19,7 @@ from .sandbox import ToolSandbox
 Condition = Literal["no-memory", "raw-record", "memorix-native"]
 SurfaceProfile = Literal["native-product", "canonical-information"]
 EvidencePolicy = Literal["optional", "fixed-index"]
-PROTOCOL_VERSION = "1.9-draft"
+PROTOCOL_VERSION = "2.0-draft"
 
 
 class AgentClient(Protocol):
@@ -688,7 +688,7 @@ def run_trial(config: TrialConfig, client: AgentClient) -> dict[str, Any]:
             messages.append(
                 _assistant_wire(
                     reply,
-                    preserve_reasoning=config.route is not None and config.route.provider == "deepseek",
+                    preserve_reasoning=config.route is not None and config.route.preserve_reasoning_content,
                 )
             )
             if not reply.tool_calls:
@@ -800,7 +800,10 @@ def run_trial(config: TrialConfig, client: AgentClient) -> dict[str, Any]:
         else:
             invalid_reason = "tool-step-limit"
     except Exception as error:  # The receipt must preserve infrastructure failures.
-        invalid_reason = f"infrastructure:{failure_stage}:{type(error).__name__}"
+        # ProviderRequestError exposes a deliberately sanitized code such as
+        # `http-403`; other infrastructure failures retain only their type.
+        error_code = getattr(error, "code", type(error).__name__)
+        invalid_reason = f"infrastructure:{failure_stage}:{error_code}"
 
     policy_context_calls = canonical_tool.context_calls if canonical_tool is not None else (memory_tool.calls if memory_tool else 0)
     policy_detail_calls = canonical_tool.detail_calls if canonical_tool is not None else (memory_tool.detail_calls if memory_tool else 0)
@@ -857,6 +860,8 @@ def run_trial(config: TrialConfig, client: AgentClient) -> dict[str, Any]:
     # The digest is calculated from this exact UTF-8 representation. Text-mode
     # writes would translate newlines on Windows and make the receipt unverifiable.
     evidence_path.write_bytes(evidence_serialized.encode("utf-8"))
+    reported_request_price_usd = sum(costs) if costs else None
+    subscription_route = config.route is not None and config.route.cost_policy.kind == "subscription-quota"
     payload = {
         "schema_version": "exploratory-sealed-local-v2",
         "evidence_tier": "exploratory-sealed-local",
@@ -889,7 +894,14 @@ def run_trial(config: TrialConfig, client: AgentClient) -> dict[str, Any]:
         "resource_usage": {
             "input_tokens": input_tokens or None,
             "output_tokens": output_tokens or None,
-            "cost_usd": sum(costs) if costs else None,
+            "cost_usd": None if subscription_route else reported_request_price_usd,
+            "provider_reported_request_price_usd": reported_request_price_usd if subscription_route else None,
+            "cost_accounting": config.route.cost_policy.kind if config.route is not None else None,
+            "cost_interpretation": (
+                "subscription-quota-non-invoice"
+                if subscription_route
+                else "billable-or-rate-card-usd"
+            ),
             "transfer_elapsed_ms": round((time.monotonic() - transfer_started) * 1000) if transfer_started is not None else None,
             "tool_call_count": len(agent_ordinary_tool_sequence) + evidence_tool_calls,
             "ordinary_tool_call_count": len(agent_ordinary_tool_sequence),

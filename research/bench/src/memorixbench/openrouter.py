@@ -9,6 +9,16 @@ from urllib.request import Request, urlopen
 
 from .models import ModelReply, RouteSpec, ToolCall
 
+_USER_AGENT = "MemorixBench/1.4.1 (+https://github.com/AVIDS2/memorix)"
+
+
+class ProviderRequestError(RuntimeError):
+    """A sanitized transport classification safe to retain in a receipt."""
+
+    def __init__(self, code: str, message: str):
+        super().__init__(message)
+        self.code = code
+
 
 class _OpenAICompatibleRouteClient:
     """Fail-closed OpenAI-compatible transport shared by explicitly approved routes."""
@@ -46,6 +56,10 @@ class _OpenAICompatibleRouteClient:
             headers={
                 "Authorization": f"Bearer {self.api_key}",
                 "Content-Type": "application/json",
+                # Some provider edge layers reject Python's default user agent.
+                # Identify this benchmark honestly instead of impersonating a
+                # provider-owned client; the value is safe to retain in source.
+                "User-Agent": _USER_AGENT,
             },
             method="POST",
         )
@@ -53,10 +67,17 @@ class _OpenAICompatibleRouteClient:
             with urlopen(request, timeout=self.route.provider_timeout_seconds) as response:
                 data = json.loads(response.read().decode("utf-8"))
         except HTTPError as error:
-            detail = error.read().decode("utf-8", errors="replace")[:500]
-            raise RuntimeError(f"{self.provider_label} request failed with HTTP {error.code}: {detail}") from error
+            # Do not retain a gateway body: it may echo task text or provider
+            # diagnostics. The status class is sufficient for failure analysis.
+            raise ProviderRequestError(
+                f"http-{error.code}",
+                f"{self.provider_label} request failed with HTTP {error.code}",
+            ) from error
         except URLError as error:
-            raise RuntimeError(f"{self.provider_label} request failed: {error.reason}") from error
+            raise ProviderRequestError(
+                "network",
+                f"{self.provider_label} request failed: {error.reason}",
+            ) from error
 
         try:
             message = data["choices"][0]["message"]
@@ -100,7 +121,7 @@ class _OpenAICompatibleRouteClient:
             response_id=data.get("id") if isinstance(data.get("id"), str) else None,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
-            cost_usd=self._cost_usd(usage, input_tokens, output_tokens),
+            cost_usd=self._cost_usd(data, usage, input_tokens, output_tokens),
             cost_accounting=self.route.cost_policy.kind,
             reasoning_content=(
                 message.get("reasoning_content")
@@ -111,6 +132,7 @@ class _OpenAICompatibleRouteClient:
 
     def _cost_usd(
         self,
+        _data: dict[str, Any],
         usage: dict[str, Any],
         input_tokens: int | None,
         output_tokens: int | None,
@@ -128,6 +150,7 @@ class OpenRouterClient(_OpenAICompatibleRouteClient):
 
     def _cost_usd(
         self,
+        _data: dict[str, Any],
         usage: dict[str, Any],
         _input_tokens: int | None,
         _output_tokens: int | None,
@@ -145,6 +168,7 @@ class DeepSeekClient(_OpenAICompatibleRouteClient):
 
     def _cost_usd(
         self,
+        _data: dict[str, Any],
         _usage: dict[str, Any],
         input_tokens: int | None,
         output_tokens: int | None,
@@ -152,11 +176,33 @@ class DeepSeekClient(_OpenAICompatibleRouteClient):
         return self.route.cost_policy.estimate_cost_usd(input_tokens, output_tokens)
 
 
+class OpenCodeGoClient(_OpenAICompatibleRouteClient):
+    """Official OpenCode Go OpenAI-compatible route under a subscription quota."""
+
+    provider = "opencode-go"
+    provider_label = "OpenCode Go"
+    endpoint = "https://opencode.ai/zen/go/v1/chat/completions"
+    api_key_env = "OPENCODE_API_KEY"
+
+    def _cost_usd(
+        self,
+        data: dict[str, Any],
+        _usage: dict[str, Any],
+        _input_tokens: int | None,
+        _output_tokens: int | None,
+    ) -> float | None:
+        # Go responses currently expose a request price at the top level. It is
+        # telemetry under the subscription plan, not an invoice amount.
+        return _optional_float(data.get("cost"), allow_numeric_string=True)
+
+
 def client_for_route(route: RouteSpec) -> _OpenAICompatibleRouteClient:
     if route.provider == "openrouter":
         return OpenRouterClient(route)
     if route.provider == "deepseek":
         return DeepSeekClient(route)
+    if route.provider == "opencode-go":
+        return OpenCodeGoClient(route)
     raise ValueError(f"unsupported route provider: {route.provider}")
 
 
@@ -166,10 +212,18 @@ def _optional_int(value: object) -> int | None:
     return value
 
 
-def _optional_float(value: object) -> float | None:
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
+def _optional_float(value: object, *, allow_numeric_string: bool = False) -> float | None:
+    if isinstance(value, bool):
         return None
-    normalized = float(value)
+    if isinstance(value, str) and allow_numeric_string:
+        try:
+            normalized = float(value.strip())
+        except ValueError:
+            return None
+    elif isinstance(value, (int, float)):
+        normalized = float(value)
+    else:
+        return None
     if not isfinite(normalized) or normalized < 0:
         return None
     return normalized

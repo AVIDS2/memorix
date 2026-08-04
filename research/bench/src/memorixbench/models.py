@@ -423,6 +423,8 @@ class CostPolicy:
     output_usd_per_million_tokens: float | None = None
     pricing_source: str | None = None
     pricing_verified_on: str | None = None
+    subscription_name: str | None = None
+    usage_source: str | None = None
 
     @classmethod
     def provider_reported(cls) -> "CostPolicy":
@@ -457,6 +459,25 @@ class CostPolicy:
             pricing_verified_on=pricing_verified_on,
         )
 
+    @classmethod
+    def load_opencode_go(cls, value: object) -> "CostPolicy":
+        if not isinstance(value, dict):
+            raise ValueError("OpenCode Go route cost_policy must be an object")
+        kind = str(value.get("kind", "")).strip()
+        if kind != "subscription-quota":
+            raise ValueError("OpenCode Go route cost_policy kind must be subscription-quota")
+        subscription_name = str(value.get("subscription_name", "")).strip()
+        if subscription_name != "OpenCode Go":
+            raise ValueError("OpenCode Go route subscription_name must be OpenCode Go")
+        usage_source = str(value.get("usage_source", "")).strip()
+        if not usage_source.startswith("https://opencode.ai/"):
+            raise ValueError("OpenCode Go route usage_source must be an official OpenCode URL")
+        return cls(
+            kind=kind,
+            subscription_name=subscription_name,
+            usage_source=usage_source,
+        )
+
     def estimate_cost_usd(self, input_tokens: int | None, output_tokens: int | None) -> float | None:
         if self.kind != "frozen-rate-card-conservative":
             return None
@@ -484,6 +505,17 @@ class CostPolicy:
                     "interpretation": "upper-bound estimate using all prompt tokens at the cache-miss rate",
                 }
             )
+        elif self.kind == "subscription-quota":
+            payload.update(
+                {
+                    "subscription_name": self.subscription_name,
+                    "usage_source": self.usage_source,
+                    "interpretation": (
+                        "token use is measured; any provider request-price field is retained as "
+                        "non-invoice telemetry and is not treated as a billable USD cost"
+                    ),
+                }
+            )
         return payload
 
 
@@ -494,24 +526,26 @@ class RouteSpec:
     expected_actual_model: str
     provider_timeout_seconds: int
     max_output_tokens: int
-    max_cost_usd: float
+    max_cost_usd: float | None
     temperature: float
     tool_choice: str
     cost_policy: CostPolicy
     definition_sha256: str
     thinking_mode: str | None = None
     reasoning_effort: str | None = None
+    preserve_reasoning_content: bool = False
 
     @classmethod
     def load(cls, path: str | Path) -> "RouteSpec":
         manifest_path = Path(path).resolve()
         data: dict[str, Any] = json.loads(manifest_path.read_text(encoding="utf-8"))
         schema_version = data.get("schema_version")
-        if schema_version not in {1, 2, 3}:
-            raise ValueError("route schema_version must be 1, 2, or 3")
+        if schema_version not in {1, 2, 3, 4}:
+            raise ValueError("route schema_version must be 1, 2, 3, or 4")
         provider = str(data.get("provider", "")).strip()
         thinking_mode: str | None = None
         reasoning_effort: str | None = None
+        preserve_reasoning_content = False
         if schema_version == 1:
             if provider != "openrouter":
                 raise ValueError("route schema_version 1 provider must be openrouter")
@@ -520,7 +554,7 @@ class RouteSpec:
             if provider != "deepseek":
                 raise ValueError("route schema_version 2 provider must be deepseek")
             cost_policy = CostPolicy.load_deepseek(data.get("cost_policy"))
-        else:
+        elif schema_version == 3:
             if provider != "deepseek":
                 raise ValueError("route schema_version 3 provider must be deepseek")
             cost_policy = CostPolicy.load_deepseek(data.get("cost_policy"))
@@ -537,6 +571,20 @@ class RouteSpec:
                     raise ValueError("deepseek route reasoning_effort must be low, high, or max when thinking is enabled")
             elif raw_effort is not None:
                 raise ValueError("deepseek route reasoning_effort must be omitted when thinking is disabled")
+            preserve_reasoning_content = True
+        else:
+            if provider != "opencode-go":
+                raise ValueError("route schema_version 4 provider must be opencode-go")
+            cost_policy = CostPolicy.load_opencode_go(data.get("cost_policy"))
+            raw_effort = data.get("reasoning_effort")
+            if raw_effort is not None:
+                reasoning_effort = str(raw_effort).strip()
+                if reasoning_effort not in {"minimal", "low", "medium", "high", "xhigh", "max"}:
+                    raise ValueError("OpenCode Go reasoning_effort must be a supported frozen level")
+            preserve = data.get("preserve_reasoning_content")
+            if not isinstance(preserve, bool):
+                raise ValueError("OpenCode Go preserve_reasoning_content must be boolean")
+            preserve_reasoning_content = preserve
         requested_model = str(data.get("requested_model", "")).strip()
         expected_actual_model = str(data.get("expected_actual_model", "")).strip()
         if not requested_model or not expected_actual_model:
@@ -551,12 +599,17 @@ class RouteSpec:
             raise ValueError("route max_output_tokens must be an integer")
         if max_output_tokens < 1 or max_output_tokens > 4096:
             raise ValueError("route max_output_tokens must be between 1 and 4096")
-        max_cost_usd = data.get("max_cost_usd")
-        if not _is_nonnegative_finite_number(max_cost_usd):
-            raise ValueError("route max_cost_usd must be numeric")
-        max_cost_usd = float(max_cost_usd)
-        if not 0 < max_cost_usd <= 100:
-            raise ValueError("route max_cost_usd must be between 0 and 100")
+        raw_max_cost_usd = data.get("max_cost_usd")
+        if cost_policy.kind == "subscription-quota":
+            if raw_max_cost_usd is not None:
+                raise ValueError("OpenCode Go subscription routes must omit max_cost_usd")
+            max_cost_usd = None
+        else:
+            if not _is_nonnegative_finite_number(raw_max_cost_usd):
+                raise ValueError("route max_cost_usd must be numeric")
+            max_cost_usd = float(raw_max_cost_usd)
+            if not 0 < max_cost_usd <= 100:
+                raise ValueError("route max_cost_usd must be between 0 and 100")
         temperature = data.get("temperature")
         if not _is_nonnegative_finite_number(temperature):
             raise ValueError("route temperature must be numeric")
@@ -579,6 +632,7 @@ class RouteSpec:
             definition_sha256=sha256_file(manifest_path),
             thinking_mode=thinking_mode,
             reasoning_effort=reasoning_effort,
+            preserve_reasoning_content=preserve_reasoning_content,
         )
 
     def receipt_payload(self) -> dict[str, object]:
@@ -595,25 +649,34 @@ class RouteSpec:
             "cost_policy": self.cost_policy.receipt_payload(),
             "thinking": {"type": self.thinking_mode} if self.thinking_mode is not None else None,
             "reasoning_effort": self.reasoning_effort,
+            "preserve_reasoning_content": self.preserve_reasoning_content,
         }
 
-    def reply_violation(self, reply: ModelReply, total_cost_usd: float) -> str | None:
+    def reply_violation(self, reply: ModelReply, total_cost_usd: float | None) -> str | None:
         if reply.model != self.expected_actual_model:
             return "actual-model-mismatch"
-        if reply.input_tokens is None or reply.output_tokens is None or reply.cost_usd is None:
+        if reply.input_tokens is None or reply.output_tokens is None:
             return "provider-usage-missing"
         if reply.cost_accounting != self.cost_policy.kind:
             return "cost-accounting-mismatch"
         if (
             not _is_nonnegative_int(reply.input_tokens)
             or not _is_nonnegative_int(reply.output_tokens)
-            or not _is_nonnegative_finite_number(reply.cost_usd)
-            or not _is_nonnegative_finite_number(total_cost_usd)
         ):
+            return "provider-usage-invalid"
+        if self.cost_policy.kind != "subscription-quota":
+            if reply.cost_usd is None or total_cost_usd is None:
+                return "provider-usage-missing"
+            if (
+                not _is_nonnegative_finite_number(reply.cost_usd)
+                or not _is_nonnegative_finite_number(total_cost_usd)
+            ):
+                return "provider-usage-invalid"
+        elif reply.cost_usd is not None and not _is_nonnegative_finite_number(reply.cost_usd):
             return "provider-usage-invalid"
         if reply.output_tokens > self.max_output_tokens:
             return "output-budget-exceeded"
-        if total_cost_usd > self.max_cost_usd:
+        if self.max_cost_usd is not None and total_cost_usd is not None and total_cost_usd > self.max_cost_usd:
             return "cost-budget-exceeded"
         return None
 

@@ -8,7 +8,7 @@ import unittest
 from unittest.mock import patch
 
 from memorixbench.models import RouteSpec
-from memorixbench.openrouter import DeepSeekClient, client_for_route
+from memorixbench.openrouter import DeepSeekClient, OpenCodeGoClient, client_for_route
 
 
 class _Response:
@@ -26,6 +26,58 @@ class _Response:
 
 
 class ProviderClientTests(unittest.TestCase):
+    def test_opencode_go_route_uses_the_official_chat_completions_endpoint(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            route_path = Path(temporary) / "route.json"
+            route_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 4,
+                        "provider": "opencode-go",
+                        "requested_model": "glm-5.2",
+                        "expected_actual_model": "glm-5.2",
+                        "provider_timeout_seconds": 90,
+                        "max_output_tokens": 1200,
+                        "temperature": 0,
+                        "tool_choice": "auto",
+                        "cost_policy": {
+                            "kind": "subscription-quota",
+                            "subscription_name": "OpenCode Go",
+                            "usage_source": "https://opencode.ai/docs/go",
+                        },
+                        "reasoning_effort": "low",
+                        "preserve_reasoning_content": True,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            response = _Response(
+                {
+                    "id": "response-id",
+                    "model": "glm-5.2",
+                    "cost": "0",
+                    "choices": [{"message": {"content": "done", "reasoning_content": "route reasoning"}}],
+                    "usage": {"prompt_tokens": 100, "completion_tokens": 50},
+                }
+            )
+            with patch.dict(os.environ, {"OPENCODE_API_KEY": "test-key"}):
+                with patch("memorixbench.openrouter.urlopen", return_value=response) as open_call:
+                    client = client_for_route(RouteSpec.load(route_path))
+                    self.assertIsInstance(client, OpenCodeGoClient)
+                    reply = client.chat([{"role": "user", "content": "test"}], [])
+
+            request = open_call.call_args.args[0]
+            self.assertEqual(request.full_url, "https://opencode.ai/zen/go/v1/chat/completions")
+            self.assertEqual(
+                request.get_header("User-agent"),
+                "MemorixBench/1.4.1 (+https://github.com/AVIDS2/memorix)",
+            )
+            request_body = json.loads(request.data.decode("utf-8"))
+            self.assertEqual(request_body["reasoning_effort"], "low")
+            self.assertEqual(reply.cost_accounting, "subscription-quota")
+            self.assertEqual(reply.cost_usd, 0.0)
+            self.assertEqual(reply.reasoning_content, "route reasoning")
+
     def test_deepseek_route_uses_official_endpoint_and_conservative_cost(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             route_path = Path(temporary) / "route.json"

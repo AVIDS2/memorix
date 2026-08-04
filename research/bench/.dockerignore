@@ -1,0 +1,9 @@
+.venv/
+.candidate-staging/
+__pycache__/
+*.pyc
+tests/
+examples/
+artifacts/
+results/
+cache/

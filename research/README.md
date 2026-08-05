@@ -66,7 +66,8 @@ benefiting from a durable decision that source cannot reconstruct cheaply.
 - `ANALYSIS-PLAN.md` fixes the P3/P4 matrix, budget, denominator, and claim
   boundary before new source-backed outcomes are inspected.
 - `bench/` can audit review forms, freeze all approved inputs into an immutable
-  cohort receipt, and run only the resulting deterministic schedule.
+  cohort receipt, run only the resulting deterministic schedule, and aggregate
+  only a complete receipt-verified cohort.
 - `LITERATURE.md` maps the work to adjacent memory and software-agent research.
 - `paper-icse-nier/` holds the anonymous NIER candidate source.
 - `public-summary/` and `public-cohort-plans/` preserve the earlier public pilot

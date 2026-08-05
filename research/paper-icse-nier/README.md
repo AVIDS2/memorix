@@ -1,8 +1,8 @@
 # ICSE NIER Submission Candidate
 
 This directory contains the anonymous IEEE conference-paper source for the NIER
-candidate, `When Does Project Memory Help Coding Agents? A Fail-Closed Boundary
-Study`. It presents a bounded evaluation design for fresh-agent project memory
+candidate, `When Does Project Memory Help Coding Agents? A Fail-Closed Evaluation
+Protocol`. It presents a bounded evaluation design for fresh-agent project memory
 and reports only an archived public pilot plus a clearly non-efficacy local
 runner smoke.
 

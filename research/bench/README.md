@@ -74,7 +74,7 @@ uv run --directory research/bench python -m unittest discover -s tests -v
 Validate a public case card:
 
 ```powershell
-uv run --directory research/bench memorixbench validate-case <case.json>
+uv run --project research/bench memorixbench validate-case <case.json>
 ```
 
 Before source-backed cases are reviewed, render an outcome-blind admission
@@ -84,7 +84,7 @@ classification rationale, and writable scope only. It never serializes a
 private oracle, reference repair, receipt, or model outcome.
 
 ```powershell
-uv run --directory research/bench memorixbench write-review-packet `
+uv run --project research/bench memorixbench write-review-packet `
   --case <case.json> --admission <admission.json> `
   --output <outcome-blind-review-packet.json>
 ```
@@ -102,11 +102,11 @@ accepts only the documented fields and rejects private-oracle, model-output,
 receipt, and unstructured-note fields.
 
 ```powershell
-uv run --directory research/bench memorixbench write-review-form `
+uv run --project research/bench memorixbench write-review-form `
   --packet <outcome-blind-review-packet.json> --reviewer-code R1 `
   --output research/artifacts/<reviewer>/<case-id>.json
 
-uv run --directory research/bench memorixbench validate-review-form `
+uv run --project research/bench memorixbench validate-review-form `
   --packet <outcome-blind-review-packet.json> `
   --review research/artifacts/<reviewer>/<case-id>.json
 ```
@@ -117,7 +117,7 @@ free-text rationales. A disagreement becomes `needs-third-review`; it does not
 admit a case by default.
 
 ```powershell
-uv run --directory research/bench memorixbench audit-review-set `
+uv run --project research/bench memorixbench audit-review-set `
   --packet-dir research/artifacts/case-bank-v1/review-packets-v2 `
   --review-root research/artifacts/case-bank-v1/review-forms-v2 `
   --reviewer-codes R1 R2 `
@@ -135,7 +135,7 @@ so Memorix local-project identities cannot collide across cases that happen to
 have the same temporary directory name.
 
 ```powershell
-uv run --directory research/bench memorixbench preflight-native `
+uv run --project research/bench memorixbench preflight-native `
   --case <case.json> --oracle <private-oracle.json> `
   --artifact-root <new-external-artifact-directory>
 ```
@@ -157,10 +157,10 @@ never through a source bind mount, and removes its container and volume after
 export.
 
 ```powershell
-uv run --directory research/bench memorixbench build-worker-image `
+uv run --project research/bench memorixbench build-worker-image `
   --docker-image memorixbench:1.4.1 --memorix-version 1.4.1
 
-uv run --directory research/bench memorixbench run-trial `
+uv run --project research/bench memorixbench run-trial `
   --case <case.json> --oracle <private-oracle.json> --route <frozen-route.json> `
   --artifact-root research/artifacts/<new-run> `
   --condition <no-memory|raw-record|memorix-native> `
@@ -226,7 +226,7 @@ and writes a sanitized receipt. It is a connectivity check, not a task outcome
 or a Memorix-effect result.
 
 ```powershell
-uv run --directory research/bench memorixbench qualify-route `
+uv run --project research/bench memorixbench qualify-route `
   --route <frozen-route.json> `
   --artifact-root research/artifacts/<route-qualification>
 ```
@@ -237,7 +237,7 @@ qualifications and a summarized ledger; any failed probe keeps that route out
 of the cohort rather than being retried selectively.
 
 ```powershell
-uv run --directory research/bench memorixbench qualify-route-window `
+uv run --project research/bench memorixbench qualify-route-window `
   --route <frozen-route.json> `
   --artifact-root research/artifacts/<route-stability-window>
 ```
@@ -248,7 +248,7 @@ prose, but hashes every case/oracle/route/review input and fixes the complete
 row order. It refuses to overwrite an existing receipt.
 
 ```powershell
-uv run --directory research/bench memorixbench freeze-cohort `
+uv run --project research/bench memorixbench freeze-cohort `
   --case-bank research/artifacts/case-bank-v1/sealed-v2 `
   --review-audit research/artifacts/case-bank-v1/review-audits-v2/admission.json `
   --route research/artifacts/route-qualification-2026-08-05/routes/glm-5.2.json `
@@ -264,7 +264,7 @@ records a durable `started` marker before every provider request. A crash after
 that marker blocks a rerun of the affected row, preserving the one-call rule.
 
 ```powershell
-uv run --directory research/bench memorixbench run-cohort `
+uv run --project research/bench memorixbench run-cohort `
   --cohort research/artifacts/cohorts/<cohort-id>/cohort.json `
   --case-bank research/artifacts/case-bank-v1/sealed-v2 `
   --route research/artifacts/route-qualification-2026-08-05/routes/glm-5.2.json `
@@ -281,7 +281,7 @@ counts, resource summaries, and case-cluster bootstrap intervals; it contains
 no model prose, private oracle material, or local paths.
 
 ```powershell
-uv run --directory research/bench memorixbench analyze-cohort `
+uv run --project research/bench memorixbench analyze-cohort `
   --cohort research/artifacts/cohorts/<cohort-id>/cohort.json `
   --artifact-root research/artifacts/cohorts/<cohort-id>/runs `
   --output research/artifacts/cohorts/<cohort-id>/analysis.json
@@ -295,7 +295,7 @@ agent-protocol row, not a task failure. It never exposes the private oracle
 source or turns the controller's final check into an agent-visible pass.
 
 ```powershell
-uv run --directory research/bench memorixbench run-trial `
+uv run --project research/bench memorixbench run-trial `
   --case <case.json> --oracle <private-oracle.json> --route <frozen-route.json> `
   --artifact-root <new-external-artifact-directory> `
   --condition <no-memory|raw-record|memorix-native>

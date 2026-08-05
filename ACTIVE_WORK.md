@@ -118,6 +118,11 @@ Two distinct deliverables are intentionally kept separate:
   independent admission record.
 - The anonymous NIER manuscript compiles locally, but is a protocol candidate,
   not a submitted or accepted empirical paper.
+- The P3 controller now has outcome-blind review packets/forms, a consensus
+  audit, immutable cohort freezing, a one-call ledger, and a fail-closed
+  complete-cohort analyzer. The analyzer refuses partial ledgers, receipt
+  drift, model substitution, and route or runner mismatches before producing
+  only sanitized aggregate data.
 
 ### Frozen execution design
 
@@ -238,7 +243,9 @@ K2.7 Code failed 3/3 and is excluded, with five earlier HTTP 400 diagnostics
 and all window receipts retained. Obtain two retained outcome-blind admission
 reviews, audit their consensus, then seal the admitted case list, route
 manifests, Docker image ID, and cohort receipt. Fresh Docker action
-calibrations under the current runner-source hash passed for both stable routes.
+calibrations under the current runner-source hash passed for both stable routes
+after the final analyzer addition. The complete-cohort analyzer is ready but
+must not be run against partial data.
 Do not collect new source-backed outcome labels before that freeze.
 
 Local Docker BuildKit itself is healthy, but the `node:22-bookworm-slim` base

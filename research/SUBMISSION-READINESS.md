@@ -1,64 +1,39 @@
-# Research And Submission Readiness
+# Submission Boundary
 
-**Status:** local exploratory research package. It is not a submitted paper,
-not a confirmatory effectiveness study, and not a public artifact release.
+This is a stable submission-boundary reference, not a second progress log.
+The sole living research status and next action are in `ACTIVE_WORK.md`.
 
-## Verified Facts
+## What A Submission-Ready Package Requires
 
-- Memorix `1.4.1` is a separately released product; its release evidence does
-  not establish agent-memory effectiveness.
-- The archived `1.2.1` public pilot has committed aggregate summaries: a
-  four-condition Qwen cohort with 144 valid rows and a two-condition DeepSeek
-  cohort with 72 valid rows. Both are descriptive public-fixture observations.
-- The clean sealed-local runner has deterministic sandbox tests, validated
-  public case cards, and matched nine-row external synthetic matrices under
-  both `native-product` and `canonical-information`. Every row completed; the
-  no-memory condition also solved the synthetic durable case through ordinary
-  exploration. Both matrices are excluded from efficacy analysis. A retained
-  source-backed optional-access preflights found runner edit-surface and
-  formation-semantics defects. They are excluded. Protocol 1.6 now additionally
-  seals original source archives, unpacked trees, and oracle assets; it also
-  requires a frozen route for every live row and corrects the native-product
-  delivery surface. All three source-backed candidates have passed fresh v14 no-model
-  preflights; a separately frozen fixed-index cohort still needs auditable
-  evidence sidecars, independent admission, and a verified live route.
-- The local anonymous NIER candidate compiles, passes bibliography and strict
-  format checks, and has been visually reviewed. It remains a candidate rather
-  than a completed empirical paper.
-
-## Gates Still Open
-
-1. **Case admission:** the three source-backed candidates have passed the
-   sealed-input no-model lifecycle preflight. Their candidate classes
-   (source-sufficient, durable-decision, and stale-conflict) still need the
-   rubric in `CASE-ADMISSION.md`, independent review before outcome collection,
-   and documented provenance.
-2. **Route verification and complete exploratory cohorts:** verify a frozen
-   provider route, then run every planned condition, repetition,
-   valid row, invalid row, timeout, and cost record. Complete the matched
-   `canonical-information` fixed-index profile before estimating a conditional
-   evidence effect; do not select successful examples after the fact.
-3. **Confirmatory protocol:** freeze cases, routes, analysis, and target sample
-   before reading labels; keep a private oracle separate from the agent worker.
-4. **Independent review:** obtain review of case classification and the final
-   artifact boundary. A local smoke is not independent validation.
-5. **Anonymous supplement:** materialize an external archive from a documented
-   allowlist, scan it for identity and secrets, and rerun its public tests.
-6. **Venue action:** recheck the official call, anonymization policy, page
-   rules, author conflicts, and artifact policy at upload time.
+1. A frozen cohort receipt, complete one-call ledger, and a fail-closed
+   aggregate generated from every planned row. Invalid rows, timeouts, and
+   provider failures remain in the denominator report; they are not retried or
+   deleted after inspection.
+2. Independent outcome-blind case admission retained before outcome collection.
+   A verbal or owner-reported review is not a substitute for structured forms
+   and a consensus audit.
+3. An anonymous manuscript whose claims exactly match the frozen aggregate,
+   including null, mixed, ceiling, and harmful outcomes where present.
+4. A supplement materialized from an explicit allowlist, with no Git history,
+   private oracle code, reference repairs, raw model prose, credentials, local
+   paths, author metadata, or user configuration.
+5. A clean-environment Docker rebuild and smoke of the runner, followed by an
+   anonymity, secrets, citation, page-limit, and rendered-PDF review.
+6. At upload time, human completion of author identity, affiliations,
+   conflicts, declarations, venue account fields, and final authorization.
 
 ## Publication Boundary
 
 The anonymous manuscript and its future supplement must not be pushed to the
 public Memorix repository before double-anonymous review concludes. A public
 branch would associate the manuscript title, benchmark name, and product
-repository with its authors. Keep the candidate on a local private branch;
-upload only a separately materialized anonymous archive when the study is ready.
+repository with its authors. Upload only a separately materialized anonymous
+archive when the evidence and venue checks are complete.
 
-## Permitted Wording Today
+## Permitted Wording Before Results
 
-The work can be described as a fail-closed evaluation protocol and exploratory
-runner for studying when project memory helps, has no effect, or harms a fresh
-coding agent. It cannot be described as proof that Memorix generally improves
-coding-agent success, outperforms another memory system, transfers across agent
-clients, or has been accepted by a venue.
+The work may be described as a fail-closed evaluation protocol and exploratory
+runner for studying when project memory helps, has no measurable effect, or
+harms a fresh coding agent. It may not be described as proof that Memorix
+generally improves coding-agent success, outperforms another memory system,
+transfers across clients, or has been accepted by a venue.

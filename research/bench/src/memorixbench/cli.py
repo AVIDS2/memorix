@@ -36,6 +36,8 @@ def _validate_case(args: argparse.Namespace) -> int:
 
 
 def _run_trial(args: argparse.Namespace) -> int:
+    if args.study_role == "cohort" and not args.container_worker:
+        raise ValueError("cohort rows must be started through run-cohort")
     case = CaseSpec.load(args.case)
     oracle = OracleSpec.load(args.oracle)
     route = RouteSpec.load(args.route)
@@ -50,6 +52,7 @@ def _run_trial(args: argparse.Namespace) -> int:
                 max_steps=args.max_steps,
                 surface_profile=args.surface_profile,
                 evidence_policy=args.evidence_policy,
+                study_role=args.study_role,
                 memorix_timeout_seconds=args.memorix_timeout_seconds,
                 image=args.docker_image,
             )
@@ -81,6 +84,7 @@ def _run_trial(args: argparse.Namespace) -> int:
         surface_profile=args.surface_profile,
         evidence_policy=args.evidence_policy,
         route=route,
+        study_role=args.study_role,
     )
     outcome = run_trial(
         config,
@@ -218,6 +222,7 @@ def _freeze_cohort(args: argparse.Namespace) -> int:
         review_audit_path=args.review_audit,
         route_paths=args.route,
         route_window_paths=args.route_window,
+        action_calibration_paths=args.action_calibration,
         analysis_plan_path=args.analysis_plan,
         output_path=args.output,
         docker_image=args.docker_image,
@@ -296,6 +301,7 @@ def build_parser() -> argparse.ArgumentParser:
     cohort.add_argument("--review-audit", type=Path, required=True)
     cohort.add_argument("--route", type=Path, action="append", required=True)
     cohort.add_argument("--route-window", type=Path, action="append", required=True)
+    cohort.add_argument("--action-calibration", type=Path, action="append", required=True)
     cohort.add_argument("--analysis-plan", type=Path, required=True)
     cohort.add_argument("--output", type=Path, required=True)
     cohort.add_argument("--docker-image", default=DEFAULT_DOCKER_IMAGE)
@@ -325,6 +331,7 @@ def build_parser() -> argparse.ArgumentParser:
     trial.add_argument("--artifact-root", type=Path, required=True)
     trial.add_argument("--condition", choices=("no-memory", "raw-record", "memorix-native"), required=True)
     trial.add_argument("--route", type=Path, required=True)
+    trial.add_argument("--study-role", choices=("ad-hoc", "action-calibration", "cohort"), default="ad-hoc")
     trial.add_argument("--memorix-cli", default="memorix")
     trial.add_argument("--memorix-timeout-seconds", type=int, default=120)
     trial.add_argument("--surface-profile", choices=("native-product", "canonical-information"), default="native-product")

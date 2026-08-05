@@ -186,6 +186,12 @@ model and usage, or when the output or aggregate cost exceeds the frozen route.
 No live route is committed here, and no model cohort is authorized until review
 and route verification are complete.
 
+Every receipt has an explicit study role. A direct `run-trial` call defaults to
+`ad-hoc`; it can never be treated as a formal cohort row by the analyzer.
+Use `action-calibration` only for the one non-cohort, source-repair calibration
+required for each retained route. Only `run-cohort` creates `cohort` rows; the
+analyzer also checks that each such row came from the frozen Docker image.
+
 Route schema version 1 is reserved for OpenRouter because that provider returns
 per-response cost. Schema version 2 is reserved for the official DeepSeek API:
 it still requires provider-reported token counts, but it records cost as a
@@ -245,7 +251,24 @@ uv run --project research/bench memorixbench qualify-route-window `
 After the independent review audit and current-runner action calibrations pass,
 seal the cohort exactly once. The receipt contains no private paths or model
 prose, but hashes every case/oracle/route/review input and fixes the complete
-row order. It refuses to overwrite an existing receipt.
+row order. It refuses to overwrite an existing receipt. It also rejects a
+missing, stale-runner, wrong-model, non-Docker, failed, or unlabeled action
+calibration; the accepted calibration receipt hash is embedded beside its route.
+
+Run one action calibration for each retained route after the final runner source
+is in place. This is a real source-repair smoke using the same Docker worker,
+fixed information surface, tool schema, step limit, model route, and
+agent-requested verification contract as the later cohort. It is not an outcome
+row and must not be pooled into cohort analysis.
+
+```powershell
+uv run --project research/bench memorixbench run-trial `
+  --case <action-calibration-case.json> --oracle <private-oracle.json> `
+  --route <frozen-route.json> --artifact-root research/artifacts/<action-calibration-run> `
+  --condition no-memory --study-role action-calibration `
+  --surface-profile canonical-information --evidence-policy fixed-index `
+  --max-steps 24 --execution-mode docker --docker-image memorixbench:1.4.1
+```
 
 ```powershell
 uv run --project research/bench memorixbench freeze-cohort `
@@ -255,6 +278,8 @@ uv run --project research/bench memorixbench freeze-cohort `
   --route research/artifacts/route-qualification-2026-08-05/routes/deepseek-v4-pro.json `
   --route-window research/artifacts/route-stability-window-v1/route-qualification-windows/<glm-window>.json `
   --route-window research/artifacts/route-stability-window-v1/route-qualification-windows/<deepseek-window>.json `
+  --action-calibration research/artifacts/<action-calibration-run>/receipts/<glm-receipt>.json `
+  --action-calibration research/artifacts/<action-calibration-run>/receipts/<deepseek-receipt>.json `
   --analysis-plan research/ANALYSIS-PLAN.md `
   --output research/artifacts/cohorts/<cohort-id>/cohort.json
 ```

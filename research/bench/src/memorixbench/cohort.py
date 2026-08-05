@@ -10,12 +10,14 @@ from typing import Any
 from uuid import uuid4
 
 from .docker_runner import DEFAULT_DOCKER_IMAGE, DockerTrialRequest, _image_id, run_docker_trial
-from .models import CASE_CLASSES, CaseSpec, OracleSpec, RouteSpec, sha256_file, sha256_text, sha256_tree
+from .models import CASE_CLASSES, CaseSpec, OracleSpec, RouteSpec, compact_json, sha256_file, sha256_text, sha256_tree
 from .review import REVIEW_AUDIT_SCHEMA
+from .trial import agent_tools
 
 
-COHORT_SCHEMA = "memorixbench-exploratory-cohort-v1"
+COHORT_SCHEMA = "memorixbench-exploratory-cohort-v2"
 _COHORT_ID_PATTERN = re.compile(r"^cohort-[0-9a-f]{12}$")
+_SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 _CONDITIONS = ("no-memory", "raw-record", "memorix-native")
 _REPETITIONS = 3
 _MAX_STEPS = 24
@@ -64,6 +66,11 @@ class CohortReceipt:
             isinstance(route, dict) for route in routes
         ):
             raise ValueError("cohort receipt cases and routes must be objects")
+        if any(
+            not _SHA256_PATTERN.fullmatch(str(route.get("action_calibration_receipt_sha256", "")))
+            for route in routes
+        ):
+            raise ValueError("cohort receipt is missing action calibration evidence")
         try:
             expected_schedule = build_schedule(
                 cohort_id=cohort_id,
@@ -225,6 +232,90 @@ def _route_entries(
     return sorted(entries, key=lambda entry: str(entry["route_id"]))
 
 
+def _action_calibration_entries(
+    *,
+    route_entries: list[dict[str, object]],
+    action_calibration_paths: list[Path] | tuple[Path, ...],
+    runner_source_tree_sha256: str,
+    docker_image: str,
+    docker_image_id: str,
+) -> list[dict[str, object]]:
+    """Bind one successful, current-runner Docker action calibration to each route."""
+    if len(action_calibration_paths) != len(route_entries):
+        raise ValueError("frozen cohort requires exactly one action calibration per route")
+    expected = {str(route["route_id"]): route for route in route_entries}
+    expected_tool_schema_sha256 = sha256_text(
+        compact_json(agent_tools("no-memory", _SURFACE_PROFILE))
+    )
+    calibration_hashes: dict[str, str] = {}
+    for raw_path in action_calibration_paths:
+        path = _artifact_path(raw_path)
+        receipt = _read_object(path, label="action calibration receipt")
+        if receipt.get("schema_version") != "exploratory-sealed-local-v2":
+            raise ValueError("action calibration receipt has an unsupported schema")
+        if receipt.get("study_role") != "action-calibration":
+            raise ValueError("action calibration receipt must be explicitly labeled action-calibration")
+        if (
+            receipt.get("status") != "completed"
+            or receipt.get("task_success") is not True
+            or receipt.get("invalid_reason") is not None
+            or receipt.get("condition") != "no-memory"
+            or receipt.get("surface_profile") != _SURFACE_PROFILE
+            or receipt.get("tool_schema_sha256") != expected_tool_schema_sha256
+        ):
+            raise ValueError("action calibration did not pass the frozen repair-loop contract")
+        evidence_policy = receipt.get("evidence_policy")
+        if not isinstance(evidence_policy, dict) or evidence_policy.get("mode") != _EVIDENCE_POLICY:
+            raise ValueError("action calibration has an unsupported evidence policy")
+        runner = receipt.get("runner")
+        if not isinstance(runner, dict) or runner.get("source_tree_sha256") != runner_source_tree_sha256:
+            raise ValueError("action calibration runner hash does not match the current cohort runner")
+        execution_environment = receipt.get("execution_environment")
+        if (
+            not isinstance(execution_environment, dict)
+            or execution_environment.get("mode") != "docker-named-volume"
+            or execution_environment.get("docker_image") != docker_image
+            or execution_environment.get("docker_image_id") != docker_image_id
+        ):
+            raise ValueError("action calibration was not run by the frozen Docker worker")
+        route_id = receipt.get("requested_model")
+        if not isinstance(route_id, str) or route_id not in expected or route_id in calibration_hashes:
+            raise ValueError("action calibrations must cover each frozen route exactly once")
+        route = expected[route_id]
+        route_payload = receipt.get("route")
+        actual_models = receipt.get("actual_models")
+        if (
+            not isinstance(route_payload, dict)
+            or route_payload.get("definition_sha256") != route["route_definition_sha256"]
+            or route_payload.get("expected_actual_model") != route["expected_actual_model"]
+            or actual_models != [route["expected_actual_model"]]
+        ):
+            raise ValueError("action calibration route identity does not match the frozen route")
+        action = receipt.get("agent_action")
+        verification_count = action.get("agent_verification_call_count") if isinstance(action, dict) else None
+        if (
+            not isinstance(action, dict)
+            or action.get("max_steps") != _MAX_STEPS
+            or action.get("verification_required_before_finish") is not True
+            or action.get("source_changed") is not True
+            or action.get("source_edit_succeeded") is not True
+            or isinstance(verification_count, bool)
+            or not isinstance(verification_count, int)
+            or verification_count < 1
+        ):
+            raise ValueError("action calibration did not prove a verified source repair")
+        calibration_hashes[route_id] = sha256_file(path)
+    if set(calibration_hashes) != set(expected):
+        raise ValueError("action calibrations do not match the frozen route set")
+    return [
+        {
+            **route,
+            "action_calibration_receipt_sha256": calibration_hashes[str(route["route_id"])],
+        }
+        for route in sorted(route_entries, key=lambda entry: str(entry["route_id"]))
+    ]
+
+
 def build_schedule(
     *,
     cohort_id: str,
@@ -266,6 +357,7 @@ def freeze_cohort(
     review_audit_path: str | Path,
     route_paths: list[Path] | tuple[Path, ...],
     route_window_paths: list[Path] | tuple[Path, ...],
+    action_calibration_paths: list[Path] | tuple[Path, ...],
     analysis_plan_path: str | Path,
     output_path: str | Path,
     docker_image: str = DEFAULT_DOCKER_IMAGE,
@@ -275,7 +367,15 @@ def freeze_cohort(
         raise ValueError("cohort receipt already exists and must not be overwritten")
     case_entries = _case_entries(Path(case_bank))
     review_audit_sha256 = _admitted_case_ids(Path(review_audit_path), case_entries)
-    routes = _route_entries(route_paths, route_window_paths)
+    docker_image_id = _image_id("docker", docker_image)
+    runner_source_tree_sha256 = sha256_tree(Path(__file__).resolve().parent)
+    routes = _action_calibration_entries(
+        route_entries=_route_entries(route_paths, route_window_paths),
+        action_calibration_paths=action_calibration_paths,
+        runner_source_tree_sha256=runner_source_tree_sha256,
+        docker_image=docker_image,
+        docker_image_id=docker_image_id,
+    )
     analysis_plan = Path(analysis_plan_path).resolve()
     if not analysis_plan.is_file():
         raise ValueError("analysis plan must be an existing file")
@@ -291,9 +391,9 @@ def freeze_cohort(
         "frozen_at": datetime.now(timezone.utc).isoformat(),
         "analysis_plan_sha256": sha256_file(analysis_plan),
         "review_audit_sha256": review_audit_sha256,
-        "runner_source_tree_sha256": sha256_tree(Path(__file__).resolve().parent),
+        "runner_source_tree_sha256": runner_source_tree_sha256,
         "docker_image": docker_image,
-        "docker_image_id": _image_id("docker", docker_image),
+        "docker_image_id": docker_image_id,
         "execution": {
             "surface_profile": _SURFACE_PROFILE,
             "evidence_policy": _EVIDENCE_POLICY,
@@ -449,6 +549,7 @@ def run_frozen_cohort(
                         max_steps=_MAX_STEPS,
                         surface_profile=_SURFACE_PROFILE,
                         evidence_policy=_EVIDENCE_POLICY,
+                        study_role="cohort",
                         memorix_timeout_seconds=_MEMORIX_TIMEOUT_SECONDS,
                         image=str(cohort.payload["docker_image"]),
                     )

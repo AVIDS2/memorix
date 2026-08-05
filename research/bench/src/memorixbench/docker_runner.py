@@ -45,6 +45,7 @@ class DockerTrialRequest:
     max_steps: int
     surface_profile: str
     evidence_policy: str
+    study_role: str = "ad-hoc"
     memorix_timeout_seconds: int = 120
     docker_setup_timeout_seconds: int = _DOCKER_SETUP_TIMEOUT_SECONDS
     image: str = DEFAULT_DOCKER_IMAGE
@@ -388,6 +389,8 @@ def run_docker_trial(request: DockerTrialRequest) -> dict[str, Any]:
             "/runs/artifacts",
             "--condition",
             request.condition,
+            "--study-role",
+            request.study_role,
             "--execution-mode",
             "host",
             "--container-worker",

@@ -17,8 +17,16 @@ class CohortAnalysisTests(unittest.TestCase):
             {"case_id": "case-b", "case_class": "stale-conflict"},
         ]
         routes = [
-            {"route_id": "model-a", "expected_actual_model": "provider/model-a"},
-            {"route_id": "model-b", "expected_actual_model": "provider/model-b"},
+            {
+                "route_id": "model-a",
+                "expected_actual_model": "provider/model-a",
+                "action_calibration_receipt_sha256": "a" * 64,
+            },
+            {
+                "route_id": "model-b",
+                "expected_actual_model": "provider/model-b",
+                "action_calibration_receipt_sha256": "b" * 64,
+            },
         ]
         cohort_id = "cohort-0123456789ab"
         schedule = build_schedule(cohort_id=cohort_id, case_entries=cases, route_entries=routes)
@@ -31,6 +39,8 @@ class CohortAnalysisTests(unittest.TestCase):
                     "cohort_id": cohort_id,
                     "analysis_plan_sha256": "a" * 64,
                     "runner_source_tree_sha256": "runner-hash",
+                    "docker_image": "memorixbench:test",
+                    "docker_image_id": "image-id",
                     "cases": cases,
                     "routes": routes,
                     "expected_row_count": len(schedule),
@@ -53,6 +63,7 @@ class CohortAnalysisTests(unittest.TestCase):
                 "runner": {"source_tree_sha256": "runner-hash"},
                 "case_id": row["case_id"],
                 "condition": row["condition"],
+                "study_role": "cohort",
                 "surface_profile": "canonical-information",
                 "evidence_policy": {"mode": "fixed-index"},
                 "requested_model": row["route_id"],
@@ -72,6 +83,11 @@ class CohortAnalysisTests(unittest.TestCase):
                     "provider_reported_request_price_usd": None,
                 },
                 "case": {"class": row["case_class"]},
+                "execution_environment": {
+                    "mode": "docker-named-volume",
+                    "docker_image": "memorixbench:test",
+                    "docker_image_id": "image-id",
+                },
             }
             receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
             rows[row["row_id"]] = {
@@ -161,4 +177,25 @@ class CohortAnalysisTests(unittest.TestCase):
             record["receipt_sha256"] = sha256_file(receipt_path)
             ledger_path.write_text(json.dumps(ledger), encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "model identity"):
+                analyze_frozen_cohort(cohort_path=cohort_path, artifact_root=run_root)
+
+    def test_action_calibration_receipt_cannot_enter_cohort_analysis(self) -> None:
+        artifact_parent = Path(__file__).resolve().parents[3] / "research" / "artifacts"
+        with tempfile.TemporaryDirectory(dir=artifact_parent) as temporary:
+            root = Path(temporary)
+            cohort_path, run_root = self._write_complete_fixture(root)
+            receipt_path = next((run_root / "receipts").glob("*.json"))
+            receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+            receipt["study_role"] = "action-calibration"
+            receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+            ledger_path = run_root / "cohort-run-ledger.json"
+            ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
+            record = next(
+                record
+                for record in ledger["rows"].values()
+                if record.get("receipt_filename") == receipt_path.name
+            )
+            record["receipt_sha256"] = sha256_file(receipt_path)
+            ledger_path.write_text(json.dumps(ledger), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "not explicitly labeled"):
                 analyze_frozen_cohort(cohort_path=cohort_path, artifact_root=run_root)

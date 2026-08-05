@@ -70,9 +70,10 @@ text.
 The post-client-fix fixed windows passed 3/3 for glm-5.2 and deepseek-v4-pro.
 Kimi produced five historical retained HTTP 400 non-task qualification failures,
 then failed all three probes in its fixed window. It is excluded from this
-cohort rather than selecting a favorable individual receipt. The two retained
-routes passed fresh Docker action calibrations under the current runner-source
-hash before cohort freeze.
+cohort rather than selecting a favorable individual receipt. Any historical
+action calibration remains in the artifact ledger, but cohort freeze accepts
+only one explicitly labeled Docker action-calibration receipt per retained route
+whose runner-source hash matches the final frozen runner.
 
 ## Execution Order And Stops
 

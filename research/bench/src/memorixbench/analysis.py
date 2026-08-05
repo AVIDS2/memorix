@@ -136,6 +136,8 @@ def _receipt_observation(
     receipt = _read_object(receipt_path, label="cohort trial receipt")
     if receipt.get("schema_version") != _RECEIPT_SCHEMA:
         raise ValueError("cohort receipt has an unsupported schema")
+    if receipt.get("study_role") != "cohort":
+        raise ValueError("cohort receipt is not explicitly labeled as a cohort row")
     if receipt.get("case_id") != row["case_id"] or receipt.get("condition") != row["condition"]:
         raise ValueError("cohort receipt does not match its scheduled case or condition")
     if receipt.get("requested_model") != row["route_id"]:
@@ -158,6 +160,14 @@ def _receipt_observation(
         "runner_source_tree_sha256"
     ):
         raise ValueError("cohort receipt runner hash does not match the frozen cohort")
+    execution_environment = receipt.get("execution_environment")
+    if (
+        not isinstance(execution_environment, dict)
+        or execution_environment.get("mode") != "docker-named-volume"
+        or execution_environment.get("docker_image") != cohort.payload.get("docker_image")
+        or execution_environment.get("docker_image_id") != cohort.payload.get("docker_image_id")
+    ):
+        raise ValueError("cohort receipt was not run by the frozen Docker worker")
     case = receipt.get("case")
     if not isinstance(case, dict) or case.get("class") != row["case_class"]:
         raise ValueError("cohort receipt case class does not match the frozen cohort")

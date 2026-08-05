@@ -19,6 +19,7 @@ from .sandbox import ToolSandbox
 Condition = Literal["no-memory", "raw-record", "memorix-native"]
 SurfaceProfile = Literal["native-product", "canonical-information"]
 EvidencePolicy = Literal["optional", "fixed-index"]
+StudyRole = Literal["ad-hoc", "action-calibration", "cohort"]
 PROTOCOL_VERSION = "2.0-draft"
 
 
@@ -39,6 +40,7 @@ class TrialConfig:
     surface_profile: SurfaceProfile = "native-product"
     evidence_policy: EvidencePolicy = "optional"
     route: RouteSpec | None = None
+    study_role: StudyRole = "ad-hoc"
 
 
 def _tool_definition(name: str, description: str, properties: dict[str, Any], required: list[str] | None = None) -> dict[str, Any]:
@@ -605,6 +607,8 @@ def run_trial(config: TrialConfig, client: AgentClient) -> dict[str, Any]:
         raise ValueError("unsupported evidence policy")
     if config.evidence_policy == "fixed-index" and config.surface_profile != "canonical-information":
         raise ValueError("fixed-index policy requires the canonical-information profile")
+    if config.study_role not in {"ad-hoc", "action-calibration", "cohort"}:
+        raise ValueError("unsupported study role")
     if config.route is not None and config.route.requested_model != config.requested_model:
         raise ValueError("requested_model must match the frozen route manifest")
     if (
@@ -858,6 +862,7 @@ def run_trial(config: TrialConfig, client: AgentClient) -> dict[str, Any]:
         "run_id": run_id,
         "case_id": config.case.case_id,
         "condition": config.condition,
+        "study_role": config.study_role,
         "surface_profile": config.surface_profile,
         "evidence_policy": config.evidence_policy,
         "system_prompt_sha256": sha256_text(messages[0]["content"]),
@@ -881,6 +886,7 @@ def run_trial(config: TrialConfig, client: AgentClient) -> dict[str, Any]:
         "run_id": run_id,
         "case_id": config.case.case_id,
         "condition": config.condition,
+        "study_role": config.study_role,
         "surface_profile": config.surface_profile,
         "evidence_policy": {
             "mode": config.evidence_policy,

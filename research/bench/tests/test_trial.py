@@ -115,6 +115,7 @@ class TrialTests(unittest.TestCase):
             payload = outcome["payload"]
             self.assertEqual(payload["status"], "completed")
             self.assertTrue(payload["task_success"])
+            self.assertEqual(payload["study_role"], "ad-hoc")
             self.assertEqual(payload["runner"]["protocol_version"], "2.0-draft")
             self.assertRegex(payload["runner"]["source_tree_sha256"], r"^[0-9a-f]{64}$")
             self.assertEqual(payload["resource_usage"]["memory_context_calls"], 0)

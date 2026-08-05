@@ -13,6 +13,7 @@ from .models import CaseSpec, OracleSpec, RouteSpec
 from .openrouter import client_for_route
 from .preflight import run_native_preflight
 from .qualification import qualify_route, qualify_route_window
+from .revision import prepare_case_revision
 from .review import ReviewForm, write_review_audit, write_review_form
 from .trial import TrialConfig, run_trial
 
@@ -216,6 +217,12 @@ def _audit_review_set(args: argparse.Namespace) -> int:
     return 0
 
 
+def _prepare_case_revision(args: argparse.Namespace) -> int:
+    payload = prepare_case_revision(manifest_path=args.manifest)
+    print(json.dumps(payload, indent=2))
+    return 0
+
+
 def _freeze_cohort(args: argparse.Namespace) -> int:
     output = freeze_cohort(
         case_bank=args.case_bank,
@@ -296,6 +303,9 @@ def build_parser() -> argparse.ArgumentParser:
     review_audit.add_argument("--reviewer-codes", nargs="+", required=True)
     review_audit.add_argument("--output", type=Path, required=True)
     review_audit.set_defaults(handler=_audit_review_set)
+    revision = subparsers.add_parser("prepare-case-revision")
+    revision.add_argument("--manifest", type=Path, required=True)
+    revision.set_defaults(handler=_prepare_case_revision)
     cohort = subparsers.add_parser("freeze-cohort")
     cohort.add_argument("--case-bank", type=Path, required=True)
     cohort.add_argument("--review-audit", type=Path, required=True)

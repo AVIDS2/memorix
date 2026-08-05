@@ -1,0 +1,33 @@
+{
+  "schema_version": "memorixbench-case-bank-revision-v1",
+  "revision_id": "case-bank-v1-p3-task-wording-v3",
+  "reviewer_codes": [
+    "R1",
+    "R2"
+  ],
+  "parent": {
+    "case_bank": "research/artifacts/case-bank-v1/sealed-v2",
+    "review_packets": "research/artifacts/case-bank-v1/review-packets-v2",
+    "review_forms": "research/artifacts/case-bank-v1/review-forms-v2"
+  },
+  "output": {
+    "case_bank": "research/artifacts/case-bank-v1/sealed-v3",
+    "review_packets": "research/artifacts/case-bank-v1/review-packets-v3",
+    "review_forms": "research/artifacts/case-bank-v1/review-forms-v3",
+    "receipt": "research/artifacts/case-bank-v1/revision-receipts-v3/case-bank-v1-p3-task-wording-v3.json"
+  },
+  "revisions": [
+    {
+      "case_id": "requests-header-mapping-v1",
+      "base_case_card_sha256": "bf0ac23775d30414f7a03fc202d2889b78dcc2fc2b859e2031b37734a77afaf0",
+      "task": "Investigate a reported compatibility regression in the public request type interface: some valid caller-provided header objects are rejected even though normal request execution should continue to accept them. Make the smallest compatible change without altering runtime request behavior. Update only src/requests/models.py and src/requests/_types.py.",
+      "rationale": "The original task disclosed the mutability policy that the predecessor decision should contribute; the revised task states the observable compatibility report and preserves the same source and writable scope."
+    },
+    {
+      "case_id": "urllib3-basic-auth-encoding-v1",
+      "base_case_card_sha256": "2ae3bf6ed285ad1631cc421455c68622a2fce26b810ec182b2b20f37d48822b3",
+      "task": "Investigate a compatibility report involving non-ASCII credentials passed through the public Basic-auth helpers. Add a supported capability while preserving existing callers' behavior. Update only src/urllib3/util/request.py.",
+      "rationale": "The original task named the encoding, opt-in mechanism, default behavior, and affected helper paths that the predecessor decision should instead resolve; the revised task keeps the user-visible report and bounded scope."
+    }
+  ]
+}

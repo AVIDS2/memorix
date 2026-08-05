@@ -70,6 +70,18 @@ not retained. This permits an explicitly labeled exploratory cohort only. A
 confirmatory corpus still requires independently retained forms, the full
 rubric, and a frozen manifest signed before any outcome is collected.
 
+On 2026-08-05, two non-owner, outcome-blind human reviewers completed retained
+structured forms for the nine P3 packets. Their answers were transcribed into
+the fixed JSON schema as clerical formatting only; the transcription aid was
+not a reviewer, and the original free-form transcriptions remain outside Git.
+Seven packets reached consensus admission. The reviewers identified task
+wording in two durable-decision candidates that disclosed policy-level
+information which should instead come from the predecessor record. Before any
+model outcome was accessed, those two tasks were replaced in a versioned packet
+set; the unchanged packets and forms are byte-identical. The two replacement
+packets require a fresh independent review from both reviewers before the
+complete nine-case set can be audited or frozen.
+
 ### Outcome-Blind Review Packet
 
 The classification reviewers receive the candidate ID, source provenance and

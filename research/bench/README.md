@@ -124,6 +124,23 @@ uv run --project research/bench memorixbench audit-review-set `
   --output research/artifacts/case-bank-v1/review-audits-v2/admission.json
 ```
 
+If an outcome-blind reviewer finds that a task gives away policy-level
+information that should come from its predecessor record, do not overwrite the
+old case. Create a versioned revision manifest, regenerate the complete packet
+set, and re-review only the changed packets. The command verifies the parent
+case-card hash, copies unchanged completed forms only when their packet bytes
+remain identical, and creates blank forms for every revised packet.
+
+```powershell
+uv run --project research/bench memorixbench prepare-case-revision `
+  --manifest research/case-revisions/<revision>.json
+```
+
+The manifest and its rationale are public protocol records; sealed sources,
+oracles, completed forms, and the emitted revision receipt remain under the
+ignored artifact boundary. No source-backed outcome may be collected until the
+new packet set has a passing admission audit.
+
 Before a source-backed case is allowed to enter a model cohort, run the native
 preflight against a new external artifact directory. It initializes a clean
 Git transfer workspace, verifies that the baseline still fails the private

@@ -110,8 +110,13 @@ Two distinct deliverables are intentionally kept separate:
   a private reference repair, and an outcome-blind review packet. A fresh
   Docker named-volume audit confirmed all nine baselines fail and all nine
   private reference repairs pass. These are case-integrity checks only: no
-  model outcome has been collected and no independent admission form has yet
-  been retained.
+  model outcome has been collected. On 2026-08-05, two non-owner, outcome-blind
+  human reviewers submitted retained structured reviews. Seven unchanged
+  packets reached consensus admission. The other two exposed task wording that
+  gave away policy-level evidence; a versioned `v3` packet set now preserves
+  the seven byte-identical reviews and awaits fresh review only for those two
+  revised packets. A transcription aid formatted the human answers into the
+  fixed schema; it was not a reviewer.
 - Three permissively licensed source-backed candidates have passed sealed
   no-model lifecycle preflights. They are candidates, not admitted outcome
   cases. An owner-reported two-reviewer check exists, but it is not a retained
@@ -195,7 +200,7 @@ mandatory.
 | P0 | Reconcile evidence, scope, claims, and final deliverables in this document. | Complete |
 | P1 | Add Docker execution, named-volume lifecycle, artifact export, and OpenCode Go route support; pass unit and live route qualification without secrets. | Complete |
 | P2 | Build the nine-case source-backed bank, seal archives/oracles, and create blind admission packets. | Complete |
-| P3 | Obtain two retained outcome-blind case-admission reviews, complete route transport/action qualifications, then freeze the case list, route manifests, analysis plan, and budget before reading new outcomes. | Awaiting independent review |
+| P3 | Complete the versioned outcome-blind case-admission audit, then freeze the case list, route manifests, analysis plan, and budget before reading new outcomes. | Two revised packets awaiting re-review |
 | P4 | Run every planned row once under the frozen cohort plan; retain successes, failures, invalid rows, and timeouts. | Pending |
 | P5 | Generate analysis, robustness checks, figures, and claim-limited manuscript text from the complete dataset. | Pending |
 | P6 | Materialize the anonymous supplement from an allowlist, compile and visually inspect the paper, reproduce a clean smoke, and perform anonymity/secrets scans. | Pending |
@@ -221,9 +226,10 @@ mandatory.
 The implementation, data processing, paper, figures, archive, and upload guide
 are autonomous work. Two things still require a real person:
 
-1. Two outcome-blind reviewers must provide retained case-admission decisions
-   using the existing rubric. Earlier verbal review is useful but cannot be
-   represented as a detailed independent record without their actual answers.
+1. The two human outcome-blind reviewers must independently re-review the two
+   revised packets using the existing rubric. Their original structured review
+   already admits the seven unchanged packets; no model outcome may be viewed
+   before the versioned nine-packet audit is complete.
 2. At upload time, the maintainer supplies author names, affiliation, email,
    conflicts, any ORCID choice, venue account access, and final authorization.
 
@@ -251,12 +257,14 @@ Complete P3: the fixed analysis plan, review-form template, passing three-probe
 route windows, current-runner v5 Docker action calibrations, and all-platform
 CI evidence now exist for glm-5.2 and deepseek-v4-pro. Kimi K2.7 Code failed
 3/3 and is excluded, with five earlier HTTP 400 diagnostics and all window
-receipts retained. Obtain two retained outcome-blind admission reviews, audit
-their consensus, then seal the admitted case list, route manifests,
-calibration receipts, analysis plan, Docker image, runner hash, and
-deterministic schedule before one source-backed outcome is inspected. The
-complete-cohort analyzer is ready but must not be run against partial data.
-Do not collect new source-backed outcome labels before that freeze.
+receipts retained. The first two-human review admitted seven packets and
+correctly halted two for task-policy leakage before any outcome was viewed.
+Have both reviewers independently review only the two `v3` replacement
+packets, audit the complete versioned set, then seal the admitted case list,
+route manifests, calibration receipts, analysis plan, Docker image, runner
+hash, and deterministic schedule. The complete-cohort analyzer is ready but
+must not be run against partial data. Do not collect new source-backed outcome
+labels before that freeze.
 
 Local Docker BuildKit itself is healthy, but the `node:22-bookworm-slim` base
 image is not cached and a fresh pull produced no layer progress in this local

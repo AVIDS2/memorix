@@ -201,12 +201,50 @@ class FrozenInputTests(unittest.TestCase):
                 route.reply_violation(ModelReply(None, (), "glm-5.2", None, 10, 20, 0.0, "provider-reported"), 0.0),
                 "cost-accounting-mismatch",
             )
-            route_path.write_text(
-                json.dumps({**json.loads(route_path.read_text(encoding="utf-8")), "max_cost_usd": 0.5}),
+
+    def test_opencode_go_schema_five_requires_and_enforces_aggregate_token_cap(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "route.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 5,
+                        "provider": "opencode-go",
+                        "requested_model": "glm-5.2",
+                        "expected_actual_model": "glm-5.2",
+                        "provider_timeout_seconds": 90,
+                        "max_output_tokens": 1200,
+                        "max_total_tokens": 2000,
+                        "temperature": 0,
+                        "tool_choice": "auto",
+                        "preserve_reasoning_content": False,
+                        "cost_policy": {
+                            "kind": "subscription-quota",
+                            "subscription_name": "OpenCode Go",
+                            "usage_source": "https://opencode.ai/docs/go/",
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            route = RouteSpec.load(path)
+            self.assertEqual(route.max_total_tokens, 2000)
+            matching = ModelReply(None, (), "glm-5.2", None, 900, 1000, 0.0, "subscription-quota")
+            self.assertIsNone(route.reply_violation(matching, 0.0, 1900))
+            self.assertEqual(
+                route.reply_violation(matching, 0.0, 2001),
+                "total-token-budget-exceeded",
+            )
+            self.assertEqual(
+                route.reply_violation(matching, 0.0),
+                "aggregate-token-usage-missing",
+            )
+            path.write_text(
+                json.dumps({**json.loads(path.read_text(encoding="utf-8")), "max_cost_usd": 0.5}),
                 encoding="utf-8",
             )
             with self.assertRaisesRegex(ValueError, "omit max_cost_usd"):
-                RouteSpec.load(route_path)
+                RouteSpec.load(path)
 
     def test_openrouter_usage_parsing_rejects_lossy_or_unsafe_values(self) -> None:
         self.assertEqual(_optional_int(3), 3)

@@ -100,6 +100,13 @@ def _validated_artifact_root(value: Path) -> Path:
     return root
 
 
+def _runner_source_dir() -> Path:
+    source = Path(__file__).resolve().parent
+    if not (source / "trial.py").is_file() or not (source / "models.py").is_file():
+        raise DockerTrialError("current MemorixBench runner source is incomplete")
+    return source
+
+
 def _require_portable_oracle(oracle: OracleSpec) -> None:
     executable = oracle.command[0]
     if Path(executable).is_absolute() or ":" in executable or "\\" in executable:
@@ -267,6 +274,7 @@ def run_docker_trial(request: DockerTrialRequest) -> dict[str, Any]:
     copied_receipt: Path | None = None
     copied_evidence: Path | None = None
     try:
+        runner_source = _runner_source_dir()
         _require_success([request.docker_binary, "volume", "create", volume_name], timeout_seconds=setup_timeout)
         volume_created = True
         container_attempted = True
@@ -293,8 +301,30 @@ def run_docker_trial(request: DockerTrialRequest) -> dict[str, Any]:
         container_created = True
         _require_success([request.docker_binary, "start", container_name], timeout_seconds=setup_timeout)
         _require_success(
-            [request.docker_binary, "exec", "--user", "root", container_name, "mkdir", "-p", "/input"],
+            [
+                request.docker_binary,
+                "exec",
+                "--user",
+                "root",
+                container_name,
+                "mkdir",
+                "-p",
+                "/input",
+                "/runs/runner-src",
+            ],
             timeout_seconds=setup_timeout,
+        )
+        # The product/runtime image is pinned separately from the evolving
+        # benchmark harness. Copy this exact source snapshot into the trial's
+        # named volume and let the receipt's runner hash identify it.
+        _require_success(
+            [
+                request.docker_binary,
+                "cp",
+                str(runner_source),
+                f"{container_name}:/runs/runner-src",
+            ],
+            timeout_seconds=60,
         )
         with tempfile.TemporaryDirectory(prefix="docker-input-", dir=artifact_root) as temporary:
             staged = _prepare_runtime_inputs(
@@ -341,8 +371,12 @@ def run_docker_trial(request: DockerTrialRequest) -> dict[str, Any]:
             "/runner",
             "--env",
             key_env,
+            "--env",
+            "PYTHONPATH=/runs/runner-src",
             container_name,
-            "memorixbench",
+            "python3",
+            "-m",
+            "memorixbench.cli",
             "run-trial",
             "--case",
             "/input/card/case.json",
@@ -400,6 +434,7 @@ def run_docker_trial(request: DockerTrialRequest) -> dict[str, Any]:
             "docker_image_id": image_id,
             "workspace_storage": "ephemeral-named-volume",
             "source_transfer": "docker-cp-no-bind-mount",
+            "runner_source_transfer": "docker-cp-current-source",
             "credentials_injected_at_runtime": True,
             "volume_name_sha256": sha256_text(volume_name),
             "exported_at": datetime.now(timezone.utc).isoformat(),

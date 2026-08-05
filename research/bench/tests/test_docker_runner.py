@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from memorixbench.docker_runner import DockerTrialError, _prepare_runtime_inputs, _require_portable_oracle, _require_success, _safe_internal_file, _validated_artifact_root
+from memorixbench.docker_runner import DockerTrialError, _prepare_runtime_inputs, _require_portable_oracle, _require_success, _runner_source_dir, _safe_internal_file, _validated_artifact_root
 from memorixbench.models import CaseSpec, OracleSpec, RouteSpec
 
 
@@ -102,6 +102,11 @@ class DockerRunnerTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(Exception, "unsafe artifact path"):
             _safe_internal_file("/runs/artifacts/receipts/../secret.json", expected_parent="receipts")
+
+    def test_current_runner_source_is_available_for_named_volume_transfer(self) -> None:
+        source = _runner_source_dir()
+        self.assertTrue((source / "trial.py").is_file())
+        self.assertTrue((source / "models.py").is_file())
 
     def test_windows_bound_oracle_executable_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

@@ -677,7 +677,16 @@ def run_trial(config: TrialConfig, client: AgentClient) -> dict[str, Any]:
                 prospective_cost = sum(costs)
                 if isinstance(reply.cost_usd, (int, float)) and not isinstance(reply.cost_usd, bool):
                     prospective_cost += float(reply.cost_usd)
-                violation = config.route.reply_violation(reply, prospective_cost)
+                prospective_tokens = input_tokens + output_tokens
+                if isinstance(reply.input_tokens, int) and not isinstance(reply.input_tokens, bool):
+                    prospective_tokens += reply.input_tokens
+                if isinstance(reply.output_tokens, int) and not isinstance(reply.output_tokens, bool):
+                    prospective_tokens += reply.output_tokens
+                violation = config.route.reply_violation(
+                    reply,
+                    prospective_cost,
+                    prospective_tokens,
+                )
                 if violation is not None:
                     invalid_reason = f"route:{violation}"
                     break
@@ -894,6 +903,7 @@ def run_trial(config: TrialConfig, client: AgentClient) -> dict[str, Any]:
         "resource_usage": {
             "input_tokens": input_tokens or None,
             "output_tokens": output_tokens or None,
+            "total_tokens": (input_tokens + output_tokens) or None,
             "cost_usd": None if subscription_route else reported_request_price_usd,
             "provider_reported_request_price_usd": reported_request_price_usd if subscription_route else None,
             "cost_accounting": config.route.cost_policy.kind if config.route is not None else None,

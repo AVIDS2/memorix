@@ -12,15 +12,20 @@ no confirmatory or condition-effect outcome has been collected.
 ## Protocol 2.0 execution boundary
 
 Every new live source-backed row runs in a fresh Docker container with a fresh
-named volume. The copied source, temporary Git baseline, Memorix data, and
-private oracle execution stay inside that volume. The host receives only a
-sanitized receipt and evidence sidecar below the ignored research artifact
-boundary; no row may create a drive-root workspace or bind-mount a source tree.
+named volume. The copied source, temporary Git baseline, current hashed runner
+source, Memorix data, and private oracle execution stay inside that volume. The
+host receives only a sanitized receipt and evidence sidecar below the ignored
+research artifact boundary; no row may create a drive-root workspace or
+bind-mount a source tree.
 
-The worker explicitly sets `HOME` and `MEMORIX_DATA_DIR` under `/runs`, rather
-than inheriting a data path from any locally available base image. Credentials
-are supplied to the running container only and never enter the image, receipt,
-or Git tree.
+The pinned image supplies the released Memorix product and runtime packages.
+The current MemorixBench source package is copied into the named volume with
+docker cp before each trial and is identified by the runner source-tree hash in
+the receipt. This avoids stale harness code in a cached image without making a
+host source bind mount. The worker explicitly sets `HOME` and
+`MEMORIX_DATA_DIR` under `/runs`, rather than inheriting a data path from any
+locally available base image. Credentials are supplied to the running container
+only and never enter the image, receipt, or Git tree.
 
 OpenCode Go routes use the provider's documented Chat Completions endpoint with
 `OPENCODE_API_KEY`, a truthful MemorixBench user agent, frozen model identity,
@@ -34,6 +39,40 @@ latter, the model called real Memorix context and one cited detail expansion,
 the seeded decision was present in the Workset, and the private oracle passed.
 They establish that the execution path works. They are not cohort rows and do
 not support a memory-effect claim.
+
+## Sealed candidate bank
+
+The exploratory candidate bank contains nine source-backed transfer cases:
+three source-sufficient controls, three durable-decision dependencies, and
+three stale-conflict cases. It is balanced across the Click, Requests, and
+urllib3 repositories, whose upstream licenses are BSD-3-Clause, Apache-2.0,
+and MIT respectively.
+
+Each case freezes a public upstream commit but intentionally packages only the
+minimal `src/` source scope needed by the task. The case card records both a
+ZIP and normalized source-tree digest. The upstream change is disclosed as
+public-history exposure in the reviewer packet; tasks are controlled and
+rephrased rather than represented as original upstream issue prompts. A private
+oracle and a private reference repair are checked in a clean Docker
+named-volume audit: every baseline fails and every reference repair passes.
+That establishes case integrity, not agent performance.
+
+Each independent classifier receives only the task, predecessor record,
+proposed class, source provenance, source scope, relevant source files, and
+writable boundary. The classifier does not receive oracle code, reference
+repair, model output, receipt, or outcome. The bank remains exploratory until
+two retained outcome-blind classifications admit it and P3 freezes the cases,
+routes, analysis plan, and budget.
+
+The concrete P3/P4 matrix, resource ceiling, invalid-row handling, paired
+denominators, and claim limit are fixed in ANALYSIS-PLAN.md. That document is
+written before source-backed outcome collection and may not be altered after
+the cohort receipt is sealed.
+
+Before that receipt is sealed, each candidate model route must pass the fixed
+three-probe non-task qualification window described in ANALYSIS-PLAN.md. A
+single failure excludes the route from the cohort; prior transport receipts are
+retained rather than silently replaced.
 
 ## Research question
 

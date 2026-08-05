@@ -7,7 +7,6 @@ USER root
 
 ENV DEBIAN_FRONTEND=noninteractive \
     HOME=/runs/home \
-    PATH=/opt/memorixbench-venv/bin:$PATH \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
@@ -24,10 +23,7 @@ RUN npm install --global --omit=dev "memorix@${MEMORIX_VERSION}"
 
 WORKDIR /runner
 
-COPY . /runner
-RUN python3 -m venv /opt/memorixbench-venv \
-  && /opt/memorixbench-venv/bin/pip install --no-cache-dir . \
-  && mkdir -p /runs/memorix-data \
+RUN mkdir -p /runs/memorix-data \
   && chown -R bench:bench /runner /runs
 
 # Do not inherit a storage path from a locally supplied fallback base image.

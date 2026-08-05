@@ -61,6 +61,12 @@ benefiting from a durable decision that source cannot reconstruct cheaply.
 - `EVIDENCE-STATUS.md` distinguishes observed evidence from design work.
 - `CASE-ADMISSION.md` defines how a case is classified and admitted before
   outcomes are collected.
+- `CASE-REVIEW-FORM.md` is the outcome-blind independent-review form used for
+  P3 admission.
+- `ANALYSIS-PLAN.md` fixes the P3/P4 matrix, budget, denominator, and claim
+  boundary before new source-backed outcomes are inspected.
+- `bench/` can audit review forms, freeze all approved inputs into an immutable
+  cohort receipt, and run only the resulting deterministic schedule.
 - `LITERATURE.md` maps the work to adjacent memory and software-agent research.
 - `paper-icse-nier/` holds the anonymous NIER candidate source.
 - `public-summary/` and `public-cohort-plans/` preserve the earlier public pilot
@@ -75,13 +81,19 @@ contains stable protocol, code, and sanitized evidence only.
 
 ## Current next step
 
-Three external, permissively licensed candidate cases now cover the
-source-sufficient, durable-decision, and stale-conflict hypotheses. Their
-protocol-1.5 lifecycle receipts are retained as historical calibration; all
-three have also passed fresh v14 protocol-1.6 no-model preflights with sealed
-original source archives, normalized archive contents, unpacked trees, and
-oracle inputs plus unique local-project identities. None is admitted yet.
-Obtain independent outcome-blind review under `CASE-ADMISSION.md`, then freeze
-the case list and verify a live route before complete matched exploratory rows
-run without discarding failures. Every resulting run remains exploratory until
-the separate confirmatory gate is satisfied.
+Nine external, permissively licensed candidate cases now cover the
+source-sufficient, durable-decision, and stale-conflict hypotheses. Each has
+passed a sealed Docker no-model audit where the baseline fails and a private
+reference repair passes. None is admitted yet. The fixed post-client-fix
+transport windows passed for glm-5.2 and deepseek-v4-pro. Kimi K2.7 Code
+failed its whole fixed window and is excluded from this cohort; its earlier
+passing and failed diagnostics remain in the artifact ledger. The two stable
+routes passed current-runner Docker action calibrations with source edits and
+agent-requested verification.
+
+Next, obtain two independent outcome-blind reviews under
+CASE-REVIEW-FORM.md and audit their consensus. The current-runner action
+calibrations for the two stable routes are already complete. Then freeze the
+case list, routes, analysis plan, and budget before complete matched
+exploratory rows run without discarding failures. Every resulting run remains
+exploratory until the separate confirmatory gate is satisfied.

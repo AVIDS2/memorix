@@ -65,15 +65,25 @@ class ProviderClientTests(unittest.TestCase):
                     client = client_for_route(RouteSpec.load(route_path))
                     self.assertIsInstance(client, OpenCodeGoClient)
                     reply = client.chat([{"role": "user", "content": "test"}], [])
+                    client.chat(
+                        [{"role": "user", "content": "test"}],
+                        [{"type": "function", "function": {"name": "read_file", "parameters": {}}}],
+                    )
 
-            request = open_call.call_args.args[0]
-            self.assertEqual(request.full_url, "https://opencode.ai/zen/go/v1/chat/completions")
+            no_tool_request = open_call.call_args_list[0].args[0]
+            request = open_call.call_args_list[1].args[0]
+            self.assertEqual(no_tool_request.full_url, "https://opencode.ai/zen/go/v1/chat/completions")
             self.assertEqual(
-                request.get_header("User-agent"),
+                no_tool_request.get_header("User-agent"),
                 "MemorixBench/1.4.1 (+https://github.com/AVIDS2/memorix)",
             )
+            no_tool_body = json.loads(no_tool_request.data.decode("utf-8"))
+            self.assertNotIn("tools", no_tool_body)
+            self.assertNotIn("tool_choice", no_tool_body)
             request_body = json.loads(request.data.decode("utf-8"))
             self.assertEqual(request_body["reasoning_effort"], "low")
+            self.assertEqual(request_body["tool_choice"], "auto")
+            self.assertEqual(request_body["tools"][0]["function"]["name"], "read_file")
             self.assertEqual(reply.cost_accounting, "subscription-quota")
             self.assertEqual(reply.cost_usd, 0.0)
             self.assertEqual(reply.reasoning_content, "route reasoning")

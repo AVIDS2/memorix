@@ -102,6 +102,16 @@ Two distinct deliverables are intentionally kept separate:
   Memorix seed, CodeGraph refresh, context, cited-detail expansion, and a
   private-oracle pass. Both are explicitly non-cohort qualifications, not
   paper outcome rows or evidence of a condition effect.
+- P2 sealed case construction is complete: nine exploratory source-backed
+  cases, with three source-sufficient controls, three durable-decision
+  dependencies, and three stale-conflict cases from Click (BSD-3-Clause),
+  Requests (Apache-2.0), and urllib3 (MIT). Each freezes an upstream commit,
+  a minimal `src/` source scope, source ZIP/tree hashes, a private verifier,
+  a private reference repair, and an outcome-blind review packet. A fresh
+  Docker named-volume audit confirmed all nine baselines fail and all nine
+  private reference repairs pass. These are case-integrity checks only: no
+  model outcome has been collected and no independent admission form has yet
+  been retained.
 - Three permissively licensed source-backed candidates have passed sealed
   no-model lifecycle preflights. They are candidates, not admitted outcome
   cases. An owner-reported two-reviewer check exists, but it is not a retained
@@ -127,14 +137,17 @@ size, actual model ID, and route usage are recorded rather than assumed equal.
 The planned exploratory corpus is **at least nine admitted cases**: three
 source-sufficient controls, three durable-decision dependencies, and three
 stale-conflict cases drawn from at least three permissively licensed external
-repositories. With three frozen routes, three conditions, and three
-repetitions, the initial complete matrix is at least 243 planned rows. If a
-route cannot complete a source-backed action calibration, it is removed before
-the plan freezes rather than silently becoming a failed treatment row.
+repositories. With the two stable frozen routes, three conditions, and three
+repetitions, the initial complete matrix is 162 planned rows. Kimi K2.7 Code
+failed its fixed three-probe route window and is excluded before freeze; its
+failed diagnostics remain retained. If a route cannot complete a source-backed
+action calibration, it is removed before the plan freezes rather than silently
+becoming a failed treatment row.
 
 Route labels are descriptive, never "weak" or "strong" vendor labels. The
-initial qualification candidates are OpenCode Go
-`glm-5.2`, `kimi-k2.7-code`, and `deepseek-v4-pro`; actual provider/model
+initial qualification candidates were OpenCode Go `glm-5.2`,
+`kimi-k2.7-code`, and `deepseek-v4-pro`. The fixed transport windows retained
+glm-5.2 and deepseek-v4-pro and excluded Kimi K2.7 Code. Actual provider/model
 IDs, temperature, reasoning configuration, timeout, and caps are frozen in a
 route manifest before outcome collection.
 
@@ -143,8 +156,9 @@ route manifest before outcome collection.
 Docker is required for the experimental worker, not as a substitute for product
 acceptance testing:
 
-- a pinned image owns the task runtime, repository snapshot, tests, and agent
-  harness;
+- a pinned image owns the released product and task runtime; the current
+  hashed benchmark harness is copied into the trial named volume and its digest
+  is retained in the receipt;
 - each row receives a fresh container and an isolated named volume;
 - credentials are injected at runtime only and never enter an image, receipt,
   Git file, or artifact archive;
@@ -165,8 +179,8 @@ mandatory.
 | --- | --- | --- |
 | P0 | Reconcile evidence, scope, claims, and final deliverables in this document. | Complete |
 | P1 | Add Docker execution, named-volume lifecycle, artifact export, and OpenCode Go route support; pass unit and live route qualification without secrets. | Complete |
-| P2 | Build the nine-case source-backed bank, seal archives/oracles, and create blind admission packets. | Pending |
-| P3 | Obtain two retained outcome-blind case-admission reviews, freeze the case list, route manifests, analysis plan, and budget before reading new outcomes. | Pending |
+| P2 | Build the nine-case source-backed bank, seal archives/oracles, and create blind admission packets. | Complete |
+| P3 | Obtain two retained outcome-blind case-admission reviews, complete route transport/action qualifications, then freeze the case list, route manifests, analysis plan, and budget before reading new outcomes. | In progress |
 | P4 | Run every planned row once under the frozen cohort plan; retain successes, failures, invalid rows, and timeouts. | Pending |
 | P5 | Generate analysis, robustness checks, figures, and claim-limited manuscript text from the complete dataset. | Pending |
 | P6 | Materialize the anonymous supplement from an allowlist, compile and visually inspect the paper, reproduce a clean smoke, and perform anonymity/secrets scans. | Pending |
@@ -218,6 +232,17 @@ the phases above.
 
 ## Immediate Next Step
 
-Complete P2: build the nine-case source-backed bank and blind-admission packets.
-Do not collect new outcome labels until P3 freezes those packets, routes,
-analysis plan, and budget.
+Complete P3: the fixed analysis plan and review-form template now exist. The
+fixed three-probe route windows passed for glm-5.2 and deepseek-v4-pro. Kimi
+K2.7 Code failed 3/3 and is excluded, with five earlier HTTP 400 diagnostics
+and all window receipts retained. Obtain two retained outcome-blind admission
+reviews, audit their consensus, then seal the admitted case list, route
+manifests, Docker image ID, and cohort receipt. Fresh Docker action
+calibrations under the current runner-source hash passed for both stable routes.
+Do not collect new source-backed outcome labels before that freeze.
+
+Local Docker BuildKit itself is healthy, but the `node:22-bookworm-slim` base
+image is not cached and a fresh pull produced no layer progress in this local
+environment. The existing released-product worker image remains the verified
+P3 execution image. A clean Dockerfile rebuild is therefore an explicit P6
+reproduction gate, not evidence silently assumed from the cached image.

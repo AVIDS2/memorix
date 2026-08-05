@@ -77,6 +77,53 @@ Validate a public case card:
 uv run --directory research/bench memorixbench validate-case <case.json>
 ```
 
+Before source-backed cases are reviewed, render an outcome-blind admission
+packet from the frozen case card and a provenance-only admission manifest. The
+packet intentionally contains the task, predecessor record, source provenance,
+classification rationale, and writable scope only. It never serializes a
+private oracle, reference repair, receipt, or model outcome.
+
+```powershell
+uv run --directory research/bench memorixbench write-review-packet `
+  --case <case.json> --admission <admission.json> `
+  --output <outcome-blind-review-packet.json>
+```
+
+The admission manifest is an external artifact for source-backed cases. It
+must identify the canonical GitHub repository, SPDX license, frozen transfer
+commit, explicit frozen source scope, public-history exposure, and relevant
+current-source files. The
+generator rejects oracle/reference/outcome fields rather than relying on a
+reviewer to notice a leak.
+
+Generate one blank outcome-blind review form for each packet and reviewer
+code. Completed forms remain ignored artifacts; their strict frozen schema
+accepts only the documented fields and rejects private-oracle, model-output,
+receipt, and unstructured-note fields.
+
+```powershell
+uv run --directory research/bench memorixbench write-review-form `
+  --packet <outcome-blind-review-packet.json> --reviewer-code R1 `
+  --output research/artifacts/<reviewer>/<case-id>.json
+
+uv run --directory research/bench memorixbench validate-review-form `
+  --packet <outcome-blind-review-packet.json> `
+  --review research/artifacts/<reviewer>/<case-id>.json
+```
+
+After every reviewer has submitted every form, generate one sanitized audit.
+The audit retains reviewer codes, structured decisions, and hashes, but not
+free-text rationales. A disagreement becomes `needs-third-review`; it does not
+admit a case by default.
+
+```powershell
+uv run --directory research/bench memorixbench audit-review-set `
+  --packet-dir research/artifacts/case-bank-v1/review-packets-v2 `
+  --review-root research/artifacts/case-bank-v1/review-forms-v2 `
+  --reviewer-codes R1 R2 `
+  --output research/artifacts/case-bank-v1/review-audits-v2/admission.json
+```
+
 Before a source-backed case is allowed to enter a model cohort, run the native
 preflight against a new external artifact directory. It initializes a clean
 Git transfer workspace, verifies that the baseline still fails the private
@@ -164,6 +211,66 @@ quota accounting: receipts retain usage and an optional provider-reported
 request-price field as non-invoice telemetry, and schema 4 deliberately has no
 fake USD cap. The client identifies itself as MemorixBench rather than
 impersonating an OpenCode client.
+
+Schema version 5 is the required form for a frozen OpenCode Go cohort route.
+It keeps the schema-4 subscription accounting rules and additionally requires
+`max_total_tokens`: an aggregate input-plus-output cap for one trial row. A
+subscription route has no honest per-row USD invoice, but it still needs a
+hard token budget; a reply that would cross that cap becomes an invalid row
+before the next tool action.
+
+Before a route can enter a source-backed cohort, retain a separate direct
+transport qualification. It sends a fixed non-task prompt with no tools,
+checks the actual provider model ID and usage fields against the frozen route,
+and writes a sanitized receipt. It is a connectivity check, not a task outcome
+or a Memorix-effect result.
+
+```powershell
+uv run --directory research/bench memorixbench qualify-route `
+  --route <frozen-route.json> `
+  --artifact-root research/artifacts/<route-qualification>
+```
+
+For a frozen cohort route, use the stricter fixed three-probe window after the
+final transport client is in place. It emits exactly three separate
+qualifications and a summarized ledger; any failed probe keeps that route out
+of the cohort rather than being retried selectively.
+
+```powershell
+uv run --directory research/bench memorixbench qualify-route-window `
+  --route <frozen-route.json> `
+  --artifact-root research/artifacts/<route-stability-window>
+```
+
+After the independent review audit and current-runner action calibrations pass,
+seal the cohort exactly once. The receipt contains no private paths or model
+prose, but hashes every case/oracle/route/review input and fixes the complete
+row order. It refuses to overwrite an existing receipt.
+
+```powershell
+uv run --directory research/bench memorixbench freeze-cohort `
+  --case-bank research/artifacts/case-bank-v1/sealed-v2 `
+  --review-audit research/artifacts/case-bank-v1/review-audits-v2/admission.json `
+  --route research/artifacts/route-qualification-2026-08-05/routes/glm-5.2.json `
+  --route research/artifacts/route-qualification-2026-08-05/routes/deepseek-v4-pro.json `
+  --route-window research/artifacts/route-stability-window-v1/route-qualification-windows/<glm-window>.json `
+  --route-window research/artifacts/route-stability-window-v1/route-qualification-windows/<deepseek-window>.json `
+  --analysis-plan research/ANALYSIS-PLAN.md `
+  --output research/artifacts/cohorts/<cohort-id>/cohort.json
+```
+
+Run a sealed cohort through the same Docker named-volume worker. The runner
+records a durable `started` marker before every provider request. A crash after
+that marker blocks a rerun of the affected row, preserving the one-call rule.
+
+```powershell
+uv run --directory research/bench memorixbench run-cohort `
+  --cohort research/artifacts/cohorts/<cohort-id>/cohort.json `
+  --case-bank research/artifacts/case-bank-v1/sealed-v2 `
+  --route research/artifacts/route-qualification-2026-08-05/routes/glm-5.2.json `
+  --route research/artifacts/route-qualification-2026-08-05/routes/deepseek-v4-pro.json `
+  --artifact-root research/artifacts/cohorts/<cohort-id>/runs
+```
 
 For every frozen live route, the repair-loop contract also requires one
 agent-requested `run_verification` before the agent may finish. If the first

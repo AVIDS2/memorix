@@ -531,6 +531,7 @@ class RouteSpec:
     tool_choice: str
     cost_policy: CostPolicy
     definition_sha256: str
+    max_total_tokens: int | None = None
     thinking_mode: str | None = None
     reasoning_effort: str | None = None
     preserve_reasoning_content: bool = False
@@ -540,8 +541,8 @@ class RouteSpec:
         manifest_path = Path(path).resolve()
         data: dict[str, Any] = json.loads(manifest_path.read_text(encoding="utf-8"))
         schema_version = data.get("schema_version")
-        if schema_version not in {1, 2, 3, 4}:
-            raise ValueError("route schema_version must be 1, 2, 3, or 4")
+        if schema_version not in {1, 2, 3, 4, 5}:
+            raise ValueError("route schema_version must be 1, 2, 3, 4, or 5")
         provider = str(data.get("provider", "")).strip()
         thinking_mode: str | None = None
         reasoning_effort: str | None = None
@@ -574,7 +575,7 @@ class RouteSpec:
             preserve_reasoning_content = True
         else:
             if provider != "opencode-go":
-                raise ValueError("route schema_version 4 provider must be opencode-go")
+                raise ValueError("OpenCode Go route provider must be opencode-go")
             cost_policy = CostPolicy.load_opencode_go(data.get("cost_policy"))
             raw_effort = data.get("reasoning_effort")
             if raw_effort is not None:
@@ -610,6 +611,16 @@ class RouteSpec:
             max_cost_usd = float(raw_max_cost_usd)
             if not 0 < max_cost_usd <= 100:
                 raise ValueError("route max_cost_usd must be between 0 and 100")
+        max_total_tokens: int | None = None
+        raw_max_total_tokens = data.get("max_total_tokens")
+        if schema_version == 5:
+            if not _is_nonnegative_int(raw_max_total_tokens):
+                raise ValueError("OpenCode Go max_total_tokens must be an integer")
+            if raw_max_total_tokens < 1_000 or raw_max_total_tokens > 500_000:
+                raise ValueError("OpenCode Go max_total_tokens must be between 1000 and 500000")
+            max_total_tokens = raw_max_total_tokens
+        elif raw_max_total_tokens is not None:
+            raise ValueError("max_total_tokens requires route schema_version 5")
         temperature = data.get("temperature")
         if not _is_nonnegative_finite_number(temperature):
             raise ValueError("route temperature must be numeric")
@@ -630,6 +641,7 @@ class RouteSpec:
             tool_choice=tool_choice,
             cost_policy=cost_policy,
             definition_sha256=sha256_file(manifest_path),
+            max_total_tokens=max_total_tokens,
             thinking_mode=thinking_mode,
             reasoning_effort=reasoning_effort,
             preserve_reasoning_content=preserve_reasoning_content,
@@ -643,6 +655,7 @@ class RouteSpec:
             "expected_actual_model": self.expected_actual_model,
             "provider_timeout_seconds": self.provider_timeout_seconds,
             "max_output_tokens": self.max_output_tokens,
+            "max_total_tokens": self.max_total_tokens,
             "max_cost_usd": self.max_cost_usd,
             "temperature": self.temperature,
             "tool_choice": self.tool_choice,
@@ -652,7 +665,12 @@ class RouteSpec:
             "preserve_reasoning_content": self.preserve_reasoning_content,
         }
 
-    def reply_violation(self, reply: ModelReply, total_cost_usd: float | None) -> str | None:
+    def reply_violation(
+        self,
+        reply: ModelReply,
+        total_cost_usd: float | None,
+        total_tokens: int | None = None,
+    ) -> str | None:
         if reply.model != self.expected_actual_model:
             return "actual-model-mismatch"
         if reply.input_tokens is None or reply.output_tokens is None:
@@ -676,6 +694,11 @@ class RouteSpec:
             return "provider-usage-invalid"
         if reply.output_tokens > self.max_output_tokens:
             return "output-budget-exceeded"
+        if self.max_total_tokens is not None:
+            if not _is_nonnegative_int(total_tokens):
+                return "aggregate-token-usage-missing"
+            if total_tokens > self.max_total_tokens:
+                return "total-token-budget-exceeded"
         if self.max_cost_usd is not None and total_cost_usd is not None and total_cost_usd > self.max_cost_usd:
             return "cost-budget-exceeded"
         return None

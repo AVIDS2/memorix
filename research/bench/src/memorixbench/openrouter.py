@@ -40,11 +40,12 @@ class _OpenAICompatibleRouteClient:
         request_payload: dict[str, Any] = {
             "model": self.route.requested_model,
             "messages": messages,
-            "tools": tools,
-            "tool_choice": "auto",
             "temperature": self.route.temperature,
             "max_tokens": self.route.max_output_tokens,
         }
+        if tools:
+            request_payload["tools"] = tools
+            request_payload["tool_choice"] = self.route.tool_choice
         if self.route.thinking_mode is not None:
             request_payload["thinking"] = {"type": self.route.thinking_mode}
         if self.route.reasoning_effort is not None:

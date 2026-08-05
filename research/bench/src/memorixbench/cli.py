@@ -5,10 +5,14 @@ import json
 from pathlib import Path
 import sys
 
+from .admission import write_review_packet
+from .cohort import freeze_cohort, run_frozen_cohort
 from .docker_runner import DEFAULT_DOCKER_IMAGE, DockerTrialRequest, build_worker_image, run_docker_trial
 from .models import CaseSpec, OracleSpec, RouteSpec
 from .openrouter import client_for_route
 from .preflight import run_native_preflight
+from .qualification import qualify_route, qualify_route_window
+from .review import ReviewForm, write_review_audit, write_review_form
 from .trial import TrialConfig, run_trial
 
 
@@ -118,12 +122,180 @@ def _preflight_native(args: argparse.Namespace) -> int:
     return 0 if payload["status"] == "passed" else 2
 
 
+def _write_review_packet(args: argparse.Namespace) -> int:
+    output = write_review_packet(
+        case_path=args.case,
+        admission_path=args.admission,
+        output_path=args.output,
+    )
+    print(json.dumps({"review_packet": str(output)}, indent=2))
+    return 0
+
+
+def _qualify_route(args: argparse.Namespace) -> int:
+    route = RouteSpec.load(args.route)
+    outcome = qualify_route(
+        route=route,
+        client=client_for_route(route),
+        artifact_root=args.artifact_root,
+    )
+    payload = outcome["payload"]
+    print(
+        json.dumps(
+            {
+                "receipt": str(outcome["receipt_path"]),
+                "status": payload["status"],
+                "actual_model": payload["actual_model"],
+            },
+            indent=2,
+        )
+    )
+    return 0 if payload["status"] == "passed" else 2
+
+
+def _qualify_route_window(args: argparse.Namespace) -> int:
+    route = RouteSpec.load(args.route)
+    outcome = qualify_route_window(
+        route=route,
+        client=client_for_route(route),
+        artifact_root=args.artifact_root,
+    )
+    payload = outcome["payload"]
+    print(
+        json.dumps(
+            {
+                "summary": str(outcome["summary_path"]),
+                "all_passed": payload["all_passed"],
+                "attempt_count": payload["attempt_count"],
+            },
+            indent=2,
+        )
+    )
+    return 0 if payload["all_passed"] else 2
+
+
+def _write_review_form(args: argparse.Namespace) -> int:
+    output = write_review_form(
+        packet_path=args.packet,
+        reviewer_code=args.reviewer_code,
+        output_path=args.output,
+    )
+    print(json.dumps({"review_form": str(output)}, indent=2))
+    return 0
+
+
+def _validate_review_form(args: argparse.Namespace) -> int:
+    review = ReviewForm.load(args.review, packet_path=args.packet)
+    print(
+        json.dumps(
+            {
+                "case_id": review.case_id,
+                "reviewer_code": review.reviewer_code,
+                "decision": review.decision,
+                "review_sha256": review.definition_sha256,
+            },
+            indent=2,
+        )
+    )
+    return 0
+
+
+def _audit_review_set(args: argparse.Namespace) -> int:
+    output = write_review_audit(
+        packet_dir=args.packet_dir,
+        review_root=args.review_root,
+        reviewer_codes=args.reviewer_codes,
+        output_path=args.output,
+    )
+    print(json.dumps({"review_audit": str(output)}, indent=2))
+    return 0
+
+
+def _freeze_cohort(args: argparse.Namespace) -> int:
+    output = freeze_cohort(
+        case_bank=args.case_bank,
+        review_audit_path=args.review_audit,
+        route_paths=args.route,
+        route_window_paths=args.route_window,
+        analysis_plan_path=args.analysis_plan,
+        output_path=args.output,
+        docker_image=args.docker_image,
+    )
+    print(json.dumps({"cohort_receipt": str(output)}, indent=2))
+    return 0
+
+
+def _run_cohort(args: argparse.Namespace) -> int:
+    outcome = run_frozen_cohort(
+        cohort_path=args.cohort,
+        case_bank=args.case_bank,
+        route_paths=args.route,
+        artifact_root=args.artifact_root,
+        max_rows=args.max_rows,
+    )
+    print(
+        json.dumps(
+            {
+                "ledger": str(outcome["ledger_path"]),
+                "completed_rows": outcome["completed_rows"],
+                "remaining_rows": outcome["remaining_rows"],
+            },
+            indent=2,
+        )
+    )
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="memorixbench")
     subparsers = parser.add_subparsers(dest="command", required=True)
     validate = subparsers.add_parser("validate-case")
     validate.add_argument("case", type=Path)
     validate.set_defaults(handler=_validate_case)
+    packet = subparsers.add_parser("write-review-packet")
+    packet.add_argument("--case", type=Path, required=True)
+    packet.add_argument("--admission", type=Path, required=True)
+    packet.add_argument("--output", type=Path, required=True)
+    packet.set_defaults(handler=_write_review_packet)
+    qualification = subparsers.add_parser("qualify-route")
+    qualification.add_argument("--route", type=Path, required=True)
+    qualification.add_argument("--artifact-root", type=Path, required=True)
+    qualification.set_defaults(handler=_qualify_route)
+    qualification_window = subparsers.add_parser("qualify-route-window")
+    qualification_window.add_argument("--route", type=Path, required=True)
+    qualification_window.add_argument("--artifact-root", type=Path, required=True)
+    qualification_window.set_defaults(handler=_qualify_route_window)
+    review_form = subparsers.add_parser("write-review-form")
+    review_form.add_argument("--packet", type=Path, required=True)
+    review_form.add_argument("--reviewer-code", required=True)
+    review_form.add_argument("--output", type=Path, required=True)
+    review_form.set_defaults(handler=_write_review_form)
+    validate_review = subparsers.add_parser("validate-review-form")
+    validate_review.add_argument("--packet", type=Path, required=True)
+    validate_review.add_argument("--review", type=Path, required=True)
+    validate_review.set_defaults(handler=_validate_review_form)
+    review_audit = subparsers.add_parser("audit-review-set")
+    review_audit.add_argument("--packet-dir", type=Path, required=True)
+    review_audit.add_argument("--review-root", type=Path, required=True)
+    review_audit.add_argument("--reviewer-codes", nargs="+", required=True)
+    review_audit.add_argument("--output", type=Path, required=True)
+    review_audit.set_defaults(handler=_audit_review_set)
+    cohort = subparsers.add_parser("freeze-cohort")
+    cohort.add_argument("--case-bank", type=Path, required=True)
+    cohort.add_argument("--review-audit", type=Path, required=True)
+    cohort.add_argument("--route", type=Path, action="append", required=True)
+    cohort.add_argument("--route-window", type=Path, action="append", required=True)
+    cohort.add_argument("--analysis-plan", type=Path, required=True)
+    cohort.add_argument("--output", type=Path, required=True)
+    cohort.add_argument("--docker-image", default=DEFAULT_DOCKER_IMAGE)
+    cohort.set_defaults(handler=_freeze_cohort)
+    run_cohort = subparsers.add_parser("run-cohort")
+    run_cohort.add_argument("--cohort", type=Path, required=True)
+    run_cohort.add_argument("--case-bank", type=Path, required=True)
+    run_cohort.add_argument("--route", type=Path, action="append", required=True)
+    run_cohort.add_argument("--artifact-root", type=Path, required=True)
+    run_cohort.add_argument("--max-rows", type=int)
+    run_cohort.set_defaults(handler=_run_cohort)
     preflight = subparsers.add_parser("preflight-native")
     preflight.add_argument("--case", type=Path, required=True)
     preflight.add_argument("--oracle", type=Path, required=True)

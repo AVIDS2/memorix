@@ -6,6 +6,7 @@ from pathlib import Path
 import sys
 
 from .admission import write_review_packet
+from .analysis import write_cohort_analysis
 from .cohort import freeze_cohort, run_frozen_cohort
 from .docker_runner import DEFAULT_DOCKER_IMAGE, DockerTrialRequest, build_worker_image, run_docker_trial
 from .models import CaseSpec, OracleSpec, RouteSpec
@@ -246,6 +247,16 @@ def _run_cohort(args: argparse.Namespace) -> int:
     return 0
 
 
+def _analyze_cohort(args: argparse.Namespace) -> int:
+    output = write_cohort_analysis(
+        cohort_path=args.cohort,
+        artifact_root=args.artifact_root,
+        output_path=args.output,
+    )
+    print(json.dumps({"cohort_analysis": str(output)}, indent=2))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="memorixbench")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -296,6 +307,11 @@ def build_parser() -> argparse.ArgumentParser:
     run_cohort.add_argument("--artifact-root", type=Path, required=True)
     run_cohort.add_argument("--max-rows", type=int)
     run_cohort.set_defaults(handler=_run_cohort)
+    analyze_cohort = subparsers.add_parser("analyze-cohort")
+    analyze_cohort.add_argument("--cohort", type=Path, required=True)
+    analyze_cohort.add_argument("--artifact-root", type=Path, required=True)
+    analyze_cohort.add_argument("--output", type=Path, required=True)
+    analyze_cohort.set_defaults(handler=_analyze_cohort)
     preflight = subparsers.add_parser("preflight-native")
     preflight.add_argument("--case", type=Path, required=True)
     preflight.add_argument("--oracle", type=Path, required=True)

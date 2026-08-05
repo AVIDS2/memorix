@@ -272,6 +272,21 @@ uv run --directory research/bench memorixbench run-cohort `
   --artifact-root research/artifacts/cohorts/<cohort-id>/runs
 ```
 
+Analyze only after every frozen row has a finalized ledger entry. The analyzer
+rechecks each receipt hash, case, route, actual model, runner hash, surface,
+and evidence policy before emitting a sanitized aggregate. It rejects partial
+ledgers, duplicate rows, route substitutions, receipt drift, and unfinished
+rows rather than calculating a favorable subset. The output contains aggregate
+counts, resource summaries, and case-cluster bootstrap intervals; it contains
+no model prose, private oracle material, or local paths.
+
+```powershell
+uv run --directory research/bench memorixbench analyze-cohort `
+  --cohort research/artifacts/cohorts/<cohort-id>/cohort.json `
+  --artifact-root research/artifacts/cohorts/<cohort-id>/runs `
+  --output research/artifacts/cohorts/<cohort-id>/analysis.json
+```
+
 For every frozen live route, the repair-loop contract also requires one
 agent-requested `run_verification` before the agent may finish. If the first
 completion omits it, the runner emits one identical condition-neutral reminder

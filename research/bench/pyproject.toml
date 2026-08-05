@@ -1,0 +1,15 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "memorixbench"
+version = "0.1.0"
+description = "Small sealed-local research runner for project-memory experiments"
+requires-python = ">=3.11"
+
+[project.scripts]
+memorixbench = "memorixbench.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/memorixbench"]

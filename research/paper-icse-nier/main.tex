@@ -1,0 +1,241 @@
+\documentclass[10pt,conference]{IEEEtran}
+
+\usepackage{booktabs}
+\usepackage{cite}
+\usepackage[hidelinks]{hyperref}
+\hypersetup{
+  pdfauthor={Anonymous Authors},
+  pdftitle={When Does Project Memory Help Coding Agents? A Fail-Closed Evaluation Protocol}
+}
+
+\newcommand{\bench}{\textsc{FreshMem}}
+
+\title{When Does Project Memory Help Coding Agents?\\
+  A Fail-Closed Evaluation Protocol}
+\author{Anonymous Authors}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Project memory is increasingly added to coding agents, but a capable fresh
+agent can often recover the needed state from the current checkout and tests.
+Memory can therefore help, do nothing, or promote obsolete guidance. We present
+\bench{}, a fail-closed evaluation protocol for locating that boundary. A transfer case
+holds the evolved repository, model route, ordinary coding tools, and budget
+fixed while varying only predecessor evidence: none, an evidence-capped raw
+record, or native progressive-disclosure memory. The design treats an adapter
+failure, route mismatch, or unequal tool surface as invalid rather than as a
+task failure. An archived public pilot over twelve fully public fixtures is
+inconclusive: one Qwen cohort reports a $+2.8$ percentage-point target-memory
+difference versus no memory (95\% interval $[-8.3,16.7]$), while a DeepSeek
+cohort reaches ceiling success for both conditions and shows added context cost.
+A separate sealed-local runner has been exercised end-to-end, but is excluded
+from efficacy claims. These observations motivate an evaluation protocol rather
+than a claim that more memory is universally better.
+\end{abstract}
+
+\begin{IEEEkeywords}
+agent memory, coding agents, evaluation, software evolution, reproducibility
+\end{IEEEkeywords}
+
+\section{Motivation}
+
+Long-term-memory systems are usually justified by a simple intuition: an agent
+that retains useful prior information should perform better later. This is often
+reasonable, and existing work evaluates long-horizon retrieval and updates in
+conversational settings~\cite{wu2024longmemeval,maharana2024locomo}, broad
+agent-memory competencies~\cite{tan2025membench,shen2026mem2actbench}, and
+practical long-term-memory architectures~\cite{chhikara2025mem0,kang2025memoryos}. Workflow-memory
+work further shows that reusable routines can matter across agent
+runs~\cite{wang2024agentworkflowmemory}.
+
+Coding agents create a different control problem. A later agent can inspect the
+current repository, search symbols, edit files, and run focused tests. For a
+source-sufficient task, predecessor context may merely consume tokens. For a
+task governed by a prior design decision that source no longer explains, compact
+memory may reduce ambiguity. After a repository change, a previously correct
+claim may also become stale. The central question is therefore conditional:
+\emph{under which task, freshness, and model-capability conditions does project
+memory improve or harm a later coding task?}
+
+This question cannot be reduced to a model's advertised context-window size.
+Controlled studies find that reasoning can degrade with longer inputs before the
+nominal limit and that relevant evidence is not used uniformly across a long
+prompt~\cite{liu2024lostmiddle,levy2024sametask}. Repository-level long-code
+evaluation likewise treats selecting and using current code context as a
+distinct capability~\cite{li2025longcodeu}, while ProjectEval establishes a
+peer-reviewed project-level setting for programming-agent evaluation~\cite{liu2025projecteval}.
+These results motivate bounded
+evidence, a current-source-first control, and a preregistered model-capability
+moderator instead of assuming that more retained text helps every agent.
+A directly relevant ICLR 2025 workshop study further suggests that backbone
+strength can affect whether reusable memory is induced and that memory from a
+stronger agent can transfer to a weaker one~\cite{shah2025preconditions}. This
+is directional motivation, not evidence that the same boundary holds for
+fresh-agent coding transfer.
+
+This is not the first study of dynamic or sequential agent environments.
+MemoryArena studies interdependent multi-session tasks~\cite{he2026memoryarena},
+EvoArena studies evolving environments~\cite{xu2026evoarena}, and SWE-EVO and
+ChainSWE study long-horizon software evolution~\cite{le2025sweevo,jin2026chainswe}.
+\bench{} narrows the intervention: a fresh agent receives the same current
+code and ordinary tools in every condition, while only bounded predecessor
+evidence changes. Its contributions are:
+
+\begin{enumerate}
+  \item a fresh-agent transfer design that does not weaken the no-memory control;
+  \item a fail-closed execution contract that separates task failures from
+  broken routes, adapters, and unequal capabilities; and
+  \item an archived public diagnostic whose mixed and ceiling outcomes motivate
+  a boundary-focused study rather than a universal memory claim.
+\end{enumerate}
+
+\section{Fresh-Agent Boundary Design}
+
+Each case has a precursor session, an intervening repository evolution, and a
+transfer task for a fresh agent. The transfer checkout, task, writable paths,
+ordinary inspection tools, verification command, timeout, and requested model
+route are matched. The intervention is predecessor evidence, not access to
+current source.
+
+\begin{table}[t]
+\caption{Matched transfer conditions. Every condition retains normal access to
+the same current checkout and trusted verification.}\label{tab:conditions}
+\centering
+\small
+\begin{tabular}{p{0.24\columnwidth}p{0.66\columnwidth}}
+\toprule
+Condition & Predecessor evidence before or during transfer \\
+\midrule
+No memory & None; current source and tests only \\
+Raw record & One explicit read of a fixed predecessor record \\
+Native memory & One bounded project brief and one cited detail expansion \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The memory-providing conditions share a case-defined evidence-size cap and
+require an explicit tool call. The native condition models progressive disclosure
+rather than injecting a full transcript: the agent first sees a bounded project
+brief and can expand one cited memory if it is relevant. Provider-reported input
+tokens remain a separate outcome, since routes need not tokenize identical text
+identically. Native product behavior must not be simulated by adding
+evaluation-only switches to the product interface.
+
+The protocol separates two profiles rather than conflating their conclusions.
+The native-product profile retains each condition's real tool surface and thus
+measures total integration cost, including tool-schema overhead; the
+canonical-information profile gives every condition the same neutral
+predecessor-index and predecessor-detail tools; only the returned evidence is
+none, a raw record, or the native backend. The latter isolates an information
+effect, while the former retains product UX\@. Neither is a substitute for the
+other.
+
+Cases are classified before execution as source-sufficient controls,
+durable-decision dependencies, or stale-conflict tasks. Model capability is a
+moderator rather than a vendor label: each cohort freezes one provider-reported
+route, and analysis asks whether effects differ across predeclared model tiers
+and case classes. A ceiling result is informative; it can mean that the current
+repository already supplies enough evidence for that setting.
+
+\subsection{Fail-Closed Execution}
+
+Patch correctness is the primary outcome and requires a deterministic verifier
+after the agent exits. Token use, time, cost, tool calls, and stale actions are
+reported beside correctness, not folded into it. A row is invalid when a
+condition loses ordinary current-code capability, the workspace differs, the
+model route is missing or mixed, the oracle changes, or the memory adapter
+fails. Assigning such a failure a zero would manufacture a memory effect.
+
+The exploratory runner gives the model only list, read, bounded write,
+exact-text replacement, and trusted verification tools. Each transfer checkout
+starts from a clean baseline commit, and the declared precursor record carries
+its observation type plus code-bound metadata. It has no shell, network,
+process, host-filesystem, or oracle-file tool. The controller retains the
+private verifier outside the agent-visible checkout and writes only hashes and
+sanitized events to an external receipt. This is a useful local isolation
+boundary, not a claim of an independent confirmatory sandbox.
+
+For controlled evidence-delivery cohorts, every condition receives the same
+neutral instruction to read a predecessor index before the first source edit and
+expand one listed record. The empty condition returns an explicit empty index.
+This estimates conditional evidence delivery rather than natural tool adoption;
+optional-access rows remain a separate deployment observation. Exact delivered
+evidence is retained in a private external sidecar, while the receipt contains
+only a digest for later audit.
+
+The common agent contract also requires a repair loop after an agent-visible
+failed verification: diagnose, edit allowed source, and re-verify while budget
+remains. Receipts distinguish agent-requested tool calls from the controller's
+final verifier and retain structured edit and termination categories without
+storing model prose. A matched bug-fix matrix with no source edits in every
+condition is retained as a non-discriminative calibration, not analyzed as a
+memory effect.
+
+\section{Initial Evidence and Scope}
+
+Table~\ref{tab:pilot} reports an archived public pilot from an earlier target
+implementation. The fixtures and checks were fully public, so the table cannot
+establish that tasks were unseen in training or that a private-oracle effect
+exists. The older Qwen cohort also used two non-target local adapters; they are
+reported for completeness but were not configured under the new protocol. The
+new raw-record control was not part of that pilot, so the table supports no
+native-versus-raw claim. The target-versus-no-memory interval spans meaningful
+benefit and harm, while the DeepSeek cohort has no correctness headroom.
+
+\begin{table}[t]
+\caption{Archived public pilot. Repetitions are collapsed within each of 12
+fixture clusters; all quantities are descriptive.}\label{tab:pilot}
+\centering
+\small
+\begin{tabular}{@{}lp{0.64\columnwidth}@{}}
+\toprule
+Cohort & Observation \\
+\midrule
+Qwen (144 rows) & No memory 34/36; local baseline one 34/36; local baseline two 35/36; target canonical 35/36. The predeclared target-versus-none contrast was $+2.8$ points (95\% interval $[-8.3,16.7]$), sign-flip $p=1.0$. \\
+DeepSeek (72 rows) & No memory and target canonical: 36/36 each; target canonical added about 2,206 input tokens per cluster. \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The current sealed-local runner was additionally exercised on three synthetic
+engineering cases under all three native-product conditions. All nine executions
+completed, which is expected for small engineering cases and is not entered into
+Table~\ref{tab:pilot} or used as an effectiveness result. Its purpose was
+operational: it confirmed formation, native brief-to-detail retrieval, bounded
+tools, route receipts, private verification, and sanitized artifact output can
+work together without exposing the oracle to the model.
+
+Several threats remain. Public coding tasks and fixes can enter training data,
+as recent SWE-bench analysis emphasizes~\cite{openai2026swebench}. Provider
+telemetry cannot prove the absence of opaque provider-side state. The public
+pilot has only twelve fixture clusters and two routes, and the sealed-local
+smoke is synthetic. Consequently, this paper makes no claim of general
+effectiveness, cross-agent transfer, or superiority over any memory system.
+
+\section{Future Plans}
+
+The next stage is a preregistered confirmatory study. Each held-out case will
+start from a permissively licensed source or a newly authored transition, then
+bind a precursor record, private post-snapshot task, reference repair, and
+behavioral oracle before any model outcome is read. Independent reviewers will
+admit the dependency classification and reject cases whose current source makes
+the task trivial. The worker will receive the evolved checkout and bounded
+condition input; a separate controller will own the oracle.
+
+Before collecting results, the study will freeze cases, model routes, budgets,
+primary comparisons, and the required number of independent case clusters.
+Each memory-providing condition will have the same predeclared evidence-size
+cap; provider-reported input tokens will remain an outcome, not an assumed
+match. A case-by-route-by-repetition is the paired analysis unit, and every row
+will retain its completion, invalid, timeout, and cost status. A full paper can
+then test whether the anticipated boundary persists across source-sufficient,
+durable-decision, and stale-conflict cases and across frozen model capability
+tiers. The resulting conclusion may be positive, negative, or mixed; the
+design is intended to make each outcome interpretable.
+
+\bibliographystyle{IEEEtran}
+\bibliography{references}
+
+\end{document}

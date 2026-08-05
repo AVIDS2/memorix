@@ -1,0 +1,17 @@
+{
+  "schema_version": 2,
+  "id": "source-sufficient-slug",
+  "title": "Implement the visible service-slug contract",
+  "case_class": "source-sufficient-control",
+  "case_tier": "synthetic-engineering-smoke",
+  "task": "Implement normalize_service_slug in src/slug.py according to the visible module contract. Keep the public function signature and run verification.",
+  "source_root": "seed",
+  "writable_paths": ["src"],
+  "predecessor_record": "The deployment dashboard groups services by a stable slug. The current module contract is the authority for transfer work.",
+  "predecessor_memory": {
+    "type": "discovery",
+    "files": ["src/slug.py"],
+    "concepts": ["service slug", "deployment dashboard"]
+  },
+  "evidence_char_budget": 12000
+}

@@ -126,6 +126,11 @@ Two distinct deliverables are intentionally kept separate:
   partial ledgers, receipt drift, role confusion, model substitution, and
   route, runner, or Docker-image mismatches before producing only sanitized
   aggregate data.
+- The P3 engineering gate is complete: the research changes passed the full
+  local CI-equivalent suite and a fresh GitHub Actions retry passed every
+  Ubuntu, Windows, Docker, registry, typecheck, and Node 26 job. The earlier
+  Windows timeout did not reproduce, so no timeout was widened merely to make
+  CI appear green.
 
 ### Frozen execution design
 
@@ -190,7 +195,7 @@ mandatory.
 | P0 | Reconcile evidence, scope, claims, and final deliverables in this document. | Complete |
 | P1 | Add Docker execution, named-volume lifecycle, artifact export, and OpenCode Go route support; pass unit and live route qualification without secrets. | Complete |
 | P2 | Build the nine-case source-backed bank, seal archives/oracles, and create blind admission packets. | Complete |
-| P3 | Obtain two retained outcome-blind case-admission reviews, complete route transport/action qualifications, then freeze the case list, route manifests, analysis plan, and budget before reading new outcomes. | In progress |
+| P3 | Obtain two retained outcome-blind case-admission reviews, complete route transport/action qualifications, then freeze the case list, route manifests, analysis plan, and budget before reading new outcomes. | Awaiting independent review |
 | P4 | Run every planned row once under the frozen cohort plan; retain successes, failures, invalid rows, and timeouts. | Pending |
 | P5 | Generate analysis, robustness checks, figures, and claim-limited manuscript text from the complete dataset. | Pending |
 | P6 | Materialize the anonymous supplement from an allowlist, compile and visually inspect the paper, reproduce a clean smoke, and perform anonymity/secrets scans. | Pending |
@@ -243,14 +248,14 @@ the phases above.
 ## Immediate Next Step
 
 Complete P3: the fixed analysis plan, review-form template, passing three-probe
-route windows, and current-runner v5 Docker action calibrations now exist for
-glm-5.2 and deepseek-v4-pro. Kimi K2.7 Code failed 3/3 and is excluded, with
-five earlier HTTP 400 diagnostics and all window receipts retained. Obtain two
-retained outcome-blind admission reviews, audit their consensus, then seal the
-admitted case list, route manifests, calibration receipts, analysis plan,
-Docker image, runner hash, and deterministic schedule before one source-backed
-outcome is inspected. The complete-cohort analyzer is ready but must not be run
-against partial data.
+route windows, current-runner v5 Docker action calibrations, and all-platform
+CI evidence now exist for glm-5.2 and deepseek-v4-pro. Kimi K2.7 Code failed
+3/3 and is excluded, with five earlier HTTP 400 diagnostics and all window
+receipts retained. Obtain two retained outcome-blind admission reviews, audit
+their consensus, then seal the admitted case list, route manifests,
+calibration receipts, analysis plan, Docker image, runner hash, and
+deterministic schedule before one source-backed outcome is inspected. The
+complete-cohort analyzer is ready but must not be run against partial data.
 Do not collect new source-backed outcome labels before that freeze.
 
 Local Docker BuildKit itself is healthy, but the `node:22-bookworm-slim` base

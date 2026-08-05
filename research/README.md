@@ -90,7 +90,8 @@ transport windows passed for glm-5.2 and deepseek-v4-pro. Kimi K2.7 Code
 failed its whole fixed window and is excluded from this cohort; its earlier
 passing and failed diagnostics remain in the artifact ledger. The two stable
 routes passed current-runner Docker action calibrations with source edits and
-agent-requested verification.
+agent-requested verification; freeze now verifies and binds one explicitly
+labeled calibration receipt for each route.
 
 Next, obtain two independent outcome-blind reviews under
 CASE-REVIEW-FORM.md and audit their consensus. The current-runner action

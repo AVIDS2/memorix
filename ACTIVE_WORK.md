@@ -120,9 +120,12 @@ Two distinct deliverables are intentionally kept separate:
   not a submitted or accepted empirical paper.
 - The P3 controller now has outcome-blind review packets/forms, a consensus
   audit, immutable cohort freezing, a one-call ledger, and a fail-closed
-  complete-cohort analyzer. The analyzer refuses partial ledgers, receipt
-  drift, model substitution, and route or runner mismatches before producing
-  only sanitized aggregate data.
+  complete-cohort analyzer. Cohort freezing requires one current-runner,
+  Docker-backed, verified source-repair action calibration per retained route
+  and embeds each calibration hash beside its route. The analyzer refuses
+  partial ledgers, receipt drift, role confusion, model substitution, and
+  route, runner, or Docker-image mismatches before producing only sanitized
+  aggregate data.
 
 ### Frozen execution design
 
@@ -145,9 +148,11 @@ stale-conflict cases drawn from at least three permissively licensed external
 repositories. With the two stable frozen routes, three conditions, and three
 repetitions, the initial complete matrix is 162 planned rows. Kimi K2.7 Code
 failed its fixed three-probe route window and is excluded before freeze; its
-failed diagnostics remain retained. If a route cannot complete a source-backed
-action calibration, it is removed before the plan freezes rather than silently
-becoming a failed treatment row.
+failed diagnostics remain retained. Fresh v5 Docker action calibrations passed
+for both retained routes under the current runner: each changed source and made
+an agent-requested verification call. Their hashes are now a required input to
+freeze; a route that cannot complete that calibration is removed before the
+plan freezes rather than silently becoming a failed treatment row.
 
 Route labels are descriptive, never "weak" or "strong" vendor labels. The
 initial qualification candidates were OpenCode Go `glm-5.2`,
@@ -237,15 +242,15 @@ the phases above.
 
 ## Immediate Next Step
 
-Complete P3: the fixed analysis plan and review-form template now exist. The
-fixed three-probe route windows passed for glm-5.2 and deepseek-v4-pro. Kimi
-K2.7 Code failed 3/3 and is excluded, with five earlier HTTP 400 diagnostics
-and all window receipts retained. Obtain two retained outcome-blind admission
-reviews, audit their consensus, then seal the admitted case list, route
-manifests, Docker image ID, and cohort receipt. Fresh Docker action
-calibrations under the current runner-source hash passed for both stable routes
-after the final analyzer addition. The complete-cohort analyzer is ready but
-must not be run against partial data.
+Complete P3: the fixed analysis plan, review-form template, passing three-probe
+route windows, and current-runner v5 Docker action calibrations now exist for
+glm-5.2 and deepseek-v4-pro. Kimi K2.7 Code failed 3/3 and is excluded, with
+five earlier HTTP 400 diagnostics and all window receipts retained. Obtain two
+retained outcome-blind admission reviews, audit their consensus, then seal the
+admitted case list, route manifests, calibration receipts, analysis plan,
+Docker image, runner hash, and deterministic schedule before one source-backed
+outcome is inspected. The complete-cohort analyzer is ready but must not be run
+against partial data.
 Do not collect new source-backed outcome labels before that freeze.
 
 Local Docker BuildKit itself is healthy, but the `node:22-bookworm-slim` base

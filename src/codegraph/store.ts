@@ -1,9 +1,14 @@
 import { randomUUID } from 'node:crypto';
+import { posix as pathPosix } from 'node:path';
 import { getDatabase } from '../store/sqlite-db.js';
 import type {
   CodeEdge,
   CodeFile,
+  CodeGraphImpactSlice,
   CodeGraphStatus,
+  CodeStateDiff,
+  CodeStateFileChange,
+  CodeStateSnapshotFile,
   CodeStateScanCompleteness,
   CodeStateSnapshot,
   CodeStateSnapshotInput,
@@ -71,6 +76,41 @@ function rowToEdge(row: any): CodeEdge {
   } as CodeEdge;
 }
 
+function resolveRelativeImportTarget(
+  sourcePath: string,
+  evidence: string | undefined,
+  fileByPath: Map<string, CodeFile>,
+): CodeFile | undefined {
+  const target = evidence?.trim().replace(/\\/g, '/');
+  if (!target?.startsWith('.')) return undefined;
+  const base = normalizeCodePath(pathPosix.normalize(pathPosix.join(pathPosix.dirname(sourcePath), target)));
+  if (!base || base === '..' || base.startsWith('../')) return undefined;
+  const candidates = [base];
+  const extensionMatch = base.match(/(\.[A-Za-z0-9]+)$/);
+  const hasExtension = Boolean(extensionMatch);
+  if (!hasExtension) {
+    const extensions = [...new Set([...fileByPath.keys()]
+      .map(path => path.match(/(\.[A-Za-z0-9]+)$/)?.[1])
+      .filter((extension): extension is string => Boolean(extension)))];
+    for (const extension of extensions) {
+      candidates.push(`${base}${extension}`, `${base}/index${extension}`);
+    }
+  } else {
+    // Node ESM projects commonly import the emitted .js path from a .ts source.
+    // Keep an exact path first, then resolve only equivalent local source forms.
+    const sourceStem = base.slice(0, -extensionMatch![1].length);
+    const sourceExtensions = extensionMatch![1] === '.js'
+      ? ['.ts', '.tsx', '.js', '.jsx']
+      : extensionMatch![1] === '.mjs'
+        ? ['.mts', '.mjs']
+        : extensionMatch![1] === '.cjs'
+          ? ['.cts', '.cjs']
+          : [];
+    for (const extension of sourceExtensions) candidates.push(`${sourceStem}${extension}`);
+  }
+  return candidates.map(candidate => fileByPath.get(candidate)).find((file): file is CodeFile => Boolean(file));
+}
+
 function rowToRef(row: any): ObservationCodeRef {
   return {
     id: row.id,
@@ -132,6 +172,22 @@ function rowToSnapshot(row: any): CodeStateSnapshot {
     completeness: parseCompleteness(row.completenessJson),
     ...(row.previousSnapshotId ? { previousSnapshotId: row.previousSnapshotId } : {}),
   } as CodeStateSnapshot;
+}
+
+function rowToSnapshotFile(row: any): CodeStateSnapshotFile {
+  return {
+    snapshotId: row.snapshotId,
+    projectId: row.projectId,
+    fileId: row.fileId,
+    path: row.path,
+    contentHash: row.contentHash,
+  };
+}
+
+function snapshotIsIncomplete(snapshot: CodeStateSnapshot): boolean {
+  return snapshot.completeness.skippedOversizedFiles > 0
+    || (snapshot.completeness.unreadableFiles ?? 0) > 0
+    || snapshot.completeness.removalScanDeferred;
 }
 
 export class CodeGraphStore {
@@ -312,6 +368,7 @@ export class CodeGraphStore {
     });
 
     tx();
+    this.reconcileLocalImportTargets(projectId);
   }
 
   /**
@@ -329,7 +386,10 @@ export class CodeGraphStore {
     const changed = input.changed.filter((delta) => delta.file.projectId === projectId);
     const metadataOnly = (input.metadataOnly ?? []).filter((file) => file.projectId === projectId);
     const removedFileIds = input.removedFileIds ?? [];
-    if (changed.length === 0 && metadataOnly.length === 0 && removedFileIds.length === 0) return;
+    if (changed.length === 0 && metadataOnly.length === 0 && removedFileIds.length === 0) {
+      this.reconcileLocalImportTargets(projectId);
+      return;
+    }
 
     const staleRefsForFile = this.db.prepare(`
       UPDATE observation_code_refs
@@ -340,9 +400,18 @@ export class CodeGraphStore {
         )
       )
     `);
-    const deleteEdgesForFile = this.db.prepare(`
+    const deleteEdgesFromFile = this.db.prepare(`
       DELETE FROM code_edges
-      WHERE projectId = ? AND (fromFileId = ? OR toFileId = ?)
+      WHERE projectId = ? AND fromFileId = ?
+    `);
+    const clearImportTargetsForFile = this.db.prepare(`
+      UPDATE code_edges
+      SET toFileId = NULL
+      WHERE projectId = ? AND toFileId = ? AND type = 'imports'
+    `);
+    const deleteOtherIncomingEdgesForFile = this.db.prepare(`
+      DELETE FROM code_edges
+      WHERE projectId = ? AND toFileId = ? AND type != 'imports'
     `);
     const deleteSymbolsForFile = this.db.prepare(`DELETE FROM code_symbols WHERE projectId = ? AND fileId = ?`);
     const deleteFile = this.db.prepare(`DELETE FROM code_files WHERE projectId = ? AND id = ?`);
@@ -380,7 +449,9 @@ export class CodeGraphStore {
       const staleAt = new Date().toISOString();
       for (const fileId of removedFileIds) {
         staleRefsForFile.run(staleAt, projectId, fileId, projectId, fileId);
-        deleteEdgesForFile.run(projectId, fileId, fileId);
+        deleteEdgesFromFile.run(projectId, fileId);
+        clearImportTargetsForFile.run(projectId, fileId);
+        deleteOtherIncomingEdgesForFile.run(projectId, fileId);
         deleteSymbolsForFile.run(projectId, fileId);
         deleteFile.run(projectId, fileId);
       }
@@ -388,7 +459,9 @@ export class CodeGraphStore {
       for (const delta of changed) {
         const fileId = delta.file.id;
         staleRefsForFile.run(staleAt, projectId, fileId, projectId, fileId);
-        deleteEdgesForFile.run(projectId, fileId, fileId);
+        deleteEdgesFromFile.run(projectId, fileId);
+        clearImportTargetsForFile.run(projectId, fileId);
+        deleteOtherIncomingEdgesForFile.run(projectId, fileId);
         deleteSymbolsForFile.run(projectId, fileId);
         writeFile(delta.file);
 
@@ -429,6 +502,7 @@ export class CodeGraphStore {
       for (const file of metadataOnly) writeFile(file);
     });
     tx();
+    this.reconcileLocalImportTargets(projectId);
   }
 
   upsertObservationRefs(refs: ObservationCodeRef[]): void {
@@ -488,6 +562,26 @@ export class CodeGraphStore {
           updatedAt: ref.updatedAt ?? null,
           snapshotId: ref.snapshotId ?? this.latestSnapshot(ref.projectId)?.id ?? null,
         });
+      }
+    });
+    tx();
+  }
+
+  /**
+   * Lite import extraction records the original import text first. Resolve only
+   * local relative imports against the current index after each refresh, so an
+   * added or removed target cannot leave a fabricated file-to-file relation.
+   */
+  reconcileLocalImportTargets(projectId: string): void {
+    const fileById = new Map(this.listFiles(projectId).map(file => [file.id, file]));
+    const fileByPath = new Map([...fileById.values()].map(file => [file.path, file]));
+    const update = this.db.prepare('UPDATE code_edges SET toFileId = ? WHERE id = ?');
+    const tx = this.db.transaction(() => {
+      for (const edge of this.listEdges(projectId)) {
+        if (edge.type !== 'imports' || !edge.fromFileId) continue;
+        const source = fileById.get(edge.fromFileId);
+        const target = source ? resolveRelativeImportTarget(source.path, edge.evidence, fileByPath) : undefined;
+        update.run(target?.id ?? null, edge.id);
       }
     });
     tx();
@@ -577,6 +671,19 @@ export class CodeGraphStore {
     `).all(projectId).map(rowToRef);
   }
 
+  /** Count distinct observations whose binding to these exact files is stale. */
+  countStaleObservationRefsForFiles(projectId: string, fileIds: string[]): number {
+    const ids = [...new Set(fileIds.filter(Boolean))];
+    if (ids.length === 0) return 0;
+    const placeholders = ids.map(() => '?').join(', ');
+    const row = this.db.prepare(`
+      SELECT COUNT(DISTINCT observationId) AS count
+      FROM observation_code_refs
+      WHERE projectId = ? AND status = 'stale' AND fileId IN (${placeholders})
+    `).get(projectId, ...ids);
+    return Number(row?.count ?? 0);
+  }
+
   listReferencedSymbols(projectId: string): CodeSymbol[] {
     return this.db.prepare(`
       SELECT DISTINCT symbols.*
@@ -599,6 +706,100 @@ export class CodeGraphStore {
     return this.db.prepare(
       'SELECT * FROM code_state_snapshots WHERE projectId = ? ORDER BY sourceEpoch DESC LIMIT ?',
     ).all(projectId, safeLimit).map(rowToSnapshot);
+  }
+
+  listSnapshotFiles(snapshotId: string): CodeStateSnapshotFile[] {
+    return this.db.prepare(`
+      SELECT snapshotId, projectId, fileId, path, contentHash
+      FROM code_state_snapshot_files
+      WHERE snapshotId = ?
+      ORDER BY path
+    `).all(snapshotId).map(rowToSnapshotFile);
+  }
+
+  diffSnapshots(projectId: string, fromSnapshotId: string, toSnapshotId: string): CodeStateDiff {
+    const snapshots = this.db.prepare(`
+      SELECT * FROM code_state_snapshots WHERE id IN (?, ?)
+    `).all(fromSnapshotId, toSnapshotId).map(rowToSnapshot) as CodeStateSnapshot[];
+    if (snapshots.length !== 2) {
+      return { projectId, fromSnapshotId, toSnapshotId, available: false, reason: 'missing-snapshot', changes: [] };
+    }
+    if (snapshots.some(snapshot => snapshot.projectId !== projectId)) {
+      return { projectId, fromSnapshotId, toSnapshotId, available: false, reason: 'project-mismatch', changes: [] };
+    }
+    if (snapshots.some(snapshotIsIncomplete)) {
+      return { projectId, fromSnapshotId, toSnapshotId, available: false, reason: 'incomplete-snapshot', changes: [] };
+    }
+    const before = this.listSnapshotFiles(fromSnapshotId);
+    const after = this.listSnapshotFiles(toSnapshotId);
+    if (before.length === 0 || after.length === 0) {
+      return {
+        projectId,
+        fromSnapshotId,
+        toSnapshotId,
+        available: false,
+        reason: 'legacy-snapshot-without-manifest',
+        changes: [],
+      };
+    }
+    const beforeByPath = new Map(before.map(file => [file.path, file]));
+    const afterByPath = new Map(after.map(file => [file.path, file]));
+    const paths = [...new Set([...beforeByPath.keys(), ...afterByPath.keys()])].sort();
+    const changes: CodeStateFileChange[] = [];
+    for (const path of paths) {
+      const oldFile = beforeByPath.get(path);
+      const newFile = afterByPath.get(path);
+      if (!oldFile && newFile) {
+        changes.push({ path, kind: 'added', afterHash: newFile.contentHash });
+      } else if (oldFile && !newFile) {
+        changes.push({ path, kind: 'removed', beforeHash: oldFile.contentHash });
+      } else if (oldFile && newFile && oldFile.contentHash !== newFile.contentHash) {
+        changes.push({ path, kind: 'modified', beforeHash: oldFile.contentHash, afterHash: newFile.contentHash });
+      }
+    }
+    return { projectId, fromSnapshotId, toSnapshotId, available: true, changes };
+  }
+
+  impactSlice(projectId: string, changedPaths: string[], maxRelations = 24): CodeGraphImpactSlice {
+    const safeLimit = Number.isFinite(maxRelations) ? Math.max(1, Math.min(100, Math.floor(maxRelations))) : 24;
+    const normalizedPaths = [...new Set(changedPaths.map(normalizeCodePath).filter(Boolean))].sort();
+    const files = this.listFiles(projectId);
+    const fileById = new Map(files.map(file => [file.id, file.path]));
+    const fileIdBySymbolId = new Map(this.listSymbols(projectId).map(symbol => [symbol.id, symbol.fileId]));
+    const changedIds = new Set(files.filter(file => normalizedPaths.includes(file.path)).map(file => file.id));
+    const direct = new Set<string>();
+    let relationCount = 0;
+    let truncated = false;
+    for (const edge of this.listEdges(projectId)) {
+      const endpoints = [
+        edge.fromFileId,
+        edge.toFileId,
+        edge.fromSymbolId ? fileIdBySymbolId.get(edge.fromSymbolId) : undefined,
+        edge.toSymbolId ? fileIdBySymbolId.get(edge.toSymbolId) : undefined,
+      ].filter((id): id is string => Boolean(id));
+      if (!endpoints.some(id => changedIds.has(id))) continue;
+      const relatedPaths = endpoints
+        .filter(id => !changedIds.has(id))
+        .map(id => fileById.get(id))
+        .filter((path): path is string => Boolean(path));
+      if (relatedPaths.length === 0) continue;
+      if (relationCount >= safeLimit) {
+        truncated = true;
+        break;
+      }
+      relationCount += 1;
+      for (const path of relatedPaths) direct.add(path);
+    }
+    const snapshot = this.latestSnapshot(projectId);
+    return {
+      projectId,
+      ...(snapshot ? { snapshotId: snapshot.id } : {}),
+      changedPaths: normalizedPaths,
+      directlyConnectedPaths: [...direct].sort(),
+      relationCount,
+      truncated,
+      provider: snapshot?.provider ?? 'lite',
+    };
   }
 
   /**
@@ -642,6 +843,16 @@ export class CodeGraphStore {
       this.db.prepare(
         "UPDATE observation_code_refs SET snapshotId = ? WHERE projectId = ? AND status = 'current'",
       ).run(id, input.projectId);
+      const snapshotFileRows = this.db.prepare(`
+        SELECT id, projectId, path, contentHash FROM code_files WHERE projectId = ? ORDER BY path
+      `).all(input.projectId) as Array<{ id: string; projectId: string; path: string; contentHash: string }>;
+      const insertSnapshotFile = this.db.prepare(`
+        INSERT INTO code_state_snapshot_files (snapshotId, projectId, fileId, path, contentHash)
+        VALUES (?, ?, ?, ?, ?)
+      `);
+      for (const file of snapshotFileRows) {
+        insertSnapshotFile.run(id, file.projectId, file.id, file.path, file.contentHash);
+      }
       snapshot = {
         ...input,
         id,

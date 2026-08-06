@@ -160,6 +160,42 @@ describe('auto project context', () => {
     expect(summary).toContain('Release verification procedure');
   });
 
+  it('adds a bounded exact code-evolution card only when continuing across complete snapshots', async () => {
+    const project = { id: 'local/repo', name: 'repo', rootPath: repoDir };
+    await storeObservation({
+      entityName: 'auth',
+      type: 'decision',
+      title: 'Authentication middleware behavior',
+      narrative: 'authMiddleware in src/auth.ts checks active tokens.',
+      filesModified: ['src/auth.ts'],
+      projectId: project.id,
+    });
+    await buildAutoProjectContext({
+      project,
+      dataDir,
+      observations: getAllObservations(),
+      refresh: 'always',
+      task: 'continue auth work',
+    });
+    writeFileSync(path.join(repoDir, 'src', 'auth.ts'), 'export function authMiddleware(token: string) { return token === "active"; }\n', 'utf8');
+    const continuation = await buildAutoProjectContext({
+      project,
+      dataDir,
+      observations: getAllObservations(),
+      refresh: 'always',
+      continuation: 'always',
+      task: 'continue auth work',
+    });
+
+    expect(continuation.workset.codeEvolution).toMatchObject({
+      changes: expect.arrayContaining([expect.objectContaining({ path: 'src/auth.ts', kind: 'modified' })]),
+      affectedMemoryCount: 1,
+    });
+    expect(formatAutoProjectContextPrompt(continuation)).toContain('Code changes since prior scan');
+    expect(formatAutoProjectContextPrompt(continuation)).toContain('modified: src/auth.ts');
+    expect(formatAutoProjectContextPrompt(continuation)).toContain('stored memory link(s) reference this changed code');
+  });
+
   it('does not source an unqualified automatic capture in an agent brief', async () => {
     await storeObservation({
       entityName: 'auth',

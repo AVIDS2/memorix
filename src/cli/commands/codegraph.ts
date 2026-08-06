@@ -58,10 +58,50 @@ function formatUsageHint(): string {
     'Usage:',
     '  memorix codegraph refresh',
     '  memorix codegraph status --json',
+    '  memorix codegraph diff [--from <snapshot>] [--to <snapshot>]',
+    '  memorix codegraph impact --path <relative-source-path>',
     '  memorix codegraph context-pack --task "continue auth bug"',
     '',
     'Tip: use `memorix context "..."` for new work or `memorix resume "..."` for prior work.',
   ].join('\n');
+}
+
+function formatDiff(diff: ReturnType<CodeGraphStore['diffSnapshots']>, impact: ReturnType<CodeGraphStore['impactSlice']>): string {
+  if (!diff.available) {
+    return `CodeGraph diff is unavailable: ${diff.reason ?? 'unknown reason'}. Refresh twice to establish comparable snapshots.`;
+  }
+  const summary = diff.changes.reduce((counts, change) => {
+    counts[change.kind] += 1;
+    return counts;
+  }, { added: 0, modified: 0, removed: 0 });
+  const lines = [
+    `CodeGraph diff: ${diff.fromSnapshotId} -> ${diff.toSnapshotId}`,
+    `- Changed files: ${diff.changes.length} (${summary.added} added, ${summary.modified} modified, ${summary.removed} removed)`,
+  ];
+  for (const change of diff.changes.slice(0, 20)) lines.push(`- ${change.kind}: ${change.path}`);
+  if (diff.changes.length > 20) lines.push(`- ${diff.changes.length - 20} additional file change(s) omitted`);
+  if (impact.directlyConnectedPaths.length > 0) {
+    lines.push('', 'Current one-hop structural impact');
+    for (const path of impact.directlyConnectedPaths.slice(0, 20)) lines.push(`- ${path}`);
+  }
+  if (impact.relationCount === 0) lines.push('', 'No current file-edge relation was found for the changed paths.');
+  if (impact.truncated) lines.push('- Impact relation limit reached; inspect the graph before assuming coverage.');
+  return lines.join('\n');
+}
+
+function formatImpact(impact: ReturnType<CodeGraphStore['impactSlice']>): string {
+  const lines = [
+    `CodeGraph current one-hop impact: ${impact.changedPaths.join(', ')}`,
+    `- Relations inspected: ${impact.relationCount}`,
+  ];
+  if (impact.directlyConnectedPaths.length > 0) {
+    lines.push('- Directly connected paths:');
+    for (const path of impact.directlyConnectedPaths) lines.push(`  - ${path}`);
+  } else {
+    lines.push('- No current file-edge relation was found for this indexed path.');
+  }
+  if (impact.truncated) lines.push('- Impact relation limit reached; inspect the graph before assuming coverage.');
+  return lines.join('\n');
 }
 
 function compactFacts(project: { rootPath: string }): { facts: string[]; dirty: boolean } {
@@ -82,9 +122,13 @@ export default defineCommand({
     description: 'Inspect and refresh CodeGraph Memory for the current project',
   },
   args: {
-    action: { type: 'string', description: 'Action: status, refresh, or context-pack' },
+    action: { type: 'string', description: 'Action: status, refresh, diff, impact, or context-pack' },
     task: { type: 'string', description: 'Task text for context-pack' },
+    path: { type: 'string', description: 'Indexed relative source path for impact' },
     limit: { type: 'string', description: 'Max active memories to inspect for context-pack' },
+    from: { type: 'string', description: 'Earlier CodeGraph snapshot id for diff' },
+    to: { type: 'string', description: 'Later CodeGraph snapshot id for diff' },
+    impactLimit: { type: 'string', description: 'Maximum graph relations to inspect for diff impact' },
     json: { type: 'boolean', description: 'Emit machine-readable JSON output' },
   },
   run: async ({ args }) => {
@@ -162,6 +206,43 @@ export default defineCommand({
           return;
         }
 
+        case 'diff': {
+          const snapshots = store.listSnapshots(project.id, 2);
+          const fromSnapshotId = (args.from as string | undefined)?.trim() || snapshots[1]?.id;
+          const toSnapshotId = (args.to as string | undefined)?.trim() || snapshots[0]?.id;
+          if (!fromSnapshotId || !toSnapshotId) {
+            emitError('two completed CodeGraph snapshots are required; run "memorix codegraph refresh" again after a code change.', asJson);
+            return;
+          }
+          const diff = store.diffSnapshots(project.id, fromSnapshotId, toSnapshotId);
+          const impact = store.impactSlice(
+            project.id,
+            diff.changes.map(change => change.path),
+            parsePositiveInt(args.impactLimit as string | undefined, 24),
+          );
+          emitResult({ project, diff, impact }, formatDiff(diff, impact), asJson);
+          return;
+        }
+
+        case 'impact': {
+          const sourcePath = (args.path as string | undefined)?.trim() || positional.slice(1).join(' ').trim();
+          if (!sourcePath) {
+            emitError('path is required for "memorix codegraph impact"', asJson);
+            return;
+          }
+          if (!store.getFile(project.id, sourcePath)) {
+            emitError(`path is not in the current CodeGraph index: ${sourcePath}. Run "memorix codegraph refresh" and retry.`, asJson);
+            return;
+          }
+          const impact = store.impactSlice(
+            project.id,
+            [sourcePath],
+            parsePositiveInt(args.impactLimit as string | undefined, 24),
+          );
+          emitResult({ project, impact }, formatImpact(impact), asJson);
+          return;
+        }
+
         case 'context-pack': {
           const task = (args.task as string | undefined)?.trim() || positional.slice(1).join(' ').trim();
           if (!task) {
@@ -224,7 +305,7 @@ export default defineCommand({
         }
 
         default:
-          emitError(`unknown codegraph action "${action}". Use "status", "refresh", or "context-pack".`, asJson);
+          emitError(`unknown codegraph action "${action}". Use "status", "refresh", "diff", "impact", or "context-pack".`, asJson);
       }
     } catch (error) {
       emitError(error instanceof Error ? error.message : String(error), asJson);

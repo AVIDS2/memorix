@@ -321,6 +321,18 @@ const CREATE_CODE_STATE_SNAPSHOTS_TABLE = [
   ');',
 ].join('\n');
 
+const CREATE_CODE_STATE_SNAPSHOT_FILES_TABLE = [
+  'CREATE TABLE IF NOT EXISTS code_state_snapshot_files (',
+  '  snapshotId  TEXT NOT NULL,',
+  '  projectId   TEXT NOT NULL,',
+  '  fileId      TEXT NOT NULL,',
+  '  path        TEXT NOT NULL,',
+  '  contentHash TEXT NOT NULL,',
+  '  PRIMARY KEY (snapshotId, path),',
+  '  FOREIGN KEY (snapshotId) REFERENCES code_state_snapshots(id) ON DELETE CASCADE',
+  ');',
+].join('\n');
+
 // ── 1.2 Knowledge Claim Ledger ──────────────────────────────────────
 
 const CREATE_KNOWLEDGE_CLAIMS_TABLE = `
@@ -550,6 +562,22 @@ CREATE TABLE IF NOT EXISTS long_term_memory_events (
   detail      TEXT,
   createdAt   TEXT NOT NULL,
   FOREIGN KEY (memoryId) REFERENCES long_term_memories(id) ON DELETE CASCADE
+);
+`;
+
+// ── 1.4 Evidence-governed memory ───────────────────────────────────
+
+const CREATE_MEMORY_OUTCOME_SIGNALS_TABLE = `
+CREATE TABLE IF NOT EXISTS memory_outcome_signals (
+  id            TEXT PRIMARY KEY,
+  projectId     TEXT NOT NULL,
+  candidateKind TEXT NOT NULL,
+  candidateId   TEXT NOT NULL,
+  kind          TEXT NOT NULL,
+  sourceRef     TEXT NOT NULL,
+  snapshotId    TEXT,
+  detail        TEXT,
+  observedAt    TEXT NOT NULL
 );
 `;
 
@@ -824,6 +852,20 @@ const SCHEMA_MIGRATIONS: SchemaMigration[] = [
       db.exec('CREATE INDEX IF NOT EXISTS idx_code_files_snapshot ON code_files(projectId, snapshotId)');
       db.exec('CREATE INDEX IF NOT EXISTS idx_code_symbols_snapshot ON code_symbols(projectId, snapshotId)');
       db.exec('CREATE INDEX IF NOT EXISTS idx_code_edges_snapshot ON code_edges(projectId, snapshotId)');
+    },
+  },
+  {
+    id: '1.4-codegraph-snapshot-manifest',
+    apply: (db) => {
+      db.exec(CREATE_CODE_STATE_SNAPSHOT_FILES_TABLE);
+      db.exec('CREATE INDEX IF NOT EXISTS idx_code_snapshot_files_project_path ON code_state_snapshot_files(projectId, path)');
+    },
+  },
+  {
+    id: '1.4-memory-outcome-signals',
+    apply: (db) => {
+      db.exec(CREATE_MEMORY_OUTCOME_SIGNALS_TABLE);
+      db.exec('CREATE INDEX IF NOT EXISTS idx_memory_outcomes_candidate ON memory_outcome_signals(projectId, candidateKind, candidateId, observedAt DESC)');
     },
   },
   {

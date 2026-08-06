@@ -302,6 +302,7 @@ function providerQuality(input: {
       capabilities: {
         declarations: true,
         importHints: true,
+        localRelativeImportTargets: true,
         resolvedRelations: false,
         exactLocations: false,
       },

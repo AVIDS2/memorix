@@ -43,6 +43,22 @@ export interface ContextReceiptOmission {
   count: number;
 }
 
+export interface ContextReceiptGovernanceDecision {
+  kind: ContextCandidateKind;
+  id?: string;
+  disposition: 'include' | 'compact' | 'defer' | 'exclude';
+  reasons: string[];
+}
+
+/** Privacy-safe evidence qualification, never appended to the agent prompt. */
+export interface ContextReceiptGovernance {
+  /** Current implementation qualifies optional memory/knowledge, not caller task facts. */
+  scope: 'optional-evidence';
+  mode: 'abstain' | 'card' | 'workset';
+  decisions: ContextReceiptGovernanceDecision[];
+  cautions: string[];
+}
+
 export interface ContextReceipt {
   version: '1.3';
   target: ContextDeliveryTarget;
@@ -53,6 +69,7 @@ export interface ContextReceipt {
   };
   selected: ContextReceiptSelection[];
   omitted: ContextReceiptOmission[];
+  governance?: ContextReceiptGovernance;
   scheduledActions: string[];
 }
 
@@ -89,6 +106,14 @@ export function formatContextReceipt(receipt: ContextReceipt): string {
     lines.push('', 'Withheld by budget');
     for (const item of receipt.omitted) {
       lines.push(`- ${item.kind}: ${item.count} item(s) (${item.reason})`);
+    }
+  }
+
+  if (receipt.governance?.decisions.length) {
+    lines.push('', 'Optional evidence qualification');
+    for (const item of receipt.governance.decisions.slice(0, 20)) {
+      const id = item.id ? ` ${item.id}` : '';
+      lines.push(`- ${item.kind}${id}: ${item.disposition} (${item.reasons.join(', ')})`);
     }
   }
 

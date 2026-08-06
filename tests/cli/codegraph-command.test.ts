@@ -109,7 +109,53 @@ describe('codegraph CLI command', () => {
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain('Usage:');
     expect(result.stdout).toContain('memorix codegraph refresh');
+    expect(result.stdout).toContain('memorix codegraph diff');
+    expect(result.stdout).toContain('memorix codegraph impact --path');
     expect(result.stdout).toContain('memorix codegraph context-pack --task');
+  });
+
+  it('compares the last two refreshes and reports bounded current graph impact', async () => {
+    await runCommand({ _: ['refresh'], json: true });
+    writeFileSync(path.join(repoDir, 'src', 'auth.ts'), [
+      "import { verifyJwt } from './jwt';",
+      'export function authMiddleware(token: string) { return verifyJwt(token) && token !== "revoked"; }',
+      '',
+    ].join('\n'), 'utf8');
+    await runCommand({ _: ['refresh'], json: true });
+
+    const result = await runCommand({ _: ['diff'], json: true });
+    expect(result.exitCode).toBe(0);
+    const parsed = JSON.parse(result.stdout);
+    expect(parsed.diff).toMatchObject({
+      available: true,
+      changes: expect.arrayContaining([
+        expect.objectContaining({ path: 'src/auth.ts', kind: 'modified' }),
+      ]),
+    });
+    expect(parsed.impact).toMatchObject({ changedPaths: ['src/auth.ts'] });
+  });
+
+  it('shows bounded current graph impact for one indexed source path', async () => {
+    await runCommand({ _: ['refresh'], json: true });
+
+    const result = await runCommand({ _: ['impact'], path: 'src/auth.ts', impactLimit: '1', json: true });
+
+    expect(result.exitCode).toBe(0);
+    expect(JSON.parse(result.stdout).impact).toMatchObject({
+      changedPaths: ['src/auth.ts'],
+      directlyConnectedPaths: ['src/jwt.ts'],
+      relationCount: 1,
+      truncated: false,
+    });
+  });
+
+  it('does not claim no impact when the source path has not been indexed', async () => {
+    await runCommand({ _: ['refresh'], json: true });
+
+    const result = await runCommand({ _: ['impact'], path: 'src/missing.ts', json: true });
+
+    expect(result.exitCode).toBe(1);
+    expect(JSON.parse(result.stderr).error).toContain('not in the current CodeGraph index');
   });
 
   it('keeps explicit text status output focused on status only', async () => {

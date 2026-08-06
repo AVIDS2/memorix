@@ -16,6 +16,7 @@ import {
 } from '../../src/knowledge/workflows.js';
 import type { WorkflowSpec } from '../../src/knowledge/workflow-types.js';
 import { closeAllDatabases } from '../../src/store/sqlite-db.js';
+import { OutcomeStore } from '../../src/knowledge/outcome-store.js';
 
 let root: string | null = null;
 
@@ -254,6 +255,37 @@ describe('Workflow Inheritance', () => {
       task: 'What is the capital of France?',
     });
     expect(unrelated.selections).toHaveLength(0);
+  });
+
+  it('records workflow verification as append-only evidence for selected context artifacts', async () => {
+    const sandbox = tempRoot();
+    const dataDir = path.join(sandbox, 'data');
+    const workspace = await initializeKnowledgeWorkspace({ projectId: 'org/repo', dataDir, mode: 'local' });
+    const release = await writeCanonicalWorkflow({
+      workspace,
+      workflow: workflow(workspace.id, 'workflow:release', 'Release', ['release'], '## Verify\n\nRun the package smoke.'),
+    });
+    const run = await recordWorkflowRun({
+      workspace,
+      run: {
+        workflowId: release.id,
+        projectId: 'org/repo',
+        task: 'Publish the release.',
+        outcome: 'failed',
+        verificationVerdict: 'failed',
+        failureReason: 'Package smoke failed.',
+        selectedEvidence: ['claim:claim-a', 'durable:memory-a'],
+      },
+    });
+    const outcomes = new OutcomeStore();
+    await outcomes.init(dataDir);
+    expect(outcomes.latestForCandidates('org/repo', 'claim', ['claim-a']).get('claim-a')).toMatchObject({
+      kind: 'verification-failed',
+      sourceRef: 'workflow-run:' + run.id,
+    });
+    expect(outcomes.latestForCandidates('org/repo', 'durable-memory', ['memory-a']).get('memory-a')).toMatchObject({
+      kind: 'verification-failed',
+    });
   });
 
   it('previews and applies only Memorix-owned adapters, preserving user project files', async () => {

@@ -2,6 +2,7 @@ import {
   generateImages,
   getImageModel,
   type ImageContent,
+  type ImagesInputContent,
 } from '@memorix/ai';
 
 import { sanitizeCredentials } from '../memory/secret-filter.js';
@@ -32,6 +33,7 @@ export interface MiniMaxImageGenerationInput {
   height?: number;
   seed?: number;
   promptOptimizer?: boolean;
+  subjectImages?: Array<{ data: string; mimeType: string }>;
   timeoutMs?: number;
   maxBytes?: number;
 }
@@ -79,6 +81,7 @@ export interface MiniMaxImageGenerator {
     height?: number;
     seed?: number;
     promptOptimizer?: boolean;
+    subjectImages?: Array<{ data: string; mimeType: string }>;
     timeoutMs: number;
   }): Promise<{ responseId?: string; output: ImageContent[] }>;
 }
@@ -322,9 +325,13 @@ const defaultImageGenerator: MiniMaxImageGenerator = async (input) => {
   const model = getImageModel(input.provider, input.model);
   if (!model) throw new Error(`MiniMax image model is not registered: ${input.model}`);
   const configuredModel = input.baseUrl ? { ...model, baseUrl: input.baseUrl } : model;
+  const content: ImagesInputContent[] = [
+    ...(input.subjectImages ?? []).map((image) => ({ type: 'image' as const, data: image.data, mimeType: image.mimeType })),
+    { type: 'text' as const, text: input.prompt },
+  ];
   const response = await generateImages(
     configuredModel,
-    { input: [{ type: 'text', text: input.prompt }] },
+    { input: content },
     {
       apiKey: input.apiKey,
       timeoutMs: input.timeoutMs,
@@ -383,6 +390,7 @@ export async function generateMiniMaxImages(
       ...(input.height !== undefined ? { height: input.height } : {}),
       ...(input.seed !== undefined ? { seed: input.seed } : {}),
       ...(input.promptOptimizer !== undefined ? { promptOptimizer: input.promptOptimizer } : {}),
+      ...(input.subjectImages !== undefined && input.subjectImages.length > 0 ? { subjectImages: input.subjectImages } : {}),
       timeoutMs,
     });
   } catch (error) {

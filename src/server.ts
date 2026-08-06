@@ -4986,6 +4986,18 @@ export async function createMemorixServer(
       return { content: [{ type: 'text' as const, text: lines.filter(Boolean).join('\n') }] };
     },
   );
+  function matchesImagePrefix(bytes: Uint8Array, prefix: number[]): boolean {
+    return prefix.every((byte, index) => bytes[index] === byte);
+  }
+
+  function detectReferenceImageMimeType(bytes: Uint8Array): string | undefined {
+    if (bytes.length >= 8 && matchesImagePrefix(bytes, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) return 'image/png';
+    if (bytes.length >= 3 && matchesImagePrefix(bytes, [0xff, 0xd8, 0xff])) return 'image/jpeg';
+    if (bytes.length >= 6 && (Buffer.from(bytes.subarray(0, 6)).toString('ascii') === 'GIF87a' || Buffer.from(bytes.subarray(0, 6)).toString('ascii') === 'GIF89a')) return 'image/gif';
+    if (bytes.length >= 12 && Buffer.from(bytes.subarray(0, 4)).toString('ascii') === 'RIFF' && Buffer.from(bytes.subarray(8, 12)).toString('ascii') === 'WEBP') return 'image/webp';
+    return undefined;
+  }
+
   server.registerTool(
     'memorix_media',
     {
@@ -5005,6 +5017,7 @@ export async function createMemorixServer(
         title: z.string().optional().describe('Observation title when attaching generated/imported output.'),
         narrative: z.string().optional().describe('Short retrieval text when attaching an asset.'),
         prompt: z.string().optional().describe('Explicit MiniMax generation prompt.'),
+        image: z.string().optional().describe('Base64-encoded reference image for image-to-image generation.'),
         model: z.enum(['image-01', 'image-01-live', 'MiniMax-H3']).optional().describe('MiniMax image or video model.'),
         region: z.enum(['global', 'cn']).optional().describe('MiniMax deployment region.'),
         n: z.number().int().min(1).max(4).optional().describe('Image output count.'),
@@ -5015,7 +5028,7 @@ export async function createMemorixServer(
         attach: z.boolean().optional().describe('Attach generated/imported output to normal project memory explicitly.'),
       },
     },
-    async ({ action, path: assetPath, assetId, jobId, kind, limit, title, narrative, prompt, model, region, n, ratio, width, height, duration, attach }) => {
+    async ({ action, path: assetPath, assetId, jobId, kind, limit, title, narrative, prompt, image, model, region, n, ratio, width, height, duration, attach }) => {
       const unresolved = requireResolvedProject('manage controlled media');
       if (unresolved) return unresolved;
       const safeError = (error: unknown) => sanitizeCredentials(
@@ -5110,6 +5123,14 @@ export async function createMemorixServer(
               ? ratio
               : undefined;
           if (ratio && !imageRatio) throw new Error('generate-image received an unsupported aspect ratio');
+          let subjectImages: Array<{ data: string; mimeType: string }> | undefined;
+          if (image?.trim()) {
+            const { decodeBase64ImagePayload } = await import('./multimodal/image-payload.js');
+            const bytes = decodeBase64ImagePayload(image);
+            const mimeType = detectReferenceImageMimeType(bytes);
+            if (!mimeType) throw new Error('Reference image must be a PNG, JPEG, GIF, or WebP image');
+            subjectImages = [{ data: bytes.toString('base64'), mimeType }];
+          }
           const { generateMiniMaxImages } = await import('./media/minimax.js');
           const generated = await generateMiniMaxImages({
             dataDir: projectDir,
@@ -5121,6 +5142,7 @@ export async function createMemorixServer(
             aspectRatio: imageRatio,
             width,
             height,
+            subjectImages,
           });
           const observations = attach === true
             ? await Promise.all(generated.assets.map(({ asset }) => attachAsset(

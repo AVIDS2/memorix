@@ -1,4 +1,5 @@
 import { defineCommand } from 'citty';
+import { readFile } from 'node:fs/promises';
 
 import { loadDotenv } from '../../config/dotenv-loader.js';
 import { attachMediaAssetToObservation } from '../../media/attachment.js';
@@ -53,6 +54,26 @@ function parseOptionalInteger(value: unknown, label: string, minimum: number, ma
     throw new Error(`${label} must be a whole number between ${minimum} and ${maximum}`);
   }
   return parsed;
+}
+
+function matchesImagePrefix(bytes: Buffer, prefix: number[]): boolean {
+  return prefix.every((byte, index) => bytes[index] === byte);
+}
+
+function detectReferenceImageMimeType(bytes: Buffer): string | undefined {
+  if (bytes.length >= 8 && matchesImagePrefix(bytes, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) return 'image/png';
+  if (bytes.length >= 3 && matchesImagePrefix(bytes, [0xff, 0xd8, 0xff])) return 'image/jpeg';
+  if (bytes.length >= 6 && (bytes.subarray(0, 6).toString('ascii') === 'GIF87a' || bytes.subarray(0, 6).toString('ascii') === 'GIF89a')) return 'image/gif';
+  if (bytes.length >= 12 && bytes.subarray(0, 4).toString('ascii') === 'RIFF' && bytes.subarray(8, 12).toString('ascii') === 'WEBP') return 'image/webp';
+  return undefined;
+}
+
+async function readSubjectImage(filePath: string): Promise<{ data: string; mimeType: string }> {
+  const bytes = await readFile(filePath);
+  if (bytes.length === 0) throw new Error(`Reference image is empty: ${filePath}`);
+  const mimeType = detectReferenceImageMimeType(bytes);
+  if (!mimeType) throw new Error('Reference image must be a PNG, JPEG, GIF, or WebP file');
+  return { data: bytes.toString('base64'), mimeType };
 }
 
 function parseAspectRatio(value: unknown): MiniMaxImageGenerationInput['aspectRatio'] | undefined {
@@ -114,7 +135,7 @@ function help(): string {
     '  memorix media attach --asset <asset-id> [--title "Architecture"] [--text "..."]',
     '  memorix media embed --asset <asset-id>',
     '  memorix media similar --asset <asset-id> [--limit 10]',
-    '  memorix media generate image --prompt "..." [--model image-01] [--attach]',
+    '  memorix media generate image --prompt "..." [--model image-01] [--image ./reference.png] [--attach]',
     '  memorix media generate video --prompt "..." [--model MiniMax-H3] [--duration 5] [--ratio 16:9] [--attach]',
     '  memorix media status --job <media-job-id>',
     '  memorix media cancel --job <media-job-id>',
@@ -141,6 +162,7 @@ export default defineCommand({
     concepts: { type: 'string', description: 'Comma-separated concepts when attaching' },
     visibility: { type: 'string', description: 'Observation visibility when attaching' },
     prompt: { type: 'string', description: 'Generation prompt' },
+    image: { type: 'string', description: 'Path to a reference image for image-to-image generation' },
     model: { type: 'string', description: 'Provider model' },
     region: { type: 'string', description: 'MiniMax region: global or cn' },
     n: { type: 'string', description: 'Generated image count (1-4)' },
@@ -211,6 +233,10 @@ export default defineCommand({
             );
             return;
           }
+          const referenceImagePath = getValue(args.image);
+          const subjectImages = referenceImagePath
+            ? [await readSubjectImage(referenceImagePath)]
+            : undefined;
           const generated = await generateMiniMaxImages({
             dataDir,
             projectId: project.id,
@@ -223,6 +249,7 @@ export default defineCommand({
             height: parseOptionalInteger(args.height, 'height', 1, 8_192),
             seed: parseOptionalInteger(args.seed, 'seed', 0, 2_147_483_647),
             promptOptimizer: args.promptOptimizer === true || args['prompt-optimizer'] === true,
+            subjectImages,
             maxBytes: parseByteLimit(args.maxBytes ?? args['max-bytes'], 100 * 1024 * 1024),
           });
           const observations = args.attach === true

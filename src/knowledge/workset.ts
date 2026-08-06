@@ -5,8 +5,11 @@ import { selectClaimsForTask } from './claims.js';
 import { KnowledgeWorkspaceStore } from './workspace-store.js';
 import { loadKnowledgeWorkspace } from './workspace.js';
 import { WorkflowStore } from './workflow-store.js';
+import { OutcomeStore } from './outcome-store.js';
+import { qualityFromOutcome, type OutcomeQuality } from './outcome-types.js';
 import { selectWorkflows } from './workflows.js';
 import { renderLongTermMemorySummary, selectLongTermMemoriesForTask } from '../memory/long-term.js';
+import { governContextCandidates, type GovernancePlan } from './governor.js';
 import type {
   ContextCandidateFreshness,
   ContextCandidateKind,
@@ -86,6 +89,7 @@ export interface WorksetLongTermMemory {
   kind: LongTermMemory['kind'];
   scope: LongTermMemory['scope'];
   state: LongTermMemory['state'];
+  quality: OutcomeQuality;
   title: string;
   summary: string;
   evidenceRefs: string[];
@@ -117,6 +121,17 @@ export interface WorksetContinuation {
   };
 }
 
+/** A small, exact file-level delta between the two latest complete Code State snapshots. */
+export interface WorksetCodeEvolution {
+  fromSnapshotId: string;
+  toSnapshotId: string;
+  changes: Array<{ path: string; kind: 'added' | 'modified' | 'removed' }>;
+  directlyConnectedPaths: string[];
+  /** Current stale memory bindings directly tied to the changed file paths. */
+  affectedMemoryCount?: number;
+  truncated: boolean;
+}
+
 export interface TaskWorkset {
   version: '1.3';
   task: string;
@@ -124,6 +139,7 @@ export interface TaskWorkset {
   currentFacts: string[];
   continuation?: WorksetContinuation;
   codeState?: string;
+  codeEvolution?: WorksetCodeEvolution;
   startHere: string[];
   /** Bounded task-specific relations from a validated local semantic graph. */
   semanticCode?: ExternalCodeGraphOutline;
@@ -161,6 +177,7 @@ export interface BuildTaskWorksetInput {
   currentFacts?: string[];
   continuation?: WorksetContinuation;
   codeState?: string;
+  codeEvolution?: WorksetCodeEvolution;
   startHere: string[];
   semanticCode?: ExternalCodeGraphOutline;
   providerQuality?: CodeGraphProviderQuality;
@@ -258,7 +275,7 @@ function pageMatchesClaim(page: KnowledgePageRecord, claimIds: Set<string>): boo
     && page.claimIds.some(claimId => claimIds.has(claimId));
 }
 
-function evidenceIdsForClaim(claim: KnowledgeClaim, evidence: ClaimEvidenceRef[]): string[] {
+function evidenceIdsForClaim(claim: Pick<KnowledgeClaim, 'id'>, evidence: ClaimEvidenceRef[]): string[] {
   return unique([
     'claim:' + claim.id,
     ...evidence.map(item => item.evidenceKind + ':' + item.evidenceId),
@@ -351,6 +368,87 @@ function scheduledActions(cautions: WorksetCaution[]): string[] {
   return cautions
     .filter(caution => caution.kind === 'codegraph-refresh-queued')
     .map(caution => short(caution.message, 28));
+}
+
+function isGovernedDelivery(disposition: GovernancePlan['decisions'][number]['disposition']): boolean {
+  return disposition === 'include' || disposition === 'compact';
+}
+
+/**
+ * Optional knowledge is where stale or over-confident context does the most
+ * harm. Qualify it before prompt rendering; current project facts and cautions
+ * remain visible so the agent can still inspect live source.
+ */
+function governOptionalArtifacts(input: {
+  reliableMemory: WorksetMemorySource[];
+  claims: WorksetClaim[];
+  durableMemory: WorksetLongTermMemory[];
+  workflows: WorksetWorkflow[];
+}): {
+  plan: GovernancePlan;
+  reliableMemory: WorksetMemorySource[];
+  claims: WorksetClaim[];
+  durableMemory: WorksetLongTermMemory[];
+  workflows: WorksetWorkflow[];
+} {
+  const candidates = [
+    ...input.reliableMemory.map((memory, index) => ({
+      kind: 'memory' as const,
+      id: 'memory:' + memory.id,
+      estimatedTokens: 10,
+      relevance: Math.max(0.2, 0.9 - index * 0.1),
+      scopeAllowed: true,
+      freshness: freshnessForMemory(memory.status),
+      trust: 'historical' as const,
+      quality: memory.status === 'current' ? 'verified' as const : 'degraded' as const,
+    })),
+    ...input.claims.map((claim, index) => ({
+      kind: 'claim' as const,
+      id: 'claim:' + claim.id,
+      estimatedTokens: 12,
+      relevance: Math.max(0.2, 0.95 - index * 0.1),
+      scopeAllowed: true,
+      freshness: claim.status === 'active' ? 'current' as const : 'unknown' as const,
+      trust: 'source-backed' as const,
+      quality: claim.reviewState === 'approved' ? 'verified' as const : 'probationary' as const,
+      conflict: claim.status === 'disputed' ? 'confirmed' as const : 'none' as const,
+      evidenceCount: claim.evidenceRefs.length,
+    })),
+    ...input.durableMemory.map((memory, index) => ({
+      kind: 'durable-memory' as const,
+      id: 'durable:' + memory.id,
+      estimatedTokens: 14,
+      relevance: Math.max(0.2, 0.8 - index * 0.1),
+      scopeAllowed: true,
+      freshness: memory.state === 'approved' ? 'current' as const : 'unknown' as const,
+      trust: 'source-backed' as const,
+      quality: memory.quality,
+      evidenceCount: memory.evidenceRefs.length,
+    })),
+    ...input.workflows.map((workflow, index) => ({
+      kind: 'workflow' as const,
+      id: 'workflow:' + workflow.id,
+      estimatedTokens: 14,
+      relevance: Math.max(0.2, 0.85 - index * 0.1),
+      scopeAllowed: true,
+      freshness: 'current' as const,
+      trust: 'source-backed' as const,
+      quality: 'verified' as const,
+    })),
+  ];
+  // Prompt rendering owns the final whole-item token budget. This preflight
+  // only decides whether optional evidence is safe enough to render at all.
+  const plan = governContextCandidates(candidates, Number.MAX_SAFE_INTEGER);
+  const permitted = new Set(plan.decisions
+    .filter(decision => isGovernedDelivery(decision.disposition))
+    .map(decision => decision.candidate.id));
+  return {
+    plan,
+    reliableMemory: input.reliableMemory.filter(memory => permitted.has('memory:' + memory.id)),
+    claims: input.claims.filter(claim => permitted.has('claim:' + claim.id)),
+    durableMemory: input.durableMemory.filter(memory => permitted.has('durable:' + memory.id)),
+    workflows: input.workflows.filter(workflow => permitted.has('workflow:' + workflow.id)),
+  };
 }
 
 /**
@@ -503,6 +601,57 @@ export function renderTaskWorksetPrompt(input: Omit<TaskWorkset, 'prompt' | 'bud
       reason: 'latest available Code State snapshot',
       trust: 'source-backed',
     });
+  }
+
+  if (input.codeEvolution && input.codeEvolution.changes.length > 0) {
+    appendLine(lines, '', maxTokens, omitted, 'code-evolution-heading');
+    appendLine(lines, 'Code changes since prior scan', maxTokens, omitted, 'code-evolution-heading');
+    for (const change of input.codeEvolution.changes.slice(0, 3)) {
+      appendLine(
+        lines,
+        '- ' + change.kind + ': ' + change.path,
+        maxTokens,
+        omitted,
+        'code-evolution-change',
+        selected,
+        {
+          kind: 'code-state',
+          id: 'snapshot:' + input.codeEvolution.toSnapshotId,
+          reason: 'exact file hash change between complete CodeGraph snapshots',
+          freshness: 'current',
+          trust: 'source-backed',
+        },
+      );
+    }
+    for (const path of input.codeEvolution.directlyConnectedPaths.slice(0, 2)) {
+      appendLine(
+        lines,
+        '- connected now: ' + path,
+        maxTokens,
+        omitted,
+        'code-evolution-impact',
+        selected,
+        {
+          kind: 'code-state',
+          id: 'snapshot:' + input.codeEvolution.toSnapshotId,
+          reason: 'bounded current CodeGraph impact relation',
+          freshness: 'current',
+          trust: 'derived',
+        },
+      );
+    }
+    if ((input.codeEvolution.affectedMemoryCount ?? 0) > 0) {
+      appendLine(
+        lines,
+        '- ' + input.codeEvolution.affectedMemoryCount + ' stored memory link(s) reference this changed code; reread source before relying on their conclusions.',
+        maxTokens,
+        omitted,
+        'code-evolution-stale-memory',
+      );
+    }
+    if (input.codeEvolution.truncated) {
+      appendLine(lines, '- More connected files exist; inspect CodeGraph before assuming complete impact.', maxTokens, omitted, 'code-evolution-truncated');
+    }
   }
 
   if (input.semanticCode && (input.semanticCode.entryPoints.length > 0 || input.semanticCode.relations.length > 0)) {
@@ -716,6 +865,21 @@ export async function buildTaskWorkset(input: BuildTaskWorksetInput): Promise<Ta
 
   let durableMemory: WorksetLongTermMemory[] = [];
   let durableEvidence: LongTermMemoryEvidence[] = [];
+  let outcomeStore: OutcomeStore | undefined;
+  try {
+    outcomeStore = new OutcomeStore();
+    await outcomeStore.init(input.dataDir);
+  } catch {
+    // Outcome evidence enriches the decision; normal current-source context
+    // remains usable if an older local database cannot expose it yet.
+  }
+  const claimQuality = outcomeStore
+    ? outcomeStore.latestForCandidates(input.projectId, 'claim', claims.map(claim => claim.id))
+    : new Map();
+  for (const claim of claims) {
+    const outcomeQuality = qualityFromOutcome(claimQuality.get(claim.id));
+    if (outcomeQuality === 'degraded') claim.reviewState = 'needs-review';
+  }
   if (task) {
     try {
       const selected = await selectLongTermMemoriesForTask({
@@ -726,11 +890,16 @@ export async function buildTaskWorkset(input: BuildTaskWorksetInput): Promise<Ta
         ...(input.reader?.isTeamMember ? { isTeamMember: true } : {}),
         limit: 3,
       });
+      const durableQuality = outcomeStore
+        ? outcomeStore.latestForCandidates(input.projectId, 'durable-memory', selected.map(item => item.memory.id))
+        : new Map();
       durableMemory = selected.map(item => ({
         id: item.memory.id,
         kind: item.memory.kind,
         scope: item.memory.scope,
         state: item.memory.state,
+        quality: qualityFromOutcome(durableQuality.get(item.memory.id))
+          ?? (item.memory.state === 'approved' ? 'verified' : 'probationary'),
         title: item.memory.title,
         summary: renderLongTermMemorySummary(item.memory, 20),
         evidenceRefs: item.evidence.map(evidence => evidence.id),
@@ -785,13 +954,6 @@ export async function buildTaskWorkset(input: BuildTaskWorksetInput): Promise<Ta
     // Knowledge is optional. Existing Code Memory remains usable without it.
   }
 
-  const evidenceIds = unique(selection.claims.flatMap(claim => evidenceIdsForClaim(
-    claim,
-    evidenceByClaim.get(claim.id) ?? [],
-  )).concat(
-    durableMemory.map(memory => 'durable:' + memory.id),
-    durableEvidence.map(evidence => 'durable-evidence:' + evidence.id),
-  ));
   const verification = unique([
     ...workflows.flatMap(workflow => workflow.verificationGates),
     ...input.verificationHints,
@@ -799,6 +961,22 @@ export async function buildTaskWorkset(input: BuildTaskWorksetInput): Promise<Ta
   const normalizedCautions = unique(cautions.map(caution => caution.kind))
     .map(kind => cautions.find(caution => caution.kind === kind)!)
     .slice(0, 6);
+  const governed = governOptionalArtifacts({
+    reliableMemory: input.reliableMemory?.slice(0, 3) ?? [],
+    claims,
+    durableMemory,
+    workflows,
+  });
+  const governedDurableIds = new Set(governed.durableMemory.map(memory => memory.id));
+  const evidenceIds = unique(governed.claims.flatMap(claim => evidenceIdsForClaim(
+    claim,
+    evidenceByClaim.get(claim.id) ?? [],
+  )).concat(
+    governed.durableMemory.map(memory => 'durable:' + memory.id),
+    durableEvidence
+      .filter(evidence => governedDurableIds.has(evidence.memoryId))
+      .map(evidence => 'durable-evidence:' + evidence.id),
+  ));
   const continuation = input.continuation
     && (
       input.continuation.previousSession
@@ -838,15 +1016,16 @@ export async function buildTaskWorkset(input: BuildTaskWorksetInput): Promise<Ta
       : short(fact, 28)).slice(0, 4) ?? [],
     ...(continuation ? { continuation } : {}),
     ...(input.codeState ? { codeState: short(input.codeState, 28) } : {}),
+    ...(input.codeEvolution ? { codeEvolution: input.codeEvolution } : {}),
     startHere: unique(input.startHere).slice(0, 5),
     ...(input.semanticCode ? { semanticCode: input.semanticCode } : {}),
-    reliableMemory: input.reliableMemory?.slice(0, 3) ?? [],
+    reliableMemory: governed.reliableMemory,
     cautionMemory: input.cautionMemory?.slice(0, 3) ?? [],
     hiddenCautionMemoryCount: input.hiddenCautionMemoryCount ?? 0,
-    claims,
-    pages,
-    durableMemory,
-    workflows,
+    claims: governed.claims,
+    pages: pages.filter(page => page.claimIds.some(claimId => governed.claims.some(claim => claim.id === claimId))),
+    durableMemory: governed.durableMemory,
+    workflows: governed.workflows,
     cautions: normalizedCautions,
     verification,
     evidenceIds,
@@ -871,6 +1050,17 @@ export async function buildTaskWorkset(input: BuildTaskWorksetInput): Promise<Ta
     },
     selected: rendered.selected,
     omitted: receiptOmissions(rendered.omittedItems, base.hiddenCautionMemoryCount),
+    governance: {
+      scope: 'optional-evidence',
+      mode: governed.plan.mode,
+      decisions: governed.plan.decisions.map(decision => ({
+        kind: decision.candidate.kind,
+        ...(decision.candidate.id ? { id: decision.candidate.id } : {}),
+        disposition: decision.disposition,
+        reasons: decision.reasons,
+      })),
+      cautions: governed.plan.cautions,
+    },
     scheduledActions: scheduledActions(normalizedCautions),
   };
   return {

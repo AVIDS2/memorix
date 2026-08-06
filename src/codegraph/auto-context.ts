@@ -259,6 +259,25 @@ export async function buildAutoProjectContext(input: {
   const overview = explain.overview;
   const currentFacts = collectCurrentProjectFacts({ project: input.project, now });
   const latestSnapshot = overview.code.latestSnapshot;
+  let codeEvolution: TaskWorkset['codeEvolution'];
+  if (continuationRequested && latestSnapshot?.previousSnapshotId && latestSnapshot.changedPathCount > 0) {
+    const diff = store.diffSnapshots(input.project.id, latestSnapshot.previousSnapshotId, latestSnapshot.id);
+    if (diff.available && diff.changes.length > 0) {
+      const impact = store.impactSlice(input.project.id, diff.changes.map(change => change.path));
+      const changedFileIds = new Set([
+        ...store.listSnapshotFiles(diff.fromSnapshotId),
+        ...store.listSnapshotFiles(diff.toSnapshotId),
+      ].filter(file => diff.changes.some(change => change.path === file.path)).map(file => file.fileId));
+      codeEvolution = {
+        fromSnapshotId: diff.fromSnapshotId,
+        toSnapshotId: diff.toSnapshotId,
+        changes: diff.changes.slice(0, 5).map(change => ({ path: change.path, kind: change.kind })),
+        directlyConnectedPaths: impact.directlyConnectedPaths.slice(0, 3),
+        affectedMemoryCount: store.countStaleObservationRefsForFiles(input.project.id, [...changedFileIds]),
+        truncated: impact.truncated || diff.changes.length > 5,
+      };
+    }
+  }
   const sourceSets = lensSourceSets({ task, lens, explain });
   let externalOutline: ExternalCodeGraphOutline | undefined;
   let externalCaution: string | undefined;
@@ -348,6 +367,7 @@ export async function buildAutoProjectContext(input: {
     currentFacts: worksetFactLines(currentFacts),
     ...(continuation ? { continuation } : {}),
     codeState: codeStateLine(overview),
+    ...(codeEvolution ? { codeEvolution } : {}),
     reliableMemory: sourceSets.reliableSources
       .slice(0, lens.sourceLimit)
       .map(source => ({

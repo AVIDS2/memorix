@@ -7,6 +7,8 @@ import { atomicWriteFile, withFileLock } from '../store/file-lock.js';
 import { WorkflowSyncer } from '../workspace/workflow-sync.js';
 import { getKnowledgeWorkspacePaths, resolveKnowledgeWorkspaceFile } from './workspace.js';
 import { WorkflowStore } from './workflow-store.js';
+import { OutcomeStore } from './outcome-store.js';
+import type { MemoryOutcomeCandidateKind, MemoryOutcomeSignalKind } from './outcome-types.js';
 import { containsTaskKeyword } from '../codegraph/task-lens.js';
 import type {
   WorkflowAdapterPreview,
@@ -751,7 +753,36 @@ export async function recordWorkflowRun(input: {
     throw new Error('Workflow was not found for this workspace');
   }
   if (!input.run.task.trim()) throw new Error('Workflow run task is required');
-  return store.recordRun(input.run);
+  const run = store.recordRun(input.run);
+  const kind: MemoryOutcomeSignalKind | undefined = run.outcome === 'passed' && run.verificationVerdict === 'passed'
+    ? 'verification-passed'
+    : run.outcome === 'failed' || run.verificationVerdict === 'failed'
+      ? 'verification-failed'
+      : undefined;
+  if (!kind) return run;
+
+  const evidence = new Map<string, MemoryOutcomeCandidateKind>();
+  evidence.set(workflow.id, 'workflow');
+  for (const reference of run.selectedEvidence) {
+    const match = /^(claim|durable):(.+)$/.exec(reference);
+    if (!match) continue;
+    evidence.set(match[2], match[1] === 'claim' ? 'claim' : 'durable-memory');
+  }
+  const outcomes = new OutcomeStore();
+  await outcomes.init(workflowStoreDataDir(input.workspace));
+  for (const [candidateId, candidateKind] of evidence) {
+    outcomes.record({
+      projectId: run.projectId,
+      candidateKind,
+      candidateId,
+      kind,
+      sourceRef: 'workflow-run:' + run.id,
+      ...(run.startingSnapshotId ? { snapshotId: run.startingSnapshotId } : {}),
+      ...(run.failureReason ? { detail: run.failureReason } : {}),
+      observedAt: run.completedAt ?? run.startedAt,
+    });
+  }
+  return run;
 }
 
 export async function selectWorkspaceWorkflows(input: {

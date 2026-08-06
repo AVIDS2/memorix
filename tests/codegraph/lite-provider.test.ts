@@ -66,6 +66,36 @@ describe('CodeGraph Lite provider', () => {
     expect(result.edges.some((e) => e.type === 'imports' && e.evidence?.includes('./jwt'))).toBe(true);
   });
 
+  it('rebinds a local import when its target disappears and later returns', async () => {
+    const dir = makeRoot();
+    mkdirSync(join(dir, 'src'), { recursive: true });
+    const authPath = join(dir, 'src', 'auth.ts');
+    const jwtPath = join(dir, 'src', 'jwt.ts');
+    writeFileSync(authPath, "import { verifyJwt } from './jwt.js';\nexport const auth = verifyJwt;\n");
+    writeFileSync(jwtPath, 'export const verifyJwt = () => true;\n');
+
+    const store = new CodeGraphStore();
+    await store.init(dir);
+    await refreshProjectLite(store, { projectId: 'org/repo', projectRoot: dir });
+    const jwtId = store.getFile('org/repo', 'src/jwt.ts')?.id;
+    expect(store.listEdges('org/repo')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'imports', toFileId: jwtId }),
+    ]));
+
+    rmSync(jwtPath);
+    await refreshProjectLite(store, { projectId: 'org/repo', projectRoot: dir });
+    expect(store.listEdges('org/repo')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'imports', evidence: './jwt.js' }),
+    ]));
+    expect(store.listEdges('org/repo')[0]?.toFileId).toBeUndefined();
+
+    writeFileSync(jwtPath, 'export const verifyJwt = () => false;\n');
+    await refreshProjectLite(store, { projectId: 'org/repo', projectRoot: dir });
+    expect(store.listEdges('org/repo')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'imports', toFileId: store.getFile('org/repo', 'src/jwt.ts')?.id }),
+    ]));
+  });
+
   it('indexes common non-TS languages with file-level nodes and top-level symbols', async () => {
     const dir = makeRoot();
     mkdirSync(join(dir, 'src'), { recursive: true });

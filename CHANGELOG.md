@@ -2,6 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.4.2] - 2026-08-06
+
+### Added
+- **Evidence-governed memory** -- A deterministic governor now decides whether
+  project knowledge should be included, compacted, deferred, or excluded based
+  on source backing, freshness, conflicts, quality, scope, and token budget.
+- **Outcome-aware memory** -- Workflow verification results are recorded as
+  append-only outcome signals so failed evidence is less likely to be reused
+  as trusted project knowledge.
+- **CodeGraph evolution views** -- Lite CodeGraph now keeps hash-only snapshot
+  manifests, reports exact file-level diffs, and exposes bounded one-hop impact
+  slices through the CLI. Continuation worksets include code evolution and
+  stale-memory binding counts.
+
+### Fixed
+- **Star History automation** -- The chart workflow now updates a dedicated
+  branch and opens or refreshes a pull request instead of trying to push
+  directly to protected `main`, which caused every scheduled refresh to fail.
+
 ## [1.4.1] - 2026-08-03
 
 ### Added

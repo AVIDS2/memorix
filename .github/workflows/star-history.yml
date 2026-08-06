@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: write
+  pull-requests: write
 
 concurrency:
   group: star-history
@@ -26,9 +27,29 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
       - name: Commit changed assets
         run: |
+          set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add assets/star-history.json assets/star-history-light.svg assets/star-history-dark.svg
           git diff --cached --quiet && exit 0
+          git switch -C automation/star-history
           git commit -m "docs: update star history chart [skip ci]"
-          git push
+          git push --force origin HEAD:automation/star-history
+
+          pr_number="$(gh pr list \
+            --repo "${GITHUB_REPOSITORY}" \
+            --base main \
+            --head automation/star-history \
+            --state open \
+            --json number \
+            --jq '.[0].number // empty')"
+          if [ -z "${pr_number}" ]; then
+            gh pr create \
+              --repo "${GITHUB_REPOSITORY}" \
+              --base main \
+              --head automation/star-history \
+              --title "docs: update star history chart" \
+              --body "Automated refresh of the self-hosted star history assets."
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}

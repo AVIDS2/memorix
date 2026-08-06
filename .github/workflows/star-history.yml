@@ -33,7 +33,7 @@ jobs:
           git add assets/star-history.json assets/star-history-light.svg assets/star-history-dark.svg
           git diff --cached --quiet && exit 0
           git switch -C automation/star-history
-          git commit -m "docs: update star history chart [skip ci]"
+          git commit -m "docs: update star history chart"
           git push --force origin HEAD:automation/star-history
 
           pr_number="$(gh pr list \

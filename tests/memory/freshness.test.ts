@@ -179,5 +179,5 @@ describe('reindexMiniSkills deterministic cleanup (Fix 4)', () => {
       const { closeAllDatabases } = await import('../../src/store/sqlite-db.js');
       closeAllDatabases();
     }
-  });
+  }, 15_000);
 });

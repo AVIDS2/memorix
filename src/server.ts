@@ -4996,7 +4996,7 @@ export async function createMemorixServer(
         'Use the CLI for destructive removal, quota cleanup, and direct generation. ' +
         'MCP generation is disabled by default and requires MEMORIX_MCP_MEDIA_GENERATION=1 after the operator reviews provider billing.',
       inputSchema: {
-        action: z.enum(['import', 'attach', 'list', 'show', 'generate-image', 'generate-video', 'status', 'cancel']),
+        action: z.enum(['import', 'attach', 'list', 'show', 'derive-pdf', 'generate-image', 'generate-video', 'status', 'cancel']),
         path: z.string().optional().describe('Explicit local image/audio/video/PDF path for import.'),
         assetId: z.string().optional().describe('Controlled MediaAsset ID for attach/show.'),
         jobId: z.string().optional().describe('Durable media job ID for status.'),
@@ -5012,10 +5012,12 @@ export async function createMemorixServer(
         width: z.number().int().min(1).max(8192).optional().describe('Requested image width.'),
         height: z.number().int().min(1).max(8192).optional().describe('Requested image height.'),
         duration: z.union([z.literal(5), z.literal(10)]).optional().describe('MiniMax video duration in seconds.'),
+        maxPages: z.number().int().min(1).max(100).optional().describe('Bounded PDF extraction page limit.'),
+        maxChars: z.number().int().min(1).max(60_000).optional().describe('Bounded PDF extraction character limit.'),
         attach: z.boolean().optional().describe('Attach generated/imported output to normal project memory explicitly.'),
       },
     },
-    async ({ action, path: assetPath, assetId, jobId, kind, limit, title, narrative, prompt, model, region, n, ratio, width, height, duration, attach }) => {
+    async ({ action, path: assetPath, assetId, jobId, kind, limit, title, narrative, prompt, model, region, n, ratio, width, height, duration, maxPages, maxChars, attach }) => {
       const unresolved = requireResolvedProject('manage controlled media');
       if (unresolved) return unresolved;
       const safeError = (error: unknown) => sanitizeCredentials(
@@ -5094,6 +5096,30 @@ export async function createMemorixServer(
             ? await attachAsset(imported.asset, title, narrative)
             : undefined;
           return result({ action, projectId: project.id, ...imported, ...(observation ? { observation } : {}) });
+        }
+        if (action === 'derive-pdf') {
+          if (!assetId?.trim()) throw new Error('assetId is required for PDF text derivation');
+          const { derivePdfText } = await import('./media/pdf.js');
+          const boundedChars = maxChars ?? 60_000;
+          const derived = await derivePdfText({
+            dataDir: projectDir,
+            projectId: project.id,
+            assetId,
+            maxPages: maxPages ?? 50,
+            maxChars: boundedChars,
+            chunkChars: Math.min(6_000, boundedChars),
+          });
+          const observations = [];
+          if (attach === true) {
+            for (const chunk of derived.chunks) {
+              observations.push(await attachAsset(
+                derived.asset,
+                `${title?.trim() || `PDF: ${derived.asset.sourceLabel ?? derived.asset.id}`} (pages ${chunk.pageStart}-${chunk.pageEnd})`,
+                chunk.text,
+              ));
+            }
+          }
+          return result({ action, projectId: project.id, ...derived, observations });
         }
         if (action === 'generate-image') {
           if (!mcpGenerationEnabled) {

@@ -28,6 +28,27 @@ const PNG_BYTES = Buffer.from(
   'base64',
 );
 
+function buildPdf(text: string): Buffer {
+  const stream = `BT\n/F1 12 Tf\n72 720 Td\n(${text.replace(/[\\()]/g, '\\$&')}) Tj\nET`;
+  const objects = [
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /Resources << /Font << /F1 5 0 R >> >> /MediaBox [0 0 612 792] /Contents 4 0 R >>',
+    `<< /Length ${Buffer.byteLength(stream)} >>\nstream\n${stream}\nendstream`,
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+  ];
+  let document = '%PDF-1.4\n';
+  const offsets = [0];
+  objects.forEach((object, index) => {
+    offsets.push(Buffer.byteLength(document));
+    document += `${index + 1} 0 obj\n${object}\nendobj\n`;
+  });
+  const xrefOffset = Buffer.byteLength(document);
+  document += 'xref\n0 6\n0000000000 65535 f \n';
+  offsets.slice(1).forEach((offset) => { document += `${String(offset).padStart(10, '0')} 00000 n \n`; });
+  return Buffer.from(`${document}trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF\n`);
+}
+
 function getHandler(server: any, name: string): (args: Record<string, unknown>) => Promise<any> {
   const handler = server._registeredTools?.[name]?.handler;
   expect(handler).toBeTypeOf('function');
@@ -55,6 +76,7 @@ describe('controlled media through MCP', () => {
     dataDir = path.join(root, 'data');
     await fs.mkdir(path.join(projectRoot, '.git'), { recursive: true });
     await fs.writeFile(path.join(projectRoot, 'diagram.png'), PNG_BYTES);
+    await fs.writeFile(path.join(projectRoot, 'design.pdf'), buildPdf('MCP PDF evidence'));
     process.env.MEMORIX_DATA_DIR = dataDir;
     process.env.MINIMAX_API_KEY = 'mcp-test-key';
     delete process.env.MEMORIX_MCP_MEDIA_GENERATION;
@@ -167,6 +189,28 @@ describe('controlled media through MCP', () => {
     const shown = readJson(await media({ action: 'show', assetId: listed.assets[0].id }));
     expect(shown.links).toHaveLength(1);
     expect(shown.derivations).toMatchObject([{ kind: 'description', status: 'ready' }]);
+  });
+
+  it('derives bounded PDF text through the same controlled MCP lifecycle', async () => {
+    const { server } = await createMemorixServer(projectRoot, undefined, undefined, { toolProfile: 'lite' });
+    const media = getHandler(server as any, 'memorix_media');
+    const imported = readJson(await media({ action: 'import', path: path.join(projectRoot, 'design.pdf') }));
+
+    const rawDerived = await media({
+      action: 'derive-pdf',
+      assetId: imported.asset.id,
+      maxPages: 10,
+      maxChars: 1_000,
+      attach: true,
+    });
+    const derived = readJson(rawDerived);
+
+    expect(derived).toMatchObject({
+      action: 'derive-pdf',
+      derivation: { kind: 'pdf-text', status: 'ready', metadata: { pageCount: 1 } },
+    });
+    expect(derived.observations).toHaveLength(1);
+    expect(derived.derivation.content).toContain('MCP PDF evidence');
   });
 
   it('rejects invalid legacy base64 before it can become a controlled asset', async () => {

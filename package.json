@@ -145,6 +145,7 @@
     "react": "19.2.7",
     "remark": "^15.0.1",
     "remark-stringify": "^11.0.0",
+    "unpdf": "^1.8.0",
     "zod": "^3.24.0"
   },
   "optionalDependencies": {

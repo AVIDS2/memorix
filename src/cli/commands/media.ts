@@ -9,6 +9,7 @@ import {
   removeMediaAsset,
 } from '../../media/asset-store.js';
 import { MediaStore } from '../../media/media-store.js';
+import { derivePdfText } from '../../media/pdf.js';
 import {
   generateMiniMaxImages,
   type MiniMaxImageGenerationInput,
@@ -111,6 +112,7 @@ function help(): string {
     '  memorix media import --path ./diagram.png',
     '  memorix media list [--kind image]',
     '  memorix media show --asset <asset-id>',
+    '  memorix media derive-pdf --asset <asset-id> [--attach] [--maxPages 100] [--maxChars 120000]',
     '  memorix media attach --asset <asset-id> [--title "Architecture"] [--text "..."]',
     '  memorix media embed --asset <asset-id>',
     '  memorix media similar --asset <asset-id> [--limit 10]',
@@ -157,6 +159,12 @@ export default defineCommand({
     limit: { type: 'string', description: 'List limit' },
     maxBytes: { type: 'string', description: 'Import or cleanup byte limit' },
     'max-bytes': { type: 'string', description: 'Kebab-case alias for --maxBytes' },
+    maxPages: { type: 'string', description: 'Maximum PDF pages to derive (1-1000)' },
+    'max-pages': { type: 'string', description: 'Kebab-case alias for --maxPages' },
+    maxChars: { type: 'string', description: 'Maximum total PDF text characters (1-1000000)' },
+    'max-chars': { type: 'string', description: 'Kebab-case alias for --maxChars' },
+    chunkChars: { type: 'string', description: 'Maximum PDF retrieval chunk characters (1-120000)' },
+    'chunk-chars': { type: 'string', description: 'Kebab-case alias for --chunkChars' },
     force: { type: 'boolean', description: 'Detach linked observations before removal' },
     json: { type: 'boolean', description: 'Emit machine-readable JSON output' },
   },
@@ -285,6 +293,45 @@ export default defineCommand({
           emitResult(
             { project, ...result },
             `${result.deduplicated ? 'Reused' : 'Imported'} ${result.asset.kind} asset ${result.asset.id}`,
+            asJson,
+          );
+          return;
+        }
+        case 'derive-pdf': {
+          const assetId = getValue(args.asset, positional);
+          if (!assetId) throw new Error('asset is required for "memorix media derive-pdf"');
+          const { project, dataDir, reader, identity } = await getCliProjectContext();
+          const maxChars = parseOptionalInteger(args.maxChars ?? args['max-chars'], 'maxChars', 1, 1_000_000);
+          const requestedChunkChars = parseOptionalInteger(args.chunkChars ?? args['chunk-chars'], 'chunkChars', 1, 120_000);
+          const derived = await derivePdfText({
+            dataDir,
+            projectId: project.id,
+            assetId,
+            maxBytes: parseOptionalInteger(args.maxBytes ?? args['max-bytes'], 'maxBytes', 1, 100 * 1024 * 1024),
+            maxPages: parseOptionalInteger(args.maxPages ?? args['max-pages'], 'maxPages', 1, 1_000),
+            maxChars,
+            chunkChars: requestedChunkChars === undefined || maxChars === undefined
+              ? requestedChunkChars
+              : Math.min(requestedChunkChars, maxChars),
+          });
+          const observations = [];
+          if (args.attach === true) {
+            for (const chunk of derived.chunks) {
+              observations.push(await attachMediaAssetToObservation({
+                dataDir,
+                projectId: project.id,
+                asset: derived.asset,
+                title: `PDF: ${derived.asset.sourceLabel ?? derived.asset.id} (pages ${chunk.pageStart}-${chunk.pageEnd})`,
+                narrative: chunk.text,
+                facts: [`PDF pages: ${chunk.pageStart}-${chunk.pageEnd}`, 'Derived with explicit PDF text extraction.'],
+                concepts: ['pdf', 'pdf-text', 'media-derivation'],
+                ...resolveCliWriteScope({ reader, identity }, args.visibility as string | undefined),
+              }));
+            }
+          }
+          emitResult(
+            { project, ...derived, observations },
+            `Derived ${derived.chunks.length} PDF text chunk(s) from ${assetId}${observations.length ? ` and attached ${observations.length} retrieval projection(s)` : ''}.`,
             asJson,
           );
           return;

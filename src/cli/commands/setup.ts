@@ -30,6 +30,7 @@ import { OmpMCPAdapter } from '../../workspace/mcp-adapters/omp.js';
 import { KiroMCPAdapter } from '../../workspace/mcp-adapters/kiro.js';
 import { OpenCodeMCPAdapter } from '../../workspace/mcp-adapters/opencode.js';
 import { TraeMCPAdapter } from '../../workspace/mcp-adapters/trae.js';
+import { CodeBuddyMCPAdapter } from '../../workspace/mcp-adapters/codebuddy.js';
 import { getSetupIntegrationRows as readSetupIntegrationRows } from '../../integrations/registry.js';
 import { OFFICIAL_MEMORIX_SKILLS } from '../../hooks/official-skills.js';
 import { getCliVersion } from '../version.js';
@@ -50,6 +51,7 @@ export type SetupAction =
   | 'antigravity-plugin'
   | 'hermes-plugin'
   | 'omp-package'
+  | 'codebuddy-plugin'
   | 'project-guidance'
   | 'hooks'
   | 'mcp-stdio'
@@ -155,6 +157,19 @@ export interface OmpPackageInstallResult {
   installHint: string;
 }
 
+export interface CodeBuddyPluginInstallOptions {
+  homeDir?: string;
+  includeHooks?: boolean;
+}
+
+export interface CodeBuddyPluginInstallResult {
+  agent: 'codebuddy';
+  pluginPath: string;
+  marketplacePath: string;
+  marketplaceRoot: string;
+  installHint: string;
+}
+
 const PLUGIN_PACKAGE_AGENTS = new Set<AgentName>(['claude', 'codex', 'copilot']);
 const EXTENSION_PACKAGE_AGENTS = new Set<AgentName>(['gemini-cli']);
 const PI_PACKAGE_AGENTS = new Set<AgentName>(['pi']);
@@ -162,12 +177,14 @@ const OPENCLAW_BUNDLE_AGENTS = new Set<AgentName>(['openclaw']);
 const ANTIGRAVITY_PLUGIN_AGENTS = new Set<AgentName>(['antigravity']);
 const HERMES_PLUGIN_AGENTS = new Set<AgentName>(['hermes']);
 const OMP_PACKAGE_AGENTS = new Set<AgentName>(['omp']);
+const CODEBUDDY_PLUGIN_AGENTS = new Set<AgentName>(['codebuddy']);
 // These hosts have a native package/plugin surface. Their default setup must not
 // create project-local fallback files beside the user's own agent configuration.
-const PACKAGE_OWNED_INTEGRATION_AGENTS = new Set<AgentName>(['codex', 'antigravity', 'openclaw', 'hermes', 'omp']);
+const PACKAGE_OWNED_INTEGRATION_AGENTS = new Set<AgentName>(['codex', 'codebuddy', 'antigravity', 'openclaw', 'hermes', 'omp']);
 const SUPPORTED_SETUP_AGENTS: AgentName[] = [
   'claude',
   'codex',
+  'codebuddy',
   'opencode',
   'cursor',
   'windsurf',
@@ -223,6 +240,8 @@ export function buildSetupPlan(options: {
       actions.push('hermes-plugin');
     } else if (OMP_PACKAGE_AGENTS.has(options.agent)) {
       actions.push('omp-package');
+    } else if (CODEBUDDY_PLUGIN_AGENTS.has(options.agent) && options.global) {
+      actions.push('codebuddy-plugin');
     }
   }
 
@@ -377,6 +396,7 @@ export function getMcpAdapter(agent: McpConfigAgent): MCPConfigAdapter {
   const adapters: Record<McpConfigAgent, MCPConfigAdapter> = {
     claude: new ClaudeCodeMCPAdapter(),
     codex: new CodexMCPAdapter(),
+    codebuddy: new CodeBuddyMCPAdapter(),
     cursor: new CursorMCPAdapter(),
     windsurf: new WindsurfMCPAdapter(),
     copilot: new CopilotMCPAdapter(),
@@ -795,6 +815,53 @@ async function writeClaudeMarketplace(marketplacePath: string): Promise<void> {
   await writeFile(marketplacePath, JSON.stringify(catalog, null, 2) + '\n', 'utf-8');
 }
 
+async function writeCodeBuddyMarketplace(marketplacePath: string): Promise<void> {
+  await mkdir(path.dirname(marketplacePath), { recursive: true });
+  await writeFile(marketplacePath, JSON.stringify({
+    name: 'memorix-local',
+    description: 'Local marketplace for the Memorix CodeBuddy Code plugin.',
+    plugins: [{
+      name: 'memorix',
+      source: './plugins/memorix',
+      description: 'Local-first project memory for CodeBuddy Code and other coding agents.',
+      category: 'development',
+    }],
+  }, null, 2) + '\n', 'utf-8');
+}
+
+async function stripCodeBuddyHookCapture(pluginPath: string): Promise<void> {
+  await rm(path.join(pluginPath, 'hooks'), { recursive: true, force: true });
+  const manifestPath = path.join(pluginPath, '.codebuddy-plugin', 'plugin.json');
+  const manifest = JSON.parse(await readFile(manifestPath, 'utf-8')) as Record<string, unknown>;
+  delete manifest.hooks;
+  await writeFile(manifestPath, JSON.stringify(manifest, null, 2) + '\n', 'utf-8');
+}
+
+export async function installCodeBuddyPluginPackage(
+  options: CodeBuddyPluginInstallOptions = {},
+): Promise<CodeBuddyPluginInstallResult> {
+  const home = options.homeDir ?? homedir();
+  const packageRoot = findPackageRoot();
+  const source = path.join(packageRoot, 'plugins', 'codebuddy', 'memorix');
+  if (!existsSync(source)) throw new Error(`CodeBuddy plugin template not found: ${source}`);
+
+  const marketplaceRoot = path.join(home, '.codebuddy', 'memorix-local');
+  const marketplacePath = path.join(marketplaceRoot, '.codebuddy-plugin', 'marketplace.json');
+  const pluginPath = path.join(marketplaceRoot, 'plugins', 'memorix');
+  await copyDir(source, pluginPath);
+  if (options.includeHooks === false) await stripCodeBuddyHookCapture(pluginPath);
+  await writeOfficialSkills(path.join(pluginPath, 'skills'));
+  await writeCodeBuddyMarketplace(marketplacePath);
+
+  return {
+    agent: 'codebuddy',
+    pluginPath,
+    marketplacePath,
+    marketplaceRoot,
+    installHint: 'Setup registers a local CodeBuddy marketplace and installs `memorix@memorix-local` at user scope. Review plugin hooks in `/hooks` before enabling untrusted hook execution.',
+  };
+}
+
 export async function installPluginPackage(options: PluginInstallOptions): Promise<PluginInstallResult> {
   const home = options.homeDir ?? homedir();
   const packageRoot = findPackageRoot();
@@ -1036,6 +1103,43 @@ function tryInstallClaudePlugin(marketplaceRoot: string): { ok: boolean; message
     message: installDetail
       ? `claude: marketplace registered, but automatic plugin install did not finish: ${installDetail}`
       : 'claude: marketplace registered. Run `claude plugin install memorix@memorix-local`.',
+  };
+}
+
+function tryInstallCodeBuddyPlugin(marketplaceRoot: string): { ok: boolean; message: string } {
+  const add = spawnSync('codebuddy', ['plugin', 'marketplace', 'add', marketplaceRoot, '--name', 'memorix-local'], {
+    encoding: 'utf-8',
+    stdio: 'pipe',
+    shell: process.platform === 'win32',
+    windowsHide: true,
+  });
+  const addOutput = `${add.stderr || ''}\n${add.stdout || ''}`.toLowerCase();
+  if (add.status !== 0 && !addOutput.includes('already')) {
+    const detail = (add.stderr || add.stdout || add.error?.message || '').trim();
+    return {
+      ok: false,
+      message: detail
+        ? `codebuddy: local marketplace written, but registration did not finish: ${detail}`
+        : `codebuddy: local marketplace written. Run \`codebuddy plugin marketplace add "${marketplaceRoot}" --name memorix-local\`, then \`codebuddy plugin install memorix@memorix-local --scope user\`.`,
+    };
+  }
+
+  const install = spawnSync('codebuddy', ['plugin', 'install', 'memorix@memorix-local', '--scope', 'user'], {
+    encoding: 'utf-8',
+    stdio: 'pipe',
+    shell: process.platform === 'win32',
+    windowsHide: true,
+  });
+  const output = `${install.stderr || ''}\n${install.stdout || ''}`.toLowerCase();
+  if (install.status === 0 || output.includes('already')) {
+    return { ok: true, message: 'codebuddy: plugin installed from the memorix-local marketplace' };
+  }
+  const detail = (install.stderr || install.stdout || install.error?.message || '').trim();
+  return {
+    ok: false,
+    message: detail
+      ? `codebuddy: marketplace registered, but plugin install did not finish: ${detail}`
+      : 'codebuddy: marketplace registered. Run `codebuddy plugin install memorix@memorix-local --scope user`.',
   };
 }
 
@@ -1293,6 +1397,7 @@ export async function installAgentSetup(agent: AgentName, plan: SetupPlan, globa
   const hasAntigravityPlugin = plan.actions.includes('antigravity-plugin') && agent === 'antigravity';
   const hasHermesPlugin = plan.actions.includes('hermes-plugin') && agent === 'hermes';
   const hasOmpPackage = plan.actions.includes('omp-package') && agent === 'omp';
+  const hasCodeBuddyPlugin = plan.actions.includes('codebuddy-plugin') && agent === 'codebuddy';
   // Codex's supported default is the user-level plugin. Never create a
   // project-local .codex/config.toml as an implicit fallback.
   const wantsMcpConfig = plan.mcp !== 'none' && agent !== 'pi' && !(agent === 'codex' && !global);
@@ -1332,6 +1437,17 @@ export async function installAgentSetup(agent: AgentName, plan: SetupPlan, globa
       if (install.ok) p.log.success(install.message);
       else p.log.warn(install.message);
     }
+    p.log.info(result.installHint);
+  }
+
+  if (hasCodeBuddyPlugin) {
+    const result = await installCodeBuddyPluginPackage({ includeHooks: plan.includeHooks });
+    p.log.success(`${agent}: plugin -> ${result.pluginPath}`);
+    p.log.info(`${agent}: marketplace -> ${result.marketplacePath}`);
+    const install = tryInstallCodeBuddyPlugin(result.marketplaceRoot);
+    if (install.ok) p.log.success(install.message);
+    else p.log.warn(install.message);
+    if (!plan.includeHooks) p.log.info(`${agent}: hook capture skipped because --noHooks was selected`);
     p.log.info(result.installHint);
   }
 
@@ -1398,9 +1514,11 @@ export async function installAgentSetup(agent: AgentName, plan: SetupPlan, globa
   }
 
   if (wantsMcpConfig) {
-    if ((hasPluginPackage || hasExtensionPackage || hasOpenClawBundle || hasAntigravityPlugin) && plan.mcp === 'stdio') {
+    if ((hasPluginPackage || hasCodeBuddyPlugin || hasExtensionPackage || hasOpenClawBundle || hasAntigravityPlugin) && plan.mcp === 'stdio') {
       const packageLabel = hasExtensionPackage
         ? 'extension package'
+        : hasCodeBuddyPlugin
+          ? 'CodeBuddy plugin'
         : hasOpenClawBundle
           ? 'OpenClaw bundle'
           : hasAntigravityPlugin
@@ -1449,6 +1567,10 @@ export async function installAgentSetup(agent: AgentName, plan: SetupPlan, globa
     p.log.success(`${agent}: guidance -> ${rulesPath}`);
   }
 
+  if (hasCodeBuddyPlugin) {
+    p.log.info(`${agent}: MCP, skills, and hooks are bundled in the official CodeBuddy plugin package`);
+  }
+
   if (agent === 'pi') {
     p.log.info('pi: Pi has no MCP config lane in the current CLI; use the installed package extension and skill.');
   } else if (plan.mcp === 'stdio') {
@@ -1487,7 +1609,7 @@ export default defineCommand({
   args: {
     agent: {
       type: 'string',
-      description: 'Target agent (claude, codex, opencode, cursor, windsurf, copilot, gemini-cli, antigravity, openclaw, hermes, omp, kiro, trae, pi, all)',
+      description: 'Target agent (claude, codex, codebuddy, opencode, cursor, windsurf, copilot, gemini-cli, antigravity, openclaw, hermes, omp, kiro, trae, pi, all)',
       required: false,
     },
     mcp: {

@@ -258,6 +258,10 @@ function extractEventName(payload: Record<string, unknown>, agent: AgentName): s
       // Codex uses the same lifecycle event field names as Claude Code, but
       // the bundled plugin supplies an explicit agent identity.
       return (payload.hook_event_name as string) ?? '';
+    case 'codebuddy':
+      // CodeBuddy's plugin hooks use the documented Claude-compatible event
+      // names and payload fields. Setup supplies explicit agent identity.
+      return (payload.hook_event_name as string) ?? '';
     case 'antigravity':
     case 'gemini-cli':
       // Gemini CLI uses hook_event_name; Antigravity hooks.json commands pass
@@ -725,6 +729,9 @@ export function normalizeHookInput(payload: Record<string, unknown>): Normalized
       break;
     case 'codex':
       // Codex hooks use the same payload format as Claude Code
+      agentSpecific = normalizeClaude(payload, event);
+      break;
+    case 'codebuddy':
       agentSpecific = normalizeClaude(payload, event);
       break;
     default:

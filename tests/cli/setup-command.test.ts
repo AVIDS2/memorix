@@ -13,6 +13,7 @@ import setupCommand, {
   installGeminiExtensionPackage,
   installHermesPluginPackage,
   installAgentSetup,
+  installCodeBuddyPluginPackage,
   migrateLegacyCodexIntegration,
   parseCodexPluginState,
   installOmpPackage,
@@ -160,6 +161,7 @@ describe('setup command planning', () => {
   it('lists plugin-capable setup targets', () => {
     expect(getSetupAgentTargets()).toContain('claude');
     expect(getSetupAgentTargets()).toContain('codex');
+    expect(getSetupAgentTargets()).toContain('codebuddy');
     expect(getSetupAgentTargets()).toContain('copilot');
     expect(getSetupAgentTargets()).toContain('cursor');
     expect(getSetupAgentTargets()).toContain('gemini-cli');
@@ -177,6 +179,8 @@ describe('setup command planning', () => {
     expect(buildSetupPlan({ agent: 'opencode', mcp: 'stdio' }).actions).toContain('opencode-local-plugin');
     expect(buildSetupPlan({ agent: 'pi', mcp: 'none' }).actions).toContain('pi-package');
     expect(buildSetupPlan({ agent: 'windsurf', mcp: 'stdio' }).actions).not.toContain('plugin-package');
+    expect(buildSetupPlan({ agent: 'codebuddy', mcp: 'stdio', global: true }).actions).toContain('codebuddy-plugin');
+    expect(buildSetupPlan({ agent: 'codebuddy', mcp: 'stdio', global: false }).actions).not.toContain('codebuddy-plugin');
   });
 
   it('uses native package lanes for Antigravity, OpenClaw, Hermes, and Oh-my-Pi', () => {
@@ -201,6 +205,10 @@ describe('setup command planning', () => {
     });
     expect(rows.find((row) => row.agent === 'cursor')).toMatchObject({
       entry: 'official-config',
+      status: 'ready',
+    });
+    expect(rows.find((row) => row.agent === 'codebuddy')).toMatchObject({
+      entry: 'official-plugin',
       status: 'ready',
     });
     expect(rows.find((row) => row.agent === 'gemini-cli')).toMatchObject({
@@ -311,6 +319,33 @@ describe('plugin package installer', () => {
         source: './plugins/memorix',
         category: 'development',
       });
+    } finally {
+      await cleanup(tmpDir);
+    }
+  });
+
+  it('installs the CodeBuddy plugin package as a local marketplace without touching settings', async () => {
+    const tmpDir = makeTmpDir();
+    try {
+      const result = await installCodeBuddyPluginPackage({ homeDir: tmpDir });
+      const marketplaceRoot = path.join(tmpDir, '.codebuddy', 'memorix-local');
+      const manifestPath = path.join(marketplaceRoot, 'plugins', 'memorix', '.codebuddy-plugin', 'plugin.json');
+      const hooksPath = path.join(marketplaceRoot, 'plugins', 'memorix', 'hooks', 'hooks.json');
+      const mcpPath = path.join(marketplaceRoot, 'plugins', 'memorix', '.mcp.json');
+
+      expect(result.pluginPath).toBe(path.join(marketplaceRoot, 'plugins', 'memorix'));
+      expect(result.marketplacePath).toBe(path.join(marketplaceRoot, '.codebuddy-plugin', 'marketplace.json'));
+      expect(JSON.parse(await fs.readFile(manifestPath, 'utf-8'))).toMatchObject({
+        name: 'memorix', hooks: './hooks/hooks.json', mcpServers: './.mcp.json', skills: './skills',
+      });
+      expect(JSON.parse(await fs.readFile(mcpPath, 'utf-8')).mcpServers.memorix).toMatchObject({
+        type: 'stdio', command: 'memorix', args: ['serve'],
+      });
+      expect(JSON.parse(await fs.readFile(hooksPath, 'utf-8')).hooks.SessionStart[0].hooks[0]).toMatchObject({
+        command: 'memorix hook --agent codebuddy', timeout: 10,
+      });
+      await expectOfficialSkills(path.join(result.pluginPath, 'skills'));
+      await expect(fs.access(path.join(tmpDir, '.codebuddy', 'settings.json'))).rejects.toThrow();
     } finally {
       await cleanup(tmpDir);
     }

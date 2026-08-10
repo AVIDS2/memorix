@@ -47,4 +47,6 @@
 Complete #174 after CI and maintain its provider-specific credentials, explicit
 CLI-first consent, bounded asynchronous jobs, and source asset lifecycle
 cancellation. #175 now reuses the existing evidence governor for one-hop graph
-evidence; next are #185 CodeBuddy support and #184 Star History CI proof.
+evidence. #185 has a native CodeBuddy marketplace-plugin implementation with
+MCP, skills, and Hooks; validate it with the real host when its CLI is present.
+Next is #184 Star History CI proof.

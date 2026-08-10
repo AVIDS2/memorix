@@ -4,24 +4,21 @@
 > before resuming substantial work, update it after a material decision or
 > milestone, and do not create parallel progress logs.
 
-**Last updated:** 2026-08-03
+**Last updated:** 2026-08-10
 
 ## Current Product State
 
-- `1.4.1` is the current published release.
-- It includes the accepted MiniMax M3 video-input contribution (#153), the
-  maintained public-roadmap contribution (#140), deterministic provider-test
-  boundaries, and synchronized plugin/MCP Registry release metadata.
-- Release evidence is complete: full local checks, a fresh-package CLI/MCP
-  smoke, Ubuntu and Windows CI, npm provenance, the official MCP Registry, and
-  the GitHub Release `v1.4.1`.
+- `1.4.2` is the current published release.
+- It adds evidence-governed memory retrieval and maintains the controlled media
+  boundary introduced in 1.3.x.
 
 ## Active Objectives
 
 1. Keep the public repository free of operator state, local paths, credentials,
    raw session captures, and one-off development artifacts.
-2. Turn MemorixBench from a local harness into a reproducible study with public
-   permissive-license task sources, isolated trials, and provenance receipts.
+2. Deliver the controlled media follow-through: #174 audio transcript
+   derivations, #175 evidence-bounded graph retrieval, #185 CodeBuddy support,
+   and #184 automated Star History verification.
 
 ## Completed Contribution Decisions
 
@@ -31,14 +28,8 @@
 - #33, #31, #30: not merged into the superseding media/retrieval architecture.
   Their original authorship is preserved through #173 (PDF derivations), #174
   (audio derivatives), and #175 (graph-assisted evidence expansion).
-- #136 and #151: research-only work. Keep it outside npm releases until the
-  experimental protocol and evidence are independently complete.
-
-## Research Boundary
-
-The current benchmark harness is a pilot, not a paper result. Confirmatory
-claims require public task provenance, isolated execution, frozen routes and
-models, blinded grading where applicable, and reported failures as well as wins.
+- #136, #151, #179, #147, and #152: withdrawn research work. Do not use them
+  as product or release evidence.
 
 ## Operating Rules
 
@@ -53,7 +44,9 @@ models, blinded grading where applicable, and reported failures as well as wins.
 
 ## Immediate Next Step
 
-Advance MemorixBench from a pilot harness to a reproducible study with public
-task sources, isolated trials, frozen model routes, and reviewable provenance.
-Keep research work separate from npm release claims until the experimental
-protocol and evidence are independently complete.
+Complete #174 after CI and maintain its provider-specific credentials, explicit
+CLI-first consent, bounded asynchronous jobs, and source asset lifecycle
+cancellation. #175 now reuses the existing evidence governor for one-hop graph
+evidence. #185 has a native CodeBuddy marketplace-plugin implementation with
+MCP, skills, and Hooks; validate it with the real host when its CLI is present.
+Next is #184 Star History CI proof.

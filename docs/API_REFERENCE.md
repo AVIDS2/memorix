@@ -113,6 +113,7 @@ MCP:
 - `memorix_project_context` builds the default Memory Autopilot brief. It can auto-refresh Code State when the local index is missing or stale, infer a task lens (`bugfix`, `feature`, `release`, `onboarding`, `refactor`, `docs`, `test`, or `general`), then return current project facts, Start here files, selected evidence, stale/suspect cautions, and lens-specific verification hints.
 - `memorix_codegraph_status` returns provider/index counts for the current project.
 - `memorix_context_pack` builds a task-specific packet with reliable current memories, lower-trust unbound memories, current code facts, freshness warnings, suggested reads, and suggested verification.
+- `memorix_graph_context` is an advanced compact graph overview. It starts from a small task-matched baseline and can add only directly related, evidence-governed memories. Its `Graph evidence` section includes relation provenance rather than recursively dumping graph neighbors.
 
 `memorix context` defaults to `--refresh auto`, so first use can seed Code State without a separate manual `memorix codegraph refresh`. Its brief puts live package/changelog/Git facts before memory hints and flags an old `ACTIVE_WORK.md`, legacy `progress.txt`, or legacy dev-log note as historical when it predates the latest changelog, so agents should treat current facts as the source of truth when files disagree. Task lenses keep the packet shaped to the work: bugfix briefs prefer failing tests and repros, release briefs prefer metadata/changelog/package checks, and onboarding briefs prefer docs and entry points while hiding unrelated suspect details. Continuation delivery is separate from the task lens: continuation language in `memorix_project_context` enables a bounded prior-work projection, and `memorix resume "..."` makes that choice explicit. It includes only the latest useful session summary, up to three readable durable memories, and at most one recent source-labelled compact checkpoint. Checkpoints are host lifecycle evidence, not durable memory or transcript backups; ordinary new tasks do not receive historical-session context. A completed MCP brief is the default retrieval boundary: search, detail, or Context Pack should expand it only for a named missing fact or an explicit request for deeper history. Use `--refresh never` for read-only inspection and `--refresh always` when you want to force a fresh scan.
 
@@ -754,6 +755,7 @@ durable job, so it survives process restarts and can be inspected or cancelled.
 ```bash
 memorix media generate image --prompt "..." --json
 memorix media generate video --prompt "..." --json
+memorix media derive-audio --asset <asset-id> --provider groq --attach --json
 memorix media status --job <media-job-id> --json
 memorix media cancel --job <media-job-id> --json
 ```
@@ -764,6 +766,12 @@ and `full` profiles. Its import/attach/list/show/status actions are available
 normally; generation requires `MEMORIX_MCP_MEDIA_GENERATION=1` because it can
 incur provider charges. Text-only embedding providers never produce a pretend
 image, audio, video, or document vector.
+
+Audio transcription is also explicit. `derive-audio` consumes an existing
+controlled audio asset and queues a durable transcript derivative. It supports
+`openai` (`OPENAI_API_KEY`) and `groq` (`GROQ_API_KEY`) with no credential
+fallback between them. MCP transcription is disabled until
+`MEMORIX_MCP_MEDIA_TRANSCRIPTION=1` is deliberately set.
 
 ### `memorix_ingest_image`
 

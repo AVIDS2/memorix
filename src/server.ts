@@ -4996,7 +4996,7 @@ export async function createMemorixServer(
         'Use the CLI for destructive removal, quota cleanup, and direct generation. ' +
         'MCP generation is disabled by default and requires MEMORIX_MCP_MEDIA_GENERATION=1 after the operator reviews provider billing.',
       inputSchema: {
-        action: z.enum(['import', 'attach', 'list', 'show', 'generate-image', 'generate-video', 'status', 'cancel']),
+        action: z.enum(['import', 'attach', 'list', 'show', 'derive-pdf', 'derive-audio', 'generate-image', 'generate-video', 'status', 'cancel']),
         path: z.string().optional().describe('Explicit local image/audio/video/PDF path for import.'),
         assetId: z.string().optional().describe('Controlled MediaAsset ID for attach/show.'),
         jobId: z.string().optional().describe('Durable media job ID for status.'),
@@ -5005,17 +5005,21 @@ export async function createMemorixServer(
         title: z.string().optional().describe('Observation title when attaching generated/imported output.'),
         narrative: z.string().optional().describe('Short retrieval text when attaching an asset.'),
         prompt: z.string().optional().describe('Explicit MiniMax generation prompt.'),
-        model: z.enum(['image-01', 'image-01-live', 'MiniMax-H3']).optional().describe('MiniMax image or video model.'),
+        model: z.string().max(160).optional().describe('Provider model for the selected media action.'),
+        provider: z.enum(['openai', 'groq']).optional().describe('Explicit audio transcription provider.'),
+        language: z.string().max(32).optional().describe('Optional ISO-639-1 hint for audio transcription.'),
         region: z.enum(['global', 'cn']).optional().describe('MiniMax deployment region.'),
         n: z.number().int().min(1).max(4).optional().describe('Image output count.'),
         ratio: z.enum(['adaptive', '1:1', '16:9', '4:3', '3:2', '2:3', '3:4', '9:16', '21:9']).optional().describe('Image or video aspect ratio.'),
         width: z.number().int().min(1).max(8192).optional().describe('Requested image width.'),
         height: z.number().int().min(1).max(8192).optional().describe('Requested image height.'),
         duration: z.union([z.literal(5), z.literal(10)]).optional().describe('MiniMax video duration in seconds.'),
+        maxPages: z.number().int().min(1).max(100).optional().describe('Bounded PDF extraction page limit.'),
+        maxChars: z.number().int().min(1).max(60_000).optional().describe('Bounded PDF extraction character limit.'),
         attach: z.boolean().optional().describe('Attach generated/imported output to normal project memory explicitly.'),
       },
     },
-    async ({ action, path: assetPath, assetId, jobId, kind, limit, title, narrative, prompt, model, region, n, ratio, width, height, duration, attach }) => {
+    async ({ action, path: assetPath, assetId, jobId, kind, limit, title, narrative, prompt, model, provider, language, region, n, ratio, width, height, duration, maxPages, maxChars, attach }) => {
       const unresolved = requireResolvedProject('manage controlled media');
       if (unresolved) return unresolved;
       const safeError = (error: unknown) => sanitizeCredentials(
@@ -5040,6 +5044,7 @@ export async function createMemorixServer(
         content: [{ type: 'text' as const, text: JSON.stringify(value) }],
       });
       const mcpGenerationEnabled = process.env.MEMORIX_MCP_MEDIA_GENERATION === '1';
+      const mcpTranscriptionEnabled = process.env.MEMORIX_MCP_MEDIA_TRANSCRIPTION === '1';
 
       try {
         const { MediaStore } = await import('./media/media-store.js');
@@ -5094,6 +5099,49 @@ export async function createMemorixServer(
             ? await attachAsset(imported.asset, title, narrative)
             : undefined;
           return result({ action, projectId: project.id, ...imported, ...(observation ? { observation } : {}) });
+        }
+        if (action === 'derive-pdf') {
+          if (!assetId?.trim()) throw new Error('assetId is required for PDF text derivation');
+          const { derivePdfText } = await import('./media/pdf.js');
+          const boundedChars = maxChars ?? 60_000;
+          const derived = await derivePdfText({
+            dataDir: projectDir,
+            projectId: project.id,
+            assetId,
+            maxPages: maxPages ?? 50,
+            maxChars: boundedChars,
+            chunkChars: Math.min(6_000, boundedChars),
+          });
+          const observations = [];
+          if (attach === true) {
+            for (const chunk of derived.chunks) {
+              observations.push(await attachAsset(
+                derived.asset,
+                `${title?.trim() || `PDF: ${derived.asset.sourceLabel ?? derived.asset.id}`} (pages ${chunk.pageStart}-${chunk.pageEnd})`,
+                chunk.text,
+              ));
+            }
+          }
+          return result({ action, projectId: project.id, ...derived, observations });
+        }
+        if (action === 'derive-audio') {
+          if (!mcpTranscriptionEnabled) {
+            throw new Error('MCP audio transcription is disabled. Use the CLI, or set MEMORIX_MCP_MEDIA_TRANSCRIPTION=1 after reviewing provider billing.');
+          }
+          if (!assetId?.trim()) throw new Error('assetId is required for audio transcription');
+          const { queueAudioTranscription } = await import('./media/audio-jobs.js');
+          const queued = queueAudioTranscription({
+            dataDir: projectDir,
+            projectId: project.id,
+            assetId,
+            ...(provider ? { provider } : {}),
+            ...(model?.trim() ? { model } : {}),
+            ...(language?.trim() ? { language } : {}),
+            ...(prompt?.trim() ? { prompt } : {}),
+            attachOnComplete: attach === true,
+            observationTitle: title,
+          });
+          return result({ action, projectId: project.id, ...queued });
         }
         if (action === 'generate-image') {
           if (!mcpGenerationEnabled) {

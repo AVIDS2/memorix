@@ -9,12 +9,14 @@ import {
   removeMediaAsset,
 } from '../../media/asset-store.js';
 import { MediaStore } from '../../media/media-store.js';
+import { derivePdfText } from '../../media/pdf.js';
 import {
   generateMiniMaxImages,
   type MiniMaxImageGenerationInput,
   type MiniMaxVideoGenerationRequest,
 } from '../../media/minimax.js';
 import { launchMediaVideoRunner, queueMiniMaxVideoGeneration } from '../../media/video-jobs.js';
+import { launchMediaAudioRunner, queueAudioTranscription } from '../../media/audio-jobs.js';
 import type { MediaKind } from '../../media/types.js';
 import {
   emitError,
@@ -111,6 +113,8 @@ function help(): string {
     '  memorix media import --path ./diagram.png',
     '  memorix media list [--kind image]',
     '  memorix media show --asset <asset-id>',
+    '  memorix media derive-pdf --asset <asset-id> [--attach] [--maxPages 100] [--maxChars 120000]',
+    '  memorix media derive-audio --asset <asset-id> [--provider openai|groq] [--model ...] [--attach]',
     '  memorix media attach --asset <asset-id> [--title "Architecture"] [--text "..."]',
     '  memorix media embed --asset <asset-id>',
     '  memorix media similar --asset <asset-id> [--limit 10]',
@@ -142,6 +146,8 @@ export default defineCommand({
     visibility: { type: 'string', description: 'Observation visibility when attaching' },
     prompt: { type: 'string', description: 'Generation prompt' },
     model: { type: 'string', description: 'Provider model' },
+    provider: { type: 'string', description: 'Audio transcription provider: openai or groq' },
+    language: { type: 'string', description: 'Optional ISO-639-1 hint for audio transcription' },
     region: { type: 'string', description: 'MiniMax region: global or cn' },
     n: { type: 'string', description: 'Generated image count (1-4)' },
     ratio: { type: 'string', description: 'Image or video aspect ratio' },
@@ -157,6 +163,12 @@ export default defineCommand({
     limit: { type: 'string', description: 'List limit' },
     maxBytes: { type: 'string', description: 'Import or cleanup byte limit' },
     'max-bytes': { type: 'string', description: 'Kebab-case alias for --maxBytes' },
+    maxPages: { type: 'string', description: 'Maximum PDF pages to derive (1-1000)' },
+    'max-pages': { type: 'string', description: 'Kebab-case alias for --maxPages' },
+    maxChars: { type: 'string', description: 'Maximum total PDF text characters (1-1000000)' },
+    'max-chars': { type: 'string', description: 'Kebab-case alias for --maxChars' },
+    chunkChars: { type: 'string', description: 'Maximum PDF retrieval chunk characters (1-120000)' },
+    'chunk-chars': { type: 'string', description: 'Kebab-case alias for --chunkChars' },
     force: { type: 'boolean', description: 'Detach linked observations before removal' },
     json: { type: 'boolean', description: 'Emit machine-readable JSON output' },
   },
@@ -251,12 +263,19 @@ export default defineCommand({
           if (!job) throw new Error(`Media job not found: ${jobId}`);
           const runner = job.status === 'completed' || job.status === 'failed' || job.status === 'cancelled'
             ? undefined
-            : launchMediaVideoRunner({
+            : job.kind === 'audio-transcription'
+              ? launchMediaAudioRunner({
+                projectId: project.id,
+                projectRoot: project.rootPath,
+                dataDir,
+                mediaJobId: job.id,
+              })
+              : launchMediaVideoRunner({
               projectId: project.id,
               projectRoot: project.rootPath,
               dataDir,
               mediaJobId: job.id,
-            });
+              });
           emitResult(
             { project, job, ...(runner ? { runner } : {}) },
             `${job.kind} ${job.id}: ${job.status}${job.assetId ? ` (${job.assetId})` : ''}`,
@@ -285,6 +304,82 @@ export default defineCommand({
           emitResult(
             { project, ...result },
             `${result.deduplicated ? 'Reused' : 'Imported'} ${result.asset.kind} asset ${result.asset.id}`,
+            asJson,
+          );
+          return;
+        }
+        case 'derive-pdf': {
+          const assetId = getValue(args.asset, positional);
+          if (!assetId) throw new Error('asset is required for "memorix media derive-pdf"');
+          const { project, dataDir, reader, identity } = await getCliProjectContext();
+          const maxChars = parseOptionalInteger(args.maxChars ?? args['max-chars'], 'maxChars', 1, 1_000_000);
+          const requestedChunkChars = parseOptionalInteger(args.chunkChars ?? args['chunk-chars'], 'chunkChars', 1, 120_000);
+          const derived = await derivePdfText({
+            dataDir,
+            projectId: project.id,
+            assetId,
+            maxBytes: parseOptionalInteger(args.maxBytes ?? args['max-bytes'], 'maxBytes', 1, 100 * 1024 * 1024),
+            maxPages: parseOptionalInteger(args.maxPages ?? args['max-pages'], 'maxPages', 1, 1_000),
+            maxChars,
+            chunkChars: requestedChunkChars === undefined || maxChars === undefined
+              ? requestedChunkChars
+              : Math.min(requestedChunkChars, maxChars),
+          });
+          const observations = [];
+          if (args.attach === true) {
+            for (const chunk of derived.chunks) {
+              observations.push(await attachMediaAssetToObservation({
+                dataDir,
+                projectId: project.id,
+                asset: derived.asset,
+                title: `PDF: ${derived.asset.sourceLabel ?? derived.asset.id} (pages ${chunk.pageStart}-${chunk.pageEnd})`,
+                narrative: chunk.text,
+                facts: [`PDF pages: ${chunk.pageStart}-${chunk.pageEnd}`, 'Derived with explicit PDF text extraction.'],
+                concepts: ['pdf', 'pdf-text', 'media-derivation'],
+                ...resolveCliWriteScope({ reader, identity }, args.visibility as string | undefined),
+              }));
+            }
+          }
+          emitResult(
+            { project, ...derived, observations },
+            `Derived ${derived.chunks.length} PDF text chunk(s) from ${assetId}${observations.length ? ` and attached ${observations.length} retrieval projection(s)` : ''}.`,
+            asJson,
+          );
+          return;
+        }
+        case 'derive-audio':
+        case 'transcribe': {
+          const assetId = getValue(args.asset, positional);
+          if (!assetId) throw new Error(`asset is required for "memorix media ${action}"`);
+          const { project, dataDir } = await getCliProjectContext();
+          loadDotenv(project.rootPath);
+          const provider = args.provider === undefined ? undefined : String(args.provider).trim().toLowerCase();
+          if (provider !== undefined && provider !== 'openai' && provider !== 'groq') {
+            throw new Error('provider must be openai or groq');
+          }
+          const queued = queueAudioTranscription({
+            dataDir,
+            projectId: project.id,
+            assetId,
+            ...(provider ? { provider } : {}),
+            model: (args.model as string | undefined)?.trim(),
+            language: (args.language as string | undefined)?.trim(),
+            prompt: (args.prompt as string | undefined)?.trim(),
+            maxBytes: parseOptionalInteger(args.maxBytes ?? args['max-bytes'], 'maxBytes', 1, 25 * 1024 * 1024),
+            attachOnComplete: args.attach === true,
+            observationTitle: (args.title as string | undefined)?.trim(),
+          });
+          const runner = launchMediaAudioRunner({
+            projectId: project.id,
+            projectRoot: project.rootPath,
+            dataDir,
+            mediaJobId: queued.mediaJob.id,
+          });
+          emitResult(
+            { project, ...queued, runner },
+            runner.launched
+              ? `Queued audio transcription job ${queued.mediaJob.id}; transcription continues in the background.`
+              : `Queued audio transcription job ${queued.mediaJob.id}. ${runner.reason ?? 'Run a Memorix server or invoke media status after building to resume it.'}`,
             asJson,
           );
           return;

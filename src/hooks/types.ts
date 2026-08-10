@@ -34,6 +34,7 @@ export type AgentName =
   | 'cursor'
   | 'kiro'
   | 'codex'
+  | 'codebuddy'
   | 'antigravity'
   | 'gemini-cli'
   | 'openclaw'
@@ -54,6 +55,7 @@ export const AGENT_SUPPORT_TIER: Record<AgentName, SupportTier> = {
   copilot: 'extended',
   kiro: 'extended',
   codex: 'extended',
+  codebuddy: 'community',
   'gemini-cli': 'community',
   openclaw: 'community',
   hermes: 'community',

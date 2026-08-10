@@ -23,7 +23,7 @@ It supports:
 - HTTP MCP service + dashboard (`memorix background start` or `memorix serve-http --port 3211`)
 - bundled terminal agent (`memorix` or `memcode`) that uses the same shared memory pool
 - local-first project-scoped memory
-- cross-agent recall across Cursor, Claude Code, Codex, Windsurf, Gemini CLI, GitHub Copilot, OpenCode, OpenClaw, Hermes Agent, Oh-my-Pi, Pi, Kiro, Antigravity, and Trae
+- cross-agent recall across Cursor, Claude Code, Codex, CodeBuddy Code, Windsurf, Gemini CLI, GitHub Copilot, OpenCode, OpenClaw, Hermes Agent, Oh-my-Pi, Pi, Kiro, Antigravity, and Trae
 
 ### Current 1.2 Baseline
 

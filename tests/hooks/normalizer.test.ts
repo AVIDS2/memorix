@@ -78,6 +78,21 @@ describe('Hook Normalizer', () => {
       expect(input.toolName).toBe('edit_file');
     });
 
+    it('normalizes the documented CodeBuddy hook payload through its explicit plugin identity', () => {
+      const input = normalizeHookInput({
+        _memorix_agent: 'codebuddy',
+        hook_event_name: 'PostToolUse',
+        session_id: 'codebuddy-1',
+        cwd: '/project',
+        tool_name: 'Edit',
+        tool_input: { file_path: '/project/src/index.ts' },
+      });
+      expect(input.agent).toBe('codebuddy');
+      expect(input.event).toBe('post_tool');
+      expect(input.sessionId).toBe('codebuddy-1');
+      expect(input.toolName).toBe('Edit');
+    });
+
     it('_memorix_agent takes priority over all other detection heuristics', () => {
       // Even with gemini_session_id (which normally → antigravity), _memorix_agent wins
       const input = normalizeHookInput({

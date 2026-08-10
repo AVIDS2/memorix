@@ -6,7 +6,7 @@
 
 <p align="center">
   <strong>面向 AI Coding Agent 的本地优先共享记忆层。</strong><br>
-  让 Claude Code、Codex、Cursor、Windsurf、Copilot、Gemini CLI、OpenCode、OpenClaw、Hermes Agent、Oh-my-Pi、Pi、Kiro、Antigravity、Trae 和任何 MCP Agent 共用同一套项目记忆。
+  让 Claude Code、Codex、CodeBuddy Code、Cursor、Windsurf、Copilot、Gemini CLI、OpenCode、OpenClaw、Hermes Agent、Oh-my-Pi、Pi、Kiro、Antigravity、Trae 和任何 MCP Agent 共用同一套项目记忆。
 </p>
 
 <p align="center">
@@ -189,7 +189,7 @@ Memorix 通过目标 Agent 已有的接口接入：插件包、MCP、项目规�
 | MCP | 给 Agent 提供搜索、详情检索、写入、reasoning 和协同工具 | setup 包内置，或手动运行 `memorix serve` |
 | 使用规范 | 告诉 Agent 什么时候、怎么使用 Memorix，而不是每轮都强制查记忆 | 由 `memorix setup` 打包或生成 |
 | Hooks | 在 Agent 支持时可选地捕获 prompt、tool 事件、文件编辑、session 生命周期和原生上下文压缩检查点 | 由 `memorix setup` 打包或生成 |
-| 插件 / Bundle / Package | 给支持插件、兼容 bundle 或 package 的 Agent 安装对应文件 | Claude Code、Codex、GitHub Copilot CLI、Antigravity、OpenClaw、Hermes Agent、Oh-my-Pi、Pi |
+| 插件 / Bundle / Package | 给支持插件、兼容 bundle 或 package 的 Agent 安装对应文件 | Claude Code、Codex、CodeBuddy Code、GitHub Copilot CLI、Antigravity、OpenClaw、Hermes Agent、Oh-my-Pi、Pi |
 | Extension | 给支持 extension 的 Agent 安装对应文件 | Gemini CLI |
 | 本地插件 | 给直接加载本地插件文件的 Agent 安装插件 | OpenCode |
 | MCP / rules 配置 | 给支持 MCP、rules、steering、guidance 或 hooks 的 IDE 和 Agent 写入配置 | Cursor、Windsurf、Kiro、Trae |
@@ -219,7 +219,7 @@ CLI、MCP 和 HTTP 是不同入口：
 npm install -g memorix
 memorix init --global                   # 可选默认配置
 memorix setup --agent claude --global   # 也可以是 codex、copilot、cursor、pi、gemini-cli、opencode、
-                                       # windsurf、kiro、antigravity、trae、openclaw、hermes、omp
+                                       # codebuddy、windsurf、kiro、antigravity、trae、openclaw、hermes、omp
 ```
 
 `memorix init` 是可选的，它会创建或更新 TOML 配置：
@@ -251,6 +251,7 @@ memorix setup --agent antigravity --global
 memorix setup --agent trae --global
 memorix setup --agent openclaw --global
 memorix setup --agent hermes --global
+memorix setup --agent codebuddy --global
 memorix setup --agent omp --global
 ```
 
@@ -267,6 +268,7 @@ memorix setup --agent omp --global
 - Antigravity：安装官方 plugin package，包含 `plugin.json`、`mcp_config.json`、`hooks.json`、rules 和 skills，路径为 `~/.gemini/config/plugins/memorix` 或 `.agents/plugins/memorix`。
 - OpenClaw：安装 OpenClaw 兼容 bundle，包含 `.mcp.json`、官方 skills 和 OpenClaw `HOOK.md` / `handler.ts` hook pack。
 - Hermes Agent：安装到 Hermes home（Windows native 默认为 `%LOCALAPPDATA%\hermes`，其他平台默认为 `~/.hermes`，也支持 `HERMES_HOME`），在 `config.yaml` 启用插件，注册 plugin hooks、slash/CLI commands、skills，并写入 MCP 配置。
+- CodeBuddy Code：安装用户级本地市场插件到 `~/.codebuddy/memorix-local`，包含 MCP、skills 和 hooks。它不会修改既有的 CodeBuddy 模型、权限或 settings 文件；第三方 hook 仍由 CodeBuddy 自己的 `/hooks` 流程确认。
 - Oh-my-Pi：安装 `omp.extensions` package，包含 extension hook 事件、`memorix` command、官方 skills，并写入 MCP 配置。
 
 如果你想要更安静一点的安装，可以对那些 setup 能独立控制 hook capture 的 target 加 `--noHooks`。它会保留 MCP 和使用规范，只跳过 Memorix 的 hook 自动捕获。

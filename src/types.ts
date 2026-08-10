@@ -653,7 +653,8 @@ export interface MemoryRef {
 
 /** MCP config format adapter interface */
 export interface MCPConfigAdapter {
-  readonly source: AgentTarget;
+  /** Setup-only adapters may support a host that does not participate in workspace sync. */
+  readonly source: AgentTarget | 'codebuddy';
   /** Parse MCP server entries from a config file */
   parse(content: string): MCPServerEntry[];
   /** Generate config file content from MCP server entries */

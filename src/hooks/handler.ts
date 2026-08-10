@@ -719,6 +719,19 @@ export function formatHookOutput(
     return codexOutput;
   }
 
+  if (agent === 'codebuddy' && rawEventName === 'SessionStart') {
+    return {
+      continue: output.continue,
+      ...(output.stopReason ? { reason: output.stopReason } : {}),
+      ...(output.systemMessage ? {
+        hookSpecificOutput: {
+          hookEventName: 'SessionStart',
+          additionalContext: output.systemMessage,
+        },
+      } : {}),
+    };
+  }
+
   const finalOutput: Record<string, unknown> = { ...output };
   const hookSpecificOutputEvents = new Set([
     'PreToolUse',

@@ -124,6 +124,7 @@ function rowToJob(row: any): MediaJob {
     kind: row.kind as MediaJobKind,
     status: row.status as MediaJobStatus,
     request: parseRequest(row.request_json),
+    ...(asOptionalText(row.source_asset_id) ? { sourceAssetId: row.source_asset_id } : {}),
     ...(asOptionalText(row.provider_task_id) ? { providerTaskId: row.provider_task_id } : {}),
     ...(asOptionalText(row.asset_id) ? { assetId: row.asset_id } : {}),
     ...(asOptionalText(row.last_error) ? { lastError: row.last_error } : {}),
@@ -263,6 +264,17 @@ export class MediaStore {
       this.db.prepare(`
         UPDATE media_jobs SET asset_id = NULL, updated_at = ?
         WHERE project_id = ? AND asset_id = ?
+      `).run(Date.now(), projectId, assetId);
+      // A pending derivative cannot safely run after its source disappears.
+      // Mark it terminal instead of letting a later worker rediscover a stale
+      // JSON request and make a paid provider call.
+      this.db.prepare(`
+        UPDATE media_jobs
+        SET source_asset_id = NULL,
+            status = CASE WHEN status IN ('completed', 'failed', 'cancelled') THEN status ELSE 'cancelled' END,
+            last_error = CASE WHEN status IN ('completed', 'failed', 'cancelled') THEN last_error ELSE 'Source asset was removed' END,
+            updated_at = ?
+        WHERE project_id = ? AND source_asset_id = ?
       `).run(Date.now(), projectId, assetId);
       const result = this.db.prepare(`
         UPDATE media_assets SET deleted_at = ?, updated_at = ?
@@ -415,6 +427,7 @@ export class MediaStore {
     projectId: string;
     kind: MediaJobKind;
     request: Record<string, unknown>;
+    sourceAssetId?: string;
     attachOnComplete?: boolean;
     observationTitle?: string;
   }): MediaJob {
@@ -425,6 +438,7 @@ export class MediaStore {
       kind: input.kind,
       status: 'queued',
       request: sanitizeRequest(input.request),
+      ...(input.sourceAssetId ? { sourceAssetId: input.sourceAssetId } : {}),
       attempts: 0,
       attachOnComplete: input.attachOnComplete === true,
       ...(input.observationTitle ? { observationTitle: sanitizeCredentials(input.observationTitle) } : {}),
@@ -433,11 +447,11 @@ export class MediaStore {
     };
     this.db.prepare(`
       INSERT INTO media_jobs (
-        id, project_id, kind, status, request_json, attempts, attach_on_complete,
+        id, project_id, kind, status, request_json, source_asset_id, attempts, attach_on_complete,
         observation_title, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
-      job.id, job.projectId, job.kind, job.status, JSON.stringify(job.request), job.attempts,
+      job.id, job.projectId, job.kind, job.status, JSON.stringify(job.request), job.sourceAssetId ?? null, job.attempts,
       job.attachOnComplete ? 1 : 0, job.observationTitle ?? null, now, now,
     );
     return job;

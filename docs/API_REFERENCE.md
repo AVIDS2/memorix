@@ -754,6 +754,7 @@ durable job, so it survives process restarts and can be inspected or cancelled.
 ```bash
 memorix media generate image --prompt "..." --json
 memorix media generate video --prompt "..." --json
+memorix media derive-audio --asset <asset-id> --provider groq --attach --json
 memorix media status --job <media-job-id> --json
 memorix media cancel --job <media-job-id> --json
 ```
@@ -764,6 +765,12 @@ and `full` profiles. Its import/attach/list/show/status actions are available
 normally; generation requires `MEMORIX_MCP_MEDIA_GENERATION=1` because it can
 incur provider charges. Text-only embedding providers never produce a pretend
 image, audio, video, or document vector.
+
+Audio transcription is also explicit. `derive-audio` consumes an existing
+controlled audio asset and queues a durable transcript derivative. It supports
+`openai` (`OPENAI_API_KEY`) and `groq` (`GROQ_API_KEY`) with no credential
+fallback between them. MCP transcription is disabled until
+`MEMORIX_MCP_MEDIA_TRANSCRIPTION=1` is deliberately set.
 
 ### `memorix_ingest_image`
 

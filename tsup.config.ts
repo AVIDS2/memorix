@@ -22,6 +22,8 @@ export default defineConfig([
       // Durable MiniMax video generation is polled outside the CLI process.
       // This runner intentionally has no detached Windows console.
       'media-video-runner': 'src/runtime/media-video-runner.ts',
+      // Explicit audio transcription follows the same durable queue contract.
+      'media-audio-runner': 'src/runtime/media-audio-runner.ts',
     },
     format: ['esm'],
     target: 'node20',

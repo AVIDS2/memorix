@@ -16,6 +16,7 @@ import {
   type MiniMaxVideoGenerationRequest,
 } from '../../media/minimax.js';
 import { launchMediaVideoRunner, queueMiniMaxVideoGeneration } from '../../media/video-jobs.js';
+import { launchMediaAudioRunner, queueAudioTranscription } from '../../media/audio-jobs.js';
 import type { MediaKind } from '../../media/types.js';
 import {
   emitError,
@@ -113,6 +114,7 @@ function help(): string {
     '  memorix media list [--kind image]',
     '  memorix media show --asset <asset-id>',
     '  memorix media derive-pdf --asset <asset-id> [--attach] [--maxPages 100] [--maxChars 120000]',
+    '  memorix media derive-audio --asset <asset-id> [--provider openai|groq] [--model ...] [--attach]',
     '  memorix media attach --asset <asset-id> [--title "Architecture"] [--text "..."]',
     '  memorix media embed --asset <asset-id>',
     '  memorix media similar --asset <asset-id> [--limit 10]',
@@ -144,6 +146,8 @@ export default defineCommand({
     visibility: { type: 'string', description: 'Observation visibility when attaching' },
     prompt: { type: 'string', description: 'Generation prompt' },
     model: { type: 'string', description: 'Provider model' },
+    provider: { type: 'string', description: 'Audio transcription provider: openai or groq' },
+    language: { type: 'string', description: 'Optional ISO-639-1 hint for audio transcription' },
     region: { type: 'string', description: 'MiniMax region: global or cn' },
     n: { type: 'string', description: 'Generated image count (1-4)' },
     ratio: { type: 'string', description: 'Image or video aspect ratio' },
@@ -259,12 +263,19 @@ export default defineCommand({
           if (!job) throw new Error(`Media job not found: ${jobId}`);
           const runner = job.status === 'completed' || job.status === 'failed' || job.status === 'cancelled'
             ? undefined
-            : launchMediaVideoRunner({
+            : job.kind === 'audio-transcription'
+              ? launchMediaAudioRunner({
+                projectId: project.id,
+                projectRoot: project.rootPath,
+                dataDir,
+                mediaJobId: job.id,
+              })
+              : launchMediaVideoRunner({
               projectId: project.id,
               projectRoot: project.rootPath,
               dataDir,
               mediaJobId: job.id,
-            });
+              });
           emitResult(
             { project, job, ...(runner ? { runner } : {}) },
             `${job.kind} ${job.id}: ${job.status}${job.assetId ? ` (${job.assetId})` : ''}`,
@@ -332,6 +343,43 @@ export default defineCommand({
           emitResult(
             { project, ...derived, observations },
             `Derived ${derived.chunks.length} PDF text chunk(s) from ${assetId}${observations.length ? ` and attached ${observations.length} retrieval projection(s)` : ''}.`,
+            asJson,
+          );
+          return;
+        }
+        case 'derive-audio':
+        case 'transcribe': {
+          const assetId = getValue(args.asset, positional);
+          if (!assetId) throw new Error(`asset is required for "memorix media ${action}"`);
+          const { project, dataDir } = await getCliProjectContext();
+          loadDotenv(project.rootPath);
+          const provider = args.provider === undefined ? undefined : String(args.provider).trim().toLowerCase();
+          if (provider !== undefined && provider !== 'openai' && provider !== 'groq') {
+            throw new Error('provider must be openai or groq');
+          }
+          const queued = queueAudioTranscription({
+            dataDir,
+            projectId: project.id,
+            assetId,
+            ...(provider ? { provider } : {}),
+            model: (args.model as string | undefined)?.trim(),
+            language: (args.language as string | undefined)?.trim(),
+            prompt: (args.prompt as string | undefined)?.trim(),
+            maxBytes: parseOptionalInteger(args.maxBytes ?? args['max-bytes'], 'maxBytes', 1, 25 * 1024 * 1024),
+            attachOnComplete: args.attach === true,
+            observationTitle: (args.title as string | undefined)?.trim(),
+          });
+          const runner = launchMediaAudioRunner({
+            projectId: project.id,
+            projectRoot: project.rootPath,
+            dataDir,
+            mediaJobId: queued.mediaJob.id,
+          });
+          emitResult(
+            { project, ...queued, runner },
+            runner.launched
+              ? `Queued audio transcription job ${queued.mediaJob.id}; transcription continues in the background.`
+              : `Queued audio transcription job ${queued.mediaJob.id}. ${runner.reason ?? 'Run a Memorix server or invoke media status after building to resume it.'}`,
             asJson,
           );
           return;

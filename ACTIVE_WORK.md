@@ -8,17 +8,20 @@
 
 ## Current Product State
 
-- `1.4.2` is the current published release.
-- It adds evidence-governed memory retrieval and maintains the controlled media
-  boundary introduced in 1.3.x.
+- `1.4.3` is the release being verified from this branch. The currently
+  published npm release remains `1.4.2` until verification and publication
+  complete.
+- This release adds controlled document/audio derivations, bounded graph
+  evidence, CodeBuddy setup, and verified Star History automation.
 
 ## Active Objectives
 
 1. Keep the public repository free of operator state, local paths, credentials,
    raw session captures, and one-off development artifacts.
-2. Deliver the controlled media follow-through: #174 audio transcript
-   derivations, #175 evidence-bounded graph retrieval, #185 CodeBuddy support,
-   and #184 automated Star History verification.
+2. Keep the released integration surface honest: native-host validation is
+   still required whenever a newly supported agent CLI becomes available.
+3. Review open contributor work independently; do not merge it merely because
+   it overlaps a planned product direction.
 
 ## Completed Contribution Decisions
 
@@ -44,9 +47,9 @@
 
 ## Immediate Next Step
 
-Complete #174 after CI and maintain its provider-specific credentials, explicit
-CLI-first consent, bounded asynchronous jobs, and source asset lifecycle
-cancellation. #175 now reuses the existing evidence governor for one-hop graph
-evidence. #185 has a native CodeBuddy marketplace-plugin implementation with
-MCP, skills, and Hooks; validate it with the real host when its CLI is present.
-Next is #184 Star History CI proof.
+The #174 controlled audio derivations, #175 governed one-hop graph evidence,
+#185 CodeBuddy integration, and #184 Star History CI verification are merged.
+The 1.4.3 release branch must complete package, runtime, and CI gates before
+publication. The local machine does not have the CodeBuddy CLI installed, so a
+native CodeBuddy-host smoke remains a documented follow-up rather than claimed
+release evidence.

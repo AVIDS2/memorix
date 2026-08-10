@@ -9,7 +9,7 @@
  * Source: Cursor official documentation on Project Rules.
  */
 
-import matter from 'gray-matter';
+import matter from '../../utils/frontmatter.js';
 import type { RuleFormatAdapter, UnifiedRule, RuleSource } from '../../types.js';
 import { hashContent, generateRuleId } from '../utils.js';
 

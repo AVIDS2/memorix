@@ -1,4 +1,4 @@
-import matter from 'gray-matter';
+import matter from '../utils/frontmatter.js';
 import type { AgentTarget, WorkflowEntry } from '../types.js';
 
 /**
@@ -20,7 +20,7 @@ export class WorkflowSyncer {
 
     try {
       const parsed = matter(raw);
-      description = parsed.data?.description ?? '';
+      description = typeof parsed.data?.description === 'string' ? parsed.data.description : '';
       content = parsed.content.trim();
     } catch {
       // No frontmatter — use raw content

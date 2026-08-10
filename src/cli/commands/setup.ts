@@ -11,10 +11,10 @@ import * as p from '@clack/prompts';
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { copyFile, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
-import { createRequire } from 'node:module';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import type { AgentName } from '../../hooks/types.js';
 import type { MCPConfigAdapter, MCPServerEntry } from '../../types.js';
 import { ClaudeCodeMCPAdapter } from '../../workspace/mcp-adapters/claude-code.js';
@@ -34,12 +34,6 @@ import { CodeBuddyMCPAdapter } from '../../workspace/mcp-adapters/codebuddy.js';
 import { getSetupIntegrationRows as readSetupIntegrationRows } from '../../integrations/registry.js';
 import { OFFICIAL_MEMORIX_SKILLS } from '../../hooks/official-skills.js';
 import { getCliVersion } from '../version.js';
-
-const require = createRequire(import.meta.url);
-const yaml = require('js-yaml') as {
-  load(content: string): unknown;
-  dump(value: unknown, options?: Record<string, unknown>): string;
-};
 
 export type SetupAgent = AgentName | 'all';
 export type SetupMcpTransport = 'stdio' | 'http' | 'none';
@@ -357,7 +351,7 @@ async function stripHookCaptureFromOpenClawBundle(bundlePath: string): Promise<v
 function mergeHermesPluginEnabled(existingContent: string | null, pluginName: string): string {
   let config: Record<string, unknown> = {};
   try {
-    const loaded = existingContent ? yaml.load(existingContent) : {};
+    const loaded = existingContent ? parseYaml(existingContent) : {};
     config = loaded && typeof loaded === 'object' && !Array.isArray(loaded)
       ? loaded as Record<string, unknown>
       : {};
@@ -375,7 +369,7 @@ function mergeHermesPluginEnabled(existingContent: string | null, pluginName: st
 
   if (!enabled.includes(pluginName)) enabled.push(pluginName);
 
-  return yaml.dump({
+  return stringifyYaml({
     ...config,
     plugins: {
       ...plugins,
@@ -668,7 +662,7 @@ export async function migrateLegacyCodexIntegration(options: {
 function mergeYamlMcpConfig(existingContent: string | null, generatedContent: string): string {
   let existing: Record<string, unknown> = {};
   try {
-    const loaded = existingContent ? yaml.load(existingContent) : {};
+    const loaded = existingContent ? parseYaml(existingContent) : {};
     existing = loaded && typeof loaded === 'object' && !Array.isArray(loaded)
       ? loaded as Record<string, unknown>
       : {};
@@ -678,7 +672,7 @@ function mergeYamlMcpConfig(existingContent: string | null, generatedContent: st
 
   let generated: Record<string, unknown> = {};
   try {
-    const loaded = yaml.load(generatedContent);
+    const loaded = parseYaml(generatedContent);
     generated = loaded && typeof loaded === 'object' && !Array.isArray(loaded)
       ? loaded as Record<string, unknown>
       : {};
@@ -702,7 +696,7 @@ function mergeYamlMcpConfig(existingContent: string | null, generatedContent: st
     },
   };
 
-  return yaml.dump(merged, { lineWidth: -1 });
+  return stringifyYaml(merged, { lineWidth: 0 });
 }
 
 export async function installMcpConfig(options: {

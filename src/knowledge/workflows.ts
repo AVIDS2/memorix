@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import matter from 'gray-matter';
+import matter, { type ParsedFrontmatter } from '../utils/frontmatter.js';
 import type { AgentTarget } from '../types.js';
 import { atomicWriteFile, withFileLock } from '../store/file-lock.js';
 import { WorkflowSyncer } from '../workspace/workflow-sync.js';
@@ -299,7 +299,7 @@ export function parseWorkflowMarkdown(raw: string, input: {
   workspaceId: string;
   sourcePath: string;
 }): WorkflowSpec {
-  let parsed: matter.GrayMatterFile<string>;
+  let parsed: ParsedFrontmatter;
   try {
     parsed = matter(raw);
   } catch (error) {
@@ -489,7 +489,7 @@ function importedWorkflowSpec(input: {
   sourcePath: string;
   raw: string;
 }): WorkflowSpec {
-  let sourceMatter: matter.GrayMatterFile<string>;
+  let sourceMatter: ParsedFrontmatter;
   try {
     sourceMatter = matter(input.raw);
   } catch (error) {

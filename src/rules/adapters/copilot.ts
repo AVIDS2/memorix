@@ -8,7 +8,7 @@
  * Source: https://docs.github.com/en/copilot/customizing-copilot/adding-repository-custom-instructions-for-github-copilot
  */
 
-import matter from 'gray-matter';
+import matter from '../../utils/frontmatter.js';
 import type { RuleFormatAdapter, UnifiedRule, RuleSource } from '../../types.js';
 import { hashContent, generateRuleId } from '../utils.js';
 

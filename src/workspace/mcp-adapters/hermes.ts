@@ -1,13 +1,7 @@
 import type { MCPConfigAdapter, MCPServerEntry } from '../../types.js';
-import { createRequire } from 'node:module';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-
-const require = createRequire(import.meta.url);
-const yaml = require('js-yaml') as {
-  load(content: string): unknown;
-  dump(value: unknown, options?: Record<string, unknown>): string;
-};
+import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 
 export function resolveHermesHome(homeDir?: string): string {
   if (homeDir) return join(homeDir, '.hermes');
@@ -35,7 +29,7 @@ export class HermesMCPAdapter implements MCPConfigAdapter {
 
   parse(content: string): MCPServerEntry[] {
     try {
-      const config = yaml.load(content) as Record<string, any> | null;
+      const config = parseYaml(content) as Record<string, any> | null;
       const servers = config?.mcp_servers ?? {};
       if (!servers || typeof servers !== 'object') return [];
 
@@ -96,7 +90,7 @@ export class HermesMCPAdapter implements MCPConfigAdapter {
       mcpServers[s.name] = entry;
     }
 
-    return yaml.dump({ mcp_servers: mcpServers }, { lineWidth: -1 });
+    return stringifyYaml({ mcp_servers: mcpServers }, { lineWidth: 0 });
   }
 
   getConfigPath(_projectRoot?: string): string {

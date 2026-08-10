@@ -8,9 +8,7 @@
 
 ## Current Product State
 
-- `1.4.3` is the release being verified from this branch. The currently
-  published npm release remains `1.4.2` until verification and publication
-  complete.
+- `1.4.3` is the current published release on npm and GitHub.
 - This release adds controlled document/audio derivations, bounded graph
   evidence, CodeBuddy setup, and verified Star History automation.
 
@@ -48,8 +46,8 @@
 ## Immediate Next Step
 
 The #174 controlled audio derivations, #175 governed one-hop graph evidence,
-#185 CodeBuddy integration, and #184 Star History CI verification are merged.
-The 1.4.3 release branch must complete package, runtime, and CI gates before
-publication. The local machine does not have the CodeBuddy CLI installed, so a
-native CodeBuddy-host smoke remains a documented follow-up rather than claimed
-release evidence.
+#185 CodeBuddy integration, and #184 Star History CI verification are merged
+and included in the published 1.4.3 release. The local machine does not have
+the CodeBuddy CLI installed, so a native CodeBuddy-host smoke remains a
+documented follow-up rather than claimed release evidence. Open contributor
+work #178 and legacy requests #49/#3 remain independent of the 1.4.3 release.

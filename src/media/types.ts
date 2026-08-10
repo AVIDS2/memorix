@@ -7,7 +7,17 @@ export type MediaSourceKind =
 
 export type MediaLinkRole = 'source' | 'generated' | 'attachment';
 
-export type MediaDerivationKind = 'description' | 'ocr' | 'embedding';
+export type MediaDerivationKind = 'description' | 'ocr' | 'embedding' | 'pdf-text';
+
+export interface MediaDerivationMetadata {
+  extractor?: string;
+  pageCount?: number;
+  processedPages?: number;
+  chunkCount?: number;
+  truncated?: boolean;
+  maxPages?: number;
+  maxChars?: number;
+}
 
 export type MediaJobKind = 'minimax-video-generation';
 
@@ -57,6 +67,7 @@ export interface MediaDerivation {
   /** Embedding profile key for vector derivations; absent for textual data. */
   profileKey?: string;
   content: string;
+  metadata?: MediaDerivationMetadata;
   status: 'ready' | 'failed';
   error?: string;
   createdAt: number;

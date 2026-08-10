@@ -6,6 +6,7 @@ import type {
   MediaAsset,
   MediaAssetLink,
   MediaDerivation,
+  MediaDerivationMetadata,
   MediaEmbedding,
   MediaEmbeddingProfile,
   MediaJob,
@@ -57,6 +58,18 @@ function parseVector(value: unknown): number[] | undefined {
   }
 }
 
+function parseDerivationMetadata(value: unknown): MediaDerivationMetadata | undefined {
+  if (typeof value !== 'string' || !value) return undefined;
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? parsed as MediaDerivationMetadata
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function rowToAsset(row: any): MediaAsset {
   return {
     id: row.id,
@@ -88,6 +101,7 @@ function rowToLink(row: any): MediaAssetLink {
 }
 
 function rowToDerivation(row: any): MediaDerivation {
+  const metadata = parseDerivationMetadata(row.metadata_json);
   return {
     id: row.id,
     assetId: row.asset_id,
@@ -95,6 +109,7 @@ function rowToDerivation(row: any): MediaDerivation {
     kind: row.kind,
     ...(asOptionalText(row.profile_key) ? { profileKey: row.profile_key } : {}),
     content: row.content,
+    ...(metadata ? { metadata } : {}),
     status: row.status,
     ...(asOptionalText(row.error) ? { error: row.error } : {}),
     createdAt: Number(row.created_at),
@@ -295,14 +310,15 @@ export class MediaStore {
     const now = Date.now();
     const content = sanitizeCredentials(input.content);
     const error = input.error ? sanitizeCredentials(input.error).slice(0, 1_000) : undefined;
+    const metadataJson = input.metadata ? JSON.stringify(input.metadata) : null;
     const existing = this.db.prepare(`
       SELECT * FROM media_derivations
       WHERE asset_id = ? AND kind = ? AND profile_key IS ? LIMIT 1
     `).get(input.assetId, input.kind, input.profileKey ?? null);
     if (existing) {
       this.db.prepare(`
-        UPDATE media_derivations SET content = ?, status = ?, error = ?, updated_at = ? WHERE id = ?
-      `).run(content, input.status, error ?? null, now, existing.id);
+        UPDATE media_derivations SET content = ?, metadata_json = ?, status = ?, error = ?, updated_at = ? WHERE id = ?
+      `).run(content, metadataJson, input.status, error ?? null, now, existing.id);
       return rowToDerivation(this.db.prepare('SELECT * FROM media_derivations WHERE id = ?').get(existing.id));
     }
     const derivation: MediaDerivation = {
@@ -314,8 +330,8 @@ export class MediaStore {
       updatedAt: now,
     };
     this.db.prepare(`
-      INSERT INTO media_derivations (id, asset_id, project_id, kind, profile_key, content, status, error, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO media_derivations (id, asset_id, project_id, kind, profile_key, content, metadata_json, status, error, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       derivation.id,
       derivation.assetId,
@@ -323,6 +339,7 @@ export class MediaStore {
       derivation.kind,
       derivation.profileKey ?? null,
       derivation.content,
+      metadataJson,
       derivation.status,
       error ?? null,
       now,

@@ -667,6 +667,7 @@ CREATE TABLE IF NOT EXISTS media_jobs (
   kind                 TEXT NOT NULL,
   status               TEXT NOT NULL,
   request_json         TEXT NOT NULL DEFAULT '{}',
+  source_asset_id      TEXT,
   provider_task_id     TEXT,
   asset_id             TEXT,
   last_error           TEXT,
@@ -676,7 +677,8 @@ CREATE TABLE IF NOT EXISTS media_jobs (
   created_at           INTEGER NOT NULL,
   updated_at           INTEGER NOT NULL,
   completed_at         INTEGER,
-  FOREIGN KEY (asset_id) REFERENCES media_assets(id) ON DELETE SET NULL
+  FOREIGN KEY (asset_id) REFERENCES media_assets(id) ON DELETE SET NULL,
+  FOREIGN KEY (source_asset_id) REFERENCES media_assets(id) ON DELETE SET NULL
 );
 `;
 
@@ -955,6 +957,13 @@ const SCHEMA_MIGRATIONS: SchemaMigration[] = [
     id: '1.4.3-media-derivation-metadata',
     apply: (db) => {
       try { db.exec('ALTER TABLE media_derivations ADD COLUMN metadata_json TEXT'); } catch { /* already exists */ }
+    },
+  },
+  {
+    id: '1.4.3-media-job-source-asset',
+    apply: (db) => {
+      try { db.exec('ALTER TABLE media_jobs ADD COLUMN source_asset_id TEXT'); } catch { /* already exists */ }
+      db.exec('CREATE INDEX IF NOT EXISTS idx_media_jobs_source_asset ON media_jobs(project_id, source_asset_id, status)');
     },
   },
 ];

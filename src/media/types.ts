@@ -7,10 +7,23 @@ export type MediaSourceKind =
 
 export type MediaLinkRole = 'source' | 'generated' | 'attachment';
 
-export type MediaDerivationKind = 'description' | 'ocr' | 'embedding' | 'pdf-text';
+export type MediaDerivationKind = 'description' | 'ocr' | 'embedding' | 'pdf-text' | 'audio-transcript';
 
 export interface MediaDerivationMetadata {
   extractor?: string;
+  provider?: string;
+  model?: string;
+  sourceAssetId?: string;
+  responseFormat?: string;
+  durationSeconds?: number;
+  billing?: {
+    /** Providers may report usage but not a stable monetary amount. */
+    costStatus: 'not-reported';
+    inputAudioSeconds?: number;
+    inputTokens?: number;
+    outputTokens?: number;
+    totalTokens?: number;
+  };
   pageCount?: number;
   processedPages?: number;
   chunkCount?: number;
@@ -19,7 +32,7 @@ export interface MediaDerivationMetadata {
   maxChars?: number;
 }
 
-export type MediaJobKind = 'minimax-video-generation';
+export type MediaJobKind = 'minimax-video-generation' | 'audio-transcription';
 
 export type MediaJobStatus =
   | 'queued'
@@ -100,6 +113,8 @@ export interface MediaJob {
   kind: MediaJobKind;
   status: MediaJobStatus;
   request: Record<string, unknown>;
+  /** The controlled local asset consumed by this job, if any. */
+  sourceAssetId?: string;
   providerTaskId?: string;
   assetId?: string;
   lastError?: string;

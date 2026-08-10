@@ -10,6 +10,7 @@ export const MAINTENANCE_RESULT_PREFIX = '__MEMORIX_MAINTENANCE_RESULT__';
 
 export const ISOLATED_MAINTENANCE_JOB_KINDS: readonly MaintenanceJobKind[] = [
   'media-video-generation',
+  'media-audio-transcription',
   'retention-archive',
   'consolidation',
   'codegraph-refresh',

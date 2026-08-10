@@ -16,8 +16,9 @@
 
 1. Keep the public repository free of operator state, local paths, credentials,
    raw session captures, and one-off development artifacts.
-2. Deliver #173 as an explicit, bounded PDF-to-text derivation path over the
-   existing controlled media asset store.
+2. Deliver the controlled media follow-through: #174 audio transcript
+   derivations, #175 evidence-bounded graph retrieval, #185 CodeBuddy support,
+   and #184 automated Star History verification.
 
 ## Completed Contribution Decisions
 
@@ -43,7 +44,7 @@
 
 ## Immediate Next Step
 
-Complete #173 with a shared derivation metadata contract, explicit CLI and
-bounded MCP operation, page-aware text projections, and corrupt/oversized/
-multipage regression coverage. #174 must reuse this contract rather than add
-its own storage path.
+Complete #174 on the shared derivation contract. It must use provider-specific
+credentials, explicit CLI-first consent, bounded asynchronous jobs, and source
+asset lifecycle cancellation; #175 must then reuse the existing evidence
+governor rather than add unbounded graph traversal.

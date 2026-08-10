@@ -92,6 +92,10 @@ packages/*/.tsbuildinfo
 # CodeGraph
 .codegraph/
 
+# Local inspection and agent goal artifacts
+.demokiller/
+.opencode/
+
 # Session files
 *.jsonl
 

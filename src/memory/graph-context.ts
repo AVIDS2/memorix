@@ -2,12 +2,18 @@ import { auditMemoryQuality, type MemoryQualityAuditReport } from './quality-aud
 import type { Observation } from '../types.js';
 import { getRetentionZone } from './retention.js';
 import { isEligibleForAutomaticDelivery } from './admission.js';
+import { governContextCandidates, type GovernancePlan } from '../knowledge/governor.js';
+import { countTextTokens } from '../compact/token-budget.js';
 
 export interface GraphContextPacketOptions {
   projectId: string;
   query: string;
   limit?: number;
   referenceTime?: Date;
+  /** Bounded token allocation for direct graph-neighbor evidence. */
+  graphEvidenceTokenBudget?: number;
+  /** Maximum one-hop graph evidence records beyond the lexical baseline. */
+  graphEvidenceLimit?: number;
 }
 
 export interface GraphContextEntity {
@@ -40,6 +46,17 @@ export interface GraphContextRisk {
   reason: string;
 }
 
+export interface GraphContextEvidence {
+  id: number;
+  title: string;
+  entityName: string;
+  sourceObservationIds: number[];
+  edgeTypes: GraphContextEdge['type'][];
+  confidence: number;
+  disposition: 'include' | 'compact';
+  reasons: string[];
+}
+
 export interface GraphContextPacket {
   projectId: string;
   query: string;
@@ -47,8 +64,10 @@ export interface GraphContextPacket {
   entities: GraphContextEntity[];
   edges: GraphContextEdge[];
   memories: GraphContextMemory[];
+  evidence: GraphContextEvidence[];
   risks: GraphContextRisk[];
   audit: MemoryQualityAuditReport;
+  governance: GovernancePlan;
 }
 
 export function formatGraphContextPrompt(packet: GraphContextPacket): string {
@@ -89,6 +108,17 @@ export function formatGraphContextPrompt(packet: GraphContextPacket): string {
   } else {
     for (const edge of packet.edges.slice(0, 8)) {
       lines.push(`- ${edge.from} --${edge.type}--> ${edge.to}`);
+    }
+  }
+
+  lines.push('');
+  lines.push('### Graph evidence');
+  if (packet.evidence.length === 0) {
+    lines.push('- none admitted');
+  } else {
+    for (const evidence of packet.evidence.slice(0, 4)) {
+      const sources = evidence.sourceObservationIds.map((id) => `#${id}`).join(', ');
+      lines.push(`- #${evidence.id} ${evidence.title} (via ${evidence.edgeTypes.join('+')} from ${sources}; ${evidence.disposition}: ${evidence.reasons.join(', ')})`);
     }
   }
 
@@ -311,6 +341,106 @@ function buildEdges(memories: Observation[], entityNames: Set<string>): GraphCon
   return edges;
 }
 
+function freshnessForGraphEvidence(observation: Observation, referenceTime: Date): 'current' | 'stale' {
+  if ((observation.status ?? 'active') !== 'active') return 'stale';
+  const zone = getRetentionZone({
+    id: `obs-${observation.id}`,
+    observationId: observation.id,
+    entityName: observation.entityName,
+    type: observation.type,
+    title: observation.title,
+    narrative: observation.narrative,
+    facts: observation.facts.join('\n'),
+    filesModified: observation.filesModified.join('\n'),
+    concepts: observation.concepts.join(', '),
+    tokens: observation.tokens,
+    createdAt: observation.createdAt,
+    projectId: observation.projectId,
+    accessCount: 0,
+    lastAccessedAt: '',
+    status: observation.status ?? 'active',
+    source: observation.source ?? 'agent',
+    sourceDetail: observation.sourceDetail ?? '',
+    valueCategory: observation.valueCategory ?? '',
+    admissionState: observation.admissionState ?? '',
+    admissionReason: observation.admissionReason ?? '',
+  }, referenceTime);
+  return zone === 'active' ? 'current' : 'stale';
+}
+
+function directGraphEdges(seed: Observation, candidate: Observation): GraphContextEdge['type'][] {
+  const types = new Set<GraphContextEdge['type']>();
+  const seedRelated = new Set((seed.relatedEntities ?? []).map(normalizeText));
+  const candidateRelated = new Set((candidate.relatedEntities ?? []).map(normalizeText));
+  if (seedRelated.has(normalizeText(candidate.entityName)) || candidateRelated.has(normalizeText(seed.entityName))) {
+    types.add('related_entity');
+  }
+  const seedCommits = new Set((seed.relatedCommits ?? []).map(value => value.slice(0, 7)));
+  if ((candidate.relatedCommits ?? []).some(value => seedCommits.has(value.slice(0, 7)))) types.add('cites_commit');
+  return [...types];
+}
+
+function graphEvidenceCandidates(
+  observations: Observation[],
+  seeds: Observation[],
+  referenceTime: Date,
+  limit: number,
+  tokenBudget: number,
+): { evidence: GraphContextEvidence[]; governance: GovernancePlan; selected: Observation[] } {
+  const seedIds = new Set(seeds.map(item => item.id));
+  const candidates = observations
+    .filter(observation => !seedIds.has(observation.id))
+    .map(observation => {
+      const relatedSeeds = seeds
+        .map(seed => ({ seed, edges: directGraphEdges(seed, observation) }))
+        .filter(item => item.edges.length > 0);
+      if (relatedSeeds.length === 0) return undefined;
+      const confidence = Math.min(1, 0.35 + relatedSeeds.length * 0.2 + evidenceScore(observation) * 0.07);
+      return {
+        observation,
+        sourceIds: relatedSeeds.map(item => item.seed.id).sort((a, b) => a - b),
+        edgeTypes: [...new Set(relatedSeeds.flatMap(item => item.edges))],
+        confidence,
+      };
+    })
+    .filter((candidate): candidate is NonNullable<typeof candidate> => candidate !== undefined)
+    .sort((left, right) => right.confidence - left.confidence || right.observation.id - left.observation.id)
+    .slice(0, Math.max(0, limit));
+  const governance = governContextCandidates(candidates.map(candidate => ({
+    kind: 'graph-evidence' as const,
+    id: `observation:${candidate.observation.id}`,
+    estimatedTokens: Math.max(8, countTextTokens(`${candidate.observation.title} ${candidate.observation.narrative}`)),
+    relevance: candidate.confidence,
+    scopeAllowed: true,
+    freshness: freshnessForGraphEvidence(candidate.observation, referenceTime),
+    trust: candidate.observation.source === 'manual' || candidate.observation.source === 'git' ? 'source-backed' as const : 'historical' as const,
+    quality: candidate.observation.valueCategory === 'core' ? 'verified' as const : 'probationary' as const,
+    conflict: 'none' as const,
+    evidenceCount: candidate.sourceIds.length,
+  })), tokenBudget);
+  const decisionById = new Map(governance.decisions.map(decision => [decision.candidate.id, decision]));
+  const admitted = candidates.flatMap(candidate => {
+    const decision = decisionById.get(`observation:${candidate.observation.id}`);
+    if (!decision || (decision.disposition !== 'include' && decision.disposition !== 'compact')) return [];
+    return [{
+      id: candidate.observation.id,
+      title: candidate.observation.title,
+      entityName: candidate.observation.entityName,
+      sourceObservationIds: candidate.sourceIds,
+      edgeTypes: candidate.edgeTypes,
+      confidence: candidate.confidence,
+      disposition: decision.disposition,
+      reasons: decision.reasons,
+      observation: candidate.observation,
+    }];
+  });
+  return {
+    evidence: admitted.map(({ observation: _observation, ...evidence }) => evidence),
+    governance,
+    selected: admitted.map(item => item.observation),
+  };
+}
+
 function buildRisks(
   observations: Observation[],
   audit: MemoryQualityAuditReport,
@@ -348,18 +478,28 @@ export function buildGraphContextPacket(
   });
   const riskIds = new Set([
     ...audit.issues.hookNoise.map((entry) => entry.id),
-    ...audit.issues.orphans.map((entry) => entry.id),
     ...audit.issues.retentionCandidates.map((entry) => entry.id),
   ]);
   const deliveryEligible = observations.filter(
     (obs) => obs.projectId === options.projectId && isEligibleForAutomaticDelivery(obs),
   );
+  // A node with only an incoming relation is an orphan in the raw audit, but
+  // can become valid one-hop evidence after graph expansion. Do not discard it
+  // before the relation and evidence-governor checks run.
   const filteredObservations = deliveryEligible.filter((obs) => !riskIds.has(obs.id));
   const baseObservations = filteredObservations.length > 0 ? filteredObservations : deliveryEligible;
   const memories = pickMemories(baseObservations, options.projectId, options.query, options.limit ?? 5, referenceTime);
-  const entities = buildEntities(memories);
+  const graph = graphEvidenceCandidates(
+    baseObservations,
+    memories,
+    referenceTime,
+    options.graphEvidenceLimit ?? 3,
+    options.graphEvidenceTokenBudget ?? 48,
+  );
+  const allMemories = [...memories, ...graph.selected];
+  const entities = buildEntities(allMemories);
   const entityNames = new Set(entities.map((entity) => entity.name));
-  const edges = buildEdges(memories, entityNames);
+  const edges = buildEdges(allMemories, entityNames);
   const risks = buildRisks(
     observations.filter((obs) => obs.projectId === options.projectId),
     audit,
@@ -367,9 +507,10 @@ export function buildGraphContextPacket(
   );
 
   const summary = [
-    `${memories.length} high-signal memories`,
+    `${allMemories.length} high-signal memories`,
     `${entities.length} entity cluster(s)`,
     `${edges.length} relation(s)`,
+    `${graph.evidence.length} admitted graph evidence`,
     `${risks.length} risk signal(s)`,
   ].join(' · ');
 
@@ -379,7 +520,7 @@ export function buildGraphContextPacket(
     summary,
     entities,
     edges,
-    memories: memories.map((obs) => ({
+    memories: allMemories.map((obs) => ({
       id: obs.id,
       title: obs.title,
       type: obs.type,
@@ -387,11 +528,14 @@ export function buildGraphContextPacket(
       valueCategory: obs.valueCategory,
       status: obs.status ?? 'active',
       reason:
+        graph.evidence.some(evidence => evidence.id === obs.id) ? 'graph evidence' :
         obs.valueCategory === 'core' ? 'core memory' :
         obs.sourceDetail === 'hook' ? 'routing signal' :
         'context memory',
     })),
+    evidence: graph.evidence,
     risks,
     audit,
+    governance: graph.governance,
   };
 }

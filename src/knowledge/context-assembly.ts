@@ -16,6 +16,7 @@ export type ContextCandidateKind =
   | 'current-fact'
   | 'code-state'
   | 'semantic-code'
+  | 'graph-evidence'
   | 'start-here'
   | 'memory'
   | 'durable-memory'

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildGraphContextPacket } from '../../src/memory/graph-context.js';
+import { buildGraphContextPacket, formatGraphContextPrompt } from '../../src/memory/graph-context.js';
 import { normalizeMemoryBrowseQuery } from '../../src/compact/engine.js';
 import type { Observation } from '../../src/types.js';
 
@@ -146,5 +146,42 @@ describe('buildGraphContextPacket', () => {
 
     expect(packet.memories.map((memory) => memory.id)).toEqual([2, 3]);
     expect(packet.entities.map((entity) => entity.name)).not.toContain('team-handoff');
+  });
+
+  it('admits only bounded one-hop graph evidence with provenance and a receipt reason', () => {
+    const packet = buildGraphContextPacket([
+      obs({ id: 1, entityName: 'release-flow', title: 'Release verification', narrative: 'Run focused checks before publishing.', type: 'decision', valueCategory: 'core', relatedEntities: ['npm-token'] }),
+      obs({ id: 2, entityName: 'npm-token', title: 'Token only reaches publish', narrative: 'The npm credential is used only after the gates pass.', type: 'why-it-exists', source: 'manual', sourceDetail: 'explicit', valueCategory: 'core' }),
+      obs({ id: 3, entityName: 'unrelated', title: 'Unrelated result', narrative: 'This must not be graph-expanded.', type: 'discovery' }),
+    ], {
+      projectId: 'AVIDS2/memorix', query: 'release verification', limit: 1, graphEvidenceLimit: 2, graphEvidenceTokenBudget: 48,
+      referenceTime: new Date('2026-06-02T00:00:00.000Z'),
+    });
+
+    expect(packet.memories.map(memory => memory.id)).toEqual([1, 2]);
+    expect(packet.evidence).toEqual([expect.objectContaining({
+      id: 2, sourceObservationIds: [1], edgeTypes: ['related_entity'], disposition: 'include',
+    })]);
+    expect(packet.governance.decisions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ candidate: expect.objectContaining({ kind: 'graph-evidence', id: 'observation:2' }) }),
+    ]));
+    expect(formatGraphContextPrompt(packet)).toContain('Graph evidence');
+    expect(formatGraphContextPrompt(packet)).toContain('via related_entity from #1');
+  });
+
+  it('defers stale graph evidence and leaves the lexical baseline intact when its graph budget is exhausted', () => {
+    const packet = buildGraphContextPacket([
+      obs({ id: 1, entityName: 'release-flow', title: 'Release verification', narrative: 'Run focused checks before publishing.', type: 'decision', valueCategory: 'core', relatedEntities: ['old-token'] }),
+      obs({ id: 2, entityName: 'old-token', title: 'Old credential route', narrative: 'Historical setup.', type: 'why-it-exists', status: 'resolved' }),
+    ], {
+      projectId: 'AVIDS2/memorix', query: 'release verification', limit: 1, graphEvidenceTokenBudget: 0,
+      referenceTime: new Date('2026-06-02T00:00:00.000Z'),
+    });
+
+    expect(packet.memories.map(memory => memory.id)).toEqual([1]);
+    expect(packet.evidence).toEqual([]);
+    expect(packet.governance.decisions).toEqual([expect.objectContaining({
+      disposition: 'defer', reasons: expect.arrayContaining(['stale-evidence']),
+    })]);
   });
 });

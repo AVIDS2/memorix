@@ -44,7 +44,7 @@
 
 ## Immediate Next Step
 
-Complete #174 on the shared derivation contract. It must use provider-specific
-credentials, explicit CLI-first consent, bounded asynchronous jobs, and source
-asset lifecycle cancellation; #175 must then reuse the existing evidence
-governor rather than add unbounded graph traversal.
+Complete #174 after CI and maintain its provider-specific credentials, explicit
+CLI-first consent, bounded asynchronous jobs, and source asset lifecycle
+cancellation. #175 now reuses the existing evidence governor for one-hop graph
+evidence; next are #185 CodeBuddy support and #184 Star History CI proof.

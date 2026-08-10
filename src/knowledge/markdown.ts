@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import matter from 'gray-matter';
+import matter from '../utils/frontmatter.js';
 import { atomicWriteFile } from '../store/file-lock.js';
 import type { KnowledgePage, KnowledgePageFrontmatter, KnowledgePageKind, KnowledgePageReviewState, KnowledgePageStatus } from './workspace-types.js';
 

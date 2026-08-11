@@ -111,8 +111,10 @@ describe('CodeStateSnapshot', () => {
     const db = getDatabase(dataDir);
     const fileColumns = db.prepare('PRAGMA table_info(code_files)').all().map((row: { name: string }) => row.name);
     const migration = db.prepare('SELECT id FROM schema_migrations WHERE id = ?').get('1.2-code-state-snapshots');
+    const manifestMigration = db.prepare('SELECT id FROM schema_migrations WHERE id = ?').get('1.4-codegraph-snapshot-manifest');
     expect(fileColumns).toEqual(expect.arrayContaining(['snapshotId', 'sourceEpoch']));
     expect(migration).toEqual(expect.objectContaining({ id: '1.2-code-state-snapshots' }));
+    expect(manifestMigration).toEqual(expect.objectContaining({ id: '1.4-codegraph-snapshot-manifest' }));
 
     const store = new CodeGraphStore();
     await store.init(dataDir);
@@ -174,6 +176,90 @@ describe('CodeStateSnapshot', () => {
     expect(store.listObservationRefs('org/repo', 1)[0]).toMatchObject({ snapshotId: second.id });
     expect(store.status('org/repo').latestSnapshot).toMatchObject({ id: second.id, sourceEpoch: 2 });
     expect(store.listSnapshots('org/repo')).toHaveLength(2);
+    expect(store.listSnapshotFiles(second.id)).toEqual([
+      expect.objectContaining({ snapshotId: second.id, path: 'src/auth.ts', contentHash: 'file-hash' }),
+    ]);
+  });
+
+  it('compares hash-only snapshot manifests and returns a bounded structural impact slice', async () => {
+    const dataDir = tempRoot();
+    const store = new CodeGraphStore();
+    await store.init(dataDir);
+    store.upsertFiles([
+      { id: 'file:auth', projectId: 'org/repo', path: 'src/auth.ts', contentHash: 'auth-v1', indexedAt: '2026-07-17T00:00:00.000Z' },
+      { id: 'file:api', projectId: 'org/repo', path: 'src/api.ts', contentHash: 'api-v1', indexedAt: '2026-07-17T00:00:00.000Z' },
+    ]);
+    store.upsertEdges([{
+      id: 'edge:api-auth', projectId: 'org/repo', fromFileId: 'file:api', toFileId: 'file:auth',
+      type: 'imports', confidence: 1, indexedAt: '2026-07-17T00:00:00.000Z',
+    }, {
+      id: 'edge:symbol-api-auth', projectId: 'org/repo', fromSymbolId: 'symbol:api', toSymbolId: 'symbol:auth',
+      type: 'calls', confidence: 1, indexedAt: '2026-07-17T00:00:00.000Z',
+    }]);
+    store.upsertSymbols([
+      { id: 'symbol:api', projectId: 'org/repo', fileId: 'file:api', path: 'src/api.ts', name: 'api', qualifiedName: 'api', kind: 'function', indexedAt: '2026-07-17T00:00:00.000Z' },
+      { id: 'symbol:auth', projectId: 'org/repo', fileId: 'file:auth', path: 'src/auth.ts', name: 'auth', qualifiedName: 'auth', kind: 'function', indexedAt: '2026-07-17T00:00:00.000Z' },
+    ]);
+    const first = store.recordCodeStateSnapshot(snapshotInput('org/repo', '2026-07-17T00:00:00.000Z'));
+    store.upsertFiles([
+      { id: 'file:auth', projectId: 'org/repo', path: 'src/auth.ts', contentHash: 'auth-v2', indexedAt: '2026-07-17T00:01:00.000Z' },
+      { id: 'file:new', projectId: 'org/repo', path: 'src/new.ts', contentHash: 'new-v1', indexedAt: '2026-07-17T00:01:00.000Z' },
+    ]);
+    const second = store.recordCodeStateSnapshot(snapshotInput('org/repo', '2026-07-17T00:01:00.000Z'));
+
+    expect(store.diffSnapshots('org/repo', first.id, second.id)).toMatchObject({
+      available: true,
+      changes: expect.arrayContaining([
+        expect.objectContaining({ path: 'src/auth.ts', kind: 'modified', beforeHash: 'auth-v1', afterHash: 'auth-v2' }),
+        expect.objectContaining({ path: 'src/new.ts', kind: 'added', afterHash: 'new-v1' }),
+      ]),
+    });
+    expect(store.impactSlice('org/repo', ['src/auth.ts'])).toMatchObject({
+      changedPaths: ['src/auth.ts'],
+      directlyConnectedPaths: ['src/api.ts'],
+      relationCount: 2,
+      truncated: false,
+    });
+  });
+
+  it('counts only stale memory links bound to explicitly changed snapshot files', async () => {
+    const dataDir = tempRoot();
+    const store = new CodeGraphStore();
+    await store.init(dataDir);
+    store.upsertFiles([{
+      id: 'file:auth', projectId: 'org/repo', path: 'src/auth.ts', contentHash: 'auth-v1', indexedAt: '2026-07-17T00:00:00.000Z',
+    }, {
+      id: 'file:other', projectId: 'org/repo', path: 'src/other.ts', contentHash: 'other-v1', indexedAt: '2026-07-17T00:00:00.000Z',
+    }]);
+    store.upsertObservationRefs([{
+      id: 'ref:auth', projectId: 'org/repo', observationId: 1, fileId: 'file:auth', status: 'stale', createdAt: '2026-07-17T00:00:00.000Z',
+    }, {
+      id: 'ref:other', projectId: 'org/repo', observationId: 2, fileId: 'file:other', status: 'stale', createdAt: '2026-07-17T00:00:00.000Z',
+    }]);
+
+    expect(store.countStaleObservationRefsForFiles('org/repo', ['file:auth'])).toBe(1);
+  });
+
+  it('does not present an incomplete scan as an exact snapshot diff', async () => {
+    const dataDir = tempRoot();
+    const store = new CodeGraphStore();
+    await store.init(dataDir);
+    store.upsertFiles([{
+      id: 'file:auth', projectId: 'org/repo', path: 'src/auth.ts', contentHash: 'auth-v1', indexedAt: '2026-07-17T00:00:00.000Z',
+    }]);
+    const first = store.recordCodeStateSnapshot(snapshotInput('org/repo', '2026-07-17T00:00:00.000Z'));
+    store.upsertFiles([{
+      id: 'file:auth', projectId: 'org/repo', path: 'src/auth.ts', contentHash: 'auth-v2', indexedAt: '2026-07-17T00:01:00.000Z',
+    }]);
+    const incomplete = snapshotInput('org/repo', '2026-07-17T00:01:00.000Z');
+    incomplete.completeness.skippedOversizedFiles = 1;
+    const second = store.recordCodeStateSnapshot(incomplete);
+
+    expect(store.diffSnapshots('org/repo', first.id, second.id)).toEqual(expect.objectContaining({
+      available: false,
+      reason: 'incomplete-snapshot',
+      changes: [],
+    }));
   });
 
   it('upgrades a legacy CodeGraph database without replacing its existing rows', () => {

@@ -6,6 +6,7 @@ import type {
   MediaAsset,
   MediaAssetLink,
   MediaDerivation,
+  MediaDerivationMetadata,
   MediaEmbedding,
   MediaEmbeddingProfile,
   MediaJob,
@@ -57,6 +58,18 @@ function parseVector(value: unknown): number[] | undefined {
   }
 }
 
+function parseDerivationMetadata(value: unknown): MediaDerivationMetadata | undefined {
+  if (typeof value !== 'string' || !value) return undefined;
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? parsed as MediaDerivationMetadata
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function rowToAsset(row: any): MediaAsset {
   return {
     id: row.id,
@@ -88,6 +101,7 @@ function rowToLink(row: any): MediaAssetLink {
 }
 
 function rowToDerivation(row: any): MediaDerivation {
+  const metadata = parseDerivationMetadata(row.metadata_json);
   return {
     id: row.id,
     assetId: row.asset_id,
@@ -95,6 +109,7 @@ function rowToDerivation(row: any): MediaDerivation {
     kind: row.kind,
     ...(asOptionalText(row.profile_key) ? { profileKey: row.profile_key } : {}),
     content: row.content,
+    ...(metadata ? { metadata } : {}),
     status: row.status,
     ...(asOptionalText(row.error) ? { error: row.error } : {}),
     createdAt: Number(row.created_at),
@@ -109,6 +124,7 @@ function rowToJob(row: any): MediaJob {
     kind: row.kind as MediaJobKind,
     status: row.status as MediaJobStatus,
     request: parseRequest(row.request_json),
+    ...(asOptionalText(row.source_asset_id) ? { sourceAssetId: row.source_asset_id } : {}),
     ...(asOptionalText(row.provider_task_id) ? { providerTaskId: row.provider_task_id } : {}),
     ...(asOptionalText(row.asset_id) ? { assetId: row.asset_id } : {}),
     ...(asOptionalText(row.last_error) ? { lastError: row.last_error } : {}),
@@ -249,6 +265,17 @@ export class MediaStore {
         UPDATE media_jobs SET asset_id = NULL, updated_at = ?
         WHERE project_id = ? AND asset_id = ?
       `).run(Date.now(), projectId, assetId);
+      // A pending derivative cannot safely run after its source disappears.
+      // Mark it terminal instead of letting a later worker rediscover a stale
+      // JSON request and make a paid provider call.
+      this.db.prepare(`
+        UPDATE media_jobs
+        SET source_asset_id = NULL,
+            status = CASE WHEN status IN ('completed', 'failed', 'cancelled') THEN status ELSE 'cancelled' END,
+            last_error = CASE WHEN status IN ('completed', 'failed', 'cancelled') THEN last_error ELSE 'Source asset was removed' END,
+            updated_at = ?
+        WHERE project_id = ? AND source_asset_id = ?
+      `).run(Date.now(), projectId, assetId);
       const result = this.db.prepare(`
         UPDATE media_assets SET deleted_at = ?, updated_at = ?
         WHERE project_id = ? AND id = ? AND deleted_at IS NULL
@@ -295,14 +322,15 @@ export class MediaStore {
     const now = Date.now();
     const content = sanitizeCredentials(input.content);
     const error = input.error ? sanitizeCredentials(input.error).slice(0, 1_000) : undefined;
+    const metadataJson = input.metadata ? JSON.stringify(input.metadata) : null;
     const existing = this.db.prepare(`
       SELECT * FROM media_derivations
       WHERE asset_id = ? AND kind = ? AND profile_key IS ? LIMIT 1
     `).get(input.assetId, input.kind, input.profileKey ?? null);
     if (existing) {
       this.db.prepare(`
-        UPDATE media_derivations SET content = ?, status = ?, error = ?, updated_at = ? WHERE id = ?
-      `).run(content, input.status, error ?? null, now, existing.id);
+        UPDATE media_derivations SET content = ?, metadata_json = ?, status = ?, error = ?, updated_at = ? WHERE id = ?
+      `).run(content, metadataJson, input.status, error ?? null, now, existing.id);
       return rowToDerivation(this.db.prepare('SELECT * FROM media_derivations WHERE id = ?').get(existing.id));
     }
     const derivation: MediaDerivation = {
@@ -314,8 +342,8 @@ export class MediaStore {
       updatedAt: now,
     };
     this.db.prepare(`
-      INSERT INTO media_derivations (id, asset_id, project_id, kind, profile_key, content, status, error, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO media_derivations (id, asset_id, project_id, kind, profile_key, content, metadata_json, status, error, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       derivation.id,
       derivation.assetId,
@@ -323,6 +351,7 @@ export class MediaStore {
       derivation.kind,
       derivation.profileKey ?? null,
       derivation.content,
+      metadataJson,
       derivation.status,
       error ?? null,
       now,
@@ -398,6 +427,7 @@ export class MediaStore {
     projectId: string;
     kind: MediaJobKind;
     request: Record<string, unknown>;
+    sourceAssetId?: string;
     attachOnComplete?: boolean;
     observationTitle?: string;
   }): MediaJob {
@@ -408,6 +438,7 @@ export class MediaStore {
       kind: input.kind,
       status: 'queued',
       request: sanitizeRequest(input.request),
+      ...(input.sourceAssetId ? { sourceAssetId: input.sourceAssetId } : {}),
       attempts: 0,
       attachOnComplete: input.attachOnComplete === true,
       ...(input.observationTitle ? { observationTitle: sanitizeCredentials(input.observationTitle) } : {}),
@@ -416,11 +447,11 @@ export class MediaStore {
     };
     this.db.prepare(`
       INSERT INTO media_jobs (
-        id, project_id, kind, status, request_json, attempts, attach_on_complete,
+        id, project_id, kind, status, request_json, source_asset_id, attempts, attach_on_complete,
         observation_title, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
-      job.id, job.projectId, job.kind, job.status, JSON.stringify(job.request), job.attempts,
+      job.id, job.projectId, job.kind, job.status, JSON.stringify(job.request), job.sourceAssetId ?? null, job.attempts,
       job.attachOnComplete ? 1 : 0, job.observationTitle ?? null, now, now,
     );
     return job;

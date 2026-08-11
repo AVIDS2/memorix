@@ -49,6 +49,15 @@ export const MEMORIX_INTEGRATIONS: MemorixIntegration[] = [
     surfaces: ['MCP', 'skills', 'hooks', 'Personal marketplace'],
   },
   {
+    agent: 'codebuddy',
+    name: 'CodeBuddy Code',
+    entry: 'official-plugin',
+    status: 'ready',
+    install: 'memorix setup --agent codebuddy --global',
+    surfaces: ['MCP', 'skills', 'hooks', 'local marketplace'],
+    note: 'Uses CodeBuddy\'s official .codebuddy-plugin marketplace package and leaves existing settings untouched.',
+  },
+  {
     agent: 'copilot',
     name: 'GitHub Copilot CLI',
     entry: 'official-plugin',

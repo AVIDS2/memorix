@@ -8,6 +8,7 @@ const checkOnly = process.argv.includes('--check');
 
 const versionedPluginManifests = [
   'plugins/claude/memorix/.claude-plugin/plugin.json',
+  'plugins/codebuddy/memorix/.codebuddy-plugin/plugin.json',
   'plugins/codex/memorix/.codex-plugin/plugin.json',
   'plugins/copilot/memorix/plugin.json',
   'plugins/gemini/memorix/gemini-extension.json',

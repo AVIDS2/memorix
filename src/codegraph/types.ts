@@ -116,6 +116,46 @@ export interface CodeStateSnapshot extends CodeStateSnapshotInput {
   previousSnapshotId?: string;
 }
 
+/** Hash-only file state retained for an explicit Code State snapshot. */
+export interface CodeStateSnapshotFile {
+  snapshotId: string;
+  projectId: string;
+  fileId: string;
+  path: string;
+  contentHash: string;
+}
+
+export interface CodeStateFileChange {
+  path: string;
+  kind: 'added' | 'modified' | 'removed';
+  beforeHash?: string;
+  afterHash?: string;
+}
+
+/**
+ * An exact file-level comparison when both snapshots have hash manifests.
+ * It intentionally makes no claim about source-level semantic equivalence.
+ */
+export interface CodeStateDiff {
+  projectId: string;
+  fromSnapshotId: string;
+  toSnapshotId: string;
+  available: boolean;
+  reason?: 'missing-snapshot' | 'project-mismatch' | 'legacy-snapshot-without-manifest' | 'incomplete-snapshot';
+  changes: CodeStateFileChange[];
+}
+
+/** Bounded one-hop structural evidence around changed file paths. */
+export interface CodeGraphImpactSlice {
+  projectId: string;
+  snapshotId?: string;
+  changedPaths: string[];
+  directlyConnectedPaths: string[];
+  relationCount: number;
+  truncated: boolean;
+  provider: CodeGraphProviderKind;
+}
+
 export interface CodeGraphStatus {
   provider: CodeGraphProviderKind;
   files: number;
@@ -164,6 +204,8 @@ export interface CodeGraphProviderQuality {
     capabilities: {
       declarations: boolean;
       importHints: boolean;
+      /** Deterministic local-path mapping only; not semantic name resolution. */
+      localRelativeImportTargets: boolean;
       resolvedRelations: false;
       exactLocations: false;
     };

@@ -321,6 +321,18 @@ const CREATE_CODE_STATE_SNAPSHOTS_TABLE = [
   ');',
 ].join('\n');
 
+const CREATE_CODE_STATE_SNAPSHOT_FILES_TABLE = [
+  'CREATE TABLE IF NOT EXISTS code_state_snapshot_files (',
+  '  snapshotId  TEXT NOT NULL,',
+  '  projectId   TEXT NOT NULL,',
+  '  fileId      TEXT NOT NULL,',
+  '  path        TEXT NOT NULL,',
+  '  contentHash TEXT NOT NULL,',
+  '  PRIMARY KEY (snapshotId, path),',
+  '  FOREIGN KEY (snapshotId) REFERENCES code_state_snapshots(id) ON DELETE CASCADE',
+  ');',
+].join('\n');
+
 // ── 1.2 Knowledge Claim Ledger ──────────────────────────────────────
 
 const CREATE_KNOWLEDGE_CLAIMS_TABLE = `
@@ -553,6 +565,22 @@ CREATE TABLE IF NOT EXISTS long_term_memory_events (
 );
 `;
 
+// ── 1.4 Evidence-governed memory ───────────────────────────────────
+
+const CREATE_MEMORY_OUTCOME_SIGNALS_TABLE = `
+CREATE TABLE IF NOT EXISTS memory_outcome_signals (
+  id            TEXT PRIMARY KEY,
+  projectId     TEXT NOT NULL,
+  candidateKind TEXT NOT NULL,
+  candidateId   TEXT NOT NULL,
+  kind          TEXT NOT NULL,
+  sourceRef     TEXT NOT NULL,
+  snapshotId    TEXT,
+  detail        TEXT,
+  observedAt    TEXT NOT NULL
+);
+`;
+
 // ── 1.3.3 Controlled media assets ─────────────────────────────────
 
 const CREATE_MEDIA_ASSETS_TABLE = `
@@ -596,6 +624,7 @@ CREATE TABLE IF NOT EXISTS media_derivations (
   kind        TEXT NOT NULL,
   profile_key TEXT,
   content     TEXT NOT NULL DEFAULT '',
+  metadata_json TEXT,
   status      TEXT NOT NULL DEFAULT 'ready',
   error       TEXT,
   created_at  INTEGER NOT NULL,
@@ -638,6 +667,7 @@ CREATE TABLE IF NOT EXISTS media_jobs (
   kind                 TEXT NOT NULL,
   status               TEXT NOT NULL,
   request_json         TEXT NOT NULL DEFAULT '{}',
+  source_asset_id      TEXT,
   provider_task_id     TEXT,
   asset_id             TEXT,
   last_error           TEXT,
@@ -647,7 +677,8 @@ CREATE TABLE IF NOT EXISTS media_jobs (
   created_at           INTEGER NOT NULL,
   updated_at           INTEGER NOT NULL,
   completed_at         INTEGER,
-  FOREIGN KEY (asset_id) REFERENCES media_assets(id) ON DELETE SET NULL
+  FOREIGN KEY (asset_id) REFERENCES media_assets(id) ON DELETE SET NULL,
+  FOREIGN KEY (source_asset_id) REFERENCES media_assets(id) ON DELETE SET NULL
 );
 `;
 
@@ -827,6 +858,20 @@ const SCHEMA_MIGRATIONS: SchemaMigration[] = [
     },
   },
   {
+    id: '1.4-codegraph-snapshot-manifest',
+    apply: (db) => {
+      db.exec(CREATE_CODE_STATE_SNAPSHOT_FILES_TABLE);
+      db.exec('CREATE INDEX IF NOT EXISTS idx_code_snapshot_files_project_path ON code_state_snapshot_files(projectId, path)');
+    },
+  },
+  {
+    id: '1.4-memory-outcome-signals',
+    apply: (db) => {
+      db.exec(CREATE_MEMORY_OUTCOME_SIGNALS_TABLE);
+      db.exec('CREATE INDEX IF NOT EXISTS idx_memory_outcomes_candidate ON memory_outcome_signals(projectId, candidateKind, candidateId, observedAt DESC)');
+    },
+  },
+  {
     id: '1.2-knowledge-claim-ledger',
     apply: (db) => {
       db.exec(CREATE_KNOWLEDGE_CLAIMS_TABLE);
@@ -906,6 +951,19 @@ const SCHEMA_MIGRATIONS: SchemaMigration[] = [
       db.exec('CREATE INDEX IF NOT EXISTS idx_media_derivations_asset ON media_derivations(project_id, asset_id, kind)');
       db.exec('CREATE INDEX IF NOT EXISTS idx_media_embeddings_profile ON media_embeddings(project_id, profile_key, asset_id)');
       db.exec('CREATE INDEX IF NOT EXISTS idx_media_jobs_project_status ON media_jobs(project_id, status, updated_at DESC)');
+    },
+  },
+  {
+    id: '1.4.3-media-derivation-metadata',
+    apply: (db) => {
+      try { db.exec('ALTER TABLE media_derivations ADD COLUMN metadata_json TEXT'); } catch { /* already exists */ }
+    },
+  },
+  {
+    id: '1.4.3-media-job-source-asset',
+    apply: (db) => {
+      try { db.exec('ALTER TABLE media_jobs ADD COLUMN source_asset_id TEXT'); } catch { /* already exists */ }
+      db.exec('CREATE INDEX IF NOT EXISTS idx_media_jobs_source_asset ON media_jobs(project_id, source_asset_id, status)');
     },
   },
 ];

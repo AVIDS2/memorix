@@ -18,7 +18,7 @@
  *   - auto + name + description: auto-included when relevant
  */
 
-import matter from 'gray-matter';
+import matter from '../../utils/frontmatter.js';
 import type { RuleFormatAdapter, UnifiedRule, RuleSource } from '../../types.js';
 import { hashContent, generateRuleId } from '../utils.js';
 

@@ -9,6 +9,7 @@ import { initializeKnowledgeWorkspace } from '../../src/knowledge/workspace.js';
 import { buildTaskWorkset } from '../../src/knowledge/workset.js';
 import { createManualLongTermMemory, qualifyLongTermMemory } from '../../src/memory/long-term.js';
 import { recordWorkflowRun, writeCanonicalWorkflow } from '../../src/knowledge/workflows.js';
+import { OutcomeStore } from '../../src/knowledge/outcome-store.js';
 import { closeAllDatabases } from '../../src/store/sqlite-db.js';
 
 let dataDir: string | null = null;
@@ -191,6 +192,67 @@ describe('Task Workset', () => {
     expect(workset.prompt).not.toContain('Project workflow');
   });
 
+  it('keeps degraded optional memory out of the brief while retaining its qualification receipt', async () => {
+    const root = tempDir();
+    const workset = await buildTaskWorkset({
+      projectId: 'org/repo',
+      dataDir: root,
+      task: 'Continue the authentication work.',
+      lens: 'feature',
+      currentFacts: ['Git: clean worktree'],
+      startHere: ['src/auth.ts'],
+      reliableMemory: [{
+        id: 42,
+        title: 'Old auth strategy that must not guide new edits',
+        type: 'decision',
+        status: 'stale',
+        path: 'src/auth.ts',
+      }],
+      cautionMemory: [],
+      verificationHints: ['Run the focused auth test.'],
+      worktreeDirty: false,
+      freshness: { suspect: 0, stale: 1 },
+    });
+
+    expect(workset.prompt).not.toContain('Old auth strategy');
+    expect(workset.receipt.governance?.scope).toBe('optional-evidence');
+    expect(workset.receipt.governance?.decisions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'memory:42', disposition: 'defer', reasons: ['degraded-quality'] }),
+    ]));
+  });
+
+  it('renders exact prior-scan file changes only as a bounded continuation aid', async () => {
+    const root = tempDir();
+    const workset = await buildTaskWorkset({
+      projectId: 'org/repo',
+      dataDir: root,
+      task: 'Continue the authentication work.',
+      lens: 'feature',
+      currentFacts: ['Git: dirty worktree'],
+      codeState: 'Code state: dirty worktree.',
+      codeEvolution: {
+        fromSnapshotId: 'snapshot:1',
+        toSnapshotId: 'snapshot:2',
+        changes: [{ path: 'src/auth.ts', kind: 'modified' }],
+        directlyConnectedPaths: ['src/api.ts'],
+        truncated: false,
+      },
+      startHere: ['src/auth.ts'],
+      reliableMemory: [],
+      cautionMemory: [],
+      verificationHints: ['Run the focused auth test.'],
+      worktreeDirty: true,
+      freshness: { suspect: 0, stale: 0 },
+    });
+
+    expect(workset.prompt).toContain('Code changes since prior scan');
+    expect(workset.prompt).toContain('modified: src/auth.ts');
+    expect(workset.prompt).toContain('connected now: src/api.ts');
+    expect(workset.receipt.selected).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'code-state', id: 'snapshot:snapshot:2' }),
+    ]));
+  });
+
   it('adds only qualified task-matching durable memory within the Workset budget', async () => {
     const root = tempDir();
     const durable = await createManualLongTermMemory({
@@ -235,6 +297,55 @@ describe('Task Workset', () => {
       expect.objectContaining({ kind: 'durable-memory', id: 'durable:' + durable.memory.id }),
     ]));
     expect(workset.budget.tokenCount).toBeLessThanOrEqual(workset.budget.maxTokens);
+  });
+
+  it('does not inject durable memory after its latest verified workflow outcome failed', async () => {
+    const root = tempDir();
+    const durable = await createManualLongTermMemory({
+      dataDir: root,
+      projectId: 'org/project-a',
+      scope: 'user',
+      kind: 'procedural',
+      portability: 'portable',
+      title: 'Package publishing procedure',
+      content: 'Run the package smoke before publishing an npm release.',
+      tags: ['release', 'package'],
+    });
+    await qualifyLongTermMemory({
+      dataDir: root,
+      id: durable.memory.id,
+      reason: 'Previously checked against a package release.',
+    });
+    const outcomes = new OutcomeStore();
+    await outcomes.init(root);
+    outcomes.record({
+      projectId: 'org/project-b',
+      candidateKind: 'durable-memory',
+      candidateId: durable.memory.id,
+      kind: 'verification-failed',
+      sourceRef: 'workflow-run:failed-release',
+    });
+
+    const workset = await buildTaskWorkset({
+      projectId: 'org/project-b',
+      dataDir: root,
+      task: 'Prepare the npm release and verify the package.',
+      lens: 'release',
+      currentFacts: ['Git: clean worktree'],
+      startHere: ['package.json'],
+      reliableMemory: [],
+      cautionMemory: [],
+      verificationHints: ['Run the package smoke.'],
+      worktreeDirty: false,
+      freshness: { suspect: 0, stale: 0 },
+    });
+
+    expect(workset.durableMemory).toHaveLength(0);
+    expect(workset.prompt).not.toContain('Package publishing procedure');
+    expect(workset.evidenceIds).not.toContain('durable:' + durable.memory.id);
+    expect(workset.receipt.governance?.decisions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'durable:' + durable.memory.id, disposition: 'defer', reasons: ['degraded-quality'] }),
+    ]));
   });
 
   it('puts a bounded continuation projection ahead of optional project detail', async () => {

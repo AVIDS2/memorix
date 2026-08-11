@@ -17,7 +17,7 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { createRequire } from 'node:module';
+import { parse as parseYamlDocument } from 'yaml';
 import { getGlobalYamlPath, getProjectYamlPath } from './config-paths.js';
 
 // ─── Types ───────────────────────────────────────────────────────────
@@ -125,8 +125,6 @@ export interface MemorixYamlConfig {
 // Per-project config cache — keyed by resolved projectRoot string.
 // null key = user-level-only config (no project root).
 const configCache = new Map<string | null, MemorixYamlConfig>();
-const require = createRequire(import.meta.url);
-
 /** Stored project root — set once by server init, used by all no-arg loadYamlConfig() calls */
 let globalProjectRoot: string | null = null;
 
@@ -220,26 +218,14 @@ export function resetYamlConfigCache(projectRoot?: string | null): void {
   }
 }
 
-/**
- * Parse YAML string using gray-matter's internal js-yaml.
- * gray-matter is already a dependency — no new deps needed.
- */
 function parseYaml(content: string): MemorixYamlConfig {
-  // gray-matter uses js-yaml internally; we import it from there
-  // But for simplicity and reliability, use a basic YAML parser
-  // that handles the flat config structure we need.
   try {
-    const yaml = require('js-yaml');
-    return yaml.load(content) as MemorixYamlConfig ?? {};
+    const parsed = parseYamlDocument(content);
+    return (parsed && typeof parsed === 'object' && !Array.isArray(parsed))
+      ? parsed as MemorixYamlConfig
+      : {};
   } catch {
-    // Fallback: try gray-matter which wraps js-yaml
-    try {
-      const matter = require('gray-matter');
-      const parsed = matter(`---\n${content}\n---`);
-      return (parsed.data as MemorixYamlConfig) ?? {};
-    } catch {
-      console.error('[memorix] YAML parse failed — check memorix.yml syntax');
-      return {};
-    }
+    console.error('[memorix] YAML parse failed — check memorix.yml syntax');
+    return {};
   }
 }

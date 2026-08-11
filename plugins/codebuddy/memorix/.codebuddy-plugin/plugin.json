@@ -1,0 +1,15 @@
+{
+  "name": "memorix",
+  "version": "1.4.3",
+  "description": "Local-first project memory for CodeBuddy Code and other coding agents.",
+  "author": {
+    "name": "AVIDS2",
+    "url": "https://github.com/AVIDS2"
+  },
+  "homepage": "https://github.com/AVIDS2/memorix#readme",
+  "repository": "https://github.com/AVIDS2/memorix",
+  "license": "MIT",
+  "skills": "./skills",
+  "hooks": "./hooks/hooks.json",
+  "mcpServers": "./.mcp.json"
+}

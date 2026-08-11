@@ -201,6 +201,19 @@ Controlled assets default to a 100 MiB import limit. Vision analysis has a
 separate 20 MiB cap so a large local file can remain a usable asset without
 creating an oversized chat-completions request.
 
+### Controlled audio transcription
+
+Audio-to-text is a separate, opt-in derivative lane. Set the matching provider
+credential outside Git:
+
+- `OPENAI_API_KEY` with `MEMORIX_TRANSCRIPTION_PROVIDER=openai`
+- `GROQ_API_KEY` with `MEMORIX_TRANSCRIPTION_PROVIDER=groq`
+- optional `MEMORIX_TRANSCRIPTION_MODEL=<provider model>`
+
+The conservative source limit is 25 MiB. The CLI is enabled when a credential
+is present; MCP-originated transcription remains disabled unless
+`MEMORIX_MCP_MEDIA_TRANSCRIPTION=1` is set after reviewing provider billing.
+
 ### `[memory]`
 
 Runtime memory behavior.

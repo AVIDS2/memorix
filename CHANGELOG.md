@@ -2,6 +2,58 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.4.3] - 2026-08-10
+
+### Added
+- **Controlled document and audio derivations** -- Explicit CLI jobs can now
+  derive searchable text from managed PDFs and from supported audio
+  transcription providers. The original asset remains local and provenance,
+  provider credentials, retries, cancellation, and provider cost reporting are
+  bounded rather than inferred.
+- **Evidence-bounded graph context** -- Retrieval can add direct, one-hop
+  entity and commit evidence to an existing workset, while using the same
+  freshness, trust, visibility, and token-budget governor as normal project
+  knowledge. It does not perform unbounded graph traversal.
+- **CodeBuddy integration** -- `memorix setup --agent codebuddy` installs an
+  official-format local marketplace plugin with MCP, skills, and lifecycle
+  hooks, without changing CodeBuddy model, permission, or user settings.
+
+### Fixed
+- **YAML dependency security** -- Replaced the unmaintained `gray-matter` /
+  `js-yaml` 3 parsing chain with the maintained `yaml` parser for Memorix
+  configuration, rules, workflows, and knowledge-page front matter. Memcode's
+  HTTP client and the MCP SDK's patched transitive network dependencies are
+  pinned to their fixed releases.
+- **Optional local Transformers install** -- Memorix no longer installs
+  `@huggingface/transformers` by default because its current upstream release
+  still brings a high-severity `sharp`/libvips advisory. The local Transformers
+  embedding provider remains available through an explicit user install.
+- **Star History release verification** -- Generated chart pull requests now
+  explicitly dispatch the normal CI workflow. This avoids relying on the
+  GitHub `GITHUB_TOKEN` behavior that otherwise suppresses a follow-up
+  `pull_request` workflow.
+- **Plugin release metadata** -- CodeBuddy now participates in the same
+  version-manifest synchronization as the other versioned integration plugins.
+
+## [1.4.2] - 2026-08-06
+
+### Added
+- **Evidence-governed memory** -- A deterministic governor now decides whether
+  project knowledge should be included, compacted, deferred, or excluded based
+  on source backing, freshness, conflicts, quality, scope, and token budget.
+- **Outcome-aware memory** -- Workflow verification results are recorded as
+  append-only outcome signals so failed evidence is less likely to be reused
+  as trusted project knowledge.
+- **CodeGraph evolution views** -- Lite CodeGraph now keeps hash-only snapshot
+  manifests, reports exact file-level diffs, and exposes bounded one-hop impact
+  slices through the CLI. Continuation worksets include code evolution and
+  stale-memory binding counts.
+
+### Fixed
+- **Star History automation** -- The chart workflow now updates a dedicated
+  branch and opens or refreshes a pull request instead of trying to push
+  directly to protected `main`, which caused every scheduled refresh to fail.
+
 ## [1.4.1] - 2026-08-03
 
 ### Added

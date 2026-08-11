@@ -7,7 +7,7 @@
     "url": "https://github.com/AVIDS2/memorix",
     "source": "github"
   },
-  "version": "1.4.1",
+  "version": "1.4.3",
   "websiteUrl": "https://github.com/AVIDS2/memorix#readme",
   "icons": [
     {
@@ -22,7 +22,7 @@
     {
       "registryType": "npm",
       "identifier": "memorix",
-      "version": "1.4.1",
+      "version": "1.4.3",
       "runtimeHint": "npx",
       "packageArguments": [
         {

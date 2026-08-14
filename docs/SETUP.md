@@ -17,9 +17,9 @@ Common runtime entry points:
 
 | Entry | Use it for |
 | --- | --- |
-| `memorix setup --agent <agent> --global` | one-command user-level agent integration |
+| `memorix setup --agent <agent> --global` | one-command user-level agent integration; installs the stdio server with `--mode lite` so every tool taught in the generated guidance is actually reachable |
 | `memorix` CLI commands | direct workflows: setup, search/store, Git Memory, import/export, dashboard, diagnostics, orchestration, and automation |
-| `memorix serve` | stdio MCP server for IDEs and coding agents; defaults to a compact `micro` tool profile |
+| `memorix serve` | stdio MCP server for IDEs and coding agents; defaults to a compact `micro` tool profile when launched manually |
 | `memorix background start` | long-lived HTTP MCP service plus dashboard |
 | `memorix serve-http --port 3211` | foreground HTTP MCP for debugging or supervised launches |
 | `memorix` / `memcode` | bundled terminal agent that uses the same Memorix memory pool |
@@ -151,7 +151,9 @@ memorix serve
 
 Use this when your agent only needs a raw local stdio MCP process or you are debugging a manual config. The agent starts `memorix serve` and communicates with it over stdio.
 
-The stdio server defaults to `--mode micro`, which exposes 9 high-signal tools so agent context is not crowded by rarely used schemas. Use `memorix serve --mode lite` for the extended solo memory surface, `--mode team` for coordination tools, or `--mode full` for advanced and MCP Memory compatibility tools.
+A bare `memorix serve` defaults to `--mode micro`, which exposes 9 high-signal tools so agent context is not crowded by rarely used schemas. Use `memorix serve --mode lite` for the extended solo memory surface, `--mode team` for coordination tools, or `--mode full` for advanced and MCP Memory compatibility tools.
+
+`memorix setup` writes `--mode lite` into the installed MCP config: the generated guidance teaches the extended surface (sessions, timeline, reasoning, retention), so the installed server must actually expose it. Override with `MEMORIX_MODE` if you prefer a different profile.
 
 Generic stdio MCP config:
 

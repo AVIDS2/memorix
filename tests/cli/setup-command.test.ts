@@ -307,7 +307,7 @@ describe('plugin package installer', () => {
       expect(pluginManifest.skills).toContain('./skills/memorix-troubleshooting');
       expect(JSON.parse(await fs.readFile(mcpConfig, 'utf-8')).mcpServers.memorix).toMatchObject({
         command: 'memorix',
-        args: ['serve'],
+        args: ['serve', '--mode', 'lite'],
         alwaysLoad: true,
       });
       await expectOfficialSkills(skillsRoot);
@@ -339,7 +339,7 @@ describe('plugin package installer', () => {
         name: 'memorix', hooks: './hooks/hooks.json', mcpServers: './.mcp.json', skills: './skills',
       });
       expect(JSON.parse(await fs.readFile(mcpPath, 'utf-8')).mcpServers.memorix).toMatchObject({
-        type: 'stdio', command: 'memorix', args: ['serve'],
+        type: 'stdio', command: 'memorix', args: ['serve', '--mode', 'lite'],
       });
       expect(JSON.parse(await fs.readFile(hooksPath, 'utf-8')).hooks.SessionStart[0].hooks[0]).toMatchObject({
         command: 'memorix hook --agent codebuddy', timeout: 10,
@@ -370,7 +370,7 @@ describe('plugin package installer', () => {
       await expectOfficialSkills(skillsRoot);
       expect(JSON.parse(await fs.readFile(mcpConfig, 'utf-8')).mcpServers.memorix).toMatchObject({
         command: 'memorix',
-        args: ['serve'],
+        args: ['serve', '--mode', 'lite'],
       });
       expect(JSON.parse(await fs.readFile(hooksConfig, 'utf-8')).hooks.postToolUse[0]).toMatchObject({
         type: 'command',
@@ -397,7 +397,7 @@ describe('plugin package installer', () => {
       await expectOfficialSkills(path.join(pluginPath, 'skills'));
       expect(JSON.parse(await fs.readFile(path.join(pluginPath, '.mcp.json'), 'utf-8')).mcpServers.memorix).toMatchObject({
         command: 'memorix',
-        args: ['serve'],
+        args: ['serve', '--mode', 'lite'],
       });
     } finally {
       await cleanup(tmpDir);
@@ -547,7 +547,7 @@ describe('extension package installer', () => {
       });
       expect(JSON.parse(await fs.readFile(path.join(pluginPath, 'mcp_config.json'), 'utf-8')).mcpServers.memorix).toMatchObject({
         command: 'memorix',
-        args: ['serve'],
+        args: ['serve', '--mode', 'lite'],
       });
       expect(hooks.memorix.PreInvocation[0].command).toContain('--event PreInvocation');
       expect(hooks.memorix.PreToolUse[0].hooks[0].command).toContain('--event PreToolUse');
@@ -643,7 +643,7 @@ describe('extension package installer', () => {
       await expectOfficialSkills(path.join(bundlePath, 'skills'));
       expect(JSON.parse(await fs.readFile(path.join(bundlePath, '.mcp.json'), 'utf-8')).mcpServers.memorix).toMatchObject({
         command: 'memorix',
-        args: ['serve'],
+        args: ['serve', '--mode', 'lite'],
       });
     } finally {
       await cleanup(tmpDir);
@@ -738,7 +738,7 @@ describe('setup MCP config installer', () => {
       expect(result.configPath).toBe(path.join(tmpDir, '.claude', 'settings.json'));
       expect(config.mcpServers.memorix).toMatchObject({
         command: 'memorix',
-        args: ['serve'],
+        args: ['serve', '--mode', 'lite'],
         alwaysLoad: true,
       });
     } finally {
@@ -762,7 +762,7 @@ describe('setup MCP config installer', () => {
 
       expect(result.configPath).toBe(configPath);
       expect(config.mcpServers.context7.command).toBe('context7');
-      expect(config.mcpServers.memorix).toMatchObject({ command: 'memorix', args: ['serve'] });
+      expect(config.mcpServers.memorix).toMatchObject({ command: 'memorix', args: ['serve', '--mode', 'lite'] });
     } finally {
       await cleanup(tmpDir);
     }
@@ -777,7 +777,7 @@ describe('setup MCP config installer', () => {
       expect(result.configPath).toBe(path.join(tmpDir, 'opencode.json'));
       expect(config.mcp.memorix).toMatchObject({
         type: 'local',
-        command: ['memorix', 'serve'],
+        command: ['memorix', 'serve', '--mode', 'lite'],
       });
     } finally {
       await cleanup(tmpDir);
@@ -812,7 +812,7 @@ describe('setup MCP config installer', () => {
       expect(content).toContain('command = "other"');
       expect(content).toContain('[mcp_servers.memorix]');
       expect(content).toContain('command = "memorix"');
-      expect(content).toContain('args = ["serve"]');
+      expect(content).toContain('args = ["serve", "--mode", "lite"]');
       expect(content).not.toContain('command = "old"');
     } finally {
       await cleanup(tmpDir);

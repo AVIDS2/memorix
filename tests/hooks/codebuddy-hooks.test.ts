@@ -33,7 +33,7 @@ describe('CodeBuddy plugin hooks', () => {
       name: 'memorix', skills: './skills', hooks: './hooks/hooks.json', mcpServers: './.mcp.json',
     });
     expect(mcp.mcpServers.memorix).toMatchObject({
-      type: 'stdio', command: 'memorix', args: ['serve'],
+      type: 'stdio', command: 'memorix', args: ['serve', '--mode', 'lite'],
     });
   });
 });

@@ -422,7 +422,9 @@ export function buildMemorixServer(mcp: Exclude<SetupMcpTransport, 'none'>): MCP
   return {
     name: 'memorix',
     command: 'memorix',
-    args: ['serve'],
+    // The installed surface must expose every tool the generated guidance
+    // teaches. lite covers the full taught set; micro would hide half of it.
+    args: ['serve', '--mode', 'lite'],
   };
 }
 

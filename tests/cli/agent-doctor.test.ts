@@ -280,7 +280,7 @@ describe('agent doctor and repair', () => {
     const settings = JSON.parse(readFileSync(path.join(repoDir, '.claude', 'settings.json'), 'utf-8'));
     expect(settings.mcpServers.memorix).toMatchObject({
       command: 'memorix',
-      args: ['serve'],
+      args: ['serve', '--mode', 'lite'],
       alwaysLoad: true,
     });
 
@@ -353,7 +353,7 @@ describe('agent doctor and repair', () => {
     expect(project.mcpServers.memorix).toEqual({
       type: 'stdio',
       command: 'memorix',
-      args: ['serve'],
+      args: ['serve', '--mode', 'lite'],
       alwaysLoad: true,
     });
   });

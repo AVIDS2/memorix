@@ -61,6 +61,10 @@ Use `memorix_resolve` when a task is done or a bug is fixed. This keeps future s
 
 ### Tools quick reference
 
+The installed `memorix serve --mode lite` surface exposes every tool below
+except the three marked `MEMORIX_MODE=full` (set that env var or `--mode full`
+to enable them).
+
 | Tool | Use when |
 |---|---|
 | `memorix_search` | Find relevant past context |
@@ -73,9 +77,9 @@ Use `memorix_resolve` when a task is done or a bug is fixed. This keeps future s
 | `memorix_session_start` | Load session context (handoff, team coordination) |
 | `memorix_timeline` | See chronological context around a memory |
 | `memorix_retention` | Check memory health and archive expired items |
-| `memorix_promote` | Turn repeated patterns into permanent skills |
-| `memorix_rules_sync` | Inspect or sync rules across agents |
-| `memorix_workspace_sync` | Inspect or migrate workspace integrations |
+| `memorix_promote` (MEMORIX_MODE=full) | Turn repeated patterns into permanent skills |
+| `memorix_rules_sync` (MEMORIX_MODE=full) | Inspect or sync rules across agents |
+| `memorix_workspace_sync` (MEMORIX_MODE=full) | Inspect or migrate workspace integrations |
 
 ## Active Work
 

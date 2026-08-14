@@ -2,7 +2,7 @@
   "mcpServers": {
     "memorix": {
       "command": "memorix",
-      "args": ["serve"]
+      "args": ["serve", "--mode", "lite"]
     }
   }
 }

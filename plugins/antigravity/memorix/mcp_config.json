@@ -3,7 +3,9 @@
     "memorix": {
       "command": "memorix",
       "args": [
-        "serve"
+        "serve",
+        "--mode",
+        "lite"
       ]
     }
   }

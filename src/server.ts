@@ -5042,6 +5042,12 @@ export async function createMemorixServer(
     return undefined;
   }
 
+  // The advertised schema matches what the operator actually enabled: a
+  // closed gate means the action does not exist for the agent, not that it
+  // exists and throws. The handler keeps its own runtime checks as well.
+  const mediaGenerationEnabled = process.env.MEMORIX_MCP_MEDIA_GENERATION === '1';
+  const mediaTranscriptionEnabled = process.env.MEMORIX_MCP_MEDIA_TRANSCRIPTION === '1';
+  const mediaGenerationOrTranscription = mediaGenerationEnabled || mediaTranscriptionEnabled;
   server.registerTool(
     'memorix_media',
     {
@@ -5052,7 +5058,11 @@ export async function createMemorixServer(
         'Use the CLI for destructive removal, quota cleanup, and direct generation. ' +
         'MCP generation is disabled by default and requires MEMORIX_MCP_MEDIA_GENERATION=1 after the operator reviews provider billing.',
       inputSchema: {
-        action: z.enum(['import', 'attach', 'list', 'show', 'derive-pdf', 'derive-audio', 'generate-image', 'generate-video', 'status', 'cancel']),
+        action: z.enum([
+          'import', 'attach', 'list', 'show', 'derive-pdf', 'status', 'cancel',
+          ...(mediaTranscriptionEnabled ? ['derive-audio'] : []),
+          ...(mediaGenerationEnabled ? ['generate-image', 'generate-video'] : []),
+        ] as [string, ...string[]]),
         path: z.string().optional().describe('Explicit local image/audio/video/PDF path for import.'),
         assetId: z.string().optional().describe('Controlled MediaAsset ID for attach/show.'),
         jobId: z.string().optional().describe('Durable media job ID for status.'),
@@ -5060,20 +5070,26 @@ export async function createMemorixServer(
         limit: z.number().int().min(1).max(100).optional().describe('Maximum assets to list.'),
         title: z.string().optional().describe('Observation title when attaching generated/imported output.'),
         narrative: z.string().optional().describe('Short retrieval text when attaching an asset.'),
-        prompt: z.string().optional().describe('Explicit MiniMax generation prompt.'),
-        image: z.string().optional().describe('Base64-encoded reference image for image-to-image generation.'),
-        model: z.string().max(160).optional().describe('Provider model for the selected media action.'),
-        provider: z.enum(['openai', 'groq']).optional().describe('Explicit audio transcription provider.'),
-        language: z.string().max(32).optional().describe('Optional ISO-639-1 hint for audio transcription.'),
-        region: z.enum(['global', 'cn']).optional().describe('MiniMax deployment region.'),
-        n: z.number().int().min(1).max(4).optional().describe('Image output count.'),
-        ratio: z.enum(['adaptive', '1:1', '16:9', '4:3', '3:2', '2:3', '3:4', '9:16', '21:9']).optional().describe('Image or video aspect ratio.'),
-        width: z.number().int().min(1).max(8192).optional().describe('Requested image width.'),
-        height: z.number().int().min(1).max(8192).optional().describe('Requested image height.'),
-        duration: z.union([z.literal(5), z.literal(10)]).optional().describe('MiniMax video duration in seconds.'),
         maxPages: z.number().int().min(1).max(100).optional().describe('Bounded PDF extraction page limit.'),
         maxChars: z.number().int().min(1).max(60_000).optional().describe('Bounded PDF extraction character limit.'),
         attach: z.boolean().optional().describe('Attach generated/imported output to normal project memory explicitly.'),
+        ...(mediaGenerationOrTranscription ? {
+          model: z.string().max(160).optional().describe('Provider model for the selected media action.'),
+          prompt: z.string().optional().describe('Explicit prompt for generation or transcription.'),
+        } : {}),
+        ...(mediaTranscriptionEnabled ? {
+          provider: z.enum(['openai', 'groq']).optional().describe('Explicit audio transcription provider.'),
+          language: z.string().max(32).optional().describe('Optional ISO-639-1 hint for audio transcription.'),
+        } : {}),
+        ...(mediaGenerationEnabled ? {
+          image: z.string().optional().describe('Base64-encoded reference image for image-to-image generation.'),
+          region: z.enum(['global', 'cn']).optional().describe('MiniMax deployment region.'),
+          n: z.number().int().min(1).max(4).optional().describe('Image output count.'),
+          ratio: z.enum(['adaptive', '1:1', '16:9', '4:3', '3:2', '2:3', '3:4', '9:16', '21:9']).optional().describe('Image or video aspect ratio.'),
+          width: z.number().int().min(1).max(8192).optional().describe('Requested image width.'),
+          height: z.number().int().min(1).max(8192).optional().describe('Requested image height.'),
+          duration: z.union([z.literal(5), z.literal(10)]).optional().describe('MiniMax video duration in seconds.'),
+        } : {}),
       },
     },
     async ({ action, path: assetPath, assetId, jobId, kind, limit, title, narrative, prompt, image, model, provider, language, region, n, ratio, width, height, duration, maxPages, maxChars, attach }) => {

@@ -5,6 +5,7 @@ import { getAllObservations, getObservation, getProjectObservations, resolveObse
 import { buildGraphContextPacket, formatGraphContextPrompt } from '../../memory/graph-context.js';
 import { canManageObservation, filterReadableObservations, resolveObservationVisibility } from '../../memory/visibility.js';
 import {
+  asStringArg,
   coerceObservationStatus,
   coerceObservationType,
   coerceRetrievalQuality,
@@ -12,6 +13,7 @@ import {
   emitResult,
   getCliReadContext,
   getCliProjectContext,
+  lastStringArg,
   parseCsvList,
   parsePositiveInt,
   resolveCliWriteScope,
@@ -66,7 +68,7 @@ export default defineCommand({
     const action = (args._ as string[])?.[0] || '';
     const positional = ((args._ as string[]) ?? []).slice(1);
     const longTermAction = action === 'long-term'
-      ? (positional[0] || (args.action as string | undefined) || 'list').trim().toLowerCase()
+      ? (positional[0] || asStringArg(args.action) || 'list').trim().toLowerCase()
       : undefined;
     const asJson = !!args.json;
 
@@ -107,7 +109,7 @@ export default defineCommand({
             query,
             limit: parsePositiveInt(args.graphLimit as string | undefined, 5),
           });
-          const format = (args.format as string | undefined)?.trim().toLowerCase();
+          const format = asStringArg(args.format)?.toLowerCase();
           const formatted = format === 'prompt'
             ? formatGraphContextPrompt(packet)
             : [
@@ -146,10 +148,10 @@ export default defineCommand({
             emitError('text is required for "memorix memory store"', asJson);
             return;
           }
-          const title = (args.title as string | undefined)?.trim() || narrative.slice(0, 80);
+          const title = asStringArg(args.title) || narrative.slice(0, 80);
           const type = coerceObservationType(args.type as string | undefined);
           const topicKey =
-            (args.topicKey as string | undefined)?.trim() ||
+            asStringArg(args.topicKey) ||
             suggestTopicKey(type, title) ||
             undefined;
           const writeScope = resolveCliWriteScope(
@@ -157,7 +159,7 @@ export default defineCommand({
             args.visibility as string | undefined,
           );
           const result = await storeObservation({
-            entityName: (args.entity as string | undefined)?.trim() || 'general',
+            entityName: asStringArg(args.entity) || 'general',
             type,
             title,
             narrative,
@@ -179,7 +181,7 @@ export default defineCommand({
 
         case 'suggest-topic-key': {
           const type = coerceObservationType(args.type as string | undefined);
-          const title = (args.title as string | undefined)?.trim();
+          const title = asStringArg(args.title);
           if (!title) {
             emitError('title is required for "memorix memory suggest-topic-key"', asJson);
             return;
@@ -274,7 +276,7 @@ export default defineCommand({
         }
 
         case 'deduplicate': {
-          const query = (args.query as string | undefined)?.trim();
+          const query = asStringArg(args.query);
           const dryRun = !!args.dryRun || !!args['dry-run'];
           const { isLLMEnabled } = await import('../../llm/provider.js');
           if (!isLLMEnabled()) {
@@ -479,8 +481,8 @@ export default defineCommand({
           };
 
           const memoryId = (): string => {
-            const id = (args.id as string | undefined)?.trim()
-              || (args.fromObservation as string | undefined)?.trim()
+            const id = asStringArg(args.id)
+              || asStringArg(args.fromObservation)
               || longTermPositional[0]?.trim();
             if (!id) throw new Error('long-term memory id is required.');
             return id;
@@ -535,11 +537,11 @@ export default defineCommand({
                 projectId: project.id,
                 scope: scope(),
                 kind: kind(),
-                title: (args.title as string | undefined)?.trim() || content.slice(0, 100),
+                title: asStringArg(args.title) || content.slice(0, 100),
                 content,
                 facts: parseCsvList(args.facts as string | undefined),
                 tags: parseCsvList(args.tags as string | undefined),
-                applicability: (args.applicability as string | undefined)?.trim(),
+                applicability: asStringArg(args.applicability),
                 portability: portability(),
                 reader: longTermReader,
               });
@@ -552,8 +554,8 @@ export default defineCommand({
             }
 
             case 'promote': {
-              const rawId = (args.fromObservation as string | undefined)?.trim()
-                || (args.id as string | undefined)?.trim()
+              const rawId = asStringArg(args.fromObservation)
+                || asStringArg(args.id)
                 || longTermPositional[0]?.trim();
               const observationId = Number.parseInt(rawId || '', 10);
               if (!Number.isFinite(observationId)) {
@@ -571,7 +573,7 @@ export default defineCommand({
                 scope: scope(),
                 kind: kind(),
                 tags: parseCsvList(args.tags as string | undefined),
-                applicability: (args.applicability as string | undefined)?.trim(),
+                applicability: asStringArg(args.applicability),
                 reader: longTermReader,
               });
               emitResult(
@@ -604,8 +606,8 @@ export default defineCommand({
             }
 
             case 'supersede': {
-              const supersededBy = (args.supersededBy as string | undefined)?.trim()
-                || (args['superseded-by'] as string | undefined)?.trim();
+              const supersededBy = asStringArg(args.supersededBy)
+                || asStringArg(args['superseded-by']);
               if (!supersededBy) {
                 emitError('supersededBy is required for "memorix memory long-term supersede"', asJson);
                 return;
@@ -642,31 +644,39 @@ export default defineCommand({
   },
 });
 
-function getStringArg(named: string | undefined, positional: string[]): string | undefined {
-  const value = named?.trim() || positional.join(' ').trim();
+/**
+ * Read a free-text citty named argument with positional fallback.
+ *
+ * Named values may be arrays: citty accumulates repeated flags and Windows
+ * shells can split one long quoted argument into argv fragments that
+ * re-introduce the flag mid-value (issue #194). Joining array fragments
+ * preserves the original text instead of throwing on `.trim()`.
+ */
+function getStringArg(named: unknown, positional: string[]): string | undefined {
+  const value = asStringArg(named) || positional.join(' ').trim();
   return value || undefined;
 }
 
 function getIdArg(args: Record<string, unknown>, positional: string[]): string {
   return (
-    (args.ids as string | undefined) ||
-    (args.id as string | undefined) ||
+    lastStringArg(args.ids) ||
+    lastStringArg(args.id) ||
     positional.join(',')
   );
 }
 
-function parseObservationId(value: string): number {
-  const normalized = value.trim();
+function parseObservationId(value: unknown): number {
+  const normalized = (asStringArg(value) ?? '').trim();
   if (!/^[1-9]\d*$/.test(normalized)) {
-    throw new Error(`Invalid observation ID: ${value}`);
+    throw new Error(`Invalid observation ID: ${String(value ?? '')}`);
   }
   const id = Number(normalized);
-  if (!Number.isSafeInteger(id)) throw new Error(`Invalid observation ID: ${value}`);
+  if (!Number.isSafeInteger(id)) throw new Error(`Invalid observation ID: ${String(value ?? '')}`);
   return id;
 }
 
-function parseObservationIds(value: string): number[] {
-  const values = parseCsvList(value);
+function parseObservationIds(value: unknown): number[] {
+  const values = parseCsvList(typeof value === 'string' || Array.isArray(value) ? value : undefined);
   if (values.length === 0) return [];
   return values.map(parseObservationId);
 }
@@ -695,26 +705,26 @@ function printMemoryUsage(): void {
   console.log('  memorix memory long-term supersede --id <old-id> --superseded-by <qualified-id> --reason "replaced"');
 }
 
-function longTermKind(value: string | undefined): 'episodic' | 'semantic' | 'procedural' {
-  const normalized = (value ?? 'semantic').trim().toLowerCase();
+function longTermKind(value: unknown): 'episodic' | 'semantic' | 'procedural' {
+  const normalized = (asStringArg(value) ?? 'semantic').toLowerCase();
   if (normalized === 'episodic' || normalized === 'semantic' || normalized === 'procedural') return normalized;
   throw new Error('long-term kind must be episodic, semantic, or procedural.');
 }
 
-function longTermScope(value: string | undefined): 'project' | 'user' | 'team' {
-  const normalized = (value ?? 'project').trim().toLowerCase();
+function longTermScope(value: unknown): 'project' | 'user' | 'team' {
+  const normalized = (asStringArg(value) ?? 'project').toLowerCase();
   if (normalized === 'project' || normalized === 'user' || normalized === 'team') return normalized;
   throw new Error('long-term scope must be project, user, or team.');
 }
 
-function longTermPortability(value: string | undefined): 'project-bound' | 'portable' {
-  const normalized = (value ?? 'project-bound').trim().toLowerCase();
+function longTermPortability(value: unknown): 'project-bound' | 'portable' {
+  const normalized = (asStringArg(value) ?? 'project-bound').toLowerCase();
   if (normalized === 'project-bound' || normalized === 'portable') return normalized;
   throw new Error('long-term portability must be project-bound or portable.');
 }
 
-function requiredLongTermReason(value: string | undefined): string {
-  const reason = value?.trim();
+function requiredLongTermReason(value: unknown): string {
+  const reason = asStringArg(value);
   if (!reason) throw new Error('reason is required for this long-term memory transition.');
   return reason;
 }

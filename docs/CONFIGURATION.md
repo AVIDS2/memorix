@@ -294,10 +294,24 @@ Server and dashboard behavior.
 
 Common keys:
 
-- `transport = "stdio"`
-- `port = 3211`
+- `transport = "stdio"` — advisory. An explicit `memorix serve-http` still
+  runs on HTTP and prints a notice; this key documents the intended mode.
+- `port = 3211` — default listener port for `memorix serve-http` when
+  `--port` is not given.
 - `dashboard = true`
-- `dashboard_port = 3210`
+- `dashboard_port = 3210` — default port for `memorix dashboard` when
+  `--port` is not given.
+
+### Reserved sections (parsed, not yet enforced)
+
+These sections exist so future releases do not need a config format change.
+Today no runtime behavior reads them; set them only as forward-looking notes.
+
+- `[team]` (`enabled`, `workspace_collection`) — coordination defaults.
+- `[hooks]` (`native_memcode`, `external_agents`) — hook bootstrap policy.
+- The former `mcpServers` key in `memorix.yml` was removed: no code ever
+  consumed it, and Memorix is not an MCP aggregator. Unknown keys are
+  ignored, so old files keep loading.
 
 ---
 

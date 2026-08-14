@@ -22,8 +22,8 @@ export default defineCommand({
     args: {
         port: {
             type: 'string',
-            description: 'Port to run the dashboard on (default: 3210)',
-            default: '3210',
+            description: 'Port to run the dashboard on (default: [server].dashboardPort or 3210)',
+            required: false,
         },
     },
     run: async ({ args }) => {
@@ -31,13 +31,24 @@ export default defineCommand({
         const { getProjectDataDir } = await import('../../store/persistence.js');
         const { startDashboard } = await import('../../dashboard/server.js');
 
+        // The [server].dashboardPort config is a real default source; the
+        // explicit --port flag always wins.
+        let configuredDashboardPort: number | undefined;
+        try {
+            const { getServerConfig } = await import('../../config.js');
+            const serverConfig = getServerConfig();
+            configuredDashboardPort = typeof serverConfig.dashboardPort === 'number'
+                ? serverConfig.dashboardPort
+                : undefined;
+        } catch { /* config files are optional */ }
+
         const project = detectProject();
         if (!project) {
             console.error('Memorix requires a git repo to establish project identity. Run `git init` in this workspace first.');
             process.exit(1);
         }
         const dataDir = await getProjectDataDir(project.id);
-        const port = parseTcpPortOrReport(args.port as string | undefined, 3210);
+        const port = parseTcpPortOrReport(args.port as string | undefined, configuredDashboardPort ?? 3210);
         if (port === undefined) {
             process.exitCode = 1;
             return;

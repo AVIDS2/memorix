@@ -110,14 +110,9 @@ export interface MemorixYamlConfig {
     workspaceCollection?: string;
   };
 
-  /** Additional MCP servers to aggregate (Memorix as hub) */
-  mcpServers?: Record<string, {
-    type?: 'stdio' | 'sse';
-    command?: string;
-    args?: string[];
-    env?: Record<string, string>;
-    url?: string;
-  }>;
+  // NOTE: a previous `mcpServers` declaration ("Memorix as an MCP hub") was
+  // removed — no code ever consumed it. Unknown top-level keys are ignored,
+  // so existing files with the old key keep loading without error.
 }
 
 // ─── Loader ──────────────────────────────────────────────────────────

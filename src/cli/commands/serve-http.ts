@@ -39,6 +39,36 @@ export function parseSessionTimeoutMs(raw: string | undefined): number {
   return Math.floor(parsed);
 }
 
+export interface ServeHttpConfiguredDefaults {
+  port?: number;
+  transport?: 'stdio' | 'http';
+  dashboard?: boolean;
+  dashboardPort?: number;
+}
+
+/**
+ * The [server] config section is a real default source, not display-only:
+ * `port` becomes the listener default and an explicit `transport: "stdio"`
+ * produces a notice (an explicit serve-http command still wins). CLI flags
+ * always beat config.
+ */
+export function resolveServeHttpDefaults(
+  argsPort: string | undefined,
+  configured: ServeHttpConfiguredDefaults,
+): { port: number; transportNotice?: string } {
+  const configuredPort = typeof configured.port === 'number' && Number.isFinite(configured.port)
+    ? configured.port
+    : undefined;
+  const port = parseTcpPortOrReport(argsPort, configuredPort ?? 3211);
+  if (port === undefined) {
+    return { port: 3211 };
+  }
+  const transportNotice = configured.transport === 'stdio'
+    ? '[memorix] config server.transport = "stdio"; serve-http continues on HTTP (the explicit command wins).'
+    : undefined;
+  return { port, transportNotice };
+}
+
 export default defineCommand({
   meta: {
     name: 'serve-http',
@@ -81,11 +111,15 @@ export default defineCommand({
     const { writeFileSync, mkdirSync } = await import('node:fs');
     const { homedir } = await import('node:os');
 
-    const port = parseTcpPortOrReport(args.port, 3211);
-    if (port === undefined) {
-      process.exitCode = 1;
-      return;
-    }
+    // The [server] config section feeds startup defaults; CLI flags win.
+    let configuredDefaults: ServeHttpConfiguredDefaults = {};
+    try {
+      const { getServerConfig } = await import('../../config.js');
+      configuredDefaults = getServerConfig();
+    } catch { /* config files are optional */ }
+    const resolved = resolveServeHttpDefaults(args.port as string | undefined, configuredDefaults);
+    if (resolved.transportNotice) console.error(resolved.transportNotice);
+    const port = resolved.port;
     const host = args.host || '127.0.0.1';
     const toolProfile = resolveToolProfile({ explicit: args.mode, envValue: process.env.MEMORIX_MODE, fallback: 'team' });
 

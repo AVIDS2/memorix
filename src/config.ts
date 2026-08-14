@@ -120,10 +120,5 @@ export function getServerConfig(): NonNullable<MemorixYamlConfig['server']> {
   };
 }
 
-/** Team config */
-export function getTeamConfig(): NonNullable<MemorixYamlConfig['team']> {
-  return loadYamlConfig().team ?? {};
-}
-
 /** Get the full resolved YAML config (for status display) */
 export { loadYamlConfig } from './config/yaml-loader.js';

@@ -8,14 +8,14 @@
 
 ## Current Product State
 
-- `1.4.6` is the current published release (2026-08-14) on npm, the
+- `1.5.0` is the current published release (2026-08-14) on npm, the
   official MCP Registry, and GitHub Releases.
-- The memory-native main line shipped in 1.4.6: the always-on "You and this
-  workspace" brief block and the long-term memory rule-leg
-  self-maintenance, plus the cold-feature sweep (installed tool-profile
-  parity, `memorix purge`, enforced git ingest settings, honest media
-  schema, server config defaults, and the dead-code removal). All changes
-  are score-verified.
+- 1.5.0 is the stability release: the deterministic stress-exam matrix
+  (corpus, concurrency, session churn, long-term scale, CLI repeat) runs in
+  the normal suite, the OpenRouter embedding lane was verified live
+  (`qwen/qwen3-embedding-8b`, 4096d), and the embedding default is now
+  provider-aware. Everything from the 1.4.6 memory-native line carries
+  forward.
 - `1.5.0` is the next target: a stability-focused release. It ships only
   after the stress exams below pass and the live OpenRouter embedding lane
   is verified against the operator's environment.

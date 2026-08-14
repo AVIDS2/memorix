@@ -538,7 +538,7 @@ export const IMAGE_MODELS = {
 			api: "minimax-images",
 			provider: "minimax",
 			baseUrl: "https://api.minimax.io/v1/image_generation",
-			input: ["text"],
+			input: ["text", "image"],
 			output: ["image"],
 			cost: 	{
 	  "input": 0,
@@ -553,7 +553,7 @@ export const IMAGE_MODELS = {
 			api: "minimax-images",
 			provider: "minimax",
 			baseUrl: "https://api.minimax.io/v1/image_generation",
-			input: ["text"],
+			input: ["text", "image"],
 			output: ["image"],
 			cost: 	{
 	  "input": 0,
@@ -570,7 +570,7 @@ export const IMAGE_MODELS = {
 			api: "minimax-images",
 			provider: "minimax-cn",
 			baseUrl: "https://api.minimaxi.com/v1/image_generation",
-			input: ["text"],
+			input: ["text", "image"],
 			output: ["image"],
 			cost: 	{
 	  "input": 0,
@@ -585,7 +585,7 @@ export const IMAGE_MODELS = {
 			api: "minimax-images",
 			provider: "minimax-cn",
 			baseUrl: "https://api.minimaxi.com/v1/image_generation",
-			input: ["text"],
+			input: ["text", "image"],
 			output: ["image"],
 			cost: 	{
 	  "input": 0,

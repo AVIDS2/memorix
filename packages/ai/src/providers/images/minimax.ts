@@ -23,9 +23,15 @@ export interface MiniMaxImagesOptions extends ImagesOptions {
 	promptOptimizer?: boolean;
 }
 
+interface MiniMaxSubjectReference {
+	type: "character";
+	image_file: string;
+}
+
 interface MiniMaxImageGenerationRequest {
 	model: string;
 	prompt: string;
+	subject_reference?: MiniMaxSubjectReference[];
 	aspect_ratio?: MiniMaxImagesOptions["aspectRatio"];
 	width?: number;
 	height?: number;
@@ -120,9 +126,12 @@ function buildPayload(
 	context: ImagesContext,
 	options?: MiniMaxImagesOptions,
 ): MiniMaxImageGenerationRequest {
-	if (context.input.some((item) => item.type === "image")) {
-		throw new Error(`Model ${model.id} does not support image input`);
-	}
+	const subjectReference = context.input
+		.filter((item): item is ImageContent => item.type === "image")
+		.map((item) => ({
+			type: "character" as const,
+			image_file: `data:${item.mimeType};base64,${item.data}`,
+		}));
 
 	const prompt = context.input
 		.filter((item) => item.type === "text")
@@ -139,6 +148,7 @@ function buildPayload(
 	return {
 		model: model.id,
 		prompt,
+		...(subjectReference.length > 0 ? { subject_reference: subjectReference } : {}),
 		...(options?.aspectRatio !== undefined ? { aspect_ratio: options.aspectRatio } : {}),
 		...(options?.width !== undefined ? { width: options.width } : {}),
 		...(options?.height !== undefined ? { height: options.height } : {}),

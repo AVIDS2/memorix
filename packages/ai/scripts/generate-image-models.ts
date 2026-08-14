@@ -91,7 +91,7 @@ function getMiniMaxImageModels(): ImagesModel<"minimax-images">[] {
 			api: "minimax-images",
 			provider,
 			baseUrl,
-			input: ["text"],
+			input: ["text", "image"],
 			output: ["image"],
 			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 		})),

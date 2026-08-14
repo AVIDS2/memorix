@@ -18,6 +18,7 @@ import {
 import { launchMediaVideoRunner, queueMiniMaxVideoGeneration } from '../../media/video-jobs.js';
 import { launchMediaAudioRunner, queueAudioTranscription } from '../../media/audio-jobs.js';
 import type { MediaKind } from '../../media/types.js';
+import { readSubjectImage } from './media-image.js';
 import {
   emitError,
   emitResult,
@@ -118,7 +119,7 @@ function help(): string {
     '  memorix media attach --asset <asset-id> [--title "Architecture"] [--text "..."]',
     '  memorix media embed --asset <asset-id>',
     '  memorix media similar --asset <asset-id> [--limit 10]',
-    '  memorix media generate image --prompt "..." [--model image-01] [--attach]',
+    '  memorix media generate image --prompt "..." [--model image-01] [--image ./reference.png] [--attach]',
     '  memorix media generate video --prompt "..." [--model MiniMax-H3] [--duration 5] [--ratio 16:9] [--attach]',
     '  memorix media status --job <media-job-id>',
     '  memorix media cancel --job <media-job-id>',
@@ -145,6 +146,7 @@ export default defineCommand({
     concepts: { type: 'string', description: 'Comma-separated concepts when attaching' },
     visibility: { type: 'string', description: 'Observation visibility when attaching' },
     prompt: { type: 'string', description: 'Generation prompt' },
+    image: { type: 'string', description: 'Path to a reference image for image-to-image generation' },
     model: { type: 'string', description: 'Provider model' },
     provider: { type: 'string', description: 'Audio transcription provider: openai or groq' },
     language: { type: 'string', description: 'Optional ISO-639-1 hint for audio transcription' },
@@ -223,6 +225,10 @@ export default defineCommand({
             );
             return;
           }
+          const referenceImagePath = getValue(args.image);
+          const subjectImages = referenceImagePath
+            ? [await readSubjectImage(referenceImagePath)]
+            : undefined;
           const generated = await generateMiniMaxImages({
             dataDir,
             projectId: project.id,
@@ -235,6 +241,7 @@ export default defineCommand({
             height: parseOptionalInteger(args.height, 'height', 1, 8_192),
             seed: parseOptionalInteger(args.seed, 'seed', 0, 2_147_483_647),
             promptOptimizer: args.promptOptimizer === true || args['prompt-optimizer'] === true,
+            subjectImages,
             maxBytes: parseByteLimit(args.maxBytes ?? args['max-bytes'], 100 * 1024 * 1024),
           });
           const observations = args.attach === true

@@ -7,6 +7,37 @@
 
 import { defineCommand } from 'citty';
 import * as p from '@clack/prompts';
+import type { CommitInfo } from '../../git/extractor.js';
+
+export interface GitIngestPolicyInput {
+  ingestOnCommit?: boolean;
+  maxDiffSize?: number;
+}
+
+/**
+ * The documented git policy settings are real gates, not display-only facts:
+ * `ingest_on_commit = false` disables post-commit ingestion, and
+ * `max_diff_size` caps how much diff content is captured into the narrative.
+ */
+export function applyGitIngestPolicy(
+  commit: CommitInfo,
+  policy: GitIngestPolicyInput,
+): { skip: boolean; reason?: string; diffSummary: string } {
+  if (policy.ingestOnCommit === false) {
+    return {
+      skip: true,
+      reason: 'ingest_on_commit is disabled',
+      diffSummary: commit.diffSummary,
+    };
+  }
+  const cap = policy.maxDiffSize;
+  return {
+    skip: false,
+    diffSummary: typeof cap === 'number' && Number.isFinite(cap)
+      ? commit.diffSummary.slice(0, Math.max(0, Math.floor(cap)))
+      : commit.diffSummary,
+  };
+}
 
 export default defineCommand({
   meta: {
@@ -42,13 +73,26 @@ export default defineCommand({
     if (!auto) p.intro(`Ingest commit: ${ref}`);
 
     try {
+      const { getGitConfig } = await import('../../config.js');
+      const gitCfg = getGitConfig();
       const { getCommitInfo, ingestCommit } = await import('../../git/extractor.js');
-      const commit = getCommitInfo(cwd, ref);
+      const commit = getCommitInfo(cwd, ref, gitCfg.maxDiffSize ?? 500);
+
+      // The documented ingest_on_commit gate: post-commit execution stops
+      // here when disabled. An explicit manual run always proceeds.
+      const policy = applyGitIngestPolicy(commit, {
+        ingestOnCommit: gitCfg.ingestOnCommit,
+        maxDiffSize: gitCfg.maxDiffSize,
+      });
+      if (policy.skip && auto) {
+        console.error(`[memorix] Skipped ${commit.shortHash}: ${policy.reason}`);
+        process.exit(0);
+        return;
+      }
+      commit.diffSummary = policy.diffSummary;
 
       // Noise filter: skip low-value commits (typo, format, lockfile, merge, etc.)
       const { shouldFilterCommit } = await import('../../git/noise-filter.js');
-      const { getGitConfig } = await import('../../config.js');
-      const gitCfg = getGitConfig();
       const filterResult = shouldFilterCommit(commit, {
         skipMergeCommits: gitCfg.skipMergeCommits,
         excludePatterns: gitCfg.excludePatterns,

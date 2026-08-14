@@ -61,8 +61,10 @@ function normalizeCommitCount(count: number): number {
 
 /**
  * Get commit info by hash (or HEAD).
+ * `maxDiffChars` caps how much diff content is captured (default 500).
  */
-export function getCommitInfo(cwd: string, ref = 'HEAD'): CommitInfo {
+export function getCommitInfo(cwd: string, ref = 'HEAD', maxDiffChars = 500): CommitInfo {
+  const cap = Number.isFinite(maxDiffChars) ? Math.max(0, Math.floor(maxDiffChars)) : 500;
   const FORMAT = '%H%n%h%n%aN%n%aI%n%s%n%b';
   const revision = normalizeCommitRef(ref);
   const raw = runGit(cwd, ['log', '-1', `--format=${FORMAT}`, '--end-of-options', revision]).trim();
@@ -93,11 +95,11 @@ export function getCommitInfo(cwd: string, ref = 'HEAD'): CommitInfo {
     }
   }
 
-  // Get short diff summary (first 500 chars of diff)
+  // Get short diff summary, capped at the configured diff-size budget.
   let diffSummary = '';
   try {
     const diff = runGit(cwd, ['diff-tree', '-p', '--no-commit-id', hash], 1024 * 100);
-    diffSummary = diff.substring(0, 500);
+    diffSummary = diff.substring(0, cap);
   } catch { /* diff may be too large */ }
 
   return {

@@ -147,9 +147,52 @@ export function emitError(message: string, asJson?: boolean): void {
   process.exitCode = 1;
 }
 
-export function parseCsvList(input?: string | null): string[] {
+/**
+ * Coerce a citty named argument into a trimmed string.
+ *
+ * Citty accumulates repeated string flags into an array (`--text a --text b`
+ * becomes `["a", "b"]`), and Windows shells can split one long quoted
+ * argument into several argv elements that re-introduce the flag mid-value
+ * (issue #194). Joining the fragments preserves as much of the original text
+ * as possible and prevents `TypeError: named?.trim is not a function`.
+ */
+export function asStringArg(value: unknown): string | undefined {
+  if (value == null) return undefined;
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : undefined;
+  }
+  if (Array.isArray(value)) {
+    const joined = value
+      .filter((item): item is string => typeof item === 'string')
+      .map((item) => item.trim())
+      .filter(Boolean)
+      .join(' ');
+    return joined.length > 0 ? joined : undefined;
+  }
+  return undefined;
+}
+
+/**
+ * Coerce a repeated scalar flag to its last value (last-wins convention for
+ * enums, IDs, and numeric limits). Repeated flags are otherwise accumulated
+ * into arrays by citty and would reach `.trim()` as non-strings.
+ */
+export function lastStringArg(value: unknown): string | undefined {
+  if (typeof value === 'string') return value;
+  if (Array.isArray(value)) {
+    const strings = value.filter((item): item is string => typeof item === 'string');
+    return strings[strings.length - 1];
+  }
+  return undefined;
+}
+
+export function parseCsvList(input?: string | string[] | null): string[] {
   if (!input) return [];
-  return input
+  const source = Array.isArray(input)
+    ? input.filter((item): item is string => typeof item === 'string').join(',')
+    : input;
+  return source
     .split(',')
     .map((item) => item.trim())
     .filter(Boolean);
@@ -174,14 +217,15 @@ export function shortId(id?: string | null): string {
   return id ? `${id.slice(0, 8)}…` : '-';
 }
 
-export function parsePositiveInt(input: string | undefined, fallback: number): number {
-  if (input == null || input.trim() === '') return fallback;
-  if (!/^\d+$/.test(input.trim())) {
-    throw new Error(`Expected a positive integer, received "${input}".`);
+export function parsePositiveInt(input: string | string[] | undefined, fallback: number): number {
+  const value = lastStringArg(input);
+  if (value == null || value.trim() === '') return fallback;
+  if (!/^\d+$/.test(value.trim())) {
+    throw new Error(`Expected a positive integer, received "${value}".`);
   }
-  const parsed = Number(input);
+  const parsed = Number(value);
   if (!Number.isSafeInteger(parsed) || parsed <= 0) {
-    throw new Error(`Expected a positive integer, received "${input}".`);
+    throw new Error(`Expected a positive integer, received "${value}".`);
   }
   return parsed;
 }
@@ -203,36 +247,36 @@ const OBSERVATION_TYPES: ObservationType[] = [
 const OBSERVATION_STATUSES: ObservationStatus[] = ['active', 'resolved', 'archived'];
 const RETRIEVAL_QUALITIES: RetrievalQuality[] = ['fast', 'balanced', 'thorough'];
 
-export function coerceObservationType(input?: string): ObservationType {
-  const normalized = (input ?? 'discovery') as ObservationType;
+export function coerceObservationType(input?: unknown): ObservationType {
+  const normalized = (lastStringArg(input) ?? 'discovery') as ObservationType;
   if (!OBSERVATION_TYPES.includes(normalized)) {
     throw new Error(
-      `Unknown observation type "${input}". Valid types: ${OBSERVATION_TYPES.join(', ')}`,
+      `Unknown observation type "${String(input ?? '')}". Valid types: ${OBSERVATION_TYPES.join(', ')}`,
     );
   }
   return normalized;
 }
 
-export function coerceObservationStatus(input?: string): ObservationStatus {
-  const normalized = (input ?? 'resolved') as ObservationStatus;
+export function coerceObservationStatus(input?: unknown): ObservationStatus {
+  const normalized = (lastStringArg(input) ?? 'resolved') as ObservationStatus;
   if (!OBSERVATION_STATUSES.includes(normalized)) {
     throw new Error(
-      `Unknown observation status "${input}". Valid statuses: ${OBSERVATION_STATUSES.join(', ')}`,
+      `Unknown observation status "${String(input ?? '')}". Valid statuses: ${OBSERVATION_STATUSES.join(', ')}`,
     );
   }
   return normalized;
 }
 
-export function coerceRetrievalQuality(input?: string): RetrievalQuality {
-  const normalized = (input ?? 'balanced').trim().toLowerCase() as RetrievalQuality;
+export function coerceRetrievalQuality(input?: unknown): RetrievalQuality {
+  const normalized = (lastStringArg(input) ?? 'balanced').trim().toLowerCase() as RetrievalQuality;
   if (!RETRIEVAL_QUALITIES.includes(normalized)) {
     throw new Error('quality must be fast, balanced, or thorough');
   }
   return normalized;
 }
 
-export function coerceObservationVisibility(input?: string): ObservationVisibility {
-  const normalized = (input ?? 'project').trim().toLowerCase();
+export function coerceObservationVisibility(input?: unknown): ObservationVisibility {
+  const normalized = (lastStringArg(input) ?? 'project').trim().toLowerCase();
   if (normalized === 'personal' || normalized === 'project' || normalized === 'team') {
     return normalized;
   }

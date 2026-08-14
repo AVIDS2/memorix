@@ -24,6 +24,11 @@
 ## Completed Contribution Decisions
 
 - #153: accepted and merged with focused MiniMax M3 video-input tests.
+- #178: accepted and merged (squash) with author and co-author credit preserved
+  on the merge commit. Adds MiniMax image-to-image via `subject_reference`
+  across the provider layer, the media CLI, and the gated `memorix_media` MCP
+  tool. Changelog credit for @octo-patch lands with the next release, following
+  the #153 precedent.
 - #140: accepted and merged after replacing its stale release timeline with a
   maintained boundary-and-roadmap document.
 - #33, #31, #30: not merged into the superseding media/retrieval architecture.
@@ -49,8 +54,8 @@ The #174 controlled audio derivations, #175 governed one-hop graph evidence,
 #185 CodeBuddy integration, and #184 Star History CI verification are merged
 and included in the published 1.4.3 release. The local machine does not have
 the CodeBuddy CLI installed, so a native CodeBuddy-host smoke remains a
-documented follow-up rather than claimed release evidence. Open contributor
-work #178 and legacy requests #49/#3 remain independent of the 1.4.3 release.
+documented follow-up rather than claimed release evidence. Legacy requests
+#49/#3 remain independent of the 1.4.3 release.
 
 - #194 (reported 2026-08-12): `memorix memory store --text` crash on long
   text — root-caused to repeated-flag arrays from citty combined with
@@ -58,3 +63,8 @@ work #178 and legacy requests #49/#3 remain independent of the 1.4.3 release.
   `fix/194-cli-args-coercion` and open as PR #195 with regression tests.
 - PR #195 needs CI verification and merge review before the fix ships in the
   next release line.
+- Branch protection on `main` was synced with the current CI matrix
+  (2026-08-14): the required status contexts referenced removed Node 20 test
+  jobs, which blocked every PR from merging. Required contexts are now the
+  live `test (ubuntu-latest, 22)`, `test (windows-latest, 22)`, and
+  `typecheck`; the one-approval review requirement is unchanged.

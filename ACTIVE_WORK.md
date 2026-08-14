@@ -8,9 +8,11 @@
 
 ## Current Product State
 
-- `1.4.3` is the current published release on npm and GitHub.
-- `1.4.4` is prepared for publication: the #194 CLI argument-coercion crash
-  fix and the #178 MiniMax image-to-image feature (with @octo-patch credit).
+- `1.4.4` is the current published release on npm, the official MCP
+  Registry, and GitHub Releases.
+- This release ships the #194 CLI argument-coercion crash fix and the #178
+  MiniMax image-to-image feature (with @octo-patch credit), plus a docs
+  refresh.
 
 ## Active Objectives
 
@@ -57,10 +59,8 @@ the CodeBuddy CLI installed, so a native CodeBuddy-host smoke remains a
 documented follow-up rather than claimed release evidence. Legacy requests
 #49/#3 remain independent of the 1.4.4 line.
 
-- #194 fixed and #178 merged; both ship in the prepared 1.4.4 release.
-- Publish 1.4.4 through the GitHub publish workflow (npm provenance + official
-  MCP Registry OIDC) once the release commit CI is green, then create the
-  GitHub release and notify the #194 reporter.
+- 1.4.4 published (2026-08-14) through the GitHub publish workflow; the #194
+  reporter has been notified with the shipped version.
 - Branch protection on `main` was synced with the current CI matrix
   (2026-08-14): the required status contexts referenced removed Node 20 test
   jobs, which blocked every PR from merging. Required contexts are now the

@@ -56,6 +56,15 @@ function checkTOML(p: string): boolean {
   } catch { return false; }
 }
 
+function checkDshPatch(p: string): boolean {
+  if (!exists(p)) return false;
+  try {
+    const content = fs.readFileSync(p, 'utf-8');
+    if (!content.includes('memory-memorix')) return false;
+    return /serverName:\s*['"]?memorix['"]?/.test(content);
+  } catch { return false; }
+}
+
 /** Detects memorix MCP config entries in both global and project-level paths. */
 function getMCPConfigEntries(home: string, cwd: string): MCPConfigEntry[] {
   const entries: MCPConfigEntry[] = [];
@@ -214,6 +223,17 @@ function getMCPConfigEntries(home: string, cwd: string): MCPConfigEntry[] {
     format: 'json',
     detected: checkJSON(traeCfg),
     note: 'Remove the "memorix" key from mcpServers in this file.',
+  });
+
+  // DeepSeek Harness
+  const dshPatchPath = path.join(process.env.DSH_HOME?.trim() || path.join(home, '.dsh'), 'cordis.patch.yml');
+  entries.push({
+    agent: 'DeepSeek Harness',
+    path: dshPatchPath,
+    kind: 'global',
+    format: 'json',
+    detected: checkDshPatch(dshPatchPath),
+    note: 'Remove the memory-memorix insert row from this patch file.',
   });
 
   return entries;

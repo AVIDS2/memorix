@@ -159,6 +159,7 @@ function getAgentLabel(agent: string): string {
     hermes: 'Hermes Agent',
     omp: 'Oh-my-Pi',
     trae: 'Trae',
+    dsh: 'DeepSeek Harness',
   };
   return labels[agent] || agent;
 }
@@ -177,6 +178,7 @@ function getAgentHint(agent: string): string {
     hermes: 'Hermes plugin hooks; use `memorix setup --agent hermes`',
     omp: 'Oh-my-Pi package hooks; use `memorix setup --agent omp`',
     trae: '.trae/rules/project_rules.md (rules only, no hooks system)',
+    dsh: '~/.dsh/cordis.patch.yml MCP row via `memorix setup --agent dsh` (no hooks system)',
     codex: 'Codex plugin hooks; use `memorix setup --agent codex`',
   };
   return hints[agent] || '';

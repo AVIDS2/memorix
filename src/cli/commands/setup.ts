@@ -30,6 +30,7 @@ import { OmpMCPAdapter } from '../../workspace/mcp-adapters/omp.js';
 import { KiroMCPAdapter } from '../../workspace/mcp-adapters/kiro.js';
 import { OpenCodeMCPAdapter } from '../../workspace/mcp-adapters/opencode.js';
 import { TraeMCPAdapter } from '../../workspace/mcp-adapters/trae.js';
+import { DshMCPAdapter } from '../../workspace/mcp-adapters/dsh.js';
 import { CodeBuddyMCPAdapter } from '../../workspace/mcp-adapters/codebuddy.js';
 import { getSetupIntegrationRows as readSetupIntegrationRows } from '../../integrations/registry.js';
 import { OFFICIAL_MEMORIX_SKILLS } from '../../hooks/official-skills.js';
@@ -190,6 +191,7 @@ const SUPPORTED_SETUP_AGENTS: AgentName[] = [
   'omp',
   'kiro',
   'trae',
+  'dsh',
   'pi',
 ];
 
@@ -402,6 +404,7 @@ export function getMcpAdapter(agent: McpConfigAgent): MCPConfigAdapter {
     kiro: new KiroMCPAdapter(),
     opencode: new OpenCodeMCPAdapter(),
     trae: new TraeMCPAdapter(),
+    dsh: new DshMCPAdapter(),
   };
   return adapters[agent];
 }
@@ -699,6 +702,55 @@ function mergeYamlMcpConfig(existingContent: string | null, generatedContent: st
   return stringifyYaml(merged, { lineWidth: 0 });
 }
 
+/**
+ * Merge the generated DeepSeek Harness patch rows into an existing
+ * `cordis.patch.yml` without clobbering unrelated user patches.
+ *
+ * DSH patch files are lists of Cordis patch operations. Memorix owns exactly
+ * the `@deepseek-ai/dsh-mcp-client` row whose config.serverName is `memorix`;
+ * every other operation is user-owned and must survive the merge. When the
+ * existing file is not a parseable list, the generated rows are appended to
+ * the raw content instead of overwriting it.
+ */
+function mergeDshPatchConfig(existingContent: string | null, generatedContent: string): string {
+  const generatedTrimmed = generatedContent.trimEnd();
+  if (!existingContent?.trim()) {
+    return generatedTrimmed.endsWith('\n') ? generatedTrimmed : `${generatedTrimmed}\n`;
+  }
+
+  const isMemorixInsertRow = (row: unknown): boolean => {
+    if (!row || typeof row !== 'object' || Array.isArray(row)) return false;
+    const record = row as Record<string, unknown>;
+    if (record.name !== '@deepseek-ai/dsh-mcp-client') return false;
+    const config = record.config;
+    return Boolean(
+      config && typeof config === 'object' && !Array.isArray(config)
+      && (config as Record<string, unknown>).serverName === 'memorix',
+    );
+  };
+
+  const opContainsMemorixRow = (op: unknown): boolean => {
+    if (!op || typeof op !== 'object' || Array.isArray(op)) return false;
+    const insert = (op as Record<string, unknown>).insert;
+    return Array.isArray(insert) && insert.some(isMemorixInsertRow);
+  };
+
+  let existingDocument: unknown;
+  try {
+    existingDocument = parseYaml(existingContent);
+  } catch {
+    return `${existingContent.trimEnd()}\n\n${generatedTrimmed}\n`;
+  }
+  if (!Array.isArray(existingDocument)) {
+    // A scalar or mapping document is not a patch list — never rewrite it.
+    return `${existingContent.trimEnd()}\n\n${generatedTrimmed}\n`;
+  }
+
+  const kept = existingDocument.filter((op) => !opContainsMemorixRow(op));
+  const merged = [...kept, ...(parseYaml(generatedContent) as unknown[])];
+  return stringifyYaml(merged, { lineWidth: 0 }) + '\n';
+}
+
 export async function installMcpConfig(options: {
   agent: McpConfigAgent;
   projectRoot?: string;
@@ -725,7 +777,9 @@ export async function installMcpConfig(options: {
     ? mergeTomlMcpConfig(existingContent, generated)
     : options.agent === 'hermes'
       ? mergeYamlMcpConfig(existingContent, generated)
-    : mergeJsonMcpConfig(existingContent, generated);
+      : options.agent === 'dsh'
+        ? mergeDshPatchConfig(existingContent, generated)
+        : mergeJsonMcpConfig(existingContent, generated);
 
   await mkdir(path.dirname(configPath), { recursive: true });
   await writeFile(configPath, content, 'utf-8');
@@ -1603,7 +1657,7 @@ export default defineCommand({
   args: {
     agent: {
       type: 'string',
-      description: 'Target agent (claude, codex, codebuddy, opencode, cursor, windsurf, copilot, gemini-cli, antigravity, openclaw, hermes, omp, kiro, trae, pi, all)',
+      description: 'Target agent (claude, codex, codebuddy, opencode, cursor, windsurf, copilot, gemini-cli, antigravity, openclaw, hermes, omp, kiro, trae, dsh, pi, all)',
       required: false,
     },
     mcp: {
@@ -1677,6 +1731,7 @@ export default defineCommand({
           { value: 'hermes', label: 'Hermes Agent', hint: 'plugin + hooks + commands + skills + MCP' },
           { value: 'omp', label: 'Oh-my-Pi', hint: 'package + extension + command + MCP' },
           { value: 'pi', label: 'Pi coding agent', hint: 'package + extension + skill' },
+          { value: 'dsh', label: 'DeepSeek Harness', hint: 'MCP patch + AGENTS.md + skills' },
           { value: 'opencode', label: 'OpenCode', hint: 'local plugin + AGENTS.md + MCP' },
           { value: 'windsurf', label: 'Windsurf', hint: 'rules + hooks + MCP' },
           { value: 'all', label: 'All supported agents', hint: 'install detected-compatible files' },

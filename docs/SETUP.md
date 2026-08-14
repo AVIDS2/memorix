@@ -68,8 +68,13 @@ memorix setup --agent cursor --global
 memorix setup --agent pi --global
 memorix setup --agent gemini-cli --global
 memorix setup --agent opencode --global
+memorix setup --agent windsurf --global
+memorix setup --agent kiro --global
+memorix setup --agent antigravity --global
+memorix setup --agent trae --global
 memorix setup --agent openclaw --global
 memorix setup --agent hermes --global
+memorix setup --agent codebuddy --global
 memorix setup --agent omp --global
 ```
 

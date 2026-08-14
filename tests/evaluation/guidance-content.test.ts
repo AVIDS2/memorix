@@ -19,6 +19,8 @@ const REQUIRED_RULES: Array<{ id: string; phrase: string }> = [
   { id: 'dual-channel', phrase: 'not only what failed' },
   { id: 'verify-before-use', phrase: 'claim about the past' },
   { id: 'ignore-semantics', phrase: 'proceed as if memory were empty' },
+  { id: 'user-profile', phrase: 'Record the user profile' },
+  { id: 'session-summary', phrase: 'End sessions with a summary' },
 ];
 
 const TOKEN_CEILING = 2500;

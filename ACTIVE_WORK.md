@@ -10,10 +10,13 @@
 
 - `1.4.5` is the current published release on npm, the official MCP
   Registry, and GitHub Releases.
-- The 1.5.0 memory-hygiene main line is implemented on main and
-  score-verified; publication awaits maintainer approval.
+- The memory-hygiene work continues on the 1.4.x line (no 1.5.0 rush):
+  session dedup, guidance hygiene rules, and the data-dir boundary are
+  implemented and score-verified; user-profile capture guidance and the
+  session-summary template are in progress. Publication waits for
+  maintainer approval.
 
-## Memory Hygiene Main Line (1.5.0, measured)
+## Memory Hygiene Main Line (1.4.x, measured)
 
 - Session dedup: `memorix_search` demotes rows already shown in the same
   session and remembers the surfaced set. Session-replay exam: duplicate

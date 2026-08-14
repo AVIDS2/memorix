@@ -1296,7 +1296,7 @@ function getAgentRulesContent(agent?: AgentName, scope: 'project' | 'global' = '
     '- For "why" decisions, use \x60memorix_store_reasoning\x60',
     '- For a stable fact, reusable procedure, or completed episode that merits deliberate long-term review, include \x60longTerm\x60 in \x60memorix_store\x60 with the appropriate kind and normally \x60scope: "project"\x60. It creates a candidate only: do not use it for routine updates, do not make project-derived evidence portable user memory, and do not assume it enters context until an operator qualifies and approves it through \x60memorix memory long-term\x60.',
     '- A \x60user\x60 + \x60portable\x60 durable memory delivered in a task brief is intentionally available across projects. When it matches the task, use it as reusable background even if its origin differs; do not treat it as a current-project fact. Expand it only when needed with \x60memorix_detail\x60 using its \x60durable:<id>\x60 reference and a specific purpose.',
-    '- Record the user profile: the user\u2019s role, expertise, preferences, and goals. Save these with \x60visibility: "personal"\x60 so they stay private; they help future sessions adapt without re-asking.',
+    '- Record the user profile: the user\u2019s role, expertise, preferences, and goals. Save these with \x60entityName: "user-profile"\x60 and \x60visibility: "personal"\x60 so they stay private and appear in every brief as the "who you are" context.',
     '',
     "**Don't store:** greetings, simple file reads, trivial commands (ls, pwd, git status).",
     '',

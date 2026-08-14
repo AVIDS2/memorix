@@ -136,6 +136,12 @@ export interface TaskWorkset {
   version: '1.3';
   task: string;
   lens: string;
+  /** Always-on "who you are and what this workspace is doing" block. */
+  alwaysOn?: {
+    profile: string[];
+    state?: string;
+    durable: string[];
+  };
   currentFacts: string[];
   continuation?: WorksetContinuation;
   codeState?: string;
@@ -197,6 +203,12 @@ export interface BuildTaskWorksetInput {
     stale: number;
   };
   runtimeCautions?: WorksetCaution[];
+  /** Always-on "who you are and what this workspace is doing" lines. */
+  alwaysOn?: {
+    profile: string[];
+    state?: string;
+    durable: string[];
+  };
   /** Reader identity used only for team-scoped durable memory filtering. */
   reader?: ObservationReader;
   maxTokens?: number;
@@ -477,6 +489,44 @@ export function renderTaskWorksetPrompt(input: Omit<TaskWorkset, 'prompt' | 'bud
     trust: 'source-backed',
   });
   appendLine(lines, 'Task lens: ' + input.lens, maxTokens, omitted, 'lens');
+
+  // Always-on block: the small "who you are and what this workspace is
+  // doing" context every brief carries, mirroring the memory-native feel of
+  // a per-session MEMORY.md. Lines are pre-truncated by the caller; the
+  // enclosing budget still decides whether they fit.
+  if (input.alwaysOn) {
+    const hasAlwaysOn = input.alwaysOn.profile.length > 0
+      || Boolean(input.alwaysOn.state)
+      || input.alwaysOn.durable.length > 0;
+    if (hasAlwaysOn) {
+      appendLine(lines, '', maxTokens, omitted, 'always-on-heading');
+      appendLine(lines, 'You and this workspace', maxTokens, omitted, 'always-on-heading');
+      for (const profile of input.alwaysOn.profile.slice(0, 2)) {
+        appendLine(lines, '- ' + short(profile, 26), maxTokens, omitted, 'always-on-profile', selected, {
+          kind: 'memory',
+          id: 'profile',
+          reason: 'user profile memory',
+          trust: 'source-backed',
+        });
+      }
+      if (input.alwaysOn.state) {
+        appendLine(lines, '- Recently: ' + short(input.alwaysOn.state, 40), maxTokens, omitted, 'always-on-state', selected, {
+          kind: 'continuation',
+          id: 'workspace-state',
+          reason: 'latest session summary for this workspace',
+          trust: 'historical',
+        });
+      }
+      for (const durable of input.alwaysOn.durable.slice(0, 2)) {
+        appendLine(lines, '- ' + short(durable, 28), maxTokens, omitted, 'always-on-durable', selected, {
+          kind: 'durable-memory',
+          id: 'durable-always',
+          reason: 'recent durable memory for this workspace',
+          trust: 'source-backed',
+        });
+      }
+    }
+  }
 
   const hasContinuation = Boolean(
     input.continuation?.previousSession
@@ -1011,6 +1061,14 @@ export async function buildTaskWorkset(input: BuildTaskWorksetInput): Promise<Ta
     version: '1.3' as const,
     task,
     lens: input.lens,
+    ...(input.alwaysOn
+      && (
+        input.alwaysOn.profile.length > 0
+        || input.alwaysOn.state
+        || input.alwaysOn.durable.length > 0
+      )
+      ? { alwaysOn: input.alwaysOn }
+      : {}),
     currentFacts: input.currentFacts?.map(fact => fact.startsWith('Historical note:')
       ? short(fact, 48)
       : short(fact, 28)).slice(0, 4) ?? [],

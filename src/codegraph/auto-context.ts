@@ -29,6 +29,8 @@ import {
 import { CodeGraphStore } from './store.js';
 import { isEligibleForAutomaticDelivery } from '../memory/admission.js';
 import { getSessionResumeBrief } from '../memory/session.js';
+import { listLongTermMemories } from '../memory/long-term.js';
+import { filterReadableObservations } from '../memory/visibility.js';
 import { initSessionStore } from '../store/session-store.js';
 import {
   isContinuationTask,
@@ -92,6 +94,64 @@ function deliveryEligibleProjectObservations(
 ): ProjectContextObservation[] {
   return activeProjectObservations(observations, projectId)
     .filter((observation) => isEligibleForAutomaticDelivery(observation));
+}
+
+/**
+ * The always-on block: a small "who you are and what this workspace is
+ * doing" context every brief carries, whatever the task. It mirrors the
+ * memory-native feel of a per-session MEMORY.md and stays strictly bounded:
+ * profile 2 lines, latest session 1 line, durable facts 2 lines.
+ */
+async function buildAlwaysOnBlock(input: {
+  dataDir: string;
+  projectId: string;
+  reader: ObservationReader;
+  eligible: ProjectContextObservation[];
+}): Promise<{ profile: string[]; state?: string; durable: string[] }> {
+  // Profile: personal-visibility observations the guidance teaches as
+  // entityName 'user-profile'. Only their owner's reader sees them.
+  const profile = filterReadableObservations(input.eligible, input.reader)
+    .filter(observation => (
+      observation as unknown as { visibility?: string; entityName?: string }
+    ).visibility === 'personal'
+      && (
+        observation as unknown as { entityName?: string }
+      ).entityName === 'user-profile')
+    .slice(0, 2)
+    .map(observation => compactContinuationText(observation.title, 22));
+
+  // Workspace state: the latest completed session with a summary.
+  let state: string | undefined;
+  try {
+    await initSessionStore(input.dataDir);
+    const { getSessionStore } = await import('../store/session-store.js');
+    const sessions = await getSessionStore().loadByProject(input.projectId);
+    const latest = sessions
+      .filter(session => session.endedAt && session.summary?.trim())
+      .sort((a, b) => Date.parse(b.endedAt ?? '') - Date.parse(a.endedAt ?? ''))[0];
+    if (latest?.summary) state = compactContinuationText(latest.summary, 40);
+  } catch { /* session context is optional enrichment */ }
+
+  // Durable facts: the most recently updated approved long-term memories.
+  const durable: string[] = [];
+  try {
+    const items = await listLongTermMemories({
+      dataDir: input.dataDir,
+      reader: {
+        projectId: input.projectId,
+        ...(input.reader.agentId ? { agentId: input.reader.agentId } : {}),
+        ...(input.reader.isTeamMember ? { isTeamMember: true } : {}),
+      },
+      limit: 10,
+    });
+    durable.push(...items
+      .filter(item => item.memory.state === 'approved')
+      .sort((a, b) => (b.memory.updatedAt ?? '').localeCompare(a.memory.updatedAt ?? ''))
+      .slice(0, 2)
+      .map(item => item.memory.kind + ': ' + compactContinuationText(item.memory.title, 22)));
+  } catch { /* long-term memory is optional enrichment */ }
+
+  return { profile, state, durable };
 }
 
 function decideRefresh(input: {
@@ -356,12 +416,21 @@ export async function buildAutoProjectContext(input: {
       };
     }
   }
+  const alwaysOn = await buildAlwaysOnBlock({
+    dataDir: input.dataDir,
+    projectId: input.project.id,
+    reader: input.reader ?? { projectId: input.project.id },
+    eligible: deliveryEligibleProjectObservations(input.observations, input.project.id),
+  });
   const workset = await buildTaskWorkset({
     projectId: input.project.id,
     dataDir: input.dataDir,
     ...(task ? { task } : {}),
     lens: lens.id,
     startHere,
+    ...(alwaysOn.profile.length > 0 || alwaysOn.state || alwaysOn.durable.length > 0
+      ? { alwaysOn }
+      : {}),
     ...(externalOutline ? { semanticCode: externalOutline } : {}),
     providerQuality,
     currentFacts: worksetFactLines(currentFacts),
@@ -598,6 +667,18 @@ export function formatAutoProjectContextSummary(context: AutoProjectContext): st
     '',
     ...formatCurrentFactsLines(context.currentFacts),
     '',
+  ].filter(Boolean);
+
+  if (context.workset.alwaysOn
+    && (context.workset.alwaysOn.profile.length > 0 || context.workset.alwaysOn.state || context.workset.alwaysOn.durable.length > 0)) {
+    lines.push('You and this workspace');
+    for (const profile of context.workset.alwaysOn.profile.slice(0, 2)) lines.push(`- ${profile}`);
+    if (context.workset.alwaysOn.state) lines.push(`- Recently: ${context.workset.alwaysOn.state}`);
+    for (const durable of context.workset.alwaysOn.durable.slice(0, 2)) lines.push(`- ${durable}`);
+    lines.push('');
+  }
+
+  lines.push(...[
     `- Code memory: ${context.overview.code.files} files / ${context.overview.code.symbols} symbols / ${context.overview.code.refs} memory links`,
     `- Code provider: ${context.providerQuality.selected} (${context.providerQuality.selectedQuality})`,
     `- Languages: ${formatLanguages(context.overview)}`,
@@ -606,7 +687,7 @@ export function formatAutoProjectContextSummary(context: AutoProjectContext): st
     `- Refresh: ${context.refresh.message}`,
     '',
     'Start here',
-  ].filter(Boolean);
+  ].filter(Boolean));
 
   if (startHere.length > 0) {
     startHere.forEach((path, index) => lines.push(`${index + 1}. ${path}`));

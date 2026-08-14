@@ -117,7 +117,7 @@ Historical/deep-reference documents may describe older designs. If they conflict
 
 ## Current Product Line
 
-The released product is on the **1.3 line**. The current baseline has:
+The released product is on the **1.4 line**. The current baseline has:
 
 - `memorix setup --agent <agent> --global` is the default agent integration command
 - `memorix serve` is the manual stdio MCP server for external agents

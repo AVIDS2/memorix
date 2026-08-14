@@ -85,7 +85,8 @@ memorix hook <normalized_event> [--agent <agent_name>]
 ```bash
 memorix hooks install
 # 自动检测已安装的 Agent → 生成对应配置文件
-# 支持: --agent cursor|windsurf|claude|copilot|kiro
+# 支持: --agent claude|codex|cursor|windsurf|copilot|opencode|kiro|antigravity|gemini-cli|trae
+# openclaw/hermes/omp/codex 的 hooks 随插件包安装，使用 `memorix setup --agent <agent>`
 # 支持: --project (仅当前项目) | --global (全局)
 ```
 

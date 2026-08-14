@@ -2,11 +2,11 @@
 
 > Local-first shared memory layer for AI coding agents.
 
-Memorix is a TypeScript/Node.js project that gives AI coding agents persistent, project-aware memory. It targets software development workflows, not generic chat. It works across Claude Code, Codex, Cursor, Windsurf, GitHub Copilot CLI, Gemini CLI, OpenCode, OpenClaw, Hermes Agent, Oh-my-Pi, Pi, Kiro, Antigravity, Trae, and any agent that can speak MCP over stdio or HTTP. Integrations usually start with `memorix setup --agent <agent> --global`, which installs the recommended user-level package or config for that agent: plugin packages when supported, package or extension entries, MCP config, generated guidance, hooks, skills, or the bundled terminal agent.
+Memorix is a TypeScript/Node.js project that gives AI coding agents persistent, project-aware memory. It targets software development workflows, not generic chat. It works across Claude Code, Codex, CodeBuddy Code, Cursor, Windsurf, GitHub Copilot CLI, Gemini CLI, OpenCode, OpenClaw, Hermes Agent, Oh-my-Pi, Pi, Kiro, Antigravity, Trae, and any agent that can speak MCP over stdio or HTTP. Integrations usually start with `memorix setup --agent <agent> --global`, which installs the recommended user-level package or config for that agent: plugin packages when supported, package or extension entries, MCP config, generated guidance, hooks, skills, or the bundled terminal agent.
 
 If you are an AI coding agent helping a user install, operate, or troubleshoot Memorix, read `docs/AGENT_OPERATOR_PLAYBOOK.md` before taking action. It is the main reference for install, runtime selection, Git/project binding, MCP integration, hooks, and troubleshooting.
 
-## 1.3 Multi-Dimensional Memory Model
+## 1.4 Multi-Dimensional Memory Model
 
 Memorix is not a transcript dump. The normal agent path is `memorix_project_context` or `memorix context --task "..."`, which assembles a bounded task Workset: current Git/package facts, selected observations and reasoning, Code State freshness, source-backed claims, matching knowledge/workflow starts, cautions, and verification hints.
 
@@ -365,7 +365,7 @@ Docker is for the HTTP service. The container must have access to the repositori
 
 ## Supported Clients
 
-Memorix supports Claude Code, Codex, Cursor, Windsurf, GitHub Copilot CLI, Gemini CLI, OpenCode, OpenClaw, Hermes Agent, Oh-my-Pi, Pi, Kiro, Antigravity, Trae, memcode, and other stdio or HTTP MCP clients.
+Memorix supports Claude Code, Codex, CodeBuddy Code, Cursor, Windsurf, GitHub Copilot CLI, Gemini CLI, OpenCode, OpenClaw, Hermes Agent, Oh-my-Pi, Pi, Kiro, Antigravity, Trae, memcode, and other stdio or HTTP MCP clients.
 
 Support depth differs by client:
 
@@ -474,6 +474,6 @@ npm run build
 
 Requirements:
 
-- Node.js `>=22.19.0`
+- Node.js `>=22.18.0`
 - npm
 - Git

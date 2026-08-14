@@ -25,9 +25,9 @@ It supports:
 - local-first project-scoped memory
 - cross-agent recall across Cursor, Claude Code, Codex, CodeBuddy Code, Windsurf, Gemini CLI, GitHub Copilot, OpenCode, OpenClaw, Hermes Agent, Oh-my-Pi, Pi, Kiro, Antigravity, and Trae
 
-### Current 1.2 Baseline
+### Current 1.4 Baseline
 
-For the 1.2 release line, the visible product shape is:
+For the 1.4 release line, the visible product shape is:
 
 - `memorix setup --agent <agent> --global` is the default integration command for an existing coding agent or IDE
 - setup installs plugin packages where supported, MCP config, usage guidance, hooks, and skills according to agent capability
@@ -50,7 +50,7 @@ For the 1.2 release line, the visible product shape is:
 
 ### CLI is the direct command surface; MCP is the integration layer
 
-For direct use, prefer `memorix ...` commands first. In the 1.3 line, the CLI covers session, memory, reviewed long-term memory, Code State, knowledge workspaces, reasoning, retention, formation, audit, transfer, skills, orchestration coordination, sync, ingest workflows, and the bundled terminal agent.
+For direct use, prefer `memorix ...` commands first. In the 1.4 line, the CLI covers session, memory, reviewed long-term memory, Code State, knowledge workspaces, reasoning, retention, formation, audit, transfer, skills, orchestration coordination, sync, controlled media, ingest workflows, and the bundled terminal agent.
 
 Do not ask memory-only users to join coordination state. A lightweight session is enough for memory, retrieval, reasoning, and continuation. Use `joinTeam` / `team_manage(join)` only for explicit task/message/lock coordination or for CLI-agent work managed by `memorix orchestrate`.
 

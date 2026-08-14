@@ -2,7 +2,7 @@
 
 Memorix is a local-first shared memory layer for AI coding agents.
 
-In the 1.1 line, the normal path is:
+In the current release line, the normal path is:
 
 ```bash
 npm install -g memorix
@@ -144,7 +144,7 @@ memorix serve
 
 Use this when your agent only needs a raw local stdio MCP process or you are debugging a manual config. The agent starts `memorix serve` and communicates with it over stdio.
 
-The stdio server defaults to `--mode micro`, which exposes 7 high-signal tools so agent context is not crowded by rarely used schemas. Use `memorix serve --mode lite` for the extended solo memory surface, `--mode team` for coordination tools, or `--mode full` for advanced and MCP Memory compatibility tools.
+The stdio server defaults to `--mode micro`, which exposes 9 high-signal tools so agent context is not crowded by rarely used schemas. Use `memorix serve --mode lite` for the extended solo memory surface, `--mode team` for coordination tools, or `--mode full` for advanced and MCP Memory compatibility tools.
 
 Generic stdio MCP config:
 
@@ -560,7 +560,7 @@ Use the `team`, `task`, `message`, `handoff`, and `lock` CLI commands when you n
 
 ### `memorix` opens memcode
 
-That is expected in the 1.1 line. Use `memorix --help` to see the full CLI and `memorix serve` for MCP.
+That is expected in the current release line. Use `memorix --help` to see the full CLI and `memorix serve` for MCP.
 
 ### No project memory appears
 

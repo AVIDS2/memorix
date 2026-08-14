@@ -754,18 +754,22 @@ durable job, so it survives process restarts and can be inspected or cancelled.
 
 ```bash
 memorix media generate image --prompt "..." --json
+memorix media generate image --prompt "..." --image ./reference.png --json
 memorix media generate video --prompt "..." --json
+memorix media derive-pdf --asset <asset-id> --attach --json
 memorix media derive-audio --asset <asset-id> --provider groq --attach --json
 memorix media status --job <media-job-id> --json
 memorix media cancel --job <media-job-id> --json
 ```
 
 Set `MINIMAX_API_KEY` (or `MINIMAX_CN_API_KEY`) outside Git before using
-generation. `memorix_media` is the matching single MCP tool in `lite`, `team`,
-and `full` profiles. Its import/attach/list/show/status actions are available
-normally; generation requires `MEMORIX_MCP_MEDIA_GENERATION=1` because it can
-incur provider charges. Text-only embedding providers never produce a pretend
-image, audio, video, or document vector.
+generation. Image-to-image passes the reference image through MiniMax
+`subject_reference` for the image-01/image-01-live models. `memorix_media` is
+the matching single MCP tool in every profile, including `micro`. Its
+import/attach/list/show/derive-pdf/derive-audio/status/cancel actions are
+available normally; generation requires `MEMORIX_MCP_MEDIA_GENERATION=1`
+because it can incur provider charges. Text-only embedding providers never
+produce a pretend image, audio, video, or document vector.
 
 Audio transcription is also explicit. `derive-audio` consumes an existing
 controlled audio asset and queues a durable transcript derivative. It supports

@@ -373,6 +373,10 @@ memorix media list --kind image --json
 memorix media show --asset <asset-id> --json
 memorix media remove --asset <asset-id> --force --json
 
+# Controlled derivations: explicit, bounded, and attachable to memory.
+memorix media derive-pdf --asset <asset-id> --attach --json
+memorix media derive-audio --asset <asset-id> --attach --json
+
 # Legacy image analysis now uses the same controlled asset lifecycle.
 memorix ingest image --path ./architecture.png --json
 ```
@@ -384,14 +388,17 @@ agent request.
 ```bash
 # Configure MINIMAX_API_KEY in your user environment or .env, never in Git.
 memorix media generate image --prompt "A clean system architecture diagram" --json
+# Image-to-image with a reference image (MiniMax image-01 / image-01-live):
+memorix media generate image --prompt "Keep the subject, change the background" --image ./reference.png --json
 memorix media generate video --prompt "A short product walkthrough" --json
 memorix media status --job <media-job-id> --json
 memorix media cancel --job <media-job-id> --json
 ```
 
-`memorix_media` is the compact MCP companion in the `lite`, `team`, and `full`
-profiles. It supports import, attach, list, show, and job status. MCP image and
-video generation are disabled by default because they may incur provider costs.
+`memorix_media` is the compact MCP companion in every profile, including
+`micro`. It supports import, attach, list, show, PDF/audio derivations,
+generation, and job status. MCP image and video generation are disabled by
+default because they may incur provider costs.
 Set `MEMORIX_MCP_MEDIA_GENERATION=1` only after you deliberately want an agent
 to request billed MiniMax output. The normal OpenRouter text embedding lane is
 still text-only; media vectors are created only by a provider that explicitly
@@ -441,7 +448,7 @@ Long-term memory is deliberately not an automatic dump of every note. A source o
 | Use the bundled terminal agent | `memorix` or `memcode` |
 | Run orchestrated subagent work | `memorix orchestrate --goal "..."` |
 
-`memorix serve` defaults to `--mode micro` (7 tools) to keep MCP tool schemas small for agents. Use `--mode lite` for the extended solo memory surface, `--mode team` for coordination tools, or `--mode full` for advanced and compatibility tools such as checkpoint inspection.
+`memorix serve` defaults to `--mode micro` (9 tools) to keep MCP tool schemas small for agents. Use `--mode lite` for the extended solo memory surface, `--mode team` for coordination tools, or `--mode full` for advanced and compatibility tools such as checkpoint inspection.
 
 `memorix orchestrate` uses the current checkout for single-worker runs. When running multiple workers, it creates task worktrees under `.worktrees/` and merges successful task branches back. Use `--isolated` to force worktree isolation for one worker, `--no-worktree` to disable it, `--allow-dirty` to run with uncommitted changes, and `--no-auto-merge` to preserve task worktrees for manual review.
 

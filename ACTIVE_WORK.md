@@ -4,13 +4,13 @@
 > before resuming substantial work, update it after a material decision or
 > milestone, and do not create parallel progress logs.
 
-**Last updated:** 2026-08-10
+**Last updated:** 2026-08-14
 
 ## Current Product State
 
 - `1.4.3` is the current published release on npm and GitHub.
-- This release adds controlled document/audio derivations, bounded graph
-  evidence, CodeBuddy setup, and verified Star History automation.
+- `1.4.4` is prepared for publication: the #194 CLI argument-coercion crash
+  fix and the #178 MiniMax image-to-image feature (with @octo-patch credit).
 
 ## Active Objectives
 
@@ -55,16 +55,16 @@ The #174 controlled audio derivations, #175 governed one-hop graph evidence,
 and included in the published 1.4.3 release. The local machine does not have
 the CodeBuddy CLI installed, so a native CodeBuddy-host smoke remains a
 documented follow-up rather than claimed release evidence. Legacy requests
-#49/#3 remain independent of the 1.4.3 release.
+#49/#3 remain independent of the 1.4.4 line.
 
-- #194 (reported 2026-08-12): `memorix memory store --text` crash on long
-  text — root-caused to repeated-flag arrays from citty combined with
-  Windows PowerShell 5.1 argument splitting; fix committed on
-  `fix/194-cli-args-coercion` and open as PR #195 with regression tests.
-- PR #195 needs CI verification and merge review before the fix ships in the
-  next release line.
+- #194 fixed and #178 merged; both ship in the prepared 1.4.4 release.
+- Publish 1.4.4 through the GitHub publish workflow (npm provenance + official
+  MCP Registry OIDC) once the release commit CI is green, then create the
+  GitHub release and notify the #194 reporter.
 - Branch protection on `main` was synced with the current CI matrix
   (2026-08-14): the required status contexts referenced removed Node 20 test
   jobs, which blocked every PR from merging. Required contexts are now the
   live `test (ubuntu-latest, 22)`, `test (windows-latest, 22)`, and
   `typecheck`; the one-approval review requirement is unchanged.
+- Old GitHub releases before v1.2.0 were pruned from the Releases page
+  (2026-08-14); git tags and the full CHANGELOG history are preserved.

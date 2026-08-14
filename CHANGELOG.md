@@ -2,6 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.4.4] - 2026-08-14
+
+### Added
+- **MiniMax image-to-image** -- `memorix media generate image --image
+  <path>` sends a reference image through MiniMax's documented
+  `subject_reference` API for the image-01/image-01-live models. The gated
+  `memorix_media` MCP tool accepts an optional base64 reference image with the
+  same 20 MiB visual limit and MIME validation. The existing MCP generation
+  billing gate is unchanged. Contributed by
+  [@octo-patch](https://github.com/octo-patch) in #178.
+
+### Fixed
+- **CLI argument crash on long text** -- `memorix memory store --text` could
+  fail with `Error: named?.trim is not a function` when a repeated flag or a
+  Windows PowerShell 5.1 argument split delivered the value as an array.
+  CLI argument coercion now joins repeated free-text arguments and takes the
+  last value for scalar and enum flags, with regression tests. Reported by
+  [@skywalker-35](https://github.com/skywalker-35) in #194.
+
 ## [1.4.3] - 2026-08-10
 
 ### Added

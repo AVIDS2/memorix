@@ -2,7 +2,7 @@
 
 > Local-first shared memory layer for AI coding agents.
 
-Memorix gives coding agents persistent, project-aware memory across sessions, IDEs, terminals, and MCP clients. It stores project knowledge once so multiple agents can retrieve it through plugin packages, MCP, CLI, SDK, generated rules/instructions, hooks, skills, local plugins, or the bundled terminal agent. It works with Claude Code, Codex, Cursor, Windsurf, GitHub Copilot CLI, Gemini CLI, OpenCode, OpenClaw, Hermes Agent, Oh-my-Pi, Pi, Kiro, Antigravity, Trae, and other MCP-capable agents.
+Memorix gives coding agents persistent, project-aware memory across sessions, IDEs, terminals, and MCP clients. It stores project knowledge once so multiple agents can retrieve it through plugin packages, MCP, CLI, SDK, generated rules/instructions, hooks, skills, local plugins, or the bundled terminal agent. It works with Claude Code, Codex, CodeBuddy Code, Cursor, Windsurf, GitHub Copilot CLI, Gemini CLI, OpenCode, OpenClaw, Hermes Agent, Oh-my-Pi, Pi, Kiro, Antigravity, Trae, and other MCP-capable agents.
 
 ## Entry Points
 
@@ -10,7 +10,7 @@ Memorix gives coding agents persistent, project-aware memory across sessions, ID
 - `memorix setup --list` lists supported agent entry points.
 - `memorix serve` starts the manual stdio MCP server for IDEs and agents.
 - `memorix background start` starts the HTTP MCP service and dashboard.
-- `memorix memory`, `codegraph`, `knowledge`, `reasoning`, `session`, `team`, `task`, `handoff`, `poll`, `receipt`, `sync`, `ingest`, and `orchestrate` expose the CLI command set.
+- `memorix memory`, `codegraph`, `knowledge`, `reasoning`, `session`, `team`, `task`, `handoff`, `poll`, `receipt`, `sync`, `media`, `ingest`, and `orchestrate` expose the CLI command set.
 - `memorix integrate --agent <agent>` and `memorix hooks install --agent <agent>` are manual/fallback generation commands.
 - `memorix` and `memcode` open memcode, the bundled terminal agent that uses the same project memory pool.
 - `memorix dashboard` opens the local read-mostly dashboard.

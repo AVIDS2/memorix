@@ -366,6 +366,10 @@ memorix media list --kind image --json
 memorix media show --asset <asset-id> --json
 memorix media remove --asset <asset-id> --force --json
 
+# 受控派生：显式、有边界、可附着进记忆。
+memorix media derive-pdf --asset <asset-id> --attach --json
+memorix media derive-audio --asset <asset-id> --attach --json
+
 # 旧的图像分析命令现在也会走同一套受控资产生命周期。
 memorix ingest image --path ./architecture.png --json
 ```
@@ -375,12 +379,14 @@ MiniMax 图像生成是需要明确执行的 CLI 操作。视频生成会立即�
 ```bash
 # 在用户环境变量或 .env 中配置 MINIMAX_API_KEY，绝不要提交进 Git。
 memorix media generate image --prompt "清晰的系统架构图" --json
+# 图生图（MiniMax image-01 / image-01-live，通过 subject_reference）：
+memorix media generate image --prompt "保留主体、更换背景" --image ./reference.png --json
 memorix media generate video --prompt "简短的产品演示" --json
 memorix media status --job <media-job-id> --json
 memorix media cancel --job <media-job-id> --json
 ```
 
-`memorix_media` 是 `lite`、`team`、`full` profile 中紧凑的 MCP 对应入口，可导入、附着、列出、查看和查询任务状态。因为图像/视频生成可能产生 provider 费用，MCP 默认禁止生成；只有你明确允许 Agent 付费调用时，才设置 `MEMORIX_MCP_MEDIA_GENERATION=1`。默认的 OpenRouter 文本 embedding 仍然只是文本向量；只有明确声明支持该模态的 provider 才会生成媒体向量。文本描述和附着信息仍可通过普通检索使用。
+`memorix_media` 是所有 profile（包括 `micro`）中都有的紧凑 MCP 对应入口，可导入、附着、列出、查看、派生 PDF/音频、生成并查询任务状态。因为图像/视频生成可能产生 provider 费用，MCP 默认禁止生成；只有你明确允许 Agent 付费调用时，才设置 `MEMORIX_MCP_MEDIA_GENERATION=1`。默认的 OpenRouter 文本 embedding 仍然只是文本向量；只有明确声明支持该模态的 provider 才会生成媒体向量。文本描述和附着信息仍可通过普通检索使用。
 
 ### 使用内置终端 Agent
 

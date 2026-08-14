@@ -162,10 +162,10 @@ Provider values:
 - `transformers`
 
 If embedding is unavailable, Memorix falls back to BM25/full-text search.
-`transformers` is installed as an optional dependency. `fastembed` remains a
-supported local provider, but it is no longer installed by default; install it
-explicitly in the project or global prefix where Memorix runs if you choose that
-provider.
+`transformers` is no longer installed by default; install
+`@huggingface/transformers` explicitly in the project or global prefix where
+Memorix runs if you choose that provider. `fastembed` remains a supported local
+provider and is likewise not installed by default.
 
 OpenRouter embeddings can use the official OpenRouter environment variable:
 
@@ -213,6 +213,16 @@ credential outside Git:
 The conservative source limit is 25 MiB. The CLI is enabled when a credential
 is present; MCP-originated transcription remains disabled unless
 `MEMORIX_MCP_MEDIA_TRANSCRIPTION=1` is set after reviewing provider billing.
+
+### Controlled PDF text derivation
+
+PDF text extraction is a separate, opt-in derivative lane with no provider
+credentials. `memorix media derive-pdf --asset <asset-id>` parses the managed
+PDF locally (bundled PDF.js via `unpdf`, system fonts disabled) and stores a
+bounded text derivative with page and character limits (`--maxPages`,
+`--maxChars`). The MCP `memorix_media` tool accepts `derive-pdf` with the same
+bounds, and the derived text only enters normal memory when explicitly
+attached.
 
 ### `[memory]`
 
@@ -285,7 +295,7 @@ Server and dashboard behavior.
 Common keys:
 
 - `transport = "stdio"`
-- `port = 37850`
+- `port = 3211`
 - `dashboard = true`
 - `dashboard_port = 3210`
 

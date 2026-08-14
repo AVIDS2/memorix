@@ -8,10 +8,9 @@
 
 ## Current Product State
 
-- `1.4.4` is the current published release on npm, the official MCP
+- `1.4.5` is the current published release on npm, the official MCP
   Registry, and GitHub Releases.
-- `1.4.5` is prepared for publication: the DeepSeek Harness (DSH)
-  integration from PR #201.
+- This release ships the DeepSeek Harness (DSH) integration from PR #201.
 
 ## Active Objectives
 
@@ -64,7 +63,7 @@ documented follow-up rather than claimed release evidence. Legacy requests
   `memorix setup --agent dsh` installs the `@deepseek-ai/dsh-mcp-client`
   row into `$DSH_HOME/cordis.patch.yml`, AGENTS.md guidance, and skills.
   Native validation composed the generated patch with the real
-  `@deepseek-ai/dsh@0.1.0-rc.6` launcher. Shipping in the prepared 1.4.5
+  `@deepseek-ai/dsh@0.1.0-rc.6` launcher. Shipped in the published 1.4.5
   release.
 - Branch protection on `main` was synced with the current CI matrix
   (2026-08-14): the required status contexts referenced removed Node 20 test

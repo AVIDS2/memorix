@@ -10,7 +10,20 @@
 
 - `1.4.5` is the current published release on npm, the official MCP
   Registry, and GitHub Releases.
-- This release ships the DeepSeek Harness (DSH) integration from PR #201.
+- The 1.5.0 memory-hygiene main line is implemented on main and
+  score-verified; publication awaits maintainer approval.
+
+## Memory Hygiene Main Line (1.5.0, measured)
+
+- Session dedup: `memorix_search` demotes rows already shown in the same
+  session and remembers the surfaced set. Session-replay exam: duplicate
+  rate 25% → 19%, hits 4/4 and token ceiling unchanged.
+- Guidance hygiene: generated guidance now teaches store-the-underivable,
+  dual-channel feedback (record successes too), verify-before-use, and the
+  ignore contract. Guidance exam: 0/4 → 4/4 rules inside the ceiling.
+- Data-dir boundary pinned by regression test (project config cannot
+  redirect storage).
+- Exams live in `tests/evaluation/` and are deterministic and offline.
 
 ## Active Objectives
 

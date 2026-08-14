@@ -8,14 +8,14 @@
 
 ## Current Product State
 
-- `1.4.5` is the current published release on npm, the official MCP
-  Registry, and GitHub Releases.
-- The memory-native work continues on the 1.4.x line (no 1.5.0 rush). It is
-  implemented, tested, and merged on `main`, but **not yet in a published
-  release**: the always-on "You and this workspace" brief block and the
-  long-term memory rule-leg self-maintenance ship with the next release.
-  All changes are score-verified before they land. Publication waits for
-  maintainer approval.
+- `1.4.6` is the current published release (2026-08-14) on npm, the
+  official MCP Registry, and GitHub Releases.
+- The memory-native main line shipped in 1.4.6: the always-on "You and this
+  workspace" brief block and the long-term memory rule-leg
+  self-maintenance, plus the cold-feature sweep (installed tool-profile
+  parity, `memorix purge`, enforced git ingest settings, honest media
+  schema, server config defaults, and the dead-code removal). All changes
+  are score-verified.
 
 ## Memory Hygiene Main Line (1.4.x, measured)
 

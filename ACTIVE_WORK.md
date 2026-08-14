@@ -51,3 +51,10 @@ and included in the published 1.4.3 release. The local machine does not have
 the CodeBuddy CLI installed, so a native CodeBuddy-host smoke remains a
 documented follow-up rather than claimed release evidence. Open contributor
 work #178 and legacy requests #49/#3 remain independent of the 1.4.3 release.
+
+- #194 (reported 2026-08-12): `memorix memory store --text` crash on long
+  text — root-caused to repeated-flag arrays from citty combined with
+  Windows PowerShell 5.1 argument splitting; fix committed on
+  `fix/194-cli-args-coercion` and open as PR #195 with regression tests.
+- PR #195 needs CI verification and merge review before the fix ships in the
+  next release line.

@@ -76,6 +76,7 @@ memorix setup --agent openclaw --global
 memorix setup --agent hermes --global
 memorix setup --agent codebuddy --global
 memorix setup --agent omp --global
+memorix setup --agent dsh --global
 ```
 
 What this does:
@@ -91,6 +92,7 @@ What this does:
 - OpenClaw: installs `~/.openclaw/extensions/memorix` as an OpenClaw-compatible bundle with bundled stdio MCP, skills, and an OpenClaw `HOOK.md`/`handler.ts` hook pack.
 - Hermes Agent: installs into Hermes home (`%LOCALAPPDATA%\hermes` on native Windows, `~/.hermes` elsewhere, or `HERMES_HOME`), enables it in `config.yaml`, registers plugin hooks, a slash command, a CLI command, skills, and writes MCP config in `mcp_servers`.
 - Oh-my-Pi: installs an `omp.extensions` package, links it with `omp plugin link <path>` when available, and writes `.omp/mcp.json` or `~/.omp/agent/mcp.json` for MCP.
+- DeepSeek Harness: writes a Memorix `@deepseek-ai/dsh-mcp-client` row into `$DSH_HOME/cordis.patch.yml` (default `~/.dsh/cordis.patch.yml`), appends guidance to the harness `AGENTS.md` (`$DSH_HOME/AGENTS.md`, default `~/.dsh/AGENTS.md`), and installs official skills under `$DSH_HOME/skills` (default `~/.dsh/skills`). Tools appear as `mcp__memorix__*`; there is no hooks surface. Project-local setup (without `--global`) appends guidance to the project-root `AGENTS.md` and installs skills under `.dsh/skills`, while the MCP row still goes to the harness-level patch file.
 - Other supported agents: writes their MCP/rules/hooks files according to agent support.
 
 Global setup writes user-level plugin, config, and hook files where the host supports them. Use the same command without `--global` only when you explicitly want repo-local guidance, rules, or hooks for the current project.
@@ -122,7 +124,7 @@ memorix doctor agents --agent <agent>
 memorix setup --agent <agent> --global
 ```
 
-Use this for Claude Code, Codex, Cursor, Windsurf, Copilot, Gemini CLI, OpenCode, OpenClaw, Hermes Agent, Oh-my-Pi, Pi, Kiro, Antigravity, Trae, or any supported agent. It is the default user-facing install path.
+Use this for Claude Code, Codex, Cursor, Windsurf, Copilot, Gemini CLI, OpenCode, OpenClaw, Hermes Agent, Oh-my-Pi, Pi, Kiro, Antigravity, Trae, DeepSeek Harness, or any supported agent. It is the default user-facing install path.
 
 To see the current setup matrix:
 
@@ -671,6 +673,7 @@ Common MCP config locations:
 | Hermes Agent | `%LOCALAPPDATA%\hermes\config.yaml` on native Windows, `~/.hermes/config.yaml` elsewhere, or `HERMES_HOME\config.yaml` |
 | Oh-my-Pi | `.omp/mcp.json` or `~/.omp/agent/mcp.json` |
 | Trae | `%APPDATA%/Trae/User/mcp.json` on Windows |
+| DeepSeek Harness | `$DSH_HOME/cordis.patch.yml` (default `~/.dsh/cordis.patch.yml`) |
 
 ---
 

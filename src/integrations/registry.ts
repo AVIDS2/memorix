@@ -151,6 +151,15 @@ export const MEMORIX_INTEGRATIONS: MemorixIntegration[] = [
     surfaces: ['MCP', 'rules'],
   },
   {
+    agent: 'dsh',
+    name: 'DeepSeek Harness',
+    entry: 'official-config',
+    status: 'ready',
+    install: 'memorix setup --agent dsh',
+    surfaces: ['MCP', 'AGENTS.md', 'skills'],
+    note: 'DeepSeek Harness support writes a @deepseek-ai/dsh-mcp-client row into $DSH_HOME/cordis.patch.yml (default ~/.dsh/cordis.patch.yml), guidance into the harness AGENTS.md, and skills under $DSH_HOME/skills.',
+  },
+  {
     agent: 'memcode',
     name: 'memcode',
     entry: 'native',

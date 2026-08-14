@@ -2,7 +2,7 @@
 
 > Local-first shared memory layer for AI coding agents.
 
-Memorix is a TypeScript/Node.js project that gives AI coding agents persistent, project-aware memory. It targets software development workflows, not generic chat. It works across Claude Code, Codex, CodeBuddy Code, Cursor, Windsurf, GitHub Copilot CLI, Gemini CLI, OpenCode, OpenClaw, Hermes Agent, Oh-my-Pi, Pi, Kiro, Antigravity, Trae, and any agent that can speak MCP over stdio or HTTP. Integrations usually start with `memorix setup --agent <agent> --global`, which installs the recommended user-level package or config for that agent: plugin packages when supported, package or extension entries, MCP config, generated guidance, hooks, skills, or the bundled terminal agent.
+Memorix is a TypeScript/Node.js project that gives AI coding agents persistent, project-aware memory. It targets software development workflows, not generic chat. It works across Claude Code, Codex, CodeBuddy Code, Cursor, Windsurf, GitHub Copilot CLI, Gemini CLI, OpenCode, OpenClaw, Hermes Agent, Oh-my-Pi, Pi, Kiro, Antigravity, Trae, DeepSeek Harness, and any agent that can speak MCP over stdio or HTTP. Integrations usually start with `memorix setup --agent <agent> --global`, which installs the recommended user-level package or config for that agent: plugin packages when supported, package or extension entries, MCP config, generated guidance, hooks, skills, or the bundled terminal agent.
 
 If you are an AI coding agent helping a user install, operate, or troubleshoot Memorix, read `docs/AGENT_OPERATOR_PLAYBOOK.md` before taking action. It is the main reference for install, runtime selection, Git/project binding, MCP integration, hooks, and troubleshooting.
 
@@ -36,6 +36,7 @@ It installs the recommended Memorix integration for the target agent:
 - Gemini CLI: local Gemini extension package with MCP and `GEMINI.md` context.
 - OpenCode: local plugin file, `opencode.json` MCP config, OpenCode skill, and `AGENTS.md` guidance.
 - Windsurf, Kiro, Antigravity, Trae: MCP config plus rules/hooks where supported.
+- DeepSeek Harness: MCP patch row (`$DSH_HOME/cordis.patch.yml`) plus `AGENTS.md` guidance and official skills.
 
 Use:
 
@@ -131,7 +132,7 @@ memorix orchestrate --goal "Add authentication"
 - plugin packages: Claude Code, Codex, and GitHub Copilot CLI
 - package or extension entries: Pi package and Gemini CLI extension package
 - local plugins: OpenCode local plugin file and skill
-- project instructions and rules: AGENTS.md, GEMINI.md, Cursor rules, Windsurf rules, Kiro steering, Trae rules
+- project instructions and rules: AGENTS.md, GEMINI.md, Cursor rules, Windsurf rules, Kiro steering, Trae rules, DeepSeek Harness AGENTS.md
 - hooks: agent event capture routed through `memorix hook`
 - skills: durable project knowledge promoted into reusable task guidance
 
@@ -365,7 +366,7 @@ Docker is for the HTTP service. The container must have access to the repositori
 
 ## Supported Clients
 
-Memorix supports Claude Code, Codex, CodeBuddy Code, Cursor, Windsurf, GitHub Copilot CLI, Gemini CLI, OpenCode, OpenClaw, Hermes Agent, Oh-my-Pi, Pi, Kiro, Antigravity, Trae, memcode, and other stdio or HTTP MCP clients.
+Memorix supports Claude Code, Codex, CodeBuddy Code, Cursor, Windsurf, GitHub Copilot CLI, Gemini CLI, OpenCode, OpenClaw, Hermes Agent, Oh-my-Pi, Pi, Kiro, Antigravity, Trae, DeepSeek Harness, memcode, and other stdio or HTTP MCP clients.
 
 Support depth differs by client:
 
@@ -374,7 +375,7 @@ Support depth differs by client:
 - Claude Code, Codex, and GitHub Copilot CLI receive local plugin packages.
 - Pi receives a user-level package when setup runs with `--global`; Gemini CLI receives a local extension package.
 - OpenClaw receives a compatible bundle; Hermes Agent receives a plugin package; Oh-my-Pi receives a package/extension entry.
-- Project instructions and rules include AGENTS.md, GEMINI.md, Cursor rules, Windsurf rules, Kiro steering, and Trae rules.
+- Project instructions and rules include AGENTS.md, GEMINI.md, Cursor rules, Windsurf rules, Kiro steering, Trae rules, and DeepSeek Harness AGENTS.md.
 - Hooks are generated for agents that expose usable hook events.
 - OpenCode receives a local plugin file at `.opencode/plugins/memorix.js`, an OpenCode skill at `.opencode/skills/memorix-memory/SKILL.md`, plus `opencode.json` MCP config.
 - memcode is the bundled terminal agent and uses the same project memory pool.

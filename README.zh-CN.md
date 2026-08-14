@@ -6,7 +6,7 @@
 
 <p align="center">
   <strong>面向 AI Coding Agent 的本地优先共享记忆层。</strong><br>
-  让 Claude Code、Codex、CodeBuddy Code、Cursor、Windsurf、Copilot、Gemini CLI、OpenCode、OpenClaw、Hermes Agent、Oh-my-Pi、Pi、Kiro、Antigravity、Trae 和任何 MCP Agent 共用同一套项目记忆。
+  让 Claude Code、Codex、CodeBuddy Code、Cursor、Windsurf、Copilot、Gemini CLI、OpenCode、OpenClaw、Hermes Agent、Oh-my-Pi、Pi、Kiro、Antigravity、Trae、DeepSeek Harness 和任何 MCP Agent 共用同一套项目记忆。
 </p>
 
 <p align="center">
@@ -170,6 +170,11 @@ Memorix 通过目标 Agent 已有的接口接入：插件包、MCP、项目规�
 <sub>package + MCP + hooks + skills</sub>
 </td>
 <td align="center" width="12.5%">
+<a href="https://github.com/deepseek-ai/deepseek-harness"><img src="https://github.com/deepseek-ai.png?size=120" alt="DeepSeek Harness" width="48" height="48"></a><br>
+<strong>DeepSeek Harness</strong><br>
+<sub>MCP patch + AGENTS.md + skills</sub>
+</td>
+<td align="center" width="12.5%">
 <a href="https://modelcontextprotocol.io"><img src="https://github.com/modelcontextprotocol.png?size=120" alt="Any MCP Client" width="48" height="48"></a><br>
 <strong>Any MCP Client</strong><br>
 <sub>stdio or HTTP MCP</sub>
@@ -192,7 +197,7 @@ Memorix 通过目标 Agent 已有的接口接入：插件包、MCP、项目规�
 | 插件 / Bundle / Package | 给支持插件、兼容 bundle 或 package 的 Agent 安装对应文件 | Claude Code、Codex、CodeBuddy Code、GitHub Copilot CLI、Antigravity、OpenClaw、Hermes Agent、Oh-my-Pi、Pi |
 | Extension | 给支持 extension 的 Agent 安装对应文件 | Gemini CLI |
 | 本地插件 | 给直接加载本地插件文件的 Agent 安装插件 | OpenCode |
-| MCP / rules 配置 | 给支持 MCP、rules、steering、guidance 或 hooks 的 IDE 和 Agent 写入配置 | Cursor、Windsurf、Kiro、Trae |
+| MCP / rules 配置 | 给支持 MCP、rules、steering、guidance 或 hooks 的 IDE 和 Agent 写入配置 | Cursor、Windsurf、Kiro、Trae、DeepSeek Harness |
 | Skills | 把沉淀下来的项目知识提升成可复用任务指导 | `memorix skills` 和 `memorix_promote` |
 | memcode | 打开已经接好 Memorix 记忆的内置终端 Agent | `memorix` 或 `memcode` |
 
@@ -253,6 +258,7 @@ memorix setup --agent openclaw --global
 memorix setup --agent hermes --global
 memorix setup --agent codebuddy --global
 memorix setup --agent omp --global
+memorix setup --agent dsh --global
 ```
 
 它会做的事情取决于目标 Agent，但目标是一致的：你以后在哪里打开这个 Agent，Memorix 就可以在哪里被使用，而不是让你一个仓库一个仓库重复配置。
@@ -270,6 +276,7 @@ memorix setup --agent omp --global
 - Hermes Agent：安装到 Hermes home（Windows native 默认为 `%LOCALAPPDATA%\hermes`，其他平台默认为 `~/.hermes`，也支持 `HERMES_HOME`），在 `config.yaml` 启用插件，注册 plugin hooks、slash/CLI commands、skills，并写入 MCP 配置。
 - CodeBuddy Code：安装用户级本地市场插件到 `~/.codebuddy/memorix-local`，包含 MCP、skills 和 hooks。它不会修改既有的 CodeBuddy 模型、权限或 settings 文件；第三方 hook 仍由 CodeBuddy 自己的 `/hooks` 流程确认。
 - Oh-my-Pi：安装 `omp.extensions` package，包含 extension hook 事件、`memorix` command、官方 skills，并写入 MCP 配置。
+- DeepSeek Harness：向 `$DSH_HOME/cordis.patch.yml`（默认 `~/.dsh/cordis.patch.yml`）写入一行 Memorix `@deepseek-ai/dsh-mcp-client`，向 harness 的 `AGENTS.md` 追加使用规范，并把官方 skills 安装到 `$DSH_HOME/skills`。这一行遵循 DSH 自带的 Memorix 参考配置，因此工具以 `mcp__memorix__*` 形式出现。
 
 如果你想要更安静一点的安装，可以对那些 setup 能独立控制 hook capture 的 target 加 `--noHooks`。它会保留 MCP 和使用规范，只跳过 Memorix 的 hook 自动捕获。
 

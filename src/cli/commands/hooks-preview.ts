@@ -152,6 +152,7 @@ function estimateFileSize(agent: string, configPath: string): string {
     antigravity: '~2KB',
     opencode: '~3KB',
     trae: '~1KB',
+    dsh: '~1KB',
   };
   return sizes[agent] || '~2KB';
 }
@@ -171,6 +172,8 @@ function getRulesPath(agent: string, cwd: string, global: boolean): string {
         return path.join(home, '.gemini', 'GEMINI.md');
       case 'trae':
         return path.join(home, '.trae', 'rules', 'project_rules.md');
+      case 'dsh':
+        return path.join(process.env.DSH_HOME?.trim() || path.join(home, '.dsh'), 'AGENTS.md');
       default:
         return '';
     }
@@ -186,6 +189,8 @@ function getRulesPath(agent: string, cwd: string, global: boolean): string {
         return path.join(cwd, 'GEMINI.md');
       case 'trae':
         return path.join(cwd, '.trae', 'rules', 'project_rules.md');
+      case 'dsh':
+        return path.join(cwd, 'AGENTS.md');
       default:
         return '';
     }

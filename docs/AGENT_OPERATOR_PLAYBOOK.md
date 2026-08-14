@@ -23,7 +23,7 @@ It supports:
 - HTTP MCP service + dashboard (`memorix background start` or `memorix serve-http --port 3211`)
 - bundled terminal agent (`memorix` or `memcode`) that uses the same shared memory pool
 - local-first project-scoped memory
-- cross-agent recall across Cursor, Claude Code, Codex, CodeBuddy Code, Windsurf, Gemini CLI, GitHub Copilot, OpenCode, OpenClaw, Hermes Agent, Oh-my-Pi, Pi, Kiro, Antigravity, and Trae
+- cross-agent recall across Cursor, Claude Code, Codex, CodeBuddy Code, Windsurf, Gemini CLI, GitHub Copilot, OpenCode, OpenClaw, Hermes Agent, Oh-my-Pi, Pi, Kiro, Antigravity, Trae, and DeepSeek Harness
 
 ### Current 1.4 Baseline
 
@@ -41,7 +41,7 @@ For the 1.4 release line, the visible product shape is:
 - `memorix_project_context` / `memorix context "..."` is the normal black-box entry for non-trivial coding work: it assembles a bounded task Workset instead of injecting a generic memory dump; `memorix resume "..."` is the explicit CLI continuation projection
 - Code State keeps local snapshots and freshness links; a healthy pre-existing local CodeGraph index can add a bounded semantic outline, but Memorix never initializes or synchronizes that external index itself
 - `memorix knowledge` is an explicit review path for source-backed Markdown knowledge and canonical workflows. Do not initialize a versioned workspace or apply a proposal unless the user asks for that managed artifact
-- integration surfaces are agent-specific: Claude Code, Codex, GitHub Copilot CLI, Antigravity, and Hermes receive plugin packages; OpenClaw receives a compatible bundle; Pi and Oh-my-Pi receive package entries; Gemini CLI receives an extension package; OpenCode receives a plugin file and skill; Cursor and other agents receive MCP/rules/hooks where supported
+- integration surfaces are agent-specific: Claude Code, Codex, GitHub Copilot CLI, Antigravity, and Hermes receive plugin packages; OpenClaw receives a compatible bundle; Pi and Oh-my-Pi receive package entries; Gemini CLI receives an extension package; OpenCode receives a plugin file and skill; DeepSeek Harness receives an MCP patch row, AGENTS.md guidance, and skills; Cursor and other agents receive MCP/rules/hooks where supported
 - privacy-safe diagnostics and receipts avoid raw chat, memory text, query text, tool payloads, and local file paths
 
 ---
@@ -256,6 +256,7 @@ What this installs depends on the target agent:
 - Hermes Agent: Hermes plugin under Hermes home (`%LOCALAPPDATA%\hermes` on native Windows, `~/.hermes` elsewhere, or `HERMES_HOME`), enabled in `config.yaml`, with plugin hooks, slash command, CLI command, skills, and MCP config.
 - Oh-my-Pi: `omp.extensions` package linked through `omp plugin link <path>` when available, with extension hook events, a `memorix` command, skills, and MCP config.
 - Windsurf, Kiro, Trae: MCP config plus rules/hooks where supported.
+- DeepSeek Harness: a Memorix `@deepseek-ai/dsh-mcp-client` row in `$DSH_HOME/cordis.patch.yml` (default `~/.dsh/cordis.patch.yml`), harness `AGENTS.md` guidance, and official skills under `$DSH_HOME/skills`. Tools appear as `mcp__memorix__*`; there is no hooks surface. Project-local setup writes project `AGENTS.md` guidance and `.dsh/skills`, while the MCP row stays in the harness-level patch file.
 
 Run the same setup command without `--global` only when you intentionally want repo-local guidance, rules, or hooks for a single Git project.
 

@@ -114,6 +114,7 @@ function getAgentLabel(agent: string): string {
     antigravity: 'Antigravity',
     'gemini-cli': 'Gemini CLI',
     trae: 'Trae',
+    dsh: 'DeepSeek Harness',
   };
   return labels[agent] || agent;
 }
@@ -130,6 +131,7 @@ function getAgentHint(agent: string): string {
     antigravity: 'plugin + MCP + hooks + skills',
     'gemini-cli': 'settings + GEMINI.md',
     trae: 'rules',
+    dsh: 'MCP patch + AGENTS.md + skills',
   };
   return hints[agent] || 'integration files';
 }

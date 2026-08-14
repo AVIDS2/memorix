@@ -124,6 +124,7 @@ const GUIDANCE_AGENTS = new Set<AgentName>([
   'kiro',
   'opencode',
   'trae',
+  'dsh',
 ]);
 
 const CODEX_PLUGIN_NAME = 'memorix';
@@ -787,7 +788,12 @@ async function inspectMcp(agent: AgentName, projectRoot: string, scope: AgentInt
     }
 
     const configPath = adapter.getConfigPath(targetScope === 'project' ? projectRoot : undefined);
-    if (targetScope === 'global' && configPath === adapter.getConfigPath(projectRoot)) continue;
+    if (targetScope === 'global' && configPath === adapter.getConfigPath(projectRoot) && scope === 'all') {
+      // User-level-only adapters (Trae, DSH) resolve one path for every
+      // scope. Deduplicate only when the project iteration also runs;
+      // an explicit global-only scope must still inspect the shared path.
+      continue;
+    }
 
     if (!existsSync(configPath)) {
       checks.push({

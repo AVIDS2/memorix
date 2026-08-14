@@ -41,6 +41,7 @@ export type AgentName =
   | 'hermes'
   | 'opencode'
   | 'trae'
+  | 'dsh'
   | 'pi'
   | 'omp';
 
@@ -61,6 +62,7 @@ export const AGENT_SUPPORT_TIER: Record<AgentName, SupportTier> = {
   hermes: 'community',
   opencode: 'community',
   trae: 'community',
+  dsh: 'community',
   pi: 'community',
   omp: 'community',
   antigravity: 'community',

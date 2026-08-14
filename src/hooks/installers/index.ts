@@ -360,6 +360,9 @@ const AGENT_SKILL_DIRS: Partial<Record<AgentName, { project: string; global?: st
   kiro: { project: path.join('.kiro', 'skills'), global: path.join('.kiro', 'skills') },
   opencode: { project: path.join('.opencode', 'skills'), global: path.join('.config', 'opencode', 'skills') },
   trae: { project: path.join('.trae', 'skills'), global: path.join('.trae', 'skills') },
+  // DSH's user skill root is <harness home>/skills; the global root below is
+  // resolved to $DSH_HOME (or ~/.dsh) for dsh by installOfficialSkillsForAgent.
+  dsh: { project: path.join('.dsh', 'skills'), global: 'skills' },
 };
 
 const PACKAGE_OWNED_HOOK_AGENTS = new Set<AgentName>(['openclaw', 'hermes', 'omp']);
@@ -384,7 +387,11 @@ async function installOfficialSkillsForAgent(
   const relativeDir = global ? dirs?.global : dirs?.project;
   if (!relativeDir) return [];
 
-  const root = global ? os.homedir() : projectRoot;
+  const root = global
+    ? (agent === 'dsh'
+      ? (process.env.DSH_HOME?.trim() || path.join(os.homedir(), '.dsh'))
+      : os.homedir())
+    : projectRoot;
   const skillPaths: string[] = [];
   for (const skillEntry of OFFICIAL_MEMORIX_SKILLS) {
     const skillPath = path.join(root, relativeDir, skillEntry.name, 'SKILL.md');
@@ -626,6 +633,9 @@ export function getProjectConfigPath(agent: AgentName, projectRoot: string): str
     case 'trae':
       // Trae has no hooks system — only rules (.trae/rules/project_rules.md)
       return path.join(projectRoot, '.trae', 'rules', 'project_rules.md');
+    case 'dsh':
+      // DeepSeek Harness has no hooks system — only guidance (AGENTS.md)
+      return path.join(projectRoot, 'AGENTS.md');
     case 'opencode':
       // OpenCode uses plugin files for hooks
       return path.join(projectRoot, '.opencode', 'plugins', 'memorix.js');
@@ -684,6 +694,9 @@ export function getGlobalConfigPath(agent: AgentName): string {
       return path.join(home, '.omp', 'agent', 'packages', 'memorix', 'extensions', 'memorix.js');
     case 'trae':
       return path.join(home, '.trae', 'rules', 'project_rules.md');
+    case 'dsh':
+      // DSH reads the user-global AGENTS.md from its harness home.
+      return path.join(process.env.DSH_HOME?.trim() || path.join(home, '.dsh'), 'AGENTS.md');
     default:
       return path.join(home, '.memorix', 'hooks.json');
   }
@@ -709,6 +722,9 @@ export function getAgentRulesPath(agent: AgentName, root: string, global = false
         return path.join(root, '.gemini', 'GEMINI.md');
       case 'trae':
         return path.join(root, '.trae', 'rules', 'project_rules.md');
+      case 'dsh':
+        // The user-global AGENTS.md lives in the harness home DSH reads.
+        return path.join(process.env.DSH_HOME?.trim() || path.join(root, '.dsh'), 'AGENTS.md');
       default:
         return path.join(root, '.agent', 'rules', 'memorix.md');
     }
@@ -734,6 +750,8 @@ export function getAgentRulesPath(agent: AgentName, root: string, global = false
       return path.join(root, 'GEMINI.md');
     case 'trae':
       return path.join(root, '.trae', 'rules', 'project_rules.md');
+    case 'dsh':
+      return path.join(root, 'AGENTS.md');
     default:
       return path.join(root, '.agent', 'rules', 'memorix.md');
   }
@@ -842,6 +860,13 @@ export async function detectInstalledAgents(): Promise<AgentName[]> {
     agents.push('trae');
   } catch { /* not installed */ }
 
+  // Check for DeepSeek Harness (its home dir or an explicit DSH_HOME)
+  const dshDir = process.env.DSH_HOME?.trim() || path.join(home, '.dsh');
+  try {
+    await fs.access(dshDir);
+    agents.push('dsh');
+  } catch { /* not installed */ }
+
   return agents;
 }
 
@@ -945,6 +970,22 @@ export async function installHooks(
           configPath: rulesPath,
           events: [],
           generated: { note: 'Trae has no hooks system, only rules (.trae/rules/project_rules.md) installed' },
+        };
+      }
+    case 'dsh':
+      // DeepSeek Harness has no hook system — install AGENTS.md guidance and
+      // skills; the MCP row is installed by `memorix setup --agent dsh`.
+      {
+        const rulesPath = await installAgentRules(agent, projectRoot, global);
+        const skillPaths = await installOfficialSkillsForAgent(agent, projectRoot, global);
+        return {
+          agent,
+          configPath: rulesPath,
+          events: [],
+          generated: {
+            note: 'DeepSeek Harness has no hook system — installed AGENTS.md guidance and skills; the MCP row is installed by `memorix setup --agent dsh`.',
+            ...(skillPaths.length > 0 ? { skillPaths, skillPath: skillPaths[0] } : {}),
+          },
         };
       }
     case 'opencode': {
@@ -1127,7 +1168,7 @@ async function installAgentRules(agent: AgentName, projectRoot: string, global =
   try {
     await fs.mkdir(path.dirname(rulesPath), { recursive: true });
 
-    if (agent === 'claude' || agent === 'codex' || agent === 'opencode' || agent === 'antigravity' || agent === 'gemini-cli') {
+    if (agent === 'claude' || agent === 'codex' || agent === 'opencode' || agent === 'antigravity' || agent === 'gemini-cli' || agent === 'dsh') {
       // For shared context files (CLAUDE.md / AGENTS.md / GEMINI.md), append rather than overwrite.
       try {
         const existing = await fs.readFile(rulesPath, 'utf-8');

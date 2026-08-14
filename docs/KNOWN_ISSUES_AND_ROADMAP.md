@@ -63,6 +63,7 @@ Memorix 是本地优先、可插拔的 Agent Memory 系统。它给不同 Agent 
 
 - 跟进受用户需求推动的集成，例如 [Qwen 自动 hooks](https://github.com/AVIDS2/memorix/issues/3) 与 [持久化 Agent 身份](https://github.com/AVIDS2/memorix/issues/49)；
 - 独立推进记忆能力的实证研究，例如[模型能力如何改变项目记忆收益与伤害边界](https://github.com/AVIDS2/memorix/issues/152)，不把研究假设当作产品已经证明的效果。
+- DeepSeek Harness 支持已随 `memorix setup --agent dsh` 发布：写入 MCP 行（`$DSH_HOME/cordis.patch.yml`，默认 `~/.dsh/cordis.patch.yml`）、AGENTS.md 使用规范与官方 skills；工具以 `mcp__memorix__*` 形式出现。
 
 ---
 

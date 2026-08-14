@@ -2,7 +2,7 @@
 
 > Local-first shared memory layer for AI coding agents.
 
-Memorix gives coding agents persistent, project-aware memory across sessions, IDEs, terminals, and MCP clients. It stores project knowledge once so multiple agents can retrieve it through plugin packages, MCP, CLI, SDK, generated rules/instructions, hooks, skills, local plugins, or the bundled terminal agent. It works with Claude Code, Codex, CodeBuddy Code, Cursor, Windsurf, GitHub Copilot CLI, Gemini CLI, OpenCode, OpenClaw, Hermes Agent, Oh-my-Pi, Pi, Kiro, Antigravity, Trae, and other MCP-capable agents.
+Memorix gives coding agents persistent, project-aware memory across sessions, IDEs, terminals, and MCP clients. It stores project knowledge once so multiple agents can retrieve it through plugin packages, MCP, CLI, SDK, generated rules/instructions, hooks, skills, local plugins, or the bundled terminal agent. It works with Claude Code, Codex, CodeBuddy Code, Cursor, Windsurf, GitHub Copilot CLI, Gemini CLI, OpenCode, OpenClaw, Hermes Agent, Oh-my-Pi, Pi, Kiro, Antigravity, Trae, DeepSeek Harness, and other MCP-capable agents.
 
 ## Entry Points
 

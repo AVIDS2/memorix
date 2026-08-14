@@ -20,7 +20,7 @@ That command installs the recommended Memorix package or config for the target a
 | Package or extension | Bundles Memorix for agents that use package or extension systems | `memorix setup --agent pi --global`, `omp --global`, or `gemini-cli --global` |
 | Local plugin | Installs a local plugin file where the agent loads plugins directly | `memorix setup --agent opencode --global` |
 | MCP server | Gives an agent live tools for search, recall, storage, reasoning, and coordination | bundled by setup, host MCP config, or `memorix serve` |
-| Usage guidance | Tells the agent when and how to use memory | `CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, Cursor/Windsurf/Kiro/Trae rules |
+| Usage guidance | Tells the agent when and how to use memory | `CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, Cursor/Windsurf/Kiro/Trae rules, DeepSeek Harness AGENTS.md |
 | Hooks | Captures useful session events when the agent exposes hook events | bundled by plugin packages or generated hook files |
 | Skills | Turns durable project knowledge into reusable task guidance | plugin skills, `memorix skills`, `memorix_promote` |
 | memcode | Opens a terminal coding agent that already uses Memorix memory | `memorix`, `memcode` |
@@ -36,7 +36,7 @@ CLI, MCP, and HTTP have separate jobs:
 
 Generated guidance also has scope:
 
-- Project guidance (`CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, Cursor/Windsurf/Kiro/Trae rules) may say the repository is configured for Memorix.
+- Project guidance (`CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, Cursor/Windsurf/Kiro/Trae rules, DeepSeek Harness AGENTS.md) may say the repository is configured for Memorix.
 - Plugin or skill package guidance is workspace-safe. It says to use Memorix when the active workspace has Memorix tools available.
 - `--global` writes user-level plugin, config, and hook surfaces where the host supports them.
 - Running the same setup command without `--global` is the repo-local path for one project only.
@@ -63,6 +63,7 @@ Generated guidance also has scope:
 | Kiro | `memorix setup --agent kiro --global` | Kiro MCP/steering/hooks config | MCP config, `.kiro/steering/memorix.md`, `.kiro/hooks/*.kiro.hook` | Uses Kiro steering and hook files. |
 | Antigravity | `memorix setup --agent antigravity --global` | Antigravity plugin | Plugin under `~/.gemini/config/plugins/memorix` or `.agents/plugins/memorix`, with `plugin.json`, `mcp_config.json`, `hooks.json`, rules, and skills | Uses Antigravity's official plugin layout. Dedicated MCP configs live at `~/.gemini/config/mcp_config.json` or `.agents/mcp_config.json`; legacy Gemini settings are read only for compatibility. |
 | Trae | `memorix setup --agent trae --global` | Trae MCP/rules config | MCP config and `.trae/rules/project_rules.md` | Current support is MCP plus project rules. |
+| DeepSeek Harness | `memorix setup --agent dsh --global` | DeepSeek Harness MCP patch | Memorix `@deepseek-ai/dsh-mcp-client` row in `$DSH_HOME/cordis.patch.yml` (default `~/.dsh/cordis.patch.yml`), guidance in the harness `AGENTS.md`, and official skills under `$DSH_HOME/skills` | Tools appear as `mcp__memorix__*`. No hooks surface. Project-local setup writes project `AGENTS.md` guidance and `.dsh/skills`; the MCP row always lives in the harness-level patch file. |
 | memcode | `memorix` or `memcode` | Bundled terminal agent | Built-in Memorix memory access | memcode uses the same project memory pool; it is not a separate memory silo. |
 | Any MCP client | Manual MCP config | MCP stdio or HTTP | `memorix serve` or `memorix background start` | Use stdio first unless you need a shared HTTP endpoint. |
 
@@ -95,6 +96,7 @@ memorix setup --agent openclaw --global
 memorix setup --agent hermes --global
 memorix setup --agent codebuddy --global
 memorix setup --agent omp --global
+memorix setup --agent dsh --global
 ```
 
 Use `memorix setup --agent all --global` only when you intentionally want every supported agent integration generated for the current machine/user scope.

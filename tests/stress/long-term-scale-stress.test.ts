@@ -79,13 +79,20 @@ describe('long-term scale stress exam', () => {
       await qualifyLongTermMemory({ dataDir: path.join(sandbox, 'data'), id: newer, reason: 'stress' });
     }
 
-    // Backdate the stale set so decay applies to it alone.
+    // Backdate the stale set so decay applies to it alone, and backdate the
+    // older halves so the newer same-title record is unambiguously newer —
+    // createdAt ties would make the supersede winner arbitrary.
     const store = new LongTermMemoryStore();
     await store.init(path.join(sandbox, 'data'));
     for (const id of staleIds) {
       const memory = store.get(id)!;
       memory.updatedAt = daysAgo(40);
       memory.lastAccessedAt = daysAgo(40);
+      store.update(memory);
+    }
+    for (const id of olderHalves) {
+      const memory = store.get(id)!;
+      memory.createdAt = daysAgo(1);
       store.update(memory);
     }
 

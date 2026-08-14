@@ -180,6 +180,18 @@ Then set `OPENROUTER_API_KEY` in your shell, user environment, or `.env`. You
 can still set `MEMORIX_EMBEDDING_API_KEY` when you want an explicit embedding
 key override; it takes priority over `OPENROUTER_API_KEY`.
 
+When `base_url` points at OpenRouter and no `model` is configured, Memorix
+defaults to `qwen/qwen3-embedding-8b` (4096 dimensions) instead of the
+OpenAI-only default. The equivalent env-var form is
+`MEMORIX_EMBEDDING=api`, `MEMORIX_EMBEDDING_BASE_URL=https://openrouter.ai/api/v1`,
+`MEMORIX_EMBEDDING_MODEL=qwen/qwen3-embedding-8b`.
+
+Image analysis (visual description for ingested images) runs on the LLM lane
+through an OpenAI-compatible vision endpoint, so it can also use OpenRouter
+with a multimodal model — for example `qwen/qwen3-vl-8b-instruct` via
+`MEMORIX_LLM_BASE_URL=https://openrouter.ai/api/v1` and
+`MEMORIX_LLM_MODEL=qwen/qwen3-vl-8b-instruct`.
+
 ### Controlled MiniMax media
 
 MiniMax generation is separate from the text embedding lane. Set one of these

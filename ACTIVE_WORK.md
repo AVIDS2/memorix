@@ -16,6 +16,34 @@
   parity, `memorix purge`, enforced git ingest settings, honest media
   schema, server config defaults, and the dead-code removal). All changes
   are score-verified.
+- `1.5.0` is the next target: a stability-focused release. It ships only
+  after the stress exams below pass and the live OpenRouter embedding lane
+  is verified against the operator's environment.
+
+## 1.5.0 Stability Main Line (stress-tested, measured)
+
+- Stress exams live in `tests/stress/` and run in the normal suite:
+  - Corpus: 2,000 observations, 25 real searches, planted needles all hit,
+    ranking deterministic, project isolation held, tokens 168..170.
+  - Concurrency: 60 parallel writes with zero loss; 20 parallel same-topic
+    upserts converge to one active record.
+  - Session churn: 45 start/end cycles across 3 projects plus 10 parallel
+    starts — at most one active session per project.
+  - Long-term scale: 300 records, maintenance archives exactly the stale
+    set (60) and supersedes exactly the older halves (40); candidates
+    untouched.
+  - CLI repeat: 15 repeated add/list invocations with stable exit codes and
+    no id reuse.
+- Embedding lane on the operator's OpenRouter environment:
+  `qwen/qwen3-embedding-8b` (4096d) verified live — 100-text batch in ~9.5s,
+  cache round-trip, singleton stability. When the base URL is OpenRouter and
+  no model is set, the default is now `qwen/qwen3-embedding-8b` instead of
+  the OpenAI-only model (pinned by `tests/config/embedding-default-model.test.ts`).
+  Image analysis can use a multimodal OpenRouter model
+  (`qwen/qwen3-vl-8b-instruct`) through the LLM lane; documented in
+  CONFIGURATION.md.
+- Live embedding exams stay env-gated (`MEMORIX_RUN_LIVE_EMBEDDING_TESTS=1`)
+  and never run in CI.
 
 ## Memory Hygiene Main Line (1.4.x, measured)
 

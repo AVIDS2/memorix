@@ -52,6 +52,7 @@ import type { FormationConfig, SearchHit, FormedMemory, FormationStage, Formatio
 import { parseFormationTimeoutMs } from './server/formation-timeout.js';
 import { withTimeout } from './timeout.js';
 import { sanitizeCredentials } from './memory/secret-filter.js';
+import { getSurfacedIds, recordSurfacedIds } from './search/surfaced-registry.js';
 import {
   createProjectBindingController,
   type ProjectBindingController,
@@ -1394,6 +1395,17 @@ export async function createMemorixServer(
         const boundary = requireExplicitAutopilotExpansion('memorix_search', purpose);
         if (boundary) return boundary;
       }
+
+      // Session dedup scope: prefer the active session id, fall back to the
+      // bound project. Best-effort bookkeeping — losing it only costs one
+      // redundant result row, never data.
+      let surfacedKey = `project:${project.id}`;
+      try {
+        const { getActiveSession } = await import('./memory/session.js');
+        const active = await getActiveSession(projectDir, project.id);
+        if (active) surfacedKey = `session:${active.id}`;
+      } catch { /* fall back to the project key */ }
+
       return withFreshIndex(async () => {
 
       const safeLimit = limit != null ? coerceNumber(limit, 20) : undefined;
@@ -1415,6 +1427,7 @@ export async function createMemorixServer(
         source: source as 'agent' | 'git' | 'manual' | undefined,
         quality: quality as 'fast' | 'balanced' | 'thorough',
         reader: getObservationReader(scope === 'global' ? 'global' : 'project'),
+        surfacedIds: getSurfacedIds(surfacedKey),
       });
 
       let result;
@@ -1435,6 +1448,10 @@ export async function createMemorixServer(
         }
         throw error;
       }
+
+      // These rows were just shown to the model — remember them so later
+      // searches in the same session demote instead of re-showing.
+      recordSurfacedIds(surfacedKey, result.entries.map(entry => entry.id));
 
       const activeBoundary = getActiveAutopilotRetrievalBoundary();
       if (

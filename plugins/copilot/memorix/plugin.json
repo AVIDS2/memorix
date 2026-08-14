@@ -1,6 +1,6 @@
 {
   "name": "memorix",
-  "version": "1.4.4",
+  "version": "1.4.5",
   "description": "Shared local workspace memory for GitHub Copilot CLI and other AI coding agents.",
   "author": {
     "name": "AVIDS2",

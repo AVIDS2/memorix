@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.4.5] - 2026-08-14
+
+### Added
+- **DeepSeek Harness integration** -- `memorix setup --agent dsh` installs
+  Memorix into DeepSeek's official harness: a `@deepseek-ai/dsh-mcp-client`
+  row in `$DSH_HOME/cordis.patch.yml` (tools appear as `mcp__memorix__*`),
+  AGENTS.md guidance at the harness and project levels, and official skills
+  under `$DSH_HOME/skills` or `.dsh/skills`. Existing user patch rows are
+  preserved and installs are idempotent. DSH has no hook surface, so none is
+  written. `doctor`, `repair`, `uninstall`, and `setup --list` cover the new
+  target, and MCP checks for user-level-only adapters now run under an
+  explicit global scope (fixing the same latent skip for Trae). Native
+  validation composed the generated patch with the real
+  `@deepseek-ai/dsh@0.1.0-rc.6` launcher.
+
 ## [1.4.4] - 2026-08-14
 
 ### Added

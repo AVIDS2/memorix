@@ -10,9 +10,8 @@
 
 - `1.4.4` is the current published release on npm, the official MCP
   Registry, and GitHub Releases.
-- This release ships the #194 CLI argument-coercion crash fix and the #178
-  MiniMax image-to-image feature (with @octo-patch credit), plus a docs
-  refresh.
+- `1.4.5` is prepared for publication: the DeepSeek Harness (DSH)
+  integration from PR #201.
 
 ## Active Objectives
 
@@ -61,12 +60,12 @@ documented follow-up rather than claimed release evidence. Legacy requests
 
 - 1.4.4 published (2026-08-14) through the GitHub publish workflow; the #194
   reporter has been notified with the shipped version.
-- DeepSeek Harness support implemented (2026-08-14): `memorix setup --agent
-  dsh` installs the `@deepseek-ai/dsh-mcp-client` row into
-  `$DSH_HOME/cordis.patch.yml`, AGENTS.md guidance, and skills. Native
-  validation composed the generated patch with the real
-  `@deepseek-ai/dsh@0.1.0-rc.6` launcher. Awaiting PR review before it
-  ships in the next release line.
+- DeepSeek Harness support implemented and merged via PR #201 (2026-08-14):
+  `memorix setup --agent dsh` installs the `@deepseek-ai/dsh-mcp-client`
+  row into `$DSH_HOME/cordis.patch.yml`, AGENTS.md guidance, and skills.
+  Native validation composed the generated patch with the real
+  `@deepseek-ai/dsh@0.1.0-rc.6` launcher. Shipping in the prepared 1.4.5
+  release.
 - Branch protection on `main` was synced with the current CI matrix
   (2026-08-14): the required status contexts referenced removed Node 20 test
   jobs, which blocked every PR from merging. Required contexts are now the

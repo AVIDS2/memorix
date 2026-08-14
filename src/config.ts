@@ -84,9 +84,30 @@ export function getEmbeddingBaseUrl(): string {
   return getResolvedEmbeddingLane().baseUrl || 'https://api.openai.com/v1';
 }
 
-/** Embedding model: env > memorix.yml > config.json > default */
+/** Embedding model: env > memorix.yml > config.json > provider-aware default */
 export function getEmbeddingModel(): string {
-  return getResolvedEmbeddingLane().model || 'text-embedding-3-small';
+  const lane = getResolvedEmbeddingLane();
+  return defaultEmbeddingModelFor(lane.baseUrl, lane.model);
+}
+
+/**
+ * Provider-aware embedding model default: OpenRouter serves many providers,
+ * and the OpenAI-only default does not fit it. Qwen3-Embedding-8B is a
+ * strong multilingual default there; everywhere else keep the OpenAI model.
+ * An explicitly configured model always wins.
+ */
+export function defaultEmbeddingModelFor(
+  baseUrl: string | undefined,
+  explicitModel: string | undefined,
+): string {
+  if (explicitModel) return explicitModel;
+  try {
+    const url = baseUrl ? new URL(baseUrl) : null;
+    if (url && (url.hostname === 'openrouter.ai' || url.hostname.endsWith('.openrouter.ai'))) {
+      return 'qwen/qwen3-embedding-8b';
+    }
+  } catch { /* treat unparsable base URLs as non-OpenRouter */ }
+  return 'text-embedding-3-small';
 }
 
 /** Embedding dimensions override: env > memorix.yml > config.json > null (auto-detect) */

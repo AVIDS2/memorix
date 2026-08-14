@@ -2,6 +2,30 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.5.0] - 2026-08-14
+
+### Added
+- **Stability stress suite** -- Five deterministic, offline stress exams now
+  run in the normal test suite: a 2,000-observation corpus (planted needles,
+  ranked determinism, project isolation), 60-way parallel writes plus
+  20-way same-topic upserts, session churn across projects with parallel
+  starts, 300-record long-term maintenance exactness, and repeated CLI
+  invocations. Live embedding stress exams are env-gated
+  (`MEMORIX_RUN_LIVE_EMBEDDING_TESTS=1`) and never run in CI.
+- **Provider-aware embedding default** -- When the embedding base URL
+  points at OpenRouter and no model is configured, the default is now
+  `qwen/qwen3-embedding-8b` (4096 dimensions) instead of the OpenAI-only
+  default. An explicitly configured model always wins.
+
+### Changed
+- **Verified OpenRouter embedding lane** -- The `api` embedding provider
+  was exercised live against `qwen/qwen3-embedding-8b` on OpenRouter:
+  a 100-text batch, cache round-trip, and provider-singleton stability all
+  pass. Docs cover the env-var form and borrowing `OPENROUTER_API_KEY`.
+- **Multimodal vision option documented** -- Image analysis can run on the
+  LLM lane through an OpenAI-compatible vision endpoint, including
+  OpenRouter models such as `qwen/qwen3-vl-8b-instruct`.
+
 ## [1.4.6] - 2026-08-14
 
 ### Added

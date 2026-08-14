@@ -587,7 +587,9 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
 
   // Orama's vector/hybrid search can leak cross-project hits even when `where`
   // is present, so always keep enough headroom for a deterministic post-filter.
-  const requestLimit = projectIds
+  // Session dedup demotes already-surfaced entries after ranking, so it needs
+  // the same headroom to let unseen candidates rise into the final limit.
+  const requestLimit = projectIds || (options.surfacedIds && options.surfacedIds.length > 0)
     ? (options.limit ?? 20) * 3
     : (options.limit ?? 20);
 
@@ -900,6 +902,20 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
 
     // Re-sort after affinity adjustment
     intermediate.sort((a, b) => b.score - a.score);
+  }
+
+  // ── Session dedup (demote, never remove) ────────────────────────
+  // Entries already surfaced earlier in the same session are demoted so
+  // unseen evidence can rise into the final limit. A demoted entry is never
+  // removed: when it is the strong match for a new question, it still wins
+  // on score and answers that turn.
+  if (options.surfacedIds && options.surfacedIds.length > 0) {
+    const SURFACED_PENALTY = 0.5;
+    const surfaced = new Set(options.surfacedIds);
+    intermediate = intermediate.map(entry =>
+      surfaced.has(entry.id) ? { ...entry, score: (entry.score ?? 0) * SURFACED_PENALTY } : entry,
+    );
+    intermediate.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
   }
 
   // Temporal filtering: since/until date range

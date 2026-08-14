@@ -318,6 +318,12 @@ export interface SearchOptions {
   /** Internal reader context for agent-facing visibility filtering. */
   reader?: ObservationReader;
   /**
+   * Observation ids already surfaced earlier in the same session. Surfaced
+   * entries are demoted (never removed) so unseen evidence can rise into the
+   * result limit; a strong match still answers a new question.
+   */
+  surfacedIds?: number[];
+  /**
    * `fast` stays fully local, `balanced` (default) permits embeddings, and
    * `thorough` explicitly permits optional LLM query rewrite and reranking.
    */

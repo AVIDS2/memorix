@@ -16,6 +16,7 @@ export const MAINTENANCE_JOB_KINDS = [
   'knowledge-compile',
   'knowledge-lint',
   'workflow-index',
+  'long-term-maintenance',
 ] as const;
 
 export type MaintenanceJobKind = typeof MAINTENANCE_JOB_KINDS[number];

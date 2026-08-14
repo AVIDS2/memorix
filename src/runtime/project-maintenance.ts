@@ -263,6 +263,14 @@ export function createProjectMaintenanceHandler(
       return { action: 'complete' };
     }
 
+    if (job.kind === 'long-term-maintenance') {
+      const { maintainLongTermMemories } = await import('../memory/long-term.js');
+      await maintainLongTermMemories({ dataDir: projectDir, projectId });
+      // Decay and supersede thresholds are measured in days: one daily pass is
+      // plenty. Rescheduling the same row keeps a quiet, durable heartbeat.
+      return { action: 'reschedule', delayMs: 24 * 60 * 60 * 1000, resetAttempts: true };
+    }
+
     if (job.kind === 'consolidation') {
       const limit = consolidationBatchSize(job.payload);
       const result = await runAutomaticConsolidation(projectId, projectDir, {

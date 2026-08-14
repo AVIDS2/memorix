@@ -25,7 +25,6 @@ import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createMemorixServer } from '../../src/server.js';
-import { qualifyLongTermMemory } from '../../src/memory/long-term.js';
 import { resetDb } from '../../src/store/orama-store.js';
 import { resetObservationStore } from '../../src/store/obs-store.js';
 import { closeAllDatabases } from '../../src/store/sqlite-db.js';
@@ -75,7 +74,7 @@ describe('long-term memory through the MCP micro profile', () => {
     await fs.rm(root, { recursive: true, force: true });
   });
 
-  it('creates a candidate with the existing store tool and only delivers it after qualification', async () => {
+  it('auto-qualifies an explicit store long-term memory and delivers it immediately', async () => {
     const { server, projectId } = await createMemorixServer(
       projectDir,
       undefined,
@@ -100,21 +99,11 @@ describe('long-term memory through the MCP micro profile', () => {
       },
     });
     expect(stored.isError).not.toBe(true);
-    const candidateId = toolText(stored).match(/Long-term candidate: ([A-Za-z0-9-]+)/)?.[1];
+    // An explicit request carries its own source evidence: the record is
+    // auto-qualified on the spot instead of waiting for a manual review.
+    const candidateId = toolText(stored).match(/Long-term memory: ([A-Za-z0-9-]+)/)?.[1];
     expect(candidateId).toBeTruthy();
 
-    const before = toolText(await projectContext({
-      task: 'Prepare the package release and run smoke.',
-      refresh: 'never',
-      format: 'prompt',
-    }));
-    expect(before).not.toContain('Durable memory');
-
-    await qualifyLongTermMemory({
-      dataDir,
-      id: candidateId!,
-      reason: 'The store observation is the source evidence for this release procedure.',
-    });
     const after = toolText(await projectContext({
       task: 'Prepare the package release and run smoke.',
       refresh: 'never',

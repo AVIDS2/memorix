@@ -80,15 +80,9 @@ describe('long-term memory CLI', () => {
     });
     expect(created.exitCode).toBe(0);
     const candidate = JSON.parse(created.stdout).memory;
-    expect(candidate.state).toBe('candidate');
-
-    const qualified = await runCommand(memoryCommand, {
-      _: ['long-term', 'qualify'],
-      id: candidate.id,
-      reason: 'The user explicitly confirmed this release procedure.',
-      json: true,
-    });
-    expect(JSON.parse(qualified.stdout).memory.state).toBe('qualified');
+    // An operator-written record carries its own source evidence and
+    // auto-qualifies; approval remains a deliberate review step.
+    expect(candidate.state).toBe('qualified');
 
     const approved = await runCommand(memoryCommand, {
       _: ['long-term', 'approve'],
@@ -146,7 +140,8 @@ describe('long-term memory CLI', () => {
     });
     expect(promoted.exitCode).toBe(0);
     const memory = JSON.parse(promoted.stdout).memory;
-    expect(memory.state).toBe('candidate');
+    // An explicit promote request auto-qualifies the new record.
+    expect(memory.state).toBe('qualified');
     expect(JSON.parse(promoted.stdout).evidence[0]).toMatchObject({
       kind: 'observation',
       referenceId: expect.stringContaining('obs:'),
@@ -175,15 +170,7 @@ describe('long-term memory CLI', () => {
     };
     const oldMemory = await create('Old package smoke');
     const replacement = await create('Current package smoke');
-    for (const memory of [oldMemory, replacement]) {
-      const qualified = await runCommand(memoryCommand, {
-        _: ['long-term', 'qualify'],
-        id: memory.id,
-        reason: 'Verified against the package release path.',
-        json: true,
-      });
-      expect(qualified.exitCode).toBe(0);
-    }
+    // Both are auto-qualified on add, so supersede can retire the old one.
 
     const superseded = await runCommand(memoryCommand, {
       _: ['long-term', 'supersede'],

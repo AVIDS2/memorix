@@ -511,13 +511,108 @@ export async function supersedeLongTermMemory(input: {
   });
 }
 
+/**
+ * Rule-leg auto qualification: an explicitly requested candidate carries its
+ * own source evidence, so it qualifies immediately instead of waiting for a
+ * manual CLI review. Hook-captured and git-derived candidates keep the
+ * manual review path. The LLM lane (formation) may enrich evaluation on top
+ * of this deterministic rule; no LLM is required for it to work.
+ */
+export async function maybeAutoQualifyLongTermMemory(input: {
+  dataDir: string;
+  id: string;
+  source?: 'agent' | 'git' | 'manual';
+  sourceDetail?: 'explicit' | 'hook' | 'git-ingest';
+}): Promise<LongTermMemory | null> {
+  if (input.source !== 'manual' && input.sourceDetail !== 'explicit') return null;
+  try {
+    return await qualifyLongTermMemory({
+      dataDir: input.dataDir,
+      id: input.id,
+      reason: 'auto-qualified: explicit request carries its own source evidence',
+    });
+  } catch {
+    // Already beyond candidate, or the record no longer exists.
+    return null;
+  }
+}
+
+export interface LongTermMaintenanceResult {
+  archived: number;
+  superseded: number;
+}
+
+/**
+ * Rule-leg self maintenance: stale active records archive themselves, and a
+ * newer record supersedes older ones sharing the same title within the same
+ * scope and kind. Deterministic and offline; the optional LLM lane can layer
+ * semantic consolidation on top later.
+ */
+export async function maintainLongTermMemories(input: {
+  dataDir: string;
+  projectId: string;
+  now?: Date;
+  decayDays?: number;
+}): Promise<LongTermMaintenanceResult> {
+  const now = input.now ?? new Date();
+  const decayDays = input.decayDays ?? 30;
+  const cutoff = now.getTime() - decayDays * 24 * 60 * 60 * 1000;
+  const result: LongTermMaintenanceResult = { archived: 0, superseded: 0 };
+  const store = await createStore(input.dataDir);
+  const all = store.list({ originProjectId: input.projectId });
+
+  // Decay: qualified/approved records with no read or write activity since
+  // the cutoff archive themselves.
+  for (const memory of all) {
+    if (memory.state !== 'qualified' && memory.state !== 'approved') continue;
+    const lastActivity = Date.parse(memory.lastAccessedAt ?? memory.updatedAt);
+    if (!Number.isFinite(lastActivity) || lastActivity >= cutoff) continue;
+    try {
+      await archiveLongTermMemory({
+        dataDir: input.dataDir,
+        id: memory.id,
+        reason: 'auto-archive: no activity since ' + new Date(lastActivity).toISOString().slice(0, 10),
+      });
+      result.archived += 1;
+    } catch { /* already inactive */ }
+  }
+
+  // Supersede: within one scope and kind, records sharing a title keep only
+  // the newest; the rest are retired with a traceable supersededBy link.
+  const groups = new Map<string, LongTermMemory[]>();
+  for (const memory of store.list({ originProjectId: input.projectId })) {
+    if (memory.state !== 'qualified' && memory.state !== 'approved') continue;
+    const key = memory.scope + '\0' + memory.kind + '\0' + memory.title.trim().toLowerCase();
+    const group = groups.get(key) ?? [];
+    group.push(memory);
+    groups.set(key, group);
+  }
+  for (const group of groups.values()) {
+    if (group.length < 2) continue;
+    group.sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+    const newest = group[0];
+    for (const older of group.slice(1)) {
+      try {
+        await supersedeLongTermMemory({
+          dataDir: input.dataDir,
+          id: older.id,
+          supersededBy: newest.id,
+          reason: 'auto-supersede: a newer record shares the same title',
+        });
+        result.superseded += 1;
+      } catch { /* scope or owner boundary, or already inactive */ }
+    }
+  }
+
+  return result;
+}
+
 export async function listLongTermMemories(input: {
   dataDir: string;
   reader: LongTermMemoryReader;
   includeInactive?: boolean;
   limit?: number;
-}): Promise<Array<{ memory: LongTermMemory; evidence: LongTermMemoryEvidence[] }>> {
-  const store = await createStore(input.dataDir);
+}): Promise<Array<{ memory: LongTermMemory; evidence: LongTermMemoryEvidence[] }>> {  const store = await createStore(input.dataDir);
   return store.list({ limit: input.limit ?? 100 })
     .filter(memory => canReadLongTermMemory(memory, input.reader))
     .filter(memory => input.includeInactive || memory.state !== 'archived' && memory.state !== 'superseded')

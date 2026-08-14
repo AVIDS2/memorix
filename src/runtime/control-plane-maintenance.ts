@@ -19,6 +19,7 @@ export const CONTROL_PLANE_MAINTENANCE_KINDS: readonly MaintenanceJobKind[] = [
   'knowledge-compile',
   'knowledge-lint',
   'workflow-index',
+  'long-term-maintenance',
 ];
 
 const TARGET_WAIT_RETRY_MS = 30_000;

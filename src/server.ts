@@ -509,6 +509,12 @@ export async function createMemorixServer(
         kind: 'consolidation',
         dedupeKey: 'startup-consolidation',
       });
+      lifecycle.enqueueLongTermMaintenance({
+        dataDir: projectDir,
+        projectId: project.id,
+        source: 'startup',
+        queue,
+      });
     }
 
     // This check is only a small SQLite metadata query. The actual directory
@@ -1153,7 +1159,7 @@ export async function createMemorixServer(
       let longTermNote = '';
       if (longTerm) {
         try {
-          const { promoteObservationToLongTermMemory } = await import('./memory/long-term.js');
+          const { promoteObservationToLongTermMemory, maybeAutoQualifyLongTermMemory } = await import('./memory/long-term.js');
           const promoted = await promoteObservationToLongTermMemory({
             dataDir: projectDir,
             observation: obs,
@@ -1167,7 +1173,28 @@ export async function createMemorixServer(
               ...(reader.isTeamMember ? { isTeamMember: true } : {}),
             },
           });
-          longTermNote = `\nLong-term candidate: ${promoted.memory.id} (${promoted.memory.kind}/${promoted.memory.scope}). Review it with the CLI before it is delivered automatically.`;
+          // An explicit store call carries its own source evidence: qualify
+          // on the spot instead of waiting for a manual CLI review.
+          const autoQualified = await maybeAutoQualifyLongTermMemory({
+            dataDir: projectDir,
+            id: promoted.memory.id,
+            sourceDetail: 'explicit',
+          });
+          if (autoQualified) {
+            // A fresh explicit record retires stale same-title records on the
+            // durable rule leg instead of waiting for the next session start.
+            try {
+              const { enqueueLongTermMaintenance } = await import('./runtime/lifecycle.js');
+              enqueueLongTermMaintenance({
+                dataDir: projectDir,
+                projectId: project.id,
+                source: 'long-term:' + promoted.memory.id,
+              });
+            } catch { /* maintenance is optional; the record already qualified */ }
+          }
+          longTermNote = autoQualified
+            ? `\nLong-term memory: ${promoted.memory.id} (${promoted.memory.kind}/${promoted.memory.scope}, auto-qualified) and now enters briefs as durable context. Audit with \`memorix memory long-term list\`.`
+            : `\nLong-term candidate: ${promoted.memory.id} (${promoted.memory.kind}/${promoted.memory.scope}). Review it with the CLI before it is delivered automatically.`;
         } catch (longTermError) {
           longTermNote = `\n[WARN] Observation stored, but long-term candidate was not created: ${longTermError instanceof Error ? longTermError.message : 'unknown error'}`;
         }

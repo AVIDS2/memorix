@@ -467,6 +467,7 @@ export default defineCommand({
             createManualLongTermMemory,
             getLongTermMemoryDetail,
             listLongTermMemories,
+            maybeAutoQualifyLongTermMemory,
             promoteObservationToLongTermMemory,
             qualifyLongTermMemory,
             supersedeLongTermMemory,
@@ -545,9 +546,15 @@ export default defineCommand({
                 portability: portability(),
                 reader: longTermReader,
               });
+              // Operator-written records carry their own source evidence.
+              const qualified = await maybeAutoQualifyLongTermMemory({
+                dataDir,
+                id: result.memory.id,
+                source: 'manual',
+              });
               emitResult(
-                { project, ...result },
-                `Created long-term memory candidate ${result.memory.id}. Qualify it after checking its evidence.`,
+                { project, ...result, memory: qualified ?? result.memory },
+                `Created long-term memory ${result.memory.id}.`,
                 asJson,
               );
               return;
@@ -576,9 +583,15 @@ export default defineCommand({
                 applicability: asStringArg(args.applicability),
                 reader: longTermReader,
               });
+              // An explicit promote request carries its own source evidence.
+              const qualified = await maybeAutoQualifyLongTermMemory({
+                dataDir,
+                id: result.memory.id,
+                sourceDetail: 'explicit',
+              });
               emitResult(
-                { project, sourceObservationId: observation.id, ...result },
-                `Promoted observation #${observation.id} to long-term memory candidate ${result.memory.id}.`,
+                { project, sourceObservationId: observation.id, ...result, memory: qualified ?? result.memory },
+                `Promoted observation #${observation.id} to long-term memory ${result.memory.id}.`,
                 asJson,
               );
               return;

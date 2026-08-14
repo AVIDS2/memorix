@@ -10,10 +10,10 @@
 
 - `1.4.5` is the current published release on npm, the official MCP
   Registry, and GitHub Releases.
-- The memory-hygiene work continues on the 1.4.x line (no 1.5.0 rush):
-  session dedup, guidance hygiene rules, and the data-dir boundary are
-  implemented and score-verified; user-profile capture guidance and the
-  session-summary template are in progress. Publication waits for
+- The memory-native work continues on the 1.4.x line (no 1.5.0 rush): the
+  always-on "You and this workspace" block ships in every task brief, and
+  long-term memory now maintains itself on a deterministic rule leg. All
+  changes are score-verified before they land. Publication waits for
   maintainer approval.
 
 ## Memory Hygiene Main Line (1.4.x, measured)
@@ -26,6 +26,22 @@
   ignore contract. Guidance exam: 0/4 → 4/4 rules inside the ceiling.
 - Data-dir boundary pinned by regression test (project config cannot
   redirect storage).
+- Always-on brief: every task brief opens with a "You and this workspace"
+  block — user profile, latest session summary, and recent durable
+  long-term memories. Exam: 0/3 → 3/3 inside the token ceiling; older
+  fixtures without the block still pass.
+- Long-term self-maintenance (rule leg, no LLM required):
+  - Explicit requests (MCP `longTerm: true`, CLI add/promote) auto-qualify
+    on the spot instead of waiting for a manual review.
+  - Stale qualified/approved records auto-archive after 30 days without
+    activity; newer records auto-supersede same-title records in the same
+    scope/kind.
+  - Runs in the existing durable maintenance lane (`long-term-maintenance`
+    job kind): once at session startup, again after each explicit
+    promotion, then a daily reschedule heartbeat. Candidates are never
+    auto-advanced; approved records are never auto-archived unless stale.
+  - Exam: `tests/evaluation/long-term-maintenance.test.ts` 0/4 → 4/4,
+    deterministic and offline.
 - Exams live in `tests/evaluation/` and are deterministic and offline.
 
 ## Active Objectives

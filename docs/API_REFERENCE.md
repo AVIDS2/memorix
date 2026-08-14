@@ -223,7 +223,7 @@ Important inputs:
 - optional `relatedCommits`
 - optional `relatedEntities`
 - optional `visibility`: `project` (default), `personal`, or `team`
-- optional `longTerm`: an explicit source-backed long-term candidate with `kind` (`episodic`, `semantic`, or `procedural`), an optional `scope` (`project`, `user`, or `team`), tags, and applicability
+- optional `longTerm`: an explicit source-backed long-term record with `kind` (`episodic`, `semantic`, or `procedural`), an optional `scope` (`project`, `user`, or `team`), tags, and applicability
 
 Visibility controls who can retrieve a record through agent-facing memory
 tools. Normal memories default to `project`. `personal` and `team` writes
@@ -236,11 +236,15 @@ files, `memorix_store` returns without writing. Use `overrideReadOnly: true`
 only when the user explicitly asks to preserve a record during that task.
 
 `longTerm` is deliberately opt-in. It stores the normal Observation first, then
-creates a separate candidate with an evidence reference. Candidates are not
-inserted into a Task Workset. Review them with `memorix memory long-term
-list|show|qualify|approve|archive|supersede`. Source-derived entries remain
+creates a separate record with an evidence reference. Because an explicit
+request carries its own source evidence, the new record is auto-qualified on
+the spot and enters Task Worksets as durable context; approval remains an
+explicit operator review. Manage records with `memorix memory long-term
+list|show|approve|archive|supersede`. Source-derived entries remain
 project-bound; only a manual or user-confirmed `user + portable` record created
 through the CLI may cross local projects for the same local installation.
+Hook-captured and git-derived candidates stay in the candidate state until
+qualified.
 
 Example:
 

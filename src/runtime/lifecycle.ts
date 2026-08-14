@@ -84,6 +84,25 @@ export function enqueueObservationQualification(input: {
 }
 
 /**
+ * Long-term memory maintains itself on a daily rule leg: stale active records
+ * archive themselves and newer records supersede same-title older ones. No
+ * LLM required; enqueueing is a durable no-op when nothing is due.
+ */
+export function enqueueLongTermMaintenance(input: {
+  dataDir: string;
+  projectId: string;
+  source: string;
+  queue?: MaintenanceQueue;
+}): void {
+  queueFor(input).enqueue({
+    projectId: input.projectId,
+    kind: 'long-term-maintenance',
+    dedupeKey: 'long-term-maintenance',
+    payload: { source: input.source },
+  });
+}
+
+/**
  * The follow-up jobs operate on the same workspace the Workset reads: a
  * versioned workspace when present, otherwise the local workspace.
  */

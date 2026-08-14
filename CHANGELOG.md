@@ -2,6 +2,60 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.4.6] - 2026-08-14
+
+### Added
+- **Memory-native brief block** -- Every task brief opens with a "You and
+  this workspace" block: the user profile (personal `user-profile`
+  observations), the latest ended session summary, and recent durable
+  long-term memories, all inside the existing token budget. Older callers
+  and fixtures without the block are unaffected.
+- **Long-term memory self-maintenance (rule leg, no LLM required)** --
+  Explicit long-term requests (MCP `longTerm: true`, CLI add/promote)
+  auto-qualify on the spot instead of waiting for a manual review;
+  hook-captured and Git-derived candidates keep the review path. Stale
+  qualified/approved records auto-archive after 30 days without activity,
+  and a newer record auto-supersedes same-title records in the same scope
+  and kind. Maintenance runs in the existing durable lane at session start,
+  after each explicit promotion, then on a daily heartbeat. Approval stays
+  an explicit operator action.
+- **`memorix purge`** -- Retires the current project's memories from
+  retrieval (`--all` for every project, `--yes` required outside a
+  terminal). Observations and long-term records are archived, never
+  hard-deleted, so the audit trail survives.
+- **Eval coverage** -- New deterministic, offline exams pin the always-on
+  brief, long-term maintenance, profile parity, purge safety, git ingest
+  policy, media schema honesty, and server config defaults.
+
+### Changed
+- **Installed tool profile matches taught tools** -- `memorix setup` and
+  every plugin template now run `memorix serve --mode lite`, so the tools
+  taught in generated guidance (sessions, timeline, reasoning, retention)
+  actually exist. Repo guidance marks the full-only tools
+  (`promote`, `rules_sync`, `workspace_sync`) with `MEMORIX_MODE=full`.
+- **Honest media schema** -- With the generation/transcription gates
+  closed, `memorix_media` no longer advertises `generate-image`,
+  `generate-video`, or `derive-audio` (or their parameters); agents see
+  only what the operator enabled.
+- **Config that does something** -- `[server].port` and
+  `[server].dashboardPort` are now real startup defaults for `serve-http`
+  and `dashboard`; `git.ingest_on_commit` actually gates post-commit
+  ingestion and `git.max_diff_size` caps captured diff content. The
+  never-consumed `mcpServers` key was removed from `memorix.yml`
+  (unknown keys are ignored), and `[team]`/`[hooks]` are documented as
+  parsed-but-reserved.
+
+### Fixed
+- **Guidance hygiene** -- Generated agent guidance now teaches
+  store-the-underivable, dual-channel feedback, verify-before-use, the
+  ignore contract, user-profile capture, and session-end summaries.
+- **Session search dedup** -- `memorix_search` demotes rows already shown
+  in the same session (duplicate rate 25% → 19% in the replay exam, hits
+  and token budget unchanged).
+- **Dead code removal** -- Removed the superseded slash-REPL, the legacy
+  in-memory team layer, retired TUI components, and duplicate commands
+  (about 4,600 net lines), each verified unreferenced before deletion.
+
 ## [1.4.5] - 2026-08-14
 
 ### Added

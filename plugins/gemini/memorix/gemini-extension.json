@@ -1,6 +1,6 @@
 {
   "name": "memorix",
-  "version": "1.4.5",
+  "version": "1.4.6",
   "mcpServers": {
     "memorix": {
       "command": "memorix",

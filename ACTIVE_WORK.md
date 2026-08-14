@@ -10,10 +10,11 @@
 
 - `1.4.5` is the current published release on npm, the official MCP
   Registry, and GitHub Releases.
-- The memory-native work continues on the 1.4.x line (no 1.5.0 rush): the
-  always-on "You and this workspace" block ships in every task brief, and
-  long-term memory now maintains itself on a deterministic rule leg. All
-  changes are score-verified before they land. Publication waits for
+- The memory-native work continues on the 1.4.x line (no 1.5.0 rush). It is
+  implemented, tested, and merged on `main`, but **not yet in a published
+  release**: the always-on "You and this workspace" brief block and the
+  long-term memory rule-leg self-maintenance ship with the next release.
+  All changes are score-verified before they land. Publication waits for
   maintainer approval.
 
 ## Memory Hygiene Main Line (1.4.x, measured)
@@ -24,8 +25,8 @@
 - Guidance hygiene: generated guidance now teaches store-the-underivable,
   dual-channel feedback (record successes too), verify-before-use, and the
   ignore contract. Guidance exam: 0/4 → 4/4 rules inside the ceiling.
-- Data-dir boundary pinned by regression test (project config cannot
-  redirect storage).
+- Data-dir boundary pinned by `tests/config/data-dir-boundary.test.ts`
+  (project config cannot redirect storage).
 - Always-on brief: every task brief opens with a "You and this workspace"
   block — user profile, latest session summary, and recent durable
   long-term memories. Exam: 0/3 → 3/3 inside the token ceiling; older
@@ -42,6 +43,13 @@
     auto-advanced; approved records are never auto-archived unless stale.
   - Exam: `tests/evaluation/long-term-maintenance.test.ts` 0/4 → 4/4,
     deterministic and offline.
+- Cold-feature sweep (2026-08-14, five-way audit of the whole surface):
+  the "taught tools vs installed profile" gap is fixed — `memorix setup`
+  now installs `--mode lite` and the repo guidance marks full-only tools;
+  `memorix purge` gives memory retirement a real CLI entry; git
+  `ingest_on_commit`/`max_diff_size` now actually gate ingestion; the
+  media MCP schema hides gated actions; dead code removal, config honesty,
+  and doc corrections land in the same batch. Exams added per item.
 - Exams live in `tests/evaluation/` and are deterministic and offline.
 
 ## Active Objectives

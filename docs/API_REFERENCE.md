@@ -544,6 +544,21 @@ Use it to inspect:
 - stage timing
 - recent pipeline behavior
 
+### `memorix_audit_project`
+
+Scan the current project for observations that may have been written to the
+wrong project bucket — entities that appear exclusively in a different
+project. Read-only; nothing is changed.
+
+Available in the `full` tool profile (`MEMORIX_MODE=full` or `--mode full`).
+
+Important inputs:
+
+- optional `threshold` — minimum occurrences in another project to flag
+  (default: 2)
+
+Archive confirmed mis-attributed observations with `memorix_resolve`.
+
 ---
 
 ## 7. Skills and Promotion Tools

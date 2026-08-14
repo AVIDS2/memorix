@@ -435,7 +435,7 @@ This opens memcode, a terminal coding agent that uses the same Memorix project m
 
 Search is project-scoped by default. `scope="global"` searches across projects. The search boosts Git Memory for "what changed" questions and reasoning records for "why" questions.
 
-Long-term memory is deliberately not an automatic dump of every note. A source observation, Claim, workflow, session, and code snapshot keep their existing roles. An agent may ask `memorix_store` to create an additional long-term **candidate**, but candidates never enter task context. Use `memorix memory long-term qualify|approve|archive|supersede` to record the evidence-backed lifecycle. Only a manually created or user-confirmed `user + portable` item may be considered in another local project; project code, Git facts, tests, workflows, sessions, and observations cannot be promoted into portable user memory.
+Long-term memory is deliberately not an automatic dump of every note. A source observation, Claim, workflow, session, and code snapshot keep their existing roles. An agent may ask `memorix_store` to create an additional long-term record; an explicit request auto-qualifies and enters task briefs as a durable anchor, while hook-captured or Git-derived candidates stay pending until qualified. Approval stays an explicit operator review. Use `memorix memory long-term approve|archive|supersede` to record the evidence-backed lifecycle. Only a manually created or user-confirmed `user + portable` item may be considered in another local project; project code, Git facts, tests, workflows, sessions, and observations cannot be promoted into portable user memory.
 
 `memorix context "..."` is the default Memory Autopilot entry. It builds a compact task-lensed brief for agents: bugfix tasks lean toward tests and repros, release tasks lean toward package/changelog/build checks, onboarding tasks lean toward docs and entry points, and stale or unrelated memories stay in warning lanes instead of flooding the prompt. A normal new task does not receive an old-session dump. For an explicit continuation, `memorix resume "..."` adds only the latest useful session summary, up to three readable durable anchors, and at most one recent source-labelled host compact checkpoint. A durable anchor carries a `durable:<id>` reference, so an agent can expand the full reviewed record through `memorix_detail` only when needed. Keyword matches stay primary; when no reviewed durable item matches and an embedding provider is configured, Memorix makes one 1.8-second, no-retry semantic fallback for paraphrases or cross-language tasks. A slow or unavailable provider simply leaves the normal keyword-only Workset intact. A checkpoint is lifecycle evidence, not durable memory or a transcript backup. Agents should read the suggested files before trusting stored memory.
 
@@ -450,12 +450,15 @@ Long-term memory is deliberately not an automatic dump of every note. A source o
 | Debug HTTP MCP in the foreground | `memorix serve-http --port 3211` |
 | Inspect or manage memory directly | `memorix memory`, `memorix reasoning`, `memorix session`, `memorix ingest`, `memorix media` |
 | Manage reviewed long-term memory | `memorix memory long-term list|show|add|promote|qualify|approve|archive|supersede` |
+| Retire memories from retrieval | `memorix purge` (current project), `memorix purge --all --yes` (everything) |
 | Inspect native compaction continuity | `memorix checkpoint list|show|context|archive` |
 | Use the interactive terminal memory control plane | `memorix workbench` |
 | Use the bundled terminal agent | `memorix` or `memcode` |
 | Run orchestrated subagent work | `memorix orchestrate --goal "..."` |
 
-`memorix serve` defaults to `--mode micro` (9 tools) to keep MCP tool schemas small for agents. Use `--mode lite` for the extended solo memory surface, `--mode team` for coordination tools, or `--mode full` for advanced and compatibility tools such as checkpoint inspection.
+`memorix serve` defaults to `--mode micro` (9 tools) to keep MCP tool schemas small for agents. `memorix setup` writes `--mode lite` into the installed MCP config so every tool taught in the generated guidance is reachable. Use `--mode team` for coordination tools, or `--mode full` for advanced and compatibility tools such as checkpoint inspection.
+
+Shortcuts and aliases: `memorix search` / `remember` / `recent` are direct query shortcuts, `bg`/`bs` start the background service, `hook` runs the hook launcher, and `memorix config get|path|migrate` inspects or migrates config files.
 
 `memorix orchestrate` uses the current checkout for single-worker runs. When running multiple workers, it creates task worktrees under `.worktrees/` and merges successful task branches back. Use `--isolated` to force worktree isolation for one worker, `--no-worktree` to disable it, `--allow-dirty` to run with uncommitted changes, and `--no-auto-merge` to preserve task worktrees for manual review.
 

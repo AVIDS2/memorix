@@ -21,6 +21,11 @@ import { normalizeHookInput } from './normalizer.js';
 import { detectBestPattern, patternToObservationType } from './pattern-detector.js';
 import { isSignificantKnowledge, isRetrievedResult, isTrivialCommand } from './significance-filter.js';
 import type { AgentName, HookEvent, HookOutput, NormalizedHookInput } from './types.js';
+import {
+  hookObservationRuntimeOptions,
+  readHookStdin,
+  resolveHookStdinTimeoutMs,
+} from './lifecycle.js';
 
 type HookInjectionMode = 'full' | 'minimal' | 'silent';
 type HookContextTarget = 'hook-session-start' | 'hook-user-prompt';
@@ -762,23 +767,9 @@ export function formatHookOutput(
  * Called by the CLI: `memorix hook`
  */
 export async function runHook(agentOverride?: string, eventOverride?: string): Promise<void> {
-  // Read stdin with a timeout — some hosts (e.g. Gemini CLI) may not close
-  // stdin promptly, causing `for await` to hang until the process is killed.
-  const rawInput = await new Promise<string>((resolve) => {
-    const chunks: Buffer[] = [];
-    const finish = () => resolve(Buffer.concat(chunks).toString('utf-8').trim());
-
-    // Hard timeout: resolve with whatever we have after 3 s
-    const timer = setTimeout(() => {
-      process.stdin.removeAllListeners('data');
-      process.stdin.removeAllListeners('end');
-      finish();
-    }, 3_000);
-
-    process.stdin.on('data', (chunk: Buffer) => { chunks.push(chunk); });
-    process.stdin.on('end', () => { clearTimeout(timer); finish(); });
-    process.stdin.on('error', () => { clearTimeout(timer); finish(); });
-  });
+  // Some hosts (e.g. Gemini CLI) may not close stdin promptly. Bound the
+  // read and release the stream so an open pipe cannot keep Node alive.
+  const rawInput = await readHookStdin(process.stdin, resolveHookStdinTimeoutMs());
 
   if (!rawInput) {
     process.stdout.write(JSON.stringify({ continue: true }));
@@ -841,7 +832,7 @@ export async function runHook(agentOverride?: string, eventOverride?: string): P
       await initObservationStore(dataDir);
       await initMSStore(dataDir);
       await initSessStore(dataDir);
-      await initObservations(dataDir);
+      await initObservations(dataDir, hookObservationRuntimeOptions(rawProject.rootPath));
       await storeObservation({ ...observation, projectId, sourceDetail: 'hook' });
       // Automatic capture is deliberately quiet. Candidate state and later
       // qualification are visible through Memorix inspection, not injected as

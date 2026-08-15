@@ -153,6 +153,7 @@ function estimateFileSize(agent: string, configPath: string): string {
     opencode: '~3KB',
     trae: '~1KB',
     dsh: '~1KB',
+    workbuddy: '~1KB',
   };
   return sizes[agent] || '~2KB';
 }
@@ -174,6 +175,8 @@ function getRulesPath(agent: string, cwd: string, global: boolean): string {
         return path.join(home, '.trae', 'rules', 'project_rules.md');
       case 'dsh':
         return path.join(process.env.DSH_HOME?.trim() || path.join(home, '.dsh'), 'AGENTS.md');
+      case 'workbuddy':
+        return '';
       default:
         return '';
     }
@@ -190,6 +193,8 @@ function getRulesPath(agent: string, cwd: string, global: boolean): string {
       case 'trae':
         return path.join(cwd, '.trae', 'rules', 'project_rules.md');
       case 'dsh':
+        return path.join(cwd, 'AGENTS.md');
+      case 'workbuddy':
         return path.join(cwd, 'AGENTS.md');
       default:
         return '';

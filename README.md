@@ -6,7 +6,7 @@
 
 <p align="center">
   <strong>Local-first shared memory layer for AI coding agents.</strong><br>
-  One project memory system for Claude Code, Codex, CodeBuddy Code, Cursor, Windsurf, Copilot, Gemini CLI, OpenCode, OpenClaw, Hermes Agent, Oh-my-Pi, Pi, Kiro, Antigravity, Trae, DeepSeek Harness, and any MCP-capable agent.
+  One project memory system for Claude Code, Codex, CodeBuddy Code, Cursor, Windsurf, Copilot, Gemini CLI, OpenCode, OpenClaw, Hermes Agent, Oh-my-Pi, Pi, Kiro, Antigravity, Trae, DeepSeek Harness, WorkBuddy, and any MCP-capable agent.
 </p>
 
 <p align="center">
@@ -198,7 +198,7 @@ Integration surfaces:
 | Plugin or bundle package | Installs plugin, compatible-bundle, or package files where the agent supports them | Claude Code, Codex, CodeBuddy Code, GitHub Copilot CLI, Antigravity, OpenClaw, Hermes Agent, Oh-my-Pi, Pi |
 | Extension | Installs extension files where the agent supports them | Gemini CLI |
 | Local plugin | Installs local plugin files where the agent loads them directly | OpenCode |
-| MCP/rules config | Writes MCP, rules, steering, guidance, or hook config for IDEs and agents that expose those surfaces | Cursor, Windsurf, Kiro, Trae, DeepSeek Harness |
+| MCP/rules config | Writes MCP, rules, steering, guidance, or hook config for IDEs and agents that expose those surfaces | Cursor, Windsurf, Kiro, Trae, DeepSeek Harness, WorkBuddy |
 | Skills | Turns durable project knowledge into reusable task guidance | `memorix skills` and `memorix_promote` |
 | memcode | Opens the bundled terminal agent that already uses Memorix memory | `memorix` or `memcode` |
 
@@ -260,6 +260,7 @@ memorix setup --agent hermes --global
 memorix setup --agent codebuddy --global
 memorix setup --agent omp --global
 memorix setup --agent dsh --global
+memorix setup --agent workbuddy --global
 ```
 
 What it installs depends on the target agent, but the goal is the same: make Memorix available wherever you open that agent without asking you to wire every repo by hand.
@@ -278,6 +279,7 @@ What it installs depends on the target agent, but the goal is the same: make Mem
 - CodeBuddy Code: installs a user-scope local marketplace plugin under `~/.codebuddy/memorix-local` with MCP, skills, and hooks. It does not change existing CodeBuddy model, permission, or settings files; CodeBuddy keeps third-party hook approval in its own `/hooks` flow.
 - Oh-my-Pi: installs an `omp.extensions` package with extension hook events, a `memorix` command, official skills, and writes MCP config.
 - DeepSeek Harness: writes a Memorix `@deepseek-ai/dsh-mcp-client` row into `$DSH_HOME/cordis.patch.yml` (default `~/.dsh/cordis.patch.yml`), appends guidance to the harness `AGENTS.md`, and installs official skills under `$DSH_HOME/skills`. The row follows DSH's own shipped Memorix reference, so tools appear as `mcp__memorix__*`.
+- WorkBuddy: writes a Memorix MCP server row into `~/.workbuddy/mcp.json`, appends guidance to `AGENTS.md`, and installs official skills under `~/.workbuddy/skills`. Tools appear as `mcp__memorix__*`; there is no hooks surface.
 
 Need a quieter install? Add `--noHooks` for targets where setup can control hook capture separately from the host's official package entry. It keeps MCP and guidance, but skips Memorix hook capture.
 

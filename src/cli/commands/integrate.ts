@@ -115,6 +115,7 @@ function getAgentLabel(agent: string): string {
     'gemini-cli': 'Gemini CLI',
     trae: 'Trae',
     dsh: 'DeepSeek Harness',
+    workbuddy: 'WorkBuddy',
   };
   return labels[agent] || agent;
 }
@@ -132,6 +133,7 @@ function getAgentHint(agent: string): string {
     'gemini-cli': 'settings + GEMINI.md',
     trae: 'rules',
     dsh: 'MCP patch + AGENTS.md + skills',
+    workbuddy: 'MCP + AGENTS.md + skills',
   };
   return hints[agent] || 'integration files';
 }

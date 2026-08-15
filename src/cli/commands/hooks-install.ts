@@ -160,6 +160,7 @@ function getAgentLabel(agent: string): string {
     omp: 'Oh-my-Pi',
     trae: 'Trae',
     dsh: 'DeepSeek Harness',
+    workbuddy: 'WorkBuddy',
   };
   return labels[agent] || agent;
 }
@@ -179,6 +180,7 @@ function getAgentHint(agent: string): string {
     omp: 'Oh-my-Pi package hooks; use `memorix setup --agent omp`',
     trae: '.trae/rules/project_rules.md (rules only, no hooks system)',
     dsh: '~/.dsh/cordis.patch.yml MCP row via `memorix setup --agent dsh` (no hooks system)',
+    workbuddy: '~/.workbuddy/mcp.json MCP row via `memorix setup --agent workbuddy` (no hooks system)',
     codex: 'Codex plugin hooks; use `memorix setup --agent codex`',
   };
   return hints[agent] || '';

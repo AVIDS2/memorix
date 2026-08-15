@@ -363,6 +363,9 @@ const AGENT_SKILL_DIRS: Partial<Record<AgentName, { project: string; global?: st
   // DSH's user skill root is <harness home>/skills; the global root below is
   // resolved to $DSH_HOME (or ~/.dsh) for dsh by installOfficialSkillsForAgent.
   dsh: { project: path.join('.dsh', 'skills'), global: 'skills' },
+  // WorkBuddy keeps user-level skills under ~/.workbuddy/skills and
+  // project-level skills under <project>/.workbuddy/skills.
+  workbuddy: { project: path.join('.workbuddy', 'skills'), global: path.join('.workbuddy', 'skills') },
 };
 
 const PACKAGE_OWNED_HOOK_AGENTS = new Set<AgentName>(['openclaw', 'hermes', 'omp']);
@@ -697,6 +700,9 @@ export function getGlobalConfigPath(agent: AgentName): string {
     case 'dsh':
       // DSH reads the user-global AGENTS.md from its harness home.
       return path.join(process.env.DSH_HOME?.trim() || path.join(home, '.dsh'), 'AGENTS.md');
+    case 'workbuddy':
+      // WorkBuddy has no user-global instructions file — guidance is project-only.
+      return '';
     default:
       return path.join(home, '.memorix', 'hooks.json');
   }
@@ -725,6 +731,9 @@ export function getAgentRulesPath(agent: AgentName, root: string, global = false
       case 'dsh':
         // The user-global AGENTS.md lives in the harness home DSH reads.
         return path.join(process.env.DSH_HOME?.trim() || path.join(root, '.dsh'), 'AGENTS.md');
+      case 'workbuddy':
+        // WorkBuddy has no user-global instructions file — guidance is project-only.
+        return '';
       default:
         return path.join(root, '.agent', 'rules', 'memorix.md');
     }
@@ -751,6 +760,8 @@ export function getAgentRulesPath(agent: AgentName, root: string, global = false
     case 'trae':
       return path.join(root, '.trae', 'rules', 'project_rules.md');
     case 'dsh':
+      return path.join(root, 'AGENTS.md');
+    case 'workbuddy':
       return path.join(root, 'AGENTS.md');
     default:
       return path.join(root, '.agent', 'rules', 'memorix.md');
@@ -865,6 +876,12 @@ export async function detectInstalledAgents(): Promise<AgentName[]> {
   try {
     await fs.access(dshDir);
     agents.push('dsh');
+  } catch { /* not installed */ }
+
+  // Check for WorkBuddy (its user-level home dir ~/.workbuddy)
+  try {
+    await fs.access(path.join(home, '.workbuddy'));
+    agents.push('workbuddy');
   } catch { /* not installed */ }
 
   return agents;
@@ -984,6 +1001,22 @@ export async function installHooks(
           events: [],
           generated: {
             note: 'DeepSeek Harness has no hook system — installed AGENTS.md guidance and skills; the MCP row is installed by `memorix setup --agent dsh`.',
+            ...(skillPaths.length > 0 ? { skillPaths, skillPath: skillPaths[0] } : {}),
+          },
+        };
+      }
+    case 'workbuddy':
+      // WorkBuddy has no hook system — install AGENTS.md guidance and
+      // skills; the MCP row is installed by `memorix setup --agent workbuddy`.
+      {
+        const rulesPath = await installAgentRules(agent, projectRoot, global);
+        const skillPaths = await installOfficialSkillsForAgent(agent, projectRoot, global);
+        return {
+          agent,
+          configPath: rulesPath,
+          events: [],
+          generated: {
+            note: 'WorkBuddy has no hook system — installed AGENTS.md guidance and skills; the MCP row is installed by `memorix setup --agent workbuddy`.',
             ...(skillPaths.length > 0 ? { skillPaths, skillPath: skillPaths[0] } : {}),
           },
         };
@@ -1161,6 +1194,8 @@ export async function installHooks(
  * Rules instruct the agent to proactively use memorix for context continuity.
  */
 async function installAgentRules(agent: AgentName, projectRoot: string, global = false): Promise<string> {
+  // WorkBuddy has no user-global instructions file — guidance is project-only.
+  if (agent === 'workbuddy' && global) return '';
   const rulesContent = getAgentRulesContent(agent, global ? 'global' : 'project');
   const rulesRoot = global ? os.homedir() : projectRoot;
   const rulesPath = getAgentRulesPath(agent, rulesRoot, global);

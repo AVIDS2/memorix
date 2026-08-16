@@ -4,22 +4,54 @@
 > before resuming substantial work, update it after a material decision or
 > milestone, and do not create parallel progress logs.
 
-**Last updated:** 2026-08-16
+**Last updated:** 2026-08-17
 
 ## Current Product State
 
-- `1.5.0` is the current published release (2026-08-14) on npm, the
-  official MCP Registry, and GitHub Releases.
-- 1.5.0 is the stability release: the deterministic stress-exam matrix
+- `1.5.1` is the current published release (2026-08-16) on npm, the
+  official MCP Registry, and GitHub Releases. It is the reliability patch for
+  bounded formation cancellation and provider-error handling. A separate
+  Registry-only publish path now keeps the official MCP Registry current when
+  npm was already published manually.
+- `1.5.0` is the underlying stability release: the deterministic stress-exam matrix
   (corpus, concurrency, session churn, long-term scale, CLI repeat) runs in
   the normal suite, the OpenRouter embedding lane was verified live
   (`qwen/qwen3-embedding-8b`, 4096d), and the embedding default is now
   provider-aware. Everything from the 1.4.6 memory-native line carries
   forward.
-- `1.5.1` is the next target: a reliability patch. It must keep the 1.5.0
-  stress gate green while closing cancellation and non-retryable embedding
-  error leaks. The separate hook process-lifecycle fix in contributor PR #206
-  remains independently reviewed and attributed.
+- Contributor PR #206 remains independently reviewed and attributed. It is a
+  distinct hook process-lifecycle fix for issue #205; its author needs to
+  update one stale static test before it can merge.
+
+## Agent-Memory Landscape Decision (2026-08-17)
+
+Current ecosystem research focused on TencentDB Agent Memory v2 and the
+upstream CodeGraph project. The signal is not that Memorix should become a
+remote "memory hub" or duplicate a parser engine. The useful direction is a
+local, evidence-bound coding-memory product with a first-class semantic code
+provider when the operator chooses one.
+
+- Tencent's product model unifies chat memory, skills, wiki pages, and code
+  graphs as assignable assets. Its useful lessons are explicit readiness,
+  compact session bootstrap, background processing receipts, and showing an
+  Agent what assets are active. Its recent beta issue stream also demonstrates
+  the operational cost of central queues, transactions, and broad proxy
+  interception.
+- Memorix keeps its differentiator: its canonical evidence is the current
+  local Git worktree, versioned code state, reviewed knowledge, and task-sized
+  worksets. It must not clone private repositories to a service, intercept all
+  model traffic through a proxy, alter unrelated Agent configuration, or
+  present a generated graph as authoritative source truth.
+- The bundled Lite index is a useful local structural fallback, not a semantic
+  CodeGraph. A healthy external CodeGraph already adds semantic context, but
+  the UX currently describes persisted Lite state and semantic overlay state
+  separately. This must become one explicit receipt: what was used for this
+  task, its freshness, coverage, limits, and the token budget delivered.
+- The first product slice is therefore: keep JSON/context output genuinely
+  bounded by default; make Code State versus Semantic CodeGraph unambiguous;
+  then add an opt-in CodeGraph lifecycle adapter (detect, initialize, observe
+  freshness, and queue bounded sync). It must never run an upstream installer
+  that edits the user's Agent configuration.
 
 ## 1.5.0 Stability Main Line (stress-tested, measured)
 
@@ -121,16 +153,12 @@
 
 ## Immediate Next Step
 
-- 1.5.1 reliability line in progress on `codex/1.5.1-reliability`:
-  embedding HTTP 402/401 errors no longer trigger recursive batch shrinking;
-  response-body parsing and retry waits obey abort signals; formation LLM and
-  vector search receive a shared deadline. Focused tests, the full 2,836-test
-  suite, lint, and build pass on the branch.
-- Contributor PR #206 addresses the distinct `memorix hook` process leak
-  reported in #205: hard hook deadline, stdin release, deferred embeddings,
-  and a smaller hook heap. It is not merged yet because Ubuntu CI is red on a
-  static Windows banner assertion; the author should fix that test and rerun
-  CI before merge.
+- Prepare the bounded-context and semantic-CodeGraph UX slice as a standalone
+  specification with compatibility tests. Do not make it a giant memory-hub
+  rewrite or a new MCP tool surface.
+- Keep contributor PR #206 separate: its hook deadline, stdin release,
+  deferred embeddings, and smaller hook heap are valuable, but the author
+  should update the failing static test and rerun CI before review/merge.
 
 The #174 controlled audio derivations, #175 governed one-hop graph evidence,
 #185 CodeBuddy integration, and #184 Star History CI verification are merged

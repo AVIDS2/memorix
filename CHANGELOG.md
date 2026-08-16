@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- **Optional HTTP rerank** -- Thorough/heavy/ambiguous search can reorder
+  top hits through a configurable Cohere-compatible `POST {base_url}/rerank`
+  endpoint (`{model, query, documents}`). Works with Cohere, Jina, TEI, vLLM,
+  or any compatible `/rerank` API. Configure `[rerank]` or `MEMORIX_RERANK_*`;
+  base URL and bearer inherit the memory LLM lane when unset. The model id is
+  user-configured. LLM rerank remains the fallback.
+
 ## [1.6.0] - 2026-08-17
 
 ### Added

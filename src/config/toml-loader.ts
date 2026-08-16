@@ -28,6 +28,13 @@ export interface MemorixTomlConfig {
     api_key?: string;
     dimensions?: number;
   };
+  /** Optional HTTP rerank against a compatible /rerank API. */
+  rerank?: {
+    provider?: 'off' | 'jina' | 'http' | string;
+    model?: string;
+    base_url?: string;
+    api_key?: string;
+  };
   hooks?: {
     native_memcode?: boolean;
     external_agents?: boolean;
@@ -97,6 +104,7 @@ function mergeTomlConfig(base: MemorixTomlConfig, override: MemorixTomlConfig): 
       llm: { ...base.memory?.llm, ...override.memory?.llm },
     },
     embedding: { ...base.embedding, ...override.embedding },
+    rerank: { ...base.rerank, ...override.rerank },
     hooks: { ...base.hooks, ...override.hooks },
     git: { ...base.git, ...override.git },
     codegraph: { ...base.codegraph, ...override.codegraph },

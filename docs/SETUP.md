@@ -492,7 +492,8 @@ What each lane does:
 | Lane | Used by |
 | --- | --- |
 | `[agent]` | model used by memcode while coding |
-| `[memory.llm]` | memory formation, summaries, deduplication, optional rerank |
+| `[memory.llm]` | memory formation, summaries, deduplication, optional LLM rerank fallback |
+| `[rerank]` | optional HTTP rerank against a compatible `/rerank` API |
 | `[embedding]` | semantic/vector search |
 | `[memory]` | memory injection and formation behavior |
 | `[git]` | Git Memory hook and ingestion behavior |

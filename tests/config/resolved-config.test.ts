@@ -7,6 +7,7 @@ import {
   getResolvedConfigForCwd,
   getResolvedEmbeddingLane,
   getResolvedMemoryLane,
+  getResolvedRerankLane,
   resetResolvedConfigCache,
 } from '../../src/config/resolved-config.js';
 import { resetTomlConfigCache } from '../../src/config/toml-loader.js';
@@ -32,6 +33,10 @@ const ENV_KEYS = [
   'MEMORIX_EMBEDDING_BASE_URL',
   'MEMORIX_EMBEDDING_MODEL',
   'MEMORIX_EMBEDDING_DIMENSIONS',
+  'MEMORIX_RERANK_PROVIDER',
+  'MEMORIX_RERANK_MODEL',
+  'MEMORIX_RERANK_BASE_URL',
+  'MEMORIX_RERANK_API_KEY',
   'MEMORIX_CODEGRAPH_EXTERNAL_CONTEXT',
   'MEMORIX_CODEGRAPH_EXTERNAL_COMMAND',
   'MEMORIX_CODEGRAPH_EXTERNAL_TIMEOUT_MS',
@@ -195,6 +200,39 @@ describe('resolved config', () => {
     expect(cfg.git.maxDiffSize).toBe(2048);
     expect(cfg.git.skipMergeCommits).toBe(false);
     expect(cfg.git.excludePatterns).toEqual(['dist/**', '*.lock']);
+  });
+
+  it('resolves HTTP rerank from env above TOML and inherits the LLM bearer', () => {
+    writeFileSync(join(HOME, '.memorix', 'config.toml'), [
+      '[memory.llm]',
+      'base_url = "https://llm.example/v1"',
+      'api_key = "llm-key"',
+      '',
+      '[rerank]',
+      'provider = "http"',
+      'model = "rerank-v3.5"',
+    ].join('\n'), 'utf8');
+    process.env.MEMORIX_RERANK_PROVIDER = 'http';
+
+    const lane = getResolvedRerankLane({ projectRoot: null, homeDir: HOME });
+
+    expect(lane.provider).toBe('http');
+    expect(lane.model).toBe('rerank-v3.5');
+    expect(lane.baseUrl).toBe('https://llm.example/v1');
+    expect(lane.apiKey).toBe('llm-key');
+    expect(getResolvedConfig({ projectRoot: null, homeDir: HOME }).sources.env).toContain('MEMORIX_RERANK_PROVIDER');
+  });
+
+  it('keeps a public Jina-compatible host when the user configured it', () => {
+    process.env.MEMORIX_RERANK_PROVIDER = 'http';
+    process.env.MEMORIX_RERANK_BASE_URL = 'https://api.jina.ai/v1';
+    process.env.MEMORIX_RERANK_MODEL = 'jina-reranker-v2-base-multilingual';
+    process.env.MEMORIX_RERANK_API_KEY = 'jina-key';
+
+    const lane = getResolvedRerankLane({ projectRoot: null, homeDir: HOME });
+    expect(lane.provider).toBe('http');
+    expect(lane.baseUrl).toBe('https://api.jina.ai/v1');
+    expect(lane.model).toBe('jina-reranker-v2-base-multilingual');
   });
 
   it('resolves CodeGraph scan limits from TOML above legacy YAML', () => {

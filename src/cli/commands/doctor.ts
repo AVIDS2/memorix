@@ -486,7 +486,11 @@ export default defineCommand({
       if (isLLMEnabled()) {
         const config = getLLMConfig();
         lines.push(ok(`Provider: ${config?.provider}/${config?.model}`));
-        lines.push(info('Capabilities: fact extraction, auto-dedup, LLM rerank'));
+        const { isNeuralRerankEnabled } = await import('../../rerank/index.js');
+        const rerankCap = isNeuralRerankEnabled()
+          ? 'HTTP rerank, LLM rerank fallback'
+          : 'LLM rerank';
+        lines.push(info(`Capabilities: fact extraction, auto-dedup, ${rerankCap}`));
         report.llm = { enabled: true, provider: config?.provider, model: config?.model };
       } else {
         lines.push(info('LLM mode: off (heuristic dedup only)'));

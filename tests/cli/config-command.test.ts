@@ -156,6 +156,7 @@ describe('memorix config commands', () => {
     expect(notes).toContain('Agent lane');
     expect(notes).toContain('Memory LLM lane');
     expect(notes).toContain('Embedding lane');
+    expect(notes).toContain('Rerank lane');
     expect(notes).toContain('<redacted>');
     expect(notes).not.toContain('status-secret-key');
   });

@@ -75,7 +75,9 @@ On the release development machine used for this check, the healthy HTTP service
 | `MEMORIX_FORMATION_TIMEOUT_MS` | `12000` (12 s) | Raise when LLM-backed formation should outlive slow proxy/provider hops |
 | `MEMORIX_LLM_API_KEY` / `OPENAI_API_KEY` | unset | Enable LLM-backed enrichment, extraction, rerank, or skill generation |
 | `MEMORIX_LLM_TIMEOUT_MS` | `30000` (30 s) | Bound a single LLM-backed extraction/resolve call |
-| `MEMORIX_RERANK_TIMEOUT_MS` | provider default | Bound slow LLM rerank calls |
+| `MEMORIX_RERANK_TIMEOUT_MS` | 5000 | Bound HTTP and LLM rerank calls |
+| `MEMORIX_RERANK_PROVIDER` | `off` | Set `http` to enable optional HTTP rerank |
+| `MEMORIX_RERANK_BASE_URL` | `[memory.llm].base_url` | Compatible `/rerank` API root (path `/rerank` is appended) |
 | `memorix memory search --quality fast` | n/a | Force a fully local retrieval path for a latency-sensitive call |
 | `npm run benchmark:retrieval -- --records 1000 --runs 100` | n/a | Reproduce hot in-process lexical retrieval latency; not an end-to-end claim |
 | `[codegraph].max_file_bytes` | `2097152` | Raise only when a large file is intentional source that should enter Code Memory |

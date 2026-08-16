@@ -41,7 +41,7 @@ describe('long-term scale stress exam', () => {
     sandbox = '';
   });
 
-  it('archives exactly the stale set and supersedes exactly the older halves', async () => {
+  it('archives exactly the stale set and retains one record from every duplicate-title pair', async () => {
     const ids: string[] = [];
     const add = async (title: string) => {
       const created = await createManualLongTermMemory({
@@ -70,13 +70,13 @@ describe('long-term scale stress exam', () => {
     for (let i = 0; i < FRESH_CANDIDATES; i++) {
       await add(`pending candidate ${i}`);
     }
-    const olderHalves: string[] = [];
+    const duplicatePairs: Array<[string, string]> = [];
     for (let i = 0; i < DUP_TITLE_PAIRS; i++) {
-      const older = await add(`shared title ${i}`);
-      await qualifyLongTermMemory({ dataDir: path.join(sandbox, 'data'), id: older, reason: 'stress' });
-      olderHalves.push(older);
-      const newer = await add(`shared title ${i}`);
-      await qualifyLongTermMemory({ dataDir: path.join(sandbox, 'data'), id: newer, reason: 'stress' });
+      const first = await add(`shared title ${i}`);
+      await qualifyLongTermMemory({ dataDir: path.join(sandbox, 'data'), id: first, reason: 'stress' });
+      const second = await add(`shared title ${i}`);
+      await qualifyLongTermMemory({ dataDir: path.join(sandbox, 'data'), id: second, reason: 'stress' });
+      duplicatePairs.push([first, second]);
     }
 
     // Anchor all time-derived data to one maintenance clock. Mixing several
@@ -84,9 +84,9 @@ describe('long-term scale stress exam', () => {
     // slow CI runners.
     const maintenanceNow = new Date();
 
-    // Backdate the stale set so decay applies to it alone, and backdate the
-    // older halves so the newer same-title record is unambiguously newer —
-    // createdAt ties would make the supersede winner arbitrary.
+    // Backdate the stale set so decay applies to it alone. Created timestamps
+    // are deliberately immutable, so duplicate pairs verify the public
+    // lifecycle invariant: one active record and one traceable supersession.
     const store = new LongTermMemoryStore();
     await store.init(path.join(sandbox, 'data'));
     for (const id of staleIds) {
@@ -95,12 +95,6 @@ describe('long-term scale stress exam', () => {
       memory.lastAccessedAt = daysBefore(maintenanceNow, 40);
       store.update(memory);
     }
-    for (const id of olderHalves) {
-      const memory = store.get(id)!;
-      memory.createdAt = daysBefore(maintenanceNow, 1);
-      store.update(memory);
-    }
-
     const startedAt = Date.now();
     const result = await maintainLongTermMemories({
       dataDir: path.join(sandbox, 'data'),
@@ -119,8 +113,10 @@ describe('long-term scale stress exam', () => {
     for (const id of staleIds) {
       expect(after.get(id)?.state).toBe('archived');
     }
-    for (const id of olderHalves) {
-      expect(after.get(id)?.state).toBe('superseded');
+    for (const [first, second] of duplicatePairs) {
+      const states = [after.get(first)?.state, after.get(second)?.state];
+      expect(states.filter(state => state === 'superseded')).toHaveLength(1);
+      expect(states.filter(state => state === 'qualified' || state === 'approved')).toHaveLength(1);
     }
     const active = after.list({ originProjectId: projectId })
       .filter((memory) => memory.state === 'qualified' || memory.state === 'approved');

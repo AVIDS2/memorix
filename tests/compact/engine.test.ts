@@ -358,7 +358,8 @@ describe('Compact Engine', () => {
       expect(result.formatted).toContain('Typed ref obs test');
     });
 
-    it('should accept typed ref strings for mini-skills', async () => {
+    // The first MiniSkill SQLite open can exceed Vitest's default on a cold Windows runner.
+    it('should accept typed ref strings for mini-skills', { timeout: 10_000 }, async () => {
       const { initMiniSkillStore, resetMiniSkillStore } = await import('../../src/store/mini-skill-store.js');
       const { promoteToMiniSkill } = await import('../../src/skills/mini-skills.js');
       await initMiniSkillStore(testDir);

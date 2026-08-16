@@ -4,8 +4,10 @@ import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   MAX_EXTERNAL_CODEGRAPH_OUTPUT_BYTES,
+  EXTERNAL_CODEGRAPH_LIFECYCLE_TIMEOUT_MS,
   getExternalCodeGraphContext,
   inspectExternalCodeGraph,
+  runExternalCodeGraphLifecycle,
   type ExternalCodeGraphRunner,
 } from '../../src/codegraph/external-provider.js';
 
@@ -123,6 +125,25 @@ describe('external CodeGraph provider', () => {
 
     expect(result.quality).toMatchObject({ selected: 'lite', external: { state: 'not-detected' } });
     expect(runner.run).not.toHaveBeenCalled();
+  });
+
+  it('requires explicit initialization before sync and never invokes agent installation', async () => {
+    const projectRoot = mkdtempSync(path.join(tmpdir(), 'memorix-external-codegraph-lifecycle-'));
+    root = projectRoot;
+    const runner: ExternalCodeGraphRunner & { run: ReturnType<typeof vi.fn> } = {
+      run: vi.fn(async () => ({ ok: true, stdout: '' })),
+    };
+
+    const sync = await runExternalCodeGraphLifecycle({ projectRoot, action: 'sync', runner });
+    expect(sync).toMatchObject({ action: 'sync', performed: false, health: { state: 'not-detected' } });
+    expect(runner.run).not.toHaveBeenCalled();
+
+    const init = await runExternalCodeGraphLifecycle({ projectRoot, action: 'init', runner });
+    expect(init.action).toBe('init');
+    expect(init.performed).toBe(true);
+    expect(runner.run.mock.calls[0][0].args).toEqual(['init', projectRoot]);
+    expect(runner.run.mock.calls[0][0].timeoutMs).toBe(EXTERNAL_CODEGRAPH_LIFECYCLE_TIMEOUT_MS);
+    expect(runner.run.mock.calls.flatMap(call => call[0].args)).not.toContain('install');
   });
 
   it('falls back when the external index has pending changes', async () => {

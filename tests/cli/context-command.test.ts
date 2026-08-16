@@ -201,6 +201,31 @@ describe('project context CLI commands', () => {
     expect(parsed.workset.budget.tokenCount).toBeLessThanOrEqual(parsed.workset.budget.maxTokens);
   });
 
+  it('emits a bounded receipt without the detailed stores when brief JSON is requested', async () => {
+    await seedProjectContext();
+
+    const result = await runCommand(contextCommand, {
+      task: 'continue the auth fix',
+      refresh: 'never',
+      briefJson: true,
+      agent: 'codex',
+    });
+
+    expect(result.exitCode).toBe(0);
+    const parsed = JSON.parse(result.stdout);
+    expect(parsed).toMatchObject({
+      schemaVersion: '1',
+      task: 'continue the auth fix',
+      brief: expect.stringContaining('Memorix Autopilot Brief'),
+      receipt: expect.objectContaining({ target: 'project-context' }),
+      code: expect.objectContaining({ selected: 'lite', quality: 'heuristic' }),
+      loadout: expect.objectContaining({ agent: 'codex' }),
+    });
+    expect(parsed.overview).toBeUndefined();
+    expect(parsed.currentFacts).toBeUndefined();
+    expect(parsed.workset).toBeUndefined();
+  });
+
   it('explains where the context came from without exposing storage internals', async () => {
     await seedProjectContext();
 
@@ -307,6 +332,22 @@ describe('project context CLI commands', () => {
     expect(parsed.workset.receipt.selected).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: 'continuation', id: 'session:codex-auth' }),
     ]));
+  });
+
+  it('forwards bounded receipt and agent options through the resume shortcut', async () => {
+    const result = await runCommand(resumeCommand, {
+      task: 'continue the auth fix',
+      refresh: 'never',
+      briefJson: true,
+      agent: 'codex',
+    });
+
+    expect(result.exitCode).toBe(0);
+    const parsed = JSON.parse(result.stdout);
+    expect(parsed.schemaVersion).toBe('1');
+    expect(parsed.loadout?.agent).toBe('codex');
+    expect(parsed).not.toHaveProperty('overview');
+    expect(parsed).not.toHaveProperty('workset');
   });
 
   it('does not inject prior-work context for an unrelated new task', async () => {

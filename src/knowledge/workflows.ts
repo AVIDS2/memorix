@@ -22,7 +22,7 @@ import type {
 } from './workflow-types.js';
 import type { KnowledgeWorkspace } from './workspace-types.js';
 
-const KNOWN_AGENTS: AgentTarget[] = [
+export const WORKFLOW_AGENT_TARGETS: AgentTarget[] = [
   'windsurf',
   'cursor',
   'claude-code',
@@ -117,7 +117,7 @@ function optionalStatus(data: Record<string, unknown>): WorkflowStatus {
 }
 
 function normalizeAgents(values: string[]): AgentTarget[] {
-  const unknown = values.filter(value => !KNOWN_AGENTS.includes(value as AgentTarget));
+  const unknown = values.filter(value => !WORKFLOW_AGENT_TARGETS.includes(value as AgentTarget));
   if (unknown.length > 0) {
     throw new Error('workflow frontmatter has unsupported agent: ' + unknown[0]);
   }
@@ -459,12 +459,15 @@ function taskScore(workflow: WorkflowSpec, task: string): { score: number; reaso
 export function selectWorkflows(input: {
   workflows: WorkflowSpec[];
   task: string;
+  /** Only select workflows that explicitly support the target agent. */
+  agent?: AgentTarget;
   projectId?: string;
   store?: WorkflowStore;
   limit?: number;
 }): WorkflowSelection[] {
   const selected = input.workflows
-    .filter(workflow => workflow.status === 'active')
+    .filter(workflow => workflow.status === 'active'
+      && (!input.agent || workflow.compatibleAgents.includes(input.agent)))
     .map(workflow => {
       const match = taskScore(workflow, input.task);
       const cautions = input.store && input.projectId

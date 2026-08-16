@@ -421,6 +421,31 @@ describe('Tool profile registration', () => {
     expect(text).toContain('run the smallest failing test or repro first');
   }, 30000);
 
+  it('returns a bounded receipt through MCP without exposing the detailed project context', async () => {
+    const dir = await createGitProjectDir('memorix-profile-project-context-receipt-');
+    const { server } = await createMemorixServer(
+      dir,
+      undefined,
+      undefined,
+      { toolProfile: 'micro' } as any,
+    );
+
+    const projectContext = getHandler(server as any, 'memorix_project_context');
+    const parsed = JSON.parse(getText(await projectContext({
+      task: 'fix failing startup smoke', refresh: 'never', format: 'receipt', agent: 'codex',
+    })));
+
+    expect(parsed).toMatchObject({
+      schemaVersion: '1',
+      brief: expect.stringContaining('Memorix Autopilot Brief'),
+      receipt: expect.objectContaining({ target: 'project-context' }),
+      code: expect.objectContaining({ selected: expect.any(String) }),
+      loadout: expect.objectContaining({ agent: 'codex' }),
+    });
+    expect(parsed.overview).toBeUndefined();
+    expect(parsed.workset).toBeUndefined();
+  }, 30000);
+
   it('keeps bounded prior-work evidence when MCP clients request summary format', async () => {
     const dir = await createGitProjectDir('memorix-profile-summary-continuation-');
     const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'memorix-profile-summary-data-'));

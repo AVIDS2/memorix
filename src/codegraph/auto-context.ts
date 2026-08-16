@@ -10,7 +10,7 @@ import {
 } from '../knowledge/workset.js';
 import type { ContextDeliveryTarget } from '../knowledge/context-assembly.js';
 import { sanitizeCredentials } from '../memory/secret-filter.js';
-import type { ObservationReader, ProjectInfo } from '../types.js';
+import type { AgentTarget, ObservationReader, ProjectInfo } from '../types.js';
 import { backfillMissingObservationCodeRefs, type CodeRefBackfillResult } from './binder.js';
 import { collectCurrentProjectFacts, formatGitFact, type CurrentProjectFacts } from './current-facts.js';
 import { refreshProjectLite } from './lite-provider.js';
@@ -189,6 +189,8 @@ export async function buildAutoProjectContext(input: {
   dataDir: string;
   observations: ProjectContextObservation[];
   task?: string;
+  /** Explicit host target for task-compatible workflow selection. */
+  agent?: AgentTarget;
   refresh?: AutoContextRefreshMode;
   maxAgeMs?: number;
   now?: Date;
@@ -426,6 +428,7 @@ export async function buildAutoProjectContext(input: {
     projectId: input.project.id,
     dataDir: input.dataDir,
     ...(task ? { task } : {}),
+    ...(input.agent ? { agent: input.agent } : {}),
     lens: lens.id,
     startHere,
     ...(alwaysOn.profile.length > 0 || alwaysOn.state || alwaysOn.durable.length > 0

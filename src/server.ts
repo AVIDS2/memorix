@@ -1579,13 +1579,17 @@ export async function createMemorixServer(
         refresh: z.enum(['auto', 'always', 'never']).optional().default('auto').describe(
           'Code Memory refresh policy. auto refreshes only when missing or stale.',
         ),
-        format: z.enum(['prompt', 'summary', 'json']).optional().default('prompt').describe(
-          'Output format. "prompt" is agent-ready; "summary" is human-readable; "json" is structured.',
+        format: z.enum(['prompt', 'summary', 'json', 'receipt']).optional().default('prompt').describe(
+          'Output format. "prompt" is agent-ready; "summary" is human-readable; "receipt" is bounded JSON; "json" is detailed diagnostics.',
         ),
+        agent: z.enum([
+          'windsurf', 'cursor', 'claude-code', 'codex', 'copilot', 'antigravity', 'gemini-cli',
+          'openclaw', 'hermes', 'omp', 'kiro', 'opencode', 'trae',
+        ]).optional().describe('Optional target agent for compatible workflow selection.'),
         limit: z.number().optional().describe('Reserved for future source limits; current prompt stays compact by default.'),
       },
     },
-    async ({ task, refresh, format }) => {
+    async ({ task, refresh, format, agent }) => {
       const unresolved = requireResolvedProject('build project context for the current project');
       if (unresolved) return unresolved;
 
@@ -1599,11 +1603,13 @@ export async function createMemorixServer(
         { getObservationStore },
         { MaintenanceJobStore },
         { enqueueCodegraphRefresh },
+        { buildBoundedContextReceipt },
       ] = await Promise.all([
         import('./codegraph/auto-context.js'),
         import('./store/obs-store.js'),
         import('./runtime/maintenance-jobs.js'),
         import('./runtime/lifecycle.js'),
+        import('./knowledge/context-receipt.js'),
       ]);
       const observations = filterReadableObservations(
         await getObservationStore().loadByProject(project.id, { status: 'active' }),
@@ -1614,6 +1620,7 @@ export async function createMemorixServer(
         dataDir: projectDir,
         observations,
         task,
+        agent,
         refresh: refresh ?? 'auto',
         reader: getObservationReader(),
         enqueueRefresh: () => {
@@ -1628,6 +1635,11 @@ export async function createMemorixServer(
       });
       const text = format === 'json'
         ? JSON.stringify({ ...context, brief: buildAutoProjectBrief(context) }, null, 2)
+        : format === 'receipt'
+          ? JSON.stringify(buildBoundedContextReceipt({
+            workset: context.workset,
+            providerQuality: context.providerQuality,
+          }), null, 2)
         : format === 'summary'
           ? formatAutoProjectContextSummary(context)
           : formatAutoProjectContextPrompt(context);

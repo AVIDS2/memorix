@@ -17,6 +17,8 @@ import type {
 // Keep the default useful in real sessions while still bounding a local call.
 export const DEFAULT_EXTERNAL_CODEGRAPH_TIMEOUT_MS = 1_200;
 export const MAX_EXTERNAL_CODEGRAPH_TIMEOUT_MS = 5_000;
+/** Explicit index maintenance is opt-in and may legitimately take longer. */
+export const EXTERNAL_CODEGRAPH_LIFECYCLE_TIMEOUT_MS = 30_000;
 export const MAX_EXTERNAL_CODEGRAPH_OUTPUT_BYTES = 256 * 1024;
 const MAX_EXTERNAL_NODE_COUNT = 16;
 const MAX_EXTERNAL_EDGE_COUNT = 24;
@@ -83,6 +85,19 @@ export interface ExternalCodeGraphContextResult extends InspectExternalCodeGraph
   outline?: ExternalCodeGraphOutline;
   /** Only present when a detected external graph could not safely contribute. */
   caution?: string;
+}
+
+/** Explicit lifecycle operations. Memorix never calls CodeGraph's `install`. */
+export type ExternalCodeGraphLifecycleAction = 'init' | 'sync';
+
+export interface ExternalCodeGraphLifecycleInput extends InspectExternalCodeGraphInput {
+  action: ExternalCodeGraphLifecycleAction;
+}
+
+export interface ExternalCodeGraphLifecycleResult extends InspectExternalCodeGraphResult {
+  action: ExternalCodeGraphLifecycleAction;
+  performed: boolean;
+  message: string;
 }
 
 interface RawExternalStatus {
@@ -435,6 +450,84 @@ export async function inspectExternalCodeGraph(input: InspectExternalCodeGraphIn
   }
   const health = healthFromStatus(status);
   return { health, quality: providerQuality({ mode, health }) };
+}
+
+/**
+ * Run only a user-requested local lifecycle operation and re-inspect the
+ * result. This deliberately does not alter agent MCP files or invoke the
+ * upstream `codegraph install` command.
+ */
+export async function runExternalCodeGraphLifecycle(
+  input: ExternalCodeGraphLifecycleInput,
+): Promise<ExternalCodeGraphLifecycleResult> {
+  const mode = input.mode ?? 'auto';
+  if (mode === 'off') {
+    const health: ExternalCodeGraphHealth = { state: 'disabled', reason: 'External CodeGraph is disabled by configuration.' };
+    return {
+      action: input.action,
+      performed: false,
+      message: 'External CodeGraph is disabled by configuration.',
+      health,
+      quality: providerQuality({ mode, health }),
+    };
+  }
+
+  const indexPath = join(input.projectRoot, '.codegraph');
+  if (input.action === 'sync' && !existsSync(indexPath)) {
+    const health: ExternalCodeGraphHealth = { state: 'not-detected', reason: 'No local .codegraph index is present for this project.' };
+    return {
+      action: input.action,
+      performed: false,
+      message: 'Initialize CodeGraph first with "memorix codegraph init".',
+      health,
+      quality: providerQuality({ mode, health }),
+    };
+  }
+
+  if (input.action === 'init' && existsSync(indexPath)) {
+    const inspected = await inspectExternalCodeGraph(input);
+    return {
+      action: input.action,
+      performed: false,
+      message: 'A local CodeGraph directory already exists; no initialization was performed.',
+      ...inspected,
+    };
+  }
+
+  const result = await runSafely(input.runner ?? defaultRunner, {
+    command: input.command,
+    args: input.action === 'init'
+      ? ['init', input.projectRoot]
+      : ['sync', input.projectRoot, '--quiet'],
+    cwd: input.projectRoot,
+    // A context read must stay fast; an explicit user-requested index sync is
+    // a different operation and gets its own bounded maintenance window.
+    timeoutMs: EXTERNAL_CODEGRAPH_LIFECYCLE_TIMEOUT_MS,
+    maxOutputBytes: MAX_EXTERNAL_CODEGRAPH_OUTPUT_BYTES,
+  });
+  if (!result.ok) {
+    const health = unavailableHealth(result);
+    return {
+      action: input.action,
+      performed: false,
+      message: 'CodeGraph ' + input.action + ' did not complete: ' + (health.reason ?? 'unknown local error'),
+      health,
+      quality: providerQuality({ mode, health }),
+    };
+  }
+
+  const inspected = await inspectExternalCodeGraph(input);
+  const remainsStale = inspected.health.state === 'stale';
+  return {
+    action: input.action,
+    performed: true,
+    message: input.action === 'init'
+      ? 'Local CodeGraph initialization completed. Run "memorix codegraph sync" when source changes.'
+      : remainsStale
+        ? 'Local CodeGraph synchronization completed, but the graph remains stale against the current worktree; this task will use Lite evidence.'
+        : 'Local CodeGraph synchronization completed and is ready for task-scoped semantic context.',
+    ...inspected,
+  };
 }
 
 function safeRelativePath(projectRoot: string, value: unknown, exclude?: string[]): string | undefined {

@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.5.1] - 2026-08-16
+
 ### Fixed
 - **Bounded formation cancellation** -- Formation deadlines now abort the
   LLM and vector-search work they started, including response-body reads and

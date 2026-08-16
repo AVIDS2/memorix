@@ -13,6 +13,11 @@
   bounded formation cancellation and provider-error handling. A separate
   Registry-only publish path now keeps the official MCP Registry current when
   npm was already published manually.
+- `1.6.0` is the release candidate for bounded context receipts, explicit
+  optional local CodeGraph lifecycle, and task-scoped Agent loadouts. It keeps
+  detailed diagnostic JSON backward-compatible while generated guidance uses
+  the bounded CLI form. External CodeGraph is never installed or configured by
+  Memorix; an explicit sync that remains stale falls back to Lite evidence.
 - `1.5.0` is the underlying stability release: the deterministic stress-exam matrix
   (corpus, concurrency, session churn, long-term scale, CLI repeat) runs in
   the normal suite, the OpenRouter embedding lane was verified live
@@ -153,9 +158,9 @@ provider when the operator chooses one.
 
 ## Immediate Next Step
 
-- Prepare the bounded-context and semantic-CodeGraph UX slice as a standalone
-  specification with compatibility tests. Do not make it a giant memory-hub
-  rewrite or a new MCP tool surface.
+- Release the completed bounded-context and semantic-CodeGraph UX slice after
+  the full verification suite and package smoke pass. Do not turn it into a
+  giant memory-hub rewrite or a broad new MCP tool surface.
 - Keep contributor PR #206 separate: its hook deadline, stdin release,
   deferred embeddings, and smaller hook heap are valuable, but the author
   should update the failing static test and rerun CI before review/merge.

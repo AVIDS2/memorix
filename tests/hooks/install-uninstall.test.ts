@@ -65,8 +65,8 @@ describe('Hooks install/uninstall lifecycle', () => {
     expect(content).toContain('When to search memory');
     expect(content).toContain('memorix_project_context');
     expect(content).toContain('task-lensed brief');
-    expect(content).toContain('memorix context "<task>" --json');
-    expect(content).toContain('memorix resume "<task>" --json');
+    expect(content).toContain('memorix context "<task>" --brief-json');
+    expect(content).toContain('memorix resume "<task>" --brief-json');
     expect(content).toContain('Continuation fallback is mandatory');
     expect(content).toContain('Do not call more Memorix retrieval tools');
     expect(content).toContain('The absence of `.memorix` or visible memory files never proves project memory is empty.');
@@ -198,8 +198,8 @@ describe('Hooks install/uninstall lifecycle', () => {
     expect(afterInstall).toContain('Keep this section too.');
     expect(afterInstall).toContain('memorix_project_context');
     expect(afterInstall).toContain('task-lensed brief');
-    expect(afterInstall).toContain('memorix context "<task>" --json');
-    expect(afterInstall).toContain('memorix resume "<task>" --json');
+    expect(afterInstall).toContain('memorix context "<task>" --brief-json');
+    expect(afterInstall).toContain('memorix resume "<task>" --brief-json');
     expect(afterInstall).toContain('Continuation fallback is mandatory');
     expect(afterInstall).toContain('Do not call more Memorix retrieval tools');
     expect(afterInstall).toContain('The absence of `.memorix` or visible memory files never proves project memory is empty.');

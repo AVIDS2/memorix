@@ -103,6 +103,7 @@ describe('Task Workset', () => {
       projectId: 'org/repo',
       dataDir: root,
       task: 'Prepare and publish the npm release.',
+      agent: 'codex',
       lens: 'release',
       currentFacts: ['Package version: 1.2.0', 'Git: dirty worktree'],
       codeState: 'Code state: dirty worktree, incomplete scan.',
@@ -135,6 +136,12 @@ describe('Task Workset', () => {
     expect(workset.workflows).toEqual([
       expect.objectContaining({ id: workflow.id, firstPhase: expect.objectContaining({ title: 'Prepare' }) }),
     ]);
+    expect(workset.agentLoadout).toEqual({
+      agent: 'codex',
+      workflowIds: [workflow.id],
+      requiredContext: [],
+      allowedTools: ['git', 'npm'],
+    });
     expect(workset.cautions.map(caution => caution.kind)).toEqual(expect.arrayContaining([
       'dirty-worktree',
       'incomplete-scan',
@@ -167,6 +174,38 @@ describe('Task Workset', () => {
       expect.objectContaining({ kind: 'claim', reason: 'token-budget' }),
       expect.objectContaining({ kind: 'knowledge-page', reason: 'token-budget' }),
     ]));
+  });
+
+  it('does not load a workflow for an incompatible target agent', async () => {
+    const root = tempDir();
+    const workspace = await initializeKnowledgeWorkspace({
+      projectId: 'org/repo',
+      dataDir: root,
+      mode: 'local',
+    });
+    await writeCanonicalWorkflow({
+      workspace,
+      workflow: {
+        id: 'codex-release', workspaceId: workspace.id, title: 'Codex release', description: 'release',
+        status: 'active', version: 1, taskLenses: ['release'], triggers: ['publish'], assumptions: [],
+        requiredContext: ['current package version'], guardrails: [], allowedTools: ['npm'],
+        phases: [{ id: 'verify', title: 'Verify', instructions: 'Run package smoke.', branches: [], expectedOutputs: [], verificationGates: [] }],
+        verificationGates: [], claimIds: [], evidenceRefs: [], codeRefs: [], compatibleAgents: ['codex'],
+        body: '', sourcePath: 'workflows/codex-release.md', sourceHash: '', contentHash: '',
+        createdAt: '2026-08-17T00:00:00.000Z', updatedAt: '2026-08-17T00:00:00.000Z',
+      },
+    });
+
+    const workset = await buildTaskWorkset({
+      projectId: 'org/repo', dataDir: root, task: 'publish a release', agent: 'claude-code', lens: 'release',
+      currentFacts: [], startHere: [], reliableMemory: [], cautionMemory: [], verificationHints: [],
+      worktreeDirty: false, freshness: { suspect: 0, stale: 0 },
+    });
+
+    expect(workset.workflows).toEqual([]);
+    expect(workset.agentLoadout).toEqual({
+      agent: 'claude-code', workflowIds: [], requiredContext: [], allowedTools: [],
+    });
   });
 
   it('returns no generic knowledge dump when task terms do not match durable artifacts', async () => {

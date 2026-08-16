@@ -4,6 +4,29 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-08-17
+
+### Added
+- **Bounded context receipts** -- `memorix context|resume --brief-json`,
+  `memorix codegraph context-pack --brief-json`, and MCP project-context
+  `format: "receipt"` return only the agent-ready brief, selection receipt,
+  CodeGraph quality, and optional Agent loadout. The detailed `--json` and
+  MCP `format: "json"` forms remain available for diagnostics.
+- **Task-scoped Agent loadouts** -- `--agent <target>` selects only compatible
+  project workflows and reports their required context and workflow tools.
+  This is guidance, not a replacement for the host agent's authorization.
+- **Explicit external CodeGraph lifecycle** -- `memorix codegraph init|sync`
+  manages an already installed local CodeGraph index. It never invokes
+  CodeGraph's agent installer or writes Agent configuration.
+
+### Changed
+- **Honest CodeGraph status** -- Status now distinguishes the persistent Lite
+  Code State index from the provider actually usable for the current task.
+  A stale external graph falls back to Lite instead of being presented as fresh.
+- **Bounded fallback guidance** -- Newly generated Agent rules teach
+  `--brief-json` for the one CLI fallback; `--json` is reserved for deliberate
+  detailed diagnostics.
+
 ## [1.5.1] - 2026-08-16
 
 ### Fixed

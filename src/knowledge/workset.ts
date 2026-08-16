@@ -8,6 +8,7 @@ import { WorkflowStore } from './workflow-store.js';
 import { OutcomeStore } from './outcome-store.js';
 import { qualityFromOutcome, type OutcomeQuality } from './outcome-types.js';
 import { selectWorkflows } from './workflows.js';
+import type { AgentTarget } from '../types.js';
 import { renderLongTermMemorySummary, selectLongTermMemoriesForTask } from '../memory/long-term.js';
 import { governContextCandidates, type GovernancePlan } from './governor.js';
 import type {
@@ -71,6 +72,18 @@ export interface WorksetWorkflow {
   };
   verificationGates: string[];
   cautions: string[];
+}
+
+/**
+ * A task-scoped plan assembled from existing workflow and wiki assets. It is
+ * descriptive rather than an authorization boundary: host agents retain their
+ * own tool and approval policies.
+ */
+export interface WorksetAgentLoadout {
+  agent: AgentTarget;
+  workflowIds: string[];
+  requiredContext: string[];
+  allowedTools: string[];
 }
 
 export interface WorksetMemorySource {
@@ -156,6 +169,7 @@ export interface TaskWorkset {
   pages: WorksetPage[];
   durableMemory: WorksetLongTermMemory[];
   workflows: WorksetWorkflow[];
+  agentLoadout?: WorksetAgentLoadout;
   cautions: WorksetCaution[];
   verification: string[];
   evidenceIds: string[];
@@ -179,6 +193,8 @@ export interface BuildTaskWorksetInput {
   projectId: string;
   dataDir: string;
   task?: string;
+  /** Optional target used to select workflows explicitly compatible with this agent. */
+  agent?: AgentTarget;
   lens: string;
   currentFacts?: string[];
   continuation?: WorksetContinuation;
@@ -310,6 +326,18 @@ function workflowOutput(selection: WorkflowSelection): WorksetWorkflow {
     },
     verificationGates: gates.map(gate => short(gate, 20)),
     cautions: selection.cautions.map(caution => short(caution, 22)),
+  };
+}
+
+function workflowLoadout(agent: AgentTarget | undefined, selections: WorkflowSelection[]): WorksetAgentLoadout | undefined {
+  if (!agent) return undefined;
+  return {
+    agent,
+    workflowIds: selections.map(selection => selection.workflow.id),
+    requiredContext: unique(selections.flatMap(selection => selection.workflow.requiredContext))
+      .map(item => short(item, 18)).slice(0, 4),
+    allowedTools: unique(selections.flatMap(selection => selection.workflow.allowedTools))
+      .map(item => short(item, 12)).slice(0, 6),
   };
 }
 
@@ -853,6 +881,23 @@ export function renderTaskWorksetPrompt(input: Omit<TaskWorkset, 'prompt' | 'bud
     }
   }
 
+  if (input.agentLoadout) {
+    appendLine(lines, '', maxTokens, omitted, 'agent-loadout-heading');
+    appendLine(lines, 'Agent loadout (' + input.agentLoadout.agent + ')', maxTokens, omitted, 'agent-loadout-heading');
+    for (const required of input.agentLoadout.requiredContext.slice(0, 2)) {
+      appendLine(lines, '- Need: ' + required, maxTokens, omitted, 'agent-loadout-context');
+    }
+    if (input.agentLoadout.allowedTools.length > 0) {
+      appendLine(
+        lines,
+        '- Workflow tools: ' + input.agentLoadout.allowedTools.join(', '),
+        maxTokens,
+        omitted,
+        'agent-loadout-tools',
+      );
+    }
+  }
+
   if (input.verification.length > 0) {
     appendLine(lines, '', maxTokens, omitted, 'verification-heading');
     appendLine(lines, 'Verify', maxTokens, omitted, 'verification-heading');
@@ -965,6 +1010,7 @@ export async function buildTaskWorkset(input: BuildTaskWorksetInput): Promise<Ta
   let workspace: KnowledgeWorkspace | undefined;
   let pages: WorksetPage[] = [];
   let workflows: WorksetWorkflow[] = [];
+  let workflowSelections: WorkflowSelection[] = [];
   try {
     workspace = await preferredWorkspace(input.projectId, input.dataDir);
     if (workspace) {
@@ -985,14 +1031,15 @@ export async function buildTaskWorkset(input: BuildTaskWorksetInput): Promise<Ta
       if (task) {
         const workflowStore = new WorkflowStore();
         await workflowStore.init(input.dataDir);
-        const selected = selectWorkflows({
+        workflowSelections = selectWorkflows({
           workflows: workflowStore.listWorkflows(workspace.id, 'active'),
           task,
           projectId: input.projectId,
           store: workflowStore,
+          ...(input.agent ? { agent: input.agent } : {}),
           limit: 2,
         });
-        workflows = selected.map(workflowOutput);
+        workflows = workflowSelections.map(workflowOutput);
         for (const workflow of workflows) {
           for (const caution of workflow.cautions) {
             cautions.push({ kind: 'workflow-failed-verification', message: caution });
@@ -1018,6 +1065,10 @@ export async function buildTaskWorkset(input: BuildTaskWorksetInput): Promise<Ta
     workflows,
   });
   const governedDurableIds = new Set(governed.durableMemory.map(memory => memory.id));
+  const agentLoadout = workflowLoadout(
+    input.agent,
+    workflowSelections.filter(selection => governed.workflows.some(workflow => workflow.id === selection.workflow.id)),
+  );
   const evidenceIds = unique(governed.claims.flatMap(claim => evidenceIdsForClaim(
     claim,
     evidenceByClaim.get(claim.id) ?? [],
@@ -1084,6 +1135,9 @@ export async function buildTaskWorkset(input: BuildTaskWorksetInput): Promise<Ta
     pages: pages.filter(page => page.claimIds.some(claimId => governed.claims.some(claim => claim.id === claimId))),
     durableMemory: governed.durableMemory,
     workflows: governed.workflows,
+    ...(agentLoadout
+      ? { agentLoadout }
+      : {}),
     cautions: normalizedCautions,
     verification,
     evidenceIds,

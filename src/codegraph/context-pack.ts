@@ -10,7 +10,7 @@ import type {
 } from './types.js';
 import type { CodeGraphStore } from './store.js';
 import { isCodeGraphExcludedPath } from './exclude.js';
-import type { ObservationReader } from '../types.js';
+import type { AgentTarget, ObservationReader } from '../types.js';
 
 export interface ContextPackMemory {
   id: number;
@@ -278,6 +278,7 @@ export async function attachTaskWorkset(input: {
   providerQuality?: CodeGraphProviderQuality;
   runtimeCautions?: WorksetCaution[];
   reader?: ObservationReader;
+  agent?: AgentTarget;
 }): Promise<ContextPack> {
   const semanticStartHere = input.semanticCode
     ? [...input.semanticCode.relatedFiles, ...input.semanticCode.entryPoints.map(entry => entry.path)]
@@ -286,6 +287,7 @@ export async function attachTaskWorkset(input: {
     projectId: input.projectId,
     dataDir: input.dataDir,
     task: input.pack.task,
+    ...(input.agent ? { agent: input.agent } : {}),
     lens: input.lens,
     currentFacts: input.currentFacts ?? [],
     ...(input.codeState ? { codeState: input.codeState } : {}),

@@ -188,6 +188,24 @@ describe('codegraph CLI command', () => {
     expect(result.stdout).toContain('src/auth.ts');
   });
 
+  it('emits only a bounded workset receipt when brief JSON is requested', async () => {
+    await runCommand({ _: ['refresh'], json: true });
+    const result = await runCommand({
+      _: ['context-pack'], task: 'continue auth bug', agent: 'codex', briefJson: true,
+    });
+
+    expect(result.exitCode).toBe(0);
+    const parsed = JSON.parse(result.stdout);
+    expect(parsed).toMatchObject({
+      schemaVersion: '1',
+      brief: expect.stringContaining('Memorix Autopilot Brief'),
+      receipt: expect.objectContaining({ target: 'context-pack' }),
+      code: expect.objectContaining({ selected: expect.any(String) }),
+      loadout: expect.objectContaining({ agent: 'codex' }),
+    });
+    expect(parsed.pack).toBeUndefined();
+  });
+
   it('backfills existing memories during refresh before building a context pack', async () => {
     await initObservationStore(dataDir);
     await initObservations(dataDir);

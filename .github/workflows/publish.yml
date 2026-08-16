@@ -2,6 +2,12 @@ name: Publish to npm and MCP Registry
 
 on:
   workflow_dispatch:
+    inputs:
+      publish_npm:
+        description: "Publish the npm package before publishing the MCP Registry record"
+        required: true
+        type: boolean
+        default: true
 
 jobs:
   publish:
@@ -21,6 +27,7 @@ jobs:
       - run: npm run build
       - run: npm test
       - run: npm publish --provenance --access public
+        if: ${{ inputs.publish_npm }}
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       - name: Install the official MCP Registry publisher

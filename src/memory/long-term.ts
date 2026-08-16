@@ -589,7 +589,13 @@ export async function maintainLongTermMemories(input: {
   }
   for (const group of groups.values()) {
     if (group.length < 2) continue;
-    group.sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+    group.sort((a, b) => {
+      const byCreatedAt = Date.parse(b.createdAt) - Date.parse(a.createdAt);
+      if (byCreatedAt !== 0) return byCreatedAt;
+      const byUpdatedAt = Date.parse(b.updatedAt) - Date.parse(a.updatedAt);
+      if (byUpdatedAt !== 0) return byUpdatedAt;
+      return b.id.localeCompare(a.id);
+    });
     const newest = group[0];
     for (const older of group.slice(1)) {
       try {

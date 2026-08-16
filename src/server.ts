@@ -50,7 +50,7 @@ import type { ExistingMemory } from './llm/memory-manager.js';
 import { runFormation, getMetricsSummary, getBeforeAfterMetrics } from './memory/formation/index.js';
 import type { FormationConfig, SearchHit, FormedMemory, FormationStage, FormationStageEvent } from './memory/formation/types.js';
 import { parseFormationTimeoutMs } from './server/formation-timeout.js';
-import { withTimeout } from './timeout.js';
+import { withTimeout, withTimeoutSignal } from './timeout.js';
 import { sanitizeCredentials } from './memory/secret-filter.js';
 import { getSurfacedIds, recordSurfacedIds } from './search/surfaced-registry.js';
 import {
@@ -828,8 +828,8 @@ export async function createMemorixServer(
             mode: 'active',
             useLLM: isLLMEnabled(),
             minValueScore: 0.3,
-            searchMemories: async (q: string, limit: number, pid: string): Promise<SearchHit[]> => {
-              const result = await compactSearch({ query: q, limit, projectId: pid, status: 'active', reader });
+            searchMemories: async (q: string, limit: number, pid: string, signal?: AbortSignal): Promise<SearchHit[]> => {
+              const result = await compactSearch({ query: q, limit, projectId: pid, status: 'active', reader, signal });
               if (result.entries.length === 0) return [];
               const details = await compactDetail(result.entries.map(e => e.id), { reader });
               return details.documents.map((d, i) => ({
@@ -860,8 +860,9 @@ export async function createMemorixServer(
             onStageEvent: onFormationStageEvent,
           };
 
-          formationResult = await withTimeout(
-            runFormation({
+          formationResult = await withTimeoutSignal(async (signal) => {
+            formationConfig.signal = signal;
+            return runFormation({
               entityName,
               type: type as ObservationType,
               title,
@@ -869,7 +870,8 @@ export async function createMemorixServer(
               facts: safeFacts,
               projectId: project.id,
               source: 'explicit',
-            }, formationConfig),
+            }, formationConfig);
+          },
             FORMATION_TIMEOUT_MS,
             'Formation pipeline',
           );
@@ -1265,8 +1267,8 @@ export async function createMemorixServer(
             mode: formationMode,
             useLLM: isLLMEnabled(),
             minValueScore: 0.3,
-            searchMemories: async (q: string, limit: number, pid: string): Promise<SearchHit[]> => {
-              const result = await compactSearch({ query: q, limit, projectId: pid, status: 'active', reader });
+            searchMemories: async (q: string, limit: number, pid: string, signal?: AbortSignal): Promise<SearchHit[]> => {
+              const result = await compactSearch({ query: q, limit, projectId: pid, status: 'active', reader, signal });
               if (result.entries.length === 0) return [];
               const details = await compactDetail(result.entries.map(e => e.id), { reader });
               return details.documents.map((d, i) => ({
@@ -1288,8 +1290,10 @@ export async function createMemorixServer(
             getEntityNames: () => graphManager.getEntityNames(),
           };
 
-          const formed = await withTimeout(
-            runFormation({ entityName, type: type as ObservationType, title, narrative, facts: safeFacts, projectId: project.id, source: 'explicit', topicKey }, formationConfig),
+          const formed = await withTimeoutSignal(async (signal) => {
+            formationConfig.signal = signal;
+            return runFormation({ entityName, type: type as ObservationType, title, narrative, facts: safeFacts, projectId: project.id, source: 'explicit', topicKey }, formationConfig);
+          },
             FORMATION_TIMEOUT_MS,
             'Shadow formation',
           );

@@ -328,6 +328,8 @@ export interface SearchOptions {
    * `thorough` explicitly permits optional LLM query rewrite and reranking.
    */
   quality?: RetrievalQuality;
+  /** Abort provider-backed retrieval when the owning request is cancelled. */
+  signal?: AbortSignal;
 }
 
 /** Topic key family heuristics for suggesting stable topic keys */

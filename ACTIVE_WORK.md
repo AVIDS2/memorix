@@ -4,7 +4,7 @@
 > before resuming substantial work, update it after a material decision or
 > milestone, and do not create parallel progress logs.
 
-**Last updated:** 2026-08-14
+**Last updated:** 2026-08-16
 
 ## Current Product State
 
@@ -16,9 +16,10 @@
   (`qwen/qwen3-embedding-8b`, 4096d), and the embedding default is now
   provider-aware. Everything from the 1.4.6 memory-native line carries
   forward.
-- `1.5.0` is the next target: a stability-focused release. It ships only
-  after the stress exams below pass and the live OpenRouter embedding lane
-  is verified against the operator's environment.
+- `1.5.1` is the next target: a reliability patch. It must keep the 1.5.0
+  stress gate green while closing cancellation and non-retryable embedding
+  error leaks. The separate hook process-lifecycle fix in contributor PR #206
+  remains independently reviewed and attributed.
 
 ## 1.5.0 Stability Main Line (stress-tested, measured)
 
@@ -88,6 +89,8 @@
    still required whenever a newly supported agent CLI becomes available.
 3. Review open contributor work independently; do not merge it merely because
    it overlaps a planned product direction.
+4. Make every bounded foreground path cancel the network work it starts, and
+   make non-retryable provider failures fail once with a useful diagnostic.
 
 ## Completed Contribution Decisions
 
@@ -117,6 +120,17 @@
   file from the current tree does not erase existing forks or historical clones.
 
 ## Immediate Next Step
+
+- 1.5.1 reliability line in progress on `codex/1.5.1-reliability`:
+  embedding HTTP 402/401 errors no longer trigger recursive batch shrinking;
+  response-body parsing and retry waits obey abort signals; formation LLM and
+  vector search receive a shared deadline. Focused tests, the full 2,836-test
+  suite, lint, and build pass on the branch.
+- Contributor PR #206 addresses the distinct `memorix hook` process leak
+  reported in #205: hard hook deadline, stdin release, deferred embeddings,
+  and a smaller hook heap. It is not merged yet because Ubuntu CI is red on a
+  static Windows banner assertion; the author should fix that test and rerun
+  CI before merge.
 
 The #174 controlled audio derivations, #175 governed one-hop graph evidence,
 #185 CodeBuddy integration, and #184 Star History CI verification are merged

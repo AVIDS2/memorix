@@ -152,6 +152,7 @@ async function resolveWithLLM(
   extracted: ExtractResult,
   hits: SearchHit[],
   getObservation: (id: number) => ExistingMemoryRef | null,
+  signal?: AbortSignal,
 ): Promise<ResolveResult | null> {
   try {
     const { callLLM } = await import('../../llm/provider.js');
@@ -173,7 +174,7 @@ Facts: ${extracted.facts.join('; ')}
 EXISTING MEMORIES:
 ${existingMemories.map(m => `[ID:${m.id}] ${m.title} | ${m.content} | Facts: ${m.facts}`).join('\n')}`;
 
-    const response = await callLLM(LLM_RESOLVE_PROMPT, input);
+    const response = await callLLM(LLM_RESOLVE_PROMPT, input, signal);
     const text = response.content.trim();
 
     const jsonMatch = text.match(/\{[\s\S]*\}/);
@@ -214,7 +215,8 @@ ${existingMemories.map(m => `[ID:${m.id}] ${m.title} | ${m.content} | Facts: ${m
     }
 
     return null; // Unrecognized action
-  } catch {
+  } catch (error) {
+    if (signal?.aborted) throw error;
     return null; // LLM failure → fall back to rules
   }
 }
@@ -260,16 +262,18 @@ function scoreCandidate(
 export async function runResolve(
   extracted: ExtractResult,
   projectId: string,
-  searchMemories: (query: string, limit: number, projectId: string) => Promise<SearchHit[]>,
+  searchMemories: (query: string, limit: number, projectId: string, signal?: AbortSignal) => Promise<SearchHit[]>,
   getObservation: (id: number) => ExistingMemoryRef | null,
   useLLM = false,
+  signal?: AbortSignal,
 ): Promise<ResolveResult> {
   // Search for similar existing memories
   const query = `${extracted.title} ${extracted.narrative.substring(0, 200)}`;
   let hits: SearchHit[];
   try {
-    hits = await searchMemories(query, 5, projectId);
-  } catch {
+    hits = await searchMemories(query, 5, projectId, signal);
+  } catch (error) {
+    if (signal?.aborted) throw error;
     // Search failed — default to ADD
     return { action: 'new', reason: 'Search unavailable, defaulting to new' };
   }
@@ -280,7 +284,7 @@ export async function runResolve(
 
   // LLM-powered resolution (Mem0-style, quality-first)
   if (useLLM) {
-    const llmResult = await resolveWithLLM(extracted, hits, getObservation);
+    const llmResult = await resolveWithLLM(extracted, hits, getObservation, signal);
     if (llmResult) return llmResult;
     // LLM failed → fall through to rules-based resolution
   }

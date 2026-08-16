@@ -293,7 +293,7 @@ export async function runFormation(
   const existingEntities = config.getEntityNames();
   const extractStartTime = Date.now();
   emitStageEvent('extract', 'start');
-  const extraction = await runExtract(input, existingEntities, config.useLLM);
+  const extraction = await runExtract(input, existingEntities, config.useLLM, config.signal);
   stageDurationsMs.extract = Date.now() - extractStartTime;
   emitStageEvent('extract', 'success', stageDurationsMs.extract);
   stagesCompleted = 1;
@@ -317,6 +317,7 @@ export async function runFormation(
       config.searchMemories,
       config.getObservation,
       config.useLLM,
+      config.signal,
     );
     stageDurationsMs.resolve = Date.now() - resolveStartTime;
     emitStageEvent('resolve', 'success', stageDurationsMs.resolve);

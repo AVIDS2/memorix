@@ -237,16 +237,17 @@ export function setLLMConfig(config: LLMConfig | null): void {
 export async function callLLM(
   systemPrompt: string,
   userMessage: string,
+  signal?: AbortSignal,
 ): Promise<LLMResponse> {
   if (!currentConfig) {
     throw new Error('LLM not configured. Set MEMORIX_LLM_API_KEY or OPENAI_API_KEY.');
   }
 
   if (currentConfig.provider === 'anthropic') {
-    return callAnthropic(systemPrompt, userMessage);
+    return callAnthropic(systemPrompt, userMessage, signal);
   }
 
-  return callOpenAICompatible(systemPrompt, userMessage);
+  return callOpenAICompatible(systemPrompt, userMessage, signal);
 }
 
 /**
@@ -255,6 +256,7 @@ export async function callLLM(
 async function callOpenAICompatible(
   systemPrompt: string,
   userMessage: string,
+  signal?: AbortSignal,
 ): Promise<LLMResponse> {
   const config = currentConfig!;
   // Auto-fix: append /v1 if baseUrl doesn't end with it (common user mistake)
@@ -262,8 +264,11 @@ async function callOpenAICompatible(
   if (!base.endsWith('/v1')) base += '/v1';
   const url = `${base}/chat/completions`;
 
+  const fetchSignal = signal
+    ? AbortSignal.any([signal, AbortSignal.timeout(LLM_CALL_TIMEOUT_MS)])
+    : AbortSignal.timeout(LLM_CALL_TIMEOUT_MS);
   const response = await fetch(url, {
-    signal: AbortSignal.timeout(LLM_CALL_TIMEOUT_MS),
+    signal: fetchSignal,
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -281,14 +286,14 @@ async function callOpenAICompatible(
   });
 
   if (!response.ok) {
-    const error = await readResponseText(response, undefined, 64 * 1024).catch(() => 'unknown error');
+    const error = await readResponseText(response, signal, 64 * 1024).catch(() => 'unknown error');
     throw new Error(`LLM API error (${response.status}): ${error}`);
   }
 
   const data = await readResponseJson<{
     choices: Array<{ message: { content: string } }>;
     usage?: { prompt_tokens: number; completion_tokens: number };
-  }>(response);
+  }>(response, signal);
 
   return {
     content: data.choices[0]?.message?.content ?? '',
@@ -305,12 +310,16 @@ async function callOpenAICompatible(
 async function callAnthropic(
   systemPrompt: string,
   userMessage: string,
+  signal?: AbortSignal,
 ): Promise<LLMResponse> {
   const config = currentConfig!;
   const url = `${config.baseUrl}/messages`;
 
+  const fetchSignal = signal
+    ? AbortSignal.any([signal, AbortSignal.timeout(LLM_CALL_TIMEOUT_MS)])
+    : AbortSignal.timeout(LLM_CALL_TIMEOUT_MS);
   const response = await fetch(url, {
-    signal: AbortSignal.timeout(LLM_CALL_TIMEOUT_MS),
+    signal: fetchSignal,
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -329,14 +338,14 @@ async function callAnthropic(
   });
 
   if (!response.ok) {
-    const error = await readResponseText(response, undefined, 64 * 1024).catch(() => 'unknown error');
+    const error = await readResponseText(response, signal, 64 * 1024).catch(() => 'unknown error');
     throw new Error(`Anthropic API error (${response.status}): ${error}`);
   }
 
   const data = await readResponseJson<{
     content: Array<{ text: string }>;
     usage?: { input_tokens: number; output_tokens: number };
-  }>(response);
+  }>(response, signal);
 
   return {
     content: data.content[0]?.text ?? '',

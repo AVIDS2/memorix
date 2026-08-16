@@ -34,6 +34,8 @@ export interface EmbeddingRequestOptions {
   timeoutMs?: number;
   /** Disable provider retries for latency-sensitive best-effort work. */
   retry?: boolean;
+  /** Abort the request and any retry wait when the caller's budget expires. */
+  signal?: AbortSignal;
 }
 
 export type EmbeddingModality = 'text' | 'image' | 'audio' | 'video' | 'document';

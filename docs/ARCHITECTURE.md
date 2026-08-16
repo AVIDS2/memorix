@@ -391,7 +391,7 @@ Resolution order:
 2. project `.env`
 3. user `~/.memorix/.env`
 
-The primary lanes are `[agent]` for memcode, `[memory.llm]` for formation/rerank/summaries, and `[embedding]` for semantic search. The dashboard and `memorix status` expose config provenance so the active value source is visible.
+The primary lanes are `[agent]` for memcode, `[memory.llm]` for formation/summaries/LLM-rerank fallback, `[rerank]` for optional HTTP rerank against a compatible `/rerank` API, and `[embedding]` for semantic search. The dashboard and `memorix status` expose config provenance so the active value source is visible.
 
 ---
 

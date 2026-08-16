@@ -69,6 +69,13 @@ export function serializeResolvedConfigToToml(
     dimensions: config.embedding.dimensions,
   });
 
+  writeSection(lines, 'rerank', {
+    provider: config.rerank.provider,
+    model: config.rerank.model,
+    base_url: config.rerank.baseUrl,
+    api_key: includeSecrets ? config.rerank.apiKey : undefined,
+  });
+
   writeSection(lines, 'memory', {
     inject: config.memory.inject,
     formation: config.memory.formation,

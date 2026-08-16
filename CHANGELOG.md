@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- **Optional HTTP rerank** -- Thorough/heavy/ambiguous search can reorder
+  top hits through a configurable Cohere-compatible `POST {base_url}/rerank`
+  endpoint (`{model, query, documents}`). Works with any compatible `/rerank`
+  API. Configure `[rerank]` or `MEMORIX_RERANK_*`; base URL and bearer inherit
+  the memory LLM lane when unset. The model id is user-configured. LLM rerank
+  remains the fallback.
+
 ## [1.7.2] - 2026-08-19
 
 ### Changed
@@ -29,7 +37,6 @@ All notable changes to this project will be documented in this file.
 - **Centered maintenance preview** -- the Cleanup preview dialog is centered
   on desktop and narrow screens, including after the Dashboard global reset
   styles are applied.
-
 ## [1.7.0] - 2026-08-18
 
 ### Added
@@ -85,7 +92,6 @@ All notable changes to this project will be documented in this file.
   hooks, and HTTP MCP instead of the retired per-project directory layout.
 - **Correct background entrypoint** -- `memorix background start` launches the
   built HTTP CLI entrypoint rather than the stdio library entry.
-
 ## [1.6.1] - 2026-08-17
 
 ### Fixed

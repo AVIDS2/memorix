@@ -48,6 +48,14 @@ export interface MemorixYamlConfig {
     dimensions?: number;
   };
 
+  /** Remote neural rerank (HTTP only) */
+  rerank?: {
+    provider?: 'off' | 'http' | string;
+    model?: string;
+    apiKey?: string;
+    baseUrl?: string;
+  };
+
   /** Git-Memory pipeline configuration */
   git?: {
     /** Auto-install post-commit hook on first run (default: false) */
@@ -190,6 +198,7 @@ export function loadYamlConfig(projectRoot?: string | null): MemorixYamlConfig {
     llm: { ...userConfig.llm, ...projectConfig.llm },
     agent: { ...userConfig.agent, ...projectConfig.agent },
     embedding: { ...userConfig.embedding, ...projectConfig.embedding },
+    rerank: { ...userConfig.rerank, ...projectConfig.rerank },
     git: { ...userConfig.git, ...projectConfig.git },
     codegraph: { ...userConfig.codegraph, ...projectConfig.codegraph },
     behavior: { ...userConfig.behavior, ...projectConfig.behavior },

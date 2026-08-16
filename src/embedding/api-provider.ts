@@ -406,6 +406,16 @@ interface APIEmbeddingConfig {
   requestedDimensions: number | null;
 }
 
+class EmbeddingAPIError extends Error {
+  readonly status: number;
+
+  constructor(status: number, detail: string) {
+    super(`Embedding API error (${status}): ${detail}`);
+    this.name = 'EmbeddingAPIError';
+    this.status = status;
+  }
+}
+
 export interface APIEmbeddingProviderCreateOptions {
   /**
    * When false, only previously persisted dimension metadata may initialize
@@ -431,6 +441,14 @@ function getPreferredBatchSize(config: APIEmbeddingConfig): number {
 
 function parseBatchLimit(error: unknown): number | null {
   if (!(error instanceof Error)) return null;
+
+  // Only a provider-side request-shape error may trigger recursive batch
+  // splitting. Billing, authentication, quota, and upstream errors must fail
+  // once; retrying them multiplies latency without changing the request.
+  const status = error instanceof EmbeddingAPIError
+    ? error.status
+    : Number(error.message.match(/Embedding API error \((\d{3})\)/i)?.[1] ?? 0);
+  if (status > 0 && status !== 400) return null;
 
   const explicit = error.message.match(/should not be larger than\s+(\d+)/i);
   if (explicit) return parseInt(explicit[1], 10);
@@ -712,16 +730,14 @@ export class APIEmbeddingProvider implements EmbeddingProvider {
         }
       } catch (error) {
         const providerLimit = parseBatchLimit(error);
-        const fallbackSize = providerLimit ?? Math.ceil(chunkTexts.length / 2);
-
-        if (chunkTexts.length > 1 && fallbackSize < chunkTexts.length) {
+        if (providerLimit !== null && chunkTexts.length > 1 && providerLimit < chunkTexts.length) {
           console.error(
-            `[memorix] Embedding batch too large for provider, retrying in chunks of ${fallbackSize}`,
+            `[memorix] Embedding batch too large for provider, retrying in chunks of ${providerLimit}`,
           );
-          for (let start = 0; start < chunkTexts.length; start += fallbackSize) {
+          for (let start = 0; start < chunkTexts.length; start += providerLimit) {
             await processChunk(
-              chunkTexts.slice(start, start + fallbackSize),
-              chunkIndices.slice(start, start + fallbackSize),
+              chunkTexts.slice(start, start + providerLimit),
+              chunkIndices.slice(start, start + providerLimit),
             );
           }
           return;
@@ -842,6 +858,9 @@ async function fetchWithRetry(
     ? Math.max(100, Math.min(Math.floor(options.timeoutMs), 60_000))
     : 10_000;
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  const signal = options.signal
+    ? AbortSignal.any([options.signal, controller.signal])
+    : controller.signal;
   let response: Response;
   try {
     response = await fetch(url, {
@@ -850,30 +869,94 @@ async function fetchWithRetry(
         ? { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey }
         : { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
       body: JSON.stringify(body),
-      signal: controller.signal,
+      signal,
     });
   } catch (err: unknown) {
     clearTimeout(timeout);
-    if (err instanceof Error && err.name === 'AbortError') {
+    if (err instanceof Error && (err.name === 'AbortError' || controller.signal.aborted || options.signal?.aborted)) {
       throw new Error(`Embedding API timeout after ${timeoutMs}ms: ${url}`);
     }
     throw err;
   }
-  clearTimeout(timeout);
 
-  if (response.ok) {
-    return response.json() as Promise<EmbeddingAPIResponse>;
+  try {
+    if (response.ok) {
+      return await raceWithAbort(
+        response.json() as Promise<EmbeddingAPIResponse>,
+        signal,
+      );
+    }
+
+    if (options.retry !== false && (response.status === 429 || response.status >= 500) && attempt < MAX_RETRIES) {
+      const delay = BASE_DELAY_MS * Math.pow(2, attempt);
+      const retryAfter = response.headers.get('retry-after');
+      const parsedRetryAfter = retryAfter ? parseInt(retryAfter, 10) * 1000 : NaN;
+      const waitMs = Number.isFinite(parsedRetryAfter) ? parsedRetryAfter : delay;
+      console.error(`[memorix] Embedding API ${response.status}, retry ${attempt + 1}/${MAX_RETRIES} in ${waitMs}ms`);
+      await waitForRetry(waitMs, options.signal);
+      return fetchWithRetry(url, apiKey, body, options, attempt + 1, nativeGemini);
+    }
+
+    const errorText = await raceWithAbort(
+      response.text().catch(() => 'unknown error'),
+      signal,
+    );
+    throw new EmbeddingAPIError(response.status, errorText);
+  } catch (err: unknown) {
+    if (err instanceof Error && (err.name === 'AbortError' || controller.signal.aborted || options.signal?.aborted)) {
+      throw new Error(`Embedding API timeout after ${timeoutMs}ms: ${url}`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeout);
   }
+}
 
-  if (options.retry !== false && (response.status === 429 || response.status >= 500) && attempt < MAX_RETRIES) {
-    const delay = BASE_DELAY_MS * Math.pow(2, attempt);
-    const retryAfter = response.headers.get('retry-after');
-    const waitMs = retryAfter ? parseInt(retryAfter, 10) * 1000 : delay;
-    console.error(`[memorix] Embedding API ${response.status}, retry ${attempt + 1}/${MAX_RETRIES} in ${waitMs}ms`);
-    await new Promise(resolve => setTimeout(resolve, waitMs));
-    return fetchWithRetry(url, apiKey, body, options, attempt + 1, nativeGemini);
+function abortError(): Error {
+  const error = new Error('Embedding API request aborted');
+  error.name = 'AbortError';
+  return error;
+}
+
+function raceWithAbort<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) return Promise.reject(abortError());
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => {
+      signal.removeEventListener('abort', onAbort);
+      reject(abortError());
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+    promise.then(
+      (value) => {
+        signal.removeEventListener('abort', onAbort);
+        resolve(value);
+      },
+      (error) => {
+        signal.removeEventListener('abort', onAbort);
+        reject(error);
+      },
+    );
+  });
+}
+
+async function waitForRetry(waitMs: number, signal?: AbortSignal): Promise<void> {
+  if (!signal) {
+    await new Promise<void>((resolve) => setTimeout(resolve, waitMs));
+    return;
   }
-
-  const errorText = await response.text().catch(() => 'unknown error');
-  throw new Error(`Embedding API error (${response.status}): ${errorText}`);
+  const abortSignal = signal;
+  if (abortSignal.aborted) throw new Error('Embedding API retry aborted');
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(done, waitMs);
+    const onAbort = () => {
+      clearTimeout(timer);
+      abortSignal.removeEventListener('abort', onAbort);
+      reject(new Error('Embedding API retry aborted'));
+    };
+    function done() {
+      abortSignal.removeEventListener('abort', onAbort);
+      resolve();
+    }
+    abortSignal.addEventListener('abort', onAbort, { once: true });
+  });
 }

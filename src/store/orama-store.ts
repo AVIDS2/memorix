@@ -23,7 +23,7 @@ import {
 import { calculateProjectAffinity, extractProjectKeywords, type AffinityContext, type MemoryContent } from './project-affinity.js';
 import { detectQueryIntent, applyIntentBoost } from '../search/intent-detector.js';
 import { maybeExpandSearchQuery } from '../search/query-expansion.js';
-import { withTimeout } from '../timeout.js';
+import { withTimeout, withTimeoutSignal } from '../timeout.js';
 
 let db: AnyOrama | null = null;
 let dbInitPromise: Promise<AnyOrama> | null = null;
@@ -642,18 +642,20 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
         } else {
           // Embedding timeout: 15 seconds
           const EMBEDDING_TIMEOUT_MS = 15000;
-          queryVector = await withTimeout(
-            provider.embedInput
+          queryVector = await withTimeoutSignal(
+            (signal) => provider.embedInput
               ? provider.embedInput(
                 { modality: 'text', text: expandedEmbeddingQuery! },
-                { intent: 'query', timeoutMs: EMBEDDING_TIMEOUT_MS, retry: false },
+                { intent: 'query', timeoutMs: EMBEDDING_TIMEOUT_MS, retry: false, signal },
               )
               : provider.embed(expandedEmbeddingQuery!, {
                 timeoutMs: EMBEDDING_TIMEOUT_MS,
                 retry: false,
+                signal,
               }),
             EMBEDDING_TIMEOUT_MS,
             'Embedding',
+            options.signal,
           );
           mark('embedding');
           // Detect CJK-heavy queries: BM25 can't tokenize Chinese/Japanese/Korean well

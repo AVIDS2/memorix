@@ -201,12 +201,14 @@ export interface FormationConfig {
   shadow?: boolean;
   /** Enable LLM-powered stages (requires LLM API key) */
   useLLM: boolean;
+  /** Abort in-flight LLM work when the formation budget expires. */
+  signal?: AbortSignal;
   /** Minimum value score to proceed with storage (default: 0.3) */
   minValueScore: number;
   /** Sampling rate for hooks path (0-1). 0 = always shadow, 1 = always full resolve */
   hooksSamplingRate?: number;
   /** Function to search existing memories (injected dependency) */
-  searchMemories: (query: string, limit: number, projectId: string) => Promise<SearchHit[]>;
+  searchMemories: (query: string, limit: number, projectId: string, signal?: AbortSignal) => Promise<SearchHit[]>;
   /** Function to get observation by ID (injected dependency) */
   getObservation: (id: number) => ExistingMemoryRef | null;
   /** Function to list existing entity names (injected dependency) */

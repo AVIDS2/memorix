@@ -380,6 +380,23 @@ describe('API Embedding Provider', () => {
       expect(firstRetryBody.input).toEqual(['split-a', 'split-b']);
       expect(secondRetryBody.input).toEqual(['split-c', 'split-d']);
     });
+
+    it('does not split a billing error even when its message mentions batch size', async () => {
+      const probeVec = makeVector(1536);
+      mockFetch.mockResolvedValueOnce(mockEmbeddingResponse([probeVec]));
+      const provider = await APIEmbeddingProvider.create();
+
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 402,
+        headers: mockHeaders(),
+        text: () => Promise.resolve('subscription rejected; batch size was not processed'),
+      });
+
+      await expect(provider.embedBatch(['billing-a', 'billing-b', 'billing-c']))
+        .rejects.toThrow('402');
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+    });
   });
 
   describe('error handling & retry', () => {
@@ -452,6 +469,46 @@ describe('API Embedding Provider', () => {
       });
 
       await expect(provider.embed('auth fail')).rejects.toThrow('401');
+    });
+
+    it('applies the request timeout while reading a response body', async () => {
+      const probeVec = makeVector(1536);
+      mockFetch.mockResolvedValueOnce(mockEmbeddingResponse([probeVec]));
+      const provider = await APIEmbeddingProvider.create();
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        headers: mockHeaders(),
+        json: () => new Promise(() => {}),
+      });
+
+      await expect(provider.embed('body timeout', { timeoutMs: 100, retry: false }))
+        .rejects.toThrow(/Embedding API timeout after 100ms/);
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+    });
+
+    it('aborts response parsing when the caller signal is cancelled', async () => {
+      const probeVec = makeVector(1536);
+      mockFetch.mockResolvedValueOnce(mockEmbeddingResponse([probeVec]));
+      const provider = await APIEmbeddingProvider.create();
+      const controller = new AbortController();
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        headers: mockHeaders(),
+        json: () => new Promise(() => {}),
+      });
+
+      const pending = provider.embed('caller abort', {
+        timeoutMs: 500,
+        retry: false,
+        signal: controller.signal,
+      });
+      controller.abort();
+
+      await expect(pending).rejects.toThrow(/Embedding API timeout after 500ms/);
     });
 
     it('should detect dimension mismatch', async () => {

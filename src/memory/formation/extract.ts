@@ -278,11 +278,12 @@ async function extractFactsWithLLM(
   narrative: string,
   title: string,
   existingFacts: string[],
+  signal?: AbortSignal,
 ): Promise<string[]> {
   try {
     const { callLLM } = await import('../../llm/provider.js');
     const input = `Title: ${title}\nContent: ${narrative}${existingFacts.length > 0 ? `\nAlready known facts (don't repeat): ${existingFacts.join('; ')}` : ''}`;
-    const response = await callLLM(LLM_EXTRACT_PROMPT, input);
+    const response = await callLLM(LLM_EXTRACT_PROMPT, input, signal);
     const text = response.content.trim();
 
     // Parse JSON response
@@ -298,7 +299,8 @@ async function extractFactsWithLLM(
       .filter((f: unknown): f is string => typeof f === 'string' && f.length >= 5)
       .filter((f: string) => !existingLower.has(f.toLowerCase().trim()))
       .slice(0, 10);
-  } catch {
+  } catch (error) {
+    if (signal?.aborted) throw error;
     return []; // LLM failure → fall back to rules
   }
 }
@@ -318,6 +320,7 @@ export async function runExtract(
   input: FormationInput,
   existingEntities: string[],
   useLLM = false,
+  signal?: AbortSignal,
 ): Promise<ExtractResult> {
   const callerFacts = input.facts ?? [];
 
@@ -325,7 +328,7 @@ export async function runExtract(
   let extractedFacts: string[];
   if (useLLM) {
     // LLM extraction (quality-first, Mem0-style)
-    extractedFacts = await extractFactsWithLLM(input.narrative, input.title, callerFacts);
+    extractedFacts = await extractFactsWithLLM(input.narrative, input.title, callerFacts, signal);
     // If LLM returned nothing, fall back to rules
     if (extractedFacts.length === 0) {
       extractedFacts = extractFacts(input.narrative, callerFacts);

@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Fixed
+- **Bounded formation cancellation** -- Formation deadlines now abort the
+  LLM and vector-search work they started, including response-body reads and
+  retry waits. A provider that ignores cancellation still cannot hold the
+  caller past its deadline.
+- **Embedding error classification** -- Only an explicit HTTP 400 batch-shape
+  error may trigger batch splitting. Authentication, billing, quota, and
+  upstream errors fail once instead of multiplying latency through recursive
+  retries.
+
 ## [1.5.0] - 2026-08-14
 
 ### Added

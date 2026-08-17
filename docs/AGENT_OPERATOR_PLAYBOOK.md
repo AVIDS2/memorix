@@ -58,7 +58,7 @@ An unbound terminal is intentionally project-scoped: it reads and writes project
 
 Long-term memory is a reviewed layer, not a generic global note store. `memorix memory long-term add` creates a candidate; `qualify` and `approve` are explicit audit transitions before it can appear in a bounded task Workset. A project-derived observation, code fact, Git fact, test, session, Claim, or workflow stays project-bound. Only manual or user-confirmed `user + portable` records can cross local projects for the same local installation identity. When one is task-matched in a Workset, it is intentionally usable background even if its origin differs; use its `durable:<id>` reference with `memorix_detail` only when the full record is needed. Use `archive` or `supersede` when a durable item is no longer current.
 
-`--cwd <git-project>` is the canonical way to run direct CLI work from outside a repository. It changes the command's project anchor only; Git remains the source of truth for final project identity.
+`--cwd <git-project>` is the canonical way to run direct CLI work from outside a repository. It changes the command's project anchor only; Git remains the source of truth for final project identity. Existing directories are canonicalized to their real filesystem paths before binding, which prevents macOS aliases such as `/var` and `/private/var` from splitting one project or hiding a Claude local MCP entry.
 
 Use MCP when:
 
@@ -164,7 +164,12 @@ Do not assume the HTTP connection alone tells Memorix which project the user mea
 
 The HTTP service is normally started with `memorix background start`; the same project-binding rules apply when you run `memorix serve-http --port 3211` in the foreground.
 
-HTTP MCP sessions idle out after 30 minutes by default. If the user's HTTP MCP client is sensitive to stale session IDs after long idle periods, set `MEMORIX_SESSION_TIMEOUT_MS` before starting or restarting the service. Example: `MEMORIX_SESSION_TIMEOUT_MS=86400000` keeps sessions alive for 24 hours.
+HTTP MCP sessions idle out after 12 hours by default. An expired session now
+receives a fast `404` reinitialize hint instead of a generic transport failure.
+If the user's HTTP MCP client needs a longer idle period, set
+`MEMORIX_SESSION_TIMEOUT_MS` before starting or restarting the service.
+Example: `MEMORIX_SESSION_TIMEOUT_MS=86400000` keeps sessions alive for 24
+hours. Set it to `0` only when the host has its own reliable session cleanup.
 
 ### Do not confuse project config and global config
 
@@ -702,7 +707,10 @@ If it shows "Not running" or "dead":
 memorix background ensure
 ```
 
-If the client is connected but starts failing after roughly 30 minutes of no Memorix tool use, check for stale HTTP session expiry rather than treating it as project binding failure. Restart the service with a longer idle timeout:
+If the client is connected but starts failing after a long inactive period,
+check for the explicit stale-session `404` reinitialize hint rather than
+treating it as a project-binding failure. The default idle window is 12 hours;
+restart with a longer window only when the client genuinely needs it:
 
 ```powershell
 $env:MEMORIX_SESSION_TIMEOUT_MS = "86400000"

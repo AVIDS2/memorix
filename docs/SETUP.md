@@ -42,7 +42,7 @@ Memorix project identity comes from Git. Open or initialize a real Git repositor
 git init
 ```
 
-`projectRoot` and current working directory are detection anchors. The final project identity is derived from the real Git root and remote metadata.
+`projectRoot` and current working directory are detection anchors. The final project identity is derived from the real Git root and remote metadata. Memorix resolves an existing project directory to its real filesystem path before binding it, so equivalent macOS paths such as `/var/...` and `/private/var/...` do not create separate project or Claude local-MCP entries.
 
 ---
 
@@ -247,12 +247,18 @@ Generic HTTP MCP config:
 
 For multi-project HTTP usage, agents should call `memorix_session_start(projectRoot=...)` with the absolute workspace path when available. This prevents cross-project drift when the background service is shared.
 
-HTTP sessions idle out after 30 minutes by default. For clients that do not recover gracefully from stale HTTP session IDs:
+HTTP sessions idle out after 12 hours by default. An expired session receives a
+fast `404` that tells the client to initialize again, rather than being treated
+as a project-binding failure. For clients that intentionally need a longer
+window:
 
 ```powershell
 $env:MEMORIX_SESSION_TIMEOUT_MS = "86400000"
 memorix background restart
 ```
+
+Set `MEMORIX_SESSION_TIMEOUT_MS=0` only when the host has its own reliable
+session cleanup; otherwise keep a bounded idle window.
 
 ### Option E: Docker HTTP service
 

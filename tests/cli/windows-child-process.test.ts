@@ -10,6 +10,7 @@ const childProcess = vi.hoisted(() => ({
 vi.mock('node:child_process', () => childProcess);
 
 import { detectProjectWithDiagnostics } from '../../src/project/detector.js';
+import { buildCliHeapBannerPrelude } from '../../src/cli/heap.js';
 
 describe('Windows CLI child process behavior', () => {
   afterEach(() => {
@@ -17,8 +18,7 @@ describe('Windows CLI child process behavior', () => {
   });
 
   it('hides the heap-size restart subprocess in the published CLI banner', () => {
-    const config = readFileSync(join(process.cwd(), 'tsup.config.ts'), 'utf8');
-    expect(config).toContain('windowsHide:true');
+    expect(buildCliHeapBannerPrelude()).toContain('windowsHide:true');
   });
 
   it('uses the hidden Windows launcher for the background service', () => {

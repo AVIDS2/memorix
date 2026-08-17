@@ -1,4 +1,4 @@
-import { existsSync, statSync } from 'node:fs';
+import { existsSync, realpathSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 export interface CliInvocation {
@@ -88,10 +88,13 @@ export function normalizeCliInvocation(argv: string[] = process.argv): CliInvoca
   }
 
   if (invocation.projectRoot) {
-    const projectRoot = resolve(invocation.projectRoot);
-    if (!existsSync(projectRoot) || !statSync(projectRoot).isDirectory()) {
-      throw new Error(`CLI project directory does not exist: ${projectRoot}`);
+    const resolvedProjectRoot = resolve(invocation.projectRoot);
+    if (!existsSync(resolvedProjectRoot) || !statSync(resolvedProjectRoot).isDirectory()) {
+      throw new Error(`CLI project directory does not exist: ${resolvedProjectRoot}`);
     }
+    // Keep one project identity when an OS exposes the same directory through
+    // two paths (for example /var and /private/var on macOS).
+    const projectRoot = realpathSync(resolvedProjectRoot);
     process.chdir(projectRoot);
     process.env.MEMORIX_CLI_PROJECT_ROOT = projectRoot;
     invocation.projectRoot = projectRoot;

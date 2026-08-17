@@ -131,6 +131,7 @@ export default defineCommand({
     let bgRunning = false;
     let bgPort = 0;
     let bgPid = 0;
+    let backgroundHealthy = false;
 
     try {
       if (existsSync(bgStatePath)) {
@@ -148,7 +149,7 @@ export default defineCommand({
       // Health check
       try {
         const http = await import('node:http');
-        const healthy = await new Promise<boolean>((resolve) => {
+        backgroundHealthy = await new Promise<boolean>((resolve) => {
           const req = http.request({ hostname: '127.0.0.1', port: bgPort, path: '/api/team', timeout: 3000 }, (res) => {
             res.resume();
             resolve(res.statusCode === 200);
@@ -157,7 +158,7 @@ export default defineCommand({
           req.on('timeout', () => { req.destroy(); resolve(false); });
           req.end();
         });
-        if (healthy) {
+        if (backgroundHealthy) {
           lines.push(ok('Health check: OK'));
         } else {
           lines.push(warn('Health check: FAILED (process alive but not responding)'));
@@ -165,8 +166,9 @@ export default defineCommand({
         }
       } catch {
         lines.push(warn('Health check: could not connect'));
+        issues.push('Background process is alive but its health endpoint could not be reached. Try "memorix background restart".');
       }
-      report.mode = { type: 'background', pid: bgPid, port: bgPort, healthy: true };
+      report.mode = { type: 'background', pid: bgPid, port: bgPort, healthy: backgroundHealthy };
     } else {
       lines.push(info('Background control plane: not running'));
       lines.push(info('Current invocation: CLI (stdio)'));
@@ -210,20 +212,49 @@ export default defineCommand({
       } else {
         lines.push(ok(`Mode: ${mode}`));
 
-        // Try to initialize provider to check real status
-        const { getEmbeddingProvider } = await import('../../embedding/provider.js');
-        const provider = await getEmbeddingProvider();
+        // A running control plane is the source of truth for runtime health.
+        // A fresh doctor process must not overwrite a live 401/402/timeout
+        // diagnosis with a static "configured = ready" result.
+        let controlPlaneEmbedding: {
+          status?: string;
+          provider?: { name?: string; dimensions?: number };
+          failure?: { kind?: string; retryAfterMs?: number };
+        } | undefined;
+        if (bgRunning) {
+          try {
+            const response = await fetch(`http://127.0.0.1:${bgPort}/health`, { signal: AbortSignal.timeout(3_000) });
+            if (response.ok) {
+              const health = await response.json() as { embedding?: typeof controlPlaneEmbedding };
+              controlPlaneEmbedding = health.embedding;
+            }
+          } catch { /* health is advisory; fall back to a local probe */ }
+        }
 
-        if (provider) {
-          lines.push(ok(`Provider: ${provider.name} (${provider.dimensions}d)`));
-          lines.push(ok('Status: ready'));
-          lines.push(info('Search: hybrid (BM25 + vector)'));
-          report.embedding = { mode, status: 'ready', provider: provider.name, dimensions: provider.dimensions };
+        if (controlPlaneEmbedding?.status === 'degraded') {
+          const kind = controlPlaneEmbedding.failure?.kind ?? 'upstream';
+          const retryAfterMs = controlPlaneEmbedding.failure?.retryAfterMs;
+          const retry = typeof retryAfterMs === 'number' && retryAfterMs > 0
+            ? `; retry in ${Math.ceil(retryAfterMs / 1000)}s`
+            : '';
+          lines.push(warn(`Status: degraded in the running control plane (${kind}${retry})`));
+          lines.push(info('Search: degraded to BM25 fulltext until the provider recovers'));
+          issues.push('The running control plane has an unavailable embedding provider. Check provider credentials, billing, or connectivity.');
+          report.embedding = { mode, status: 'degraded', failure: kind };
         } else {
-          lines.push(warn('Status: temporarily unavailable'));
-          lines.push(info('Search: degraded to BM25 fulltext (no vector similarity)'));
-          issues.push(`Embedding mode is "${mode}" but provider failed to initialize. Check API keys/connectivity.`);
-          report.embedding = { mode, status: 'temporarily_unavailable' };
+          const { getEmbeddingProvider } = await import('../../embedding/provider.js');
+          const provider = await getEmbeddingProvider();
+
+          if (provider) {
+            lines.push(ok(`Provider: ${provider.name} (${provider.dimensions}d)`));
+            lines.push(ok('Status: ready'));
+            lines.push(info('Search: hybrid (BM25 + vector)'));
+            report.embedding = { mode, status: 'ready', provider: provider.name, dimensions: provider.dimensions };
+          } else {
+            lines.push(warn('Status: temporarily unavailable'));
+            lines.push(info('Search: degraded to BM25 fulltext (no vector similarity)'));
+            issues.push(`Embedding mode is "${mode}" but provider failed to initialize. Check API keys/connectivity.`);
+            report.embedding = { mode, status: 'temporarily_unavailable' };
+          }
         }
 
         // Check cached embeddings count

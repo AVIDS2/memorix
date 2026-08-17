@@ -652,7 +652,7 @@ Coordination state is opt-in project state for tasks, handoff messages, locks, a
 
 Runtime environment:
 
-- `MEMORIX_SESSION_TIMEOUT_MS` — HTTP MCP session idle timeout in milliseconds. Default: `1800000` (30 minutes). Increase this for clients that do not transparently reinitialize after stale HTTP session IDs, for example `86400000` for 24 hours.
+- `MEMORIX_SESSION_TIMEOUT_MS` — HTTP MCP session idle timeout in milliseconds. Default: `43200000` (12 hours). Expired session IDs receive a fast `404` with a reinitialize hint. Increase this for long-lived clients, for example `86400000` for 24 hours; set `0` only when the host provides reliable lifecycle cleanup.
 
 ### `team_manage`
 

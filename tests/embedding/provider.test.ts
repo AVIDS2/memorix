@@ -26,7 +26,12 @@ vi.mock('../../src/embedding/api-provider.js', () => ({
     create: mockApiProviderCreate,
   },
 }));
-import { getEmbeddingProvider, isVectorSearchAvailable, resetProvider } from '../../src/embedding/provider.ts';
+import {
+  getEmbeddingProvider,
+  getEmbeddingRuntimeHealth,
+  isVectorSearchAvailable,
+  resetProvider,
+} from '../../src/embedding/provider.ts';
 import { resetDb, isEmbeddingEnabled, generateEmbedding, getDb } from '../../src/store/orama-store.js';
 import { resetConfigCache } from '../../src/config.ts';
 
@@ -263,6 +268,28 @@ describe('Embedding Provider', () => {
       const nextProvider = await getEmbeddingProvider();
       expect(nextProvider).toBeNull();
       expect(mockApiProviderCreate).toHaveBeenCalledTimes(1);
+    });
+
+    it('reports a billing failure as degraded runtime health instead of configured-and-ready', async () => {
+      process.env.MEMORIX_EMBEDDING = 'api';
+      process.env.MEMORIX_EMBEDDING_API_KEY = 'api-key';
+      process.env.MEMORIX_EMBEDDING_BASE_URL = 'https://embeddings.example/v1';
+      process.env.MEMORIX_EMBEDDING_MODEL = 'text-embedding-3-small';
+
+      mockApiProviderCreate.mockResolvedValue({
+        name: 'api-text-embedding-3-small',
+        dimensions: 1536,
+        embed: vi.fn().mockRejectedValue(new Error('Embedding API error (402): account balance is exhausted')),
+        embedBatch: vi.fn(),
+      });
+
+      const provider = await getEmbeddingProvider();
+      await expect(provider!.embed('billing health')).rejects.toThrow('402');
+
+      expect(getEmbeddingRuntimeHealth()).toMatchObject({
+        status: 'degraded',
+        failure: { kind: 'billing' },
+      });
     });
   });
 });

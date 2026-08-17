@@ -4,6 +4,30 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.6.1] - 2026-08-17
+
+### Fixed
+- **Bounded hook lifecycle on every desktop platform** -- `memorix hook` now
+  reads stdin with an idle bound, performs embedding writes in the deferred
+  lane, and has a hard process deadline. The hook-specific V8 heap is 512 MiB
+  instead of the control plane's 4 GiB. This prevents hung hook processes and
+  associated CPU or memory pressure on macOS, Windows, and Linux. The Windows
+  CLI heap restart also hides its child console window.
+- **Recoverable HTTP MCP sessions** -- HTTP MCP sessions now default to a
+  12-hour idle window. An expired or unknown session receives a fast `404`
+  with a reinitialize hint instead of looking like a silent client hang. Set
+  `MEMORIX_SESSION_TIMEOUT_MS=0` only when the host owns lifecycle cleanup.
+- **Truthful embedding diagnostics** -- the HTTP control plane exposes its
+  real runtime embedding state. `memorix doctor` reads that state instead of
+  reporting a fresh local probe as ready while the running service is degraded
+  by authorization, billing, timeout, or upstream failure.
+- **Accurate doctor JSON health** -- a live PID with an unreachable HTTP
+  control plane now reports `healthy: false` rather than a false positive.
+
+### Changed
+- **macOS release coverage** -- normal CI now runs the full build and test
+  suite on `macos-latest` in addition to Ubuntu and Windows.
+
 ## [1.6.0] - 2026-08-17
 
 ### Added

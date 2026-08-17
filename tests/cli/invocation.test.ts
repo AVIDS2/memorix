@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { normalizeCliInvocation } from '../../src/cli/invocation.js';
@@ -26,6 +26,7 @@ describe('CLI invocation normalization', () => {
   it('binds a common project root and normalizes shell-native flag spellings before command parsing', () => {
     const root = mkdtempSync(path.join(tmpdir(), 'memorix-cli-invocation-'));
     cleanupRoots.push(root);
+    const canonicalRoot = realpathSync(root);
     const invocation = normalizeCliInvocation([
       'node',
       'memorix',
@@ -41,9 +42,9 @@ describe('CLI invocation normalization', () => {
       '--instance-id=local-terminal',
     ]);
 
-    expect(invocation).toEqual({ projectRoot: root, actorId: 'agent-123' });
-    expect(process.cwd()).toBe(root);
-    expect(process.env.MEMORIX_CLI_PROJECT_ROOT).toBe(root);
+    expect(invocation).toEqual({ projectRoot: canonicalRoot, actorId: 'agent-123' });
+    expect(process.cwd()).toBe(canonicalRoot);
+    expect(process.env.MEMORIX_CLI_PROJECT_ROOT).toBe(canonicalRoot);
     expect(process.env.MEMORIX_CLI_ACTOR_ID).toBe('agent-123');
     expect(process.argv.slice(2)).toEqual([
       'session',

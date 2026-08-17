@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { execSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import codegraphCommand from '../../src/cli/commands/codegraph.js';
@@ -246,7 +246,7 @@ describe('codegraph CLI command', () => {
     await runCommand({ _: ['refresh'], json: true });
 
     expect(new MaintenanceTargetStore(dataDir).get('local/repo')).toMatchObject({
-      projectRoot: repoDir,
+      projectRoot: realpathSync(repoDir),
       dataDir,
     });
     expect(new MaintenanceJobStore(dataDir).list({ projectId: 'local/repo' })).toEqual(expect.arrayContaining([

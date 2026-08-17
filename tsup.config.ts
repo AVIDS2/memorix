@@ -1,5 +1,6 @@
 import { defineConfig } from 'tsup';
 import { readFileSync } from 'node:fs';
+import { buildCliHeapBannerPrelude } from './src/cli/heap.js';
 
 const pkg = JSON.parse(readFileSync('./package.json', 'utf-8'));
 const define = { __MEMORIX_VERSION__: JSON.stringify(pkg.version) };
@@ -49,14 +50,8 @@ export default defineConfig([
     define,
     banner: {
       js: [
-        '#!/usr/bin/env node',
-        // Ensure Node has enough heap for embedding models + Orama index.
-        // Re-exec with --max-old-space-size=4096 if not already set.
-        'import {spawnSync as __ms} from "node:child_process";',
-        'import {fileURLToPath as __fu} from "node:url";',
-        'if(!process.env.__MEMORIX_HEAP){process.env.__MEMORIX_HEAP="1";',
-        'let r=__ms(process.execPath,["--max-old-space-size=4096",__fu(import.meta.url),...process.argv.slice(2)],{stdio:"inherit",env:process.env,windowsHide:true});',
-        'process.exit(r.status??1);}',
+        // serve / index keep a large heap; hook uses a small default (see src/cli/heap.ts).
+        buildCliHeapBannerPrelude(),
         'import {createRequire as __memorix_cjsRequire} from "module";',
         'const require = __memorix_cjsRequire(import.meta.url);',
       ].join('\n'),

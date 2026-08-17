@@ -44,6 +44,7 @@ let diskCacheDirty = false;
 let diskSaveTimer: ReturnType<typeof setTimeout> | null = null;
 let diskCacheLoaded = false;
 let diskCacheLoadPromise: Promise<void> | null = null;
+let diskCacheLoadCount = 0;
 
 /** JSON.parse of a multi-hundred-MB cache on the HTTP thread wedges /health. */
 const OFF_THREAD_CACHE_PARSE_BYTES = 8 * 1024 * 1024;
@@ -315,6 +316,7 @@ async function loadDiskCache(): Promise<number> {
         loaded = entries.length;
       }
     }
+    diskCacheLoadCount += 1;
     console.error(`[memorix] Loaded ${loaded} cached API embeddings from disk`);
   } catch {
     // No cache file or corrupt cache; start fresh. Never save an empty map
@@ -333,12 +335,16 @@ function startDiskCacheLoad(): void {
 /** Ensure disk cache is loaded (await if still in progress). */
 export async function ensureDiskCacheLoaded(): Promise<number> {
   if (diskCacheLoaded) return cache.size;
-  if (diskCacheLoadPromise) {
-    await diskCacheLoadPromise;
-    return cache.size;
+  if (!diskCacheLoadPromise) {
+    diskCacheLoadPromise = loadDiskCache().then(() => undefined).catch(() => {});
   }
-  await loadDiskCache();
+  await diskCacheLoadPromise;
   return cache.size;
+}
+
+/** @internal How many times the on-disk embedding cache was parsed. */
+export function getApiEmbeddingDiskCacheLoadCountForTests(): number {
+  return diskCacheLoadCount;
 }
 
 /** @internal Reset in-process API embedding cache between tests. */
@@ -346,6 +352,7 @@ export function resetApiEmbeddingCacheForTests(): void {
   cache.clear();
   diskCacheLoaded = false;
   diskCacheLoadPromise = null;
+  diskCacheLoadCount = 0;
   diskCacheDirty = false;
 }
 

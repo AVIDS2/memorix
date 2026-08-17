@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   ensureDiskCacheLoaded,
+  getApiEmbeddingDiskCacheLoadCountForTests,
   resetApiEmbeddingCacheForTests,
   saveDiskCacheNow,
   seedApiEmbeddingCacheForTests,
@@ -37,6 +38,17 @@ describe('embedding cache jsonl + shrink guard', () => {
 
     const count = await ensureDiskCacheLoaded();
     expect(count).toBe(2);
+  });
+
+  it('single-flights concurrent disk cache loads', async () => {
+    const jsonl = join(dir, '.embedding-api-cache.jsonl');
+    await writeFile(jsonl, `${JSON.stringify({ h: 'aaa111aaa111aaaa', v: [0.1, 0.2] })}\n`);
+
+    const [first, second] = await Promise.all([ensureDiskCacheLoaded(), ensureDiskCacheLoaded()]);
+
+    expect(first).toBe(1);
+    expect(second).toBe(1);
+    expect(getApiEmbeddingDiskCacheLoadCountForTests()).toBe(1);
   });
 
   it('refuses to overwrite a larger on-disk cache with a smaller in-memory map', async () => {

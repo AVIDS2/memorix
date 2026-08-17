@@ -133,6 +133,7 @@ describe('prepareSearchIndex', () => {
         expect.objectContaining({ id: 1, title: 'Prepared startup index' }),
         expect.objectContaining({ id: 2, title: 'Resolved old note' }),
       ]),
+      { skipCachedVectors: undefined },
     );
     expect(mockBatchGenerateEmbeddings).not.toHaveBeenCalled();
     expect(getVectorMissingIds()).toEqual([1, 2]);

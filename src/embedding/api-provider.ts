@@ -724,10 +724,13 @@ export class APIEmbeddingProvider implements EmbeddingProvider {
       console.error(`[memorix] Dimension shortening: ${config.requestedDimensions}d requested`);
     }
 
-    // The cache can only be used after dimensions are known. In cache-only
-    // startup with no metadata, skip parsing the potentially large cache file
-    // altogether and stay lexical until a normal embedding lane is needed.
-    startDiskCacheLoad();
+    // Startup / CLI lexical lanes pass allowNetworkProbe=false. Do not begin
+    // the 300MB JSONL parse here — that keeps one-shot CLI processes alive
+    // after search already printed. getCachedEmbeddings() still loads the
+    // cache when a later hybrid/attach path actually needs vectors.
+    if (allowNetworkProbe) {
+      startDiskCacheLoad();
+    }
 
     return new APIEmbeddingProvider(config, probeDimensions);
   }

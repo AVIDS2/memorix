@@ -1201,10 +1201,12 @@ export async function reindexObservations(): Promise<number> {
  * coupled to embedding provider throughput. Missing vectors are queued for the
  * existing background backfill cycle.
  */
-export async function prepareSearchIndex(): Promise<number> {
+export async function prepareSearchIndex(options: { skipCachedVectors?: boolean } = {}): Promise<number> {
   if (searchIndexPrepared) return 0;
 
-  const count = await hydrateIndexForStartup(observations as unknown as any[]);
+  const count = await hydrateIndexForStartup(observations as unknown as any[], {
+    skipCachedVectors: options.skipCachedVectors,
+  });
   if (count === 0) {
     searchIndexPrepared = true;
     return 0;

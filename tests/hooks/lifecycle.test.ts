@@ -93,6 +93,7 @@ describe('hook process lifecycle', () => {
 
   it('defers hook embeddings so a remote fetch cannot pin the CLI process', () => {
     expect(hookObservationRuntimeOptions('/repo')).toEqual({
+      skipCorpusLoad: true,
       embeddingWriteMode: 'deferred',
       projectRoot: '/repo',
     });

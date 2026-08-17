@@ -6,9 +6,11 @@
  */
 
 import { createHash } from 'node:crypto';
-import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import { createReadStream, createWriteStream, constants as fsConstants } from 'node:fs';
+import { access, readFile, writeFile, mkdir, rename, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
+import { createInterface } from 'node:readline';
 import {
   EmbeddingInputError,
   UnsupportedEmbeddingModalityError,
@@ -26,6 +28,9 @@ function cacheDir(): string {
 function cacheFile(): string {
   return join(cacheDir(), '.embedding-api-cache.json');
 }
+function cacheJsonlFile(): string {
+  return join(cacheDir(), '.embedding-api-cache.jsonl');
+}
 function dimsCacheFile(): string {
   return join(cacheDir(), '.embedding-dims-cache.json');
 }
@@ -34,11 +39,14 @@ function cacheMetaFile(): string {
 }
 
 const cache = new Map<string, number[]>();
-const MAX_CACHE_SIZE = 10000;
+const MAX_CACHE_SIZE = 200000;
 let diskCacheDirty = false;
 let diskSaveTimer: ReturnType<typeof setTimeout> | null = null;
 let diskCacheLoaded = false;
 let diskCacheLoadPromise: Promise<void> | null = null;
+
+/** JSON.parse of a multi-hundred-MB cache on the HTTP thread wedges /health. */
+const OFF_THREAD_CACHE_PARSE_BYTES = 8 * 1024 * 1024;
 
 const MAX_INPUT_CHARS = 32000;
 const MAX_CONCURRENCY = 4;
@@ -154,30 +162,199 @@ function toProviderInput(input: EmbeddingInput, baseUrl: string): unknown {
   return { type: input.modality, url: input.url };
 }
 
-async function loadDiskCache(): Promise<void> {
-  if (diskCacheLoaded) return;
+/**
+ * Parse a large embedding cache off the HTTP event loop.
+ * JSON.parse of a 300MB file on the serve-http thread makes /health time out
+ * and the LaunchAgent watchdog restart a healthy-but-busy control plane.
+ */
+export function parseCacheJsonInWorker(filePath: string): Promise<[string, number[]][]> {
+  return new Promise((resolve, reject) => {
+    void import('node:worker_threads').then(({ Worker }) => {
+      const worker = new Worker(
+        `
+        const { parentPort, workerData } = require('node:worker_threads');
+        const { readFileSync } = require('node:fs');
+        try {
+          const raw = readFileSync(workerData.filePath, 'utf8');
+          parentPort.postMessage({ ok: true, entries: JSON.parse(raw) });
+        } catch (err) {
+          parentPort.postMessage({
+            ok: false,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+        `,
+        { eval: true, workerData: { filePath } },
+      );
+      worker.once('message', (msg: { ok?: boolean; entries?: [string, number[]][]; error?: string }) => {
+        void worker.terminate();
+        if (msg?.ok && Array.isArray(msg.entries)) {
+          resolve(msg.entries);
+          return;
+        }
+        reject(new Error(msg?.error || 'embedding cache worker parse failed'));
+      });
+      worker.once('error', reject);
+    }).catch(reject);
+  });
+}
+
+/**
+ * Convert a giant JSON-array cache to JSONL on disk. Never postMessage the
+ * vectors — structured clone of 27k×1024 floats OOMs the HTTP process and
+ * the subsequent empty save overwrites the real cache.
+ */
+export function convertArrayCacheToJsonl(filePath: string, jsonlPath: string): Promise<number> {
+  return new Promise((resolve, reject) => {
+    void import('node:worker_threads').then(({ Worker }) => {
+      const worker = new Worker(
+        `
+        const { parentPort, workerData } = require('node:worker_threads');
+        const { readFileSync, writeFileSync } = require('node:fs');
+        try {
+          const parsed = JSON.parse(readFileSync(workerData.filePath, 'utf8'));
+          if (!Array.isArray(parsed)) throw new Error('embedding cache is not a JSON array');
+          const lines = [];
+          for (const entry of parsed) {
+            if (Array.isArray(entry) && typeof entry[0] === 'string' && Array.isArray(entry[1])) {
+              lines.push(JSON.stringify({ h: entry[0], v: entry[1] }));
+            }
+          }
+          writeFileSync(workerData.jsonlPath, lines.join('\\n') + (lines.length ? '\\n' : ''));
+          parentPort.postMessage({ ok: true, count: lines.length });
+        } catch (err) {
+          parentPort.postMessage({
+            ok: false,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+        `,
+        { eval: true, workerData: { filePath, jsonlPath } },
+      );
+      worker.once('message', (msg: { ok?: boolean; count?: number; error?: string }) => {
+        void worker.terminate();
+        if (msg?.ok && typeof msg.count === 'number') {
+          resolve(msg.count);
+          return;
+        }
+        reject(new Error(msg?.error || 'embedding cache jsonl convert failed'));
+      });
+      worker.once('error', reject);
+    }).catch(reject);
+  });
+}
+
+async function loadCacheJsonl(filePath: string): Promise<number> {
+  const rl = createInterface({
+    input: createReadStream(filePath, { encoding: 'utf8' }),
+    crlfDelay: Infinity,
+  });
+  let loaded = 0;
+  for await (const line of rl) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    try {
+      const row = JSON.parse(trimmed) as { h?: string; v?: number[] } | [string, number[]];
+      if (Array.isArray(row) && typeof row[0] === 'string' && Array.isArray(row[1])) {
+        cache.set(row[0], row[1]);
+        loaded += 1;
+      } else if (row && typeof row === 'object' && typeof row.h === 'string' && Array.isArray(row.v)) {
+        cache.set(row.h, row.v);
+        loaded += 1;
+      }
+    } catch {
+      // Skip a corrupt line; the rest of the cache remains usable.
+    }
+    if (loaded % 100 === 0) {
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    }
+  }
+  return loaded;
+}
+
+async function countJsonlLines(filePath: string): Promise<number> {
   try {
-    const raw = await readFile(cacheFile(), 'utf-8');
-    const entries: [string, number[]][] = JSON.parse(raw);
-    for (const [k, v] of entries) cache.set(k, v);
-    console.error(`[memorix] Loaded ${entries.length} cached API embeddings from disk`);
+    const rl = createInterface({
+      input: createReadStream(filePath, { encoding: 'utf8' }),
+      crlfDelay: Infinity,
+    });
+    let count = 0;
+    for await (const line of rl) {
+      if (line.trim()) count += 1;
+    }
+    return count;
   } catch {
-    // No cache file or corrupt cache; start fresh.
+    return 0;
+  }
+}
+
+async function loadDiskCache(): Promise<number> {
+  if (diskCacheLoaded) return cache.size;
+  let loaded = 0;
+  try {
+    const jsonlPath = cacheJsonlFile();
+    let hasJsonl = false;
+    try {
+      await access(jsonlPath, fsConstants.R_OK);
+      hasJsonl = true;
+    } catch {
+      hasJsonl = false;
+    }
+    if (hasJsonl) {
+      loaded = await loadCacheJsonl(jsonlPath);
+    } else {
+      const filePath = cacheFile();
+      const info = await stat(filePath);
+      if (info.size >= OFF_THREAD_CACHE_PARSE_BYTES) {
+        await convertArrayCacheToJsonl(filePath, jsonlPath);
+        loaded = await loadCacheJsonl(jsonlPath);
+      } else {
+        const raw = await readFile(filePath, 'utf-8');
+        const entries: [string, number[]][] = JSON.parse(raw);
+        for (const [key, value] of entries) cache.set(key, value);
+        loaded = entries.length;
+      }
+    }
+    console.error(`[memorix] Loaded ${loaded} cached API embeddings from disk`);
+  } catch {
+    // No cache file or corrupt cache; start fresh. Never save an empty map
+    // over a larger on-disk cache — saveDiskCacheNow refuses that shrink.
   }
   diskCacheLoaded = true;
+  return loaded;
 }
 
 /** Start loading disk cache in background (non-blocking). */
 function startDiskCacheLoad(): void {
   if (diskCacheLoaded || diskCacheLoadPromise) return;
-  diskCacheLoadPromise = loadDiskCache().catch(() => {});
+  diskCacheLoadPromise = loadDiskCache().then(() => undefined).catch(() => {});
 }
 
 /** Ensure disk cache is loaded (await if still in progress). */
-async function ensureDiskCacheLoaded(): Promise<void> {
-  if (diskCacheLoaded) return;
-  if (diskCacheLoadPromise) { await diskCacheLoadPromise; return; }
+export async function ensureDiskCacheLoaded(): Promise<number> {
+  if (diskCacheLoaded) return cache.size;
+  if (diskCacheLoadPromise) {
+    await diskCacheLoadPromise;
+    return cache.size;
+  }
   await loadDiskCache();
+  return cache.size;
+}
+
+/** @internal Reset in-process API embedding cache between tests. */
+export function resetApiEmbeddingCacheForTests(): void {
+  cache.clear();
+  diskCacheLoaded = false;
+  diskCacheLoadPromise = null;
+  diskCacheDirty = false;
+}
+
+/** @internal Seed the in-memory API embedding cache for shrink-guard tests. */
+export function seedApiEmbeddingCacheForTests(entries: Map<string, number[]>): void {
+  cache.clear();
+  for (const [key, value] of entries) cache.set(key, value);
+  diskCacheLoaded = true;
+  diskCacheDirty = true;
 }
 
 function dimsCacheKey(config: Pick<APIEmbeddingConfig, 'baseUrl' | 'model' | 'requestedDimensions'>): string {
@@ -355,12 +532,43 @@ async function saveCachedDims(config: Pick<APIEmbeddingConfig, 'baseUrl' | 'mode
   await saveCachedVectorDimensions(config, dimensions);
 }
 
-async function saveDiskCacheNow(): Promise<void> {
+export async function saveDiskCacheNow(): Promise<void> {
   if (!diskCacheDirty) return;
   try {
     await mkdir(cacheDir(), { recursive: true });
-    const entries = Array.from(cache.entries());
-    await writeFile(cacheFile(), JSON.stringify(entries));
+    const jsonlPath = cacheJsonlFile();
+    const existing = await countJsonlLines(jsonlPath);
+    if (existing > 0 && cache.size < Math.ceil(existing * 0.5)) {
+      console.error(
+        `[memorix] Refusing to overwrite embedding cache (${existing} on disk vs ${cache.size} in memory)`,
+      );
+      diskCacheDirty = false;
+      return;
+    }
+    const tmpPath = `${jsonlPath}.tmp`;
+    await new Promise<void>((resolve, reject) => {
+      const out = createWriteStream(tmpPath);
+      const entries = cache.entries();
+      const writeBatch = (): void => {
+        for (let i = 0; i < 50; i++) {
+          const next = entries.next();
+          if (next.done) {
+            out.end();
+            return;
+          }
+          const [hash, vector] = next.value;
+          if (!out.write(`${JSON.stringify({ h: hash, v: vector })}\n`)) {
+            out.once('drain', writeBatch);
+            return;
+          }
+        }
+        setImmediate(writeBatch);
+      };
+      out.on('finish', resolve);
+      out.on('error', reject);
+      writeBatch();
+    });
+    await rename(tmpPath, jsonlPath);
     diskCacheDirty = false;
   } catch {
     // Cache persistence is best-effort only.

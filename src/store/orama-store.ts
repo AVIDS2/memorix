@@ -378,6 +378,12 @@ async function attachCachedVectors(
     } catch {
       // Vector cache hydration is best-effort. The normal backfill lane owns misses.
     }
+    if (index % 10 === 0) {
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    }
+    if (index % 50 === 0) {
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    }
   }
 }
 
@@ -437,6 +443,13 @@ export async function hydrateIndex(
       await insert(database, doc);
       rememberObservationDoc(doc);
       inserted++;
+      // Keep the HTTP event loop alive on large corpora so /health still answers.
+      if (inserted % 50 === 0) {
+        await new Promise<void>((resolve) => setImmediate(resolve));
+      }
+      if (inserted % 200 === 0) {
+        await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      }
     } catch { /* skip malformed entries */ }
   }
 

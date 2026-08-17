@@ -12,7 +12,10 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        # The CLI launches child processes and serves HTTP on every supported
+        # desktop platform. Keep macOS in the normal release gate rather than
+        # treating it as an unverified compatibility target.
+        os: [ubuntu-latest, windows-latest, macos-latest]
         node-version: [22]
     steps:
       - uses: actions/checkout@v4

@@ -128,7 +128,11 @@ docker compose ps
 
 ### HTTP session idle timeout
 
-The HTTP MCP transport defaults to a 30-minute idle timeout. The example `compose.yaml` raises this to 24 hours for IDEs that keep one HTTP MCP session open while the user reads diffs, runs tests, or switches focus.
+The HTTP MCP transport defaults to a 12-hour idle timeout. The example
+`compose.yaml` raises this to 24 hours for IDEs that keep one HTTP MCP session
+open while the user reads diffs, runs tests, or switches focus. When a session
+does expire, the service returns a fast `404` so the client can initialize a
+fresh MCP session.
 
 To change it:
 

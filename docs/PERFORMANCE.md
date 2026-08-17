@@ -71,7 +71,7 @@ On the release development machine used for this check, the healthy HTTP service
 
 | Knob | Default | Use When |
 | --- | --- | --- |
-| `MEMORIX_SESSION_TIMEOUT_MS` | `1800000` (30 min) | Increase for HTTP MCP clients that do not recover from stale session IDs after idle time |
+| `MEMORIX_SESSION_TIMEOUT_MS` | `43200000` (12 h) | Set a shorter GC window for supervised clients, or `0` to disable idle session GC |
 | `MEMORIX_FORMATION_TIMEOUT_MS` | `12000` (12 s) | Raise when LLM-backed formation should outlive slow proxy/provider hops |
 | `MEMORIX_LLM_API_KEY` / `OPENAI_API_KEY` | unset | Enable LLM-backed enrichment, extraction, rerank, or skill generation |
 | `MEMORIX_LLM_TIMEOUT_MS` | `30000` (30 s) | Bound a single LLM-backed extraction/resolve call |
@@ -86,7 +86,7 @@ On the release development machine used for this check, the healthy HTTP service
 ## Operator Guidance
 
 - For memory-only use, prefer stdio MCP or a lightweight `memorix_session_start`; do not join orchestration coordination state by default.
-- For long-lived IDE sessions over HTTP, set `MEMORIX_SESSION_TIMEOUT_MS=86400000` before `memorix background start` if your client is stale-session-sensitive.
+- HTTP sessions now default to 12 hours and return a fast `404` with a reinitialize hint after expiry. Set `MEMORIX_SESSION_TIMEOUT_MS=0` only when the host has its own reliable lifecycle cleanup; otherwise retain a bounded GC window.
 - If LLM-backed formation is timing out against a slow proxy/provider, raise `MEMORIX_FORMATION_TIMEOUT_MS` and keep it higher than `MEMORIX_LLM_TIMEOUT_MS`, because the full pipeline can include multiple LLM-backed stages.
 - For Docker, use it when you want a managed HTTP service. Do not use image size alone as the runtime memory estimate.
 - For orchestrated subagent work, expect CPU and disk activity proportional to the spawned agents and verification commands.

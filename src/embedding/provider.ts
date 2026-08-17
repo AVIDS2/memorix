@@ -175,12 +175,26 @@ let initPromise: Promise<EmbeddingProvider | null> | null = null;
 type EmbeddingMode = 'off' | 'fastembed' | 'transformers' | 'api' | 'auto';
 type ProviderKind = 'api' | 'fastembed' | 'transformers' | 'unknown';
 
+export type EmbeddingRuntimeStatus = 'disabled' | 'uninitialized' | 'ready' | 'degraded';
+export type EmbeddingFailureKind = 'authorization' | 'billing' | 'timeout' | 'upstream';
+
+export interface EmbeddingRuntimeHealth {
+  status: EmbeddingRuntimeStatus;
+  provider?: { name: string; dimensions: number };
+  failure?: {
+    kind: EmbeddingFailureKind;
+    occurredAt: string;
+    retryAfterMs: number;
+  };
+}
+
 /**
  * Tracks whether the last init attempt resulted in a temporary failure
  * (mode != 'off' but provider returned null). When true, the next
  * getEmbeddingProvider() call will retry instead of returning cached null.
  */
 let lastInitWasTemporaryFailure = false;
+let lastEmbeddingFailure: { kind: EmbeddingFailureKind; occurredAt: number } | null = null;
 let lastEmbeddingWarning = '';
 let lastEmbeddingWarningAt = 0;
 const WARNING_COOLDOWN_MS = 30_000;
@@ -271,13 +285,38 @@ function isTemporaryEmbeddingFailure(error: unknown): boolean {
   );
 }
 
+function classifyEmbeddingFailure(error: unknown): EmbeddingFailureKind {
+  const message = error instanceof Error ? error.message : String(error);
+  if (/embedding api error \(401\)|invalid_api_key|incorrect api key|unauthorized/i.test(message)) {
+    return 'authorization';
+  }
+  if (/embedding api error \(402\)|quota exceeded|account balance/i.test(message)) {
+    return 'billing';
+  }
+  if (/embedding api timeout|abort/i.test(message)) {
+    return 'timeout';
+  }
+  return 'upstream';
+}
+
 function markTemporaryFailure(reason: unknown): void {
   provider = null;
   initPromise = null;
   lastInitWasTemporaryFailure = true;
   lastFailureTimestamp = Date.now();
+  lastEmbeddingFailure = {
+    kind: classifyEmbeddingFailure(reason),
+    occurredAt: lastFailureTimestamp,
+  };
   const message = reason instanceof Error ? reason.message : String(reason);
-  warnOnce(`[memorix] Embedding provider temporarily unavailable at runtime: ${message}`);
+  warnOnce(`[memorix] Embedding provider unavailable at runtime: ${message}`);
+}
+
+function markProviderReady(candidate: EmbeddingProvider): EmbeddingProvider {
+  provider = wrapProvider(candidate);
+  lastInitWasTemporaryFailure = false;
+  lastEmbeddingFailure = null;
+  return provider;
 }
 
 async function createFastEmbedProvider(): Promise<EmbeddingProvider | null> {
@@ -438,7 +477,7 @@ export async function getEmbeddingProvider(
     if (mode === 'fastembed') {
       const initialized = await createFastEmbedProvider();
       if (!initialized) return null;
-      provider = wrapProvider(initialized);
+      provider = markProviderReady(initialized);
       warnOnce(`[memorix] Embedding provider: ${provider.name} (${provider.dimensions}d)`);
       return provider;
     }
@@ -447,7 +486,7 @@ export async function getEmbeddingProvider(
     if (mode === 'transformers') {
       const initialized = await createTransformersProvider();
       if (!initialized) return null;
-      provider = wrapProvider(initialized);
+      provider = markProviderReady(initialized);
       warnOnce(`[memorix] Embedding provider: ${provider.name} (${provider.dimensions}d)`);
       return provider;
     }
@@ -456,7 +495,7 @@ export async function getEmbeddingProvider(
     if (mode === 'api') {
       const initialized = await createAPIProvider(options);
       if (!initialized) return null;
-      provider = wrapProvider(initialized);
+      provider = markProviderReady(initialized);
       warnOnce(`[memorix] Embedding provider: ${provider.name} (${provider.dimensions}d)`);
       return provider;
     }
@@ -465,7 +504,7 @@ export async function getEmbeddingProvider(
     if (hasAPIEmbeddingConfig()) {
       const initialized = await createAPIProvider(options);
       if (initialized) {
-        provider = wrapProvider(initialized);
+        provider = markProviderReady(initialized);
         warnOnce(`[memorix] Embedding provider: ${provider.name} (${provider.dimensions}d)`);
         return provider;
       }
@@ -473,7 +512,7 @@ export async function getEmbeddingProvider(
 
     const localFallback = await createLocalFallbackProvider();
     if (localFallback) {
-      provider = wrapProvider(localFallback);
+      provider = markProviderReady(localFallback);
       warnOnce(`[memorix] Embedding provider: ${provider.name} (${provider.dimensions}d)`);
       return provider;
     }
@@ -508,6 +547,36 @@ export async function isVectorSearchAvailable(): Promise<boolean> {
 }
 
 /**
+ * Process-local embedding health, intentionally read-only and network-free.
+ * It lets the control plane distinguish a configured provider from one that
+ * has degraded after a live credential, billing, timeout, or upstream error.
+ */
+export function getEmbeddingRuntimeHealth(): EmbeddingRuntimeHealth {
+  const mode = getEmbeddingMode();
+  if (mode === 'off') return { status: 'disabled' };
+
+  if (lastInitWasTemporaryFailure && lastEmbeddingFailure) {
+    return {
+      status: 'degraded',
+      failure: {
+        kind: lastEmbeddingFailure.kind,
+        occurredAt: new Date(lastEmbeddingFailure.occurredAt).toISOString(),
+        retryAfterMs: Math.max(0, RETRY_COOLDOWN_MS - (Date.now() - lastEmbeddingFailure.occurredAt)),
+      },
+    };
+  }
+
+  if (provider) {
+    return {
+      status: 'ready',
+      provider: { name: provider.name, dimensions: provider.dimensions },
+    };
+  }
+
+  return { status: 'uninitialized' };
+}
+
+/**
  * Check if embedding is explicitly disabled by configuration (mode === 'off').
  *
  * When true, there is no provider to backfill from and observations can be
@@ -529,6 +598,7 @@ export function resetProvider(): void {
   initPromise = null;
   lastInitWasTemporaryFailure = false;
   lastFailureTimestamp = 0;
+  lastEmbeddingFailure = null;
   lastEmbeddingWarning = '';
   lastEmbeddingWarningAt = 0;
 }

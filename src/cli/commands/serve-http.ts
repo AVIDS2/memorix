@@ -29,13 +29,19 @@ import { canManageObservation, filterReadableObservations } from '../../memory/v
 import { parseTcpPortOrReport } from '../port.js';
 import { mcpFileUriToPath } from '../mcp-root-path.js';
 
-export const DEFAULT_SESSION_TIMEOUT_MS = 30 * 60 * 1000;
+/**
+ * HTTP MCP is a shared control plane. A normal thinking break should not
+ * silently invalidate a client session. Operators can choose a shorter GC
+ * window, or set 0 to disable idle GC entirely.
+ */
+export const DEFAULT_SESSION_TIMEOUT_MS = 12 * 60 * 60 * 1000;
+export const EXPIRED_SESSION_TTL_MS = 10 * 60 * 1000;
 
 export function parseSessionTimeoutMs(raw: string | undefined): number {
   const value = raw?.trim();
   if (!value) return DEFAULT_SESSION_TIMEOUT_MS;
   const parsed = Number(value);
-  if (!Number.isFinite(parsed) || parsed <= 0) return DEFAULT_SESSION_TIMEOUT_MS;
+  if (!Number.isFinite(parsed) || parsed < 0) return DEFAULT_SESSION_TIMEOUT_MS;
   return Math.floor(parsed);
 }
 
@@ -132,7 +138,11 @@ export default defineCommand({
     console.error(`[memorix] HTTP transport starting on ${host}:${port}`);
     console.error(`[memorix] Project root: ${projectRoot}`);
     const sessionTimeoutMs = parseSessionTimeoutMs(process.env.MEMORIX_SESSION_TIMEOUT_MS);
-    console.error(`[memorix] HTTP session idle timeout: ${Math.round(sessionTimeoutMs / 60000)}min (${sessionTimeoutMs}ms)`);
+    console.error(
+      sessionTimeoutMs === 0
+        ? '[memorix] HTTP session idle timeout: disabled'
+        : `[memorix] HTTP session idle timeout: ${Math.round(sessionTimeoutMs / 60000)}min (${sessionTimeoutMs}ms)`,
+    );
 
     // Per-project TeamStore cache (Option B) — each dataDir gets its own TeamStore instance.
     // This ensures true isolation between projects in HTTP control-plane mode.
@@ -166,6 +176,9 @@ export default defineCommand({
 
     // Session activity tracking (for GC timeout)
     const sessionLastActivity = new Map<string, number>();
+    // Keep a short-lived tombstone so an expired client gets an actionable
+    // reinitialize response instead of a generic bad request.
+    const expiredSessions = new Map<string, number>();
 
     // Probe session noise reduction: defer init logs, suppress short-lived sessions
     let suppressedProbeCount = 0;
@@ -180,6 +193,30 @@ export default defineCommand({
         suppressedProbeCount = 0;
         lastProbeSummaryTime = Date.now();
       }
+    }
+
+    function forgetExpiredSessions(now = Date.now()): void {
+      for (const [sessionId, expiresAt] of expiredSessions) {
+        if (expiresAt <= now) expiredSessions.delete(sessionId);
+      }
+    }
+
+    function sendUnknownSession(res: ServerResponse, sessionId: string | undefined, jsonRpc = false): void {
+      const expired = Boolean(sessionId && expiredSessions.has(sessionId));
+      const message = expired
+        ? 'MCP session expired after inactivity. Initialize a new session and retry the request.'
+        : 'MCP session not found. Initialize a new session and retry the request.';
+      if (jsonRpc) {
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          jsonrpc: '2.0',
+          error: { code: -32001, message },
+          id: null,
+        }));
+        return;
+      }
+      res.writeHead(404, { 'Content-Type': 'text/plain' });
+      res.end(message);
     }
 
     /**
@@ -360,6 +397,11 @@ export default defineCommand({
         return;
       }
 
+      if (sessionId) {
+        sendUnknownSession(res, sessionId, true);
+        return;
+      }
+
       if (!sessionId && isInitializeRequest(body)) {
         // New session — create transport + server
         let createdState: SessionState | null = null;
@@ -488,8 +530,12 @@ export default defineCommand({
     async function handleGet(req: IncomingMessage, res: ServerResponse) {
       const sessionId = req.headers['mcp-session-id'] as string | undefined;
       if (!sessionId || !sessions.has(sessionId)) {
-        res.writeHead(400, { 'Content-Type': 'text/plain' });
-        res.end('Invalid or missing session ID');
+        if (!sessionId) {
+          res.writeHead(400, { 'Content-Type': 'text/plain' });
+          res.end('Missing MCP session ID');
+          return;
+        }
+        sendUnknownSession(res, sessionId);
         return;
       }
 
@@ -502,8 +548,12 @@ export default defineCommand({
     async function handleDelete(req: IncomingMessage, res: ServerResponse) {
       const sessionId = req.headers['mcp-session-id'] as string | undefined;
       if (!sessionId || !sessions.has(sessionId)) {
-        res.writeHead(400, { 'Content-Type': 'text/plain' });
-        res.end('Invalid or missing session ID');
+        if (!sessionId) {
+          res.writeHead(400, { 'Content-Type': 'text/plain' });
+          res.end('Missing MCP session ID');
+          return;
+        }
+        sendUnknownSession(res, sessionId);
         return;
       }
 
@@ -1414,6 +1464,7 @@ export default defineCommand({
       // Lightweight health check — responds immediately, no heavy init required.
       // This is the readiness signal for background start / status.
       if (url.pathname === '/health') {
+        const { getEmbeddingRuntimeHealth } = await import('../../embedding/provider.js');
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
           status: 'ok',
@@ -1421,6 +1472,7 @@ export default defineCommand({
           port,
           uptime: Math.round(process.uptime()),
           pid: process.pid,
+          embedding: getEmbeddingRuntimeHealth(),
         }));
         return;
       }
@@ -1491,6 +1543,12 @@ export default defineCommand({
       await serveDashStatic(req, res);
     });
 
+    // MCP session continuity is independent from one TCP socket. Keep Node's
+    // socket timeout above its 5s default while the session map remains the
+    // actual continuity boundary.
+    httpServer.keepAliveTimeout = 60_000;
+    httpServer.headersTimeout = 65_000;
+
     httpServer.listen(port, host, () => {
       // Write readiness file — background start polls this for out-of-band readiness detection
       try {
@@ -1521,10 +1579,13 @@ export default defineCommand({
     const gcInterval = setInterval(() => {
       maybeProbeSummary(); // Flush suppressed probe count periodically
       const now = Date.now();
+      forgetExpiredSessions(now);
+      if (SESSION_TIMEOUT_MS === 0) return;
       for (const [sid, state] of sessions) {
         const lastActive = sessionLastActivity.get(sid) ?? 0;
         if (now - lastActive > SESSION_TIMEOUT_MS) {
           console.error(`[memorix] Session ${sid.slice(0, 8)}… timed out (idle ${Math.round((now - lastActive) / 60000)}min), closing`);
+          expiredSessions.set(sid, now + EXPIRED_SESSION_TTL_MS);
           state.transport.close().catch(() => {});
           sessions.delete(sid);
           sessionLastActivity.delete(sid);

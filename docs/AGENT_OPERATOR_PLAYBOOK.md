@@ -164,7 +164,12 @@ Do not assume the HTTP connection alone tells Memorix which project the user mea
 
 The HTTP service is normally started with `memorix background start`; the same project-binding rules apply when you run `memorix serve-http --port 3211` in the foreground.
 
-HTTP MCP sessions idle out after 30 minutes by default. If the user's HTTP MCP client is sensitive to stale session IDs after long idle periods, set `MEMORIX_SESSION_TIMEOUT_MS` before starting or restarting the service. Example: `MEMORIX_SESSION_TIMEOUT_MS=86400000` keeps sessions alive for 24 hours.
+HTTP MCP sessions idle out after 12 hours by default. An expired session now
+receives a fast `404` reinitialize hint instead of a generic transport failure.
+If the user's HTTP MCP client needs a longer idle period, set
+`MEMORIX_SESSION_TIMEOUT_MS` before starting or restarting the service.
+Example: `MEMORIX_SESSION_TIMEOUT_MS=86400000` keeps sessions alive for 24
+hours. Set it to `0` only when the host has its own reliable session cleanup.
 
 ### Do not confuse project config and global config
 
@@ -702,7 +707,10 @@ If it shows "Not running" or "dead":
 memorix background ensure
 ```
 
-If the client is connected but starts failing after roughly 30 minutes of no Memorix tool use, check for stale HTTP session expiry rather than treating it as project binding failure. Restart the service with a longer idle timeout:
+If the client is connected but starts failing after a long inactive period,
+check for the explicit stale-session `404` reinitialize hint rather than
+treating it as a project-binding failure. The default idle window is 12 hours;
+restart with a longer window only when the client genuinely needs it:
 
 ```powershell
 $env:MEMORIX_SESSION_TIMEOUT_MS = "86400000"

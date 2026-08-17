@@ -150,7 +150,7 @@ describe('rerankViaHttp', () => {
     });
   });
 
-  it('throws on HTTP errors so the caller can fall back to LLM rerank', async () => {
+  it('throws on HTTP errors so the caller can keep the original order', async () => {
     const fetchImpl = vi.fn(async () => jsonResponse({ error: 'nope' }, 502));
 
     await expect(rerankViaHttp('q', ['a', 'b'], {
@@ -159,5 +159,44 @@ describe('rerankViaHttp', () => {
       apiKey: 'k',
       fetchImpl,
     })).rejects.toThrow(/502/);
+  });
+
+  it('aborts a hung request at the configured timeout', async () => {
+    const fetchImpl = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => (
+      new Promise<Response>((_resolve, reject) => {
+        const signal = init?.signal;
+        const onAbort = () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' }));
+        if (!signal) return;
+        if (signal.aborted) onAbort();
+        else signal.addEventListener('abort', onAbort, { once: true });
+      })
+    ));
+
+    await expect(rerankViaHttp('q', ['doc'], {
+      provider: 'http',
+      baseUrl: EXAMPLE_BASE,
+      timeoutMs: 25,
+      fetchImpl: fetchImpl as typeof fetch,
+    })).rejects.toMatchObject({ name: 'AbortError' });
+  });
+
+  it('uses MEMORIX_RERANK_TIMEOUT_MS when timeoutMs is omitted', async () => {
+    const previous = process.env.MEMORIX_RERANK_TIMEOUT_MS;
+    process.env.MEMORIX_RERANK_TIMEOUT_MS = '12000';
+    const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout');
+    const fetchImpl = vi.fn(async () => jsonResponse({ results: [{ index: 0, relevance_score: 1 }] }));
+
+    try {
+      await rerankViaHttp('q', ['doc'], {
+        provider: 'http',
+        baseUrl: EXAMPLE_BASE,
+        fetchImpl,
+      });
+      expect(setTimeoutSpy.mock.calls.some((call) => call[1] === 12_000)).toBe(true);
+    } finally {
+      setTimeoutSpy.mockRestore();
+      if (previous === undefined) delete process.env.MEMORIX_RERANK_TIMEOUT_MS;
+      else process.env.MEMORIX_RERANK_TIMEOUT_MS = previous;
+    }
   });
 });

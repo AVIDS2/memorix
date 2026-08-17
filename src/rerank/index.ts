@@ -1,9 +1,19 @@
 /**
- * Optional HTTP rerank lane. LLM fallback lives in quality.ts.
+ * Optional HTTP rerank lane. LLM rerank stays in quality.ts when HTTP is off.
  */
 
 import { getResolvedRerankLane, type ResolvedLaneOptions } from '../config/resolved-config.js';
 import { rerankViaHttp } from './http-provider.js';
+import { resolveRerankTimeoutMs } from './policy.js';
+
+export {
+  DEFAULT_RERANK_TIMEOUT_MS,
+  MIN_RERANK_CANDIDATES,
+  parseRerankTimeoutMs,
+  resolveRerankTimeoutMs,
+  shouldAttemptHttpRerank,
+  shouldAttemptLlmRerank,
+} from './policy.js';
 
 /** Minimal search hit the HTTP reranker can reorder. */
 export interface NeuralRerankCandidate {
@@ -45,6 +55,7 @@ export async function neuralRerankCandidates(
     model: lane.model,
     baseUrl: lane.baseUrl!,
     apiKey: lane.apiKey,
+    timeoutMs: resolveRerankTimeoutMs(),
   });
 
   const seen = new Set<number>();

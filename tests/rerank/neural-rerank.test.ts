@@ -1,5 +1,5 @@
 /**
- * HTTP rerank lane: configured /rerank endpoint, then original order on failure.
+ * HTTP rerank lane: configured /rerank endpoint. Failures keep original order.
  */
 
 import { afterEach, describe, expect, it, vi } from 'vitest';

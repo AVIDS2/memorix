@@ -23,6 +23,7 @@ import {
 import { calculateProjectAffinity, extractProjectKeywords, type AffinityContext, type MemoryContent } from './project-affinity.js';
 import { detectQueryIntent, applyIntentBoost } from '../search/intent-detector.js';
 import { maybeExpandSearchQuery } from '../search/query-expansion.js';
+import { parseRerankTimeoutMs, shouldAttemptHttpRerank, shouldAttemptLlmRerank } from '../rerank/policy.js';
 import { withTimeout, withTimeoutSignal } from '../timeout.js';
 
 let db: AnyOrama | null = null;
@@ -1054,21 +1055,25 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
     }
   }
 
-  // ── LLM Reranking (heavy-tier only) ────────────────────────────
-  // Only triggered for heavy-tier queries with ambiguous top results.
-  // Non-thorough profiles, fast, and standard tiers skip entirely.
-  // Ambiguity check: top-2 scores within 30% → results are uncertain.
-  const shouldRerank = quality === 'thorough'
-    && tier === 'heavy'
-    && hasQuery
-    && intermediate.length > 2
-    && (() => {
-      const top = intermediate[0]?.score ?? 0;
-      const second = intermediate[1]?.score ?? 0;
-      return top > 0 && second / top > 0.7; // top-2 within 30% = ambiguous
-    })();
+  // HTTP rerank: thorough search with enough candidates.
+  // LLM rerank: original thorough + heavy + close top-2 gate, and only when
+  // HTTP rerank is not configured. A configured HTTP miss keeps original order.
+  const httpGate = shouldAttemptHttpRerank({
+    quality,
+    hasQuery: Boolean(hasQuery),
+    candidateCount: intermediate.length,
+  });
+  const llmGateWithoutHttp = shouldAttemptLlmRerank({
+    quality,
+    tier,
+    hasQuery: Boolean(hasQuery),
+    candidateCount: intermediate.length,
+    topScore: intermediate[0]?.score ?? 0,
+    secondScore: intermediate[1]?.score ?? 0,
+    httpRerankConfigured: false,
+  });
 
-  if (shouldRerank) {
+  if (httpGate || llmGateWithoutHttp) {
     const narrativeMap = new Map<string, string>();
     for (const hit of results.hits) {
       const doc = hit.document as unknown as MemorixDocument;
@@ -1083,14 +1088,13 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
       score: e.score,
       narrative: narrativeMap.get(makeEntryKey(e.projectId, e.id)),
     }));
-    const _parsedRerank = parseInt(process.env.MEMORIX_RERANK_TIMEOUT_MS || '', 10);
-    const RERANK_TIMEOUT_MS = Number.isFinite(_parsedRerank) && _parsedRerank > 0 ? _parsedRerank : 5000;
+    const RERANK_TIMEOUT_MS = parseRerankTimeoutMs(process.env.MEMORIX_RERANK_TIMEOUT_MS);
     const candidateMap = new Map(candidates.map((candidate, index) => [candidate.id, toRerank[index]]));
-    let applied = false;
+    const { isNeuralRerankEnabled, neuralRerankCandidates } = await import('../rerank/index.js');
+    const httpConfigured = isNeuralRerankEnabled();
 
-    try {
-      const { isNeuralRerankEnabled, neuralRerankCandidates } = await import('../rerank/index.js');
-      if (isNeuralRerankEnabled()) {
+    if (httpConfigured && httpGate) {
+      try {
         const neural = await withTimeout(
           neuralRerankCandidates(originalQuery!, candidates),
           RERANK_TIMEOUT_MS,
@@ -1104,15 +1108,12 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
             intermediate = [...rerankedTop, ...intermediate.slice(RERANK_TOP_K)];
             lastSearchModeByProject.set(modeKey, (lastSearchModeByProject.get(modeKey) ?? 'fulltext') + ' + neural rerank');
             mark('rerank(usedNeural=true)');
-            applied = true;
           }
         }
+      } catch {
+        console.error('[memorix] neural rerank failed or timed out; keeping original order');
       }
-    } catch {
-      console.error('[memorix] neural rerank failed or timed out, trying LLM fallback');
-    }
-
-    if (!applied) {
+    } else if (!httpConfigured && llmGateWithoutHttp) {
       try {
         const { rerankResults } = await import('../llm/quality.js');
         const { reranked, usedLLM } = await withTimeout(
@@ -1133,6 +1134,8 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
       } catch {
         console.error('[memorix] LLM rerank failed or timed out, using original order');
       }
+    } else {
+      mark(`rerank(skipped,tier=${tier})`);
     }
   } else {
     mark(`rerank(skipped,tier=${tier})`);

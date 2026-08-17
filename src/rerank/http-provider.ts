@@ -7,6 +7,8 @@
  * whatever the user configured — Memorix does not rewrite it.
  */
 
+import { resolveRerankTimeoutMs } from './policy.js';
+
 export type NeuralRerankProviderName = 'http';
 
 export interface NeuralRerankRequestConfig {
@@ -100,7 +102,7 @@ export async function rerankViaHttp(
   }
 
   const controller = new AbortController();
-  const timeoutMs = config.timeoutMs && config.timeoutMs > 0 ? config.timeoutMs : 5000;
+  const timeoutMs = resolveRerankTimeoutMs(config.timeoutMs);
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
   try {

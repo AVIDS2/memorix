@@ -194,7 +194,7 @@ OpenAI-only default. The equivalent env-var form is
 
 ### `[rerank]`
 
-Optional HTTP rerank for thorough/heavy/ambiguous search. Off by default.
+Optional HTTP rerank for thorough search. Off by default.
 When `provider = "http"`, Memorix POSTs a Cohere-compatible
 `{model, query, documents}` body to `{base_url}/rerank` (or an explicit
 `/rerank` path). Any compatible endpoint works — hosted APIs, TEI, vLLM,
@@ -230,9 +230,11 @@ model = "rerank-model"
 ```
 
 or set `MEMORIX_RERANK_PROVIDER=http` and `MEMORIX_RERANK_MODEL=...`.
-Timeout is `MEMORIX_RERANK_TIMEOUT_MS` (default 5000). HTTP rerank runs
-first on the existing thorough/heavy/ambiguous search gate; LLM rerank is
-the fallback.
+Timeout is `MEMORIX_RERANK_TIMEOUT_MS` (default 30000). Thorough search
+with at least 3 candidates uses HTTP rerank when configured. On HTTP miss
+or timeout, Memorix keeps the original order and does not fall through to
+LLM rerank. LLM rerank remains available when HTTP rerank is off, on the
+existing thorough/heavy/ambiguous gate.
 
 Image analysis (visual description for ingested images) runs on the LLM lane
 through an OpenAI-compatible vision endpoint, so it can also use OpenRouter

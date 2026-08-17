@@ -6,6 +6,7 @@ import { pathToFileURL } from 'node:url';
 
 import {
   MAINTENANCE_RESULT_PREFIX,
+  isolatedMaintenanceCwd,
   parseMaintenanceRunnerOutput,
   resolveMaintenanceRunnerPath,
   runMaintenanceInChildProcess,
@@ -84,6 +85,36 @@ describe('isolated maintenance runner', () => {
       projectRoot: process.cwd(),
       dataDir: process.cwd(),
     }, { runnerPath: runner, timeoutMs: 5_000 })).resolves.toEqual({ action: 'complete' });
+  });
+
+  it('does not use the project root as the child cwd', async () => {
+    const projectRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'memorix-maintenance-project-'));
+    const mark = path.join(os.tmpdir(), `memorix-maintenance-cwd-${Date.now()}.txt`);
+    temporaryPaths.push(projectRoot, mark);
+    const runner = await createRunner([
+      'import { writeFileSync } from "node:fs";',
+      'let input = "";',
+      'process.stdin.on("data", (chunk) => { input += chunk; });',
+      'process.stdin.on("end", () => {',
+      '  writeFileSync(process.env.MEMORIX_CWD_MARK, process.cwd(), "utf8");',
+      `  process.stdout.write("${MAINTENANCE_RESULT_PREFIX}{\\\"action\\\":\\\"complete\\\"}\\n");`,
+      '});',
+    ].join('\n'));
+
+    const result = await runMaintenanceInChildProcess({
+      job: makeJob(),
+      projectRoot,
+      dataDir: projectRoot,
+    }, {
+      runnerPath: runner,
+      timeoutMs: 5_000,
+      env: { MEMORIX_CWD_MARK: mark },
+    });
+
+    expect(result).toEqual({ action: 'complete' });
+    const childCwd = await fs.realpath((await fs.readFile(mark, 'utf8')).trim());
+    expect(childCwd).toBe(await fs.realpath(isolatedMaintenanceCwd()));
+    expect(childCwd).not.toBe(await fs.realpath(projectRoot));
   });
 
   it('refuses vector backfill because it must update the active process index', async () => {

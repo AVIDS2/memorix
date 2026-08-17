@@ -49,6 +49,14 @@ function getText(result: any): string {
     .join('\n');
 }
 
+async function removeTempDir(dir: string): Promise<void> {
+  try {
+    await fs.rm(dir, { recursive: true, force: true });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'EBUSY') throw error;
+  }
+}
+
 beforeEach(async () => {
   tempHome = await fs.mkdtemp(path.join(os.tmpdir(), 'memorix-session-home-'));
   process.env.HOME = tempHome;
@@ -64,7 +72,7 @@ afterEach(async () => {
   closeAllDatabases();
   process.env.HOME = originalHome;
   process.env.USERPROFILE = originalUserProfile;
-  await fs.rm(tempHome, { recursive: true, force: true });
+  await removeTempDir(tempHome);
 });
 
 describe('memorix_session_start home bind and hydrate', () => {
@@ -88,7 +96,7 @@ describe('memorix_session_start home bind and hydrate', () => {
     await fs.mkdir(project, { recursive: true });
     await createFakeGitRepo(project, 'https://github.com/AVIDS2/session-fast.git');
 
-    const { server } = await createMemorixServer(tempHome, undefined, undefined, {
+    const { server, handleTransportClose } = await createMemorixServer(tempHome, undefined, undefined, {
       allowUntrackedFallback: false,
       deferProjectInitUntilBound: true,
       deferProjectRuntimeInit: true,
@@ -101,18 +109,21 @@ describe('memorix_session_start home bind and hydrate', () => {
       await loadAllBlocked;
       return [];
     });
-    const sessionStart = getHandler(server as any, 'memorix_session_start');
-    const started = Date.now();
-    const text = getText(await sessionStart({ projectRoot: project, agent: 'cursor' }));
-    const elapsedMs = Date.now() - started;
+    try {
+      const sessionStart = getHandler(server as any, 'memorix_session_start');
+      const started = Date.now();
+      const text = getText(await sessionStart({ projectRoot: project, agent: 'cursor' }));
+      const elapsedMs = Date.now() - started;
 
-    expect(text).toContain('AVIDS2/session-fast');
-    expect(text).toContain('Session started');
-    expect(elapsedMs).toBeLessThan(5_000);
-    expect(existsSync(path.join(tempHome, 'memorix.db'))).toBe(false);
-    releaseLoadAll?.();
-
-    loadAll.mockRestore();
-    await fs.rm(work, { recursive: true, force: true });
+      expect(text).toContain('AVIDS2/session-fast');
+      expect(text).toContain('Session started');
+      expect(elapsedMs).toBeLessThan(5_000);
+      expect(existsSync(path.join(tempHome, 'memorix.db'))).toBe(false);
+    } finally {
+      releaseLoadAll?.();
+      loadAll.mockRestore();
+      handleTransportClose();
+      await removeTempDir(work);
+    }
   });
 });

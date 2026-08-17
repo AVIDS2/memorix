@@ -35,17 +35,20 @@ vi.mock('../../src/store/persistence.js', () => ({
   loadIdCounter: mockLoadIdCounter,
 }));
 
-vi.mock('../../src/store/obs-store.js', () => ({
-  initObservationStore: vi.fn().mockResolvedValue(undefined),
-  getObservationStore: () => ({
+vi.mock('../../src/store/obs-store.js', () => {
+  const store = {
     loadAll: mockLoadObservationsJson,
     loadIdCounter: mockLoadIdCounter,
     ensureFresh: vi.fn().mockResolvedValue(false),
     close: vi.fn(),
     getBackendName: () => 'json',
     getGeneration: () => 0,
-  }),
-}));
+  };
+  return {
+    initObservationStore: vi.fn().mockResolvedValue(undefined),
+    getObservationStore: () => store,
+  };
+});
 
 vi.mock('../../src/store/file-lock.js', () => ({
   withFileLock: async (_dir: string, fn: () => Promise<unknown>) => fn(),

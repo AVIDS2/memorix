@@ -113,4 +113,20 @@ describe('hook write without corpus load', () => {
     const all = await store.loadAll();
     expect(all).toHaveLength(6);
   });
+
+  it('does not reuse an empty skipCorpusLoad snapshot for a later full read', async () => {
+    const store = getObservationStore();
+    const loadAll = vi.spyOn(store, 'loadAll');
+
+    await initObservations(testDir, {
+      skipCorpusLoad: true,
+      embeddingWriteMode: 'deferred',
+    });
+    expect(getAllObservations()).toEqual([]);
+    expect(loadAll).not.toHaveBeenCalled();
+
+    await initObservations(testDir);
+    expect(loadAll).toHaveBeenCalledOnce();
+    expect(getAllObservations()).toHaveLength(5);
+  });
 });

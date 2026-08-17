@@ -4,7 +4,7 @@
  * Always runs 1,000 records. Set MEMORIX_LARGE_STORE_40K=1 to also run 40k
  * when the machine can spare a few minutes.
  */
-import { execSync } from 'node:child_process';
+import { execSync, spawnSync } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -42,6 +42,71 @@ function percentile(samples: number[], fraction: number): number {
   const sorted = [...samples].sort((a, b) => a - b);
   const index = Math.min(sorted.length - 1, Math.max(0, Math.ceil(sorted.length * fraction) - 1));
   return sorted[index];
+}
+
+function writeExternalObservation(input: {
+  dataDir: string;
+  projectId: string;
+  id: number;
+  title: string;
+  nextId: number;
+}): void {
+  const result = spawnSync(
+    process.execPath,
+    ['--input-type=module', '-e', `
+      import { createRequire } from 'node:module';
+      const require = createRequire(process.cwd() + '/package.json');
+      function openDatabase(dbPath) {
+        try {
+          const Database = require('better-sqlite3');
+          return new Database(dbPath);
+        } catch {
+          // Native binding may be compiled for a different Node than this child.
+        }
+        return new (require('node:sqlite').DatabaseSync)(dbPath);
+      }
+      const db = openDatabase(process.env.MEMORIX_WRITER_DB);
+      db.prepare(\`INSERT OR REPLACE INTO observations (
+        id, entityName, type, title, narrative, facts, filesModified, concepts,
+        tokens, createdAt, projectId, status, source, sourceDetail
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)\`).run(
+        Number(process.env.MEMORIX_WRITER_ID),
+        'external-writer',
+        'discovery',
+        process.env.MEMORIX_WRITER_TITLE,
+        'Inserted after MemoryClient.close()',
+        '[]',
+        '[]',
+        '[]',
+        8,
+        new Date().toISOString(),
+        process.env.MEMORIX_WRITER_PROJECT,
+        'active',
+        'agent',
+        process.env.MEMORIX_WRITER_SOURCE,
+      );
+      db.prepare("UPDATE meta SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT) WHERE key = 'storage_generation'").run();
+      db.prepare("INSERT OR REPLACE INTO meta (key, value) VALUES ('next_id', ?)").run(process.env.MEMORIX_WRITER_NEXT_ID);
+      db.close();
+    `],
+    {
+      cwd: process.cwd(),
+      env: {
+        ...process.env,
+        MEMORIX_WRITER_DB: path.join(input.dataDir, 'memorix.db'),
+        MEMORIX_WRITER_ID: String(input.id),
+        MEMORIX_WRITER_TITLE: input.title,
+        MEMORIX_WRITER_PROJECT: input.projectId,
+        MEMORIX_WRITER_NEXT_ID: String(input.nextId),
+        MEMORIX_WRITER_SOURCE: input.title.includes('MCP') ? 'mcp' : 'hook',
+      },
+      encoding: 'utf8',
+      windowsHide: true,
+    },
+  );
+  if (result.status !== 0) {
+    throw new Error(`external writer failed: ${result.stderr || result.stdout || `exit ${result.status}`}`);
+  }
 }
 
 describe('large-store gate', () => {
@@ -130,6 +195,30 @@ describe('large-store gate', () => {
     expect(peakRss).toBeLessThan((records <= 1_000 ? 512 : 2048) * 1024 * 1024);
 
     await client.close();
+
+    const dataDir = process.env.MEMORIX_DATA_DIR!;
+    writeExternalObservation({
+      dataDir,
+      projectId: client.projectId,
+      id: records + 1,
+      title: 'MCP marker 1',
+      nextId: records + 2,
+    });
+    writeExternalObservation({
+      dataDir,
+      projectId: client.projectId,
+      id: records + 2,
+      title: 'Hook write after large store',
+      nextId: records + 3,
+    });
+
+    const reopened = await createMemoryClient({ projectRoot, silent: true });
+    const reopenedRows = await reopened.getAll();
+    expect(await reopened.count()).toBe(records + 2);
+    expect(reopenedRows.some((row) => row.title === 'MCP marker 1')).toBe(true);
+    expect(reopenedRows.some((row) => row.title === 'Hook write after large store')).toBe(true);
+    await reopened.close();
+
     closeAllDatabases();
     resetObservationStore();
     resetObservationRuntime();

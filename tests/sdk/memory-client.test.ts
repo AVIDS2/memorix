@@ -10,7 +10,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { execSync } from 'node:child_process';
+import { execSync, spawnSync } from 'node:child_process';
 
 // Shared test data dir
 let testDir: string;
@@ -55,6 +55,88 @@ function createTestGitRepo(): string {
   execSync('git config user.email "tests@memorix.local"', { cwd: dir, stdio: 'ignore' });
   execSync('git commit --allow-empty -m "init"', { cwd: dir, stdio: 'ignore' });
   return dir;
+}
+
+/**
+ * Write through a child process so the parent MemoryClient cannot share a
+ * SQLite handle or mutate the in-memory observation snapshot.
+ */
+function writeExternalObservation(input: {
+  dataDir: string;
+  projectId: string;
+  id: number;
+  title: string;
+  nextId: number;
+  updateId?: number;
+  updateTitle?: string;
+}): void {
+  const result = spawnSync(
+    process.execPath,
+    ['--input-type=module', '-e', `
+      import { createRequire } from 'node:module';
+      const require = createRequire(process.cwd() + '/package.json');
+      function openDatabase(dbPath) {
+        try {
+          const Database = require('better-sqlite3');
+          return new Database(dbPath);
+        } catch {
+          // Native binding may be compiled for a different Node than this child.
+        }
+        return new (require('node:sqlite').DatabaseSync)(dbPath);
+      }
+      const db = openDatabase(process.env.MEMORIX_WRITER_DB);
+      if (process.env.MEMORIX_WRITER_UPDATE_ID) {
+        db.prepare('UPDATE observations SET title = ? WHERE id = ?').run(
+          process.env.MEMORIX_WRITER_UPDATE_TITLE,
+          Number(process.env.MEMORIX_WRITER_UPDATE_ID),
+        );
+      }
+      db.prepare(\`INSERT OR REPLACE INTO observations (
+        id, entityName, type, title, narrative, facts, filesModified, concepts,
+        tokens, createdAt, projectId, status, source, sourceDetail
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)\`).run(
+        Number(process.env.MEMORIX_WRITER_ID),
+        'external-writer',
+        'discovery',
+        process.env.MEMORIX_WRITER_TITLE,
+        'Inserted after MemoryClient.close()',
+        '[]',
+        '[]',
+        '[]',
+        8,
+        new Date().toISOString(),
+        process.env.MEMORIX_WRITER_PROJECT,
+        'active',
+        'agent',
+        'external',
+      );
+      db.prepare("UPDATE meta SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT) WHERE key = 'storage_generation'").run();
+      db.prepare("INSERT OR REPLACE INTO meta (key, value) VALUES ('next_id', ?)").run(process.env.MEMORIX_WRITER_NEXT_ID);
+      db.close();
+    `],
+    {
+      cwd: process.cwd(),
+      env: {
+        ...process.env,
+        MEMORIX_WRITER_DB: join(input.dataDir, 'memorix.db'),
+        MEMORIX_WRITER_ID: String(input.id),
+        MEMORIX_WRITER_TITLE: input.title,
+        MEMORIX_WRITER_PROJECT: input.projectId,
+        MEMORIX_WRITER_NEXT_ID: String(input.nextId),
+        ...(input.updateId !== undefined
+          ? {
+              MEMORIX_WRITER_UPDATE_ID: String(input.updateId),
+              MEMORIX_WRITER_UPDATE_TITLE: input.updateTitle ?? '',
+            }
+          : {}),
+      },
+      encoding: 'utf8',
+      windowsHide: true,
+    },
+  );
+  if (result.status !== 0) {
+    throw new Error(`external writer failed: ${result.stderr || result.stdout || `exit ${result.status}`}`);
+  }
 }
 
 describe('MemoryClient (unit)', () => {
@@ -310,6 +392,41 @@ describe('createMemoryClient (integration)', () => {
     const openHandle = getDatabase(isolatedDataDir);
     await client.close();
     expect(() => openHandle.prepare('SELECT 1').get()).toThrow();
+    await expect(rm(isolatedDataDir, { recursive: true, force: true })).resolves.toBeUndefined();
+  });
+
+  it('reloads SQLite after close so a later in-process client is not a stale snapshot', async () => {
+    const clientA = await createMemoryClient({ projectRoot: repoDir, silent: true });
+    const { observation } = await clientA.store({
+      entityName: 'sdk-reopen',
+      type: 'discovery',
+      title: 'client-a-original-title',
+      narrative: 'First SDK client snapshot that must not survive close + external write.',
+    });
+    expect(await clientA.count()).toBe(1);
+    const dataDir = clientA.dataDir;
+    const projectId = clientA.projectId;
+    await clientA.close();
+
+    const externalTitle = 'client-b-must-see-external-write';
+    const updatedTitle = 'client-a-title-updated-after-close';
+    writeExternalObservation({
+      dataDir,
+      projectId,
+      id: observation.id + 1,
+      title: externalTitle,
+      nextId: observation.id + 2,
+      updateId: observation.id,
+      updateTitle: updatedTitle,
+    });
+
+    const clientB = await createMemoryClient({ projectRoot: repoDir, silent: true });
+    const all = await clientB.getAll();
+    expect(await clientB.count()).toBe(2);
+    expect(all.map((row) => row.title)).toEqual(expect.arrayContaining([updatedTitle, externalTitle]));
+    expect(all.map((row) => row.title)).not.toContain('client-a-original-title');
+    await clientB.close();
+
     await expect(rm(isolatedDataDir, { recursive: true, force: true })).resolves.toBeUndefined();
   });
 

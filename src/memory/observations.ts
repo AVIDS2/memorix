@@ -37,7 +37,7 @@ import {
   searchObservations,
   updateObservationMetadata,
 } from '../store/orama-store.js';
-import { getObservationStore, initObservationStore } from '../store/obs-store.js';
+import { getObservationStore, initObservationStore, type ObservationStore } from '../store/obs-store.js';
 import { countTextTokens } from '../compact/token-budget.js';
 import { extractEntities, enrichConcepts } from './entity-extractor.js';
 import { getEmbeddingProvider, isEmbeddingExplicitlyDisabled, validateEmbeddingInput } from '../embedding/provider.js';
@@ -68,6 +68,7 @@ export interface ObservationRuntimeOptions {
 let embeddingWriteMode: ObservationEmbeddingWriteMode = 'background';
 let embeddingWorkerProjectRoot: string | undefined;
 let corpusLoaded = false;
+let loadedObservationStore: ObservationStore | null = null;
 
 /** @internal Reset in-process observation state between tests. */
 export function resetObservationRuntime(): void {
@@ -76,6 +77,7 @@ export function resetObservationRuntime(): void {
   projectDir = null;
   searchIndexPrepared = false;
   corpusLoaded = false;
+  loadedObservationStore = null;
   embeddingWriteMode = 'background';
   embeddingWorkerProjectRoot = undefined;
   vectorMissingIds.clear();
@@ -253,11 +255,13 @@ export async function initObservations(
 ): Promise<void> {
   embeddingWriteMode = options.embeddingWriteMode ?? 'background';
   embeddingWorkerProjectRoot = options.projectRoot;
-  if (projectDir === dir) {
-    if (options.skipCorpusLoad || corpusLoaded) return;
-  }
   await initObservationStore(dir);
   const store = getObservationStore();
+
+  if (projectDir === dir && loadedObservationStore === store) {
+    if (options.skipCorpusLoad || corpusLoaded) return;
+  }
+
   nextId = await store.loadIdCounter();
   projectDir = dir;
   searchIndexPrepared = false;
@@ -265,10 +269,12 @@ export async function initObservations(
   if (options.skipCorpusLoad) {
     observations = [];
     corpusLoaded = false;
+    loadedObservationStore = store;
     return;
   }
   observations = await store.loadAll();
   corpusLoaded = true;
+  loadedObservationStore = store;
 }
 
 function scheduleObservationEmbedding(input: {

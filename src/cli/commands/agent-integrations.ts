@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, realpathSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { basename, dirname, resolve } from 'node:path';
 import { homedir } from 'node:os';
@@ -580,11 +580,17 @@ function sanitizeServer(server: MCPServerEntry): AgentMcpCheck['server'] {
 }
 
 function normalizeProjectKey(projectRoot: string): string {
-  return resolve(projectRoot).replace(/\\/g, '/').toLowerCase();
+  return canonicalProjectPath(projectRoot).toLowerCase();
 }
 
 function defaultClaudeProjectKey(projectRoot: string): string {
-  return resolve(projectRoot).replace(/\\/g, '/');
+  return canonicalProjectPath(projectRoot);
+}
+
+function canonicalProjectPath(projectRoot: string): string {
+  const resolved = resolve(projectRoot);
+  const canonical = existsSync(resolved) ? realpathSync(resolved) : resolved;
+  return canonical.replace(/\\/g, '/');
 }
 
 function getClaudeLocalConfigPath(): string {

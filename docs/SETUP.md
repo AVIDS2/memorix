@@ -42,7 +42,7 @@ Memorix project identity comes from Git. Open or initialize a real Git repositor
 git init
 ```
 
-`projectRoot` and current working directory are detection anchors. The final project identity is derived from the real Git root and remote metadata.
+`projectRoot` and current working directory are detection anchors. The final project identity is derived from the real Git root and remote metadata. Memorix resolves an existing project directory to its real filesystem path before binding it, so equivalent macOS paths such as `/var/...` and `/private/var/...` do not create separate project or Claude local-MCP entries.
 
 ---
 

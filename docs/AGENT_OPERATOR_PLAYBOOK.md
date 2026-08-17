@@ -58,7 +58,7 @@ An unbound terminal is intentionally project-scoped: it reads and writes project
 
 Long-term memory is a reviewed layer, not a generic global note store. `memorix memory long-term add` creates a candidate; `qualify` and `approve` are explicit audit transitions before it can appear in a bounded task Workset. A project-derived observation, code fact, Git fact, test, session, Claim, or workflow stays project-bound. Only manual or user-confirmed `user + portable` records can cross local projects for the same local installation identity. When one is task-matched in a Workset, it is intentionally usable background even if its origin differs; use its `durable:<id>` reference with `memorix_detail` only when the full record is needed. Use `archive` or `supersede` when a durable item is no longer current.
 
-`--cwd <git-project>` is the canonical way to run direct CLI work from outside a repository. It changes the command's project anchor only; Git remains the source of truth for final project identity.
+`--cwd <git-project>` is the canonical way to run direct CLI work from outside a repository. It changes the command's project anchor only; Git remains the source of truth for final project identity. Existing directories are canonicalized to their real filesystem paths before binding, which prevents macOS aliases such as `/var` and `/private/var` from splitting one project or hiding a Claude local MCP entry.
 
 Use MCP when:
 

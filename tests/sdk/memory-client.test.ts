@@ -3,9 +3,11 @@ import { MemoryClient, createMemoryClient } from '../../src/sdk.js';
 import { initObservationStore, resetObservationStore } from '../../src/store/obs-store.js';
 import { initObservations, prepareSearchIndex, getAllObservations, getObservation, storeObservation } from '../../src/memory/observations.js';
 import { resetDb } from '../../src/store/orama-store.js';
+import { getDatabase } from '../../src/store/sqlite-db.js';
 import { resetProvider } from '../../src/embedding/provider.js';
 import { resetConfigCache } from '../../src/config.js';
 import { mkdtempSync, rmSync } from 'node:fs';
+import { rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { execSync } from 'node:child_process';
@@ -294,6 +296,21 @@ describe('createMemoryClient (integration)', () => {
     const client = await createMemoryClient({ projectRoot: repoDir, silent: true });
     expect(client.dataDir).toBe(isolatedDataDir);
     await client.close();
+  });
+
+  it('releases SQLite so the temp dataDir can be deleted after close', async () => {
+    const client = await createMemoryClient({ projectRoot: repoDir, silent: true });
+    await client.store({
+      entityName: 'close-release',
+      type: 'discovery',
+      title: 'Close must drop the SQLite lock',
+      narrative: 'Windows cannot unlink memorix.db while the handle is open.',
+    });
+    expect(client.dataDir).toBe(isolatedDataDir);
+    const openHandle = getDatabase(isolatedDataDir);
+    await client.close();
+    expect(() => openHandle.prepare('SELECT 1').get()).toThrow();
+    await expect(rm(isolatedDataDir, { recursive: true, force: true })).resolves.toBeUndefined();
   });
 
   it('should throw for non-git directory', async () => {

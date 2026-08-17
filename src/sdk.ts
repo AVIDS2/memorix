@@ -303,6 +303,14 @@ export class MemoryClient {
     } catch {
       // best-effort cleanup
     }
+    // ObservationStore.close() only detaches from the shared handle.
+    // Release this dataDir so Windows can unlink memorix.db after close().
+    try {
+      const { closeDatabase } = await import('./store/sqlite-db.js');
+      closeDatabase(this._dataDir);
+    } catch {
+      // best-effort cleanup
+    }
   }
 }
 

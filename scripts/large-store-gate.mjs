@@ -52,6 +52,7 @@ async function main() {
   process.env.MEMORIX_DATA_DIR = dataDir;
   process.env.MEMORIX_EMBEDDING = 'off';
 
+  let client;
   try {
     const git = spawnSync('git', ['init', '--quiet', projectRoot], { encoding: 'utf8', windowsHide: true });
     if (git.status !== 0) {
@@ -59,7 +60,7 @@ async function main() {
     }
 
     const { createMemoryClient } = await import('../dist/sdk.js');
-    const client = await createMemoryClient({ projectRoot, silent: true });
+    client = await createMemoryClient({ projectRoot, silent: true });
     const seedStarted = performance.now();
     const steady = [];
     let peakRss = process.memoryUsage().rss;
@@ -120,6 +121,13 @@ async function main() {
     console.log(JSON.stringify({ ...report, ok: failed.length === 0, failed }, null, 2));
     if (failed.length > 0) process.exitCode = 1;
   } finally {
+    if (client) {
+      try {
+        await client.close();
+      } catch {
+        // already closed or close failed; still try sandbox cleanup
+      }
+    }
     await rm(sandbox, { recursive: true, force: true });
   }
 }

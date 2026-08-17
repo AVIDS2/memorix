@@ -248,17 +248,25 @@ describe('MemoryClient (unit)', () => {
 
 describe('createMemoryClient (integration)', () => {
   let repoDir: string;
+  let isolatedDataDir: string;
+  let previousDataDir: string | undefined;
 
   beforeEach(() => {
     forceEmbeddingOffForTest();
     repoDir = createTestGitRepo();
+    isolatedDataDir = mkdtempSync(join(tmpdir(), 'memorix-sdk-data-'));
+    previousDataDir = process.env.MEMORIX_DATA_DIR;
+    process.env.MEMORIX_DATA_DIR = isolatedDataDir;
   });
 
   afterEach(async () => {
     resetObservationStore();
     await resetDb();
     restoreEmbeddingEnv();
+    if (previousDataDir === undefined) delete process.env.MEMORIX_DATA_DIR;
+    else process.env.MEMORIX_DATA_DIR = previousDataDir;
     try { rmSync(repoDir, { recursive: true, force: true }); } catch { /* best effort */ }
+    try { rmSync(isolatedDataDir, { recursive: true, force: true }); } catch { /* best effort */ }
   });
 
   it('should create a client from a Git repo path', async () => {
@@ -279,6 +287,12 @@ describe('createMemoryClient (integration)', () => {
     const results = await client.search({ query: 'SDK integration' });
     expect(results.length).toBeGreaterThan(0);
 
+    await client.close();
+  });
+
+  it('keeps createMemoryClient data under MEMORIX_DATA_DIR', async () => {
+    const client = await createMemoryClient({ projectRoot: repoDir, silent: true });
+    expect(client.dataDir).toBe(isolatedDataDir);
     await client.close();
   });
 

@@ -173,6 +173,8 @@ let provider: EmbeddingProvider | null = null;
 let initPromise: Promise<EmbeddingProvider | null> | null = null;
 
 type EmbeddingMode = 'off' | 'fastembed' | 'transformers' | 'api' | 'auto';
+let cachedEmbeddingMode: EmbeddingMode | null = null;
+let cachedEmbeddingModeToken: string | null = null;
 type ProviderKind = 'api' | 'fastembed' | 'transformers' | 'unknown';
 
 export type EmbeddingRuntimeStatus = 'disabled' | 'uninitialized' | 'ready' | 'degraded';
@@ -213,7 +215,13 @@ function warnOnce(message: string): void {
  * Get configured embedding mode from environment.
  * Default is 'off' to minimize resource usage.
  */
+function embeddingModeToken(): string {
+  return process.env.MEMORIX_EMBEDDING?.toLowerCase()?.trim() ?? '';
+}
+
 function getEmbeddingMode(): EmbeddingMode {
+  const token = embeddingModeToken();
+  if (cachedEmbeddingMode && cachedEmbeddingModeToken === token) return cachedEmbeddingMode;
   // Unified: env vars > config.json > 'off'
   try {
     let cfg: { getEmbeddingMode: () => EmbeddingMode };
@@ -223,11 +231,18 @@ function getEmbeddingMode(): EmbeddingMode {
       cfg = require('../config.js');
     }
     const { getEmbeddingMode: cfgMode } = cfg;
-    return cfgMode();
+    cachedEmbeddingMode = cfgMode();
+    cachedEmbeddingModeToken = token;
+    return cachedEmbeddingMode;
   } catch {
     // Fallback if config module not available
-    const env = process.env.MEMORIX_EMBEDDING?.toLowerCase()?.trim();
-    if (env === 'fastembed' || env === 'transformers' || env === 'api' || env === 'auto') return env;
+    if (token === 'fastembed' || token === 'transformers' || token === 'api' || token === 'auto') {
+      cachedEmbeddingMode = token;
+      cachedEmbeddingModeToken = token;
+      return token;
+    }
+    cachedEmbeddingMode = 'off';
+    cachedEmbeddingModeToken = token;
     return 'off';
   }
 }
@@ -596,6 +611,8 @@ export function isEmbeddingExplicitlyDisabled(): boolean {
 export function resetProvider(): void {
   provider = null;
   initPromise = null;
+  cachedEmbeddingMode = null;
+  cachedEmbeddingModeToken = null;
   lastInitWasTemporaryFailure = false;
   lastFailureTimestamp = 0;
   lastEmbeddingFailure = null;

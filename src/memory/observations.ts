@@ -280,14 +280,18 @@ function scheduleObservationEmbedding(input: {
   const { observationId, projectId, searchableText, doc } = input;
   vectorMissingIds.add(observationId);
 
+  // Ordinary store must not pay embedding-provider or cache I/O when vectors
+  // are disabled. Check before generateEmbedding() so MEMORIX_EMBEDDING=off
+  // stays on the lexical write path.
+  if (isEmbeddingExplicitlyDisabled()) {
+    vectorMissingIds.delete(observationId);
+    return;
+  }
+
   // A network fetch keeps Node's event loop alive even when its Promise is not
   // awaited. One-shot CLI commands therefore persist first and let a detached
   // worker consume the same durable queue.
   if (embeddingWriteMode === 'deferred') {
-    if (isEmbeddingExplicitlyDisabled()) {
-      vectorMissingIds.delete(observationId);
-      return;
-    }
     queueVectorBackfill(projectId, {
       detachedWorker: true,
       projectRoot: embeddingWorkerProjectRoot,

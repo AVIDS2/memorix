@@ -7,7 +7,7 @@
 
 import { createHash } from 'node:crypto';
 import { createReadStream, createWriteStream, constants as fsConstants } from 'node:fs';
-import { access, readFile, writeFile, mkdir, rename, stat } from 'node:fs/promises';
+import { access, readFile, writeFile, mkdir, rename, stat, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { createInterface } from 'node:readline';
@@ -37,17 +37,138 @@ function dimsCacheFile(): string {
 function cacheMetaFile(): string {
   return join(cacheDir(), '.embedding-api-cache-meta.json');
 }
+function cacheStatFile(): string {
+  return join(cacheDir(), '.embedding-api-cache-stat.json');
+}
 
 const cache = new Map<string, number[]>();
-const MAX_CACHE_SIZE = 200000;
+/** Hard entry ceiling. The real load cap is dimension-aware payload bytes. */
+const MAX_CACHE_ENTRIES = 200000;
+/** 256 MiB of Float64 payload. 4096d × 8 bytes → 8,192 entries, not 200k. */
+const MAX_CACHE_PAYLOAD_BYTES = 256 * 1024 * 1024;
+const BYTES_PER_DIM = 8;
+const DEFAULT_ASSUMED_DIMENSIONS = 4096;
+const MAX_MIGRATION_VALUE_BYTES = 16 * 1024 * 1024;
+
+let cachePayloadBytes = 0;
+let cacheDimensions: number | null = null;
+let diskCacheEntryCount = 0;
 let diskCacheDirty = false;
 let diskSaveTimer: ReturnType<typeof setTimeout> | null = null;
 let diskCacheLoaded = false;
 let diskCacheLoadPromise: Promise<void> | null = null;
 let diskCacheLoadCount = 0;
+let jsonlLineCountCalls = 0;
 
-/** JSON.parse of a multi-hundred-MB cache on the HTTP thread wedges /health. */
-const OFF_THREAD_CACHE_PARSE_BYTES = 8 * 1024 * 1024;
+interface CacheStat {
+  version: 1;
+  entryCount: number;
+  dimensions: number | null;
+}
+
+function payloadBytes(vector: number[]): number {
+  return vector.length * BYTES_PER_DIM;
+}
+
+function maxCachePayloadBytes(): number {
+  const raw = process.env.MEMORIX_EMBEDDING_CACHE_MAX_BYTES;
+  if (raw) {
+    const parsed = Number.parseInt(raw, 10);
+    if (Number.isFinite(parsed) && parsed > 0) return parsed;
+  }
+  return MAX_CACHE_PAYLOAD_BYTES;
+}
+
+function maxEntriesForDimensions(dimensions: number): number {
+  const dim = Math.max(1, Math.floor(dimensions));
+  const byBytes = Math.floor(maxCachePayloadBytes() / (dim * BYTES_PER_DIM));
+  return Math.max(1, Math.min(MAX_CACHE_ENTRIES, byBytes));
+}
+
+function rememberDimensions(vector: number[]): void {
+  if (vector.length > 0 && (cacheDimensions === null || vector.length > cacheDimensions)) {
+    cacheDimensions = vector.length;
+  }
+}
+
+function evictOldest(): void {
+  const firstKey = cache.keys().next().value;
+  if (firstKey === undefined) return;
+  const old = cache.get(firstKey);
+  cache.delete(firstKey);
+  if (old) cachePayloadBytes -= payloadBytes(old);
+}
+
+function evictToFit(incomingBytes: number, incomingDims: number): void {
+  const limit = maxEntriesForDimensions(incomingDims);
+  while (
+    cache.size > 0 &&
+    (cache.size >= limit || cachePayloadBytes + incomingBytes > maxCachePayloadBytes())
+  ) {
+    evictOldest();
+  }
+}
+
+function isNumberArray(value: unknown): value is number[] {
+  return Array.isArray(value) && value.every((entry): entry is number => typeof entry === 'number');
+}
+
+function parseCacheRow(raw: unknown): { hash: string; vector: number[] } | null {
+  if (Array.isArray(raw)) {
+    const hash = raw[0];
+    const vector = raw[1];
+    if (typeof hash === 'string' && isNumberArray(vector)) {
+      return { hash, vector };
+    }
+    return null;
+  }
+  if (raw && typeof raw === 'object') {
+    const row = raw as { h?: unknown; v?: unknown };
+    if (typeof row.h === 'string' && isNumberArray(row.v)) {
+      return { hash: row.h, vector: row.v };
+    }
+  }
+  return null;
+}
+
+function cacheInsert(hash: string, value: number[], dirty: boolean): void {
+  rememberDimensions(value);
+  const incoming = payloadBytes(value);
+  const existing = cache.get(hash);
+  if (existing) {
+    cachePayloadBytes -= payloadBytes(existing);
+    cache.delete(hash);
+  }
+  evictToFit(incoming, value.length || cacheDimensions || DEFAULT_ASSUMED_DIMENSIONS);
+  cache.set(hash, value);
+  cachePayloadBytes += incoming;
+  if (dirty) diskCacheDirty = true;
+}
+
+async function readCacheStat(): Promise<CacheStat | null> {
+  try {
+    const data = JSON.parse(await readFile(cacheStatFile(), 'utf-8')) as Partial<CacheStat>;
+    if (typeof data.entryCount === 'number' && Number.isFinite(data.entryCount) && data.entryCount >= 0) {
+      return {
+        version: 1,
+        entryCount: Math.floor(data.entryCount),
+        dimensions: isValidDimension(data.dimensions) ? data.dimensions : null,
+      };
+    }
+  } catch {
+    // Stat is an acceleration sidecar, not the source of truth for vectors.
+  }
+  return null;
+}
+
+async function writeCacheStat(stat: CacheStat): Promise<void> {
+  try {
+    await mkdir(cacheDir(), { recursive: true });
+    await writeFile(cacheStatFile(), JSON.stringify(stat));
+  } catch {
+    // Best-effort sidecar.
+  }
+}
 
 const MAX_INPUT_CHARS = 32000;
 const MAX_CONCURRENCY = 4;
@@ -200,49 +321,142 @@ export function parseCacheJsonInWorker(filePath: string): Promise<[string, numbe
   });
 }
 
+function findJsonValueEnd(source: string): number {
+  let i = 0;
+  while (i < source.length && /\s/.test(source[i])) i += 1;
+  if (i >= source.length) return -1;
+  const start = source[i];
+  if (start === '"') {
+    i += 1;
+    while (i < source.length) {
+      if (source[i] === '\\') {
+        i += 2;
+        continue;
+      }
+      if (source[i] === '"') return i + 1;
+      i += 1;
+    }
+    return -1;
+  }
+  if (start === '{' || start === '[') {
+    const close = start === '{' ? '}' : ']';
+    let depth = 0;
+    let inString = false;
+    for (; i < source.length; i += 1) {
+      const ch = source[i];
+      if (inString) {
+        if (ch === '\\') {
+          i += 1;
+          continue;
+        }
+        if (ch === '"') inString = false;
+        continue;
+      }
+      if (ch === '"') {
+        inString = true;
+        continue;
+      }
+      if (ch === start) depth += 1;
+      else if (ch === close) {
+        depth -= 1;
+        if (depth === 0) return i + 1;
+      }
+    }
+    return -1;
+  }
+  const rest = source.slice(i);
+  const match = rest.match(/^(?:-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|true|false|null)/);
+  return match ? i + match[0].length : -1;
+}
+
+async function streamJsonArrayToJsonl(filePath: string, tmpPath: string): Promise<number> {
+  const input = createReadStream(filePath, { encoding: 'utf8' });
+  const out = createWriteStream(tmpPath);
+  let buf = '';
+  let started = false;
+  let count = 0;
+  const writeLine = async (line: string): Promise<void> => {
+    if (!out.write(line)) {
+      await new Promise<void>((resolve, reject) => {
+        out.once('drain', resolve);
+        out.once('error', reject);
+      });
+    }
+  };
+
+  try {
+    for await (const chunk of input) {
+      buf += chunk;
+      if (!started) {
+        const idx = buf.search(/\S/);
+        if (idx < 0) continue;
+        if (buf[idx] !== '[') throw new Error('embedding cache is not a JSON array');
+        buf = buf.slice(idx + 1);
+        started = true;
+      }
+      while (true) {
+        buf = buf.replace(/^\s*,?\s*/, '');
+        if (!buf) break;
+        if (buf[0] === ']') {
+          buf = '';
+          break;
+        }
+        const end = findJsonValueEnd(buf);
+        if (end < 0) break;
+        const value = JSON.parse(buf.slice(0, end));
+        buf = buf.slice(end);
+        const row = parseCacheRow(value);
+        if (row) {
+          await writeLine(`${JSON.stringify({ h: row.hash, v: row.vector })}\n`);
+          count += 1;
+          if (count % 50 === 0) {
+            await new Promise<void>((resolve) => setImmediate(resolve));
+          }
+        }
+      }
+      if (buf.length > MAX_MIGRATION_VALUE_BYTES) {
+        throw new Error('embedding cache entry too large to migrate safely');
+      }
+    }
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      out.end(() => resolve());
+      out.once('error', reject);
+    });
+  }
+  return count;
+}
+
+/**
+ * Convert a JSON-array cache to JSONL with one-entry-at-a-time parsing,
+ * a temp file, and an atomic rename. The HTTP process never holds the full
+ * array plus a lines[] copy.
+ */
+export async function migrateJsonArrayCacheToJsonl(filePath: string, jsonlPath: string): Promise<number> {
+  const tmpPath = `${jsonlPath}.tmp`;
+  try {
+    const count = await streamJsonArrayToJsonl(filePath, tmpPath);
+    await rename(tmpPath, jsonlPath);
+    diskCacheEntryCount = count;
+    await writeCacheStat({
+      version: 1,
+      entryCount: count,
+      dimensions: cacheDimensions,
+    });
+    return count;
+  } catch (err) {
+    await unlink(tmpPath).catch(() => undefined);
+    throw err;
+  }
+}
+
 /**
  * Convert a giant JSON-array cache to JSONL on disk. Never postMessage the
  * vectors — structured clone of 27k×1024 floats OOMs the HTTP process and
  * the subsequent empty save overwrites the real cache.
  */
 export function convertArrayCacheToJsonl(filePath: string, jsonlPath: string): Promise<number> {
-  return new Promise((resolve, reject) => {
-    void import('node:worker_threads').then(({ Worker }) => {
-      const worker = new Worker(
-        `
-        const { parentPort, workerData } = require('node:worker_threads');
-        const { readFileSync, writeFileSync } = require('node:fs');
-        try {
-          const parsed = JSON.parse(readFileSync(workerData.filePath, 'utf8'));
-          if (!Array.isArray(parsed)) throw new Error('embedding cache is not a JSON array');
-          const lines = [];
-          for (const entry of parsed) {
-            if (Array.isArray(entry) && typeof entry[0] === 'string' && Array.isArray(entry[1])) {
-              lines.push(JSON.stringify({ h: entry[0], v: entry[1] }));
-            }
-          }
-          writeFileSync(workerData.jsonlPath, lines.join('\\n') + (lines.length ? '\\n' : ''));
-          parentPort.postMessage({ ok: true, count: lines.length });
-        } catch (err) {
-          parentPort.postMessage({
-            ok: false,
-            error: err instanceof Error ? err.message : String(err),
-          });
-        }
-        `,
-        { eval: true, workerData: { filePath, jsonlPath } },
-      );
-      worker.once('message', (msg: { ok?: boolean; count?: number; error?: string }) => {
-        void worker.terminate();
-        if (msg?.ok && typeof msg.count === 'number') {
-          resolve(msg.count);
-          return;
-        }
-        reject(new Error(msg?.error || 'embedding cache jsonl convert failed'));
-      });
-      worker.once('error', reject);
-    }).catch(reject);
-  });
+  return migrateJsonArrayCacheToJsonl(filePath, jsonlPath);
 }
 
 async function loadCacheJsonl(filePath: string): Promise<number> {
@@ -251,29 +465,34 @@ async function loadCacheJsonl(filePath: string): Promise<number> {
     crlfDelay: Infinity,
   });
   let loaded = 0;
+  let onDiskCount = 0;
   for await (const line of rl) {
     const trimmed = line.trim();
     if (!trimmed) continue;
     try {
-      const row = JSON.parse(trimmed) as { h?: string; v?: number[] } | [string, number[]];
-      if (Array.isArray(row) && typeof row[0] === 'string' && Array.isArray(row[1])) {
-        cache.set(row[0], row[1]);
-        loaded += 1;
-      } else if (row && typeof row === 'object' && typeof row.h === 'string' && Array.isArray(row.v)) {
-        cache.set(row.h, row.v);
-        loaded += 1;
-      }
+      const row = parseCacheRow(JSON.parse(trimmed));
+      if (!row) continue;
+      onDiskCount += 1;
+      cacheInsert(row.hash, row.vector, false);
+      loaded = cache.size;
     } catch {
       // Skip a corrupt line; the rest of the cache remains usable.
     }
-    if (loaded % 100 === 0) {
+    if (onDiskCount % 250 === 0) {
       await new Promise<void>((resolve) => setImmediate(resolve));
     }
   }
+  diskCacheEntryCount = onDiskCount;
+  await writeCacheStat({
+    version: 1,
+    entryCount: onDiskCount,
+    dimensions: cacheDimensions,
+  });
   return loaded;
 }
 
 async function countJsonlLines(filePath: string): Promise<number> {
+  jsonlLineCountCalls += 1;
   try {
     const rl = createInterface({
       input: createReadStream(filePath, { encoding: 'utf8' }),
@@ -287,6 +506,30 @@ async function countJsonlLines(filePath: string): Promise<number> {
   } catch {
     return 0;
   }
+}
+
+async function resolveOnDiskCount(jsonlPath: string): Promise<number> {
+  if (diskCacheEntryCount > 0) return diskCacheEntryCount;
+  const sidecar = await readCacheStat();
+  if (sidecar) {
+    diskCacheEntryCount = sidecar.entryCount;
+    if (sidecar.dimensions && cacheDimensions === null) cacheDimensions = sidecar.dimensions;
+    return sidecar.entryCount;
+  }
+  try {
+    await access(jsonlPath, fsConstants.R_OK);
+  } catch {
+    return 0;
+  }
+  // Legacy JSONL without a sidecar: one-time count, then persist so saves stay O(1).
+  const counted = await countJsonlLines(jsonlPath);
+  diskCacheEntryCount = counted;
+  await writeCacheStat({
+    version: 1,
+    entryCount: counted,
+    dimensions: cacheDimensions,
+  });
+  return counted;
 }
 
 async function loadDiskCache(): Promise<number> {
@@ -305,16 +548,9 @@ async function loadDiskCache(): Promise<number> {
       loaded = await loadCacheJsonl(jsonlPath);
     } else {
       const filePath = cacheFile();
-      const info = await stat(filePath);
-      if (info.size >= OFF_THREAD_CACHE_PARSE_BYTES) {
-        await convertArrayCacheToJsonl(filePath, jsonlPath);
-        loaded = await loadCacheJsonl(jsonlPath);
-      } else {
-        const raw = await readFile(filePath, 'utf-8');
-        const entries: [string, number[]][] = JSON.parse(raw);
-        for (const [key, value] of entries) cache.set(key, value);
-        loaded = entries.length;
-      }
+      await stat(filePath);
+      await migrateJsonArrayCacheToJsonl(filePath, jsonlPath);
+      loaded = await loadCacheJsonl(jsonlPath);
     }
     diskCacheLoadCount += 1;
     console.error(`[memorix] Loaded ${loaded} cached API embeddings from disk`);
@@ -350,18 +586,39 @@ export function getApiEmbeddingDiskCacheLoadCountForTests(): number {
 /** @internal Reset in-process API embedding cache between tests. */
 export function resetApiEmbeddingCacheForTests(): void {
   cache.clear();
+  cachePayloadBytes = 0;
+  cacheDimensions = null;
+  diskCacheEntryCount = 0;
   diskCacheLoaded = false;
   diskCacheLoadPromise = null;
   diskCacheLoadCount = 0;
   diskCacheDirty = false;
+  jsonlLineCountCalls = 0;
 }
 
 /** @internal Seed the in-memory API embedding cache for shrink-guard tests. */
 export function seedApiEmbeddingCacheForTests(entries: Map<string, number[]>): void {
   cache.clear();
-  for (const [key, value] of entries) cache.set(key, value);
+  cachePayloadBytes = 0;
+  cacheDimensions = null;
+  for (const [key, value] of entries) cacheInsert(key, value, true);
   diskCacheLoaded = true;
   diskCacheDirty = true;
+}
+
+/** @internal In-memory vector payload bytes retained after load/eviction. */
+export function getApiEmbeddingCachePayloadBytesForTests(): number {
+  return cachePayloadBytes;
+}
+
+/** @internal How many times a full JSONL line scan ran (must stay off the save path). */
+export function getApiEmbeddingJsonlLineCountCallsForTests(): number {
+  return jsonlLineCountCalls;
+}
+
+/** @internal Dimension-aware in-memory entry cap for a vector width. */
+export function getApiEmbeddingMaxEntriesForDimensionsForTests(dimensions: number): number {
+  return maxEntriesForDimensions(dimensions);
 }
 
 function dimsCacheKey(config: Pick<APIEmbeddingConfig, 'baseUrl' | 'model' | 'requestedDimensions'>): string {
@@ -544,7 +801,7 @@ export async function saveDiskCacheNow(): Promise<void> {
   try {
     await mkdir(cacheDir(), { recursive: true });
     const jsonlPath = cacheJsonlFile();
-    const existing = await countJsonlLines(jsonlPath);
+    const existing = await resolveOnDiskCount(jsonlPath);
     if (existing > 0 && cache.size < Math.ceil(existing * 0.5)) {
       console.error(
         `[memorix] Refusing to overwrite embedding cache (${existing} on disk vs ${cache.size} in memory)`,
@@ -576,6 +833,12 @@ export async function saveDiskCacheNow(): Promise<void> {
       writeBatch();
     });
     await rename(tmpPath, jsonlPath);
+    diskCacheEntryCount = cache.size;
+    await writeCacheStat({
+      version: 1,
+      entryCount: cache.size,
+      dimensions: cacheDimensions,
+    });
     diskCacheDirty = false;
   } catch {
     // Cache persistence is best-effort only.
@@ -591,12 +854,7 @@ function scheduleDiskSave(): void {
 }
 
 function cacheSet(hash: string, value: number[]): void {
-  if (cache.size >= MAX_CACHE_SIZE) {
-    const firstKey = cache.keys().next().value;
-    if (firstKey !== undefined) cache.delete(firstKey);
-  }
-  cache.set(hash, value);
-  diskCacheDirty = true;
+  cacheInsert(hash, value, true);
 }
 
 interface EmbeddingAPIResponse {

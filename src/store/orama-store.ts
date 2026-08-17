@@ -380,9 +380,8 @@ async function attachCachedVectors(
     } catch {
       // Vector cache hydration is best-effort. The normal backfill lane owns misses.
     }
-    await new Promise<void>((resolve) => setImmediate(resolve));
-    if (index % 25 === 0) {
-      await new Promise<void>((resolve) => setTimeout(resolve, 10));
+    if (index % 50 === 0) {
+      await new Promise<void>((resolve) => setImmediate(resolve));
     }
   }
 }

@@ -23,7 +23,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn, execFileSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
+import os from 'node:os';
 import { parseTcpPort } from '../port.js';
+import { homeProjectRootError, inheritProjectRootFromHome, isHomeDirectory } from '../../project/launch-root.js';
 
 // ============================================================
 // Paths & Types
@@ -38,6 +40,16 @@ interface BackgroundState {
   instanceToken: string;
   /** Shell cwd at start time (informational only, NOT used as daemon anchor) */
   startCwd?: string;
+}
+
+export function resolveBackgroundCwd(cwd: string, homeDir: string = os.homedir()): string {
+  if (!isHomeDirectory(cwd, homeDir)) return cwd;
+  const inherited = inheritProjectRootFromHome({
+    homeDir,
+    envProjectRoot: process.env.MEMORIX_PROJECT_ROOT,
+  });
+  if (inherited) return inherited;
+  throw new Error(homeProjectRootError(cwd));
 }
 
 function getMemorixDir(): string {
@@ -380,6 +392,7 @@ export async function doStart(port: number): Promise<void> {
   // can be reclaimed with its parent by terminal hosts on Windows; a detached Node
   // child can flash a console. Start-Process gives us a hidden, independent child
   // and its real Node PID. POSIX retains the direct detached child path.
+  const startCwd = resolveBackgroundCwd(process.cwd());
   let pid: number;
   try {
     if (process.platform === 'win32') {
@@ -387,7 +400,7 @@ export async function doStart(port: number): Promise<void> {
         nodePath: process.execPath,
         cliEntry,
         port,
-        cwd: process.cwd(),
+        cwd: startCwd,
         stdoutLogFile: `${logFile}.stdout`,
         stderrLogFile: logFile,
       });
@@ -397,7 +410,7 @@ export async function doStart(port: number): Promise<void> {
         detached: true,
         stdio: ['ignore', logFd, logFd],
         env: { ...process.env },
-        cwd: process.cwd(),
+        cwd: startCwd,
       });
       child.unref();
       fs.closeSync(logFd);
@@ -418,7 +431,7 @@ export async function doStart(port: number): Promise<void> {
     startedAt: new Date().toISOString(),
     logFile,
     instanceToken,
-    startCwd: process.cwd(),
+    startCwd,
   });
 
   // 8. Print essential info immediately
@@ -824,4 +837,5 @@ export const _testing = {
   formatBackgroundCommandError,
   resolveBackgroundCliEntry,
   resolveBackgroundCliEntryFrom,
+  resolveBackgroundCwd,
 };

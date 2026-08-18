@@ -49,6 +49,13 @@ describe('Windows background launcher', () => {
     expect(_testing.resolveBackgroundCliEntryFrom(bundledCli, libraryStdio)).toBe(bundledCli);
   });
 
+  it('refuses to launch the control plane from $HOME without an inherited git root', () => {
+    expect(() => _testing.resolveBackgroundCwd('/Users/tester', '/Users/tester')).toThrow(/Refusing to bind \$HOME/);
+    expect(_testing.resolveBackgroundCwd('/Users/tester/Projects/app', '/Users/tester')).toBe(
+      '/Users/tester/Projects/app',
+    );
+  });
+
   it('keeps normal CLI errors concise but preserves opt-in diagnostics', () => {
     const error = new Error('Port must be a whole number');
     error.stack = 'Error: Port must be a whole number\n    at internal-frame';

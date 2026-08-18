@@ -330,6 +330,12 @@ describe('serve-http command mode support', () => {
     process.env.MEMORIX_MODE = undefined;
     process.env.MEMORIX_PROJECT_ROOT = undefined;
 
+    resolveServeProjectMock.mockReturnValue({
+      detectedProject: project,
+      projectRoot: project.rootPath,
+      source: 'direct',
+      messages: [],
+    });
     detectProjectMock.mockImplementation((cwd: string) => (cwd === project.rootPath ? project : null));
     detectProjectWithDiagnosticsMock.mockImplementation((cwd: string) => ({
       project: cwd === project.rootPath ? project : null,

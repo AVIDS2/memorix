@@ -1,5 +1,4 @@
-import path from 'node:path';
-
+import { inheritProjectRootFromHome, isHomeDirectory } from '../../project/launch-root.js';
 import type { ProjectInfo } from '../../types.js';
 
 export interface ResolveServeProjectOptions {
@@ -19,7 +18,7 @@ export interface ResolveServeProjectDeps {
 export interface ServeProjectResolution {
   projectRoot: string;
   detectedProject: ProjectInfo | null;
-  source: 'direct' | 'subdir' | 'unresolved';
+  source: 'direct' | 'subdir' | 'last-project-root' | 'unresolved';
   messages: string[];
   error?: string;
 }
@@ -35,8 +34,54 @@ export function resolveServeProject(
     options.processCwd;
 
   const messages: string[] = [`[memorix] Starting with cwd: ${projectRoot}`];
+  const hasExplicitRoot = Boolean(options.cwdArg || options.envProjectRoot || options.initCwd);
+  const startsAtHome = isHomeDirectory(projectRoot, options.homeDir);
+
+  if (startsAtHome) {
+    if (hasExplicitRoot) {
+      messages.push(`[memorix] Refusing explicit $HOME project root: ${projectRoot}`);
+      messages.push('[memorix] Memorix will wait for MCP Roots or an explicit memorix_session_start projectRoot.');
+      return {
+        projectRoot,
+        detectedProject: null,
+        source: 'unresolved',
+        messages,
+        error: 'Refusing to bind $HOME as a project root. Pass a git project path instead of $HOME.',
+      };
+    }
+    const inherited = inheritProjectRootFromHome({
+      homeDir: options.homeDir,
+      envProjectRoot: options.envProjectRoot,
+    });
+    if (inherited) {
+      const inheritedProject = deps.detectProject(inherited);
+      if (inheritedProject && !isHomeDirectory(inheritedProject.rootPath, options.homeDir)) {
+        messages.push(`[memorix] Unreliable launch directory detected: ${projectRoot}`);
+        messages.push(`[memorix] Inherited last git project: ${inheritedProject.rootPath}`);
+        return {
+          projectRoot: inheritedProject.rootPath,
+          detectedProject: inheritedProject,
+          source: 'last-project-root',
+          messages,
+        };
+      }
+    }
+    messages.push(`[memorix] Unreliable launch directory detected: ${projectRoot}`);
+    messages.push('[memorix] Memorix will wait for MCP Roots or an explicit memorix_session_start projectRoot.');
+    messages.push('[memorix] It will not create ~/memorix.db or treat $HOME as a project.');
+    return {
+      projectRoot,
+      detectedProject: null,
+      source: 'unresolved',
+      messages,
+      error: 'No reliable git project was provided by the launcher.',
+    };
+  }
 
   let detected = deps.detectProject(projectRoot);
+  if (detected && isHomeDirectory(detected.rootPath, options.homeDir)) {
+    detected = null;
+  }
   if (detected) {
     return {
       projectRoot,
@@ -46,9 +91,7 @@ export function resolveServeProject(
     };
   }
 
-  const hasExplicitRoot = Boolean(options.cwdArg || options.envProjectRoot || options.initCwd);
-  const startsAtHome = path.resolve(projectRoot) === path.resolve(options.homeDir);
-  if (deps.isSystemDirectory(projectRoot) || (!hasExplicitRoot && startsAtHome)) {
+  if (deps.isSystemDirectory(projectRoot)) {
     messages.push(`[memorix] Unreliable launch directory detected: ${projectRoot}`);
     messages.push('[memorix] Memorix will wait for MCP Roots or an explicit memorix_session_start projectRoot.');
     messages.push('[memorix] It will not restore a previous project automatically, to prevent cross-project memory access.');

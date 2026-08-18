@@ -130,10 +130,29 @@ export default defineCommand({
     const toolProfile = resolveToolProfile({ explicit: args.mode, envValue: process.env.MEMORIX_MODE, fallback: 'team' });
 
     // Priority: explicit --cwd arg > MEMORIX_PROJECT_ROOT env > process.cwd().
-    // Do not silently bind a control plane to another project's remembered root.
+    // $HOME is never a project root; inherit last-project-root instead of creating ~/memorix.db.
     let safeCwd: string;
     try { safeCwd = process.cwd(); } catch { safeCwd = homedir(); }
-    let projectRoot = args.cwd || process.env.MEMORIX_PROJECT_ROOT || safeCwd;
+    const { resolveServeProject } = await import('./serve-shared.js');
+    const { writeLastProjectRoot } = await import('../../project/launch-root.js');
+    const persistMod = await import('../../store/persistence.js');
+    const detectorMod = await import('../../project/detector.js');
+    const serveResolution = resolveServeProject(
+      {
+        cwdArg: args.cwd,
+        envProjectRoot: process.env.MEMORIX_PROJECT_ROOT,
+        processCwd: safeCwd,
+        homeDir: homedir(),
+      },
+      { detectProject: detectorMod.detectProject, findGitInSubdirs: detectorMod.findGitInSubdirs, isSystemDirectory: detectorMod.isSystemDirectory },
+    );
+    for (const message of serveResolution.messages) {
+      console.error(message);
+    }
+    let projectRoot = serveResolution.projectRoot;
+    if (serveResolution.detectedProject) {
+      writeLastProjectRoot(serveResolution.detectedProject.rootPath);
+    }
 
     console.error(`[memorix] HTTP transport starting on ${host}:${port}`);
     console.error(`[memorix] Project root: ${projectRoot}`);
@@ -157,11 +176,10 @@ export default defineCommand({
       return store;
     }
 
-    // Bootstrap the initial project's TeamStore
-    const persistMod = await import('../../store/persistence.js');
-    const detectorMod = await import('../../project/detector.js');
-    const detectedProj = detectorMod.detectProject(projectRoot);
-    const teamDataDir = detectedProj ? await persistMod.getProjectDataDir(detectedProj.rootPath) : projectRoot;
+    // Bootstrap the initial project's TeamStore. Never open SQLite at $HOME
+    // (that creates a decoy ~/memorix.db). Unresolved launches share ~/.memorix/data.
+    const detectedProj = serveResolution.detectedProject ?? detectorMod.detectProject(projectRoot);
+    const teamDataDir = await persistMod.getProjectDataDir(detectedProj?.id ?? '__unresolved__');
     const sharedTeamStore = await getTeamStore(teamDataDir);
 
     type SessionState = {

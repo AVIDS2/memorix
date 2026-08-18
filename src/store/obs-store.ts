@@ -59,7 +59,7 @@ export interface ObservationStore {
   /** Load one project's observations without scanning the shared flat store. */
   loadByProject(
     projectId: string,
-    options?: { status?: string; limit?: number; offset?: number; afterId?: number },
+    options?: { status?: string; limit?: number; offset?: number; afterId?: number; newestFirst?: boolean },
   ): Promise<Observation[]>;
 
   /** Count one project's observations without materializing the rows. */
@@ -231,7 +231,7 @@ export class DegradedBackend implements ObservationStore {
     return [];
   }
 
-  async loadByProject(_projectId: string, _options?: { status?: string; limit?: number; offset?: number; afterId?: number }): Promise<Observation[]> {
+  async loadByProject(_projectId: string, _options?: { status?: string; limit?: number; offset?: number; afterId?: number; newestFirst?: boolean }): Promise<Observation[]> {
     return [];
   }
 

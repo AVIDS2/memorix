@@ -1,5 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { existsSync } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -50,6 +51,16 @@ function isMaintenanceResult(value: unknown): value is MaintenanceJobRunResult {
 function childError(prefix: string, detail: string): Error {
   const cleaned = sanitizeCredentials(detail.trim()).slice(0, 4_000);
   return new Error(cleaned ? `${prefix}: ${cleaned}` : prefix);
+}
+
+/**
+ * Isolated jobs already receive an absolute projectRoot on stdin. Using that
+ * directory as spawn cwd keeps the folder locked on Windows (EBUSY on rmdir)
+ * for the life of the child. Park the process in a disposable temp dir instead.
+ */
+export function isolatedMaintenanceCwd(): string {
+  const tmp = os.tmpdir();
+  return existsSync(tmp) ? tmp : process.cwd();
 }
 
 /**
@@ -148,7 +159,7 @@ export async function runMaintenanceInChildProcess(
     let child: ChildProcessWithoutNullStreams;
     try {
       child = spawn(process.execPath, [runnerPath], {
-        cwd: request.projectRoot,
+        cwd: isolatedMaintenanceCwd(),
         env,
         stdio: ['pipe', 'pipe', 'pipe'],
         windowsHide: true,

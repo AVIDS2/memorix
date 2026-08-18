@@ -1,4 +1,5 @@
 import { detectProjectWithDiagnostics } from '../../project/detector.js';
+import { homeProjectRootError, isHomeDirectory, writeLastProjectRoot } from '../../project/launch-root.js';
 import { getProjectDataDir } from '../../store/persistence.js';
 import { initObservations, prepareSearchIndex } from '../../memory/observations.js';
 import { initSessionStore } from '../../store/session-store.js';
@@ -42,19 +43,22 @@ async function resolveCliProjectContext(options?: CliContextOptions): Promise<{
   invocation: ReturnType<typeof getCliInvocation>;
 }> {
   const invocation = getCliInvocation();
-  const detection = detectProjectWithDiagnostics(
-    options?.projectRoot
-      ?? invocation.projectRoot
-      ?? process.env.MEMORIX_PROJECT_ROOT
-      ?? process.cwd(),
-  );
-  if (!detection.project) {
-    const detail = detection.failure?.detail ?? 'No git repository found in the current directory.';
+  const requestedRoot = options?.projectRoot
+    ?? invocation.projectRoot
+    ?? process.env.MEMORIX_PROJECT_ROOT
+    ?? process.cwd();
+  if (isHomeDirectory(requestedRoot)) {
+    throw new Error(homeProjectRootError(requestedRoot));
+  }
+  const detection = detectProjectWithDiagnostics(requestedRoot);
+  if (!detection.project || isHomeDirectory(detection.project.rootPath)) {
+    const detail = detection.failure?.detail ?? homeProjectRootError(requestedRoot);
     throw new Error(detail);
   }
 
   const project = detection.project;
   const dataDir = await getProjectDataDir(project.id);
+  writeLastProjectRoot(project.rootPath);
   return { project, dataDir, invocation };
 }
 

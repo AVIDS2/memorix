@@ -71,6 +71,10 @@ export default defineCommand({
 
     const detected = resolution.detectedProject;
     const projectRoot = resolution.projectRoot;
+    if (detected) {
+      const { writeLastProjectRoot } = await import('../../project/launch-root.js');
+      writeLastProjectRoot(detected.rootPath);
+    }
 
     // Always register ALL tools BEFORE connecting transport.
     // This ensures tools/list returns the full tool set immediately on connect.

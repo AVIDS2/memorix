@@ -119,6 +119,24 @@ describe('Session Lifecycle', () => {
       expect(expanded).toContain('## Key Project Memories');
       expect(expanded).toContain('Keep the release verification gate');
     });
+
+    it('loads a bounded newest-first project slice instead of the full corpus', async () => {
+      const store = getObservationStore();
+      const loadByProject = vi.spyOn(store, 'loadByProject');
+      const loadAll = vi.spyOn(store, 'loadAll');
+      await startSession(testDir, PROJECT_ID, { sessionId: 'bounded-load' });
+
+      expect(loadByProject).toHaveBeenCalled();
+      expect(loadByProject.mock.calls.every((call) => call[0] === PROJECT_ID)).toBe(true);
+      expect(loadByProject).toHaveBeenCalledWith(PROJECT_ID, {
+        status: 'active',
+        limit: 64,
+        newestFirst: true,
+      });
+      expect(loadAll).not.toHaveBeenCalled();
+      loadByProject.mockRestore();
+      loadAll.mockRestore();
+    });
   });
 
   describe('endSession', () => {

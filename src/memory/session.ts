@@ -140,10 +140,20 @@ async function loadAliasActiveSessions(projectIds: Set<string>): Promise<Session
   return groups.flat();
 }
 
-async function loadAliasActiveObservations(projectIds: Set<string>): Promise<Observation[]> {
+const SESSION_RESUME_OBSERVATION_LIMIT = 64;
+const SESSION_CONTEXT_OBSERVATION_LIMIT = 128;
+
+async function loadAliasActiveObservations(
+  projectIds: Set<string>,
+  limit: number = SESSION_RESUME_OBSERVATION_LIMIT,
+): Promise<Observation[]> {
   const store = getObservationStore();
   const groups = await Promise.all(
-    [...projectIds].map((projectId) => store.loadByProject(projectId, { status: 'active' })),
+    [...projectIds].map((projectId) => store.loadByProject(projectId, {
+      status: 'active',
+      limit,
+      newestFirst: true,
+    })),
   );
   return groups.flat();
 }
@@ -522,7 +532,7 @@ export async function getSessionContext(
   const aliasSet = await resolveProjectIds(projectId);
   const [sessions, allObs] = await Promise.all([
     loadAliasSessions(aliasSet),
-    loadAliasActiveObservations(aliasSet),
+    loadAliasActiveObservations(aliasSet, SESSION_CONTEXT_OBSERVATION_LIMIT),
   ]);
   const readableObs = readableAliasObservations(allObs, aliasSet, reader);
   /** Check if a session summary contains noise/system-self content */

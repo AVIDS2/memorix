@@ -33,6 +33,7 @@ import { canManageObservation, canReadObservation, filterReadableObservations, r
 import { compactSearch, compactTimeline, compactDetail } from './compact/engine.js';
 import { buildGraphContextPacket, formatGraphContextPrompt } from './memory/graph-context.js';
 import { detectProject } from './project/detector.js';
+import { homeProjectRootError, isHomeDirectory, writeLastProjectRoot } from './project/launch-root.js';
 import { registerAlias, initAliasRegistry, resolveAliases, autoMergeByBaseName } from './project/aliases.js';
 import { getProjectDataDir } from './store/persistence.js';
 import type { ObservationType, RuleSource, AgentTarget, MCPServerEntry, ObservationReader } from './types.js';
@@ -228,6 +229,7 @@ export const BOOTSTRAP_SAFE_TOOL_NAMES = new Set([
   'memorix_codegraph_status',
   'memorix_graph_context',
   'memorix_context_pack',
+  'memorix_session_start',
 ]);
 
 const AUTOPILOT_RETRIEVAL_BOUNDARY_TTL_MS = 2 * 60 * 1000;
@@ -265,7 +267,10 @@ export async function createMemorixServer(
   });
   const teamFeaturesEnabled = isToolInProfile('team_manage', toolProfile);
   const projectBinding = options.projectBinding ?? createProjectBindingController(cwd ?? process.cwd());
-  const detectedProject = detectProject(cwd);
+  const detectedProjectRaw = detectProject(cwd);
+  const detectedProject = detectedProjectRaw && !isHomeDirectory(detectedProjectRaw.rootPath)
+    ? detectedProjectRaw
+    : null;
   let rawProject: import('./types.js').ProjectInfo;
   let projectResolved = true;
   let projectResolutionError: string | null = null;
@@ -316,6 +321,7 @@ export async function createMemorixServer(
   }
   if (projectResolved) {
     projectBinding.recordResolvedProject(project.id, project.rootPath);
+    writeLastProjectRoot(project.rootPath);
   }
 
   const registerMaintenanceTarget = async (): Promise<void> => {
@@ -362,6 +368,7 @@ export async function createMemorixServer(
 
   const lightweightUnresolvedSession = !projectResolved && deferProjectInitUntilBound;
   let projectRuntimeInitPromise: Promise<void> | null = null;
+  let runtimeHydratedForDir: string | null = null;
 
   const initializeProjectRuntime = async (logPrefix: 'startup' | 'switch'): Promise<void> => {
     await initObservationStore(projectDir);
@@ -430,14 +437,20 @@ export async function createMemorixServer(
   } catch { /* migration is optional */ }
 
   await initializeProjectRuntime('startup');
+    runtimeHydratedForDir = projectDir;
   } else {
     // Intentionally silent — serve-http.ts deferred logging handles session lifecycle visibility.
     // Noisy per-probe 'awaiting binding' log was removed to reduce terminal spam.
   }
 
   const ensureProjectRuntimeInitialized = async (): Promise<void> => {
-    if (lightweightUnresolvedSession || !deferProjectRuntimeInit) return;
+    if (!projectResolved) return;
+    if (runtimeHydratedForDir === projectDir) {
+      if (projectRuntimeInitPromise) await projectRuntimeInitPromise;
+      return;
+    }
     if (!projectRuntimeInitPromise) {
+      const targetDir = projectDir;
       projectRuntimeInitPromise = (async () => {
         // Auto-merge obvious alias groups by scanning observed projectIds in data.
         try {
@@ -470,7 +483,8 @@ export async function createMemorixServer(
           }
         } catch { /* migration is optional */ }
 
-        await initializeProjectRuntime('startup');
+        await initializeProjectRuntime(runtimeHydratedForDir ? 'switch' : 'startup');
+        runtimeHydratedForDir = targetDir;
       })().catch((err) => {
         projectRuntimeInitPromise = null;
         throw err;
@@ -3846,6 +3860,15 @@ export async function createMemorixServer(
       // BEFORE checking whether the project is resolved. This is the primary
       // mechanism for HTTP/control-plane multi-project support.
       if (explicitRoot && typeof explicitRoot === 'string') {
+        if (isHomeDirectory(explicitRoot)) {
+          return {
+            content: [{
+              type: 'text' as const,
+              text: homeProjectRootError(explicitRoot),
+            }],
+            isError: true as const,
+          };
+        }
         let bound = await switchProject(explicitRoot, 'explicit-project-root');
         // switchProject returns false for both "same project, no-op" and "no git repo".
         // Only scan subdirectories when explicitRoot is not itself a git repo; otherwise
@@ -5503,8 +5526,12 @@ export async function createMemorixServer(
   ): Promise<boolean> => {
     if (source === 'mcp-roots' && projectBinding.isExplicit()) return false;
     const { detectProjectWithDiagnostics } = await import('./project/detector.js');
+    if (isHomeDirectory(newCwd)) {
+      console.error(`[memorix] Refusing to bind $HOME as a project root: ${newCwd}`);
+      return false;
+    }
     const result = detectProjectWithDiagnostics(newCwd);
-    if (!result.project) {
+    if (!result.project || isHomeDirectory(result.project.rootPath)) {
       if (result.failure) {
         console.error(`[memorix] Project detection failed for "${newCwd}": [${result.failure.reason}] ${result.failure.detail}`);
       }
@@ -5523,6 +5550,7 @@ export async function createMemorixServer(
       else if (source === 'mcp-roots') projectBinding.bindFromRoots(newDetected.rootPath);
       else projectBinding.bindStartup(newDetected.rootPath);
       projectBinding.recordResolvedProject(project.id, project.rootPath);
+      writeLastProjectRoot(project.rootPath);
       return false; // same project, no-op
     }
 
@@ -5580,7 +5608,12 @@ export async function createMemorixServer(
       }
     } catch { /* best-effort - coordination features degrade gracefully */ }
 
-    await initializeProjectRuntime('switch');
+    writeLastProjectRoot(project.rootPath);
+    runtimeHydratedForDir = null;
+    projectRuntimeInitPromise = null;
+    void ensureProjectRuntimeInitialized().catch((err) => {
+      console.error(`[memorix] Background project runtime init failed: ${err instanceof Error ? err.message : err}`);
+    });
     try {
       await startProjectMaintenanceWorker();
     } catch {

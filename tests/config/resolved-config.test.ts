@@ -220,6 +220,7 @@ describe('resolved config', () => {
     expect(lane.model).toBe('rerank-model');
     expect(lane.baseUrl).toBe('https://llm.example/v1');
     expect(lane.apiKey).toBe('llm-key');
+    expect(lane.canSendRequest).toBe(true);
     expect(getResolvedConfig({ projectRoot: null, homeDir: HOME }).sources.env).toContain('MEMORIX_RERANK_PROVIDER');
   });
 
@@ -252,6 +253,7 @@ describe('resolved config', () => {
     expect(lane.provider).toBe('http');
     expect(lane.baseUrl).toBe('https://LLM.example/v1/');
     expect(lane.apiKey).toBe('llm-key');
+    expect(lane.canSendRequest).toBe(true);
   });
 
   it('does not inherit the memory LLM key when the rerank URL is a different endpoint', () => {
@@ -271,6 +273,7 @@ describe('resolved config', () => {
     expect(lane.provider).toBe('http');
     expect(lane.baseUrl).toBe('https://api.example.com/v1');
     expect(lane.apiKey).toBeUndefined();
+    expect(lane.canSendRequest).toBe(false);
   });
 
   it('uses a dedicated rerank key when the endpoint differs from the memory LLM', () => {
@@ -289,6 +292,7 @@ describe('resolved config', () => {
     const lane = getResolvedRerankLane({ projectRoot: null, homeDir: HOME });
 
     expect(lane.apiKey).toBe('rerank-key');
+    expect(lane.canSendRequest).toBe(true);
   });
 
   it('resolves CodeGraph scan limits from TOML above legacy YAML', () => {

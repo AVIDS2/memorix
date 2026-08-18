@@ -46,6 +46,7 @@ export async function neuralRerankCandidates(
   if (!isNeuralRerankEnabled(options) || candidates.length === 0) return null;
 
   const lane = getResolvedRerankLane(options);
+  if (!lane.canSendRequest || !lane.baseUrl) return null;
   const toRerank = candidates.slice(0, MAX_RERANK);
   const rest = candidates.slice(MAX_RERANK);
   const documents = toRerank.map((candidate) => candidateText(candidate));

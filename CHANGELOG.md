@@ -20,7 +20,9 @@ All notable changes to this project will be documented in this file.
 - HTTP rerank honors `MEMORIX_RERANK_TIMEOUT_MS` on the inner fetch
   (default 30s) instead of aborting at 5s.
 - HTTP rerank no longer inherits or transmits the memory LLM credential
-  when `rerank.base_url` points at a different endpoint.
+  when `rerank.base_url` points at a different endpoint. If a Memory LLM
+  key is present, that foreign host is not called until
+  `MEMORIX_RERANK_API_KEY` / `rerank.api_key` is set.
 
 ## [1.7.2] - 2026-08-19
 

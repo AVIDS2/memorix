@@ -49,6 +49,8 @@ export interface ResolvedMemorixConfig {
     model?: string;
     baseUrl?: string;
     apiKey?: string;
+    /** False when a Memory LLM key exists and the rerank URL is a different host without a dedicated key. */
+    canSendRequest: boolean;
   };
   git: {
     autoHook?: boolean;
@@ -378,12 +380,13 @@ function resolveRerankLane(args: {
     args.toml.rerank?.api_key,
     args.yaml.rerank?.apiKey,
   );
-  const inheritedApiKey = provider === 'http' && sameTrustedEndpoint(baseUrl, args.memoryLlmBaseUrl)
-    ? args.memoryLlmApiKey
-    : undefined;
+  const sameEndpoint = provider === 'http' && sameTrustedEndpoint(baseUrl, args.memoryLlmBaseUrl);
+  const inheritedApiKey = sameEndpoint ? args.memoryLlmApiKey : undefined;
   const apiKey = first(dedicatedApiKey, inheritedApiKey);
+  const canSendRequest = provider === 'http' && Boolean(baseUrl)
+    && (Boolean(apiKey) || !args.memoryLlmApiKey || sameEndpoint);
 
-  return { provider, model, baseUrl, apiKey };
+  return { provider, model, baseUrl, apiKey, canSendRequest };
 }
 
 /**

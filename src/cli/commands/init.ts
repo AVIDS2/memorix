@@ -187,6 +187,7 @@ export default defineCommand({
     envLines.push('# MEMORIX_RERANK_PROVIDER=http');
     envLines.push('# MEMORIX_RERANK_MODEL=rerank-model');
     envLines.push('# MEMORIX_RERANK_BASE_URL=https://api.example.com/v1');
+    envLines.push('# MEMORIX_RERANK_API_KEY=  # required when BASE_URL is not the memory LLM endpoint');
     envLines.push('');
     envLines.push('# Optional memory LLM simple key (does not apply to embedding or agent lanes)');
     envLines.push('# MEMORIX_API_KEY=sk-your-key-here');

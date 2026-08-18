@@ -125,6 +125,7 @@ describe('neural rerank lane', () => {
     const { getResolvedRerankLane } = await import('../../src/config/resolved-config.js');
     const lane = getResolvedRerankLane({ projectRoot: null, homeDir: HOME });
     expect(lane.apiKey).toBeUndefined();
+    expect(lane.canSendRequest).toBe(false);
 
     const fetchImpl = vi.fn(async () => new Response(JSON.stringify({
       results: [
@@ -135,17 +136,16 @@ describe('neural rerank lane', () => {
     }), { status: 200, headers: { 'content-type': 'application/json' } }));
     vi.stubGlobal('fetch', fetchImpl);
 
-    const { neuralRerankCandidates } = await loadLane();
-    await neuralRerankCandidates('JWT', [
+    const { isNeuralRerankEnabled, neuralRerankCandidates } = await loadLane();
+    expect(isNeuralRerankEnabled({ projectRoot: null, homeDir: HOME })).toBe(true);
+    const reranked = await neuralRerankCandidates('JWT', [
       { id: 'r1', title: 'alpha', type: 'gotcha', score: 1 },
       { id: 'r2', title: 'beta', type: 'gotcha', score: 0.9 },
       { id: 'r3', title: 'gamma', type: 'gotcha', score: 0.8 },
     ], { projectRoot: null, homeDir: HOME });
 
-    const headers = fetchImpl.mock.calls[0]?.[1]?.headers as Record<string, string>;
-    const authorization = headers?.authorization ?? headers?.Authorization;
-    expect(authorization).toBeUndefined();
-    expect(JSON.stringify(fetchImpl.mock.calls[0])).not.toContain('llm-from-memory');
+    expect(reranked).toBeNull();
+    expect(fetchImpl).not.toHaveBeenCalled();
     vi.unstubAllGlobals();
   });
 });

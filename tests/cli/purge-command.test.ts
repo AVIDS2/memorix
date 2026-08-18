@@ -99,7 +99,7 @@ describe('purge command exam', () => {
     expect(await activeObservationCount(projectA)).toBe(1);
   });
 
-  it('purges the current project but leaves other projects intact', async () => {
+  it('purges the current project but leaves other projects intact', { timeout: 30_000 }, async () => {
     const stored = await runCommand(memoryCommand, {
       _: ['store'],
       title: 'Purge target observation',

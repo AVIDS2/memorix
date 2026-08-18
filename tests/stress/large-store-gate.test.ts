@@ -254,7 +254,9 @@ describe('large-store gate', () => {
     expect(persisted).toHaveLength(2);
   }
 
-  it('stays responsive at 1k records', { timeout: 60_000 }, async () => {
+  // Keep the outer hang guard generous for contended Windows CI runners. The
+  // assertions inside runGate remain the actual latency and memory budgets.
+  it('stays responsive at 1k records', { timeout: 180_000 }, async () => {
     await runGate(1_000);
   });
 

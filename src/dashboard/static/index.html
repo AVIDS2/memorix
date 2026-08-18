@@ -182,6 +182,23 @@
     <div id="page-team" class="page"></div>
   </main>
 
+  <dialog id="maintenance-dialog" class="maintenance-dialog" aria-labelledby="maintenance-dialog-title">
+    <div class="maintenance-dialog-shell">
+      <header class="maintenance-dialog-header">
+        <div>
+          <div class="maintenance-dialog-kicker" id="maintenance-dialog-kicker"></div>
+          <h2 id="maintenance-dialog-title"></h2>
+        </div>
+        <button class="icon-btn maintenance-dialog-close" type="button" aria-label="Close" title="Close">
+          <span class="iconify" data-icon="lucide:x"></span>
+        </button>
+      </header>
+      <div id="maintenance-dialog-body" class="maintenance-dialog-body"></div>
+      <footer id="maintenance-dialog-footer" class="maintenance-dialog-footer"></footer>
+    </div>
+  </dialog>
+  <div id="dashboard-toast" class="dashboard-toast" role="status" aria-live="polite"></div>
+
   <!-- Apache ECharts 5 — Knowledge Graph renderer -->
   <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
   <!-- Cytoscape.js + Dagre — legacy entity-graph fallback -->

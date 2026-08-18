@@ -49,6 +49,38 @@ const i18n = {
     deleteObs: 'Delete',
     deleteConfirm: 'Delete observation #%id%?',
     batchCleanup: 'Cleanup',
+    selectRecords: 'Select',
+    memoryMaintenance: 'Memory Maintenance',
+    previewRequired: 'Preview required',
+    cleanupAction: 'Cleanup',
+    consolidateAction: 'Consolidate',
+    deduplicateAction: 'Deduplicate',
+    archiveAction: 'Archive',
+    previewAction: 'Preview',
+    executeAction: 'Execute',
+    closeAction: 'Close',
+    cleanupNoise: 'Include test and demo noise',
+    maintenancePreview: 'Maintenance preview',
+    maintenanceEmpty: 'No candidates found',
+    maintenanceUnavailable: 'Action unavailable',
+    maintenanceChanged: 'Memory changed. Preview again before executing.',
+    maintenanceSuccess: 'Maintenance completed',
+    maintenanceFailed: 'Maintenance failed',
+    willDelete: 'Delete',
+    willArchive: 'Archive',
+    willResolve: 'Resolve',
+    willMerge: 'Merge',
+    canonicalRecord: 'Keep',
+    affectedRecords: 'Affected records',
+    cleanupLowQuality: 'Low quality',
+    cleanupDuplicates: 'Exact duplicates',
+    cleanupNoiseCount: 'Noise',
+    scannedRecords: 'Scanned',
+    comparisonFailures: 'Comparison failures',
+    confirmCleanup: 'Execute cleanup',
+    confirmConsolidate: 'Merge candidates',
+    confirmDeduplicate: 'Resolve duplicates',
+    confirmArchive: 'Archive candidates',
     selected: 'selected',
     cancel: 'Cancel',
     deleteSelected: 'Delete Selected',
@@ -481,6 +513,38 @@ const i18n = {
     deleteObs: '删除',
     deleteConfirm: '确认删除观察 #%id%？',
     batchCleanup: '清理',
+    selectRecords: '选择',
+    memoryMaintenance: '记忆维护',
+    previewRequired: '执行前需预览',
+    cleanupAction: '清理',
+    consolidateAction: '合并',
+    deduplicateAction: '智能去重',
+    archiveAction: '归档',
+    previewAction: '预览',
+    executeAction: '执行',
+    closeAction: '关闭',
+    cleanupNoise: '包含测试和演示噪声',
+    maintenancePreview: '维护预览',
+    maintenanceEmpty: '没有发现候选项',
+    maintenanceUnavailable: '当前操作不可用',
+    maintenanceChanged: '记忆已发生变化，请重新预览后再执行。',
+    maintenanceSuccess: '维护完成',
+    maintenanceFailed: '维护失败',
+    willDelete: '删除',
+    willArchive: '归档',
+    willResolve: '设为已解决',
+    willMerge: '合并',
+    canonicalRecord: '保留',
+    affectedRecords: '受影响记录',
+    cleanupLowQuality: '低质量记录',
+    cleanupDuplicates: '完全重复',
+    cleanupNoiseCount: '噪声',
+    scannedRecords: '已扫描',
+    comparisonFailures: '比较失败',
+    confirmCleanup: '执行清理',
+    confirmConsolidate: '合并候选项',
+    confirmDeduplicate: '解决重复项',
+    confirmArchive: '归档候选项',
     selected: '已选中',
     cancel: '取消',
     deleteSelected: '删除所选',
@@ -1070,6 +1134,209 @@ async function api(endpoint) {
     return null;
   }
 }
+
+// ============================================================
+// Maintenance actions
+// ============================================================
+
+let activeMaintenancePreview = null;
+
+const maintenanceMeta = {
+  cleanup: { title: 'cleanupAction', confirm: 'confirmCleanup', icon: 'lucide:eraser' },
+  consolidate: { title: 'consolidateAction', confirm: 'confirmConsolidate', icon: 'lucide:combine' },
+  deduplicate: { title: 'deduplicateAction', confirm: 'confirmDeduplicate', icon: 'lucide:copy-minus' },
+  retention: { title: 'archiveAction', confirm: 'confirmArchive', icon: 'lucide:archive' },
+};
+
+async function maintenancePost(action, phase, body = {}) {
+  const suffix = selectedProject ? `?project=${encodeURIComponent(selectedProject)}` : '';
+  const response = await fetch(`/api/maintenance/${action}/${phase}${suffix}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const data = await response.json().catch(() => ({ error: `HTTP ${response.status}` }));
+  if (!response.ok) {
+    const error = new Error(data.error || `HTTP ${response.status}`);
+    error.status = response.status;
+    throw error;
+  }
+  return data;
+}
+
+function showDashboardToast(message, tone = 'success') {
+  const toast = document.getElementById('dashboard-toast');
+  if (!toast) return;
+  toast.textContent = message;
+  toast.dataset.tone = tone;
+  toast.classList.add('visible');
+  clearTimeout(showDashboardToast.timer);
+  showDashboardToast.timer = setTimeout(() => toast.classList.remove('visible'), 3200);
+}
+
+function maintenanceSummaryEntries(action, summary = {}) {
+  const mappings = {
+    cleanup: [
+      ['delete', 'willDelete'], ['archive', 'willArchive'],
+      ['lowQuality', 'cleanupLowQuality'], ['duplicates', 'cleanupDuplicates'], ['noise', 'cleanupNoiseCount'],
+    ],
+    consolidate: [['clusters', 'willMerge'], ['observations', 'affectedRecords']],
+    deduplicate: [['resolve', 'willResolve'], ['scanned', 'scannedRecords'], ['failedComparisons', 'comparisonFailures']],
+    retention: [['archive', 'willArchive']],
+  };
+  return (mappings[action] || [])
+    .filter(([key]) => summary[key] !== undefined)
+    .map(([key, label]) => ({ label: t(label), value: summary[key] }));
+}
+
+function maintenanceRecord(record, prefix = '') {
+  return `
+    <div class="maintenance-record">
+      <span class="maintenance-record-id">#${record.id}</span>
+      <span class="maintenance-record-title">${prefix}${escapeHtml(record.title || t('untitled'))}</span>
+      <span class="maintenance-record-meta">${escapeHtml(record.entityName || '')}</span>
+    </div>`;
+}
+
+function maintenanceDetails(action, preview) {
+  if (action === 'cleanup') {
+    const lowQuality = (preview.lowQuality || []).map((item) => maintenanceRecord(item)).join('');
+    const duplicateGroups = (preview.duplicateGroups || []).map((group) => `
+      <div class="maintenance-group">
+        ${maintenanceRecord(group.canonical, `${t('canonicalRecord')}: `)}
+        ${(group.duplicates || []).map((item) => maintenanceRecord(item, `${t('willDelete')}: `)).join('')}
+      </div>`).join('');
+    const noise = (preview.noise || []).map((item) => maintenanceRecord(item, `${t('willArchive')}: `)).join('');
+    const records = `${lowQuality}${duplicateGroups}${noise}`;
+    return `
+      <label class="maintenance-toggle">
+        <input id="maintenance-noise-toggle" type="checkbox" ${preview.includeNoise ? 'checked' : ''}>
+        <span>${t('cleanupNoise')}</span>
+      </label>
+      ${records || `<div class="maintenance-empty">${t('maintenanceEmpty')}</div>`}`;
+  }
+  if (action === 'consolidate') {
+    return (preview.clusters || []).map((cluster, index) => `
+      <div class="maintenance-group">
+        <div class="maintenance-group-title">${t('willMerge')} ${index + 1} · ${escapeHtml(cluster.entityName)} · ${Math.round(cluster.similarity * 100)}%</div>
+        ${(cluster.ids || []).map((id, itemIndex) => maintenanceRecord({
+          id,
+          title: (cluster.titles || [])[itemIndex] || '',
+          entityName: cluster.type || '',
+        })).join('')}
+      </div>`).join('');
+  }
+  if (action === 'deduplicate') {
+    return (preview.actions || []).map((item) => `
+      <div class="maintenance-group">
+        ${maintenanceRecord({ id: item.keepId, title: item.keepTitle, entityName: item.entityName }, `${t('canonicalRecord')}: `)}
+        ${maintenanceRecord({ id: item.resolveId, title: item.resolveTitle, entityName: item.reason }, `${t('willResolve')}: `)}
+      </div>`).join('');
+  }
+  return (preview.candidates || []).map((item) => maintenanceRecord({
+    ...item,
+    entityName: `${item.score} · ${item.ageHours}h`,
+  })).join('');
+}
+
+function renderMaintenanceDialog(action, preview) {
+  const dialog = document.getElementById('maintenance-dialog');
+  const body = document.getElementById('maintenance-dialog-body');
+  const footer = document.getElementById('maintenance-dialog-footer');
+  const meta = maintenanceMeta[action];
+  document.getElementById('maintenance-dialog-kicker').textContent = t('maintenancePreview');
+  document.getElementById('maintenance-dialog-title').textContent = t(meta.title);
+
+  if (preview.available === false) {
+    body.innerHTML = `<div class="maintenance-empty"><strong>${t('maintenanceUnavailable')}</strong><span>${escapeHtml(preview.reason || '')}</span></div>`;
+    footer.innerHTML = `<button class="maintenance-secondary" type="button" data-maintenance-close>${t('closeAction')}</button>`;
+  } else {
+    const summary = maintenanceSummaryEntries(action, preview.summary);
+    const hasChanges = action === 'cleanup'
+      ? (preview.summary.delete + preview.summary.archive) > 0
+      : action === 'consolidate'
+        ? preview.summary.clusters > 0
+        : action === 'deduplicate'
+          ? preview.summary.resolve > 0
+          : preview.summary.archive > 0;
+    body.innerHTML = `
+      <div class="maintenance-summary">
+        ${summary.map((item) => `<div class="maintenance-metric"><span>${escapeHtml(item.label)}</span><strong>${item.value}</strong></div>`).join('')}
+      </div>
+      <div class="maintenance-records">
+        ${action === 'cleanup' || hasChanges ? maintenanceDetails(action, preview) : `<div class="maintenance-empty">${t('maintenanceEmpty')}</div>`}
+      </div>`;
+    footer.innerHTML = `
+      <button class="maintenance-secondary" type="button" data-maintenance-close>${t('cancel')}</button>
+      <button class="maintenance-primary" id="maintenance-execute" type="button" ${hasChanges ? '' : 'disabled'}>
+        <span class="iconify" data-icon="${meta.icon}"></span>${t(meta.confirm)}
+      </button>`;
+    document.getElementById('maintenance-execute')?.addEventListener('click', executeMaintenancePreview);
+    document.getElementById('maintenance-noise-toggle')?.addEventListener('change', (event) => {
+      openMaintenancePreview('cleanup', { includeNoise: event.target.checked });
+    });
+  }
+  footer.querySelector('[data-maintenance-close]')?.addEventListener('click', closeMaintenanceDialog);
+  if (!dialog.open) dialog.showModal();
+}
+
+async function openMaintenancePreview(action, options = {}) {
+  const dialog = document.getElementById('maintenance-dialog');
+  const meta = maintenanceMeta[action];
+  document.getElementById('maintenance-dialog-kicker').textContent = t('maintenancePreview');
+  document.getElementById('maintenance-dialog-title').textContent = t(meta.title);
+  document.getElementById('maintenance-dialog-body').innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+  document.getElementById('maintenance-dialog-footer').innerHTML = '';
+  if (!dialog.open) dialog.showModal();
+
+  try {
+    const preview = await maintenancePost(action, 'preview', action === 'cleanup' ? { includeNoise: options.includeNoise === true } : {});
+    activeMaintenancePreview = { action, preview };
+    renderMaintenanceDialog(action, preview);
+  } catch (error) {
+    activeMaintenancePreview = null;
+    document.getElementById('maintenance-dialog-body').innerHTML = `
+      <div class="maintenance-empty"><strong>${t('maintenanceFailed')}</strong><span>${escapeHtml(error.message)}</span></div>`;
+    document.getElementById('maintenance-dialog-footer').innerHTML = `
+      <button class="maintenance-secondary" type="button" data-maintenance-close>${t('closeAction')}</button>`;
+    document.querySelector('[data-maintenance-close]')?.addEventListener('click', closeMaintenanceDialog);
+  }
+}
+
+async function executeMaintenancePreview() {
+  if (!activeMaintenancePreview) return;
+  const { action, preview } = activeMaintenancePreview;
+  const button = document.getElementById('maintenance-execute');
+  button.disabled = true;
+  button.classList.add('busy');
+  try {
+    await maintenancePost(action, 'execute', { payload: preview.payload, token: preview.token });
+    closeMaintenanceDialog();
+    showDashboardToast(t('maintenanceSuccess'));
+    if (currentPage === 'retention') await loadRetention();
+    else await loadObservations();
+  } catch (error) {
+    button.disabled = false;
+    button.classList.remove('busy');
+    const message = error.status === 409 ? t('maintenanceChanged') : `${t('maintenanceFailed')}: ${error.message}`;
+    showDashboardToast(message, 'error');
+  }
+}
+
+function closeMaintenanceDialog() {
+  activeMaintenancePreview = null;
+  document.getElementById('maintenance-dialog')?.close();
+}
+
+onDomReady(() => {
+  const dialog = document.getElementById('maintenance-dialog');
+  dialog?.querySelector('.maintenance-dialog-close')?.addEventListener('click', closeMaintenanceDialog);
+  dialog?.addEventListener('click', (event) => {
+    if (event.target === dialog) closeMaintenanceDialog();
+  });
+});
+
+window.openMaintenancePreview = openMaintenancePreview;
 
 // ============================================================
 // Project Switcher — Custom Dropdown
@@ -3214,20 +3481,6 @@ let obsTypeFilter = '';
 let batchMode = false;
 let selectedIds = new Set();
 
-// Low quality detection (same patterns as CLI cleanup)
-const LOW_QUALITY_OBS_PATTERNS = [
-  /^Session activity/i,
-  /^Updated \S+\.\w+$/i,
-  /^Created \S+\.\w+$/i,
-  /^Deleted \S+\.\w+$/i,
-  /^Modified \S+\.\w+$/i,
-  /^Ran command:/i,
-  /^Read file:/i,
-];
-function isLowQualityObs(title) {
-  return LOW_QUALITY_OBS_PATTERNS.some(p => p.test(title.trim()));
-}
-
 function renderBatchToolbar() {
   const slot = document.getElementById('batch-toolbar-slot');
   if (!slot) return;
@@ -3314,8 +3567,8 @@ async function loadObservations() {
         <p class="page-subtitle">${allObservations.length} ${t('observationsStored')}</p>
       </div>
       <div style="display:flex;gap:8px;">
-        <button class="export-btn" id="btn-batch-cleanup" title="${t('batchCleanup')}">
-          [CLEANUP] ${t('batchCleanup')}
+        <button class="export-btn" id="btn-batch-select" title="${t('selectRecords')}">
+          <span class="iconify" data-icon="lucide:list-checks"></span> ${t('selectRecords')}
         </button>
         <button class="export-btn" id="btn-export" title="${t('exportData')}">
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 2v8M4 7l4 4 4-4M2 12v2h12v-2"/></svg>
@@ -3323,6 +3576,18 @@ async function loadObservations() {
         </button>
       </div>
     </div>
+
+    <section class="maintenance-strip" aria-labelledby="memory-maintenance-title">
+      <div class="maintenance-strip-heading">
+        <span id="memory-maintenance-title">${t('memoryMaintenance')}</span>
+        <small>${t('previewRequired')}</small>
+      </div>
+      <div class="maintenance-actions">
+        <button type="button" onclick="openMaintenancePreview('cleanup')"><span class="iconify" data-icon="lucide:eraser"></span>${t('cleanupAction')}</button>
+        <button type="button" onclick="openMaintenancePreview('consolidate')"><span class="iconify" data-icon="lucide:combine"></span>${t('consolidateAction')}</button>
+        <button type="button" onclick="openMaintenancePreview('deduplicate')"><span class="iconify" data-icon="lucide:copy-minus"></span>${t('deduplicateAction')}</button>
+      </div>
+    </section>
 
     <div id="batch-toolbar-slot"></div>
 
@@ -3341,18 +3606,10 @@ async function loadObservations() {
     window.open(`/api/export${sep}`, '_blank');
   });
 
-  // Batch cleanup: enter batch mode, auto-select low-quality observations
-  document.getElementById('btn-batch-cleanup').addEventListener('click', () => {
+  // Manual selection remains separate from the shared cleanup pipeline.
+  document.getElementById('btn-batch-select').addEventListener('click', () => {
     batchMode = !batchMode;
-    if (batchMode) {
-      // Auto-select low quality ones
-      selectedIds.clear();
-      allObservations.forEach(obs => {
-        if (isLowQualityObs(obs.title || '')) selectedIds.add(obs.id);
-      });
-    } else {
-      selectedIds.clear();
-    }
+    selectedIds.clear();
     renderObsList();
     renderBatchToolbar();
   });
@@ -3405,18 +3662,16 @@ function renderObsList() {
   }
 
   list.innerHTML = filtered.map(obs => {
-    const isLow = isLowQualityObs(obs.title || '');
     const isSelected = selectedIds.has(obs.id);
     const hl = (text) => obsFilter ? escapeHtml(text).replace(new RegExp(`(${escapeHtml(obsFilter).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi'), '<mark>$1</mark>') : escapeHtml(text);
     return `
-    <div class="obs-card${isLow ? ' low-quality' : ''}" data-obs-id="${obs.id}" onclick="toggleObsDetail(${obs.id})" style="cursor:pointer;">
+    <div class="obs-card" data-obs-id="${obs.id}" onclick="toggleObsDetail(${obs.id})" style="cursor:pointer;">
       <div class="obs-card-header">
         ${batchMode ? `<input type="checkbox" class="obs-checkbox" ${isSelected ? 'checked' : ''} onclick="event.stopPropagation(); toggleObsSelect(${obs.id});" />` : ''}
         <span class="obs-card-id">#${obs.id}</span>
         <span class="type-badge" data-type="${obs.type || 'unknown'}">
           ${typeIcons[obs.type] || '[UNKNOWN]'} ${obs.type || t('unknown')}
         </span>
-        ${isLow ? '<span class="low-quality-badge">' + t('lowQuality') + '</span>' : ''}
         <span class="obs-card-title">${hl(obs.title || t('untitled'))}</span>
         <span class="obs-expand-icon">▼</span>
       </div>
@@ -3461,9 +3716,14 @@ async function loadRetention() {
   const { summary, items } = data;
 
   container.innerHTML = `
-    <div class="page-header">
-      <h1 class="page-title">${t('memoryRetention')}</h1>
-      <p class="page-subtitle">${t('retentionSubtitle')}</p>
+    <div class="page-header page-header-actions">
+      <div>
+        <h1 class="page-title">${t('memoryRetention')}</h1>
+        <p class="page-subtitle">${t('retentionSubtitle')}</p>
+      </div>
+      <button class="export-btn" type="button" onclick="openMaintenancePreview('retention')" ${summary.archive > 0 ? '' : 'disabled'}>
+        <span class="iconify" data-icon="lucide:archive"></span>${t('archiveAction')}
+      </button>
     </div>
 
     <div class="retention-summary">

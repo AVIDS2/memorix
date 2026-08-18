@@ -46,6 +46,7 @@ test-smoke.txt
 .pipeline/
 .worktrees/
 .playwright-mcp/
+.playwright-cli/
 .planning/
 output/
 memory-game-*.png

@@ -46,7 +46,8 @@ import {
   type ToolProfile,
 } from './server/tool-profile.js';
 import { initLLM, isLLMEnabled, getLLMConfig } from './llm/provider.js';
-import { compactOnWrite, deduplicateMemory } from './llm/memory-manager.js';
+import { compactOnWrite } from './llm/memory-manager.js';
+import { applyDeduplicationPlan, planMemoryDeduplication } from './memory/deduplication.js';
 import type { ExistingMemory } from './llm/memory-manager.js';
 import { runFormation, getMetricsSummary, getBeforeAfterMetrics } from './memory/formation/index.js';
 import type { FormationConfig, SearchHit, FormedMemory, FormationStage, FormationStageEvent } from './memory/formation/types.js';
@@ -2503,66 +2504,31 @@ export async function createMemorixServer(
         return { content: [{ type: 'text' as const, text: 'Not enough memories in scope to deduplicate.' }] };
       }
 
-      // Group by entity for focused dedup
-      const byEntity = new Map<string, typeof candidates>();
-      for (const obs of candidates) {
-        const list = byEntity.get(obs.entityName) ?? [];
-        list.push(obs);
-        byEntity.set(obs.entityName, list);
-      }
+      const manageableCandidates = candidates.filter((observation) => canManageObservation(observation, reader));
+      const plan = await planMemoryDeduplication(manageableCandidates);
+      const actionLines = plan.actions.map((item) =>
+        `Resolve #${item.resolveId} "${item.resolveTitle}"; keep #${item.keepId} "${item.keepTitle}" (${item.reason})${item.usedLLM ? ' [LLM]' : ' [heuristic]'}`,
+      );
 
-      const actions: string[] = [];
-      const toResolve: number[] = [];
-
-      for (const [entity, group] of byEntity) {
-        if (group.length < 2) continue;
-
-        // Compare each pair within entity group
-        for (let i = 0; i < group.length; i++) {
-          for (let j = i + 1; j < group.length; j++) {
-            const newer = group[j];
-            const older = group[i];
-            try {
-              const decision = await deduplicateMemory(
-                { title: newer.title, narrative: newer.narrative, facts: newer.facts },
-                [{ id: older.id, title: older.title, narrative: older.narrative, facts: older.facts.join('\n') }],
-              );
-              if (decision && decision.action === 'UPDATE' && decision.targetId) {
-                actions.push(`[UPDATED] #${older.id} "${older.title}" → superseded by #${newer.id} (${decision.reason})${decision.usedLLM ? ' [LLM]' : ' [heuristic]'}`);
-                toResolve.push(older.id);
-              } else if (decision && decision.action === 'NONE') {
-                actions.push(`[DELETE] #${newer.id} "${newer.title}" → redundant (${decision.reason})${decision.usedLLM ? ' [LLM]' : ' [heuristic]'}`);
-                toResolve.push(newer.id);
-              } else if (decision && decision.action === 'DELETE') {
-                actions.push(`[ERROR] #${decision.targetId ?? older.id} → outdated (${decision.reason})${decision.usedLLM ? ' [LLM]' : ' [heuristic]'}`);
-                toResolve.push(decision.targetId ?? older.id);
-              }
-            } catch (dedupErr) { actions.push(`[WARN] comparison failed: ${(dedupErr as Error)?.message ?? dedupErr}`); }
-          }
-        }
-      }
-
-      if (actions.length === 0) {
-        return { content: [{ type: 'text' as const, text: `[OK] Scanned ${candidates.length} memories across ${byEntity.size} entities — no duplicates found.` }] };
+      if (actionLines.length === 0) {
+        return { content: [{ type: 'text' as const, text: `[OK] Scanned ${plan.scanned} memories across ${plan.entities} entities — no duplicates found.` }] };
       }
 
       if (dryRun) {
         return {
           content: [{
             type: 'text' as const,
-            text: `[SEARCH] DRY RUN — ${actions.length} action(s) found:\n\n${actions.join('\n')}\n\nRun with dryRun=false to apply.`,
+            text: `[SEARCH] DRY RUN — ${actionLines.length} action(s) found:\n\n${actionLines.join('\n')}\n\nRun with dryRun=false to apply.`,
           }],
         };
       }
 
-      // Apply resolutions
-      const unique = [...new Set(toResolve)];
-      await resolveObservations(unique, 'resolved');
+      const result = await applyDeduplicationPlan(getObservationStore(), project.id, plan.resolveIds, reader);
 
       return {
         content: [{
           type: 'text' as const,
-          text: `[CLEANUP] Deduplicated: resolved ${unique.length} memory(ies)\n\n${actions.join('\n')}`,
+          text: `[CLEANUP] Deduplicated: resolved ${result.resolved.length} memory(ies)\n\n${actionLines.join('\n')}`,
         }],
       };
     },

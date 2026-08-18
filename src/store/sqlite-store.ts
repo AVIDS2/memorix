@@ -122,6 +122,8 @@ export class SqliteBackend implements ObservationStore {
   private stmtSelectByProjectStatus: any = null;
   private stmtSelectByProjectAfterId: any = null;
   private stmtSelectByProjectStatusAfterId: any = null;
+  private stmtSelectByProjectNewest: any = null;
+  private stmtSelectByProjectStatusNewest: any = null;
   private stmtCountByProject: any = null;
   private stmtCountByProjectStatus: any = null;
   private stmtSelectByTopicKey: any = null;
@@ -174,6 +176,14 @@ export class SqliteBackend implements ObservationStore {
     this.stmtSelectByProjectStatusAfterId = this.db.prepare(`
       SELECT * FROM observations WHERE projectId = ? AND status = ? AND id > ?
       ORDER BY id ASC LIMIT ?
+    `);
+    this.stmtSelectByProjectNewest = this.db.prepare(`
+      SELECT * FROM observations WHERE projectId = ?
+      ORDER BY createdAt DESC, id DESC LIMIT ? OFFSET ?
+    `);
+    this.stmtSelectByProjectStatusNewest = this.db.prepare(`
+      SELECT * FROM observations WHERE projectId = ? AND status = ?
+      ORDER BY createdAt DESC, id DESC LIMIT ? OFFSET ?
     `);
     this.stmtCountByProject = this.db.prepare(
       `SELECT COUNT(*) AS count FROM observations WHERE projectId = ?`,
@@ -288,15 +298,20 @@ export class SqliteBackend implements ObservationStore {
 
   async loadByProject(
     projectId: string,
-    options: { status?: string; limit?: number; offset?: number; afterId?: number } = {},
+    options: { status?: string; limit?: number; offset?: number; afterId?: number; newestFirst?: boolean } = {},
   ): Promise<Observation[]> {
     const limit = options.limit == null ? -1 : Math.max(1, Math.floor(options.limit));
     const offset = options.offset == null ? 0 : Math.max(0, Math.floor(options.offset));
     const afterId = options.afterId == null ? null : Math.max(0, Math.floor(options.afterId));
+    const newestFirst = options.newestFirst === true && afterId === null;
     const rows = afterId === null
-      ? (options.status
-        ? this.stmtSelectByProjectStatus.all(projectId, options.status, limit, offset)
-        : this.stmtSelectByProject.all(projectId, limit, offset))
+      ? (newestFirst
+        ? (options.status
+          ? this.stmtSelectByProjectStatusNewest.all(projectId, options.status, limit, offset)
+          : this.stmtSelectByProjectNewest.all(projectId, limit, offset))
+        : (options.status
+          ? this.stmtSelectByProjectStatus.all(projectId, options.status, limit, offset)
+          : this.stmtSelectByProject.all(projectId, limit, offset)))
       : (options.status
         ? this.stmtSelectByProjectStatusAfterId.all(projectId, options.status, afterId, limit)
         : this.stmtSelectByProjectAfterId.all(projectId, afterId, limit));

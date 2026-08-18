@@ -9,15 +9,17 @@ describe('MCP bootstrap-safe tools', () => {
       'memorix_context_pack',
       'memorix_graph_context',
       'memorix_project_context',
+      'memorix_session_start',
     ]);
     expect(shouldAwaitProjectRuntime('memorix_project_context')).toBe(false);
     expect(shouldAwaitProjectRuntime('memorix_codegraph_status')).toBe(false);
     expect(shouldAwaitProjectRuntime('memorix_graph_context')).toBe(false);
     expect(shouldAwaitProjectRuntime('memorix_context_pack')).toBe(false);
+    expect(shouldAwaitProjectRuntime('memorix_session_start')).toBe(false);
   });
 
-  it('keeps search, writes, and session operations behind full runtime initialization', () => {
-    for (const tool of ['memorix_search', 'memorix_store', 'memorix_session_start']) {
+  it('keeps search and writes behind full runtime initialization', () => {
+    for (const tool of ['memorix_search', 'memorix_store']) {
       expect(shouldAwaitProjectRuntime(tool)).toBe(true);
     }
   });

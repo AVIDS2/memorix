@@ -17,7 +17,7 @@ import {
   getObservationStore,
   resetObservationStore,
 } from '../../src/store/obs-store.js';
-import { closeAllDatabases } from '../../src/store/sqlite-db.js';
+import { closeAllDatabases, getDatabase } from '../../src/store/sqlite-db.js';
 
 // ── Helpers ───────────────────────────────────────────────────────
 
@@ -203,6 +203,24 @@ describe('SqliteBackend CRUD', () => {
     expect(await store.getById(3)).toMatchObject({ projectId: 'project-b' });
     expect(await store.countByProject('project-a', { status: 'active' })).toBe(1);
     expect(await store.countByProject('project-a')).toBe(2);
+  });
+
+  it('loads newest project rows first when asked', async () => {
+    await store.insert(makeObs({
+      id: 1,
+      entityName: 'old',
+      projectId: 'project-a',
+      createdAt: '2026-01-01T00:00:00.000Z',
+    }));
+    await store.insert(makeObs({
+      id: 2,
+      entityName: 'new',
+      projectId: 'project-a',
+      createdAt: '2026-08-01T00:00:00.000Z',
+    }));
+
+    const newest = await store.loadByProject('project-a', { newestFirst: true, limit: 1 });
+    expect(newest.map((observation) => observation.id)).toEqual([2]);
   });
 });
 
@@ -509,6 +527,19 @@ describe('SqliteBackend close()', () => {
 
     // Recreate for afterEach cleanup
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'memorix-sqlite-test-'));
+  });
+
+  it('refuses to open memorix.db directly in $HOME', () => {
+    const previousHome = process.env.HOME;
+    const previousProfile = process.env.USERPROFILE;
+    process.env.HOME = tmpDir;
+    process.env.USERPROFILE = tmpDir;
+    try {
+      expect(() => getDatabase(tmpDir)).toThrow(/Refusing to bind \$HOME/);
+    } finally {
+      process.env.HOME = previousHome;
+      process.env.USERPROFILE = previousProfile;
+    }
   });
 
   it('close is idempotent (safe to call twice)', async () => {

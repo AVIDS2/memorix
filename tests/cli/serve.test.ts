@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 import { mcpFileUriToPath } from '../../src/cli/mcp-root-path.js';
 import { resolveServeProject } from '../../src/cli/commands/serve-shared.js';
+import { writeLastProjectRoot } from '../../src/project/launch-root.js';
 import type { ProjectInfo } from '../../src/types.js';
 
 function makeProject(id: string, rootPath: string): ProjectInfo {
@@ -85,6 +89,71 @@ describe('serve-shared', () => {
     expect(result.source).toBe('unresolved');
     expect(result.error).toContain('No git project could be resolved');
     expect(result.messages.join('\n')).toContain('refuses to silently fall back');
+  });
+
+  it('inherits last-project-root when launched from $HOME without an explicit root', () => {
+    const result = resolveServeProject(
+      {
+        processCwd: '/Users/tester',
+        homeDir: '/Users/tester',
+      },
+      {
+        detectProject: (cwd) => (cwd === '/Users/tester/Projects/app' ? makeProject('AVIDS2/app', cwd) : null),
+        findGitInSubdirs: () => null,
+        isSystemDirectory: () => false,
+      },
+    );
+
+    // Without a readable last-project-root file this stays unresolved and never
+    // treats $HOME as a git project.
+    expect(result.detectedProject).toBeNull();
+    expect(result.source).toBe('unresolved');
+    expect(result.messages.join('\n')).toContain('will not create ~/memorix.db');
+  });
+
+  it('restores last-project-root when the launcher cwd is $HOME', () => {
+    const home = mkdtempSync(path.join(os.tmpdir(), 'memorix-serve-home-'));
+    const project = mkdtempSync(path.join(os.tmpdir(), 'memorix-serve-proj-'));
+    try {
+      writeLastProjectRoot(project, home);
+      const result = resolveServeProject(
+        {
+          processCwd: home,
+          homeDir: home,
+        },
+        {
+          detectProject: (cwd) => (cwd === path.resolve(project) ? makeProject('AVIDS2/app', cwd) : null),
+          findGitInSubdirs: () => null,
+          isSystemDirectory: () => false,
+        },
+      );
+
+      expect(result.source).toBe('last-project-root');
+      expect(result.detectedProject?.id).toBe('AVIDS2/app');
+      expect(result.projectRoot).toBe(path.resolve(project));
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+      rmSync(project, { recursive: true, force: true });
+    }
+  });
+
+  it('refuses an explicit $HOME --cwd instead of binding the home directory', () => {
+    const result = resolveServeProject(
+      {
+        cwdArg: '/Users/tester',
+        processCwd: '/Users/tester',
+        homeDir: '/Users/tester',
+      },
+      {
+        detectProject: (cwd) => (cwd === '/Users/tester' ? makeProject('local/tester', cwd) : null),
+        findGitInSubdirs: () => null,
+        isSystemDirectory: () => false,
+      },
+    );
+
+    expect(result.detectedProject).toBeNull();
+    expect(result.source).toBe('unresolved');
+    expect(result.error).toContain('Refusing to bind $HOME');
   });
 
   it('fails closed for system directories without probing home or a prior project', () => {

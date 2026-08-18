@@ -98,6 +98,7 @@ All notable changes to this project will be documented in this file.
   hooks, and HTTP MCP instead of the retired per-project directory layout.
 - **Correct background entrypoint** -- `memorix background start` launches the
   built HTTP CLI entrypoint rather than the stdio library entry.
+
 ## [1.6.1] - 2026-08-17
 
 ### Fixed

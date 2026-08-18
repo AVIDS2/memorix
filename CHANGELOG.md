@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.6.3] - 2026-08-18
+
+### Fixed
+- **Safe home-directory boundaries** -- project binding and SQLite now share
+  the same effective `HOME`/`USERPROFILE` resolution on Windows, so an agent
+  launched from a user directory is rejected consistently and cannot create a
+  decoy `~/memorix.db`. Contributed by
+  [@RaviTharuma](https://github.com/RaviTharuma) in #230, with a maintainer
+  compatibility follow-up for Windows environment resolution.
+- **Fast first session on large stores** -- `memorix_session_start` uses a
+  bounded newest-first slice while the remaining hydration work continues in
+  the background, keeping first contact responsive on large projects.
+
 ## [1.6.2] - 2026-08-18
 
 ### Changed

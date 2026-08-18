@@ -373,12 +373,45 @@ function resolveRerankLane(args: {
   const baseUrl = provider === 'http'
     ? first(explicitBaseUrl, args.memoryLlmBaseUrl)
     : explicitBaseUrl;
-  const apiKey = first(
+  const dedicatedApiKey = first(
     process.env.MEMORIX_RERANK_API_KEY,
     args.toml.rerank?.api_key,
     args.yaml.rerank?.apiKey,
-    args.memoryLlmApiKey,
   );
+  const inheritedApiKey = provider === 'http' && sameTrustedEndpoint(baseUrl, args.memoryLlmBaseUrl)
+    ? args.memoryLlmApiKey
+    : undefined;
+  const apiKey = first(dedicatedApiKey, inheritedApiKey);
 
   return { provider, model, baseUrl, apiKey };
+}
+
+/**
+ * True when two API roots are the same host+path after trailing-slash
+ * and optional `/rerank` normalization. Used so a Memory LLM bearer is
+ * never sent to a different rerank provider.
+ */
+function sameTrustedEndpoint(left?: string, right?: string): boolean {
+  const a = normalizeTrustedEndpoint(left);
+  const b = normalizeTrustedEndpoint(right);
+  return Boolean(a && b && a === b);
+}
+
+function normalizeTrustedEndpoint(value?: string): string | undefined {
+  const trimmed = value?.trim();
+  if (!trimmed) return undefined;
+  try {
+    const url = new URL(trimmed);
+    const protocol = url.protocol.toLowerCase();
+    const hostname = url.hostname.toLowerCase();
+    const port = url.port;
+    let pathname = url.pathname.replace(/\/+$/, '');
+    if (pathname.toLowerCase().endsWith('/rerank')) {
+      pathname = pathname.slice(0, -'/rerank'.length).replace(/\/+$/, '');
+    }
+    return `${protocol}//${hostname}${port ? `:${port}` : ''}${pathname}`;
+  } catch {
+    const fallback = trimmed.replace(/\/+$/, '').replace(/\/rerank$/i, '').replace(/\/+$/, '');
+    return fallback.toLowerCase() || undefined;
+  }
 }

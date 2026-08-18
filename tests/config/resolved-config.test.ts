@@ -235,6 +235,62 @@ describe('resolved config', () => {
     expect(lane.model).toBe('rerank-model');
   });
 
+  it('inherits the memory LLM key when the explicit rerank URL is the same endpoint', () => {
+    writeFileSync(join(HOME, '.memorix', 'config.toml'), [
+      '[memory.llm]',
+      'base_url = "https://llm.example/v1"',
+      'api_key = "llm-key"',
+      '',
+      '[rerank]',
+      'provider = "http"',
+      'model = "rerank-model"',
+      'base_url = "https://LLM.example/v1/"',
+    ].join('\n'), 'utf8');
+
+    const lane = getResolvedRerankLane({ projectRoot: null, homeDir: HOME });
+
+    expect(lane.provider).toBe('http');
+    expect(lane.baseUrl).toBe('https://LLM.example/v1/');
+    expect(lane.apiKey).toBe('llm-key');
+  });
+
+  it('does not inherit the memory LLM key when the rerank URL is a different endpoint', () => {
+    writeFileSync(join(HOME, '.memorix', 'config.toml'), [
+      '[memory.llm]',
+      'base_url = "https://llm.example/v1"',
+      'api_key = "llm-key"',
+      '',
+      '[rerank]',
+      'provider = "http"',
+      'model = "rerank-model"',
+      'base_url = "https://api.example.com/v1"',
+    ].join('\n'), 'utf8');
+
+    const lane = getResolvedRerankLane({ projectRoot: null, homeDir: HOME });
+
+    expect(lane.provider).toBe('http');
+    expect(lane.baseUrl).toBe('https://api.example.com/v1');
+    expect(lane.apiKey).toBeUndefined();
+  });
+
+  it('uses a dedicated rerank key when the endpoint differs from the memory LLM', () => {
+    writeFileSync(join(HOME, '.memorix', 'config.toml'), [
+      '[memory.llm]',
+      'base_url = "https://llm.example/v1"',
+      'api_key = "llm-key"',
+      '',
+      '[rerank]',
+      'provider = "http"',
+      'model = "rerank-model"',
+      'base_url = "https://api.example.com/v1"',
+      'api_key = "rerank-key"',
+    ].join('\n'), 'utf8');
+
+    const lane = getResolvedRerankLane({ projectRoot: null, homeDir: HOME });
+
+    expect(lane.apiKey).toBe('rerank-key');
+  });
+
   it('resolves CodeGraph scan limits from TOML above legacy YAML', () => {
     writeFileSync(join(HOME, '.memorix', 'config.toml'), [
       '[codegraph]',

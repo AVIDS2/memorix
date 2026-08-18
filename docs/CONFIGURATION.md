@@ -209,7 +209,10 @@ Common keys:
   `https://api.example.com/v1` or `http://127.0.0.1:8080`. When unset and
   `provider = "http"`, Memorix inherits `[memory.llm].base_url`.
 - `api_key` — bearer token. When unset, inherits the memory LLM key
-  (`MEMORIX_LLM_API_KEY`, `MEMORIX_API_KEY`, or `[memory.llm].api_key`).
+  (`MEMORIX_LLM_API_KEY`, `MEMORIX_API_KEY`, or `[memory.llm].api_key`)
+  only if the effective `base_url` is the same trusted endpoint as
+  `[memory.llm].base_url`. A different rerank URL requires
+  `MEMORIX_RERANK_API_KEY` or `rerank.api_key`.
 
 Environment overrides (highest priority after CLI flags):
 
@@ -217,7 +220,7 @@ Environment overrides (highest priority after CLI flags):
 MEMORIX_RERANK_PROVIDER=http
 MEMORIX_RERANK_MODEL=rerank-model
 MEMORIX_RERANK_BASE_URL=https://api.example.com/v1
-# MEMORIX_RERANK_API_KEY=   # optional; inherits the memory LLM bearer
+# MEMORIX_RERANK_API_KEY=   # required when base_url is not the memory LLM endpoint
 ```
 
 If the memory LLM lane already points at the same gateway, you can enable

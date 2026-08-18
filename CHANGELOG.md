@@ -9,14 +9,18 @@ All notable changes to this project will be documented in this file.
   reorder top hits through a configurable Cohere-compatible
   `POST {base_url}/rerank` endpoint (`{model, query, documents}`). Works with
   any compatible `/rerank` API. Configure `[rerank]` or `MEMORIX_RERANK_*`;
-  base URL and bearer inherit the memory LLM lane when unset. The model id is
-  user-configured. When HTTP rerank is configured, a miss or timeout keeps
-  the original order (no LLM fallback). LLM rerank remains available when
-  HTTP rerank is off.
+  base URL inherits the memory LLM lane when unset. Bearer inherits only
+  when the effective rerank URL is that same trusted endpoint; a different
+  host requires `MEMORIX_RERANK_API_KEY` / `rerank.api_key`. The model id
+  is user-configured. When HTTP rerank is configured, a miss or timeout
+  keeps the original order (no LLM fallback). LLM rerank remains available
+  when HTTP rerank is off.
 
 ### Fixed
 - HTTP rerank honors `MEMORIX_RERANK_TIMEOUT_MS` on the inner fetch
   (default 30s) instead of aborting at 5s.
+- HTTP rerank no longer inherits or transmits the memory LLM credential
+  when `rerank.base_url` points at a different endpoint.
 
 ## [1.7.2] - 2026-08-19
 

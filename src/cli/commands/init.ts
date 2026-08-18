@@ -321,7 +321,8 @@ export function buildInitTomlConfig(options: {
   lines.push('# model = "rerank-model"');
   lines.push('# base_url inherits [memory.llm] when unset.');
   if (isGlobal) {
-    lines.push('# Bearer inherits the memory LLM key when unset.');
+    lines.push('# Bearer inherits the memory LLM key only when that endpoint matches.');
+    lines.push('# A different rerank URL needs MEMORIX_RERANK_API_KEY.');
   }
   lines.push('');
 

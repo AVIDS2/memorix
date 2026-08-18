@@ -4,6 +4,27 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-08-18
+
+### Added
+- **Preview-first Dashboard maintenance** -- the Observations page now offers
+  project-scoped Cleanup, Consolidate, and Deduplicate previews, while the
+  Retention page can preview and archive canonical retention candidates. Every
+  mutation shows its candidate set before confirmation.
+- **Shared maintenance execution** -- Dashboard, CLI, and MCP use the same
+  cleanup and deduplication planners/executors instead of maintaining separate
+  mutation logic.
+
+### Changed
+- **Fail-closed maintenance actions** -- execution requires a signed,
+  project-bound preview and rejects stale candidate sets with a refreshable
+  conflict instead of applying a partial plan.
+- **Conservative cleanup noise detection** -- normal engineering terms such as
+  compatibility, handoff, sandbox, and version are no longer treated as noise;
+  only explicit fixture markers and tool receipts are opt-in archive candidates.
+- **Dashboard documentation** -- added the canonical Dashboard maintenance,
+  scope, and safety contract to the public documentation map.
+
 ## [1.6.3] - 2026-08-18
 
 ### Fixed

@@ -4,6 +4,28 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.6.2] - 2026-08-18
+
+### Changed
+- **Responsive large-store control plane** -- HTTP health and MCP initialize
+  no longer wait for full observation or embedding-cache hydration. Hook writes
+  persist directly without loading the full corpus, one-shot CLI paths avoid
+  cached-vector attachment, and ordinary embedding-disabled writes stay off
+  the provider/configuration hot path. Contributed by
+  [@RaviTharuma](https://github.com/RaviTharuma) in #214.
+- **Bounded and crash-safe embedding cache** -- JSONL cache loading is bounded
+  by a 256 MiB raw-vector payload budget, legacy JSON migration publishes via
+  temporary-file rename, concurrent loads are single-flighted, and sidecar
+  metadata avoids rescanning a large cache on every save.
+
+### Fixed
+- **SDK lifecycle and persistence parity** -- `MemoryClient.close()` releases
+  its SQLite handle on Windows, reopening the same directory reloads a fresh
+  store snapshot, and SDK clients use the same flat data directory as CLI,
+  hooks, and HTTP MCP instead of the retired per-project directory layout.
+- **Correct background entrypoint** -- `memorix background start` launches the
+  built HTTP CLI entrypoint rather than the stdio library entry.
+
 ## [1.6.1] - 2026-08-17
 
 ### Fixed

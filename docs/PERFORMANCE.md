@@ -78,6 +78,7 @@ On the release development machine used for this check, the healthy HTTP service
 | `MEMORIX_RERANK_TIMEOUT_MS` | provider default | Bound slow LLM rerank calls |
 | `memorix memory search --quality fast` | n/a | Force a fully local retrieval path for a latency-sensitive call |
 | `npm run benchmark:retrieval -- --records 1000 --runs 100` | n/a | Reproduce hot in-process lexical retrieval latency; not an end-to-end claim |
+| `npm run gate:large-store -- --records 40000` | n/a | Exercise SDK, HTTP MCP, hook persistence, cache integrity, and reopen behavior against a large isolated store |
 | `[codegraph].max_file_bytes` | `2097152` | Raise only when a large file is intentional source that should enter Code Memory |
 | `memorix retention status` | report only | Inspect whether memory growth needs cleanup |
 | `memorix retention archive` | explicit | Archive expired memories when the project gets noisy |
@@ -95,6 +96,20 @@ On the release development machine used for this check, the healthy HTTP service
 - When Dashboard shows queued or failed maintenance work, inspect
   `/api/maintenance` on that local dashboard before assuming a Code Memory scan
   or lifecycle task completed.
+
+## Large-Store Release Gate
+
+`npm run gate:large-store -- --records 40000` builds Memorix and creates a
+temporary Git project with an isolated data directory. It runs with embeddings
+disabled, so it does not use provider credentials or make paid network calls.
+The gate measures steady-state writes, first lexical search, process memory,
+HTTP MCP and hook persistence, and an SDK close/reopen cycle. It also verifies
+that the personal hook candidate remains durable on disk without becoming
+visible to an unbound SDK reader.
+
+Results are machine-specific and should be compared on the same OS and Node
+version. The release gate is an integrity and regression check, not a public
+latency guarantee.
 
 ## Current Optimization Opportunities
 

@@ -354,16 +354,10 @@ export async function createMemoryClient(options: MemoryClientOptions): Promise<
     );
   }
 
-  // Honor MEMORIX_DATA_DIR so isolated benchmarks and tests do not write
-  // into ~/.memorix/data. Unset, keep the per-project home path.
-  const path = await import('node:path');
-  const os = await import('node:os');
-  const dataDir = process.env.MEMORIX_DATA_DIR
-    || path.join(os.homedir(), '.memorix', 'data', project.id.replace(/\//g, path.sep));
-
-  // Ensure data directory exists
-  const fs = await import('node:fs');
-  fs.mkdirSync(dataDir, { recursive: true });
+  // SDK, CLI, hooks, and HTTP MCP must share the same flat data directory.
+  // Project identity is stored in each row, not encoded in the directory.
+  const { getProjectDataDir } = await import('./store/persistence.js');
+  const dataDir = await getProjectDataDir(project.id);
 
   const client = new MemoryClient(project.id, projectRoot, dataDir);
   await client._init(silent);

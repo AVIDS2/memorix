@@ -13,7 +13,7 @@ import { createServer, type Server } from 'node:http';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { resetObservationStore } from '../../src/store/obs-store.js';
+import { getObservationStore, resetObservationStore } from '../../src/store/obs-store.js';
 import { initTeamStore, resetTeamStore } from '../../src/team/team-store.js';
 import { resetProvider } from '../../src/embedding/provider.js';
 import { resetConfigCache } from '../../src/config.js';
@@ -231,6 +231,73 @@ describe('Standalone Dashboard Project Scope', () => {
       workspaces: expect.any(Array),
       workflows: expect.any(Object),
     });
+  });
+
+  it('previews and executes real cleanup only for the selected project', async () => {
+    const store = getObservationStore();
+    await store.insert({
+      id: 8,
+      entityName: 'auth-module',
+      type: 'discovery',
+      title: 'Updated auth.ts',
+      narrative: 'Automatic activity noise',
+      facts: [],
+      filesModified: [],
+      concepts: [],
+      tokens: 5,
+      createdAt: new Date().toISOString(),
+      projectId: PROJECT_A,
+      status: 'active',
+    });
+    await store.insert({
+      id: 9,
+      entityName: 'billing-service',
+      type: 'discovery',
+      title: 'Updated billing.ts',
+      narrative: 'Other project activity noise',
+      facts: [],
+      filesModified: [],
+      concepts: [],
+      tokens: 5,
+      createdAt: new Date().toISOString(),
+      projectId: PROJECT_B,
+      status: 'active',
+    });
+
+    const preview = await fetchJson('/api/maintenance/cleanup/preview', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ includeNoise: false }),
+    });
+    expect(preview.status).toBe(200);
+    expect(preview.body.projectId).toBe(PROJECT_A);
+    expect(preview.body.summary).toMatchObject({ lowQuality: 1, delete: 1, archive: 0 });
+    expect(preview.body.lowQuality.map((item: any) => item.id)).toEqual([8]);
+
+    const invalid = await fetchJson('/api/maintenance/cleanup/execute', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ payload: preview.body.payload, token: '0'.repeat(64) }),
+    });
+    expect(invalid.status).toBe(409);
+    expect(await store.getById(8)).toMatchObject({ status: 'active' });
+
+    const execute = await fetchJson('/api/maintenance/cleanup/execute', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ payload: preview.body.payload, token: preview.body.token }),
+    });
+    expect(execute.status).toBe(200);
+    expect(execute.body).toMatchObject({ projectId: PROJECT_A, removed: 1, archived: 0 });
+    expect(await store.getById(8)).toBeUndefined();
+    expect(await store.getById(9)).toMatchObject({ projectId: PROJECT_B, status: 'active' });
+    await store.remove(9);
+  });
+
+  it('requires a POST preview for every maintenance action', async () => {
+    const { status, body } = await fetchJson('/api/maintenance/consolidate/preview');
+    expect(status).toBe(405);
+    expect(body.error).toContain('require POST');
   });
 
   it('GET /api/knowledge returns a project-scoped read-only memory overview', async () => {

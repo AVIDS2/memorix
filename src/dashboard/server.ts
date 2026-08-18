@@ -26,6 +26,17 @@ import { scopeKnowledgeGraphToProject } from '../memory/graph-scope.js';
 import { projectObservationRetention, summarizeRetentionProjections } from '../memory/retention.js';
 import { canManageObservation, filterReadableObservations } from '../memory/visibility.js';
 import type { Observation } from '../types.js';
+import {
+    DashboardMaintenanceError,
+    executeCleanup,
+    executeConsolidate,
+    executeDeduplicate,
+    executeRetentionArchive,
+    previewCleanup,
+    previewConsolidate,
+    previewDeduplicate,
+    previewRetentionArchive,
+} from './maintenance.js';
 
 // MIME types for static file serving
 const MIME_TYPES: Record<string, string> = {
@@ -73,6 +84,68 @@ function filterDashboardObservations(observations: Observation[], projectId: str
 
 function isActiveStatus(status?: string): boolean {
     return (status ?? 'active') === 'active';
+}
+
+async function handleMaintenanceMutation(
+    apiPath: string,
+    req: IncomingMessage,
+    res: ServerResponse,
+    context: {
+        dataDir: string;
+        projectId: string;
+        projectRoot: string | null;
+    },
+): Promise<void> {
+    if (req.method !== 'POST') {
+        throw new DashboardMaintenanceError('Maintenance actions require POST.', 405);
+    }
+
+    let body: Record<string, unknown> = {};
+    const raw = await readBody(req);
+    if (raw.trim()) {
+        try {
+            const parsed = JSON.parse(raw);
+            if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('object required');
+            body = parsed as Record<string, unknown>;
+        } catch {
+            throw new DashboardMaintenanceError('Invalid maintenance request body.', 400);
+        }
+    }
+
+    const maintenanceContext = {
+        ...context,
+        store: getObservationStore(),
+    };
+    let result: unknown;
+    switch (apiPath) {
+        case '/maintenance/cleanup/preview':
+            result = await previewCleanup(maintenanceContext, body.includeNoise === true);
+            break;
+        case '/maintenance/cleanup/execute':
+            result = await executeCleanup(maintenanceContext, body.payload, body.token);
+            break;
+        case '/maintenance/deduplicate/preview':
+            result = await previewDeduplicate(maintenanceContext);
+            break;
+        case '/maintenance/deduplicate/execute':
+            result = await executeDeduplicate(maintenanceContext, body.payload, body.token);
+            break;
+        case '/maintenance/consolidate/preview':
+            result = await previewConsolidate(maintenanceContext);
+            break;
+        case '/maintenance/consolidate/execute':
+            result = await executeConsolidate(maintenanceContext, body.payload, body.token);
+            break;
+        case '/maintenance/retention/preview':
+            result = await previewRetentionArchive(maintenanceContext);
+            break;
+        case '/maintenance/retention/execute':
+            result = await executeRetentionArchive(maintenanceContext, body.payload, body.token);
+            break;
+        default:
+            throw new DashboardMaintenanceError('Unknown maintenance action.', 404);
+    }
+    sendJson(res, result);
 }
 
 /**
@@ -155,6 +228,22 @@ async function handleApi(
 
     try {
         switch (apiPath) {
+            case '/maintenance/cleanup/preview':
+            case '/maintenance/cleanup/execute':
+            case '/maintenance/deduplicate/preview':
+            case '/maintenance/deduplicate/execute':
+            case '/maintenance/consolidate/preview':
+            case '/maintenance/consolidate/execute':
+            case '/maintenance/retention/preview':
+            case '/maintenance/retention/execute': {
+                await handleMaintenanceMutation(apiPath, req, res, {
+                    dataDir: effectiveDataDir,
+                    projectId: effectiveProjectId,
+                    projectRoot: effectiveProjectRoot,
+                });
+                break;
+            }
+
             case '/projects': {
                 // List all unique project IDs from observations data (flat storage)
                 // Deduplicate using alias registry – aliased IDs are merged under canonical
@@ -773,7 +862,8 @@ async function handleApi(
         }
     } catch (err) {
         const message = err instanceof Error ? err.message : 'Unknown error';
-        sendError(res, message);
+        const status = err instanceof DashboardMaintenanceError ? err.status : 500;
+        sendError(res, message, status);
     }
 }
 
@@ -989,7 +1079,15 @@ async function buildTeamSnapshot(dataDir: string, projectId: string, scope: stri
 function readBody(req: IncomingMessage): Promise<string> {
     return new Promise((resolve, reject) => {
         const chunks: Buffer[] = [];
-        req.on('data', (c: Buffer) => chunks.push(c));
+        let size = 0;
+        req.on('data', (c: Buffer) => {
+            size += c.length;
+            if (size > 64 * 1024) {
+                reject(new DashboardMaintenanceError('Request body is too large.', 413));
+                return;
+            }
+            chunks.push(c);
+        });
         req.on('end', () => resolve(Buffer.concat(chunks).toString('utf-8')));
         req.on('error', reject);
     });

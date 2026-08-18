@@ -497,7 +497,10 @@ It provides an operational view for:
 - identity health
 - sessions
 - retention state
+- preview-first cleanup, consolidation, intelligent deduplication, and retention archival
 - read-only orchestration coordination state in the standalone dashboard and live state in HTTP service mode
+
+Dashboard maintenance is not a separate business-logic implementation. CLI, MCP, background jobs, and Dashboard routes share the same cleanup, consolidation, deduplication, and retention functions. Mutation routes issue a project-bound signed preview token and reject execution when the candidate set changed after preview.
 
 This is part of Memorix's shift from a single MCP server to a broader local memory platform.
 

@@ -3,7 +3,9 @@ import { compactDetail, compactSearch, compactTimeline } from '../../compact/eng
 import { withFreshIndex } from '../../memory/freshness.js';
 import { getAllObservations, getObservation, getProjectObservations, resolveObservations, storeObservation, suggestTopicKey } from '../../memory/observations.js';
 import { buildGraphContextPacket, formatGraphContextPrompt } from '../../memory/graph-context.js';
+import { applyDeduplicationPlan, planMemoryDeduplication } from '../../memory/deduplication.js';
 import { canManageObservation, filterReadableObservations, resolveObservationVisibility } from '../../memory/visibility.js';
+import { getObservationStore } from '../../store/obs-store.js';
 import {
   asStringArg,
   coerceObservationStatus,
@@ -288,12 +290,11 @@ export default defineCommand({
             return;
           }
 
-          const { deduplicateMemory } = await import('../../llm/memory-manager.js');
           const allObs = await withFreshIndex(() =>
             filterReadableObservations(
               getAllObservations().filter((obs) => (obs.status ?? 'active') === 'active' && obs.projectId === project.id),
               reader,
-            ),
+            ).filter((observation) => canManageObservation(observation, reader)),
           );
 
           if (allObs.length < 2) {
@@ -310,55 +311,23 @@ export default defineCommand({
             candidates = allObs.slice(-20);
           }
 
-          const byEntity = new Map<string, typeof candidates>();
-          for (const obs of candidates) {
-            const bucket = byEntity.get(obs.entityName) ?? [];
-            bucket.push(obs);
-            byEntity.set(obs.entityName, bucket);
-          }
+          const plan = await planMemoryDeduplication(candidates);
+          const actionLines = plan.actions.map((item) =>
+            `Resolve #${item.resolveId} "${item.resolveTitle}"; keep #${item.keepId} "${item.keepTitle}" (${item.reason})`,
+          );
 
-          const actions: string[] = [];
-          const toResolve: number[] = [];
-          for (const [, group] of byEntity) {
-            if (group.length < 2) continue;
-            for (let index = 0; index < group.length; index += 1) {
-              for (let compareIndex = index + 1; compareIndex < group.length; compareIndex += 1) {
-                const newer = group[compareIndex];
-                const older = group[index];
-                try {
-                  const decision = await deduplicateMemory(
-                    { title: newer.title, narrative: newer.narrative, facts: newer.facts },
-                    [{ id: older.id, title: older.title, narrative: older.narrative, facts: older.facts.join('\n') }],
-                  );
-                  if (decision && (decision.action === 'DELETE' || decision.action === 'UPDATE' || decision.action === 'NONE')) {
-                    actions.push(`Resolve #${older.id} because it duplicates newer #${newer.id}`);
-                    toResolve.push(older.id);
-                  }
-                } catch {
-                  // Ignore failed pair analysis so one bad comparison doesn't abort the batch.
-                }
-              }
-            }
-          }
-
-          if (dryRun || toResolve.length === 0) {
+          if (dryRun || plan.resolveIds.length === 0) {
             emitResult(
-              { project, actions, resolved: [], dryRun: true },
-              actions.length === 0 ? 'No duplicate candidates found.' : actions.join('\n'),
+              { project, plan, resolved: [], dryRun: true },
+              actionLines.length === 0 ? 'No duplicate candidates found.' : actionLines.join('\n'),
               asJson,
             );
             return;
           }
 
-          const result = await resolveObservations(
-            [...new Set(toResolve)].filter((id) => {
-              const observation = getObservation(id, project.id);
-              return observation ? canManageObservation(observation, reader) : false;
-            }),
-            'resolved',
-          );
+          const result = await applyDeduplicationPlan(getObservationStore(), project.id, plan.resolveIds, reader);
           emitResult(
-            { project, actions, resolved: result.resolved, notFound: result.notFound, dryRun: false },
+            { project, plan, resolved: result.resolved, skipped: result.skipped, dryRun: false },
             `Resolved ${result.resolved.length} duplicate observation(s).`,
             asJson,
           );

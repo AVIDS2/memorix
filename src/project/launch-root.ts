@@ -12,7 +12,22 @@ import path from 'node:path';
 
 export const LAST_PROJECT_ROOT_FILENAME = 'last-project-root';
 
-export function isHomeDirectory(candidate: string, homeDir: string = os.homedir()): boolean {
+/**
+ * Resolve the home directory used by Memorix boundary guards.
+ *
+ * Node's os.homedir() is intentionally stable on Windows and does not always
+ * follow a process-level HOME/USERPROFILE override. The CLI and test harnesses
+ * use those environment variables as the configured home, so all guards need
+ * one shared resolution rule instead of mixing the two sources.
+ */
+export function effectiveHomeDirectory(): string {
+  const configuredHome = process.platform === 'win32'
+    ? process.env.USERPROFILE?.trim() || process.env.HOME?.trim()
+    : process.env.HOME?.trim() || process.env.USERPROFILE?.trim();
+  return path.resolve(configuredHome || os.homedir());
+}
+
+export function isHomeDirectory(candidate: string, homeDir: string = effectiveHomeDirectory()): boolean {
   try {
     return path.resolve(candidate) === path.resolve(homeDir);
   } catch {
@@ -20,11 +35,11 @@ export function isHomeDirectory(candidate: string, homeDir: string = os.homedir(
   }
 }
 
-export function lastProjectRootPath(homeDir: string = os.homedir()): string {
+export function lastProjectRootPath(homeDir: string = effectiveHomeDirectory()): string {
   return path.join(homeDir, '.memorix', LAST_PROJECT_ROOT_FILENAME);
 }
 
-export function readLastProjectRoot(homeDir: string = os.homedir()): string | null {
+export function readLastProjectRoot(homeDir: string = effectiveHomeDirectory()): string | null {
   try {
     const raw = readFileSync(lastProjectRootPath(homeDir), 'utf8').trim();
     if (!raw) return null;
@@ -41,7 +56,7 @@ export function writeLastProjectRoot(projectRoot: string, homeDir?: string): voi
   // Tests pass an explicit homeDir. Default writes are skipped under Vitest so
   // unit tests do not mutate the developer's ~/.memorix/last-project-root.
   if (process.env.VITEST && homeDir === undefined) return;
-  const resolvedHome = homeDir ?? os.homedir();
+  const resolvedHome = homeDir ?? effectiveHomeDirectory();
   const resolved = path.resolve(projectRoot);
   if (isHomeDirectory(resolved, resolvedHome)) return;
   if (!existsSync(resolved)) return;
@@ -86,14 +101,14 @@ export function resolveControlPlaneDataDir(options: {
   homeDir?: string;
   globalDataDir: string;
 }): string {
-  const homeDir = options.homeDir ?? os.homedir();
+  const homeDir = options.homeDir ?? effectiveHomeDirectory();
   if (options.requestedDataDir && !isHomeDirectory(options.requestedDataDir, homeDir)) {
     return options.requestedDataDir;
   }
   return options.globalDataDir;
 }
 
-export function assertNotHomeDataDir(dataDir: string, homeDir: string = os.homedir()): void {
+export function assertNotHomeDataDir(dataDir: string, homeDir: string = effectiveHomeDirectory()): void {
   if (isHomeDirectory(dataDir, homeDir)) {
     throw new Error(homeProjectRootError(dataDir));
   }

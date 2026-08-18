@@ -15,7 +15,6 @@
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import fs from 'node:fs';
-import os from 'node:os';
 import { createDatabase, loadSqlite } from './bun-sqlite-compat.js';
 import { assertNotHomeDataDir } from '../project/launch-root.js';
 
@@ -1000,7 +999,7 @@ const _dbCache = new Map<string, any>();
  */
 export function getDatabase(dataDir: string): any {
   const normalized = path.resolve(dataDir);
-  assertNotHomeDataDir(normalized, os.homedir());
+  assertNotHomeDataDir(normalized);
   const existing = _dbCache.get(normalized);
   if (existing) return existing;
 

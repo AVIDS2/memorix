@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.7.1] - 2026-08-19
+
+### Fixed
+- **Contained graph text** -- long graph node names, summaries, and relation
+  targets now wrap inside the Dashboard tooltip and inspector instead of
+  overflowing their containers.
+- **Centered maintenance preview** -- the Cleanup preview dialog is centered
+  on desktop and narrow screens, including after the Dashboard global reset
+  styles are applied.
+
 ## [1.7.0] - 2026-08-18
 
 ### Added

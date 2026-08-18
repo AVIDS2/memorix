@@ -937,6 +937,7 @@ body {
 .graph-inspector {
   width: 280px;
   flex-shrink: 0;
+  min-width: 0;
   background: var(--bg-card);
   border-left: 1px solid var(--border-subtle);
   overflow-y: auto;
@@ -973,6 +974,7 @@ body {
   color: var(--text-primary);
   margin-bottom: 4px;
   word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 .gi-type {
@@ -1049,6 +1051,7 @@ body {
   background: var(--bg-surface);
   border-left: 2px solid var(--accent-purple);
   word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 .gi-rel-item {
@@ -1058,6 +1061,7 @@ body {
   display: flex;
   align-items: center;
   gap: 6px;
+  min-width: 0;
 }
 
 .gi-rel-arrow {
@@ -1080,6 +1084,9 @@ body {
   font-weight: 500;
   color: var(--text-primary);
   cursor: pointer;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
   transition: color var(--transition-fast);
 }
 
@@ -1142,6 +1149,10 @@ body {
   transition: opacity var(--transition-fast);
   z-index: 100;
   max-width: 260px;
+  box-sizing: border-box;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
   box-shadow: var(--elevation-2);
 }
 
@@ -1530,6 +1541,10 @@ body {
   transition: opacity var(--transition-fast);
   z-index: 100;
   max-width: 300px;
+  box-sizing: border-box;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
 }
 
@@ -2209,6 +2224,9 @@ body {
 }
 
 .maintenance-dialog {
+  position: fixed;
+  inset: 0;
+  margin: auto;
   width: min(680px, calc(100vw - 32px));
   max-height: min(760px, calc(100dvh - 32px));
   padding: 0;

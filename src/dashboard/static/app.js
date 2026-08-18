@@ -2377,20 +2377,21 @@ function renderSemanticGraph(kg) {
       backgroundColor: 'transparent',
       tooltip: {
         trigger: 'item',
+        confine: true,
         backgroundColor: tooltipBg,
         borderColor: tooltipBorder,
         borderWidth: 1,
         textStyle: { color: labelColor, fontSize: 12, fontFamily: 'Inter, system-ui, sans-serif' },
-        extraCssText: 'box-shadow: 0 4px 16px rgba(0,0,0,0.18); border-radius: 8px; padding: 10px 12px; max-width: 320px;',
+        extraCssText: 'box-shadow: 0 4px 16px rgba(0,0,0,0.18); border-radius: 8px; padding: 10px 12px; width: min(320px, calc(100vw - 32px)); max-width: calc(100vw - 32px); box-sizing: border-box; white-space: normal; overflow-wrap: anywhere; word-break: break-word;',
         formatter: (params) => {
           if (params.dataType === 'node') {
             const d = params.data;
             const summary = d.summary ? String(d.summary).slice(0, 160) : '';
             return (
-              `<div style="font-weight:600;font-size:13px;margin-bottom:4px;line-height:1.35;">${wrap(d.fullLabel || d.name)}</div>` +
+              `<div style="font-weight:600;font-size:13px;margin-bottom:4px;line-height:1.35;white-space:normal;overflow-wrap:anywhere;word-break:break-word;">${wrap(d.fullLabel || d.name)}</div>` +
               `<div style="font-size:11px;color:${labelMutedColor};margin-bottom:6px;">${wrap(d.nodeType || '')}${d.entityName ? ' \u00b7 ' + wrap(d.entityName) : ''}</div>` +
-              `<div style="font-size:11px;color:${labelMutedColor};">${d.evidenceCount || 0} ${wrap(t('kgInspectorEvidence'))}</div>` +
-              (summary ? `<div style="font-size:11.5px;line-height:1.5;margin-top:8px;color:${labelColor};opacity:0.85;">${wrap(summary)}\u2026</div>` : '')
+              `<div style="font-size:11px;color:${labelMutedColor};white-space:normal;overflow-wrap:anywhere;word-break:break-word;">${d.evidenceCount || 0} ${wrap(t('kgInspectorEvidence'))}</div>` +
+              (summary ? `<div style="font-size:11.5px;line-height:1.5;margin-top:8px;color:${labelColor};opacity:0.85;white-space:normal;overflow-wrap:anywhere;word-break:break-word;">${wrap(summary)}\u2026</div>` : '')
             );
           }
           if (params.dataType === 'edge') {

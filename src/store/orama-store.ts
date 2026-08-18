@@ -331,6 +331,8 @@ export interface HydrateIndexOptions {
   allowNetworkProbe?: boolean;
   /** Attach cached vectors after lexical hydration instead of awaiting cache I/O. */
   deferCachedVectors?: boolean;
+  /** Skip cached-vector attach entirely (one-shot CLI reads). */
+  skipCachedVectors?: boolean;
 }
 
 type HydrationCandidate = { observation: any; id: string };
@@ -377,6 +379,9 @@ async function attachCachedVectors(
       await update(database, candidates[index].id, { ...existing, embedding: vector });
     } catch {
       // Vector cache hydration is best-effort. The normal backfill lane owns misses.
+    }
+    if (index % 50 === 0) {
+      await new Promise<void>((resolve) => setImmediate(resolve));
     }
   }
 }
@@ -437,11 +442,20 @@ export async function hydrateIndex(
       await insert(database, doc);
       rememberObservationDoc(doc);
       inserted++;
+      // Keep the HTTP event loop alive on large corpora so /health still answers.
+      if (inserted % 50 === 0) {
+        await new Promise<void>((resolve) => setImmediate(resolve));
+      }
+      if (inserted % 200 === 0) {
+        await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      }
     } catch { /* skip malformed entries */ }
   }
 
-  deferredCachedVectorHydration = deferCachedVectors
-    ? attachCachedVectors(database, candidates).catch(() => {})
+  deferredCachedVectorHydration = options.skipCachedVectors
+    ? null
+    : deferCachedVectors
+      ? attachCachedVectors(database, candidates).catch(() => {})
     : null;
   return inserted;
 }
@@ -450,10 +464,14 @@ export async function hydrateIndex(
  * Prepare the lexical index without probing a remote embedding API. Cached
  * vectors attach after the disk cache is ready, outside the startup path.
  */
-export async function hydrateIndexForStartup(observations: any[]): Promise<number> {
+export async function hydrateIndexForStartup(
+  observations: any[],
+  options: Pick<HydrateIndexOptions, 'skipCachedVectors'> = {},
+): Promise<number> {
   return hydrateIndex(observations, {
     allowNetworkProbe: false,
     deferCachedVectors: true,
+    skipCachedVectors: options.skipCachedVectors,
   });
 }
 

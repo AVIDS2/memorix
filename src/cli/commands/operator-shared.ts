@@ -65,10 +65,13 @@ async function resolveCliProjectContext(options?: CliContextOptions): Promise<{
  */
 export async function getCliReadContext(options?: CliContextOptions): Promise<CliReadContext> {
   const { project, dataDir, invocation } = await resolveCliProjectContext(options);
-  await initObservations(dataDir);
+  await initObservations(dataDir, {
+    embeddingWriteMode: 'deferred',
+    projectRoot: project.rootPath,
+  });
 
   if (options?.searchIndex) {
-    await prepareSearchIndex();
+    await prepareSearchIndex({ skipCachedVectors: true });
   }
 
   const storedIdentity = await loadCliIdentity(dataDir, project.id);
@@ -118,7 +121,7 @@ export async function getCliProjectContext(options?: CliContextOptions): Promise
   const teamStore = await initTeamStore(dataDir);
 
   if (options?.searchIndex) {
-    await prepareSearchIndex();
+    await prepareSearchIndex({ skipCachedVectors: true });
   }
 
   const identity = await resolveCliIdentity({

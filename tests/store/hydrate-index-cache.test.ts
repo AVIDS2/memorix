@@ -166,6 +166,20 @@ describe('hydrateIndex cached vectors', () => {
     expect(embedding.getEmbeddingProvider).toHaveBeenCalledWith({ allowNetworkProbe: false });
   });
 
+  it('skips cached-vector attach entirely for one-shot CLI reads', async () => {
+    const vector = [0.1, 0.2, 0.3];
+    const provider = makeProvider([vector]);
+    embedding.getEmbeddingProvider.mockResolvedValue(provider);
+    const observation = makeObservation(7);
+
+    const inserted = await hydrateIndexForStartup([observation], { skipCachedVectors: true });
+
+    expect(inserted).toBe(1);
+    expect(provider.getCachedEmbeddings).not.toHaveBeenCalled();
+    expect(hasObservationVector(observation.projectId, observation.id)).toBe(false);
+    expect(getDeferredCachedVectorHydration()).toBeNull();
+  });
+
   it('does not attach an old cached vector after the observation changed during cache loading', async () => {
     let resolveCache!: (vectors: (number[] | null)[]) => void;
     const cachePromise = new Promise<(number[] | null)[]>((resolve) => {

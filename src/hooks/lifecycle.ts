@@ -51,6 +51,7 @@ export function resolveHookStdinTimeoutMs(env: EnvMap = process.env): number {
 
 export function hookObservationRuntimeOptions(projectRoot: string): ObservationRuntimeOptions {
   return {
+    skipCorpusLoad: true,
     embeddingWriteMode: 'deferred',
     projectRoot,
   };

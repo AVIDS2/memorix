@@ -37,7 +37,7 @@ import {
   searchObservations,
   updateObservationMetadata,
 } from '../store/orama-store.js';
-import { getObservationStore, initObservationStore } from '../store/obs-store.js';
+import { getObservationStore, initObservationStore, type ObservationStore } from '../store/obs-store.js';
 import { countTextTokens } from '../compact/token-budget.js';
 import { extractEntities, enrichConcepts } from './entity-extractor.js';
 import { getEmbeddingProvider, isEmbeddingExplicitlyDisabled, validateEmbeddingInput } from '../embedding/provider.js';
@@ -57,10 +57,32 @@ export interface ObservationRuntimeOptions {
   embeddingWriteMode?: ObservationEmbeddingWriteMode;
   /** Git root used by the detached vector worker. */
   projectRoot?: string;
+  /**
+   * Open SQLite and the ID counter without materializing the full corpus.
+   * Hook writes use disk atomic() + findByTopicKey; they must not loadAll()
+   * tens of thousands of rows on every PostToolUse.
+   */
+  skipCorpusLoad?: boolean;
 }
 
 let embeddingWriteMode: ObservationEmbeddingWriteMode = 'background';
 let embeddingWorkerProjectRoot: string | undefined;
+let corpusLoaded = false;
+let loadedObservationStore: ObservationStore | null = null;
+
+/** @internal Reset in-process observation state between tests. */
+export function resetObservationRuntime(): void {
+  observations = [];
+  nextId = 1;
+  projectDir = null;
+  searchIndexPrepared = false;
+  corpusLoaded = false;
+  loadedObservationStore = null;
+  embeddingWriteMode = 'background';
+  embeddingWorkerProjectRoot = undefined;
+  vectorMissingIds.clear();
+  vectorSchemaUpgradePromise = null;
+}
 
 // ── Vector-missing tracking ──────────────────────────────────────
 // Tracks observation IDs whose async embedding write failed or was skipped.
@@ -233,14 +255,26 @@ export async function initObservations(
 ): Promise<void> {
   embeddingWriteMode = options.embeddingWriteMode ?? 'background';
   embeddingWorkerProjectRoot = options.projectRoot;
-  if (projectDir === dir) return;
   await initObservationStore(dir);
   const store = getObservationStore();
-  observations = await store.loadAll();
+
+  if (projectDir === dir && loadedObservationStore === store) {
+    if (options.skipCorpusLoad || corpusLoaded) return;
+  }
+
   nextId = await store.loadIdCounter();
   projectDir = dir;
   searchIndexPrepared = false;
   vectorSchemaUpgradePromise = null;
+  if (options.skipCorpusLoad) {
+    observations = [];
+    corpusLoaded = false;
+    loadedObservationStore = store;
+    return;
+  }
+  observations = await store.loadAll();
+  corpusLoaded = true;
+  loadedObservationStore = store;
 }
 
 function scheduleObservationEmbedding(input: {
@@ -252,14 +286,18 @@ function scheduleObservationEmbedding(input: {
   const { observationId, projectId, searchableText, doc } = input;
   vectorMissingIds.add(observationId);
 
+  // Ordinary store must not pay embedding-provider or cache I/O when vectors
+  // are disabled. Check before generateEmbedding() so MEMORIX_EMBEDDING=off
+  // stays on the lexical write path.
+  if (isEmbeddingExplicitlyDisabled()) {
+    vectorMissingIds.delete(observationId);
+    return;
+  }
+
   // A network fetch keeps Node's event loop alive even when its Promise is not
   // awaited. One-shot CLI commands therefore persist first and let a detached
   // worker consume the same durable queue.
   if (embeddingWriteMode === 'deferred') {
-    if (isEmbeddingExplicitlyDisabled()) {
-      vectorMissingIds.delete(observationId);
-      return;
-    }
     queueVectorBackfill(projectId, {
       detachedWorker: true,
       projectRoot: embeddingWorkerProjectRoot,
@@ -322,7 +360,7 @@ function scheduleObservationEmbedding(input: {
  * For DegradedBackend this is a no-op (always returns false).
  */
 export async function ensureFreshObservations(): Promise<boolean> {
-  if (!projectDir) return false;
+  if (!projectDir || !corpusLoaded) return false;
   try {
     const store = getObservationStore();
     const wasStale = await store.ensureFresh();
@@ -424,12 +462,13 @@ export async function storeObservation(input: {
 
   // Sync the local cache before using it as the topicKey fast path. This costs a
   // generation read in the normal case and only reloads when another process wrote.
+  // Write-only / hook processes skip the corpus cache; disk findByTopicKey is authoritative.
   await ensureFreshObservations();
 
   // Topic key upsert: fast-path check in-memory (optimistic, may be stale).
   // A second authoritative check happens inside the file lock to prevent TOCTOU races
   // where two concurrent calls with the same topicKey both miss this check.
-  if (input.topicKey) {
+  if (input.topicKey && corpusLoaded) {
     const existing = observations.find(
       o => o.topicKey === input.topicKey && o.projectId === input.projectId,
     );
@@ -546,14 +585,18 @@ export async function storeObservation(input: {
       observation.writeGeneration = store.getGeneration();
 
       if (upsertedInsideLock || reloadCacheAfterCommit) {
-        observations = await store.loadAll();
-        nextId = await store.loadIdCounter();
-        if (upsertedInsideLock) {
-          observation = observations.find((candidate) => candidate.id === observation.id)
-            ?? observation;
+        if (corpusLoaded) {
+          observations = await store.loadAll();
+          nextId = await store.loadIdCounter();
+          if (upsertedInsideLock) {
+            observation = observations.find((candidate) => candidate.id === observation.id)
+              ?? observation;
+          }
+        } else {
+          nextId = await store.loadIdCounter();
         }
       } else {
-        observations.push(observation);
+        if (corpusLoaded) observations.push(observation);
         nextId = observation.id + 1;
       }
 
@@ -627,7 +670,12 @@ export async function storeObservation(input: {
       sharedWithAgentIds: JSON.stringify(input.sharedWithAgentIds ?? []),
     };
 
-    await insertObservation(doc);
+    // Hook / write-only processes persist SQLite only. The control plane
+    // picks the row up via ensureFresh. Creating Orama here would load the
+    // embedding provider and the on-disk vector cache in a 10s hook budget.
+    if (corpusLoaded) {
+      await insertObservation(doc);
+    }
   };
 
   await assignAndPersist();
@@ -1163,10 +1211,12 @@ export async function reindexObservations(): Promise<number> {
  * coupled to embedding provider throughput. Missing vectors are queued for the
  * existing background backfill cycle.
  */
-export async function prepareSearchIndex(): Promise<number> {
+export async function prepareSearchIndex(options: { skipCachedVectors?: boolean } = {}): Promise<number> {
   if (searchIndexPrepared) return 0;
 
-  const count = await hydrateIndexForStartup(observations as unknown as any[]);
+  const count = await hydrateIndexForStartup(observations as unknown as any[], {
+    skipCachedVectors: options.skipCachedVectors,
+  });
   if (count === 0) {
     searchIndexPrepared = true;
     return 0;

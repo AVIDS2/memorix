@@ -303,6 +303,14 @@ export class MemoryClient {
     } catch {
       // best-effort cleanup
     }
+    // ObservationStore.close() only detaches from the shared handle.
+    // Release this dataDir so Windows can unlink memorix.db after close().
+    try {
+      const { closeDatabase } = await import('./store/sqlite-db.js');
+      closeDatabase(this._dataDir);
+    } catch {
+      // best-effort cleanup
+    }
   }
 }
 
@@ -346,10 +354,12 @@ export async function createMemoryClient(options: MemoryClientOptions): Promise<
     );
   }
 
-  // Resolve data directory
+  // Honor MEMORIX_DATA_DIR so isolated benchmarks and tests do not write
+  // into ~/.memorix/data. Unset, keep the per-project home path.
   const path = await import('node:path');
   const os = await import('node:os');
-  const dataDir = path.join(os.homedir(), '.memorix', 'data', project.id.replace(/\//g, path.sep));
+  const dataDir = process.env.MEMORIX_DATA_DIR
+    || path.join(os.homedir(), '.memorix', 'data', project.id.replace(/\//g, path.sep));
 
   // Ensure data directory exists
   const fs = await import('node:fs');

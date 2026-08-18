@@ -450,6 +450,10 @@ export default defineCommand({
           {
             allowUntrackedFallback: false,
             deferProjectInitUntilBound: true,
+            // Same as stdio: initialize/tools/list must not hydrate 40k+
+            // observations on the HTTP thread. /health and the LaunchAgent
+            // watchdog die if createMemorixServer blocks here.
+            deferProjectRuntimeInit: true,
             dashboardMode: 'control-plane',
             dashboardPort: port,
             toolProfile,

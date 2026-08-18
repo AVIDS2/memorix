@@ -38,6 +38,17 @@ describe('Windows background launcher', () => {
     expect(() => _testing.parseLogLines('10001')).toThrow(/Log line count must be/);
   });
 
+  it('falls back to argv[1] when this module is not a compiled dist sibling', () => {
+    const fallback = '/tmp/wrong-memorix/dist/cli/index.js';
+    expect(_testing.resolveBackgroundCliEntry(fallback)).toBe(fallback);
+  });
+
+  it('spawns the bundled CLI file, not the library stdio entry', () => {
+    const bundledCli = '/opt/memorix/dist/cli/index.js';
+    const libraryStdio = '/opt/memorix/dist/index.js';
+    expect(_testing.resolveBackgroundCliEntryFrom(bundledCli, libraryStdio)).toBe(bundledCli);
+  });
+
   it('keeps normal CLI errors concise but preserves opt-in diagnostics', () => {
     const error = new Error('Port must be a whole number');
     error.stack = 'Error: Port must be a whole number\n    at internal-frame';

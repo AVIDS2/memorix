@@ -19,6 +19,8 @@
 
 import { defineCommand } from 'citty';
 import * as fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { spawn, execFileSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { parseTcpPort } from '../port.js';
@@ -71,6 +73,33 @@ function parseBoundedPositiveInteger(value: string | undefined, fallback: number
 
 function parseBackgroundPort(value: string | undefined): number {
   return parseTcpPort(value, 3211);
+}
+
+/**
+ * Resolve the CLI file that `background start` should spawn.
+ * `process.argv[1]` follows the launcher shim and can point at a different
+ * install (for example `$HOME/node_modules/memorix` after `bun add` in $HOME).
+ * When this module is bundled into `dist/cli/index.js`, `../index.js` is the
+ * library stdio entry (`dist/index.js`) — never spawn that.
+ */
+function resolveBackgroundCliEntryFrom(here: string, argv1: string): string {
+  const dir = path.dirname(here);
+  if (path.basename(here) === 'index.js' && path.basename(dir) === 'cli') {
+    return here;
+  }
+  const compiledSibling = path.resolve(dir, '..', 'index.js');
+  if (fs.existsSync(compiledSibling) && path.basename(path.dirname(compiledSibling)) === 'cli') {
+    return compiledSibling;
+  }
+  return argv1;
+}
+
+function resolveBackgroundCliEntry(argv1 = process.argv[1]): string {
+  try {
+    return resolveBackgroundCliEntryFrom(fileURLToPath(import.meta.url), argv1);
+  } catch {
+    return argv1;
+  }
 }
 
 function parseLogLines(value: string | undefined): number {
@@ -343,8 +372,9 @@ export async function doStart(port: number): Promise<void> {
 
   // 5. Find the memorix CLI entry point
   // We need to spawn `node <cli-entry> serve-http --port <port>`
-  // The entry point is the same binary that's running now
-  const cliEntry = process.argv[1]; // e.g., dist/cli/index.js or node_modules/.bin/memorix
+  // Prefer this package's compiled CLI so a bun/npm shim cannot spawn a
+  // different (often unpatched) memorix from ~/node_modules.
+  const cliEntry = resolveBackgroundCliEntry();
 
   // 6. Start the service without a visible console. A regular non-detached child
   // can be reclaimed with its parent by terminal hosts on Windows; a detached Node
@@ -792,4 +822,6 @@ export const _testing = {
   parseBackgroundPort,
   parseLogLines,
   formatBackgroundCommandError,
+  resolveBackgroundCliEntry,
+  resolveBackgroundCliEntryFrom,
 };

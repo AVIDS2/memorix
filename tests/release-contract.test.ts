@@ -21,6 +21,9 @@ describe('release contract', () => {
   it('publishes only the supported root package', async () => {
     const workflow = await readFile(path.join(repoRoot, '.github', 'workflows', 'publish.yml'), 'utf-8');
     expect(workflow).toContain('npm publish --provenance --access public');
+    expect(workflow).toContain("grep --quiet 'TLOG_CREATE_ENTRY_ERROR'");
+    expect(workflow).toContain('npm publish --access public --ignore-scripts');
+    expect(workflow).toContain('npm view "memorix@$version" version');
     expect(workflow).not.toContain('npm publish --workspace @memorix/');
   });
 

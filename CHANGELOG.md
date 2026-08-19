@@ -4,6 +4,22 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.7.2] - 2026-08-19
+
+### Changed
+- **Faster large-store cold retrieval** -- startup hydration now inserts
+  persisted observations into Orama in bounded batches. This avoids rebuilding
+  index balance once per row while continuing to yield to HTTP health traffic.
+- **Fail-closed large-store evidence** -- the reproducible 40,000-record gate
+  now exercises and times HTTP readiness, MCP initialize/bind/context/search/
+  store, hook capture, and SDK reopen behavior with hard request and release
+  budgets instead of checking persistence alone.
+- **Isolated index tests** -- startup hydration tests explicitly disable the
+  embedding lane and restore the caller environment instead of reading an
+  operator's provider configuration or local vector cache.
+- **Current public guidance** -- README and canonical development/status docs
+  now describe preview-first Dashboard maintenance and the 1.7 product line.
+
 ## [1.7.1] - 2026-08-19
 
 ### Fixed

@@ -50,6 +50,15 @@ function percentile(samples, fraction) {
   return samples[index];
 }
 
+async function measure(operation) {
+  const startedAt = performance.now();
+  const value = await operation();
+  return {
+    value,
+    elapsedMs: Number((performance.now() - startedAt).toFixed(3)),
+  };
+}
+
 function allocatePort() {
   return new Promise((resolve, reject) => {
     const server = createServer();
@@ -110,7 +119,7 @@ function waitForExit(child, timeoutMs = 10_000) {
   });
 }
 
-async function mcpPost(port, body, sessionId) {
+async function mcpPost(port, body, sessionId, timeoutMs = 30_000) {
   const headers = {
     'Content-Type': 'application/json',
     Accept: 'application/json, text/event-stream',
@@ -120,6 +129,7 @@ async function mcpPost(port, body, sessionId) {
     method: 'POST',
     headers,
     body: JSON.stringify(body),
+    signal: AbortSignal.timeout(timeoutMs),
   });
   const text = await response.text();
   let json;
@@ -147,8 +157,15 @@ function toolText(result) {
   return content.map((part) => part.text ?? '').join('\n');
 }
 
-async function storeViaHttpMcp(port, projectRoot) {
-  const init = await mcpPost(port, {
+function requireMcpSuccess(label, result) {
+  if (result.status < 200 || result.status >= 300 || result.json?.error || result.json?.result?.isError) {
+    const detail = result.json?.error?.message ?? toolText(result) ?? result.text;
+    throw new Error(`${label} failed (${result.status}): ${String(detail).slice(0, 1_000)}`);
+  }
+}
+
+async function exerciseHttpMcp(port, projectRoot, lookupToken) {
+  const initialized = await measure(() => mcpPost(port, {
     jsonrpc: '2.0',
     method: 'initialize',
     params: {
@@ -157,12 +174,14 @@ async function storeViaHttpMcp(port, projectRoot) {
       clientInfo: { name: 'large-store-gate', version: '1.0' },
     },
     id: 1,
-  });
+  }));
+  const init = initialized.value;
+  requireMcpSuccess('HTTP MCP initialize', init);
   const sessionId = init.headers.get('mcp-session-id');
   if (!sessionId) {
     throw new Error(`HTTP MCP initialize returned no session id: ${init.text}`);
   }
-  await fetch(`http://127.0.0.1:${port}/mcp`, {
+  const notification = await fetch(`http://127.0.0.1:${port}/mcp`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -170,9 +189,13 @@ async function storeViaHttpMcp(port, projectRoot) {
       'Mcp-Session-Id': sessionId,
     },
     body: JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }),
+    signal: AbortSignal.timeout(30_000),
   });
+  if (!notification.ok) {
+    throw new Error(`HTTP MCP initialized notification failed (${notification.status})`);
+  }
 
-  const started = await mcpPost(port, {
+  const bound = await measure(() => mcpPost(port, {
     jsonrpc: '2.0',
     method: 'tools/call',
     params: {
@@ -180,12 +203,40 @@ async function storeViaHttpMcp(port, projectRoot) {
       arguments: { agent: 'large-store-gate', projectRoot },
     },
     id: 2,
-  }, sessionId);
-  if (started.json?.result?.isError) {
-    throw new Error(`HTTP MCP session_start failed: ${toolText(started)}`);
+  }, sessionId));
+  requireMcpSuccess('HTTP MCP session_start', bound.value);
+
+  const context = await measure(() => mcpPost(port, {
+    jsonrpc: '2.0',
+    method: 'tools/call',
+    params: {
+      name: 'memorix_project_context',
+      arguments: { task: 'Verify large-store persistence, retrieval, and release readiness.' },
+    },
+    id: 3,
+  }, sessionId, 120_000));
+  requireMcpSuccess('HTTP MCP project_context', context.value);
+
+  const searched = await measure(() => mcpPost(port, {
+    jsonrpc: '2.0',
+    method: 'tools/call',
+    params: {
+      name: 'memorix_search',
+      arguments: {
+        query: lookupToken,
+        quality: 'fast',
+        limit: 5,
+        purpose: 'Verify a planted record through the public HTTP MCP search path.',
+      },
+    },
+    id: 4,
+  }, sessionId, 120_000));
+  requireMcpSuccess('HTTP MCP search', searched.value);
+  if (!toolText(searched.value).includes(lookupToken)) {
+    throw new Error(`HTTP MCP search did not return planted token ${lookupToken}`);
   }
 
-  const stored = await mcpPost(port, {
+  const stored = await measure(() => mcpPost(port, {
     jsonrpc: '2.0',
     method: 'tools/call',
     params: {
@@ -197,11 +248,17 @@ async function storeViaHttpMcp(port, projectRoot) {
         narrative: 'HTTP MCP write after the SDK client closed. The next SDK open must see this row.',
       },
     },
-    id: 3,
-  }, sessionId);
-  if (stored.json?.result?.isError) {
-    throw new Error(`HTTP MCP memorix_store failed: ${toolText(stored)}`);
-  }
+    id: 5,
+  }, sessionId));
+  requireMcpSuccess('HTTP MCP store', stored.value);
+
+  return {
+    initializeMs: initialized.elapsedMs,
+    bindMs: bound.elapsedMs,
+    contextMs: context.elapsedMs,
+    searchMs: searched.elapsedMs,
+    storeMs: stored.elapsedMs,
+  };
 }
 
 function storeViaHook(projectRoot, dataDir, childHome) {
@@ -225,6 +282,7 @@ function storeViaHook(projectRoot, dataDir, childHome) {
     },
     tool_response: 'File written successfully',
   };
+  const startedAt = performance.now();
   const result = spawnSync(process.execPath, [cliEntry, 'hook', '--agent', 'claude'], {
     cwd: projectRoot,
     input: JSON.stringify(payload),
@@ -243,6 +301,7 @@ function storeViaHook(projectRoot, dataDir, childHome) {
   if (result.status !== 0) {
     throw new Error(`memorix hook failed: ${result.stderr || result.stdout || `exit ${result.status}`}`);
   }
+  return Number((performance.now() - startedAt).toFixed(3));
 }
 
 function listDiskObservations(dataDir) {
@@ -264,7 +323,7 @@ function listDiskObservations(dataDir) {
   }
 }
 
-async function writeAcrossTransports(projectRoot, dataDir, sandbox) {
+async function writeAcrossTransports(projectRoot, dataDir, sandbox, lookupToken) {
   const childHome = path.join(sandbox, 'home');
   await mkdir(path.join(projectRoot, 'src'), { recursive: true });
   await mkdir(childHome, { recursive: true });
@@ -290,15 +349,25 @@ async function writeAcrossTransports(projectRoot, dataDir, sandbox) {
     windowsHide: true,
   });
 
+  let http;
+  const serverStartedAt = performance.now();
   try {
     await waitForListening(server);
-    await storeViaHttpMcp(port, projectRoot);
+    const health = await fetch(`http://127.0.0.1:${port}/health`, {
+      signal: AbortSignal.timeout(5_000),
+    });
+    if (!health.ok) throw new Error(`HTTP health failed (${health.status})`);
+    http = {
+      readyMs: Number((performance.now() - serverStartedAt).toFixed(3)),
+      ...await exerciseHttpMcp(port, projectRoot, lookupToken),
+    };
   } finally {
     try { server.kill('SIGKILL'); } catch { /* already gone */ }
     await waitForExit(server);
   }
 
-  storeViaHook(projectRoot, dataDir, childHome);
+  const hookMs = storeViaHook(projectRoot, dataDir, childHome);
+  return { http, hookMs };
 }
 
 async function main() {
@@ -345,10 +414,17 @@ async function main() {
     await client.close();
     client = undefined;
 
-    await writeAcrossTransports(projectRoot, dataDir, sandbox);
+    const transport = await writeAcrossTransports(
+      projectRoot,
+      dataDir,
+      sandbox,
+      uniqueLookupToken(records - 1),
+    );
     const diskRows = listDiskObservations(dataDir);
     const diskCount = diskRows.length;
+    const reopenStartedAt = performance.now();
     client = await createMemoryClient({ projectRoot, silent: true });
+    const reopenMs = performance.now() - reopenStartedAt;
     const reopenedCount = await client.count();
     const reopened = await client.getAll();
     await client.close();
@@ -373,6 +449,9 @@ async function main() {
       },
       searchMs: Number(searchMs.toFixed(3)),
       searchHits: hits.length,
+      httpMcp: transport.http,
+      hookMs: transport.hookMs,
+      sdkReopenMs: Number(reopenMs.toFixed(3)),
       peakRssMb: Number((peakRss / (1024 * 1024)).toFixed(1)),
       cacheLines: cacheLines.length,
       diskCount,
@@ -387,6 +466,14 @@ async function main() {
     if (report.peakRssMb > rssBudgetMb) failed.push(`peak RSS ${report.peakRssMb}MB > ${rssBudgetMb}MB`);
     if (report.cacheLines !== 2) failed.push(`cache lines ${report.cacheLines} !== 2`);
     if (hits.length < 1) failed.push('search returned no hits');
+    if (report.httpMcp.readyMs > 30_000) failed.push(`HTTP ready ${report.httpMcp.readyMs}ms > 30000ms`);
+    if (report.httpMcp.initializeMs > 5_000) failed.push(`MCP initialize ${report.httpMcp.initializeMs}ms > 5000ms`);
+    if (report.httpMcp.bindMs > 5_000) failed.push(`MCP bind ${report.httpMcp.bindMs}ms > 5000ms`);
+    if (report.httpMcp.contextMs > 5_000) failed.push(`MCP context ${report.httpMcp.contextMs}ms > 5000ms`);
+    if (report.httpMcp.searchMs > 15_000) failed.push(`MCP cold search ${report.httpMcp.searchMs}ms > 15000ms`);
+    if (report.httpMcp.storeMs > 5_000) failed.push(`MCP store ${report.httpMcp.storeMs}ms > 5000ms`);
+    if (report.hookMs > 20_000) failed.push(`hook ${report.hookMs}ms > 20000ms`);
+    if (report.sdkReopenMs > 15_000) failed.push(`SDK reopen ${report.sdkReopenMs}ms > 15000ms`);
     if (diskCount < records + 2) failed.push(`SQLite count ${diskCount} < ${records + 2} after MCP/hook writes`);
     if (!diskRows.some((row) => row.title === 'MCP marker 1')) {
       failed.push('SQLite missed the HTTP MCP marker');

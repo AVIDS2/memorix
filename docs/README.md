@@ -119,11 +119,13 @@ Historical/deep-reference documents may describe older designs. If they conflict
 
 ## Current Product Line
 
-The released product is on the **1.6 line**. The current baseline has:
+The released product is on the **1.7 line**. The current baseline has:
 
 - `memorix setup --agent <agent> --global` is the default agent integration command
 - `memorix serve` is the manual stdio MCP server for external agents
 - `memorix background start` runs the shared HTTP MCP service and dashboard
+- Dashboard maintenance is preview-first, project-scoped, and uses the same
+  cleanup and deduplication planners as CLI and MCP
 - context and CodeGraph commands return bounded task receipts before detailed diagnostics
 - HTTP MCP sessions have a bounded, explicit lifecycle and fail with a reinitialize hint after expiry
 - `memorix integrate --agent <agent>` and `memorix hooks install --agent <agent>` remain manual/fallback generation commands

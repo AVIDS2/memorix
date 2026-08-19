@@ -80,7 +80,7 @@ Memorix is more than a memory store. It also installs agent integrations, keeps 
 | Agent setup | One setup path for MCP, rules, hooks, skills, plugins, bundles, or extensions depending on the agent | `memorix setup --agent <agent>` |
 | Agent doctor | Checks whether agent MCP config and guidance are current, then repairs Memorix-owned entries when needed | `memorix doctor agents`, `memorix repair agents` |
 | Hooks and skills | Optional capture from supported agents, plus reusable project skills promoted from durable knowledge | `memorix hooks`, `memorix skills` |
-| Dashboard and HTTP | A local web UI and shared MCP endpoint for browsing memory, project state, teams, and diagnostics | `memorix dashboard`, `memorix background start` |
+| Dashboard and HTTP | A local web UI and shared MCP endpoint for browsing memory, project state, teams, diagnostics, and preview-first cleanup, consolidation, deduplication, and retention actions | `memorix dashboard`, `memorix background start` |
 | Orchestration and team work | Task planning, worker handoffs, file locks, messages, verification gates, and review loops | `memorix orchestrate`, `memorix team`, `memorix lock` |
 | memcode | A bundled terminal coding agent that already reads and writes the same project memory | `memorix`, `memcode` |
 | CLI and SDK | Scriptable access for automation, imports/exports, diagnostics, and custom integrations | `memorix ...`, `createMemoryClient()` |

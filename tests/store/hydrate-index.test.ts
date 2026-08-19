@@ -1,6 +1,10 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest';
 import { resetDb, hydrateIndex, makeOramaObservationId } from '../../src/store/orama-store.js';
 import { getByID, insert, search } from '@orama/orama';
+import { resetProvider } from '../../src/embedding/provider.js';
+import { resetConfigCache } from '../../src/config.js';
+
+const previousEmbedding = process.env.MEMORIX_EMBEDDING;
 
 // Minimal observation shape matching what hydrateIndex expects
 function makeObs(id: number, status: string, title: string) {
@@ -24,8 +28,23 @@ function makeObs(id: number, status: string, title: string) {
 }
 
 describe('hydrateIndex – status handling', () => {
+  beforeAll(() => {
+    process.env.MEMORIX_EMBEDDING = 'off';
+    resetConfigCache();
+    resetProvider();
+  });
+
   beforeEach(async () => {
     await resetDb();
+    resetConfigCache();
+    resetProvider();
+  });
+
+  afterAll(() => {
+    if (previousEmbedding === undefined) delete process.env.MEMORIX_EMBEDDING;
+    else process.env.MEMORIX_EMBEDDING = previousEmbedding;
+    resetConfigCache();
+    resetProvider();
   });
 
   it('indexes active, resolved, AND archived observations', async () => {
@@ -73,6 +92,20 @@ describe('hydrateIndex – status handling', () => {
 
     const inserted = await hydrateIndex(observations as any[]);
     expect(inserted).toBe(2);
+  });
+
+  it('hydrates every document across bounded startup batches', async () => {
+    const observations = Array.from({ length: 450 }, (_, index) =>
+      makeObs(index + 100, 'active', `Batched hydration ${index}`),
+    );
+
+    const inserted = await hydrateIndex(observations);
+    expect(inserted).toBe(observations.length);
+
+    const { getDb } = await import('../../src/store/orama-store.js');
+    const db = await getDb();
+    expect(getByID(db, makeOramaObservationId('test/hydrate-project', 100))).toBeDefined();
+    expect(getByID(db, makeOramaObservationId('test/hydrate-project', 549))).toBeDefined();
   });
 
   it('hydrates missing observations when a mini-skill already populated the index', async () => {

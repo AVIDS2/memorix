@@ -103,9 +103,16 @@ On the release development machine used for this check, the healthy HTTP service
 temporary Git project with an isolated data directory. It runs with embeddings
 disabled, so it does not use provider credentials or make paid network calls.
 The gate measures steady-state writes, first lexical search, process memory,
-HTTP MCP and hook persistence, and an SDK close/reopen cycle. It also verifies
-that the personal hook candidate remains durable on disk without becoming
-visible to an unbound SDK reader.
+HTTP readiness, MCP initialize/bind/context/search/store, hook capture, and an
+SDK close/reopen cycle. Every network request has a hard timeout, and the
+report fails when an interactive path exceeds its release budget. It also
+verifies that the personal hook candidate remains durable on disk without
+becoming visible to an unbound SDK reader.
+
+Startup hydration uses bounded Orama batches. This keeps HTTP health responsive
+while avoiding a full index rebalance for every persisted observation. The MCP
+search number is intentionally a cold control-plane measurement: it includes
+any lexical hydration the fresh service still owes before its first search.
 
 Results are machine-specific and should be compared on the same OS and Node
 version. The release gate is an integrity and regression check, not a public

@@ -4,29 +4,21 @@
 > before resuming substantial work, update it after a material decision or
 > milestone, and do not create parallel progress logs.
 
-**Last updated:** 2026-08-17
+**Last updated:** 2026-08-19
 
 ## Current Product State
 
-- `1.5.1` is the current published release (2026-08-16) on npm, the
-  official MCP Registry, and GitHub Releases. It is the reliability patch for
-  bounded formation cancellation and provider-error handling. A separate
-  Registry-only publish path now keeps the official MCP Registry current when
-  npm was already published manually.
-- `1.6.0` is the release candidate for bounded context receipts, explicit
-  optional local CodeGraph lifecycle, and task-scoped Agent loadouts. It keeps
-  detailed diagnostic JSON backward-compatible while generated guidance uses
-  the bounded CLI form. External CodeGraph is never installed or configured by
-  Memorix; an explicit sync that remains stale falls back to Lite evidence.
-- `1.5.0` is the underlying stability release: the deterministic stress-exam matrix
-  (corpus, concurrency, session churn, long-term scale, CLI repeat) runs in
-  the normal suite, the OpenRouter embedding lane was verified live
-  (`qwen/qwen3-embedding-8b`, 4096d), and the embedding default is now
-  provider-aware. Everything from the 1.4.6 memory-native line carries
-  forward.
-- Contributor PR #206 remains independently reviewed and attributed. It is a
-  distinct hook process-lifecycle fix for issue #205; its author needs to
-  update one stale static test before it can merge.
+- `1.7.1` is the current published release (2026-08-19) on npm, the official
+  MCP Registry, and GitHub Releases. It contains preview-first Dashboard
+  maintenance plus the graph overflow and dialog-centering fixes.
+- `1.7.2` is the active reliability patch. It strengthens the existing 40,000
+  record release gate so the public SDK, HTTP MCP context/search/store paths,
+  hooks, and reopen behavior are measured together with hard timeouts.
+- SDK, CLI, hooks, and HTTP MCP share SQLite as the canonical flat data store.
+  Large-store startup hydration uses bounded Orama batches so health remains
+  responsive without rebalancing the index once per row.
+- Open contributor PRs #212 (HTTP rerank) and #204 (WorkBuddy) remain separate
+  feature work. They are not part of this patch release.
 
 ## Agent-Memory Landscape Decision (2026-08-17)
 
@@ -58,7 +50,7 @@ provider when the operator chooses one.
   freshness, and queue bounded sync). It must never run an upstream installer
   that edits the user's Agent configuration.
 
-## 1.5.0 Stability Main Line (stress-tested, measured)
+## Historical Stability Baseline (1.5.0, stress-tested and measured)
 
 - Stress exams live in `tests/stress/` and run in the normal suite:
   - Corpus: 2,000 observations, 25 real searches, planted needles all hit,
@@ -83,7 +75,7 @@ provider when the operator chooses one.
 - Live embedding exams stay env-gated (`MEMORIX_RUN_LIVE_EMBEDDING_TESTS=1`)
   and never run in CI.
 
-## Memory Hygiene Main Line (1.4.x, measured)
+## Historical Memory Hygiene Baseline (1.4.x, measured)
 
 - Session dedup: `memorix_search` demotes rows already shown in the same
   session and remembers the surfaced set. Session-replay exam: duplicate
@@ -128,6 +120,8 @@ provider when the operator chooses one.
    it overlaps a planned product direction.
 4. Make every bounded foreground path cancel the network work it starts, and
    make non-retryable provider failures fail once with a useful diagnostic.
+5. Keep the 40,000-record gate fail-closed across SDK, HTTP MCP, hooks, and
+   canonical persistence before every release that changes retrieval/storage.
 
 ## Completed Contribution Decisions
 
@@ -158,12 +152,14 @@ provider when the operator chooses one.
 
 ## Immediate Next Step
 
-- Release the completed bounded-context and semantic-CodeGraph UX slice after
-  the full verification suite and package smoke pass. Do not turn it into a
-  giant memory-hub rewrite or a broad new MCP tool surface.
-- Keep contributor PR #206 separate: its hook deadline, stdin release,
-  deferred embeddings, and smaller hook heap are valuable, but the author
-  should update the failing static test and rerun CI before review/merge.
+- Finish the `1.7.2` full suite, package smoke, and 40,000-record acceptance
+  run, then publish the same verified version to npm, GitHub Releases, and the
+  official MCP Registry.
+- After the patch, review #212 only after it is rebased onto current `main` and
+  re-verified. Validate #204 against current official WorkBuddy behavior before
+  considering it for a feature release.
+
+## Historical Release Notes
 
 The #174 controlled audio derivations, #175 governed one-hop graph evidence,
 #185 CodeBuddy integration, and #184 Star History CI verification are merged

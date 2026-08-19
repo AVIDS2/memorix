@@ -1,6 +1,6 @@
 {
   "name": "memorix-pi-package",
-  "version": "1.7.1",
+  "version": "1.7.2",
   "description": "Memorix shared workspace memory package for Pi coding agent.",
   "license": "Apache-2.0",
   "keywords": [

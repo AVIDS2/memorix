@@ -26,10 +26,41 @@ jobs:
       - run: npm run check:mcp-registry
       - run: npm run build
       - run: npm test
-      - run: npm publish --provenance --access public
+      - name: Publish the npm package
         if: ${{ inputs.publish_npm }}
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./package.json').version")"
+
+          if npm view "memorix@$version" version >/dev/null 2>&1; then
+            echo "memorix@$version is already published; continuing with Registry publication."
+            exit 0
+          fi
+
+          set +e
+          npm publish --provenance --access public 2>&1 | tee npm-publish.log
+          publish_status=${PIPESTATUS[0]}
+          set -e
+
+          if [ "$publish_status" -eq 0 ]; then
+            exit 0
+          fi
+
+          if npm view "memorix@$version" version >/dev/null 2>&1; then
+            echo "memorix@$version became visible after the publish response; continuing."
+            exit 0
+          fi
+
+          if grep --quiet 'TLOG_CREATE_ENTRY_ERROR' npm-publish.log && \
+             grep --quiet 'equivalent entry already exists' npm-publish.log; then
+            echo "Sigstore transparency-log duplicate detected; retrying the already verified package without provenance."
+            npm publish --access public --ignore-scripts
+            exit 0
+          fi
+
+          exit "$publish_status"
       - name: Install the official MCP Registry publisher
         env:
           MCP_PUBLISHER_VERSION: 1.8.0

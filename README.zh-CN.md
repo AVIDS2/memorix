@@ -79,7 +79,7 @@ Memorix 不只是一个记忆库。它还负责安装 Agent 接入、保留有�
 | Agent setup | 按目标 Agent 写入 MCP、rules、hooks、skills、plugin、bundle 或 extension | `memorix setup --agent <agent>` |
 | Agent doctor | 检查 Agent 的 MCP 配置和规则是否是当前版本，并修复 Memorix 自己管理的条目 | `memorix doctor agents`、`memorix repair agents` |
 | Hooks 和 skills | 在支持的 Agent 中可选捕获工作事件，并把稳定知识提升成可复用项目技能 | `memorix hooks`、`memorix skills` |
-| Dashboard 和 HTTP | 本地 Web UI 与共享 MCP endpoint，用于浏览记忆、项目状态、团队和诊断信息 | `memorix dashboard`、`memorix background start` |
+| Dashboard 和 HTTP | 本地 Web UI 与共享 MCP endpoint，用于浏览记忆、项目状态、团队和诊断，并在预览确认后执行清理、合并、去重和保留归档 | `memorix dashboard`、`memorix background start` |
 | Orchestration 和团队协作 | 任务规划、worker 交接、文件锁、消息、验证门和 review loop | `memorix orchestrate`、`memorix team`、`memorix lock` |
 | memcode | 内置终端 Coding Agent，默认读写同一套项目记忆 | `memorix`、`memcode` |
 | CLI 和 SDK | 给自动化、导入导出、诊断和自定义集成使用的本地接口 | `memorix ...`、`createMemoryClient()` |

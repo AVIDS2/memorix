@@ -13,9 +13,10 @@ Memorix is a TypeScript project built around:
 
 ## Current Development Baseline
 
-The current release work targets the **1.4 line** while package metadata may still show the last published version until the release commit is cut.
+The current release work targets the **1.7 line** while package metadata may
+still show the last published version until the release commit is cut.
 
-Contributors should assume the following areas are part of the 1.4 release line:
+Contributors should assume the following areas are part of the current release line:
 
 - shared memory across MCP clients, CLI, SDK, dashboard, hooks, and memcode
 - memcode uses Memorix project memory, hooks, `/memory` commands, resumable sessions, and model switching as the bundled terminal agent
@@ -27,6 +28,9 @@ Contributors should assume the following areas are part of the 1.4 release line:
 - dashboard config loading aligned with CLI/TUI status surfaces
 - the existing layered retrieval, retention, attribution, and compact output model
 - source-backed long-term memory with candidate, qualification, approval, archival, supersession, and explicit portable user scope
+- preview-first project maintenance shared across Dashboard, CLI, and MCP
+- the reproducible large-store gate for SDK, HTTP MCP, hooks, persistence, and
+  cold-start retrieval budgets
 
 ---
 

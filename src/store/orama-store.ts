@@ -8,7 +8,7 @@
  * Vector search (embeddings) will be added in P1 phase.
  */
 
-import { create, insert, search, remove, update, count, getByID, type AnyOrama } from '@orama/orama';
+import { create, insert, insertMultiple, search, remove, update, count, getByID, type AnyOrama } from '@orama/orama';
 import type { MemorixDocument, SearchOptions, IndexEntry, KnowledgeLayer, ObservationReader } from '../types.js';
 import { OBSERVATION_ICONS, type ObservationType } from '../types.js';
 import { resolveKnowledgeLayer } from '../skills/mini-skills.js';
@@ -405,7 +405,7 @@ export async function hydrateIndex(
     ? candidates.map(() => null)
     : await getCachedEmbeddings(candidates.map(({ observation }) => observationEmbeddingText(observation)));
 
-  let inserted = 0;
+  const documents: MemorixDocument[] = [];
   for (let index = 0; index < candidates.length; index++) {
     const { observation: obs, id } = candidates[index];
     try {
@@ -439,17 +439,37 @@ export async function hydrateIndex(
         knowledgeLayer: resolveKnowledgeLayer('observation', obs.sourceDetail, obs.source),
         ...(compatibleVector ? { embedding: compatibleVector } : {}),
       };
-      await insert(database, doc);
-      rememberObservationDoc(doc);
-      inserted++;
-      // Keep the HTTP event loop alive on large corpora so /health still answers.
-      if (inserted % 50 === 0) {
-        await new Promise<void>((resolve) => setImmediate(resolve));
-      }
-      if (inserted % 200 === 0) {
-        await new Promise<void>((resolve) => setTimeout(resolve, 0));
-      }
+      documents.push(doc);
     } catch { /* skip malformed entries */ }
+  }
+
+  let inserted = 0;
+  const hydrationBatchSize = 200;
+  for (let start = 0; start < documents.length; start += hydrationBatchSize) {
+    const batch = documents.slice(start, start + hydrationBatchSize);
+    try {
+      // Orama can rebalance its indexes once per batch instead of once per
+      // document. Keep batches bounded so HTTP health remains responsive.
+      await insertMultiple(database, batch, batch.length);
+      for (const doc of batch) rememberObservationDoc(doc);
+      inserted += batch.length;
+    } catch {
+      // A concurrent write or malformed document can partially complete a
+      // batch. Preserve the old best-effort behavior without double-inserting.
+      for (const doc of batch) {
+        if (getByID(database, doc.id)) {
+          rememberObservationDoc(doc);
+          inserted++;
+          continue;
+        }
+        try {
+          await insert(database, doc);
+          rememberObservationDoc(doc);
+          inserted++;
+        } catch { /* skip malformed or concurrently inserted entries */ }
+      }
+    }
+    await new Promise<void>((resolve) => setImmediate(resolve));
   }
 
   deferredCachedVectorHydration = options.skipCachedVectors

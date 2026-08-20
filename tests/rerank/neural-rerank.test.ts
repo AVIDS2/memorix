@@ -148,4 +148,41 @@ describe('neural rerank lane', () => {
     expect(fetchImpl).not.toHaveBeenCalled();
     vi.unstubAllGlobals();
   });
+
+  it('sends the dedicated rerank key, not the memory LLM key, to a different host', async () => {
+    mkdirSync(join(HOME, '.memorix'), { recursive: true });
+    writeFileSync(join(HOME, '.memorix', 'config.toml'), [
+      '[memory.llm]',
+      'base_url = "https://llm.example/v1"',
+      'api_key = "llm-from-memory"',
+      '',
+      '[rerank]',
+      'provider = "http"',
+      'model = "rerank-model"',
+      'base_url = "https://api.example.com/v1"',
+      'api_key = "rerank-key"',
+    ].join('\n'), 'utf8');
+
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({
+      results: [
+        { index: 0, relevance_score: 0.9 },
+        { index: 1, relevance_score: 0.1 },
+        { index: 2, relevance_score: 0.05 },
+      ],
+    }), { status: 200, headers: { 'content-type': 'application/json' } }));
+    vi.stubGlobal('fetch', fetchImpl);
+
+    const { neuralRerankCandidates } = await loadLane();
+    await neuralRerankCandidates('JWT', [
+      { id: 'r1', title: 'alpha', type: 'gotcha', score: 1 },
+      { id: 'r2', title: 'beta', type: 'gotcha', score: 0.9 },
+      { id: 'r3', title: 'gamma', type: 'gotcha', score: 0.8 },
+    ], { projectRoot: null, homeDir: HOME });
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    const headers = fetchImpl.mock.calls[0]?.[1]?.headers as Record<string, string>;
+    expect(headers.authorization).toBe('Bearer rerank-key');
+    expect(JSON.stringify(fetchImpl.mock.calls[0])).not.toContain('llm-from-memory');
+    vi.unstubAllGlobals();
+  });
 });

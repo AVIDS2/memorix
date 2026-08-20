@@ -23,6 +23,8 @@ All notable changes to this project will be documented in this file.
   when `rerank.base_url` points at a different endpoint. If a Memory LLM
   key is present, that foreign host is not called until
   `MEMORIX_RERANK_API_KEY` / `rerank.api_key` is set.
+- Codegraph CLI tests close git/sqlite sandboxes with retries so Windows
+  `afterEach` cannot hang past vitest's 10s hookTimeout.
 
 ## [1.7.2] - 2026-08-19
 

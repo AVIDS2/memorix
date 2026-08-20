@@ -256,6 +256,25 @@ describe('resolved config', () => {
     expect(lane.canSendRequest).toBe(true);
   });
 
+  it('inherits the memory LLM key when the rerank URL only adds a /rerank suffix', () => {
+    writeFileSync(join(HOME, '.memorix', 'config.toml'), [
+      '[memory.llm]',
+      'base_url = "https://llm.example/v1"',
+      'api_key = "llm-key"',
+      '',
+      '[rerank]',
+      'provider = "http"',
+      'model = "rerank-model"',
+      'base_url = "https://llm.example/v1/rerank"',
+    ].join('\n'), 'utf8');
+
+    const lane = getResolvedRerankLane({ projectRoot: null, homeDir: HOME });
+
+    expect(lane.baseUrl).toBe('https://llm.example/v1/rerank');
+    expect(lane.apiKey).toBe('llm-key');
+    expect(lane.canSendRequest).toBe(true);
+  });
+
   it('does not inherit the memory LLM key when the rerank URL is a different endpoint', () => {
     writeFileSync(join(HOME, '.memorix', 'config.toml'), [
       '[memory.llm]',

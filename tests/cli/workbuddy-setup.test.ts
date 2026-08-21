@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { WorkbuddyMCPAdapter } from '../../src/workspace/mcp-adapters/workbuddy.js';
 import { buildSetupPlan, installMcpConfig } from '../../src/cli/commands/setup.js';
-import { getAgentRulesPath } from '../../src/hooks/installers/index.js';
+import { getAgentRulesPath, installHooks } from '../../src/hooks/installers/index.js';
 
 const homedirMock = vi.hoisted(() => vi.fn(() => 'C:\\Users\\Tester'));
 
@@ -26,9 +26,15 @@ describe('WorkBuddy integration', () => {
   });
 
   describe('WorkbuddyMCPAdapter', () => {
-    it('resolves the config path to ~/.workbuddy/mcp.json', () => {
+    it('resolves project-scope config to <project>/.workbuddy/mcp.json', () => {
       const adapter = new WorkbuddyMCPAdapter();
-      expect(adapter.getConfigPath('/any/project')).toBe(path.join(tempHome, '.workbuddy', 'mcp.json'));
+      expect(adapter.getConfigPath('/any/project')).toBe(path.join('/any/project', '.workbuddy', 'mcp.json'));
+    });
+
+    it('resolves global config (no projectRoot) to ~/.workbuddy/mcp.json', () => {
+      const adapter = new WorkbuddyMCPAdapter();
+      expect(adapter.getConfigPath()).toBe(path.join(tempHome, '.workbuddy', 'mcp.json'));
+      expect(adapter.getConfigPath(undefined)).toBe(path.join(tempHome, '.workbuddy', 'mcp.json'));
     });
 
     it('round-trips a stdio Memorix entry through generate/parse', () => {
@@ -83,6 +89,42 @@ describe('WorkBuddy integration', () => {
       const content = readFileSync(path.join(tempHome, '.workbuddy', 'mcp.json'), 'utf-8');
       const parsed = JSON.parse(content);
       expect(Object.keys(parsed.mcpServers)).toEqual(['memorix']);
+    });
+
+    it('writes project-scope config to <project>/.workbuddy/mcp.json without polluting user-level', async () => {
+      const root = path.join(tmpdir(), 'wb-project');
+      await installMcpConfig({ agent: 'workbuddy', mcp: 'stdio', global: false, projectRoot: root });
+
+      const content = readFileSync(path.join(root, '.workbuddy', 'mcp.json'), 'utf-8');
+      const parsed = JSON.parse(content);
+      expect(Object.keys(parsed.mcpServers)).toEqual(['memorix']);
+      // Project install must not leak into the user-level file.
+      expect(existsSync(path.join(tempHome, '.workbuddy', 'mcp.json'))).toBe(false);
+    });
+
+    it('preserves unrelated servers when merging into a project config', async () => {
+      const root = path.join(tmpdir(), 'wb-project-merge');
+      const projectFile = path.join(root, '.workbuddy', 'mcp.json');
+      mkdirSync(path.dirname(projectFile), { recursive: true });
+      writeFileSync(projectFile, JSON.stringify({
+        mcpServers: { other: { command: 'other-tool', args: [] } },
+      }), 'utf-8');
+
+      await installMcpConfig({ agent: 'workbuddy', mcp: 'stdio', global: false, projectRoot: root });
+
+      const parsed = JSON.parse(readFileSync(projectFile, 'utf-8'));
+      expect(Object.keys(parsed.mcpServers).sort()).toEqual(['memorix', 'other']);
+    });
+  });
+
+  describe('installHooks', () => {
+    it('installs AGENTS.md guidance but no skills (no documented skills path)', async () => {
+      const root = path.join(tmpdir(), 'wb-hooks-project');
+      const result = await installHooks('workbuddy', root, false);
+
+      expect(result.configPath).toBe(path.join(root, 'AGENTS.md'));
+      expect(existsSync(path.join(root, '.workbuddy', 'skills'))).toBe(false);
+      expect(existsSync(path.join(tempHome, '.workbuddy', 'skills'))).toBe(false);
     });
   });
 

@@ -133,7 +133,7 @@ function getAgentHint(agent: string): string {
     'gemini-cli': 'settings + GEMINI.md',
     trae: 'rules',
     dsh: 'MCP patch + AGENTS.md + skills',
-    workbuddy: 'MCP + AGENTS.md + skills',
+    workbuddy: 'MCP + AGENTS.md',
   };
   return hints[agent] || 'integration files';
 }

@@ -363,9 +363,6 @@ const AGENT_SKILL_DIRS: Partial<Record<AgentName, { project: string; global?: st
   // DSH's user skill root is <harness home>/skills; the global root below is
   // resolved to $DSH_HOME (or ~/.dsh) for dsh by installOfficialSkillsForAgent.
   dsh: { project: path.join('.dsh', 'skills'), global: 'skills' },
-  // WorkBuddy keeps user-level skills under ~/.workbuddy/skills and
-  // project-level skills under <project>/.workbuddy/skills.
-  workbuddy: { project: path.join('.workbuddy', 'skills'), global: path.join('.workbuddy', 'skills') },
 };
 
 const PACKAGE_OWNED_HOOK_AGENTS = new Set<AgentName>(['openclaw', 'hermes', 'omp']);
@@ -1006,18 +1003,16 @@ export async function installHooks(
         };
       }
     case 'workbuddy':
-      // WorkBuddy has no hook system — install AGENTS.md guidance and
-      // skills; the MCP row is installed by `memorix setup --agent workbuddy`.
+      // WorkBuddy has no hook system — install AGENTS.md guidance only;
+      // the MCP row is installed by `memorix setup --agent workbuddy`.
       {
         const rulesPath = await installAgentRules(agent, projectRoot, global);
-        const skillPaths = await installOfficialSkillsForAgent(agent, projectRoot, global);
         return {
           agent,
           configPath: rulesPath,
           events: [],
           generated: {
-            note: 'WorkBuddy has no hook system — installed AGENTS.md guidance and skills; the MCP row is installed by `memorix setup --agent workbuddy`.',
-            ...(skillPaths.length > 0 ? { skillPaths, skillPath: skillPaths[0] } : {}),
+            note: 'WorkBuddy has no hook system — installed AGENTS.md guidance only; the MCP row is installed by `memorix setup --agent workbuddy`.',
           },
         };
       }

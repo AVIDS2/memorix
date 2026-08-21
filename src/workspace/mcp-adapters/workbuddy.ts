@@ -5,16 +5,17 @@ import { join } from 'node:path';
 /**
  * WorkBuddy MCP config adapter.
  *
- * WorkBuddy keeps its MCP server list in a single user-level JSON file:
- *
- *   ~/.workbuddy/mcp.json
- *
- * The shape follows the standard MCP client convention:
+ * WorkBuddy stores its MCP server list in a JSON file following the standard
+ * MCP client convention:
  *
  *   { "mcpServers": { [name]: { command, args, env?, url?, headers? } } }
  *
- * WorkBuddy has no project-level MCP file, so this adapter always targets
- * the user-level path regardless of the optional projectRoot argument.
+ * Per the official WorkBuddy MCP guide, two scopes are supported:
+ *   - user-level:    ~/.workbuddy/mcp.json
+ *   - project-level: <project>/.workbuddy/mcp.json
+ *
+ * getConfigPath returns the project-level path when a projectRoot is supplied,
+ * otherwise the user-level path — matching the existing adapter convention.
  */
 export class WorkbuddyMCPAdapter implements MCPConfigAdapter {
   readonly source = 'workbuddy' as const;
@@ -61,7 +62,10 @@ export class WorkbuddyMCPAdapter implements MCPConfigAdapter {
     return JSON.stringify({ mcpServers }, null, 2) + '\n';
   }
 
-  getConfigPath(_projectRoot?: string): string {
+  getConfigPath(projectRoot?: string): string {
+    if (projectRoot) {
+      return join(projectRoot, '.workbuddy', 'mcp.json');
+    }
     return join(homedir(), '.workbuddy', 'mcp.json');
   }
 }

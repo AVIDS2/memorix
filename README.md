@@ -279,7 +279,7 @@ What it installs depends on the target agent, but the goal is the same: make Mem
 - CodeBuddy Code: installs a user-scope local marketplace plugin under `~/.codebuddy/memorix-local` with MCP, skills, and hooks. It does not change existing CodeBuddy model, permission, or settings files; CodeBuddy keeps third-party hook approval in its own `/hooks` flow.
 - Oh-my-Pi: installs an `omp.extensions` package with extension hook events, a `memorix` command, official skills, and writes MCP config.
 - DeepSeek Harness: writes a Memorix `@deepseek-ai/dsh-mcp-client` row into `$DSH_HOME/cordis.patch.yml` (default `~/.dsh/cordis.patch.yml`), appends guidance to the harness `AGENTS.md`, and installs official skills under `$DSH_HOME/skills`. The row follows DSH's own shipped Memorix reference, so tools appear as `mcp__memorix__*`.
-- WorkBuddy: writes a Memorix MCP server row into `~/.workbuddy/mcp.json`, appends guidance to `AGENTS.md`, and installs official skills under `~/.workbuddy/skills`. Tools appear as `mcp__memorix__*`; there is no hooks surface.
+- WorkBuddy: writes a Memorix MCP server row into `~/.workbuddy/mcp.json` (or `<project>/.workbuddy/mcp.json` for project installs) and appends guidance to `AGENTS.md`. Tools appear as `mcp__memorix__*`; there is no hooks surface.
 
 Need a quieter install? Add `--noHooks` for targets where setup can control hook capture separately from the host's official package entry. It keeps MCP and guidance, but skips Memorix hook capture.
 

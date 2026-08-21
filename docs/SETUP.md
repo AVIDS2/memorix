@@ -683,7 +683,7 @@ Common MCP config locations:
 | Oh-my-Pi | `.omp/mcp.json` or `~/.omp/agent/mcp.json` |
 | Trae | `%APPDATA%/Trae/User/mcp.json` on Windows |
 | DeepSeek Harness | `$DSH_HOME/cordis.patch.yml` (default `~/.dsh/cordis.patch.yml`) |
-| WorkBuddy | `~/.workbuddy/mcp.json` |
+| WorkBuddy | `~/.workbuddy/mcp.json` (user) or `<project>/.workbuddy/mcp.json` (project) |
 
 ---
 

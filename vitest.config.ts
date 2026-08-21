@@ -36,6 +36,8 @@ export default defineConfig({
             'tests/cli/receipt.test.ts',
             'tests/cli/operator-surface.test.ts',
             'tests/cli/uninstall.test.ts',
+            // Mutates process.cwd/env and tears down git+sqlite sandboxes.
+            'tests/cli/codegraph-command.test.ts',
           ],
         },
       },
@@ -59,8 +61,10 @@ export default defineConfig({
             'tests/cli/receipt.test.ts',
             'tests/cli/operator-surface.test.ts',
             'tests/cli/uninstall.test.ts',
+            'tests/cli/codegraph-command.test.ts',
           ],
           testTimeout: 15_000,
+          hookTimeout: 30_000,
           // Run one file at a time — no parallelism, no port/CPU races
           // @ts-expect-error — fileParallelism is valid at project level per vitest docs
           fileParallelism: false,

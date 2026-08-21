@@ -47,6 +47,12 @@ model = "text-embedding-v4"
 base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 api_key = "..."
 
+# Optional HTTP rerank. Off unless provider = "http".
+# [rerank]
+# provider = "http"
+# model = "rerank-model"
+# base_url = "https://api.example.com/v1"
+
 [memory]
 inject = "minimal"
 formation = "active"
@@ -127,7 +133,7 @@ Used by Memorix background memory intelligence:
 - memory formation
 - summarization
 - deduplication
-- optional reranking
+- optional LLM reranking fallback
 - cleanup assistance
 
 Common keys:
@@ -185,6 +191,53 @@ defaults to `qwen/qwen3-embedding-8b` (4096 dimensions) instead of the
 OpenAI-only default. The equivalent env-var form is
 `MEMORIX_EMBEDDING=api`, `MEMORIX_EMBEDDING_BASE_URL=https://openrouter.ai/api/v1`,
 `MEMORIX_EMBEDDING_MODEL=qwen/qwen3-embedding-8b`.
+
+### `[rerank]`
+
+Optional HTTP rerank for thorough search. Off by default.
+When `provider = "http"`, Memorix POSTs a Cohere-compatible
+`{model, query, documents}` body to `{base_url}/rerank` (or an explicit
+`/rerank` path). Any compatible endpoint works — hosted APIs, TEI, vLLM,
+or a local gateway. Memorix sends the configured `model` string unchanged.
+
+Common keys:
+
+- `provider` — `off` (default) or `http`
+- `model` — user-configured model id (no built-in default). Example:
+  `rerank-model`
+- `base_url` — API root that serves `/rerank`, for example
+  `https://api.example.com/v1` or `http://127.0.0.1:8080`. When unset and
+  `provider = "http"`, Memorix inherits `[memory.llm].base_url`.
+- `api_key` — bearer token. When unset, inherits the memory LLM key
+  (`MEMORIX_LLM_API_KEY`, `MEMORIX_API_KEY`, or `[memory.llm].api_key`)
+  only if the effective `base_url` is the same trusted endpoint as
+  `[memory.llm].base_url`. A different rerank URL requires
+  `MEMORIX_RERANK_API_KEY` or `rerank.api_key`.
+
+Environment overrides (highest priority after CLI flags):
+
+```bash
+MEMORIX_RERANK_PROVIDER=http
+MEMORIX_RERANK_MODEL=rerank-model
+MEMORIX_RERANK_BASE_URL=https://api.example.com/v1
+# MEMORIX_RERANK_API_KEY=   # required when base_url is not the memory LLM endpoint
+```
+
+If the memory LLM lane already points at the same gateway, you can enable
+rerank with:
+
+```toml
+[rerank]
+provider = "http"
+model = "rerank-model"
+```
+
+or set `MEMORIX_RERANK_PROVIDER=http` and `MEMORIX_RERANK_MODEL=...`.
+Timeout is `MEMORIX_RERANK_TIMEOUT_MS` (default 30000). Thorough search
+with at least 3 candidates uses HTTP rerank when configured. On HTTP miss
+or timeout, Memorix keeps the original order and does not fall through to
+LLM rerank. LLM rerank remains available when HTTP rerank is off, on the
+existing thorough/heavy/ambiguous gate.
 
 Image analysis (visual description for ingested images) runs on the LLM lane
 through an OpenAI-compatible vision endpoint, so it can also use OpenRouter

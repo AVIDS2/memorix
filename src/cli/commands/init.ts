@@ -183,6 +183,12 @@ export default defineCommand({
       envLines.push('');
     }
 
+    envLines.push('# Optional HTTP rerank (Cohere-compatible POST {base_url}/rerank)');
+    envLines.push('# MEMORIX_RERANK_PROVIDER=http');
+    envLines.push('# MEMORIX_RERANK_MODEL=rerank-model');
+    envLines.push('# MEMORIX_RERANK_BASE_URL=https://api.example.com/v1');
+    envLines.push('# MEMORIX_RERANK_API_KEY=  # required when BASE_URL is not the memory LLM endpoint');
+    envLines.push('');
     envLines.push('# Optional memory LLM simple key (does not apply to embedding or agent lanes)');
     envLines.push('# MEMORIX_API_KEY=sk-your-key-here');
     envLines.push('');
@@ -307,6 +313,17 @@ export function buildInitTomlConfig(options: {
     if (isGlobal) {
       lines.push('# api_key = "..."');
     }
+  }
+  lines.push('');
+
+  lines.push('[rerank]');
+  lines.push('# Optional HTTP rerank against any Cohere-compatible /rerank API.');
+  lines.push('# provider = "http"');
+  lines.push('# model = "rerank-model"');
+  lines.push('# base_url inherits [memory.llm] when unset.');
+  if (isGlobal) {
+    lines.push('# Bearer inherits the memory LLM key only when that endpoint matches.');
+    lines.push('# A different rerank URL needs MEMORIX_RERANK_API_KEY.');
   }
   lines.push('');
 

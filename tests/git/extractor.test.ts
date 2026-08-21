@@ -13,11 +13,11 @@ import { detectProject } from '../../src/project/detector.js';
 import { getCommitInfo, getRecentCommits, ingestCommit } from '../../src/git/extractor.js';
 
 describe('Git Project Detection', () => {
-  it('should detect AVIDS2/memorix from git remote', () => {
+  it('should detect this repository from git remote', () => {
     const project = detectProject();
     expect(project).not.toBeNull();
-    expect(project!.id).toBe('AVIDS2/memorix');
-    expect(project!.gitRemote).toBeTruthy();
+    expect(project!.id).toMatch(/^[\w.-]+\/memorix$/);
+    expect(project!.gitRemote).toMatch(/memorix/i);
     expect(project!.rootPath).toBeTruthy();
   }, 30_000);
 

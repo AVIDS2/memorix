@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { execSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, unlinkSync, writeFileSync } from 'node:fs';
+import { rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import codegraphCommand from '../../src/cli/commands/codegraph.js';
@@ -39,6 +40,7 @@ describe('codegraph CLI command', () => {
   const originalCwd = process.cwd();
   const originalDataDir = process.env.MEMORIX_DATA_DIR;
   const originalEmbedding = process.env.MEMORIX_EMBEDDING;
+  const originalGitOptionalLocks = process.env.GIT_OPTIONAL_LOCKS;
   let sandboxRoot = '';
   let repoDir = '';
   let dataDir = '';
@@ -50,6 +52,7 @@ describe('codegraph CLI command', () => {
     mkdirSync(path.join(repoDir, 'src'), { recursive: true });
     writeFileSync(path.join(repoDir, 'src', 'jwt.ts'), 'export function verifyJwt(token: string) { return token.length > 0; }\n', 'utf8');
     writeFileSync(path.join(repoDir, 'src', 'auth.ts'), "import { verifyJwt } from './jwt';\nexport function authMiddleware(token: string) { return verifyJwt(token); }\n", 'utf8');
+    process.env.GIT_OPTIONAL_LOCKS = '0';
     execSync('git init', { cwd: repoDir, stdio: 'ignore' });
     process.chdir(repoDir);
     process.env.MEMORIX_DATA_DIR = dataDir;
@@ -68,13 +71,24 @@ describe('codegraph CLI command', () => {
     } else {
       process.env.MEMORIX_EMBEDDING = originalEmbedding;
     }
+    if (originalGitOptionalLocks === undefined) {
+      delete process.env.GIT_OPTIONAL_LOCKS;
+    } else {
+      process.env.GIT_OPTIONAL_LOCKS = originalGitOptionalLocks;
+    }
     resetObservationStore();
     resetSessionStore();
     resetTeamStore();
     await resetDb();
     closeAllDatabases();
-    rmSync(sandboxRoot, { recursive: true, force: true });
-  });
+    // Windows can keep a lock on the temp git/sqlite dir after close.
+    // Node retries EBUSY/EPERM; do not fail the suite if the dir remains.
+    try {
+      await rm(sandboxRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    } catch {
+      // leftover temp dir is unique per test via mkdtemp
+    }
+  }, 30_000);
 
   it('refreshes the lite index and reports status as JSON', async () => {
     const refreshed = await runCommand({ _: ['refresh'], json: true });

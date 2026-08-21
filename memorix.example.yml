@@ -34,6 +34,15 @@ embedding:
   # model: qwen/qwen3-embedding-8b
   # dimensions: 1024        # Override auto-detected dimensions
 
+# ── HTTP rerank (optional) ───────────────────────────────────
+# Cohere-compatible POST {baseUrl}/rerank. Model id is sent as configured.
+# Bearer inherits MEMORIX_LLM_API_KEY only when baseUrl is that same endpoint.
+# A different rerank host requires MEMORIX_RERANK_API_KEY / rerank.apiKey.
+# rerank:
+#   provider: http
+#   model: rerank-model
+#   baseUrl: https://api.example.com/v1
+
 # ── Git-Memory Pipeline ──────────────────────────────────────
 # Automatically capture engineering knowledge from git commits.
 # Every commit becomes a searchable, immutable memory.

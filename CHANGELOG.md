@@ -17,6 +17,9 @@ All notable changes to this project will be documented in this file.
   when HTTP rerank is off.
 
 ### Fixed
+- **OpenAI-compatible provider base URLs** -- preserve explicit versioned paths
+  such as Volcano Ark's `/api/v3` for ordinary chat, tool calling, streaming,
+  and vision requests instead of appending an incorrect `/v1` segment.
 - HTTP rerank honors `MEMORIX_RERANK_TIMEOUT_MS` on the inner fetch
   (default 30s) instead of aborting at 5s.
 - HTTP rerank no longer inherits or transmits the memory LLM credential

@@ -31,6 +31,36 @@ const LLM_TIMEOUT_MIN_MS = 1_000;
 const LLM_TIMEOUT_MAX_MS = 300_000;
 const MAX_LLM_RESPONSE_BYTES = 2 * 1024 * 1024;
 
+const OPENAI_API_VERSION_SEGMENT = /^v\d+(?:[a-z][a-z0-9-]*)?$/i;
+
+/**
+ * Normalize an OpenAI-compatible API root without rewriting an explicit
+ * provider version such as `/api/v3` or `/v1beta`.
+ *
+ * Bare hosts keep the historical convenience of receiving `/v1`. Once a
+ * caller supplies a versioned path, that path is authoritative.
+ */
+export function normalizeOpenAICompatibleBaseUrl(baseUrl: string): string {
+  const base = baseUrl.trim().replace(/\/+$/, '');
+  if (!base) return base;
+
+  let pathname = '';
+  try {
+    pathname = new URL(base).pathname.replace(/\/+$/, '');
+  } catch {
+    pathname = base.split(/[?#]/, 1)[0].replace(/\/+$/, '');
+  }
+
+  const lastSegment = pathname.split('/').filter(Boolean).at(-1);
+  if (lastSegment && OPENAI_API_VERSION_SEGMENT.test(lastSegment)) {
+    return base;
+  }
+
+  const queryOrHash = base.match(/[?#].*$/)?.[0] ?? '';
+  const pathWithoutQuery = base.slice(0, base.length - queryOrHash.length).replace(/\/+$/, '');
+  return `${pathWithoutQuery}/v1${queryOrHash}`;
+}
+
 /**
  * Parse and validate MEMORIX_LLM_TIMEOUT_MS environment variable.
  * - Must be a valid integer in the range 1000–300000ms.
@@ -259,9 +289,7 @@ async function callOpenAICompatible(
   signal?: AbortSignal,
 ): Promise<LLMResponse> {
   const config = currentConfig!;
-  // Auto-fix: append /v1 if baseUrl doesn't end with it (common user mistake)
-  let base = config.baseUrl!.replace(/\/+$/, '');
-  if (!base.endsWith('/v1')) base += '/v1';
+  const base = normalizeOpenAICompatibleBaseUrl(config.baseUrl!);
   const url = `${base}/chat/completions`;
 
   const fetchSignal = signal
@@ -387,8 +415,7 @@ async function callOpenAIWithTools(
   signal?: AbortSignal,
 ): Promise<LLMToolResponse> {
   const config = currentConfig!;
-  let base = config.baseUrl!.replace(/\/+$/, '');
-  if (!base.endsWith('/v1')) base += '/v1';
+  const base = normalizeOpenAICompatibleBaseUrl(config.baseUrl!);
   const url = `${base}/chat/completions`;
 
   // Convert ChatMessage[] to OpenAI format
@@ -603,8 +630,7 @@ async function* callOpenAIWithToolsStream(
   tools: ToolDefinition[],
 ): AsyncGenerator<LLMStreamEvent, void, undefined> {
   const config = currentConfig!;
-  let base = config.baseUrl!.replace(/\/+$/, '');
-  if (!base.endsWith('/v1')) base += '/v1';
+  const base = normalizeOpenAICompatibleBaseUrl(config.baseUrl!);
   const url = `${base}/chat/completions`;
 
   const openaiMessages: Array<Record<string, unknown>> = messages.map((msg) => {

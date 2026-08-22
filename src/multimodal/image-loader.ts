@@ -6,7 +6,11 @@
  */
 
 import { getLLMApiKey, getLLMBaseUrl, getLLMModel } from '../config.js';
-import { isLLMEnabled, getLLMConfig } from '../llm/provider.js';
+import {
+  isLLMEnabled,
+  getLLMConfig,
+  normalizeOpenAICompatibleBaseUrl,
+} from '../llm/provider.js';
 import { sanitizeCredentials } from '../memory/secret-filter.js';
 import {
   decodeBase64ImagePayload,
@@ -55,8 +59,7 @@ async function callVisionLLM(
     throw new Error('No LLM API key configured for image analysis.');
   }
 
-  let baseUrl = getLLMBaseUrl('https://api.openai.com/v1').replace(/\/+$/, '');
-  if (!baseUrl.endsWith('/v1')) baseUrl += '/v1';
+  const baseUrl = normalizeOpenAICompatibleBaseUrl(getLLMBaseUrl('https://api.openai.com/v1'));
   const model = getLLMModel('gpt-4o');
 
   const response = await fetch(`${baseUrl}/chat/completions`, {

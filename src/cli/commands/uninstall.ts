@@ -236,6 +236,17 @@ function getMCPConfigEntries(home: string, cwd: string): MCPConfigEntry[] {
     note: 'Remove the memory-memorix insert row from this patch file.',
   });
 
+  // WorkBuddy
+  const workbuddyCfg = path.join(home, '.workbuddy', 'mcp.json');
+  entries.push({
+    agent: 'WorkBuddy',
+    path: workbuddyCfg,
+    kind: 'global',
+    format: 'json',
+    detected: checkJSON(workbuddyCfg),
+    note: 'Remove the "memorix" key from mcpServers in this file.',
+  });
+
   return entries;
 }
 

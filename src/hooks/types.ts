@@ -42,6 +42,7 @@ export type AgentName =
   | 'opencode'
   | 'trae'
   | 'dsh'
+  | 'workbuddy'
   | 'pi'
   | 'omp';
 
@@ -63,6 +64,7 @@ export const AGENT_SUPPORT_TIER: Record<AgentName, SupportTier> = {
   opencode: 'community',
   trae: 'community',
   dsh: 'community',
+  workbuddy: 'community',
   pi: 'community',
   omp: 'community',
   antigravity: 'community',

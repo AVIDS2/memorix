@@ -145,6 +145,9 @@ Common keys:
 
 For OpenAI-compatible providers such as DashScope, DeepSeek-compatible gateways,
 or internal model gateways, use `provider = "openai"` and set `base_url`.
+Memorix uses an explicit provider path as-is: for example,
+`https://ark.cn-beijing.volces.com/api/v3` remains `/api/v3`. Only a bare host
+without a versioned path receives the convenience suffix `/v1`.
 
 ### `[embedding]`
 

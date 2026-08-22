@@ -1,5 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { callLLMWithTools, initLLM, parseLLMTimeoutMs, setLLMConfig } from '../../src/llm/provider.ts';
+import {
+  callLLM,
+  callLLMWithTools,
+  callLLMWithToolsStream,
+  initLLM,
+  normalizeOpenAICompatibleBaseUrl,
+  parseLLMTimeoutMs,
+  setLLMConfig,
+} from '../../src/llm/provider.ts';
 
 const LLM_ENV_KEYS = [
   'MEMORIX_AGENT_API_KEY',
@@ -155,6 +163,23 @@ describe('parseLLMTimeoutMs', () => {
   });
 });
 
+describe('normalizeOpenAICompatibleBaseUrl', () => {
+  it('adds /v1 only to a bare API host', () => {
+    expect(normalizeOpenAICompatibleBaseUrl('http://localhost:11434')).toBe('http://localhost:11434/v1');
+  });
+
+  it('preserves explicit v1 through v4 API paths', () => {
+    expect(normalizeOpenAICompatibleBaseUrl('https://api.example.com/v1')).toBe('https://api.example.com/v1');
+    expect(normalizeOpenAICompatibleBaseUrl('https://api.example.com/v2/')).toBe('https://api.example.com/v2');
+    expect(normalizeOpenAICompatibleBaseUrl('https://ark.cn-beijing.volces.com/api/v3')).toBe('https://ark.cn-beijing.volces.com/api/v3');
+    expect(normalizeOpenAICompatibleBaseUrl('https://api.example.com/v4')).toBe('https://api.example.com/v4');
+  });
+
+  it('preserves provider version variants such as v1beta', () => {
+    expect(normalizeOpenAICompatibleBaseUrl('https://generativelanguage.googleapis.com/v1beta')).toBe('https://generativelanguage.googleapis.com/v1beta');
+  });
+});
+
 describe('callLLMWithTools', () => {
   const originalFetch = globalThis.fetch;
 
@@ -229,5 +254,81 @@ describe('callLLMWithTools', () => {
     await expect(callLLMWithTools([
       { role: 'user', content: 'Hello?' },
     ], [])).rejects.toThrow(/too large/i);
+  });
+
+  it('uses a provider-supplied /api/v3 root without appending /v1', async () => {
+    setLLMConfig({
+      provider: 'openai',
+      apiKey: 'test-key',
+      model: 'deepseek-v4-flash-ga-260731',
+      baseUrl: 'https://ark.cn-beijing.volces.com/api/v3',
+    });
+    let requestedUrl = '';
+    globalThis.fetch = vi.fn(async (input) => {
+      requestedUrl = String(input);
+      return new Response(JSON.stringify({
+        choices: [{ message: { content: 'ok' }, finish_reason: 'stop' }],
+      }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }) as typeof fetch;
+
+    await callLLMWithTools([{ role: 'user', content: 'Hello?' }], []);
+
+    expect(requestedUrl).toBe('https://ark.cn-beijing.volces.com/api/v3/chat/completions');
+  });
+});
+
+describe('OpenAI-compatible ordinary and streaming calls', () => {
+  const originalFetch = globalThis.fetch;
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    setLLMConfig(null);
+    vi.restoreAllMocks();
+  });
+
+  it('uses a provider-supplied /api/v3 root for ordinary chat calls', async () => {
+    setLLMConfig({
+      provider: 'openai',
+      apiKey: 'test-key',
+      model: 'deepseek-v4-flash-ga-260731',
+      baseUrl: 'https://ark.cn-beijing.volces.com/api/v3',
+    });
+    let requestedUrl = '';
+    globalThis.fetch = vi.fn(async (input) => {
+      requestedUrl = String(input);
+      return new Response(JSON.stringify({
+        choices: [{ message: { content: 'ok' } }],
+      }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }) as typeof fetch;
+
+    await callLLM('system', 'user');
+
+    expect(requestedUrl).toBe('https://ark.cn-beijing.volces.com/api/v3/chat/completions');
+  });
+
+  it('uses a provider-supplied /api/v3 root for streaming tool calls', async () => {
+    setLLMConfig({
+      provider: 'openai',
+      apiKey: 'test-key',
+      model: 'deepseek-v4-flash-ga-260731',
+      baseUrl: 'https://ark.cn-beijing.volces.com/api/v3',
+    });
+    let requestedUrl = '';
+    globalThis.fetch = vi.fn(async (input) => {
+      requestedUrl = String(input);
+      return new Response(
+        'data: {"choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}\n\n' +
+        'data: [DONE]\n\n',
+        { status: 200, headers: { 'content-type': 'text/event-stream' } },
+      );
+    }) as typeof fetch;
+
+    const events = [];
+    for await (const event of callLLMWithToolsStream([{ role: 'user', content: 'Hello?' }], [])) {
+      events.push(event);
+    }
+
+    expect(requestedUrl).toBe('https://ark.cn-beijing.volces.com/api/v3/chat/completions');
+    expect(events.some((event) => event.type === 'text' && event.content === 'ok')).toBe(true);
   });
 });

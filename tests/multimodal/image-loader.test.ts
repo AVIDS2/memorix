@@ -19,6 +19,7 @@ describe('image-loader', () => {
     globalThis.fetch = originalFetch;
     delete process.env.OPENAI_API_KEY;
     delete process.env.MEMORIX_LLM_API_KEY;
+    delete process.env.MEMORIX_LLM_BASE_URL;
     delete process.env.MEMORIX_API_KEY;
     setLLMConfig(null);
     resetConfigCache();
@@ -138,6 +139,28 @@ describe('image-loader', () => {
     expect(content[0].type).toBe('text');
     expect(content[1].type).toBe('image_url');
     expect(content[1].image_url.url).toContain('data:image/jpeg;base64,');
+  });
+
+  it('preserves a provider-supplied /api/v3 root for Vision requests', async () => {
+    process.env.OPENAI_API_KEY = 'test-key';
+    process.env.MEMORIX_LLM_BASE_URL = 'https://ark.cn-beijing.volces.com/api/v3';
+    setLLMConfig({
+      provider: 'openai',
+      apiKey: 'test-key',
+      model: 'deepseek-v4-flash-ga-260731',
+      baseUrl: 'https://ark.cn-beijing.volces.com/api/v3',
+    });
+    let requestedUrl = '';
+    globalThis.fetch = (async (input) => {
+      requestedUrl = String(input);
+      return new Response(JSON.stringify({
+        choices: [{ message: { content: '{"description":"test","tags":[],"entities":[]}' } }],
+      }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }) as typeof fetch;
+
+    await analyzeImage({ base64: 'dGVzdA==', mimeType: 'image/png' });
+
+    expect(requestedUrl).toBe('https://ark.cn-beijing.volces.com/api/v3/chat/completions');
   });
 
   it('handles Vision LLM API errors', async () => {

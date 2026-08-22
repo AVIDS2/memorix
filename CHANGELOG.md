@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.7.3] - 2026-08-22
+
 ### Added
 - **Optional HTTP rerank** -- Thorough search with at least 3 candidates can
   reorder top hits through a configurable Cohere-compatible

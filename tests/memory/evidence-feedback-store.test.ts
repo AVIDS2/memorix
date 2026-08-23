@@ -59,26 +59,37 @@ describe('1.8 persisted evidence and feedback', () => {
     tempDir = await mkdtemp(path.join(os.tmpdir(), 'memorix-feedback-'));
     const store = new MemoryFeedbackStore();
     await store.init(tempDir);
+    const observedAt = '2026-08-23T00:00:00.000Z';
     const positive = store.record({
       projectId: 'org/project', candidateKind: 'observation', candidateId: '7',
-      signal: 'verification-success', sourceRef: 'test:verification', actor: 'agent-a',
+      signal: 'verification-success', sourceRef: 'test:verification', actor: 'agent-a', at: observedAt,
     });
     expect(positive.state.weight).toBeGreaterThan(1);
     expect(positive.state.audit.map((event) => event.id)).toEqual([positive.event.id]);
     const negative = store.record({
       projectId: 'org/project', candidateKind: 'observation', candidateId: '7',
-      signal: 'user-correction', sourceRef: 'test:user', actor: 'human', note: 'The premise changed.',
+      signal: 'user-correction', sourceRef: 'test:user', actor: 'human', note: 'The premise changed.', at: observedAt,
     });
     expect(negative.state.weight).toBeLessThan(positive.state.weight);
     expect(negative.state.audit.map((event) => event.id)).toEqual([positive.event.id, negative.event.id]);
     const revoked = store.record({
       projectId: 'org/project', candidateKind: 'observation', candidateId: '7',
-      signal: 'revoke', sourceRef: 'test:undo', actor: 'human', targetEventId: negative.event.id,
+      signal: 'revoke', sourceRef: 'test:undo', actor: 'human', targetEventId: negative.event.id, at: observedAt,
     });
     expect(revoked.state.weight).toBe(positive.state.weight);
     const auditIds = revoked.state.audit.map((event) => event.id);
     expect(auditIds).toEqual([positive.event.id, negative.event.id, revoked.event.id]);
     expect(new Set(auditIds).size).toBe(auditIds.length);
-    expect(store.audit('org/project', 'observation', '7')).toHaveLength(3);
+    expect(store.audit('org/project', 'observation', '7').map((event) => event.id)).toEqual([
+      revoked.event.id, negative.event.id, positive.event.id,
+    ]);
+
+    closeAllDatabases();
+    const reopened = new MemoryFeedbackStore();
+    await reopened.init(tempDir);
+    expect(reopened.getState('org/project', 'observation', '7').audit.map((event) => event.id)).toEqual(auditIds);
+    expect(reopened.audit('org/project', 'observation', '7').map((event) => event.id)).toEqual([
+      revoked.event.id, negative.event.id, positive.event.id,
+    ]);
   });
 });

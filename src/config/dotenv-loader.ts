@@ -40,8 +40,8 @@ function loadEnvFile(filePath: string): void {
 
   const parsed = parse(readFileSync(filePath, 'utf-8'));
   for (const [key, value] of Object.entries(parsed)) {
-    loadedEnvKeys.add(key);
     if (!(key in process.env)) {
+      loadedEnvKeys.add(key);
       process.env[key] = value;
       injectedKeys.add(key);
     }

@@ -13,7 +13,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { loadDotenv, resetDotenv, getLoadedEnvFiles } from '../../src/config/dotenv-loader.js';
+import { loadDotenv, resetDotenv, getLoadedEnvFiles, getLoadedEnvKeys } from '../../src/config/dotenv-loader.js';
 
 const TEST_DIR = join(tmpdir(), 'memorix-dotenv-test-' + Date.now());
 const TEST_DIR_B = join(tmpdir(), 'memorix-dotenv-test-b-' + Date.now());
@@ -57,6 +57,15 @@ describe('loadDotenv', () => {
 
     // System env should win
     expect(process.env.MEMORIX_TEST_OVERRIDE_VAR).toBe('from_system');
+  });
+
+  it('should not report a system env var as a loaded .env key', () => {
+    process.env.MEMORIX_TEST_OVERRIDE_VAR = 'from_system';
+    writeFileSync(join(TEST_DIR, '.env'), 'MEMORIX_TEST_OVERRIDE_VAR=from_dotenv\n');
+
+    loadDotenv(TEST_DIR, { userHomeDir: TEST_HOME });
+
+    expect(getLoadedEnvKeys().has('MEMORIX_TEST_OVERRIDE_VAR')).toBe(false);
   });
 
   it('should track loaded files in diagnostics', () => {

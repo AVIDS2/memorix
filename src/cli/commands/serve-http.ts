@@ -889,6 +889,15 @@ export default defineCommand({
         }
 
         if (apiPath === '/team') {
+          if (req.method !== 'GET') {
+            sendJson({
+              status: 'error',
+              readOnly: true,
+              error: 'Coordination status is read-only',
+              errorCode: 'COORDINATION_STATUS_READ_ONLY',
+            }, 405);
+            return;
+          }
           // Phase 4a: All team state is in SQLite via TeamStore
           const { projectId: teamProjectId, dataDir: teamDataDir } = await resolveRequestProject(url);
           const ts = await getTeamStore(teamDataDir);
@@ -967,8 +976,9 @@ export default defineCommand({
           const openHandoffs = handoffs.filter((handoff: any) => handoff.status !== 'completed').length;
 
           sendJson({
+            status: 'ok',
             mode: 'control-plane',
-            readOnly: false,
+            readOnly: true,
             scope,
             agents: withTier,
             // Primary headline number
@@ -1650,6 +1660,23 @@ export default defineCommand({
 
         sendJson({ error: 'Not found' }, 404);
       } catch (err) {
+        if (apiPath === '/team') {
+          const scope = url.searchParams.get('scope') === 'global' ? 'global' : 'project';
+          console.error('[memorix] coordination snapshot unavailable', { status: 'error', scope });
+          sendJson({
+            status: 'error',
+            mode: 'control-plane',
+            readOnly: true,
+            scope,
+            agents: [],
+            locks: [],
+            tasks: [],
+            handoffs: [],
+            error: 'Coordination state unavailable',
+            errorCode: 'COORDINATION_STATE_UNAVAILABLE',
+          }, 503);
+          return;
+        }
         sendJson({ error: err instanceof Error ? err.message : 'Unknown error' }, 500);
       }
     }

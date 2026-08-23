@@ -19,6 +19,12 @@ memorix dashboard
 
 Both modes read the same project-scoped stores. The project switcher changes the active project filter; it does not merge projects or grant access to personal memories.
 
+## Coordination Status
+
+The Coordination Status page is a read-only projection of the selected project's persistent coordination state. `TeamStore` is the canonical SQLite layer for agents, tasks, messages, locks, handoffs, and poll state; the Dashboard does not keep a second in-memory coordination registry.
+
+The page reports agents, task status, file locks, and handoffs for the selected project. It exposes no team or task write endpoints and is not a task execution or full orchestration platform. If the SQLite read fails, the API returns an explicit degraded/error status and the page shows that the status is unavailable instead of presenting an empty result as healthy.
+
 ## Maintenance Workbench
 
 The Observations page exposes three explicit maintenance actions:

@@ -142,17 +142,21 @@ const i18n = {
     noRetentionDesc: 'Store observations to see memory retention scores',
 
     // Team -> Coordination
-    teamTitle: 'Coordination',
-    teamSubtitle: 'Coordinated agents, tasks, locks, and handoffs',
-    teamNoData: 'No coordination workflow activity yet',
-    teamNoDataHint: 'Use the CLI orchestrator or inspect coordination state.',
+    teamTitle: 'Coordination Status',
+    teamSubtitle: 'Read-only project coordination status',
+    teamNoData: 'No coordination status is available',
+    teamNoDataHint: 'Coordination state is read-only and comes from the project SQLite store.',
+    teamStatusError: 'Coordination status unavailable',
+    teamStatusDegraded: 'Coordination status degraded',
+    teamStatusErrorDesc: 'The persistent coordination state could not be read. This view has no write actions.',
+    teamStatusDegradedDesc: 'Some persistent coordination state could not be read. Values may be incomplete.',
     teamActiveAgents: 'Active Agents',
     teamLockedFiles: 'Locked Files',
     teamTasks: 'Tasks',
     teamAvailable: 'Available',
     teamAgents: 'Agents',
     teamLocks: 'File Locks',
-    teamTaskBoard: 'Task Board',
+    teamTaskStatus: 'Task Status',
     // Resume area
     resumeTitle: 'Continue This Project',
     resumeDesc: 'What needs attention right now',
@@ -282,7 +286,7 @@ const i18n = {
     projectUnresolved: 'Unresolved',
     projectUnresolvedDesc: 'No project bound — select a project from the switcher',
     projectResolved: 'Resolved',
-    projectScopeProject: 'Project Coordination',
+    projectScopeProject: 'Project Coordination Status',
     projectScopeGlobal: 'All Projects',
     projectScopeProjectDesc: 'Agents and tasks coordinated for this project',
     projectScopeGlobalDesc: 'Agents and tasks coordinated across projects',
@@ -469,8 +473,8 @@ const i18n = {
     // Mode banner
     modeStandalone: 'Standalone',
     modeControlPlane: 'Control Plane',
-    modeStandaloneHint: 'Standalone dashboard - memory and read-only coordination state',
-    modeControlPlaneHint: 'HTTP control plane - shared MCP access and live dashboard',
+    modeStandaloneHint: 'Standalone dashboard - memory and read-only coordination status',
+    modeControlPlaneHint: 'HTTP control plane - shared MCP access and read-only coordination status',
     modeBannerProject: 'Project',
     modeBannerMcp: 'MCP',
 
@@ -621,17 +625,21 @@ const i18n = {
     noRetentionDesc: '存储观察记录以查看记忆衰减分数',
 
     // Team -> 编排协作
-    teamTitle: '编排协作',
-    teamSubtitle: 'agents、任务、文件锁和交接状态',
-    teamNoData: '暂无编排协作活动',
-    teamNoDataHint: '使用 CLI 编排任务，或查看协调状态。',
+    teamTitle: '协作状态',
+    teamSubtitle: '只读项目协作状态',
+    teamNoData: '暂无可用的协作状态',
+    teamNoDataHint: '协作状态为只读，并来自项目 SQLite 存储。',
+    teamStatusError: '协作状态不可用',
+    teamStatusDegraded: '协作状态已降级',
+    teamStatusErrorDesc: '无法读取持久协作状态。此视图不提供写入操作。',
+    teamStatusDegradedDesc: '部分持久协作状态无法读取，当前数据可能不完整。',
     teamActiveAgents: '活跃 Agent',
     teamLockedFiles: '锁定文件',
     teamTasks: '任务',
     teamAvailable: '可领取',
     teamAgents: 'Agent',
     teamLocks: '文件锁',
-    teamTaskBoard: '任务看板',
+    teamTaskStatus: '任务状态',
     // Resume area
     resumeTitle: '继续这个项目',
     resumeDesc: '当前需要关注的事项',
@@ -761,7 +769,7 @@ const i18n = {
     projectUnresolved: '未绑定',
     projectUnresolvedDesc: '无项目绑定 — 请从切换器选择项目',
     projectResolved: '已绑定',
-    projectScopeProject: '项目编排协作',
+    projectScopeProject: '项目协作状态',
     projectScopeGlobal: '所有项目',
     projectScopeProjectDesc: '当前项目中的 agents 和任务',
     projectScopeGlobalDesc: '所有项目中的 agents 和任务',
@@ -953,8 +961,8 @@ const i18n = {
     // Mode banner
     modeStandalone: '独立模式',
     modeControlPlane: '控制平面',
-    modeStandaloneHint: '独立看板 - 记忆与只读协调状态',
-    modeControlPlaneHint: 'HTTP 控制平面 - 共享 MCP 接入与实时看板',
+    modeStandaloneHint: '独立视图 - 记忆与只读协作状态',
+    modeControlPlaneHint: 'HTTP 控制平面 - 共享 MCP 接入与只读协作状态',
     modeBannerProject: '项目',
     modeBannerMcp: 'MCP',
 
@@ -1157,8 +1165,12 @@ async function api(endpoint) {
       ? `/api/${endpoint}${sep}project=${encodeURIComponent(selectedProject)}`
       : `/api/${endpoint}`;
     const res = await fetch(url);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return await res.json();
+    const payload = await res.json().catch(() => null);
+    if (!res.ok) {
+      if (endpoint.startsWith('team') && payload?.status) return payload;
+      throw new Error(`HTTP ${res.status}`);
+    }
+    return payload;
   } catch (err) {
     console.error(`API error (${endpoint}):`, err);
     return null;
@@ -4492,7 +4504,10 @@ async function loadTeam() {
   }
 
   const data = await api('team?scope=' + teamScope);
-  if (!data || data.unavailable) {
+  if (!data || data.unavailable || data.status === 'error' || data.status === 'degraded') {
+    const isDegraded = data?.status === 'degraded';
+    const statusTitle = isDegraded ? t('teamStatusDegraded') : (data?.status === 'error' ? t('teamStatusError') : t('teamNoData'));
+    const statusDescription = isDegraded ? t('teamStatusDegradedDesc') : (data?.status === 'error' ? t('teamStatusErrorDesc') : t('teamNoDataHint'));
     container.innerHTML = `
       <div class="page-header">
         <h1 class="page-title">${t('teamTitle')}</h1>
@@ -4501,10 +4516,9 @@ async function loadTeam() {
       <div class="panel">
         <div class="panel-body" style="text-align:center;padding:48px;">
           <div style="font-size:36px;margin-bottom:12px;"><span class="iconify" data-icon="lucide:users" style="font-size:36px;"></span></div>
-          <div style="font-size:16px;font-weight:600;color:var(--text-primary);margin-bottom:8px;">${t('teamNoData')}</div>
+          <div style="font-size:16px;font-weight:600;color:var(--text-primary);margin-bottom:8px;">${statusTitle}</div>
           <div style="font-size:13px;color:var(--text-muted);max-width:480px;margin:0 auto;line-height:1.6;">
-            ${t('teamNoDataHint')}<br>
-            <code style="background:var(--bg-surface);padding:4px 10px;border-radius:6px;margin-top:8px;display:inline-block;font-size:12px;">memorix orchestrate · memorix team status · memorix task list</code>
+            ${statusDescription}<br>
           </div>
         </div>
       </div>
@@ -4763,7 +4777,7 @@ async function loadTeam() {
 
     <div class="panel">
       <div class="panel-header">
-        <span class="panel-title">${t('teamTaskBoard')}</span>
+        <span class="panel-title">${t('teamTaskStatus')}</span>
         <span class="team-panel-count">${data.availableTasks || 0} ${t('teamAvailableToClaim')}</span>
       </div>
       <div class="panel-body">

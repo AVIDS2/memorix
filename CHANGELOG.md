@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+- **Coordination truth in Dashboard** -- the Dashboard Coordination Status page
+  is a read-only project-scoped view backed by the persistent SQLite `TeamStore`
+  for agents, tasks, messages, locks, handoffs, and poll state. It no longer
+  falls back to an in-memory team snapshot or presents coordination read errors
+  as a healthy empty result.
+
 ## [1.8.0] - 2026-08-23
 
 ### Added

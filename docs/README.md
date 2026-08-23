@@ -33,7 +33,7 @@ The public docs are organized by user intent:
 | CLI commands and MCP tools | [API_REFERENCE.md](API_REFERENCE.md) |
 | Memory Autopilot, Code State, and context packs | [API_REFERENCE.md § Memory Autopilot, Code State, and Context Packs](API_REFERENCE.md#memory-autopilot-code-state-and-context-packs), [1.2 Code State](1.2.0-CODE-STATE.md), and [1.2 Workset Retrieval](1.2.0-WORKSET-RETRIEVAL.md) |
 | Reviewed episodic, semantic, and procedural long-term memory | [1.3 Memory Architecture](1.3-MEMORY-ARCHITECTURE.md) |
-| Browse memory and run preview-first local maintenance | [Dashboard](DASHBOARD.md) |
+| Browse memory, maintenance, and read-only Coordination Status | [Dashboard](DASHBOARD.md) |
 | Reviewable knowledge pages and workflow inheritance | [API_REFERENCE.md § Knowledge Workspace and Workflows](API_REFERENCE.md#knowledge-workspace-and-workflows), [1.2 Knowledge Workspace](1.2.0-KNOWLEDGE-WORKSPACE.md), and [1.2 Workflow Inheritance](1.2.0-WORKFLOW-INHERITANCE.md) |
 | Git-derived engineering memory | [GIT_MEMORY.md](GIT_MEMORY.md) |
 | Memory formation and quality pipeline | [MEMORY_FORMATION_PIPELINE.md](MEMORY_FORMATION_PIPELINE.md) |

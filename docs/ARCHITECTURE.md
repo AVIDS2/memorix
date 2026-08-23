@@ -498,7 +498,9 @@ It provides an operational view for:
 - sessions
 - retention state
 - preview-first cleanup, consolidation, intelligent deduplication, and retention archival
-- read-only orchestration coordination state in the standalone dashboard and live state in HTTP service mode
+- read-only Coordination Status derived from the project-scoped SQLite `TeamStore`; the page is a projection, not a task execution surface
+
+`TeamStore` is the real persistent coordination layer for agents, tasks, messages, locks, handoffs, and poll state. Dashboard coordination reads use that same SQLite state and return an explicit degraded/error status when it cannot be read; they must not substitute a normal-looking empty snapshot.
 
 Dashboard maintenance is not a separate business-logic implementation. CLI, MCP, background jobs, and Dashboard routes share the same cleanup, consolidation, deduplication, and retention functions. Mutation routes issue a project-bound signed preview token and reject execution when the candidate set changed after preview.
 

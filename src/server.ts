@@ -198,7 +198,7 @@ function createDeterministicInstanceId(projectId: string, agentType: string, age
  * Create and configure the Memorix MCP Server.
  */
 /** Optional shared TeamStore — passed by serve-http so all sessions share state */
-export interface SharedTeamInstances {
+export interface SharedTeamStore {
   teamStore: import('./team/team-store.js').TeamStore;
 }
 
@@ -245,7 +245,7 @@ export function shouldAwaitProjectRuntime(toolName: string): boolean {
 export async function createMemorixServer(
   cwd?: string,
   existingServer?: McpServer,
-  sharedTeam?: SharedTeamInstances,
+  sharedTeam?: SharedTeamStore,
   options: CreateMemorixServerOptions = {},
 ): Promise<{
   server: McpServer;
@@ -4420,7 +4420,7 @@ export async function createMemorixServer(
         console.error(`[memorix] Dashboard staticDir: ${staticDir}`);
 
         // Start in background (non-blocking), disable auto-open (we'll open it ourselves)
-        startDashboard(projectDir, portNum, staticDir, project.id, project.name, false, undefined, project.rootPath, projectResolved)
+        startDashboard(projectDir, portNum, staticDir, project.id, project.name, false, project.rootPath, projectResolved)
           .then(() => { dashboardRunning = true; })
           .catch((err) => { console.error('[memorix] Dashboard error:', err); dashboardRunning = false; });
 
@@ -4786,7 +4786,7 @@ export async function createMemorixServer(
   server.registerTool(
     'team_task',
     {
-      title: 'Task Board',
+      title: 'Task Status',
       description:
         'Create, claim, complete, or list tasks in the team task board. Supports dependencies. ' +
         'Action "create": create a task. Action "claim": assign to yourself (atomic, race-safe). ' +

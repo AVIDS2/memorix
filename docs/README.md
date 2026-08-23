@@ -121,7 +121,7 @@ Historical/deep-reference documents may describe older designs. If they conflict
 
 ## Current Product Line
 
-The current product line is **1.8.0**. The authoritative acceptance contract is
+The current product line is **1.8.1**. The authoritative acceptance contract is
 [1.8.0 Release Specification](1.8.0-RELEASE-CANDIDATE-SPEC.md).
 The current baseline has:
 
@@ -130,6 +130,9 @@ The current baseline has:
 - `memorix background start` runs the shared HTTP MCP service and dashboard
 - Dashboard maintenance is preview-first, project-scoped, and uses the same
   cleanup and deduplication planners as CLI and MCP
+- Dashboard Coordination Status is read-only and projects the persistent SQLite
+  `TeamStore` truth; its task section is `Task Status` and failed reads are
+  explicit `error`/`degraded` states
 - context and CodeGraph commands return bounded task receipts before detailed diagnostics
 - HTTP MCP sessions have a bounded, explicit lifecycle and fail with a reinitialize hint after expiry
 - `memorix integrate --agent <agent>` and `memorix hooks install --agent <agent>` remain manual/fallback generation commands

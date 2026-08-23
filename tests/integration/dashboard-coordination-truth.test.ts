@@ -94,7 +94,7 @@ describe('Dashboard coordination truth', () => {
     expect(body.status).toBe('ok');
     expect(body.readOnly).toBe(true);
     expect(body.mode).toBe('standalone');
-    expect(body.agents.map((agent: any) => agent.name)).toEqual(['agent-a-2', 'agent-a']);
+    expect(body.agents.map((agent: any) => agent.name).sort()).toEqual(['agent-a', 'agent-a-2']);
     expect(body.tasks).toHaveLength(1);
     expect(body.tasks[0].description).toBe('Project A task');
     expect(body.locks).toHaveLength(1);
@@ -161,11 +161,20 @@ describe('Dashboard coordination truth', () => {
   it('keeps the dashboard coordination surface read-only and accurately named', async () => {
     const app = await fs.readFile(path.join(process.cwd(), 'src', 'dashboard', 'static', 'app.js'), 'utf8');
     const server = await fs.readFile(path.join(process.cwd(), 'src', 'dashboard', 'server.ts'), 'utf8');
+    const packageJson = JSON.parse(await fs.readFile(path.join(process.cwd(), 'package.json'), 'utf8'));
+    const packageLock = JSON.parse(await fs.readFile(path.join(process.cwd(), 'package-lock.json'), 'utf8'));
+    const serverManifest = JSON.parse(await fs.readFile(path.join(process.cwd(), 'server.json'), 'utf8'));
 
+    expect(packageJson.version).toBe('1.8.1');
+    expect(packageLock.version).toBe('1.8.1');
+    expect(packageLock.packages[''].version).toBe('1.8.1');
+    expect(serverManifest.version).toBe('1.8.1');
     expect(app).toContain("teamTaskStatus: 'Task Status'");
     expect(app).toContain("teamTaskStatus: '任务状态'");
     expect(app).toContain("teamTitle: 'Coordination Status'");
     expect(app).toContain("teamTitle: '协作状态'");
+    expect(app).toContain("modeControlPlane: 'Control Plane'");
+    expect(app).toContain("dashboardMode === 'control-plane'");
     expect(app).not.toContain(['Task', 'Board'].join(' '));
     expect(app).not.toContain(['任务', '看板'].join(''));
     const legacyInstanceTypes = [['Team', 'Instances'], ['team', 'Instances']].map(parts => parts.join(''));

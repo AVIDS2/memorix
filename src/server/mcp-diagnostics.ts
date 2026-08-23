@@ -27,7 +27,7 @@ export function getMcpDiagnostics(): McpDiagnostics {
     protocol: {
       current: CURRENT_MCP_PROTOCOL_VERSION,
       legacy: LEGACY_MCP_PROTOCOL_VERSION,
-      statelessRequests: 'compatibility-only',
+    statelessRequests: 'supported',
       statefulStreamableHttp: 'supported',
     },
     capabilities: {

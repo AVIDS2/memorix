@@ -26,7 +26,8 @@ import { scopeKnowledgeGraphToProject } from '../memory/graph-scope.js';
 import { projectObservationRetention, summarizeRetentionProjections } from '../memory/retention.js';
 import { canManageObservation, filterReadableObservations } from '../memory/visibility.js';
 import type { Observation } from '../types.js';
-import { buildEvidenceCards } from './evidence.js';
+import { EvidenceCardStore } from '../store/evidence-store.js';
+import { MemoryFeedbackStore } from '../memory/feedback.js';
 import {
     DashboardMaintenanceError,
     executeCleanup,
@@ -328,15 +329,18 @@ async function handleApi(
             }
 
             case '/evidence': {
-                await initGraphStore(effectiveDataDir);
                 const observations = filterDashboardObservations(
                     await getObservationStore().loadByProject(effectiveProjectId, { status: 'active' }),
                     effectiveProjectId,
                 );
-                const graph = { entities: getGraphStore().loadEntities(), relations: getGraphStore().loadRelations() };
+                const evidenceStore = new EvidenceCardStore();
+                await evidenceStore.init(effectiveDataDir);
+                evidenceStore.syncObservations(observations);
                 const query = url.searchParams.get('q') || '';
                 const limit = Number(url.searchParams.get('limit') || 20);
-                sendJson(res, { cards: buildEvidenceCards(observations, graph, query, limit), projectId: effectiveProjectId });
+                const cards = evidenceStore.list(effectiveProjectId, { limit: Math.min(100, Math.max(1, limit)) })
+                    .filter((card) => !query || [card.title, card.summary, card.sourceRef, card.locator ?? ''].join(' ').toLowerCase().includes(query.toLowerCase()));
+                sendJson(res, { cards, projectId: effectiveProjectId });
                 break;
             }
 
@@ -395,10 +399,15 @@ async function handleApi(
                 }));
 
                 const retentionReferenceTime = new Date(now);
+                const feedback = new MemoryFeedbackStore();
+                await feedback.init(effectiveDataDir).catch(() => undefined);
                 const retention = summarizeRetentionProjections(
                     observations
                         .filter((observation) => observation.type !== 'probe')
-                        .map((observation) => projectObservationRetention(observation, { referenceTime: retentionReferenceTime })),
+                        .map((observation) => projectObservationRetention(observation, {
+                            referenceTime: retentionReferenceTime,
+                            feedback: feedback.getState(effectiveProjectId, 'observation', String(observation.id)),
+                        })),
                 );
                 const retentionSummary = {
                     active: retention.active,
@@ -503,11 +512,16 @@ async function handleApi(
                 );
 
                 const referenceTime = new Date();
+                const feedback = new MemoryFeedbackStore();
+                await feedback.init(effectiveDataDir).catch(() => undefined);
                 const rows = observations
                     .filter((observation) => observation.type !== 'probe')
                     .map((observation) => ({
                         observation,
-                        retention: projectObservationRetention(observation, { referenceTime }),
+                        retention: projectObservationRetention(observation, {
+                            referenceTime,
+                            feedback: feedback.getState(effectiveProjectId, 'observation', String(observation.id)),
+                        }),
                     }))
                     .sort((a, b) => b.retention.displayScore - a.retention.displayScore);
                 const summary = summarizeRetentionProjections(rows.map((row) => row.retention));

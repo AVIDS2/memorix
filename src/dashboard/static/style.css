@@ -64,6 +64,92 @@
   --transition-emphasized: 500ms cubic-bezier(0.2, 0, 0, 1);
 }
 
+/* Evidence Console: provenance is readable at a glance and stays bounded on
+   narrow screens; long paths and generated titles never widen the viewport. */
+.evidence-console {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.evidence-card {
+  border: 1px solid var(--border-color, rgba(148, 163, 184, .18));
+  border-radius: 8px;
+  background: var(--surface, rgba(15, 23, 42, .45));
+  padding: 16px;
+  min-width: 0;
+}
+
+.evidence-card-header {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  justify-content: space-between;
+  min-width: 0;
+}
+
+.evidence-card-heading {
+  min-width: 0;
+}
+
+.evidence-card-heading h2 {
+  margin: 4px 0 0;
+  font-size: 16px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.evidence-card-kind {
+  color: var(--text-muted);
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.evidence-card-state {
+  display: flex;
+  gap: 6px;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.evidence-state {
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  padding: 3px 7px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.evidence-current, .evidence-verified { color: #4ade80; }
+.evidence-stale, .evidence-conflicted { color: #fb923c; }
+.evidence-unverified { color: var(--text-muted); }
+
+.evidence-card-summary {
+  margin: 12px 0;
+  color: var(--text-secondary, var(--text-muted));
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.evidence-card-meta {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0;
+}
+
+.evidence-card-meta div { min-width: 0; }
+.evidence-card-meta dt { color: var(--text-muted); font-size: 11px; margin-bottom: 3px; }
+.evidence-card-meta dd { margin: 0; font-size: 12px; overflow-wrap: anywhere; }
+.evidence-card-warning { margin-top: 10px; color: #fb923c; font-size: 12px; overflow-wrap: anywhere; }
+
+@media (max-width: 600px) {
+  .evidence-card-header { display: block; }
+  .evidence-card-state { justify-content: flex-start; margin-top: 10px; }
+  .evidence-card-meta { grid-template-columns: 1fr; }
+}
+
 /* Light Theme - MD3 */
 [data-theme="light"] {
   --bg-base: #FFFBFE;

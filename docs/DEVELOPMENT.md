@@ -13,8 +13,8 @@ Memorix is a TypeScript project built around:
 
 ## Current Development Baseline
 
-The current release work targets the **1.8.0 release-candidate line** while package metadata may
-still show the last published version until the release commit is cut.
+The current release work targets the **1.8.0 release line** and package metadata
+is kept at `1.8.0` for this release commit.
 
 Contributors should assume the following areas are part of the current release line:
 
@@ -29,6 +29,7 @@ Contributors should assume the following areas are part of the current release l
 - the existing layered retrieval, retention, attribution, and compact output model
 - source-backed long-term memory with candidate, qualification, approval, archival, supersession, and explicit portable user scope
 - preview-first project maintenance shared across Dashboard, CLI, and MCP
+- persisted Evidence Cards, feedback audit events, and stateless MCP project handles
 - the reproducible large-store gate for SDK, HTTP MCP, hooks, persistence, and
   cold-start retrieval budgets
 

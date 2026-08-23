@@ -37,6 +37,7 @@ The public docs are organized by user intent:
 | Reviewable knowledge pages and workflow inheritance | [API_REFERENCE.md § Knowledge Workspace and Workflows](API_REFERENCE.md#knowledge-workspace-and-workflows), [1.2 Knowledge Workspace](1.2.0-KNOWLEDGE-WORKSPACE.md), and [1.2 Workflow Inheritance](1.2.0-WORKFLOW-INHERITANCE.md) |
 | Git-derived engineering memory | [GIT_MEMORY.md](GIT_MEMORY.md) |
 | Memory formation and quality pipeline | [MEMORY_FORMATION_PIPELINE.md](MEMORY_FORMATION_PIPELINE.md) |
+| Evidence cards and memory feedback | [1.8.0 Release Specification](1.8.0-RELEASE-CANDIDATE-SPEC.md) and [API_REFERENCE.md](API_REFERENCE.md) |
 | Performance and resource profile | [PERFORMANCE.md](PERFORMANCE.md) |
 | Orchestrated subagent tasks, messages, locks, handoffs | [API_REFERENCE.md § Orchestration Coordination](API_REFERENCE.md#9-orchestration-coordination-tools) |
 | Subagent orchestration | [API_REFERENCE.md](API_REFERENCE.md) and `memorix orchestrate --help` |
@@ -92,6 +93,7 @@ The public docs are organized by user intent:
 | 1.2 honest Lite and optional semantic CodeGraph provider contract | [1.2 Provider Quality](1.2.0-PROVIDER-QUALITY.md) |
 | 1.3 long-term memory model, source boundary, and lifecycle | [1.3 Memory Architecture](1.3-MEMORY-ARCHITECTURE.md) |
 | Active context-control work | [1.2.2 Memory Control Plane](1.2.2-MEMORY-CONTROL-PLANE.md) |
+| 1.8 context-control acceptance contract | [1.8.0 Release Specification](1.8.0-RELEASE-CANDIDATE-SPEC.md) |
 | Historical cloud sync and multi-agent research | [CLOUD_SYNC_AND_MULTI_AGENT_RESEARCH.md](CLOUD_SYNC_AND_MULTI_AGENT_RESEARCH.md) |
 | Known issues and old roadmap notes | [KNOWN_ISSUES_AND_ROADMAP.md](KNOWN_ISSUES_AND_ROADMAP.md) |
 
@@ -119,8 +121,8 @@ Historical/deep-reference documents may describe older designs. If they conflict
 
 ## Current Product Line
 
-The release candidate is on the **1.8 line**. The authoritative acceptance
-contract is [1.8.0 Release Candidate Specification](1.8.0-RELEASE-CANDIDATE-SPEC.md).
+The current product line is **1.8.0**. The authoritative acceptance contract is
+[1.8.0 Release Specification](1.8.0-RELEASE-CANDIDATE-SPEC.md).
 The current baseline has:
 
 - `memorix setup --agent <agent> --global` is the default agent integration command
@@ -135,9 +137,8 @@ The current baseline has:
 - `~/.memorix/config.toml` and project `memorix.toml` are the user-facing configuration model
 - legacy `memorix.yml`, `.env`, and `config.json` files are still read for compatibility, but new setups should use TOML
 
-For MCP compatibility, 1.8 preserves legacy stateful Streamable HTTP and adds
-diagnostics for the 2026-07-28 stateless request contract. Tasks/polling is
-reported as unsupported when the pinned SDK cannot provide a real durable
-implementation. Antigravity is the primary setup target; Gemini CLI is the
-compatibility path. See the release-candidate specification for implemented
-capabilities, compatibility behavior, and future work.
+For MCP compatibility, 1.8 preserves legacy stateful Streamable HTTP and
+supports 2026-07-28 stateless requests with durable project handles. Tasks and
+polling are reported as unsupported when the pinned SDK cannot provide a real
+durable implementation. Antigravity is the primary setup target; Gemini CLI is
+the compatibility path. See the release specification for the exact contract.

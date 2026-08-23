@@ -339,6 +339,7 @@ describe('project context CLI commands', () => {
       task: 'continue the auth fix',
       refresh: 'never',
       briefJson: true,
+      fallback: true,
       agent: 'codex',
     });
 
@@ -348,6 +349,54 @@ describe('project context CLI commands', () => {
     expect(parsed.loadout?.agent).toBe('codex');
     expect(parsed).not.toHaveProperty('overview');
     expect(parsed).not.toHaveProperty('workset');
+  });
+
+  it('budgets explicit fallback once while leaving ordinary context repeatable', async () => {
+    const first = await runCommand(contextCommand, {
+      input: 'recover the fallback wiring task',
+      refresh: 'never',
+      briefJson: true,
+      fallback: true,
+    });
+    expect(first.exitCode).toBe(0);
+
+    const second = await runCommand(contextCommand, {
+      input: 'recover the fallback wiring task',
+      refresh: 'never',
+      briefJson: true,
+      fallback: true,
+    });
+    expect(second.exitCode).toBe(1);
+    expect(second.stderr).toContain('Fallback budget exhausted');
+
+    const ordinaryFirst = await runCommand(contextCommand, {
+      input: 'recover the fallback wiring task',
+      refresh: 'never',
+      briefJson: true,
+    });
+    const ordinarySecond = await runCommand(contextCommand, {
+      input: 'recover the fallback wiring task',
+      refresh: 'never',
+      briefJson: true,
+    });
+    expect(ordinaryFirst.exitCode).toBe(0);
+    expect(ordinarySecond.exitCode).toBe(0);
+
+    const resumeFirst = await runCommand(resumeCommand, {
+      task: 'resume the fallback wiring task',
+      refresh: 'never',
+      briefJson: true,
+      fallback: true,
+    });
+    const resumeSecond = await runCommand(resumeCommand, {
+      task: 'resume the fallback wiring task',
+      refresh: 'never',
+      briefJson: true,
+      fallback: true,
+    });
+    expect(resumeFirst.exitCode).toBe(0);
+    expect(resumeSecond.exitCode).toBe(1);
+    expect(resumeSecond.stderr).toContain('Fallback budget exhausted');
   });
 
   it('does not inject prior-work context for an unrelated new task', async () => {

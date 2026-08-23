@@ -16,6 +16,7 @@ export default defineCommand({
     agent: { type: 'string', description: 'Optional target agent for compatible workflow selection' },
     json: { type: 'boolean', description: 'Emit machine-readable JSON output' },
     briefJson: { type: 'boolean', description: 'Emit only the bounded agent brief and receipt JSON' },
+    fallback: { type: 'boolean', description: 'Mark this as the one-shot MCP-unavailable fallback for the task' },
   },
   async run({ args }) {
     await contextCommand.run?.({
@@ -26,6 +27,7 @@ export default defineCommand({
         agent: args.agent,
         json: args.json,
         briefJson: args.briefJson,
+        fallback: args.fallback,
         resume: true,
       },
       rawArgs: [],

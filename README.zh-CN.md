@@ -420,7 +420,7 @@ memcode
 
 长期记忆不是把所有笔记自动堆进去。Observation、Claim、工作流、session 和代码快照仍各自承担原来的职责。Agent 可以在 `memorix_store` 时要求额外生成长期记忆**候选**，但候选绝不会自动进入任务上下文；用 `memorix memory long-term qualify|approve|archive|supersede` 留下带证据的生命周期记录。只有人工创建或用户确认的 `user + portable` 记忆，才可能在同一台机器的其它项目中按任务相关性被使用；项目代码、Git 事实、测试、工作流、session 和 Observation 都不能被提升成可携带的用户记忆。
 
-`memorix context "..."` 是默认的 Memory Autopilot 入口。它会按任务生成紧凑 brief：修 bug 时偏向测试和复现，发版时偏向 package/changelog/build 检查，接手项目时偏向文档和入口文件；过期或不相关的记忆只作为 warning，不会一股脑塞进 prompt。CLI 回退需要结构化结果时用 `--brief-json`，它只返回同一份有预算的 brief 和“选了什么、略了什么”的回执；`--json` 保留给详细诊断。普通新任务不会自动得到旧会话的文本倾倒；明确要继续之前工作时，用 `memorix resume "..."`，只会补入最近一份有用的会话总结、最多三条当前可读的长期记忆锚点，以及最多一条带来源标识的近期宿主压缩检查点。每个长期锚点都有 `durable:<id>` 引用，Agent 只在确实需要完整已审核记录时才通过 `memorix_detail` 展开。关键词仍优先；没有命中而且用户已配置 embedding 时，Memorix 才会做一次 1.8 秒、不重试的语义回退，用于模型改写或跨语言任务。服务变慢或不可用时，正常的关键词 Workset 会原样返回。检查点只是生命周期证据，不是长期记忆，也不是聊天记录备份。Agent 应该先读 suggested files，再相信历史记忆。
+`memorix context "..."` 是默认的 Memory Autopilot 入口。它会按任务生成紧凑 brief：修 bug 时偏向测试和复现，发版时偏向 package/changelog/build 检查，接手项目时偏向文档和入口文件；过期或不相关的记忆只作为 warning，不会一股脑塞进 prompt。只有 MCP 不可用时才使用 CLI 回退，并带上 `--fallback --brief-json`，它只返回同一份有预算的 brief 和“选了什么、略了什么”的回执；`--json` 保留给详细诊断。普通新任务不会自动得到旧会话的文本倾倒；明确要继续之前工作时，用 `memorix resume "..."`，只会补入最近一份有用的会话总结、最多三条当前可读的长期记忆锚点，以及最多一条带来源标识的近期宿主压缩检查点。每个长期锚点都有 `durable:<id>` 引用，Agent 只在确实需要完整已审核记录时才通过 `memorix_detail` 展开。关键词仍优先；没有命中而且用户已配置 embedding 时，Memorix 才会做一次 1.8 秒、不重试的语义回退，用于模型改写或跨语言任务。服务变慢或不可用时，正常的关键词 Workset 会原样返回。检查点只是生命周期证据，不是长期记忆，也不是聊天记录备份。Agent 应该先读 suggested files，再相信历史记忆。
 
 <h2 id="运行模式"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/tags/light/section-runtime.svg"><img src="assets/tags/section-runtime.svg" alt="运行模式" height="32" /></picture></h2>
 

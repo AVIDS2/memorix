@@ -119,7 +119,6 @@ export class MemoryFeedbackStore {
         continue;
       }
       state = applyMemoryFeedback(state, event);
-      state.audit.push(event);
     }
     this.requireDb().prepare(`
       INSERT INTO memory_feedback_states (project_id, candidate_kind, candidate_id, weight, lifecycle_status, updated_at)

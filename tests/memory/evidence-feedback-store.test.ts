@@ -64,16 +64,21 @@ describe('1.8 persisted evidence and feedback', () => {
       signal: 'verification-success', sourceRef: 'test:verification', actor: 'agent-a',
     });
     expect(positive.state.weight).toBeGreaterThan(1);
+    expect(positive.state.audit.map((event) => event.id)).toEqual([positive.event.id]);
     const negative = store.record({
       projectId: 'org/project', candidateKind: 'observation', candidateId: '7',
       signal: 'user-correction', sourceRef: 'test:user', actor: 'human', note: 'The premise changed.',
     });
     expect(negative.state.weight).toBeLessThan(positive.state.weight);
+    expect(negative.state.audit.map((event) => event.id)).toEqual([positive.event.id, negative.event.id]);
     const revoked = store.record({
       projectId: 'org/project', candidateKind: 'observation', candidateId: '7',
       signal: 'revoke', sourceRef: 'test:undo', actor: 'human', targetEventId: negative.event.id,
     });
     expect(revoked.state.weight).toBe(positive.state.weight);
+    const auditIds = revoked.state.audit.map((event) => event.id);
+    expect(auditIds).toEqual([positive.event.id, negative.event.id, revoked.event.id]);
+    expect(new Set(auditIds).size).toBe(auditIds.length);
     expect(store.audit('org/project', 'observation', '7')).toHaveLength(3);
   });
 });

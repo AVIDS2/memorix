@@ -1,4 +1,5 @@
 import { Readable } from 'node:stream';
+import os from 'node:os';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const project = {
@@ -252,7 +253,7 @@ describe('serve command mode support', () => {
     isSystemDirectoryMock.mockReturnValue(false);
     initTeamStoreMock.mockResolvedValue({});
     getProjectDataDirMock.mockResolvedValue('E:/memorix-data');
-    getBaseDataDirMock.mockReturnValue('E:/memorix-base');
+    getBaseDataDirMock.mockReturnValue(os.tmpdir());
     createMemorixServerMock.mockResolvedValue(makeServerResult());
     existsSyncMock.mockReturnValue(false);
     readFileSyncMock.mockReturnValue('');
@@ -344,7 +345,7 @@ describe('serve-http command mode support', () => {
     findGitInSubdirsMock.mockReturnValue(null);
     initTeamStoreMock.mockResolvedValue({});
     getProjectDataDirMock.mockResolvedValue('E:/memorix-data');
-    getBaseDataDirMock.mockReturnValue('E:/memorix-base');
+    getBaseDataDirMock.mockReturnValue(os.tmpdir());
     createControlPlaneMaintenanceWorkerMock.mockReturnValue({ start: maintenanceWorkerStartMock });
     createMemorixServerMock.mockResolvedValue(makeServerResult());
     createServerMock.mockImplementation((handler: any) => {

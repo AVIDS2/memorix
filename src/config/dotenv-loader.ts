@@ -31,6 +31,8 @@ let dotenvProjectRoot: string | null = null;
 
 /** Track which .env files were loaded (for diagnostics) */
 const loadedEnvFiles: string[] = [];
+const loadedEnvKeys = new Set<string>();
+const loadedEnvValues = new Map<string, string>();
 /** Track keys injected by .env so project switches can cleanly restore process.env */
 const injectedKeys = new Set<string>();
 
@@ -40,6 +42,8 @@ function loadEnvFile(filePath: string): void {
   const parsed = parse(readFileSync(filePath, 'utf-8'));
   for (const [key, value] of Object.entries(parsed)) {
     if (!(key in process.env)) {
+      loadedEnvKeys.add(key);
+      loadedEnvValues.set(key, value);
       process.env[key] = value;
       injectedKeys.add(key);
     }
@@ -68,6 +72,8 @@ export function loadDotenv(projectRoot?: string, options: DotenvLoadOptions = {}
   }
 
   loadedEnvFiles.length = 0;
+  loadedEnvKeys.clear();
+  loadedEnvValues.clear();
 
   // Loading order = priority order (with override: false, first value wins).
   // System env vars already exist in process.env, so they always win.
@@ -96,6 +102,7 @@ export function resetDotenv(): void {
   dotenvLoaded = false;
   dotenvProjectRoot = null;
   loadedEnvFiles.length = 0;
+  loadedEnvKeys.clear();
 }
 
 /**
@@ -103,6 +110,16 @@ export function resetDotenv(): void {
  */
 export function getLoadedEnvFiles(): readonly string[] {
   return loadedEnvFiles;
+}
+
+/** Get names found in loaded .env files without exposing their values. */
+export function getLoadedEnvKeys(): ReadonlySet<string> {
+  return loadedEnvKeys;
+}
+
+/** Get the value injected by .env, if the current process still has that value. */
+export function getLoadedEnvValue(key: string): string | undefined {
+  return loadedEnvValues.get(key);
 }
 
 // ─── Supported .env variables ───

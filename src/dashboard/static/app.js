@@ -15,6 +15,7 @@ const i18n = {
     entities: 'Entities',
     relations: 'Relations',
     observations: 'Observations',
+    evidence: 'Evidence',
     nextId: 'Next ID',
     observationTypes: 'Observation Types',
     recentActivity: 'Recent Activity',
@@ -42,6 +43,18 @@ const i18n = {
     noMatchingObs: 'No matching observations',
     noObsTitle: 'No Observations',
     noObsDesc: 'Use memorix_store to create observations',
+    evidenceSubtitle: 'Why this memory is trusted, where it came from, and whether it is still current',
+    evidenceSource: 'Source',
+    evidenceLocator: 'Locator',
+    evidenceFreshness: 'Freshness',
+    evidenceCurrent: 'Current',
+    evidenceStale: 'Stale',
+    evidenceVerified: 'Verified',
+    evidenceUnverified: 'Unverified',
+    evidenceConflicted: 'Conflicted',
+    evidenceNoCards: 'No evidence cards',
+    evidenceNoCardsDesc: 'Store or sync project memories to build a provenance view.',
+    evidenceEvents: 'Audit events',
     untitled: 'Untitled',
     unknown: 'unknown',
     lowQuality: 'cleanup candidate',
@@ -428,6 +441,7 @@ const i18n = {
     navKnowledge: 'Memory Overview',
     navGraph: 'Memory Map',
     navObservations: 'Observations',
+    navEvidence: 'Evidence',
     navRetention: 'Retention',
     navConfig: 'Config',
     navIdentity: 'Identity',
@@ -438,6 +452,7 @@ const i18n = {
     navLabelKnowledge: 'Knowledge',
     navLabelGraph: 'Graph',
     navLabelObservations: 'Observations',
+    navLabelEvidence: 'Evidence',
     navLabelRetention: 'Retention',
     navLabelConfig: 'Config',
     navLabelIdentity: 'Identity',
@@ -479,6 +494,7 @@ const i18n = {
     entities: '实体',
     relations: '关系',
     observations: '观察记录',
+    evidence: '证据',
     nextId: '下一个 ID',
     observationTypes: '观察类型分布',
     recentActivity: '最近活动',
@@ -506,6 +522,18 @@ const i18n = {
     noMatchingObs: '没有匹配的观察记录',
     noObsTitle: '暂无观察记录',
     noObsDesc: '使用 memorix_store 创建观察记录',
+    evidenceSubtitle: '查看记忆为何可信、来自哪里，以及是否仍然有效',
+    evidenceSource: '来源',
+    evidenceLocator: '定位',
+    evidenceFreshness: '新鲜度',
+    evidenceCurrent: '当前',
+    evidenceStale: '已过期',
+    evidenceVerified: '已验证',
+    evidenceUnverified: '未验证',
+    evidenceConflicted: '有冲突',
+    evidenceNoCards: '暂无证据卡',
+    evidenceNoCardsDesc: '写入或同步项目记忆后，这里会显示来源和审计信息。',
+    evidenceEvents: '审计事件',
     untitled: '无标题',
     unknown: '未知',
     lowQuality: '清理候选',
@@ -897,6 +925,7 @@ const i18n = {
     navKnowledge: '记忆概览',
     navGraph: '记忆关系图',
     navObservations: '观察记录',
+    navEvidence: '证据',
     navRetention: '记忆衰减',
     navConfig: '配置溯源',
     navIdentity: '身份健康',
@@ -907,6 +936,7 @@ const i18n = {
     navLabelKnowledge: '知识库',
     navLabelGraph: '图谱',
     navLabelObservations: '观察',
+    navLabelEvidence: '证据',
     navLabelRetention: '衰减',
     navLabelConfig: '配置',
     navLabelIdentity: '身份',
@@ -970,8 +1000,8 @@ function setLang(lang) {
   if (label) label.textContent = lang === 'en' ? '中文' : 'EN';
 
   // Update nav tooltips + labels
-  const tooltipMap = { dashboard: 'navDashboard', 'git-memory': 'navGitMemory', knowledge: 'navKnowledge', graph: 'navGraph', observations: 'navObservations', retention: 'navRetention', config: 'navConfig', identity: 'navIdentity', sessions: 'navSessions', team: 'navTeam' };
-  const labelMap = { dashboard: 'navLabelDashboard', 'git-memory': 'navLabelGitMemory', knowledge: 'navLabelKnowledge', graph: 'navLabelGraph', observations: 'navLabelObservations', retention: 'navLabelRetention', config: 'navLabelConfig', identity: 'navLabelIdentity', sessions: 'navLabelSessions', team: 'navLabelTeam' };
+  const tooltipMap = { dashboard: 'navDashboard', 'git-memory': 'navGitMemory', knowledge: 'navKnowledge', graph: 'navGraph', observations: 'navObservations', evidence: 'navEvidence', retention: 'navRetention', config: 'navConfig', identity: 'navIdentity', sessions: 'navSessions', team: 'navTeam' };
+  const labelMap = { dashboard: 'navLabelDashboard', 'git-memory': 'navLabelGitMemory', knowledge: 'navLabelKnowledge', graph: 'navLabelGraph', observations: 'navLabelObservations', evidence: 'navLabelEvidence', retention: 'navLabelRetention', config: 'navLabelConfig', identity: 'navLabelIdentity', sessions: 'navLabelSessions', team: 'navLabelTeam' };
   document.querySelectorAll('.nav-btn').forEach(b => {
     const page = b.dataset.page;
     if (page && tooltipMap[page]) b.title = t(tooltipMap[page]);
@@ -1062,7 +1092,7 @@ onDomReady(() => {
 // Router & Navigation
 // ============================================================
 
-const pages = ['dashboard', 'git-memory', 'knowledge', 'graph', 'observations', 'retention', 'config', 'identity', 'sessions', 'team'];
+const pages = ['dashboard', 'git-memory', 'knowledge', 'graph', 'observations', 'evidence', 'retention', 'config', 'identity', 'sessions', 'team'];
 let currentPage = 'dashboard';
 
 function navigate(page) {
@@ -1569,6 +1599,7 @@ async function loadPage(page) {
     case 'knowledge': await loadKnowledge(); break;
     case 'graph': await loadGraph(); break;
     case 'observations': await loadObservations(); break;
+    case 'evidence': await loadEvidence(); break;
     case 'retention': await loadRetention(); break;
     case 'config': await loadConfig(); break;
     case 'identity': await loadIdentity(); break;
@@ -3632,6 +3663,51 @@ async function loadObservations() {
   renderObsList();
 }
 
+async function loadEvidence() {
+  const container = document.getElementById('page-evidence');
+  container.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+  const data = await api('evidence') || { cards: [] };
+  const cards = data.cards || [];
+  if (cards.length === 0) {
+    container.innerHTML = emptyState('<span class="iconify" data-icon="lucide:file-check-2" style="font-size:36px;"></span>', t('evidenceNoCards'), t('evidenceNoCardsDesc'));
+    return;
+  }
+  container.innerHTML = `
+    <div class="page-header">
+      <h1 class="page-title">${t('evidence')}</h1>
+      <p class="page-subtitle">${t('evidenceSubtitle')}</p>
+    </div>
+    <div class="evidence-console" role="list">
+      ${cards.map((card) => {
+        const freshness = card.freshness === 'stale' ? t('evidenceStale') : t('evidenceCurrent');
+        const verification = card.verification === 'verified' ? t('evidenceVerified') : card.verification === 'conflicted' ? t('evidenceConflicted') : t('evidenceUnverified');
+        const eventCount = (card.events || []).length;
+        return `
+          <article class="evidence-card" role="listitem">
+            <div class="evidence-card-header">
+              <div class="evidence-card-heading">
+                <span class="evidence-card-kind">${escapeHtml(card.sourceKind || 'memory')}</span>
+                <h2>${escapeHtml(card.title || t('untitled'))}</h2>
+              </div>
+              <div class="evidence-card-state">
+                <span class="evidence-state evidence-${card.freshness === 'stale' ? 'stale' : 'current'}">${escapeHtml(freshness)}</span>
+                <span class="evidence-state evidence-${card.verification === 'verified' ? 'verified' : card.verification === 'conflicted' ? 'conflicted' : 'unverified'}">${escapeHtml(verification)}</span>
+              </div>
+            </div>
+            <p class="evidence-card-summary">${escapeHtml(card.summary || '')}</p>
+            <dl class="evidence-card-meta">
+              <div><dt>${t('evidenceSource')}</dt><dd>${escapeHtml(card.sourceRef || 'unknown')}</dd></div>
+              <div><dt>${t('evidenceLocator')}</dt><dd>${escapeHtml(card.locator || 'not recorded')}</dd></div>
+              <div><dt>${t('evidenceEvents')}</dt><dd>${eventCount}</dd></div>
+            </dl>
+            ${card.staleReason ? `<div class="evidence-card-warning">${escapeHtml(card.staleReason)}</div>` : ''}
+          </article>
+        `;
+      }).join('')}
+    </div>
+  `;
+}
+
 function renderObsList() {
   const list = document.getElementById('obs-list');
   if (!list) return;
@@ -3686,7 +3762,15 @@ function renderObsList() {
         ${obs.narrative ? `<div class="obs-detail-section"><label>${t('narrative')}</label><div class="obs-card-narrative">${hl(obs.narrative)}</div></div>` : ''}
         ${obs.facts && obs.facts.length > 0 ? `<div class="obs-detail-section"><label>${t('facts')}</label><div class="obs-card-facts">${obs.facts.map(f => `<span class="fact-tag">${hl(f)}</span>`).join('')}</div></div>` : ''}
         ${obs.concepts && obs.concepts.length > 0 ? `<div class="obs-detail-section"><label>${t('concepts')}</label><div class="obs-card-facts">${obs.concepts.map(c => `<span class="fact-tag concept-tag">${hl(c)}</span>`).join('')}</div></div>` : ''}
-        ${obs.filesModified && obs.filesModified.length > 0 ? `<div class="obs-detail-section"><label>${t('files')}</label><div class="obs-card-facts">${obs.filesModified.map(f => `<span class="fact-tag file-tag">${hl(f)}</span>`).join('')}</div></div>` : ''}
+         ${obs.filesModified && obs.filesModified.length > 0 ? `<div class="obs-detail-section"><label>${t('files')}</label><div class="obs-card-facts">${obs.filesModified.map(f => `<span class="fact-tag file-tag">${hl(f)}</span>`).join('')}</div></div>` : ''}
+         <div class="obs-detail-section evidence-provenance" aria-label="Evidence provenance">
+           <label>Evidence</label>
+           <div class="obs-card-meta">
+             <span>Source: ${escapeHtml(obs.sourceDetail || obs.source || 'unknown')}</span>
+             ${obs.sessionId ? `<span>Session: ${escapeHtml(obs.sessionId)}</span>` : ''}
+             ${obs.status ? `<span>Verification: ${obs.status === 'resolved' ? 'verified' : obs.status === 'archived' ? 'conflicted' : 'unverified'}</span>` : ''}
+           </div>
+         </div>
         <div class="obs-detail-actions">
           <button class="delete-btn" onclick="deleteObs(${obs.id}, event)">
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4h12M5 4V3a1 1 0 011-1h4a1 1 0 011 1v1M6 7v5M10 7v5M3 4l1 9a1 1 0 001 1h6a1 1 0 001-1l1-9"/></svg>

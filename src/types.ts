@@ -280,6 +280,10 @@ export interface IndexEntry {
   documentType?: DocumentType;
   /** Knowledge layer for layer-aware ranking (Phase 3a) */
   knowledgeLayer?: KnowledgeLayer;
+  /** Feedback materialized weight used by the context-control plane. */
+  feedbackWeight?: number;
+  /** Feedback lifecycle projection used to avoid recalling conflicted records. */
+  feedbackStatus?: ObservationStatus;
 }
 
 /** Explicit reference to an observation, optionally scoped to a project. */
@@ -390,6 +394,10 @@ export interface MemorixDocument {
   documentType?: DocumentType;
   /** Knowledge layer for layer-aware ranking (Phase 3a) */
   knowledgeLayer?: KnowledgeLayer;
+  /** Feedback materialized weight used by context-control retrieval. */
+  feedbackWeight?: number;
+  /** Feedback lifecycle projection used by retention and retrieval. */
+  feedbackStatus?: ObservationStatus;
 }
 
 // ============================================================

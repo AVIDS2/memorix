@@ -11,6 +11,7 @@ import { buildBoundedContextReceipt } from '../../knowledge/context-receipt.js';
 import { WORKFLOW_AGENT_TARGETS } from '../../knowledge/workflows.js';
 import type { AgentTarget } from '../../types.js';
 import { emitError, emitResult, getCliProjectContext } from './operator-shared.js';
+import { CliFallbackBudget } from '../fallback-budget.js';
 
 function coerceRefreshMode(input?: string): AutoContextRefreshMode {
   const value = (input ?? 'auto').trim().toLowerCase();
@@ -42,6 +43,7 @@ export default defineCommand({
     agent: { type: 'string', description: 'Optional target agent for compatible workflow selection' },
     json: { type: 'boolean', description: 'Emit machine-readable JSON output' },
     briefJson: { type: 'boolean', description: 'Emit only the bounded agent brief and receipt JSON' },
+    fallback: { type: 'boolean', description: 'Mark this as the one-shot MCP-unavailable fallback for the task' },
   },
   run: async ({ args }) => {
     const asJson = !!args.json || !!args.briefJson;
@@ -51,6 +53,15 @@ export default defineCommand({
 
     try {
       const { project, dataDir, reader } = await getCliProjectContext();
+      if (args.fallback) {
+        const budget = new CliFallbackBudget();
+        await budget.init(dataDir);
+        const claim = budget.claim(project.id, task);
+        if (!claim.allowed) {
+          emitError(claim.reason ?? 'CLI fallback budget exhausted for this task.', asJson);
+          return;
+        }
+      }
       const context = await buildAutoProjectContext({
         project,
         dataDir,

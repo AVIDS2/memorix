@@ -19,6 +19,8 @@ export const CLI_NATIVE_PARITY: Record<string, string> = Object.freeze({
   memorix_transfer: 'memorix transfer export|import',
   memorix_retention: 'memorix retention status|archive|stale',
   memorix_media: 'memorix media import|attach|list|show|generate|status',
+  memorix_evidence: 'memorix evidence list|get|sync|stale|events',
+  memorix_feedback: 'memorix feedback record|show|audit',
   memorix_dashboard: 'memorix dashboard',
   memorix_handoff: 'memorix handoff send',
   memorix_poll: 'memorix poll',

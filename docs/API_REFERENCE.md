@@ -103,7 +103,7 @@ memorix context "continue auth bug"
 memorix resume "continue auth bug"
 memorix checkpoint list
 memorix checkpoint context --task "continue auth bug"
-memorix context --task "prepare 1.1.7 release"
+  memorix context --task "prepare 1.8.0 release"
 memorix explain
 memorix codegraph context-pack --task "continue auth bug"
 ```
@@ -122,6 +122,42 @@ Project-specific generated, vendored, or cache paths can be excluded from Code S
 SessionStart hooks keep the default minimal hint lightweight. When memory behavior is configured with `sessionInject=full`, Codex receives the compact Memory Autopilot brief at session start instead of only listing recent text memories. After a native compact, Codex receives one bounded checkpoint through its official `SessionStart` compact context channel. Claude Code receives one bounded checkpoint through the next official `UserPromptSubmit` context channel, then delivery stops. Pi and Oh-my-Pi retain the native summary fields their extension API exposes; hosts that do not expose a summary remain labelled as lifecycle-only. Set `memory.inject = "silent"` to disable automatic hook delivery.
 
 The intended loop for agents is: get the project brief when it helps, inspect the suggested current files, use stale or unbound memory only as a lead, store durable outcomes after the work changes the project, and resolve obsolete memories.
+
+### Evidence Cards and Feedback
+
+Evidence Cards are the persisted provenance index for project memory. They do
+not replace the observation, source file, commit, or test they point to. Every
+observation write creates or refreshes a card with `sourceRef`, `locator`,
+`capturedHash`, project ownership, files, verification state, and freshness.
+
+CLI:
+
+```bash
+memorix evidence list --json
+memorix evidence get --id 42 --json
+memorix evidence stale --paths src/server.ts,tests/server.test.ts --json
+memorix feedback record --id 42 --signal verification-success --source test:run-1 --json
+memorix feedback audit --id 42 --json
+```
+
+MCP uses `memorix_evidence` for `list`, `get`, `sync`, `stale`, and `events`,
+and `memorix_feedback` for `record`, `show`, and `audit`. Feedback events are
+append-only; `revoke` points at the event being undone, so the audit history is
+preserved. A memory without explicit feedback keeps the legacy relevance and
+retention score. The first feedback event opts that candidate into the
+feedback projection.
+
+### HTTP MCP Compatibility
+
+Legacy clients use stateful Streamable HTTP with `Mcp-Session-Id`. Current
+stateless clients send `Mcp-Protocol-Version: 2026-07-28` and receive a durable
+`Mcp-Project-Handle`. Send that handle on subsequent requests; it is persisted
+in SQLite and remains valid across service restart until its TTL expires.
+`/protocol-diagnostics` reports the current/legacy contract and explicitly
+reports Tasks and polling as unsupported when the pinned SDK cannot provide a
+durable implementation. When MCP discovery is unavailable, use one bounded
+`memorix context --fallback` request for a task; repeated fallback probing is
+rejected by the local budget.
 
 The built-in Lite provider indexes common code files with lightweight file, symbol, and import facts. It is a structural fallback, not a language-server-quality graph. When a project already has a healthy local CodeGraph index, `[codegraph].external_context = "auto"` may add a validated, bounded semantic outline to the Workset. Memorix never initializes, syncs, or exports that external index, and never stores its raw source output. `memorix codegraph status --json`, `memorix doctor --json`, and Project Context JSON identify the actual provider quality.
 

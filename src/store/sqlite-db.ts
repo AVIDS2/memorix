@@ -742,6 +742,88 @@ CREATE TABLE IF NOT EXISTS compaction_checkpoints (
 );
 `;
 
+// 1.8 context-control plane: persisted provenance cards, feedback state, and
+// explicit stateless MCP project handles. These are append/update records in
+// the same SQLite database as observations so a process restart cannot lose
+// the context-control boundary.
+const CREATE_EVIDENCE_CARDS_TABLE = `
+CREATE TABLE IF NOT EXISTS evidence_cards (
+  id                 TEXT PRIMARY KEY,
+  project_id         TEXT NOT NULL,
+  candidate_kind     TEXT NOT NULL,
+  candidate_id       TEXT NOT NULL,
+  title              TEXT NOT NULL,
+  summary            TEXT NOT NULL DEFAULT '',
+  entity_name        TEXT,
+  source_kind        TEXT NOT NULL,
+  source_ref         TEXT NOT NULL,
+  locator            TEXT,
+  captured_hash      TEXT,
+  session_id         TEXT,
+  status             TEXT NOT NULL DEFAULT 'active',
+  verification       TEXT NOT NULL DEFAULT 'unverified',
+  freshness          TEXT NOT NULL DEFAULT 'current',
+  stale_reason       TEXT,
+  files_json         TEXT NOT NULL DEFAULT '[]',
+  related_entities_json TEXT NOT NULL DEFAULT '[]',
+  created_at         TEXT NOT NULL,
+  updated_at         TEXT NOT NULL,
+  UNIQUE(project_id, candidate_kind, candidate_id)
+);
+`;
+
+const CREATE_EVIDENCE_CARD_EVENTS_TABLE = `
+CREATE TABLE IF NOT EXISTS evidence_card_events (
+  id          TEXT PRIMARY KEY,
+  project_id  TEXT NOT NULL,
+  card_id     TEXT NOT NULL,
+  kind        TEXT NOT NULL,
+  detail      TEXT,
+  created_at  TEXT NOT NULL,
+  FOREIGN KEY (card_id) REFERENCES evidence_cards(id) ON DELETE CASCADE
+);
+`;
+
+const CREATE_MEMORY_FEEDBACK_STATES_TABLE = `
+CREATE TABLE IF NOT EXISTS memory_feedback_states (
+  project_id       TEXT NOT NULL,
+  candidate_kind   TEXT NOT NULL,
+  candidate_id     TEXT NOT NULL,
+  weight           REAL NOT NULL DEFAULT 1.0,
+  lifecycle_status TEXT NOT NULL DEFAULT 'active',
+  updated_at       TEXT NOT NULL,
+  PRIMARY KEY (project_id, candidate_kind, candidate_id)
+);
+`;
+
+const CREATE_MEMORY_FEEDBACK_EVENTS_TABLE = `
+CREATE TABLE IF NOT EXISTS memory_feedback_events (
+  id              TEXT PRIMARY KEY,
+  project_id      TEXT NOT NULL,
+  candidate_kind  TEXT NOT NULL,
+  candidate_id    TEXT NOT NULL,
+  signal          TEXT NOT NULL,
+  actor           TEXT,
+  note            TEXT,
+  source_ref      TEXT NOT NULL,
+  target_event_id TEXT,
+  delta           REAL NOT NULL DEFAULT 0,
+  observed_at     TEXT NOT NULL
+);
+`;
+
+const CREATE_MCP_BINDINGS_TABLE = `
+CREATE TABLE IF NOT EXISTS mcp_bindings (
+  handle_id    TEXT PRIMARY KEY,
+  project_id   TEXT NOT NULL,
+  project_root TEXT NOT NULL,
+  data_dir     TEXT NOT NULL,
+  created_at   TEXT NOT NULL,
+  last_used_at TEXT NOT NULL,
+  expires_at   TEXT
+);
+`;
+
 const CREATE_INDEXES = `
 CREATE INDEX IF NOT EXISTS idx_observations_projectId ON observations(projectId);
 CREATE INDEX IF NOT EXISTS idx_observations_topicKey ON observations(projectId, topicKey);
@@ -803,6 +885,12 @@ CREATE INDEX IF NOT EXISTS idx_maintenance_targets_updated ON maintenance_target
 CREATE INDEX IF NOT EXISTS idx_compaction_checkpoints_project_recent ON compaction_checkpoints(project_id, status, completed_at DESC, pre_captured_at DESC);
 CREATE INDEX IF NOT EXISTS idx_compaction_checkpoints_session_pending ON compaction_checkpoints(project_id, session_id, agent, phase, status, pre_captured_at DESC);
 CREATE INDEX IF NOT EXISTS idx_compaction_checkpoints_source ON compaction_checkpoints(project_id, source_key);
+CREATE INDEX IF NOT EXISTS idx_evidence_cards_project ON evidence_cards(project_id, status, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_evidence_cards_candidate ON evidence_cards(project_id, candidate_kind, candidate_id);
+CREATE INDEX IF NOT EXISTS idx_evidence_card_events_card ON evidence_card_events(card_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_memory_feedback_states_project ON memory_feedback_states(project_id, candidate_kind, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_memory_feedback_events_candidate ON memory_feedback_events(project_id, candidate_kind, candidate_id, observed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_mcp_bindings_project ON mcp_bindings(project_id, last_used_at DESC);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_maintenance_jobs_active_dedupe
   ON maintenance_jobs(project_id, kind, dedupe_key)
   WHERE status IN ('pending', 'running', 'retry');
@@ -965,6 +1053,22 @@ const SCHEMA_MIGRATIONS: SchemaMigration[] = [
     apply: (db) => {
       try { db.exec('ALTER TABLE media_jobs ADD COLUMN source_asset_id TEXT'); } catch { /* already exists */ }
       db.exec('CREATE INDEX IF NOT EXISTS idx_media_jobs_source_asset ON media_jobs(project_id, source_asset_id, status)');
+    },
+  },
+  {
+    id: '1.8-context-control-plane',
+    apply: (db) => {
+      db.exec(CREATE_EVIDENCE_CARDS_TABLE);
+      db.exec(CREATE_EVIDENCE_CARD_EVENTS_TABLE);
+      db.exec(CREATE_MEMORY_FEEDBACK_STATES_TABLE);
+      db.exec(CREATE_MEMORY_FEEDBACK_EVENTS_TABLE);
+      db.exec(CREATE_MCP_BINDINGS_TABLE);
+      db.exec('CREATE INDEX IF NOT EXISTS idx_evidence_cards_project ON evidence_cards(project_id, status, updated_at DESC)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_evidence_cards_candidate ON evidence_cards(project_id, candidate_kind, candidate_id)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_evidence_card_events_card ON evidence_card_events(card_id, created_at)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_memory_feedback_states_project ON memory_feedback_states(project_id, candidate_kind, updated_at DESC)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_memory_feedback_events_candidate ON memory_feedback_events(project_id, candidate_kind, candidate_id, observed_at DESC)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_mcp_bindings_project ON mcp_bindings(project_id, last_used_at DESC)');
     },
   },
 ];

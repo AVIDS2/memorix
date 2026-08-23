@@ -17,6 +17,7 @@ import { getObservationStore, resetObservationStore } from '../../src/store/obs-
 import { initTeamStore, resetTeamStore } from '../../src/team/team-store.js';
 import { resetProvider } from '../../src/embedding/provider.js';
 import { resetConfigCache } from '../../src/config.js';
+import { resetDotenv } from '../../src/config/dotenv-loader.js';
 
 // ── Test setup ────────────────────────────────────────────────────
 
@@ -518,7 +519,15 @@ describe('Embedded serve-http /api/config project scope', () => {
   const HTTP_BASE = `http://127.0.0.1:${HTTP_PORT}`;
   let httpTempDir: string;
   let httpProjectDir: string;
-  let httpServer: Server;
+  const configEnvKeys = [
+    'MEMORIX_LLM_PROVIDER', 'MEMORIX_LLM_MODEL', 'MEMORIX_LLM_API_KEY', 'MEMORIX_LLM_BASE_URL',
+    'MEMORIX_API_KEY', 'MEMORIX_AGENT_PROVIDER', 'MEMORIX_AGENT_MODEL', 'MEMORIX_AGENT_API_KEY',
+    'MEMORIX_AGENT_LLM_API_KEY', 'MEMORIX_EMBEDDING', 'MEMORIX_EMBEDDING_MODEL',
+    'MEMORIX_EMBEDDING_API_KEY', 'MEMORIX_EMBEDDING_BASE_URL', 'MEMORIX_RERANK_PROVIDER',
+    'MEMORIX_RERANK_MODEL', 'MEMORIX_RERANK_API_KEY', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY',
+    'OPENROUTER_API_KEY',
+  ];
+  const originalConfigEnv = Object.fromEntries(configEnvKeys.map(key => [key, process.env[key]]));
 
   beforeAll(async () => {
     httpTempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'memorix-config-test-'));
@@ -532,11 +541,24 @@ describe('Embedded serve-http /api/config project scope', () => {
       '[remote "origin"]\n\turl = https://github.com/test-org/my-project.git\n',
     );
 
-    // Create a project-level memorix.yml to test config detection
-    await fs.writeFile(
-      path.join(httpProjectDir, 'memorix.yml'),
-      'llm:\n  provider: openai\n  model: gpt-4\n',
-    );
+    await fs.writeFile(path.join(httpProjectDir, 'memorix.toml'), '[memory.llm]\nprovider = "openai"\nmodel = "project-model"\n');
+    await fs.writeFile(path.join(httpProjectDir, '.env'), 'OPENAI_API_KEY=project-secret-should-not-load\n');
+
+    await fs.mkdir(path.join(httpTempDir, '.memorix'), { recursive: true });
+    await fs.writeFile(path.join(httpTempDir, '.memorix', 'config.toml'), [
+      '[memory.llm]',
+      'provider = "openai"',
+      'model = "user-memory-model"',
+      '',
+      '[embedding]',
+      'provider = "api"',
+      'model = "user-embedding-model"',
+      '',
+      '[rerank]',
+      'provider = "http"',
+      'model = "user-rerank-model"',
+    ].join('\n'));
+    await fs.writeFile(path.join(httpTempDir, '.memorix', '.env'), 'OPENAI_API_KEY=user-secret-1234\n');
 
     // Seed data dir
     const memorixDir = path.join(httpTempDir, '.memorix', 'data');
@@ -548,31 +570,63 @@ describe('Embedded serve-http /api/config project scope', () => {
 
     process.env.HOME = httpTempDir;
     process.env.USERPROFILE = httpTempDir;
+    for (const key of configEnvKeys) delete process.env[key];
 
-    // Start embedded HTTP server (simplified — just the dashboard API part)
-    const { handleDashboardApi } = await import('../../src/cli/commands/serve-http.js').catch(() => ({ handleDashboardApi: null }));
-
-    // Since serve-http doesn't export the dashboard API handler directly,
-    // we test by hitting the full server. But that requires the full MCP setup.
-    // Instead, we'll test the /api/config logic indirectly by checking the response shape.
-    // For a lighter test, we can import and call the config route logic.
-
-    // Actually, let's just validate the config response shape has projectId field
-    // by testing the standalone dashboard's /api/config which has similar structure.
+    resetDotenv();
+    resetConfigCache();
+    const { startDashboard } = await import('../../src/dashboard/server.js');
+    await startDashboard(
+      path.join(httpTempDir, '.memorix', 'data'),
+      HTTP_PORT,
+      path.join(httpTempDir, 'static'),
+      '__unresolved__',
+      'unbound',
+      false,
+      undefined,
+      null,
+      false,
+    );
   }, 15_000);
 
   afterAll(async () => {
     process.env.HOME = originalHome;
     process.env.USERPROFILE = originalUserProfile;
+    for (const [key, value] of Object.entries(originalConfigEnv)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    resetDotenv();
     try { await fs.rm(httpTempDir, { recursive: true, force: true }); } catch { /* best effort */ }
   });
 
-  it('standalone /api/config does not crash when queried', async () => {
-    // Test against the standalone dashboard started in the first describe block
-    const res = await fetch(`${DASH_BASE}/api/config`);
+  it('GET /api/config reports isolated TOML and dotenv provenance', async () => {
+    const res = await fetch(`${HTTP_BASE}/api/config`);
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.values).toBeDefined();
-    expect(Array.isArray(body.values)).toBe(true);
+    const values = new Map(body.values.map((item: any) => [item.key, item]));
+    expect(body.files['user config.toml'].exists).toBe(true);
+    expect(body.files['project memorix.toml']).toMatchObject({ exists: false, unavailable: true });
+    expect(body.files['project .env']).toMatchObject({ exists: false, unavailable: true });
+    expect(values.get('llm.provider')).toMatchObject({ value: 'openai', source: 'config.toml' });
+    expect(values.get('llm.model')).toMatchObject({ value: 'user-memory-model', source: 'config.toml' });
+    expect(values.get('embedding.provider')).toMatchObject({ value: 'api', source: 'config.toml' });
+    expect(values.get('embedding.model')).toMatchObject({ value: 'user-embedding-model', source: 'config.toml' });
+    expect(values.get('rerank.provider')).toMatchObject({ value: 'http', source: 'config.toml' });
+    expect(values.get('rerank.model')).toMatchObject({ value: 'user-rerank-model', source: 'config.toml' });
+    expect(values.get('llm.apiKey')).toMatchObject({ value: '****1234', source: '.env' });
+    expect(values.get('agent.apiKey')).toMatchObject({ value: 'fallback to llm.apiKey', source: '.env' });
+    expect(JSON.stringify(body)).not.toContain('user-secret-1234');
+    expect(JSON.stringify(body)).not.toContain('project-secret-should-not-load');
+  });
+
+  it('GET /api/config attributes a system override to env:OPENAI_API_KEY', async () => {
+    process.env.OPENAI_API_KEY = 'system-secret-5678';
+    const res = await fetch(`${HTTP_BASE}/api/config`);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    const values = new Map(body.values.map((item: any) => [item.key, item]));
+    expect(values.get('llm.apiKey')).toMatchObject({ value: '****5678', source: 'env:OPENAI_API_KEY' });
+    expect(values.get('agent.apiKey')).toMatchObject({ source: 'env:OPENAI_API_KEY' });
+    expect(JSON.stringify(body)).not.toContain('system-secret-5678');
   });
 });

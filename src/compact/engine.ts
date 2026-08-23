@@ -22,6 +22,8 @@ import { getMiniSkillStore } from '../store/mini-skill-store.js';
 import { miniSkillToDocument, resolveProvenanceStatus, type ProvenanceStatus } from '../skills/mini-skills.js';
 import { redactCredentials } from '../memory/secret-filter.js';
 import { canReadObservation, filterReadableObservations } from '../memory/visibility.js';
+import { getProjectDataDir } from '../store/persistence.js';
+import { MemoryFeedbackStore, feedbackWeightMultiplier } from '../memory/feedback.js';
 
 export function normalizeMemoryBrowseQuery(query: string): string {
   const trimmed = query.trim();
@@ -71,9 +73,32 @@ export async function compactSearch(options: SearchOptions, surface: RetrievalSu
 }> {
   await ensureFreshIndex();
   const searchOptions = { ...options, query: normalizeMemoryBrowseQuery(options.query) };
-  const entries = (await searchObservations(searchOptions)).map((entry) =>
+  let entries = (await searchObservations(searchOptions)).map((entry) =>
     entry.projectId || !options.projectId ? entry : { ...entry, projectId: options.projectId },
   );
+  if (options.projectId) {
+    try {
+      const feedback = new MemoryFeedbackStore();
+      await feedback.init(await getProjectDataDir(options.projectId));
+      const states = feedback.weights(options.projectId, 'observation');
+      entries = entries
+        .map((entry) => {
+          const state = states.get(String(entry.id));
+          if (!state) return entry;
+          return {
+            ...entry,
+            score: (entry.score ?? 0) * feedbackWeightMultiplier(state.weight),
+            feedbackWeight: state.weight,
+            feedbackStatus: state.status,
+          };
+        })
+        .filter((entry) => entry.feedbackStatus !== 'archived' || options.status === 'all')
+        .sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+    } catch {
+      // Feedback is an enrichment lane. Retrieval remains available if an old
+      // local database has not yet run the 1.8 schema migration.
+    }
+  }
   let formatted = formatIndexTable(entries, searchOptions.query, !options.projectId, surface);
 
   if (entries.length === 0 && options.projectId) {

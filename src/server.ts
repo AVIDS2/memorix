@@ -36,6 +36,8 @@ import { detectProject } from './project/detector.js';
 import { homeProjectRootError, isHomeDirectory, writeLastProjectRoot } from './project/launch-root.js';
 import { registerAlias, initAliasRegistry, resolveAliases, autoMergeByBaseName } from './project/aliases.js';
 import { getProjectDataDir } from './store/persistence.js';
+import { EvidenceCardStore } from './store/evidence-store.js';
+import { MemoryFeedbackStore } from './memory/feedback.js';
 import type { ObservationType, RuleSource, AgentTarget, MCPServerEntry, ObservationReader } from './types.js';
 import { RulesSyncer } from './rules/syncer.js';
 import { WorkspaceSyncEngine } from './workspace/engine.js';
@@ -4445,7 +4447,7 @@ export async function createMemorixServer(
           process.platform === 'win32' ? `start "" "${url}"` :
             process.platform === 'darwin' ? `open "${url}"` :
               `xdg-open "${url}"`;
-        execCmd(openCmd, () => { });
+        execCmd(openCmd, { windowsHide: true }, () => { });
 
         return {
           content: [{
@@ -4473,6 +4475,124 @@ export async function createMemorixServer(
   // ================================================================
   // Orchestration Coordination Tools (Multi-Agent) - SQLite-backed
   // ================================================================
+
+  server.registerTool(
+    'memorix_evidence',
+    {
+      title: 'Evidence Cards',
+      description:
+        'Inspect the bounded, project-scoped provenance cards behind Memorix context. ' +
+        'Use list for a compact index, get/events for one source, sync to repair the projection, ' +
+        'and stale when known source files changed. Cards expose sourceRef, locator, capturedHash, and freshness.',
+      inputSchema: {
+        action: z.enum(['list', 'get', 'sync', 'stale', 'events']).describe('Evidence operation'),
+        candidateKind: z.enum(['observation', 'code', 'git', 'test', 'document', 'workflow', 'graph']).optional().default('observation'),
+        candidateId: z.string().optional().describe('Candidate id, usually an observation id'),
+        query: z.string().optional().describe('Optional title/source query for list'),
+        paths: z.array(z.string()).max(200).optional().describe('Changed source paths for stale'),
+        reason: z.string().max(500).optional().describe('Why evidence became stale'),
+        limit: z.number().int().positive().max(100).optional().default(20),
+      },
+    },
+    async ({ action, candidateKind, candidateId, query, paths, reason, limit }) => {
+      const unresolved = requireResolvedProject('inspect evidence cards for the current project');
+      if (unresolved) return unresolved;
+      const cards = new EvidenceCardStore();
+      await cards.init(projectDir);
+      if (action === 'sync') {
+        const observations = await getObservationStore().loadByProject(project.id);
+        const synced = cards.syncObservations(observations);
+        return { content: [{ type: 'text' as const, text: JSON.stringify({ projectId: project.id, synced: synced.length, cards: synced.slice(0, limit ?? 20) }, null, 2) }] };
+      }
+      if (action === 'stale') {
+        const changed = cards.markStaleForPaths(project.id, paths ?? [], reason ?? 'source file changed');
+        return { content: [{ type: 'text' as const, text: JSON.stringify({ projectId: project.id, staleMarked: changed, paths: paths ?? [] }, null, 2) }] };
+      }
+      if (action === 'get') {
+        if (!candidateId?.trim()) return { content: [{ type: 'text' as const, text: 'candidateId is required for evidence get.' }], isError: true };
+        const card = cards.get(project.id, candidateKind ?? 'observation', candidateId.trim());
+        if (!card) return { content: [{ type: 'text' as const, text: 'Evidence card not found.' }], isError: true };
+        return { content: [{ type: 'text' as const, text: JSON.stringify({ card, events: cards.listEvents(card.id), projectId: project.id }, null, 2) }] };
+      }
+      if (action === 'events') {
+        if (!candidateId?.trim()) return { content: [{ type: 'text' as const, text: 'candidateId is required for evidence events.' }], isError: true };
+        const card = cards.get(project.id, candidateKind ?? 'observation', candidateId.trim());
+        if (!card) return { content: [{ type: 'text' as const, text: 'Evidence card not found.' }], isError: true };
+        return { content: [{ type: 'text' as const, text: JSON.stringify(cards.listEvents(card.id, limit), null, 2) }] };
+      }
+      const needle = query?.trim().toLowerCase();
+      const listed = cards.list(project.id, { limit: Math.max(limit ?? 20, 100) })
+        .filter((card) => !needle || [card.title, card.summary, card.sourceRef, card.locator ?? ''].join(' ').toLowerCase().includes(needle))
+        .slice(0, limit ?? 20);
+      return { content: [{ type: 'text' as const, text: JSON.stringify({ projectId: project.id, cards: listed }, null, 2) }] };
+    },
+  );
+
+  server.registerTool(
+    'memorix_feedback',
+    {
+      title: 'Memory Feedback',
+      description:
+        'Record or inspect auditable memory outcomes. Positive verification/use strengthens recall; correction, conflict, source change, or weaken lowers it. ' +
+        'Use revoke with targetEventId to undo one prior signal without deleting audit history.',
+      inputSchema: {
+        action: z.enum(['record', 'show', 'audit']).describe('Feedback operation'),
+        candidateKind: z.enum(['observation', 'claim', 'durable-memory', 'workflow']).optional().default('observation'),
+        candidateId: z.string().describe('Memory or knowledge candidate id'),
+        signal: z.enum(['user-correction', 'verification-success', 'verification-failure', 'code-change', 'used', 'not-used', 'code-conflict', 'strengthen', 'weaken', 'revoke']).optional(),
+        sourceRef: z.string().max(500).optional().describe('Source of this feedback, such as test:run-42 or user:chat'),
+        actor: z.string().max(200).optional(),
+        note: z.string().max(2_000).optional(),
+        targetEventId: z.string().optional().describe('Existing event id when action=record and signal=revoke'),
+        limit: z.number().int().positive().max(200).optional().default(100),
+      },
+    },
+    async ({ action, candidateKind, candidateId, signal, sourceRef, actor, note, targetEventId, limit }) => {
+      const unresolved = requireResolvedProject('record memory feedback for the current project');
+      if (unresolved) return unresolved;
+      const feedback = new MemoryFeedbackStore();
+      await feedback.init(projectDir);
+      const kind = candidateKind ?? 'observation';
+      if (action === 'show') {
+        return { content: [{ type: 'text' as const, text: JSON.stringify(feedback.getState(project.id, kind, candidateId), null, 2) }] };
+      }
+      if (action === 'audit') {
+        return { content: [{ type: 'text' as const, text: JSON.stringify(feedback.audit(project.id, kind, candidateId, limit), null, 2) }] };
+      }
+      if (!signal || !sourceRef?.trim()) {
+        return { content: [{ type: 'text' as const, text: 'record requires signal and sourceRef.' }], isError: true };
+      }
+      try {
+        const result = feedback.record({
+          projectId: project.id,
+          candidateKind: kind,
+          candidateId,
+          signal,
+          sourceRef,
+          ...(actor || currentAgentId ? { actor: actor ?? currentAgentId } : {}),
+          ...(note ? { note } : {}),
+          ...(targetEventId ? { targetEventId } : {}),
+        });
+        if (kind === 'observation') {
+          const cards = new EvidenceCardStore();
+          await cards.init(projectDir);
+          const card = cards.get(project.id, 'observation', candidateId);
+          if (card) {
+            const verification = signal === 'verification-success' || signal === 'strengthen' ? 'verified' : signal === 'user-correction' || signal === 'code-conflict' || signal === 'weaken' ? 'conflicted' : card.verification;
+            cards.recordEvent(project.id, card.id, `feedback:${signal}`, note);
+            if (verification !== card.verification) {
+              // Keep the card projection in sync with the feedback state while
+              // retaining the append-only feedback audit as the source of truth.
+              cards.setVerification(project.id, card.id, verification);
+            }
+          }
+        }
+        return { content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: 'text' as const, text: error instanceof Error ? error.message : String(error) }], isError: true };
+      }
+    },
+  );
 
   // Use shared TeamStore (from HTTP server) or create new one (stdio mode).
   // All team state is canonical in SQLite — no JSON persistence, no sync/flush.

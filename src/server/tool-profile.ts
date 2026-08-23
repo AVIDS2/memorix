@@ -40,6 +40,10 @@ export const TOOL_PROFILES: Record<string, ReadonlyArray<ToolProfile>> = Object.
   // multimodal support to one additional schema rather than enabling lite.
   memorix_session_start:      ['micro', 'lite', 'team', 'full'],
   memorix_media:              ['micro', 'lite', 'team', 'full'],
+  // Evidence and feedback are deliberate operator/context-control surfaces;
+  // keep the default micro profile at its nine-tool token budget.
+  memorix_evidence:           ['lite', 'team', 'full'],
+  memorix_feedback:           ['lite', 'team', 'full'],
 
   // ── lite: extended solo memory surface ────────────────────────────
   memorix_graph_context:      ['lite', 'team', 'full'],

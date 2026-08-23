@@ -44,6 +44,7 @@ import { getEmbeddingProvider, isEmbeddingExplicitlyDisabled, validateEmbeddingI
 import { sanitizeCredentials } from './secret-filter.js';
 import { enqueueClaimDerivation, enqueueObservationQualification } from '../runtime/lifecycle.js';
 import { canManageObservation, resolveObservationVisibility } from './visibility.js';
+import { EvidenceCardStore } from '../store/evidence-store.js';
 
 /** In-memory observation list (loaded from persistence on init) */
 let observations: Observation[] = [];
@@ -183,6 +184,20 @@ async function bindObservationCodeRefsBestEffort(observation: Observation): Prom
     await bindObservationToCode(codeStore, observation);
   } catch {
     // Code refs enrich memory retrieval, but memory writes must remain durable without them.
+  }
+}
+
+async function persistEvidenceCard(observation: Observation): Promise<void> {
+  if (!projectDir) return;
+  try {
+    const evidence = new EvidenceCardStore();
+    await evidence.init(projectDir);
+    evidence.upsertObservation(observation);
+  } catch (error) {
+    // Evidence is a derived control-plane projection. A failed projection must
+    // never roll back the canonical observation, but it must be visible for a
+    // later repair/sync pass.
+    console.error(`[memorix] Evidence card projection failed for obs-${observation.id}: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
 
@@ -692,6 +707,7 @@ export async function storeObservation(input: {
   if (!persistedCallbackInvoked) await input.onPersisted?.(observation);
 
   await bindObservationCodeRefsBestEffort(observation);
+  await persistEvidenceCard(observation);
   queueObservationQualification(observation);
   if (resolveObservationVisibility(observation) === 'project') {
     queueClaimDerivation(observation);
@@ -828,6 +844,7 @@ async function upsertObservation(
   }
 
   await bindObservationCodeRefsBestEffort(existing);
+  await persistEvidenceCard(existing);
   queueObservationQualification(existing);
   if (resolveObservationVisibility(existing) === 'project') {
     queueClaimDerivation(existing);
@@ -1001,6 +1018,8 @@ export async function resolveObservations(
       await Promise.all(changed.map((observation) => tx.update(observation)));
     });
   }
+
+  for (const observation of changed) await persistEvidenceCard(observation);
 
   return { resolved, notFound };
 }

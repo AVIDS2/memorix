@@ -2,6 +2,11 @@
 
 The Memorix Dashboard is the local control surface for inspecting project memory and running explicit maintenance. It is available through the shared background service or as a standalone local process.
 
+The 1.8.0 Evidence page is the operator view of the same source-backed cards
+used by MCP and CLI. It shows each card's source reference, locator, captured
+hash, freshness, verification state, and audit-event count. It is project
+scoped and does not replace the underlying observation or code source.
+
 ## Start
 
 ```bash
@@ -52,3 +57,8 @@ POST /api/maintenance/retention/execute
 ```
 
 Use the CLI for scripts and remote terminals. Use MCP for agent-driven maintenance. The Dashboard is the reviewable local operator surface; all three call the same maintenance logic.
+
+The control-plane API also exposes `GET /api/evidence?project=<id>` for the
+bounded Evidence Console payload. The page is responsive at desktop, tablet,
+and narrow mobile widths; long paths wrap instead of widening the viewport,
+and maintenance dialogs remain viewport-centered.

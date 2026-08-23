@@ -32,7 +32,7 @@ is not a failure by itself. Claude Code supports MCP tool search, and the
 Memorix Claude plugin asks Claude to eagerly load its small core tool set. In
 headless/print-mode, if Memorix tools are not in the first visible tool list,
 search/select `memorix_project_context` before using shell fallback. Run
-`memorix context --task "<task>"` only after MCP is unavailable, disabled, or
+`memorix context --task "<task>" --fallback --brief-json` only after MCP is unavailable, disabled, or
 not discoverable, and pass the user's real task text.
 
 Do not store secrets, credentials, raw private transcripts, or trivial one-off actions. Treat memory as context, not as a substitute for reading code and verifying behavior.

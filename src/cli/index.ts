@@ -248,6 +248,8 @@ const main = defineCommand({
     codegraph: () => import('./commands/codegraph.js').then(m => m.default),
     checkpoint: () => import('./commands/checkpoint.js').then(m => m.default),
     knowledge: () => import('./commands/knowledge.js').then(m => m.default),
+    evidence: () => import('./commands/evidence.js').then(m => m.default),
+    feedback: () => import('./commands/feedback.js').then(m => m.default),
     reasoning: () => import('./commands/reasoning.js').then(m => m.default),
     retention: () => import('./commands/retention.js').then(m => m.default),
     formation: () => import('./commands/formation.js').then(m => m.default),
@@ -318,7 +320,7 @@ const main = defineCommand({
     const firstArg = process.argv[2];
     const knownSubs = ['ask', 'search', 'remember', 'recent', 'help', 'workbench', 'memcode', 'config',
       'init', 'setup', 'integrate', 'memory', 'context', 'resume', 'explain', 'codegraph', 'checkpoint', 'knowledge', 'reasoning', 'retention', 'formation', 'audit', 'transfer', 'skills', 'identity',
-      'session', 'team', 'task', 'message', 'lock', 'handoff', 'poll',
+      'session', 'team', 'task', 'message', 'lock', 'handoff', 'poll', 'evidence', 'feedback',
       'receipt',
       'serve', 'serve-http', 'status', 'sync',
       'hook', 'hooks', 'ingest', 'media', 'git-hook', 'git-hook-uninstall',
@@ -362,6 +364,8 @@ const main = defineCommand({
       console.error('  codegraph  Refresh/status/context-pack for CodeGraph Memory');
       console.error('  checkpoint Inspect native compact continuity checkpoints');
       console.error('  knowledge  Review source-backed knowledge pages and project workflows');
+      console.error('  evidence   Inspect source-backed evidence cards');
+      console.error('  feedback   Record or audit memory feedback');
       console.error('  reasoning  Store/search decision rationale');
       console.error('  retention  Inspect stale/archive status');
       console.error('  formation  Inspect Memory Formation metrics');

@@ -15,9 +15,10 @@
  * retention period but are no longer permanently immune — they decay normally.
  */
 
-import type { MemorixDocument, Observation, ObservationReader } from '../types.js';
+import type { MemorixDocument, Observation, ObservationReader, ObservationStatus } from '../types.js';
 import { getObservationStore } from '../store/obs-store.js';
 import { canManageObservation } from './visibility.js';
+import { feedbackWeightMultiplier } from './feedback-model.js';
 
 // ── Importance → Retention Period mapping ────────────────────────────
 
@@ -113,6 +114,7 @@ export function getEffectiveRetentionDays(doc: MemorixDocument): number {
 export function isImmune(doc: MemorixDocument): boolean {
   // Probe observations are operational heartbeats -- never immune, regardless of valueCategory or access.
   if (doc.type === 'probe') return false;
+  if (doc.feedbackStatus === 'archived') return false;
 
   // A candidate has not earned durable status. Never let an automatic core
   // classification turn unqualified capture into permanently retained memory.
@@ -164,6 +166,7 @@ export interface RelevanceScore {
   accessBoost: number;
   ageDays: number;
   isImmune: boolean;
+  feedbackMultiplier: number;
 }
 
 /**
@@ -202,7 +205,12 @@ export function calculateRelevance(
   const accessCount = doc.accessCount ?? 0;
   const accessBoost = Math.min(2.0, 1 + 0.1 * accessCount);
 
-  let totalScore = base * decayFactor * accessBoost;
+  // Legacy memories have no feedback row. Preserve their historical score
+  // exactly; only an explicit feedback projection changes relevance.
+  const feedbackMultiplier = doc.feedbackWeight === undefined
+    ? 1
+    : feedbackWeightMultiplier(doc.feedbackWeight);
+  let totalScore = base * decayFactor * accessBoost * feedbackMultiplier;
 
   // Immune observations get minimum 0.5 relevance
   const immune = isImmune(doc);
@@ -218,6 +226,7 @@ export function calculateRelevance(
     accessBoost,
     ageDays,
     isImmune: immune,
+    feedbackMultiplier,
   };
 }
 
@@ -248,6 +257,7 @@ export type RetentionZone = 'active' | 'stale' | 'archive-candidate';
  */
 export function getRetentionZone(doc: MemorixDocument, referenceTime?: Date): RetentionZone {
   const now = referenceTime ?? new Date();
+  if (doc.feedbackStatus === 'archived') return 'archive-candidate';
   const importance = getImportanceLevel(doc);
   const retention = getEffectiveRetentionDays(doc);
 
@@ -344,6 +354,7 @@ export interface RetentionProjection extends RetentionExplanation {
 export interface ObservationRetentionProjectionOptions {
   referenceTime?: Date;
   accessMap?: ObservationAccessMap;
+  feedback?: { weight: number; status: ObservationStatus };
 }
 
 export interface RetentionProjectionSummary {
@@ -415,6 +426,7 @@ export function explainRetention(
 export function toRetentionDocument(
   obs: Observation,
   accessMap?: ObservationAccessMap,
+  feedback?: { weight: number; status: ObservationStatus },
 ): MemorixDocument {
   const access = accessMap?.get(obs.id);
   return {
@@ -438,6 +450,7 @@ export function toRetentionDocument(
     valueCategory: obs.valueCategory ?? '',
     admissionState: obs.admissionState ?? '',
     admissionReason: obs.admissionReason ?? '',
+    ...(feedback ? { feedbackWeight: feedback.weight, feedbackStatus: feedback.status } : {}),
   };
 }
 
@@ -446,7 +459,7 @@ export function projectObservationRetention(
   observation: Observation,
   options: ObservationRetentionProjectionOptions = {},
 ): RetentionProjection {
-  const document = toRetentionDocument(observation, options.accessMap);
+  const document = toRetentionDocument(observation, options.accessMap, options.feedback);
   const relevance = calculateRelevance(document, options.referenceTime);
   const explanation = explainRetention(document, options.referenceTime);
 
@@ -497,12 +510,25 @@ export interface ArchiveExpiredBatchResult {
   nextCursor?: number;
 }
 
+async function loadFeedbackStore(dataDir: string): Promise<import('./feedback.js').MemoryFeedbackStore | undefined> {
+  try {
+    const { MemoryFeedbackStore } = await import('./feedback.js');
+    const store = new MemoryFeedbackStore();
+    await store.init(dataDir);
+    return store;
+  } catch {
+    // Pre-1.8 databases or degraded SQLite installations keep the legacy
+    // retention behavior until the feedback projection is available.
+    return undefined;
+  }
+}
+
 /**
  * Archive one bounded page of a project's active memories. The caller owns the
  * cursor, which makes the operation safe to run from a durable maintenance job.
  */
 export async function archiveExpiredBatch(
-  _projectDir: string,
+  projectDir: string,
   options: ArchiveExpiredBatchOptions,
 ): Promise<ArchiveExpiredBatchResult> {
   const store = getObservationStore();
@@ -513,6 +539,7 @@ export async function archiveExpiredBatch(
     afterId,
     limit: limit + 1,
   });
+  const feedback = await loadFeedbackStore(projectDir);
   const hasMore = page.length > limit;
   const scanned = hasMore ? page.slice(0, limit) : page;
   const candidateIds = scanned
@@ -520,6 +547,7 @@ export async function archiveExpiredBatch(
     .filter((observation) => projectObservationRetention(observation, {
       accessMap: options.accessMap,
       referenceTime: options.referenceTime,
+      ...(feedback ? { feedback: feedback.getState(options.projectId, 'observation', String(observation.id)) } : {}),
     }).zone === 'archive-candidate')
     .map((observation) => observation.id);
 
@@ -580,6 +608,7 @@ export async function archiveExpired(
     return { archived, remaining };
   }
 
+  const feedback = await loadFeedbackStore(projectDir);
   return await store.atomic(async (tx) => {
     const allObs = await tx.loadAll();
 
@@ -591,7 +620,11 @@ export async function archiveExpired(
     const archivedIds: number[] = [];
 
     for (const obs of activeObs) {
-      const retention = projectObservationRetention(obs, { accessMap, referenceTime });
+      const retention = projectObservationRetention(obs, {
+        accessMap,
+        referenceTime,
+        ...(feedback ? { feedback: feedback.getState(obs.projectId, 'observation', String(obs.id)) } : {}),
+      });
       if (retention.zone === 'archive-candidate') {
         archivedIds.push(obs.id);
       }

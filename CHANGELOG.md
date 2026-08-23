@@ -4,6 +4,38 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-08-23
+
+### Added
+- **Persisted Evidence Cards** -- observation provenance is stored in SQLite
+  with project ownership, source reference, locator, captured hash, files,
+  verification state, freshness, and audit events. Cards are available through
+  `memorix_evidence`, `memorix evidence`, and the Dashboard Evidence Console.
+- **Auditable memory feedback** -- verification, use, correction, source-change,
+  conflict, strengthen, weaken, and revoke events materialize a bounded
+  retrieval/retention weight without deleting the original source record.
+- **Stateless MCP project handles** -- 2026-07-28-style requests can use an
+  explicit `Mcp-Project-Handle` that survives service restart, while legacy
+  stateful Streamable HTTP remains supported.
+- **One-shot CLI fallback budget** -- repeated MCP-unavailable probing for the
+  same project/task is deduplicated and fail-closed after one bounded context
+  request.
+- **Evidence Console** -- Dashboard includes a responsive, project-scoped
+  evidence view with source, locator, freshness, verification, and audit count.
+
+### Changed
+- HTTP TeamStore resolution is project-data-directory scoped, preventing A/B
+  coordination state from crossing when sessions bind different projects.
+- The 1.8.0 documentation records the shipped compatibility adapter, explicit
+  non-goals, fallback semantics, and the Antigravity/Gemini setup matrix.
+
+### Fixed
+- Preserve the 1.7 micro MCP profile's nine-tool budget by keeping Evidence and
+  Feedback in lite/team/full profiles.
+- Keep legacy relevance unchanged until a memory receives explicit feedback.
+- Keep SQLite-backed HTTP helpers lazy so mocked and lightweight MCP startup
+  paths do not open the database during module evaluation.
+
 ## [1.7.3] - 2026-08-22
 
 ### Added

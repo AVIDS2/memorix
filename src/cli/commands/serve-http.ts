@@ -26,6 +26,7 @@ import { resolveToolProfile } from '../../server/tool-profile.js';
 import { scopeKnowledgeGraphToProject } from '../../memory/graph-scope.js';
 import { projectObservationRetention, summarizeRetentionProjections } from '../../memory/retention.js';
 import { canManageObservation, filterReadableObservations } from '../../memory/visibility.js';
+import { CURRENT_MCP_PROTOCOL_VERSION, MCP_SERVER_NAME, getMcpDiagnostics } from '../../server/mcp-diagnostics.js';
 import { parseTcpPortOrReport } from '../port.js';
 import { mcpFileUriToPath } from '../mcp-root-path.js';
 
@@ -36,6 +37,8 @@ import { mcpFileUriToPath } from '../mcp-root-path.js';
  */
 export const DEFAULT_SESSION_TIMEOUT_MS = 12 * 60 * 60 * 1000;
 export const EXPIRED_SESSION_TTL_MS = 10 * 60 * 1000;
+/** Pinned SDK protocol accepted internally while the HTTP boundary speaks the current stateless contract. */
+export const MCP_SDK_COMPAT_PROTOCOL_VERSION = '2025-11-25';
 
 export function parseSessionTimeoutMs(raw: string | undefined): number {
   const value = raw?.trim();
@@ -116,6 +119,11 @@ export default defineCommand({
     const { findGitInSubdirs } = await import('../../project/detector.js');
     const { writeFileSync, mkdirSync } = await import('node:fs');
     const { homedir } = await import('node:os');
+    // Keep SQLite-backed control-plane helpers lazy. Besides reducing the
+    // handshake import graph, this prevents agent integration tests that mock
+    // node:fs from being evaluated before their mock factories initialize.
+    const { McpBindingStore } = await import('../../server/mcp-binding-store.js');
+    const { MemoryFeedbackStore } = await import('../../memory/feedback.js');
 
     // The [server] config section feeds startup defaults; CLI flags win.
     let configuredDefaults: ServeHttpConfiguredDefaults = {};
@@ -176,11 +184,12 @@ export default defineCommand({
       return store;
     }
 
-    // Bootstrap the initial project's TeamStore. Never open SQLite at $HOME
-    // (that creates a decoy ~/memorix.db). Unresolved launches share ~/.memorix/data.
-    const detectedProj = serveResolution.detectedProject ?? detectorMod.detectProject(projectRoot);
-    const teamDataDir = await persistMod.getProjectDataDir(detectedProj?.id ?? '__unresolved__');
-    const sharedTeamStore = await getTeamStore(teamDataDir);
+    // TeamStore is resolved per MCP session/project. Sharing one mutable
+    // singleton here made project A's coordination state visible to project B
+    // after a roots switch. The cache still reuses the same project's SQLite
+    // handle without crossing project data directories.
+    const statelessBindingStore = new McpBindingStore();
+    await statelessBindingStore.init(persistMod.getBaseDataDir());
 
     type SessionState = {
       transport: InstanceType<typeof StreamableHTTPServerTransport>;
@@ -396,8 +405,95 @@ export default defineCommand({
       // No Access-Control-Allow-Origin at all for disallowed origins —
       // browser will block the response (fail-closed).
       res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
-      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Accept, Mcp-Session-Id, Last-Event-Id');
-      res.setHeader('Access-Control-Expose-Headers', 'Mcp-Session-Id');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Accept, Mcp-Session-Id, Mcp-Project-Handle, Mcp-Project-Root, Mcp-Stateless, Last-Event-Id');
+      res.setHeader('Access-Control-Expose-Headers', 'Mcp-Session-Id, Mcp-Project-Handle, Mcp-Protocol-Version, Mcp-Method, Mcp-Name');
+      res.setHeader('Mcp-Protocol-Version', req.headers['mcp-protocol-version'] || CURRENT_MCP_PROTOCOL_VERSION);
+      res.setHeader('Mcp-Method', req.method || 'UNKNOWN');
+      res.setHeader('Mcp-Name', MCP_SERVER_NAME);
+    }
+
+    /** Handle one 2026 stateless MCP request with a fresh server/transport. */
+    async function handleStatelessPost(req: IncomingMessage, res: ServerResponse, body: unknown): Promise<void> {
+      const handleId = typeof req.headers['mcp-project-handle'] === 'string'
+        ? req.headers['mcp-project-handle']
+        : undefined;
+      const persisted = handleId ? statelessBindingStore.touch(handleId) : undefined;
+      if (handleId && !persisted) {
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ jsonrpc: '2.0', error: { code: -32001, message: 'MCP project handle not found or expired; initialize again.' }, id: null }));
+        return;
+      }
+      const requestedRoot = typeof req.headers['mcp-project-root'] === 'string'
+        ? req.headers['mcp-project-root']
+        : undefined;
+      const root = persisted?.projectRoot ?? requestedRoot ?? projectRoot;
+      if (!persisted && !isInitializeRequest(body)) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ jsonrpc: '2.0', error: { code: -32000, message: 'Stateless MCP requests require Mcp-Project-Handle; initialize first.' }, id: null }));
+        return;
+      }
+
+      const { createMemorixServer } = await import('../../server.js');
+      const { createProjectBindingController } = await import('../../server/request-context.js');
+      const binding = createProjectBindingController(root);
+      const { server, projectId, handleTransportClose } = await createMemorixServer(
+        root,
+        undefined,
+        undefined,
+        {
+          allowUntrackedFallback: false,
+          deferProjectInitUntilBound: true,
+          deferProjectRuntimeInit: true,
+          dashboardMode: 'control-plane',
+          dashboardPort: port,
+          toolProfile,
+          projectBinding: binding,
+        },
+      );
+      const transport = new StreamableHTTPServerTransport({
+        // No Mcp-Session-Id: the protocol state is carried by our explicit
+        // durable project handle and reconstructed on every request.
+        sessionIdGenerator: undefined,
+        enableJsonResponse: true,
+      });
+      try {
+        await server.connect(transport);
+        let effectiveHandle = persisted;
+        if (!effectiveHandle && projectId !== '__unresolved__') {
+          effectiveHandle = statelessBindingStore.create({
+            projectId,
+            projectRoot: root,
+            dataDir: await persistMod.getProjectDataDir(projectId),
+          });
+        }
+        if (effectiveHandle) res.setHeader('Mcp-Project-Handle', effectiveHandle.handleId);
+        // The 1.30 SDK predates the 2026-07-28 version string. Keep the
+        // external stateless headers at the current contract, but normalize
+        // only the SDK-facing request and initialize params to its newest
+        // accepted wire version. This is a real compatibility adapter, not a
+        // claim that the pinned SDK implements newer optional extensions.
+        const sdkBody = body && typeof body === 'object'
+          ? JSON.parse(JSON.stringify(body)) as Record<string, any>
+          : body;
+        const sdkRequest = sdkBody as Record<string, any> | undefined;
+        if (sdkRequest && typeof sdkRequest === 'object' && sdkRequest.method === 'initialize' && sdkRequest.params) {
+          sdkRequest.params.protocolVersion = MCP_SDK_COMPAT_PROTOCOL_VERSION;
+        }
+        if (req.headers['mcp-protocol-version']) {
+          req.headers['mcp-protocol-version'] = MCP_SDK_COMPAT_PROTOCOL_VERSION;
+          for (let i = 0; i < req.rawHeaders.length; i += 2) {
+            if (req.rawHeaders[i].toLowerCase() === 'mcp-protocol-version') {
+              req.rawHeaders[i + 1] = MCP_SDK_COMPAT_PROTOCOL_VERSION;
+              break;
+            }
+          }
+        }
+        patchMcpResponse(res);
+        await transport.handleRequest(req, res, sdkBody);
+      } finally {
+        handleTransportClose();
+        await transport.close().catch(() => undefined);
+      }
     }
 
     /**
@@ -406,6 +502,14 @@ export default defineCommand({
     async function handlePost(req: IncomingMessage, res: ServerResponse) {
       const sessionId = req.headers['mcp-session-id'] as string | undefined;
       const body = await parseBody(req);
+
+      const requestedProtocol = req.headers['mcp-protocol-version'];
+      const statelessRequested = req.headers['mcp-stateless'] === 'true'
+        || requestedProtocol === CURRENT_MCP_PROTOCOL_VERSION;
+      if (!sessionId && statelessRequested) {
+        await handleStatelessPost(req, res, body);
+        return;
+      }
 
       if (sessionId && sessions.has(sessionId)) {
         // Existing session — route to its transport
@@ -464,7 +568,7 @@ export default defineCommand({
         const { server, switchProject, handleTransportClose } = await createMemorixServer(
           projectRoot,
           undefined,
-          { teamStore: sharedTeamStore },
+          undefined,
           {
             allowUntrackedFallback: false,
             deferProjectInitUntilBound: true,
@@ -660,6 +764,20 @@ export default defineCommand({
       );
     }
 
+    async function loadProjectFeedback(dataDir: string, projectId: string): Promise<Map<string, { weight: number; status: any }>> {
+      const result = new Map<string, { weight: number; status: any }>();
+      try {
+        const feedback = new MemoryFeedbackStore();
+        await feedback.init(dataDir);
+        for (const state of feedback.listStates(projectId, 'observation')) {
+          result.set(state.candidateId, { weight: state.weight, status: state.status });
+        }
+      } catch {
+        // Older stores without the 1.8 tables retain the pre-feedback posture.
+      }
+      return result;
+    }
+
     // Resolve static directory (dist/dashboard/static)
     const cliDir = pathModule.default.dirname(fileURLToPath(import.meta.url));
     const dashStaticDir = pathModule.default.join(cliDir, '..', 'dashboard', 'static');
@@ -727,10 +845,53 @@ export default defineCommand({
           return;
         }
 
+        const maintenanceMatch = apiPath.match(/^\/maintenance\/(cleanup|deduplicate|consolidate|retention)\/(preview|execute)$/);
+        if (maintenanceMatch) {
+          if (req.method !== 'POST') {
+            sendJson({ error: 'Maintenance actions require POST.' }, 405);
+            return;
+          }
+          const bodyValue = await parseBody(req);
+          const body = bodyValue && typeof bodyValue === 'object' && !Array.isArray(bodyValue)
+            ? bodyValue as Record<string, unknown>
+            : {};
+          const { projectId: maintenanceProjectId, dataDir: maintenanceDataDir } = await resolveRequestProject(url);
+          const maintenanceStore = await getDashboardObservationStore(maintenanceDataDir);
+          const context = {
+            dataDir: maintenanceDataDir,
+            projectId: maintenanceProjectId,
+            projectRoot: maintenanceProjectId === defaultProject.id ? projectRoot : null,
+            store: maintenanceStore,
+          };
+          const maintenance = await import('../../dashboard/maintenance.js');
+          const action = maintenanceMatch[1];
+          const phase = maintenanceMatch[2];
+          let result: unknown;
+          if (action === 'cleanup') {
+            result = phase === 'preview'
+              ? await maintenance.previewCleanup(context, body.includeNoise === true)
+              : await maintenance.executeCleanup(context, body.payload, body.token);
+          } else if (action === 'deduplicate') {
+            result = phase === 'preview'
+              ? await maintenance.previewDeduplicate(context)
+              : await maintenance.executeDeduplicate(context, body.payload, body.token);
+          } else if (action === 'consolidate') {
+            result = phase === 'preview'
+              ? await maintenance.previewConsolidate(context)
+              : await maintenance.executeConsolidate(context, body.payload, body.token);
+          } else {
+            result = phase === 'preview'
+              ? await maintenance.previewRetentionArchive(context)
+              : await maintenance.executeRetentionArchive(context, body.payload, body.token);
+          }
+          sendJson(result);
+          return;
+        }
+
         if (apiPath === '/team') {
           // Phase 4a: All team state is in SQLite via TeamStore
-          const { projectId: teamProjectId } = await resolveRequestProject(url);
-          const ts = sharedTeamStore;
+          const { projectId: teamProjectId, dataDir: teamDataDir } = await resolveRequestProject(url);
+          const ts = await getTeamStore(teamDataDir);
           const scope = url.searchParams.get('scope') || 'project';
 
           // Determine effective project ID for query
@@ -847,6 +1008,7 @@ export default defineCommand({
           const graph = { entities: getGraphStore().loadEntities(), relations: getGraphStore().loadRelations() };
 
           const observations = await loadDashboardProjectObservations(statsDataDir, statsProjectId, 'active');
+          const feedback = await loadProjectFeedback(statsDataDir, statsProjectId);
           const statsStore = await getDashboardObservationStore(statsDataDir);
           const nextId = await statsStore.loadIdCounter();
           const typeCounts: Record<string, number> = {};
@@ -887,7 +1049,10 @@ export default defineCommand({
           const retention = summarizeRetentionProjections(
             observations
               .filter((observation) => observation.type !== 'probe')
-              .map((observation) => projectObservationRetention(observation, { referenceTime: new Date(now) })),
+              .map((observation) => projectObservationRetention(observation, {
+                referenceTime: new Date(now),
+                feedback: feedback.get(String(observation.id)),
+              })),
           );
           const retentionSummary = {
             active: retention.active,
@@ -1006,6 +1171,23 @@ export default defineCommand({
           return;
         }
 
+        if (apiPath === '/evidence') {
+          const { projectId: evidenceProjectId, dataDir: evidenceDataDir } = await resolveRequestProject(url);
+          const { EvidenceCardStore } = await import('../../store/evidence-store.js');
+          const evidenceStore = new EvidenceCardStore();
+          await evidenceStore.init(evidenceDataDir);
+          const observations = await loadDashboardProjectObservations(evidenceDataDir, evidenceProjectId, 'active');
+          evidenceStore.syncObservations(observations);
+          const query = (url.searchParams.get('q') || '').trim().toLowerCase();
+          const limit = Math.min(100, Math.max(1, Number(url.searchParams.get('limit') || 20)));
+          const cards = evidenceStore.list(evidenceProjectId, { limit: 100 })
+            .filter((card) => !query || [card.title, card.summary, card.sourceRef, card.locator ?? ''].join(' ').toLowerCase().includes(query))
+            .slice(0, limit)
+            .map((card) => ({ ...card, events: evidenceStore.listEvents(card.id, 8) }));
+          sendJson({ projectId: evidenceProjectId, cards });
+          return;
+        }
+
         if (apiPath === '/graph') {
           const { projectId: graphProjectId, dataDir: graphDataDir } = await resolveRequestProject(url);
           const { initGraphStore, getGraphStore } = await import('../../store/graph-store.js');
@@ -1030,12 +1212,13 @@ export default defineCommand({
         if (apiPath === '/retention') {
           const { projectId: retProjectId, dataDir: retDataDir } = await resolveRequestProject(url);
           const observations = await loadDashboardProjectObservations(retDataDir, retProjectId, 'active');
+          const feedback = await loadProjectFeedback(retDataDir, retProjectId);
           const referenceTime = new Date();
           const rows = observations
             .filter((observation) => observation.type !== 'probe')
             .map((observation) => ({
               observation,
-              retention: projectObservationRetention(observation, { referenceTime }),
+              retention: projectObservationRetention(observation, { referenceTime, feedback: feedback.get(String(observation.id)) }),
             }))
             .sort((a, b) => b.retention.displayScore - a.retention.displayScore);
           const summary = summarizeRetentionProjections(rows.map((row) => row.retention));
@@ -1496,6 +1679,12 @@ export default defineCommand({
           pid: process.pid,
           embedding: getEmbeddingRuntimeHealth(),
         }));
+        return;
+      }
+
+      if (url.pathname === '/protocol-diagnostics') {
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'public, max-age=60' });
+        res.end(JSON.stringify(getMcpDiagnostics()));
         return;
       }
 

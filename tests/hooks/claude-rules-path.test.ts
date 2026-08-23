@@ -43,8 +43,8 @@ describe('Claude integration guidance path', () => {
       expect(content).toContain('# Memorix');
       expect(content).toContain('memorix_project_context');
       expect(content).toContain('task-lensed brief');
-      expect(content).toContain('memorix context "<task>" --brief-json');
-      expect(content).toContain('memorix resume "<task>" --brief-json');
+      expect(content).toContain('memorix context "<task>" --fallback --brief-json');
+      expect(content).toContain('memorix resume "<task>" --fallback --brief-json');
       expect(content).toContain('Continuation fallback is mandatory');
       expect(content).toContain('Do not call more Memorix retrieval tools');
       expect(content).toContain('The absence of `.memorix` or visible memory files never proves project memory is empty.');
@@ -129,8 +129,8 @@ describe('global guidance scope', () => {
       expect(content).toContain('active workspace');
       expect(content).toContain('memorix_project_context');
       expect(content).toContain('task-lensed brief');
-      expect(content).toContain('memorix context "<task>" --brief-json');
-      expect(content).toContain('memorix resume "<task>" --brief-json');
+      expect(content).toContain('memorix context "<task>" --fallback --brief-json');
+      expect(content).toContain('memorix resume "<task>" --fallback --brief-json');
       expect(content).toContain('Continuation fallback is mandatory');
       expect(content).toContain('Do not call more Memorix retrieval tools');
       expect(content).toContain('The absence of `.memorix` or visible memory files never proves project memory is empty.');

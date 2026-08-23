@@ -105,7 +105,7 @@ export class MemoryFeedbackStore {
     return this.requireDb().prepare(`
       SELECT * FROM memory_feedback_events
       WHERE project_id = ? AND candidate_kind = ? AND candidate_id = ?
-      ORDER BY observed_at ASC, id ASC
+      ORDER BY observed_at ASC, rowid ASC
     `).all(projectId, candidateKind, candidateId).map(rowToEvent);
   }
 
@@ -214,7 +214,7 @@ export class MemoryFeedbackStore {
     return this.requireDb().prepare(`
       SELECT * FROM memory_feedback_events
       WHERE project_id = ? AND candidate_kind = ? AND candidate_id = ?
-      ORDER BY observed_at DESC, id DESC LIMIT ?
+      ORDER BY observed_at DESC, rowid DESC LIMIT ?
     `).all(projectId, candidateKind, candidateId, Math.min(200, Math.max(1, Math.floor(limit)))).map(rowToEvent);
   }
 }

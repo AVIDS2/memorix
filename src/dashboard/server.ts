@@ -40,6 +40,7 @@ import {
     previewDeduplicate,
     previewRetentionArchive,
 } from './maintenance.js';
+import { resolveDashboardKeySource } from './config-provenance.js';
 
 // MIME types for static file serving
 const MIME_TYPES: Record<string, string> = {
@@ -649,18 +650,6 @@ async function handleApi(
                 const values: Array<{ key: string; value: string; source: string; sensitive?: boolean }> = [];
 
                 // LLM
-                // Helper: determine source label (distinguishes .env file vs system env)
-                const getEnvSource = async (envKey: string, fallback: string): Promise<string> => {
-                    if (process.env[envKey]) {
-                        try {
-                            const { getLoadedEnvKeys } = await import('../config/dotenv-loader.js');
-                            if (getLoadedEnvKeys().has(envKey)) return `.env (${envKey})`;
-                        } catch { /* ignore */ }
-                        return `env:${envKey}`;
-                    }
-                    return fallback;
-                };
-
                 const tomlSource = configProjectRoot && files['project memorix.toml'].exists
                     ? 'memorix.toml'
                     : files['user config.toml'].exists ? 'config.toml' : 'default';
@@ -669,45 +658,66 @@ async function handleApi(
                     : files['legacy config.json'].exists ? 'config.json' : 'default';
                 const configSource = resolved.sources.toml.length > 0 ? tomlSource
                     : resolved.sources.legacy.length > 0 ? legacySource : 'default';
-                const source = (envKey: string): Promise<string> => getEnvSource(envKey, configSource);
+                const source = (envKey: string): string => resolveDashboardKeySource({
+                    value: process.env[envKey] ?? '',
+                    envKeys: [envKey],
+                    configSource,
+                });
 
-                if (resolved.memory.llm.provider) values.push({ key: 'llm.provider', value: resolved.memory.llm.provider, source: await source('MEMORIX_LLM_PROVIDER') });
+                if (resolved.memory.llm.provider) values.push({ key: 'llm.provider', value: resolved.memory.llm.provider, source: source('MEMORIX_LLM_PROVIDER') });
 
-                if (resolved.memory.llm.model) values.push({ key: 'llm.model', value: resolved.memory.llm.model, source: await source('MEMORIX_LLM_MODEL') });
+                if (resolved.memory.llm.model) values.push({ key: 'llm.model', value: resolved.memory.llm.model, source: source('MEMORIX_LLM_MODEL') });
 
                 const llmKey = resolved.memory.llm.apiKey;
+                const memoryKeyEnv = [
+                    'MEMORIX_LLM_API_KEY',
+                    'MEMORIX_API_KEY',
+                    'OPENAI_API_KEY',
+                    'ANTHROPIC_API_KEY',
+                    ...(resolved.memory.llm.provider === 'openrouter' || resolved.memory.llm.baseUrl?.includes('openrouter.ai')
+                        ? ['OPENROUTER_API_KEY']
+                        : []),
+                ];
                 if (llmKey) {
-                    const keyName = ['MEMORIX_LLM_API_KEY', 'MEMORIX_API_KEY', 'OPENAI_API_KEY'].find(key => process.env[key]) ?? 'MEMORIX_LLM_API_KEY';
-                    const src = await source(keyName);
+                    const src = resolveDashboardKeySource({ value: llmKey, envKeys: memoryKeyEnv, configSource });
                     values.push({ key: 'llm.apiKey', value: '****' + llmKey.slice(-4), source: src, sensitive: true });
                 } else {
                     values.push({ key: 'llm.apiKey', value: 'not set', source: 'none' });
                 }
 
                 if (resolved.agent.provider) {
-                    values.push({ key: 'agent.provider', value: resolved.agent.provider, source: await source('MEMORIX_AGENT_PROVIDER') });
+                    values.push({ key: 'agent.provider', value: resolved.agent.provider, source: source('MEMORIX_AGENT_PROVIDER') });
                 }
 
                 if (resolved.agent.model) {
-                    values.push({ key: 'agent.model', value: resolved.agent.model, source: await source('MEMORIX_AGENT_MODEL') });
+                    values.push({ key: 'agent.model', value: resolved.agent.model, source: source('MEMORIX_AGENT_MODEL') });
                 }
 
                 const agentKey = resolved.agent.apiKey;
                 if (agentKey) {
-                    const keyName = ['MEMORIX_AGENT_API_KEY', 'MEMORIX_AGENT_LLM_API_KEY', 'MEMORIX_LLM_API_KEY'].find(key => process.env[key]) ?? 'MEMORIX_AGENT_API_KEY';
-                    const src = await source(keyName);
+                    const src = resolveDashboardKeySource({
+                        value: agentKey,
+                        envKeys: ['MEMORIX_AGENT_API_KEY', 'MEMORIX_AGENT_LLM_API_KEY'],
+                        configSource,
+                    });
                     values.push({ key: 'agent.apiKey', value: '****' + agentKey.slice(-4), source: src, sensitive: true });
                 } else {
-                    values.push({ key: 'agent.apiKey', value: 'fallback to llm.apiKey', source: 'default' });
+                    values.push({
+                        key: 'agent.apiKey',
+                        value: 'fallback to llm.apiKey',
+                        source: llmKey
+                            ? resolveDashboardKeySource({ value: llmKey, envKeys: memoryKeyEnv, configSource })
+                            : 'default',
+                    });
                 }
 
                 // Embedding
-                values.push({ key: 'embedding.provider', value: resolved.embedding.provider || 'off', source: await source('MEMORIX_EMBEDDING') });
-                if (resolved.embedding.model) values.push({ key: 'embedding.model', value: resolved.embedding.model, source: await source('MEMORIX_EMBEDDING_MODEL') });
+                values.push({ key: 'embedding.provider', value: resolved.embedding.provider || 'off', source: source('MEMORIX_EMBEDDING') });
+                if (resolved.embedding.model) values.push({ key: 'embedding.model', value: resolved.embedding.model, source: source('MEMORIX_EMBEDDING_MODEL') });
 
                 if (resolved.rerank.provider !== 'off') {
-                    values.push({ key: 'rerank.provider', value: resolved.rerank.provider, source: await source('MEMORIX_RERANK_PROVIDER') });
-                    if (resolved.rerank.model) values.push({ key: 'rerank.model', value: resolved.rerank.model, source: await source('MEMORIX_RERANK_MODEL') });
+                    values.push({ key: 'rerank.provider', value: resolved.rerank.provider, source: source('MEMORIX_RERANK_PROVIDER') });
+                    if (resolved.rerank.model) values.push({ key: 'rerank.model', value: resolved.rerank.model, source: source('MEMORIX_RERANK_MODEL') });
                 }
 
                 // Git

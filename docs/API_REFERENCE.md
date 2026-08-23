@@ -864,6 +864,8 @@ Important inputs:
 
 When using HTTP mode, the main dashboard is usually served from the same port as `serve-http`.
 
+The Dashboard's Coordination Status page is read-only. It reads the selected project's agents, tasks, locks, handoffs, messages, and poll state from the persistent SQLite `TeamStore`; it does not expose team/task write endpoints or replace task execution and orchestration tools. A coordination read failure is returned as an explicit degraded/error response rather than an empty healthy snapshot.
+
 ---
 
 ## 12. Optional Graph Compatibility Tools

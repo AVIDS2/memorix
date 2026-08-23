@@ -59,7 +59,7 @@ export default defineCommand({
         const cliDir = path.dirname(fileURLToPath(import.meta.url));
         const staticDir = path.join(cliDir, '..', 'dashboard', 'static');
 
-        await startDashboard(dataDir, port, staticDir, project.id, project.name, true, undefined, project.rootPath, true);
+        await startDashboard(dataDir, port, staticDir, project.id, project.name, true, project.rootPath, true);
 
         // Keep alive
         await new Promise(() => { });

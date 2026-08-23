@@ -33,7 +33,7 @@ The public docs are organized by user intent:
 | CLI commands and MCP tools | [API_REFERENCE.md](API_REFERENCE.md) |
 | Memory Autopilot, Code State, and context packs | [API_REFERENCE.md § Memory Autopilot, Code State, and Context Packs](API_REFERENCE.md#memory-autopilot-code-state-and-context-packs), [1.2 Code State](1.2.0-CODE-STATE.md), and [1.2 Workset Retrieval](1.2.0-WORKSET-RETRIEVAL.md) |
 | Reviewed episodic, semantic, and procedural long-term memory | [1.3 Memory Architecture](1.3-MEMORY-ARCHITECTURE.md) |
-| Browse memory and run preview-first local maintenance | [Dashboard](DASHBOARD.md) |
+| Browse memory, maintenance, and read-only Coordination Status | [Dashboard](DASHBOARD.md) |
 | Reviewable knowledge pages and workflow inheritance | [API_REFERENCE.md § Knowledge Workspace and Workflows](API_REFERENCE.md#knowledge-workspace-and-workflows), [1.2 Knowledge Workspace](1.2.0-KNOWLEDGE-WORKSPACE.md), and [1.2 Workflow Inheritance](1.2.0-WORKFLOW-INHERITANCE.md) |
 | Git-derived engineering memory | [GIT_MEMORY.md](GIT_MEMORY.md) |
 | Memory formation and quality pipeline | [MEMORY_FORMATION_PIPELINE.md](MEMORY_FORMATION_PIPELINE.md) |
@@ -121,7 +121,7 @@ Historical/deep-reference documents may describe older designs. If they conflict
 
 ## Current Product Line
 
-The current product line is **1.8.0**. The authoritative acceptance contract is
+The current product line is **1.8.1**. The authoritative acceptance contract is
 [1.8.0 Release Specification](1.8.0-RELEASE-CANDIDATE-SPEC.md).
 The current baseline has:
 
@@ -130,6 +130,9 @@ The current baseline has:
 - `memorix background start` runs the shared HTTP MCP service and dashboard
 - Dashboard maintenance is preview-first, project-scoped, and uses the same
   cleanup and deduplication planners as CLI and MCP
+- Dashboard Coordination Status is read-only and projects the persistent SQLite
+  `TeamStore` truth; its task section is `Task Status` and failed reads are
+  explicit `error`/`degraded` states
 - context and CodeGraph commands return bounded task receipts before detailed diagnostics
 - HTTP MCP sessions have a bounded, explicit lifecycle and fail with a reinitialize hint after expiry
 - `memorix integrate --agent <agent>` and `memorix hooks install --agent <agent>` remain manual/fallback generation commands

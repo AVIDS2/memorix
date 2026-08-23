@@ -958,16 +958,8 @@ interface DashboardState {
     dataDir: string;
     projectRoot: string | null;
     projectResolved: boolean;
-    mode: 'standalone' | 'control-plane';
+    mode: 'standalone';
     port: number;
-}
-
-/** Optional coordination instances passed from MCP server */
-export interface TeamInstances {
-    registry: { listAgents: (filter?: any) => any[]; getActiveCount: () => number; getAgent: (id: string) => any };
-    fileLocks: { listLocks: (agentId?: string) => any[]; cleanExpired: () => void };
-    taskManager: { list: (filter?: any) => any[]; getAvailable: () => any[] };
-    messageBus: { getUnreadCount: (agentId: string) => number };
 }
 
 function parseJsonField(value: unknown, fallback: unknown): unknown {
@@ -1027,7 +1019,72 @@ function normalizeDashboardTask(task: any) {
     };
 }
 
-async function buildTeamSnapshot(dataDir: string, projectId: string, scope: string, mode: DashboardState['mode']) {
+type TeamSnapshotStatus = 'ok' | 'degraded' | 'error';
+
+interface TeamSnapshot {
+    status: TeamSnapshotStatus;
+    mode: DashboardState['mode'];
+    readOnly: true;
+    scope: string;
+    agents: any[];
+    activeCount: number;
+    recentCount: number;
+    historicalCount: number;
+    totalAgents: number;
+    recentWindowDays: number;
+    locks: any[];
+    tasks: any[];
+    availableTasks: number;
+    sessions: number;
+    roles: any[];
+    roleOccupancy: any[];
+    handoffs: any[];
+    openTasks: number;
+    openHandoffs: number;
+    totalUnread: number;
+    activeSessions: number;
+    error?: string;
+    errorCode?: string;
+}
+
+function emptyTeamSnapshot(
+    mode: DashboardState['mode'],
+    scope: string,
+    status: Exclude<TeamSnapshotStatus, 'ok'>,
+): TeamSnapshot {
+    return {
+        status,
+        mode,
+        readOnly: true,
+        scope,
+        agents: [],
+        activeCount: 0,
+        recentCount: 0,
+        historicalCount: 0,
+        totalAgents: 0,
+        recentWindowDays: 7,
+        locks: [],
+        tasks: [],
+        availableTasks: 0,
+        sessions: 0,
+        roles: [],
+        roleOccupancy: [],
+        handoffs: [],
+        openTasks: 0,
+        openHandoffs: 0,
+        totalUnread: 0,
+        activeSessions: 0,
+        error: status === 'error' ? 'Coordination state unavailable' : 'Coordination state is incomplete',
+        errorCode: status === 'error' ? 'COORDINATION_STATE_UNAVAILABLE' : 'COORDINATION_STATE_DEGRADED',
+    };
+}
+
+function logTeamSnapshotFailure(scope: string, status: Exclude<TeamSnapshotStatus, 'ok'>): void {
+    const safeScope = scope === 'global' ? 'global' : 'project';
+    console.error('[dashboard] coordination snapshot unavailable', { status, scope: safeScope });
+}
+
+async function buildTeamSnapshot(dataDir: string, projectId: string, scope: string, mode: DashboardState['mode']): Promise<TeamSnapshot> {
     try {
         const { initTeamStore } = await import('../team/team-store.js');
         const teamStore = await initTeamStore(dataDir);
@@ -1053,8 +1110,9 @@ async function buildTeamSnapshot(dataDir: string, projectId: string, scope: stri
         const roleOccupancy = effectiveProjectId ? teamStore.getRoleOccupancy(effectiveProjectId) : [];
         const handoffs = effectiveProjectId ? teamStore.listHandoffs(effectiveProjectId) : [];
         return {
+            status: 'ok',
             mode,
-            readOnly: mode === 'standalone',
+            readOnly: true,
             scope,
             agents: withTier,
             activeCount,
@@ -1075,28 +1133,8 @@ async function buildTeamSnapshot(dataDir: string, projectId: string, scope: stri
             activeSessions: activeCount,
         };
     } catch {
-        return {
-            mode,
-            readOnly: mode === 'standalone',
-            scope,
-            agents: [],
-            activeCount: 0,
-            recentCount: 0,
-            historicalCount: 0,
-            totalAgents: 0,
-            recentWindowDays: 7,
-            locks: [],
-            tasks: [],
-            availableTasks: 0,
-            sessions: 0,
-            roles: [],
-            roleOccupancy: [],
-            handoffs: [],
-            openTasks: 0,
-            openHandoffs: 0,
-            totalUnread: 0,
-            activeSessions: 0,
-        };
+        logTeamSnapshotFailure(scope, 'error');
+        return emptyTeamSnapshot(mode, scope, 'error');
     }
 }
 
@@ -1125,7 +1163,6 @@ export async function startDashboard(
     projectId: string,
     projectName: string,
     autoOpen = true,
-    teamInstances?: TeamInstances,
     projectRoot: string | null = null,
     projectResolved = true,
 ): Promise<void> {
@@ -1136,8 +1173,7 @@ export async function startDashboard(
     const baseDir = getBaseDataDir();
 
     // Mutable state — can be updated via /api/set-current-project
-    const isControlPlane = !!teamInstances;
-    const state: DashboardState = { projectId, projectName, dataDir, projectRoot, projectResolved, mode: isControlPlane ? 'control-plane' : 'standalone', port };
+    const state: DashboardState = { projectId, projectName, dataDir, projectRoot, projectResolved, mode: 'standalone', port };
 
     const server = createServer(async (req, res) => {
         const url = req.url || '/';
@@ -1164,56 +1200,20 @@ export async function startDashboard(
             return;
         }
 
-        if (url.startsWith('/api/team')) {
-            if (!teamInstances) {
-                const parsedUrl = new URL(url, `http://127.0.0.1:${port}`);
-                const scope = parsedUrl.searchParams.get('scope') || 'project';
-                sendJson(res, await buildTeamSnapshot(state.dataDir, state.projectId, scope, state.mode));
+        const parsedUrl = new URL(url, `http://127.0.0.1:${port}`);
+        if (parsedUrl.pathname === '/api/team') {
+            if (req.method !== 'GET') {
+                sendJson(res, {
+                    status: 'error',
+                    readOnly: true,
+                    error: 'Coordination status is read-only',
+                    errorCode: 'COORDINATION_STATUS_READ_ONLY',
+                }, 405);
                 return;
             }
-            try {
-                teamInstances.fileLocks.cleanExpired();
-                const agents = teamInstances.registry.listAgents();
-                const locks = teamInstances.fileLocks.listLocks();
-                const tasks = teamInstances.taskManager.list();
-                const available = teamInstances.taskManager.getAvailable();
-
-                // Role occupancy and handoffs from TeamStore (if available)
-                let roles: any[] = [];
-                let roleOccupancy: any[] = [];
-                let handoffs: any[] = [];
-                try {
-                    const { getTeamStore, isTeamStoreInitialized } = await import('../team/team-store.js');
-                    if (isTeamStoreInitialized()) {
-                        const teamStore = getTeamStore();
-                        const projectId = state.projectId;
-                        roles = teamStore.listRoles(projectId);
-                        roleOccupancy = teamStore.getRoleOccupancy(projectId);
-                        handoffs = teamStore.listHandoffs(projectId);
-                    }
-                } catch { /* team store not available in standalone mode */ }
-
-                sendJson(res, {
-                    agents: agents.map((a: any) => ({
-                        ...a,
-                        unread: teamInstances!.messageBus.getUnreadCount(a.id),
-                    })),
-                    activeCount: teamInstances.registry.getActiveCount(),
-                    locks,
-                    tasks,
-                    availableTasks: available.length,
-                    roles,
-                    roleOccupancy,
-                    handoffs,
-                    // Resume data for "Continue this project" area
-                    openTasks: tasks.filter((t: any) => t.status === 'pending' || t.status === 'in_progress').length,
-                    openHandoffs: handoffs.filter((h: any) => h.handoff_status === 'open' || h.handoffStatus === 'open').length,
-                    totalUnread: agents.reduce((sum: number, a: any) => sum + teamInstances!.messageBus.getUnreadCount(a.id), 0),
-                    activeSessions: agents.filter((a: any) => a.status === 'active').length,
-                });
-            } catch {
-                sendJson(res, { agents: [], activeCount: 0, locks: [], tasks: [], availableTasks: 0, roles: [], roleOccupancy: [], handoffs: [] });
-            }
+            const scope = parsedUrl.searchParams.get('scope') || 'project';
+            const snapshot = await buildTeamSnapshot(state.dataDir, state.projectId, scope, state.mode);
+            sendJson(res, snapshot, snapshot.status === 'error' ? 503 : 200);
             return;
         }
 
@@ -1237,13 +1237,12 @@ export async function startDashboard(
         server.listen(port, '127.0.0.1', () => {
             const url = `http://127.0.0.1:${port}`;
             const resolvedLabel = projectResolved ? 'resolved' : 'unresolved';
-            const modeLabel = isControlPlane ? 'Control Plane' : 'Standalone';
+            const modeLabel = 'Standalone';
             console.error(`  Memorix Dashboard [${modeLabel}]`);
             console.error(`  ───────────────────────`);
             console.error(`  Mode:     ${modeLabel}`);
             console.error(`  Project:  ${projectName} (${projectId}) [${resolvedLabel}]`);
             console.error(`  Local:    ${url}`);
-            if (isControlPlane) console.error(`  MCP:      ${url}/mcp`);
             console.error(`  Data dir: ${dataDir}`);
             console.error(`\n  Press Ctrl+C to stop\n`);
             if (autoOpen) openBrowser(url);

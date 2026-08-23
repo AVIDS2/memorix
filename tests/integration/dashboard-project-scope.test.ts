@@ -582,7 +582,6 @@ describe('Embedded serve-http /api/config project scope', () => {
       '__unresolved__',
       'unbound',
       false,
-      undefined,
       null,
       false,
     );

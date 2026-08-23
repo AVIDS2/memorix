@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.8.1] - 2026-08-24
+
+### Changed
+- **Truthful coordination status** -- the persistent SQLite `TeamStore` is the
+  sole coordination truth for agents, tasks, messages, locks, handoffs, and poll
+  state. The Dashboard exposes read-only `Coordination Status` and `Task Status`
+  views, and `/api/team` reports explicit `error` or `degraded` status instead of
+  presenting a failed coordination read as a healthy empty result.
+
 ## [1.8.0] - 2026-08-23
 
 ### Added

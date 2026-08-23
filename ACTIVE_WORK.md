@@ -4,16 +4,18 @@
 > before resuming substantial work, update it after a material decision or
 > milestone, and do not create parallel progress logs.
 
-**Last updated:** 2026-08-19
+**Last updated:** 2026-08-23
 
 ## Current Product State
 
-- `1.7.1` is the current published release (2026-08-19) on npm, the official
-  MCP Registry, and GitHub Releases. It contains preview-first Dashboard
-  maintenance plus the graph overflow and dialog-centering fixes.
-- `1.7.2` is the active reliability patch. It strengthens the existing 40,000
-  record release gate so the public SDK, HTTP MCP context/search/store paths,
-  hooks, and reopen behavior are measured together with hard timeouts.
+- `1.8.0` is the local release-candidate line. It adds honest MCP protocol
+  diagnostics, bounded dashboard evidence cards, and a deterministic feedback
+  reducer while preserving the 1.7 transport/profile defaults. Tasks/polling is
+  intentionally reported unsupported until the pinned SDK offers a durable
+  contract.
+
+- `1.7.3` is the clean baseline from `origin/main`; `1.8.0` is the local
+  release-candidate worktree and has not been published.
 - SDK, CLI, hooks, and HTTP MCP share SQLite as the canonical flat data store.
   Large-store startup hydration uses bounded Orama batches so health remains
   responsive without rebalancing the index once per row.
@@ -152,10 +154,9 @@ provider when the operator chooses one.
 
 ## Immediate Next Step
 
-- Finish the `1.7.2` full suite, package smoke, and 40,000-record acceptance
-  run, then publish the same verified version to npm, GitHub Releases, and the
-  official MCP Registry.
-- After the patch, review #212 only after it is rebased onto current `main` and
+- Finish the `1.8.0` release-candidate acceptance suite and review before any
+  external publication.
+- After the candidate, review #212 only after it is rebased onto current `main` and
   re-verified. Validate #204 against current official WorkBuddy behavior before
   considering it for a feature release.
 

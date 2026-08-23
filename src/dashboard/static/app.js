@@ -3686,7 +3686,15 @@ function renderObsList() {
         ${obs.narrative ? `<div class="obs-detail-section"><label>${t('narrative')}</label><div class="obs-card-narrative">${hl(obs.narrative)}</div></div>` : ''}
         ${obs.facts && obs.facts.length > 0 ? `<div class="obs-detail-section"><label>${t('facts')}</label><div class="obs-card-facts">${obs.facts.map(f => `<span class="fact-tag">${hl(f)}</span>`).join('')}</div></div>` : ''}
         ${obs.concepts && obs.concepts.length > 0 ? `<div class="obs-detail-section"><label>${t('concepts')}</label><div class="obs-card-facts">${obs.concepts.map(c => `<span class="fact-tag concept-tag">${hl(c)}</span>`).join('')}</div></div>` : ''}
-        ${obs.filesModified && obs.filesModified.length > 0 ? `<div class="obs-detail-section"><label>${t('files')}</label><div class="obs-card-facts">${obs.filesModified.map(f => `<span class="fact-tag file-tag">${hl(f)}</span>`).join('')}</div></div>` : ''}
+         ${obs.filesModified && obs.filesModified.length > 0 ? `<div class="obs-detail-section"><label>${t('files')}</label><div class="obs-card-facts">${obs.filesModified.map(f => `<span class="fact-tag file-tag">${hl(f)}</span>`).join('')}</div></div>` : ''}
+         <div class="obs-detail-section evidence-provenance" aria-label="Evidence provenance">
+           <label>Evidence</label>
+           <div class="obs-card-meta">
+             <span>Source: ${escapeHtml(obs.sourceDetail || obs.source || 'unknown')}</span>
+             ${obs.sessionId ? `<span>Session: ${escapeHtml(obs.sessionId)}</span>` : ''}
+             ${obs.status ? `<span>Verification: ${obs.status === 'resolved' ? 'verified' : obs.status === 'archived' ? 'conflicted' : 'unverified'}</span>` : ''}
+           </div>
+         </div>
         <div class="obs-detail-actions">
           <button class="delete-btn" onclick="deleteObs(${obs.id}, event)">
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4h12M5 4V3a1 1 0 011-1h4a1 1 0 011 1v1M6 7v5M10 7v5M3 4l1 9a1 1 0 001 1h6a1 1 0 001-1l1-9"/></svg>

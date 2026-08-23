@@ -119,7 +119,9 @@ Historical/deep-reference documents may describe older designs. If they conflict
 
 ## Current Product Line
 
-The released product is on the **1.7 line**. The current baseline has:
+The release candidate is on the **1.8 line**. The authoritative acceptance
+contract is [1.8.0 Release Candidate Specification](1.8.0-RELEASE-CANDIDATE-SPEC.md).
+The current baseline has:
 
 - `memorix setup --agent <agent> --global` is the default agent integration command
 - `memorix serve` is the manual stdio MCP server for external agents
@@ -132,3 +134,10 @@ The released product is on the **1.7 line**. The current baseline has:
 - `memorix` / `memcode` open memcode, the bundled terminal agent that uses the same Memorix memory pool
 - `~/.memorix/config.toml` and project `memorix.toml` are the user-facing configuration model
 - legacy `memorix.yml`, `.env`, and `config.json` files are still read for compatibility, but new setups should use TOML
+
+For MCP compatibility, 1.8 preserves legacy stateful Streamable HTTP and adds
+diagnostics for the 2026-07-28 stateless request contract. Tasks/polling is
+reported as unsupported when the pinned SDK cannot provide a real durable
+implementation. Antigravity is the primary setup target; Gemini CLI is the
+compatibility path. See the release-candidate specification for implemented
+capabilities, compatibility behavior, and future work.

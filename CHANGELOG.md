@@ -4,6 +4,24 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-08-23
+
+### Added
+- **MCP compatibility diagnostics** -- HTTP responses expose protocol metadata
+  and `/protocol-diagnostics` reports the 2026-07-28/current and legacy
+  stateful contracts without claiming unsupported Tasks/polling behavior.
+- **Bounded evidence cards** -- the dashboard API now exposes project-scoped
+  evidence cards with source, session, freshness fields, files, and graph
+  neighbors; the existing Observations console shows provenance inline.
+- **Deterministic feedback reducer** -- user, verification, use, code-change,
+  and conflict signals have bounded strengthen/weaken semantics and auditable
+  events for adapters.
+
+### Changed
+- The release-candidate documentation distinguishes shipped behavior,
+  compatibility layers, and future work. Antigravity is the primary setup
+  target and Gemini CLI is documented as the migration-compatible path.
+
 ## [1.7.3] - 2026-08-22
 
 ### Added

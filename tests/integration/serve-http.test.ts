@@ -12,6 +12,18 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { CURRENT_MCP_PROTOCOL_VERSION, LEGACY_MCP_PROTOCOL_VERSION, getMcpDiagnostics } from '../../src/server/mcp-diagnostics.js';
+
+describe('MCP protocol diagnostics', () => {
+  it('describes current and legacy contracts without claiming tasks support', () => {
+    const diagnostics = getMcpDiagnostics();
+    expect(diagnostics.protocol.current).toBe(CURRENT_MCP_PROTOCOL_VERSION);
+    expect(diagnostics.protocol.legacy).toBe(LEGACY_MCP_PROTOCOL_VERSION);
+    expect(diagnostics.protocol.statefulStreamableHttp).toBe('supported');
+    expect(diagnostics.capabilities.tasks).toBe('unsupported');
+    expect(diagnostics.capabilities.polling).toBe('unsupported');
+  });
+});
 
 vi.mock('../../src/embedding/provider.js', () => ({
   getEmbeddingProvider: async () => null,

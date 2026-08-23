@@ -26,6 +26,7 @@ import { resolveToolProfile } from '../../server/tool-profile.js';
 import { scopeKnowledgeGraphToProject } from '../../memory/graph-scope.js';
 import { projectObservationRetention, summarizeRetentionProjections } from '../../memory/retention.js';
 import { canManageObservation, filterReadableObservations } from '../../memory/visibility.js';
+import { CURRENT_MCP_PROTOCOL_VERSION, MCP_SERVER_NAME, getMcpDiagnostics } from '../../server/mcp-diagnostics.js';
 import { parseTcpPortOrReport } from '../port.js';
 import { mcpFileUriToPath } from '../mcp-root-path.js';
 
@@ -397,7 +398,10 @@ export default defineCommand({
       // browser will block the response (fail-closed).
       res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
       res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Accept, Mcp-Session-Id, Last-Event-Id');
-      res.setHeader('Access-Control-Expose-Headers', 'Mcp-Session-Id');
+      res.setHeader('Access-Control-Expose-Headers', 'Mcp-Session-Id, Mcp-Protocol-Version, Mcp-Method, Mcp-Name');
+      res.setHeader('Mcp-Protocol-Version', req.headers['mcp-protocol-version'] || CURRENT_MCP_PROTOCOL_VERSION);
+      res.setHeader('Mcp-Method', req.method || 'UNKNOWN');
+      res.setHeader('Mcp-Name', MCP_SERVER_NAME);
     }
 
     /**
@@ -1496,6 +1500,12 @@ export default defineCommand({
           pid: process.pid,
           embedding: getEmbeddingRuntimeHealth(),
         }));
+        return;
+      }
+
+      if (url.pathname === '/protocol-diagnostics') {
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'public, max-age=60' });
+        res.end(JSON.stringify(getMcpDiagnostics()));
         return;
       }
 

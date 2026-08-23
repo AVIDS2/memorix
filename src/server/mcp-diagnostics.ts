@@ -1,0 +1,40 @@
+/** MCP compatibility diagnostics shared by HTTP and CLI-facing checks. */
+
+export const CURRENT_MCP_PROTOCOL_VERSION = '2026-07-28';
+export const LEGACY_MCP_PROTOCOL_VERSION = '2024-11-05';
+export const MCP_SERVER_NAME = 'io.github.AVIDS2/memorix';
+
+export interface McpDiagnostics {
+  serverName: string;
+  protocol: {
+    current: string;
+    legacy: string;
+    statelessRequests: 'supported' | 'compatibility-only' | 'unsupported';
+    statefulStreamableHttp: 'supported';
+  };
+  capabilities: {
+    tasks: 'supported' | 'unsupported';
+    polling: 'supported' | 'unsupported';
+    listCache: 'supported';
+    explicitProjectHandle: 'supported';
+  };
+}
+
+/** The pinned SDK is stateful; do not present a fake durable task loop. */
+export function getMcpDiagnostics(): McpDiagnostics {
+  return {
+    serverName: MCP_SERVER_NAME,
+    protocol: {
+      current: CURRENT_MCP_PROTOCOL_VERSION,
+      legacy: LEGACY_MCP_PROTOCOL_VERSION,
+      statelessRequests: 'compatibility-only',
+      statefulStreamableHttp: 'supported',
+    },
+    capabilities: {
+      tasks: 'unsupported',
+      polling: 'unsupported',
+      listCache: 'supported',
+      explicitProjectHandle: 'supported',
+    },
+  };
+}

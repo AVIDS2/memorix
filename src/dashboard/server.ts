@@ -26,6 +26,7 @@ import { scopeKnowledgeGraphToProject } from '../memory/graph-scope.js';
 import { projectObservationRetention, summarizeRetentionProjections } from '../memory/retention.js';
 import { canManageObservation, filterReadableObservations } from '../memory/visibility.js';
 import type { Observation } from '../types.js';
+import { buildEvidenceCards } from './evidence.js';
 import {
     DashboardMaintenanceError,
     executeCleanup,
@@ -323,6 +324,19 @@ async function handleApi(
                     effectiveProjectId,
                 );
                 sendJson(res, observations);
+                break;
+            }
+
+            case '/evidence': {
+                await initGraphStore(effectiveDataDir);
+                const observations = filterDashboardObservations(
+                    await getObservationStore().loadByProject(effectiveProjectId, { status: 'active' }),
+                    effectiveProjectId,
+                );
+                const graph = { entities: getGraphStore().loadEntities(), relations: getGraphStore().loadRelations() };
+                const query = url.searchParams.get('q') || '';
+                const limit = Number(url.searchParams.get('limit') || 20);
+                sendJson(res, { cards: buildEvidenceCards(observations, graph, query, limit), projectId: effectiveProjectId });
                 break;
             }
 

@@ -22,6 +22,7 @@ import { loadDotenv } from '../config/dotenv-loader.js';
 import { resetDotenv } from '../config/dotenv-loader.js';
 import { initProjectRoot } from '../config/yaml-loader.js';
 import { clearProjectRoot } from '../config/yaml-loader.js';
+import { getResolvedConfig } from '../config/resolved-config.js';
 import { scopeKnowledgeGraphToProject } from '../memory/graph-scope.js';
 import { projectObservationRetention, summarizeRetentionProjections } from '../memory/retention.js';
 import { canManageObservation, filterReadableObservations } from '../memory/visibility.js';
@@ -608,26 +609,18 @@ async function handleApi(
                 const { existsSync } = await import('node:fs');
                 const { join } = await import('node:path');
 
-                let yml: any = {};
                 // Use the real project root from dashboard state, not process.cwd()
                 const configProjectRoot = effectiveProjectRoot;
-                try {
-                    const { loadYamlConfig } = await import('../config/yaml-loader.js');
-                    yml = configProjectRoot ? loadYamlConfig(configProjectRoot) : loadYamlConfig(null);
-                } catch { /* best effort */ }
-
-                // Load .env files so process.env reflects actual config (fixes #74, #62)
-                if (configProjectRoot) {
-                    try {
-                        const { loadDotenv } = await import('../config/dotenv-loader.js');
-                        loadDotenv(configProjectRoot);
-                    } catch { /* best effort */ }
-                }
+                // This is the same TOML-first chain used by status and runtime lanes.
+                // Do not fall back to user config if a bound project cannot resolve.
+                const resolved = getResolvedConfig({ projectRoot: configProjectRoot });
 
                 // Check which config files exist
                 const files: Record<string, { exists: boolean; path: string; unavailable?: boolean }> = {
                     'project memorix.yml': { exists: false, path: '', unavailable: !configProjectRoot },
                     'user memorix.yml': { exists: false, path: '' },
+                    'project memorix.toml': { exists: false, path: '', unavailable: !configProjectRoot },
+                    'user config.toml': { exists: false, path: '' },
                     'project .env': { exists: false, path: '', unavailable: !configProjectRoot },
                     'user .env': { exists: false, path: '' },
                     'legacy config.json': { exists: false, path: '' },
@@ -637,6 +630,8 @@ async function handleApi(
                     const paths: Record<string, string | null> = {
                         'project memorix.yml': configProjectRoot ? join(configProjectRoot, 'memorix.yml') : null,
                         'user memorix.yml': join(home, '.memorix', 'memorix.yml'),
+                        'project memorix.toml': configProjectRoot ? join(configProjectRoot, 'memorix.toml') : null,
+                        'user config.toml': join(home, '.memorix', 'config.toml'),
                         'project .env': configProjectRoot ? join(configProjectRoot, '.env') : null,
                         'user .env': join(home, '.memorix', '.env'),
                         'legacy config.json': join(home, '.memorix', 'config.json'),
@@ -655,81 +650,73 @@ async function handleApi(
 
                 // LLM
                 // Helper: determine source label (distinguishes .env file vs system env)
-                const getEnvSource = async (envKey: string, ymlSource?: string): Promise<string> => {
+                const getEnvSource = async (envKey: string, fallback: string): Promise<string> => {
                     if (process.env[envKey]) {
-                        // Check if this key was injected by dotenv-loader (from .env file)
                         try {
-                            const { getLoadedEnvFiles } = await import('../config/dotenv-loader.js');
-                            const envFiles = getLoadedEnvFiles();
-                            if (envFiles.length > 0) return `.env (${envKey})`;
+                            const { getLoadedEnvKeys } = await import('../config/dotenv-loader.js');
+                            if (getLoadedEnvKeys().has(envKey)) return `.env (${envKey})`;
                         } catch { /* ignore */ }
                         return `env:${envKey}`;
                     }
-                    return ymlSource ?? 'default';
+                    return fallback;
                 };
 
-                const llmProvider = process.env.MEMORIX_LLM_PROVIDER || yml.llm?.provider;
-                if (llmProvider) values.push({ key: 'llm.provider', value: llmProvider, source: await getEnvSource('MEMORIX_LLM_PROVIDER', yml.llm?.provider ? 'memorix.yml' : undefined) });
+                const tomlSource = configProjectRoot && files['project memorix.toml'].exists
+                    ? 'memorix.toml'
+                    : files['user config.toml'].exists ? 'config.toml' : 'default';
+                const legacySource = files['project memorix.yml'].exists || files['user memorix.yml'].exists
+                    ? 'memorix.yml'
+                    : files['legacy config.json'].exists ? 'config.json' : 'default';
+                const configSource = resolved.sources.toml.length > 0 ? tomlSource
+                    : resolved.sources.legacy.length > 0 ? legacySource : 'default';
+                const source = (envKey: string): Promise<string> => getEnvSource(envKey, configSource);
 
-                const llmModel = process.env.MEMORIX_LLM_MODEL || yml.llm?.model;
-                if (llmModel) values.push({ key: 'llm.model', value: llmModel, source: await getEnvSource('MEMORIX_LLM_MODEL', yml.llm?.model ? 'memorix.yml' : undefined) });
+                if (resolved.memory.llm.provider) values.push({ key: 'llm.provider', value: resolved.memory.llm.provider, source: await source('MEMORIX_LLM_PROVIDER') });
 
-                const llmKey = process.env.MEMORIX_LLM_API_KEY || process.env.MEMORIX_API_KEY || yml.llm?.apiKey || process.env.OPENAI_API_KEY;
+                if (resolved.memory.llm.model) values.push({ key: 'llm.model', value: resolved.memory.llm.model, source: await source('MEMORIX_LLM_MODEL') });
+
+                const llmKey = resolved.memory.llm.apiKey;
                 if (llmKey) {
-                    let src = 'unknown';
-                    if (process.env.MEMORIX_LLM_API_KEY) src = await getEnvSource('MEMORIX_LLM_API_KEY');
-                    else if (process.env.MEMORIX_API_KEY) src = await getEnvSource('MEMORIX_API_KEY');
-                    else if (yml.llm?.apiKey) src = 'memorix.yml (move to .env!)';
-                    else if (process.env.OPENAI_API_KEY) src = await getEnvSource('OPENAI_API_KEY');
+                    const keyName = ['MEMORIX_LLM_API_KEY', 'MEMORIX_API_KEY', 'OPENAI_API_KEY'].find(key => process.env[key]) ?? 'MEMORIX_LLM_API_KEY';
+                    const src = await source(keyName);
                     values.push({ key: 'llm.apiKey', value: '****' + llmKey.slice(-4), source: src, sensitive: true });
                 } else {
                     values.push({ key: 'llm.apiKey', value: 'not set', source: 'none' });
                 }
 
-                const agentProvider = process.env.MEMORIX_AGENT_PROVIDER || process.env.MEMORIX_AGENT_LLM_PROVIDER || yml.agent?.provider;
-                if (agentProvider) {
-                    let source: string;
-                    if (process.env.MEMORIX_AGENT_PROVIDER) source = await getEnvSource('MEMORIX_AGENT_PROVIDER');
-                    else if (process.env.MEMORIX_AGENT_LLM_PROVIDER) source = `${await getEnvSource('MEMORIX_AGENT_LLM_PROVIDER')} (legacy)`;
-                    else source = yml.agent?.provider ? 'memorix.yml' : 'default';
-                    values.push({ key: 'agent.provider', value: agentProvider, source });
+                if (resolved.agent.provider) {
+                    values.push({ key: 'agent.provider', value: resolved.agent.provider, source: await source('MEMORIX_AGENT_PROVIDER') });
                 }
 
-                const agentModel = process.env.MEMORIX_AGENT_MODEL || process.env.MEMORIX_AGENT_LLM_MODEL || yml.agent?.model;
-                if (agentModel) {
-                    let source: string;
-                    if (process.env.MEMORIX_AGENT_MODEL) source = await getEnvSource('MEMORIX_AGENT_MODEL');
-                    else if (process.env.MEMORIX_AGENT_LLM_MODEL) source = `${await getEnvSource('MEMORIX_AGENT_LLM_MODEL')} (legacy)`;
-                    else source = yml.agent?.model ? 'memorix.yml' : 'default';
-                    values.push({ key: 'agent.model', value: agentModel, source });
+                if (resolved.agent.model) {
+                    values.push({ key: 'agent.model', value: resolved.agent.model, source: await source('MEMORIX_AGENT_MODEL') });
                 }
 
-                const agentKey = process.env.MEMORIX_AGENT_API_KEY || process.env.MEMORIX_AGENT_LLM_API_KEY || yml.agent?.apiKey;
+                const agentKey = resolved.agent.apiKey;
                 if (agentKey) {
-                    let src = 'unknown';
-                    if (process.env.MEMORIX_AGENT_API_KEY) src = await getEnvSource('MEMORIX_AGENT_API_KEY');
-                    else if (process.env.MEMORIX_AGENT_LLM_API_KEY) src = `${await getEnvSource('MEMORIX_AGENT_LLM_API_KEY')} (legacy)`;
-                    else if (yml.agent?.apiKey) src = 'memorix.yml (move to .env!)';
+                    const keyName = ['MEMORIX_AGENT_API_KEY', 'MEMORIX_AGENT_LLM_API_KEY', 'MEMORIX_LLM_API_KEY'].find(key => process.env[key]) ?? 'MEMORIX_AGENT_API_KEY';
+                    const src = await source(keyName);
                     values.push({ key: 'agent.apiKey', value: '****' + agentKey.slice(-4), source: src, sensitive: true });
                 } else {
                     values.push({ key: 'agent.apiKey', value: 'fallback to llm.apiKey', source: 'default' });
                 }
 
                 // Embedding
-                const embProvider = process.env.MEMORIX_EMBEDDING || yml.embedding?.provider || 'off';
-                values.push({ key: 'embedding.provider', value: embProvider, source: await getEnvSource('MEMORIX_EMBEDDING', yml.embedding?.provider ? 'memorix.yml' : undefined) });
+                values.push({ key: 'embedding.provider', value: resolved.embedding.provider || 'off', source: await source('MEMORIX_EMBEDDING') });
+                if (resolved.embedding.model) values.push({ key: 'embedding.model', value: resolved.embedding.model, source: await source('MEMORIX_EMBEDDING_MODEL') });
+
+                if (resolved.rerank.provider !== 'off') {
+                    values.push({ key: 'rerank.provider', value: resolved.rerank.provider, source: await source('MEMORIX_RERANK_PROVIDER') });
+                    if (resolved.rerank.model) values.push({ key: 'rerank.model', value: resolved.rerank.model, source: await source('MEMORIX_RERANK_MODEL') });
+                }
 
                 // Git
-                values.push({ key: 'git.autoHook', value: String(yml.git?.autoHook ?? false), source: yml.git?.autoHook !== undefined ? 'memorix.yml' : 'default' });
-                values.push({ key: 'git.skipMergeCommits', value: String(yml.git?.skipMergeCommits ?? true), source: yml.git?.skipMergeCommits !== undefined ? 'memorix.yml' : 'default' });
-
-                // Behavior
-                if (yml.behavior?.formationMode) values.push({ key: 'behavior.formationMode', value: yml.behavior.formationMode, source: 'memorix.yml' });
-                if (yml.behavior?.sessionInject) values.push({ key: 'behavior.sessionInject', value: yml.behavior.sessionInject, source: 'memorix.yml' });
+                values.push({ key: 'git.autoHook', value: String(resolved.git.autoHook ?? false), source: configSource });
+                values.push({ key: 'git.skipMergeCommits', value: String(resolved.git.skipMergeCommits ?? true), source: configSource });
 
                 // Server
-                values.push({ key: 'server.transport', value: yml.server?.transport || 'stdio', source: yml.server?.transport ? 'memorix.yml' : 'default' });
-                values.push({ key: 'server.dashboard', value: String(yml.server?.dashboard ?? true), source: yml.server?.dashboard !== undefined ? 'memorix.yml' : 'default' });
+                values.push({ key: 'server.transport', value: resolved.server.transport || 'stdio', source: configSource });
+                values.push({ key: 'server.dashboard', value: String(resolved.server.dashboard ?? true), source: configSource });
 
                 sendJson(res, { files, values });
                 break;

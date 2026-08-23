@@ -12,6 +12,7 @@ import {
 } from '../../src/config/resolved-config.js';
 import { resetTomlConfigCache } from '../../src/config/toml-loader.js';
 import { resetYamlConfigCache } from '../../src/config/yaml-loader.js';
+import { resetDotenv } from '../../src/config/dotenv-loader.js';
 import { getGitConfig, resetConfigCache } from '../../src/config.js';
 
 const TMP = join(process.cwd(), '.tmp-resolved-config-test');
@@ -55,6 +56,7 @@ describe('resolved config', () => {
     resetYamlConfigCache();
     resetResolvedConfigCache();
     resetConfigCache();
+    resetDotenv();
     for (const key of ENV_KEYS) delete process.env[key];
   });
 
@@ -103,6 +105,36 @@ describe('resolved config', () => {
 
     expect(getResolvedEmbeddingLane({ projectRoot: PROJECT, homeDir: HOME }).apiKey).toBe('project-a-key');
     expect(getResolvedEmbeddingLane({ projectRoot: projectB, homeDir: HOME }).apiKey).toBe('project-b-key');
+  });
+
+  it('loads the user .env for an unbound dashboard lane without reading a project .env', () => {
+    writeFileSync(join(HOME, '.memorix', '.env'), 'MEMORIX_LLM_API_KEY=user-key\n', 'utf8');
+    writeFileSync(join(PROJECT, '.env'), 'MEMORIX_LLM_API_KEY=project-key\n', 'utf8');
+
+    const cfg = getResolvedConfig({ projectRoot: null, homeDir: HOME });
+
+    expect(cfg.memory.llm.apiKey).toBe('user-key');
+    expect(cfg.memory.llm.apiKey).not.toContain('project-key');
+    expect(cfg.sources.env).toContain('MEMORIX_LLM_API_KEY');
+  });
+
+  it('keeps env priority above project TOML and never exposes key material in sources', () => {
+    writeFileSync(join(PROJECT, 'memorix.toml'), [
+      '[memory.llm]',
+      'model = "project-model"',
+      'api_key = "toml-secret"',
+      '',
+      '[embedding]',
+      'provider = "api"',
+    ].join('\n'), 'utf8');
+    process.env.MEMORIX_LLM_MODEL = 'env-model';
+    process.env.MEMORIX_LLM_API_KEY = 'env-secret';
+
+    const cfg = getResolvedConfig({ projectRoot: PROJECT, homeDir: HOME });
+
+    expect(cfg.memory.llm.model).toBe('env-model');
+    expect(cfg.memory.llm.apiKey).toBe('env-secret');
+    expect(JSON.stringify(cfg.sources)).not.toContain('secret');
   });
 
   it('keeps embedding lane isolated from memory and agent credentials', () => {

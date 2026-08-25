@@ -4,6 +4,26 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.8.2] - 2026-08-25
+
+### Fixed
+- **Dashboard deduplication initialization (#248)** -- standalone and HTTP
+  maintenance previews now idempotently resolve the selected project's memory
+  LLM from TOML and `.env`, clear stale cross-project configuration, and keep
+  credentials out of responses.
+- **CodeGraph capability fallback (#250)** -- a failed or invalid `context`
+  probe now tries the official `explore` CLI with bounded, shell-free spawning.
+  Only validated paths, symbols, and relationships can select the external
+  provider; separate context/explore diagnostics explain Lite fallback.
+
+### MCP Compatibility
+- **Discovery adapter (#249)** -- the stdio server registers a real low-level
+  `server/discover` handler that returns the required 2026-07-28
+  `DiscoverResult` before `initialize`. Legacy 2025 initialize and versionless
+  `tools/list`/`tools/call` remain supported through the SDK's legacy envelopes.
+  Tasks, subscriptions, and list-response caching remain unsupported and are
+  not advertised.
+
 ## [1.8.1] - 2026-08-24
 
 ### Changed

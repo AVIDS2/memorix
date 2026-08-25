@@ -1,6 +1,6 @@
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 
-import { isLLMEnabled } from '../llm/provider.js';
+import { initLLM, isLLMEnabled } from '../llm/provider.js';
 import { analyzeCleanupObservations, applyCleanupMutations } from '../memory/cleanup.js';
 import { findConsolidationCandidates, executeConsolidation } from '../memory/consolidation.js';
 import { applyDeduplicationPlan, planMemoryDeduplication } from '../memory/deduplication.js';
@@ -167,6 +167,9 @@ export async function executeCleanup(
 }
 
 export async function previewDeduplicate(context: DashboardMaintenanceContext) {
+  // Dashboard callers do not share the CLI/server bootstrap path. Resolve the
+  // memory lane here so standalone and HTTP previews use the selected project.
+  initLLM({ scope: 'memory', projectRoot: context.projectRoot });
   if (!isLLMEnabled()) {
     return {
       action: 'deduplicate',

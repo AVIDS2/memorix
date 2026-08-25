@@ -131,6 +131,20 @@ describe('loadDotenv', () => {
     loadDotenv(TEST_DIR_B, { userHomeDir: TEST_HOME });
     expect(process.env.MEMORIX_TEST_SWITCH_VAR).toBeUndefined();
   });
+
+  it('should reload the user .env when only the configured home changes', () => {
+    const homeA = join(TEST_DIR, 'home-a');
+    const homeB = join(TEST_DIR, 'home-b');
+    mkdirSync(join(homeA, '.memorix'), { recursive: true });
+    mkdirSync(join(homeB, '.memorix'), { recursive: true });
+    writeFileSync(join(homeA, '.memorix', '.env'), 'MEMORIX_TEST_SWITCH_VAR=from_home_a\n');
+    writeFileSync(join(homeB, '.memorix', '.env'), 'MEMORIX_TEST_SWITCH_VAR=from_home_b\n');
+
+    loadDotenv(undefined, { userHomeDir: homeA });
+    expect(process.env.MEMORIX_TEST_SWITCH_VAR).toBe('from_home_a');
+    loadDotenv(undefined, { userHomeDir: homeB });
+    expect(process.env.MEMORIX_TEST_SWITCH_VAR).toBe('from_home_b');
+  });
 });
 
 describe('getLoadedEnvFiles', () => {

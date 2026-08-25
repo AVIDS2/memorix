@@ -150,14 +150,16 @@ feedback projection.
 ### HTTP MCP Compatibility
 
 Legacy clients use stateful Streamable HTTP with `Mcp-Session-Id`. Current
-stateless clients send `Mcp-Protocol-Version: 2026-07-28` and receive a durable
-`Mcp-Project-Handle`. Send that handle on subsequent requests; it is persisted
-in SQLite and remains valid across service restart until its TTL expires.
-`/protocol-diagnostics` reports the current/legacy contract and explicitly
-reports Tasks and polling as unsupported when the pinned SDK cannot provide a
-durable implementation. When MCP discovery is unavailable, use one bounded
-`memorix context --fallback` request for a task; repeated fallback probing is
-rejected by the local budget.
+Legacy clients use the 2025-era `initialize` handshake and stateful
+`Mcp-Session-Id`. The stdio server also accepts the 2026-07-28
+`server/discover` request before `initialize` and returns the required
+`DiscoverResult`. Versionless `tools/list` and `tools/call` use the pinned
+SDK's legacy result envelopes. HTTP stateless clients may use a durable
+`Mcp-Project-Handle`; `/protocol-diagnostics` labels this as compatibility-only.
+Modern result metadata is discovery-only with a private zero-TTL hint. Tasks,
+subscriptions, and list-response caching are unsupported. When MCP discovery
+is unavailable, use one bounded `memorix context --fallback` request for a
+task; repeated fallback probing is rejected by the local budget.
 
 The built-in Lite provider indexes common code files with lightweight file, symbol, and import facts. It is a structural fallback, not a language-server-quality graph. When a project already has a healthy local CodeGraph index, `[codegraph].external_context = "auto"` may add a validated, bounded semantic outline to the Workset. Memorix never initializes, syncs, or exports that external index, and never stores its raw source output. `memorix codegraph status --json`, `memorix doctor --json`, and Project Context JSON identify the actual provider quality.
 

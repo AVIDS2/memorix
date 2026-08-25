@@ -2,12 +2,13 @@
  * HTTP rerank lane: configured /rerank endpoint. Failures keep original order.
  */
 
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { resetTomlConfigCache } from '../../src/config/toml-loader.js';
 import { resetYamlConfigCache } from '../../src/config/yaml-loader.js';
 import { resetResolvedConfigCache } from '../../src/config/resolved-config.js';
+import { resetDotenv } from '../../src/config/dotenv-loader.js';
 
 const TMP = join(process.cwd(), '.tmp-neural-rerank-test');
 const HOME = join(TMP, 'home');
@@ -19,7 +20,12 @@ const ENV_KEYS = [
   'MEMORIX_RERANK_API_KEY',
   'MEMORIX_LLM_BASE_URL',
   'MEMORIX_LLM_API_KEY',
+  'MEMORIX_API_KEY',
+  'OPENAI_API_KEY',
+  'ANTHROPIC_API_KEY',
+  'OPENROUTER_API_KEY',
 ];
+const ORIGINAL_ENV = Object.fromEntries(ENV_KEYS.map((key) => [key, process.env[key]]));
 
 async function loadLane() {
   const { isNeuralRerankEnabled, neuralRerankCandidates } = await import('../../src/rerank/index.js');
@@ -27,12 +33,22 @@ async function loadLane() {
 }
 
 describe('neural rerank lane', () => {
+  beforeEach(() => {
+    resetDotenv();
+    for (const key of ENV_KEYS) delete process.env[key];
+  });
+
   afterEach(() => {
     rmSync(TMP, { recursive: true, force: true });
+    resetDotenv();
     resetTomlConfigCache();
     resetYamlConfigCache();
     resetResolvedConfigCache();
-    for (const key of ENV_KEYS) delete process.env[key];
+    for (const key of ENV_KEYS) {
+      const value = ORIGINAL_ENV[key];
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
     vi.resetModules();
   });
 

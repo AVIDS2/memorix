@@ -23,13 +23,13 @@ export { loadFileConfig, resetConfigCache, type MemorixConfig } from './config/l
 // ─── Resolved Getters ────────────────────────────────────────────────
 
 /** Memory/background LLM API key: env > memorix.yml > config.json > provider env fallbacks */
-export function getLLMApiKey(): string | undefined {
-  return getResolvedMemoryLane().llm.apiKey;
+export function getLLMApiKey(options: ResolvedLaneOptions = {}): string | undefined {
+  return getResolvedMemoryLane(options).llm.apiKey;
 }
 
 /** LLM provider: env > memorix.yml > config.json > auto-detect */
-export function getLLMProvider(): string {
-  const provider = getResolvedMemoryLane().llm.provider;
+export function getLLMProvider(options: ResolvedLaneOptions = {}): string {
+  const provider = getResolvedMemoryLane(options).llm.provider;
   if (provider) return provider;
   // Auto-detect from env var names
   if (process.env.ANTHROPIC_API_KEY && !process.env.OPENAI_API_KEY) return 'anthropic';
@@ -38,33 +38,33 @@ export function getLLMProvider(): string {
 }
 
 /** LLM model: env > memorix.yml > config.json > provider default */
-export function getLLMModel(providerDefault: string): string {
-  return getResolvedMemoryLane().llm.model || providerDefault;
+export function getLLMModel(providerDefault: string, options: ResolvedLaneOptions = {}): string {
+  return getResolvedMemoryLane(options).llm.model || providerDefault;
 }
 
 /** LLM base URL: env > memorix.yml > config.json > provider default */
-export function getLLMBaseUrl(providerDefault: string): string {
-  return getResolvedMemoryLane().llm.baseUrl || providerDefault;
+export function getLLMBaseUrl(providerDefault: string, options: ResolvedLaneOptions = {}): string {
+  return getResolvedMemoryLane(options).llm.baseUrl || providerDefault;
 }
 
 /** TUI/chat agent API key: agent env > agent config > memory LLM fallback */
-export function getAgentLLMApiKey(): string | undefined {
-  return getResolvedAgentLane().apiKey;
+export function getAgentLLMApiKey(options: ResolvedLaneOptions = {}): string | undefined {
+  return getResolvedAgentLane(options).apiKey;
 }
 
 /** TUI/chat agent provider: agent env > agent config > memory LLM fallback */
-export function getAgentLLMProvider(): string {
-  return getResolvedAgentLane().provider || getLLMProvider();
+export function getAgentLLMProvider(options: ResolvedLaneOptions = {}): string {
+  return getResolvedAgentLane(options).provider || getLLMProvider(options);
 }
 
 /** TUI/chat agent model: agent env > agent config > memory LLM fallback */
-export function getAgentLLMModel(providerDefault: string): string {
-  return getResolvedAgentLane().model || getLLMModel(providerDefault);
+export function getAgentLLMModel(providerDefault: string, options: ResolvedLaneOptions = {}): string {
+  return getResolvedAgentLane(options).model || getLLMModel(providerDefault, options);
 }
 
 /** TUI/chat agent base URL: agent env > agent config > memory LLM fallback */
-export function getAgentLLMBaseUrl(providerDefault: string): string {
-  return getResolvedAgentLane().baseUrl || getLLMBaseUrl(providerDefault);
+export function getAgentLLMBaseUrl(providerDefault: string, options: ResolvedLaneOptions = {}): string {
+  return getResolvedAgentLane(options).baseUrl || getLLMBaseUrl(providerDefault, options);
 }
 
 /** Embedding mode: env > memorix.yml > config.json > 'off' */

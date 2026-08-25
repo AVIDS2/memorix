@@ -40,6 +40,12 @@ export const EXPIRED_SESSION_TTL_MS = 10 * 60 * 1000;
 /** Pinned SDK protocol accepted internally while the HTTP boundary speaks the current stateless contract. */
 export const MCP_SDK_COMPAT_PROTOCOL_VERSION = '2025-11-25';
 
+/** Modern discovery is allowed before a durable project handle exists. */
+export function isServerDiscoverRequest(body: unknown): boolean {
+  return Boolean(body && typeof body === 'object' && !Array.isArray(body)
+    && (body as { method?: unknown }).method === 'server/discover');
+}
+
 export function parseSessionTimeoutMs(raw: string | undefined): number {
   const value = raw?.trim();
   if (!value) return DEFAULT_SESSION_TIMEOUT_MS;
@@ -427,7 +433,7 @@ export default defineCommand({
         ? req.headers['mcp-project-root']
         : undefined;
       const root = persisted?.projectRoot ?? requestedRoot ?? projectRoot;
-      if (!persisted && !isInitializeRequest(body)) {
+      if (!persisted && !isInitializeRequest(body) && !isServerDiscoverRequest(body)) {
         res.writeHead(400, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ jsonrpc: '2.0', error: { code: -32000, message: 'Stateless MCP requests require Mcp-Project-Handle; initialize first.' }, id: null }));
         return;
@@ -505,7 +511,9 @@ export default defineCommand({
 
       const requestedProtocol = req.headers['mcp-protocol-version'];
       const statelessRequested = req.headers['mcp-stateless'] === 'true'
-        || requestedProtocol === CURRENT_MCP_PROTOCOL_VERSION;
+        || requestedProtocol === CURRENT_MCP_PROTOCOL_VERSION
+        || typeof req.headers['mcp-project-handle'] === 'string'
+        || isServerDiscoverRequest(body);
       if (!sessionId && statelessRequested) {
         await handleStatelessPost(req, res, body);
         return;

@@ -3,7 +3,7 @@ import { MemoryClient, createMemoryClient } from '../../src/sdk.js';
 import { initObservationStore, resetObservationStore } from '../../src/store/obs-store.js';
 import { initObservations, prepareSearchIndex, getAllObservations, getObservation, storeObservation } from '../../src/memory/observations.js';
 import { resetDb } from '../../src/store/orama-store.js';
-import { getDatabase } from '../../src/store/sqlite-db.js';
+import { closeAllDatabases, getDatabase } from '../../src/store/sqlite-db.js';
 import { resetProvider } from '../../src/embedding/provider.js';
 import { resetConfigCache } from '../../src/config.js';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -154,6 +154,7 @@ describe('MemoryClient (unit)', () => {
   afterEach(async () => {
     resetObservationStore();
     await resetDb();
+    closeAllDatabases();
     restoreEmbeddingEnv();
     try { rmSync(testDir, { recursive: true, force: true }); } catch { /* best effort */ }
   });

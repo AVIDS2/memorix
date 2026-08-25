@@ -28,6 +28,7 @@ import { getGlobalDotenvPath, getProjectDotenvPath } from './config-paths.js';
 
 let dotenvLoaded = false;
 let dotenvProjectRoot: string | null = null;
+let dotenvHomeDir: string | null = null;
 
 /** Track which .env files were loaded (for diagnostics) */
 const loadedEnvFiles: string[] = [];
@@ -65,9 +66,11 @@ interface DotenvLoadOptions {
  * @param projectRoot - Project root directory (for project-level .env)
  */
 export function loadDotenv(projectRoot?: string, options: DotenvLoadOptions = {}): void {
-  if (dotenvLoaded && dotenvProjectRoot === (projectRoot ?? null)) return;
+  const userHomeDir = options.userHomeDir ?? homedir();
+  const normalizedProjectRoot = projectRoot ?? null;
+  if (dotenvLoaded && dotenvProjectRoot === normalizedProjectRoot && dotenvHomeDir === userHomeDir) return;
 
-  if (dotenvLoaded && dotenvProjectRoot !== (projectRoot ?? null)) {
+  if (dotenvLoaded && (dotenvProjectRoot !== normalizedProjectRoot || dotenvHomeDir !== userHomeDir)) {
     resetDotenv();
   }
 
@@ -85,10 +88,11 @@ export function loadDotenv(projectRoot?: string, options: DotenvLoadOptions = {}
 
   // 2. User-level .env (~/.memorix/.env) — lowest .env priority, load second
   //    (override: false means it only fills in keys not already set)
-  loadEnvFile(getGlobalDotenvPath(options.userHomeDir ?? homedir()));
+  loadEnvFile(getGlobalDotenvPath(userHomeDir));
 
   dotenvLoaded = true;
-  dotenvProjectRoot = projectRoot ?? null;
+  dotenvProjectRoot = normalizedProjectRoot;
+  dotenvHomeDir = userHomeDir;
 }
 
 /**
@@ -101,6 +105,7 @@ export function resetDotenv(): void {
   injectedKeys.clear();
   dotenvLoaded = false;
   dotenvProjectRoot = null;
+  dotenvHomeDir = null;
   loadedEnvFiles.length = 0;
   loadedEnvKeys.clear();
 }

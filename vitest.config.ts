@@ -38,6 +38,8 @@ export default defineConfig({
             'tests/cli/uninstall.test.ts',
             // Mutates process.cwd/env and tears down git+sqlite sandboxes.
             'tests/cli/codegraph-command.test.ts',
+            // SDK tests mutate process-wide stores/config and SQLite handles.
+            'tests/sdk/memory-client.test.ts',
           ],
         },
       },
@@ -62,6 +64,8 @@ export default defineConfig({
             'tests/cli/operator-surface.test.ts',
             'tests/cli/uninstall.test.ts',
             'tests/cli/codegraph-command.test.ts',
+            // SDK tests mutate process-wide stores/config and SQLite handles.
+            'tests/sdk/memory-client.test.ts',
           ],
           testTimeout: 15_000,
           hookTimeout: 30_000,

@@ -2,12 +2,12 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.AVIDS2/memorix",
   "title": "Memorix",
-  "description": "Local-first persistent project memory for AI coding agents across MCP clients and sessions.",
+  "description": "Local-first project memory with legacy MCP and 2026 discovery compatibility.",
   "repository": {
     "url": "https://github.com/AVIDS2/memorix",
     "source": "github"
   },
-  "version": "1.8.1",
+  "version": "1.8.2",
   "websiteUrl": "https://github.com/AVIDS2/memorix#readme",
   "icons": [
     {
@@ -22,7 +22,7 @@
     {
       "registryType": "npm",
       "identifier": "memorix",
-      "version": "1.8.1",
+      "version": "1.8.2",
       "runtimeHint": "npx",
       "packageArguments": [
         {

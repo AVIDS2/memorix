@@ -14,8 +14,8 @@ import type {
 } from './types.js';
 
 // The bundled Windows CodeGraph CLI takes roughly 600 ms just to start cold.
-// Keep the default useful in real sessions while still bounding a local call.
-export const DEFAULT_EXTERNAL_CODEGRAPH_TIMEOUT_MS = 1_200;
+// Leave room for a cold project read while keeping each probe bounded.
+export const DEFAULT_EXTERNAL_CODEGRAPH_TIMEOUT_MS = 3_000;
 export const MAX_EXTERNAL_CODEGRAPH_TIMEOUT_MS = 5_000;
 /** Explicit index maintenance is opt-in and may legitimately take longer. */
 export const EXTERNAL_CODEGRAPH_LIFECYCLE_TIMEOUT_MS = 30_000;
@@ -85,6 +85,28 @@ export interface ExternalCodeGraphContextResult extends InspectExternalCodeGraph
   outline?: ExternalCodeGraphOutline;
   /** Only present when a detected external graph could not safely contribute. */
   caution?: string;
+  diagnostics?: ExternalCodeGraphQueryDiagnostics;
+}
+
+export type ExternalCodeGraphQueryOutcome =
+  | 'not-attempted'
+  | 'success'
+  | 'failed'
+  | 'timed-out'
+  | 'output-limited'
+  | 'invalid-output';
+
+export interface ExternalCodeGraphQueryDiagnostic {
+  command: 'context' | 'explore';
+  attempted: boolean;
+  outcome: ExternalCodeGraphQueryOutcome;
+  exitCode?: number;
+  reason?: string;
+}
+
+export interface ExternalCodeGraphQueryDiagnostics {
+  context: ExternalCodeGraphQueryDiagnostic;
+  explore: ExternalCodeGraphQueryDiagnostic;
 }
 
 /** Explicit lifecycle operations. Memorix never calls CodeGraph's `install`. */
@@ -410,6 +432,42 @@ function unavailableHealth(result: ExternalCodeGraphCommandResult): ExternalCode
   return { state: 'unavailable', reason: 'A local CodeGraph command did not complete.' };
 }
 
+function notAttemptedDiagnostic(command: 'context' | 'explore'): ExternalCodeGraphQueryDiagnostic {
+  return { command, attempted: false, outcome: 'not-attempted' };
+}
+
+function commandDiagnostic(
+  command: 'context' | 'explore',
+  result: ExternalCodeGraphCommandResult,
+  outcome: ExternalCodeGraphQueryOutcome,
+  reason?: string,
+): ExternalCodeGraphQueryDiagnostic {
+  return {
+    command,
+    attempted: true,
+    outcome,
+    ...(typeof result.exitCode === 'number' ? { exitCode: result.exitCode } : {}),
+    ...(reason ? { reason: sanitizeCredentials(reason).slice(0, 240) } : {}),
+  };
+}
+
+function failedCommandDiagnostic(
+  command: 'context' | 'explore',
+  result: ExternalCodeGraphCommandResult,
+): ExternalCodeGraphQueryDiagnostic {
+  const outcome: ExternalCodeGraphQueryOutcome = result.timedOut
+    ? 'timed-out'
+    : result.outputLimited
+      ? 'output-limited'
+      : 'failed';
+  return commandDiagnostic(
+    command,
+    result,
+    outcome,
+    result.error || result.stderr || 'CodeGraph command did not complete.',
+  );
+}
+
 async function runSafely(
   runner: ExternalCodeGraphRunner,
   input: ExternalCodeGraphCommandInput,
@@ -590,6 +648,7 @@ function parseOutline(value: unknown, projectRoot: string, exclude?: string[]): 
   if (nodes.some(node => !node)) return undefined;
   const byId = new Map<string, ExternalCodeGraphSymbol>();
   for (const node of nodes as RawExternalNode[]) {
+    if (byId.has(node.id)) return undefined;
     byId.set(node.id, externalSymbol(node));
   }
   const entryPoints = value.entryPoints
@@ -609,7 +668,7 @@ function parseOutline(value: unknown, projectRoot: string, exclude?: string[]): 
     if (!source || !target || !kind || (rawEdge.line !== undefined && (!line || line < 1))) return undefined;
     const from = byId.get(source);
     const to = byId.get(target);
-    if (!from || !to) continue;
+    if (!from || !to) return undefined;
     relations.push({ from, to, kind, ...(line ? { line } : {}) });
   }
 
@@ -629,10 +688,200 @@ function parseOutline(value: unknown, projectRoot: string, exclude?: string[]): 
   };
 }
 
+function parseTextLocation(value: string): { filePath: string; line?: number } | undefined {
+  const match = value.trim().match(/^(.*?)(?::([1-9]\d*))?$/);
+  if (!match?.[1]) return undefined;
+  return {
+    filePath: match[1].trim(),
+    ...(match[2] ? { line: Number(match[2]) } : {}),
+  };
+}
+
+function parseExploreText(value: string, projectRoot: string, exclude?: string[]): ExternalCodeGraphOutline | undefined {
+  if (!value.trim() || Buffer.byteLength(value, 'utf8') > MAX_EXTERNAL_CODEGRAPH_OUTPUT_BYTES) return undefined;
+
+  const entryPoints: RawExternalNode[] = [];
+  const nodes: RawExternalNode[] = [];
+  const relatedFiles = new Set<string>();
+  const byName = new Map<string, RawExternalNode>();
+  let section: 'entry' | 'related' | 'relationships' | null = null;
+  let relationKind = 'references';
+
+  const addNode = (node: RawExternalNode, entry: boolean): void => {
+    const key = `${node.filePath}\0${node.name}`;
+    const existing = byName.get(key);
+    if (existing) return;
+    byName.set(key, node);
+    relatedFiles.add(node.filePath);
+    (entry ? entryPoints : nodes).push(node);
+  };
+
+  for (const rawLine of value.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    const fileHeader = line.match(/^\*\*`([^`]+)`\*\*\s+(?:—|-)\s+(.+)$/);
+    if (fileHeader) {
+      const filePath = safeRelativePath(projectRoot, fileHeader[1], exclude);
+      if (!filePath) return undefined;
+      const symbolText = fileHeader[2].split(/\s+·\s+/, 1)[0] ?? '';
+      const symbols = [...symbolText.matchAll(/([^,]+?)\(([^()]+)\)/g)];
+      if (symbols.length === 0) return undefined;
+      const isFirstFile = entryPoints.length === 0 && nodes.length === 0;
+      for (const symbol of symbols.slice(0, MAX_EXTERNAL_NODE_COUNT)) {
+        const name = symbol[1]?.trim();
+        const kind = symbol[2]?.trim();
+        if (!name || !kind) return undefined;
+        addNode({
+          id: `explore:${filePath}:${name}`,
+          kind,
+          name,
+          filePath,
+        }, isFirstFile);
+      }
+      section = null;
+      continue;
+    }
+    if (/^#{2,3}\s+Entry Points?\b/i.test(line)) {
+      section = 'entry';
+      continue;
+    }
+    if (/^#{2,3}\s+Related Symbols?\b/i.test(line)) {
+      section = 'related';
+      continue;
+    }
+    if (/^\*\*Relationships\*\*$/i.test(line)) {
+      section = 'relationships';
+      continue;
+    }
+    if (/^\*\*(?:Source Code|Code)\*\*$/i.test(line) || /^#{2,3}\s+/i.test(line)) {
+      section = null;
+      continue;
+    }
+
+    if (section === 'entry') {
+      const match = line.match(/^-\s+\*\*(.+?)\*\*\s+\(([^)]+)\)\s+-\s+(.+)$/);
+      if (!match) continue;
+      const location = parseTextLocation(match[3]);
+      if (!location) return undefined;
+      const filePath = safeRelativePath(projectRoot, location.filePath, exclude);
+      if (!filePath) return undefined;
+      addNode({
+        id: `explore:${filePath}:${match[1]}`,
+        kind: match[2],
+        name: match[1],
+        filePath,
+        ...(location.line ? { startLine: location.line, endLine: location.line } : {}),
+      }, true);
+      continue;
+    }
+
+    if (section === 'related') {
+      const match = line.match(/^-\s+([^:]+):\s+(.+)$/);
+      if (!match) continue;
+      const filePath = safeRelativePath(projectRoot, match[1], exclude);
+      if (!filePath) return undefined;
+      relatedFiles.add(filePath);
+      for (const rawSymbol of match[2].split(',')) {
+        const symbol = rawSymbol.trim().match(/^(.+?)(?::([1-9]\d*))?$/);
+        if (!symbol?.[1]) return undefined;
+        addNode({
+          id: `explore:${filePath}:${symbol[1].trim()}`,
+          kind: 'unknown',
+          name: symbol[1].trim(),
+          filePath,
+          ...(symbol[2] ? { startLine: Number(symbol[2]), endLine: Number(symbol[2]) } : {}),
+        }, false);
+      }
+      continue;
+    }
+
+    if (section === 'relationships') {
+      const kind = line.match(/^\*\*([^*]+):\*\*$/);
+      if (kind?.[1]) {
+        relationKind = kind[1].trim();
+        continue;
+      }
+    }
+  }
+
+  const bySymbolName = new Map<string, RawExternalNode>();
+  for (const node of [...entryPoints, ...nodes]) {
+    if (!bySymbolName.has(node.name)) bySymbolName.set(node.name, node);
+  }
+  const relations: ExternalCodeGraphRelation[] = [];
+  if (section === 'relationships') {
+    for (const rawLine of value.split(/\r?\n/)) {
+      const line = rawLine.trim();
+      const match = line.match(/^-\s+(.+?)\s+(?:\u2192|->)\s+(.+)$/);
+      if (!match) continue;
+      const from = bySymbolName.get(match[1].trim());
+      const to = bySymbolName.get(match[2].trim());
+      if (!from || !to) continue;
+      relations.push({
+        from: externalSymbol(from),
+        to: externalSymbol(to),
+        kind: relationKind,
+      });
+    }
+  } else {
+    // The relationship section may be followed by source sections. Re-scan
+    // its bounded region so relation parsing does not depend on the final
+    // section value after the loop.
+    const relationshipStart = value.split(/\r?\n/).findIndex((line) => /^\s*\*\*Relationships\*\*\s*$/i.test(line));
+    if (relationshipStart >= 0) {
+      const relationshipLines = value.split(/\r?\n/).slice(relationshipStart + 1);
+      for (const rawLine of relationshipLines) {
+        const line = rawLine.trim();
+        if (/^\*\*(?:Source Code|Code)\*\*$/i.test(line) || /^#{2,3}\s+/i.test(line)) break;
+        const kind = line.match(/^\*\*([^*]+):\*\*$/);
+        if (kind?.[1]) {
+          relationKind = kind[1].trim();
+          continue;
+        }
+        const match = line.match(/^-\s+(.+?)\s+(?:\u2192|->)\s+(.+)$/);
+        if (!match) continue;
+        const from = bySymbolName.get(match[1].trim());
+        const to = bySymbolName.get(match[2].trim());
+        if (from && to) relations.push({ from: externalSymbol(from), to: externalSymbol(to), kind: relationKind });
+      }
+    }
+  }
+
+  const allNodes = [...entryPoints, ...nodes];
+  if (allNodes.length === 0) return undefined;
+  return {
+    provider: 'external',
+    entryPoints: entryPoints.map(externalSymbol).slice(0, 5),
+    relations: relations.slice(0, 6),
+    relatedFiles: [...relatedFiles].slice(0, 5),
+    stats: {
+      nodes: allNodes.length,
+      edges: relations.length,
+      files: relatedFiles.size,
+    },
+  };
+}
+
+function parseExplorePayload(value: unknown, projectRoot: string, exclude?: string[]): ExternalCodeGraphOutline | undefined {
+  if (typeof value === 'string') return parseExploreText(value, projectRoot, exclude);
+  if (isRecord(value) && isRecord(value.result)) value = value.result;
+  if (isRecord(value) && Array.isArray(value.content)) {
+    const text = value.content
+      .filter((item): item is Record<string, unknown> => isRecord(item) && item.type === 'text' && typeof item.text === 'string')
+      .map(item => item.text as string)
+      .join('\n');
+    return parseExploreText(text, projectRoot, exclude);
+  }
+  return parseOutline(value, projectRoot, exclude);
+}
+
 function fallbackCaution(health: ExternalCodeGraphHealth): string | undefined {
   if (health.state === 'disabled' || health.state === 'not-detected'
     || health.state === 'not-initialized' || health.state === 'ready') return undefined;
   return 'External semantic CodeGraph is ' + health.state + '; using Lite structural evidence for this brief.';
+}
+
+function queryFallbackCaution(diagnostics: ExternalCodeGraphQueryDiagnostics): string {
+  return `External semantic CodeGraph context was unavailable (context: ${diagnostics.context.outcome}; explore: ${diagnostics.explore.outcome}); using Lite structural evidence.`;
 }
 
 export async function getExternalCodeGraphContext(input: ExternalCodeGraphContextInput): Promise<ExternalCodeGraphContextResult> {
@@ -642,34 +891,65 @@ export async function getExternalCodeGraphContext(input: ExternalCodeGraphContex
   }
 
   const mode = input.mode ?? 'auto';
-  const result = await runSafely(input.runner ?? defaultRunner, {
+  const runner = input.runner ?? defaultRunner;
+  const contextResult = await runSafely(runner, {
     command: input.command,
     args: ['context', '--path', input.projectRoot, '--format', 'json', '--max-nodes', '8', '--no-code', input.task],
     cwd: input.projectRoot,
     timeoutMs: boundedTimeout(input.timeoutMs),
     maxOutputBytes: MAX_EXTERNAL_CODEGRAPH_OUTPUT_BYTES,
   });
-  if (!result.ok) {
-    const health = unavailableHealth(result);
+  const diagnostics: ExternalCodeGraphQueryDiagnostics = {
+    context: contextResult.ok
+      ? commandDiagnostic('context', contextResult, 'success')
+      : failedCommandDiagnostic('context', contextResult),
+    explore: notAttemptedDiagnostic('explore'),
+  };
+
+  const contextOutline = contextResult.ok
+    ? parseOutline(parseJson(contextResult.stdout), input.projectRoot, input.exclude)
+    : undefined;
+  if (contextOutline && (contextOutline.entryPoints.length > 0 || contextOutline.relations.length > 0 || contextOutline.relatedFiles.length > 0)) {
     return {
-      health,
-      quality: providerQuality({ mode, health }),
-      caution: fallbackCaution(health),
+      ...inspected,
+      outline: contextOutline,
+      diagnostics,
+      quality: providerQuality({ mode, health: inspected.health, selected: 'external' }),
     };
   }
-  const outline = parseOutline(parseJson(result.stdout), input.projectRoot, input.exclude);
-  if (!outline) {
-    const health: ExternalCodeGraphHealth = { state: 'invalid', reason: 'The local CodeGraph context payload failed validation.' };
+  if (contextResult.ok) diagnostics.context = commandDiagnostic('context', contextResult, 'invalid-output', 'The context payload failed validation or contained no safe outline.');
+
+  const exploreResult = await runSafely(runner, {
+    command: input.command,
+    args: ['explore', '--path', input.projectRoot, '--max-files', '4', input.task],
+    cwd: input.projectRoot,
+    timeoutMs: boundedTimeout(input.timeoutMs),
+    maxOutputBytes: MAX_EXTERNAL_CODEGRAPH_OUTPUT_BYTES,
+  });
+  diagnostics.explore = exploreResult.ok
+    ? commandDiagnostic('explore', exploreResult, 'success')
+    : failedCommandDiagnostic('explore', exploreResult);
+
+  const exploreOutline = exploreResult.ok
+    ? parseExplorePayload(parseJson(exploreResult.stdout) ?? exploreResult.stdout, input.projectRoot, input.exclude)
+    : undefined;
+  if (exploreOutline && (exploreOutline.entryPoints.length > 0 || exploreOutline.relations.length > 0 || exploreOutline.relatedFiles.length > 0)) {
     return {
-      health,
-      quality: providerQuality({ mode, health }),
-      caution: fallbackCaution(health),
+      ...inspected,
+      outline: exploreOutline,
+      diagnostics,
+      quality: providerQuality({ mode, health: inspected.health, selected: 'external' }),
     };
   }
-  const contributes = outline.entryPoints.length > 0 || outline.relations.length > 0 || outline.relatedFiles.length > 0;
+  if (exploreResult.ok) diagnostics.explore = commandDiagnostic('explore', exploreResult, 'invalid-output', 'The explore payload failed validation or contained no safe outline.');
+
+  const health = exploreResult.ok
+    ? { state: 'invalid' as const, reason: 'The local CodeGraph context and explore payloads failed validation.' }
+    : unavailableHealth(exploreResult);
   return {
-    ...inspected,
-    ...(contributes ? { outline } : {}),
-    quality: providerQuality({ mode, health: inspected.health, ...(contributes ? { selected: 'external' as const } : {}) }),
+    health,
+    quality: providerQuality({ mode, health }),
+    diagnostics,
+    caution: queryFallbackCaution(diagnostics),
   };
 }

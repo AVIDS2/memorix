@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  DEFAULT_EXTERNAL_CODEGRAPH_TIMEOUT_MS,
   MAX_EXTERNAL_CODEGRAPH_OUTPUT_BYTES,
   EXTERNAL_CODEGRAPH_LIFECYCLE_TIMEOUT_MS,
   getExternalCodeGraphContext,
@@ -73,6 +74,25 @@ function outline(): string {
   });
 }
 
+function exploreText(): string {
+  return [
+    '## Code Context',
+    '',
+    '### Entry Points',
+    '',
+    '- **requireAuthenticatedUser** (function) - src/auth.ts:2',
+    '',
+    '### Related Symbols',
+    '',
+    '- src/auth.ts: validateToken:1',
+    '',
+    '**Relationships**',
+    '',
+    '**calls:**',
+    '- requireAuthenticatedUser \u2192 validateToken',
+  ].join('\n');
+}
+
 function runnerFor(projectRoot: string, context = outline(), statusPayload = status(projectRoot)): ExternalCodeGraphRunner & { run: ReturnType<typeof vi.fn> } {
   return {
     run: vi.fn(async ({ args }: { args: string[] }) => ({
@@ -114,6 +134,113 @@ describe('external CodeGraph provider', () => {
       'context', '--path', projectRoot, '--format', 'json', '--max-nodes', '8', '--no-code',
       'trace authenticated user validation',
     ]);
+  });
+
+  it('falls back from an unknown context command to the official explore command', async () => {
+    const projectRoot = makeProject();
+    const runner: ExternalCodeGraphRunner & { run: ReturnType<typeof vi.fn> } = {
+      run: vi.fn(async ({ args }: { args: string[] }) => {
+        if (args[0] === 'status') return { ok: true, stdout: status(projectRoot) };
+        if (args[0] === 'context') return { ok: false, stdout: '', stderr: 'unknown command: context', exitCode: 1 };
+        return { ok: true, stdout: exploreText() };
+      }),
+    };
+
+    const result = await getExternalCodeGraphContext({
+      projectRoot,
+      task: 'trace authenticated user validation',
+      runner,
+    });
+
+    expect(result.quality).toMatchObject({ selected: 'external', selectedQuality: 'semantic' });
+    expect(result.outline).toMatchObject({
+      provider: 'external',
+      relatedFiles: ['src/auth.ts'],
+      relations: [{ kind: 'calls' }],
+    });
+    expect(result.diagnostics).toMatchObject({
+      context: { outcome: 'failed' },
+      explore: { outcome: 'success' },
+    });
+    expect(runner.run.mock.calls[2][0]).toMatchObject({
+      args: ['explore', '--path', projectRoot, '--max-files', '4', 'trace authenticated user validation'],
+      cwd: projectRoot,
+    });
+  });
+
+  it('reports separate context and explore failures without claiming external readiness', async () => {
+    const projectRoot = makeProject();
+    const runner: ExternalCodeGraphRunner = {
+      run: vi.fn(async ({ args }: { args: string[] }) => {
+        if (args[0] === 'status') return { ok: true, stdout: status(projectRoot) };
+        return { ok: false, stdout: '', stderr: `failed ${args[0]}`, exitCode: 1 };
+      }),
+    };
+
+    const result = await getExternalCodeGraphContext({ projectRoot, task: 'trace auth', runner });
+
+    expect(result.quality).toMatchObject({ selected: 'lite', external: { state: 'unavailable' } });
+    expect(result.outline).toBeUndefined();
+    expect(result.diagnostics).toMatchObject({
+      context: { outcome: 'failed' },
+      explore: { outcome: 'failed' },
+    });
+    expect(result.caution).toContain('context');
+    expect(result.caution).toContain('explore');
+  });
+
+  it('keeps timeout and output-limit diagnostics bounded for both context paths', async () => {
+    const projectRoot = makeProject();
+    const timeout: ExternalCodeGraphRunner = {
+      run: vi.fn(async ({ args }: { args: string[] }) => args[0] === 'status'
+        ? { ok: true, stdout: status(projectRoot) }
+        : { ok: false, stdout: '', timedOut: true }),
+    };
+    const timeoutResult = await getExternalCodeGraphContext({ projectRoot, task: 'trace auth', runner: timeout });
+    expect(timeoutResult.diagnostics).toMatchObject({
+      context: { outcome: 'timed-out' },
+      explore: { outcome: 'timed-out' },
+    });
+    expect(timeoutResult.quality.external.state).toBe('timed-out');
+
+    const outputLimited: ExternalCodeGraphRunner = {
+      run: vi.fn(async ({ args }: { args: string[] }) => args[0] === 'status'
+        ? { ok: true, stdout: status(projectRoot) }
+        : { ok: false, stdout: '', outputLimited: true }),
+    };
+    const limitedResult = await getExternalCodeGraphContext({ projectRoot, task: 'trace auth', runner: outputLimited });
+    expect(limitedResult.diagnostics).toMatchObject({
+      context: { outcome: 'output-limited' },
+      explore: { outcome: 'output-limited' },
+    });
+    expect(limitedResult.quality.external.state).toBe('invalid');
+    expect(DEFAULT_EXTERNAL_CODEGRAPH_TIMEOUT_MS).toBeGreaterThan(1_200);
+    expect(DEFAULT_EXTERNAL_CODEGRAPH_TIMEOUT_MS).toBeLessThanOrEqual(5_000);
+  });
+
+  it('rejects unsafe paths and relations from an explore fallback', async () => {
+    const projectRoot = makeProject();
+    const unsafe = JSON.stringify({
+      ...JSON.parse(outline()),
+      entryPoints: [{
+        ...JSON.parse(outline()).entryPoints[0],
+        filePath: '../outside.ts',
+      }],
+    });
+    const runner: ExternalCodeGraphRunner = {
+      run: vi.fn(async ({ args }: { args: string[] }) => {
+        if (args[0] === 'status') return { ok: true, stdout: status(projectRoot) };
+        if (args[0] === 'context') return { ok: false, stdout: '', stderr: 'unknown command', exitCode: 1 };
+        return { ok: true, stdout: unsafe };
+      }),
+    };
+
+    const result = await getExternalCodeGraphContext({ projectRoot, task: 'trace auth', runner });
+
+    expect(result.outline).toBeUndefined();
+    expect(result.quality).toMatchObject({ selected: 'lite', external: { state: 'invalid' } });
+    expect(result.diagnostics).toMatchObject({ explore: { outcome: 'invalid-output' } });
+    expect(result.caution).toContain('Lite structural evidence');
   });
 
   it('stays quiet when a project has not opted into a local CodeGraph index', async () => {

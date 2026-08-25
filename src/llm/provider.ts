@@ -210,6 +210,10 @@ export type LLMConfigScope = 'memory' | 'agent';
 
 export interface InitLLMOptions {
   scope?: LLMConfigScope;
+  /** Resolve project TOML/.env instead of relying on process.cwd(). */
+  projectRoot?: string | null;
+  /** Override the home directory used for global TOML/.env resolution. */
+  homeDir?: string;
 }
 
 /**
@@ -218,20 +222,29 @@ export interface InitLLMOptions {
  */
 export function initLLM(options: InitLLMOptions = {}): LLMConfig | null {
   const scope = options.scope ?? 'memory';
-  const apiKey = scope === 'agent' ? getAgentLLMApiKey() : getLLMApiKey();
+  const configOptions = { projectRoot: options.projectRoot, homeDir: options.homeDir };
+  const apiKey = scope === 'agent'
+    ? getAgentLLMApiKey(configOptions)
+    : getLLMApiKey(configOptions);
   if (!apiKey) {
     currentConfig = null;
     return null;
   }
 
-  const provider = (scope === 'agent' ? getAgentLLMProvider() : getLLMProvider()) as LLMConfig['provider'];
+  const provider = (scope === 'agent'
+    ? getAgentLLMProvider(configOptions)
+    : getLLMProvider(configOptions)) as LLMConfig['provider'];
   const defaults = PROVIDER_DEFAULTS[provider] ?? PROVIDER_DEFAULTS.openai;
 
   currentConfig = {
     provider,
     apiKey,
-    model: scope === 'agent' ? getAgentLLMModel(defaults.model) : getLLMModel(defaults.model),
-    baseUrl: scope === 'agent' ? getAgentLLMBaseUrl(defaults.baseUrl) : getLLMBaseUrl(defaults.baseUrl),
+    model: scope === 'agent'
+      ? getAgentLLMModel(defaults.model, configOptions)
+      : getLLMModel(defaults.model, configOptions),
+    baseUrl: scope === 'agent'
+      ? getAgentLLMBaseUrl(defaults.baseUrl, configOptions)
+      : getLLMBaseUrl(defaults.baseUrl, configOptions),
   };
 
   return currentConfig;

@@ -74,7 +74,7 @@ max_file_bytes = 2097152
 # Optional: use an already-indexed local CodeGraph only when it is healthy.
 external_context = "auto"
 # external_command = "C:\\tools\\codegraph.cmd"
-external_timeout_ms = 1200
+external_timeout_ms = 3000
 
 [server]
 transport = "stdio"
@@ -334,7 +334,7 @@ Common keys:
 - `max_file_bytes = 2097152` (2 MiB per source file by default)
 - `external_context = "auto"` (`"off"` keeps the built-in Lite provider only)
 - `external_command = "C:\\tools\\codegraph.cmd"` (optional path when CodeGraph is not on `PATH`)
-- `external_timeout_ms = 1200` (bounded local semantic-query timeout)
+- `external_timeout_ms = 3000` (bounded local semantic-query timeout; values are clamped to 5 seconds)
 
 Legacy YAML uses `codegraph.excludePatterns`, `codegraph.maxFileBytes`,
 `codegraph.externalContext`, `codegraph.externalCommand`, and

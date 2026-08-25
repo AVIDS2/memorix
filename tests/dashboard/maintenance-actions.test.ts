@@ -1,7 +1,16 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+
+vi.mock('../../src/llm/provider.js', async () => {
+  const actual = await vi.importActual<typeof import('../../src/llm/provider.js')>('../../src/llm/provider.js');
+  return {
+    ...actual,
+    initLLM: vi.fn(() => null),
+    isLLMEnabled: vi.fn(() => false),
+  };
+});
 
 import {
   DashboardMaintenanceError,

@@ -4,6 +4,8 @@
 
 import { defineCommand } from 'citty';
 import { resolveToolProfile } from '../../server/tool-profile.js';
+import { getMcpServerInfo } from '../../server/mcp-discovery.js';
+import { StdioStartupGate } from '../../server/stdio-startup-gate.js';
 import { mcpFileUriToPath } from '../mcp-root-path.js';
 
 export default defineCommand({
@@ -29,6 +31,28 @@ export default defineCommand({
     },
   },
   run: async ({ args }) => {
+    // Take ownership of stdin before project/config/runtime initialization. The
+    // gate answers handshake-free discovery and queues every other JSON-RPC line
+    // until the SDK transport is connected, so cold starts cannot lose requests.
+    const startupGate = new StdioStartupGate({
+      stdin: process.stdin,
+      stdout: process.stdout,
+      serverInfo: getMcpServerInfo(),
+      onError: (error) => {
+        console.error(`[memorix] stdio startup gate error: ${error.message}`);
+        // The stream is no longer safe to replay after an input-limit or I/O
+        // failure. Exit instead of leaving a half-connected MCP process alive.
+        process.exit(1);
+      },
+      onEnd: () => {
+        console.error('[memorix] stdin closed — exiting');
+        // The gate has already ended the transport input when ready. Set the
+        // exit code and let pending JSON-RPC stdout writes drain naturally.
+        process.exitCode = 0;
+      },
+    });
+    startupGate.start();
+
     const { StdioServerTransport } = await import(
       '@modelcontextprotocol/sdk/server/stdio.js'
     );
@@ -36,12 +60,6 @@ export default defineCommand({
     const { detectProject, findGitInSubdirs, isSystemDirectory } = await import('../../project/detector.js');
     const { homedir } = await import('node:os');
     const { resolveServeProject } = await import('./serve-shared.js');
-
-    // Auto-exit when stdio pipe breaks (IDE closed) to prevent orphaned processes
-    process.stdin.on('end', () => {
-      console.error('[memorix] stdin closed — exiting');
-      process.exit(0);
-    });
 
     // Priority: explicit --cwd arg > MEMORIX_PROJECT_ROOT env > INIT_CWD (npm lifecycle) > process.cwd()
     let safeCwd: string;
@@ -85,8 +103,9 @@ export default defineCommand({
       ? { toolProfile, deferProjectRuntimeInit: true }
       : { allowUntrackedFallback: allowUntracked, deferProjectInitUntilBound: !allowUntracked, deferProjectRuntimeInit: true, toolProfile };
     const { server, projectId, deferredInit, switchProject } = await createMemorixServer(projectRoot, undefined, undefined, serverOptions);
-    const transport = new StdioServerTransport();
+    const transport = new StdioServerTransport(startupGate.input, process.stdout);
     await server.connect(transport);
+    startupGate.markReady();
 
     console.error(`[memorix] MCP Server running on stdio (project: ${projectId})`);
     console.error(`[memorix] Project root: ${detected?.rootPath ?? projectRoot}`);

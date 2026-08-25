@@ -11,32 +11,28 @@ import { RequestSchema, type ServerCapabilities } from '@modelcontextprotocol/sd
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod/v4';
 
-export const MCP_MODERN_PROTOCOL_VERSION = '2026-07-28';
-export const MCP_LEGACY_PROTOCOL_VERSION = '2025-11-25';
-export const MCP_OLDEST_LEGACY_PROTOCOL_VERSION = '2024-11-05';
-export const MCP_SERVER_DISCOVER_METHOD = 'server/discover';
-export const MCP_SERVER_INFO_META_KEY = 'io.modelcontextprotocol/serverInfo';
+import {
+  createMcpDiscoverResult,
+  MCP_SERVER_DISCOVER_METHOD,
+  type McpDiscoverResult,
+  type McpServerInfo,
+} from './mcp-discovery.js';
+
+export {
+  createMcpDiscoverResult,
+  getMcpServerInfo,
+  MCP_LEGACY_PROTOCOL_VERSION,
+  MCP_MODERN_PROTOCOL_VERSION,
+  MCP_OLDEST_LEGACY_PROTOCOL_VERSION,
+  MCP_SERVER_DISCOVER_METHOD,
+  MCP_SERVER_INFO_META_KEY,
+} from './mcp-discovery.js';
+export type { McpDiscoverResult, McpServerInfo } from './mcp-discovery.js';
 
 const ServerDiscoverRequestSchema = RequestSchema.extend({
   method: z.literal(MCP_SERVER_DISCOVER_METHOD),
   params: z.looseObject({}).optional(),
 });
-
-export interface McpServerInfo {
-  name: string;
-  version: string;
-}
-
-export interface McpDiscoverResult {
-  resultType: 'complete';
-  supportedVersions: string[];
-  capabilities: ServerCapabilities;
-  _meta: {
-    [MCP_SERVER_INFO_META_KEY]: McpServerInfo;
-  };
-  ttlMs: number;
-  cacheScope: 'public' | 'private';
-}
 
 const registeredServers = new WeakSet<McpServer>();
 
@@ -48,22 +44,7 @@ export function buildMcpDiscoverResult(server: McpServer, serverInfo: McpServerI
   const getCapabilities = (server.server as unknown as {
     getCapabilities: () => ServerCapabilities;
   }).getCapabilities.bind(server.server);
-  return {
-    resultType: 'complete',
-    supportedVersions: [
-      MCP_MODERN_PROTOCOL_VERSION,
-      MCP_LEGACY_PROTOCOL_VERSION,
-      MCP_OLDEST_LEGACY_PROTOCOL_VERSION,
-    ],
-    capabilities: getCapabilities(),
-    _meta: {
-      [MCP_SERVER_INFO_META_KEY]: { ...serverInfo },
-    },
-    // v1 has no response-cache negotiation. A zero private TTL is the
-    // conservative result and prevents clients from inventing a shared cache.
-    ttlMs: 0,
-    cacheScope: 'private',
-  };
+  return createMcpDiscoverResult(getCapabilities(), serverInfo);
 }
 
 /**

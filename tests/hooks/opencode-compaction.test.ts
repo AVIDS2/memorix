@@ -18,6 +18,35 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 
+const originalAuditFile = process.env.MEMORIX_AUDIT_FILE;
+
+async function createOpenCodeProject(prefix: string): Promise<{ tmpDir: string; auditFile: string }> {
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), prefix));
+  const gitDir = path.join(tmpDir, '.git');
+  const auditFile = path.join(tmpDir, '.memorix', 'audit.json');
+
+  // A remote in the fixture lets project detection use its fast path without
+  // spawning git once for every audit record written during installation.
+  await fs.mkdir(gitDir, { recursive: true });
+  await fs.writeFile(path.join(gitDir, 'config'), [
+    '[core]',
+    '  repositoryformatversion = 0',
+    '  bare = false',
+    '[remote "origin"]',
+    '  url = https://github.com/AVIDS2/memorix-test-fixture.git',
+    '  fetch = +refs/heads/*:refs/remotes/origin/*',
+    '',
+  ].join('\n'), 'utf-8');
+  process.env.MEMORIX_AUDIT_FILE = auditFile;
+
+  return { tmpDir, auditFile };
+}
+
+function restoreAuditFile(): void {
+  if (originalAuditFile === undefined) delete process.env.MEMORIX_AUDIT_FILE;
+  else process.env.MEMORIX_AUDIT_FILE = originalAuditFile;
+}
+
 describe('Issue #45: OpenCode compaction', () => {
   // ─── Normalizer ───
 
@@ -48,13 +77,12 @@ describe('Issue #45: OpenCode compaction', () => {
     let tmpDir: string;
 
     beforeEach(async () => {
-      tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'memorix-oc-test-'));
-      // installHooks needs a .git dir to detect project
-      await fs.mkdir(path.join(tmpDir, '.git'), { recursive: true });
+      ({ tmpDir } = await createOpenCodeProject('memorix-oc-test-'));
     });
 
     afterEach(async () => {
       await fs.rm(tmpDir, { recursive: true, force: true });
+      restoreAuditFile();
     });
 
     it('should include post_compact in returned events list', async () => {
@@ -109,15 +137,12 @@ describe('Issue #80: OpenCode plugin must use correct event keys', () => {
   let auditFile: string;
 
   beforeEach(async () => {
-    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'memorix-oc80-'));
-    await fs.mkdir(path.join(tmpDir, '.git'), { recursive: true });
-    auditFile = path.join(tmpDir, '.memorix', 'audit.json');
-    process.env.MEMORIX_AUDIT_FILE = auditFile;
+    ({ tmpDir, auditFile } = await createOpenCodeProject('memorix-oc80-'));
   });
 
   afterEach(async () => {
-    delete process.env.MEMORIX_AUDIT_FILE;
     await fs.rm(tmpDir, { recursive: true, force: true });
+    restoreAuditFile();
   });
 
   // ─── Plugin structure: individual event keys ───

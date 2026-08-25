@@ -14,6 +14,10 @@ export default defineConfig({
           name: 'main',
           globals: true,
           environment: 'node',
+          // Windows hosted runners are materially slower under the full
+          // multi-project suite; keep the default tests from failing only
+          // because a filesystem-backed hook needs more than five seconds.
+          testTimeout: process.platform === 'win32' ? 15_000 : 5_000,
           include: ['tests/**/*.test.ts', 'tests/**/*.test.tsx'],
           exclude: [
             'tests/e2e/**',

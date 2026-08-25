@@ -1,7 +1,7 @@
 {
   "name": "memorix",
   "mcpName": "io.github.AVIDS2/memorix",
-  "version": "1.8.2",
+  "version": "1.8.3",
   "description": "Local-first shared memory layer for AI coding agents across MCP clients, Git history, reasoning context, and project sessions.",
   "type": "module",
   "sideEffects": false,
@@ -62,6 +62,7 @@
     "update-models": "npm --workspace @memorix/ai run update-models",
     "start": "node dist/index.js",
     "test": "vitest run --no-file-parallelism --maxWorkers=1 --minWorkers=1",
+    "test:mcp-stdio-smoke": "node scripts/mcp-stdio-smoke.mjs",
     "test:watch": "vitest",
     "test:llm-live": "MEMORIX_RUN_LIVE_LLM_TESTS=1 vitest run tests/integration/formation-llm-quality.test.ts",
     "test:e2e": "vitest run tests/e2e/",

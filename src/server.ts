@@ -62,7 +62,7 @@ import {
   type ProjectBindingController,
   type ProjectBindingSource,
 } from './server/request-context.js';
-import { registerMcpDiscovery } from './server/mcp-compat.js';
+import { getMcpServerInfo, registerMcpDiscovery } from './server/mcp-compat.js';
 
 // ── Timeout budgets for LLM-heavy paths ──────────────────────────
 const FORMATION_TIMEOUT_MS = parseFormationTimeoutMs(process.env.MEMORIX_FORMATION_TIMEOUT_MS); // Formation pipeline (extract+resolve+evaluate)
@@ -594,10 +594,7 @@ export async function createMemorixServer(
   };
 
   // Create MCP server (or use existing one from roots-aware flow)
-  const serverInfo = {
-    name: 'memorix',
-    version: typeof __MEMORIX_VERSION__ !== 'undefined' ? __MEMORIX_VERSION__ : '1.0.1',
-  };
+  const serverInfo = getMcpServerInfo();
   const server = existingServer ?? new McpServer(serverInfo);
   registerMcpDiscovery(server, serverInfo);
 

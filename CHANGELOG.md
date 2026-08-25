@@ -4,6 +4,22 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.8.3] - 2026-08-25
+
+### Fixed
+- **Stdio MCP startup gate** -- `memorix serve` now reads and bounds
+  newline-delimited JSON-RPC input before project initialization completes.
+  Early `server/discover` requests receive the complete discovery result, while
+  initialize, notifications, responses, and versionless tool requests replay
+  through the pinned SDK transport in input order without duplicate handling.
+
+### MCP Compatibility
+- **Stable cold-start discovery** -- real stdio CLI startup now supports
+  pre-initialize discovery within the startup window and preserves legacy
+  initialize plus versionless `tools/list`/`tools/call` behavior. Tasks,
+  subscriptions, list-response caching, and modern non-discovery result
+  metadata remain unsupported or partial.
+
 ## [1.8.2] - 2026-08-25
 
 ### Fixed

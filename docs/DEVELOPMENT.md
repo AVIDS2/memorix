@@ -13,8 +13,8 @@ Memorix is a TypeScript project built around:
 
 ## Current Development Baseline
 
-The current release work targets the **1.8.2 release line** and package metadata
-is kept at `1.8.2` for this release commit.
+The current release work targets the **1.8.3 release line** and package metadata
+is kept at `1.8.3` for this release commit.
 
 Contributors should assume the following areas are part of the current release line:
 
@@ -96,6 +96,7 @@ npm run test:watch
 
 ```bash
 memorix serve
+node scripts/mcp-stdio-smoke.mjs
 memorix background start
 memorix status
 ```

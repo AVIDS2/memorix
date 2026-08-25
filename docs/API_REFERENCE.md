@@ -147,14 +147,15 @@ preserved. A memory without explicit feedback keeps the legacy relevance and
 retention score. The first feedback event opts that candidate into the
 feedback projection.
 
-### HTTP MCP Compatibility
+### MCP Compatibility
 
-Legacy clients use stateful Streamable HTTP with `Mcp-Session-Id`. Current
-Legacy clients use the 2025-era `initialize` handshake and stateful
-`Mcp-Session-Id`. The stdio server also accepts the 2026-07-28
-`server/discover` request before `initialize` and returns the required
-`DiscoverResult`. Versionless `tools/list` and `tools/call` use the pinned
-SDK's legacy result envelopes. HTTP stateless clients may use a durable
+Legacy clients use stateful Streamable HTTP with `Mcp-Session-Id` and the
+2025-era `initialize` handshake. The 1.8.3 stdio server starts a bounded
+newline-delimited JSON-RPC gate before project initialization: it answers the
+2026-07-28 `server/discover` request before `initialize`, then replays other
+requests, notifications, and responses in order into the pinned SDK transport.
+Versionless `tools/list` and `tools/call` use the SDK's legacy result envelopes.
+HTTP stateless clients may use a durable
 `Mcp-Project-Handle`; `/protocol-diagnostics` labels this as compatibility-only.
 Modern result metadata is discovery-only with a private zero-TTL hint. Tasks,
 subscriptions, and list-response caching are unsupported. When MCP discovery

@@ -433,11 +433,6 @@ export default defineCommand({
         ? req.headers['mcp-project-root']
         : undefined;
       const root = persisted?.projectRoot ?? requestedRoot ?? projectRoot;
-      if (!persisted && !isInitializeRequest(body) && !isServerDiscoverRequest(body)) {
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ jsonrpc: '2.0', error: { code: -32000, message: 'Stateless MCP requests require Mcp-Project-Handle; initialize first.' }, id: null }));
-        return;
-      }
 
       const { createMemorixServer } = await import('../../server.js');
       const { createProjectBindingController } = await import('../../server/request-context.js');
@@ -465,7 +460,7 @@ export default defineCommand({
       try {
         await server.connect(transport);
         let effectiveHandle = persisted;
-        if (!effectiveHandle && projectId !== '__unresolved__') {
+        if (!effectiveHandle && projectId !== '__unresolved__' && isInitializeRequest(body)) {
           effectiveHandle = statelessBindingStore.create({
             projectId,
             projectRoot: root,

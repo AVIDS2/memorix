@@ -57,7 +57,9 @@ vi.mock('@modelcontextprotocol/sdk/server/streamableHttp.js', () => ({
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({
         jsonrpc: '2.0',
-        result: { protocolVersion: '2024-11-05', capabilities: { tools: {} } },
+        result: body?.method === 'tools/list'
+          ? { tools: [{ name: 'memorix_store' }] }
+          : { protocolVersion: '2024-11-05', capabilities: { tools: {} } },
         id: body?.id ?? 1,
       }));
     }
@@ -412,6 +414,44 @@ describe('serve-http command mode support', () => {
     expect(createMemorixServerMock.mock.calls[0]?.[3]).toMatchObject({ toolProfile: 'full' });
     expect(createControlPlaneMaintenanceWorkerMock).toHaveBeenCalledWith('E:/memorix-data', { pollIntervalMs: 2_000 });
     expect(maintenanceWorkerStartMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('serves current-protocol tools/list without a project handle', async () => {
+    const run = serveHttpCommand.run as ((input: any) => Promise<void>) | undefined;
+
+    await run?.({
+      args: {
+        cwd: project.rootPath,
+        host: '127.0.0.1',
+        port: '3211',
+      },
+    } as any);
+
+    expect(capturedHttpHandler).toBeTypeOf('function');
+
+    const initializeReq = createFakeRequest({
+      jsonrpc: '2.0',
+      method: 'initialize',
+      params: {
+        protocolVersion: '2026-07-28',
+        capabilities: {},
+        clientInfo: { name: 'vitest', version: '1.0.0' },
+      },
+      id: 1,
+    });
+    initializeReq.headers['mcp-protocol-version'] = '2026-07-28';
+    initializeReq.rawHeaders = ['mcp-protocol-version', '2026-07-28'];
+    await capturedHttpHandler!(initializeReq, createFakeResponse() as any);
+
+    const listReq = createFakeRequest({ jsonrpc: '2.0', method: 'tools/list', id: 2 });
+    listReq.headers['mcp-protocol-version'] = '2026-07-28';
+    listReq.rawHeaders = ['mcp-protocol-version', '2026-07-28'];
+    const listRes = createFakeResponse();
+
+    await capturedHttpHandler!(listReq, listRes as any);
+
+    expect(listRes.statusCode).toBe(200);
+    expect(JSON.parse(listRes.getBody()).result.tools).toContainEqual({ name: 'memorix_store' });
   });
 
   it('uses MEMORIX_MODE as the HTTP fallback when mode is omitted', async () => {

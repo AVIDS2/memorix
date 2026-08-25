@@ -413,7 +413,7 @@ export default defineCommand({
       res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
       res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Accept, Mcp-Session-Id, Mcp-Project-Handle, Mcp-Project-Root, Mcp-Stateless, Last-Event-Id');
       res.setHeader('Access-Control-Expose-Headers', 'Mcp-Session-Id, Mcp-Project-Handle, Mcp-Protocol-Version, Mcp-Method, Mcp-Name');
-      res.setHeader('Mcp-Protocol-Version', req.headers['mcp-protocol-version'] || CURRENT_MCP_PROTOCOL_VERSION);
+      res.setHeader('Mcp-Protocol-Version', MCP_SDK_COMPAT_PROTOCOL_VERSION);
       res.setHeader('Mcp-Method', req.method || 'UNKNOWN');
       res.setHeader('Mcp-Name', MCP_SERVER_NAME);
     }

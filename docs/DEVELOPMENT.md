@@ -13,8 +13,8 @@ Memorix is a TypeScript project built around:
 
 ## Current Development Baseline
 
-The current release work targets the **1.8.3 release line** and package metadata
-is kept at `1.8.3` for this release commit.
+The current release work targets the **1.8.4 release line** and package metadata
+is kept at `1.8.4` for this release commit.
 
 Contributors should assume the following areas are part of the current release line:
 

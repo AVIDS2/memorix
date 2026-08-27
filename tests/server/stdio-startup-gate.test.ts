@@ -59,7 +59,7 @@ describe('stdio startup gate', () => {
       id: 'early-discover',
       result: {
         resultType: 'complete',
-        supportedVersions: expect.arrayContaining(['2026-07-28', '2025-11-25']),
+        supportedVersions: ['2025-11-25', '2024-11-05'],
         capabilities: { tools: { listChanged: true } },
         ttlMs: 0,
         cacheScope: 'private',

@@ -37,7 +37,6 @@ export function createMcpDiscoverResult(
   return {
     resultType: 'complete',
     supportedVersions: [
-      MCP_MODERN_PROTOCOL_VERSION,
       MCP_LEGACY_PROTOCOL_VERSION,
       MCP_OLDEST_LEGACY_PROTOCOL_VERSION,
     ],

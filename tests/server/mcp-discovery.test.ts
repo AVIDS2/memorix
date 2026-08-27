@@ -110,7 +110,7 @@ describe('MCP discovery compatibility at the production server entry', () => {
 
     expect(result).toMatchObject({
       resultType: 'complete',
-      supportedVersions: expect.arrayContaining([MCP_MODERN_PROTOCOL_VERSION, MCP_LEGACY_PROTOCOL_VERSION]),
+      supportedVersions: [MCP_LEGACY_PROTOCOL_VERSION, '2024-11-05'],
       capabilities: { tools: { listChanged: true } },
       ttlMs: 0,
       cacheScope: 'private',

@@ -136,7 +136,7 @@ async function main() {
     assert.equal(discovery.error, undefined)
     assert.equal(discovery.result.resultType, 'complete')
     assert.deepEqual(discovery.result._meta['io.modelcontextprotocol/serverInfo'].name, 'memorix')
-    assert.ok(discovery.result.supportedVersions.includes('2026-07-28'))
+    assert.deepEqual(discovery.result.supportedVersions, ['2025-11-25', '2024-11-05'])
 
     const listId = 'smoke-list'
     const callId = 'smoke-call'

@@ -4,6 +4,25 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.8.4] - 2026-08-27
+
+### Fixed
+- **Stateless HTTP MCP requests (#255)** -- clients such as Claude Code that
+  send the current protocol header on every request can list and call tools
+  without echoing a custom project handle. Durable handles are still created
+  on `initialize` and remain available when a client opts into them.
+- **MCP protocol self-description (#257)** -- discovery and HTTP response
+  headers now advertise the legacy revisions implemented by the pinned SDK,
+  instead of claiming complete support for the newer 2026 revision.
+- **MCP stdio smoke contract** -- the release smoke script now checks the
+  truthful advertised revision set after the compatibility fix.
+
+### MCP Compatibility
+- The 1.8.4 line supports legacy stateful MCP, versionless stdio tool calls,
+  pre-initialize discovery, and the narrow stateless HTTP compatibility path.
+  It does not claim full 2026 result metadata, Tasks, subscriptions, or list
+  caching support.
+
 ## [1.8.3] - 2026-08-25
 
 ### Fixed

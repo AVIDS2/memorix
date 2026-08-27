@@ -302,7 +302,16 @@ async function isPortInUse(port: number): Promise<boolean> {
 // Subcommands
 // ============================================================
 
-export async function doStart(port: number): Promise<void> {
+/**
+ * Core start logic: check-then-spawn. Not exported directly — two callers
+ * racing through this function (e.g. two agent sessions starting at boot, or
+ * a LaunchAgent/systemd unit racing a manual `background start`) can both
+ * observe "port not in use yet" and each spawn their own `serve-http`
+ * process on the same port, leaving one as an untracked orphan. Callers
+ * should go through the exported `doStart`, which serializes access with
+ * `acquireBackgroundLock` first.
+ */
+async function doStartUnlocked(port: number): Promise<void> {
   // 1. Check if already running — validate both PID existence AND HTTP health
   const state = loadState();
   if (state) {
@@ -489,6 +498,85 @@ export async function doStart(port: number): Promise<void> {
     '  Stop with:       memorix background stop',
   ].join('\n');
   process.stderr.write(footer + '\n');
+}
+
+/**
+ * `doStartUnlocked` checks-then-spawns: it probes `isPortInUse` and, if
+ * nothing answers, spawns a detached `serve-http` child. Two callers racing
+ * through that window (e.g. two agent sessions starting at boot, or a
+ * LaunchAgent/systemd unit racing a manual `background start`) can both
+ * observe "not in use yet" and each spawn their own server on the same port —
+ * one becomes an orphan that never gets tracked in `background.json`.
+ *
+ * This wrapper serializes callers with a simple exclusive-create lock file
+ * (`background.lock`) before delegating to `doStartUnlocked`, so only one
+ * caller can be inside the check-then-spawn section at a time. A stale lock
+ * (owner crashed mid-section) is reclaimed after 15s; if the lock can't be
+ * acquired at all within 5s we fall back to running unlocked rather than
+ * hanging forever — worse case is the pre-existing race, not a deadlock.
+ */
+const BACKGROUND_LOCK_STALE_MS = 15_000;
+const BACKGROUND_LOCK_ACQUIRE_TIMEOUT_MS = 5_000;
+
+function getBackgroundLockPath(): string {
+  return getMemorixDir() + '/background.lock';
+}
+
+interface BackgroundLock {
+  fd: number | null;
+  acquired: boolean;
+  path: string;
+}
+
+/**
+ * Exclusive-create a lock file so only one caller can be inside the
+ * check-then-spawn section of `doStart` at a time. A lock older than
+ * `staleMs` is assumed to belong to a crashed holder and is reclaimed.
+ * If the lock still can't be acquired within `timeoutMs`, returns
+ * `acquired: false` rather than hanging forever — the caller should fall
+ * back to running unlocked (worst case: the pre-existing race, not a deadlock).
+ */
+async function acquireBackgroundLock(
+  lockPath: string,
+  staleMs: number = BACKGROUND_LOCK_STALE_MS,
+  timeoutMs: number = BACKGROUND_LOCK_ACQUIRE_TIMEOUT_MS,
+): Promise<BackgroundLock> {
+  const lockDir = path.dirname(lockPath);
+  if (!fs.existsSync(lockDir)) fs.mkdirSync(lockDir, { recursive: true });
+
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const fd = fs.openSync(lockPath, 'wx');
+      fs.writeSync(fd, String(process.pid));
+      return { fd, acquired: true, path: lockPath };
+    } catch (err) {
+      if (!(err && (err as NodeJS.ErrnoException).code === 'EEXIST')) break;
+      try {
+        if (Date.now() - fs.statSync(lockPath).mtimeMs > staleMs) {
+          fs.unlinkSync(lockPath);
+          continue; // stale lock cleared — retry the open immediately
+        }
+      } catch { /* lock disappeared between stat and unlink — fine, loop will retry open */ }
+      await new Promise(r => setTimeout(r, 200));
+    }
+  }
+  return { fd: null, acquired: false, path: lockPath };
+}
+
+function releaseBackgroundLock(lock: BackgroundLock): void {
+  if (!lock.acquired) return;
+  try { if (lock.fd !== null) fs.closeSync(lock.fd); } catch { /* ok */ }
+  try { fs.unlinkSync(lock.path); } catch { /* ok */ }
+}
+
+export async function doStart(port: number): Promise<void> {
+  const lock = await acquireBackgroundLock(getBackgroundLockPath());
+  try {
+    await doStartUnlocked(port);
+  } finally {
+    releaseBackgroundLock(lock);
+  }
 }
 
 export async function doStop(): Promise<void> {
@@ -838,4 +926,7 @@ export const _testing = {
   resolveBackgroundCliEntry,
   resolveBackgroundCliEntryFrom,
   resolveBackgroundCwd,
+  acquireBackgroundLock,
+  releaseBackgroundLock,
+  getBackgroundLockPath,
 };

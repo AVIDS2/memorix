@@ -7,6 +7,19 @@ used by MCP and CLI. It shows each card's source reference, locator, captured
 hash, freshness, verification state, and audit-event count. It is project
 scoped and does not replace the underlying observation or code source.
 
+## Surface Boundaries
+
+Each Dashboard page maps to a real data surface: Overview shows overall state,
+Git Memory shows Git-derived memory, Knowledge shows source-backed knowledge
+pages, Memory Map shows the evidence-backed relation projection, Observations
+and Evidence show records and provenance, Retention/Config/Identity show
+runtime health, and Sessions/Coordination show session and persistent
+coordination state.
+
+These pages are not demo panels. Empty data is shown as empty, and failed reads
+are shown as unavailable; the UI does not substitute another data model or old
+graph renderer to make a result look healthy.
+
 ## Start
 
 ```bash
@@ -24,6 +37,16 @@ Both modes read the same project-scoped stores. The project switcher changes the
 The Coordination Status page is a read-only projection of the selected project's persistent coordination state. `TeamStore` is the canonical SQLite layer for agents, tasks, messages, locks, handoffs, and poll state; the Dashboard does not keep a second in-memory coordination registry.
 
 The page reports agents, task status, file locks, and handoffs for the selected project. It exposes no team or task write endpoints and is not a task execution or full orchestration platform. If the SQLite read fails, the API returns an explicit degraded/error status and the page shows that the status is unavailable instead of presenting an empty result as healthy.
+
+## Memory Map
+
+The Graph page is the single visual graph surface. It renders the deterministic,
+source-backed `GET /api/knowledge-graph` projection with Apache ECharts. The
+older Cytoscape/Dagre renderer is removed from the Dashboard, so an empty or
+failed Memory Map no longer silently falls back to a different graph model.
+
+`GET /api/graph` remains available as a backend compatibility route for MCP,
+CLI, scripts, and older clients. It is not the Dashboard's visual data source.
 
 ## Maintenance Workbench
 

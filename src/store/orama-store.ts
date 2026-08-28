@@ -4,8 +4,8 @@
  * Full-text + vector + hybrid search engine backed by Orama.
  * Source: @orama/orama (10.1K stars, <2KB, pure JS, zero deps)
  *
- * Schema designed to store Observations with all searchable fields.
- * Vector search (embeddings) will be added in P1 phase.
+ * Schema designed to index Observations with all searchable fields.
+ * SQLite remains the durable source of truth; this index is rebuilt as needed.
  */
 
 import { create, insert, insertMultiple, search, remove, update, count, getByID, type AnyOrama } from '@orama/orama';

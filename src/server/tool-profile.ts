@@ -8,9 +8,9 @@
  * We provide four profiles:
  *   - "micro" (stdio default): Agent-ready project context + bounded recovery/media controls — 9 tools.
  *     Suitable for normal MCP clients where every tool schema costs context tokens.
- *   - "lite": Core memory CRUD, sessions, reasoning, retention, backup — 18 tools.
+ *   - "lite": Core memory CRUD, sessions, reasoning, retention, backup — 20 tools.
  *     Suitable for solo users who want the full memory surface without team tools.
- *   - "team" (HTTP default): lite + orchestration coordination tools, dashboard, and Knowledge Workspace — 26 tools.
+ *   - "team" (HTTP default): lite + orchestration coordination tools, dashboard, and Knowledge Workspace — 28 tools.
  *     Suitable when an operator explicitly wants task/message/lock surfaces.
  *   - "full": Everything, including niche / advanced tools (consolidate, dedup,
  *     formation metrics, skills, rules/workspace sync, KG-official, image ingest).
@@ -142,11 +142,12 @@ export function resolveToolProfile(opts: ResolveToolProfileOpts): ToolProfile {
  * Human-readable description for logs / diagnostics.
  */
 export function describeProfile(profile: ToolProfile): string {
+  const count = countToolsInProfile(profile);
   switch (profile) {
-    case 'micro': return 'micro (agent-ready context + bounded recovery/media, ~9 tools)';
-    case 'lite': return 'lite (core memory + sessions, ~18 tools)';
-    case 'team': return 'team (lite + coordination tools + dashboard + knowledge workspace, ~26 tools)';
-    case 'full': return 'full (all tools including advanced / KG-compat)';
+    case 'micro': return `micro (agent-ready context + bounded recovery/media, ${count} tools)`;
+    case 'lite': return `lite (core memory + sessions, ${count} tools)`;
+    case 'team': return `team (lite + coordination tools + dashboard + knowledge workspace, ${count} tools)`;
+    case 'full': return `full (all tools including advanced / KG-compat, ${count} tools)`;
   }
 }
 

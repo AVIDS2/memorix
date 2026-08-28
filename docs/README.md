@@ -79,6 +79,7 @@ The public docs are organized by user intent:
 | System shape, data flows, memory layers | [ARCHITECTURE.md](ARCHITECTURE.md) |
 | Design decisions and rationale | [DESIGN_DECISIONS.md](DESIGN_DECISIONS.md) |
 | Module-by-module notes | [MODULES.md](MODULES.md) |
+| Current implementation status and ecosystem watch | [ACTIVE_WORK.md](../ACTIVE_WORK.md) |
 | CodeGraph Memory / Context Fabric design | [2026-06-29-codegraph-memory-context-fabric-design.md](superpowers/specs/2026-06-29-codegraph-memory-context-fabric-design.md) |
 | Auto Context Layer design | [2026-06-29-auto-context-layer-design.md](superpowers/specs/2026-06-29-auto-context-layer-design.md) |
 | 1.2 product direction and user journey | [1.2 Product Story](1.2.0-PRODUCT-STORY.md) |

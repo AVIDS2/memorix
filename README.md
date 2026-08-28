@@ -456,7 +456,7 @@ Long-term memory is deliberately not an automatic dump of every note. A source o
 | Use the bundled terminal agent | `memorix` or `memcode` |
 | Run orchestrated subagent work | `memorix orchestrate --goal "..."` |
 
-`memorix serve` defaults to `--mode micro` (9 tools) to keep MCP tool schemas small for agents. `memorix setup` writes `--mode lite` into the installed MCP config so every tool taught in the generated guidance is reachable. Use `--mode team` for coordination tools, or `--mode full` for advanced and compatibility tools such as checkpoint inspection.
+`memorix serve` defaults to `--mode micro` (9 tools) to keep MCP tool schemas small for agents. `memorix setup` writes `--mode lite` (20 tools) into the installed MCP config so the normal memory and session surface is reachable. Use `--mode team` (28 tools) for coordination tools, or `--mode full` (47 tools) for advanced and compatibility tools such as checkpoint inspection.
 
 Shortcuts and aliases: `memorix search` / `remember` / `recent` are direct query shortcuts, `bg`/`bs` start the background service, `hook` runs the hook launcher, and `memorix config get|path|migrate` inspects or migrates config files.
 

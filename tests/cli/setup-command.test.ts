@@ -551,7 +551,11 @@ describe('extension package installer', () => {
       });
       expect(hooks.memorix.PreInvocation[0].command).toContain('--event PreInvocation');
       expect(hooks.memorix.PreToolUse[0].hooks[0].command).toContain('--event PreToolUse');
-      expect(await fs.readFile(path.join(pluginPath, 'rules', 'memorix.md'), 'utf-8')).toContain('memorix_search');
+      const rules = await fs.readFile(path.join(pluginPath, 'rules', 'memorix.md'), 'utf-8');
+      expect(rules).toContain('memorix_search');
+      expect(rules).toContain('memorix_evidence');
+      expect(rules).toContain('memorix_feedback');
+      expect(rules).toContain('memorix_media');
       await expectOfficialSkills(path.join(pluginPath, 'skills'));
     } finally {
       await cleanup(tmpDir);
@@ -593,6 +597,9 @@ describe('extension package installer', () => {
         contextFileName: 'GEMINI.md',
       });
       expect(await fs.readFile(contextFile, 'utf-8')).toContain('Memorix');
+      expect(await fs.readFile(contextFile, 'utf-8')).toContain('memorix_evidence');
+      expect(await fs.readFile(contextFile, 'utf-8')).toContain('memorix_feedback');
+      expect(await fs.readFile(contextFile, 'utf-8')).toContain('memorix_media');
     } finally {
       await cleanup(tmpDir);
     }
@@ -680,6 +687,7 @@ describe('extension package installer', () => {
       expect(pluginCode).toContain('ctx.register_command("memorix"');
       expect(pluginCode).toContain('ctx.register_cli_command("memorix"');
       expect(pluginCode).toContain('ctx.register_skill(child.name, skill_md)');
+      expect(manifest).toContain('  - memorix-troubleshooting');
       expect(config).toContain('enabled:');
       expect(config).toContain('- memorix');
       await expectOfficialSkills(path.join(pluginPath, 'skills'));

@@ -1,18 +1,35 @@
 # Memorix 模块详解
 
-> 最后更新: 2026-08-14 (v1.4.3)
-> 本文档详细记录每个模块的实现细节、关键算法和注意事项
+> 最后更新: 2026-08-28（当前发布线 v1.8.4）
+> 本文档记录当前模块边界、关键算法和兼容层，不把历史实现误写成运行时主路径。
 
-> 本文档中的早期 JSON/Orama 章节保留为历史模块说明。当前运行时的
-> SQLite 数据层和长期记忆生命周期以 `docs/ARCHITECTURE.md`、
-> `docs/1.3-MEMORY-ARCHITECTURE.md` 及对应源码为准。
+> 当前真实主路径先看下面的模块总览，再看各模块的细节。早期 JSON/Orama
+> 说明仍保留用于迁移和实现背景，但不代表 JSON 是运行时主存储。
+
+## 当前模块总览
+
+| 模块 | 当前作用 | 是否主路径 |
+| --- | --- | --- |
+| `store/sqlite-db.ts`、`store/sqlite-store.ts` | 持久化观察、会话、图谱、知识、长期记忆、媒体和协作状态 | 是 |
+| `store/orama-store.ts` | 从 SQLite 数据重建的全文/向量检索索引 | 是，索引层 |
+| `memory/graph.ts` | MCP 兼容的实体/关系操作外观，底层写入 SQLite | 是 |
+| `wiki/knowledge-graph.ts` | Dashboard 的证据化 Memory Map 投影，不是真实数据源 | 是，展示层 |
+| `dashboard/static/` | 只保留 ECharts Memory Map 这一套图谱界面 | 是 |
+| `dashboard/server.ts`、`cli/commands/serve-http.ts` | 独立 Dashboard 与 HTTP 控制面两个宿主；按各自绑定范围读取同一套业务模块 | 是，宿主层 |
+| `store/persistence-json.ts`、`config/legacy-loader.ts` | 老版本数据和配置的迁移/兼容读取 | 兼容层 |
+
+本轮清扫移除了 Dashboard 旧的 Cytoscape/Dagre 图谱渲染器及其前端依赖。
+后端 `/api/graph` 和 MCP 图谱工具仍保留，因为外部脚本和客户端可能直接调用它们。
+两个 Dashboard 宿主也保留：standalone 用于本地只读浏览，HTTP 控制面负责带会话和
+项目绑定的服务。它们可以共享维护逻辑，但不能因为代码位置相似就把绑定边界合并。
 
 ---
 
-## 1. Orama 搜索引擎 (`store/orama-store.ts`)
+## 1. Orama 搜索索引 (`store/orama-store.ts`)
 
 ### 概述
-基于 [Orama](https://github.com/orama/orama) 的全文/混合搜索引擎，344行。
+基于 [Orama](https://github.com/orama/orama) 的全文/混合搜索索引。它不是持久化主库；
+启动或数据变化后可从 SQLite 观察记录重建。
 
 ### Schema 设计
 ```typescript
@@ -51,14 +68,22 @@ const schema = {
 
 ### ⚠️ 注意事项
 - Orama 的 where 子句在 `term: '' + number filter` 时可能不可靠，因此 `compactDetail` 使用内存查找而非 Orama 查询
-- 数据库是内存中的，重启后需要通过 `reindexObservations()` 重建
+- 索引是内存中的，重启后需要通过 `reindexObservations()` 从 SQLite 重建
 - `resetDb()` 用于热重载场景 — 先清空再重建
 
 ---
 
-## 2. 持久化层 (`store/persistence.ts`)
+## 2. 持久化层 (`store/sqlite-db.ts`, `store/sqlite-store.ts`, `store/persistence.ts`)
 
-### 存储目录
+### 当前主路径
+
+运行时使用 `~/.memorix/data/memorix.db` 这一 SQLite 数据库。观察记录、图谱、知识
+工作区、长期记忆、媒体、会话和协作状态共享同一数据库连接与迁移机制；`projectId`
+用于数据隔离，不再通过多个 JSON 子目录拼接运行时状态。
+
+### 历史 JSON/JSONL 兼容格式
+
+以下文件只用于旧版本迁移、显式导入导出或诊断，不是新写入的主路径。
 ```
 ~/.memorix/data/
 ├── observations.json      # 所有 observation 的 JSON 数组
@@ -76,16 +101,16 @@ const schema = {
 {"name":"port-config","entityType":"config","observations":["默认端口 3001"]}
 ```
 
-### 设计决策
-- **全局共享目录** (`~/.memorix/data/`): 让不同 Agent 看到同一份数据
-- **JSONL 而非单 JSON**: 与 MCP Official Memory Server 的格式兼容
-- **observations.json 用 JSON 而非 JSONL**: observation 结构更复杂，JSON 更方便整体读写
-- **ID 计数器单独文件**: 避免扫描所有 observation 来确定下一个 ID
+### 兼容设计
+- **全局共享目录** (`~/.memorix/data/`): 让不同 Agent 看到同一份 SQLite 数据
+- **JSONL**: 保留 MCP Official Memory Server 兼容和旧数据迁移能力
+- **observations.json**: 保留旧 observation 导入和显式导出能力
+- **SQLite 事务与文件锁**: 新写入由 SQLite 事务负责一致性，必要时仍使用文件锁保护跨进程操作
 
 ### ⚠️ 注意事项
-- v0.9.6 后所有数据存储在单一平坦目录 `~/.memorix/data/`，projectId 仅作为元数据
-- 有文件锁机制 (`store/file-lock.ts`) — 使用 `.memorix.lock` 目录锁 + 10s 超时检测
-- 热重载使用 `fs.watchFile` (polling) 监听 `observations.json` 变化
+- `store/persistence-json.ts` 是兼容模块，不要把它当成新的写入 API
+- `migrateSubdirsToFlat()` 只处理早期按项目分目录的数据
+- `store/obs-store.ts` 在 SQLite 不可用时会进入只读降级模式，不应偷偷回写 `observations.json`
 
 ---
 
@@ -105,12 +130,13 @@ const schema = {
 | `readGraph` | 返回完整图谱 |
 
 ### 持久化时机
-- 每次 CRUD 操作后立即写入磁盘
-- `init()` 时从磁盘加载
+- 每次 CRUD 操作后立即写入共享 SQLite 数据库
+- `init()` 时从 SQLite 加载
 
 ### ⚠️ 注意事项
 - `createEntities` 对同名实体是幂等的 — 不会覆盖已有观察
 - 关系的 `from` 和 `to` 必须引用已存在的实体名
+- JSONL 只属于兼容输入/输出；当前实体和关系由 SQLite `graph_entities`、`graph_relations` 表提供
 
 ---
 

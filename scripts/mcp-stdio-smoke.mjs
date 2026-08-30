@@ -1,6 +1,5 @@
 import { execFileSync, spawn } from 'node:child_process'
 import { mkdtemp, mkdir, rm } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
 import { performance } from 'node:perf_hooks'
 import path from 'node:path'
 import process from 'node:process'
@@ -116,7 +115,9 @@ function startServer(projectRoot, dataDir) {
 
 async function main() {
   assert.equal(await import('node:fs/promises').then(() => true), true)
-  const tempRoot = await mkdtemp(path.join(tmpdir(), 'memorix-mcp-stdio-smoke-'))
+  const tempBase = process.env.MEMORIX_TEST_TMPDIR?.trim() || path.join(root, '.tmp-memorix-smoke')
+  await mkdir(tempBase, { recursive: true })
+  const tempRoot = await mkdtemp(path.join(tempBase, 'memorix-mcp-stdio-smoke-'))
   const projectRoot = path.join(tempRoot, 'project')
   const dataDir = path.join(tempRoot, 'data')
   await mkdir(projectRoot, { recursive: true })

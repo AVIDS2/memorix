@@ -4,6 +4,40 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.8.5] - 2026-08-30
+
+### Fixed
+- **Modern MCP transport** -- `memorix serve` and the HTTP control plane now
+  use the official MCP v2 server path for 2026-07-28 discovery, request
+  metadata, result envelopes, response metadata, stateless requests, and the
+  subscriptions listen surface while forwarding business tools through the
+  existing Memorix implementation.
+- **Background start race (#259)** -- background startup now holds an
+  exclusive, heartbeating lock across the check/spawn/readiness window. Lock
+  contention fails closed with a retry message instead of starting an unlocked
+  duplicate control plane; stale dead-owner locks are recoverable.
+- **Windows and EOF behavior** -- stdio discovery remains compatible before
+  and after readiness, roots-based project switching and deferred maintenance
+  are preserved, and stdin EOF closes the official transport cleanly.
+- **Local build reliability** -- the large runtime, CLI, and memcode bundles
+  build sequentially, reducing Windows memory pressure without changing
+  published entry points. Slow CLI uninstall tests now use asynchronous,
+  hidden child processes so the full test run exits cleanly.
+- **Time-stable graph evaluation** -- graph-context fixtures pin their
+  reference date so retention policy changes do not make the test depend on the
+  calendar.
+
+### MCP Compatibility Boundary
+- Modern Tasks are explicitly unsupported because Memorix does not expose a
+  durable task store for MCP task semantics.
+- List responses expose a private zero-TTL protocol hint; Memorix does not
+  claim a reusable server-side list cache.
+- The external `@hasmcp/mcp-spec-test` runner currently fails on this Windows
+  host before reaching the target because it imports drive-letter paths as ESM
+  URLs. Production verification therefore includes official v2 direct tests,
+  real stdio/HTTP smoke, and the legacy compatibility path; this external
+  runner result is not reported as a pass.
+
 ## [1.8.4] - 2026-08-27
 
 ### Fixed

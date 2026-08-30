@@ -38,7 +38,12 @@ describe('buildGraphContextPacket', () => {
       obs({ id: 2, entityName: 'memory-injection', title: 'Inject only relevant memory', narrative: 'Memory injection should stay intent gated and avoid greetings.', type: 'gotcha', facts: ['Skip greetings'], concepts: ['injection', 'intent'] }),
       obs({ id: 3, entityName: 'ui-noise', title: 'Thinking', narrative: 'Thinking...', type: 'discovery', facts: [], filesModified: [], concepts: [], source: 'agent', sourceDetail: 'hook', valueCategory: 'ephemeral' }),
       obs({ id: 4, entityName: 'memcode-runtime', title: 'Different project copy', narrative: 'Should be ignored by project scoping.', projectId: 'other/project' }),
-    ], { projectId: 'AVIDS2/memorix', query: 'memcode memory status injection', limit: 4 });
+    ], {
+      projectId: 'AVIDS2/memorix',
+      query: 'memcode memory status injection',
+      limit: 4,
+      referenceTime: new Date('2026-06-02T00:00:00.000Z'),
+    });
 
     expect(packet.projectId).toBe('AVIDS2/memorix');
     expect(packet.query).toBe('memcode memory status injection');

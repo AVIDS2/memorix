@@ -81,7 +81,7 @@ describe('stdio startup gate', () => {
     gate.stop();
   });
 
-  it('forwards initialize, versionless calls, and later discovery exactly once after ready', async () => {
+  it('forwards initialize and versionless calls while answering later discovery once', async () => {
     const stdin = new PassThrough();
     const stdout = new PassThrough();
     const gate = new StdioStartupGate({
@@ -128,12 +128,19 @@ describe('stdio startup gate', () => {
         method: 'tools/call',
         params: { name: 'memorix_codegraph_status', arguments: {} },
       }),
-      JSON.stringify({
-        jsonrpc: '2.0',
-        id: 'late-discover',
-        method: 'server/discover',
-      }),
     ].map((line) => line + '\n').join(''));
+
+    const discoveryOutput = readLines(stdout);
+    stdin.write(JSON.stringify({
+      jsonrpc: '2.0',
+      id: 'late-discover',
+      method: 'server/discover',
+    }) + '\n');
+    await expect(discoveryOutput).resolves.toEqual([expect.objectContaining({
+      jsonrpc: '2.0',
+      id: 'late-discover',
+      result: expect.objectContaining({ resultType: 'complete' }),
+    })]);
 
     gate.stop();
   });

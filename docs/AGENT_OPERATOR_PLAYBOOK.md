@@ -137,7 +137,7 @@ when the user wants:
 - explicit task/message/handoff/lock coordination
 - one shared HTTP service process
 
-Default recommendation: if the user wants memory inside an existing IDE or agent, start with `memorix setup --agent <agent> --global`. Use `memorix serve` only for manual MCP wiring. Use the CLI for direct workflows and automation because it does not depend on an IDE's MCP session lifecycle. Use memcode only when the user wants the bundled terminal agent. Reach for HTTP only when a shared background service, multi-client MCP access, Docker, or a live dashboard endpoint is actually needed.
+Default recommendation: if the user wants memory inside an existing IDE or agent, start with `memorix setup --agent <agent> --global`. Use `memorix serve` only for manual MCP wiring. Use the CLI for direct workflows and automation because it does not depend on an IDE's MCP session lifecycle. Use memcode only when the user wants the bundled terminal agent. Reach for HTTP only when a shared background service, multi-client MCP access, a VPS Docker deployment, or a live dashboard endpoint is actually needed. Local development runs Node directly.
 
 Use:
 
@@ -826,7 +826,7 @@ read this document first, then act.
 This playbook is the canonical AI-facing guide for installation, project binding, integration, hooks, troubleshooting, and safe usage.
 ## Docker Note
 
-When Memorix runs in Docker, treat it as an **HTTP service deployment**, not a stdio MCP process.
+When Memorix runs in Docker on a VPS/hosted machine, treat it as an **HTTP service deployment**, not a stdio MCP process. Docker is not required for local development.
 
 - Connect IDEs and agents to `http://host:3211/mcp`
 - Use `memorix_session_start(projectRoot=...)` with a path that is visible **inside** the container

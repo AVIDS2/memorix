@@ -4,18 +4,22 @@
 > before resuming substantial work, update it after a material decision or
 > milestone, and do not create parallel progress logs.
 
-**Last updated:** 2026-08-28
+**Last updated:** 2026-08-30
+
+**Local verification rule:** run the frontend, HTTP service, MCP server, and
+tests directly with Node/npm on the E: workspace. Do not start Docker or add
+local Docker data. The Dockerfile and image workflow remain deployment
+artifacts for the VPS/hosted build path only.
 
 ## Current Product State
 
-- `1.8.4` is the current published release. It includes the MCP stdio startup
-  gate, early `server/discover` handling, bounded project context, evidence
-  cards, feedback state, and the current profile system.
-- The local 1.8.5 cleanup candidate is complete on
-  `codex/1.8.5-module-cleanup` (`b94abdc`). It removes the obsolete Dashboard
-  graph renderer and root dependencies, makes the remaining capabilities
-  visible, and hardens narrow-screen behavior without changing the published
-  version.
+- `1.8.4` is the last published release; `1.8.5` is the current local release
+  candidate on `codex/1.8.5-module-cleanup`. It combines the Dashboard/module
+  cleanup with the official MCP v2 transport path, fail-closed background
+  startup, and the final cross-surface verification work.
+- The candidate keeps the canonical Dashboard Memory Map, removes the obsolete
+  renderer/dependencies, makes reachable capabilities visible, and preserves
+  the old MCP clients while adding the modern 2026-07-28 core contract.
 - SDK, CLI, hooks, and HTTP MCP share SQLite as the canonical flat data store.
   Large-store startup hydration uses bounded Orama batches so health remains
   responsive without rebalancing the index once per row.
@@ -24,10 +28,11 @@
   default agent context stays small.
 - Open contributor PRs #212 (HTTP rerank) and #204 (WorkBuddy) remain separate
   feature work. They are not part of this patch release.
-- Candidate verification is green: `npm test` passed 2997 tests in 309 files,
-  `npm run lint`, `npm run build`, stdio MCP smoke, MCP Registry metadata, and
-  plugin release metadata checks all passed. Two live embedding files remain
-  intentionally skipped when their environment flag is absent.
+- Focused candidate verification is green: MCP v2 direct tests, legacy and
+  modern stdio/HTTP smoke, background concurrency smoke, P3/P4/P5/P6 suites,
+  `npm run lint`, and the sequential low-memory build pass. The final full
+  regression is the release gate; live embedding tests remain intentionally
+  skipped when their environment flag is absent.
 
 ## Ecosystem Watch (2026-08-28)
 
@@ -37,8 +42,10 @@ Recent public changes reinforce the current product boundary:
   makes requests self-describing and stateless-first, adds `server/discover`,
   and moves long-running work into the official `io.modelcontextprotocol/tasks`
   extension described in the [MCP changelog](https://modelcontextprotocol.io/specification/2026-07-28/changelog).
-  Memorix should keep legacy compatibility while migrating deliberately to the
-  official SDK v2; it should not claim full modern conformance prematurely.
+  Memorix now uses the official SDK v2 for the modern core while retaining the
+  legacy path. It explicitly rejects Tasks because it has no durable MCP task
+  implementation, and reports zero-TTL list hints instead of pretending to
+  have a reusable list cache.
 - [TencentDB Agent Memory 2.0.1](https://github.com/TencentCloud/TencentDB-Agent-Memory/releases/tag/v2.0.1)
   emphasizes cold-start readiness, governed assets, cross-agent loading, and
   faster Wiki/CodeGraph processing. The useful lesson for Memorix is to expose
@@ -67,8 +74,8 @@ scope passes; no partial publication is the success criterion.
 
 ### P0 — Reconcile the candidate and the public surface
 
-- Review and merge the local cleanup commit `b94abdc` only after it is applied
-  to current `main` and the published package is rebuilt from that tree.
+- Apply the cleanup and transport changes to current `main` only after the
+  final candidate has passed its full local gate and is rebuilt from that tree.
 - Keep the canonical Dashboard Memory Map, remove dead renderer/dependency
   paths, make profile counts truthful, and make CLI, MCP, README, docs, and all
   installed agent guidance describe the same reachable tools.
@@ -95,10 +102,13 @@ scope passes; no partial publication is the success criterion.
   accumulating patches around the old SDK.
 - Implement and test request metadata/version negotiation, complete
   `server/discover`, `resultType`, response `_meta`, list cache hints, explicit
-  unsupported-version errors, and the official Tasks and subscriptions
-  extension surfaces where Memorix can give truthful semantics.
-- Run the pinned conformance suite plus stock official clients over stdio and
-  HTTP. Unsupported features must be rejected or reported explicitly, never
+  unsupported-version errors, and the subscriptions extension where Memorix
+  can give truthful semantics. Tasks remain explicitly rejected until a
+  durable task contract exists.
+- Run the official v2 direct tests plus real stdio and HTTP clients. The
+  third-party conformance runner must be recorded as an external harness
+  failure when its Windows ESM path bug prevents it from reaching the server;
+  unsupported features must still be rejected or reported explicitly, never
   represented as an empty success.
 
 ### P3 — Make memory selection honest and useful

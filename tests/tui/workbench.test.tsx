@@ -474,10 +474,11 @@ describe('WorkbenchApp — tab navigation', () => {
 
     await waitForCondition(() => (lastFrame() ?? '').includes('New chat ready'));
 
-    // Navigate to Memory tab
-    stdin.write('\x1B[1;5C'); // Home → Knowledge
-    await tick(100);
-    stdin.write('\x1B[1;5C'); // Knowledge → Memory
+    // Navigate explicitly so this input-focus test does not depend on two
+    // rapidly delivered terminal escape sequences being coalesced.
+    stdin.write('/memory');
+    await waitForCondition(() => (lastFrame() ?? '').includes('[cmd] > /memory'));
+    stdin.write('\r');
     await waitForCondition(() => (lastFrame() ?? '').includes('# Memory'));
 
     // Type 'k' in CommandBar — this sets inputFocused=true

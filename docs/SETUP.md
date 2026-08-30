@@ -24,7 +24,7 @@ Common runtime entry points:
 | `memorix serve-http --port 3211` | foreground HTTP MCP for debugging or supervised launches |
 | `memorix` / `memcode` | bundled terminal agent that uses the same Memorix memory pool |
 
-Most users should start with `memorix setup --agent <agent> --global`. Use raw `memorix serve` only when you are wiring an MCP client manually. Use HTTP when you intentionally want one shared background process, browser dashboard, Docker deployment, or multiple clients using the same MCP endpoint. Use the CLI for manual operation and automation. Use memcode when you want the bundled terminal agent.
+Most users should start with `memorix setup --agent <agent> --global`. Use raw `memorix serve` only when you are wiring an MCP client manually. Use HTTP when you intentionally want one shared background process, browser dashboard, VPS Docker deployment, or multiple clients using the same MCP endpoint. Local development and verification run the Node service directly and do not require Docker. Use the CLI for manual operation and automation. Use memcode when you want the bundled terminal agent.
 
 For agent-specific plugin, rules, hooks, and skills support, see [INTEGRATIONS.md](INTEGRATIONS.md).
 
@@ -216,7 +216,7 @@ This starts a local background service:
 - MCP endpoint: `http://localhost:3211/mcp`
 - health: `http://localhost:3211/health`
 
-HTTP mode is for a shared process. It is useful when multiple clients should connect to one Memorix endpoint, when you want the browser dashboard, or when running Memorix through Docker. It is not needed for the normal one-agent stdio MCP setup.
+HTTP mode is for a shared process. It is useful when multiple clients should connect to one Memorix endpoint, when you want the browser dashboard, or when running Memorix through Docker on a VPS/hosted machine. It is not needed for the normal one-agent stdio MCP setup.
 
 Companion commands:
 

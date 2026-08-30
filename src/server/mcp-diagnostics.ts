@@ -12,7 +12,7 @@ export interface McpDiagnostics {
     legacy: string;
     discovery: 'supported';
     versionlessRequests: 'legacy-compatible';
-    modernResultMetadata: 'discovery-only';
+    modernResultMetadata: 'supported';
     statelessRequests: 'supported' | 'compatibility-only' | 'unsupported';
     statefulStreamableHttp: 'supported';
   };
@@ -20,12 +20,12 @@ export interface McpDiagnostics {
     tasks: 'supported' | 'unsupported';
     polling: 'supported' | 'unsupported';
     subscriptions: 'supported' | 'unsupported';
-    listCache: 'supported' | 'unsupported';
+    listCache: 'supported' | 'protocol-hints-only' | 'unsupported';
     explicitProjectHandle: 'supported';
   };
 }
 
-/** The pinned SDK is stateful; do not present a fake durable task loop. */
+/** Do not present a fake durable task loop or a cache that does not exist. */
 export function getMcpDiagnostics(): McpDiagnostics {
   return {
     serverName: MCP_SERVER_NAME,
@@ -34,15 +34,17 @@ export function getMcpDiagnostics(): McpDiagnostics {
       legacy: LEGACY_MCP_PROTOCOL_VERSION,
       discovery: 'supported',
       versionlessRequests: 'legacy-compatible',
-      modernResultMetadata: 'discovery-only',
-      statelessRequests: 'compatibility-only',
+      modernResultMetadata: 'supported',
+      statelessRequests: 'supported',
       statefulStreamableHttp: 'supported',
     },
     capabilities: {
       tasks: 'unsupported',
       polling: 'unsupported',
-      subscriptions: 'unsupported',
-      listCache: 'unsupported',
+      subscriptions: 'supported',
+      // The protocol envelope is emitted, but TTL is intentionally zero until
+      // Memorix can invalidate a durable per-project list cache correctly.
+      listCache: 'protocol-hints-only',
       explicitProjectHandle: 'supported',
     },
   };

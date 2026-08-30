@@ -22,12 +22,12 @@ describe('MCP protocol diagnostics', () => {
     expect(diagnostics.protocol.statefulStreamableHttp).toBe('supported');
     expect(diagnostics.protocol.discovery).toBe('supported');
     expect(diagnostics.protocol.versionlessRequests).toBe('legacy-compatible');
-    expect(diagnostics.protocol.modernResultMetadata).toBe('discovery-only');
-    expect(diagnostics.protocol.statelessRequests).toBe('compatibility-only');
+    expect(diagnostics.protocol.modernResultMetadata).toBe('supported');
+    expect(diagnostics.protocol.statelessRequests).toBe('supported');
     expect(diagnostics.capabilities.tasks).toBe('unsupported');
     expect(diagnostics.capabilities.polling).toBe('unsupported');
-    expect(diagnostics.capabilities.subscriptions).toBe('unsupported');
-    expect(diagnostics.capabilities.listCache).toBe('unsupported');
+    expect(diagnostics.capabilities.subscriptions).toBe('supported');
+    expect(diagnostics.capabilities.listCache).toBe('protocol-hints-only');
   });
 });
 

@@ -26,7 +26,7 @@ That command installs the recommended Memorix package or config for the target a
 | memcode | Opens a terminal coding agent that already uses Memorix memory | `memorix`, `memcode` |
 | HTTP service | Runs one shared MCP endpoint plus dashboard | `memorix background start` |
 
-HTTP is not required for normal agent setup. Use it when you intentionally want a shared background process, dashboard, Docker deployment, or multiple clients using the same MCP endpoint.
+HTTP is not required for normal agent setup. Use it when you intentionally want a shared background process, dashboard, VPS Docker deployment, or multiple clients using the same MCP endpoint. Local verification runs the Node service directly; Docker is not required on a developer machine.
 
 CLI, MCP, and HTTP have separate jobs:
 

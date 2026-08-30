@@ -1,5 +1,6 @@
 import { Readable } from 'node:stream';
 import os from 'node:os';
+import { fromJsonSchema, McpServer as ModernMcpServer } from '@modelcontextprotocol/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const project = {
@@ -34,11 +35,22 @@ const httpServerListenMock = vi.fn();
 const httpServerCloseMock = vi.fn();
 const createControlPlaneMaintenanceWorkerMock = vi.fn();
 const maintenanceWorkerStartMock = vi.fn();
+const createModernMcpBridgeMock = vi.hoisted(() => vi.fn());
+const serveStdioMock = vi.hoisted(() => vi.fn());
 
 let capturedHttpHandler: ((req: any, res: any) => Promise<void>) | undefined;
 
 vi.mock('@modelcontextprotocol/sdk/server/stdio.js', () => ({
   StdioServerTransport: class StdioServerTransport {},
+}));
+
+vi.mock('@modelcontextprotocol/server/stdio', () => ({
+  serveStdio: serveStdioMock,
+  StdioServerTransport: class StdioServerTransport {
+    constructor(..._args: unknown[]) {}
+    async start() {}
+    async close() {}
+  },
 }));
 
 vi.mock('@modelcontextprotocol/sdk/server/streamableHttp.js', () => ({
@@ -120,6 +132,10 @@ vi.mock('../../src/server.js', () => ({
   createMemorixServer: createMemorixServerMock,
 }));
 
+vi.mock('../../src/server/modern-mcp-bridge.js', () => ({
+  createModernMcpBridge: createModernMcpBridgeMock,
+}));
+
 vi.mock('../../src/runtime/control-plane-maintenance.js', () => ({
   createControlPlaneMaintenanceWorker: createControlPlaneMaintenanceWorkerMock,
 }));
@@ -175,7 +191,7 @@ function createFakeRequest(body: Record<string, unknown>) {
     rawHeaders: string[];
     url: string;
   };
-  req.headers = {};
+  req.headers = { 'content-type': 'application/json' };
   req.method = 'POST';
   req.rawHeaders = [];
   req.url = '/mcp';
@@ -212,7 +228,9 @@ function createFakeResponse() {
     },
     write(chunk: any, ...args: any[]) {
       if (chunk != null) {
-        body += Buffer.isBuffer(chunk) ? chunk.toString('utf-8') : String(chunk);
+        body += Buffer.isBuffer(chunk) || chunk instanceof Uint8Array
+          ? Buffer.from(chunk).toString('utf-8')
+          : String(chunk);
       }
       const callback = args.at(-1);
       if (typeof callback === 'function') callback();
@@ -220,12 +238,18 @@ function createFakeResponse() {
     },
     end(chunk?: any, ...args: any[]) {
       if (chunk != null && typeof chunk !== 'function') {
-        body += Buffer.isBuffer(chunk) ? chunk.toString('utf-8') : String(chunk);
+        body += Buffer.isBuffer(chunk) || chunk instanceof Uint8Array
+          ? Buffer.from(chunk).toString('utf-8')
+          : String(chunk);
       }
       const callback = typeof chunk === 'function' ? chunk : args.at(-1);
       if (typeof callback === 'function') callback();
       return this;
     },
+    on() {
+      return this;
+    },
+    destroyed: false,
     getBody() {
       return body;
     },
@@ -257,6 +281,21 @@ describe('serve command mode support', () => {
     getProjectDataDirMock.mockResolvedValue('E:/memorix-data');
     getBaseDataDirMock.mockReturnValue(os.tmpdir());
     createMemorixServerMock.mockResolvedValue(makeServerResult());
+    createModernMcpBridgeMock.mockImplementation(async () => {
+      const modern = new ModernMcpServer({ name: 'test-modern', version: '1.0.0' });
+      modern.registerTool(
+        'memorix_store',
+        {
+          inputSchema: fromJsonSchema({ type: 'object', additionalProperties: false }),
+        },
+        async () => ({ content: [{ type: 'text', text: 'ok' }] }),
+      );
+      return modern;
+    });
+    serveStdioMock.mockImplementation((factory: () => Promise<unknown>) => {
+      void factory();
+      return { close: vi.fn() };
+    });
     existsSyncMock.mockReturnValue(false);
     readFileSyncMock.mockReturnValue('');
     checkForUpdatesMock.mockResolvedValue(undefined);
@@ -292,7 +331,7 @@ describe('serve command mode support', () => {
       },
     } as any);
 
-    expect(createMemorixServerMock.mock.calls[0]?.[3]).toMatchObject({ toolProfile: 'micro' });
+    expect(createModernMcpBridgeMock.mock.calls[0]?.[0]).toMatchObject({ toolProfile: 'micro' });
   });
 
   it('passes an explicit stdio mode through to createMemorixServer', async () => {
@@ -306,8 +345,8 @@ describe('serve command mode support', () => {
       },
     } as any);
 
-    expect(createMemorixServerMock).toHaveBeenCalledTimes(1);
-    expect(createMemorixServerMock.mock.calls[0]?.[3]).toMatchObject({ toolProfile: 'full' });
+    expect(createModernMcpBridgeMock).toHaveBeenCalledTimes(1);
+    expect(createModernMcpBridgeMock.mock.calls[0]?.[0]).toMatchObject({ toolProfile: 'full' });
   });
 
   it('uses MEMORIX_MODE as the stdio fallback when mode is omitted', async () => {
@@ -322,7 +361,7 @@ describe('serve command mode support', () => {
       },
     } as any);
 
-    expect(createMemorixServerMock.mock.calls[0]?.[3]).toMatchObject({ toolProfile: 'team' });
+    expect(createModernMcpBridgeMock.mock.calls[0]?.[0]).toMatchObject({ toolProfile: 'team' });
   });
 });
 
@@ -350,6 +389,17 @@ describe('serve-http command mode support', () => {
     getBaseDataDirMock.mockReturnValue(os.tmpdir());
     createControlPlaneMaintenanceWorkerMock.mockReturnValue({ start: maintenanceWorkerStartMock });
     createMemorixServerMock.mockResolvedValue(makeServerResult());
+    createModernMcpBridgeMock.mockImplementation(async () => {
+      const modern = new ModernMcpServer({ name: 'test-modern', version: '1.0.0' });
+      modern.registerTool(
+        'memorix_store',
+        {
+          inputSchema: fromJsonSchema({ type: 'object', additionalProperties: false }),
+        },
+        async () => ({ content: [{ type: 'text', text: 'ok' }] }),
+      );
+      return modern;
+    });
     createServerMock.mockImplementation((handler: any) => {
       capturedHttpHandler = handler;
       return {
@@ -429,29 +479,56 @@ describe('serve-http command mode support', () => {
 
     expect(capturedHttpHandler).toBeTypeOf('function');
 
-    const initializeReq = createFakeRequest({
+    const discoverReq = createFakeRequest({
       jsonrpc: '2.0',
-      method: 'initialize',
+      method: 'server/discover',
       params: {
-        protocolVersion: '2026-07-28',
-        capabilities: {},
-        clientInfo: { name: 'vitest', version: '1.0.0' },
+        _meta: {
+          'io.modelcontextprotocol/protocolVersion': '2026-07-28',
+          'io.modelcontextprotocol/clientInfo': { name: 'vitest', version: '1.0.0' },
+          'io.modelcontextprotocol/clientCapabilities': {},
+        },
       },
       id: 1,
     });
-    initializeReq.headers['mcp-protocol-version'] = '2026-07-28';
-    initializeReq.rawHeaders = ['mcp-protocol-version', '2026-07-28'];
-    await capturedHttpHandler!(initializeReq, createFakeResponse() as any);
+    discoverReq.headers['mcp-protocol-version'] = '2026-07-28';
+    discoverReq.headers['mcp-method'] = 'server/discover';
+    discoverReq.rawHeaders = [
+      'content-type', 'application/json',
+      'mcp-protocol-version', '2026-07-28',
+      'mcp-method', 'server/discover',
+    ];
+    const discoverRes = createFakeResponse();
+    await capturedHttpHandler!(discoverReq, discoverRes as any);
+    expect(discoverRes.statusCode).toBe(200);
 
-    const listReq = createFakeRequest({ jsonrpc: '2.0', method: 'tools/list', id: 2 });
+    const listReq = createFakeRequest({
+      jsonrpc: '2.0',
+      method: 'tools/list',
+      params: {
+        _meta: {
+          'io.modelcontextprotocol/protocolVersion': '2026-07-28',
+          'io.modelcontextprotocol/clientInfo': { name: 'vitest', version: '1.0.0' },
+          'io.modelcontextprotocol/clientCapabilities': {},
+        },
+      },
+      id: 2,
+    });
     listReq.headers['mcp-protocol-version'] = '2026-07-28';
-    listReq.rawHeaders = ['mcp-protocol-version', '2026-07-28'];
+    listReq.headers['mcp-method'] = 'tools/list';
+    listReq.rawHeaders = [
+      'content-type', 'application/json',
+      'mcp-protocol-version', '2026-07-28',
+      'mcp-method', 'tools/list',
+    ];
     const listRes = createFakeResponse();
 
     await capturedHttpHandler!(listReq, listRes as any);
 
     expect(listRes.statusCode).toBe(200);
-    expect(JSON.parse(listRes.getBody()).result.tools).toContainEqual({ name: 'memorix_store' });
+    expect(JSON.parse(listRes.getBody()).result.tools).toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: 'memorix_store' })]),
+    );
   });
 
   it('uses MEMORIX_MODE as the HTTP fallback when mode is omitted', async () => {

@@ -210,7 +210,7 @@ CLI, MCP, and HTTP are different entry points:
 
 - `memorix` CLI is the direct command surface for setup, memory search/store, Git Memory, import/export, dashboard, orchestration, diagnostics, and automation.
 - `memorix serve` is the stdio MCP bridge used by IDEs and coding agents. Its default tool profile is `micro`, so agents see only the compact core tool set.
-- `memorix background start` / `memorix serve-http` run the HTTP service for a shared endpoint, dashboard, Docker, or multiple clients.
+- `memorix background start` / `memorix serve-http` run the HTTP service for a shared endpoint, dashboard, VPS Docker deployment, or multiple clients.
 
 <h2 id="install"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/tags/light/section-install.svg"><img src="assets/tags/section-install.svg" alt="Install" height="32" /></picture></h2>
 
@@ -298,7 +298,7 @@ If your agent only needs a manual MCP entry, use stdio:
 
 For a manually managed Claude Code entry, add `"alwaysLoad": true` inside the `memorix` server object. This lets Claude Code expose Memorix tools during print-mode startup; `memorix doctor agents --agent claude` can detect and repair a missing setting.
 
-HTTP is not required for normal setup. Use it only when you intentionally want a shared background service, dashboard, Docker, or multiple clients using the same endpoint:
+HTTP is not required for normal setup. Use it only when you intentionally want a shared background service, dashboard, VPS Docker deployment, or multiple clients using the same endpoint. Local development uses the Node service directly and does not require Docker:
 
 ```bash
 memorix background start
@@ -509,7 +509,7 @@ generation is explicit; MCP generation additionally requires
 
 <h2 id="docker"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/tags/light/section-docker.svg"><img src="assets/tags/section-docker.svg" alt="Docker" height="32" /></picture></h2>
 
-Docker is for the HTTP service, not stdio MCP:
+Docker is a VPS/hosted HTTP deployment option, not a requirement for local development or stdio MCP:
 
 ```bash
 docker compose up --build -d

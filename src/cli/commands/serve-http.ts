@@ -27,6 +27,7 @@ import { scopeKnowledgeGraphToProject } from '../../memory/graph-scope.js';
 import { projectObservationRetention, summarizeRetentionProjections } from '../../memory/retention.js';
 import { canManageObservation, filterReadableObservations } from '../../memory/visibility.js';
 import { CURRENT_MCP_PROTOCOL_VERSION, MCP_SERVER_NAME, getMcpDiagnostics } from '../../server/mcp-diagnostics.js';
+import { createMcpStartupDiscoverResult, getMcpServerInfo } from '../../server/mcp-discovery.js';
 import { parseTcpPortOrReport } from '../port.js';
 import { mcpFileUriToPath } from '../mcp-root-path.js';
 
@@ -130,6 +131,9 @@ export default defineCommand({
     // node:fs from being evaluated before their mock factories initialize.
     const { McpBindingStore } = await import('../../server/mcp-binding-store.js');
     const { MemoryFeedbackStore } = await import('../../memory/feedback.js');
+    const { createModernMcpBridge } = await import('../../server/modern-mcp-bridge.js');
+    const { createMcpHandler } = await import('@modelcontextprotocol/server');
+    const { toNodeHandler } = await import('@modelcontextprotocol/node');
 
     // The [server] config section feeds startup defaults; CLI flags win.
     let configuredDefaults: ServeHttpConfiguredDefaults = {};
@@ -196,6 +200,32 @@ export default defineCommand({
     // handle without crossing project data directories.
     const statelessBindingStore = new McpBindingStore();
     await statelessBindingStore.init(persistMod.getBaseDataDir());
+
+    // Modern MCP (2026-07-28) is stateless at the protocol layer. The official
+    // v2 handler owns discovery, per-request envelopes, result metadata,
+    // subscriptions, and version errors. Product tools are bridged to the
+    // existing v1 implementation so business semantics stay in one place.
+    const modernMcpHandler = createMcpHandler(async ({ requestInfo }) => {
+      const handleId = requestInfo?.headers.get('mcp-project-handle') ?? undefined;
+      const persisted = handleId ? statelessBindingStore.touch(handleId) : undefined;
+      const requestedRoot = requestInfo?.headers.get('mcp-project-root') ?? undefined;
+      const root = persisted?.projectRoot ?? requestedRoot ?? projectRoot;
+      return createModernMcpBridge({
+        projectRoot: root,
+        allowUntrackedFallback: false,
+        deferProjectInitUntilBound: true,
+        deferProjectRuntimeInit: true,
+        dashboardMode: 'control-plane',
+        dashboardPort: port,
+        toolProfile,
+      });
+    }, {
+      // Legacy requests are routed to the existing sessionful implementation
+      // below; this handler is strict modern-only by construction.
+      legacy: 'reject',
+      responseMode: 'auto',
+    });
+    const modernNodeHandler = toNodeHandler(modernMcpHandler);
 
     type SessionState = {
       transport: InstanceType<typeof StreamableHTTPServerTransport>;
@@ -418,85 +448,6 @@ export default defineCommand({
       res.setHeader('Mcp-Name', MCP_SERVER_NAME);
     }
 
-    /** Handle one 2026 stateless MCP request with a fresh server/transport. */
-    async function handleStatelessPost(req: IncomingMessage, res: ServerResponse, body: unknown): Promise<void> {
-      const handleId = typeof req.headers['mcp-project-handle'] === 'string'
-        ? req.headers['mcp-project-handle']
-        : undefined;
-      const persisted = handleId ? statelessBindingStore.touch(handleId) : undefined;
-      if (handleId && !persisted) {
-        res.writeHead(404, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ jsonrpc: '2.0', error: { code: -32001, message: 'MCP project handle not found or expired; initialize again.' }, id: null }));
-        return;
-      }
-      const requestedRoot = typeof req.headers['mcp-project-root'] === 'string'
-        ? req.headers['mcp-project-root']
-        : undefined;
-      const root = persisted?.projectRoot ?? requestedRoot ?? projectRoot;
-
-      const { createMemorixServer } = await import('../../server.js');
-      const { createProjectBindingController } = await import('../../server/request-context.js');
-      const binding = createProjectBindingController(root);
-      const { server, projectId, handleTransportClose } = await createMemorixServer(
-        root,
-        undefined,
-        undefined,
-        {
-          allowUntrackedFallback: false,
-          deferProjectInitUntilBound: true,
-          deferProjectRuntimeInit: true,
-          dashboardMode: 'control-plane',
-          dashboardPort: port,
-          toolProfile,
-          projectBinding: binding,
-        },
-      );
-      const transport = new StreamableHTTPServerTransport({
-        // No Mcp-Session-Id: the protocol state is carried by our explicit
-        // durable project handle and reconstructed on every request.
-        sessionIdGenerator: undefined,
-        enableJsonResponse: true,
-      });
-      try {
-        await server.connect(transport);
-        let effectiveHandle = persisted;
-        if (!effectiveHandle && projectId !== '__unresolved__' && isInitializeRequest(body)) {
-          effectiveHandle = statelessBindingStore.create({
-            projectId,
-            projectRoot: root,
-            dataDir: await persistMod.getProjectDataDir(projectId),
-          });
-        }
-        if (effectiveHandle) res.setHeader('Mcp-Project-Handle', effectiveHandle.handleId);
-        // The 1.30 SDK predates the 2026-07-28 version string. Keep the
-        // external stateless headers at the current contract, but normalize
-        // only the SDK-facing request and initialize params to its newest
-        // accepted wire version. This is a real compatibility adapter, not a
-        // claim that the pinned SDK implements newer optional extensions.
-        const sdkBody = body && typeof body === 'object'
-          ? JSON.parse(JSON.stringify(body)) as Record<string, any>
-          : body;
-        const sdkRequest = sdkBody as Record<string, any> | undefined;
-        if (sdkRequest && typeof sdkRequest === 'object' && sdkRequest.method === 'initialize' && sdkRequest.params) {
-          sdkRequest.params.protocolVersion = MCP_SDK_COMPAT_PROTOCOL_VERSION;
-        }
-        if (req.headers['mcp-protocol-version']) {
-          req.headers['mcp-protocol-version'] = MCP_SDK_COMPAT_PROTOCOL_VERSION;
-          for (let i = 0; i < req.rawHeaders.length; i += 2) {
-            if (req.rawHeaders[i].toLowerCase() === 'mcp-protocol-version') {
-              req.rawHeaders[i + 1] = MCP_SDK_COMPAT_PROTOCOL_VERSION;
-              break;
-            }
-          }
-        }
-        patchMcpResponse(res);
-        await transport.handleRequest(req, res, sdkBody);
-      } finally {
-        handleTransportClose();
-        await transport.close().catch(() => undefined);
-      }
-    }
-
     /**
      * Handle POST /mcp — JSON-RPC requests from agents
      */
@@ -504,13 +455,49 @@ export default defineCommand({
       const sessionId = req.headers['mcp-session-id'] as string | undefined;
       const body = await parseBody(req);
 
+      // Keep the pre-2026 startup probe compatible. Older MCP clients sent a
+      // claim-less server/discover before initialize and expect a plain JSON
+      // response; modern requests carry the _meta envelope and go to v2.
+      const params = body && typeof body === 'object' && !Array.isArray(body)
+        ? (body as { params?: unknown }).params
+        : undefined;
+      const claimlessDiscovery = !sessionId
+        && isServerDiscoverRequest(body)
+        && !req.headers['mcp-protocol-version']
+        && !req.headers['mcp-method']
+        && req.headers['mcp-stateless'] !== 'true'
+        && (params === undefined
+          || (typeof params === 'object' && params !== null && !Array.isArray(params)
+            && !Object.prototype.hasOwnProperty.call(params, '_meta')));
+      if (claimlessDiscovery) {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          jsonrpc: '2.0',
+          id: (body as { id?: string | number | null }).id ?? null,
+          result: createMcpStartupDiscoverResult(getMcpServerInfo()),
+        }));
+        return;
+      }
+
       const requestedProtocol = req.headers['mcp-protocol-version'];
       const statelessRequested = req.headers['mcp-stateless'] === 'true'
         || requestedProtocol === CURRENT_MCP_PROTOCOL_VERSION
         || typeof req.headers['mcp-project-handle'] === 'string'
         || isServerDiscoverRequest(body);
       if (!sessionId && statelessRequested) {
-        await handleStatelessPost(req, res, body);
+        const handleId = typeof req.headers['mcp-project-handle'] === 'string'
+          ? req.headers['mcp-project-handle']
+          : undefined;
+        if (handleId && !statelessBindingStore.touch(handleId)) {
+          res.writeHead(404, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({
+            jsonrpc: '2.0',
+            error: { code: -32001, message: 'MCP project handle not found or expired; initialize again.' },
+            id: null,
+          }));
+          return;
+        }
+        await modernNodeHandler(req, res, body);
         return;
       }
 
@@ -1684,6 +1671,7 @@ export default defineCommand({
       }
     }
 
+    let httpReadyAt: string | null = null;
     const httpServer = createServer(async (req, res) => {
       setCorsHeaders(req, res);
 
@@ -1704,9 +1692,13 @@ export default defineCommand({
         res.end(JSON.stringify({
           status: 'ok',
           mode: 'control-plane',
+          profile: toolProfile,
           port,
           uptime: Math.round(process.uptime()),
           pid: process.pid,
+          projectId: defaultProject?.id ?? '__unresolved__',
+          projectName: defaultProject?.name ?? null,
+          readyAt: httpReadyAt,
           embedding: getEmbeddingRuntimeHealth(),
         }));
         return;
@@ -1791,6 +1783,7 @@ export default defineCommand({
     httpServer.headersTimeout = 65_000;
 
     httpServer.listen(port, host, () => {
+      httpReadyAt = new Date().toISOString();
       // Write readiness file — background start polls this for out-of-band readiness detection
       try {
         const memorixDir = (process.env.HOME || process.env.USERPROFILE || '').replace(/\\/g, '/') + '/.memorix';

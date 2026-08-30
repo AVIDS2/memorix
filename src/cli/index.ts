@@ -389,7 +389,7 @@ const main = defineCommand({
       console.error('  integrate  Install one IDE integration into the current repo');
       console.error('  status     Show project info + stats');
       console.error('  dashboard  Open standalone dashboard (read-mostly)');
-      console.error('  hooks      Open legacy hook installer menu');
+      console.error('  hooks      Install, inspect, or remove agent hooks');
       console.error('  cleanup    Remove old memories');
       console.error('  purge      Retire all memories (project by default, --all for everything)');
       console.error('  sync       Rules/workspace sync plus interactive wizard');

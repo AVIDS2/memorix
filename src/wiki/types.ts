@@ -21,8 +21,8 @@ export interface KnowledgeSection {
 
 export interface ProjectKnowledgeOverview {
   /**
-   * A read-only projection of durable memories. This is intentionally not
-   * called a maintained wiki until the 1.2 Knowledge Workspace exists.
+   * A read-only projection of durable memories. The maintained, review-gated
+   * Knowledge Workspace is a separate surface backed by source claims.
    */
   title: 'Memory Overview';
   subtitle: 'Generated from durable project memory';

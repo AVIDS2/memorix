@@ -74,6 +74,9 @@ describe('Hooks install/uninstall lifecycle', () => {
     expect(content).toContain('When to store memory');
     expect(content).toContain('longTerm');
     expect(content).toContain('candidate only');
+    expect(content).toContain('memorix_evidence');
+    expect(content).toContain('memorix_feedback');
+    expect(content).toContain('memorix_media');
   });
 
   it('should record audit entry when creating new GEMINI.md (gemini-cli)', async () => {

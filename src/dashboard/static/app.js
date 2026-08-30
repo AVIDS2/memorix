@@ -25,16 +25,6 @@ const i18n = {
     noDataDesc: 'Start using Memorix to see your dashboard',
 
     // Graph
-    knowledgeGraph: 'Memory Entity Map',
-    noGraphData: 'No Graph Data',
-    noGraphDataDesc: 'Create entities and relations to see your memory entity map',
-    observation_s: 'observation(s)',
-    nodes: 'nodes',
-    edges: 'edges',
-    clickNodeToView: 'Click a node to view details',
-    legend: 'Legend',
-    noObservations: 'No observations',
-    noRelations: 'No relations',
 
     // Observations
     observationsStored: 'observations stored',
@@ -367,33 +357,9 @@ const i18n = {
     taskFailed: 'Failed',
 
     // Graph (additional)
-    graphIsolatedEntities: 'Isolated Entities',
-    graphIsolatedDesc: 'entities with no relations — shown separately for readability',
-    graphConnected: 'Connected',
-    graphNeighborhood: 'Neighborhood',
-    graphFullGraph: 'Full Graph',
-    graphTopology: 'Topology',
-    graphTable: 'Table',
     graphSearch: 'Search',
-    graphScope: 'Scope',
-    graphView: 'View',
-    graphLayout: 'Layout',
-    graphEntityType: 'Entity Type',
-    graphDepth: 'Depth',
-    graphConnections: 'Connections',
-    graphEvidence: 'Evidence',
-    graphObservations: 'Observations',
-    graphRelations: 'Relations',
-    graphSparseWarning: 'Sparse graph: %isolated% of %total% entities have no relations. Isolated entities shown in inventory below.',
-    graphNoRelations: 'No relations — isolated entities only',
-    graphNoRelationsDesc: 'This project has entities but no relations between them. All entities are shown in the inventory panel below.',
-    graphEmptyState: 'No Graph Data',
-    graphEmptyStateDesc: 'Create entities and relations to see your knowledge graph',
     graphSelectNode: 'Select a node to inspect',
     graphFindEntity: 'Find entity...',
-    graphLeftToRight: 'Left → Right',
-    graphTopToBottom: 'Top → Bottom',
-    graphMore: 'more',
 
     // Deterministic memory-map projection
     kgTitle: 'Memory Map',
@@ -403,6 +369,8 @@ const i18n = {
     kgClusters: 'clusters',
     kgNoData: 'No Memory Map Data',
     kgNoDataDesc: 'Store durable observations or promote mini-skills to build a deterministic memory map.',
+    kgUnavailable: 'Memory Map Unavailable',
+    kgUnavailableDesc: 'The memory-map service did not return a valid response. Check the Dashboard service and try again.',
     kgClusterFilter: 'Section Cluster',
     kgEdgeTypeFilter: 'Edge Type',
     kgEdgeSupports: 'supports',
@@ -416,9 +384,6 @@ const i18n = {
     kgInspectorEvidence: 'Evidence',
     kgInspectorRelatedEdges: 'Related Edges',
     kgInspectorNoEdges: 'No edges',
-    kgDataMode: 'Data Source',
-    kgModeSemantic: 'Inferred Memory Map',
-    kgModeEntity: 'Entity Graph',
     kgViewMode: 'View Mode',
     kgFocused: 'Focused',
     kgFullGraph: 'Full Graph',
@@ -508,16 +473,6 @@ const i18n = {
     noDataDesc: '开始使用 Memorix 来查看仪表盘',
 
     // Graph
-    knowledgeGraph: '知识图谱',
-    noGraphData: '暂无图谱数据',
-    noGraphDataDesc: '创建实体和关系来查看知识图谱',
-    observation_s: '条观察',
-    nodes: '个节点',
-    edges: '条边',
-    clickNodeToView: '点击节点查看详情',
-    legend: '图例',
-    noObservations: '暂无观察',
-    noRelations: '暂无关系',
 
     // Observations
     observationsStored: '条观察已存储',
@@ -855,33 +810,9 @@ const i18n = {
     sessionsTotalLower: '总计',
 
     // Graph (additional)
-    graphIsolatedEntities: '孤立实体',
-    graphIsolatedDesc: '无关系的实体 — 单独显示以提高可读性',
-    graphConnected: '已连接',
-    graphNeighborhood: '邻域',
-    graphFullGraph: '完整图谱',
-    graphTopology: '拓扑',
-    graphTable: '表格',
     graphSearch: '搜索',
-    graphScope: '范围',
-    graphView: '视图',
-    graphLayout: '布局',
-    graphEntityType: '实体类型',
-    graphDepth: '深度',
-    graphConnections: '连接数',
-    graphEvidence: '证据',
-    graphObservations: '观察',
-    graphRelations: '关系',
-    graphSparseWarning: '稀疏图谱：%isolated% / %total% 个实体无关系。孤立实体显示在下方清单中。',
-    graphNoRelations: '无关系 — 仅有孤立实体',
-    graphNoRelationsDesc: '此项目有实体但无关系。所有实体显示在下方清单面板中。',
-    graphEmptyState: '暂无图谱数据',
-    graphEmptyStateDesc: '创建实体和关系来查看知识图谱',
     graphSelectNode: '选择节点以查看详情',
     graphFindEntity: '查找实体...',
-    graphLeftToRight: '从左到右',
-    graphTopToBottom: '从上到下',
-    graphMore: '更多',
 
     // Deterministic memory-map projection
     kgTitle: '记忆关系图',
@@ -891,6 +822,8 @@ const i18n = {
     kgClusters: '个聚类',
     kgNoData: '暂无记忆关系图数据',
     kgNoDataDesc: '存储持久观察或提升迷你技能以构建确定性记忆关系图。',
+    kgUnavailable: '记忆关系图暂时不可用',
+    kgUnavailableDesc: '记忆关系图服务没有返回有效数据，请检查 Dashboard 服务后重试。',
     kgClusterFilter: '分区聚类',
     kgEdgeTypeFilter: '边类型',
     kgEdgeSupports: '支撑',
@@ -904,9 +837,6 @@ const i18n = {
     kgInspectorEvidence: '证据',
     kgInspectorRelatedEdges: '相关边',
     kgInspectorNoEdges: '无边',
-    kgDataMode: '数据源',
-    kgModeSemantic: '推断记忆关系图',
-    kgModeEntity: '实体图谱',
     kgViewMode: '视图模式',
     kgFocused: '聚焦',
     kgFullGraph: '全量',
@@ -2087,80 +2017,34 @@ function knowledgeAnchor(id) {
 }
 
 // ============================================================
-// Memory Topology Explorer — Cytoscape.js + Dagre
-// Focused topology default, not full graph dump
+// Canonical Memory Map
+// The Dashboard uses the evidence-backed projection only.
 // ============================================================
-
-let _graphState = null;
 
 async function loadGraph() {
   const container = document.getElementById('page-graph');
   container.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
 
-  // Prefer the deterministic memory-map projection when it is available.
-  try {
-    const kg = await api('knowledge-graph');
-    if (kg && kg.nodes && kg.nodes.length > 0) {
-      renderSemanticGraph(kg);
-      return;
-    }
-  } catch (_e) {
-    // Fallback to entity graph
-  }
-
-  // Fallback: entity/relation graph
-  const graph = await api('graph');
-  if (!graph || (graph.entities.length === 0 && graph.relations.length === 0)) {
-    container.innerHTML = emptyState('<span class="iconify" data-icon="lucide:network" style="font-size:36px;"></span>', t('kgNoData'), t('kgNoDataDesc'));
+  const kg = await api('knowledge-graph');
+  if (!kg || !Array.isArray(kg.nodes) || !Array.isArray(kg.edges)) {
+    container.innerHTML = emptyState(
+      '<span class="iconify" data-icon="lucide:network" style="font-size:36px;"></span>',
+      t('kgUnavailable'),
+      t('kgUnavailableDesc'),
+    );
     return;
   }
 
-  // Check for no-relations state (only isolated entities)
-  const hasRelations = graph.relations.length > 0;
+  if (kg.nodes.length === 0) {
+    container.innerHTML = emptyState(
+      '<span class="iconify" data-icon="lucide:network" style="font-size:36px;"></span>',
+      t('kgNoData'),
+      t('kgNoDataDesc'),
+    );
+    return;
+  }
 
-  container.innerHTML = `
-    <div class="page-header">
-      <h1 class="page-title">${t('knowledgeGraph')}</h1>
-      <p class="page-subtitle">${graph.entities.length} ${t('entities').toLowerCase()} · ${graph.relations.length} ${t('relations').toLowerCase()}</p>
-    </div>
-    ${!hasRelations && graph.entities.length > 0 ? `
-      <div class="panel" style="margin-bottom:16px;border-color:var(--accent-amber);">
-        <div class="panel-body" style="display:flex;align-items:center;gap:12px;padding:12px 16px;">
-          <span class="iconify" data-icon="lucide:network" style="font-size:20px;color:var(--accent-amber);"></span>
-          <div>
-            <div style="font-weight:600;color:var(--accent-amber);">${t('graphNoRelations')}</div>
-            <div style="font-size:12px;color:var(--text-muted);margin-top:2px;">${t('graphNoRelationsDesc')}</div>
-          </div>
-        </div>
-      </div>
-    ` : ''}
-    ${hasRelations ? `
-    <div class="graph-layout">
-      <div class="graph-filter-panel" id="graph-filter-panel"></div>
-      <div id="graph-container">
-        <div id="cytoscape-mount"></div>
-        <div class="graph-status-bar">
-          <span class="graph-status-item" id="gs-nodes"></span>
-          <span class="graph-status-item" id="gs-edges"></span>
-          <span class="graph-status-item" id="gs-layout"></span>
-          <span class="graph-status-item" id="gs-scope"></span>
-          <div class="graph-zoom-controls">
-            <button class="graph-zoom-btn" id="gz-out">\u2212</button>
-            <button class="graph-zoom-btn" id="gz-fit">\u2B21</button>
-            <button class="graph-zoom-btn" id="gz-in">+</button>
-          </div>
-        </div>
-      </div>
-      <div class="graph-table-container" id="graph-table-container" style="display:none;"></div>
-      <div class="graph-inspector" id="graph-inspector">
-        <div class="gi-empty"><div class="gi-empty-icon">\u2B21</div>${t('graphSelectNode')}</div>
-      </div>
-    </div>
-    ` : ''}
-    <div id="graph-isolated-panel" style="display:none;"></div>
-  `;
-
-  renderGraph(graph);
+  renderSemanticGraph(kg);
 }
 
 // ============================================================
@@ -2185,7 +2069,7 @@ function renderSemanticGraph(kg) {
     return sectionPalette[sectionId] || defaultSectionColor;
   }
 
-  // Edge type styles — solid hex + opacity controlled by G6 strokeOpacity
+  // Edge type styles are rendered by ECharts.
   const edgeStyleMap = {
     'supports':     { color: '#69F0AE', arrow: true,  dash: false,  label: t('kgEdgeSupports') },
     'relates_to':   { color: '#80D8FF', arrow: false, dash: [4, 4], label: t('kgEdgeRelatesTo') },
@@ -2231,6 +2115,9 @@ function renderSemanticGraph(kg) {
 
   // Build ECharts graph data: { categories, nodes, links }
   function buildEChartsData() {
+    const chartWidth = document.getElementById('echarts-mount')?.clientWidth || 600;
+    const labelLimit = chartWidth < 360 ? 16 : chartWidth < 520 ? 22 : 28;
+
     // Determine which nodes to show
     let visibleNodes = kg.nodes.filter(n => activeSections.has(n.sectionId));
     if (focusedMode && visibleNodes.length > FOCUSED_TOP_N) {
@@ -2288,7 +2175,9 @@ function renderSemanticGraph(kg) {
       const pos = stableNodePosition(node, Math.max(0, sectionIndex));
       return {
         id: node.id,
-        name: node.label.length > 28 ? node.label.slice(0, 26) + '\u2026' : node.label,
+        name: node.label.length > labelLimit
+          ? node.label.slice(0, Math.max(1, labelLimit - 1)) + '\u2026'
+          : node.label,
         x: pos.x,
         y: pos.y,
         category: categoryIndexBySection[node.sectionId] ?? 0,
@@ -2301,6 +2190,7 @@ function renderSemanticGraph(kg) {
         summary: node.summary || '',
         refs: node.refs || [],
         fullLabel: node.label,
+        label: { position: pos.x > 180 ? 'left' : 'right' },
       };
     });
 
@@ -2768,752 +2658,6 @@ function renderSemanticGraph(kg) {
   renderKGFilterPanel();
 }
 
-// ============================================================
-// Cytoscape.js + Dagre — Focused Topology Renderer
-// Default: 1-hop neighborhood of top entity, dagre LR layout
-// ============================================================
-
-function renderGraph(graph) {
-  // Register dagre layout if not already registered
-  if (typeof cytoscape !== 'undefined' && typeof cytoscapeDagre !== 'undefined' && !cytoscape._dagreRegistered) {
-    cytoscapeDagre(cytoscape);
-    cytoscape._dagreRegistered = true;
-  }
-
-  // --- Muted enterprise palette ---
-  const palette = [
-    '#7C9CBF', '#8FB996', '#C4956A', '#A893C2',
-    '#6BA3A0', '#B8A44C', '#C27878', '#7B8EB8',
-  ];
-  const typeColors = {};
-  let colorIdx = 0;
-  function getTypeColor(type) {
-    if (!typeColors[type]) { typeColors[type] = palette[colorIdx % palette.length]; colorIdx++; }
-    return typeColors[type];
-  }
-
-  const typeCounts = {};
-  graph.entities.forEach(e => { typeCounts[e.entityType] = (typeCounts[e.entityType] || 0) + 1; });
-  Object.keys(typeCounts).forEach(t2 => getTypeColor(t2));
-
-  function isLight() { return document.documentElement.getAttribute('data-theme') === 'light'; }
-
-  // --- Build data structures ---
-  const entityMap = {};
-  graph.entities.forEach(e => {
-    entityMap[e.name] = e;
-  });
-
-  // Compute degree for each entity
-  const degreeMap = {};
-  graph.entities.forEach(e => { degreeMap[e.name] = 0; });
-  graph.relations.forEach(r => {
-    if (degreeMap[r.from] !== undefined) degreeMap[r.from]++;
-    if (degreeMap[r.to] !== undefined) degreeMap[r.to]++;
-  });
-
-  // Find top entity by degree (for default focus)
-  const topEntity = graph.entities.reduce((best, e) =>
-    (degreeMap[e.name] || 0) > (degreeMap[best.name] || 0) ? e : best,
-    graph.entities[0]
-  );
-
-  // --- Computed stats ---
-  const isolatedCount = graph.entities.filter(e => (degreeMap[e.name] || 0) === 0).length;
-  const connectedCount = graph.entities.length - isolatedCount;
-  const isSparse = isolatedCount > connectedCount;
-
-  // --- State ---
-  let activeTypes = new Set(Object.keys(typeCounts));
-  let currentView = 'topology'; // 'topology' | 'table'
-  let currentLayout = 'dagre-lr'; // 'dagre-lr' | 'dagre-tb'
-  let focusEntity = topEntity.name;
-  let depth = 1;
-  let scope = 'connected'; // 'connected' | 'neighborhood' | 'full'
-  let selectedNodeId = null;
-  let cy = null; // Cytoscape instance
-
-  // --- Subgraph extraction (BFS n-hop neighborhood) ---
-  function getNeighborhood(centerName, maxDepth) {
-    const visited = new Set();
-    const edgeSet = new Set();
-    const queue = [{ name: centerName, d: 0 }];
-    visited.add(centerName);
-
-    while (queue.length > 0) {
-      const { name, d } = queue.shift();
-      if (d >= maxDepth) continue;
-      for (const r of graph.relations) {
-        if (r.from === name && entityMap[r.to] && !visited.has(r.to)) {
-          visited.add(r.to);
-          edgeSet.add(r);
-          queue.push({ name: r.to, d: d + 1 });
-        } else if (r.from === name && entityMap[r.to]) {
-          edgeSet.add(r);
-        }
-        if (r.to === name && entityMap[r.from] && !visited.has(r.from)) {
-          visited.add(r.from);
-          edgeSet.add(r);
-          queue.push({ name: r.from, d: d + 1 });
-        } else if (r.to === name && entityMap[r.from]) {
-          edgeSet.add(r);
-        }
-      }
-    }
-    return {
-      nodeNames: visited,
-      edges: [...edgeSet].filter(r => visited.has(r.from) && visited.has(r.to)),
-    };
-  }
-
-  // --- Build Cytoscape elements from current state ---
-  function buildElements() {
-    let nodeNames, visibleEdges;
-
-    if (scope === 'full') {
-      // Full graph canvas: only connected nodes (isolated go to inventory panel below)
-      nodeNames = new Set(
-        graph.entities.filter(e => activeTypes.has(e.entityType) && (degreeMap[e.name] || 0) > 0).map(e => e.name)
-      );
-      visibleEdges = graph.relations.filter(r => nodeNames.has(r.from) && nodeNames.has(r.to));
-    } else if (scope === 'neighborhood') {
-      // Focused neighborhood: BFS from focusEntity
-      const sub = getNeighborhood(focusEntity, depth);
-      nodeNames = new Set([...sub.nodeNames].filter(n => activeTypes.has(entityMap[n]?.entityType)));
-      if (entityMap[focusEntity]) nodeNames.add(focusEntity);
-      visibleEdges = sub.edges.filter(r => nodeNames.has(r.from) && nodeNames.has(r.to));
-    } else {
-      // DEFAULT: 'connected' — only nodes with degree > 0 (no isolated nodes)
-      nodeNames = new Set(
-        graph.entities
-          .filter(e => activeTypes.has(e.entityType) && (degreeMap[e.name] || 0) > 0)
-          .map(e => e.name)
-      );
-      visibleEdges = graph.relations.filter(r => nodeNames.has(r.from) && nodeNames.has(r.to));
-    }
-
-    // Top centrality: only top 3 show labels by default (not 10)
-    const visibleDegrees = {};
-    nodeNames.forEach(n => { visibleDegrees[n] = 0; });
-    visibleEdges.forEach(r => {
-      if (visibleDegrees[r.from] !== undefined) visibleDegrees[r.from]++;
-      if (visibleDegrees[r.to] !== undefined) visibleDegrees[r.to]++;
-    });
-    const topCentrality = new Set(
-      [...nodeNames].sort((a, b) => (visibleDegrees[b] || 0) - (visibleDegrees[a] || 0)).slice(0, 3)
-    );
-
-    const nodes = [...nodeNames].map(name => {
-      const e = entityMap[name];
-      const deg = visibleDegrees[name] || 0;
-      const isFocus = scope === 'neighborhood' && name === focusEntity;
-      const isTop = topCentrality.has(name);
-      // Labels: only top 3 centrality nodes show labels by default
-      const showLabel = isFocus || isTop;
-      return {
-        data: {
-          id: name,
-          label: showLabel ? (name.length > 24 ? name.slice(0, 22) + '\u2026' : name) : '',
-          fullLabel: name,
-          type: e.entityType,
-          obsCount: e.observations.length,
-          degree: deg,
-          color: getTypeColor(e.entityType),
-          isFocus: isFocus,
-          nodeSize: Math.max(16, Math.min(12 + Math.sqrt(deg) * 6, 40)),
-        },
-      };
-    });
-
-    const edges = visibleEdges.map((r, i) => ({
-      data: {
-        id: 'e' + i + '_' + r.from + '_' + r.to,
-        source: r.from,
-        target: r.to,
-        relationType: r.relationType,
-      },
-    }));
-
-    return { nodes, edges, visibleCount: nodeNames.size, edgeCount: visibleEdges.length };
-  }
-
-  // --- Cytoscape style ---
-  function getCyStyle() {
-    const light = isLight();
-    return [
-      {
-        selector: 'node',
-        style: {
-          'width': 'data(nodeSize)',
-          'height': 'data(nodeSize)',
-          'background-color': 'data(color)',
-          'background-opacity': 0.85,
-          'border-width': 1,
-          'border-color': light ? 'rgba(0,0,0,0.12)' : 'rgba(255,255,255,0.12)',
-          'label': 'data(label)',
-          'font-size': 10,
-          'font-family': 'Inter, system-ui, sans-serif',
-          'font-weight': 400,
-          'color': light ? '#1C1B1F' : '#E6E1E5',
-          'text-valign': 'bottom',
-          'text-halign': 'center',
-          'text-margin-y': 4,
-          'text-max-width': 120,
-          'text-wrap': 'ellipsis',
-          'text-background-color': light ? '#F7F2FA' : '#0F0F17',
-          'text-background-opacity': 0.7,
-          'text-background-padding': '2px',
-          'text-background-shape': 'roundrectangle',
-          'min-zoomed-font-size': 8,
-        },
-      },
-      {
-        selector: 'node[?isFocus]',
-        style: {
-          'border-width': 3,
-          'border-color': light ? '#6750A4' : '#D0BCFF',
-          'font-weight': 600,
-          'font-size': 12,
-        },
-      },
-      {
-        selector: 'node:selected',
-        style: {
-          'border-width': 3,
-          'border-color': light ? '#6750A4' : '#D0BCFF',
-          'border-style': 'dashed',
-          'font-weight': 600,
-          'label': 'data(fullLabel)',
-        },
-      },
-      {
-        selector: 'node.hover',
-        style: {
-          'border-width': 2,
-          'border-color': light ? '#6750A4' : '#D0BCFF',
-          'label': 'data(fullLabel)',
-          'font-weight': 500,
-          'z-index': 999,
-        },
-      },
-      {
-        selector: 'edge',
-        style: {
-          'width': 1,
-          'line-color': light ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.1)',
-          'target-arrow-color': light ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.15)',
-          'target-arrow-shape': 'triangle',
-          'arrow-scale': 0.7,
-          'curve-style': 'bezier',
-          'label': '',
-        },
-      },
-      {
-        selector: 'edge:selected, edge.hover',
-        style: {
-          'width': 2,
-          'line-color': light ? 'rgba(103,80,164,0.5)' : 'rgba(208,188,255,0.4)',
-          'target-arrow-color': light ? 'rgba(103,80,164,0.6)' : 'rgba(208,188,255,0.5)',
-          'label': 'data(relationType)',
-          'font-size': 9,
-          'font-family': 'JetBrains Mono, monospace',
-          'color': light ? '#6750A4' : '#D0BCFF',
-          'text-background-color': light ? '#F7F2FA' : '#0F0F17',
-          'text-background-opacity': 0.8,
-          'text-background-padding': '2px',
-          'text-background-shape': 'roundrectangle',
-          'text-rotation': 'autorotate',
-        },
-      },
-      {
-        selector: '.dimmed',
-        style: {
-          'opacity': 0.15,
-        },
-      },
-    ];
-  }
-
-  // --- Layout config ---
-  function getLayoutConfig() {
-    if (currentLayout === 'dagre-tb') {
-      return { name: 'dagre', rankDir: 'TB', nodeSep: 40, rankSep: 60, edgeSep: 20, padding: 30 };
-    }
-    // Default: dagre LR
-    return { name: 'dagre', rankDir: 'LR', nodeSep: 40, rankSep: 80, edgeSep: 20, padding: 30 };
-  }
-
-  // --- Initialize / rebuild Cytoscape ---
-  function initCytoscape() {
-    const { nodes, edges, visibleCount, edgeCount } = buildElements();
-
-    if (cy) cy.destroy();
-
-    const light = isLight();
-    const mountEl = document.getElementById('cytoscape-mount');
-    if (!mountEl) return;
-
-    cy = cytoscape({
-      container: mountEl,
-      elements: [...nodes, ...edges],
-      style: getCyStyle(),
-      layout: getLayoutConfig(),
-      wheelSensitivity: 0.3,
-      minZoom: 0.1,
-      maxZoom: 4,
-      boxSelectionEnabled: false,
-    });
-
-    // --- Event handlers ---
-    cy.on('tap', 'node', function (evt) {
-      const node = evt.target;
-      selectedNodeId = node.id();
-      showInspector(node.id());
-    });
-
-    cy.on('tap', function (evt) {
-      if (evt.target === cy) {
-        selectedNodeId = null;
-        showInspector(null);
-      }
-    });
-
-    let hoverNode = null;
-    cy.on('mouseover', 'node', function (evt) {
-      const node = evt.target;
-      hoverNode = node;
-      node.addClass('hover');
-      // Show label on hover for all connected edges
-      node.connectedEdges().addClass('hover');
-    });
-    cy.on('mouseout', 'node', function (evt) {
-      const node = evt.target;
-      if (hoverNode === node) hoverNode = null;
-      node.removeClass('hover');
-      node.connectedEdges().removeClass('hover');
-    });
-
-    // Double-click to refocus
-    cy.on('dbltap', 'node', function (evt) {
-      focusEntity = evt.target.id();
-      scope = 'neighborhood';
-      rebuildGraph();
-    });
-
-    updateStatusBar(visibleCount, edgeCount);
-  }
-
-  function rebuildGraph() {
-    initCytoscape();
-    renderFilterPanel();
-    renderIsolatedPanel();
-  }
-
-  // --- Isolated Entities Inventory (not in graph canvas) ---
-  function renderIsolatedPanel() {
-    const panel = document.getElementById('graph-isolated-panel');
-    if (!panel) return;
-
-    // Only show when scope is connected or full (not neighborhood)
-    if (scope === 'neighborhood') {
-      panel.style.display = 'none';
-      return;
-    }
-
-    const isolated = graph.entities.filter(e =>
-      activeTypes.has(e.entityType) && (degreeMap[e.name] || 0) === 0
-    );
-
-    if (isolated.length === 0) {
-      panel.style.display = 'none';
-      return;
-    }
-
-    // Group by entityType
-    const groups = {};
-    isolated.forEach(e => {
-      (groups[e.entityType] = groups[e.entityType] || []).push(e);
-    });
-
-    const groupEntries = Object.entries(groups).sort((a, b) => b[1].length - a[1].length);
-
-    panel.style.display = 'block';
-    panel.innerHTML = `
-      <div class="panel" style="margin-top:16px;">
-        <div class="panel-header">
-          <span class="panel-title">${t('graphIsolatedEntities')}</span>
-          <span style="font-size:11px;color:var(--text-muted);">${isolated.length} ${t('graphIsolatedDesc')}</span>
-        </div>
-        <div class="panel-body" style="padding:12px 16px;">
-          ${groupEntries.map(([type, entities]) => {
-            const color = getTypeColor(type);
-            const collapsed = entities.length > 8;
-            const shown = collapsed ? entities.slice(0, 8) : entities;
-            return `
-              <div style="margin-bottom:12px;">
-                <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">
-                  <span style="width:8px;height:8px;border-radius:50%;background:${color};flex-shrink:0;"></span>
-                  <span style="font-size:11px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px;">${escapeHtml(type)}</span>
-                  <span style="font-size:10px;color:var(--text-muted);font-family:var(--font-mono);">${entities.length}</span>
-                </div>
-                <div style="display:flex;flex-wrap:wrap;gap:4px;">
-                  ${shown.map(e => `
-                    <span class="iso-entity-tag" data-iso-entity="${escapeHtml(e.name)}" style="display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:4px;font-size:11px;color:var(--text-secondary);background:var(--bg-surface);border:1px solid var(--border-subtle);cursor:pointer;transition:all 150ms;">
-                      ${escapeHtml(e.name.length > 28 ? e.name.slice(0, 26) + '\u2026' : e.name)}
-                      ${e.observations.length > 0 ? '<span style="font-size:9px;color:var(--text-muted);">' + e.observations.length + '</span>' : ''}
-                    </span>
-                  `).join('')}
-                  ${collapsed ? '<span style="font-size:11px;color:var(--text-muted);padding:3px 8px;">+' + (entities.length - 8) + ' ' + t('graphMore') + '</span>' : ''}
-                </div>
-              </div>
-            `;
-          }).join('')}
-        </div>
-      </div>
-    `;
-
-    // Bind clicks: inspect isolated entity
-    panel.querySelectorAll('[data-iso-entity]').forEach(el => {
-      el.addEventListener('click', () => {
-        const name = el.dataset.isoEntity;
-        if (entityMap[name]) {
-          selectedNodeId = name;
-          showInspector(name);
-        }
-      });
-    });
-  }
-
-  // --- Inspector ---
-  function showInspector(nodeId) {
-    const inspector = document.getElementById('graph-inspector');
-    if (!inspector) return;
-    if (!nodeId || !entityMap[nodeId]) {
-      inspector.innerHTML = '<div class="gi-empty"><div class="gi-empty-icon">\u2B21</div>' + t('graphSelectNode') + '</div>';
-      return;
-    }
-    const entity = entityMap[nodeId];
-    const related = graph.relations.filter(r => r.from === nodeId || r.to === nodeId);
-    const deg = degreeMap[nodeId] || 0;
-    const color = getTypeColor(entity.entityType);
-
-    const obsHtml = entity.observations.length > 0
-      ? entity.observations.map(o => `<div class="gi-obs-item">${escapeHtml(o)}</div>`).join('')
-      : '<div style="font-size:12px;color:var(--text-muted);font-style:italic;">' + t('noObservations') + '</div>';
-    const relHtml = related.length > 0
-      ? related.map(r => {
-        const dir = r.from === nodeId;
-        const other = dir ? r.to : r.from;
-        return `<div class="gi-rel-item">
-          <span class="gi-rel-arrow">${dir ? '\u2192' : '\u2190'}</span>
-          <span class="gi-rel-type">${escapeHtml(r.relationType)}</span>
-          <span class="gi-rel-target" data-inspector-nav="${escapeHtml(other)}">${escapeHtml(other)}</span>
-        </div>`;
-      }).join('')
-      : '<div style="font-size:12px;color:var(--text-muted);font-style:italic;">' + t('noRelations') + '</div>';
-
-    inspector.innerHTML = `
-      <div class="gi-header">
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
-          <span style="width:10px;height:10px;border-radius:50%;background:${color};flex-shrink:0;"></span>
-          <div class="gi-name">${escapeHtml(nodeId)}</div>
-        </div>
-        <div class="gi-type">${escapeHtml(entity.entityType)}</div>
-      </div>
-      <div class="gi-stats">
-        <div class="gi-stat"><div class="gi-stat-value">${deg}</div><div class="gi-stat-label">${t('graphConnections')}</div></div>
-        <div class="gi-stat"><div class="gi-stat-value">${entity.observations.length}</div><div class="gi-stat-label">${t('graphEvidence')}</div></div>
-      </div>
-      <div class="gi-section">
-        <div class="gi-section-title">${t('graphObservations')} <span class="gi-section-count">${entity.observations.length}</span></div>
-        ${obsHtml}
-      </div>
-      <div class="gi-section">
-        <div class="gi-section-title">${t('graphRelations')} <span class="gi-section-count">${related.length}</span></div>
-        ${relHtml}
-      </div>
-    `;
-
-    // Navigation: click relation target to focus
-    inspector.querySelectorAll('[data-inspector-nav]').forEach(el => {
-      el.addEventListener('click', () => {
-        const targetId = el.dataset.inspectorNav;
-        if (entityMap[targetId]) {
-          selectedNodeId = targetId;
-          // If target is visible in current graph, select it
-          if (cy && cy.$id(targetId).length > 0) {
-            cy.$(':selected').unselect();
-            cy.$id(targetId).select();
-            cy.animate({ center: { eles: cy.$id(targetId) }, duration: 300 });
-          } else {
-            // Switch focus to target
-            focusEntity = targetId;
-            scope = 'neighborhood';
-            rebuildGraph();
-          }
-          showInspector(targetId);
-        }
-      });
-    });
-  }
-
-  // --- Filter panel ---
-  function renderFilterPanel() {
-    const panel = document.getElementById('graph-filter-panel');
-    if (!panel) return;
-
-    const searchHtml = `
-      <div class="gfp-section">
-        <div class="gfp-label">${t('graphSearch')}</div>
-        <input type="text" class="gfp-search" id="gfp-search" placeholder="${t('graphFindEntity')}" autocomplete="off" />
-      </div>
-    `;
-
-    const scopeHtml = `
-      <div class="gfp-section">
-        <div class="gfp-label">${t('graphScope')}</div>
-        <div class="gfp-radio-group">
-          <button class="gfp-radio${scope === 'connected' ? ' active' : ''}" data-scope="connected">
-            <span class="gfp-radio-dot"></span> ${t('graphConnected')}
-          </button>
-          <button class="gfp-radio${scope === 'neighborhood' ? ' active' : ''}" data-scope="neighborhood">
-            <span class="gfp-radio-dot"></span> ${t('graphNeighborhood')}
-          </button>
-          <button class="gfp-radio${scope === 'full' ? ' active' : ''}" data-scope="full">
-            <span class="gfp-radio-dot"></span> ${t('graphFullGraph')}
-          </button>
-        </div>
-        ${isSparse ? `<div style="font-size:10px;color:var(--accent-amber);margin-top:6px;line-height:1.4;">\u26A0 ${t('graphSparseWarning').replace('%isolated%', isolatedCount).replace('%total%', graph.entities.length)}</div>` : ''}
-      </div>
-    `;
-
-    const depthHtml = `
-      <div class="gfp-section" id="gfp-depth-section"${scope !== 'neighborhood' ? ' style="display:none"' : ''}>
-        <div class="gfp-label">${t('graphDepth')}</div>
-        <div class="gfp-depth-row">
-          <button class="gfp-depth-btn${depth === 1 ? ' active' : ''}" data-depth="1">1</button>
-          <button class="gfp-depth-btn${depth === 2 ? ' active' : ''}" data-depth="2">2</button>
-          <button class="gfp-depth-btn${depth === 3 ? ' active' : ''}" data-depth="3">3</button>
-        </div>
-      </div>
-    `;
-
-    const viewHtml = `
-      <div class="gfp-section">
-        <div class="gfp-label">${t('graphView')}</div>
-        <div class="gfp-radio-group">
-          <button class="gfp-radio${currentView === 'topology' ? ' active' : ''}" data-view="topology">
-            <span class="gfp-radio-dot"></span> ${t('graphTopology')}
-          </button>
-          <button class="gfp-radio${currentView === 'table' ? ' active' : ''}" data-view="table">
-            <span class="gfp-radio-dot"></span> ${t('graphTable')}
-          </button>
-        </div>
-      </div>
-    `;
-
-    const layoutHtml = `
-      <div class="gfp-section" id="gfp-layout-section"${currentView === 'table' ? ' style="display:none"' : ''}>
-        <div class="gfp-label">${t('graphLayout')}</div>
-        <div class="gfp-radio-group">
-          <button class="gfp-radio${currentLayout === 'dagre-lr' ? ' active' : ''}" data-layout="dagre-lr">
-            <span class="gfp-radio-dot"></span> ${t('graphLeftToRight')}
-          </button>
-          <button class="gfp-radio${currentLayout === 'dagre-tb' ? ' active' : ''}" data-layout="dagre-tb">
-            <span class="gfp-radio-dot"></span> ${t('graphTopToBottom')}
-          </button>
-        </div>
-      </div>
-    `;
-
-    const typeEntries = Object.entries(typeCounts).sort((a, b) => b[1] - a[1]);
-    const filterHtml = `
-      <div class="gfp-section">
-        <div class="gfp-label">${t('graphEntityType')}</div>
-        <div class="gfp-radio-group">
-          ${typeEntries.map(([type, count]) => `
-            <button class="gfp-check${activeTypes.has(type) ? ' active' : ''}" data-type-filter="${escapeHtml(type)}">
-              <span class="gfp-check-box">\u2713</span>
-              <span class="gfp-type-dot" style="background:${typeColors[type]}"></span>
-              ${escapeHtml(type)}
-              <span class="gfp-check-count">${count}</span>
-            </button>
-          `).join('')}
-        </div>
-      </div>
-    `;
-
-    panel.innerHTML = searchHtml + scopeHtml + depthHtml + viewHtml + layoutHtml + filterHtml;
-
-    // Bind scope
-    panel.querySelectorAll('[data-scope]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        scope = btn.dataset.scope;
-        rebuildGraph();
-      });
-    });
-
-    // Bind depth
-    panel.querySelectorAll('[data-depth]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        depth = parseInt(btn.dataset.depth);
-        rebuildGraph();
-      });
-    });
-
-    // Bind view
-    panel.querySelectorAll('[data-view]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        currentView = btn.dataset.view;
-        switchView();
-        renderFilterPanel();
-      });
-    });
-
-    // Bind layout
-    panel.querySelectorAll('[data-layout]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        currentLayout = btn.dataset.layout;
-        if (cy) {
-          cy.layout(getLayoutConfig()).run();
-        }
-        renderFilterPanel();
-      });
-    });
-
-    // Bind type filters
-    panel.querySelectorAll('[data-type-filter]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const type = btn.dataset.typeFilter;
-        if (activeTypes.has(type)) activeTypes.delete(type);
-        else activeTypes.add(type);
-        rebuildGraph();
-      });
-    });
-
-    // Bind search — focus on entity and navigate
-    const searchInput = document.getElementById('gfp-search');
-    if (searchInput) {
-      searchInput.addEventListener('input', () => {
-        const q = searchInput.value.toLowerCase();
-        if (!q || !cy) {
-          if (cy) cy.elements().removeClass('dimmed');
-          return;
-        }
-        cy.nodes().forEach(n => {
-          const match = n.data('fullLabel').toLowerCase().includes(q) || n.data('type').toLowerCase().includes(q);
-          if (match) { n.removeClass('dimmed'); } else { n.addClass('dimmed'); }
-        });
-        cy.edges().forEach(e => {
-          if (e.source().hasClass('dimmed') && e.target().hasClass('dimmed')) e.addClass('dimmed');
-          else e.removeClass('dimmed');
-        });
-      });
-
-      searchInput.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') {
-          const q = searchInput.value.toLowerCase();
-          const match = graph.entities.find(ent => ent.name.toLowerCase().includes(q));
-          if (match) {
-            focusEntity = match.name;
-            scope = 'neighborhood';
-            rebuildGraph();
-          }
-        }
-      });
-    }
-  }
-
-  function switchView() {
-    const graphContainer = document.getElementById('graph-container');
-    const tableContainer = document.getElementById('graph-table-container');
-    if (currentView === 'table') {
-      graphContainer.style.display = 'none';
-      tableContainer.style.display = 'flex';
-      renderTable();
-    } else {
-      graphContainer.style.display = '';
-      tableContainer.style.display = 'none';
-    }
-  }
-
-  // --- Table view ---
-  function renderTable() {
-    const tc = document.getElementById('graph-table-container');
-    if (!tc) return;
-    let entities;
-    if (scope === 'full') {
-      entities = graph.entities.filter(e => activeTypes.has(e.entityType) && (degreeMap[e.name] || 0) > 0);
-    } else if (scope === 'neighborhood') {
-      const sub = getNeighborhood(focusEntity, depth);
-      entities = [...sub.nodeNames].filter(n => activeTypes.has(entityMap[n]?.entityType)).map(n => entityMap[n]).filter(Boolean);
-    } else {
-      // connected: only degree > 0
-      entities = graph.entities.filter(e => activeTypes.has(e.entityType) && (degreeMap[e.name] || 0) > 0);
-    }
-    const sorted = entities.sort((a, b) => (degreeMap[b.name] || 0) - (degreeMap[a.name] || 0));
-    tc.innerHTML = `
-      <table class="graph-table">
-        <thead>
-          <tr>
-            <th>Entity</th>
-            <th>Type</th>
-            <th>Connections</th>
-            <th>Observations</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${sorted.map(e => `
-            <tr data-table-node="${escapeHtml(e.name)}">
-              <td class="entity-name"><span class="entity-type-dot" style="background:${getTypeColor(e.entityType)}"></span>${escapeHtml(e.name)}</td>
-              <td>${escapeHtml(e.entityType)}</td>
-              <td>${degreeMap[e.name] || 0}</td>
-              <td>${e.observations.length}</td>
-            </tr>
-          `).join('')}
-        </tbody>
-      </table>
-    `;
-    tc.querySelectorAll('[data-table-node]').forEach(row => {
-      row.addEventListener('click', () => {
-        selectedNodeId = row.dataset.tableNode;
-        showInspector(selectedNodeId);
-      });
-    });
-  }
-
-  // --- Status bar ---
-  function updateStatusBar(nodeCount, edgeCount) {
-    const gsNodes = document.getElementById('gs-nodes');
-    const gsEdges = document.getElementById('gs-edges');
-    const gsLayout = document.getElementById('gs-layout');
-    const gsScope = document.getElementById('gs-scope');
-    if (gsNodes) gsNodes.textContent = `${nodeCount || 0} ${t('nodes')}`;
-    if (gsEdges) gsEdges.textContent = `${edgeCount || 0} ${t('edges')}`;
-    if (gsLayout) gsLayout.textContent = currentLayout === 'dagre-tb' ? 'TB' : 'LR';
-    if (gsScope) gsScope.textContent = scope === 'full' ? t('graphFullGraph').toLowerCase() : scope === 'neighborhood' ? `${depth}-${t('graphDepth').toLowerCase().slice(0, 3)}` : t('graphConnected').toLowerCase();
-    if (isolatedCount > 0 && scope !== 'neighborhood') {
-      if (gsScope) gsScope.textContent += ` · ${isolatedCount} ${t('graphIsolatedEntities').toLowerCase()}`;
-    }
-  }
-
-  // --- Zoom controls ---
-  const gzIn = document.getElementById('gz-in');
-  const gzOut = document.getElementById('gz-out');
-  const gzFit = document.getElementById('gz-fit');
-  if (gzIn) gzIn.onclick = () => { if (cy) cy.zoom(cy.zoom() * 1.3); };
-  if (gzOut) gzOut.onclick = () => { if (cy) cy.zoom(cy.zoom() / 1.3); };
-  if (gzFit) gzFit.onclick = () => { if (cy) cy.fit(undefined, 30); };
-
-  // --- Initialize ---
-  _graphState = { graph, entityMap, degreeMap, typeColors, showInspector };
-  const hasGraphCanvas = !!document.getElementById('cytoscape-mount');
-  if (hasGraphCanvas) {
-    initCytoscape();
-    renderFilterPanel();
-  }
-  renderIsolatedPanel();
-}
 
 // ============================================================
 // Observations Page

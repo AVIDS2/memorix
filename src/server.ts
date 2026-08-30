@@ -12,7 +12,7 @@
  *
  * Extensibility:
  * - New tools can be registered via server.registerTool()
- * - Rules sync tools will be added in P2
+ * - Rules and workspace sync tools are available only in the explicit full profile
  * - New agent format adapters plug in without changing this file
  */
 

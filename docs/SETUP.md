@@ -24,7 +24,7 @@ Common runtime entry points:
 | `memorix serve-http --port 3211` | foreground HTTP MCP for debugging or supervised launches |
 | `memorix` / `memcode` | bundled terminal agent that uses the same Memorix memory pool |
 
-Most users should start with `memorix setup --agent <agent> --global`. Use raw `memorix serve` only when you are wiring an MCP client manually. Use HTTP when you intentionally want one shared background process, browser dashboard, Docker deployment, or multiple clients using the same MCP endpoint. Use the CLI for manual operation and automation. Use memcode when you want the bundled terminal agent.
+Most users should start with `memorix setup --agent <agent> --global`. Use raw `memorix serve` only when you are wiring an MCP client manually. Use HTTP when you intentionally want one shared background process, browser dashboard, VPS Docker deployment, or multiple clients using the same MCP endpoint. Local development and verification run the Node service directly and do not require Docker. Use the CLI for manual operation and automation. Use memcode when you want the bundled terminal agent.
 
 For agent-specific plugin, rules, hooks, and skills support, see [INTEGRATIONS.md](INTEGRATIONS.md).
 
@@ -151,7 +151,7 @@ memorix serve
 
 Use this when your agent only needs a raw local stdio MCP process or you are debugging a manual config. The agent starts `memorix serve` and communicates with it over stdio.
 
-A bare `memorix serve` defaults to `--mode micro`, which exposes 9 high-signal tools so agent context is not crowded by rarely used schemas. Use `memorix serve --mode lite` for the extended solo memory surface, `--mode team` for coordination tools, or `--mode full` for advanced and MCP Memory compatibility tools.
+A bare `memorix serve` defaults to `--mode micro`, which exposes 9 high-signal tools so agent context is not crowded by rarely used schemas. Use `memorix serve --mode lite` for the 20-tool solo memory surface, `--mode team` for the 28-tool coordination surface, or `--mode full` for all 47 advanced and MCP Memory compatibility tools.
 
 `memorix setup` writes `--mode lite` into the installed MCP config: the generated guidance teaches the extended surface (sessions, timeline, reasoning, retention), so the installed server must actually expose it. Override with `MEMORIX_MODE` if you prefer a different profile.
 
@@ -216,7 +216,7 @@ This starts a local background service:
 - MCP endpoint: `http://localhost:3211/mcp`
 - health: `http://localhost:3211/health`
 
-HTTP mode is for a shared process. It is useful when multiple clients should connect to one Memorix endpoint, when you want the browser dashboard, or when running Memorix through Docker. It is not needed for the normal one-agent stdio MCP setup.
+HTTP mode is for a shared process. It is useful when multiple clients should connect to one Memorix endpoint, when you want the browser dashboard, or when running Memorix through Docker on a VPS/hosted machine. It is not needed for the normal one-agent stdio MCP setup.
 
 Companion commands:
 

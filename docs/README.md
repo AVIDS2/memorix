@@ -79,6 +79,7 @@ The public docs are organized by user intent:
 | System shape, data flows, memory layers | [ARCHITECTURE.md](ARCHITECTURE.md) |
 | Design decisions and rationale | [DESIGN_DECISIONS.md](DESIGN_DECISIONS.md) |
 | Module-by-module notes | [MODULES.md](MODULES.md) |
+| Current implementation status and ecosystem watch | [ACTIVE_WORK.md](../ACTIVE_WORK.md) |
 | CodeGraph Memory / Context Fabric design | [2026-06-29-codegraph-memory-context-fabric-design.md](superpowers/specs/2026-06-29-codegraph-memory-context-fabric-design.md) |
 | Auto Context Layer design | [2026-06-29-auto-context-layer-design.md](superpowers/specs/2026-06-29-auto-context-layer-design.md) |
 | 1.2 product direction and user journey | [1.2 Product Story](1.2.0-PRODUCT-STORY.md) |
@@ -94,7 +95,7 @@ The public docs are organized by user intent:
 | 1.2 honest Lite and optional semantic CodeGraph provider contract | [1.2 Provider Quality](1.2.0-PROVIDER-QUALITY.md) |
 | 1.3 long-term memory model, source boundary, and lifecycle | [1.3 Memory Architecture](1.3-MEMORY-ARCHITECTURE.md) |
 | Active context-control work | [1.2.2 Memory Control Plane](1.2.2-MEMORY-CONTROL-PLANE.md) |
-| 1.8.4 MCP compatibility acceptance contract | [1.8.0 Release Specification](1.8.0-RELEASE-CANDIDATE-SPEC.md) |
+| 1.8.5 MCP compatibility acceptance contract | [1.8.0 Release Specification](1.8.0-RELEASE-CANDIDATE-SPEC.md) |
 | Historical cloud sync and multi-agent research | [CLOUD_SYNC_AND_MULTI_AGENT_RESEARCH.md](CLOUD_SYNC_AND_MULTI_AGENT_RESEARCH.md) |
 | Known issues and old roadmap notes | [KNOWN_ISSUES_AND_ROADMAP.md](KNOWN_ISSUES_AND_ROADMAP.md) |
 
@@ -122,7 +123,7 @@ Historical/deep-reference documents may describe older designs. If they conflict
 
 ## Current Product Line
 
-The current product line is **1.8.4**. The authoritative acceptance contract is
+The current product line is **1.8.5**. The authoritative acceptance contract is
 [1.8.0 Release Specification](1.8.0-RELEASE-CANDIDATE-SPEC.md).
 The current baseline has:
 
@@ -141,13 +142,13 @@ The current baseline has:
 - `~/.memorix/config.toml` and project `memorix.toml` are the user-facing configuration model
 - legacy `memorix.yml`, `.env`, and `config.json` files are still read for compatibility, but new setups should use TOML
 
-For MCP compatibility, 1.8.4 preserves legacy 2025-era initialize and
+For MCP compatibility, 1.8.5 preserves legacy 2025-era initialize and
 stateful Streamable HTTP behavior. `memorix serve` starts a bounded stdio
 startup gate: pre-initialize 2026-07-28 `server/discover` is answered with a
 complete discovery result, and other early JSON-RPC messages replay in order
 through the pinned SDK transport. Versionless `tools/list` and `tools/call`
 continue through the SDK's legacy result envelopes. Modern result metadata is
-limited to the discovery response (`ttlMs: 0`, private cache scope); Tasks,
-subscriptions, and list-response caching are unsupported. Stateless HTTP
-project handles are a compatibility adapter, not a claim of complete 2026
-conformance.
+returned for discovery, list, and call responses. The official subscriptions
+listen surface is available. Durable Tasks remain explicitly unsupported, and
+list responses carry a private zero-TTL hint instead of a reusable server-side
+cache. Stateless HTTP project handles are supported on the modern path.

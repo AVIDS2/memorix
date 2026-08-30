@@ -17,6 +17,9 @@ Use Memorix as the shared memory layer for the active workspace when Memorix too
 | Specific past decision, bug, file, or change | `memorix_search` | `memorix memory search --query "<topic>"` |
 | Need the full source for a search hit | `memorix_detail` | `memorix memory detail --id <id>` |
 | Need the sequence around one memory | `memorix_timeline` | `memorix memory timeline --id <id>` |
+| Check source and freshness for a memory | `memorix_evidence` | `memorix evidence list|get|events` |
+| Record whether a memory helped, conflicted, or was corrected | `memorix_feedback` | `memorix feedback record|show|audit` |
+| Inspect or import controlled media | `memorix_media` | `memorix media import|attach|list|show|status` |
 | Learned reusable project knowledge | `memorix_store` | `memorix memory store --type <type> --entity <name> --title "<title>" "<text>"` |
 | Stable source-backed fact or procedure needing long-term review | `memorix_store` with `longTerm` | `memorix memory long-term qualify|approve --id <id> --reason "..."` |
 | Task or bug is complete/outdated | `memorix_resolve` | `memorix memory resolve --ids <ids>` |

@@ -1,5 +1,70 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { _testing } from '../../src/cli/commands/background.js';
+
+describe('background start lock', () => {
+  let lockPath: string | undefined;
+
+  afterEach(() => {
+    if (!lockPath) return;
+    try { fs.unlinkSync(lockPath); } catch { /* already gone */ }
+    lockPath = undefined;
+  });
+
+  it('does not fall back to an unlocked start after contention', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'memorix-background-lock-'));
+    lockPath = path.join(dir, 'background.lock');
+
+    const first = await _testing.acquireBackgroundLock(lockPath);
+    expect(first.acquired).toBe(true);
+    await expect(_testing.acquireBackgroundLock(lockPath, 15_000, 50)).rejects.toThrow(
+      /Another Memorix background start is still in progress/,
+    );
+    _testing.releaseBackgroundLock(first);
+    expect(fs.existsSync(lockPath)).toBe(false);
+  });
+
+  it('keeps a live slow owner from being reclaimed as stale', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'memorix-background-lock-'));
+    lockPath = path.join(dir, 'background.lock');
+
+    const first = await _testing.acquireBackgroundLock(lockPath, 1, 250);
+    expect(first.acquired).toBe(true);
+    await expect(_testing.acquireBackgroundLock(lockPath, 1, 50)).rejects.toThrow(
+      /Another Memorix background start is still in progress/,
+    );
+    _testing.releaseBackgroundLock(first);
+  });
+
+  it('does not remove a replacement lock when an old owner releases late', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'memorix-background-lock-'));
+    lockPath = path.join(dir, 'background.lock');
+
+    const first = await _testing.acquireBackgroundLock(lockPath);
+    expect(first.acquired).toBe(true);
+    fs.unlinkSync(lockPath);
+    const replacement = await _testing.acquireBackgroundLock(lockPath);
+    expect(replacement.acquired).toBe(true);
+
+    _testing.releaseBackgroundLock(first);
+    expect(fs.existsSync(lockPath)).toBe(true);
+    _testing.releaseBackgroundLock(replacement);
+  });
+
+  it('reclaims a stale lock whose owner is no longer running', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'memorix-background-lock-'));
+    lockPath = path.join(dir, 'background.lock');
+    fs.writeFileSync(lockPath, JSON.stringify({ pid: 999999, acquiredAt: Date.now() - 60_000 }));
+    const past = Date.now() / 1000 - 60;
+    fs.utimesSync(lockPath, past, past);
+
+    const reclaimed = await _testing.acquireBackgroundLock(lockPath, 15_000, 500);
+    expect(reclaimed.acquired).toBe(true);
+    _testing.releaseBackgroundLock(reclaimed);
+  });
+});
 
 describe('Windows background launcher', () => {
   it('builds a hidden, independent PowerShell launch command with quoted paths', () => {

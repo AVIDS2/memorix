@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { buildMemorixServer } from '../../src/cli/commands/setup.js';
 import { installAgentGuidance } from '../../src/hooks/installers/index.js';
-import { TOOL_PROFILES, isToolInProfile, countToolsInProfile } from '../../src/server/tool-profile.js';
+import { TOOL_PROFILES, isToolInProfile, countToolsInProfile, describeProfile } from '../../src/server/tool-profile.js';
 
 /**
  * Profile-parity exam: the tools an agent is taught must exist in the profile
@@ -46,6 +46,25 @@ describe('profile parity exam', () => {
     expect(countToolsInProfile('micro')).toBe(9);
     for (const name of MICRO_TOOLS) {
       expect(isToolInProfile(name, 'micro'), name).toBe(true);
+    }
+  });
+
+  it('keeps profile descriptions tied to the actual profile map', () => {
+    expect(describeProfile('micro')).toContain('9 tools');
+    expect(describeProfile('lite')).toContain('20 tools');
+    expect(describeProfile('team')).toContain('28 tools');
+    expect(describeProfile('full')).toContain('47 tools');
+  });
+
+  it('keeps packaged memory skills aware of the reachable lite surface', () => {
+    for (const agent of ['claude', 'codebuddy', 'codex', 'copilot', 'cursor', 'pi']) {
+      const content = readFileSync(
+        path.resolve(path.dirname(fileURLToPath(import.meta.url)), `../../plugins/${agent}/memorix/skills/memorix-memory/SKILL.md`),
+        'utf8',
+      );
+      expect(content, `${agent} memory skill`).toContain('memorix_evidence');
+      expect(content, `${agent} memory skill`).toContain('memorix_feedback');
+      expect(content, `${agent} memory skill`).toContain('memorix_media');
     }
   });
 

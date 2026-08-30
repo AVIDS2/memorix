@@ -5,8 +5,8 @@
  * Source: MCP Official Memory Server v0.6.3 (complete rewrite with same API).
  *
  * Key differences from official implementation:
- * - Uses per-project JSONL files (official uses single file)
- * - Async initialization with persistence layer
+ * - Uses the project-scoped SQLite graph store; legacy JSONL is migration-only
+ * - Async initialization with the shared persistence layer
  * - Project-scoped operations
  */
 

@@ -76,6 +76,9 @@ to enable them).
 | `memorix_resolve` | Mark completed/outdated memories |
 | `memorix_session_start` | Load session context (handoff, team coordination) |
 | `memorix_timeline` | See chronological context around a memory |
+| `memorix_evidence` | Check a memory's source, freshness, and verification state |
+| `memorix_feedback` | Record whether a memory helped, conflicted, or was corrected |
+| `memorix_media` | Inspect or import controlled local media; generation stays explicitly gated |
 | `memorix_retention` | Check memory health and archive expired items |
 | `memorix_promote` (MEMORIX_MODE=full) | Turn repeated patterns into permanent skills |
 | `memorix_rules_sync` (MEMORIX_MODE=full) | Inspect or sync rules across agents |

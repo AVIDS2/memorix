@@ -15,7 +15,8 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { execSync } from 'node:child_process';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 
 const CLI_ENTRY = path.resolve(__dirname, '..', '..', 'dist', 'cli', 'index.js');
 const TMP_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'memorix-uninstall-test-'));
@@ -29,11 +30,13 @@ function cleanupTempHome() {
 }
 
 // Helper: run memorix uninstall with temp HOME
-function memorix(args: string): {
+const execFileAsync = promisify(execFile);
+
+async function memorix(args: string): Promise<{
   stdout: string;
   stderr: string;
   exitCode: number;
-} {
+}> {
   const env = {
     ...process.env,
     HOME: TMP_HOME,
@@ -41,14 +44,18 @@ function memorix(args: string): {
     APPDATA: path.join(TMP_HOME, 'AppData', 'Roaming'),
   };
   try {
-    const result = execSync(`node "${CLI_ENTRY}" uninstall ${args}`, {
+    const result = await execFileAsync(process.execPath, [
+      CLI_ENTRY,
+      'uninstall',
+      ...(args.trim() ? args.trim().split(/\s+/u) : []),
+    ], {
       cwd: TMP_HOME,
       env,
       encoding: 'utf-8',
       timeout: 15_000,
-      stdio: 'pipe',
+      windowsHide: true,
     });
-    return { stdout: result, stderr: '', exitCode: 0 };
+    return { stdout: result.stdout, stderr: result.stderr, exitCode: 0 };
   } catch (err: any) {
     return {
       stdout: err.stdout || '',
@@ -62,30 +69,30 @@ describe('memorix uninstall --dry-run', () => {
   beforeAll(() => setupTempHome());
   afterAll(() => cleanupTempHome());
 
-  it('does not mutate filesystem', () => {
+  it('does not mutate filesystem', async () => {
     // Create a mock memo to verify it survives
     const testFile = path.join(TMP_HOME, '.memorix', 'test.txt');
     fs.writeFileSync(testFile, 'keep-me');
 
-    memorix('--dry-run');
+    await memorix('--dry-run');
 
     // Dry-run should not delete anything
     expect(fs.existsSync(testFile)).toBe(true);
     expect(fs.existsSync(path.join(TMP_HOME, '.memorix'))).toBe(true);
   });
 
-  it('output mentions dry run header', () => {
-    const out = memorix('--dry-run');
+  it('output mentions dry run header', async () => {
+    const out = await memorix('--dry-run');
     expect(out.stdout).toContain('Dry Run');
   });
 
-  it('output lists MCP config section', () => {
-    const out = memorix('--dry-run');
+  it('output lists MCP config section', async () => {
+    const out = await memorix('--dry-run');
     expect(out.stdout).toContain('MCP Config');
   });
 
-  it('output mentions npm uninstall as manual step', () => {
-    const out = memorix('--dry-run --hooks --background --purge-data');
+  it('output mentions npm uninstall as manual step', async () => {
+    const out = await memorix('--dry-run --hooks --background --purge-data');
     expect(out.stdout).toContain('npm uninstall');
   });
 });
@@ -94,22 +101,22 @@ describe('memorix uninstall --purge-data', () => {
   beforeAll(() => setupTempHome());
   afterAll(() => cleanupTempHome());
 
-  it('--purge-data requires explicit flag (default does not delete ~/.memorix)', () => {
-    const out = memorix('--dry-run');
+  it('--purge-data requires explicit flag (default does not delete ~/.memorix)', async () => {
+    const out = await memorix('--dry-run');
     expect(out.stdout).toContain('PRESERVE');
   });
 
-  it('--dry-run --purge-data shows DELETE for data directory', () => {
-    const out = memorix('--dry-run --purge-data');
+  it('--dry-run --purge-data shows DELETE for data directory', async () => {
+    const out = await memorix('--dry-run --purge-data');
     expect(out.stdout).toContain('DELETE');
   });
 
-  it('actually deletes ~/.memorix when --purge-data --yes', () => {
+  it('actually deletes ~/.memorix when --purge-data --yes', async () => {
     // Create a file in temp .memorix
     fs.writeFileSync(path.join(TMP_HOME, '.memorix', 'test.txt'), 'data');
     expect(fs.existsSync(path.join(TMP_HOME, '.memorix'))).toBe(true);
 
-    memorix('--yes --purge-data');
+    await memorix('--yes --purge-data');
 
     // After purge, directory should be gone
     expect(fs.existsSync(path.join(TMP_HOME, '.memorix'))).toBe(false);
@@ -120,17 +127,17 @@ describe('memorix uninstall hooks cleanup', () => {
   beforeAll(() => setupTempHome());
   afterAll(() => cleanupTempHome());
 
-  it('--dry-run --hooks detects and reports hooks section', () => {
-    const out = memorix('--dry-run --hooks');
+  it('--dry-run --hooks detects and reports hooks section', async () => {
+    const out = await memorix('--dry-run --hooks');
     expect(out.stdout).toContain('Agent Hooks');
   });
 
-  it('without --hooks flag, output says to use --hooks', () => {
-    const out = memorix('--dry-run');
+  it('without --hooks flag, output says to use --hooks', async () => {
+    const out = await memorix('--dry-run');
     expect(out.stdout).toContain('--hooks');
   });
 
-  it('detects project and global hooks separately', () => {
+  it('detects project and global hooks separately', async () => {
     // Simulate: create both project and global hook files for Claude
     const claudeProjectDir = path.join(TMP_HOME, '.claude');
     fs.mkdirSync(claudeProjectDir, { recursive: true });
@@ -145,7 +152,7 @@ describe('memorix uninstall hooks cleanup', () => {
       JSON.stringify({ hooks: { PostToolUse: [] } }),
     );
 
-    const out = memorix('--dry-run --hooks');
+    const out = await memorix('--dry-run --hooks');
     // With a mock Claude home, the hooks detection should find files
     expect(out.stdout).toContain('Agent Hooks');
   });
@@ -155,13 +162,13 @@ describe('memorix uninstall MCP config detection', () => {
   beforeAll(() => setupTempHome());
   afterAll(() => cleanupTempHome());
 
-  it('detects MCP config paths for known agents', () => {
-    const out = memorix('--dry-run --hooks --background --purge-data');
+  it('detects MCP config paths for known agents', async () => {
+    const out = await memorix('--dry-run --hooks --background --purge-data');
     expect(out.stdout).toContain('MCP Config Entries');
     expect(out.stdout).toContain('manual');
   });
 
-  it('detects project-level .claude/settings.json with memorix entry', () => {
+  it('detects project-level .claude/settings.json with memorix entry', async () => {
     // Create project-level Claude MCP config
     const claudeDir = path.join(TMP_HOME, '.claude');
     fs.mkdirSync(claudeDir, { recursive: true });
@@ -170,26 +177,26 @@ describe('memorix uninstall MCP config detection', () => {
       JSON.stringify({ mcpServers: { memorix: { command: 'memorix', args: ['serve'] } } }),
     );
 
-    const out = memorix('--dry-run');
+    const out = await memorix('--dry-run');
     // Should detect the memorix entry in the project-level Claude config
     expect(out.stdout).toContain('DETECTED');
     expect(out.stdout).toContain('Claude Code');
   });
 
-  it('does not modify MCP config files', () => {
+  it('does not modify MCP config files', async () => {
     const claudeDir = path.join(TMP_HOME, '.claude');
     fs.mkdirSync(claudeDir, { recursive: true });
     const configPath = path.join(claudeDir, 'settings.json');
     const original = JSON.stringify({ mcpServers: { memorix: { command: 'memorix', args: ['serve'] } } });
     fs.writeFileSync(configPath, original);
 
-    memorix('--dry-run');
+    await memorix('--dry-run');
 
     // File must be untouched
     expect(fs.readFileSync(configPath, 'utf-8')).toBe(original);
   });
 
-  it('does not detect non-memorix MCP entries', () => {
+  it('does not detect non-memorix MCP entries', async () => {
     // Claude config with unrelated MCP servers only
     const claudeDir = path.join(TMP_HOME, '.claude');
     fs.mkdirSync(claudeDir, { recursive: true });
@@ -198,7 +205,7 @@ describe('memorix uninstall MCP config detection', () => {
       JSON.stringify({ mcpServers: { otherServer: { command: 'other', args: [] } } }),
     );
 
-    const out = memorix('--dry-run');
+    const out = await memorix('--dry-run');
 
     // Should NOT report memorix in the Claude Code project entry
     // The "no memorix MCP entries detected" message or just no DETECTED for this agent
@@ -212,8 +219,8 @@ describe('memorix uninstall default (no flags)', () => {
   beforeAll(() => setupTempHome());
   afterAll(() => cleanupTempHome());
 
-  it('shows interactive state and suggestions', () => {
-    const out = memorix('');
+  it('shows interactive state and suggestions', async () => {
+    const out = await memorix('');
     expect(out.stdout).toContain('Memorix Uninstall');
     expect(out.stdout).toContain('npm uninstall -g memorix');
     expect(out.stdout).toContain('--dry-run');
@@ -225,7 +232,7 @@ describe('memorix uninstall non-interactive safety', () => {
   beforeAll(() => setupTempHome());
   afterAll(() => cleanupTempHome());
 
-  it('--yes skips confirmation even without TTY', () => {
+  it('--yes skips confirmation even without TTY', async () => {
     // Create mock background state file
     fs.writeFileSync(
       path.join(TMP_HOME, '.memorix', 'background.json'),
@@ -233,17 +240,17 @@ describe('memorix uninstall non-interactive safety', () => {
     );
 
     // --yes should work without hanging (even though the PID is fake, doStop handles it)
-    const out = memorix('--yes --background');
+    const out = await memorix('--yes --background');
     // Should not contain the TTY error
     expect(out.stdout).not.toContain('Non-interactive environment');
   });
 
-  it('--purge-data without --yes fails in non-TTY and does not delete data', () => {
+  it('--purge-data without --yes fails in non-TTY and does not delete data', async () => {
     // Create a file to verify it survives
     const testFile = path.join(TMP_HOME, '.memorix', 'keep-me.txt');
     fs.writeFileSync(testFile, 'precious data');
 
-    const out = memorix('--purge-data');
+    const out = await memorix('--purge-data');
 
     // Should have non-zero exit code
     expect(out.exitCode).not.toBe(0);

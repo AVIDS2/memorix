@@ -42,6 +42,10 @@ interface BackgroundState {
   startCwd?: string;
 }
 
+const BACKGROUND_LOCK_STALE_MS = 15_000;
+const BACKGROUND_LOCK_ACQUIRE_TIMEOUT_MS = 10_000;
+const BACKGROUND_LOCK_HEARTBEAT_MS = 2_000;
+
 export function resolveBackgroundCwd(cwd: string, homeDir: string = os.homedir()): string {
   if (!isHomeDirectory(cwd, homeDir)) return cwd;
   const inherited = inheritProjectRootFromHome({
@@ -69,6 +73,10 @@ function getStateFilePath(): string {
 
 function getLogFilePath(): string {
   return getMemorixDir() + '/background.log';
+}
+
+function getBackgroundLockPath(): string {
+  return getMemorixDir() + '/background.lock';
 }
 
 function parseBoundedPositiveInteger(value: string | undefined, fallback: number, label: string, maximum: number): number {
@@ -276,20 +284,21 @@ async function startWindowsBackgroundService(options: WindowsBackgroundLaunchOpt
 }
 
 async function healthCheck(port: number, timeoutMs = 3000): Promise<{ ok: boolean; data?: any; error?: string }> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
     // Use /health endpoint — lightweight, no TeamStore or heavy init required.
     // Responds immediately once the HTTP server has bound the port.
     const res = await fetch(`http://127.0.0.1:${port}/health`, {
       signal: controller.signal,
     });
-    clearTimeout(timer);
     if (!res.ok) return { ok: false, error: `HTTP ${res.status}` };
     const data = await res.json();
     return { ok: true, data };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : 'Unknown error' };
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -299,10 +308,95 @@ async function isPortInUse(port: number): Promise<boolean> {
 }
 
 // ============================================================
+// Background start lock
+// ============================================================
+
+interface BackgroundLock {
+  fd: number | null;
+  acquired: boolean;
+  path: string;
+  token: string;
+  heartbeat?: ReturnType<typeof setInterval>;
+}
+
+/**
+ * Hold an exclusive lock across the complete check/spawn/readiness sequence.
+ * The heartbeat prevents a normal slow startup from being mistaken for a
+ * crashed caller; an old lock without a live heartbeat can still be reclaimed.
+ */
+async function acquireBackgroundLock(
+  lockPath: string,
+  staleMs: number = BACKGROUND_LOCK_STALE_MS,
+  timeoutMs: number = BACKGROUND_LOCK_ACQUIRE_TIMEOUT_MS,
+): Promise<BackgroundLock> {
+  const lockDir = path.dirname(lockPath);
+  if (!fs.existsSync(lockDir)) fs.mkdirSync(lockDir, { recursive: true });
+
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const fd = fs.openSync(lockPath, 'wx');
+      const token = `${process.pid}:${randomBytes(12).toString('hex')}`;
+      fs.writeSync(fd, JSON.stringify({ pid: process.pid, acquiredAt: Date.now(), token }));
+      const heartbeat = setInterval(() => {
+        try {
+          const now = new Date();
+          // Update the inode held by this descriptor. If an operator or a
+          // recovering caller replaced the path, an old owner must not touch
+          // the replacement lock's mtime and keep it alive forever.
+          fs.futimesSync(fd, now, now);
+        } catch {
+          // The owner will fail naturally if its lock was removed by an operator.
+        }
+      }, BACKGROUND_LOCK_HEARTBEAT_MS);
+      heartbeat.unref();
+      return { fd, acquired: true, path: lockPath, token, heartbeat };
+    } catch (err) {
+      if (!(err && (err as NodeJS.ErrnoException).code === 'EEXIST')) throw err;
+      try {
+      if (Date.now() - fs.statSync(lockPath).mtimeMs > staleMs) {
+          let ownerAlive = false;
+          try {
+            const raw = fs.readFileSync(lockPath, 'utf8');
+            const owner = JSON.parse(raw) as { pid?: unknown };
+            ownerAlive = typeof owner.pid === 'number'
+              && owner.pid > 0
+              && isProcessRunning(owner.pid);
+          } catch {
+            // A malformed old lock has no trustworthy owner and can be reclaimed.
+          }
+          if (!ownerAlive) {
+            fs.unlinkSync(lockPath);
+            continue;
+          }
+        }
+      } catch {
+        // Another caller may have released or reclaimed it; retry the exclusive open.
+      }
+      await new Promise(resolve => setTimeout(resolve, 200));
+    }
+  }
+
+  throw new Error(
+    `Another Memorix background start is still in progress (${lockPath}). `
+    + 'Wait a few seconds and retry; no second control plane was started.',
+  );
+}
+
+function releaseBackgroundLock(lock: BackgroundLock): void {
+  if (!lock.acquired) return;
+  if (lock.heartbeat) clearInterval(lock.heartbeat);
+  try { if (lock.fd !== null) fs.closeSync(lock.fd); } catch { /* already closed */ }
+  try {
+    const current = JSON.parse(fs.readFileSync(lock.path, 'utf8')) as { token?: unknown };
+    if (current.token === lock.token) fs.unlinkSync(lock.path);
+  } catch { /* already released, reclaimed, or malformed */ }
+}
+
 // Subcommands
 // ============================================================
 
-export async function doStart(port: number): Promise<void> {
+async function doStartUnlocked(port: number): Promise<void> {
   // 1. Check if already running — validate both PID existence AND HTTP health
   const state = loadState();
   if (state) {
@@ -491,6 +585,15 @@ export async function doStart(port: number): Promise<void> {
   process.stderr.write(footer + '\n');
 }
 
+export async function doStart(port: number): Promise<void> {
+  const lock = await acquireBackgroundLock(getBackgroundLockPath());
+  try {
+    await doStartUnlocked(port);
+  } finally {
+    releaseBackgroundLock(lock);
+  }
+}
+
 export async function doStop(): Promise<void> {
   const state = loadState();
 
@@ -559,13 +662,24 @@ export async function doStop(): Promise<void> {
   console.log('[OK] Control plane stopped.');
 }
 
-async function doStatus(): Promise<void> {
+async function doStatus(asJson = false): Promise<void> {
   const state = loadState();
 
   if (!state) {
     // No background.json — but check if port has an unmanaged foreground instance
     const portHealth = await healthCheck(3211, 2000);
     if (portHealth.ok) {
+      if (asJson) {
+        console.log(JSON.stringify({
+          status: 'unmanaged',
+          managed: false,
+          port: 3211,
+          dashboard: 'http://127.0.0.1:3211/',
+          mcp: 'http://127.0.0.1:3211/mcp',
+          health: portHealth.data ?? null,
+        }, null, 2));
+        return;
+      }
       console.log('');
       console.log('No background control plane is registered,');
       console.log('but a Memorix instance IS running on port 3211 (likely a foreground "memorix serve-http").');
@@ -585,6 +699,10 @@ async function doStatus(): Promise<void> {
       console.log('    2. Run "memorix background start"');
       console.log('');
     } else {
+      if (asJson) {
+        console.log(JSON.stringify({ status: 'stopped', managed: false, port: 3211 }, null, 2));
+        return;
+      }
       console.log('No background control plane is registered.');
       console.log('');
       console.log('Start one with:  memorix background start');
@@ -600,6 +718,36 @@ async function doStatus(): Promise<void> {
   // PID reuse detection: PID alive but /health fails or returns different PID
   const pidMismatch = health.ok && health.data?.pid && health.data.pid !== state.pid;
   const probablyReused = running && !health.ok;
+  const status = health.ok && !pidMismatch
+    ? 'running'
+    : pidMismatch
+      ? 'pid-mismatch'
+      : probablyReused
+        ? 'pid-reused'
+        : running
+          ? 'starting'
+          : 'stopped';
+
+  if (asJson) {
+    if (pidMismatch || probablyReused || !running) {
+      clearState();
+      try { fs.unlinkSync(getMemorixDir() + '/background.ready'); } catch { /* best effort */ }
+    }
+    console.log(JSON.stringify({
+      status,
+      managed: true,
+      pid: state.pid,
+      port: state.port,
+      startedAt: state.startedAt,
+      instance: state.instanceToken ? `${state.instanceToken.slice(0, 8)}…` : null,
+      dashboard: `http://127.0.0.1:${state.port}/`,
+      mcp: `http://127.0.0.1:${state.port}/mcp`,
+      logFile: normalizePath(state.logFile),
+      health: health.ok ? health.data ?? null : null,
+      error: health.ok ? null : health.error ?? (running ? 'Health check failed' : 'Process not running'),
+    }, null, 2));
+    return;
+  }
 
   console.log('');
   console.log('Memorix Background Control Plane');
@@ -629,6 +777,9 @@ async function doStatus(): Promise<void> {
     console.log(`    PID:        ${d.pid ?? 'unknown'}`);
     console.log(`    Uptime:     ${d.uptime ?? 0}s`);
     console.log(`    Mode:       ${d.mode ?? 'unknown'}`);
+    console.log(`    Profile:    ${d.profile ?? 'unknown'}`);
+    console.log(`    Project:    ${d.projectId ?? 'unresolved'}${d.projectName ? ` (${d.projectName})` : ''}`);
+    console.log(`    Ready at:   ${d.readyAt ?? 'unknown'}`);
   }
 
   if (pidMismatch) {
@@ -770,6 +921,11 @@ export default defineCommand({
       description: 'Number of log lines to show (default: 50)',
       required: false,
     },
+    json: {
+      type: 'boolean',
+      description: 'Emit a machine-readable status receipt',
+      required: false,
+    },
   },
   run: async ({ args }) => {
     try {
@@ -784,7 +940,7 @@ export default defineCommand({
           await doStop();
           break;
         case 'status':
-          await doStatus();
+          await doStatus(!!args.json);
           break;
         case 'restart':
           await doRestart(port);
@@ -813,6 +969,7 @@ export default defineCommand({
           console.log('  --port <port>   HTTP port (default: 3211)');
           console.log('  --follow, -f    Follow log output in real-time (for "logs")');
           console.log('  --lines, -n     Number of log lines to show (default: 50)');
+          console.log('  --json          Emit a machine-readable status receipt (for "status")');
           console.log('');
           console.log('Mode distinction:');
           console.log('  Quick Mode       = stdio / single project / zero friction');
@@ -838,4 +995,7 @@ export const _testing = {
   resolveBackgroundCliEntry,
   resolveBackgroundCliEntryFrom,
   resolveBackgroundCwd,
+  acquireBackgroundLock,
+  releaseBackgroundLock,
+  getBackgroundLockPath,
 };

@@ -54,7 +54,21 @@ export class StdioStartupGate {
         this.fail(new Error(`stdio input chunk exceeded ${this.maxBufferSize} bytes`));
         return;
       }
-      this.input.write(chunk);
+      // Keep the old claim-less discovery probe compatible even after the
+      // official v2 transport is ready. Other complete lines are forwarded
+      // unchanged so the v2 transport remains responsible for parsing and
+      // protocol errors.
+      this.pendingInput += typeof chunk === 'string' ? chunk : chunk.toString('utf8');
+      let newline = this.pendingInput.indexOf('\n');
+      while (newline >= 0 && !this.stopped) {
+        const line = this.pendingInput.slice(0, newline + 1);
+        this.pendingInput = this.pendingInput.slice(newline + 1);
+        this.handleReadyLine(line);
+        newline = this.pendingInput.indexOf('\n');
+      }
+      if (!this.stopped && Buffer.byteLength(this.pendingInput, 'utf8') > this.maxBufferSize) {
+        this.fail(new Error(`stdio input exceeded ${this.maxBufferSize} bytes`));
+      }
       return;
     }
 
@@ -171,6 +185,24 @@ export class StdioStartupGate {
     this.queuedBytes += bytes;
   }
 
+  private handleReadyLine(line: string): void {
+    const parsed = this.parseLine(line);
+    if (parsed && !('error' in parsed) && this.isDiscoveryRequest(parsed.message)) {
+      const response = {
+        jsonrpc: '2.0',
+        id: parsed.message.id,
+        result: createMcpStartupDiscoverResult(this.serverInfo),
+      };
+      try {
+        this.stdout.write(`${JSON.stringify(response)}\n`);
+      } catch (error) {
+        this.fail(error instanceof Error ? error : new Error(String(error)));
+      }
+      return;
+    }
+    this.input.write(line);
+  }
+
   private parseLine(line: string): ParsedLine {
     const trimmed = line.endsWith('\n') ? line.slice(0, -1).replace(/\r$/, '') : line;
     if (!trimmed.trim()) return null;
@@ -213,7 +245,14 @@ export class StdioStartupGate {
     if (message.method !== MCP_SERVER_DISCOVER_METHOD) return false;
     if (!Object.prototype.hasOwnProperty.call(message, 'id')) return false;
     const params = message.params;
-    return params === undefined || (typeof params === 'object' && params !== null && !Array.isArray(params));
+    // A claim-less discover is the compatibility probe supported by Memorix
+    // 1.8.x. A modern 2026 request carries `_meta` and must flow into the
+    // official v2 stdio classifier after the startup queue is ready.
+    if (params === undefined) return true;
+    return typeof params === 'object'
+      && params !== null
+      && !Array.isArray(params)
+      && !Object.prototype.hasOwnProperty.call(params, '_meta');
   }
 
   private isValidRequestId(id: unknown): id is string | number | null {

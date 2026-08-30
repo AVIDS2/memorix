@@ -7,6 +7,8 @@ description: Use when durable project knowledge, gotchas, workflows, or repeated
 
 Promote memories into mini-skills only when they are reusable instructions, not just historical notes.
 
+The standard setup uses the `lite` MCP profile. `memorix_skills` and `memorix_promote` are full-profile tools, so use the CLI fallback unless the current server was explicitly started with `MEMORIX_MODE=full` or `--mode full`. Do not probe hidden MCP tools repeatedly.
+
 ## Tool Router
 
 | Situation | Prefer | CLI fallback |

@@ -1,6 +1,9 @@
 # Docker Deployment
 
-Memorix supports Docker as an **HTTP service deployment path**.
+Memorix supports Docker as a **VPS/hosted HTTP service deployment path**.
+
+Local development and verification should run the Node service directly. Do
+not start Docker Desktop or build a local image just to use Memorix.
 
 This Docker flow is for:
 
@@ -83,7 +86,7 @@ It is not a promise that stdio MCP magically becomes container-friendly.
 
 ## Important Path Truth
 
-Docker works best when Memorix can **see the repositories it is asked to bind**.
+VPS Docker works best when Memorix can **see the repositories it is asked to bind**.
 
 Project-scoped features such as:
 
@@ -97,7 +100,7 @@ depend on the HTTP service being able to access the repository path.
 
 ### Good fit
 
-- Docker Desktop on the same machine as your IDE
+- a VPS or hosted machine that can see the repositories it is asked to bind
 - a compose setup that mounts the repo you are working on into the container
 - `memorix_session_start(projectRoot=...)` using a path visible **inside** the container
 

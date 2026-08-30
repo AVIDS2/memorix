@@ -209,7 +209,7 @@ CLI、MCP 和 HTTP 是不同入口：
 
 - `memorix` CLI 用于直接操作：setup、记忆搜索/写入、Git Memory、导入导出、Dashboard、编排、诊断和自动化。
 - `memorix serve` 是给 IDE / Coding Agent 使用的 stdio MCP 桥。
-- `memorix background start` / `memorix serve-http` 是 HTTP 服务，用于共享端点、Dashboard、Docker 或多客户端。
+- `memorix background start` / `memorix serve-http` 是 HTTP 服务，用于共享端点、Dashboard、VPS Docker 部署或多客户端。
 
 <h2 id="安装"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/tags/light/section-install.svg"><img src="assets/tags/section-install.svg" alt="安装" height="32" /></picture></h2>
 
@@ -297,7 +297,7 @@ memorix setup --agent dsh --global
 
 如果是手动维护 Claude Code 的 MCP 配置，需要在 `memorix` server 对象里加上 `"alwaysLoad": true`。这样 Claude Code 在 print-mode 启动时就会暴露 Memorix tools；`memorix doctor agents --agent claude` 可以检查并修复缺失的设置。
 
-普通安装不需要 HTTP。只有在你明确需要共享后台服务、Dashboard、Docker，或多个客户端共用一个端点时才使用：
+普通安装不需要 HTTP。只有在你明确需要共享后台服务、Dashboard、VPS Docker 部署，或多个客户端共用一个端点时才使用。本机开发直接运行 Node 服务，不需要 Docker：
 
 ```bash
 memorix background start
@@ -438,6 +438,8 @@ memcode
 | 使用内置终端 Agent | `memorix` 或 `memcode` |
 | 运行编排式 subagent 工作 | `memorix orchestrate --goal "..."` |
 
+`memorix serve` 默认使用 `--mode micro`（9 个工具），保持 MCP 工具 schema 紧凑。`memorix setup` 写入 `--mode lite`（20 个工具），覆盖常用记忆、会话、证据和反馈入口。需要协作工具时使用 `--mode team`（28 个工具），需要高级和兼容工具时使用 `--mode full`（47 个工具）。
+
 `memorix orchestrate` 单 worker 默认使用当前 checkout；多 worker 时会在 `.worktrees/` 下为任务创建隔离 worktree，并把成功的任务分支 merge 回来。用 `--isolated` 可强制单 worker 也隔离，用 `--no-worktree` 禁用 worktree，用 `--allow-dirty` 允许带未提交改动运行，用 `--no-auto-merge` 保留任务 worktree 方便人工 review。
 
 <h2 id="memcode内置终端-agent"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/tags/light/section-memcode.svg"><img src="assets/tags/section-memcode.svg" alt="memcode" height="32" /></picture></h2>
@@ -483,7 +485,7 @@ formation = "active"
 
 <h2 id="docker"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/tags/light/section-docker.svg"><img src="assets/tags/section-docker.svg" alt="Docker" height="32" /></picture></h2>
 
-Docker 用于 HTTP 服务，不是 stdio MCP：
+Docker 只作为 VPS/托管环境的 HTTP 部署方式，不是本机开发或 stdio MCP 的必需品：
 
 ```bash
 docker compose up --build -d

@@ -57,7 +57,7 @@ On the release development machine used for this check, the healthy HTTP service
 
 ## What Can Be Heavier
 
-- `npm run build`, `npx vitest run`, and Docker image builds can use substantial CPU and disk while they run.
+- `npm run build` and `npx vitest run` can use substantial CPU and disk while they run. Local verification uses the sequential Node/npm build and does not require Docker; Docker image builds are reserved for the VPS/hosted deployment path.
 - Docker image size mostly comes from Node, npm dependencies, build artifacts, and image layers. The container runtime should be judged separately from image size.
 - Dashboard browsing can add browser-side memory and CPU outside the Memorix Node process.
 - Large imports, Git log ingestion, workspace sync, and skill generation can temporarily increase CPU and disk I/O.

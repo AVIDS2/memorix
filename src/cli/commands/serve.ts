@@ -1,5 +1,10 @@
 /**
- * memorix serve — Start MCP Server on stdio
+ * memorix serve - Start MCP Server on stdio transport.
+ *
+ * The official MCP v2 stdio entry owns modern discovery, per-request metadata,
+ * legacy compatibility, and protocol lifecycle. Memorix keeps its startup
+ * gate in front of that entry so early claim-less discovery remains compatible
+ * with clients shipped before the 2026 protocol revision.
  */
 
 import { defineCommand } from 'citty';
@@ -7,6 +12,7 @@ import { resolveToolProfile } from '../../server/tool-profile.js';
 import { getMcpServerInfo } from '../../server/mcp-discovery.js';
 import { StdioStartupGate } from '../../server/stdio-startup-gate.js';
 import { mcpFileUriToPath } from '../mcp-root-path.js';
+import type { ModernMcpBridge } from '../../server/modern-mcp-bridge.js';
 
 export default defineCommand({
   meta: {
@@ -31,40 +37,42 @@ export default defineCommand({
     },
   },
   run: async ({ args }) => {
-    // Take ownership of stdin before project/config/runtime initialization. The
-    // gate answers handshake-free discovery and queues every other JSON-RPC line
-    // until the SDK transport is connected, so cold starts cannot lose requests.
+    const { serveStdio, StdioServerTransport } = await import('@modelcontextprotocol/server/stdio');
+    const { createModernMcpBridge } = await import('../../server/modern-mcp-bridge.js');
+    const { detectProject, findGitInSubdirs, isSystemDirectory } = await import('../../project/detector.js');
+    const { homedir } = await import('node:os');
+    const { writeLastProjectRoot } = await import('../../project/launch-root.js');
+    const { resolveServeProject } = await import('./serve-shared.js');
+
+    // Take ownership of stdin before project/config/runtime initialization.
+    // The gate answers the old claim-less discover probe and queues every
+    // other line until the official v2 transport is listening.
+    let stdioHandle: { close: () => Promise<void> } | undefined;
+    let stdinEndedBeforeHandle = false;
     const startupGate = new StdioStartupGate({
       stdin: process.stdin,
       stdout: process.stdout,
       serverInfo: getMcpServerInfo(),
       onError: (error) => {
         console.error(`[memorix] stdio startup gate error: ${error.message}`);
-        // The stream is no longer safe to replay after an input-limit or I/O
-        // failure. Exit instead of leaving a half-connected MCP process alive.
         process.exit(1);
       },
       onEnd: () => {
-        console.error('[memorix] stdin closed — exiting');
-        // The gate has already ended the transport input when ready. Set the
-        // exit code and let pending JSON-RPC stdout writes drain naturally.
-        process.exitCode = 0;
+        console.error('[memorix] stdin closed - exiting');
+        if (stdioHandle) {
+          void stdioHandle.close().catch((error) => {
+            console.error(`[memorix] stdio close error: ${error instanceof Error ? error.message : String(error)}`);
+          });
+        } else {
+          stdinEndedBeforeHandle = true;
+        }
       },
     });
     startupGate.start();
 
-    const { StdioServerTransport } = await import(
-      '@modelcontextprotocol/sdk/server/stdio.js'
-    );
-    const { createMemorixServer } = await import('../../server.js');
-    const { detectProject, findGitInSubdirs, isSystemDirectory } = await import('../../project/detector.js');
-    const { homedir } = await import('node:os');
-    const { resolveServeProject } = await import('./serve-shared.js');
-
-    // Priority: explicit --cwd arg > MEMORIX_PROJECT_ROOT env > INIT_CWD (npm lifecycle) > process.cwd()
+    // Priority: explicit --cwd arg > MEMORIX_PROJECT_ROOT > INIT_CWD > process.cwd().
     let safeCwd: string;
     try { safeCwd = process.cwd(); } catch { safeCwd = homedir(); }
-
     const resolution = resolveServeProject(
       {
         cwdArg: args.cwd,
@@ -75,101 +83,95 @@ export default defineCommand({
       },
       { detectProject, findGitInSubdirs, isSystemDirectory },
     );
-
-    for (const message of resolution.messages) {
-      console.error(message);
-    }
+    for (const message of resolution.messages) console.error(message);
 
     if (!resolution.detectedProject) {
       console.error(`[memorix] [WARN] ${resolution.error}`);
-      console.error(`[memorix] Starting in deferred-binding mode — project will bind via MCP roots or memorix_session_start.`);
-      console.error(`[memorix] For non-git directories, use --allow-untracked to enable untracked/ fallback.`);
-      // Don't exit — allow deferred binding via session_start or MCP roots (fixes Cursor stdio #75)
+      console.error('[memorix] Starting in deferred-binding mode - bind with memorix_session_start(projectRoot=...) when needed.');
+      console.error('[memorix] For non-git directories, use --allow-untracked to enable untracked/ fallback.');
     }
 
     const detected = resolution.detectedProject;
     const projectRoot = resolution.projectRoot;
-    if (detected) {
-      const { writeLastProjectRoot } = await import('../../project/launch-root.js');
-      writeLastProjectRoot(detected.rootPath);
-    }
+    if (detected) writeLastProjectRoot(detected.rootPath);
 
-    // Always register ALL tools BEFORE connecting transport.
-    // This ensures tools/list returns the full tool set immediately on connect.
-    // When no project detected, use deferred binding (allowUntrackedFallback=false, deferProjectInitUntilBound=true)
     const allowUntracked = args['allow-untracked'] ?? false;
-    const toolProfile = resolveToolProfile({ explicit: args.mode, envValue: process.env.MEMORIX_MODE, fallback: 'micro' });
-    const serverOptions = detected
-      ? { toolProfile, deferProjectRuntimeInit: true }
-      : { allowUntrackedFallback: allowUntracked, deferProjectInitUntilBound: !allowUntracked, deferProjectRuntimeInit: true, toolProfile };
-    const { server, projectId, deferredInit, switchProject } = await createMemorixServer(projectRoot, undefined, undefined, serverOptions);
+    const toolProfile = resolveToolProfile({
+      explicit: args.mode,
+      envValue: process.env.MEMORIX_MODE,
+      fallback: 'micro',
+    });
+
     const transport = new StdioServerTransport(startupGate.input, process.stdout);
-    await server.connect(transport);
-    startupGate.markReady();
+    const createBridge = async (): Promise<ModernMcpBridge> => {
+      const bridge = await createModernMcpBridge({
+        projectRoot,
+        allowUntrackedFallback: allowUntracked,
+        deferProjectInitUntilBound: !allowUntracked,
+        deferProjectRuntimeInit: true,
+        toolProfile,
+      });
 
-    console.error(`[memorix] MCP Server running on stdio (project: ${projectId})`);
-    console.error(`[memorix] Project root: ${detected?.rootPath ?? projectRoot}`);
+      const tryRootsSwitch = async (): Promise<void> => {
+        try {
+          if (bridge.memorix.isExplicitlyBound()) return;
+          const { roots } = await bridge.server.listRoots();
+          for (const root of roots ?? []) {
+            if (!root.uri.startsWith('file://')) continue;
+            const rootPath = mcpFileUriToPath(root.uri);
+            if (!rootPath) continue;
 
-    // ── MCP Roots Protocol ──────────────────────────────────────────
-    // After connect, request workspace roots from the client (IDE).
-    // This is the proper way to discover the user's workspace —
-    // no --cwd needed if the IDE supports roots capability.
-    const tryRootsSwitch = async () => {
-      try {
-        const { roots } = await server.server.listRoots();
-        if (!roots || roots.length === 0) return;
-
-        for (const root of roots) {
-          if (!root.uri.startsWith('file://')) continue;
-          const rootPath = mcpFileUriToPath(root.uri);
-          if (!rootPath) continue;
-
-          const rootDetected = detectProject(rootPath);
-          if (rootDetected) {
-            const switched = await switchProject(rootPath);
+            const switched = await bridge.memorix.switchProject(rootPath, 'mcp-roots');
             if (switched) {
-              console.error(`[memorix] [UPDATED] Project updated via MCP roots: ${rootDetected.id}`);
+              console.error(`[memorix] [UPDATED] Project updated via MCP roots: ${rootPath}`);
+              return;
             }
-            return; // use first valid root
-          }
-          // Root itself has no .git — try its subdirs
-          const subGit = findGitInSubdirs(rootPath);
-          if (subGit) {
-            const switched = await switchProject(subGit);
-            if (switched) {
+            const subGit = findGitInSubdirs(rootPath);
+            if (subGit && await bridge.memorix.switchProject(subGit, 'mcp-roots')) {
               console.error(`[memorix] [UPDATED] Project updated via MCP roots (subdir): ${subGit}`);
+              return;
             }
-            return;
           }
+        } catch (error) {
+          console.error(`[memorix] MCP roots not available (${error instanceof Error ? error.message : 'unsupported'})`);
         }
-      } catch (err) {
-        // Client doesn't support roots — that's OK, fall back to existing detection
-        console.error(`[memorix] MCP roots not available (${(err as Error).message ?? 'unsupported'})`);
-      }
-    };
+      };
 
-    // Do NOT proactively call listRoots() after connect — this violates MCP SEP-2260
-    // which requires server-initiated requests to be associated with a client request.
-    // Some clients (e.g. Codex) treat standalone roots/list as unexpected and may
-    // fail to inject MCP tools. Instead, rely on:
-    //   1. RootsListChangedNotification (client-initiated, then we respond)
-    //   2. memorix_session_start({ projectRoot }) for explicit binding
-    //   3. cwd-based detection as fallback (already done in deferred-binding)
-
-    // Listen for roots changes (user switches workspace)
-    try {
-      const { RootsListChangedNotificationSchema } = await import('@modelcontextprotocol/sdk/types.js');
-      server.server.setNotificationHandler(RootsListChangedNotificationSchema, async () => {
-        console.error(`[memorix] Roots changed — re-detecting project...`);
+      // roots/list is a legacy-era request. The v2 SDK rejects it on the
+      // modern era, while retaining this handler keeps existing IDE clients.
+      bridge.server.setNotificationHandler('notifications/roots/list_changed', async () => {
         await tryRootsSwitch();
       });
-    } catch { /* notification handler setup is optional */ }
 
-    const deferredInitTimer = setTimeout(() => {
-      deferredInit().catch(e => console.error(`[memorix] Deferred init error:`, e));
-    }, 5_000);
-    deferredInitTimer.unref?.();
-    // Fire-and-forget: background update check. Default is notify-only.
+      const deferredInitTimer = setTimeout(() => {
+        bridge.memorix.deferredInit().catch((error) => {
+          console.error(`[memorix] Deferred init error: ${error instanceof Error ? error.message : String(error)}`);
+        });
+      }, 5_000);
+      deferredInitTimer.unref?.();
+
+      const originalClose = bridge.close.bind(bridge);
+      bridge.close = async () => {
+        clearTimeout(deferredInitTimer);
+        await originalClose();
+      };
+      return bridge;
+    };
+
+    stdioHandle = serveStdio(createBridge, {
+      transport,
+      legacy: 'serve',
+      onerror: (error) => console.error(`[memorix] stdio MCP error: ${error.message}`),
+    });
+    startupGate.markReady();
+    if (stdinEndedBeforeHandle) {
+      void stdioHandle.close().catch((error) => {
+        console.error(`[memorix] stdio close error: ${error instanceof Error ? error.message : String(error)}`);
+      });
+    }
+
+    console.error(`[memorix] MCP Server running on stdio (profile: ${toolProfile}, project: ${detected?.id ?? 'deferred'})`);
+    console.error(`[memorix] Project root: ${detected?.rootPath ?? projectRoot}`);
     import('../update-checker.js').then(m => m.checkForUpdates()).catch(() => {});
   },
 });

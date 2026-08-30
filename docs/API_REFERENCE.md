@@ -28,7 +28,7 @@ Use **MCP** when:
 Use the **CLI** when:
 
 - you want to inspect or change project state from a terminal
-- you are on SSH / Docker / CI / NAS and want direct commands
+- you are on SSH / VPS Docker / CI / NAS and want direct commands
 - you want readable, namespaced actions instead of raw MCP tool payloads
 - you want full access to Memorix CLI capabilities without depending on an MCP client
 
@@ -150,17 +150,19 @@ feedback projection.
 ### MCP Compatibility
 
 Legacy clients use stateful Streamable HTTP with `Mcp-Session-Id` and the
-2025-era `initialize` handshake. The 1.8.4 stdio server starts a bounded
+2025-era `initialize` handshake. The 1.8.5 stdio server starts a bounded
 newline-delimited JSON-RPC gate before project initialization: it answers the
 2026-07-28 `server/discover` request before `initialize`, then replays other
 requests, notifications, and responses in order into the pinned SDK transport.
 Versionless `tools/list` and `tools/call` use the SDK's legacy result envelopes.
-HTTP stateless clients may use a durable
-`Mcp-Project-Handle`; `/protocol-diagnostics` labels this as compatibility-only.
-Modern result metadata is discovery-only with a private zero-TTL hint. Tasks,
-subscriptions, and list-response caching are unsupported. When MCP discovery
-is unavailable, use one bounded `memorix context --fallback` request for a
-task; repeated fallback probing is rejected by the local budget.
+HTTP modern clients may use the stateless `2026-07-28` path and a durable
+`Mcp-Project-Handle`; `/protocol-diagnostics` reports this as supported.
+Modern result metadata is returned for discovery, list, and call responses.
+The official subscriptions listen surface is available, but Memorix has no
+durable Tasks implementation, so task requests remain explicitly unsupported.
+List responses carry a private zero-TTL hint, not a reusable server-side cache.
+When MCP discovery is unavailable, use one bounded `memorix context --fallback`
+request for a task; repeated fallback probing is rejected by the local budget.
 
 The built-in Lite provider indexes common code files with lightweight file, symbol, and import facts. It is a structural fallback, not a language-server-quality graph. When a project already has a healthy local CodeGraph index, `[codegraph].external_context = "auto"` may add a validated, bounded semantic outline to the Workset. Memorix never initializes, syncs, or exports that external index, and never stores its raw source output. `memorix codegraph status --json`, `memorix doctor --json`, and Project Context JSON identify the actual provider quality.
 

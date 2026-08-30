@@ -13,11 +13,10 @@ artifacts for the VPS/hosted build path only.
 
 ## Current Product State
 
-- `1.8.4` is the last published release; `1.8.5` is the current local release
-  candidate on `codex/1.8.5-module-cleanup`. It combines the Dashboard/module
+- `1.8.5` is the current published release. It combines the Dashboard/module
   cleanup with the official MCP v2 transport path, fail-closed background
   startup, and the final cross-surface verification work.
-- The candidate keeps the canonical Dashboard Memory Map, removes the obsolete
+- The release keeps the canonical Dashboard Memory Map, removes the obsolete
   renderer/dependencies, makes reachable capabilities visible, and preserves
   the old MCP clients while adding the modern 2026-07-28 core contract.
 - SDK, CLI, hooks, and HTTP MCP share SQLite as the canonical flat data store.
@@ -26,12 +25,14 @@ artifacts for the VPS/hosted build path only.
 - MCP profiles are currently `micro=9`, `lite=20`, `team=28`, and `full=47`.
   Setup installs `lite`; advanced and compatibility tools remain opt-in so the
   default agent context stays small.
-- Open contributor PRs #212 (HTTP rerank) and #204 (WorkBuddy) remain separate
-  feature work. They are not part of this patch release.
-- Focused candidate verification is green: MCP v2 direct tests, legacy and
-  modern stdio/HTTP smoke, background concurrency smoke, P3/P4/P5/P6 suites,
-  `npm run lint`, and the sequential low-memory build pass. The final full
-  regression is the release gate; live embedding tests remain intentionally
+- Contributor PR #260 remains open for review because its unlocked timeout
+  fallback is unsafe; its diagnosis is credited and the fail-closed fix shipped
+  in 1.8.5. WorkBuddy PR #204 remains open with changes requested against the
+  official project/global scope rules.
+- Release verification is green: MCP v2 direct tests, legacy and modern
+  stdio/HTTP smoke, background concurrency smoke, P3/P4/P5/P6 suites,
+  `npm run lint`, the sequential low-memory build, the full local regression,
+  and all 7 remote CI checks passed. Live embedding tests remain intentionally
   skipped when their environment flag is absent.
 
 ## Ecosystem Watch (2026-08-28)
@@ -66,11 +67,11 @@ making the existing lifecycle observable and trustworthy: the agent should know
 what is available, why a memory was selected, when it is stale, and when it is
 safer to abstain.
 
-## Current Mainline Scope (2026-08-29)
+## Completed 1.8.5 Closeout (2026-08-30)
 
-This is one closeout line, not a promise to move unfinished work into a later
-version. The implementation and release number will be decided after the full
-scope passes; no partial publication is the success criterion.
+P0 through P6 were completed in one release line, followed by the full local
+and remote gates. The release is published; the remaining open items below are
+separate future suggestions or contributor revisions, not hidden release work.
 
 ### P0 — Reconcile the candidate and the public surface
 
@@ -160,21 +161,18 @@ scope passes; no partial publication is the success criterion.
   generated artifacts, and unowned root directories from the tracked surface;
   retain only reproducible fixtures and canonical documentation.
 
-### P7 — Resolve every open item and release once
+### P7 — Release and issue closeout result
 
-- #202: close as completed with its measured hygiene results.
-- #249: close only after the modern compatibility contract is either passed or
-  its unsupported boundary is formally and testably rejected; no vague
-  “partial” claim remains.
-- #259/#260: merge or request changes after the duplicate-process gate passes.
-- #204: merge with credit or request a concrete correction; do not copy the
-  contributor’s work into an owner-only patch.
-- #244: merge only if the generated Star History asset is genuinely reachable
-  and renders; otherwise close it with the reason recorded.
-- Update README, Chinese README, API reference, setup docs, changelog, plugin
-  manifests, and release notes together. Run the complete tests, build, package
-  smoke, native integration checks, MCP conformance, and release workflow before
-  one final publication.
+- [x] #202 closed with the measured memory-hygiene results.
+- [x] #249 closed with the modern supported contract and explicit, tested
+  rejection of durable Tasks; no complete-conformance claim is made.
+- [x] #259 closed after the duplicate-process gate passed; #260 remains open
+  for contributor-side revision because its fallback is still unsafe.
+- [x] #244 merged with the bot-generated Star History assets after raw-asset
+  reachability and data checks.
+- [x] README, Chinese README, API reference, setup docs, changelog, plugin
+  manifests, release contract, and release notes were synchronized before
+  publishing `1.8.5`.
 
 ## Agent-Memory Landscape Decision (2026-08-17)
 
@@ -308,11 +306,11 @@ provider when the operator chooses one.
 
 ## Immediate Next Step
 
-- Review commit `bf0d79b` on the cleanup branch, then merge and publish only
-  after explicit maintainer approval.
-- After the candidate, review #212 only after it is rebased onto current `main` and
-  re-verified. Validate #204 against current official WorkBuddy behavior before
-  considering it for a feature release.
+- No blocking release task remains after `1.8.5`. Keep #260 open for its
+  fail-closed revision and #204 open until the official WorkBuddy project/global
+  scope behavior is corrected and re-tested.
+- #49 and #3 remain independent future integration suggestions; do not pull
+  them into a patch release without a verifiable host contract.
 
 ## Historical Release Notes
 

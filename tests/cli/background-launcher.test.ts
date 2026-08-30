@@ -1,5 +1,50 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, afterEach } from 'vitest';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { _testing } from '../../src/cli/commands/background.js';
+
+describe('background start lock (prevents duplicate serve-http spawns)', () => {
+  let lockPath: string;
+
+  afterEach(() => {
+    if (lockPath) {
+      try { fs.unlinkSync(lockPath); } catch { /* already gone */ }
+    }
+  });
+
+  it('lets a second caller acquire the lock only after the first releases it', async () => {
+    lockPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'memorix-lock-')), 'background.lock');
+
+    const first = await _testing.acquireBackgroundLock(lockPath);
+    expect(first.acquired).toBe(true);
+    expect(fs.existsSync(lockPath)).toBe(true);
+
+    // Second caller must not acquire while the first still holds it — this is
+    // exactly the race that let two `background start` calls both pass the
+    // `isPortInUse` check and each spawn a duplicate `serve-http` process.
+    const second = await _testing.acquireBackgroundLock(lockPath, 15_000, 300);
+    expect(second.acquired).toBe(false);
+
+    _testing.releaseBackgroundLock(first);
+    expect(fs.existsSync(lockPath)).toBe(false);
+
+    const third = await _testing.acquireBackgroundLock(lockPath);
+    expect(third.acquired).toBe(true);
+    _testing.releaseBackgroundLock(third);
+  });
+
+  it('reclaims a stale lock left behind by a crashed holder', async () => {
+    lockPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'memorix-lock-')), 'background.lock');
+    fs.writeFileSync(lockPath, '999999'); // simulate a lock from a dead/crashed process
+    const past = Date.now() / 1000 - 60; // 60s old — well past the staleness threshold
+    fs.utimesSync(lockPath, past, past);
+
+    const lock = await _testing.acquireBackgroundLock(lockPath, 15_000, 2_000);
+    expect(lock.acquired).toBe(true);
+    _testing.releaseBackgroundLock(lock);
+  });
+});
 
 describe('Windows background launcher', () => {
   it('builds a hidden, independent PowerShell launch command with quoted paths', () => {

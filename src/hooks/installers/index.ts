@@ -652,6 +652,12 @@ export function getProjectConfigPath(agent: AgentName, projectRoot: string): str
       return path.join(projectRoot, '.agents', 'hooks.json');
     case 'gemini-cli':
       return path.join(projectRoot, '.gemini', 'settings.json');
+    case 'workbuddy':
+      // WorkBuddy has no hook system at all — only MCP config and project
+      // AGENTS.md guidance. Return an empty path so install, detection and
+      // uninstall all treat hooks as a no-op instead of falling through to the
+      // `.memorix/hooks.json` default (which would report a path that never exists).
+      return '';
     default:
       return path.join(projectRoot, '.memorix', 'hooks.json');
   }
@@ -899,6 +905,19 @@ export async function installHooks(
       events: [],
       generated: {
         note: `${agent} hooks are provided by the ${getPackageOwnedHookLabel(agent)} installed with \`memorix setup --agent ${agent}\`; no fallback hook files were written.`,
+      },
+    };
+  }
+
+  // WorkBuddy has no hook system and no user-global guidance file. Report an
+  // explicit no-op instead of a project path that is never written.
+  if (agent === 'workbuddy' && global) {
+    return {
+      agent,
+      configPath: '',
+      events: [],
+      generated: {
+        note: 'WorkBuddy has no hook system and no user-global guidance file — MCP only; no global guidance/hooks. Run `memorix setup --agent workbuddy` (without --global) to install project MCP config and AGENTS.md guidance.',
       },
     };
   }
@@ -1382,6 +1401,12 @@ export async function uninstallHooks(
   // Pi hook capture is owned by the Pi package. Removing it safely requires
   // package removal from Pi settings, not deleting a single hook file.
   if (agent === 'pi') {
+    return false;
+  }
+
+  // WorkBuddy has no hook file at either scope — removing hooks is a no-op.
+  // It must not touch the generic `.memorix/hooks.json` default path.
+  if (agent === 'workbuddy') {
     return false;
   }
 

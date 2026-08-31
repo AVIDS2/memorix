@@ -4,7 +4,13 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { WorkbuddyMCPAdapter } from '../../src/workspace/mcp-adapters/workbuddy.js';
 import { buildSetupPlan, installMcpConfig } from '../../src/cli/commands/setup.js';
-import { getAgentRulesPath, installHooks } from '../../src/hooks/installers/index.js';
+import {
+  getAgentRulesPath,
+  getProjectConfigPath,
+  installHooks,
+  uninstallHooks,
+} from '../../src/hooks/installers/index.js';
+import { getMCPConfigEntries } from '../../src/cli/commands/uninstall.js';
 
 const homedirMock = vi.hoisted(() => vi.fn(() => 'C:\\Users\\Tester'));
 
@@ -125,6 +131,69 @@ describe('WorkBuddy integration', () => {
       expect(result.configPath).toBe(path.join(root, 'AGENTS.md'));
       expect(existsSync(path.join(root, '.workbuddy', 'skills'))).toBe(false);
       expect(existsSync(path.join(tempHome, '.workbuddy', 'skills'))).toBe(false);
+    });
+
+    it('reports a clear no-op for global install and writes no file', async () => {
+      const root = path.join(tmpdir(), 'wb-global-hooks');
+      const result = await installHooks('workbuddy', root, true);
+
+      // Must not report a path that was never written.
+      expect(result.configPath).toBe('');
+      expect(result.generated.note).toMatch(/no hook system|mcp only/i);
+      // Neither the generic default nor any global file may be created.
+      expect(existsSync(path.join(root, '.memorix', 'hooks.json'))).toBe(false);
+      expect(existsSync(path.join(tempHome, '.workbuddy', 'hooks.json'))).toBe(false);
+    });
+  });
+
+  describe('hook detection boundaries', () => {
+    it('excludes WorkBuddy from hook detection (no hook file path)', () => {
+      const root = path.join(tmpdir(), 'wb-hook-detect');
+
+      // WorkBuddy has no hook file at all, so there is no path to detect.
+      expect(getProjectConfigPath('workbuddy', root)).toBe('');
+      expect(existsSync(getProjectConfigPath('workbuddy', root))).toBe(false);
+    });
+
+    it('treats hook uninstall as a no-op at both scopes', async () => {
+      const root = path.join(tmpdir(), 'wb-hook-uninstall');
+      const hooksFile = path.join(root, '.memorix', 'hooks.json');
+      mkdirSync(path.dirname(hooksFile), { recursive: true });
+      writeFileSync(hooksFile, '{}', 'utf-8');
+
+      expect(await uninstallHooks('workbuddy', root, false)).toBe(false);
+      expect(await uninstallHooks('workbuddy', root, true)).toBe(false);
+      // The generic default path must be left untouched.
+      expect(existsSync(hooksFile)).toBe(true);
+    });
+  });
+
+  describe('uninstall discovery', () => {
+    it('discovers project-level WorkBuddy MCP config', () => {
+      const root = mkdtempSync(path.join(tmpdir(), 'wb-uninstall-project-'));
+      const projectFile = path.join(root, '.workbuddy', 'mcp.json');
+      mkdirSync(path.dirname(projectFile), { recursive: true });
+      writeFileSync(projectFile, JSON.stringify({
+        mcpServers: { memorix: { command: 'memorix', args: ['serve'] } },
+      }), 'utf-8');
+
+      const entries = getMCPConfigEntries(tempHome, root);
+      const projectEntry = entries.find(
+        (e) => e.agent === 'WorkBuddy' && e.kind === 'project',
+      );
+
+      expect(projectEntry).toBeDefined();
+      expect(projectEntry?.path).toBe(projectFile);
+      expect(projectEntry?.detected).toBe(true);
+
+      rmSync(root, { recursive: true, force: true });
+    });
+
+    it('lists both global and project WorkBuddy paths', () => {
+      const root = path.join(tmpdir(), 'wb-uninstall-both');
+      const entries = getMCPConfigEntries(tempHome, root).filter((e) => e.agent === 'WorkBuddy');
+
+      expect(entries.map((e) => e.kind).sort()).toEqual(['global', 'project']);
     });
   });
 

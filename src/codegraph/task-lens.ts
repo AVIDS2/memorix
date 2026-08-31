@@ -143,18 +143,66 @@ const KEYWORDS: Record<Exclude<TaskLensId, 'general'>, string[]> = {
 // Continuation is a delivery intent, not a task lens. A request can both resume
 // prior work and be a bugfix, feature, or release task, so callers keep the
 // normal lens and add a bounded prior-work projection separately.
-const CONTINUATION_KEYWORDS = [
+//
+// Matching triggers buildHookProjectContext() and a full prior-work brief,
+// which measurably costs 2-3x an ordinary prompt (~3s → ~7.5s locally, 15s+
+// under load) — enough to blow the 10s UserPromptSubmit hook timeout, after
+// which Claude Code discards the injection entirely.
+//
+// The split below is about *evidence of intent*, not about the words alone:
+//
+//   EXPLICIT   — handoff vocabulary is deliberate on its own. "交接" and
+//                "handoff" are not said casually, so a bare mention counts.
+//   AMBIGUOUS  — "继续" / "continue" / "恢复" are everyday verbs. Bare, they
+//                are filler meaning "go on" (and "恢复" usually means "restore
+//                the service" in ops work). Carrying a real task they are a
+//                genuine resume request — `memorix resume "继续处理发布阻塞问题"`
+//                is documented usage — so they require substantive content.
+const EXPLICIT_HANDOFF_KEYWORDS = [
+  'handoff',
+  'hand off',
+  'hand over',
+  'previous session',
+  'last session',
+  'pick up where',
+  '交接',          // 覆盖「任务交接」「工作交接」
+  '接手',
+  '上次会话',
+  '上次的会话',
+];
+
+const AMBIGUOUS_CONTINUATION_KEYWORDS = [
   'continue',
   'resume',
-  'pick up',
   'carry on',
-  'previous session',
+  'pick up',
   '继续',
-  '接手',
   '恢复',
   '延续',
-  '上次会话',
 ];
+
+const CONTINUATION_KEYWORDS = [
+  ...EXPLICIT_HANDOFF_KEYWORDS,
+  ...AMBIGUOUS_CONTINUATION_KEYWORDS,
+];
+
+/**
+ * Characters that carry no task meaning on their own: punctuation, whitespace,
+ * Chinese modal particles, and the generic scaffolding words users wrap around
+ * a bare "继续" ("任务继续", "继续一下").
+ */
+const TASK_FILLER = /[\s\p{P}]|[吧了呢啊吗嘛呀哦噢]|一下|一起|接着|请|帮我|task|任务|工作|the|a|an|please/giu;
+
+/** Minimum residual characters that count as a real task description. */
+const MIN_TASK_SUBSTANCE = 4;
+
+function hasSubstantiveTask(text: string, keyword: string): boolean {
+  const withoutKeyword = text.replace(
+    new RegExp(keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'),
+    ' ',
+  );
+  return withoutKeyword.replace(TASK_FILLER, '').length >= MIN_TASK_SUBSTANCE;
+}
 
 const LENS_PRIORITY: Exclude<TaskLensId, 'general'>[] = [
   'bugfix',
@@ -250,11 +298,22 @@ export function resolveTaskLens(task?: string): TaskLens {
  * Detect when the caller is asking to continue existing work. This stays
  * separate from task-lens routing so "continue fixing the timeout" remains a
  * bugfix, while still receiving a compact prior-work brief.
+ *
+ * Explicit handoff vocabulary counts on its own. Everyday continuation verbs
+ * additionally require a substantive task, so a bare "继续" / "continue" — the
+ * single most common thing a user types to mean "go on" — stays on the cheap
+ * path instead of paying for a full brief on every turn.
  */
 export function isContinuationTask(task?: string): boolean {
   const normalized = (task ?? '').trim().toLowerCase();
-  return normalized.length > 0 && CONTINUATION_KEYWORDS.some((keyword) =>
-    containsTaskKeyword(normalized, keyword),
+  if (normalized.length === 0) return false;
+
+  if (EXPLICIT_HANDOFF_KEYWORDS.some((keyword) => containsTaskKeyword(normalized, keyword))) {
+    return true;
+  }
+
+  return AMBIGUOUS_CONTINUATION_KEYWORDS.some((keyword) =>
+    containsTaskKeyword(normalized, keyword) && hasSubstantiveTask(normalized, keyword),
   );
 }
 

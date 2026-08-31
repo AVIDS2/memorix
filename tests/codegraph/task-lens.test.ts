@@ -25,4 +25,50 @@ describe('task lens routing', () => {
     expect(isContinuationTask('请接手上次留下的登录问题。')).toBe(true);
     expect(isContinuationTask('Document the current worker API.')).toBe(false);
   });
+
+  it('ignores a bare continuation filler with no task to continue', () => {
+    // The single most common thing a user types to mean "go on". Matching it
+    // would buy a full prior-work brief on nearly every turn — 2-3x the cost of
+    // an ordinary prompt, enough to blow the 10s UserPromptSubmit hook budget.
+    for (const filler of [
+      '继续',
+      '继续吧',
+      '任务继续',
+      '请继续',
+      '继续一下',
+      'continue',
+      'continue please',
+      'resume',
+      'carry on',
+    ]) {
+      expect(isContinuationTask(filler)).toBe(false);
+    }
+  });
+
+  it('still detects an everyday continuation verb carrying a real task', () => {
+    // Documented usage: `memorix resume "继续处理发布阻塞问题"`.
+    for (const withTask of [
+      '继续处理发布阻塞问题',
+      '继续 JWT refresh 的灰度发布',
+      'Continue the JWT refresh rollout safely. Do not modify any files.',
+      'resume the migration we paused yesterday',
+    ]) {
+      expect(isContinuationTask(withTask)).toBe(true);
+    }
+  });
+
+  it('treats explicit handoff vocabulary as intent on its own', () => {
+    for (const explicit of [
+      '任务交接',
+      '交接',
+      '请接手这个项目',
+      '上次会话我们做到哪了',
+      'handoff',
+      'hand off this work',
+      'pick up where we left off',
+      'previous session context',
+    ]) {
+      expect(isContinuationTask(explicit)).toBe(true);
+    }
+  });
 });

@@ -652,6 +652,12 @@ export function getProjectConfigPath(agent: AgentName, projectRoot: string): str
       return path.join(projectRoot, '.agents', 'hooks.json');
     case 'gemini-cli':
       return path.join(projectRoot, '.gemini', 'settings.json');
+    case 'workbuddy':
+      // WorkBuddy has no hook system at all — only MCP config and project
+      // AGENTS.md guidance. Return an empty path so install, detection and
+      // uninstall all treat hooks as a no-op instead of falling through to the
+      // `.memorix/hooks.json` default (which would report a path that never exists).
+      return '';
     default:
       return path.join(projectRoot, '.memorix', 'hooks.json');
   }
@@ -697,6 +703,9 @@ export function getGlobalConfigPath(agent: AgentName): string {
     case 'dsh':
       // DSH reads the user-global AGENTS.md from its harness home.
       return path.join(process.env.DSH_HOME?.trim() || path.join(home, '.dsh'), 'AGENTS.md');
+    case 'workbuddy':
+      // WorkBuddy has no user-global instructions file — guidance is project-only.
+      return '';
     default:
       return path.join(home, '.memorix', 'hooks.json');
   }
@@ -725,6 +734,9 @@ export function getAgentRulesPath(agent: AgentName, root: string, global = false
       case 'dsh':
         // The user-global AGENTS.md lives in the harness home DSH reads.
         return path.join(process.env.DSH_HOME?.trim() || path.join(root, '.dsh'), 'AGENTS.md');
+      case 'workbuddy':
+        // WorkBuddy has no user-global instructions file — guidance is project-only.
+        return '';
       default:
         return path.join(root, '.agent', 'rules', 'memorix.md');
     }
@@ -751,6 +763,8 @@ export function getAgentRulesPath(agent: AgentName, root: string, global = false
     case 'trae':
       return path.join(root, '.trae', 'rules', 'project_rules.md');
     case 'dsh':
+      return path.join(root, 'AGENTS.md');
+    case 'workbuddy':
       return path.join(root, 'AGENTS.md');
     default:
       return path.join(root, '.agent', 'rules', 'memorix.md');
@@ -867,6 +881,12 @@ export async function detectInstalledAgents(): Promise<AgentName[]> {
     agents.push('dsh');
   } catch { /* not installed */ }
 
+  // Check for WorkBuddy (its user-level home dir ~/.workbuddy)
+  try {
+    await fs.access(path.join(home, '.workbuddy'));
+    agents.push('workbuddy');
+  } catch { /* not installed */ }
+
   return agents;
 }
 
@@ -885,6 +905,19 @@ export async function installHooks(
       events: [],
       generated: {
         note: `${agent} hooks are provided by the ${getPackageOwnedHookLabel(agent)} installed with \`memorix setup --agent ${agent}\`; no fallback hook files were written.`,
+      },
+    };
+  }
+
+  // WorkBuddy has no hook system and no user-global guidance file. Report an
+  // explicit no-op instead of a project path that is never written.
+  if (agent === 'workbuddy' && global) {
+    return {
+      agent,
+      configPath: '',
+      events: [],
+      generated: {
+        note: 'WorkBuddy has no hook system and no user-global guidance file — MCP only; no global guidance/hooks. Run `memorix setup --agent workbuddy` (without --global) to install project MCP config and AGENTS.md guidance.',
       },
     };
   }
@@ -985,6 +1018,20 @@ export async function installHooks(
           generated: {
             note: 'DeepSeek Harness has no hook system — installed AGENTS.md guidance and skills; the MCP row is installed by `memorix setup --agent dsh`.',
             ...(skillPaths.length > 0 ? { skillPaths, skillPath: skillPaths[0] } : {}),
+          },
+        };
+      }
+    case 'workbuddy':
+      // WorkBuddy has no hook system — install AGENTS.md guidance only;
+      // the MCP row is installed by `memorix setup --agent workbuddy`.
+      {
+        const rulesPath = await installAgentRules(agent, projectRoot, global);
+        return {
+          agent,
+          configPath: rulesPath,
+          events: [],
+          generated: {
+            note: 'WorkBuddy has no hook system — installed AGENTS.md guidance only; the MCP row is installed by `memorix setup --agent workbuddy`.',
           },
         };
       }
@@ -1161,6 +1208,8 @@ export async function installHooks(
  * Rules instruct the agent to proactively use memorix for context continuity.
  */
 async function installAgentRules(agent: AgentName, projectRoot: string, global = false): Promise<string> {
+  // WorkBuddy has no user-global instructions file — guidance is project-only.
+  if (agent === 'workbuddy' && global) return '';
   const rulesContent = getAgentRulesContent(agent, global ? 'global' : 'project');
   const rulesRoot = global ? os.homedir() : projectRoot;
   const rulesPath = getAgentRulesPath(agent, rulesRoot, global);
@@ -1352,6 +1401,12 @@ export async function uninstallHooks(
   // Pi hook capture is owned by the Pi package. Removing it safely requires
   // package removal from Pi settings, not deleting a single hook file.
   if (agent === 'pi') {
+    return false;
+  }
+
+  // WorkBuddy has no hook file at either scope — removing hooks is a no-op.
+  // It must not touch the generic `.memorix/hooks.json` default path.
+  if (agent === 'workbuddy') {
     return false;
   }
 

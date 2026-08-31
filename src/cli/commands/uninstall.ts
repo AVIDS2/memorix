@@ -24,7 +24,7 @@ import * as os from 'node:os';
 
 // ── MCP config paths (documented, not modified) ────────────────────
 
-interface MCPConfigEntry {
+export interface MCPConfigEntry {
   agent: string;
   path: string;
   kind: 'project' | 'global';
@@ -66,7 +66,7 @@ function checkDshPatch(p: string): boolean {
 }
 
 /** Detects memorix MCP config entries in both global and project-level paths. */
-function getMCPConfigEntries(home: string, cwd: string): MCPConfigEntry[] {
+export function getMCPConfigEntries(home: string, cwd: string): MCPConfigEntry[] {
   const entries: MCPConfigEntry[] = [];
 
   // ── Global paths ──
@@ -234,6 +234,28 @@ function getMCPConfigEntries(home: string, cwd: string): MCPConfigEntry[] {
     format: 'json',
     detected: checkDshPatch(dshPatchPath),
     note: 'Remove the memory-memorix insert row from this patch file.',
+  });
+
+  // WorkBuddy — global
+  const workbuddyCfg = path.join(home, '.workbuddy', 'mcp.json');
+  entries.push({
+    agent: 'WorkBuddy',
+    path: workbuddyCfg,
+    kind: 'global',
+    format: 'json',
+    detected: checkJSON(workbuddyCfg),
+    note: 'Remove the "memorix" key from mcpServers in this file.',
+  });
+
+  // WorkBuddy — project level (project-only installs must be discoverable too)
+  const workbuddyProjectCfg = path.join(cwd, '.workbuddy', 'mcp.json');
+  entries.push({
+    agent: 'WorkBuddy',
+    path: workbuddyProjectCfg,
+    kind: 'project',
+    format: 'json',
+    detected: checkJSON(workbuddyProjectCfg),
+    note: 'Remove the "memorix" key from mcpServers in this file.',
   });
 
   return entries;

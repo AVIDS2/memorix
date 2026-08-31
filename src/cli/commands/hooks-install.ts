@@ -115,8 +115,14 @@ async function installSingleAgent(agent: string, cwd: string, global: boolean): 
       cwd,
       global,
     );
-    console.log(`[OK] ${agent}: hooks installed -> ${config.configPath}`);
+    const note = (config.generated as Record<string, unknown>)?.note;
+    if (config.configPath) {
+      console.log(`[OK] ${agent}: hooks installed -> ${config.configPath}`);
+    } else {
+      console.log(`[OK] ${agent}: no hooks installed at this scope (MCP-only integration)`);
+    }
     console.log(`   Events: ${config.events.join(', ')}`);
+    if (!config.configPath && note) console.log(`   Note: ${note}`);
 
     // Copilot on Windows without pwsh: warn about runtime compatibility
     if (agent === 'copilot' && process.platform === 'win32') {
@@ -136,7 +142,6 @@ async function installSingleAgent(agent: string, cwd: string, global: boolean): 
 
     // Copilot global not supported
     if (agent === 'copilot' && global) {
-      const note = (config.generated as Record<string, unknown>)?.note;
       if (note) console.warn(`[WARN]  ${note}`);
     }
   } catch (err) {
@@ -160,6 +165,7 @@ function getAgentLabel(agent: string): string {
     omp: 'Oh-my-Pi',
     trae: 'Trae',
     dsh: 'DeepSeek Harness',
+    workbuddy: 'WorkBuddy',
   };
   return labels[agent] || agent;
 }
@@ -179,6 +185,7 @@ function getAgentHint(agent: string): string {
     omp: 'Oh-my-Pi package hooks; use `memorix setup --agent omp`',
     trae: '.trae/rules/project_rules.md (rules only, no hooks system)',
     dsh: '~/.dsh/cordis.patch.yml MCP row via `memorix setup --agent dsh` (no hooks system)',
+    workbuddy: '~/.workbuddy/mcp.json MCP row via `memorix setup --agent workbuddy` (no hooks system)',
     codex: 'Codex plugin hooks; use `memorix setup --agent codex`',
   };
   return hints[agent] || '';

@@ -160,6 +160,15 @@ export const MEMORIX_INTEGRATIONS: MemorixIntegration[] = [
     note: 'DeepSeek Harness support writes a @deepseek-ai/dsh-mcp-client row into $DSH_HOME/cordis.patch.yml (default ~/.dsh/cordis.patch.yml), guidance into the harness AGENTS.md, and skills under $DSH_HOME/skills.',
   },
   {
+    agent: 'workbuddy',
+    name: 'WorkBuddy',
+    entry: 'official-config',
+    status: 'ready',
+    install: 'memorix setup --agent workbuddy',
+    surfaces: ['MCP', 'AGENTS.md'],
+    note: 'WorkBuddy support writes a memorix MCP server row into ~/.workbuddy/mcp.json (or <project>/.workbuddy/mcp.json for project installs) and guidance into AGENTS.md.',
+  },
+  {
     agent: 'memcode',
     name: 'memcode',
     entry: 'native',

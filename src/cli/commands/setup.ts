@@ -31,6 +31,7 @@ import { KiroMCPAdapter } from '../../workspace/mcp-adapters/kiro.js';
 import { OpenCodeMCPAdapter } from '../../workspace/mcp-adapters/opencode.js';
 import { TraeMCPAdapter } from '../../workspace/mcp-adapters/trae.js';
 import { DshMCPAdapter } from '../../workspace/mcp-adapters/dsh.js';
+import { WorkbuddyMCPAdapter } from '../../workspace/mcp-adapters/workbuddy.js';
 import { CodeBuddyMCPAdapter } from '../../workspace/mcp-adapters/codebuddy.js';
 import { getSetupIntegrationRows as readSetupIntegrationRows } from '../../integrations/registry.js';
 import { OFFICIAL_MEMORIX_SKILLS } from '../../hooks/official-skills.js';
@@ -192,6 +193,7 @@ const SUPPORTED_SETUP_AGENTS: AgentName[] = [
   'kiro',
   'trae',
   'dsh',
+  'workbuddy',
   'pi',
 ];
 
@@ -405,6 +407,7 @@ export function getMcpAdapter(agent: McpConfigAgent): MCPConfigAdapter {
     opencode: new OpenCodeMCPAdapter(),
     trae: new TraeMCPAdapter(),
     dsh: new DshMCPAdapter(),
+    workbuddy: new WorkbuddyMCPAdapter(),
   };
   return adapters[agent];
 }
@@ -1611,7 +1614,14 @@ export async function installAgentSetup(agent: AgentName, plan: SetupPlan, globa
     }
   } else if (plan.actions.includes('hooks')) {
     const result = await installHooks(agent, targetRoot, global);
-    p.log.success(`${agent}: integration files -> ${result.configPath}`);
+    const note = (result.generated as Record<string, unknown>)?.note;
+    if (result.configPath) {
+      p.log.success(`${agent}: integration files -> ${result.configPath}`);
+    } else if (note) {
+      p.log.info(`${agent}: ${note}`);
+    } else {
+      p.log.info(`${agent}: no hooks or guidance are available at this scope`);
+    }
   } else if (plan.actions.includes('project-guidance')) {
     const rulesPath = await installAgentGuidance(agent, targetRoot, global);
     p.log.success(`${agent}: guidance -> ${rulesPath}`);

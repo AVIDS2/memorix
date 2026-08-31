@@ -1614,7 +1614,14 @@ export async function installAgentSetup(agent: AgentName, plan: SetupPlan, globa
     }
   } else if (plan.actions.includes('hooks')) {
     const result = await installHooks(agent, targetRoot, global);
-    p.log.success(`${agent}: integration files -> ${result.configPath}`);
+    const note = (result.generated as Record<string, unknown>)?.note;
+    if (result.configPath) {
+      p.log.success(`${agent}: integration files -> ${result.configPath}`);
+    } else if (note) {
+      p.log.info(`${agent}: ${note}`);
+    } else {
+      p.log.info(`${agent}: no hooks or guidance are available at this scope`);
+    }
   } else if (plan.actions.includes('project-guidance')) {
     const rulesPath = await installAgentGuidance(agent, targetRoot, global);
     p.log.success(`${agent}: guidance -> ${rulesPath}`);

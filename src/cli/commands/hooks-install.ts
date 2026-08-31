@@ -115,8 +115,14 @@ async function installSingleAgent(agent: string, cwd: string, global: boolean): 
       cwd,
       global,
     );
-    console.log(`[OK] ${agent}: hooks installed -> ${config.configPath}`);
+    const note = (config.generated as Record<string, unknown>)?.note;
+    if (config.configPath) {
+      console.log(`[OK] ${agent}: hooks installed -> ${config.configPath}`);
+    } else {
+      console.log(`[OK] ${agent}: no hooks installed at this scope (MCP-only integration)`);
+    }
     console.log(`   Events: ${config.events.join(', ')}`);
+    if (!config.configPath && note) console.log(`   Note: ${note}`);
 
     // Copilot on Windows without pwsh: warn about runtime compatibility
     if (agent === 'copilot' && process.platform === 'win32') {
@@ -136,7 +142,6 @@ async function installSingleAgent(agent: string, cwd: string, global: boolean): 
 
     // Copilot global not supported
     if (agent === 'copilot' && global) {
-      const note = (config.generated as Record<string, unknown>)?.note;
       if (note) console.warn(`[WARN]  ${note}`);
     }
   } catch (err) {

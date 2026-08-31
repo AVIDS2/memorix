@@ -181,27 +181,33 @@ const AMBIGUOUS_CONTINUATION_KEYWORDS = [
   '延续',
 ];
 
-const CONTINUATION_KEYWORDS = [
-  ...EXPLICIT_HANDOFF_KEYWORDS,
-  ...AMBIGUOUS_CONTINUATION_KEYWORDS,
-];
-
 /**
  * Characters that carry no task meaning on their own: punctuation, whitespace,
  * Chinese modal particles, and the generic scaffolding words users wrap around
  * a bare "继续" ("任务继续", "继续一下").
  */
-const TASK_FILLER = /[\s\p{P}]|[吧了呢啊吗嘛呀哦噢]|一下|一起|接着|请|帮我|task|任务|工作|the|a|an|please/giu;
+const TASK_FILLER_WORDS = /\b(?:please|task|work|the|a|an)\b/giu;
+const TASK_FILLER_PHRASES = /(?:吧|了|呢|啊|吗|嘛|呀|哦|噢|一下|一起|接着|请|帮我)/gu;
 
-/** Minimum residual characters that count as a real task description. */
-const MIN_TASK_SUBSTANCE = 4;
+/** Minimum residual code points that count as a real task description. */
+const MIN_TASK_SUBSTANCE = 2;
 
 function hasSubstantiveTask(text: string, keyword: string): boolean {
   const withoutKeyword = text.replace(
     new RegExp(keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'),
     ' ',
   );
-  return withoutKeyword.replace(TASK_FILLER, '').length >= MIN_TASK_SUBSTANCE;
+  const residual = withoutKeyword
+    // English fillers are removed as whole words, so `a` in `API` and `work`
+    // in `workflow` remain meaningful task text.
+    .replace(TASK_FILLER_WORDS, ' ')
+    .replace(TASK_FILLER_PHRASES, ' ')
+    .replace(/[\s\p{P}]/gu, '');
+
+  // These are scaffolding-only phrases, not tasks. Keep `工作流` intact by
+  // checking the complete residual instead of removing `工作` as a prefix.
+  if (/^(?:任务|工作|一下|一起|接着)$/u.test(residual)) return false;
+  return Array.from(residual).length >= MIN_TASK_SUBSTANCE;
 }
 
 const LENS_PRIORITY: Exclude<TaskLensId, 'general'>[] = [

@@ -48,12 +48,34 @@ describe('task lens routing', () => {
   it('still detects an everyday continuation verb carrying a real task', () => {
     // Documented usage: `memorix resume "继续处理发布阻塞问题"`.
     for (const withTask of [
+      '继续修复',
+      '继续优化',
+      '继续 API',
+      '继续一下修复',
+      'resume bug',
+      'resume API',
+      'Continue API',
+      'pick up API',
+      '恢复服务',
+      '延续迁移',
       '继续处理发布阻塞问题',
       '继续 JWT refresh 的灰度发布',
       'Continue the JWT refresh rollout safely. Do not modify any files.',
       'resume the migration we paused yesterday',
     ]) {
       expect(isContinuationTask(withTask)).toBe(true);
+    }
+  });
+
+  it('does not count filler words as a substantive continuation task', () => {
+    for (const filler of [
+      '继续任务',
+      '继续工作',
+      '继续接着',
+      'continue the',
+      'resume please',
+    ]) {
+      expect(isContinuationTask(filler)).toBe(false);
     }
   });
 

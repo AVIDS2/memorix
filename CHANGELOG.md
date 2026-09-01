@@ -4,6 +4,24 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.8.6] - 2026-09-01
+
+### Added
+- **WorkBuddy integration (#204)** -- adds project and user-level MCP setup,
+  project `AGENTS.md` guidance, safe no-op behavior for WorkBuddy's absent
+  hooks surface, and uninstall discovery. Thanks to @wjxn13 for the original
+  implementation and follow-up fixes; the contributor commits remain in the
+  merge history.
+
+### Fixed
+- **Continuation intent (#266)** -- a bare `继续`, `continue`, or `resume`
+  no longer triggers an expensive prior-work brief, while short substantive
+  requests such as `继续修复`, `resume bug`, and `继续 API` still receive
+  continuity context. Explicit handoff vocabulary remains supported. Thanks
+  to @Tom-Ma-Ming for the original fix and regression cases.
+- **Star History assets** -- refreshed the self-hosted chart data and light /
+  dark SVG assets.
+
 ## [1.8.5] - 2026-08-30
 
 ### Fixed

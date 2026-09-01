@@ -4,7 +4,7 @@
 > before resuming substantial work, update it after a material decision or
 > milestone, and do not create parallel progress logs.
 
-**Last updated:** 2026-08-30
+**Last updated:** 2026-09-01
 
 **Local verification rule:** run the frontend, HTTP service, MCP server, and
 tests directly with Node/npm on the E: workspace. Do not start Docker or add
@@ -13,9 +13,9 @@ artifacts for the VPS/hosted build path only.
 
 ## Current Product State
 
-- `1.8.5` is the current published release. It combines the Dashboard/module
-  cleanup with the official MCP v2 transport path, fail-closed background
-  startup, and the final cross-surface verification work.
+- `1.8.6` is the current release line. It carries the published 1.8.5 runtime
+  hardening and adds WorkBuddy integration plus safer continuation intent
+  routing.
 - The release keeps the canonical Dashboard Memory Map, removes the obsolete
   renderer/dependencies, makes reachable capabilities visible, and preserves
   the old MCP clients while adding the modern 2026-07-28 core contract.
@@ -27,8 +27,8 @@ artifacts for the VPS/hosted build path only.
   default agent context stays small.
 - Contributor PR #260 remains open for review because its unlocked timeout
   fallback is unsafe; its diagnosis is credited and the fail-closed fix shipped
-  in 1.8.5. WorkBuddy PR #204 remains open with changes requested against the
-  official project/global scope rules.
+  in 1.8.5. WorkBuddy PR #204 and continuation PR #266 are merged with their
+  authorship retained; Star History PR #265 is also merged.
 - Release verification is green: MCP v2 direct tests, legacy and modern
   stdio/HTTP smoke, background concurrency smoke, P3/P4/P5/P6 suites,
   `npm run lint`, the sequential low-memory build, the full local regression,
@@ -174,6 +174,21 @@ separate future suggestions or contributor revisions, not hidden release work.
   manifests, release contract, and release notes were synchronized before
   publishing `1.8.5`.
 
+## 1.8.6 Release Line (2026-09-01)
+
+This patch release contains only already-reviewed changes from the public
+contributor PRs and the release metadata update:
+
+- WorkBuddy project/global MCP configuration, project guidance, no-hook
+  lifecycle handling, and uninstall discovery (#204, @wjxn13).
+- Continuation intent routing that keeps bare filler cheap without rejecting
+  short real tasks (#266, @Tom-Ma-Ming).
+- Refreshed self-hosted Star History assets (#265).
+
+The release gate is local Node/npm verification plus the repository's remote
+CI and publish workflow. Docker remains a VPS/hosted deployment artifact and
+is not used for local verification.
+
 ## Agent-Memory Landscape Decision (2026-08-17)
 
 Current ecosystem research focused on TencentDB Agent Memory v2 and the
@@ -306,9 +321,8 @@ provider when the operator chooses one.
 
 ## Immediate Next Step
 
-- No blocking release task remains after `1.8.5`. Keep #260 open for its
-  fail-closed revision and #204 open until the official WorkBuddy project/global
-  scope behavior is corrected and re-tested.
+- Publish `1.8.6` after the local package and smoke gates pass. Keep #260 open
+  for its fail-closed revision; it is independent of this release.
 - #49 and #3 remain independent future integration suggestions; do not pull
   them into a patch release without a verifiable host contract.
 

@@ -95,7 +95,7 @@ The public docs are organized by user intent:
 | 1.2 honest Lite and optional semantic CodeGraph provider contract | [1.2 Provider Quality](1.2.0-PROVIDER-QUALITY.md) |
 | 1.3 long-term memory model, source boundary, and lifecycle | [1.3 Memory Architecture](1.3-MEMORY-ARCHITECTURE.md) |
 | Active context-control work | [1.2.2 Memory Control Plane](1.2.2-MEMORY-CONTROL-PLANE.md) |
-| 1.8.5 MCP compatibility acceptance contract | [1.8.0 Release Specification](1.8.0-RELEASE-CANDIDATE-SPEC.md) |
+| 1.8.6 MCP compatibility acceptance contract | [1.8.0 Release Specification](1.8.0-RELEASE-CANDIDATE-SPEC.md) |
 | Historical cloud sync and multi-agent research | [CLOUD_SYNC_AND_MULTI_AGENT_RESEARCH.md](CLOUD_SYNC_AND_MULTI_AGENT_RESEARCH.md) |
 | Known issues and old roadmap notes | [KNOWN_ISSUES_AND_ROADMAP.md](KNOWN_ISSUES_AND_ROADMAP.md) |
 
@@ -123,7 +123,7 @@ Historical/deep-reference documents may describe older designs. If they conflict
 
 ## Current Product Line
 
-The current product line is **1.8.5**. The authoritative acceptance contract is
+The current product line is **1.8.6**. The authoritative acceptance contract is
 [1.8.0 Release Specification](1.8.0-RELEASE-CANDIDATE-SPEC.md).
 The current baseline has:
 
@@ -142,7 +142,7 @@ The current baseline has:
 - `~/.memorix/config.toml` and project `memorix.toml` are the user-facing configuration model
 - legacy `memorix.yml`, `.env`, and `config.json` files are still read for compatibility, but new setups should use TOML
 
-For MCP compatibility, 1.8.5 preserves legacy 2025-era initialize and
+For MCP compatibility, 1.8.6 preserves legacy 2025-era initialize and
 stateful Streamable HTTP behavior. `memorix serve` starts a bounded stdio
 startup gate: pre-initialize 2026-07-28 `server/discover` is answered with a
 complete discovery result, and other early JSON-RPC messages replay in order

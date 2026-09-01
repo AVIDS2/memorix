@@ -165,10 +165,10 @@ describe('Dashboard coordination truth', () => {
     const packageLock = JSON.parse(await fs.readFile(path.join(process.cwd(), 'package-lock.json'), 'utf8'));
     const serverManifest = JSON.parse(await fs.readFile(path.join(process.cwd(), 'server.json'), 'utf8'));
 
-    expect(packageJson.version).toBe('1.8.5');
-    expect(packageLock.version).toBe('1.8.5');
-    expect(packageLock.packages[''].version).toBe('1.8.5');
-    expect(serverManifest.version).toBe('1.8.5');
+    expect(packageJson.version).toBe('1.8.6');
+    expect(packageLock.version).toBe('1.8.6');
+    expect(packageLock.packages[''].version).toBe('1.8.6');
+    expect(serverManifest.version).toBe('1.8.6');
     expect(app).toContain("teamTaskStatus: 'Task Status'");
     expect(app).toContain("teamTaskStatus: '任务状态'");
     expect(app).toContain("teamTitle: 'Coordination Status'");

@@ -150,7 +150,7 @@ feedback projection.
 ### MCP Compatibility
 
 Legacy clients use stateful Streamable HTTP with `Mcp-Session-Id` and the
-2025-era `initialize` handshake. The 1.8.5 stdio server starts a bounded
+2025-era `initialize` handshake. The 1.8.6 stdio server starts a bounded
 newline-delimited JSON-RPC gate before project initialization: it answers the
 2026-07-28 `server/discover` request before `initialize`, then replays other
 requests, notifications, and responses in order into the pinned SDK transport.

@@ -13,9 +13,9 @@ artifacts for the VPS/hosted build path only.
 
 ## Current Product State
 
-- `1.8.6` is the current release line. It carries the published 1.8.5 runtime
-  hardening and adds WorkBuddy integration plus safer continuation intent
-  routing.
+- `1.8.6` is the current published release. It carries the published 1.8.5
+  runtime hardening and adds WorkBuddy integration plus safer continuation
+  intent routing.
 - The release keeps the canonical Dashboard Memory Map, removes the obsolete
   renderer/dependencies, makes reachable capabilities visible, and preserves
   the old MCP clients while adding the modern 2026-07-28 core contract.
@@ -321,7 +321,7 @@ provider when the operator chooses one.
 
 ## Immediate Next Step
 
-- Publish `1.8.6` after the local package and smoke gates pass. Keep #260 open
+- `1.8.6` is published and all release gates are recorded above. Keep #260 open
   for its fail-closed revision; it is independent of this release.
 - #49 and #3 remain independent future integration suggestions; do not pull
   them into a patch release without a verifiable host contract.

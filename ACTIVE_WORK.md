@@ -36,7 +36,7 @@ artifacts for the VPS/hosted build path only.
 
 ## 1.8.7 CodeGraph Main Line (2026-09-02)
 
-The release candidate is the CodeGraph foundation upgrade. Its single
+The published release is the CodeGraph foundation upgrade. Its single
 canonical plan and acceptance contract is [docs/1.8.7-CODEGRAPH.md](docs/1.8.7-CODEGRAPH.md).
 The work is deliberately split into P0 through P6:
 
@@ -73,7 +73,7 @@ CI/VPS deployment and is not part of local verification.
 - The external `@hasmcp/mcp-spec-test` runner remains not verified on this
   Windows host because its own Node test runner passes `E:` file paths as
   invalid ESM URLs before contacting the target. Official v2 direct tests and
-  real Memorix stdio/HTTP smoke are the release evidence for this candidate.
+  real Memorix stdio/HTTP smoke are the release evidence for this release.
 
 ## Ecosystem Watch (2026-08-28)
 
@@ -361,7 +361,7 @@ provider when the operator chooses one.
 
 ## Immediate Next Step
 
-- `1.8.6` is published and all release gates are recorded above. Keep #260 open
+- `1.8.7` is published and all release gates are recorded above. Keep #260 open
   for its fail-closed revision; it is independent of this release.
 - #49 and #3 remain independent future integration suggestions; do not pull
   them into a patch release without a verifiable host contract.

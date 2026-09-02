@@ -321,6 +321,12 @@ async function handleApi(
                 break;
             }
 
+            case '/codegraph': {
+                const { getCodeGraphDashboardStatus } = await import('../codegraph/dashboard.js');
+                sendJson(res, await getCodeGraphDashboardStatus(effectiveDataDir, effectiveProjectId));
+                break;
+            }
+
             case '/observations': {
                 const observations = filterDashboardObservations(
                     await getObservationStore().loadByProject(effectiveProjectId, { status: 'active' }),

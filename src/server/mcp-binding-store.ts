@@ -73,6 +73,23 @@ export class McpBindingStore {
     return { ...binding, lastUsedAt };
   }
 
+  /** Reuse the most recent valid extension handle for a verified project root. */
+  findByProjectRoot(projectRoot: string): McpProjectBinding | undefined {
+    const row = this.requireDb().prepare(`
+      SELECT * FROM mcp_bindings
+      WHERE project_root = ?
+      ORDER BY last_used_at DESC
+      LIMIT 1
+    `).get(projectRoot);
+    if (!row) return undefined;
+    const binding = rowToBinding(row);
+    if (binding.expiresAt && Date.parse(binding.expiresAt) <= Date.now()) {
+      this.delete(binding.handleId);
+      return undefined;
+    }
+    return binding;
+  }
+
   delete(handleId: string): void {
     this.requireDb().prepare(`DELETE FROM mcp_bindings WHERE handle_id = ?`).run(handleId);
   }

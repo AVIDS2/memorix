@@ -194,8 +194,8 @@ describe('project context CLI commands', () => {
       startHere: expect.arrayContaining(['CHANGELOG.md', 'package.json']),
     });
     expect(parsed.providerQuality).toMatchObject({
-      selected: 'lite',
-      selectedQuality: 'heuristic',
+      selected: 'semantic',
+      selectedQuality: 'semantic',
       external: { state: 'not-detected' },
     });
     expect(parsed.workset.budget.tokenCount).toBeLessThanOrEqual(parsed.workset.budget.maxTokens);
@@ -218,7 +218,7 @@ describe('project context CLI commands', () => {
       task: 'continue the auth fix',
       brief: expect.stringContaining('Memorix Autopilot Brief'),
       receipt: expect.objectContaining({ target: 'project-context' }),
-      code: expect.objectContaining({ selected: 'lite', quality: 'heuristic' }),
+      code: expect.objectContaining({ selected: 'semantic', quality: 'semantic' }),
       loadout: expect.objectContaining({ agent: 'codex' }),
     });
     expect(parsed.overview).toBeUndefined();
@@ -429,12 +429,12 @@ describe('project context CLI commands', () => {
       symbols: 3,
       refs: 2,
       freshness: {
-        current: 2,
+        current: 1,
         suspect: 0,
         stale: 0,
       },
       providerQuality: {
-        selected: 'lite',
+        selected: 'semantic',
         external: { state: 'not-detected' },
       },
     });

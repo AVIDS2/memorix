@@ -44,6 +44,54 @@ describe('CodeGraph Lite provider', () => {
     expect(store.getFile('org/repo', 'src/stable.ts')).toBeNull();
   });
 
+  it('records a semantic failure and keeps the code-state snapshot usable', async () => {
+    const dir = makeRoot();
+    mkdirSync(join(dir, 'src'), { recursive: true });
+    writeFileSync(join(dir, 'src', 'auth.ts'), 'export function before() { return true; }\n');
+
+    const store = new CodeGraphStore();
+    await store.init(dir);
+    await refreshProjectLite(store, { projectId: 'org/repo', projectRoot: dir });
+
+    writeFileSync(join(dir, 'src', 'auth.ts'), 'export function after() { return false; }\n');
+    const failed = await refreshProjectLite(store, {
+      projectId: 'org/repo',
+      projectRoot: dir,
+      semanticIndexer: () => { throw new Error('compiler unavailable'); },
+    });
+
+    expect(failed.semantic).toMatchObject({ state: 'failed', parserErrors: 1 });
+    expect(failed.semantic?.error).toContain('compiler unavailable');
+    expect(store.status('org/repo')).toMatchObject({ parserErrors: 1 });
+    expect(store.status('org/repo').latestSnapshot).toBeDefined();
+    expect(store.findSymbols('org/repo', 'after')).toHaveLength(1);
+  });
+
+  it('reindexes local import dependents when a callee changes', async () => {
+    const dir = makeRoot();
+    mkdirSync(join(dir, 'src'), { recursive: true });
+    writeFileSync(join(dir, 'src', 'base.ts'), 'export function base() { return true; }\n');
+    writeFileSync(join(dir, 'src', 'caller.ts'), [
+      "import { base } from './base.js';",
+      'export function caller() { return base(); }',
+    ].join('\n'));
+
+    const store = new CodeGraphStore();
+    await store.init(dir);
+    await refreshProjectLite(store, { projectId: 'org/repo', projectRoot: dir });
+    const firstSymbols = new Map(store.listSymbols('org/repo').map(symbol => [symbol.id, symbol.name]));
+    expect(store.listEdges('org/repo').some(edge => edge.type === 'calls'
+      && firstSymbols.get(edge.fromSymbolId ?? '') === 'caller'
+      && firstSymbols.get(edge.toSymbolId ?? '') === 'base')).toBe(true);
+
+    writeFileSync(join(dir, 'src', 'base.ts'), 'export function renamedBase() { return false; }\n');
+    await refreshProjectLite(store, { projectId: 'org/repo', projectRoot: dir });
+    const secondSymbols = new Map(store.listSymbols('org/repo').map(symbol => [symbol.id, symbol.name]));
+    expect(store.listEdges('org/repo').some(edge => edge.type === 'calls'
+      && secondSymbols.get(edge.fromSymbolId ?? '') === 'caller')).toBe(false);
+    expect(store.listSymbols('org/repo').map(symbol => symbol.name)).toContain('renamedBase');
+  });
+
   it('indexes TS files, imports, exports, and top-level symbols', async () => {
     const dir = makeRoot();
     mkdirSync(join(dir, 'src'), { recursive: true });
@@ -85,15 +133,17 @@ describe('CodeGraph Lite provider', () => {
     rmSync(jwtPath);
     await refreshProjectLite(store, { projectId: 'org/repo', projectRoot: dir });
     expect(store.listEdges('org/repo')).toEqual(expect.arrayContaining([
-      expect.objectContaining({ type: 'imports', evidence: './jwt.js' }),
+      expect.objectContaining({ type: 'imports', evidence: expect.stringContaining('./jwt.js') }),
     ]));
-    expect(store.listEdges('org/repo')[0]?.toFileId).toBeUndefined();
+    expect(store.listEdges('org/repo').find(edge => edge.type === 'imports' && edge.evidence?.includes('./jwt.js'))?.toFileId).toBeUndefined();
 
     writeFileSync(jwtPath, 'export const verifyJwt = () => false;\n');
     await refreshProjectLite(store, { projectId: 'org/repo', projectRoot: dir });
     expect(store.listEdges('org/repo')).toEqual(expect.arrayContaining([
       expect.objectContaining({ type: 'imports', toFileId: store.getFile('org/repo', 'src/jwt.ts')?.id }),
     ]));
+    expect(store.listEdges('org/repo').find(edge => edge.type === 'imports' && edge.evidence?.includes('./jwt.js'))?.source)
+      .toBe('typescript-compiler');
   });
 
   it('indexes common non-TS languages with file-level nodes and top-level symbols', async () => {

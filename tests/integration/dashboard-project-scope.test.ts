@@ -161,6 +161,18 @@ describe('Standalone Dashboard Project Scope', () => {
     expect(entityNames).not.toContain('billing-service');
   });
 
+  it('GET /api/codegraph reports a separate read-only code evidence status', async () => {
+    const { status, body } = await fetchJson('/api/codegraph');
+    expect(status).toBe(200);
+    expect(body).toMatchObject({
+      projectId: PROJECT_A,
+      provider: 'lite',
+      state: 'not-indexed',
+      semantic: { files: 0, symbols: 0, edges: 0, parserErrors: 0 },
+      lite: { files: 0, symbols: 0, edges: 0 },
+    });
+  });
+
   it('GET /api/graph?project=... filters to the requested project', async () => {
     const { status, body } = await fetchJson(`/api/graph?project=${encodeURIComponent(PROJECT_B)}`);
     expect(status).toBe(200);

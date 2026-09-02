@@ -136,6 +136,44 @@ describe('external CodeGraph provider', () => {
     ]);
   });
 
+  it('accepts a bounded SCIP JSON result through the same external outline boundary', async () => {
+    const projectRoot = makeProject();
+    const runner = runnerFor(projectRoot, JSON.stringify({
+      documents: [
+        {
+          relativePath: 'src/auth.ts',
+          language: 'TypeScript',
+          symbols: [
+            {
+              symbol: 'scip auth/requireAuthenticatedUser.',
+              displayName: 'requireAuthenticatedUser',
+              kind: 'function',
+              relationships: [{ symbol: 'scip auth/validateToken.', isReference: true }],
+            },
+          ],
+          occurrences: [{ symbol: 'scip auth/requireAuthenticatedUser.', isDefinition: true, range: [1, 0, 1, 10] }],
+        },
+        {
+          relativePath: 'src/validate.ts',
+          language: 'TypeScript',
+          symbols: [{ symbol: 'scip auth/validateToken.', displayName: 'validateToken', kind: 'function' }],
+        },
+      ],
+    }));
+
+    const result = await getExternalCodeGraphContext({
+      projectRoot,
+      task: 'trace authentication',
+      runner,
+    });
+
+    expect(result.outline).toMatchObject({
+      provider: 'external',
+      relatedFiles: expect.arrayContaining(['src/auth.ts', 'src/validate.ts']),
+      relations: [{ kind: 'references', line: 2 }],
+    });
+  });
+
   it('falls back from an unknown context command to the official explore command', async () => {
     const projectRoot = makeProject();
     const runner: ExternalCodeGraphRunner & { run: ReturnType<typeof vi.fn> } = {

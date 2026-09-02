@@ -20,7 +20,7 @@ export function evaluateCodeRefFreshness(
 
   if (ref.capturedSymbolHash && symbol?.contentHash) {
     if (symbol.contentHash !== ref.capturedSymbolHash) {
-      return { status: 'stale', reason: 'referenced symbol content changed' };
+      return { status: 'suspect', reason: 'referenced symbol content changed' };
     }
     return { status: 'current', reason: 'referenced symbol content still matches' };
   }

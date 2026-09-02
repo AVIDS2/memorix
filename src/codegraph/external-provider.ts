@@ -4,6 +4,7 @@ import { delimiter, dirname, extname, isAbsolute, join, relative, resolve, sep }
 import { sanitizeCredentials } from '../memory/secret-filter.js';
 import { isCodeGraphExcludedPath } from './exclude.js';
 import { normalizeCodePath } from './ids.js';
+import { normalizeScipOutline } from './scip-provider.js';
 import type {
   CodeGraphExternalMode,
   CodeGraphProviderQuality,
@@ -327,7 +328,7 @@ const defaultRunner: ExternalCodeGraphRunner = {
 function providerQuality(input: {
   mode: CodeGraphExternalMode;
   health: ExternalCodeGraphHealth;
-  selected?: 'lite' | 'external';
+  selected?: 'lite' | 'semantic' | 'external';
 }): CodeGraphProviderQuality {
   const selected = input.selected ?? 'lite';
   return {
@@ -346,6 +347,12 @@ function providerQuality(input: {
       supportedLanguages: LITE_SUPPORTED_LANGUAGES,
     },
     external: input.health,
+    semantic: {
+      state: 'not-indexed',
+      symbols: 0,
+      edges: 0,
+      parserErrors: 0,
+    },
   };
 }
 
@@ -637,6 +644,8 @@ function externalSymbol(raw: RawExternalNode): ExternalCodeGraphSymbol {
 }
 
 function parseOutline(value: unknown, projectRoot: string, exclude?: string[]): ExternalCodeGraphOutline | undefined {
+  const scipOutline = normalizeScipOutline(value, { projectRoot, exclude });
+  if (scipOutline) return scipOutline as ExternalCodeGraphOutline;
   if (!isRecord(value) || !Array.isArray(value.entryPoints) || !Array.isArray(value.nodes)
     || !Array.isArray(value.edges) || !Array.isArray(value.relatedFiles)) return undefined;
   if ('codeBlocks' in value && (!Array.isArray(value.codeBlocks) || value.codeBlocks.length > 0)) return undefined;

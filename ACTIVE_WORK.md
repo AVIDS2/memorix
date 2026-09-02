@@ -4,7 +4,7 @@
 > before resuming substantial work, update it after a material decision or
 > milestone, and do not create parallel progress logs.
 
-**Last updated:** 2026-09-01
+**Last updated:** 2026-09-02
 
 **Local verification rule:** run the frontend, HTTP service, MCP server, and
 tests directly with Node/npm on the E: workspace. Do not start Docker or add
@@ -34,6 +34,47 @@ artifacts for the VPS/hosted build path only.
   `npm run lint`, the sequential low-memory build, the full local regression,
   and all 7 remote CI checks passed. Live embedding tests remain intentionally
   skipped when their environment flag is absent.
+
+## 1.8.7 CodeGraph Main Line (2026-09-02)
+
+The release candidate is the CodeGraph foundation upgrade. Its single
+canonical plan and acceptance contract is [docs/1.8.7-CODEGRAPH.md](docs/1.8.7-CODEGRAPH.md).
+The work is deliberately split into P0 through P6:
+
+- P0: deterministic relation-accuracy and performance baseline.
+- P1: TypeScript/JavaScript/TSX AST parsing with honest Lite fallback.
+- P2: source-backed definitions, references, calls, imports/exports,
+  inheritance, and test relations.
+- P3: atomic semantic-slice updates, affected dependency closure, and failure
+  recovery.
+- P4: one task-shaped Agent context receipt instead of provider-specific
+  orchestration.
+- P5: validated SCIP/external-provider normalization without configuration
+  takeover.
+- P6: Dashboard, cross-platform, scale, precision, latency, and user-facing
+  smoke acceptance.
+
+Local development uses Node/npm directly on E:. Docker is reserved for hosted
+CI/VPS deployment and is not part of local verification.
+
+### 1.8.7 Candidate Evidence
+
+- TypeScript Compiler API indexing is persisted with source-backed symbols,
+  imports/exports, references, calls, inheritance, test edges, parser errors,
+  and bounded task context. Unsupported languages retain Lite structural facts.
+- Incremental refresh re-indexes local import dependents and replaces semantic
+  slices atomically. Compiler failure leaves Lite facts usable and reports a
+  partial/failed semantic state instead of claiming readiness.
+- The Dashboard exposes `/api/codegraph` and a separate CodeGraph health strip;
+  it does not confuse the code evidence plane with the Memory Map.
+- Local gates: `npm run lint`, sequential `npm run build`, offline lock check,
+  `316` test files passed, `3038` tests passed, stdio legacy/modern smoke,
+  modern HTTP smoke, stateless handle/restart/isolation smoke, Dashboard API
+  smoke, and a generated 100-file/1000-symbol CLI scale probe.
+- The external `@hasmcp/mcp-spec-test` runner remains not verified on this
+  Windows host because its own Node test runner passes `E:` file paths as
+  invalid ESM URLs before contacting the target. Official v2 direct tests and
+  real Memorix stdio/HTTP smoke are the release evidence for this candidate.
 
 ## Ecosystem Watch (2026-08-28)
 

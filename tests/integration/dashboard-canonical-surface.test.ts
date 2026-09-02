@@ -27,7 +27,8 @@ describe('Dashboard canonical graph surface', () => {
     ];
 
     expect(app).toContain("api('knowledge-graph')");
-    expect(app).toContain('renderSemanticGraph(kg)');
+    expect(app).toContain("api('codegraph')");
+    expect(app).toContain('renderSemanticGraph(kg, codegraph)');
     expect(app).not.toContain("api('graph')");
     expect(app).not.toContain('function renderGraph(');
     expect(app).not.toContain('cytoscape');
@@ -41,6 +42,7 @@ describe('Dashboard canonical graph surface', () => {
     expect(style).not.toContain('graph-table');
     expect(style).toContain('.team-header-right {\n    flex-wrap: wrap;');
     expect(style).toContain('@media (max-width: 1100px) and (min-width: 769px)');
+    expect(style).toContain('.codegraph-health');
 
     for (const dependency of removedRootDependencies) {
       expect(packageJson.dependencies?.[dependency], dependency).toBeUndefined();
@@ -48,6 +50,7 @@ describe('Dashboard canonical graph surface', () => {
     }
 
     expect(server).toContain("case '/graph'");
+    expect(server).toContain("case '/codegraph'");
     expect(server).toContain("case '/knowledge-graph'");
   });
 });

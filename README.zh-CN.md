@@ -72,7 +72,7 @@ Memorix 不只是一个记忆库。它还负责安装 Agent 接入、保留有�
 | Memory Autopilot | 给新 Agent session 一份有预算的任务 Workset，包含起步文件、当前记忆、来源知识、工作流首步、风险提示和验证建议。CLI 回退可用紧凑 JSON 回执，不再读取整套内部对象。 | `memorix context "..." --brief-json`、`memorix resume "..." --brief-json`、`memorix_project_context` |
 | Observation Memory | 当前 Git 项目内可检索的事实、修复、坑点、session 摘要和实现记录 | `memorix memory`、MCP memory tools |
 | 受管理的长期记忆 | 有来源证据、可审核的情景/语义/程序记忆；只有明确标为可携带的用户记忆才可在本机跨项目使用 | `memorix memory long-term` |
-| Code State 和 Code Memory | 可版本化的本地代码快照、文件 / symbol 关联和 freshness 检查。内置 Lite 会如实说明边界；已有本地索引的 CodeGraph 可额外给出有预算的语义关系，但只有新鲜时才会用于任务。 | `memorix codegraph status\|init\|sync`、自动 context refresh |
+| Code State 和 Code Memory | 可版本化的本地代码快照、来源可追溯的 TypeScript/JavaScript 符号和关系、文件 / symbol 关联及 freshness 检查。其它语言保留诚实的 Lite 兜底；已有本地 CodeGraph 或 SCIP 结果可以补充有预算的外部轮廓，但不会接管本地索引。 | `memorix codegraph status\|refresh\|init\|sync`、自动 context refresh |
 | Git Memory | 从 commit 中提取工程事实，回答改了什么、在哪里改、为什么重要 | `memorix ingest commit`、git hook |
 | Reasoning Memory | 保存设计原因、备选方案、trade-off 和风险，不让决策只留在一次聊天里 | `memorix reasoning`、memory formation |
 | Knowledge Workspace | 有审核门槛的来源证据 Claim、Markdown 知识页和规范化项目工作流；提案不会悄悄覆盖已审阅页面 | `memorix knowledge`、`memorix knowledge workflow` |

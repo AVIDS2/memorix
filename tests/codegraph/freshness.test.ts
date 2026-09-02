@@ -65,12 +65,12 @@ describe('evaluateCodeRefFreshness', () => {
     });
   });
 
-  it('marks a reference stale when its captured symbol is gone or changed', () => {
+  it('marks a reference stale when its captured symbol is gone and suspect when it changed', () => {
     expect(evaluateCodeRefFreshness(ref(), file(), undefined)).toMatchObject({
       status: 'stale',
     });
     expect(evaluateCodeRefFreshness(ref(), file(), symbol({ contentHash: 'new-symbol-hash' }))).toMatchObject({
-      status: 'stale',
+      status: 'suspect',
     });
   });
 });

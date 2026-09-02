@@ -134,17 +134,30 @@ function collectGraph(
   const sources: ProjectContextSource[] = [];
   const suggestedReads: string[] = [];
 
+  const severity: Record<CodeRefStatus, number> = { current: 1, suspect: 2, stale: 3, unbound: 0 };
+  const grouped = new Map<number, {
+    observation: ProjectContextObservation;
+    file?: CodeFile;
+    symbol?: CodeSymbol;
+    result: ReturnType<typeof evaluateCodeRefFreshness>;
+  }>();
   for (const ref of refs) {
     const file = ref.fileId ? filesById.get(ref.fileId) : undefined;
     const symbol = ref.symbolId ? symbolsById.get(ref.symbolId) : undefined;
     const result = evaluateCodeRefFreshness(ref, file, symbol);
-    freshness[result.status] += 1;
-
     const observation = observationsById.get(ref.observationId);
     if (!observation) continue;
-    const excluded = file ? isCodeGraphExcludedPath(file.path, exclude) : false;
-    if (result.status === 'current' && file && !excluded) suggestedReads.push(file.path);
-    if (excluded) continue;
+    const existing = grouped.get(ref.observationId);
+    if (!existing || severity[result.status] > severity[existing.result.status]
+      || (severity[result.status] === severity[existing.result.status] && symbol && !existing.symbol)) {
+      grouped.set(ref.observationId, { observation, file, symbol, result });
+    }
+  }
+
+  for (const { observation, file, symbol, result } of grouped.values()) {
+    freshness[result.status] += 1;
+    if (file && isCodeGraphExcludedPath(file.path, exclude)) continue;
+    if (result.status === 'current' && file) suggestedReads.push(file.path);
     sources.push({
       observationId: observation.id,
       title: observation.title,

@@ -79,10 +79,31 @@ function headers(extra = {}) {
 }
 
 async function rpc(port, body, extraHeaders = {}) {
+  const modern = extraHeaders['Mcp-Protocol-Version'] === '2026-07-28';
+  const requestHeaders = headers({
+    ...extraHeaders,
+    ...(modern ? { 'Mcp-Method': body.method } : {}),
+    ...(modern && body.method === 'tools/call' && typeof body.params?.name === 'string'
+      ? { 'Mcp-Name': body.params.name }
+      : {}),
+  });
+  const requestBody = modern
+    ? {
+      ...body,
+      params: {
+        ...(body.params && typeof body.params === 'object' ? body.params : {}),
+        _meta: {
+          'io.modelcontextprotocol/protocolVersion': '2026-07-28',
+          'io.modelcontextprotocol/clientInfo': { name: 'memorix-stateless-http-smoke', version: '1' },
+          'io.modelcontextprotocol/clientCapabilities': {},
+        },
+      },
+    }
+    : body;
   const response = await fetch(`http://127.0.0.1:${port}/mcp`, {
     method: 'POST',
-    headers: headers(extraHeaders),
-    body: JSON.stringify(body),
+    headers: requestHeaders,
+    body: JSON.stringify(requestBody),
   });
   const text = await response.text();
   let json;
@@ -107,14 +128,18 @@ try {
   await fakeGit(projectB, 'https://github.com/example/context-b.git');
   server = await start();
 
+  const codegraphResponse = await fetch(`http://127.0.0.1:${server.port}/api/codegraph?project=${encodeURIComponent('example/context-a')}`);
+  const codegraphStatus = await codegraphResponse.json();
+  assert(codegraphResponse.ok && codegraphStatus.projectId === 'example/context-a', 'Dashboard CodeGraph status endpoint failed');
+
   const protocol = { 'Mcp-Protocol-Version': '2026-07-28' };
-  const statelessInit = await rpc(server.port, {
-    jsonrpc: '2.0', method: 'initialize', id: 1,
-    params: { protocolVersion: '2026-07-28', capabilities: {}, clientInfo: { name: 'smoke', version: '1' } },
+  const statelessDiscover = await rpc(server.port, {
+    jsonrpc: '2.0', method: 'server/discover', id: 1,
+    params: { _meta: { 'io.modelcontextprotocol/protocolVersion': '2026-07-28', 'io.modelcontextprotocol/clientInfo': { name: 'smoke', version: '1' }, 'io.modelcontextprotocol/clientCapabilities': {} } },
   }, { ...protocol, 'Mcp-Project-Root': projectA, 'Mcp-Stateless': 'true' });
-  assert(statelessInit.response.ok, `stateless initialize failed: ${statelessInit.text}`);
-  const handleA = statelessInit.response.headers.get('mcp-project-handle');
-  assert(handleA?.startsWith('mxh_'), 'stateless initialize did not return a durable project handle');
+  assert(statelessDiscover.response.ok, `stateless discovery failed: ${statelessDiscover.text}`);
+  const handleA = statelessDiscover.response.headers.get('mcp-project-handle');
+  assert(handleA?.startsWith('mxh_'), 'modern discovery did not return a durable project handle extension');
 
   const listA = await rpc(server.port, { jsonrpc: '2.0', method: 'tools/list', id: 2 }, { ...protocol, 'Mcp-Project-Handle': handleA });
   assert(listA.response.ok && listA.json?.result?.tools?.some(tool => tool.name === 'memorix_evidence'), `stateless follow-up did not expose Evidence tool: ${listA.text}`);
@@ -131,12 +156,13 @@ try {
   }, { ...protocol, 'Mcp-Project-Handle': handleA });
   assert(!joinedA.json?.result?.isError, `project A team join failed: ${joinedA.text}`);
 
-  const statelessInitB = await rpc(server.port, {
-    jsonrpc: '2.0', method: 'initialize', id: 5,
-    params: { protocolVersion: '2026-07-28', capabilities: {}, clientInfo: { name: 'smoke-b', version: '1' } },
+  const statelessDiscoverB = await rpc(server.port, {
+    jsonrpc: '2.0', method: 'server/discover', id: 5,
+    params: { _meta: { 'io.modelcontextprotocol/protocolVersion': '2026-07-28', 'io.modelcontextprotocol/clientInfo': { name: 'smoke-b', version: '1' }, 'io.modelcontextprotocol/clientCapabilities': {} } },
   }, { ...protocol, 'Mcp-Project-Root': projectB, 'Mcp-Stateless': 'true' });
-  const handleB = statelessInitB.response.headers.get('mcp-project-handle');
-  assert(handleB?.startsWith('mxh_'), 'project B did not receive a handle');
+  assert(statelessDiscoverB.response.ok, `project B discovery failed: ${statelessDiscoverB.text}`);
+  const handleB = statelessDiscoverB.response.headers.get('mcp-project-handle');
+  assert(handleB?.startsWith('mxh_'), 'project B did not receive a handle extension');
   const joinedB = await rpc(server.port, {
     jsonrpc: '2.0', method: 'tools/call', id: 6,
     params: { name: 'team_manage', arguments: { action: 'join', name: 'agent-b', agentType: 'codex', instanceId: 'smoke-b' } },

@@ -25,6 +25,7 @@ describe('stateless MCP project handles', () => {
     await reopened.init(tempDir);
     expect(reopened.get(binding.handleId)?.projectId).toBe('org/project');
     expect(reopened.touch(binding.handleId)?.lastUsedAt).toBeTruthy();
+    expect(reopened.findByProjectRoot('C:/repo')?.handleId).toBe(binding.handleId);
     const expiring = reopened.create({ projectId: 'org/old', projectRoot: 'C:/old', dataDir: 'C:/old-data', ttlMs: 50 });
     expect(reopened.get(expiring.handleId)).toBeDefined();
     await new Promise(resolve => setTimeout(resolve, 75));

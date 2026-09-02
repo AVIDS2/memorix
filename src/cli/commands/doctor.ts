@@ -353,8 +353,10 @@ export default defineCommand({
         const { buildProjectContextOverview } = await import('../../codegraph/project-context.js');
         const { getResolvedConfig } = await import('../../config/resolved-config.js');
         const { inspectExternalCodeGraph } = await import('../../codegraph/external-provider.js');
+        const { qualityWithPersistedSemantic } = await import('../../codegraph/semantic-context.js');
         const codeStore = new CodeGraphStore();
         await codeStore.init(dataDir);
+        const codeStatus = codeStore.status(projectId);
         const codegraphConfig = getResolvedConfig({ projectRoot: projectRoot || process.cwd() }).codegraph;
         const exclude = codegraphConfig.excludePatterns;
         const overview = buildProjectContextOverview({
@@ -376,6 +378,7 @@ export default defineCommand({
           command: codegraphConfig.externalCommand,
           timeoutMs: codegraphConfig.externalTimeoutMs,
         });
+        const effectiveProviderQuality = qualityWithPersistedSemantic(providerQuality.quality, codeStatus);
 
         if (overview.code.files > 0) {
           lines.push(ok(`Code memory: ${overview.code.files} files, ${overview.code.symbols} symbols, ${overview.code.refs} memory links`));
@@ -386,8 +389,11 @@ export default defineCommand({
         }
 
         lines.push(info(
-          `Code provider: Lite durable index; external semantic graph ${providerQuality.health.state}`,
+          `Code provider: ${effectiveProviderQuality.semantic.state} semantic layer (${codeStatus.semanticSymbols} symbols, ${codeStatus.semanticEdges} edges); external graph ${providerQuality.health.state}`,
         ));
+        if (codeStatus.parserErrors > 0) {
+          lines.push(warn(`CodeGraph parser errors: ${codeStatus.parserErrors}; semantic context is partial until refresh succeeds.`));
+        }
         if (providerQuality.health.state !== 'ready'
           && providerQuality.health.state !== 'not-detected'
           && providerQuality.health.state !== 'disabled') {
@@ -412,7 +418,10 @@ export default defineCommand({
           refs: overview.code.refs,
           languages: overview.code.languages,
           freshness: overview.freshness,
-          providerQuality: providerQuality.quality,
+          semanticSymbols: codeStatus.semanticSymbols,
+          semanticEdges: codeStatus.semanticEdges,
+          parserErrors: codeStatus.parserErrors,
+          providerQuality: effectiveProviderQuality,
           ...(overview.code.indexedAt ? { indexedAt: overview.code.indexedAt } : {}),
         };
       } catch (e) {

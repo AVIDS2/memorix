@@ -4,6 +4,39 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.8.7] - 2026-09-02
+
+### Added
+- **CodeGraph semantic foundation** -- adds a TypeScript Compiler API provider
+  for source-backed TypeScript, TSX, and JavaScript symbols, imports/exports,
+  references, calls, inheritance, and test relations. Unsupported languages
+  keep the bounded Lite structural fallback.
+- **Unified CodeGraph evidence** -- persists fact provenance, parser errors,
+  semantic coverage, affected import dependents, and bounded task context so
+  agents can tell verified relations from heuristic hints.
+- **SCIP boundary and Dashboard health** -- accepts bounded `scip print --json`
+  outlines through the validated external-provider boundary and exposes
+  read-only CodeGraph coverage in CLI doctor, HTTP, and the Dashboard without
+  installing or taking over external indexes.
+- **Reproducible scale probe** -- adds an opt-in generated fixture benchmark
+  for measuring public CLI refresh and status latency under an explicit E:
+  temporary directory.
+
+### Fixed
+- **Incremental semantic refresh** -- re-indexes local import dependents when
+  a changed file can alter their resolved relations, replaces each semantic
+  slice atomically, and records a visible partial/failed state instead of
+  claiming a ready graph after compiler failure.
+- **Code context precision** -- unrelated symbols no longer enter semantic
+  task context merely because they are functions, and freshness counts no
+  longer duplicate file and symbol references for one memory.
+- **Modern HTTP project binding** -- the stateless `server/discover` path now
+  offers a reusable Memorix project-handle extension after verifying the Git
+  root; legacy `initialize` sessions remain unchanged.
+- **Published runtime boundary** -- TypeScript is a production dependency and
+  remains external to the bundle so the semantic provider works after npm
+  installation without inflating the runtime artifact.
+
 ## [1.8.6] - 2026-09-01
 
 ### Added

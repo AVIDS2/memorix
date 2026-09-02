@@ -244,6 +244,8 @@ CREATE TABLE IF NOT EXISTS code_files (
   sizeBytes       INTEGER,
   indexedAt       TEXT NOT NULL,
   gitCommit       TEXT,
+  source          TEXT,
+  parserError     TEXT,
   UNIQUE(projectId, path)
 );
 `;
@@ -263,6 +265,7 @@ CREATE TABLE IF NOT EXISTS code_symbols (
   contentHash     TEXT,
   indexedAt       TEXT NOT NULL,
   stale           INTEGER NOT NULL DEFAULT 0,
+  source          TEXT,
   UNIQUE(projectId, fileId, qualifiedName, kind)
 );
 `;
@@ -278,6 +281,7 @@ CREATE TABLE IF NOT EXISTS code_edges (
   type            TEXT NOT NULL,
   confidence      REAL NOT NULL DEFAULT 1.0,
   evidence        TEXT,
+  source          TEXT,
   indexedAt       TEXT NOT NULL
 );
 `;
@@ -1069,6 +1073,15 @@ const SCHEMA_MIGRATIONS: SchemaMigration[] = [
       db.exec('CREATE INDEX IF NOT EXISTS idx_memory_feedback_states_project ON memory_feedback_states(project_id, candidate_kind, updated_at DESC)');
       db.exec('CREATE INDEX IF NOT EXISTS idx_memory_feedback_events_candidate ON memory_feedback_events(project_id, candidate_kind, candidate_id, observed_at DESC)');
       db.exec('CREATE INDEX IF NOT EXISTS idx_mcp_bindings_project ON mcp_bindings(project_id, last_used_at DESC)');
+    },
+  },
+  {
+    id: '1.8.7-codegraph-evidence',
+    apply: (db) => {
+      addColumnIfMissing(db, 'code_files', 'source', 'source TEXT');
+      addColumnIfMissing(db, 'code_files', 'parserError', 'parserError TEXT');
+      addColumnIfMissing(db, 'code_symbols', 'source', 'source TEXT');
+      addColumnIfMissing(db, 'code_edges', 'source', 'source TEXT');
     },
   },
 ];

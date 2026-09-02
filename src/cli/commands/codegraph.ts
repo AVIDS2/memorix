@@ -6,6 +6,7 @@ import { backfillMissingObservationCodeRefs } from '../../codegraph/binder.js';
 import { collectCurrentProjectFacts, formatGitFact } from '../../codegraph/current-facts.js';
 import { resolveTaskLens } from '../../codegraph/task-lens.js';
 import { getExternalCodeGraphContext, inspectExternalCodeGraph, runExternalCodeGraphLifecycle } from '../../codegraph/external-provider.js';
+import { qualityWithPersistedSemantic } from '../../codegraph/semantic-context.js';
 import type { CodeGraphProviderQuality } from '../../codegraph/types.js';
 import { getResolvedConfig } from '../../config/resolved-config.js';
 import { buildBoundedContextReceipt } from '../../knowledge/context-receipt.js';
@@ -38,6 +39,11 @@ function formatSnapshotStatus(status: ReturnType<CodeGraphStore['status']>): str
 }
 
 function formatStatus(status: ReturnType<CodeGraphStore['status']>, quality?: CodeGraphProviderQuality): string {
+  const persistentProvider = quality?.semantic.state === 'ready'
+    ? `semantic (${quality.semantic.symbols} symbols, ${quality.semantic.edges} edges)`
+    : quality?.semantic.state === 'partial'
+      ? `semantic partial (${quality.semantic.symbols} symbols, ${quality.semantic.edges} edges)`
+      : `${status.provider} (heuristic local index)`;
   return [
     ...formatSnapshotStatus(status),
     `CodeGraph Memory: ${status.provider}`,
@@ -48,7 +54,8 @@ function formatStatus(status: ReturnType<CodeGraphStore['status']>, quality?: Co
     status.indexedAt ? `- Indexed at: ${status.indexedAt}` : '- Indexed at: never',
     ...(quality
       ? [
-        `- Persistent provider: ${status.provider} (heuristic local index)`,
+        `- Persistent provider: ${persistentProvider}`,
+        `- Semantic parser errors: ${quality.semantic.parserErrors}`,
         `- External semantic CodeGraph: ${quality.external.state}`
           + (quality.external.reason ? ` (${quality.external.reason})` : ''),
         `- Task-scoped provider: ${quality.selected} (${quality.selectedQuality})`,
@@ -142,6 +149,7 @@ export default defineCommand({
     from: { type: 'string', description: 'Earlier CodeGraph snapshot id for diff' },
     to: { type: 'string', description: 'Later CodeGraph snapshot id for diff' },
     impactLimit: { type: 'string', description: 'Maximum graph relations to inspect for diff impact' },
+    maxFiles: { type: 'string', description: 'Maximum files to scan during refresh' },
     agent: { type: 'string', description: 'Optional target agent for compatible workflow selection' },
     json: { type: 'boolean', description: 'Emit machine-readable JSON output' },
     briefJson: { type: 'boolean', description: 'Emit only the bounded agent brief and receipt JSON for context-pack' },
@@ -168,10 +176,11 @@ export default defineCommand({
             command: codegraphConfig.externalCommand,
             timeoutMs: codegraphConfig.externalTimeoutMs,
           });
+          const effectiveQuality = qualityWithPersistedSemantic(providerQuality.quality, status);
           const text = explicitAction || asJson
-            ? formatStatus(status, providerQuality.quality)
-            : `${formatStatus(status, providerQuality.quality)}\n\n${formatUsageHint()}`;
-          emitResult({ project, status, providerQuality: providerQuality.quality }, text, asJson);
+            ? formatStatus(status, effectiveQuality)
+            : `${formatStatus(status, effectiveQuality)}\n\n${formatUsageHint()}`;
+          emitResult({ project, status, providerQuality: effectiveQuality }, text, asJson);
           return;
         }
 
@@ -180,6 +189,7 @@ export default defineCommand({
             projectId: project.id,
             projectRoot: project.rootPath,
             exclude,
+            ...(args.maxFiles ? { maxFiles: parsePositiveInt(args.maxFiles as string, 5000) } : {}),
             maxFileBytes: codegraphConfig.maxFileBytes,
           });
           const activeObservations = getAllObservations()
@@ -207,11 +217,12 @@ export default defineCommand({
             command: codegraphConfig.externalCommand,
             timeoutMs: codegraphConfig.externalTimeoutMs,
           });
+          const effectiveQuality = qualityWithPersistedSemantic(providerQuality.quality, status);
           emitResult(
-            { project, status, providerQuality: providerQuality.quality, refresh, backfill },
+            { project, status, providerQuality: effectiveQuality, refresh, backfill },
             [
               'CodeGraph Memory refreshed.',
-              formatStatus(status, providerQuality.quality),
+              formatStatus(status, effectiveQuality),
               `- Files: ${refresh.changedFiles} changed, ${refresh.unchangedFiles} unchanged, ${refresh.removedFiles} removed`,
               `- Backfilled memories: ${backfill.observationsBackfilled}`,
               `- Backfilled refs: ${backfill.refsBackfilled}`,
@@ -230,12 +241,14 @@ export default defineCommand({
             command: codegraphConfig.externalCommand,
             timeoutMs: codegraphConfig.externalTimeoutMs,
           });
+          const lifecycleStatus = store.status(project.id);
+          const effectiveQuality = qualityWithPersistedSemantic(lifecycle.quality, lifecycleStatus);
           emitResult(
-            { project, lifecycle, providerQuality: lifecycle.quality },
+            { project, lifecycle, providerQuality: effectiveQuality },
             [
               lifecycle.message,
               `- External semantic CodeGraph: ${lifecycle.health.state}`,
-              `- Task-scoped provider: ${lifecycle.quality.selected} (${lifecycle.quality.selectedQuality})`,
+              `- Task-scoped provider: ${effectiveQuality.selected} (${effectiveQuality.selectedQuality})`,
             ].join('\n'),
             asJson,
           );
@@ -309,6 +322,7 @@ export default defineCommand({
             command: codegraphConfig.externalCommand,
             timeoutMs: codegraphConfig.externalTimeoutMs,
           });
+          const effectiveQuality = qualityWithPersistedSemantic(external.quality, status);
           const pack = await attachTaskWorkset({
             pack: basePack,
             projectId: project.id,
@@ -330,7 +344,7 @@ export default defineCommand({
               }
               : {}),
             ...(external.outline ? { semanticCode: external.outline } : {}),
-            providerQuality: external.quality,
+            providerQuality: effectiveQuality,
             ...(external.caution
               ? { runtimeCautions: [{ kind: 'external-codegraph-fallback' as const, message: external.caution }] }
               : {}),
@@ -339,8 +353,8 @@ export default defineCommand({
           });
           emitResult(
             args.briefJson && pack.workset
-              ? buildBoundedContextReceipt({ workset: pack.workset, providerQuality: external.quality })
-              : { project, pack, providerQuality: external.quality },
+              ? buildBoundedContextReceipt({ workset: pack.workset, providerQuality: effectiveQuality })
+              : { project, pack, providerQuality: effectiveQuality },
             buildContextPackPrompt(pack),
             asJson,
           );

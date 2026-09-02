@@ -1,4 +1,8 @@
 export type CodeGraphProviderKind = 'external' | 'lite';
+export type CodeGraphEvidenceProvider = 'lite' | 'semantic' | 'external';
+
+/** The component that produced a persisted code fact. */
+export type CodeEvidenceSource = 'lite-regex' | 'typescript-compiler' | 'scip' | 'external';
 
 export type CodeRefStatus = 'current' | 'suspect' | 'stale' | 'unbound';
 
@@ -10,6 +14,7 @@ export type CodeSymbolKind =
   | 'type'
   | 'component'
   | 'constant'
+  | 'property'
   | 'route'
   | 'unknown';
 
@@ -19,6 +24,8 @@ export type CodeEdgeType =
   | 'calls'
   | 'defines'
   | 'tests'
+  | 'extends'
+  | 'implements'
   | 'routes_to'
   | 'references';
 
@@ -32,6 +39,8 @@ export interface CodeFile {
   sizeBytes?: number;
   indexedAt: string;
   gitCommit?: string;
+  source?: CodeEvidenceSource;
+  parserError?: string;
   snapshotId?: string;
   sourceEpoch?: number;
 }
@@ -50,6 +59,7 @@ export interface CodeSymbol {
   contentHash?: string;
   indexedAt: string;
   stale?: boolean;
+  source?: CodeEvidenceSource;
   snapshotId?: string;
   sourceEpoch?: number;
 }
@@ -64,6 +74,7 @@ export interface CodeEdge {
   type: CodeEdgeType;
   confidence: number;
   evidence?: string;
+  source?: CodeEvidenceSource;
   indexedAt: string;
   snapshotId?: string;
   sourceEpoch?: number;
@@ -162,6 +173,9 @@ export interface CodeGraphStatus {
   symbols: number;
   edges: number;
   refs: number;
+  semanticSymbols: number;
+  semanticEdges: number;
+  parserErrors: number;
   indexedAt?: string;
   latestSnapshot?: CodeStateSnapshot;
 }
@@ -195,7 +209,7 @@ export interface ExternalCodeGraphHealth {
 
 export interface CodeGraphProviderQuality {
   /** Provider that contributed task-scoped code evidence to this response. */
-  selected: CodeGraphProviderKind;
+  selected: CodeGraphEvidenceProvider;
   /** Lite is heuristic; external outlines are only semantic after validation. */
   selectedQuality: 'heuristic' | 'semantic';
   mode: CodeGraphExternalMode;
@@ -212,6 +226,12 @@ export interface CodeGraphProviderQuality {
     supportedLanguages: string[];
   };
   external: ExternalCodeGraphHealth;
+  semantic: {
+    state: 'not-indexed' | 'ready' | 'partial';
+    symbols: number;
+    edges: number;
+    parserErrors: number;
+  };
 }
 
 export interface ExternalCodeGraphSymbol {
@@ -233,8 +253,8 @@ export interface ExternalCodeGraphRelation {
 }
 
 /** A bounded, non-source-code semantic outline returned for one task. */
-export interface ExternalCodeGraphOutline {
-  provider: 'external';
+export interface CodeGraphOutline {
+  provider: 'semantic' | 'external';
   entryPoints: ExternalCodeGraphSymbol[];
   relations: ExternalCodeGraphRelation[];
   relatedFiles: string[];
@@ -244,3 +264,5 @@ export interface ExternalCodeGraphOutline {
     files: number;
   };
 }
+
+export type ExternalCodeGraphOutline = CodeGraphOutline & { provider: 'external' };

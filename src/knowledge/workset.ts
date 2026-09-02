@@ -19,7 +19,7 @@ import type {
   ContextReceiptOmission,
   ContextReceiptSelection,
 } from './context-assembly.js';
-import type { CodeGraphProviderQuality, ExternalCodeGraphOutline } from '../codegraph/types.js';
+import type { CodeGraphOutline, CodeGraphProviderQuality } from '../codegraph/types.js';
 import type { KnowledgeClaim, ClaimEvidenceRef } from './types.js';
 import type { KnowledgePageRecord, KnowledgeWorkspace } from './workspace-types.js';
 import type { WorkflowSelection } from './workflow-types.js';
@@ -161,7 +161,7 @@ export interface TaskWorkset {
   codeEvolution?: WorksetCodeEvolution;
   startHere: string[];
   /** Bounded task-specific relations from a validated local semantic graph. */
-  semanticCode?: ExternalCodeGraphOutline;
+  semanticCode?: CodeGraphOutline;
   reliableMemory: WorksetMemorySource[];
   cautionMemory: WorksetMemorySource[];
   hiddenCautionMemoryCount: number;
@@ -201,7 +201,7 @@ export interface BuildTaskWorksetInput {
   codeState?: string;
   codeEvolution?: WorksetCodeEvolution;
   startHere: string[];
-  semanticCode?: ExternalCodeGraphOutline;
+  semanticCode?: CodeGraphOutline;
   providerQuality?: CodeGraphProviderQuality;
   reliableMemory?: WorksetMemorySource[];
   cautionMemory?: WorksetMemorySource[];
@@ -732,47 +732,6 @@ export function renderTaskWorksetPrompt(input: Omit<TaskWorkset, 'prompt' | 'bud
     }
   }
 
-  if (input.semanticCode && (input.semanticCode.entryPoints.length > 0 || input.semanticCode.relations.length > 0)) {
-    appendLine(lines, '', maxTokens, omitted, 'semantic-code-heading');
-    appendLine(lines, 'Semantic code outline', maxTokens, omitted, 'semantic-code-heading');
-    for (const relation of input.semanticCode.relations.slice(0, 2)) {
-      const location = relation.from.path + (relation.line ? ':' + relation.line : '');
-      appendLine(
-        lines,
-        '- ' + location + ': ' + short(relation.from.name, 12) + ' ' + short(relation.kind, 8) + ' ' + short(relation.to.name, 12),
-        maxTokens,
-        omitted,
-        'semantic-relation',
-        selected,
-        {
-          kind: 'semantic-code',
-          id: 'code:' + location,
-          reason: 'validated optional semantic code relation',
-          trust: 'derived',
-        },
-      );
-    }
-    if (input.semanticCode.relations.length === 0) {
-      for (const entry of input.semanticCode.entryPoints.slice(0, 2)) {
-        const location = entry.path + (entry.startLine ? ':' + entry.startLine : '');
-        appendLine(
-          lines,
-          '- ' + location + ': ' + short(entry.name, 16) + ' (' + short(entry.kind, 8) + ')',
-          maxTokens,
-          omitted,
-          'semantic-entry',
-          selected,
-          {
-            kind: 'semantic-code',
-            id: 'code:' + location,
-            reason: 'validated optional semantic code entry point',
-            trust: 'derived',
-          },
-        );
-      }
-    }
-  }
-
   if (input.startHere.length > 0) {
     appendLine(lines, '', maxTokens, omitted, 'start-heading');
     appendLine(lines, 'Start here', maxTokens, omitted, 'start-heading');
@@ -907,6 +866,49 @@ export function renderTaskWorksetPrompt(input: Omit<TaskWorkset, 'prompt' | 'bud
         reason: 'task-lensed verification guidance',
         trust: 'derived',
       });
+    }
+  }
+
+  // Semantic structure is useful, but it must never evict the task, current
+  // facts, warnings, or reliable memory from a small Agent budget.
+  if (input.semanticCode && (input.semanticCode.entryPoints.length > 0 || input.semanticCode.relations.length > 0)) {
+    appendLine(lines, '', maxTokens, omitted, 'semantic-code-heading');
+    appendLine(lines, 'Semantic code outline', maxTokens, omitted, 'semantic-code-heading');
+    for (const relation of input.semanticCode.relations.slice(0, 2)) {
+      const location = relation.from.path + (relation.line ? ':' + relation.line : '');
+      appendLine(
+        lines,
+        '- ' + location + ': ' + short(relation.from.name, 12) + ' ' + short(relation.kind, 8) + ' ' + short(relation.to.name, 12),
+        maxTokens,
+        omitted,
+        'semantic-relation',
+        selected,
+        {
+          kind: 'semantic-code',
+          id: 'code:' + location,
+          reason: 'validated semantic code relation',
+          trust: 'derived',
+        },
+      );
+    }
+    if (input.semanticCode.relations.length === 0) {
+      for (const entry of input.semanticCode.entryPoints.slice(0, 2)) {
+        const location = entry.path + (entry.startLine ? ':' + entry.startLine : '');
+        appendLine(
+          lines,
+          '- ' + location + ': ' + short(entry.name, 16) + ' (' + short(entry.kind, 8) + ')',
+          maxTokens,
+          omitted,
+          'semantic-entry',
+          selected,
+          {
+            kind: 'semantic-code',
+            id: 'code:' + location,
+            reason: 'validated semantic code entry point',
+            trust: 'derived',
+          },
+        );
+      }
     }
   }
 

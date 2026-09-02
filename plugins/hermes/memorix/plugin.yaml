@@ -1,5 +1,5 @@
 name: memorix
-version: "1.8.6"
+version: "1.8.7"
 description: Shared workspace memory bridge for Hermes Agent.
 author: AVIDS2
 license: Apache-2.0

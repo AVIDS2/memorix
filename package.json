@@ -1,7 +1,7 @@
 {
   "name": "memorix",
   "mcpName": "io.github.AVIDS2/memorix",
-  "version": "1.8.6",
+  "version": "1.8.7",
   "description": "Local-first shared memory layer for AI coding agents across MCP clients, Git history, reasoning context, and project sessions.",
   "type": "module",
   "sideEffects": false,
@@ -74,6 +74,7 @@
     "test:llm-live": "MEMORIX_RUN_LIVE_LLM_TESTS=1 vitest run tests/integration/formation-llm-quality.test.ts",
     "test:e2e": "vitest run tests/e2e/",
     "benchmark:codegraph": "node scripts/benchmark-codegraph-provider.cjs",
+    "benchmark:codegraph:scale": "node scripts/benchmark-codegraph-scale.mjs",
     "benchmark:retrieval": "npm run build && node scripts/benchmark-retrieval.mjs",
     "gate:large-store": "npm run build && node scripts/large-store-gate.mjs",
     "generate:star-history": "node scripts/generate-star-history.mjs",
@@ -149,6 +150,7 @@
     "react": "19.2.7",
     "unpdf": "^1.8.0",
     "yaml": "2.9.0",
+    "typescript": "^5.7.0",
     "zod": "^3.24.0"
   },
   "optionalDependencies": {
@@ -179,7 +181,6 @@
     "@types/react": "19.2.7",
     "ink-testing-library": "^4.0.0",
     "tsup": "^8.4.0",
-    "typescript": "^5.7.0",
     "vitest": "3.2.6"
   }
 }

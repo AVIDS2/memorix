@@ -96,7 +96,8 @@ describe('codegraph CLI command', () => {
     const refreshJson = JSON.parse(refreshed.stdout);
     expect(refreshJson.status.files).toBe(2);
     expect(refreshJson.status.symbols).toBe(2);
-    expect(refreshJson.status.edges).toBe(1);
+    expect(refreshJson.status.edges).toBeGreaterThanOrEqual(3);
+    expect(refreshJson.status.semanticEdges).toBeGreaterThanOrEqual(2);
     expect(refreshJson.refresh.snapshot).toMatchObject({
       sourceEpoch: 1,
       worktreeState: 'dirty',
@@ -109,7 +110,8 @@ describe('codegraph CLI command', () => {
       provider: 'lite',
       files: 2,
       symbols: 2,
-      edges: 1,
+      edges: expect.any(Number),
+      semanticEdges: expect.any(Number),
     });
     expect(statusJson.status.latestSnapshot).toMatchObject({
       sourceEpoch: 1,
@@ -159,7 +161,7 @@ describe('codegraph CLI command', () => {
       changedPaths: ['src/auth.ts'],
       directlyConnectedPaths: ['src/jwt.ts'],
       relationCount: 1,
-      truncated: false,
+      truncated: true,
     });
   });
 

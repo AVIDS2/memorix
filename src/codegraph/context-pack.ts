@@ -3,13 +3,14 @@ import { buildTaskWorkset, type TaskWorkset, type WorksetCaution } from '../know
 import type {
   CodeFile,
   CodeGraphProviderQuality,
+  CodeGraphOutline,
   CodeRefStatus,
   CodeSymbol,
-  ExternalCodeGraphOutline,
   ObservationCodeRef,
 } from './types.js';
 import type { CodeGraphStore } from './store.js';
 import { isCodeGraphExcludedPath } from './exclude.js';
+import { buildSemanticContext } from './semantic-context.js';
 import type { AgentTarget, ObservationReader } from '../types.js';
 
 export interface ContextPackMemory {
@@ -43,6 +44,7 @@ export interface ContextPack {
   warnings: ContextPackWarning[];
   suggestedReads: string[];
   suggestedVerification: string[];
+  semanticCode?: CodeGraphOutline;
   /** 1.2 bounded task selection, added without removing legacy pack fields. */
   workset?: TaskWorkset;
 }
@@ -67,6 +69,7 @@ export interface AssembleContextPackInput {
   symbols: CodeSymbol[];
   suggestedVerification?: string[];
   exclude?: string[];
+  semanticCode?: CodeGraphOutline;
 }
 
 function uniq<T>(items: T[]): T[] {
@@ -151,6 +154,14 @@ export function assembleContextPackForTask(input: {
   const fileIds = new Set(refs.map(ref => ref.fileId).filter(Boolean));
   const files = input.store.listFiles(input.projectId).filter(file => fileIds.has(file.id));
   const symbols = files.flatMap(file => input.store.listSymbolsForFile(file.id));
+  const semanticCode = buildSemanticContext({
+    store: input.store,
+    projectId: input.projectId,
+    task: input.task,
+    preferredPaths: files.map(file => file.path),
+    maxNodes: 8,
+    maxEdges: 12,
+  });
 
   return assembleContextPack({
     task: input.task,
@@ -160,6 +171,7 @@ export function assembleContextPackForTask(input: {
     symbols,
     suggestedVerification: input.suggestedVerification,
     exclude: input.exclude,
+    ...(semanticCode ? { semanticCode } : {}),
   });
 }
 
@@ -252,6 +264,7 @@ export function assembleContextPack(input: AssembleContextPackInput): ContextPac
       hasWarnings: warnings.length > 0,
       hasUnboundMemories: unboundMemories.length > 0,
     }),
+    ...(input.semanticCode ? { semanticCode: input.semanticCode } : {}),
   };
 }
 
@@ -274,14 +287,15 @@ export async function attachTaskWorkset(input: {
     worktreeState?: 'clean' | 'dirty' | 'unavailable';
     incomplete?: boolean;
   };
-  semanticCode?: ExternalCodeGraphOutline;
+  semanticCode?: CodeGraphOutline;
   providerQuality?: CodeGraphProviderQuality;
   runtimeCautions?: WorksetCaution[];
   reader?: ObservationReader;
   agent?: AgentTarget;
 }): Promise<ContextPack> {
-  const semanticStartHere = input.semanticCode
-    ? [...input.semanticCode.relatedFiles, ...input.semanticCode.entryPoints.map(entry => entry.path)]
+  const semanticCode = input.semanticCode ?? input.pack.semanticCode;
+  const semanticStartHere = semanticCode
+    ? semanticCode.entryPoints.map(entry => entry.path)
     : [];
   const workset = await buildTaskWorkset({
     projectId: input.projectId,
@@ -292,7 +306,7 @@ export async function attachTaskWorkset(input: {
     currentFacts: input.currentFacts ?? [],
     ...(input.codeState ? { codeState: input.codeState } : {}),
     startHere: uniq([...semanticStartHere, ...input.pack.suggestedReads]),
-    ...(input.semanticCode ? { semanticCode: input.semanticCode } : {}),
+    ...(semanticCode ? { semanticCode } : {}),
     ...(input.providerQuality ? { providerQuality: input.providerQuality } : {}),
     reliableMemory: input.pack.memories
       .filter(memory => memory.status === 'current')
@@ -323,7 +337,7 @@ export async function attachTaskWorkset(input: {
     ...(input.reader ? { reader: input.reader } : {}),
     deliveryTarget: 'context-pack',
   });
-  return { ...input.pack, workset };
+  return { ...input.pack, ...(semanticCode ? { semanticCode } : {}), workset };
 }
 
 export function buildContextPackPrompt(pack: ContextPack): string {

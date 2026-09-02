@@ -25,8 +25,9 @@ export const cliExternal = [
   '@modelcontextprotocol/server',
   '@modelcontextprotocol/server/stdio',
   '@modelcontextprotocol/node',
+  'typescript',
 ];
 
 export const cliNoExternal = [
-  /^(?!(fastembed|@huggingface\/transformers|better-sqlite3|ink|react|yoga-wasm-web|@silvia-odwyer\/photon-node|@memorix\/memcode|@modelcontextprotocol\/(server|node)))/,
+  /^(?!(?:fastembed|@huggingface\/transformers|better-sqlite3|ink|react|yoga-wasm-web|@silvia-odwyer\/photon-node|@memorix\/memcode|@modelcontextprotocol\/(?:server|node)|typescript))/,
 ];

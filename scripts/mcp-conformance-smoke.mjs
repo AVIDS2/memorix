@@ -12,15 +12,12 @@ await mkdir(tempBase, { recursive: true })
 const tempRoot = await mkdtemp(path.join(tempBase, 'memorix-mcp-conformance-'))
 const project = path.join(tempRoot, 'project')
 const dataDir = path.join(tempRoot, 'data')
-// mcp-spec-test currently feeds --output-folder into a Node test-runner path
-// on Windows; a drive-letter absolute path is misread as an ESM URL. Keep the
-// argument relative to this E: worktree while retaining an isolated directory.
-const reportFolderArg = `.tmp-memorix-conformance-report-${process.pid}-${Date.now()}`
-const reportDir = path.join(root, reportFolderArg)
+// Keep the target and all optional smoke state isolated under the selected
+// temporary directory. The conformance runner is asked for a terminal report
+// so its Windows output-folder path handling cannot affect this smoke.
 const stderrPath = path.join(tempRoot, 'server.stderr.log')
 await mkdir(project, { recursive: true })
 await mkdir(dataDir, { recursive: true })
-await mkdir(reportDir, { recursive: true })
 execFileSync('git', ['init', project], { stdio: 'ignore', windowsHide: true })
 
 if (!existsSync(distCli)) throw new Error(`built CLI not found at ${distCli}; run npm run build first`)
@@ -77,8 +74,7 @@ function runConformance() {
   const suiteArgs = [
     '-u', `http://127.0.0.1:${port}/mcp`,
     '--spec-version', '2026-07-28',
-    '--output', 'json',
-    '--output-folder', reportFolderArg,
+    '--output', 'stdio',
     '--disable-telemetry=1',
   ]
   // Invoke npm's JS entry directly. On Windows this avoids both npx.cmd's
@@ -115,8 +111,7 @@ try {
   process.stdout.write(result.stdout)
   process.stderr.write(result.stderr)
   assert.equal(result.code, 0, `MCP conformance failed with code ${result.code ?? 'null'}${result.signal ? ` (${result.signal})` : ''}`)
-  const reports = (await import('node:fs/promises')).readdir(reportDir)
-  console.log(JSON.stringify({ smoke: 'passed', transport: 'http', port, reportFiles: reports.length }))
+  console.log(JSON.stringify({ smoke: 'passed', transport: 'http', port, conformance: 'stdio-report' }))
 } finally {
   await stopServer()
   if (serverStderr && process.env.MEMORIX_KEEP_SMOKE_LOGS === '1') {

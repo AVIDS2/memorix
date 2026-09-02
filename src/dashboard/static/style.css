@@ -1133,12 +1133,100 @@ body {
   padding: 16px 20px 8px;
 }
 
+#codegraph-health-panel {
+  flex-shrink: 0;
+  padding: 0 20px 10px;
+}
+
+.codegraph-health {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-width: 0;
+  padding: 9px 12px;
+  border: 1px solid var(--border-subtle);
+  border-left: 3px solid var(--accent-green);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.codegraph-health--partial {
+  border-left-color: var(--accent-amber);
+}
+
+.codegraph-health--not-indexed,
+.codegraph-health--unknown {
+  border-left-color: var(--text-muted);
+}
+
+.codegraph-health-title,
+.codegraph-health-metrics {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+}
+
+.codegraph-health-title strong {
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+.codegraph-health-title > span:not(.codegraph-health-dot) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.codegraph-health-dot {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 7px;
+  border-radius: 50%;
+  background: var(--accent-green);
+}
+
+.codegraph-health--partial .codegraph-health-dot {
+  background: var(--accent-amber);
+}
+
+.codegraph-health--not-indexed .codegraph-health-dot,
+.codegraph-health--unknown .codegraph-health-dot {
+  background: var(--text-muted);
+}
+
+.codegraph-health-metrics {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+
+.codegraph-health-error {
+  color: var(--accent-amber);
+}
+
 .kg-page-shell .graph-layout {
   flex: 1;
   min-height: 0;
+  height: auto;
 }
 
 @media (max-width: 768px) {
+  #codegraph-health-panel {
+    padding: 0 12px 10px;
+  }
+  .codegraph-health {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .codegraph-health-metrics {
+    justify-content: flex-start;
+  }
   .kg-page-shell .graph-layout {
     flex-direction: column;
     height: auto;

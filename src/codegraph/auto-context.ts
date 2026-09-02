@@ -19,7 +19,8 @@ import {
   inspectExternalCodeGraph,
   type ExternalCodeGraphRunner,
 } from './external-provider.js';
-import type { CodeGraphProviderQuality, ExternalCodeGraphOutline } from './types.js';
+import type { CodeGraphOutline, CodeGraphProviderQuality } from './types.js';
+import { buildSemanticContext, qualityWithPersistedSemantic } from './semantic-context.js';
 import {
   buildProjectContextExplain,
   type ProjectContextExplain,
@@ -341,10 +342,18 @@ export async function buildAutoProjectContext(input: {
     }
   }
   const sourceSets = lensSourceSets({ task, lens, explain });
-  let externalOutline: ExternalCodeGraphOutline | undefined;
+  let semanticOutline: CodeGraphOutline | undefined;
   let externalCaution: string | undefined;
   let providerQuality: CodeGraphProviderQuality;
   if (task) {
+    const internalOutline = buildSemanticContext({
+      store,
+      projectId: input.project.id,
+      task,
+      preferredPaths: overview.suggestedReads,
+      maxNodes: 8,
+      maxEdges: 12,
+    });
     const external = await getExternalCodeGraphContext({
       projectRoot: input.project.rootPath,
       task,
@@ -354,9 +363,9 @@ export async function buildAutoProjectContext(input: {
       timeoutMs: codegraphConfig.externalTimeoutMs,
       ...(input.externalRunner ? { runner: input.externalRunner } : {}),
     });
-    externalOutline = external.outline;
-    externalCaution = external.caution;
-    providerQuality = external.quality;
+    semanticOutline = external.outline ?? internalOutline;
+    externalCaution = external.outline ? external.caution : internalOutline ? undefined : external.caution;
+    providerQuality = qualityWithPersistedSemantic(external.quality, store.status(input.project.id));
   } else {
     const external = await inspectExternalCodeGraph({
       projectRoot: input.project.rootPath,
@@ -365,17 +374,17 @@ export async function buildAutoProjectContext(input: {
       timeoutMs: codegraphConfig.externalTimeoutMs,
       ...(input.externalRunner ? { runner: input.externalRunner } : {}),
     });
-    providerQuality = external.quality;
+    providerQuality = qualityWithPersistedSemantic(external.quality, store.status(input.project.id));
   }
-  const externalStartHere = externalOutline
-    ? [...externalOutline.relatedFiles, ...externalOutline.entryPoints.map(entry => entry.path)]
+  const externalStartHere = semanticOutline
+    ? semanticOutline.entryPoints.map(entry => entry.path)
     : [];
   const startHere = [...new Set([
-    ...externalStartHere,
     ...rankLensPaths([
       ...existingLensCandidates(input.project.rootPath, lens),
       ...overview.suggestedReads,
     ], lens, task),
+    ...externalStartHere,
   ])].slice(0, 5);
   const runtimeCautions: WorksetCaution[] = [];
   if (refresh.reason === 'queued') {
@@ -434,7 +443,7 @@ export async function buildAutoProjectContext(input: {
     ...(alwaysOn.profile.length > 0 || alwaysOn.state || alwaysOn.durable.length > 0
       ? { alwaysOn }
       : {}),
-    ...(externalOutline ? { semanticCode: externalOutline } : {}),
+    ...(semanticOutline ? { semanticCode: semanticOutline } : {}),
     providerQuality,
     currentFacts: worksetFactLines(currentFacts),
     ...(continuation ? { continuation } : {}),

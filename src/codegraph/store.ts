@@ -34,6 +34,8 @@ function rowToFile(row: any): CodeFile {
     ...(row.sizeBytes != null ? { sizeBytes: row.sizeBytes } : {}),
     indexedAt: row.indexedAt,
     ...(row.gitCommit ? { gitCommit: row.gitCommit } : {}),
+    ...(row.source ? { source: row.source } : {}),
+    ...(row.parserError ? { parserError: row.parserError } : {}),
     ...(row.snapshotId ? { snapshotId: row.snapshotId } : {}),
     ...(row.sourceEpoch != null ? { sourceEpoch: Number(row.sourceEpoch) } : {}),
   };
@@ -54,6 +56,7 @@ function rowToSymbol(row: any): CodeSymbol {
     ...(row.contentHash ? { contentHash: row.contentHash } : {}),
     indexedAt: row.indexedAt,
     stale: !!row.stale,
+    ...(row.source ? { source: row.source } : {}),
     ...(row.snapshotId ? { snapshotId: row.snapshotId } : {}),
     ...(row.sourceEpoch != null ? { sourceEpoch: Number(row.sourceEpoch) } : {}),
   } as CodeSymbol;
@@ -70,6 +73,7 @@ function rowToEdge(row: any): CodeEdge {
     type: row.type,
     confidence: row.confidence,
     ...(row.evidence ? { evidence: row.evidence } : {}),
+    ...(row.source ? { source: row.source } : {}),
     indexedAt: row.indexedAt,
     ...(row.snapshotId ? { snapshotId: row.snapshotId } : {}),
     ...(row.sourceEpoch != null ? { sourceEpoch: Number(row.sourceEpoch) } : {}),
@@ -209,9 +213,9 @@ export class CodeGraphStore {
     if (files.length === 0) return;
     const stmt = this.db.prepare(`
       INSERT OR REPLACE INTO code_files
-        (id, projectId, path, language, contentHash, mtimeMs, sizeBytes, indexedAt, gitCommit)
+        (id, projectId, path, language, contentHash, mtimeMs, sizeBytes, indexedAt, gitCommit, source, parserError)
       VALUES
-        (@id, @projectId, @path, @language, @contentHash, @mtimeMs, @sizeBytes, @indexedAt, @gitCommit)
+        (@id, @projectId, @path, @language, @contentHash, @mtimeMs, @sizeBytes, @indexedAt, @gitCommit, @source, @parserError)
     `);
     const tx = this.db.transaction((items: CodeFile[]) => {
       for (const file of items) {
@@ -225,6 +229,8 @@ export class CodeGraphStore {
           sizeBytes: file.sizeBytes ?? null,
           indexedAt: file.indexedAt,
           gitCommit: file.gitCommit ?? null,
+          source: file.source ?? null,
+          parserError: file.parserError ?? null,
         });
       }
     });
@@ -235,9 +241,9 @@ export class CodeGraphStore {
     if (symbols.length === 0) return;
     const stmt = this.db.prepare(`
       INSERT OR REPLACE INTO code_symbols
-        (id, projectId, fileId, path, name, qualifiedName, kind, startLine, endLine, signature, contentHash, indexedAt, stale)
+        (id, projectId, fileId, path, name, qualifiedName, kind, startLine, endLine, signature, contentHash, indexedAt, stale, source)
       VALUES
-        (@id, @projectId, @fileId, @path, @name, @qualifiedName, @kind, @startLine, @endLine, @signature, @contentHash, @indexedAt, @stale)
+        (@id, @projectId, @fileId, @path, @name, @qualifiedName, @kind, @startLine, @endLine, @signature, @contentHash, @indexedAt, @stale, @source)
     `);
     const tx = this.db.transaction((items: CodeSymbol[]) => {
       for (const symbol of items) {
@@ -255,6 +261,7 @@ export class CodeGraphStore {
           contentHash: symbol.contentHash ?? null,
           indexedAt: symbol.indexedAt,
           stale: symbol.stale ? 1 : 0,
+          source: symbol.source ?? null,
         });
       }
     });
@@ -265,9 +272,9 @@ export class CodeGraphStore {
     if (edges.length === 0) return;
     const stmt = this.db.prepare(`
       INSERT OR REPLACE INTO code_edges
-        (id, projectId, fromSymbolId, toSymbolId, fromFileId, toFileId, type, confidence, evidence, indexedAt)
+        (id, projectId, fromSymbolId, toSymbolId, fromFileId, toFileId, type, confidence, evidence, indexedAt, source)
       VALUES
-        (@id, @projectId, @fromSymbolId, @toSymbolId, @fromFileId, @toFileId, @type, @confidence, @evidence, @indexedAt)
+        (@id, @projectId, @fromSymbolId, @toSymbolId, @fromFileId, @toFileId, @type, @confidence, @evidence, @indexedAt, @source)
     `);
     const tx = this.db.transaction((items: CodeEdge[]) => {
       for (const edge of items) {
@@ -282,6 +289,7 @@ export class CodeGraphStore {
           confidence: edge.confidence,
           evidence: edge.evidence ?? null,
           indexedAt: edge.indexedAt,
+          source: edge.source ?? null,
         });
       }
     });
@@ -297,21 +305,21 @@ export class CodeGraphStore {
     const deleteFiles = this.db.prepare(`DELETE FROM code_files WHERE projectId = ?`);
     const insertFile = this.db.prepare(`
       INSERT OR REPLACE INTO code_files
-        (id, projectId, path, language, contentHash, mtimeMs, sizeBytes, indexedAt, gitCommit)
+        (id, projectId, path, language, contentHash, mtimeMs, sizeBytes, indexedAt, gitCommit, source, parserError)
       VALUES
-        (@id, @projectId, @path, @language, @contentHash, @mtimeMs, @sizeBytes, @indexedAt, @gitCommit)
+        (@id, @projectId, @path, @language, @contentHash, @mtimeMs, @sizeBytes, @indexedAt, @gitCommit, @source, @parserError)
     `);
     const insertSymbol = this.db.prepare(`
       INSERT OR REPLACE INTO code_symbols
-        (id, projectId, fileId, path, name, qualifiedName, kind, startLine, endLine, signature, contentHash, indexedAt, stale)
+        (id, projectId, fileId, path, name, qualifiedName, kind, startLine, endLine, signature, contentHash, indexedAt, stale, source)
       VALUES
-        (@id, @projectId, @fileId, @path, @name, @qualifiedName, @kind, @startLine, @endLine, @signature, @contentHash, @indexedAt, @stale)
+        (@id, @projectId, @fileId, @path, @name, @qualifiedName, @kind, @startLine, @endLine, @signature, @contentHash, @indexedAt, @stale, @source)
     `);
     const insertEdge = this.db.prepare(`
       INSERT OR REPLACE INTO code_edges
-        (id, projectId, fromSymbolId, toSymbolId, fromFileId, toFileId, type, confidence, evidence, indexedAt)
+        (id, projectId, fromSymbolId, toSymbolId, fromFileId, toFileId, type, confidence, evidence, indexedAt, source)
       VALUES
-        (@id, @projectId, @fromSymbolId, @toSymbolId, @fromFileId, @toFileId, @type, @confidence, @evidence, @indexedAt)
+        (@id, @projectId, @fromSymbolId, @toSymbolId, @fromFileId, @toFileId, @type, @confidence, @evidence, @indexedAt, @source)
     `);
 
     const tx = this.db.transaction(() => {
@@ -330,6 +338,8 @@ export class CodeGraphStore {
           sizeBytes: file.sizeBytes ?? null,
           indexedAt: file.indexedAt,
           gitCommit: file.gitCommit ?? null,
+          source: file.source ?? null,
+          parserError: file.parserError ?? null,
         });
       }
 
@@ -348,6 +358,7 @@ export class CodeGraphStore {
           contentHash: symbol.contentHash ?? null,
           indexedAt: symbol.indexedAt,
           stale: 0,
+          source: symbol.source ?? null,
         });
       }
 
@@ -363,6 +374,7 @@ export class CodeGraphStore {
           confidence: edge.confidence,
           evidence: edge.evidence ?? null,
           indexedAt: edge.indexedAt,
+          source: edge.source ?? null,
         });
       }
     });
@@ -417,21 +429,21 @@ export class CodeGraphStore {
     const deleteFile = this.db.prepare(`DELETE FROM code_files WHERE projectId = ? AND id = ?`);
     const upsertFile = this.db.prepare(`
       INSERT OR REPLACE INTO code_files
-        (id, projectId, path, language, contentHash, mtimeMs, sizeBytes, indexedAt, gitCommit)
+        (id, projectId, path, language, contentHash, mtimeMs, sizeBytes, indexedAt, gitCommit, source, parserError)
       VALUES
-        (@id, @projectId, @path, @language, @contentHash, @mtimeMs, @sizeBytes, @indexedAt, @gitCommit)
+        (@id, @projectId, @path, @language, @contentHash, @mtimeMs, @sizeBytes, @indexedAt, @gitCommit, @source, @parserError)
     `);
     const upsertSymbol = this.db.prepare(`
       INSERT OR REPLACE INTO code_symbols
-        (id, projectId, fileId, path, name, qualifiedName, kind, startLine, endLine, signature, contentHash, indexedAt, stale)
+        (id, projectId, fileId, path, name, qualifiedName, kind, startLine, endLine, signature, contentHash, indexedAt, stale, source)
       VALUES
-        (@id, @projectId, @fileId, @path, @name, @qualifiedName, @kind, @startLine, @endLine, @signature, @contentHash, @indexedAt, @stale)
+        (@id, @projectId, @fileId, @path, @name, @qualifiedName, @kind, @startLine, @endLine, @signature, @contentHash, @indexedAt, @stale, @source)
     `);
     const upsertEdge = this.db.prepare(`
       INSERT OR REPLACE INTO code_edges
-        (id, projectId, fromSymbolId, toSymbolId, fromFileId, toFileId, type, confidence, evidence, indexedAt)
+        (id, projectId, fromSymbolId, toSymbolId, fromFileId, toFileId, type, confidence, evidence, indexedAt, source)
       VALUES
-        (@id, @projectId, @fromSymbolId, @toSymbolId, @fromFileId, @toFileId, @type, @confidence, @evidence, @indexedAt)
+        (@id, @projectId, @fromSymbolId, @toSymbolId, @fromFileId, @toFileId, @type, @confidence, @evidence, @indexedAt, @source)
     `);
     const writeFile = (file: CodeFile) => upsertFile.run({
       id: file.id,
@@ -443,6 +455,8 @@ export class CodeGraphStore {
       sizeBytes: file.sizeBytes ?? null,
       indexedAt: file.indexedAt,
       gitCommit: file.gitCommit ?? null,
+      source: file.source ?? null,
+      parserError: file.parserError ?? null,
     });
 
     const tx = this.db.transaction(() => {
@@ -480,6 +494,7 @@ export class CodeGraphStore {
             contentHash: symbol.contentHash ?? null,
             indexedAt: symbol.indexedAt,
             stale: symbol.stale ? 1 : 0,
+            source: symbol.source ?? null,
           });
         }
 
@@ -495,6 +510,7 @@ export class CodeGraphStore {
             confidence: edge.confidence,
             evidence: edge.evidence ?? null,
             indexedAt: edge.indexedAt,
+            source: edge.source ?? null,
           });
         }
       }
@@ -653,6 +669,219 @@ export class CodeGraphStore {
 
   listEdges(projectId: string): CodeEdge[] {
     return this.db.prepare(`SELECT * FROM code_edges WHERE projectId = ? ORDER BY type, id`).all(projectId).map(rowToEdge);
+  }
+
+  /** Return direct importers before a refresh clears their old target IDs. */
+  listImportDependentPaths(projectId: string, paths: string[], candidatePaths: string[] = []): string[] {
+    const normalized = [...new Set(paths.map(normalizeCodePath).filter(Boolean))];
+    if (normalized.length === 0) return [];
+    const files = this.listFiles(projectId);
+    const fileIds = files
+      .filter(file => normalized.includes(file.path))
+      .map(file => file.id);
+    const fileById = new Map(files.map(file => [file.id, file]));
+    const fileByPath = new Map(files.map(file => [file.path, file]));
+    for (const path of candidatePaths.map(normalizeCodePath).filter(Boolean)) {
+      if (!fileByPath.has(path)) {
+        fileByPath.set(path, {
+          id: `candidate:${path}`,
+          projectId,
+          path,
+          contentHash: '',
+          indexedAt: '',
+        });
+      }
+    }
+    const rows = this.db.prepare(`
+      SELECT DISTINCT fromFileId, evidence
+      FROM code_edges
+      WHERE projectId = ? AND type = 'imports'
+    `).all(projectId) as Array<{ fromFileId?: string; evidence?: string }>;
+    const wanted = new Set(normalized);
+    const dependents = new Set<string>();
+    const queue = [...normalized];
+    while (queue.length > 0) {
+      const targetPath = queue.shift()!;
+      for (const row of rows) {
+        const source = row.fromFileId ? fileById.get(row.fromFileId) : undefined;
+        if (!source || source.path === targetPath || dependents.has(source.path)) continue;
+        const target = resolveRelativeImportTarget(source.path, row.evidence, fileByPath);
+        if (!target || !wanted.has(target.path)) continue;
+        dependents.add(source.path);
+        if (!wanted.has(source.path)) {
+          wanted.add(source.path);
+          queue.push(source.path);
+        }
+      }
+    }
+    if (fileIds.length > 0) {
+      const placeholders = fileIds.map(() => '?').join(', ');
+      const exactRows = this.db.prepare(`
+        SELECT DISTINCT fromFileId
+        FROM code_edges
+        WHERE projectId = ? AND type = 'imports' AND toFileId IN (${placeholders})
+      `).all(projectId, ...fileIds) as Array<{ fromFileId?: string }>;
+      for (const row of exactRows) {
+        const source = row.fromFileId ? fileById.get(row.fromFileId) : undefined;
+        if (source) dependents.add(source.path);
+      }
+    }
+    return [...dependents].sort();
+  }
+
+  /** Replace only the semantic slice touched by a change, in one transaction. */
+  replaceSemanticSlice(
+    projectId: string,
+    affectedPaths: string[],
+    input: { symbols: CodeSymbol[]; edges: CodeEdge[]; diagnostics?: Array<{ path: string; message: string }> },
+  ): void {
+    const normalizedPaths = [...new Set(affectedPaths.map(normalizeCodePath).filter(Boolean))];
+    if (normalizedPaths.length === 0) return;
+    const fileRows = this.listFiles(projectId).filter(file => normalizedPaths.includes(file.path));
+    const fileIds = fileRows.map(file => file.id);
+    const placeholders = fileIds.map(() => '?').join(', ');
+    if (fileIds.length === 0) return;
+    const staleRefs = this.db.prepare(`
+      UPDATE observation_code_refs SET status = 'stale', updatedAt = ?
+      WHERE projectId = ? AND (fileId IN (${placeholders}) OR symbolId IN (
+        SELECT id FROM code_symbols WHERE projectId = ? AND fileId IN (${placeholders})
+      ))
+    `);
+    const deleteEdges = this.db.prepare(`
+      DELETE FROM code_edges
+      WHERE projectId = ? AND (source IS NULL OR source IN ('lite-regex', 'typescript-compiler'))
+        AND (fromFileId IN (${placeholders}) OR toFileId IN (${placeholders})
+          OR fromSymbolId IN (SELECT id FROM code_symbols WHERE projectId = ? AND fileId IN (${placeholders}))
+          OR toSymbolId IN (SELECT id FROM code_symbols WHERE projectId = ? AND fileId IN (${placeholders})))
+    `);
+    const deleteSymbols = this.db.prepare(`DELETE FROM code_symbols WHERE projectId = ? AND fileId IN (${placeholders})`);
+    const updateFile = this.db.prepare('UPDATE code_files SET source = ?, parserError = ? WHERE projectId = ? AND id = ?');
+    const insertSymbol = this.db.prepare(`
+      INSERT OR REPLACE INTO code_symbols
+        (id, projectId, fileId, path, name, qualifiedName, kind, startLine, endLine, signature, contentHash, indexedAt, stale, source)
+      VALUES
+        (@id, @projectId, @fileId, @path, @name, @qualifiedName, @kind, @startLine, @endLine, @signature, @contentHash, @indexedAt, @stale, @source)
+    `);
+    const insertEdge = this.db.prepare(`
+      INSERT OR REPLACE INTO code_edges
+        (id, projectId, fromSymbolId, toSymbolId, fromFileId, toFileId, type, confidence, evidence, indexedAt, source)
+      VALUES
+        (@id, @projectId, @fromSymbolId, @toSymbolId, @fromFileId, @toFileId, @type, @confidence, @evidence, @indexedAt, @source)
+    `);
+    const diagnosticsByPath = new Map((input.diagnostics ?? []).map(item => [normalizeCodePath(item.path), item.message]));
+    const symbolFileIds = new Set(fileIds);
+    const tx = this.db.transaction(() => {
+      const now = new Date().toISOString();
+      staleRefs.run(now, projectId, ...fileIds, projectId, ...fileIds);
+      deleteEdges.run(projectId, ...fileIds, ...fileIds, projectId, ...fileIds, projectId, ...fileIds);
+      deleteSymbols.run(projectId, ...fileIds);
+      for (const file of fileRows) {
+        const diagnostic = diagnosticsByPath.get(file.path);
+        updateFile.run(diagnostic ? 'typescript-compiler' : 'typescript-compiler', diagnostic ?? null, projectId, file.id);
+      }
+      for (const symbol of input.symbols.filter(symbol => symbolFileIds.has(symbol.fileId))) {
+        insertSymbol.run({
+          id: symbol.id,
+          projectId: symbol.projectId,
+          fileId: symbol.fileId,
+          path: normalizeCodePath(symbol.path),
+          name: symbol.name,
+          qualifiedName: symbol.qualifiedName,
+          kind: symbol.kind,
+          startLine: symbol.startLine ?? null,
+          endLine: symbol.endLine ?? null,
+          signature: symbol.signature ?? null,
+          contentHash: symbol.contentHash ?? null,
+          indexedAt: symbol.indexedAt,
+          stale: symbol.stale ? 1 : 0,
+          source: symbol.source ?? 'typescript-compiler',
+        });
+      }
+      for (const edge of input.edges) {
+        insertEdge.run({
+          id: edge.id,
+          projectId: edge.projectId,
+          fromSymbolId: edge.fromSymbolId ?? null,
+          toSymbolId: edge.toSymbolId ?? null,
+          fromFileId: edge.fromFileId ?? null,
+          toFileId: edge.toFileId ?? null,
+          type: edge.type,
+          confidence: edge.confidence,
+          evidence: edge.evidence ?? null,
+          indexedAt: edge.indexedAt,
+          source: edge.source ?? 'typescript-compiler',
+        });
+      }
+    });
+    tx();
+  }
+
+  /** Record a semantic refresh failure without presenting the old facts as current. */
+  markSemanticSliceFailed(projectId: string, affectedPaths: string[], message: string): void {
+    const normalizedPaths = [...new Set(affectedPaths.map(normalizeCodePath).filter(Boolean))];
+    const fileRows = this.listFiles(projectId).filter(file => normalizedPaths.includes(file.path));
+    const fileIds = fileRows.map(file => file.id);
+    const filePlaceholders = fileIds.map(() => '?').join(', ');
+    const staleRefs = fileIds.length > 0
+      ? this.db.prepare(`
+        UPDATE observation_code_refs SET status = 'stale', updatedAt = ?
+        WHERE projectId = ? AND (fileId IN (${filePlaceholders}) OR symbolId IN (
+          SELECT id FROM code_symbols WHERE projectId = ? AND fileId IN (${filePlaceholders})
+        ))
+      `)
+      : undefined;
+    const staleSymbols = fileIds.length > 0
+      ? this.db.prepare(`
+        UPDATE code_symbols SET stale = 1
+        WHERE projectId = ? AND source = 'typescript-compiler' AND fileId IN (${filePlaceholders})
+      `)
+      : undefined;
+    const updateFiles = fileIds.length > 0
+      ? this.db.prepare(`
+        UPDATE code_files SET parserError = ?
+        WHERE projectId = ? AND id IN (${filePlaceholders})
+      `)
+      : undefined;
+    const affectedEdgeClause = fileIds.length > 0
+      ? `
+        OR fromFileId IN (${filePlaceholders})
+        OR toFileId IN (${filePlaceholders})
+        OR fromSymbolId IN (SELECT id FROM code_symbols WHERE projectId = ? AND fileId IN (${filePlaceholders}))
+        OR toSymbolId IN (SELECT id FROM code_symbols WHERE projectId = ? AND fileId IN (${filePlaceholders}))
+      `
+      : '';
+    const deleteEdges = this.db.prepare(`
+      DELETE FROM code_edges
+      WHERE projectId = ? AND source = 'typescript-compiler'
+        AND (
+          (fromSymbolId IS NOT NULL AND NOT EXISTS (
+            SELECT 1 FROM code_symbols WHERE projectId = ? AND id = fromSymbolId
+          ))
+          OR (toSymbolId IS NOT NULL AND NOT EXISTS (
+            SELECT 1 FROM code_symbols WHERE projectId = ? AND id = toSymbolId
+          ))
+          ${affectedEdgeClause}
+        )
+    `);
+    const tx = this.db.transaction(() => {
+      const failure = `semantic indexing failed: ${message.slice(0, 500)}`;
+      if (updateFiles) updateFiles.run(failure, projectId, ...fileIds);
+      if (staleRefs) staleRefs.run(new Date().toISOString(), projectId, ...fileIds, projectId, ...fileIds);
+      if (staleSymbols) staleSymbols.run(projectId, ...fileIds);
+      const edgeParams: unknown[] = [projectId, projectId, projectId];
+      if (fileIds.length > 0) {
+        edgeParams.push(
+          ...fileIds,
+          ...fileIds,
+          projectId,
+          ...fileIds,
+          projectId,
+          ...fileIds,
+        );
+      }
+      deleteEdges.run(...edgeParams);
+    });
+    tx();
   }
 
   listObservationRefs(projectId: string, observationId: number): ObservationCodeRef[] {
@@ -869,6 +1098,9 @@ export class CodeGraphStore {
     const symbols = this.db.prepare(`SELECT COUNT(*) AS count FROM code_symbols WHERE projectId = ? AND stale = 0`).get(projectId).count;
     const edges = this.db.prepare(`SELECT COUNT(*) AS count FROM code_edges WHERE projectId = ?`).get(projectId).count;
     const refs = this.db.prepare(`SELECT COUNT(*) AS count FROM observation_code_refs WHERE projectId = ?`).get(projectId).count;
+    const semanticSymbols = this.db.prepare(`SELECT COUNT(*) AS count FROM code_symbols WHERE projectId = ? AND stale = 0 AND source = 'typescript-compiler'`).get(projectId).count;
+    const semanticEdges = this.db.prepare(`SELECT COUNT(*) AS count FROM code_edges WHERE projectId = ? AND source = 'typescript-compiler'`).get(projectId).count;
+    const parserErrors = this.db.prepare(`SELECT COUNT(*) AS count FROM code_files WHERE projectId = ? AND parserError IS NOT NULL`).get(projectId).count;
     const latest = this.db.prepare(`SELECT MAX(indexedAt) AS indexedAt FROM code_files WHERE projectId = ?`).get(projectId);
     const latestSnapshot = this.latestSnapshot(projectId);
     return {
@@ -877,6 +1109,9 @@ export class CodeGraphStore {
       symbols,
       edges,
       refs,
+      semanticSymbols,
+      semanticEdges,
+      parserErrors,
       ...(latest?.indexedAt ? { indexedAt: latest.indexedAt } : {}),
       ...(latestSnapshot ? { latestSnapshot } : {}),
     };

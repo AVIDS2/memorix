@@ -387,6 +387,16 @@ const i18n = {
     kgViewMode: 'View Mode',
     kgFocused: 'Focused',
     kgFullGraph: 'Full Graph',
+    codeGraphHealthTitle: 'CodeGraph health',
+    codeGraphStateReady: 'Semantic index ready',
+    codeGraphStatePartial: 'Needs attention',
+    codeGraphStateNotIndexed: 'Structural index only',
+    codeGraphFiles: 'files',
+    codeGraphSymbols: 'symbols',
+    codeGraphEdges: 'edges',
+    codeGraphParserErrors: 'parser errors',
+    codeGraphSnapshotIncomplete: 'incomplete scan',
+    codeGraphUnavailable: 'CodeGraph health unavailable',
 
     // Identity (additional)
     identityCurrentProject: 'Current Project',
@@ -840,6 +850,16 @@ const i18n = {
     kgViewMode: '视图模式',
     kgFocused: '聚焦',
     kgFullGraph: '全量',
+    codeGraphHealthTitle: '代码图谱健康度',
+    codeGraphStateReady: '语义索引就绪',
+    codeGraphStatePartial: '需要处理',
+    codeGraphStateNotIndexed: '当前只有结构索引',
+    codeGraphFiles: '个文件',
+    codeGraphSymbols: '个符号',
+    codeGraphEdges: '条关系',
+    codeGraphParserErrors: '个解析错误',
+    codeGraphSnapshotIncomplete: '扫描不完整',
+    codeGraphUnavailable: '代码图谱状态不可用',
 
     // Identity (additional)
     identityCurrentProject: '当前项目',
@@ -2025,7 +2045,7 @@ async function loadGraph() {
   const container = document.getElementById('page-graph');
   container.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
 
-  const kg = await api('knowledge-graph');
+  const [kg, codegraph] = await Promise.all([api('knowledge-graph'), api('codegraph')]);
   if (!kg || !Array.isArray(kg.nodes) || !Array.isArray(kg.edges)) {
     container.innerHTML = emptyState(
       '<span class="iconify" data-icon="lucide:network" style="font-size:36px;"></span>',
@@ -2044,7 +2064,34 @@ async function loadGraph() {
     return;
   }
 
-  renderSemanticGraph(kg);
+  renderSemanticGraph(kg, codegraph);
+}
+
+function renderCodeGraphHealth(status) {
+  if (!status) {
+    return `<div class="codegraph-health codegraph-health--unknown"><strong>${t('codeGraphUnavailable')}</strong></div>`;
+  }
+  const state = status.state === 'ready'
+    ? t('codeGraphStateReady')
+    : status.state === 'partial'
+      ? t('codeGraphStatePartial')
+      : t('codeGraphStateNotIndexed');
+  const semantic = status.semantic || {};
+  const snapshot = status.snapshot || {};
+  const parserErrors = Number(semantic.parserErrors || 0);
+  const snapshotLabel = snapshot.incomplete ? ` · ${t('codeGraphSnapshotIncomplete')}` : '';
+  const errorTitle = (status.parserErrorPaths || []).join(', ');
+  return `
+    <div class="codegraph-health codegraph-health--${escapeHtml(status.state || 'partial')}" title="${escapeHtml(errorTitle)}">
+      <div class="codegraph-health-title"><span class="codegraph-health-dot"></span><strong>${t('codeGraphHealthTitle')}</strong><span>${escapeHtml(state)}${snapshotLabel}</span></div>
+      <div class="codegraph-health-metrics">
+        <span>${Number(semantic.files || 0)} ${t('codeGraphFiles')}</span>
+        <span>${Number(semantic.symbols || 0)} ${t('codeGraphSymbols')}</span>
+        <span>${Number(semantic.edges || 0)} ${t('codeGraphEdges')}</span>
+        ${parserErrors > 0 ? `<span class="codegraph-health-error">${parserErrors} ${t('codeGraphParserErrors')}</span>` : ''}
+      </div>
+    </div>
+  `;
 }
 
 // ============================================================
@@ -2052,7 +2099,7 @@ async function loadGraph() {
 // Force layout, section categories, evidence-based edges
 // ============================================================
 
-function renderSemanticGraph(kg) {
+function renderSemanticGraph(kg, codegraph) {
   const container = document.getElementById('page-graph');
 
   // Section color palette (vivid for both light/dark themes)
@@ -2255,6 +2302,7 @@ function renderSemanticGraph(kg) {
         <h1 class="page-title">${t('kgTitle')}</h1>
         <p class="page-subtitle">${t('kgSubtitle')}</p>
       </div>
+      <div id="codegraph-health-panel">${renderCodeGraphHealth(codegraph)}</div>
       <div class="graph-layout">
         <div class="graph-filter-panel" id="kg-filter-panel"></div>
         <div id="graph-container">

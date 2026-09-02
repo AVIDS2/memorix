@@ -492,10 +492,29 @@ export default defineCommand({
           res.writeHead(404, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({
             jsonrpc: '2.0',
-            error: { code: -32001, message: 'MCP project handle not found or expired; initialize again.' },
+            error: { code: -32001, message: 'MCP project handle not found or expired; retry modern discovery with Mcp-Project-Root.' },
             id: null,
           }));
           return;
+        }
+        // Modern MCP has no protocol handshake or session id. Memorix may
+        // offer its own optional project handle so a client can stop sending
+        // an absolute root on every request. The handle is issued only for a
+        // verified Git project and remains a transport-neutral extension.
+        if (!handleId) {
+          const requestedRoot = typeof req.headers['mcp-project-root'] === 'string'
+            ? req.headers['mcp-project-root']
+            : projectRoot;
+          const detected = detectorMod.detectProject(requestedRoot);
+          if (detected) {
+            const binding = statelessBindingStore.findByProjectRoot(detected.rootPath)
+              ?? statelessBindingStore.create({
+                projectId: detected.id,
+                projectRoot: detected.rootPath,
+                dataDir: persistMod.getBaseDataDir(),
+              });
+            res.setHeader('Mcp-Project-Handle', binding.handleId);
+          }
         }
         await modernNodeHandler(req, res, body);
         return;
@@ -1197,6 +1216,13 @@ export default defineCommand({
           const allObs = await loadDashboardProjectObservations(graphDataDir, graphProjectId, 'active');
           const scoped = scopeKnowledgeGraphToProject(fullGraph, allObs);
           sendJson({ entities: scoped.entities, relations: scoped.relations });
+          return;
+        }
+
+        if (apiPath === '/codegraph') {
+          const { projectId: codegraphProjectId, dataDir: codegraphDataDir } = await resolveRequestProject(url);
+          const { getCodeGraphDashboardStatus } = await import('../../codegraph/dashboard.js');
+          sendJson(await getCodeGraphDashboardStatus(codegraphDataDir, codegraphProjectId));
           return;
         }
 

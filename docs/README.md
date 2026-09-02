@@ -80,6 +80,7 @@ The public docs are organized by user intent:
 | Design decisions and rationale | [DESIGN_DECISIONS.md](DESIGN_DECISIONS.md) |
 | Module-by-module notes | [MODULES.md](MODULES.md) |
 | Current implementation status and ecosystem watch | [ACTIVE_WORK.md](../ACTIVE_WORK.md) |
+| 1.8.7 CodeGraph implementation plan and acceptance contract | [1.8.7 CodeGraph](1.8.7-CODEGRAPH.md) |
 | CodeGraph Memory / Context Fabric design | [2026-06-29-codegraph-memory-context-fabric-design.md](superpowers/specs/2026-06-29-codegraph-memory-context-fabric-design.md) |
 | Auto Context Layer design | [2026-06-29-auto-context-layer-design.md](superpowers/specs/2026-06-29-auto-context-layer-design.md) |
 | 1.2 product direction and user journey | [1.2 Product Story](1.2.0-PRODUCT-STORY.md) |
@@ -123,7 +124,9 @@ Historical/deep-reference documents may describe older designs. If they conflict
 
 ## Current Product Line
 
-The current product line is **1.8.6**. The authoritative acceptance contract is
+The current product line is **1.8.6**. The active next-line acceptance contract is
+[1.8.7 CodeGraph](1.8.7-CODEGRAPH.md); the published baseline remains 1.8.6.
+The authoritative acceptance contract for the current implementation is
 [1.8.0 Release Specification](1.8.0-RELEASE-CANDIDATE-SPEC.md).
 The current baseline has:
 

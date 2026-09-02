@@ -6,6 +6,7 @@ import { collectCodeStateSnapshot } from './code-state.js';
 import { makeCodeEdgeId, makeCodeFileId, makeCodeSymbolId, normalizeCodePath } from './ids.js';
 import { isCodeGraphExcludedPath, normalizeCodeGraphExcludePatterns } from './exclude.js';
 import { CodeGraphStore, type CodeGraphFileDelta } from './store.js';
+import { buildTypeScriptSemanticIndex, isSemanticLanguage } from './semantic-provider.js';
 
 export interface LiteIndexOptions {
   projectId: string;
@@ -13,6 +14,8 @@ export interface LiteIndexOptions {
   exclude?: string[];
   maxFiles?: number;
   maxFileBytes?: number;
+  /** Injectable only for deterministic failure-path tests. */
+  semanticIndexer?: typeof buildTypeScriptSemanticIndex;
 }
 
 export interface LiteIndexResult {
@@ -35,6 +38,17 @@ export interface LiteRefreshResult {
   unreadableFiles: number;
   removalScanDeferred: boolean;
   snapshot: CodeStateSnapshot;
+  semantic?: {
+    state: 'ready' | 'partial' | 'failed';
+    parsedFiles: number;
+    affectedFiles: number;
+    symbols: number;
+    edges: number;
+    parserErrors: number;
+    unresolvedCalls: number;
+    durationMs: number;
+    error?: string;
+  };
 }
 
 export const DEFAULT_CODEGRAPH_MAX_FILE_BYTES = 2 * 1024 * 1024;
@@ -257,6 +271,7 @@ function extractSymbols(projectId: string, file: CodeFile, text: string, indexed
         signature: match[0].slice(0, 160),
         contentHash: hashText(match[0]),
         indexedAt,
+        source: 'lite-regex',
       });
     }
   }
@@ -284,6 +299,7 @@ function extractImportEdges(projectId: string, file: CodeFile, text: string, ind
             confidence: 0.7,
             evidence: line,
             indexedAt,
+            source: 'lite-regex',
           });
         }
         continue;
@@ -297,6 +313,7 @@ function extractImportEdges(projectId: string, file: CodeFile, text: string, ind
       confidence: 0.7,
       evidence: target,
       indexedAt,
+      source: 'lite-regex',
     });
     }
   }
@@ -330,6 +347,7 @@ function indexFileLite(
       mtimeMs: Number(stat.mtimeMs),
       sizeBytes: Number(stat.size),
       indexedAt,
+      source: 'lite-regex',
     };
     return {
       delta: {
@@ -395,6 +413,7 @@ export async function refreshProjectLite(
   const indexedAt = new Date().toISOString();
   const paths = walk(options.projectRoot, exclude, maxFiles);
   const existingByPath = new Map(store.listFiles(options.projectId).map((file) => [file.path, file]));
+  const changedPaths = new Set<string>();
   const changed: CodeGraphFileDelta[] = [];
   const metadataOnly: CodeFile[] = [];
   const seenPaths = new Set<string>();
@@ -420,6 +439,7 @@ export async function refreshProjectLite(
     if (sizeBytes > maxFileBytes) {
       skippedOversizedFiles++;
       if (existing) oversizedExistingFileIds.add(existing.id);
+      changedPaths.add(rel);
       continue;
     }
     if (existing && existing.mtimeMs === mtimeMs && existing.sizeBytes === sizeBytes) {
@@ -438,6 +458,7 @@ export async function refreshProjectLite(
       unchangedFiles++;
     } else {
       changed.push(delta);
+      changedPaths.add(rel);
     }
   }
 
@@ -451,11 +472,70 @@ export async function refreshProjectLite(
         .filter((file) => !seenPaths.has(file.path))
         .map((file) => file.id)),
   ])];
+  for (const file of existingByPath.values()) {
+    if (removedFileIds.includes(file.id)) changedPaths.add(file.path);
+  }
+  // An export or symbol change can invalidate the semantic edges of every
+  // local importer. Capture those paths before applyFileDeltas clears them.
+  const affectedSemanticPaths = new Set([
+    ...changedPaths,
+    ...store.listImportDependentPaths(
+      options.projectId,
+      [...changedPaths],
+      changed.map(delta => delta.file.path),
+    ),
+  ]);
   store.applyFileDeltas(options.projectId, {
     changed,
     metadataOnly,
     removedFileIds,
   });
+  const currentFiles = store.listFiles(options.projectId);
+  const beforeSemantic = store.status(options.projectId).semanticSymbols;
+  const semanticPaths = beforeSemantic === 0
+    ? currentFiles.filter(file => isSemanticLanguage(file.language)).map(file => file.path)
+    : currentFiles
+      .filter(file => isSemanticLanguage(file.language) && affectedSemanticPaths.has(file.path))
+      .map(file => file.path);
+  let semanticSummary: LiteRefreshResult['semantic'];
+  if (semanticPaths.length > 0) {
+    const semanticIndexer = options.semanticIndexer ?? buildTypeScriptSemanticIndex;
+    const semanticInput = {
+      projectId: options.projectId,
+      projectRoot: options.projectRoot,
+      files: currentFiles,
+      exclude,
+      includePaths: semanticPaths,
+    };
+    try {
+      const semantic = semanticIndexer(semanticInput);
+      store.replaceSemanticSlice(options.projectId, semanticPaths, semantic);
+      semanticSummary = {
+        state: semantic.parserErrors > 0 ? 'partial' : 'ready',
+        parsedFiles: semantic.parsedFiles,
+        affectedFiles: semanticPaths.length,
+        symbols: semantic.symbols.length,
+        edges: semantic.edges.length,
+        parserErrors: semantic.parserErrors,
+        unresolvedCalls: semantic.unresolvedCalls,
+        durationMs: semantic.durationMs,
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      store.markSemanticSliceFailed(options.projectId, semanticPaths, message);
+      semanticSummary = {
+        state: 'failed',
+        parsedFiles: 0,
+        affectedFiles: semanticPaths.length,
+        symbols: 0,
+        edges: 0,
+        parserErrors: semanticPaths.length,
+        unresolvedCalls: 0,
+        durationMs: 0,
+        error: message.slice(0, 500),
+      };
+    }
+  }
   const completeness = {
     scannedFiles: paths.length,
     maxFiles,
@@ -486,5 +566,6 @@ export async function refreshProjectLite(
     unreadableFiles,
     removalScanDeferred,
     snapshot,
+    ...(semanticSummary ? { semantic: semanticSummary } : {}),
   };
 }

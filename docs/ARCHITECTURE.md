@@ -91,6 +91,19 @@ flowchart LR
     C4 --> E3
 ```
 
+### CodeGraph Evidence Plane
+
+CodeGraph is a separate evidence plane alongside memory, not a second copy of
+the source tree and not a replacement for the human knowledge graph. The
+local path is layered: Code State records hashes and snapshots, Lite provides
+bounded structural fallback facts, and the TypeScript Compiler API provides
+source-backed symbols and relations where it can prove them. Each fact carries
+its source and is refreshed by changed-file dependency closure. Agent-facing
+context is a small receipt with freshness and uncertainty, rather than a raw
+graph dump. Optional external CodeGraph or SCIP output is validated and
+normalized for one request only; it does not overwrite the local canonical
+index.
+
 ### Access and Runtime Layer
 
 This layer provides the entry points that agents and users actually talk to.

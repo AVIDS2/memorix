@@ -119,6 +119,22 @@ MCP:
 
 Project-specific generated, vendored, or cache paths can be excluded from Code State with `[codegraph].exclude_patterns` in `memorix.toml` or `~/.memorix/config.toml` (`codegraph.excludePatterns` in legacy YAML). User patterns extend the built-in excludes and are applied to indexing, Project Context suggested reads, and Context Pack suggested reads.
 
+The built-in provider now has two honest layers: Lite keeps bounded structural
+facts for every supported language, while the TypeScript Compiler API adds
+source-backed symbols and relations for TypeScript, TSX, and JavaScript files.
+Semantic refreshes re-index the changed files and their local import dependents
+inside one SQLite transaction. A compiler failure is recorded as a partial
+CodeGraph state and does not claim that the semantic layer is ready. Use
+`memorix codegraph refresh --max-files <n>` for an explicit scan cap, and
+`npm run benchmark:codegraph:scale -- --tmp-root <E:/path>` only for an opt-in
+generated scale probe.
+
+The Dashboard `/api/codegraph` endpoint is read-only and reports semantic
+coverage separately from the Memory Map. A validated `scip print --json`
+payload can be normalized into the same bounded external outline used by the
+optional CodeGraph provider; it is never written into Memorix's canonical
+symbol/edge tables, and Memorix never installs or configures a SCIP tool.
+
 SessionStart hooks keep the default minimal hint lightweight. When memory behavior is configured with `sessionInject=full`, Codex receives the compact Memory Autopilot brief at session start instead of only listing recent text memories. After a native compact, Codex receives one bounded checkpoint through its official `SessionStart` compact context channel. Claude Code receives one bounded checkpoint through the next official `UserPromptSubmit` context channel, then delivery stops. Pi and Oh-my-Pi retain the native summary fields their extension API exposes; hosts that do not expose a summary remain labelled as lifecycle-only. Set `memory.inject = "silent"` to disable automatic hook delivery.
 
 The intended loop for agents is: get the project brief when it helps, inspect the suggested current files, use stale or unbound memory only as a lead, store durable outcomes after the work changes the project, and resolve obsolete memories.
@@ -155,8 +171,13 @@ newline-delimited JSON-RPC gate before project initialization: it answers the
 2026-07-28 `server/discover` request before `initialize`, then replays other
 requests, notifications, and responses in order into the pinned SDK transport.
 Versionless `tools/list` and `tools/call` use the SDK's legacy result envelopes.
-HTTP modern clients may use the stateless `2026-07-28` path and a durable
-`Mcp-Project-Handle`; `/protocol-diagnostics` reports this as supported.
+HTTP modern clients use the stateless `2026-07-28` path and do not send
+`initialize`. A first `server/discover` request with a verified
+`Mcp-Project-Root` may receive Memorix's optional durable
+`Mcp-Project-Handle` extension; later requests can use that handle instead of
+repeating the root. The handle is not an MCP protocol session and is not
+required by clients; `/protocol-diagnostics` reports this extension as
+supported.
 Modern result metadata is returned for discovery, list, and call responses.
 The official subscriptions listen surface is available, but Memorix has no
 durable Tasks implementation, so task requests remain explicitly unsupported.

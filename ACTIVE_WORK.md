@@ -13,9 +13,8 @@ artifacts for the VPS/hosted build path only.
 
 ## Current Product State
 
-- `1.8.6` is the current published release. It carries the published 1.8.5
-  runtime hardening and adds WorkBuddy integration plus safer continuation
-  intent routing.
+- `1.8.7` is the current published release. It carries the published 1.8.6
+  integrations and adds the layered CodeGraph semantic evidence plane.
 - The release keeps the canonical Dashboard Memory Map, removes the obsolete
   renderer/dependencies, makes reachable capabilities visible, and preserves
   the old MCP clients while adding the modern 2026-07-28 core contract.
@@ -57,7 +56,7 @@ The work is deliberately split into P0 through P6:
 Local development uses Node/npm directly on E:. Docker is reserved for hosted
 CI/VPS deployment and is not part of local verification.
 
-### 1.8.7 Candidate Evidence
+### 1.8.7 Release Evidence
 
 - TypeScript Compiler API indexing is persisted with source-backed symbols,
   imports/exports, references, calls, inheritance, test edges, parser errors,

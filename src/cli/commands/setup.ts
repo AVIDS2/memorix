@@ -861,7 +861,7 @@ async function writeClaudeMarketplace(marketplacePath: string): Promise<void> {
         },
         category: 'development',
         source: './plugins/memorix',
-        homepage: 'https://github.com/AVIDS2/memorix#readme',
+        homepage: 'https://mem.rglens.com',
       },
     ],
   };

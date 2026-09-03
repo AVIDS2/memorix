@@ -84,6 +84,33 @@ function generateClaudeConfig(): Record<string, unknown> {
 }
 
 /**
+ * Generate Grok Build hook config.
+ * Format: ~/.grok/hooks/memorix.json (own file; do not merge into RuleSync dests)
+ * Grok uses Claude-compatible JSON events. Command is `memorix hook` (a
+ * shell command, not a relative path — Grok prefixes non-absolute commands
+ * with the JSON file directory).
+ * See: https://docs.x.ai grok hooks user guide
+ */
+function generateGrokConfig(): Record<string, unknown> {
+  const cmd = `${resolveHookCommand()} hook --agent grok`;
+  const hookEntry = {
+    type: 'command',
+    command: cmd,
+    timeout: 10,
+  };
+
+  return {
+    hooks: {
+      SessionStart: [{ hooks: [hookEntry] }],
+      PostToolUse: [{ hooks: [hookEntry] }],
+      UserPromptSubmit: [{ hooks: [hookEntry] }],
+      PreCompact: [{ hooks: [hookEntry] }],
+      Stop: [{ hooks: [hookEntry] }],
+    },
+  };
+}
+
+/**
  * Generate GitHub Copilot hook config.
  * Format: .github/hooks/memorix.json — version:1 + bash/powershell fields
  * See: https://docs.github.com/en/copilot/reference/hooks-configuration
@@ -658,6 +685,8 @@ export function getProjectConfigPath(agent: AgentName, projectRoot: string): str
       // uninstall all treat hooks as a no-op instead of falling through to the
       // `.memorix/hooks.json` default (which would report a path that never exists).
       return '';
+    case 'grok':
+      return path.join(projectRoot, '.grok', 'hooks', 'memorix.json');
     default:
       return path.join(projectRoot, '.memorix', 'hooks.json');
   }
@@ -706,6 +735,8 @@ export function getGlobalConfigPath(agent: AgentName): string {
     case 'workbuddy':
       // WorkBuddy has no user-global instructions file — guidance is project-only.
       return '';
+    case 'grok':
+      return path.join(home, '.grok', 'hooks', 'memorix.json');
     default:
       return path.join(home, '.memorix', 'hooks.json');
   }
@@ -837,6 +868,13 @@ export async function detectInstalledAgents(): Promise<AgentName[]> {
     agents.push('kiro');
   } catch { /* not installed */ }
 
+  // Check for Grok Build
+  const grokDir = path.join(home, '.grok');
+  try {
+    await fs.access(grokDir);
+    agents.push('grok');
+  } catch { /* not installed */ }
+
   // Check for Codex
   const codexDir = path.join(home, '.codex');
   try {
@@ -964,6 +1002,9 @@ export async function installHooks(
   switch (agent) {
     case 'claude':
       generated = generateClaudeConfig();
+      break;
+    case 'grok':
+      generated = generateGrokConfig();
       break;
     case 'copilot':
       generated = generateCopilotConfig();
@@ -1530,7 +1571,7 @@ export async function getHookStatus(
   projectRoot: string,
 ): Promise<Array<{ agent: AgentName; installed: boolean; outdated: boolean; verified: boolean; runtimeReady: boolean; configPath: string }>> {
   const results: Array<{ agent: AgentName; installed: boolean; outdated: boolean; verified: boolean; runtimeReady: boolean; configPath: string }> = [];
-  const agents: AgentName[] = ['claude', 'copilot', 'windsurf', 'cursor', 'kiro', 'codex', 'antigravity', 'gemini-cli', 'opencode', 'pi', 'trae'];
+  const agents: AgentName[] = ['claude', 'copilot', 'windsurf', 'cursor', 'kiro', 'codex', 'antigravity', 'gemini-cli', 'opencode', 'pi', 'trae', 'grok'];
 
   for (const agent of agents) {
     const projectPath = getProjectConfigPath(agent, projectRoot);

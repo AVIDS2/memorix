@@ -29,7 +29,8 @@
 | Claude Code | `.claude/settings.json` | 原生 |
 | Codex | 用户级 Memorix 插件内 `hooks/hooks.json` | Codex plugin hooks；通过 `memorix setup --agent codex --global` 安装，不写项目 `.codex/hooks.json` |
 | Windsurf | `.windsurf/cascade.json` | Windsurf 格式 |
-| Cursor | `.cursor/hooks.json` | Cursor 格式 |
+| Cursor | `.cursor/hooks.json` |
+| Grok Build | `~/.grok/hooks/memorix.json` | Cursor 格式 |
 | Kiro | `.kiro/hooks/*.hook.md` | Markdown + YAML |
 
 ### stdin/stdout 通信协议

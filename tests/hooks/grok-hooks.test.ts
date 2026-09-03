@@ -28,7 +28,11 @@ describe('Grok Build hooks', () => {
     expect(getProjectConfigPath('grok', tmpDir)).toBe(hooksPath);
 
     const config = JSON.parse(await fs.readFile(hooksPath, 'utf-8'));
-    expect(config.hooks.UserPromptSubmit[0].hooks[0].command).toBe('memorix hook --agent grok');
+    const expectedCmd = process.platform === 'win32'
+      ? 'memorix.cmd hook --agent grok'
+      : 'memorix hook --agent grok';
+    expect(config.hooks.UserPromptSubmit[0].hooks[0].command).toBe(expectedCmd);
+    expect(config.hooks.UserPromptSubmit[0].hooks[0].command.includes(' ')).toBe(true);
     expect(config.hooks.SessionStart[0].hooks[0].timeout).toBe(10);
     expect(config.hooks.Stop).toBeDefined();
     expect(config.hooks.PreCompact).toBeDefined();

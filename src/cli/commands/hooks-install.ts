@@ -166,6 +166,7 @@ function getAgentLabel(agent: string): string {
     trae: 'Trae',
     dsh: 'DeepSeek Harness',
     workbuddy: 'WorkBuddy',
+    grok: 'Grok Build',
   };
   return labels[agent] || agent;
 }
@@ -186,6 +187,7 @@ function getAgentHint(agent: string): string {
     trae: '.trae/rules/project_rules.md (rules only, no hooks system)',
     dsh: '~/.dsh/cordis.patch.yml MCP row via `memorix setup --agent dsh` (no hooks system)',
     workbuddy: '~/.workbuddy/mcp.json MCP row via `memorix setup --agent workbuddy` (no hooks system)',
+    grok: '~/.grok/hooks/memorix.json (own file, not RuleSync dest)',
     codex: 'Codex plugin hooks; use `memorix setup --agent codex`',
   };
   return hints[agent] || '';

@@ -195,6 +195,7 @@ const SUPPORTED_SETUP_AGENTS: AgentName[] = [
   'dsh',
   'workbuddy',
   'pi',
+  'grok',
 ];
 
 export function getSetupAgentTargets(): AgentName[] {
@@ -388,7 +389,7 @@ function relativePosix(from: string, to: string): string {
   return rel;
 }
 
-export type McpConfigAgent = Exclude<AgentName, 'pi'>;
+export type McpConfigAgent = Exclude<AgentName, 'pi' | 'grok'>;
 
 export function getMcpAdapter(agent: McpConfigAgent): MCPConfigAdapter {
   const adapters: Record<McpConfigAgent, MCPConfigAdapter> = {
@@ -1453,7 +1454,7 @@ export async function installAgentSetup(agent: AgentName, plan: SetupPlan, globa
   const hasCodeBuddyPlugin = plan.actions.includes('codebuddy-plugin') && agent === 'codebuddy';
   // Codex's supported default is the user-level plugin. Never create a
   // project-local .codex/config.toml as an implicit fallback.
-  const wantsMcpConfig = plan.mcp !== 'none' && agent !== 'pi' && !(agent === 'codex' && !global);
+  const wantsMcpConfig = plan.mcp !== 'none' && agent !== 'pi' && agent !== 'grok' && !(agent === 'codex' && !global);
 
   if (PLUGIN_PACKAGE_AGENTS.has(agent) && plan.includePlugin && !global) {
     p.log.info(`${agent}: project setup leaves user-level plugins untouched. Run \`memorix setup --agent ${agent} --global\` to install its plugin, skills, and lifecycle hooks.`);
@@ -1633,6 +1634,8 @@ export async function installAgentSetup(agent: AgentName, plan: SetupPlan, globa
 
   if (agent === 'pi') {
     p.log.info('pi: Pi has no MCP config lane in the current CLI; use the installed package extension and skill.');
+  } else if (agent === 'grok') {
+    p.log.info('grok: lifecycle hooks write ~/.grok/hooks/memorix.json. MCP stays host-owned (do not write config.toml).');
   } else if (plan.mcp === 'stdio') {
     p.log.info(`${agent}: MCP server command is \`memorix serve\``);
   } else if (plan.mcp === 'http') {
@@ -1669,7 +1672,7 @@ export default defineCommand({
   args: {
     agent: {
       type: 'string',
-      description: 'Target agent (claude, codex, codebuddy, opencode, cursor, windsurf, copilot, gemini-cli, antigravity, openclaw, hermes, omp, kiro, trae, dsh, pi, all)',
+      description: 'Target agent (claude, codex, codebuddy, opencode, cursor, windsurf, copilot, gemini-cli, antigravity, openclaw, hermes, omp, kiro, trae, dsh, pi, grok, all)',
       required: false,
     },
     mcp: {
@@ -1738,6 +1741,7 @@ export default defineCommand({
           { value: 'codex', label: 'Codex', hint: 'plugin package + marketplace + MCP' },
           { value: 'copilot', label: 'GitHub Copilot CLI', hint: 'plugin package + hooks + MCP' },
           { value: 'cursor', label: 'Cursor', hint: 'MCP + rules + skills' },
+          { value: 'grok', label: 'Grok Build', hint: 'hooks file; MCP stays host-owned' },
           { value: 'gemini-cli', label: 'Gemini CLI', hint: 'extension + MCP' },
           { value: 'openclaw', label: 'OpenClaw', hint: 'bundle + hook pack + skills + MCP' },
           { value: 'hermes', label: 'Hermes Agent', hint: 'plugin + hooks + commands + skills + MCP' },

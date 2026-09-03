@@ -116,6 +116,7 @@ function getAgentLabel(agent: string): string {
     trae: 'Trae',
     dsh: 'DeepSeek Harness',
     workbuddy: 'WorkBuddy',
+    grok: 'Grok Build',
   };
   return labels[agent] || agent;
 }
@@ -134,6 +135,7 @@ function getAgentHint(agent: string): string {
     trae: 'rules',
     dsh: 'MCP patch + AGENTS.md + skills',
     workbuddy: 'MCP + AGENTS.md',
+    grok: 'hooks file (~/.grok/hooks/memorix.json)',
   };
   return hints[agent] || 'integration files';
 }

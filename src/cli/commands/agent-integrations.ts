@@ -167,7 +167,7 @@ function worstStatus(statuses: AgentIntegrationStatus[]): AgentIntegrationStatus
 }
 
 function isMcpConfigAgent(agent: AgentName): agent is McpConfigAgent {
-  return agent !== 'pi';
+  return agent !== 'pi' && agent !== 'grok';
 }
 
 function isActionableMcpRepairIssue(issue: string): boolean {

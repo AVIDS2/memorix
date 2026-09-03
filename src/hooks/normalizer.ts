@@ -32,6 +32,11 @@ const EVENT_MAP: Record<string, HookEvent> = {
   Stop: 'session_end',
   SessionEnd: 'session_end',
 
+  // Grok Build (Claude-compatible PascalCase plus snake_case hookEventName)
+  user_prompt_submit: 'user_prompt',
+  pre_tool_use: 'post_tool',
+  post_tool_use: 'post_tool',
+
   // GitHub Copilot (camelCase, different names from Cursor)
   userPromptSubmitted: 'user_prompt',
   preToolUse: 'post_tool',
@@ -199,6 +204,28 @@ function normalizeCompactionMetadata(
 /**
  * Detect which agent sent this hook event based on payload structure.
  */
+function normalizeGrok(payload: Record<string, unknown>, event: HookEvent): Partial<NormalizedHookInput> {
+  const result = normalizeClaude(payload, event);
+  result.sessionId = result.sessionId || (payload.sessionId as string) || '';
+  result.cwd = result.cwd || (payload.cwd as string) || (payload.workspaceRoot as string) || '';
+  const toolName = (payload.toolName as string) || result.toolName || '';
+  if (toolName) {
+    result.toolName = toolName;
+    const toolInput = (payload.toolInput as Record<string, unknown> | undefined) ?? result.toolInput;
+    result.toolInput = toolInput;
+    if (/^(bash|run_terminal_command)$/i.test(toolName) && toolInput?.command) {
+      result.command = toolInput.command as string;
+    }
+    if (/^(write|edit|search_replace)$/i.test(toolName)) {
+      result.filePath = (toolInput?.path as string) ?? (toolInput?.file_path as string) ?? result.filePath;
+    }
+    const toolResult = payload.toolResult ?? payload.tool_result;
+    if (typeof toolResult === 'string') result.toolResult = toolResult;
+  }
+  if (payload.prompt) result.userPrompt = payload.prompt as string;
+  return result;
+}
+
 function detectAgent(payload: Record<string, unknown>): AgentName {
   // Highest priority: explicit agent identity injected by memorix hook --agent flag
   // This is set by generated hook configs when host payloads are ambiguous.
@@ -222,6 +249,12 @@ function detectAgent(payload: Record<string, unknown>): AgentName {
   if (payload.agent === 'omp') return 'omp';
   if (payload.agent === 'hermes') return 'hermes';
   if (payload.agent === 'openclaw') return 'openclaw';
+  if (payload.agent === 'grok') return 'grok';
+
+  // Grok Build uses camelCase hookEventName + sessionId
+  if ('hookEventName' in payload && ('sessionId' in payload || 'GROK_SESSION_ID' in process.env)) {
+    return 'grok';
+  }
 
   // Claude Code uses hook_event_name + session_id
   if ('hook_event_name' in payload && 'session_id' in payload) return 'claude';
@@ -286,6 +319,8 @@ function extractEventName(payload: Record<string, unknown>, agent: AgentName): s
       return (payload.hook_event_name as string) ?? '';
     case 'kiro':
       return (payload.event_type as string) ?? '';
+    case 'grok':
+      return (payload.hookEventName as string) ?? (payload.hook_event_name as string) ?? '';
     default:
       return '';
   }
@@ -733,6 +768,9 @@ export function normalizeHookInput(payload: Record<string, unknown>): Normalized
       break;
     case 'codebuddy':
       agentSpecific = normalizeClaude(payload, event);
+      break;
+    case 'grok':
+      agentSpecific = normalizeGrok(payload, event);
       break;
     default:
       agentSpecific = { sessionId: '', cwd: '' };

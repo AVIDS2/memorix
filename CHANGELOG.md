@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.8.8] - 2026-09-03
+
+### Changed
+- **Public product website metadata** -- package, MCP Registry, Agent plugin,
+  installer, README, and GitHub repository links now point to the live
+  Memorix website at `https://mem.rglens.com`. This patch does not change the
+  runtime behavior of the memory layer.
+
 ## [1.8.7] - 2026-09-02
 
 ### Added

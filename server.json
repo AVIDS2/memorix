@@ -7,7 +7,7 @@
     "url": "https://github.com/AVIDS2/memorix",
     "source": "github"
   },
-  "version": "1.8.7",
+  "version": "1.8.8",
   "websiteUrl": "https://mem.rglens.com",
   "icons": [
     {
@@ -22,7 +22,7 @@
     {
       "registryType": "npm",
       "identifier": "memorix",
-      "version": "1.8.7",
+      "version": "1.8.8",
       "runtimeHint": "npx",
       "packageArguments": [
         {

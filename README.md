@@ -575,6 +575,14 @@ npm test
 npm run build
 ```
 
+## Community
+
+Desktop and shell integrations built on Memorix:
+
+- [omarchy-memorix](https://github.com/mbot11/omarchy-memorix) — a native [Omarchy](https://omarchy.org) shell bar widget: pool stats, live global search, per-project breakdown, recent memories, and a workbench launcher. Read-only over `~/.memorix/data`; no daemons, no telemetry.
+
+Built something on top of Memorix? Open a PR to list it here.
+
 <h2 id="acknowledgements"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/tags/light/section-acknowledgements.svg"><img src="assets/tags/section-acknowledgements.svg" alt="Acknowledgements" height="32" /></picture></h2>
 
 Memorix draws from the MCP ecosystem and prior memory projects such as mcp-memory-service, MemCP, claude-mem, and Mem0. memcode is based on the Pi coding-agent codebase and adapts its terminal-agent model for the Memorix ecosystem.

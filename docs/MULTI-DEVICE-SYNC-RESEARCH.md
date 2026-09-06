@@ -1,6 +1,6 @@
-# Multi-Device Store Sync — Design Research
+# Multi-Device Store Sync — Plan and Acceptance Contract
 
-> Status: design proposal (research), not an implemented feature.
+> Status: active implementation plan for the first supported sync slice.
 > Scope: keep the existing local-first SQLite runtime; add an optional,
 > provider-agnostic replication path so one user can keep the same memory
 > across several machines.
@@ -8,6 +8,89 @@
 > already sketched a "local SQLite + background cloud sync" hybrid but did not
 > specify or build it. This document turns that sketch into a concrete,
 > reviewable contract.
+
+## Decision Summary
+
+The sync layer must replicate **auditable memory events**, never a live SQLite
+file. GitHub can be a low-cost relay for immutable JSONL batches, but GitHub
+LFS is not a database merge engine and is not the production default. The
+runtime keeps SQLite local and treats each remote as an interchangeable event
+transport.
+
+The first supported contract is deliberately narrow:
+
+- **Scope:** the current Git project by default. A remote namespace includes the
+  canonical project ID; one project cannot pull another project's events by
+  accident.
+- **Eligibility:** project-visible, non-ephemeral, qualified/legacy durable
+  observations only. Personal, agent-targeted, candidate, and ephemeral records
+  are excluded unless a future explicit export policy opts them in.
+- **Identity:** every sync key includes the project ID. Unkeyed rows also carry
+  origin device and origin ID, so global store IDs can never cross projects.
+- **Transport:** immutable per-device event batches, local cursors, checksums,
+  bounded pulls, and idempotent replay. Remote cursors are not authoritative.
+- **Conflict:** logical version order decides the current visible row, while a
+  losing concurrent version remains available as conflict/audit evidence rather
+  than disappearing silently.
+- **Device safety:** a copied data directory is detected as a clone and must
+  rotate its device identity before it can publish new events.
+- **User experience:** manual `status`, `push`, `pull`, and `repair` first;
+  background sync is a later opt-in once retention and recovery gates pass.
+
+## Implementation Phases
+
+| Phase | Deliverable | Gate |
+| --- | --- | --- |
+| P0 | Plan, scope, privacy and event contract | docs map updated; no live SQLite sync path |
+| P1 | Project-scoped local journal and safe eligibility filter | private/candidate/other-project fixtures never leave the scope |
+| P2 | Deterministic merge, tombstones, conflicts, clone detection | permutation, delete, replay, clone and conflict tests pass |
+| P3 | Filesystem and GitHub JSONL relays | two real data directories reconcile without DB/WAL files |
+| P4 | Bounded S3/Postgres pulls and remote namespace isolation | paged pull, malformed input, retry and large-log tests pass |
+| P5 | Snapshot/compaction/retention and CLI repair | no unbounded remote scan; recovery from snapshot is tested |
+| P6 | Cross-platform smoke and release review | Windows/macOS/Linux checks, docs, package smoke, contributor credit |
+
+## GitHub Relay Contract
+
+The GitHub adapter uses a private repository as a versioned transport, not as
+the canonical database:
+
+```text
+events/<project-hash>/<device-id>/<sequence>.jsonl
+snapshots/<project-hash>/<snapshot-id>.json.zst
+```
+
+Event files are immutable and device-owned. A device never edits another
+device's file and never commits `memorix.db`, `memorix.db-wal`, or
+`memorix.db-shm`. Each event contains a schema version, project namespace,
+device ID, sequence, event ID, entity key, operation, logical version,
+visibility decision, content hash, and payload. Payload encryption is required
+for private remotes when the user enables the encrypted mode; credentials never
+enter project files or event bodies.
+
+Snapshots are normalized, replayable memory state, not a copy of an open
+SQLite file. SQLite's Online Backup API may be used for a local backup, but a
+backup is not a merge input.
+
+## Acceptance Checklist
+
+- [ ] `memorix sync store status --json` reports scope, eligible/skipped counts,
+      remote namespace, cursor, pending batches, and conflicts without sending data.
+- [ ] `push` and `pull` are idempotent and resumable after interruption.
+- [ ] Two stores with independent local integer IDs converge to the same visible
+      records while retaining local IDs locally.
+- [ ] A stale upsert cannot revive a newer delete.
+- [ ] A concurrent same-key edit keeps both the winner and a reviewable losing
+      version/audit record.
+- [ ] Personal, agent-targeted, candidate, ephemeral, and other-project rows
+      are excluded by default.
+- [ ] Copying a data directory produces a clear device-clone error and a
+      documented `device rotate` recovery path.
+- [ ] GitHub relay smoke proves only JSONL/snapshot artifacts are uploaded;
+      no SQLite database or WAL file is present.
+- [ ] Pulls are bounded and paged; remote logs have a retention/compaction path.
+- [ ] Malformed, foreign-project, unsupported-version, and hash-mismatch input
+      fails closed without mutating local memory.
+- [ ] Local-only users see no behavior or dependency change when sync is unset.
 
 ---
 

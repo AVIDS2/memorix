@@ -74,9 +74,13 @@ export class PostgresSyncRemote implements SyncRemote {
   }
 
   async pull(since: Record<string, number>): Promise<ChangeBatch[]> {
+    // Filter server-side: only ship batches newer than the caller's per-device
+    // cursor, so a pull costs O(new rows), not O(full history).
     const rows = await this.sql.query<BatchRow>(
-      'SELECT device_id, sequence, produced_at, payload FROM memorix_sync_batches',
-      [],
+      `SELECT device_id, sequence, produced_at, payload
+         FROM memorix_sync_batches
+        WHERE sequence > COALESCE(($1::jsonb ->> device_id)::bigint, 0)`,
+      [JSON.stringify(since)],
     );
 
     return rows
@@ -91,7 +95,6 @@ export class PostgresSyncRemote implements SyncRemote {
           producedAt: row.produced_at,
         };
       })
-      .filter((batch) => batch.sequence > (since[batch.deviceId] ?? 0))
       .sort((left, right) => {
         if (left.deviceId < right.deviceId) return -1;
         if (left.deviceId > right.deviceId) return 1;

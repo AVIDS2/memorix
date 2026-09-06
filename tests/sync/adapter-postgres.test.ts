@@ -25,7 +25,10 @@ class InMemorySqlClient implements SqlClient {
     }
 
     if (sql.includes('FROM memorix_sync_batches') && this.batchesReady) {
-      return [...this.batches.values()].map((row) => structuredClone(row)) as T[];
+      const since = JSON.parse(String(params[0])) as Record<string, number>;
+      return [...this.batches.values()]
+        .filter((row) => Number(row.sequence) > (since[row.device_id] ?? 0))
+        .map((row) => structuredClone(row)) as T[];
     }
 
     throw new Error(`Unexpected query: ${sql}`);

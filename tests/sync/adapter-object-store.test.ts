@@ -70,4 +70,19 @@ describe('ObjectStoreRemote', () => {
     expect(await remote.getCursor('laptop')).toEqual({ applied: { phone: 4 } });
     expect(await remote.getCursor('desktop')).toEqual({ applied: { phone: 9 } });
   });
+
+  it('namespaces every object under a prefix and ignores foreign keys on pull', async () => {
+    const client = new MemoryObjectStore();
+    const remote = new ObjectStoreRemote(client, 'team/');
+    await client.put('unrelated/data.json', 'x');
+    await client.put('batches/device-z/00000000000000000001.json', 'foreign');
+
+    await remote.push(batch('device-a', 3));
+    await remote.setCursor('laptop', { applied: { phone: 1 } });
+
+    expect(client.objects.has('team/batches/device-a/00000000000000000003.json')).toBe(true);
+    expect(client.objects.has('team/cursors/laptop.json')).toBe(true);
+    expect(await remote.pull({})).toEqual([batch('device-a', 3)]);
+    expect(await remote.getCursor('laptop')).toEqual({ applied: { phone: 1 } });
+  });
 });

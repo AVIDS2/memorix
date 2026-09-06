@@ -7,6 +7,8 @@
  * - MEMORIX_SYNC_S3_ACCESS_KEY_ID
  * - MEMORIX_SYNC_S3_SECRET_ACCESS_KEY
  * - MEMORIX_SYNC_S3_REGION
+ * - MEMORIX_SYNC_S3_PREFIX (optional; key namespace so a shared bucket can
+ *   host other data or several independent stores)
  */
 
 import { emptyCursor } from '../types.js';
@@ -30,32 +32,36 @@ const BATCH_KEY = /^batches\/([^/]+)\/(\d+)\.json$/;
 
 export class ObjectStoreRemote implements SyncRemote {
   readonly kind = 's3';
+  /** Key namespace so a shared bucket can host other data or several stores. */
+  private readonly prefix: string;
 
-  constructor(private readonly client: ObjectStoreClient) {}
+  constructor(private readonly client: ObjectStoreClient, prefix = '') {
+    this.prefix = prefix === '' ? '' : `${prefix.replace(/\/+$/, '')}/`;
+  }
 
   async init(): Promise<void> {}
 
   async getCursor(deviceId: string): Promise<SyncCursor> {
-    const body = await this.client.get(`cursors/${deviceId}.json`);
+    const body = await this.client.get(`${this.prefix}cursors/${deviceId}.json`);
     return body === undefined ? emptyCursor() : JSON.parse(body) as SyncCursor;
   }
 
   async setCursor(deviceId: string, cursor: SyncCursor): Promise<void> {
-    await this.client.put(`cursors/${deviceId}.json`, JSON.stringify(cursor));
+    await this.client.put(`${this.prefix}cursors/${deviceId}.json`, JSON.stringify(cursor));
   }
 
   async push(batch: ChangeBatch): Promise<void> {
     const sequence = String(batch.sequence).padStart(SEQUENCE_WIDTH, '0');
     await this.client.putIfAbsent(
-      `batches/${batch.deviceId}/${sequence}.json`,
+      `${this.prefix}batches/${batch.deviceId}/${sequence}.json`,
       JSON.stringify(batch),
     );
   }
 
   async pull(since: Record<string, number>): Promise<ChangeBatch[]> {
     const objects: BatchObject[] = [];
-    for (const key of await this.client.list('batches/')) {
-      const match = BATCH_KEY.exec(key);
+    for (const key of await this.client.list(`${this.prefix}batches/`)) {
+      const match = BATCH_KEY.exec(key.slice(this.prefix.length));
       if (match === null) continue;
       const [, deviceId, encodedSequence] = match;
       const sequence = Number(encodedSequence);

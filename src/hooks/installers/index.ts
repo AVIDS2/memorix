@@ -1335,7 +1335,7 @@ export async function installHooks(
       events.push('session_end', 'user_prompt', 'post_edit');
       break;
     case 'grok':
-      events.push('session_start', 'post_tool', 'user_prompt', 'pre_compact', 'session_end');
+      events.push('session_start', 'post_tool', 'user_prompt', 'pre_compact', 'post_compact', 'session_end');
       break;
   }
 

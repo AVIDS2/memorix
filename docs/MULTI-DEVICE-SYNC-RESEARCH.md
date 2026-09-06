@@ -81,23 +81,33 @@ keeps those local stores consistent through an interchangeable remote.
 
 ## 3. Why the current schema already supports this
 
-The canonical store is well suited to row-level replication because it already
-carries the fields a last-writer-wins (LWW) merge needs:
+The canonical store carries most of what a convergent last-writer-wins (LWW)
+merge needs, and the small remainder lives in additive side tables so the
+`observations` schema never changes:
 
-- **Stable identity.** `observations.id` is assigned from a monotonic counter
-  (`meta.next_id`), and the store persists a `storage_generation` in `meta`.
-- **Write ordering.** Rows already carry `updatedAt`/`createdAt`, and
-  observations carry `writeGeneration`. These give a per-row version basis.
-- **Lifecycle state.** `admissionState`, `status`, `revisionCount`, and
-  `visibility` describe promotion/supersession, so a merge can respect
-  lifecycle rather than blindly overwriting.
+- **Stable cross-device identity.** The integer `observations.id` is a
+  *replica-local* counter (`meta.next_id`) — two machines can mint the same id
+  for unrelated rows — so it cannot be the merge key. Sync instead derives a
+  stable `syncKey`: `t:<projectId>:<topicKey>` for topic-keyed observations
+  (naturally shared across devices) and `u:<originDevice>:<originId>` for
+  unkeyed ones, minted once and recorded in `sync_row_state`. Each replica maps
+  a `syncKey` to its own local id on import, so id collisions are impossible.
+- **Convergent versioning.** Merge uses a per-row logical clock
+  `(revision, writer)` — a Lamport counter advanced from the last observed
+  revision, tiebroken by the originating device id — persisted verbatim in
+  `sync_row_state`. This is a strict total order, so replaying batches in any
+  delivery order reaches the same state. `writeGeneration`/`updatedAt` remain a
+  local storage watermark and are deliberately *not* used as the comparator
+  (they are not comparable across replicas).
+- **Durable tombstones.** Deletes are versioned states retained in
+  `sync_row_state`, so a stale upsert pulled later cannot resurrect a row a
+  newer delete removed.
 - **Provenance.** `source`, `sourceDetail`, `createdByAgentId`, `projectId`,
   and `sessionId` let a merge attribute and scope rows.
 
-This means a first version can replicate at the **observation row** granularity
-using existing columns, without a schema migration, by treating
-`(id)` as the merge key and `(writeGeneration, updatedAt)` as the version
-comparator.
+A first version therefore replicates at the **observation row** granularity
+with no migration of existing data: identity, version, and tombstone state all
+live in the additive `sync_row_state` / `sync_meta` tables.
 
 ---
 
@@ -117,14 +127,16 @@ comparator.
 ### 4.2 Transport interface (provider-agnostic)
 
 ```ts
-// Illustrative contract, not final API.
+// Final interface (src/sync/types.ts). Cursor maps deviceId -> last applied
+// sequence, so both sides know what the other has already seen.
 interface SyncRemote {
-  // Opaque cursor describing "everything up to here has been applied".
-  getRemoteHead(): Promise<SyncCursor>;
-  // Upload a batch of local changes after the given cursor.
-  push(changes: ChangeBatch, from: SyncCursor): Promise<SyncCursor>;
-  // Download remote changes the local store has not applied yet.
-  pull(after: SyncCursor): Promise<ChangeBatch>;
+  readonly kind: string;                 // "fs" | "s3" | "postgres"
+  init(): Promise<void>;
+  getCursor(deviceId: string): Promise<SyncCursor>;
+  setCursor(deviceId: string, cursor: SyncCursor): Promise<void>;
+  push(batch: ChangeBatch): Promise<void>;            // idempotent by (deviceId, sequence)
+  pull(since: Record<string, number>): Promise<ChangeBatch[]>; // newer batches, oldest first
+  close(): Promise<void>;
 }
 ```
 
@@ -143,13 +155,19 @@ select providers by config.
 
 ### 4.3 Merge strategy
 
-- Default: **row-level last-writer-wins** keyed on `(writeGeneration, updatedAt)`
-  with `id` as the merge key.
-- **Lifecycle-aware overrides:** a supersession or archival must not be undone
-  by an older `active` copy; `admissionState`/`status` transitions are applied
-  in lifecycle order, not raw timestamp order.
-- **Deletes** are tombstoned in the journal so a delete on machine A is not
-  resurrected by machine B's stale row.
+- **Row-level last-writer-wins**, merged by the stable `syncKey` and versioned
+  by the per-row logical clock `(revision, writer)`. The comparison is a strict
+  total order, so the merge is convergent: any delivery/replay order of the
+  same batches yields the same final state.
+- **No lifecycle special-casing.** An earlier design ordered `status`
+  transitions in lifecycle rank; that made the merge order-dependent (applying
+  `active`@rev2 then `archived`@rev1 diverged from the reverse). Revision
+  ordering alone already prevents a stale `active` copy from overriding a newer
+  supersession/archival, so the guard was removed in favour of provable
+  convergence.
+- **Durable tombstones.** A delete is a versioned state kept in
+  `sync_row_state`, so a delete on machine A is never resurrected by machine B's
+  stale upsert — even when B pulls the old upsert after the delete.
 - **Preview-first:** `sync --dry` reports the exact set of inserts, updates,
   supersessions, and tombstones that would apply, consistent with the existing
   preview-first maintenance actions.

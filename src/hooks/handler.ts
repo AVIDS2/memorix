@@ -737,6 +737,12 @@ export function formatHookOutput(
     };
   }
 
+  // Grok's documented hook contract only gives passive hooks a success exit
+  // signal; it does not define a Claude-style additionalContext response.
+  // Returning an empty object keeps Memorix capture-only and never changes
+  // Grok's prompt, tool, or stop decisions.
+  if (agent === 'grok') return {};
+
   const finalOutput: Record<string, unknown> = { ...output };
   const hookSpecificOutputEvents = new Set([
     'PreToolUse',

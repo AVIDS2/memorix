@@ -126,6 +126,7 @@ const GUIDANCE_AGENTS = new Set<AgentName>([
   'trae',
   'dsh',
   'workbuddy',
+  'grok',
 ]);
 
 const CODEX_PLUGIN_NAME = 'memorix';

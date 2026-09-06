@@ -20,6 +20,7 @@ const EVENT_MAP: Record<string, HookEvent> = {
   post_command: 'post_command',
   post_tool: 'post_tool',
   pre_compact: 'pre_compact',
+  post_compact: 'post_compact',
   session_end: 'session_end',
   post_response: 'post_response',
 
@@ -36,6 +37,8 @@ const EVENT_MAP: Record<string, HookEvent> = {
   user_prompt_submit: 'user_prompt',
   pre_tool_use: 'post_tool',
   post_tool_use: 'post_tool',
+  post_tool_use_failure: 'post_tool',
+  stop_failure: 'session_end',
 
   // GitHub Copilot (camelCase, different names from Cursor)
   userPromptSubmitted: 'user_prompt',
@@ -202,27 +205,45 @@ function normalizeCompactionMetadata(
 }
 
 /**
- * Detect which agent sent this hook event based on payload structure.
+ * Normalize the official Grok Build hook payload.
  */
 function normalizeGrok(payload: Record<string, unknown>, event: HookEvent): Partial<NormalizedHookInput> {
-  const result = normalizeClaude(payload, event);
-  result.sessionId = result.sessionId || (payload.sessionId as string) || '';
-  result.cwd = result.cwd || (payload.cwd as string) || (payload.workspaceRoot as string) || '';
-  const toolName = (payload.toolName as string) || result.toolName || '';
+  const result: Partial<NormalizedHookInput> = {
+    sessionId: firstString(payload.sessionId, payload.session_id, process.env.GROK_SESSION_ID) ?? '',
+    cwd: firstString(payload.cwd, payload.workspaceRoot, payload.workspace_root, process.env.GROK_WORKSPACE_ROOT) ?? '',
+    transcriptPath: firstString(payload.transcriptPath, payload.transcript_path),
+  };
+  const toolName = firstString(payload.toolName, payload.tool_name);
   if (toolName) {
     result.toolName = toolName;
-    const toolInput = (payload.toolInput as Record<string, unknown> | undefined) ?? result.toolInput;
+    const toolInput = asRecord(payload.toolInput) ?? asRecord(payload.tool_input);
     result.toolInput = toolInput;
-    if (/^(bash|run_terminal_command)$/i.test(toolName) && toolInput?.command) {
-      result.command = toolInput.command as string;
+    if (/^(bash|run_terminal_command)$/i.test(toolName)) {
+      result.command = firstString(toolInput?.command, toolInput?.cmd);
     }
-    if (/^(write|edit|search_replace)$/i.test(toolName)) {
-      result.filePath = (toolInput?.path as string) ?? (toolInput?.file_path as string) ?? result.filePath;
+    if (/^(write|edit|multi_edit|multiedittool|search_replace)$/i.test(toolName)) {
+      result.filePath = firstString(toolInput?.path, toolInput?.file_path, toolInput?.filePath);
     }
-    const toolResult = payload.toolResult ?? payload.tool_result;
-    if (typeof toolResult === 'string') result.toolResult = toolResult;
+    result.toolResult = stringifyValue(
+      payload.toolResult ?? payload.tool_response ?? payload.tool_result ?? payload.error,
+    );
   }
-  if (payload.prompt) result.userPrompt = payload.prompt as string;
+  if (event === 'user_prompt') {
+    result.userPrompt = firstString(payload.prompt, payload.userPrompt, payload.user_prompt) ?? '';
+  }
+  if (event === 'post_response' || event === 'session_end') {
+    result.aiResponse = firstString(
+      payload.lastAssistantMessage,
+      payload.last_assistant_message,
+      payload.assistantMessage,
+      payload.assistant_message,
+      payload.aiResponse,
+      payload.ai_response,
+    );
+  }
+  if (event === 'session_start') {
+    result.sessionStartReason = firstString(payload.source, payload.sessionStartReason, payload.session_start_reason);
+  }
   return result;
 }
 

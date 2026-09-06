@@ -212,7 +212,9 @@ export function buildSetupPlan(options: {
   plugin?: boolean;
   global?: boolean;
 }): SetupPlan {
-  const mcp = options.mcp ?? 'stdio';
+  // Grok owns its MCP configuration through `grok mcp`; Memorix setup only
+  // installs the independent hooks/rules integration for this target.
+  const mcp = options.agent === 'grok' ? 'none' : options.mcp ?? 'stdio';
   const actions: SetupAction[] = [];
   const isPackageOwnedAgent = options.agent !== 'all' && PACKAGE_OWNED_INTEGRATION_AGENTS.has(options.agent);
   const includeHooks = options.hooks ?? true;
@@ -1636,6 +1638,7 @@ export async function installAgentSetup(agent: AgentName, plan: SetupPlan, globa
     p.log.info('pi: Pi has no MCP config lane in the current CLI; use the installed package extension and skill.');
   } else if (agent === 'grok') {
     p.log.info('grok: lifecycle hooks write ~/.grok/hooks/memorix.json. MCP stays host-owned (do not write config.toml).');
+    if (!global) p.log.info('grok: project hooks require `/hooks-trust` or launching Grok with `--trust`.');
   } else if (plan.mcp === 'stdio') {
     p.log.info(`${agent}: MCP server command is \`memorix serve\``);
   } else if (plan.mcp === 'http') {

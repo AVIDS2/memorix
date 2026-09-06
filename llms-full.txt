@@ -2,7 +2,7 @@
 
 > Local-first shared memory layer for AI coding agents.
 
-Memorix is a TypeScript/Node.js project that gives AI coding agents persistent, project-aware memory. It targets software development workflows, not generic chat. It works across Claude Code, Codex, CodeBuddy Code, Cursor, Windsurf, GitHub Copilot CLI, Gemini CLI, OpenCode, OpenClaw, Hermes Agent, Oh-my-Pi, Pi, Kiro, Antigravity, Trae, DeepSeek Harness, and any agent that can speak MCP over stdio or HTTP. Integrations usually start with `memorix setup --agent <agent> --global`, which installs the recommended user-level package or config for that agent: plugin packages when supported, package or extension entries, MCP config, generated guidance, hooks, skills, or the bundled terminal agent.
+Memorix is a TypeScript/Node.js project that gives AI coding agents persistent, project-aware memory. It targets software development workflows, not generic chat. It works across Claude Code, Codex, CodeBuddy Code, Cursor, Windsurf, GitHub Copilot CLI, Gemini CLI, OpenCode, Grok Build, OpenClaw, Hermes Agent, Oh-my-Pi, Pi, Kiro, Antigravity, Trae, DeepSeek Harness, WorkBuddy, and any agent that can speak MCP over stdio or HTTP. Integrations usually start with `memorix setup --agent <agent> --global`, which installs the recommended user-level package or config for that agent: plugin packages when supported, package or extension entries, MCP config, generated guidance, hooks, skills, or the bundled terminal agent.
 
 If you are an AI coding agent helping a user install, operate, or troubleshoot Memorix, read `docs/AGENT_OPERATOR_PLAYBOOK.md` before taking action. It is the main reference for install, runtime selection, Git/project binding, MCP integration, hooks, and troubleshooting.
 
@@ -35,6 +35,7 @@ It installs the recommended Memorix integration for the target agent:
 - Pi: user Pi package with a Memorix extension and skill. Setup also attempts `pi install <path> --approve`; project-local setup uses `-l`.
 - Gemini CLI: local Gemini extension package with MCP and `GEMINI.md` context.
 - OpenCode: local plugin file, `opencode.json` MCP config, OpenCode skill, and `AGENTS.md` guidance.
+- Grok Build: native lifecycle hooks in `~/.grok/hooks/memorix.json` and `~/.grok/AGENTS.md` guidance. Grok owns its MCP configuration; project hooks require `/hooks-trust`.
 - Windsurf, Kiro, Antigravity, Trae: MCP config plus rules/hooks where supported.
 - DeepSeek Harness: MCP patch row (`$DSH_HOME/cordis.patch.yml`) plus `AGENTS.md` guidance and official skills.
 
@@ -50,6 +51,7 @@ memorix setup --agent cursor --global
 memorix setup --agent pi --global
 memorix setup --agent gemini-cli --global
 memorix setup --agent opencode --global
+memorix setup --agent grok --global
 ```
 
 Manual `memorix integrate --agent <agent>` and `memorix hooks install --agent <agent>` are fallback commands for updating one generated integration without running the full setup package. Run setup without `--global` only when you intentionally want repo-local guidance, rules, or hooks for one project.

@@ -1,7 +1,7 @@
 {
   "name": "memorix",
   "mcpName": "io.github.AVIDS2/memorix",
-  "version": "1.8.8",
+  "version": "1.8.9",
   "description": "Local-first shared memory layer for AI coding agents across MCP clients, Git history, reasoning context, and project sessions.",
   "type": "module",
   "sideEffects": false,
@@ -105,6 +105,7 @@
     "cross-agent-memory",
     "context-persistence",
     "agent-memory",
+    "grok-build",
     "memcode",
     "coding-agent",
     "terminal-agent",

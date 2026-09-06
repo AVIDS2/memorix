@@ -4,6 +4,24 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.8.9] - 2026-09-06
+
+### Added
+- **Grok Build integration** -- adds native lifecycle hook capture for session,
+  prompt, tool, compaction, and stop events, plus Grok-specific `AGENTS.md`
+  guidance. Thanks to @RaviTharuma for the original integration.
+
+### Changed
+- **Host-owned Grok MCP** -- `memorix setup --agent grok --global` uses Grok's
+  hook and rules surfaces without writing Grok's `config.toml` or MCP entries.
+- **Agent documentation** -- the English and Chinese README matrices and setup
+  guides now list Grok Build and its trust model.
+
+### Fixed
+- **Safe Grok hook updates** -- preserves unrelated user hooks, removes only
+  Memorix-owned entries, supports `GROK_HOME`, and reports project hook trust
+  accurately without claiming that Memorix can approve it.
+
 ## [1.8.8] - 2026-09-03
 
 ### Changed

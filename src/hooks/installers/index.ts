@@ -30,6 +30,10 @@ function resolveHookCommand(): string {
   return 'memorix';
 }
 
+function getGrokHome(): string {
+  return process.env.GROK_HOME?.trim() || path.join(os.homedir(), '.grok');
+}
+
 function resolveWindowsMemorixShim(): string | null {
   try {
     const output = String(execSync('where.exe memorix.cmd', {
@@ -81,6 +85,114 @@ function generateClaudeConfig(): Record<string, unknown> {
       Stop: [{ hooks: [hookEntry] }],
     },
   };
+}
+
+/**
+ * Generate Grok Build hook config.
+ * Format: ~/.grok/hooks/memorix.json (own file; do not merge into RuleSync dests)
+ * Grok uses its official JSON hook format with Claude-compatible event names. Command is `memorix hook` (a
+ * shell command, not a relative path — Grok prefixes non-absolute commands
+ * with the JSON file directory).
+ * See: https://docs.x.ai grok hooks user guide
+ */
+function generateGrokConfig(): Record<string, unknown> {
+  const cmd = `${resolveHookCommand()} hook --agent grok`;
+  const hookEntry = {
+    type: 'command',
+    command: cmd,
+    timeout: 10,
+  };
+
+  return {
+    hooks: {
+      SessionStart: [{ hooks: [hookEntry] }],
+      SessionEnd: [{ hooks: [hookEntry] }],
+      PostToolUse: [{ hooks: [hookEntry] }],
+      PostToolUseFailure: [{ hooks: [hookEntry] }],
+      UserPromptSubmit: [{ hooks: [hookEntry] }],
+      PreCompact: [{ hooks: [hookEntry] }],
+      PostCompact: [{ hooks: [hookEntry] }],
+      Stop: [{ hooks: [hookEntry] }],
+      StopFailure: [{ hooks: [hookEntry] }],
+    },
+  };
+}
+
+function isJsonRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isMemorixGrokCommand(value: unknown): boolean {
+  return value === 'memorix hook --agent grok' || value === 'memorix.cmd hook --agent grok';
+}
+
+function isMemorixGrokHook(value: unknown): boolean {
+  return isJsonRecord(value) && value.type === 'command' && isMemorixGrokCommand(value.command);
+}
+
+function mergeGrokHookConfig(
+  existing: Record<string, unknown>,
+  generated: Record<string, unknown>,
+): Record<string, unknown> {
+  const merged = { ...existing };
+  const existingHooks = isJsonRecord(existing.hooks) ? { ...existing.hooks } : {};
+  const generatedHooks = isJsonRecord(generated.hooks) ? generated.hooks : {};
+
+  for (const [event, generatedGroups] of Object.entries(generatedHooks)) {
+    const currentGroups = Array.isArray(existingHooks[event]) ? existingHooks[event] : [];
+    const preservedGroups = currentGroups.flatMap((group) => {
+      if (!isJsonRecord(group) || !Array.isArray(group.hooks)) return [group];
+      const preservedHooks = group.hooks.filter((hook) => !isMemorixGrokHook(hook));
+      if (preservedHooks.length === 0) return [];
+      return [{ ...group, hooks: preservedHooks }];
+    });
+    existingHooks[event] = [...preservedGroups, ...(Array.isArray(generatedGroups) ? generatedGroups : [])];
+  }
+
+  merged.hooks = existingHooks;
+  return merged;
+}
+
+function removeMemorixGrokHooks(config: Record<string, unknown>): Record<string, unknown> {
+  const cleaned = { ...config };
+  const hooks = isJsonRecord(config.hooks) ? { ...config.hooks } : null;
+  if (!hooks) return cleaned;
+
+  for (const [event, groups] of Object.entries(hooks)) {
+    if (!Array.isArray(groups)) continue;
+    const preservedGroups = groups.flatMap((group) => {
+      if (!isJsonRecord(group) || !Array.isArray(group.hooks)) return [group];
+      const preservedHooks = group.hooks.filter((hook) => !isMemorixGrokHook(hook));
+      if (preservedHooks.length === 0) return [];
+      return [{ ...group, hooks: preservedHooks }];
+    });
+    if (preservedGroups.length > 0) hooks[event] = preservedGroups;
+    else delete hooks[event];
+  }
+
+  if (Object.keys(hooks).length > 0) cleaned.hooks = hooks;
+  else delete cleaned.hooks;
+  return cleaned;
+}
+
+async function readGrokHookConfig(configPath: string): Promise<Record<string, unknown>> {
+  let content: string;
+  try {
+    content = await fs.readFile(configPath, 'utf-8');
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return {};
+    throw error;
+  }
+
+  if (!content.trim()) return {};
+  try {
+    const parsed: unknown = JSON.parse(content);
+    if (!isJsonRecord(parsed)) throw new Error('top-level value must be an object');
+    return parsed;
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new Error(`Cannot safely update Grok hook config ${configPath}: ${reason}`);
+  }
 }
 
 /**
@@ -658,6 +770,8 @@ export function getProjectConfigPath(agent: AgentName, projectRoot: string): str
       // uninstall all treat hooks as a no-op instead of falling through to the
       // `.memorix/hooks.json` default (which would report a path that never exists).
       return '';
+    case 'grok':
+      return path.join(projectRoot, '.grok', 'hooks', 'memorix.json');
     default:
       return path.join(projectRoot, '.memorix', 'hooks.json');
   }
@@ -706,6 +820,8 @@ export function getGlobalConfigPath(agent: AgentName): string {
     case 'workbuddy':
       // WorkBuddy has no user-global instructions file — guidance is project-only.
       return '';
+    case 'grok':
+      return path.join(getGrokHome(), 'hooks', 'memorix.json');
     default:
       return path.join(home, '.memorix', 'hooks.json');
   }
@@ -734,6 +850,8 @@ export function getAgentRulesPath(agent: AgentName, root: string, global = false
       case 'dsh':
         // The user-global AGENTS.md lives in the harness home DSH reads.
         return path.join(process.env.DSH_HOME?.trim() || path.join(root, '.dsh'), 'AGENTS.md');
+      case 'grok':
+        return path.join(getGrokHome(), 'AGENTS.md');
       case 'workbuddy':
         // WorkBuddy has no user-global instructions file — guidance is project-only.
         return '';
@@ -765,6 +883,8 @@ export function getAgentRulesPath(agent: AgentName, root: string, global = false
     case 'dsh':
       return path.join(root, 'AGENTS.md');
     case 'workbuddy':
+      return path.join(root, 'AGENTS.md');
+    case 'grok':
       return path.join(root, 'AGENTS.md');
     default:
       return path.join(root, '.agent', 'rules', 'memorix.md');
@@ -835,6 +955,13 @@ export async function detectInstalledAgents(): Promise<AgentName[]> {
   try {
     await fs.access(kiroConfig);
     agents.push('kiro');
+  } catch { /* not installed */ }
+
+  // Check for Grok Build
+  const grokDir = getGrokHome();
+  try {
+    await fs.access(grokDir);
+    agents.push('grok');
   } catch { /* not installed */ }
 
   // Check for Codex
@@ -953,6 +1080,12 @@ export async function installHooks(
         if (basename === 'AGENTS.md' || basename === 'GEMINI.md' || basename === 'CONTEXT.md') {
           continue;
         }
+        // Grok's dedicated JSON file may also contain user-owned hook groups.
+        // Its merge/uninstall path removes only Memorix commands, so never
+        // delete the whole file during a reinstall cleanup.
+        if (agent === 'grok' && path.resolve(entry.path) === path.resolve(configPath)) {
+          continue;
+        }
         await unlink(entry.path);
         await removeFile(projectRoot, entry.path);
       } catch { /* file already gone */ }
@@ -964,6 +1097,9 @@ export async function installHooks(
   switch (agent) {
     case 'claude':
       generated = generateClaudeConfig();
+      break;
+    case 'grok':
+      generated = generateGrokConfig();
       break;
     case 'copilot':
       generated = generateCopilotConfig();
@@ -1080,7 +1216,19 @@ export async function installHooks(
   // Ensure directory exists
   await fs.mkdir(path.dirname(configPath), { recursive: true });
 
-  if (agent === 'kiro') {
+  if (agent === 'grok') {
+    // Grok discovers one file per hook source and does not require the
+    // version field used by Cursor. Preserve any user-owned hook groups in
+    // this file and replace only Memorix's own command entries.
+    const existing = await readGrokHookConfig(configPath);
+    const merged = mergeGrokHookConfig(existing, generated as Record<string, unknown>);
+    await fs.writeFile(configPath, JSON.stringify(merged, null, 2), 'utf-8');
+
+    try {
+      const { recordFile } = await import('../../audit/index.js');
+      await recordFile(projectRoot, 'hook', configPath, agent);
+    } catch { /* audit is optional */ }
+  } else if (agent === 'kiro') {
     // Kiro uses multiple .kiro.hook files
     const hookFiles = generateKiroHookFiles();
     const hooksDir = path.join(path.dirname(configPath));
@@ -1186,6 +1334,9 @@ export async function installHooks(
     case 'kiro':
       events.push('session_end', 'user_prompt', 'post_edit');
       break;
+    case 'grok':
+      events.push('session_start', 'post_tool', 'user_prompt', 'pre_compact', 'post_compact', 'session_end');
+      break;
   }
 
   // Install agent rules alongside hooks
@@ -1217,7 +1368,7 @@ async function installAgentRules(agent: AgentName, projectRoot: string, global =
   try {
     await fs.mkdir(path.dirname(rulesPath), { recursive: true });
 
-    if (agent === 'claude' || agent === 'codex' || agent === 'opencode' || agent === 'antigravity' || agent === 'gemini-cli' || agent === 'dsh') {
+    if (agent === 'claude' || agent === 'codex' || agent === 'opencode' || agent === 'antigravity' || agent === 'gemini-cli' || agent === 'dsh' || agent === 'grok') {
       // For shared context files (CLAUDE.md / AGENTS.md / GEMINI.md), append rather than overwrite.
       try {
         const existing = await fs.readFile(rulesPath, 'utf-8');
@@ -1422,7 +1573,16 @@ export async function uninstallHooks(
   let success = false;
 
   try {
-    if (agent === 'kiro' || agent === 'opencode') {
+    if (agent === 'grok') {
+      const config = await readGrokHookConfig(configPath);
+      const cleaned = removeMemorixGrokHooks(config);
+      if (Object.keys(cleaned).length === 0) {
+        await fs.unlink(configPath);
+      } else {
+        await fs.writeFile(configPath, JSON.stringify(cleaned, null, 2), 'utf-8');
+      }
+      success = true;
+    } else if (agent === 'kiro' || agent === 'opencode') {
       await fs.unlink(configPath);
       success = true;
     } else {
@@ -1448,6 +1608,14 @@ export async function uninstallHooks(
     const agentFiles = prevFiles.filter(e => e.agent === agent);
     for (const entry of agentFiles) {
       try {
+        // The Grok hook file can contain user-owned groups. The dedicated
+        // config pass above already removed Memorix entries safely; only
+        // forget the audit record here, never unlink the shared file.
+        if (agent === 'grok' && path.resolve(entry.path) === path.resolve(configPath)) {
+          await removeFile(projectRoot, entry.path);
+          auditCleaned = true;
+          continue;
+        }
         const basename = path.basename(entry.path);
         // Shared context files: remove only the Memorix block, not the whole file
         if (basename === 'AGENTS.md' || basename === 'GEMINI.md' || basename === 'CONTEXT.md') {
@@ -1530,7 +1698,7 @@ export async function getHookStatus(
   projectRoot: string,
 ): Promise<Array<{ agent: AgentName; installed: boolean; outdated: boolean; verified: boolean; runtimeReady: boolean; configPath: string }>> {
   const results: Array<{ agent: AgentName; installed: boolean; outdated: boolean; verified: boolean; runtimeReady: boolean; configPath: string }> = [];
-  const agents: AgentName[] = ['claude', 'copilot', 'windsurf', 'cursor', 'kiro', 'codex', 'antigravity', 'gemini-cli', 'opencode', 'pi', 'trae'];
+  const agents: AgentName[] = ['claude', 'copilot', 'windsurf', 'cursor', 'kiro', 'codex', 'antigravity', 'gemini-cli', 'opencode', 'pi', 'trae', 'grok'];
 
   for (const agent of agents) {
     const projectPath = getProjectConfigPath(agent, projectRoot);
@@ -1542,7 +1710,9 @@ export async function getHookStatus(
 
     // Config-based agents: file existence = verified (agent reads config directly)
     // Plugin/package agents (OpenCode, Pi): file existence alone does not prove runtime load.
-    const verifiedByDefault = agent !== 'opencode' && agent !== 'pi';
+    // A Grok project hook can still be skipped until the host grants
+    // `/hooks-trust`; only its always-trusted global file is verified by path.
+    const verifiedByDefault = agent !== 'opencode' && agent !== 'pi' && agent !== 'grok';
 
     try {
       await fs.access(projectPath);
@@ -1576,11 +1746,16 @@ export async function getHookStatus(
       runtimeReady = detectPwsh();
     }
 
+    const verified = installed && (
+      verifiedByDefault ||
+      (agent === 'grok' && usedPath === globalPath)
+    );
+
     results.push({
       agent,
       installed,
       outdated,
-      verified: installed && verifiedByDefault,
+      verified,
       runtimeReady,
       configPath: usedPath,
     });

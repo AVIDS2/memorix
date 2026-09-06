@@ -9,17 +9,18 @@
 
 ### 事件映射表
 
-| 语义 | VS Code Copilot | Claude Code | Codex | Windsurf | Cursor (Beta) | Kiro |
-|------|----------------|-------------|-------|----------|---------------|------|
-| 会话开始 | SessionStart | SessionStart | SessionStart | — | — | — |
-| 用户输入 | UserPromptSubmit | UserPromptSubmit | UserPromptSubmit | pre_user_prompt | beforeSubmitPrompt | user prompt |
-| 工具调用前 | PreToolUse | PreToolUse | — | pre_mcp_tool_use | beforeMCPExecution | — |
-| 工具调用后 | PostToolUse | PostToolUse | PostToolUse | post_mcp_tool_use | — | — |
-| 文件编辑后 | PostToolUse(write) | PostToolUse(write) | PostToolUse(apply_patch) | post_write_code | afterFileEdit | file save |
-| 命令执行后 | PostToolUse(cmd) | PostToolUse(cmd) | PostToolUse(Bash) | post_run_command | — | — |
-| AI 回复后 | — | — | Stop | post_cascade_response | — | agent turn |
-| 上下文压缩前 | PreCompact | PreCompact | PreCompact | — | — | — |
-| 会话结束 | Stop | Stop | Stop | — | stop | — |
+| 语义 | VS Code Copilot | Claude Code | Codex | Windsurf | Cursor (Beta) | Kiro | Grok Build |
+|------|----------------|-------------|-------|----------|---------------|------|------------|
+| 会话开始 | SessionStart | SessionStart | SessionStart | — | — | — | SessionStart |
+| 用户输入 | UserPromptSubmit | UserPromptSubmit | UserPromptSubmit | pre_user_prompt | beforeSubmitPrompt | user prompt | UserPromptSubmit |
+| 工具调用前 | PreToolUse | PreToolUse | — | pre_mcp_tool_use | beforeMCPExecution | — | PreToolUse（仅观察） |
+| 工具调用后 | PostToolUse | PostToolUse | PostToolUse | post_mcp_tool_use | — | — | PostToolUse / PostToolUseFailure |
+| 文件编辑后 | PostToolUse(write) | PostToolUse(write) | PostToolUse(apply_patch) | post_write_code | afterFileEdit | file save | PostToolUse(search_replace) |
+| 命令执行后 | PostToolUse(cmd) | PostToolUse(cmd) | PostToolUse(Bash) | post_run_command | — | — | PostToolUse(run_terminal_command) |
+| AI 回复后 | — | — | Stop | post_cascade_response | — | agent turn | Stop / StopFailure |
+| 上下文压缩前 | PreCompact | PreCompact | PreCompact | — | — | — | PreCompact |
+| 上下文压缩后 | — | — | — | — | — | — | PostCompact |
+| 会话结束 | Stop | Stop | Stop | — | stop | — | SessionEnd |
 
 ### 配置文件位置
 
@@ -29,7 +30,8 @@
 | Claude Code | `.claude/settings.json` | 原生 |
 | Codex | 用户级 Memorix 插件内 `hooks/hooks.json` | Codex plugin hooks；通过 `memorix setup --agent codex --global` 安装，不写项目 `.codex/hooks.json` |
 | Windsurf | `.windsurf/cascade.json` | Windsurf 格式 |
-| Cursor | `.cursor/hooks.json` | Cursor 格式 |
+| Cursor | `.cursor/hooks.json` |
+| Grok Build | `~/.grok/hooks/memorix.json` | Cursor 格式 |
 | Kiro | `.kiro/hooks/*.hook.md` | Markdown + YAML |
 
 ### stdin/stdout 通信协议
@@ -48,6 +50,9 @@
 
 // Cursor
 { "hook_event_name": "afterFileEdit", "conversation_id": "...", "generation_id": "...", ... }
+
+// Grok Build
+{ "hookEventName": "PostToolUse", "sessionId": "...", "cwd": "...", "workspaceRoot": "...", "toolName": "search_replace", "toolInput": { "path": "..." }, "toolResult": { ... } }
 ```
 
 ## Memorix Hook Handler 设计
@@ -85,7 +90,7 @@ memorix hook <normalized_event> [--agent <agent_name>]
 ```bash
 memorix hooks install
 # 自动检测已安装的 Agent → 生成对应配置文件
-# 支持: --agent claude|codex|cursor|windsurf|copilot|opencode|kiro|antigravity|gemini-cli|trae
+# 支持: --agent claude|codex|cursor|windsurf|copilot|opencode|kiro|antigravity|gemini-cli|trae|grok
 # openclaw/hermes/omp/codex 的 hooks 随插件包安装，使用 `memorix setup --agent <agent>`
 # 支持: --project (仅当前项目) | --global (全局)
 ```

@@ -183,6 +183,14 @@ describe('setup command planning', () => {
     expect(buildSetupPlan({ agent: 'codebuddy', mcp: 'stdio', global: false }).actions).not.toContain('codebuddy-plugin');
   });
 
+  it('keeps Grok MCP host-owned while installing its hooks and guidance', () => {
+    const plan = buildSetupPlan({ agent: 'grok', mcp: 'stdio', global: true });
+    expect(plan.mcp).toBe('none');
+    expect(plan.actions).not.toContain('mcp-stdio');
+    expect(plan.actions).toContain('project-guidance');
+    expect(plan.actions).toContain('hooks');
+  });
+
   it('uses native package lanes for Antigravity, OpenClaw, Hermes, and Oh-my-Pi', () => {
     expect(buildSetupPlan({ agent: 'antigravity', mcp: 'stdio' }).actions).toContain('antigravity-plugin');
     expect(buildSetupPlan({ agent: 'openclaw', mcp: 'stdio' }).actions).toContain('openclaw-bundle');

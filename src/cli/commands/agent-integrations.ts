@@ -126,6 +126,7 @@ const GUIDANCE_AGENTS = new Set<AgentName>([
   'trae',
   'dsh',
   'workbuddy',
+  'grok',
 ]);
 
 const CODEX_PLUGIN_NAME = 'memorix';
@@ -167,7 +168,7 @@ function worstStatus(statuses: AgentIntegrationStatus[]): AgentIntegrationStatus
 }
 
 function isMcpConfigAgent(agent: AgentName): agent is McpConfigAgent {
-  return agent !== 'pi';
+  return agent !== 'pi' && agent !== 'grok';
 }
 
 function isActionableMcpRepairIssue(issue: string): boolean {

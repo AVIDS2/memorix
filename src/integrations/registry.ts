@@ -66,6 +66,15 @@ export const MEMORIX_INTEGRATIONS: MemorixIntegration[] = [
     surfaces: ['MCP', 'skills', 'hooks'],
   },
   {
+    agent: 'grok',
+    name: 'Grok Build',
+    entry: 'official-config',
+    status: 'ready',
+    install: 'memorix setup --agent grok --global',
+    surfaces: ['hooks', 'AGENTS.md'],
+    note: 'Writes ~/.grok/hooks/memorix.json and leaves Grok MCP host-owned; setup does not write config.toml.',
+  },
+  {
     agent: 'cursor',
     name: 'Cursor',
     entry: 'official-config',

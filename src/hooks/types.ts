@@ -44,7 +44,8 @@ export type AgentName =
   | 'dsh'
   | 'workbuddy'
   | 'pi'
-  | 'omp';
+  | 'omp'
+  | 'grok';
 
 /** Support tier for hook agents */
 export type SupportTier = 'core' | 'extended' | 'community';
@@ -68,6 +69,7 @@ export const AGENT_SUPPORT_TIER: Record<AgentName, SupportTier> = {
   pi: 'community',
   omp: 'community',
   antigravity: 'community',
+  grok: 'community',
 };
 
 /** Normalized hook input — agent-agnostic */

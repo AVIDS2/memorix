@@ -14,6 +14,32 @@ Memorix is designed to be light for everyday memory use and explicit about heavi
 
 The default memory path uses local SQLite as the canonical store and Orama for search/indexing. No cloud service is required.
 
+## Resource Safety Model
+
+Memorix does not impose a small maximum number of memories. SQLite remains the
+durable corpus, and large projects are processed in batches. The important
+limits are on **simultaneous work and disposable caches**, not on how much the
+user is allowed to remember.
+
+- A deferred vector backfill uses one cross-process worker lock per shared data
+  directory. Repeated hook events add to the durable queue; they do not spawn a
+  new Node process for every event.
+- A retrying vector job stays in cooldown. A provider outage therefore cannot
+  create a process storm every time another hook fires.
+- One backfill worker drains due vector jobs sequentially and releases its
+  SQLite/Orama state when it exits. A dead worker lock is recoverable by PID
+  liveness, with a long stale-lock fallback for interrupted filesystems.
+- Startup index hydration builds Orama documents in bounded batches and cached
+  vector attachment is also batched. This limits peak temporary allocations
+  without dropping durable observations.
+- The API embedding cache is a disposable working cache. Its default byte
+  budget is large and can be raised with `MEMORIX_EMBEDDING_CACHE_MAX_BYTES`,
+  but it is deliberately separate from the durable memory corpus. Cache
+  eviction never deletes a memory; a later vector backfill can regenerate it.
+- `serve-http` `/health` exposes `rss`, V8 heap, external memory, array-buffer
+  memory, and the V8 heap limit so a real saturation report can distinguish
+  JavaScript retention from native/model memory.
+
 ## Retrieval Profiles
 
 | Profile | Default? | Network work | Best fit |
@@ -78,6 +104,7 @@ On the release development machine used for this check, the healthy HTTP service
 | `MEMORIX_RERANK_TIMEOUT_MS` | 30000 | Bound HTTP and LLM rerank calls |
 | `MEMORIX_RERANK_PROVIDER` | `off` | Set `http` to enable optional HTTP rerank |
 | `MEMORIX_RERANK_BASE_URL` | `[memory.llm].base_url` | Compatible `/rerank` API root (path `/rerank` is appended) |
+| `MEMORIX_EMBEDDING_CACHE_MAX_BYTES` | `268435456` | Disposable in-process API-vector cache budget; raise for large warm caches, or lower when the host is memory constrained |
 | `memorix memory search --quality fast` | n/a | Force a fully local retrieval path for a latency-sensitive call |
 | `npm run benchmark:retrieval -- --records 1000 --runs 100` | n/a | Reproduce hot in-process lexical retrieval latency; not an end-to-end claim |
 | `npm run gate:large-store -- --records 40000` | n/a | Exercise SDK, HTTP MCP, hook persistence, cache integrity, and reopen behavior against a large isolated store |
@@ -98,6 +125,11 @@ On the release development machine used for this check, the healthy HTTP service
 - When Dashboard shows queued or failed maintenance work, inspect
   `/api/maintenance` on that local dashboard before assuming a Code Memory scan
   or lifecycle task completed.
+- When investigating CPU/RAM growth, inspect `memorix background status --json`
+  or `/health` first. Look for multiple `vector-backfill-runner` processes,
+  rising `rss` with stable heap, or rising V8 `heapUsed`; those indicate
+  different classes of problem and should not be “fixed” by lowering the
+  memory corpus limit.
 
 ## Large-Store Release Gate
 

@@ -83,6 +83,7 @@ export function resetObservationRuntime(): void {
   embeddingWorkerProjectRoot = undefined;
   vectorMissingIds.clear();
   vectorSchemaUpgradePromise = null;
+  embeddingFailureLogTimestamps.clear();
 }
 
 // ── Vector-missing tracking ──────────────────────────────────────
@@ -100,11 +101,17 @@ let lastVectorBackfill: {
 } | null = null;
 const embeddingFailureLogTimestamps = new Map<string, number>();
 const EMBEDDING_FAILURE_LOG_COOLDOWN_MS = 30_000;
+const MAX_EMBEDDING_FAILURE_KEYS = 1_024;
 
 function logEmbeddingFailureOnce(key: string, message: string): void {
   const now = Date.now();
   const last = embeddingFailureLogTimestamps.get(key) ?? 0;
   if (now - last < EMBEDDING_FAILURE_LOG_COOLDOWN_MS) return;
+  if (!embeddingFailureLogTimestamps.has(key) && embeddingFailureLogTimestamps.size >= MAX_EMBEDDING_FAILURE_KEYS) {
+    const oldest = embeddingFailureLogTimestamps.keys().next().value;
+    if (oldest !== undefined) embeddingFailureLogTimestamps.delete(oldest);
+  }
+  embeddingFailureLogTimestamps.delete(key);
   embeddingFailureLogTimestamps.set(key, now);
   console.error(message);
 }
@@ -149,13 +156,19 @@ function queueVectorBackfill(
   if (!dataDir) return;
   void import('../runtime/maintenance-jobs.js')
     .then(({ MaintenanceJobStore }) => {
-      new MaintenanceJobStore(dataDir).enqueue({
+      const job = new MaintenanceJobStore(dataDir).enqueue({
         projectId,
         kind: 'vector-backfill',
         dedupeKey: 'vector-backfill',
         payload: { limit: 12 },
       });
-      if (options.detachedWorker && options.projectRoot) {
+      // A retrying job is intentionally in cooldown. Starting a new detached
+      // process for every hook event would turn one provider outage into a
+      // process storm even though the durable queue already deduplicated it.
+      // Keep compatibility with lightweight test/embedding adapters that only
+      // implement enqueue and return no job receipt.
+      const due = !job || (job.status === 'pending' && job.runAfter <= Date.now());
+      if (due && options.detachedWorker && options.projectRoot) {
         void import('../runtime/vector-backfill-runner.js')
           .then(({ launchDetachedVectorBackfill }) => {
             launchDetachedVectorBackfill({

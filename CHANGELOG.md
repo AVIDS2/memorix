@@ -16,6 +16,11 @@ All notable changes to this project will be documented in this file.
   keeps imported observations and sync state atomic, rejects immutable-key
   collisions, verifies every pulled content hash, and uses stable continuation
   cursors so large pulls do not skip events.
+- **Resource hardening** -- coalesces deferred vector workers across hook
+  processes, respects retry cooldowns, drains due vector jobs through one
+  recoverable worker, removes the redundant full-document detail cache, and
+  batches startup vector hydration to reduce CPU/RAM peaks without imposing a
+  small corpus limit.
 
 ## [1.8.9] - 2026-09-06
 

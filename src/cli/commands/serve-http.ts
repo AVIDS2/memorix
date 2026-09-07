@@ -21,6 +21,7 @@
 
 import { defineCommand } from 'citty';
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { getHeapStatistics } from 'node:v8';
 import type { ObservationStore } from '../../store/obs-store.js';
 import { resolveToolProfile } from '../../server/tool-profile.js';
 import { scopeKnowledgeGraphToProject } from '../../memory/graph-scope.js';
@@ -1714,6 +1715,8 @@ export default defineCommand({
       // This is the readiness signal for background start / status.
       if (url.pathname === '/health') {
         const { getEmbeddingRuntimeHealth } = await import('../../embedding/provider.js');
+        const memory = process.memoryUsage();
+        const heap = getHeapStatistics();
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
           status: 'ok',
@@ -1725,6 +1728,14 @@ export default defineCommand({
           projectId: defaultProject?.id ?? '__unresolved__',
           projectName: defaultProject?.name ?? null,
           readyAt: httpReadyAt,
+          memory: {
+            rss: memory.rss,
+            heapUsed: memory.heapUsed,
+            heapTotal: memory.heapTotal,
+            external: memory.external,
+            arrayBuffers: memory.arrayBuffers,
+            heapLimit: heap.heap_size_limit,
+          },
           embedding: getEmbeddingRuntimeHealth(),
         }));
         return;

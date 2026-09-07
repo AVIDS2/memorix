@@ -33,10 +33,19 @@ let embeddingEnabled = false;
 let embeddingDimensions: number | null = null;
 let indexEmbeddingProvider: EmbeddingProvider | null = null;
 let deferredCachedVectorHydration: Promise<void> | null = null;
-const docByObservationKey = new Map<string, MemorixDocument>();
 const NON_CJK_HYBRID_SIMILARITY = 0.45;
 const lastSearchModeByProject = new Map<string, string>();
 const SEARCH_MODE_DEFAULT_KEY = '__global__';
+const MAX_SEARCH_MODE_KEYS = 4096;
+
+function rememberSearchMode(key: string, value: string): void {
+  if (!lastSearchModeByProject.has(key) && lastSearchModeByProject.size >= MAX_SEARCH_MODE_KEYS) {
+    const oldest = lastSearchModeByProject.keys().next().value;
+    if (oldest !== undefined) lastSearchModeByProject.delete(oldest);
+  }
+  lastSearchModeByProject.delete(key);
+  lastSearchModeByProject.set(key, value);
+}
 export function getLastSearchMode(projectId?: string): string {
   return lastSearchModeByProject.get(projectId ?? SEARCH_MODE_DEFAULT_KEY) ?? 'fulltext';
 }
@@ -68,9 +77,6 @@ function makeEntryKey(projectId: string | undefined, observationId: number): str
 function rememberObservationDoc(doc: MemorixDocument): MemorixDocument {
   const publicDoc = { ...doc };
   delete publicDoc.embedding;
-  if (doc.projectId && typeof doc.observationId === 'number') {
-    docByObservationKey.set(makeEntryKey(doc.projectId, doc.observationId), publicDoc);
-  }
   return publicDoc;
 }
 
@@ -244,7 +250,6 @@ export async function resetDb(): Promise<void> {
   indexEmbeddingProvider = null;
   deferredCachedVectorHydration = null;
   lastSearchModeByProject.clear();
-  docByObservationKey.clear();
 }
 
 /**
@@ -336,8 +341,6 @@ export interface HydrateIndexOptions {
   skipCachedVectors?: boolean;
 }
 
-type HydrationCandidate = { observation: any; id: string };
-
 function observationEmbeddingText(observation: any): string {
   return [
     observation.title ?? '',
@@ -361,29 +364,31 @@ function isCompatibleCachedVector(vector: number[] | null): vector is number[] {
 
 async function attachCachedVectors(
   database: AnyOrama,
-  candidates: HydrationCandidate[],
+  observations: any[],
 ): Promise<void> {
-  const cachedVectors = await getCachedEmbeddings(
-    candidates.map(({ observation }) => observationEmbeddingText(observation)),
-  );
+  const batchSize = 200;
+  for (let start = 0; start < observations.length; start += batchSize) {
+    // Keep cache lookup and the temporary vector array bounded to one batch.
+    const batch = observations.slice(start, start + batchSize);
+    const cachedVectors = await getCachedEmbeddings(batch.map(observationEmbeddingText));
 
-  // A reset or project switch created a new index while the cache was loading.
-  // Do not attach stale vectors to that new index.
-  if (db !== database) return;
+    // A reset or project switch created a new index while the cache was loading.
+    // Do not attach stale vectors to that new index.
+    if (db !== database) return;
 
-  for (let index = 0; index < candidates.length; index++) {
-    const vector = cachedVectors[index];
-    if (!isCompatibleCachedVector(vector)) continue;
-    const existing = getByID(database, candidates[index].id) as MemorixDocument | undefined;
-    if (!existing || documentEmbeddingText(existing) !== observationEmbeddingText(candidates[index].observation)) continue;
-    try {
-      await update(database, candidates[index].id, { ...existing, embedding: vector });
-    } catch {
-      // Vector cache hydration is best-effort. The normal backfill lane owns misses.
+    for (let index = 0; index < batch.length; index++) {
+      const vector = cachedVectors[index];
+      if (!isCompatibleCachedVector(vector)) continue;
+      const id = makeOramaObservationId(batch[index].projectId, batch[index].id);
+      const existing = getByID(database, id) as MemorixDocument | undefined;
+      if (!existing || documentEmbeddingText(existing) !== observationEmbeddingText(batch[index])) continue;
+      try {
+        await update(database, id, { ...existing, embedding: vector });
+      } catch {
+        // Vector cache hydration is best-effort. The normal backfill lane owns misses.
+      }
     }
-    if (index % 50 === 0) {
-      await new Promise<void>((resolve) => setImmediate(resolve));
-    }
+    await new Promise<void>((resolve) => setImmediate(resolve));
   }
 }
 
@@ -392,62 +397,54 @@ export async function hydrateIndex(
   options: HydrateIndexOptions = {},
 ): Promise<number> {
   const database = await getDb({ allowNetworkProbe: options.allowNetworkProbe });
-
-  const candidates: HydrationCandidate[] = [];
-  for (const observation of observations) {
-    if (!observation || !observation.id || !observation.projectId) continue;
-    const id = makeOramaObservationId(observation.projectId, observation.id);
-    if (getByID(database, id)) continue;
-    candidates.push({ observation, id });
-  }
-
   const deferCachedVectors = options.deferCachedVectors === true && Boolean(indexEmbeddingProvider?.getCachedEmbeddings);
-  const cachedVectors = deferCachedVectors
-    ? candidates.map(() => null)
-    : await getCachedEmbeddings(candidates.map(({ observation }) => observationEmbeddingText(observation)));
-
-  const documents: MemorixDocument[] = [];
-  for (let index = 0; index < candidates.length; index++) {
-    const { observation: obs, id } = candidates[index];
-    try {
-      const vector = cachedVectors[index];
-      const compatibleVector = isCompatibleCachedVector(vector) ? vector : null;
-      const doc: MemorixDocument = {
-        id,
-        observationId: obs.id,
-        entityName: obs.entityName || '',
-        type: obs.type || 'discovery',
-        title: obs.title || '',
-        narrative: obs.narrative || '',
-        facts: Array.isArray(obs.facts) ? obs.facts.join(' ') : '',
-        filesModified: Array.isArray(obs.filesModified) ? obs.filesModified.join(' ') : '',
-        concepts: Array.isArray(obs.concepts) ? obs.concepts.join(' ') : '',
-        tokens: obs.tokens ?? 0,
-        createdAt: obs.createdAt || '',
-        projectId: obs.projectId,
-        accessCount: obs.accessCount ?? 0,
-        lastAccessedAt: obs.lastAccessedAt || '',
-        status: obs.status ?? 'active',
-        source: obs.source || 'agent',
-        sourceDetail: obs.sourceDetail ?? '',
-        valueCategory: obs.valueCategory ?? '',
-        admissionState: obs.admissionState ?? '',
-        admissionReason: obs.admissionReason ?? '',
-        visibility: obs.visibility ?? 'project',
-        createdByAgentId: obs.createdByAgentId ?? '',
-        sharedWithAgentIds: JSON.stringify(obs.sharedWithAgentIds ?? []),
-        documentType: 'observation',
-        knowledgeLayer: resolveKnowledgeLayer('observation', obs.sourceDetail, obs.source),
-        ...(compatibleVector ? { embedding: compatibleVector } : {}),
-      };
-      documents.push(doc);
-    } catch { /* skip malformed entries */ }
-  }
-
   let inserted = 0;
   const hydrationBatchSize = 200;
-  for (let start = 0; start < documents.length; start += hydrationBatchSize) {
-    const batch = documents.slice(start, start + hydrationBatchSize);
+  for (let start = 0; start < observations.length; start += hydrationBatchSize) {
+    const batchObservations = observations.slice(start, start + hydrationBatchSize)
+      .filter((observation) => observation && observation.id && observation.projectId)
+      .filter((observation) => !getByID(database, makeOramaObservationId(observation.projectId, observation.id)));
+    if (batchObservations.length === 0) continue;
+
+    const cachedVectors = deferCachedVectors || options.skipCachedVectors
+      ? batchObservations.map(() => null)
+      : await getCachedEmbeddings(batchObservations.map(observationEmbeddingText));
+    const batch: MemorixDocument[] = [];
+    for (let index = 0; index < batchObservations.length; index++) {
+      const obs = batchObservations[index];
+      try {
+        const compatibleVector = isCompatibleCachedVector(cachedVectors[index]) ? cachedVectors[index] : null;
+        batch.push({
+          id: makeOramaObservationId(obs.projectId, obs.id),
+          observationId: obs.id,
+          entityName: obs.entityName || '',
+          type: obs.type || 'discovery',
+          title: obs.title || '',
+          narrative: obs.narrative || '',
+          facts: Array.isArray(obs.facts) ? obs.facts.join(' ') : '',
+          filesModified: Array.isArray(obs.filesModified) ? obs.filesModified.join(' ') : '',
+          concepts: Array.isArray(obs.concepts) ? obs.concepts.join(' ') : '',
+          tokens: obs.tokens ?? 0,
+          createdAt: obs.createdAt || '',
+          projectId: obs.projectId,
+          accessCount: obs.accessCount ?? 0,
+          lastAccessedAt: obs.lastAccessedAt || '',
+          status: obs.status ?? 'active',
+          source: obs.source || 'agent',
+          sourceDetail: obs.sourceDetail ?? '',
+          valueCategory: obs.valueCategory ?? '',
+          admissionState: obs.admissionState ?? '',
+          admissionReason: obs.admissionReason ?? '',
+          visibility: obs.visibility ?? 'project',
+          createdByAgentId: obs.createdByAgentId ?? '',
+          sharedWithAgentIds: JSON.stringify(obs.sharedWithAgentIds ?? []),
+          documentType: 'observation',
+          knowledgeLayer: resolveKnowledgeLayer('observation', obs.sourceDetail, obs.source),
+          ...(compatibleVector ? { embedding: compatibleVector } : {}),
+        });
+      } catch { /* skip malformed entries */ }
+    }
+    if (batch.length === 0) continue;
     try {
       // Orama can rebalance its indexes once per batch instead of once per
       // document. Keep batches bounded so HTTP health remains responsive.
@@ -476,7 +473,7 @@ export async function hydrateIndex(
   deferredCachedVectorHydration = options.skipCachedVectors
     ? null
     : deferCachedVectors
-      ? attachCachedVectors(database, candidates).catch(() => {})
+      ? attachCachedVectors(database, observations).catch(() => {})
     : null;
   return inserted;
 }
@@ -548,12 +545,6 @@ export async function updateObservationMetadata(
 export async function removeObservation(oramaId: string): Promise<void> {
   const database = await getDb();
   await remove(database, oramaId);
-  for (const [key, doc] of docByObservationKey.entries()) {
-    if (doc.id === oramaId) {
-      docByObservationKey.delete(key);
-      break;
-    }
-  }
 }
 
 /**
@@ -569,7 +560,7 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
   const modeKey = options.projectId ?? SEARCH_MODE_DEFAULT_KEY;
   const quality = options.quality ?? 'balanced';
   const database = await getDb();
-  lastSearchModeByProject.set(
+  rememberSearchMode(
     modeKey,
     quality === 'fast' ? 'fulltext (fast profile)' : embeddingEnabled ? 'hybrid' : 'fulltext',
   );
@@ -671,7 +662,7 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
       if (provider) {
         const activeVectorDimensions = getVectorDimensions();
         if (activeVectorDimensions !== null && provider.dimensions !== activeVectorDimensions) {
-          lastSearchModeByProject.set(
+          rememberSearchMode(
             modeKey,
             `fulltext (embedding dimension mismatch: provider ${provider.dimensions}d vs index ${activeVectorDimensions}d)`,
           );
@@ -700,7 +691,7 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
           // Detect CJK-heavy queries: BM25 can't tokenize Chinese/Japanese/Korean well
           const cjkRatio = (originalQuery!.match(/[\u4e00-\u9fff\u3040-\u309f\u30a0-\u30ff\uac00-\ud7af]/g) || []).length / originalQuery!.length;
           const isCJKHeavy = cjkRatio > 0.3;
-          lastSearchModeByProject.set(modeKey, 'hybrid');
+          rememberSearchMode(modeKey, 'hybrid');
           searchParams = {
             ...searchParams,
             mode: 'hybrid',
@@ -719,7 +710,7 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
       }
     } catch (error) {
       // Fallback to fulltext if embedding fails or times out
-      lastSearchModeByProject.set(modeKey, 'fulltext (embedding unavailable)');
+      rememberSearchMode(modeKey, 'fulltext (embedding unavailable)');
       console.error('[memorix] Embedding failed or timed out, falling back to fulltext search');
     }
   }
@@ -730,7 +721,7 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
     results = await search(database, searchParams);
   } catch (error) {
     if (queryVector && isVectorDimensionMismatchError(error)) {
-      lastSearchModeByProject.set(modeKey, 'fulltext (embedding dimension mismatch)');
+      rememberSearchMode(modeKey, 'fulltext (embedding dimension mismatch)');
       console.error('[memorix] Vector search dimension mismatch detected, retrying without embeddings');
       results = await search(database, stripVectorSearchParams(searchParams));
     } else {
@@ -754,7 +745,7 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
         },
         similarity: 0.25,
       };
-      lastSearchModeByProject.set(modeKey, 'vector-only (hybrid empty fallback)');
+      rememberSearchMode(modeKey, 'vector-only (hybrid empty fallback)');
       results = await search(database, vectorOnlyParams);
     } catch {
       // Keep original empty results
@@ -1106,7 +1097,7 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
             .filter((entry): entry is NonNullable<typeof entry> => entry != null);
           if (rerankedTop.length > 0) {
             intermediate = [...rerankedTop, ...intermediate.slice(RERANK_TOP_K)];
-            lastSearchModeByProject.set(modeKey, (lastSearchModeByProject.get(modeKey) ?? 'fulltext') + ' + neural rerank');
+            rememberSearchMode(modeKey, (lastSearchModeByProject.get(modeKey) ?? 'fulltext') + ' + neural rerank');
             mark('rerank(usedNeural=true)');
           }
         }
@@ -1123,7 +1114,7 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
         );
         mark(`rerank(usedLLM=${usedLLM})`);
         if (usedLLM) {
-          lastSearchModeByProject.set(modeKey, (lastSearchModeByProject.get(modeKey) ?? 'fulltext') + ' + LLM rerank');
+          rememberSearchMode(modeKey, (lastSearchModeByProject.get(modeKey) ?? 'fulltext') + ' + LLM rerank');
           const rerankedTop = reranked
             .map((row) => candidateMap.get(row.id))
             .filter((entry): entry is NonNullable<typeof entry> => entry != null);
@@ -1224,14 +1215,6 @@ export async function getObservationsByIds(
   const results: MemorixDocument[] = [];
 
   for (const id of ids) {
-    if (projectId) {
-      const cached = docByObservationKey.get(makeEntryKey(projectId, id));
-      if (cached) {
-        results.push(cached);
-        continue;
-      }
-    }
-
     const searchResult = await search(database, {
       term: '',
       includeVectors: true,

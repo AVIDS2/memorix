@@ -76,4 +76,16 @@ describe('ObjectStoreRemote', () => {
     expect(page.batches).toHaveLength(1);
     expect(page.hasMore).toBe(true);
   });
+
+  it('namespaces every object under a prefix and ignores foreign keys on pull', async () => {
+    const client = new MemoryObjectStore();
+    const remote = new ObjectStoreRemote(client, 'project-test', 'team/');
+    await client.put('unrelated/data.json', 'x');
+    await client.put('team/projects/other/batches/device-z/00000000000000000001.jsonl', 'foreign');
+
+    await remote.push(batch('device-a', 3));
+
+    expect(client.objects.has('team/projects/project-test/batches/device-a/00000000000000000003.jsonl')).toBe(true);
+    expect((await remote.pull({}, 10)).batches).toEqual([batch('device-a', 3)]);
+  });
 });

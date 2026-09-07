@@ -6,6 +6,7 @@ import type { ChangeBatch, SyncCursor, SyncRemote, SyncRowState, SyncConflict, S
 import { emptyCursor } from '../../src/sync/types.js';
 import { syncNamespace } from '../../src/sync/namespace.js';
 import { contentHash } from '../../src/sync/journal.js';
+import { comparePageKey, decodePageCursor, encodePageCursor } from '../../src/sync/paging.js';
 
 function obs(partial: Partial<Observation> & { id: number }): Observation {
   return {
@@ -41,9 +42,9 @@ class FakeStore implements SyncStorePort {
   async loadState() { return new Map(this.state); }
   async saveState(rows: SyncRowState[]) { for (const r of rows) this.state.set(r.syncKey, { ...r }); }
   async allocateId() { return this.idCounter++; }
-  async applyInsert(row: Observation) { this.rows.set(row.id, row); }
-  async applyUpdate(row: Observation) { this.rows.set(row.id, row); }
-  async applyRemove(id: number) { this.rows.delete(id); }
+  async applyInsert(row: Observation, state: SyncRowState) { this.rows.set(row.id, row); this.state.set(state.syncKey, { ...state }); }
+  async applyUpdate(row: Observation, state: SyncRowState) { this.rows.set(row.id, row); this.state.set(state.syncKey, { ...state }); }
+  async applyRemove(id: number, state: SyncRowState) { this.rows.delete(id); this.state.set(state.syncKey, { ...state }); }
   async getById(id: number) { return this.rows.get(id); }
   async recordConflict(conflict: SyncConflict) { this.conflicts.push(conflict); }
   async nextSequence() { return ++this.seq; }
@@ -65,12 +66,21 @@ class FakeRemote implements SyncRemote {
     if (this.batches.some((b) => b.deviceId === batch.deviceId && b.sequence === batch.sequence)) return;
     this.batches.push(JSON.parse(JSON.stringify(batch)));
   }
-  async pull(since: Record<string, number>, limit: number): Promise<SyncPullPage> {
+  async pull(since: Record<string, number>, limit: number, pageToken?: string): Promise<SyncPullPage> {
+    const after = decodePageCursor(pageToken);
     const batches = this.batches
       .filter((b) => b.sequence > (since[b.deviceId] ?? 0))
       .sort((a, b) => (a.deviceId === b.deviceId ? a.sequence - b.sequence : a.deviceId < b.deviceId ? -1 : 1))
+      .filter((b) => !after || comparePageKey(b, after) > 0)
       .map((b) => JSON.parse(JSON.stringify(b)) as ChangeBatch);
-    return { batches: batches.slice(0, limit), hasMore: batches.length > limit };
+    const page = batches.slice(0, limit);
+    return {
+      batches: page,
+      hasMore: batches.length > page.length,
+      nextPageToken: batches.length > page.length && page.length > 0
+        ? encodePageCursor(page[page.length - 1])
+        : undefined,
+    };
   }
   async compact() { return { candidates: 0, deleted: 0 }; }
   async close() {}
@@ -169,23 +179,33 @@ describe('runSync end-to-end', () => {
     const A = new FakeStore('A', [
       obs({ id: 1, title: 'project', visibility: 'project' }),
       obs({ id: 2, title: 'personal', visibility: 'personal' }),
+      obs({ id: 5, title: 'targeted', sharedWithAgentIds: ['agent-b'] }),
       obs({ id: 3, title: 'candidate', admissionState: 'candidate' }),
       obs({ id: 4, title: 'ephemeral', valueCategory: 'ephemeral' }),
     ]);
     const report = await runSync(A, remote, { deviceId: 'A', ...both });
     expect(report.eligible).toBe(1);
-    expect(report.excluded).toBe(3);
+    expect(report.excluded).toBe(4);
     expect(remote.batches[0].entries.map((entry) => entry.row?.title)).toEqual(['project']);
   });
 
-  it('does not turn a local visibility downgrade into a remote tombstone', async () => {
+  it('retracts a previously shared row when its visibility is downgraded', async () => {
     const remote = new FakeRemote();
     const A = new FakeStore('A', [obs({ id: 1, title: 'keep-local' })]);
     await runSync(A, remote, { deviceId: 'A', ...both });
     A.rows.set(1, { ...A.rows.get(1)!, visibility: 'personal' });
     const report = await runSync(A, remote, { deviceId: 'A', ...both });
+    expect(report.pushed).toBe(1);
+    expect(remote.batches).toHaveLength(2);
+    expect(remote.batches[1].entries[0].kind).toBe('tombstone');
+  });
+
+  it('does not create a retraction for a row that was never shared', async () => {
+    const remote = new FakeRemote();
+    const A = new FakeStore('A', [obs({ id: 1, title: 'local-only', visibility: 'personal' })]);
+    const report = await runSync(A, remote, { deviceId: 'A', ...both });
     expect(report.pushed).toBe(0);
-    expect(remote.batches).toHaveLength(1);
+    expect(remote.batches).toHaveLength(0);
   });
 
   it('records a same-revision conflict while keeping the deterministic winner', async () => {
@@ -251,10 +271,45 @@ describe('runSync end-to-end', () => {
         syncKey: 'p:p:t:bad',
         kind: 'upsert',
         version: { revision: 1, writer: 'B' },
-        contentHash: 'tampered',
+        contentHash: '0'.repeat(64),
         row: obs({ id: 4, topicKey: 'bad' }),
       }],
     });
     await expect(runSync(new FakeStore('C'), tampered, { deviceId: 'C', push: false, pull: true, dryRun: false })).rejects.toThrow(/content hash mismatch/);
+  });
+
+  it('does not skip batches when a pull crosses the bounded page size', async () => {
+    const remote = new FakeRemote();
+    for (let sequence = 1; sequence <= 105; sequence++) {
+      remote.batches.push({
+        formatVersion: 3,
+        namespace: syncNamespace('p'),
+        projectId: 'p',
+        deviceId: 'remote',
+        sequence,
+        producedAt: '2026-09-07T00:00:00.000Z',
+        entries: [],
+      });
+    }
+    const B = new FakeStore('B');
+    const report = await runSync(B, remote, { deviceId: 'B', push: false, pull: true, dryRun: false });
+    expect(report.pulledBatches).toBe(105);
+    expect(B.cursor.applied.remote).toBe(105);
+  });
+});
+
+describe('sync journal fingerprints', () => {
+  it('canonicalizes nested object keys and excludes local replica fields', () => {
+    const first = obs({
+      id: 1,
+      writeGeneration: 4,
+      attachments: [{ modality: 'document', url: 'https://example.test/a', mimeType: 'text/plain' }],
+    });
+    const second = obs({
+      id: 99,
+      writeGeneration: 100,
+      attachments: [{ mimeType: 'text/plain', url: 'https://example.test/a', modality: 'document' }],
+    });
+    expect(contentHash(first)).toBe(contentHash(second));
   });
 });

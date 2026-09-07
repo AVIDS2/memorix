@@ -42,7 +42,7 @@ export async function createRemote(
   }
   if (provider === 's3') {
     const { createS3ObjectStore, ObjectStoreRemote } = await import('./adapters/object-store.js');
-    return new ObjectStoreRemote(await createS3ObjectStore(env), namespace);
+    return new ObjectStoreRemote(await createS3ObjectStore(env), namespace, env.MEMORIX_SYNC_S3_PREFIX ?? '');
   }
   const { createPgSqlClient, PostgresSyncRemote } = await import('./adapters/postgres.js');
   return new PostgresSyncRemote(await createPgSqlClient(env), namespace);

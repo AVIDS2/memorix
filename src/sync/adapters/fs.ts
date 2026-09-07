@@ -1,6 +1,8 @@
 import { access, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { ChangeBatch, SyncCompactReport, SyncPullPage, SyncRemote } from '../types.js';
+import { comparePageKey, decodePageCursor, encodePageCursor } from '../paging.js';
+import { isSafeSyncDeviceId } from '../namespace.js';
 
 export interface FsRemoteOptions {
   root: string;
@@ -23,10 +25,14 @@ export class FsRemote implements SyncRemote {
   }
 
   async push(batch: ChangeBatch): Promise<void> {
+    assertBatchNamespace(batch, this.namespace);
     const directory = path.join(this.batchesPath, batch.deviceId);
     await mkdir(directory, { recursive: true });
     const target = path.join(directory, `${String(batch.sequence).padStart(20, '0')}.jsonl`);
-    if (await exists(target)) return;
+    if (await exists(target)) {
+      await assertSameBatch(target, batch);
+      return;
+    }
 
     const lock = `${target}.lock`;
     for (;;) {
@@ -41,13 +47,16 @@ export class FsRemote implements SyncRemote {
     }
 
     try {
-      if (!(await exists(target))) await atomicWrite(target, batch);
+      if (await exists(target)) await assertSameBatch(target, batch);
+      else await atomicWrite(target, batch);
     } finally {
       await rm(lock, { force: true });
     }
   }
 
   async pull(since: Record<string, number>, limit: number, pageToken?: string): Promise<SyncPullPage> {
+    assertLimit(limit);
+    const after = decodePageCursor(pageToken);
     const objects: Array<{ path: string; deviceId: string; sequence: number }> = [];
     let devices;
     try {
@@ -64,7 +73,9 @@ export class FsRemote implements SyncRemote {
       for (const file of files) {
         if (!file.isFile() || !/^\d+\.jsonl$/.test(file.name)) continue;
         const sequence = Number.parseInt(file.name, 10);
+        if (!Number.isSafeInteger(sequence) || sequence < 1) continue;
         if (sequence <= (since[device.name] ?? 0)) continue;
+        if (after && comparePageKey({ deviceId: device.name, sequence }, after) <= 0) continue;
         objects.push({ path: path.join(directory, file.name), deviceId: device.name, sequence });
       }
     }
@@ -74,14 +85,20 @@ export class FsRemote implements SyncRemote {
       if (left.deviceId > right.deviceId) return 1;
       return left.sequence - right.sequence;
     });
-    const offset = Math.max(0, Number.parseInt(pageToken ?? '0', 10) || 0);
     const batches: ChangeBatch[] = [];
-    for (const object of sorted.slice(offset, offset + limit)) {
+    const pageObjects = sorted.slice(0, limit);
+    for (const object of pageObjects) {
       const raw = await readFile(object.path, 'utf8');
       for (const line of raw.split(/\r?\n/).filter(Boolean)) batches.push(JSON.parse(line) as ChangeBatch);
     }
-    const nextOffset = offset + limit;
-    return { batches, hasMore: sorted.length > nextOffset, nextPageToken: sorted.length > nextOffset ? String(nextOffset) : undefined };
+    const hasMore = sorted.length > pageObjects.length;
+    return {
+      batches,
+      hasMore,
+      nextPageToken: hasMore && pageObjects.length > 0
+        ? encodePageCursor(pageObjects[pageObjects.length - 1])
+        : undefined,
+    };
   }
 
   async compact(through: Record<string, number>, options: { dryRun?: boolean } = {}): Promise<SyncCompactReport> {
@@ -119,6 +136,21 @@ export class FsRemote implements SyncRemote {
   }
 }
 
+function assertBatchNamespace(batch: ChangeBatch, namespace: string): void {
+  if (batch.namespace !== namespace) {
+    throw new Error('[memorix] sync batch namespace does not match the filesystem relay');
+  }
+  if (!isSafeSyncDeviceId(batch.deviceId)) {
+    throw new Error('[memorix] sync batch has an invalid device id');
+  }
+}
+
+function assertLimit(limit: number): void {
+  if (!Number.isSafeInteger(limit) || limit < 1) {
+    throw new Error('[memorix] sync pull limit must be a positive integer');
+  }
+}
+
 async function exists(file: string): Promise<boolean> {
   try {
     await access(file);
@@ -136,5 +168,12 @@ async function atomicWrite(file: string, value: unknown): Promise<void> {
     await rename(temporary, file);
   } finally {
     await rm(temporary, { force: true });
+  }
+}
+
+async function assertSameBatch(file: string, expected: ChangeBatch): Promise<void> {
+  const actual = JSON.parse(await readFile(file, 'utf8')) as ChangeBatch;
+  if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+    throw new Error('[memorix] filesystem relay event path already contains a different payload');
   }
 }

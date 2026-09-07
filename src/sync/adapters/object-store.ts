@@ -7,9 +7,12 @@
  * - MEMORIX_SYNC_S3_ACCESS_KEY_ID
  * - MEMORIX_SYNC_S3_SECRET_ACCESS_KEY
  * - MEMORIX_SYNC_S3_REGION
+ * - MEMORIX_SYNC_S3_PREFIX (optional; key namespace so a shared bucket can
+ *   host other data or several independent stores)
  */
 
 import type { ChangeBatch, SyncCompactReport, SyncPullPage, SyncRemote } from '../types.js';
+import { isSafeSyncDeviceId } from '../namespace.js';
 
 export interface ObjectStoreClient {
   putIfAbsent(key: string, body: string): Promise<void>;
@@ -31,14 +34,17 @@ const BATCH_KEY = /^projects\/([^/]+)\/batches\/([^/]+)\/(\d+)\.jsonl$/;
 export class ObjectStoreRemote implements SyncRemote {
   readonly kind = 's3';
   readonly namespace: string;
+  private readonly prefix: string;
 
-  constructor(private readonly client: ObjectStoreClient, namespace: string) {
+  constructor(private readonly client: ObjectStoreClient, namespace: string, prefix = '') {
     this.namespace = namespace;
+    this.prefix = normalizePrefix(prefix);
   }
 
   async init(): Promise<void> {}
 
   async push(batch: ChangeBatch): Promise<void> {
+    assertBatchNamespace(batch, this.namespace);
     const sequence = String(batch.sequence).padStart(SEQUENCE_WIDTH, '0');
     await this.client.putIfAbsent(
       `${this.basePath}batches/${batch.deviceId}/${sequence}.jsonl`,
@@ -47,10 +53,11 @@ export class ObjectStoreRemote implements SyncRemote {
   }
 
   async pull(since: Record<string, number>, limit: number, pageToken?: string): Promise<SyncPullPage> {
+    assertLimit(limit);
     const objects: BatchObject[] = [];
     const page = await this.client.list(`${this.basePath}batches/`, { limit, cursor: pageToken });
     for (const key of page.keys) {
-      const match = BATCH_KEY.exec(key);
+      const match = BATCH_KEY.exec(key.slice(this.prefix.length));
       if (match === null) continue;
       const [, namespace, deviceId, encodedSequence] = match;
       if (namespace !== this.namespace) continue;
@@ -79,7 +86,7 @@ export class ObjectStoreRemote implements SyncRemote {
     do {
       const page = await this.client.list(`${this.basePath}batches/`, { limit: 1000, cursor });
       for (const key of page.keys) {
-        const match = BATCH_KEY.exec(key);
+        const match = BATCH_KEY.exec(key.slice(this.prefix.length));
         if (!match) continue;
         const [, namespace, deviceId, encodedSequence] = match;
         const sequence = Number(encodedSequence);
@@ -94,7 +101,7 @@ export class ObjectStoreRemote implements SyncRemote {
   async close(): Promise<void> {}
 
   private get basePath(): string {
-    return `projects/${this.namespace}/`;
+    return `${this.prefix}projects/${this.namespace}/`;
   }
 }
 
@@ -157,6 +164,10 @@ export async function createS3ObjectStore(
         }));
       } catch (error) {
         if (!isPreconditionFailure(error)) throw error;
+        const existing = await client.get(key);
+        if (existing !== body) {
+          throw new Error('[memorix] object-store relay key already contains a different payload');
+        }
       }
     },
 
@@ -190,6 +201,9 @@ export async function createS3ObjectStore(
       }));
       for (const object of response.Contents ?? []) {
         if (object.Key !== undefined) keys.push(object.Key);
+      }
+      if (response.IsTruncated && !response.NextContinuationToken) {
+        throw new Error('[memorix] S3 sync list was truncated without a continuation token');
       }
       return { keys, nextCursor: response.IsTruncated ? response.NextContinuationToken : undefined };
     },
@@ -225,4 +239,29 @@ function isPreconditionFailure(error: unknown): boolean {
 function isNotFound(error: unknown): boolean {
   const details = errorDetails(error);
   return details.status === 404 || details.name === 'NoSuchKey' || details.name === 'NotFound';
+}
+
+function assertBatchNamespace(batch: ChangeBatch, namespace: string): void {
+  if (batch.namespace !== namespace) {
+    throw new Error('[memorix] sync batch namespace does not match the object-store relay');
+  }
+  if (!isSafeSyncDeviceId(batch.deviceId)) {
+    throw new Error('[memorix] sync batch has an invalid device id');
+  }
+}
+
+function assertLimit(limit: number): void {
+  if (!Number.isSafeInteger(limit) || limit < 1) {
+    throw new Error('[memorix] sync pull limit must be a positive integer');
+  }
+}
+
+function normalizePrefix(value: string): string {
+  const trimmed = value.trim().replace(/^\/+|\/+$/g, '');
+  if (!trimmed) return '';
+  const segments = trimmed.split('/');
+  if (segments.some((segment) => segment.length === 0 || segment === '.' || segment === '..')) {
+    throw new Error('[memorix] MEMORIX_SYNC_S3_PREFIX must be a relative key prefix');
+  }
+  return `${trimmed}/`;
 }

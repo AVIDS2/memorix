@@ -58,6 +58,15 @@ export function createSqliteSyncStore(dataDir: string, store: ObservationStore, 
   const deletePending = db.prepare(
     `DELETE FROM sync_outbox WHERE projectId = ? AND namespace = ? AND deviceId = ? AND sequence = ?`,
   );
+  const pendingForDevice = db.prepare(
+    `SELECT projectId, namespace, sequence, batchJson
+     FROM sync_outbox WHERE deviceId = ? ORDER BY projectId, namespace, sequence`,
+  );
+  const rewritePendingDevice = db.prepare(
+    `UPDATE sync_outbox
+        SET deviceId = ?, batchJson = ?
+      WHERE projectId = ? AND namespace = ? AND deviceId = ? AND sequence = ?`,
+  );
 
   const namespace = syncNamespace(projectId);
   const deviceFingerprint = process.env.MEMORIX_SYNC_DEVICE_FINGERPRINT?.trim()
@@ -66,7 +75,7 @@ export function createSqliteSyncStore(dataDir: string, store: ObservationStore, 
   function ensureDevice(): string {
     const row = getMeta.get(DEVICE_KEY) as { value: string } | undefined;
     if (row?.value) return row.value;
-    const id = `dev_${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36)}`;
+    const id = `dev_${randomUUID().replaceAll('-', '')}`;
     setMeta.run(DEVICE_KEY, id);
     setMeta.run(FINGERPRINT_KEY, deviceFingerprint);
     return id;
@@ -99,10 +108,31 @@ export function createSqliteSyncStore(dataDir: string, store: ObservationStore, 
     rotateDevice: () => {
       const previous = ensureDevice();
       const id = `dev_${randomUUID().replaceAll('-', '')}`;
-      setMeta.run(DEVICE_KEY, id);
-      setMeta.run(FINGERPRINT_KEY, deviceFingerprint);
-      setMeta.run(SEQ_KEY, '0');
-      db.prepare('DELETE FROM sync_outbox WHERE deviceId = ?').run(previous);
+      const pending = pendingForDevice.all(previous) as Array<{
+        projectId: string;
+        namespace: string;
+        sequence: number;
+        batchJson: string;
+      }>;
+      const rotate = db.transaction(() => {
+        setMeta.run(DEVICE_KEY, id);
+        setMeta.run(FINGERPRINT_KEY, deviceFingerprint);
+        // Pending batches were created before the clone was detected. Keep
+        // them and move their transport identity to the new replica; deleting
+        // them here would silently lose successfully recorded local memory.
+        for (const item of pending) {
+          const batch = JSON.parse(item.batchJson) as { deviceId?: string } & Record<string, unknown>;
+          rewritePendingDevice.run(
+            id,
+            JSON.stringify({ ...batch, deviceId: id }),
+            item.projectId,
+            item.namespace,
+            previous,
+            item.sequence,
+          );
+        }
+      });
+      rotate();
       return id;
     },
 
@@ -170,20 +200,41 @@ export function createSqliteSyncStore(dataDir: string, store: ObservationStore, 
       });
     },
 
-    async applyInsert(row: Observation): Promise<void> {
-      const existing = await store.getById(row.id);
-      if (existing) await store.update(row);
-      else await store.insert(row);
+    async applyInsert(row: Observation, state: SyncRowState): Promise<void> {
+      await store.atomic(async (tx) => {
+        const existing = await tx.getById(row.id);
+        if (existing) {
+          if (existing.projectId !== row.projectId) {
+            throw new Error('[memorix] sync refused to overwrite an observation from another project');
+          }
+          throw new Error('[memorix] sync insert collided with an existing local observation id');
+        }
+        await tx.insert(row);
+        upState.run(state);
+      });
     },
 
-    async applyUpdate(row: Observation): Promise<void> {
-      const existing = await store.getById(row.id);
-      if (existing) await store.update(row);
-      else await store.insert(row);
+    async applyUpdate(row: Observation, state: SyncRowState): Promise<void> {
+      await store.atomic(async (tx) => {
+        const existing = await tx.getById(row.id);
+        if (existing && existing.projectId !== row.projectId) {
+          throw new Error('[memorix] sync refused to overwrite an observation from another project');
+        }
+        if (existing) await tx.update(row);
+        else await tx.insert(row);
+        upState.run(state);
+      });
     },
 
-    async applyRemove(id: number): Promise<void> {
-      await store.remove(id);
+    async applyRemove(id: number, state: SyncRowState): Promise<void> {
+      await store.atomic(async (tx) => {
+        const existing = await tx.getById(id);
+        if (existing && existing.projectId !== state.projectId) {
+          throw new Error('[memorix] sync refused to remove an observation from another project');
+        }
+        await tx.remove(id);
+        upState.run(state);
+      });
     },
 
     async getById(id: number): Promise<Observation | undefined> {

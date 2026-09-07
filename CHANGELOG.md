@@ -12,6 +12,10 @@ All notable changes to this project will be documented in this file.
   device-clone protection, bounded relay pulls, and filesystem/GitHub/S3/
   Postgres transport boundaries. It is disabled by default and is not yet a
   release claim until the cross-platform acceptance gate passes.
+- **Sync hardening** -- retracts records that become private or agent-targeted,
+  keeps imported observations and sync state atomic, rejects immutable-key
+  collisions, verifies every pulled content hash, and uses stable continuation
+  cursors so large pulls do not skip events.
 
 ## [1.8.9] - 2026-09-06
 

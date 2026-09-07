@@ -47,7 +47,7 @@ The first supported contract is deliberately narrow:
 | P2 | Deterministic merge, tombstones, conflicts, clone detection | permutation, delete, replay, clone and conflict tests pass |
 | P3 | Filesystem and GitHub JSONL relays | two real data directories reconcile without DB/WAL files |
 | P4 | Bounded S3/Postgres pulls and remote namespace isolation | paged pull, malformed input, retry and large-log tests pass |
-| P5 | Snapshot/compaction/retention and CLI repair | no unbounded remote scan; recovery from snapshot is tested |
+| P5 | Explicit remote compaction and CLI repair | cleanup is preview-first and only deletes acknowledged events |
 | P6 | Cross-platform smoke and release review | Windows/macOS/Linux checks, docs, package smoke, contributor credit |
 
 ## GitHub Relay Contract
@@ -63,9 +63,9 @@ snapshots/<project-hash>/<snapshot-id>.json.zst
 Event files are immutable and device-owned. A device never edits another
 device's file and never commits `memorix.db`, `memorix.db-wal`, or
 `memorix.db-shm`. Each event contains a schema version, project namespace,
-device ID, sequence, event ID, entity key, operation, logical version,
-visibility decision, content hash, and payload. Payload encryption is required
-for private remotes when the user enables the encrypted mode; credentials never
+device ID, sequence, entity key, operation, logical version, visibility
+decision, content hash, and payload. At-rest encryption is a future transport
+option; this first slice does not pretend to provide it. Credentials never
 enter project files or event bodies.
 
 Snapshots are normalized, replayable memory state, not a copy of an open
@@ -88,7 +88,8 @@ backup is not a merge input.
       documented `device rotate` recovery path.
 - [x] GitHub relay protocol smoke proves only JSONL/snapshot artifacts are uploaded;
       no SQLite database or WAL file is present.
-- [x] Pulls are bounded and paged; remote logs have an explicit retention/compaction path.
+- [x] Pulls are bounded and keyset-paged; remote logs have an explicit
+      acknowledged retention/compaction path.
 - [x] Malformed, foreign-project, unsupported-version, and hash-mismatch input
       fails closed without mutating local memory.
 - [x] Local-only users see no behavior or dependency change when sync is unset.
@@ -211,15 +212,16 @@ live in the additive `sync_row_state` / `sync_meta` tables.
 ### 4.2 Transport interface (provider-agnostic)
 
 ```ts
-// Final interface (src/sync/types.ts). Cursor maps deviceId -> last applied
-// sequence, so both sides know what the other has already seen.
+// Final interface (src/sync/types.ts). The cursor maps deviceId -> last applied
+// sequence locally; the page token is an opaque keyset continuation for one
+// bounded pull.
 interface SyncRemote {
-  readonly kind: string;                 // "fs" | "s3" | "postgres"
-  init(): Promise<void>;
-  getCursor(deviceId: string): Promise<SyncCursor>;
-  setCursor(deviceId: string, cursor: SyncCursor): Promise<void>;
+  readonly kind: string;                 // "fs" | "github" | "s3" | "postgres"
+  readonly namespace: string;
+  init(options?: { create?: boolean }): Promise<void>;
   push(batch: ChangeBatch): Promise<void>;            // idempotent by (deviceId, sequence)
-  pull(since: Record<string, number>): Promise<ChangeBatch[]>; // newer batches, oldest first
+  pull(since: Record<string, number>, limit: number, pageToken?: string): Promise<SyncPullPage>;
+  compact(through: Record<string, number>, options?: { dryRun?: boolean }): Promise<SyncCompactReport>;
   close(): Promise<void>;
 }
 ```
@@ -228,10 +230,11 @@ Concrete adapters implement `SyncRemote` only:
 
 - **`fs`/`rsync`** — a directory the user already syncs by other means; zero
   new infrastructure, good for a first, fully local test.
+- **`github`** — an optional private-repository JSONL relay; it is convenient
+  for a small personal store, not a database.
 - **`s3`** — any S3-compatible object store; batches are immutable objects
-  under a key prefix, head is a small manifest object.
-- **`edge-kv`/`edge-sql`** — a small edge datastore for users who want a
-  hosted hop without running a full service.
+  under a project path and optional user prefix.
+- **`postgres`** — a batch-log hub for users who already operate Postgres.
 
 The point is that no adapter is privileged. Provider choice is configuration,
 not code, mirroring how `[memory.llm]`, `[embedding]`, and rerank already
@@ -286,16 +289,18 @@ keys already are), never written into a config file that could be shared.
 
 ## 5. Phasing
 
-1. **Phase 1 — journal + `fs` adapter, observations only.**
-   Prove correctness locally with no external service: two data dirs on one
-   machine reconcile through a shared directory. Deterministic merge tests.
-2. **Phase 2 — object-store adapter + preview.**
-   Add an S3-compatible adapter and `sync --dry`. Add the interval mode.
-3. **Phase 3 — remaining tables + tombstones + lifecycle ordering.**
-   Extend beyond observations (sessions, knowledge, code-state) with the same
-   contract; formalize tombstones and lifecycle-aware precedence.
-4. **Phase 4 — optional edge adapter.**
-   A hosted hop for users who want cross-machine sync without self-hosting.
+1. **Phase 1 — journal + local relay, observations only.** Complete.
+   Two real SQLite data directories reconcile through a shared filesystem
+   relay, with project scope, privacy filtering, merge, delete, and clone
+   protection.
+2. **Phase 2 — remote relays + preview.** Complete as a contract and adapter
+   test slice. GitHub, S3-compatible, and Postgres transports are opt-in;
+   provider credentials and live service acceptance remain deployment work.
+3. **Phase 3 — snapshots and broader tables.** Future. The current release
+   does not replicate sessions, knowledge, CodeGraph, or encrypted snapshots.
+4. **Phase 4 — background sync.** Future. Manual status/push/pull remains the
+   deliberate first user experience until recovery, privacy, and lifecycle
+   telemetry are proven.
 
 Each phase is independently useful and independently reviewable.
 
@@ -329,6 +334,8 @@ Each phase is independently useful and independently reviewable.
 The first implementation slice is now present behind the opt-in CLI. It covers
 the project-scoped observation event path, filesystem/GitHub/S3/Postgres relay
 contracts, local outbox retry, clone detection, conflict evidence, and bounded
-pulls. It does not enable background sync, upload private memory, replicate
-sessions/knowledge/codegraph tables, or claim that GitHub is a production
-database.
+keyset pulls. It does not enable background sync, upload private memory,
+replicate sessions/knowledge/CodeGraph tables, or claim that GitHub is a
+production database. The candidate remains release-gated until P6 is checked
+on the supported operating systems and the contributor change is reviewed in
+the upstream PR.

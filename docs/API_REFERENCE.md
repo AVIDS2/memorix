@@ -96,6 +96,10 @@ uses the current Git project as its namespace, excludes personal/agent-targeted
 and unqualified records, keeps a local retry outbox, and stores cursors locally.
 The default `status` action is preview-only. GitHub stores immutable JSONL event
 blobs; it does not receive `memorix.db`, `memorix.db-wal`, or `memorix.db-shm`.
+Use `memorix sync store compact --dry --through device=sequence` to preview
+remote log cleanup; add `--yes` only when the acknowledged cutoffs are correct.
+The S3 adapter supports an optional `MEMORIX_SYNC_S3_PREFIX` so several
+independent stores can share one bucket without crossing key spaces.
 
 ### Memory Autopilot, Code State, and Context Packs
 

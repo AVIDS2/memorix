@@ -20,22 +20,33 @@ describe('GitHub JSONL relay', () => {
   it('creates a relay branch, writes JSONL event blobs, and paginates pulls', async () => {
     const objects = new Map<string, string>();
     const calls: string[] = [];
+    let relayBranchExists = false;
     vi.stubGlobal('fetch', vi.fn(async (input: string | URL, init?: RequestInit) => {
       const url = String(input);
       const method = init?.method ?? 'GET';
       calls.push(`${method} ${url}`);
       if (url.endsWith('/repos/acme/memory')) return new Response(JSON.stringify({ default_branch: 'main' }), { status: 200 });
-      if (url.includes('/git/ref/heads/memorix-sync')) return new Response('{}', { status: 404 });
+      if (url.includes('/git/ref/heads/memorix-sync')) {
+        return relayBranchExists
+          ? new Response(JSON.stringify({ object: { sha: 'head' } }), { status: 200 })
+          : new Response('{}', { status: 404 });
+      }
       if (url.includes('/git/ref/heads/main')) return new Response(JSON.stringify({ object: { sha: 'base' } }), { status: 200 });
-      if (url.endsWith('/git/refs')) return new Response('{}', { status: 201 });
+      if (url.endsWith('/git/refs')) {
+        relayBranchExists = true;
+        return new Response('{}', { status: 201 });
+      }
       if (method === 'PUT' && url.includes('/contents/events/')) {
         const body = JSON.parse(String(init?.body)) as { content: string };
         const path = new URL(url).pathname.split('/contents/')[1];
         objects.set(path, body.content);
         return new Response(JSON.stringify({}), { status: 201 });
       }
+      if (url.includes('/git/commits/head')) {
+        return new Response(JSON.stringify({ tree: { sha: 'tree' } }), { status: 200 });
+      }
       if (url.includes('/git/trees/')) {
-        return new Response(JSON.stringify({ tree: [...objects.keys()].map((path) => ({ path, type: 'blob' })) }), { status: 200 });
+        return new Response(JSON.stringify({ tree: [...objects.keys()].map((path) => ({ path, type: 'blob', sha: `sha-${path}` })) }), { status: 200 });
       }
       if (url.includes('/contents/')) {
         const path = new URL(url).pathname.split('/contents/')[1];

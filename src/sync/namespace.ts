@@ -8,3 +8,8 @@ export function syncNamespace(projectId: string): string {
 export function projectSyncPrefix(projectId: string): string {
   return `p:${encodeURIComponent(projectId)}:`;
 }
+
+/** Device IDs are path segments in the filesystem relay and keys elsewhere. */
+export function isSafeSyncDeviceId(value: string): boolean {
+  return /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(value);
+}

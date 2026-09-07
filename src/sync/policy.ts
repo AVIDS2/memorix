@@ -13,6 +13,9 @@ export interface SyncEligibility {
 export function syncEligibility(observation: Observation, projectId: string): SyncEligibility {
   if (observation.projectId !== projectId) return { eligible: false, reason: 'other-project' };
   if ((observation.visibility ?? 'project') !== 'project') return { eligible: false, reason: 'non-project-visibility' };
+  if ((observation.sharedWithAgentIds?.length ?? 0) > 0) {
+    return { eligible: false, reason: 'agent-targeted' };
+  }
   if (observation.admissionState === 'candidate' || observation.admissionState === 'ephemeral') {
     return { eligible: false, reason: 'unqualified-observation' };
   }

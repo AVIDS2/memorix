@@ -34,21 +34,20 @@ describe('FsRemote', () => {
 
   it('stores a pushed device sequence once', async () => {
     const value = batch('device-a', 7);
-    const duplicate = { ...value, producedAt: '2026-09-06T01:00:00.000Z' };
     const competingRemote = new FsRemote({ root, namespace: 'project-test' });
     await competingRemote.init();
 
-    await Promise.all([remote.push(value), competingRemote.push(duplicate)]);
+    await Promise.all([remote.push(value), competingRemote.push(value)]);
     await competingRemote.close();
 
     const files = await readdir(path.join(root, 'projects', 'project-test', 'batches', 'device-a'));
     expect(files).toEqual(['00000000000000000007.jsonl']);
     const pulled = await remote.pull({}, 10);
     expect(pulled.batches).toHaveLength(1);
-    expect([value, duplicate]).toContainEqual(pulled.batches[0]);
+    expect(pulled.batches[0]).toEqual(value);
 
-    await remote.push({ ...value, producedAt: '2026-09-06T02:00:00.000Z' });
-    expect(await remote.pull({}, 10)).toEqual(pulled);
+    await expect(remote.push({ ...value, producedAt: '2026-09-06T02:00:00.000Z' }))
+      .rejects.toThrow(/different payload/);
   });
 
   it('pulls all devices in device and sequence order after each device cursor', async () => {
@@ -73,6 +72,9 @@ describe('FsRemote', () => {
     const page = await remote.pull({}, 1);
     expect(page.batches).toHaveLength(1);
     expect(page.hasMore).toBe(true);
+    const next = await remote.pull({}, 1, page.nextPageToken);
+    expect(next.batches.map((item) => item.sequence)).toEqual([2]);
+    expect(next.hasMore).toBe(false);
   });
 
   it('compacts only the explicitly acknowledged sequence', async () => {

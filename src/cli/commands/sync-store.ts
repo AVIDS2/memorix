@@ -96,7 +96,7 @@ export default defineCommand({
     const syncStore = createSqliteSyncStore(dataDir, obsStore, project.id);
 
     if (action === 'compact') {
-      if (!args.yes) {
+      if (!args.yes && !args.dry) {
         emitError('remote compaction deletes relay events; repeat with --yes after specifying --through device=sequence', asJson);
         process.exitCode = 2;
         return;
@@ -118,11 +118,21 @@ export default defineCommand({
         process.exitCode = 2;
         return;
       }
-      const remote = await createRemote(config.provider, syncStore.namespace());
+      let remote;
+      try {
+        remote = await createRemote(config.provider, syncStore.namespace());
+      } catch (err) {
+        emitError((err as Error).message, asJson);
+        process.exitCode = 1;
+        return;
+      }
       try {
         await remote.init({ create: false });
         const result = await remote.compact(through, { dryRun: Boolean(args.dry) });
         emitResult({ project: project.id, through, ...result, dryRun: Boolean(args.dry) }, `Compaction candidates: ${result.candidates}; deleted: ${result.deleted}`, asJson);
+      } catch (err) {
+        emitError((err as Error).message, asJson);
+        process.exitCode = 1;
       } finally {
         await remote.close();
       }
@@ -130,13 +140,26 @@ export default defineCommand({
     }
 
     if (action === 'status') {
-      const report = await runSync(syncStore, await createRemote(config.provider, syncStore.namespace()), {
-        deviceId: syncStore.deviceId(),
-        dryRun: true,
-        push: true,
-        pull: true,
-      });
-      emitResult({ project: project.id, ...report }, renderReport(report), asJson);
+      let remote;
+      try {
+        remote = await createRemote(config.provider, syncStore.namespace());
+      } catch (err) {
+        emitError((err as Error).message, asJson);
+        process.exitCode = 1;
+        return;
+      }
+      try {
+        const report = await runSync(syncStore, remote, {
+          deviceId: syncStore.deviceId(),
+          dryRun: true,
+          push: true,
+          pull: true,
+        });
+        emitResult({ project: project.id, ...report }, renderReport(report), asJson);
+      } catch (err) {
+        emitError((err as Error).message, asJson);
+        process.exitCode = 1;
+      }
       return;
     }
 

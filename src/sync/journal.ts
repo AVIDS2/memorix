@@ -99,8 +99,6 @@ export interface ComputeInput {
   /** This device's stable id (becomes the `writer` of new local versions). */
   deviceId: string;
   projectId: string;
-  /** Local rows that remain present but are intentionally excluded from sync. */
-  excludedObservationIds?: ReadonlySet<number>;
 }
 
 /** A change plus the row-state it should persist once the batch is shipped. */
@@ -115,7 +113,7 @@ export interface ComputedChange {
  * tombstones. Version numbers advance per-row from the recorded revision.
  */
 export function computeChanges(input: ComputeInput): ComputedChange[] {
-  const { current, state, deviceId, projectId, excludedObservationIds } = input;
+  const { current, state, deviceId, projectId } = input;
   const at = nowIso();
   const changes: ComputedChange[] = [];
   const seenKeys = new Set<string>();
@@ -139,11 +137,13 @@ export function computeChanges(input: ComputeInput): ComputedChange[] {
     });
   }
 
-  // Tombstones: recorded-live keys no longer present locally.
+  // Tombstones also retract a row that was previously eligible but is now
+  // private, targeted, candidate, or ephemeral. Without this branch a user
+  // could make a memory private locally while it remained visible on another
+  // device forever. A row that was never recorded in state produces no event.
   for (const prior of state.values()) {
     if (prior.kind === 'tombstone') continue;
     if (seenKeys.has(prior.syncKey)) continue;
-    if (prior.obsId != null && excludedObservationIds?.has(prior.obsId)) continue;
     const version = nextVersion(prior, deviceId, at);
     changes.push({
       entry: { syncKey: prior.syncKey, kind: 'tombstone', version, contentHash: '' },

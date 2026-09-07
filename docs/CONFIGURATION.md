@@ -390,7 +390,19 @@ MEMORIX_SYNC_GITHUB_TOKEN=...
 MEMORIX_SYNC_GITHUB_BRANCH=memorix-sync        # optional
 ```
 
-S3-compatible and Postgres settings are documented in the multi-device sync
+For S3-compatible storage, set the usual bucket/endpoint/credentials/region
+variables and optionally put all Memorix objects below a shared-bucket prefix:
+
+```text
+MEMORIX_SYNC_S3_BUCKET=...
+MEMORIX_SYNC_S3_ENDPOINT=...
+MEMORIX_SYNC_S3_ACCESS_KEY_ID=...
+MEMORIX_SYNC_S3_SECRET_ACCESS_KEY=...
+MEMORIX_SYNC_S3_REGION=auto
+MEMORIX_SYNC_S3_PREFIX=memorix       # optional, relative key prefix
+```
+
+S3-compatible and Postgres details are documented in the multi-device sync
 [plan and acceptance contract](MULTI-DEVICE-SYNC-RESEARCH.md). Credentials are
 read from the process environment and are never written to project config or
 sync event bodies. A copied data directory must be rotated before it can

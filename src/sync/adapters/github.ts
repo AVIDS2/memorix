@@ -1,4 +1,6 @@
 import type { ChangeBatch, SyncCompactReport, SyncPullPage, SyncRemote } from '../types.js';
+import { comparePageKey, decodePageCursor, encodePageCursor } from '../paging.js';
+import { isSafeSyncDeviceId } from '../namespace.js';
 
 interface GitHubRemoteOptions {
   repo: string;
@@ -17,6 +19,14 @@ interface GitHubTreeEntry {
 interface GitHubTreeResponse {
   tree?: GitHubTreeEntry[];
   truncated?: boolean;
+}
+
+interface GitHubRefResponse {
+  object?: { sha?: string };
+}
+
+interface GitHubCommitResponse {
+  tree?: { sha?: string };
 }
 
 interface GitHubContentResponse {
@@ -38,10 +48,12 @@ export class GitHubRemote implements SyncRemote {
   }
 
   async init(options: { create?: boolean } = {}): Promise<void> {
+    this.branchExists = false;
     const repository = await this.request<{ default_branch?: string }>(`/repos/${this.options.repo}`);
     const branch = encodeURIComponent(this.options.branch);
     try {
-      await this.request(`/repos/${this.options.repo}/git/ref/heads/${branch}`);
+      const ref = await this.request<GitHubRefResponse>(`/repos/${this.options.repo}/git/ref/heads/${branch}`);
+      if (!ref.object?.sha) throw new Error('[memorix] GitHub relay returned a branch without a commit');
       this.branchExists = true;
     } catch (error) {
       if (!isStatus(error, 404) || !repository.default_branch) throw error;
@@ -59,6 +71,8 @@ export class GitHubRemote implements SyncRemote {
   }
 
   async push(batch: ChangeBatch): Promise<void> {
+    assertBatchNamespace(batch, this.namespace);
+    if (!this.branchExists) throw new Error('[memorix] GitHub sync remote is not initialized for writes');
     const path = `events/${this.namespace}/${encodeURIComponent(batch.deviceId)}/${String(batch.sequence).padStart(20, '0')}.jsonl`;
     const body = Buffer.from(`${JSON.stringify(batch)}\n`, 'utf8').toString('base64');
     const apiPath = `/repos/${this.options.repo}/contents/${path.split('/').map(encodeURIComponent).join('/')}`;
@@ -81,7 +95,7 @@ export class GitHubRemote implements SyncRemote {
         // network retry reached us. Treat an identical existing blob as a
         // successful idempotent write; reject a different payload.
         const existing = await this.request<GitHubContentResponse>(`${apiPath}?ref=${encodeURIComponent(this.options.branch)}`);
-        if (existing.encoding === 'base64' && existing.content === body) return;
+        if (existing.encoding === 'base64' && normalizeBase64(existing.content) === normalizeBase64(body)) return;
         throw new Error('[memorix] GitHub relay event path already contains a different payload');
       }
     }
@@ -89,10 +103,9 @@ export class GitHubRemote implements SyncRemote {
   }
 
   async pull(since: Record<string, number>, limit: number, pageToken?: string): Promise<SyncPullPage> {
+    assertLimit(limit);
     if (!this.branchExists) return { batches: [], hasMore: false };
-    const tree = await this.request<GitHubTreeResponse>(
-      `/repos/${this.options.repo}/git/trees/${encodeURIComponent(this.options.branch)}?recursive=1`,
-    );
+    const tree = await this.getTree();
     if (tree.truncated) throw new Error('[memorix] GitHub relay tree is too large; compact the sync repository first');
 
     const objects = (tree.tree ?? [])
@@ -110,9 +123,11 @@ export class GitHubRemote implements SyncRemote {
         ? left.sequence - right.sequence
         : left.deviceId < right.deviceId ? -1 : 1);
 
-    const offset = Math.max(0, Number.parseInt(pageToken ?? '0', 10) || 0);
+    const after = decodePageCursor(pageToken);
+    const visibleObjects = objects.filter((object) => !after || comparePageKey(object, after) > 0);
+    const pageObjects = visibleObjects.slice(0, limit);
     const batches: ChangeBatch[] = [];
-    for (const object of objects.slice(offset, offset + limit)) {
+    for (const object of pageObjects) {
       const path = object.path.split('/').map(encodeURIComponent).join('/');
       const content = await this.request<GitHubContentResponse>(
         `/repos/${this.options.repo}/contents/${path}?ref=${encodeURIComponent(this.options.branch)}`,
@@ -123,15 +138,19 @@ export class GitHubRemote implements SyncRemote {
       const text = Buffer.from(content.content.replace(/\s/g, ''), 'base64').toString('utf8');
       for (const line of text.split(/\r?\n/).filter(Boolean)) batches.push(JSON.parse(line) as ChangeBatch);
     }
-    const nextOffset = offset + limit;
-    return { batches, hasMore: objects.length > nextOffset, nextPageToken: objects.length > nextOffset ? String(nextOffset) : undefined };
+    const hasMore = visibleObjects.length > pageObjects.length;
+    return {
+      batches,
+      hasMore,
+      nextPageToken: hasMore && pageObjects.length > 0
+        ? encodePageCursor(pageObjects[pageObjects.length - 1])
+        : undefined,
+    };
   }
 
   async compact(through: Record<string, number>, options: { dryRun?: boolean } = {}): Promise<SyncCompactReport> {
     if (!this.branchExists) return { candidates: 0, deleted: 0 };
-    const tree = await this.request<GitHubTreeResponse>(
-      `/repos/${this.options.repo}/git/trees/${encodeURIComponent(this.options.branch)}?recursive=1`,
-    );
+    const tree = await this.getTree();
     const objects = (tree.tree ?? []).flatMap((entry) => {
       if (!entry.path || !entry.sha) return [];
       const match = new RegExp(`^events/${escapeRegExp(this.namespace)}/([^/]+)/(\\d+)\\.jsonl$`).exec(entry.path);
@@ -153,6 +172,22 @@ export class GitHubRemote implements SyncRemote {
 
   async close(): Promise<void> {}
 
+  private async getTree(): Promise<GitHubTreeResponse> {
+    if (!this.branchExists) return { tree: [] };
+    const ref = await this.request<GitHubRefResponse>(
+      `/repos/${this.options.repo}/git/ref/heads/${encodeURIComponent(this.options.branch)}`,
+    );
+    const commitSha = ref.object?.sha;
+    if (!commitSha) throw new Error('[memorix] GitHub relay returned a branch without a commit');
+    const commit = await this.request<GitHubCommitResponse>(
+      `/repos/${this.options.repo}/git/commits/${encodeURIComponent(commitSha)}`,
+    );
+    if (!commit.tree?.sha) throw new Error('[memorix] GitHub relay could not resolve the branch tree');
+    return this.request<GitHubTreeResponse>(
+      `/repos/${this.options.repo}/git/trees/${encodeURIComponent(commit.tree.sha)}?recursive=1`,
+    );
+  }
+
   private async request<T>(path: string, init: RequestInit = {}): Promise<T> {
     const response = await fetch(`${this.options.apiBaseUrl}${path}`, {
       ...init,
@@ -171,6 +206,21 @@ export class GitHubRemote implements SyncRemote {
       throw error;
     }
     return await response.json() as T;
+  }
+}
+
+function assertBatchNamespace(batch: ChangeBatch, namespace: string): void {
+  if (batch.namespace !== namespace) {
+    throw new Error('[memorix] sync batch namespace does not match the GitHub relay');
+  }
+  if (!isSafeSyncDeviceId(batch.deviceId)) {
+    throw new Error('[memorix] sync batch has an invalid device id');
+  }
+}
+
+function assertLimit(limit: number): void {
+  if (!Number.isSafeInteger(limit) || limit < 1) {
+    throw new Error('[memorix] sync pull limit must be a positive integer');
   }
 }
 
@@ -201,4 +251,8 @@ function isStatus(error: unknown, status: number): boolean {
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function normalizeBase64(value: string | undefined): string {
+  return (value ?? '').replace(/\s/g, '');
 }

@@ -9,7 +9,8 @@
 import type { Observation } from '../types.js';
 import { computeChanges, contentHash, nowIso } from './journal.js';
 import { compareVersion, mergeOne } from './merge.js';
-import { eligibleObservations, syncEligibility } from './policy.js';
+import { eligibleObservations } from './policy.js';
+import { isSafeSyncDeviceId } from './namespace.js';
 import type {
   ChangeBatch,
   SyncConflict,
@@ -46,12 +47,12 @@ export interface SyncStorePort {
   saveState(rows: SyncRowState[]): Promise<void>;
   /** Reserve and return a fresh local observation id (for imports). */
   allocateId(): Promise<number>;
-  /** Insert an imported observation (id already assigned). */
-  applyInsert(row: Observation): Promise<void>;
-  /** Update an existing observation in place. */
-  applyUpdate(row: Observation): Promise<void>;
-  /** Remove an observation by local id. */
-  applyRemove(id: number): Promise<void>;
+  /** Insert an imported observation and its sync state atomically. */
+  applyInsert(row: Observation, state: SyncRowState): Promise<void>;
+  /** Update an existing observation and its sync state atomically. */
+  applyUpdate(row: Observation, state: SyncRowState): Promise<void>;
+  /** Remove an observation and persist its tombstone state atomically. */
+  applyRemove(id: number, state: SyncRowState): Promise<void>;
   getById(id: number): Promise<Observation | undefined>;
   recordConflict(conflict: SyncConflict): Promise<void>;
   loadPendingBatches(): Promise<SyncPendingBatch[]>;
@@ -99,15 +100,26 @@ export async function runSync(
   if (remote.namespace !== store.namespace()) {
     throw new Error('[memorix] sync refused: store and remote namespaces do not match');
   }
-  await remote.init({ create: !opts.dryRun });
+  if (store.deviceId() !== opts.deviceId) {
+    throw new Error('[memorix] sync refused: requested device does not match the local replica identity');
+  }
   try {
+    // Check the local replica before a remote init can create a branch, table,
+    // or bucket prefix. A copied data directory must not gain write access by
+    // merely starting a sync run.
+    if (opts.push && !opts.dryRun) store.assertCanPublish();
+    await remote.init({ create: opts.push && !opts.dryRun });
+
     // ── Push ──────────────────────────────────────────────────────────
     if (opts.push) {
       const pending = await store.loadPendingBatches();
       report.pending = pending.length;
       if (!opts.dryRun) {
-        store.assertCanPublish();
         for (const pendingBatch of pending) {
+          validateBatches([pendingBatch.batch], store.projectId(), remote.namespace);
+          if (pendingBatch.batch.deviceId !== opts.deviceId) {
+            throw new Error('[memorix] sync outbox rejected: batch belongs to another device');
+          }
           await remote.push(pendingBatch.batch);
           await store.saveState(pendingBatch.states);
           await store.markBatchShipped(pendingBatch.batch.sequence);
@@ -125,7 +137,6 @@ export async function runSync(
         state,
         deviceId: opts.deviceId,
         projectId: store.projectId(),
-        excludedObservationIds: new Set(current.filter((observation) => !syncEligibility(observation, store.projectId()).eligible).map((observation) => observation.id)),
       });
       if (changes.length > 0) {
         const chunks = chunkChanges(changes);
@@ -140,6 +151,7 @@ export async function runSync(
             producedAt: nowIso(),
             entries: chunk.map((c) => c.entry),
           };
+          if (!opts.dryRun) validateBatches([batch], store.projectId(), remote.namespace);
           report.pushed += chunk.length;
           if (!opts.dryRun) {
             const states = chunk.map((c) => ({ ...c.nextState, shippedSeq: sequence }));
@@ -156,10 +168,14 @@ export async function runSync(
     if (opts.pull) {
       const cursor = await store.loadCursor();
       const state = await store.loadState();
+      const pullSince = { ...cursor.applied };
       let pageToken: string | undefined;
       let hasMore = true;
       while (hasMore) {
-        const page = await remote.pull(cursor.applied, PULL_PAGE_SIZE, pageToken);
+        // Keep the baseline fixed for every page. Adapters use pageToken to
+        // advance through one logical pull; passing the mutating cursor here
+        // can skip later rows after page one.
+        const page = await remote.pull(pullSince, PULL_PAGE_SIZE, pageToken);
         report.pulledBatches += page.batches.length;
         validateBatches(page.batches, store.projectId(), remote.namespace);
 
@@ -173,6 +189,13 @@ export async function runSync(
             const incomingHash = entry.row ? contentHash(entry.row) : '';
             if (entry.contentHash !== incomingHash) {
               throw new Error('[memorix] sync batch rejected: content hash mismatch');
+            }
+            if (
+              local
+              && compareVersion(entry.version, { revision: local.revision, writer: local.writer }) === 0
+              && local.contentHash !== incomingHash
+            ) {
+              throw new Error('[memorix] sync batch rejected: same version has different content');
             }
             const { decision, action } = mergeOne({ incoming: entry, local, incomingHash });
             recordDecision(report, decision);
@@ -203,15 +226,15 @@ export async function runSync(
             if (action.type === 'insert') {
               const newId = await store.allocateId();
               const row = { ...entry.row!, id: newId };
-              await store.applyInsert(row);
               next = { projectId: store.projectId(), syncKey: entry.syncKey, obsId: newId, revision: action.version.revision, writer: action.version.writer, kind: 'upsert', contentHash: action.contentHash, shippedSeq: local?.shippedSeq ?? 0 };
+              await store.applyInsert(row, next);
             } else if (action.type === 'update') {
               const row = { ...entry.row!, id: action.obsId };
-              await store.applyUpdate(row);
               next = { projectId: store.projectId(), syncKey: entry.syncKey, obsId: action.obsId, revision: action.version.revision, writer: action.version.writer, kind: 'upsert', contentHash: action.contentHash, shippedSeq: local?.shippedSeq ?? 0 };
+              await store.applyUpdate(row, next);
             } else {
-              await store.applyRemove(action.obsId);
               next = { projectId: store.projectId(), syncKey: entry.syncKey, obsId: null, revision: action.version.revision, writer: action.version.writer, kind: 'tombstone', contentHash: '', shippedSeq: local?.shippedSeq ?? 0 };
+              await store.applyRemove(action.obsId, next);
             }
             state.set(entry.syncKey, next);
             await store.saveState([next]);
@@ -236,15 +259,38 @@ function validateBatches(batches: ChangeBatch[], projectId: string, namespace: s
     if (batch.formatVersion !== 3 || batch.projectId !== projectId || batch.namespace !== namespace) {
       throw new Error('[memorix] sync batch rejected: wrong format, project, or remote namespace');
     }
-    if (!batch.deviceId || !Number.isSafeInteger(batch.sequence) || batch.sequence < 1 || !Array.isArray(batch.entries)) {
+    if (
+      !isSafeSyncDeviceId(batch.deviceId)
+      || !Number.isSafeInteger(batch.sequence)
+      || batch.sequence < 1
+      || !Array.isArray(batch.entries)
+      || Buffer.byteLength(JSON.stringify(batch), 'utf8') > MAX_BATCH_BYTES
+    ) {
       throw new Error('[memorix] sync batch rejected: malformed envelope');
     }
     for (const entry of batch.entries) {
-      if (!entry.syncKey || !entry.version || !Number.isSafeInteger(entry.version.revision) || !entry.version.writer) {
+      if (
+        !entry.syncKey
+        || (entry.kind !== 'upsert' && entry.kind !== 'tombstone')
+        || !entry.version
+        || !Number.isSafeInteger(entry.version.revision)
+        || entry.version.revision < 1
+        || !entry.version.writer
+        || typeof entry.contentHash !== 'string'
+        || (entry.kind === 'tombstone' && (entry.row !== undefined || entry.contentHash !== ''))
+        || (entry.kind === 'upsert' && (!/^[a-f0-9]{64}$/.test(entry.contentHash) || entry.row === undefined))
+      ) {
         throw new Error('[memorix] sync batch rejected: malformed change entry');
       }
-      if (entry.kind === 'upsert' && (!entry.row || !syncEligibility(entry.row, projectId).eligible)) {
+      if (
+        entry.kind === 'upsert'
+        && (!Number.isSafeInteger(entry.row!.id) || entry.row!.id < 1 || !eligibleObservations([entry.row!], projectId).eligible.length)
+      ) {
         throw new Error('[memorix] sync batch rejected: ineligible observation payload');
+      }
+      const incomingHash = entry.row ? contentHash(entry.row) : '';
+      if (entry.contentHash !== incomingHash) {
+        throw new Error('[memorix] sync batch rejected: content hash mismatch');
       }
     }
   }

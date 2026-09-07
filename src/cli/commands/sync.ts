@@ -51,6 +51,14 @@ export default defineCommand({
   },
   run: async ({ args }) => {
     const section = (args._ as string[])?.[0] || '';
+
+    // Store replication is a distinct concern from rules/workspace sync.
+    if (section === 'store') {
+      const storeCmd = (await import('./sync-store.js')).default;
+      const rest = (args._ as string[]).slice(1);
+      await storeCmd.run!({ args: { ...args, _: rest } } as never);
+      return;
+    }
     const asJson = !!args.json;
 
     if (section === 'rules' || section === 'workspace') {

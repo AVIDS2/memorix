@@ -209,7 +209,15 @@ const GUIDES: Record<string, CliCommandGuide> = {
   },
   sync: {
     summary: 'Synchronize agent rules and workspace artifacts through explicit routes.',
-    usage: ['memorix sync rules --action status', 'memorix sync workspace --action scan'],
+    usage: [
+      'memorix sync rules --action status',
+      'memorix sync workspace --action scan',
+      'memorix sync store status --json',
+      'memorix sync store push|pull [--dry] [--json]',
+      'memorix sync store compact --dry --through device=sequence',
+      'memorix sync store device rotate',
+    ],
+    notes: ['Store sync is opt-in, project-scoped, and never copies the live SQLite database.'],
   },
   ingest: {
     summary: 'Ingest Git and image evidence into project memory.',

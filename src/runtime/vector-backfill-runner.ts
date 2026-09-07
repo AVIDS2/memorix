@@ -1,5 +1,14 @@
 import { spawn, type ChildProcess } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import {
+  closeSync,
+  existsSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  statSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -11,7 +20,11 @@ import { initObservationStore } from '../store/obs-store.js';
 import { getDeferredCachedVectorHydration } from '../store/orama-store.js';
 import { closeAllDatabases } from '../store/sqlite-db.js';
 import { MaintenanceJobStore, MaintenanceJobWorker } from './maintenance-jobs.js';
+import { MaintenanceTargetStore, type MaintenanceTarget } from './maintenance-targets.js';
 import { createProjectMaintenanceHandler } from './project-maintenance.js';
+
+const VECTOR_BACKFILL_LOCK_FILE = '.memorix-vector-backfill.lock';
+const STALE_LOCK_RECOVERY_MS = 24 * 60 * 60 * 1_000;
 
 export interface VectorBackfillRequest {
   projectId: string;
@@ -23,6 +36,20 @@ export interface VectorBackfillLauncherOptions {
   runnerPath?: string;
   exists?: (path: string) => boolean;
   spawn?: typeof spawn;
+  lockPath?: string;
+}
+
+interface VectorBackfillLock {
+  parentPid: number;
+  childPid?: number;
+  startedAt: number;
+  projectId: string;
+}
+
+interface VectorBackfillLockHandle {
+  path: string;
+  setChildPid(pid: number): void;
+  release(): void;
 }
 
 function isNonEmptyString(value: unknown): value is string {
@@ -68,6 +95,111 @@ export function parseVectorBackfillRequest(raw: string): VectorBackfillRequest {
   };
 }
 
+export function vectorBackfillLockPath(dataDir: string): string {
+  return path.join(dataDir, VECTOR_BACKFILL_LOCK_FILE);
+}
+
+function processIsAlive(pid: number | undefined): boolean {
+  if (!Number.isSafeInteger(pid) || pid == null || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    // EPERM means the process exists but this process cannot signal it.
+    return (error as NodeJS.ErrnoException).code === 'EPERM';
+  }
+}
+
+function readVectorBackfillLock(lockPath: string): VectorBackfillLock | undefined {
+  try {
+    const value = JSON.parse(readFileSync(lockPath, 'utf8')) as Partial<VectorBackfillLock>;
+    if (
+      typeof value.parentPid !== 'number'
+      || !Number.isSafeInteger(value.parentPid)
+      || typeof value.startedAt !== 'number'
+      || !Number.isFinite(value.startedAt)
+      || typeof value.projectId !== 'string'
+    ) return undefined;
+    return {
+      parentPid: value.parentPid,
+      ...(typeof value.childPid === 'number' ? { childPid: value.childPid } : {}),
+      startedAt: value.startedAt,
+      projectId: value.projectId,
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+function writeVectorBackfillLock(lockPath: string, value: VectorBackfillLock): void {
+  writeFileSync(lockPath, `${JSON.stringify(value)}\n`, 'utf8');
+}
+
+function acquireVectorBackfillLock(
+  dataDir: string,
+  projectId: string,
+  preferredPath?: string,
+): VectorBackfillLockHandle | undefined {
+  const lockPath = preferredPath ?? vectorBackfillLockPath(dataDir);
+  mkdirSync(path.dirname(lockPath), { recursive: true });
+  const initial: VectorBackfillLock = {
+    parentPid: process.pid,
+    startedAt: Date.now(),
+    projectId,
+  };
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const fd = openSync(lockPath, 'wx');
+      try {
+        writeFileSync(fd, `${JSON.stringify(initial)}\n`, 'utf8');
+      } finally {
+        closeSync(fd);
+      }
+      return {
+        path: lockPath,
+        setChildPid(pid: number) {
+          try {
+            writeVectorBackfillLock(lockPath, { ...initial, childPid: pid });
+          } catch {
+            // The child can still release the lock on normal shutdown; a dead
+            // owner is recoverable on the next launch.
+          }
+        },
+        release() {
+          try { unlinkSync(lockPath); } catch { /* already released */ }
+        },
+      };
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') return undefined;
+      const existing = readVectorBackfillLock(lockPath);
+      const ownerAlive = existing && (processIsAlive(existing.childPid) || processIsAlive(existing.parentPid));
+      if (ownerAlive) return undefined;
+
+      // A malformed lock is not deleted immediately: another process may be
+      // between create and write. A dead, well-formed owner is safe to reap;
+      // an unreadable lock needs a long recovery window so it cannot cause a
+      // second heavy worker during a slow filesystem operation.
+      let stale = false;
+      try {
+        stale = Date.now() - statSync(lockPath).mtimeMs >= STALE_LOCK_RECOVERY_MS;
+      } catch {
+        stale = false;
+      }
+      if (!existing && !stale) return undefined;
+      try { unlinkSync(lockPath); } catch { return undefined; }
+    }
+  }
+  return undefined;
+}
+
+export function releaseVectorBackfillLock(lockPath = process.env.MEMORIX_VECTOR_BACKFILL_LOCK): void {
+  if (!lockPath) return;
+  const lock = readVectorBackfillLock(lockPath);
+  if (lock && lock.childPid !== process.pid) return;
+  try { unlinkSync(lockPath); } catch { /* already released */ }
+}
+
 /**
  * Start a detached one-shot worker. The caller has already persisted the
  * observation and durable vector job, so failure to start is recoverable by a
@@ -81,6 +213,9 @@ export function launchDetachedVectorBackfill(
   const exists = options.exists ?? existsSync;
   if (!exists(runnerPath)) return false;
 
+  const lock = acquireVectorBackfillLock(request.dataDir, request.projectId, options.lockPath);
+  if (!lock) return false;
+
   try {
     const child = (options.spawn ?? spawn)(process.execPath, [runnerPath], {
       cwd: request.projectRoot,
@@ -90,13 +225,24 @@ export function launchDetachedVectorBackfill(
       stdio: 'ignore',
       // The request contains only local project metadata, never credentials.
       // Environment transport avoids a live stdin pipe keeping the CLI alive.
-      env: { ...process.env, MEMORIX_VECTOR_BACKFILL_REQUEST: JSON.stringify(request) },
+      env: {
+        ...process.env,
+        MEMORIX_VECTOR_BACKFILL_REQUEST: JSON.stringify(request),
+        MEMORIX_VECTOR_BACKFILL_LOCK: lock.path,
+      },
       windowsHide: true,
     }) as ChildProcess;
+    if (child.pid) lock.setChildPid(child.pid);
+    else lock.release();
     child.once?.('error', () => {});
+    child.once?.('close', () => lock.release());
+    // Test doubles and unusual spawn adapters may not expose ChildProcess
+    // events. Do not leave a lock behind when there is no lifecycle to own it.
+    if (typeof child.once !== 'function') lock.release();
     child.unref();
-    return true;
+    return Boolean(child.pid);
   } catch {
+    lock.release();
     return false;
   }
 }
@@ -110,12 +256,43 @@ export async function executeVectorBackfill(request: VectorBackfillRequest) {
   await prepareSearchIndex();
   await getDeferredCachedVectorHydration()?.catch(() => {});
 
+  const queue = new MaintenanceJobStore(request.dataDir);
+  const targets = new MaintenanceTargetStore(request.dataDir);
+  let preparedRoot = request.projectRoot;
+  const prepareTarget = async (target: MaintenanceTarget): Promise<void> => {
+    if (target.projectRoot === preparedRoot) return;
+    initProjectRoot(target.projectRoot);
+    loadDotenv(target.projectRoot);
+    preparedRoot = target.projectRoot;
+    // The data directory is shared across projects. The in-process index is
+    // intentionally global, so switching the target only changes the config
+    // and the job scope; it does not create another corpus/index copy.
+  };
+
+  const handler = async (job: Parameters<ReturnType<typeof createProjectMaintenanceHandler>>[0]) => {
+    const target = targets.get(job.projectId)
+      ?? (job.projectId === request.projectId
+        ? { projectId: request.projectId, projectRoot: request.projectRoot, dataDir: request.dataDir, updatedAt: Date.now() }
+        : undefined);
+    if (!target) return { action: 'reschedule' as const, delayMs: 30_000 };
+    await prepareTarget(target);
+    return createProjectMaintenanceHandler(job.projectId, target.dataDir, target.projectRoot)(job);
+  };
+
   const worker = new MaintenanceJobWorker(
-    new MaintenanceJobStore(request.dataDir),
-    createProjectMaintenanceHandler(request.projectId, request.dataDir, request.projectRoot),
-    { projectId: request.projectId, kinds: ['vector-backfill'] },
+    queue,
+    handler,
+    { kinds: ['vector-backfill'] },
   );
-  return worker.runOnce();
+  // Drain currently due vector jobs while this one process owns the lock. A
+  // hook storm therefore creates at most one heavy process, and pending jobs
+  // for other projects are picked up without requiring another hook event.
+  let result: Awaited<ReturnType<typeof worker.runOnce>> = { state: 'idle' };
+  while (true) {
+    result = await worker.runOnce();
+    if (result.state === 'idle') break;
+  }
+  return result;
 }
 
 async function readStdin(): Promise<string> {
@@ -137,6 +314,7 @@ export async function main(): Promise<void> {
     process.stderr.write(`[memorix] vector backfill worker failed: ${detail}\n`);
     process.exitCode = 1;
   } finally {
+    releaseVectorBackfillLock();
     closeAllDatabases();
   }
 }

@@ -56,4 +56,10 @@ export class MaintenanceTargetStore {
     `).get(projectId);
     return row ? rowToTarget(row) : undefined;
   }
+
+  list(): MaintenanceTarget[] {
+    return (this.db.prepare(`
+      SELECT * FROM maintenance_targets ORDER BY updated_at DESC
+    `).all() as any[]).map(rowToTarget);
+  }
 }

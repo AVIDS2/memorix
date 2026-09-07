@@ -370,6 +370,52 @@ Common keys:
 - `dashboard_port = 3210` — default port for `memorix dashboard` when
   `--port` is not given.
 
+### Optional store sync
+
+Store sync is disabled unless `MEMORIX_SYNC_PROVIDER` is explicitly set. It
+replicates approved project-visible observation events, never the live SQLite
+file or its `-wal` / `-shm` companions. The local SQLite store remains the
+canonical read/write store.
+
+```text
+MEMORIX_SYNC_PROVIDER=fs|github|s3|postgres
+```
+
+The filesystem relay needs `MEMORIX_SYNC_FS_ROOT`. The GitHub relay needs a
+private relay repository and token:
+
+```text
+MEMORIX_SYNC_GITHUB_REPO=owner/repository
+MEMORIX_SYNC_GITHUB_TOKEN=...
+MEMORIX_SYNC_GITHUB_BRANCH=memorix-sync        # optional
+```
+
+For S3-compatible storage, set the usual bucket/endpoint/credentials/region
+variables and optionally put all Memorix objects below a shared-bucket prefix:
+
+```text
+MEMORIX_SYNC_S3_BUCKET=...
+MEMORIX_SYNC_S3_ENDPOINT=...
+MEMORIX_SYNC_S3_ACCESS_KEY_ID=...
+MEMORIX_SYNC_S3_SECRET_ACCESS_KEY=...
+MEMORIX_SYNC_S3_REGION=auto
+MEMORIX_SYNC_S3_PREFIX=memorix       # optional, relative key prefix
+```
+
+S3-compatible and Postgres details are documented in the multi-device sync
+[plan and acceptance contract](MULTI-DEVICE-SYNC-RESEARCH.md). Credentials are
+read from the process environment and are never written to project config or
+sync event bodies. A copied data directory must be rotated before it can
+publish:
+
+```bash
+memorix sync store device rotate
+```
+
+Use `memorix sync store status --json` first. It reports the current project
+namespace, eligible/excluded records, pending outbox work, and conflicts without
+creating a remote branch or uploading anything.
+
 ### Reserved sections (parsed, not yet enforced)
 
 These sections exist so future releases do not need a config format change.

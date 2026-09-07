@@ -36,6 +36,7 @@ It installs the recommended Memorix integration for the target agent:
 - Gemini CLI: local Gemini extension package with MCP and `GEMINI.md` context.
 - OpenCode: local plugin file, `opencode.json` MCP config, OpenCode skill, and `AGENTS.md` guidance.
 - Grok Build: native lifecycle hooks in `~/.grok/hooks/memorix.json` and `~/.grok/AGENTS.md` guidance. Grok owns its MCP configuration; project hooks require `/hooks-trust`.
+- Multi-device sync: opt-in `memorix sync store status|push|pull` relays only qualified project-visible observation events. Local SQLite remains canonical; GitHub JSONL, filesystem, S3, and Postgres are transport options. Personal, agent-targeted, candidate, ephemeral, and other-project records are excluded by default.
 - Windsurf, Kiro, Antigravity, Trae: MCP config plus rules/hooks where supported.
 - DeepSeek Harness: MCP patch row (`$DSH_HOME/cordis.patch.yml`) plus `AGENTS.md` guidance and official skills.
 

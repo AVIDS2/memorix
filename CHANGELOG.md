@@ -4,6 +4,24 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.9.0] - 2026-09-07
+
+### Added
+- **Opt-in multi-device sync candidate** -- adds a project-scoped observation
+  event contract with privacy filtering, local outbox retry, conflict evidence,
+  device-clone protection, bounded relay pulls, and filesystem/GitHub/S3/
+  Postgres transport boundaries. It is disabled by default and is not yet a
+  release claim until the cross-platform acceptance gate passes.
+- **Sync hardening** -- retracts records that become private or agent-targeted,
+  keeps imported observations and sync state atomic, rejects immutable-key
+  collisions, verifies every pulled content hash, and uses stable continuation
+  cursors so large pulls do not skip events.
+- **Resource hardening** -- coalesces deferred vector workers across hook
+  processes, respects retry cooldowns, drains due vector jobs through one
+  recoverable worker, removes the redundant full-document detail cache, and
+  batches startup vector hydration to reduce CPU/RAM peaks without imposing a
+  small corpus limit.
+
 ## [1.8.9] - 2026-09-06
 
 ### Added

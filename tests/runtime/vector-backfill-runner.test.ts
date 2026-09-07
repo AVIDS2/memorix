@@ -1,4 +1,6 @@
 import path from 'node:path';
+import os from 'node:os';
+import { unlinkSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -39,7 +41,7 @@ describe('detached vector backfill runner', () => {
 
   it('detaches the worker so a short-lived CLI never waits on an embedding request', () => {
     const unref = vi.fn();
-    const spawn = vi.fn(() => ({ unref }));
+    const spawn = vi.fn(() => ({ pid: 12345, unref }));
 
     const started = launchDetachedVectorBackfill(request, {
       runnerPath: 'E:/pkg/dist/vector-backfill-runner.js',
@@ -64,7 +66,7 @@ describe('detached vector backfill runner', () => {
   it('does not create a detached Windows console for a recoverable backfill job', () => {
     const platform = Object.getOwnPropertyDescriptor(process, 'platform');
     const unref = vi.fn();
-    const spawn = vi.fn(() => ({ unref }));
+    const spawn = vi.fn(() => ({ pid: 12345, unref }));
 
     Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
     try {
@@ -87,5 +89,37 @@ describe('detached vector backfill runner', () => {
     } finally {
       Object.defineProperty(process, 'platform', platform!);
     }
+  });
+
+  it('coalesces concurrent launch attempts through one cross-process lock', () => {
+    const closeHandlers: Array<() => void> = [];
+    const unref = vi.fn();
+    const spawn = vi.fn(() => ({
+      pid: 12345,
+      unref,
+      once(event: string, handler: () => void) {
+        if (event === 'close') closeHandlers.push(handler);
+        return this;
+      },
+    }));
+    const lockPath = path.join(os.tmpdir(), `memorix-vector-backfill-test-${process.pid}.lock`);
+
+    const first = launchDetachedVectorBackfill(request, {
+      runnerPath: 'E:/pkg/dist/vector-backfill-runner.js',
+      exists: () => true,
+      spawn: spawn as never,
+      lockPath,
+    });
+    expect(first).toBe(true);
+    expect(launchDetachedVectorBackfill(request, {
+      runnerPath: 'E:/pkg/dist/vector-backfill-runner.js',
+      exists: () => true,
+      spawn: spawn as never,
+      lockPath,
+    })).toBe(false);
+    expect(spawn).toHaveBeenCalledOnce();
+
+    closeHandlers[0]?.();
+    try { unlinkSync(lockPath); } catch { /* released by close handler */ }
   });
 });

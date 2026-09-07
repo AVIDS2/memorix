@@ -96,6 +96,7 @@ The public docs are organized by user intent:
 | 1.2 honest Lite and optional semantic CodeGraph provider contract | [1.2 Provider Quality](1.2.0-PROVIDER-QUALITY.md) |
 | 1.3 long-term memory model, source boundary, and lifecycle | [1.3 Memory Architecture](1.3-MEMORY-ARCHITECTURE.md) |
 | Active context-control work | [1.2.2 Memory Control Plane](1.2.2-MEMORY-CONTROL-PLANE.md) |
+| Multi-device memory sync plan and acceptance contract | [Multi-Device Sync](MULTI-DEVICE-SYNC-RESEARCH.md) |
 | 1.8.6 MCP compatibility acceptance contract | [1.8.0 Release Specification](1.8.0-RELEASE-CANDIDATE-SPEC.md) |
 | Historical cloud sync and multi-agent research | [CLOUD_SYNC_AND_MULTI_AGENT_RESEARCH.md](CLOUD_SYNC_AND_MULTI_AGENT_RESEARCH.md) |
 | Known issues and old roadmap notes | [KNOWN_ISSUES_AND_ROADMAP.md](KNOWN_ISSUES_AND_ROADMAP.md) |
@@ -124,8 +125,9 @@ Historical/deep-reference documents may describe older designs. If they conflict
 
 ## Current Product Line
 
-The current product line is **1.8.6**. The active next-line acceptance contract is
-[1.8.7 CodeGraph](1.8.7-CODEGRAPH.md); the published baseline remains 1.8.6.
+The current product line is **1.8.9**. The multi-device sync implementation is
+an opt-in acceptance candidate; it is not enabled for existing users until its
+cross-platform release gates pass.
 The authoritative acceptance contract for the current implementation is
 [1.8.0 Release Specification](1.8.0-RELEASE-CANDIDATE-SPEC.md).
 The current baseline has:

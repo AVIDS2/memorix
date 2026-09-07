@@ -7,11 +7,11 @@ All notable changes to this project will be documented in this file.
 ## [1.9.0] - 2026-09-07
 
 ### Added
-- **Opt-in multi-device sync candidate** -- adds a project-scoped observation
+- **Opt-in multi-device sync** -- adds a project-scoped observation
   event contract with privacy filtering, local outbox retry, conflict evidence,
   device-clone protection, bounded relay pulls, and filesystem/GitHub/S3/
-  Postgres transport boundaries. It is disabled by default and is not yet a
-  release claim until the cross-platform acceptance gate passes.
+  Postgres transport boundaries. It is disabled by default and keeps local
+  SQLite as the canonical store.
 - **Sync hardening** -- retracts records that become private or agent-targeted,
   keeps imported observations and sync state atomic, rejects immutable-key
   collisions, verifies every pulled content hash, and uses stable continuation

@@ -1,7 +1,7 @@
 # Multi-Device Store Sync — Plan and Acceptance Contract
 
-> Status: implemented candidate; release remains gated on full regression and
-> cross-platform acceptance in P6.
+> Status: released in 1.9.0. Background sync, broader table replication, and
+> encrypted snapshots remain future work.
 > Scope: keep the existing local-first SQLite runtime; add an optional,
 > provider-agnostic replication path so one user can keep the same memory
 > across several machines.
@@ -336,11 +336,9 @@ Each phase is independently useful and independently reviewable.
 5. Merge policy defaults: is row-level LWW acceptable as the v1 default, with
    lifecycle-aware overrides, or is a stricter policy preferred?
 
-The first implementation slice is now present behind the opt-in CLI. It covers
+The first implementation slice is released behind the opt-in CLI. It covers
 the project-scoped observation event path, filesystem/GitHub/S3/Postgres relay
 contracts, local outbox retry, clone detection, conflict evidence, and bounded
 keyset pulls. It does not enable background sync, upload private memory,
 replicate sessions/knowledge/CodeGraph tables, or claim that GitHub is a
-production database. The candidate remains release-gated until P6 is checked
-on the supported operating systems and the contributor change is reviewed in
-the upstream PR.
+production database.

@@ -41,6 +41,8 @@ export interface ChangeEntry {
   syncKey: string;
   kind: ChangeKind;
   version: RowVersion;
+  /** SHA-256 of the canonical row body; empty for tombstones. */
+  contentHash: string;
   /** Present when kind === 'upsert'; omitted for tombstones. */
   row?: Observation;
 }
@@ -48,7 +50,11 @@ export interface ChangeEntry {
 /** A batch of changes shipped in one direction. */
 export interface ChangeBatch {
   /** Schema version of the batch envelope. */
-  formatVersion: 2;
+  formatVersion: 3;
+  /** Hash-like remote namespace for one canonical Git project. */
+  namespace: string;
+  /** Canonical Memorix project ID. */
+  projectId: string;
   /** Device that produced the batch. */
   deviceId: string;
   /** Monotonic sequence for this device; lets remotes dedupe/order. */
@@ -65,6 +71,8 @@ export interface ChangeBatch {
  * re-shipped in a loop. Persisted in the additive `sync_row_state` table.
  */
 export interface SyncRowState {
+  /** Canonical project that owns this row. */
+  projectId: string;
   syncKey: string;
   /** Local integer id of the row, or null once tombstoned. */
   obsId: number | null;
@@ -96,14 +104,12 @@ export function emptyCursor(): SyncCursor {
  * privileged; provider choice is configuration, not code.
  */
 export interface SyncRemote {
+  /** Namespace this remote instance is allowed to read and write. */
+  readonly namespace: string;
   /** Human-readable id for logs and status (e.g. "fs", "s3", "postgres"). */
   readonly kind: string;
   /** Open connections / ensure containers exist. Safe to call repeatedly. */
-  init(): Promise<void>;
-  /** The cursor describing what this device has already applied. */
-  getCursor(deviceId: string): Promise<SyncCursor>;
-  /** Persist an updated cursor for this device. */
-  setCursor(deviceId: string, cursor: SyncCursor): Promise<void>;
+  init(options?: { create?: boolean }): Promise<void>;
   /** Upload one batch of local changes. Idempotent by (deviceId, sequence). */
   push(batch: ChangeBatch): Promise<void>;
   /**
@@ -111,20 +117,57 @@ export interface SyncRemote {
    * deviceId -> highest sequence already applied locally; the remote returns
    * only newer batches, oldest first.
    */
-  pull(since: Record<string, number>): Promise<ChangeBatch[]>;
+  pull(since: Record<string, number>, limit: number, pageToken?: string): Promise<SyncPullPage>;
+  /** Explicitly remove events that every operator-supplied device cursor passed. */
+  compact(through: Record<string, number>, options?: { dryRun?: boolean }): Promise<SyncCompactReport>;
   /** Release connections / flush. Safe to call when never initialized. */
   close(): Promise<void>;
+}
+
+export interface SyncCompactReport {
+  candidates: number;
+  deleted: number;
+}
+
+export interface SyncPullPage {
+  batches: ChangeBatch[];
+  hasMore: boolean;
+  /** Opaque provider page token for the next call in the same run. */
+  nextPageToken?: string;
+}
+
+export interface SyncPendingBatch {
+  batch: ChangeBatch;
+  states: SyncRowState[];
+}
+
+export interface SyncConflict {
+  id: string;
+  projectId: string;
+  syncKey: string;
+  winner: RowVersion;
+  loser: RowVersion;
+  loserKind: ChangeKind;
+  loserRow?: Observation;
+  createdAt: string;
+  reason: string;
 }
 
 /** Result of a push/pull/status run, for CLI reporting. */
 export interface SyncReport {
   remote: string;
+  namespace: string;
+  projectId: string;
   deviceId: string;
   pushed: number;
   pulledBatches: number;
   applied: number;
   skipped: number;
   tombstoned: number;
+  eligible: number;
+  excluded: number;
+  conflicts: number;
+  pending: number;
   dryRun: boolean;
   /** Per-change decisions, populated on dry runs and verbose runs. */
   decisions: SyncDecision[];

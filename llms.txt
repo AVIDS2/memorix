@@ -15,6 +15,7 @@ Memorix gives coding agents persistent, project-aware memory across sessions, ID
 - `memorix` and `memcode` open memcode, the bundled terminal agent that uses the same project memory pool.
 - `memorix dashboard` opens the local read-mostly dashboard.
 - `memorix setup --agent grok --global` installs Grok's native lifecycle hooks and `AGENTS.md` guidance; Grok keeps MCP configuration under its own control.
+- `memorix sync store status|push|pull` is an opt-in project-scoped event relay; it never uploads the live SQLite database or WAL files.
 
 ## Memory Model
 

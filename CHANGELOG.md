@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.9.0] - 2026-09-07
+
+### Added
+- **Opt-in multi-device sync candidate** -- adds a project-scoped observation
+  event contract with privacy filtering, local outbox retry, conflict evidence,
+  device-clone protection, bounded relay pulls, and filesystem/GitHub/S3/
+  Postgres transport boundaries. It is disabled by default and is not yet a
+  release claim until the cross-platform acceptance gate passes.
+
 ## [1.8.9] - 2026-09-06
 
 ### Added

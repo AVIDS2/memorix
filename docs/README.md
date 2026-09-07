@@ -125,8 +125,9 @@ Historical/deep-reference documents may describe older designs. If they conflict
 
 ## Current Product Line
 
-The current product line is **1.8.6**. The active next-line acceptance contract is
-[1.8.7 CodeGraph](1.8.7-CODEGRAPH.md); the published baseline remains 1.8.6.
+The current product line is **1.8.9**. The multi-device sync implementation is
+an opt-in acceptance candidate; it is not enabled for existing users until its
+cross-platform release gates pass.
 The authoritative acceptance contract for the current implementation is
 [1.8.0 Release Specification](1.8.0-RELEASE-CANDIDATE-SPEC.md).
 The current baseline has:

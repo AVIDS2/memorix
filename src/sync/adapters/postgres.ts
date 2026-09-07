@@ -1,5 +1,4 @@
-import { emptyCursor } from '../types.js';
-import type { ChangeBatch, SyncCursor, SyncRemote } from '../types.js';
+import type { ChangeBatch, SyncCompactReport, SyncPullPage, SyncRemote } from '../types.js';
 
 export interface SqlClient {
   query<T>(sql: string, params: unknown[]): Promise<T[]>;
@@ -13,73 +12,80 @@ interface BatchRow {
   payload: ChangeBatch | string;
 }
 
-interface CursorRow {
-  applied: Record<string, number> | string;
-}
-
 export class PostgresSyncRemote implements SyncRemote {
   readonly kind = 'postgres';
+  readonly namespace: string;
 
-  constructor(private readonly sql: SqlClient) {}
+  constructor(private readonly sql: SqlClient, namespace: string) {
+    this.namespace = namespace;
+  }
 
-  async init(): Promise<void> {
+  async init(options: { create?: boolean } = {}): Promise<void> {
+    if (options.create === false) return;
     await this.sql.exec(
       `CREATE TABLE IF NOT EXISTS memorix_sync_batches (
+        namespace text,
         device_id text,
         sequence bigint,
         produced_at text,
         payload jsonb,
-        PRIMARY KEY (device_id, sequence)
+        PRIMARY KEY (namespace, device_id, sequence)
       )`,
       [],
     );
+    // Upgrade the pre-v3 #277 table without touching its payloads. Legacy rows
+    // stay quarantined under a non-project namespace; a fresh scoped sync never
+    // accidentally imports them.
     await this.sql.exec(
-      `CREATE TABLE IF NOT EXISTS memorix_sync_cursors (
-        owner_device text PRIMARY KEY,
-        applied jsonb
-      )`,
+      `ALTER TABLE memorix_sync_batches
+       ADD COLUMN IF NOT EXISTS namespace text NOT NULL DEFAULT 'legacy'`,
       [],
     );
-  }
-
-  async getCursor(deviceId: string): Promise<SyncCursor> {
-    const [row] = await this.sql.query<CursorRow>(
-      'SELECT applied FROM memorix_sync_cursors WHERE owner_device = $1',
-      [deviceId],
-    );
-    if (!row) return emptyCursor();
-
-    const applied = typeof row.applied === 'string'
-      ? JSON.parse(row.applied) as Record<string, number>
-      : row.applied;
-    return { applied };
-  }
-
-  async setCursor(deviceId: string, cursor: SyncCursor): Promise<void> {
     await this.sql.exec(
-      `INSERT INTO memorix_sync_cursors (owner_device, applied)
-       VALUES ($1, $2::jsonb)
-       ON CONFLICT (owner_device) DO UPDATE SET applied = EXCLUDED.applied`,
-      [deviceId, JSON.stringify(cursor.applied)],
+      `CREATE UNIQUE INDEX IF NOT EXISTS memorix_sync_batches_scope_key
+       ON memorix_sync_batches(namespace, device_id, sequence)`,
+      [],
     );
   }
 
   async push(batch: ChangeBatch): Promise<void> {
     await this.sql.exec(
-      `INSERT INTO memorix_sync_batches (device_id, sequence, produced_at, payload)
-       VALUES ($1, $2, $3, $4::jsonb)
-       ON CONFLICT (device_id, sequence) DO NOTHING`,
-      [batch.deviceId, batch.sequence, batch.producedAt, JSON.stringify(batch)],
+      `INSERT INTO memorix_sync_batches (namespace, device_id, sequence, produced_at, payload)
+       VALUES ($1, $2, $3, $4, $5::jsonb)
+       ON CONFLICT (namespace, device_id, sequence) DO NOTHING`,
+      [this.namespace, batch.deviceId, batch.sequence, batch.producedAt, JSON.stringify(batch)],
     );
   }
 
-  async pull(since: Record<string, number>): Promise<ChangeBatch[]> {
+  async pull(since: Record<string, number>, limit: number, pageToken?: string): Promise<SyncPullPage> {
+    const sinceEntries = Object.entries(since);
+    const params: unknown[] = [this.namespace];
+    const clauses: string[] = [];
+    for (const [deviceId, sequence] of sinceEntries) {
+      params.push(deviceId, sequence);
+      const deviceParam = `$${params.length - 1}`;
+      const sequenceParam = `$${params.length}`;
+      clauses.push(`(device_id = ${deviceParam} AND sequence > ${sequenceParam})`);
+    }
+    if (sinceEntries.length > 0) {
+      params.push(...sinceEntries.map(([deviceId]) => deviceId));
+      const placeholders = sinceEntries.map((_, index) => `$${params.length - sinceEntries.length + index + 1}`);
+      clauses.push(`device_id NOT IN (${placeholders.join(', ')})`);
+    } else {
+      clauses.push('TRUE');
+    }
+    const offset = Math.max(0, Number.parseInt(pageToken ?? '0', 10) || 0);
+    params.push(limit + 1, offset);
     const rows = await this.sql.query<BatchRow>(
-      'SELECT device_id, sequence, produced_at, payload FROM memorix_sync_batches',
-      [],
+      `SELECT device_id, sequence, produced_at, payload
+       FROM memorix_sync_batches
+       WHERE namespace = $1 AND (${clauses.join(' OR ')})
+       ORDER BY device_id, sequence
+       LIMIT $${params.length - 1} OFFSET $${params.length}`,
+      params,
     );
 
-    return rows
+    const batches = rows
       .map((row) => {
         const payload = typeof row.payload === 'string'
           ? JSON.parse(row.payload) as ChangeBatch
@@ -97,6 +103,24 @@ export class PostgresSyncRemote implements SyncRemote {
         if (left.deviceId > right.deviceId) return 1;
         return left.sequence - right.sequence;
       });
+    const hasMore = batches.length > limit;
+    return { batches: batches.slice(0, limit), hasMore, nextPageToken: hasMore ? String(offset + limit) : undefined };
+  }
+
+  async compact(through: Record<string, number>, options: { dryRun?: boolean } = {}): Promise<SyncCompactReport> {
+    const entries = Object.entries(through).filter(([, value]) => Number.isSafeInteger(value) && value >= 0);
+    if (entries.length === 0) return { candidates: 0, deleted: 0 };
+    const clauses: string[] = [];
+    const params: unknown[] = [this.namespace];
+    for (const [deviceId, sequence] of entries) {
+      params.push(deviceId, sequence);
+      clauses.push(`(device_id = $${params.length - 1} AND sequence <= $${params.length})`);
+    }
+    const where = `namespace = $1 AND (${clauses.join(' OR ')})`;
+    const [row] = await this.sql.query<{ count: number | string }>(`SELECT COUNT(*) AS count FROM memorix_sync_batches WHERE ${where}`, params);
+    const candidates = Number(row?.count ?? 0);
+    if (!options.dryRun && candidates > 0) await this.sql.exec(`DELETE FROM memorix_sync_batches WHERE ${where}`, params);
+    return { candidates, deleted: options.dryRun ? 0 : candidates };
   }
 
   async close(): Promise<void> {}

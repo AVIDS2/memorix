@@ -16,17 +16,38 @@ import type { ChangeEntry, SyncRowState } from './types.js';
 
 export const CREATE_SYNC_TABLES = [
   `CREATE TABLE IF NOT EXISTS sync_row_state (
-     syncKey     TEXT PRIMARY KEY,
+     projectId   TEXT NOT NULL,
+     syncKey     TEXT NOT NULL,
      obsId       INTEGER,
      revision    INTEGER NOT NULL,
      writer      TEXT NOT NULL,
      kind        TEXT NOT NULL,
      contentHash TEXT NOT NULL,
-     shippedSeq  INTEGER NOT NULL
+     shippedSeq  INTEGER NOT NULL,
+     PRIMARY KEY (projectId, syncKey)
    );`,
   `CREATE TABLE IF NOT EXISTS sync_meta (
      key   TEXT PRIMARY KEY,
      value TEXT NOT NULL
+  );`,
+  `CREATE TABLE IF NOT EXISTS sync_conflicts (
+     id          TEXT PRIMARY KEY,
+     projectId   TEXT NOT NULL,
+     syncKey     TEXT NOT NULL,
+     winnerJson  TEXT NOT NULL,
+     loserJson   TEXT NOT NULL,
+     createdAt   TEXT NOT NULL,
+     reason      TEXT NOT NULL
+   );`,
+  `CREATE TABLE IF NOT EXISTS sync_outbox (
+     projectId   TEXT NOT NULL,
+     namespace   TEXT NOT NULL,
+     deviceId    TEXT NOT NULL,
+     sequence    INTEGER NOT NULL,
+     batchJson   TEXT NOT NULL,
+     statesJson  TEXT NOT NULL,
+     createdAt   TEXT NOT NULL,
+     PRIMARY KEY (projectId, namespace, deviceId, sequence)
    );`,
 ].join('\n');
 
@@ -45,8 +66,9 @@ export function nowIso(): string {
  *     is part of the key.
  */
 export function deriveSyncKey(obs: Observation, originDevice: string): string {
-  if (obs.topicKey) return `t:${obs.projectId}:${obs.topicKey}`;
-  return `u:${originDevice}:${obs.id}`;
+  const project = encodeURIComponent(obs.projectId);
+  if (obs.topicKey) return `p:${project}:t:${encodeURIComponent(obs.topicKey)}`;
+  return `p:${project}:u:${encodeURIComponent(originDevice)}:${obs.id}`;
 }
 
 /**
@@ -56,8 +78,17 @@ export function deriveSyncKey(obs: Observation, originDevice: string): string {
  */
 export function contentHash(obs: Observation): string {
   const { id: _id, writeGeneration: _wg, ...rest } = obs as Observation & { writeGeneration?: number };
-  const stable = JSON.stringify(rest, Object.keys(rest).sort());
-  return createHash('sha1').update(stable).digest('hex');
+  const stable = stableJson(rest);
+  return createHash('sha256').update(stable).digest('hex');
+}
+
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
+  if (value && typeof value === 'object') {
+    return `{${Object.keys(value as Record<string, unknown>).sort().map((key) =>
+      `${JSON.stringify(key)}:${stableJson((value as Record<string, unknown>)[key])}`).join(',')}}`;
+  }
+  return JSON.stringify(value) ?? 'null';
 }
 
 export interface ComputeInput {
@@ -67,6 +98,9 @@ export interface ComputeInput {
   state: Map<string, SyncRowState>;
   /** This device's stable id (becomes the `writer` of new local versions). */
   deviceId: string;
+  projectId: string;
+  /** Local rows that remain present but are intentionally excluded from sync. */
+  excludedObservationIds?: ReadonlySet<number>;
 }
 
 /** A change plus the row-state it should persist once the batch is shipped. */
@@ -81,7 +115,7 @@ export interface ComputedChange {
  * tombstones. Version numbers advance per-row from the recorded revision.
  */
 export function computeChanges(input: ComputeInput): ComputedChange[] {
-  const { current, state, deviceId } = input;
+  const { current, state, deviceId, projectId, excludedObservationIds } = input;
   const at = nowIso();
   const changes: ComputedChange[] = [];
   const seenKeys = new Set<string>();
@@ -100,8 +134,8 @@ export function computeChanges(input: ComputeInput): ComputedChange[] {
     }
     const version = nextVersion(prior, deviceId, at);
     changes.push({
-      entry: { syncKey, kind: 'upsert', version, row: obs },
-      nextState: { syncKey, obsId: obs.id, revision: version.revision, writer: deviceId, kind: 'upsert', contentHash: hash, shippedSeq: 0 },
+      entry: { syncKey, kind: 'upsert', version, contentHash: hash, row: obs },
+      nextState: { projectId, syncKey, obsId: obs.id, revision: version.revision, writer: deviceId, kind: 'upsert', contentHash: hash, shippedSeq: 0 },
     });
   }
 
@@ -109,10 +143,11 @@ export function computeChanges(input: ComputeInput): ComputedChange[] {
   for (const prior of state.values()) {
     if (prior.kind === 'tombstone') continue;
     if (seenKeys.has(prior.syncKey)) continue;
+    if (prior.obsId != null && excludedObservationIds?.has(prior.obsId)) continue;
     const version = nextVersion(prior, deviceId, at);
     changes.push({
-      entry: { syncKey: prior.syncKey, kind: 'tombstone', version },
-      nextState: { syncKey: prior.syncKey, obsId: null, revision: version.revision, writer: deviceId, kind: 'tombstone', contentHash: '', shippedSeq: 0 },
+      entry: { syncKey: prior.syncKey, kind: 'tombstone', version, contentHash: '' },
+      nextState: { projectId, syncKey: prior.syncKey, obsId: null, revision: version.revision, writer: deviceId, kind: 'tombstone', contentHash: '', shippedSeq: 0 },
     });
   }
 

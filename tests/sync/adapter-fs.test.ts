@@ -7,7 +7,9 @@ import type { ChangeBatch } from '../../src/sync/types.js';
 
 function batch(deviceId: string, sequence: number): ChangeBatch {
   return {
-    formatVersion: 1,
+    formatVersion: 3,
+    namespace: 'project-test',
+    projectId: 'p',
     deviceId,
     sequence,
     producedAt: '2026-09-06T00:00:00.000Z',
@@ -21,7 +23,7 @@ describe('FsRemote', () => {
 
   beforeEach(async () => {
     root = await mkdtemp(path.join(tmpdir(), 'memorix-sync-fs-'));
-    remote = new FsRemote({ root });
+    remote = new FsRemote({ root, namespace: 'project-test' });
     await remote.init();
   });
 
@@ -33,20 +35,20 @@ describe('FsRemote', () => {
   it('stores a pushed device sequence once', async () => {
     const value = batch('device-a', 7);
     const duplicate = { ...value, producedAt: '2026-09-06T01:00:00.000Z' };
-    const competingRemote = new FsRemote({ root });
+    const competingRemote = new FsRemote({ root, namespace: 'project-test' });
     await competingRemote.init();
 
     await Promise.all([remote.push(value), competingRemote.push(duplicate)]);
     await competingRemote.close();
 
-    const files = await readdir(path.join(root, 'batches', 'device-a'));
-    expect(files).toEqual(['00000000000000000007.json']);
-    const pulled = await remote.pull({});
-    expect(pulled).toHaveLength(1);
-    expect([value, duplicate]).toContainEqual(pulled[0]);
+    const files = await readdir(path.join(root, 'projects', 'project-test', 'batches', 'device-a'));
+    expect(files).toEqual(['00000000000000000007.jsonl']);
+    const pulled = await remote.pull({}, 10);
+    expect(pulled.batches).toHaveLength(1);
+    expect([value, duplicate]).toContainEqual(pulled.batches[0]);
 
     await remote.push({ ...value, producedAt: '2026-09-06T02:00:00.000Z' });
-    expect(await remote.pull({})).toEqual(pulled);
+    expect(await remote.pull({}, 10)).toEqual(pulled);
   });
 
   it('pulls all devices in device and sequence order after each device cursor', async () => {
@@ -56,25 +58,28 @@ describe('FsRemote', () => {
     await remote.push(batch('device-a', 1));
     await remote.push(batch('device-c', 1));
 
-    const pulled = await remote.pull({ 'device-a': 1, 'device-b': 0, 'device-c': 1 });
+    const pulled = await remote.pull({ 'device-a': 1, 'device-b': 0, 'device-c': 1 }, 10);
 
-    expect(pulled.map(({ deviceId, sequence }) => [deviceId, sequence])).toEqual([
+    expect(pulled.batches.map(({ deviceId, sequence }) => [deviceId, sequence])).toEqual([
       ['device-a', 2],
       ['device-b', 1],
       ['device-b', 2],
     ]);
   });
 
-  it('round-trips a cursor per device and defaults missing cursors to empty', async () => {
-    expect(await remote.getCursor('device-a')).toEqual({ applied: {} });
+  it('paginates batches without a remote cursor file', async () => {
+    await remote.push(batch('device-a', 1));
+    await remote.push(batch('device-a', 2));
+    const page = await remote.pull({}, 1);
+    expect(page.batches).toHaveLength(1);
+    expect(page.hasMore).toBe(true);
+  });
 
-    const cursor = { applied: { 'device-a': 3, 'device-b': 8 } };
-    await remote.setCursor('device-a', cursor);
-    await remote.close();
-    remote = new FsRemote({ root });
-    await remote.init();
-
-    expect(await remote.getCursor('device-a')).toEqual(cursor);
-    expect(await remote.getCursor('device-b')).toEqual({ applied: {} });
+  it('compacts only the explicitly acknowledged sequence', async () => {
+    await remote.push(batch('device-a', 1));
+    await remote.push(batch('device-a', 2));
+    expect(await remote.compact({ 'device-a': 1 }, { dryRun: true })).toEqual({ candidates: 1, deleted: 0 });
+    expect(await remote.compact({ 'device-a': 1 })).toEqual({ candidates: 1, deleted: 1 });
+    expect((await remote.pull({}, 10)).batches.map((item) => item.sequence)).toEqual([2]);
   });
 });

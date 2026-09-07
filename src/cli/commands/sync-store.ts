@@ -23,6 +23,9 @@ function renderReport(report: SyncReport): string {
     `- Applied upserts:  ${report.applied}`,
     `- Applied deletes:  ${report.tombstoned}`,
     `- Skipped (older):  ${report.skipped}`,
+    `- Excluded locally:  ${report.excluded}`,
+    `- Conflicts recorded: ${report.conflicts}`,
+    `- Pending outbox:    ${report.pending}`,
   ];
   if (report.dryRun && report.decisions.length > 0) {
     lines.push('', 'Decisions:');
@@ -43,12 +46,28 @@ export default defineCommand({
     json: { type: 'boolean', description: 'Emit JSON', default: false },
     'push-only': { type: 'boolean', description: 'Only push local changes', default: false },
     'pull-only': { type: 'boolean', description: 'Only pull remote changes', default: false },
+    through: { type: 'string', description: 'Compaction cutoff: device=sequence,device=sequence' },
+    yes: { type: 'boolean', description: 'Confirm destructive remote compaction', default: false },
   },
   run: async ({ args }) => {
     const asJson = Boolean(args.json);
     const action = (args._ as string[])?.[0] || 'status';
-    if (action !== 'push' && action !== 'pull' && action !== 'status') {
-      emitError(`unknown action "${action}" (expected push|pull|status)`, asJson);
+    if (action === 'device') {
+      const { project, dataDir } = await getCliProjectContext();
+      await initObservationStore(dataDir);
+      const syncStore = createSqliteSyncStore(dataDir, getObservationStore(), project.id);
+      const subaction = (args._ as string[])?.[1] || '';
+      if (subaction !== 'rotate') {
+        emitError('expected "memorix sync store device rotate"', asJson);
+        process.exitCode = 2;
+        return;
+      }
+      const deviceId = syncStore.rotateDevice();
+      emitResult({ project: project.id, deviceId, rotated: true }, `Sync device identity rotated: ${deviceId}`, asJson);
+      return;
+    }
+    if (action !== 'push' && action !== 'pull' && action !== 'status' && action !== 'compact') {
+      emitError(`unknown action "${action}" (expected push|pull|status|compact|device rotate)`, asJson);
       process.exitCode = 2;
       return;
     }
@@ -65,7 +84,7 @@ export default defineCommand({
     if (!config.enabled || !config.provider) {
       emitResult(
         { enabled: false },
-        'Store sync is disabled. Set MEMORIX_SYNC_PROVIDER=fs|s3|postgres to enable it.',
+        'Store sync is disabled. Set MEMORIX_SYNC_PROVIDER=fs|github|s3|postgres to enable it.',
         asJson,
       );
       return;
@@ -74,10 +93,44 @@ export default defineCommand({
     const { project, dataDir } = await getCliProjectContext();
     await initObservationStore(dataDir);
     const obsStore = getObservationStore();
-    const syncStore = createSqliteSyncStore(dataDir, obsStore);
+    const syncStore = createSqliteSyncStore(dataDir, obsStore, project.id);
+
+    if (action === 'compact') {
+      if (!args.yes) {
+        emitError('remote compaction deletes relay events; repeat with --yes after specifying --through device=sequence', asJson);
+        process.exitCode = 2;
+        return;
+      }
+      const raw = String(args.through ?? '');
+      const through: Record<string, number> = {};
+      for (const item of raw.split(',').map((value) => value.trim()).filter(Boolean)) {
+        const [device, sequence] = item.split('=', 2);
+        const parsed = Number(sequence);
+        if (!device || !Number.isSafeInteger(parsed) || parsed < 0) {
+          emitError('invalid --through; expected device=sequence[,device=sequence]', asJson);
+          process.exitCode = 2;
+          return;
+        }
+        through[device] = parsed;
+      }
+      if (Object.keys(through).length === 0) {
+        emitError('--through is required for compaction', asJson);
+        process.exitCode = 2;
+        return;
+      }
+      const remote = await createRemote(config.provider, syncStore.namespace());
+      try {
+        await remote.init({ create: false });
+        const result = await remote.compact(through, { dryRun: Boolean(args.dry) });
+        emitResult({ project: project.id, through, ...result, dryRun: Boolean(args.dry) }, `Compaction candidates: ${result.candidates}; deleted: ${result.deleted}`, asJson);
+      } finally {
+        await remote.close();
+      }
+      return;
+    }
 
     if (action === 'status') {
-      const report = await runSync(syncStore, await createRemote(config.provider), {
+      const report = await runSync(syncStore, await createRemote(config.provider, syncStore.namespace()), {
         deviceId: syncStore.deviceId(),
         dryRun: true,
         push: true,
@@ -92,7 +145,7 @@ export default defineCommand({
 
     let remote;
     try {
-      remote = await createRemote(config.provider);
+      remote = await createRemote(config.provider, syncStore.namespace());
     } catch (err) {
       emitError((err as Error).message, asJson);
       process.exitCode = 1;

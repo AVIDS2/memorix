@@ -1,41 +1,31 @@
 import { access, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { emptyCursor } from '../types.js';
-import type { ChangeBatch, SyncCursor, SyncRemote } from '../types.js';
+import type { ChangeBatch, SyncCompactReport, SyncPullPage, SyncRemote } from '../types.js';
 
 export interface FsRemoteOptions {
   root: string;
+  namespace: string;
 }
 
 export class FsRemote implements SyncRemote {
   readonly kind = 'fs';
+  readonly namespace: string;
 
-  constructor(private readonly options: FsRemoteOptions) {}
+  constructor(private readonly options: FsRemoteOptions) {
+    this.namespace = options.namespace;
+  }
 
-  async init(): Promise<void> {
+  async init(options: { create?: boolean } = {}): Promise<void> {
+    if (options.create === false) return;
     await Promise.all([
       mkdir(this.batchesPath, { recursive: true }),
-      mkdir(this.cursorsPath, { recursive: true }),
     ]);
-  }
-
-  async getCursor(deviceId: string): Promise<SyncCursor> {
-    try {
-      return JSON.parse(await readFile(this.cursorPath(deviceId), 'utf8')) as SyncCursor;
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return emptyCursor();
-      throw error;
-    }
-  }
-
-  async setCursor(deviceId: string, cursor: SyncCursor): Promise<void> {
-    await atomicWrite(this.cursorPath(deviceId), cursor);
   }
 
   async push(batch: ChangeBatch): Promise<void> {
     const directory = path.join(this.batchesPath, batch.deviceId);
     await mkdir(directory, { recursive: true });
-    const target = path.join(directory, `${String(batch.sequence).padStart(20, '0')}.json`);
+    const target = path.join(directory, `${String(batch.sequence).padStart(20, '0')}.jsonl`);
     if (await exists(target)) return;
 
     const lock = `${target}.lock`;
@@ -57,41 +47,75 @@ export class FsRemote implements SyncRemote {
     }
   }
 
-  async pull(since: Record<string, number>): Promise<ChangeBatch[]> {
-    const batches: ChangeBatch[] = [];
-    const devices = await readdir(this.batchesPath, { withFileTypes: true });
+  async pull(since: Record<string, number>, limit: number, pageToken?: string): Promise<SyncPullPage> {
+    const objects: Array<{ path: string; deviceId: string; sequence: number }> = [];
+    let devices;
+    try {
+      devices = await readdir(this.batchesPath, { withFileTypes: true });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { batches: [], hasMore: false };
+      throw error;
+    }
 
     for (const device of devices) {
       if (!device.isDirectory()) continue;
       const directory = path.join(this.batchesPath, device.name);
       const files = await readdir(directory, { withFileTypes: true });
       for (const file of files) {
-        if (!file.isFile() || !/^\d+\.json$/.test(file.name)) continue;
+        if (!file.isFile() || !/^\d+\.jsonl$/.test(file.name)) continue;
         const sequence = Number.parseInt(file.name, 10);
         if (sequence <= (since[device.name] ?? 0)) continue;
-        batches.push(JSON.parse(await readFile(path.join(directory, file.name), 'utf8')) as ChangeBatch);
+        objects.push({ path: path.join(directory, file.name), deviceId: device.name, sequence });
       }
     }
 
-    return batches.sort((left, right) => {
+    const sorted = objects.sort((left, right) => {
       if (left.deviceId < right.deviceId) return -1;
       if (left.deviceId > right.deviceId) return 1;
       return left.sequence - right.sequence;
     });
+    const offset = Math.max(0, Number.parseInt(pageToken ?? '0', 10) || 0);
+    const batches: ChangeBatch[] = [];
+    for (const object of sorted.slice(offset, offset + limit)) {
+      const raw = await readFile(object.path, 'utf8');
+      for (const line of raw.split(/\r?\n/).filter(Boolean)) batches.push(JSON.parse(line) as ChangeBatch);
+    }
+    const nextOffset = offset + limit;
+    return { batches, hasMore: sorted.length > nextOffset, nextPageToken: sorted.length > nextOffset ? String(nextOffset) : undefined };
+  }
+
+  async compact(through: Record<string, number>, options: { dryRun?: boolean } = {}): Promise<SyncCompactReport> {
+    let candidates = 0;
+    const files: string[] = [];
+    let devices: Array<import('node:fs').Dirent>;
+    try {
+      devices = await readdir(this.batchesPath, { withFileTypes: true });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { candidates: 0, deleted: 0 };
+      throw error;
+    }
+    for (const device of devices) {
+      if (!device.isDirectory()) continue;
+      const cutoff = through[device.name];
+      if (!Number.isSafeInteger(cutoff)) continue;
+      const directory = path.join(this.batchesPath, device.name);
+      for (const file of await readdir(directory, { withFileTypes: true })) {
+        if (!file.isFile() || !/^\d+\.jsonl$/.test(file.name)) continue;
+        const sequence = Number.parseInt(file.name, 10);
+        if (sequence <= cutoff) {
+          candidates++;
+          files.push(path.join(directory, file.name));
+        }
+      }
+    }
+    if (!options.dryRun) for (const file of files) await rm(file, { force: true });
+    return { candidates, deleted: options.dryRun ? 0 : files.length };
   }
 
   async close(): Promise<void> {}
 
   private get batchesPath(): string {
-    return path.join(this.options.root, 'batches');
-  }
-
-  private get cursorsPath(): string {
-    return path.join(this.options.root, 'cursors');
-  }
-
-  private cursorPath(deviceId: string): string {
-    return path.join(this.cursorsPath, `${deviceId}.json`);
+    return path.join(this.options.root, 'projects', this.options.namespace, 'batches');
   }
 }
 

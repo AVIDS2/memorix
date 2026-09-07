@@ -9,7 +9,7 @@
 
 import type { SyncRemote } from './types.js';
 
-export type SyncProvider = 'fs' | 's3' | 'postgres';
+export type SyncProvider = 'fs' | 'github' | 's3' | 'postgres';
 
 export interface SyncConfig {
   enabled: boolean;
@@ -19,26 +19,31 @@ export interface SyncConfig {
 export function resolveSyncConfig(env: NodeJS.ProcessEnv = process.env): SyncConfig {
   const provider = env.MEMORIX_SYNC_PROVIDER as SyncProvider | undefined;
   if (!provider) return { enabled: false };
-  if (provider !== 'fs' && provider !== 's3' && provider !== 'postgres') {
-    throw new Error(`[memorix] unknown MEMORIX_SYNC_PROVIDER "${provider}" (expected fs|s3|postgres)`);
+  if (provider !== 'fs' && provider !== 'github' && provider !== 's3' && provider !== 'postgres') {
+    throw new Error(`[memorix] unknown MEMORIX_SYNC_PROVIDER "${provider}" (expected fs|github|s3|postgres)`);
   }
   return { enabled: true, provider };
 }
 
 export async function createRemote(
   provider: SyncProvider,
+  namespace: string,
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<SyncRemote> {
   if (provider === 'fs') {
     const root = env.MEMORIX_SYNC_FS_ROOT;
     if (!root) throw new Error('[memorix] fs sync requires MEMORIX_SYNC_FS_ROOT');
     const { FsRemote } = await import('./adapters/fs.js');
-    return new FsRemote({ root });
+    return new FsRemote({ root, namespace });
+  }
+  if (provider === 'github') {
+    const { createGitHubRemote } = await import('./adapters/github.js');
+    return createGitHubRemote(namespace, env);
   }
   if (provider === 's3') {
     const { createS3ObjectStore, ObjectStoreRemote } = await import('./adapters/object-store.js');
-    return new ObjectStoreRemote(await createS3ObjectStore(env));
+    return new ObjectStoreRemote(await createS3ObjectStore(env), namespace);
   }
   const { createPgSqlClient, PostgresSyncRemote } = await import('./adapters/postgres.js');
-  return new PostgresSyncRemote(await createPgSqlClient(env));
+  return new PostgresSyncRemote(await createPgSqlClient(env), namespace);
 }

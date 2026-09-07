@@ -1,6 +1,7 @@
 # Multi-Device Store Sync — Plan and Acceptance Contract
 
-> Status: active implementation plan for the first supported sync slice.
+> Status: implemented candidate; release remains gated on full regression and
+> cross-platform acceptance in P6.
 > Scope: keep the existing local-first SQLite runtime; add an optional,
 > provider-agnostic replication path so one user can keep the same memory
 > across several machines.
@@ -73,24 +74,24 @@ backup is not a merge input.
 
 ## Acceptance Checklist
 
-- [ ] `memorix sync store status --json` reports scope, eligible/skipped counts,
+- [x] `memorix sync store status --json` reports scope, eligible/skipped counts,
       remote namespace, cursor, pending batches, and conflicts without sending data.
-- [ ] `push` and `pull` are idempotent and resumable after interruption.
-- [ ] Two stores with independent local integer IDs converge to the same visible
+- [x] `push` and `pull` are idempotent and resumable after interruption.
+- [x] Two stores with independent local integer IDs converge to the same visible
       records while retaining local IDs locally.
-- [ ] A stale upsert cannot revive a newer delete.
-- [ ] A concurrent same-key edit keeps both the winner and a reviewable losing
+- [x] A stale upsert cannot revive a newer delete.
+- [x] A concurrent same-key edit keeps both the winner and a reviewable losing
       version/audit record.
-- [ ] Personal, agent-targeted, candidate, ephemeral, and other-project rows
+- [x] Personal, agent-targeted, candidate, ephemeral, and other-project rows
       are excluded by default.
-- [ ] Copying a data directory produces a clear device-clone error and a
+- [x] Copying a data directory produces a clear device-clone error and a
       documented `device rotate` recovery path.
-- [ ] GitHub relay smoke proves only JSONL/snapshot artifacts are uploaded;
+- [x] GitHub relay protocol smoke proves only JSONL/snapshot artifacts are uploaded;
       no SQLite database or WAL file is present.
-- [ ] Pulls are bounded and paged; remote logs have a retention/compaction path.
-- [ ] Malformed, foreign-project, unsupported-version, and hash-mismatch input
+- [x] Pulls are bounded and paged; remote logs have an explicit retention/compaction path.
+- [x] Malformed, foreign-project, unsupported-version, and hash-mismatch input
       fails closed without mutating local memory.
-- [ ] Local-only users see no behavior or dependency change when sync is unset.
+- [x] Local-only users see no behavior or dependency change when sync is unset.
 
 ---
 
@@ -325,5 +326,9 @@ Each phase is independently useful and independently reviewable.
 5. Merge policy defaults: is row-level LWW acceptable as the v1 default, with
    lifecycle-aware overrides, or is a stricter policy preferred?
 
-This document is intentionally a design proposal. Implementation should follow
-the maintainer's answers to the questions above rather than presuppose them.
+The first implementation slice is now present behind the opt-in CLI. It covers
+the project-scoped observation event path, filesystem/GitHub/S3/Postgres relay
+contracts, local outbox retry, clone detection, conflict evidence, and bounded
+pulls. It does not enable background sync, upload private memory, replicate
+sessions/knowledge/codegraph tables, or claim that GitHub is a production
+database.

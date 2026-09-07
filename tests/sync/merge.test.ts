@@ -17,11 +17,11 @@ function v(revision: number, writer: string): RowVersion {
 }
 
 function state(partial: Partial<SyncRowState> & { syncKey: string }): SyncRowState {
-  return { obsId: 1, revision: 1, writer: 'a', kind: 'upsert', contentHash: 'h', shippedSeq: 1, ...partial };
+  return { projectId: 'p', obsId: 1, revision: 1, writer: 'a', kind: 'upsert', contentHash: 'h', shippedSeq: 1, ...partial };
 }
 
 function upsert(syncKey: string, version: RowVersion, row: Observation): ChangeEntry {
-  return { syncKey, kind: 'upsert', version, row };
+  return { syncKey, kind: 'upsert', version, contentHash: 'h', row };
 }
 
 describe('compareVersion', () => {
@@ -59,7 +59,7 @@ describe('mergeOne — convergent LWW', () => {
   });
 
   it('records a remote tombstone even with no local row', () => {
-    const r = mergeOne({ incoming: { syncKey: 'k', kind: 'tombstone', version: v(2, 'remote') }, local: undefined, incomingHash: '' });
+    const r = mergeOne({ incoming: { syncKey: 'k', kind: 'tombstone', version: v(2, 'remote'), contentHash: '' }, local: undefined, incomingHash: '' });
     expect(r.action.type).toBe('noop');
     expect(r.decision.outcome).toBe('apply'); // engine persists the tombstone
   });
@@ -86,7 +86,7 @@ describe('mergeOne — convergent LWW', () => {
 
   it('newer tombstone deletes a live local row', () => {
     const local = state({ syncKey: 'k', obsId: 9, revision: 1, writer: 'local' });
-    const r = mergeOne({ incoming: { syncKey: 'k', kind: 'tombstone', version: v(2, 'remote') }, local, incomingHash: '' });
+    const r = mergeOne({ incoming: { syncKey: 'k', kind: 'tombstone', version: v(2, 'remote'), contentHash: '' }, local, incomingHash: '' });
     expect(r.action).toEqual({ type: 'remove', obsId: 9, version: v(2, 'remote') });
     expect(r.decision.kind).toBe('tombstone');
   });

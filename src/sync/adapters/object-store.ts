@@ -9,14 +9,14 @@
  * - MEMORIX_SYNC_S3_REGION
  */
 
-import { emptyCursor } from '../types.js';
-import type { ChangeBatch, SyncCursor, SyncRemote } from '../types.js';
+import type { ChangeBatch, SyncCompactReport, SyncPullPage, SyncRemote } from '../types.js';
 
 export interface ObjectStoreClient {
   putIfAbsent(key: string, body: string): Promise<void>;
   get(key: string): Promise<string | undefined>;
   put(key: string, body: string): Promise<void>;
-  list(prefix: string): Promise<string[]>;
+  list(prefix: string, options?: { limit?: number; cursor?: string }): Promise<{ keys: string[]; nextCursor?: string }>;
+  delete(key: string): Promise<void>;
 }
 
 interface BatchObject {
@@ -26,38 +26,34 @@ interface BatchObject {
 }
 
 const SEQUENCE_WIDTH = 20;
-const BATCH_KEY = /^batches\/([^/]+)\/(\d+)\.json$/;
+const BATCH_KEY = /^projects\/([^/]+)\/batches\/([^/]+)\/(\d+)\.jsonl$/;
 
 export class ObjectStoreRemote implements SyncRemote {
   readonly kind = 's3';
+  readonly namespace: string;
 
-  constructor(private readonly client: ObjectStoreClient) {}
+  constructor(private readonly client: ObjectStoreClient, namespace: string) {
+    this.namespace = namespace;
+  }
 
   async init(): Promise<void> {}
-
-  async getCursor(deviceId: string): Promise<SyncCursor> {
-    const body = await this.client.get(`cursors/${deviceId}.json`);
-    return body === undefined ? emptyCursor() : JSON.parse(body) as SyncCursor;
-  }
-
-  async setCursor(deviceId: string, cursor: SyncCursor): Promise<void> {
-    await this.client.put(`cursors/${deviceId}.json`, JSON.stringify(cursor));
-  }
 
   async push(batch: ChangeBatch): Promise<void> {
     const sequence = String(batch.sequence).padStart(SEQUENCE_WIDTH, '0');
     await this.client.putIfAbsent(
-      `batches/${batch.deviceId}/${sequence}.json`,
+      `${this.basePath}batches/${batch.deviceId}/${sequence}.jsonl`,
       JSON.stringify(batch),
     );
   }
 
-  async pull(since: Record<string, number>): Promise<ChangeBatch[]> {
+  async pull(since: Record<string, number>, limit: number, pageToken?: string): Promise<SyncPullPage> {
     const objects: BatchObject[] = [];
-    for (const key of await this.client.list('batches/')) {
+    const page = await this.client.list(`${this.basePath}batches/`, { limit, cursor: pageToken });
+    for (const key of page.keys) {
       const match = BATCH_KEY.exec(key);
       if (match === null) continue;
-      const [, deviceId, encodedSequence] = match;
+      const [, namespace, deviceId, encodedSequence] = match;
+      if (namespace !== this.namespace) continue;
       const sequence = Number(encodedSequence);
       if (!Number.isSafeInteger(sequence) || sequence <= (since[deviceId] ?? 0)) continue;
       objects.push({ key, deviceId, sequence });
@@ -70,14 +66,36 @@ export class ObjectStoreRemote implements SyncRemote {
     });
 
     const batches: ChangeBatch[] = [];
-    for (const object of objects) {
+    for (const object of objects.slice(0, limit)) {
       const body = await this.client.get(object.key);
       if (body !== undefined) batches.push(JSON.parse(body) as ChangeBatch);
     }
-    return batches;
+    return { batches, hasMore: page.nextCursor !== undefined, nextPageToken: page.nextCursor };
+  }
+
+  async compact(through: Record<string, number>, options: { dryRun?: boolean } = {}): Promise<SyncCompactReport> {
+    let cursor: string | undefined;
+    const keys: string[] = [];
+    do {
+      const page = await this.client.list(`${this.basePath}batches/`, { limit: 1000, cursor });
+      for (const key of page.keys) {
+        const match = BATCH_KEY.exec(key);
+        if (!match) continue;
+        const [, namespace, deviceId, encodedSequence] = match;
+        const sequence = Number(encodedSequence);
+        if (namespace === this.namespace && sequence <= (through[deviceId] ?? -1)) keys.push(key);
+      }
+      cursor = page.nextCursor;
+    } while (cursor !== undefined);
+    if (!options.dryRun) for (const key of keys) await this.client.delete(key);
+    return { candidates: keys.length, deleted: options.dryRun ? 0 : keys.length };
   }
 
   async close(): Promise<void> {}
+
+  private get basePath(): string {
+    return `projects/${this.namespace}/`;
+  }
 }
 
 type S3Command = new (input: Record<string, unknown>) => unknown;
@@ -156,21 +174,24 @@ export async function createS3ObjectStore(
       await s3.send(new sdk.PutObjectCommand({ Bucket: bucket, Key: key, Body: body }));
     },
 
-    async list(prefix) {
+    async delete(key) {
+      const DeleteObjectCommand = (sdk as S3Module & { DeleteObjectCommand?: S3Command }).DeleteObjectCommand;
+      if (!DeleteObjectCommand) throw new Error('S3 sync requires DeleteObjectCommand support from @aws-sdk/client-s3');
+      await s3.send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
+    },
+
+    async list(prefix, options = {}) {
       const keys: string[] = [];
-      let continuationToken: string | undefined;
-      do {
-        const response = await s3.send(new sdk.ListObjectsV2Command({
-          Bucket: bucket,
-          Prefix: prefix,
-          ContinuationToken: continuationToken,
-        }));
-        for (const object of response.Contents ?? []) {
-          if (object.Key !== undefined) keys.push(object.Key);
-        }
-        continuationToken = response.IsTruncated ? response.NextContinuationToken : undefined;
-      } while (continuationToken !== undefined);
-      return keys;
+      const response = await s3.send(new sdk.ListObjectsV2Command({
+        Bucket: bucket,
+        Prefix: prefix,
+        MaxKeys: Math.max(1, Math.min(1000, options.limit ?? 1000)),
+        ContinuationToken: options.cursor,
+      }));
+      for (const object of response.Contents ?? []) {
+        if (object.Key !== undefined) keys.push(object.Key);
+      }
+      return { keys, nextCursor: response.IsTruncated ? response.NextContinuationToken : undefined };
     },
   };
 

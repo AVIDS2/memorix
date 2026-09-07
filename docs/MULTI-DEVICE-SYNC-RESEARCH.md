@@ -5,6 +5,11 @@
 > Scope: keep the existing local-first SQLite runtime; add an optional,
 > provider-agnostic replication path so one user can keep the same memory
 > across several machines.
+>
+> Contribution credit: the design, initial implementation, and the
+> object-store/Postgres follow-up came from Ravi Tharuma's PR #277. The local
+> hardening branch keeps those commits in its merge history and adapts them to
+> the current v3 contract.
 > Prior art in this repo: `docs/CLOUD_SYNC_AND_MULTI_AGENT_RESEARCH.md`
 > already sketched a "local SQLite + background cloud sync" hybrid but did not
 > specify or build it. This document turns that sketch into a concrete,

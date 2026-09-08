@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import {
   closeSemanticIndexes,
   createSemanticIndexProfile,
@@ -25,7 +27,7 @@ describe('persistent semantic shadow index', () => {
     if (!(await isSemanticIndexAvailable())) {
       throw new Error('LanceDB is unavailable in the supported Node test environment');
     }
-    dataDir = await mkdtemp('E:/tmp-memorix-semantic-');
+    dataDir = await mkdtemp(path.join(tmpdir(), 'memorix-semantic-'));
     const profile = createSemanticIndexProfile({ name: 'test-embedding', dimensions: 3 });
 
     await upsertSemanticVectors(dataDir, profile, [
@@ -61,7 +63,7 @@ describe('persistent semantic shadow index', () => {
     if (!(await isSemanticIndexAvailable())) {
       throw new Error('LanceDB is unavailable in the supported Node test environment');
     }
-    dataDir = await mkdtemp('E:/tmp-memorix-semantic-indexed-');
+    dataDir = await mkdtemp(path.join(tmpdir(), 'memorix-semantic-indexed-'));
     const previousThreshold = process.env.MEMORIX_SEMANTIC_INDEX_THRESHOLD;
     process.env.MEMORIX_SEMANTIC_INDEX_THRESHOLD = '1';
     try {
@@ -83,7 +85,7 @@ describe('persistent semantic shadow index', () => {
     if (!(await isSemanticIndexAvailable())) {
       throw new Error('LanceDB is unavailable in the supported Node test environment');
     }
-    dataDir = await mkdtemp('E:/tmp-memorix-semantic-empty-');
+    dataDir = await mkdtemp(path.join(tmpdir(), 'memorix-semantic-empty-'));
     const profile = createSemanticIndexProfile({ name: 'empty-embedding', dimensions: 3 });
 
     await expect(searchSemanticVectors({

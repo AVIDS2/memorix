@@ -1,4 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { mkdtemp } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { closeAllDatabases } from '../../src/store/sqlite-db.js';
 import { SqliteBackend } from '../../src/store/sqlite-store.js';
 import type { Observation } from '../../src/types.js';
@@ -26,7 +29,7 @@ describe('SQLite persistent lexical index', () => {
   let store: SqliteBackend;
 
   beforeEach(async () => {
-    dataDir = await import('node:fs/promises').then(({ mkdtemp }) => mkdtemp('E:/tmp-memorix-fts-'));
+    dataDir = await mkdtemp(path.join(tmpdir(), 'memorix-fts-'));
     store = new SqliteBackend();
     await store.init(dataDir);
   });

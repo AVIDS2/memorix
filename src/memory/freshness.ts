@@ -90,9 +90,9 @@ export async function reindexMiniSkills(): Promise<number> {
  * Ensure both observations and mini-skills are fresh in the Orama index.
  * Returns true if any data source was refreshed.
  */
-export async function ensureFreshIndex(): Promise<boolean> {
+export async function ensureFreshIndex(options: { loadCorpus?: boolean } = {}): Promise<boolean> {
   let anyStale = false;
-  const obsStale = await ensureFreshObservations();
+  const obsStale = await ensureFreshObservations(options);
   if (obsStale) anyStale = true;
   const skillsStale = await ensureFreshMiniSkills();
   if (skillsStale) anyStale = true;
@@ -108,8 +108,11 @@ export async function ensureFreshIndex(): Promise<boolean> {
  *
  * Phase 3a: replaces withFreshObservations() at all retrieval call sites.
  */
-export async function withFreshIndex<T>(fn: () => T | Promise<T>): Promise<T> {
-  await ensureFreshIndex();
+export async function withFreshIndex<T>(
+  fn: () => T | Promise<T>,
+  options: { loadCorpus?: boolean } = {},
+): Promise<T> {
+  await ensureFreshIndex(options);
   return fn();
 }
 

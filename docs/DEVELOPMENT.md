@@ -8,12 +8,12 @@ Memorix is a TypeScript project built around:
 - memcode bundled terminal-agent runtime
 - CLI workflows
 - SQLite canonical persistence with compatibility/fallback layers
-- Orama search
+- layered retrieval: SQLite FTS5, optional LanceDB semantic index, and Orama fallback
 - dashboard and HTTP service
 
 ## Current Development Baseline
 
-The current release line is **1.9.0** and package metadata is kept synchronized
+The current release line is **1.9.1** and package metadata is kept synchronized
 with the root package and MCP Registry manifest.
 
 Contributors should assume the following areas are part of the current release line:

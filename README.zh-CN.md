@@ -62,7 +62,7 @@ Memorix 给你已经在用的 AI 编程 Agent 加上一套共享、可检索的�
 | 静态规则文件容易过期 | 坑点、修复和项目技能从真实工作中持续沉淀 |
 | 并行 Agent 工作容易乱 | `memorix orchestrate` 负责协调任务上下文、交接、文件锁、验证和 review 流程 |
 
-Memorix 是本地优先的。SQLite 是权威存储，Orama 负责搜索，LLM 记忆整理和 embedding 是可选能力。没有模型 key 时，Memorix 仍然可以用本地全文检索工作。
+Memorix 是本地优先的。SQLite 是权威存储。小项目使用进程内 Orama；数据量较大时，关键词检索使用持久化的 SQLite FTS5 候选索引，并在可用时使用本地 LanceDB 语义影子索引。索引都可以重建，也不会限制你能长期保存多少条记忆。LLM 记忆整理和 embedding 仍然是可选能力。
 
 ### 能力矩阵
 

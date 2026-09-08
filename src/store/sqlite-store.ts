@@ -18,6 +18,13 @@
 import type { Observation } from '../types.js';
 import type { ObservationStore, StoreTransaction } from './obs-store.js';
 import { getDatabase, closeDatabase } from './sqlite-db.js';
+import {
+  isObservationLexicalIndexEnabled,
+  rebuildObservationLexicalIndex,
+  searchObservationLexically,
+  type SqliteLexicalSearchOptions,
+} from './sqlite-fts.js';
+import type { LexicalSearchHit } from './obs-store.js';
 import path from 'node:path';
 import fs from 'node:fs';
 
@@ -126,6 +133,9 @@ export class SqliteBackend implements ObservationStore {
   private stmtSelectByProjectStatusNewest: any = null;
   private stmtCountByProject: any = null;
   private stmtCountByProjectStatus: any = null;
+  private stmtCountByProjectVisible: any = null;
+  private stmtCountByProjectStatusVisible: any = null;
+  private stmtCountAll: any = null;
   private stmtSelectByTopicKey: any = null;
   private stmtSelectGeneration: any = null;
   private stmtBumpGeneration: any = null;
@@ -140,7 +150,7 @@ export class SqliteBackend implements ObservationStore {
 
     // Prepare statements
     this.stmtInsert = this.db.prepare(`
-      INSERT OR REPLACE INTO observations
+      INSERT INTO observations
         (id, entityName, type, title, narrative, facts, filesModified, concepts, tokens,
          createdAt, updatedAt, projectId, hasCausalLanguage, topicKey, revisionCount,
          sessionId, status, progress, source, commitHash, relatedCommits, relatedEntities,
@@ -152,8 +162,39 @@ export class SqliteBackend implements ObservationStore {
          @sessionId, @status, @progress, @source, @commitHash, @relatedCommits, @relatedEntities,
          @attachments, @sourceDetail, @valueCategory, @admissionState, @admissionReason, @visibility, @sharedWithAgentIds,
          @createdByAgentId, @writeGeneration)
+      ON CONFLICT(id) DO UPDATE SET
+        entityName = excluded.entityName,
+        type = excluded.type,
+        title = excluded.title,
+        narrative = excluded.narrative,
+        facts = excluded.facts,
+        filesModified = excluded.filesModified,
+        concepts = excluded.concepts,
+        tokens = excluded.tokens,
+        createdAt = excluded.createdAt,
+        updatedAt = excluded.updatedAt,
+        projectId = excluded.projectId,
+        hasCausalLanguage = excluded.hasCausalLanguage,
+        topicKey = excluded.topicKey,
+        revisionCount = excluded.revisionCount,
+        sessionId = excluded.sessionId,
+        status = excluded.status,
+        progress = excluded.progress,
+        source = excluded.source,
+        commitHash = excluded.commitHash,
+        relatedCommits = excluded.relatedCommits,
+        relatedEntities = excluded.relatedEntities,
+        attachments = excluded.attachments,
+        sourceDetail = excluded.sourceDetail,
+        valueCategory = excluded.valueCategory,
+        admissionState = excluded.admissionState,
+        admissionReason = excluded.admissionReason,
+        visibility = excluded.visibility,
+        sharedWithAgentIds = excluded.sharedWithAgentIds,
+        createdByAgentId = excluded.createdByAgentId,
+        writeGeneration = excluded.writeGeneration
     `);
-    this.stmtUpdate = this.stmtInsert; // INSERT OR REPLACE works for both
+    this.stmtUpdate = this.stmtInsert;
     this.stmtSetStatus = this.db.prepare(`UPDATE observations SET status = ? WHERE id = ?`);
     this.stmtSetStatusIfCurrent = this.db.prepare(
       `UPDATE observations SET status = ? WHERE id = ? AND status = ?`,
@@ -191,6 +232,13 @@ export class SqliteBackend implements ObservationStore {
     this.stmtCountByProjectStatus = this.db.prepare(
       `SELECT COUNT(*) AS count FROM observations WHERE projectId = ? AND status = ?`,
     );
+    this.stmtCountByProjectVisible = this.db.prepare(
+      `SELECT COUNT(*) AS count FROM observations WHERE projectId = ? AND (visibility IS NULL OR visibility = 'project')`,
+    );
+    this.stmtCountByProjectStatusVisible = this.db.prepare(
+      `SELECT COUNT(*) AS count FROM observations WHERE projectId = ? AND status = ? AND (visibility IS NULL OR visibility = 'project')`,
+    );
+    this.stmtCountAll = this.db.prepare(`SELECT COUNT(*) AS count FROM observations`);
     this.stmtSelectByTopicKey = this.db.prepare(
       `SELECT * FROM observations WHERE projectId = ? AND topicKey = ? ORDER BY id ASC LIMIT 1`,
     );
@@ -322,15 +370,44 @@ export class SqliteBackend implements ObservationStore {
     return this.rawGetById(id);
   }
 
-  async countByProject(projectId: string, options: { status?: string } = {}): Promise<number> {
-    const row = options.status
-      ? this.stmtCountByProjectStatus.get(projectId, options.status)
-      : this.stmtCountByProject.get(projectId);
+  async countByProject(projectId: string, options: { status?: string; visibility?: 'project' } = {}): Promise<number> {
+    const row = options.visibility === 'project'
+      ? (options.status
+        ? this.stmtCountByProjectStatusVisible.get(projectId, options.status)
+        : this.stmtCountByProjectVisible.get(projectId))
+      : options.status
+        ? this.stmtCountByProjectStatus.get(projectId, options.status)
+        : this.stmtCountByProject.get(projectId);
     return Number(row?.count ?? 0);
   }
 
   async loadIdCounter(): Promise<number> {
     return this.rawLoadIdCounter();
+  }
+
+  async countAll(): Promise<number> {
+    return Number(this.stmtCountAll.get()?.count ?? 0);
+  }
+
+  async listProjectIds(): Promise<string[]> {
+    return (this.db.prepare('SELECT DISTINCT projectId FROM observations ORDER BY projectId').all() as Array<{ projectId?: string }>)
+      .map((row) => row.projectId)
+      .filter((projectId): projectId is string => Boolean(projectId));
+  }
+
+  async searchLexical(options: SqliteLexicalSearchOptions): Promise<LexicalSearchHit[]> {
+    return searchObservationLexically(this.db, options).map((hit) => ({
+      observation: rowToObs(hit.row),
+      score: hit.score,
+    }));
+  }
+
+  hasLexicalIndex(): boolean {
+    return isObservationLexicalIndexEnabled(this.db);
+  }
+
+  async rebuildLexicalIndex(): Promise<boolean> {
+    return rebuildObservationLexicalIndex(this.db);
   }
 
   // ── Public write (each bumps generation) ─────────────────────────

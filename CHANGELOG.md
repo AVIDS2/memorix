@@ -4,6 +4,34 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.9.1] - 2026-09-08
+
+### Changed
+- **Large-scale retrieval** -- SQLite FTS5 is now the persistent lexical
+  candidate index. It stays synchronized on insert, update, delete, and can be
+  rebuilt from the durable observations table.
+- **Disk-backed semantic retrieval** -- the optional local LanceDB shadow index
+  stores only vector IDs and metadata, uses HNSW with scalar quantization once
+  the corpus is large enough, and fuses bounded semantic candidates with FTS5
+  results. Search falls back to Orama when the optional native package is not
+  available.
+- **Lazy large-corpus startup** -- projects above the Orama hydration threshold
+  keep SQLite as the source of truth and do not load the complete observation
+  corpus into the interactive agent process. Detail, export, and maintenance
+  paths can still load the data they explicitly need.
+- **Large-store acceptance** -- adds regression coverage and verified gates for
+  1k, 10k, 40k, and 100k records without reducing the durable memory corpus.
+- **Post-threshold vector writes** -- newly generated vectors still reach the
+  persistent semantic index after the in-memory Orama corpus is released.
+
+### Fixed
+- **Stale lexical index on upsert** -- replace-style SQLite writes could leave
+  old terms in an external-content FTS index. Observation upserts now preserve
+  trigger-visible row updates so old terms are removed.
+- **Optional native dependency bundling** -- LanceDB is resolved at runtime so
+  unsupported platforms or installations without its native binary continue
+  to build and use the FTS5/Orama fallback.
+
 ## [1.9.0] - 2026-09-07
 
 ### Added

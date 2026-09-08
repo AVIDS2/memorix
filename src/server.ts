@@ -1528,7 +1528,7 @@ export async function createMemorixServer(
           },
         ],
       };
-      }); // withFreshIndex
+      }, { loadCorpus: false }); // withFreshIndex
     },
   );
 

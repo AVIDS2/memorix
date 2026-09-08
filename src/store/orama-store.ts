@@ -9,7 +9,7 @@
  */
 
 import { create, insert, insertMultiple, search, remove, update, count, getByID, type AnyOrama } from '@orama/orama';
-import type { MemorixDocument, SearchOptions, IndexEntry, KnowledgeLayer, ObservationReader } from '../types.js';
+import type { MemorixDocument, SearchOptions, IndexEntry, KnowledgeLayer, Observation, ObservationReader } from '../types.js';
 import { OBSERVATION_ICONS, type ObservationType } from '../types.js';
 import { resolveKnowledgeLayer } from '../skills/mini-skills.js';
 import { canReadObservation } from '../memory/visibility.js';
@@ -25,6 +25,14 @@ import { detectQueryIntent, applyIntentBoost } from '../search/intent-detector.j
 import { maybeExpandSearchQuery } from '../search/query-expansion.js';
 import { parseRerankTimeoutMs, shouldAttemptHttpRerank, shouldAttemptLlmRerank } from '../rerank/policy.js';
 import { withTimeout, withTimeoutSignal } from '../timeout.js';
+import { getObservationStore } from './obs-store.js';
+import {
+  createSemanticIndexProfile,
+  searchSemanticVectors,
+  upsertSemanticVectors,
+  type SemanticIndexProfile,
+  type SemanticVectorRecord,
+} from '../search/semantic-index.js';
 
 let db: AnyOrama | null = null;
 let dbInitPromise: Promise<AnyOrama> | null = null;
@@ -48,6 +56,30 @@ function rememberSearchMode(key: string, value: string): void {
 }
 export function getLastSearchMode(projectId?: string): string {
   return lastSearchModeByProject.get(projectId ?? SEARCH_MODE_DEFAULT_KEY) ?? 'fulltext';
+}
+
+function getOptionalObservationStore(): ReturnType<typeof getObservationStore> | null {
+  try {
+    return getObservationStore();
+  } catch {
+    return null;
+  }
+}
+
+async function shouldUsePersistentSearch(
+  projectIds: string[] | null,
+  projectId?: string,
+): Promise<boolean> {
+  const store = getOptionalObservationStore();
+  if (!store?.hasLexicalIndex?.()) return false;
+  const rawThreshold = Number.parseInt(process.env.MEMORIX_ORAMA_HYDRATION_THRESHOLD ?? '', 10);
+  const threshold = Number.isSafeInteger(rawThreshold) && rawThreshold > 0 ? rawThreshold : 10_000;
+  const ids = projectIds ?? (projectId ? [projectId] : null);
+  if (ids) {
+    const count = (await Promise.all(ids.map((id) => store.countByProject(id)))).reduce((sum, value) => sum + value, 0);
+    return count >= threshold;
+  }
+  return (await store.countAll?.() ?? 0) >= threshold;
 }
 // Hard filter: titles starting with these are command execution logs, not knowledge.
 // They are excluded from results entirely (not just demoted) unless the query is command-like.
@@ -78,6 +110,185 @@ function rememberObservationDoc(doc: MemorixDocument): MemorixDocument {
   const publicDoc = { ...doc };
   delete publicDoc.embedding;
   return publicDoc;
+}
+
+function observationToSearchDocument(observation: Observation): MemorixDocument {
+  return {
+    id: makeOramaObservationId(observation.projectId, observation.id),
+    observationId: observation.id,
+    entityName: observation.entityName,
+    type: observation.type,
+    title: observation.title,
+    narrative: observation.narrative,
+    facts: observation.facts.join(' '),
+    filesModified: observation.filesModified.join(' '),
+    concepts: observation.concepts.join(', '),
+    attachments: (observation.attachments ?? []).map((attachment) => [
+      attachment.name,
+      attachment.modality,
+      attachment.mimeType,
+      attachment.url,
+    ].filter(Boolean).join(' ')).join('\n'),
+    tokens: observation.tokens,
+    createdAt: observation.createdAt,
+    projectId: observation.projectId,
+    accessCount: 0,
+    lastAccessedAt: '',
+    status: observation.status ?? 'active',
+    source: observation.source ?? 'agent',
+    sourceDetail: observation.sourceDetail ?? '',
+    valueCategory: observation.valueCategory ?? '',
+    admissionState: observation.admissionState ?? '',
+    admissionReason: observation.admissionReason ?? '',
+    visibility: observation.visibility ?? 'project',
+    createdByAgentId: observation.createdByAgentId ?? '',
+    sharedWithAgentIds: JSON.stringify(observation.sharedWithAgentIds ?? []),
+    documentType: 'observation',
+    knowledgeLayer: resolveKnowledgeLayer('observation', observation.sourceDetail, observation.source),
+  };
+}
+
+type SearchHitLike = {
+  id: string;
+  score: number;
+  document: MemorixDocument;
+};
+
+type SearchResultLike = {
+  count: number;
+  hits: SearchHitLike[];
+};
+
+/**
+ * Use the durable SQLite FTS5 index for lexical-only queries. Returning a
+ * search-result-shaped value lets the existing visibility, intent, provenance,
+ * token-budget, and access-tracking pipeline remain shared with Orama.
+ */
+async function searchPersistentLexically(
+  options: SearchOptions,
+  projectIds: string[] | null,
+  limit: number,
+): Promise<SearchResultLike | null> {
+  try {
+    const store = getObservationStore();
+    if (!store.hasLexicalIndex?.() || !store.searchLexical) return null;
+    const hits = await store.searchLexical({
+      query: options.query ?? '',
+      projectId: projectIds ?? options.projectId,
+      status: options.status === 'all' ? 'all' : (options.status ?? 'active'),
+      type: options.type,
+      source: options.source,
+      limit,
+    });
+    return {
+      count: hits.length,
+      hits: hits.map((hit) => ({
+        id: makeOramaObservationId(hit.observation.projectId, hit.observation.id),
+        score: hit.score,
+        document: observationToSearchDocument(hit.observation),
+      })),
+    };
+  } catch {
+    // The derived FTS path is optional. A provider/runtime-specific failure
+    // must fall back to the established Orama search path.
+    return null;
+  }
+}
+
+/**
+ * Fuse the persistent lexical candidate list with the local LanceDB semantic
+ * candidate list. The vector index is a derived accelerator; authoritative
+ * observation rows still come from SQLite before visibility is applied.
+ */
+async function searchPersistentSemantically(
+  options: SearchOptions,
+  projectIds: string[] | null,
+  limit: number,
+  queryVector: number[],
+  provider: EmbeddingProvider,
+): Promise<SearchResultLike | null> {
+  try {
+    const { getObservationDataDir } = await import('../memory/observations.js');
+    const dataDir = getObservationDataDir();
+    if (!dataDir) return null;
+
+    const profile = createSemanticIndexProfile(provider);
+    const vectorHits = await searchSemanticVectors({
+      dataDir,
+      profile,
+      vector: queryVector,
+      projectId: projectIds ?? options.projectId,
+      status: 'all',
+      limit: Math.min(10_000, limit * (options.reader ? 8 : 2)),
+    });
+    if (vectorHits === null) return null;
+
+    const lexical = await searchPersistentLexically(options, projectIds, limit);
+    const store = getObservationStore();
+    const documents = new Map<string, MemorixDocument>();
+    const addObservation = (observation: Observation): void => {
+      const document = observationToSearchDocument(observation);
+      documents.set(makeEntryKey(document.projectId, document.observationId), document);
+    };
+
+    for (const hit of lexical?.hits ?? []) {
+      documents.set(makeEntryKey(hit.document.projectId, hit.document.observationId), hit.document);
+    }
+
+    const vectorObservations = await Promise.all(vectorHits.map(async (hit) => {
+      const observation = await store.getById(hit.observationId);
+      if (!observation) return null;
+      if (projectIds && !projectIds.includes(observation.projectId)) return null;
+      if (options.status !== 'all' && (observation.status ?? 'active') !== (options.status ?? 'active')) return null;
+      if (options.type && observation.type !== options.type) return null;
+      if (options.source && observation.source !== options.source) return null;
+      addObservation(observation);
+      return observation;
+    }));
+
+    // Reciprocal Rank Fusion keeps lexical identifier matches and semantic
+    // paraphrases comparable without pretending their raw score scales match.
+    const RRF_K = 60;
+    const scores = new Map<string, number>();
+    for (const [index, hit] of (lexical?.hits ?? []).entries()) {
+      const key = makeEntryKey(hit.document.projectId, hit.document.observationId);
+      scores.set(key, (scores.get(key) ?? 0) + 0.6 / (RRF_K + index + 1));
+    }
+    for (const [index, hit] of vectorHits.entries()) {
+      const key = makeEntryKey(hit.projectId, hit.observationId);
+      if (!documents.has(key)) continue;
+      scores.set(key, (scores.get(key) ?? 0) + 0.4 / (RRF_K + index + 1));
+    }
+
+    const hits = [...scores.entries()]
+      .sort((left, right) => right[1] - left[1])
+      .slice(0, limit)
+      .map(([key, score]) => ({
+        id: documents.get(key)!.id,
+        score,
+        document: documents.get(key)!,
+      }));
+    // Keep a vector-only result set useful when the FTS tokenizer cannot see
+    // the query language (for example a paraphrase or CJK text).
+    if (hits.length === 0 && vectorObservations.some(Boolean)) {
+      return {
+        count: vectorHits.length,
+        hits: vectorHits
+          .map((hit, index) => {
+            const key = makeEntryKey(hit.projectId, hit.observationId);
+            const document = documents.get(key);
+            return document ? { id: document.id, score: 0.4 / (RRF_K + index + 1), document } : null;
+          })
+          .filter((hit): hit is SearchHitLike => hit !== null)
+          .slice(0, limit),
+      };
+    }
+    return { count: hits.length, hits };
+  } catch {
+    // LanceDB is a derived optional accelerator. If it is unavailable or its
+    // table is mid-rebuild, the caller retains the Orama fallback.
+    return null;
+  }
 }
 
 function isCommandLikeQuery(query: string): boolean {
@@ -267,6 +478,29 @@ export function getVectorDimensions(): number | null {
   return embeddingEnabled ? embeddingDimensions : null;
 }
 
+/** Current derived semantic-index profile, if an embedding provider is active. */
+export function getActiveSemanticIndexProfile(): SemanticIndexProfile | null {
+  return indexEmbeddingProvider ? createSemanticIndexProfile(indexEmbeddingProvider) : null;
+}
+
+/** Queue one derived vector without delaying the durable observation write. */
+export async function queueSemanticVector(
+  dataDir: string,
+  record: Omit<SemanticVectorRecord, 'vector'> & { vector: number[] },
+): Promise<void> {
+  // A large-corpus writer can reset the in-memory Orama state after crossing
+  // the hydration threshold. Resolve the provider again so that reset does
+  // not strand newly generated vectors outside the persistent shadow index.
+  const provider = indexEmbeddingProvider ?? await getEmbeddingProvider();
+  const profile = provider ? createSemanticIndexProfile(provider) : null;
+  if (!profile) return;
+  try {
+    await upsertSemanticVectors(dataDir, profile, [record]);
+  } catch {
+    // The vector index is rebuildable; lexical memory remains authoritative.
+  }
+}
+
 /**
  * Generate embedding for text content using the available provider.
  * Returns null if no provider is available.
@@ -366,6 +600,8 @@ async function attachCachedVectors(
   database: AnyOrama,
   observations: any[],
 ): Promise<void> {
+  const semanticDataDir = (await import('../memory/observations.js')).getObservationDataDir();
+  const semanticProfile = getActiveSemanticIndexProfile();
   const batchSize = 200;
   for (let start = 0; start < observations.length; start += batchSize) {
     // Keep cache lookup and the temporary vector array bounded to one batch.
@@ -376,9 +612,20 @@ async function attachCachedVectors(
     // Do not attach stale vectors to that new index.
     if (db !== database) return;
 
+    const semanticRecords: SemanticVectorRecord[] = [];
     for (let index = 0; index < batch.length; index++) {
       const vector = cachedVectors[index];
       if (!isCompatibleCachedVector(vector)) continue;
+      const observation = batch[index];
+      if (semanticDataDir && semanticProfile) {
+        semanticRecords.push({
+          observationId: observation.id,
+          projectId: observation.projectId,
+          status: observation.status ?? 'active',
+          visibility: observation.visibility ?? 'project',
+          vector,
+        });
+      }
       const id = makeOramaObservationId(batch[index].projectId, batch[index].id);
       const existing = getByID(database, id) as MemorixDocument | undefined;
       if (!existing || documentEmbeddingText(existing) !== observationEmbeddingText(batch[index])) continue;
@@ -387,6 +634,11 @@ async function attachCachedVectors(
       } catch {
         // Vector cache hydration is best-effort. The normal backfill lane owns misses.
       }
+    }
+    if (semanticDataDir && semanticProfile && semanticRecords.length > 0) {
+      void upsertSemanticVectors(semanticDataDir, semanticProfile, semanticRecords).catch(() => {
+        // A rebuildable semantic index must never make startup hydration fail.
+      });
     }
     await new Promise<void>((resolve) => setImmediate(resolve));
   }
@@ -656,10 +908,12 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
   // If embedding provider is available and query tier warrants it, use hybrid search
   // Fast-tier queries skip embedding entirely (fulltext is sufficient)
   let queryVector: number[] | null = null;
+  let embeddingProviderForSearch: EmbeddingProvider | null = null;
   if (quality !== 'fast' && embeddingEnabled && hasQuery && tier !== 'fast') {
     try {
       const provider = await getEmbeddingProvider();
       if (provider) {
+        embeddingProviderForSearch = provider;
         const activeVectorDimensions = getVectorDimensions();
         if (activeVectorDimensions !== null && provider.dimensions !== activeVectorDimensions) {
           rememberSearchMode(
@@ -716,19 +970,47 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
   }
 
   mark('preSearch');
-  let results;
-  try {
-    results = await search(database, searchParams);
-  } catch (error) {
-    if (queryVector && isVectorDimensionMismatchError(error)) {
-      rememberSearchMode(modeKey, 'fulltext (embedding dimension mismatch)');
-      console.error('[memorix] Vector search dimension mismatch detected, retrying without embeddings');
-      results = await search(database, stripVectorSearchParams(searchParams));
-    } else {
-      throw error;
-    }
+  let results: SearchResultLike | Awaited<ReturnType<typeof search>>;
+  const persistentCorpusEligible = await shouldUsePersistentSearch(projectIds, options.projectId);
+  const canUsePersistentLexical = persistentCorpusEligible && Boolean(hasQuery) && !queryVector &&
+    (quality === 'fast' || tier === 'fast' || !embeddingEnabled);
+  let persistent = persistentCorpusEligible && queryVector && embeddingProviderForSearch
+    ? await searchPersistentSemantically(options, projectIds, requestLimit, queryVector, embeddingProviderForSearch)
+    : canUsePersistentLexical
+      ? await searchPersistentLexically(options, projectIds, requestLimit)
+      : null;
+
+  // In lazy large-corpus mode Orama is intentionally empty. If a semantic
+  // shadow index has not been built yet, retain a correct lexical answer
+  // instead of returning no memories while background indexing catches up.
+  const durableStore = getOptionalObservationStore();
+  if (!persistent && queryVector && durableStore?.hasLexicalIndex?.() && count(database) === 0) {
+    persistent = await searchPersistentLexically(options, projectIds, requestLimit);
   }
-  mark('oramaSearch');
+
+  if (persistent) {
+    results = persistent;
+    // Keep the public mode label compatible with existing integrations while
+    // exposing the concrete accelerator through performance marks/status.
+    rememberSearchMode(
+      modeKey,
+      queryVector ? 'hybrid' : quality === 'fast' ? 'fulltext (fast profile)' : 'fulltext',
+    );
+    mark(queryVector ? 'persistentHybridSearch' : 'sqliteFtsSearch');
+  } else {
+    try {
+      results = await search(database, searchParams);
+    } catch (error) {
+      if (queryVector && isVectorDimensionMismatchError(error)) {
+        rememberSearchMode(modeKey, 'fulltext (embedding dimension mismatch)');
+        console.error('[memorix] Vector search dimension mismatch detected, retrying without embeddings');
+        results = await search(database, stripVectorSearchParams(searchParams));
+      } else {
+        throw error;
+      }
+    }
+    mark('oramaSearch');
+  }
 
   // Fallback: if hybrid returned nothing but we have a vector, retry with vector-only
   if (results.count === 0 && queryVector && embeddingEnabled) {
@@ -1345,6 +1627,12 @@ function applyTokenBudget(entries: IndexEntry[], maxTokens: number): IndexEntry[
  * Get total observation count, optionally filtered by project.
  */
 export async function getObservationCount(projectId?: string): Promise<number> {
+  const durableStore = getObservationStore();
+  if (durableStore.countAll && durableStore.countByProject) {
+    return projectId
+      ? durableStore.countByProject(projectId)
+      : durableStore.countAll();
+  }
   const database = await getDb();
   if (!projectId) {
     return await count(database);

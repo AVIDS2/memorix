@@ -195,6 +195,28 @@ OpenAI-only default. The equivalent env-var form is
 `MEMORIX_EMBEDDING=api`, `MEMORIX_EMBEDDING_BASE_URL=https://openrouter.ai/api/v1`,
 `MEMORIX_EMBEDDING_MODEL=qwen/qwen3-embedding-8b`.
 
+### Large-store retrieval
+
+Memorix does not cap the number of durable observations to make search fast.
+For a large store, the runtime keeps the complete records in SQLite and uses
+derived indexes for bounded candidate retrieval. The optional LanceDB package
+is installed with the package's optional dependencies and loaded only at
+runtime; if its native binary is unavailable, SQLite FTS5 and the Orama
+fallback continue to work.
+
+```text
+MEMORIX_ORAMA_HYDRATION_THRESHOLD=10000   # working-set switch, not a quota
+MEMORIX_SEMANTIC_INDEX=auto               # auto | off | orama
+MEMORIX_SEMANTIC_INDEX_THRESHOLD=10000    # train ANN index after this many vectors
+```
+
+`MEMORIX_SEMANTIC_INDEX=auto` enables the local LanceDB shadow index when the
+optional native package is available. It stores vector IDs and filter metadata,
+while full memory text remains in SQLite. The semantic index uses HNSW with
+scalar quantization after its threshold is reached; before that, its table is
+still searchable without a training step. The derived index can be deleted and
+recreated by the background vector backfill without affecting durable memories.
+
 ### `[rerank]`
 
 Optional HTTP rerank for thorough search. Off by default.

@@ -167,7 +167,11 @@ function queueSemanticVectorSafely(
   record: Parameters<typeof queueSemanticVector>[1],
 ): void {
   try {
-    queueSemanticVector(dataDir, record);
+    // The derived index is best-effort. Catch both synchronous compatibility
+    // failures from older test adapters and asynchronous native-index errors.
+    void Promise.resolve(queueSemanticVector(dataDir, record)).catch(() => {
+      // Durable SQLite/FTS remains authoritative; backfill can rebuild vectors.
+    });
   } catch {
     // Test adapters and older runtimes may not expose the optional derived
     // index hook. The durable observation and Orama fallback remain valid.

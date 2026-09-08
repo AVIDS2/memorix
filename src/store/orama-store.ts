@@ -484,15 +484,21 @@ export function getActiveSemanticIndexProfile(): SemanticIndexProfile | null {
 }
 
 /** Queue one derived vector without delaying the durable observation write. */
-export function queueSemanticVector(
+export async function queueSemanticVector(
   dataDir: string,
   record: Omit<SemanticVectorRecord, 'vector'> & { vector: number[] },
-): void {
-  const profile = getActiveSemanticIndexProfile();
+): Promise<void> {
+  // A large-corpus writer can reset the in-memory Orama state after crossing
+  // the hydration threshold. Resolve the provider again so that reset does
+  // not strand newly generated vectors outside the persistent shadow index.
+  const provider = indexEmbeddingProvider ?? await getEmbeddingProvider();
+  const profile = provider ? createSemanticIndexProfile(provider) : null;
   if (!profile) return;
-  void upsertSemanticVectors(dataDir, profile, [record]).catch(() => {
+  try {
+    await upsertSemanticVectors(dataDir, profile, [record]);
+  } catch {
     // The vector index is rebuildable; lexical memory remains authoritative.
-  });
+  }
 }
 
 /**

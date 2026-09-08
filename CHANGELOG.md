@@ -21,6 +21,8 @@ All notable changes to this project will be documented in this file.
   paths can still load the data they explicitly need.
 - **Large-store acceptance** -- adds regression coverage and verified gates for
   1k, 10k, 40k, and 100k records without reducing the durable memory corpus.
+- **Post-threshold vector writes** -- newly generated vectors still reach the
+  persistent semantic index after the in-memory Orama corpus is released.
 
 ### Fixed
 - **Stale lexical index on upsert** -- replace-style SQLite writes could leave

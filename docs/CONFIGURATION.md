@@ -214,8 +214,8 @@ MEMORIX_SEMANTIC_INDEX_THRESHOLD=10000    # train ANN index after this many vect
 optional native package is available. It stores vector IDs and filter metadata,
 while full memory text remains in SQLite. The semantic index uses HNSW with
 scalar quantization after its threshold is reached; before that, its table is
-still searchable without a training step. Delete or rebuild the derived index
-without affecting durable memories.
+still searchable without a training step. The derived index can be deleted and
+recreated by the background vector backfill without affecting durable memories.
 
 ### `[rerank]`
 

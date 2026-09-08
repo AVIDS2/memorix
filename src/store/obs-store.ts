@@ -45,6 +45,20 @@ export interface StoreTransaction {
   getGeneration(): Promise<number>;
 }
 
+export interface LexicalSearchOptions {
+  query: string;
+  projectId?: string | string[];
+  status?: string | 'all';
+  type?: string;
+  source?: string;
+  limit?: number;
+}
+
+export interface LexicalSearchHit {
+  observation: Observation;
+  score: number;
+}
+
 export interface ObservationStore {
   // ── Lifecycle ──────────────────────────────────────────────────────
 
@@ -63,13 +77,31 @@ export interface ObservationStore {
   ): Promise<Observation[]>;
 
   /** Count one project's observations without materializing the rows. */
-  countByProject(projectId: string, options?: { status?: string }): Promise<number>;
+  countByProject(projectId: string, options?: { status?: string; visibility?: 'project' }): Promise<number>;
 
   /** Load one observation by its globally unique ID. */
   getById(id: number): Promise<Observation | undefined>;
 
   /** Load the current next-ID counter value. */
   loadIdCounter(): Promise<number>;
+
+  /** Count all durable observations without materializing their bodies. */
+  countAll?(): Promise<number>;
+
+  /** List project scopes without materializing observation bodies. */
+  listProjectIds?(): Promise<string[]>;
+
+  /**
+   * Search the persistent lexical index without materializing the corpus.
+   * Backends without FTS5 return an empty result and callers use the fallback.
+   */
+  searchLexical?(options: LexicalSearchOptions): Promise<LexicalSearchHit[]>;
+
+  /** Whether a persistent lexical index is available for this backend. */
+  hasLexicalIndex?(): boolean;
+
+  /** Rebuild the derived lexical index from durable observations. */
+  rebuildLexicalIndex?(): Promise<boolean>;
 
   // ── Write — single mutations ───────────────────────────────────────
 
@@ -235,7 +267,7 @@ export class DegradedBackend implements ObservationStore {
     return [];
   }
 
-  async countByProject(_projectId: string, _options?: { status?: string }): Promise<number> {
+  async countByProject(_projectId: string, _options?: { status?: string; visibility?: 'project' }): Promise<number> {
     return 0;
   }
 
@@ -245,6 +277,26 @@ export class DegradedBackend implements ObservationStore {
 
   async loadIdCounter(): Promise<number> {
     return 1;
+  }
+
+  async countAll(): Promise<number> {
+    return 0;
+  }
+
+  async listProjectIds(): Promise<string[]> {
+    return [];
+  }
+
+  async searchLexical(_options: LexicalSearchOptions): Promise<LexicalSearchHit[]> {
+    return [];
+  }
+
+  hasLexicalIndex(): boolean {
+    return false;
+  }
+
+  async rebuildLexicalIndex(): Promise<boolean> {
+    return false;
   }
 
   async insert(_obs: Observation): Promise<void> {

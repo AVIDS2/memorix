@@ -1,7 +1,7 @@
 {
   "name": "memorix",
   "mcpName": "io.github.AVIDS2/memorix",
-  "version": "1.9.0",
+  "version": "1.9.1",
   "description": "Local-first shared memory layer for AI coding agents across MCP clients, Git history, reasoning context, and project sessions.",
   "type": "module",
   "sideEffects": false,
@@ -155,6 +155,7 @@
     "zod": "^3.24.0"
   },
   "optionalDependencies": {
+    "@lancedb/lancedb": "^0.38.0",
     "better-sqlite3": "^12.11.1"
   },
   "overrides": {

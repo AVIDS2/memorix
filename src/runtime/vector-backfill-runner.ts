@@ -252,7 +252,7 @@ export async function executeVectorBackfill(request: VectorBackfillRequest) {
   initProjectRoot(request.projectRoot);
   loadDotenv(request.projectRoot);
   await initObservationStore(request.dataDir);
-  await initObservations(request.dataDir);
+  await initObservations(request.dataDir, { forceCorpusLoad: true });
   await prepareSearchIndex();
   await getDeferredCachedVectorHydration()?.catch(() => {});
 

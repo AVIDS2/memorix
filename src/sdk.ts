@@ -214,7 +214,7 @@ export class MemoryClient {
    */
   async search(options: ClientSearchOptions): Promise<IndexEntry[]> {
     this._ensureOpen();
-    await this._freshness.withFreshIndex(() => {});
+    await this._freshness.withFreshIndex(() => {}, { loadCorpus: false });
 
     const searchOpts: SearchOptions = {
       query: options.query,
@@ -235,6 +235,7 @@ export class MemoryClient {
    */
   async get(id: number): Promise<Observation | undefined> {
     this._ensureOpen();
+    await this._observations.ensureCorpusLoaded();
     await this._freshness.withFreshIndex(() => {});
     const observation = this._observations.getObservation(id, this._projectId);
     return observation && canReadObservation(observation, this._reader) ? observation : undefined;
@@ -245,6 +246,7 @@ export class MemoryClient {
    */
   async getAll(): Promise<Observation[]> {
     this._ensureOpen();
+    await this._observations.ensureCorpusLoaded();
     await this._freshness.withFreshIndex(() => {});
     return filterReadableObservations(
       this._observations.getProjectObservations(this._projectId),
@@ -257,11 +259,9 @@ export class MemoryClient {
    */
   async count(): Promise<number> {
     this._ensureOpen();
-    await this._freshness.withFreshIndex(() => {});
-    return filterReadableObservations(
-      this._observations.getProjectObservations(this._projectId),
-      this._reader,
-    ).length;
+    await this._freshness.withFreshIndex(() => {}, { loadCorpus: false });
+    const store = this._obsStore.getObservationStore();
+    return store.countByProject(this._projectId, { visibility: 'project' });
   }
 
   /**
@@ -278,6 +278,7 @@ export class MemoryClient {
    */
   async resolve(ids: number[], status: ObservationStatus = 'resolved'): Promise<ResolveResult> {
     this._ensureOpen();
+    await this._observations.ensureCorpusLoaded();
     const manageableIds = ids.filter((id) => {
       const observation = this._observations.getObservation(id, this._projectId);
       return observation && canManageObservation(observation, this._reader);
@@ -308,6 +309,12 @@ export class MemoryClient {
     try {
       const { closeDatabase } = await import('./store/sqlite-db.js');
       closeDatabase(this._dataDir);
+    } catch {
+      // best-effort cleanup
+    }
+    try {
+      const { closeSemanticIndex } = await import('./search/semantic-index.js');
+      await closeSemanticIndex(this._dataDir);
     } catch {
       // best-effort cleanup
     }

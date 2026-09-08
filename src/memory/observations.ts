@@ -29,6 +29,7 @@ import {
   getDb,
   getDeferredCachedVectorHydration,
   getVectorDimensions,
+  queueSemanticVector,
   hydrateIndexForStartup,
   hasObservationVector,
   isEmbeddingEnabled,
@@ -64,12 +65,24 @@ export interface ObservationRuntimeOptions {
    * tens of thousands of rows on every PostToolUse.
    */
   skipCorpusLoad?: boolean;
+  /** Force a maintenance worker to load the corpus for vector backfill. */
+  forceCorpusLoad?: boolean;
 }
 
 let embeddingWriteMode: ObservationEmbeddingWriteMode = 'background';
 let embeddingWorkerProjectRoot: string | undefined;
 let corpusLoaded = false;
+let largeCorpusLazyMode = false;
 let loadedObservationStore: ObservationStore | null = null;
+
+const DEFAULT_ORAMA_HYDRATION_THRESHOLD = 10_000;
+
+function resolveOramaHydrationThreshold(): number {
+  const configured = Number.parseInt(process.env.MEMORIX_ORAMA_HYDRATION_THRESHOLD ?? '', 10);
+  return Number.isSafeInteger(configured) && configured > 0
+    ? configured
+    : DEFAULT_ORAMA_HYDRATION_THRESHOLD;
+}
 
 /** @internal Reset in-process observation state between tests. */
 export function resetObservationRuntime(): void {
@@ -78,6 +91,7 @@ export function resetObservationRuntime(): void {
   projectDir = null;
   searchIndexPrepared = false;
   corpusLoaded = false;
+  largeCorpusLazyMode = false;
   loadedObservationStore = null;
   embeddingWriteMode = 'background';
   embeddingWorkerProjectRoot = undefined;
@@ -146,6 +160,18 @@ function normalizeEmbeddingFailure(error: unknown): { key: string; message: stri
 
 function vectorBackfillError(error: unknown): string {
   return sanitizeCredentials(normalizeEmbeddingFailure(error).message).slice(0, 1_000);
+}
+
+function queueSemanticVectorSafely(
+  dataDir: string,
+  record: Parameters<typeof queueSemanticVector>[1],
+): void {
+  try {
+    queueSemanticVector(dataDir, record);
+  } catch {
+    // Test adapters and older runtimes may not expose the optional derived
+    // index hook. The durable observation and Orama fallback remain valid.
+  }
 }
 
 function queueVectorBackfill(
@@ -300,6 +326,22 @@ export async function initObservations(
     loadedObservationStore = store;
     return;
   }
+
+  const durableCount = await store.countAll?.();
+  largeCorpusLazyMode = Boolean(
+    !options.forceCorpusLoad &&
+    durableCount !== undefined &&
+    durableCount >= resolveOramaHydrationThreshold() &&
+    store.hasLexicalIndex?.(),
+  );
+  if (largeCorpusLazyMode) {
+    // SQLite/FTS5 and the optional persistent semantic index serve the search
+    // path. Management/detail paths explicitly call ensureCorpusLoaded().
+    observations = [];
+    corpusLoaded = false;
+    loadedObservationStore = store;
+    return;
+  }
   observations = await store.loadAll();
   corpusLoaded = true;
   loadedObservationStore = store;
@@ -349,6 +391,15 @@ function scheduleObservationEmbedding(input: {
       try {
         await removeObservation(makeOramaObservationId(projectId, observationId));
         await insertObservation(Object.assign({}, doc, { embedding }));
+        if (projectDir) {
+          queueSemanticVectorSafely(projectDir, {
+            observationId,
+            projectId,
+            status: doc.status,
+            visibility: doc.visibility,
+            vector: embedding,
+          });
+        }
         vectorMissingIds.delete(observationId);
       } catch {
         console.error(`[memorix] Embedding index update failed for obs-${observationId} (kept in backfill queue)`);
@@ -387,22 +438,38 @@ function scheduleObservationEmbedding(input: {
  *
  * For DegradedBackend this is a no-op (always returns false).
  */
-export async function ensureFreshObservations(): Promise<boolean> {
-  if (!projectDir || !corpusLoaded) return false;
+export async function ensureFreshObservations(options: { loadCorpus?: boolean } = {}): Promise<boolean> {
+  if (!projectDir) return false;
+  const loadCorpus = options.loadCorpus !== false;
   try {
     const store = getObservationStore();
     const wasStale = await store.ensureFresh();
-    if (wasStale) {
+    if (!corpusLoaded && loadCorpus) {
       observations = await store.loadAll();
       nextId = await store.loadIdCounter();
-      await reindexObservations();
-      searchIndexPrepared = true;
+      corpusLoaded = true;
+      largeCorpusLazyMode = false;
+      searchIndexPrepared = false;
+      return true;
+    }
+    if (wasStale) {
+      nextId = await store.loadIdCounter();
+      if (corpusLoaded) {
+        observations = await store.loadAll();
+        await reindexObservations();
+        searchIndexPrepared = true;
+      }
       return true;
     }
   } catch {
     // Best-effort — don't crash the read path on freshness failure
   }
   return false;
+}
+
+/** Load the full durable corpus for management/detail operations only. */
+export async function ensureCorpusLoaded(): Promise<void> {
+  await ensureFreshObservations({ loadCorpus: true });
 }
 
 /**
@@ -491,7 +558,7 @@ export async function storeObservation(input: {
   // Sync the local cache before using it as the topicKey fast path. This costs a
   // generation read in the normal case and only reloads when another process wrote.
   // Write-only / hook processes skip the corpus cache; disk findByTopicKey is authoritative.
-  await ensureFreshObservations();
+  await ensureFreshObservations({ loadCorpus: false });
 
   // Topic key upsert: fast-path check in-memory (optimistic, may be stale).
   // A second authoritative check happens inside the file lock to prevent TOCTOU races
@@ -611,6 +678,21 @@ export async function storeObservation(input: {
 
       // Phase 4a: confirm writeGeneration matches actual post-bump value
       observation.writeGeneration = store.getGeneration();
+
+      // A long-lived writer can cross the hydration threshold after startup.
+      // Release the hot Orama corpus at that point and let FTS5/semantic shadow
+      // indexes serve subsequent searches. Durable SQLite rows are untouched.
+      if (
+        corpusLoaded &&
+        observations.length >= resolveOramaHydrationThreshold() &&
+        store.hasLexicalIndex?.()
+      ) {
+        observations = [];
+        corpusLoaded = false;
+        largeCorpusLazyMode = true;
+        searchIndexPrepared = false;
+        await resetDb();
+      }
 
       if (upsertedInsideLock || reloadCacheAfterCommit) {
         if (corpusLoaded) {
@@ -1101,6 +1183,11 @@ export function getObservationCount(): number {
   return observations.length;
 }
 
+/** The current durable data directory used by the observation runtime. */
+export function getObservationDataDir(): string | null {
+  return projectDir;
+}
+
 /**
  * Suggest a stable topic key from type + title.
  * Uses family heuristics (architecture/*, bug/*, decision/*, etc.)
@@ -1245,6 +1332,18 @@ export async function reindexObservations(): Promise<number> {
  */
 export async function prepareSearchIndex(options: { skipCachedVectors?: boolean } = {}): Promise<number> {
   if (searchIndexPrepared) return 0;
+
+  if (largeCorpusLazyMode && getObservationStore().hasLexicalIndex?.()) {
+    // Search is served by SQLite FTS5 plus the optional persistent semantic
+    // shadow index. Do not pay the old full-corpus Orama hydration cost.
+    searchIndexPrepared = true;
+    if (!isEmbeddingExplicitlyDisabled()) {
+      const store = getObservationStore();
+      const projects = await store.listProjectIds?.() ?? [];
+      for (const projectId of projects) queueVectorBackfill(projectId);
+    }
+    return 0;
+  }
 
   const count = await hydrateIndexForStartup(observations as unknown as any[], {
     skipCachedVectors: options.skipCachedVectors,
@@ -1487,6 +1586,15 @@ export async function backfillVectorEmbeddings(options: {
             embedding,
           };
           await insertObservation(doc);
+          if (projectDir) {
+            queueSemanticVectorSafely(projectDir, {
+              observationId: id,
+              projectId: obs.projectId,
+              status: doc.status,
+              visibility: doc.visibility,
+              vector: embedding,
+            });
+          }
           vectorMissingIds.delete(id);
           succeeded++;
         } catch (error) {

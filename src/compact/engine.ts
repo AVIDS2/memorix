@@ -71,7 +71,7 @@ export async function compactSearch(options: SearchOptions, surface: RetrievalSu
   formatted: string;
   totalTokens: number;
 }> {
-  await ensureFreshIndex();
+  await ensureFreshIndex({ loadCorpus: false });
   const searchOptions = { ...options, query: normalizeMemoryBrowseQuery(options.query) };
   let entries = (await searchObservations(searchOptions)).map((entry) =>
     entry.projectId || !options.projectId ? entry : { ...entry, projectId: options.projectId },
@@ -102,9 +102,19 @@ export async function compactSearch(options: SearchOptions, surface: RetrievalSu
   let formatted = formatIndexTable(entries, searchOptions.query, !options.projectId, surface);
 
   if (entries.length === 0 && options.projectId) {
-    const allObservations = filterReadableObservations(getAllObservations(), options.reader);
     const projectAliases = new Set(await resolveAliases(options.projectId).catch(() => [options.projectId]));
-    const projectHasStoredMemory = allObservations.some((obs) => obs.projectId && projectAliases.has(obs.projectId));
+    let projectHasStoredMemory = false;
+    try {
+      const store = getObservationStore();
+      projectHasStoredMemory = (await Promise.all(
+        [...projectAliases].filter((projectId): projectId is string => Boolean(projectId)).map((projectId) => store.countByProject(projectId, { status: 'active' })),
+      )).some((count) => count > 0);
+    } catch {
+      const allObservations = filterReadableObservations(getAllObservations(), options.reader);
+      projectHasStoredMemory = allObservations.some((observation) =>
+        observation.projectId !== undefined && projectAliases.has(observation.projectId),
+      );
+    }
     if (!projectHasStoredMemory) {
       formatted =
         options.reader
@@ -115,7 +125,7 @@ export async function compactSearch(options: SearchOptions, surface: RetrievalSu
             `Memories will start appearing after observations, session summaries, hook captures, or git-memory are written.`;
     } else {
       formatted =
-        `No memories found matching "${options.query}".\n\n` +
+        `No memories found for the current query.\n\n` +
         `This project does have stored Memorix memories, but none matched the current query/filter. ` +
         `Try a more specific topic, use /memory status for runtime diagnostics, or ask for recent memory if you want a broad overview.`;
     }

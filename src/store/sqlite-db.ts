@@ -17,6 +17,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { createDatabase, loadSqlite } from './bun-sqlite-compat.js';
 import { assertNotHomeDataDir } from '../project/launch-root.js';
+import { initializeObservationLexicalIndex } from './sqlite-fts.js';
 
 // Dynamic require for SQLite (better-sqlite3, node:sqlite, or bun:sqlite)
 let BetterSqlite3: any;
@@ -57,6 +58,7 @@ CREATE TABLE IF NOT EXISTS observations (
   commitHash      TEXT,
   relatedCommits  TEXT,
   relatedEntities TEXT,
+  attachments     TEXT,
   sourceDetail    TEXT,
   valueCategory   TEXT,
   admissionState  TEXT,
@@ -1176,6 +1178,10 @@ export function getDatabase(dataDir: string): any {
 
   // Create indexes AFTER all ALTER TABLE migrations so referenced columns exist
   db.exec(CREATE_INDEXES);
+
+  // FTS5 is a derived accelerator. It is initialized after all migrations so
+  // old databases have the attachment column before triggers are created.
+  initializeObservationLexicalIndex(db);
 
   // Seed meta defaults
   db.prepare(`INSERT OR IGNORE INTO meta (key, value) VALUES ('storage_generation', '0')`).run();

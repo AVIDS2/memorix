@@ -63,7 +63,11 @@ Use Claude Code today, Codex tomorrow, and Cursor in the afternoon. The agent ca
 | Static rule files drift | Gotchas, fixes, and project skills evolve from real work |
 | Parallel agent work gets messy | `memorix orchestrate` coordinates task context, handoffs, locks, verification, and review loops |
 
-Memorix is local-first. SQLite is the canonical store, Orama handles search, and LLM-backed formation/embedding is optional. Without model keys, Memorix still works with local full-text retrieval.
+Memorix is local-first. SQLite is the canonical store. Small projects use the
+in-process Orama path; larger projects use a persistent SQLite FTS5 candidate
+index and, when available, an optional local LanceDB semantic shadow index.
+Both indexes are rebuildable and are never a limit on how many durable memories
+you can keep. LLM-backed formation and embedding remain optional.
 
 ### Capabilities
 

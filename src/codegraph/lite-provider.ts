@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { readdirSync, readFileSync, statSync, type Dirent } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync, type Dirent } from 'node:fs';
 import { join, relative } from 'node:path';
 import type { CodeEdge, CodeFile, CodeStateSnapshot, CodeSymbol } from './types.js';
 import { collectCodeStateSnapshot } from './code-state.js';
@@ -210,6 +210,14 @@ function resolveMaxFileBytes(value: number | undefined): number {
   return Math.max(1, Math.floor(value!));
 }
 
+function isPythonVirtualenvDir(dir: string): boolean {
+  // PEP 405 virtualenvs place a `pyvenv.cfg` at their root regardless of the
+  // directory name (`.venv`, `.venv-leann`, `env`, uv/poetry envs, ...). Their
+  // `site-packages` trees are large and generated; descending into one can stall
+  // `codegraph refresh`, so skip virtualenvs by this marker rather than by name.
+  return existsSync(join(dir, 'pyvenv.cfg'));
+}
+
 function walk(root: string, exclude: string[], maxFiles: number): string[] {
   const out: string[] = [];
   const visit = (dir: string) => {
@@ -228,6 +236,7 @@ function walk(root: string, exclude: string[], maxFiles: number): string[] {
       if (entry.isDirectory()) {
         if (entry.name === '.git' || entry.name === '.worktrees' || entry.name === '.tmp' || entry.name === 'node_modules') continue;
         if (rel === '.claude/worktrees' || rel.startsWith('.claude/worktrees/')) continue;
+        if (isPythonVirtualenvDir(abs)) continue;
         visit(abs);
         if (out.length >= maxFiles) return;
         continue;

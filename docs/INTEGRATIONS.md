@@ -122,6 +122,10 @@ If an agent only needs a raw stdio MCP entry:
 
 Avoid `npx` in persistent MCP configs. Use the globally installed `memorix` binary so startup is predictable.
 
+For npm-based MCP clients or registry testers, the complete package command is
+`npx -y memorix serve`. Do not omit `serve`: bare `memorix` is the interactive
+memcode entry in a human terminal.
+
 For HTTP mode:
 
 ```bash

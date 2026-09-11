@@ -310,6 +310,10 @@ memorix setup --agent grok --global
 }
 ```
 
+如果是 npm 方式启动 MCP 客户端或收录平台测试器，请使用完整命令
+`npx -y memorix serve`。`serve` 参数不能省略：人类在终端里直接运行
+`memorix` 会打开内置 memcode，而 MCP 客户端应明确启动 stdio MCP 服务。
+
 如果是手动维护 Claude Code 的 MCP 配置，需要在 `memorix` server 对象里加上 `"alwaysLoad": true`。这样 Claude Code 在 print-mode 启动时就会暴露 Memorix tools；`memorix doctor agents --agent claude` 可以检查并修复缺失的设置。
 
 普通安装不需要 HTTP。只有在你明确需要共享后台服务、Dashboard、VPS Docker 部署，或多个客户端共用一个端点时才使用。本机开发直接运行 Node 服务，不需要 Docker：

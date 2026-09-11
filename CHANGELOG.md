@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.9.2] - 2026-09-11
+
+### Fixed
+- **Non-interactive MCP startup** -- running the package without arguments
+  through piped stdio now starts the MCP server, while a real terminal keeps
+  opening the bundled memcode agent. This makes generic npm MCP launchers and
+  registry handshake checks use the correct protocol entry point.
+- **Maintenance initialization** -- dashboard Consolidate uses its
+  request-scoped observation store, and CLI deduplication initializes the
+  project memory LLM before checking availability.
+
 ## [1.9.1] - 2026-09-08
 
 ### Changed

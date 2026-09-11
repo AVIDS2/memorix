@@ -170,6 +170,11 @@ Generic stdio MCP config:
 
 Avoid `npx` in persistent MCP configs. Use the globally installed `memorix` binary so startup is predictable.
 
+When an npm-based MCP client or registry tester must launch the package
+directly, use `npx -y memorix serve`. The explicit `serve` argument selects
+the stdio MCP server; a human running bare `memorix` in a terminal gets the
+bundled memcode agent instead.
+
 ### Option C: memcode terminal agent
 
 ```bash

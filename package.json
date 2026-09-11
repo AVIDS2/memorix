@@ -77,7 +77,6 @@
     "benchmark:codegraph:scale": "node scripts/benchmark-codegraph-scale.mjs",
     "benchmark:retrieval": "npm run build && node scripts/benchmark-retrieval.mjs",
     "gate:large-store": "npm run build && node scripts/large-store-gate.mjs",
-    "generate:star-history": "node scripts/generate-star-history.mjs",
     "sync:mcp-registry": "node scripts/sync-mcp-registry-manifest.mjs",
     "check:mcp-registry": "node scripts/check-mcp-registry-manifest.mjs",
     "sync:plugin-release": "node scripts/sync-plugin-release-manifests.mjs",

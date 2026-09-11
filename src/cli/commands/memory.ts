@@ -280,7 +280,8 @@ export default defineCommand({
         case 'deduplicate': {
           const query = asStringArg(args.query);
           const dryRun = !!args.dryRun || !!args['dry-run'];
-          const { isLLMEnabled } = await import('../../llm/provider.js');
+          const { initLLM, isLLMEnabled } = await import('../../llm/provider.js');
+          initLLM({ scope: 'memory', projectRoot: project.rootPath });
           if (!isLLMEnabled()) {
             emitResult(
               { project, available: false, usedLLM: false },

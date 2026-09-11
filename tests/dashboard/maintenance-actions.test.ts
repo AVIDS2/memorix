@@ -23,7 +23,7 @@ import {
   previewRetentionArchive,
 } from '../../src/dashboard/maintenance.js';
 import { setLLMConfig } from '../../src/llm/provider.js';
-import { getObservationStore, initObservationStore, resetObservationStore } from '../../src/store/obs-store.js';
+import { createObservationStore, getObservationStore, initObservationStore, resetObservationStore } from '../../src/store/obs-store.js';
 import { closeAllDatabases } from '../../src/store/sqlite-db.js';
 import type { Observation } from '../../src/types.js';
 
@@ -99,6 +99,35 @@ describe('dashboard maintenance actions', () => {
     const result = await executeConsolidate(context(), preview.payload, preview.token);
     expect(result.clustersFound).toBe(1);
     expect(result.observationsMerged).toBe(1);
+  });
+
+  it('uses the request-scoped store when the global store is unavailable', async () => {
+    const requestStore = await createObservationStore(path.join(dataDir, 'request-scoped'));
+    try {
+      await requestStore.insert(observation(1, 'Windows path separator bug', {
+        narrative: 'Use path join because string path concatenation breaks on Windows.',
+      }));
+      await requestStore.insert(observation(2, 'Windows path separator issue', {
+        narrative: 'String path concatenation breaks on Windows so use path join.',
+      }));
+
+      // This is the control-plane failure mode: the HTTP worker has its own
+      // store, but no process-wide observation singleton.
+      const requestContext = {
+        dataDir,
+        projectId: PROJECT_ID,
+        projectRoot: null,
+        store: requestStore,
+      };
+      resetObservationStore();
+      const preview = await previewConsolidate(requestContext);
+      expect(preview.summary.clusters).toBe(1);
+
+      const result = await executeConsolidate(requestContext, preview.payload, preview.token);
+      expect(result.observationsMerged).toBe(1);
+    } finally {
+      requestStore.close();
+    }
   });
 
   it('previews and archives only current retention candidates', async () => {

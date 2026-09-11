@@ -20,6 +20,7 @@ import { importBundledMemcode } from './memcode-bootstrap.js';
 import { installCliPipeErrorGuard } from './pipe-errors.js';
 import { normalizeCliInvocation } from './invocation.js';
 import { printCliGuideForHelp, renderCliGuide } from './command-guide.js';
+import { shouldDefaultToMcp } from './default-mode.js';
 
 installCliPipeErrorGuard();
 
@@ -327,8 +328,16 @@ const main = defineCommand({
       'background', 'bg', 'bs', 'doctor', 'repair', 'dashboard', 'cleanup', 'purge', 'uninstall', 'orchestrate'];
     if (firstArg && knownSubs.includes(firstArg)) return;
 
-    // No subcommand provided — enter memcode TUI (native coding agent)
+    // No subcommand provided — keep the interactive memcode default for a
+    // human terminal, but make piped package launches an MCP server. Generic
+    // MCP directories and clients commonly execute `npx memorix` without
+    // reading server.json's package arguments.
     if (!firstArg) {
+      if (shouldDefaultToMcp()) {
+        const serve = await import('./commands/serve.js');
+        await serve.default.run?.({ args: {}, rawArgs: [], cmd: serve.default } as any);
+        return;
+      }
       try {
         const { runCli } = await importBundledMemcode();
         await runCli(process.argv.slice(2));

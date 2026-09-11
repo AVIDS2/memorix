@@ -317,6 +317,11 @@ If your agent only needs a manual MCP entry, use stdio:
 }
 ```
 
+For an npm-based MCP client or registry tester, use the complete command
+`npx -y memorix serve`. The `serve` argument matters: `memorix` without
+arguments opens the bundled memcode terminal agent when run by a human, while
+MCP clients should start the stdio server explicitly.
+
 For a manually managed Claude Code entry, add `"alwaysLoad": true` inside the `memorix` server object. This lets Claude Code expose Memorix tools during print-mode startup; `memorix doctor agents --agent claude` can detect and repair a missing setting.
 
 HTTP is not required for normal setup. Use it only when you intentionally want a shared background service, dashboard, VPS Docker deployment, or multiple clients using the same endpoint. Local development uses the Node service directly and does not require Docker:

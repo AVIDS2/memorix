@@ -339,6 +339,27 @@ describe('CodeGraph Lite provider', () => {
     expect(store.getFile('org/repo', 'src/worker.ts')).toBeNull();
   });
 
+  it('skips Python virtualenv directories detected by their pyvenv.cfg marker', async () => {
+    const dir = makeRoot();
+    mkdirSync(join(dir, 'src'), { recursive: true });
+    writeFileSync(join(dir, 'src', 'app.py'), 'def real_app_symbol():\n    return 1\n');
+
+    // A PEP 405 virtualenv with a non-default name: `isCodeGraphExcludedPath`
+    // does not match `.venv-leann`, but the `pyvenv.cfg` marker must.
+    const venv = join(dir, '.venv-leann', 'lib', 'python3.13', 'site-packages');
+    mkdirSync(venv, { recursive: true });
+    writeFileSync(join(dir, '.venv-leann', 'pyvenv.cfg'), 'home = /usr/bin\nversion = 3.13.0\n');
+    writeFileSync(join(venv, 'vendored.py'), 'def vendored_site_packages_symbol():\n    return 2\n');
+
+    const store = new CodeGraphStore();
+    await store.init(dir);
+    const result = await refreshProjectLite(store, { projectId: 'org/repo', projectRoot: dir });
+
+    expect(result.scannedFiles).toBe(1);
+    expect(store.findSymbols('org/repo', 'real_app_symbol')).toHaveLength(1);
+    expect(store.findSymbols('org/repo', 'vendored_site_packages_symbol')).toHaveLength(0);
+  });
+
   it('continues indexing when a discovered file cannot be read', async () => {
     vi.resetModules();
     vi.doMock('node:fs', () => ({
@@ -358,6 +379,7 @@ describe('CodeGraph Lite provider', () => {
         return 'export function stable() {}\n';
       }),
       statSync: vi.fn(() => ({ mtimeMs: 42, size: 28 })),
+      existsSync: vi.fn(() => false),
     }));
 
     const { indexProjectLite: mockedIndexProjectLite } = await import('../../src/codegraph/lite-provider.js');

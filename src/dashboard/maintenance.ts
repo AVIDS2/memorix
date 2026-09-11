@@ -221,6 +221,7 @@ export async function previewConsolidate(context: DashboardMaintenanceContext) {
   const clusters = await findConsolidationCandidates(
     context.projectRoot ?? context.dataDir,
     context.projectId,
+    { store: context.store },
   );
   const payload: ConsolidateTokenPayload = { clusterIds: normalizeClusters(clusters.map((cluster) => cluster.ids)) };
   return {
@@ -248,11 +249,19 @@ export async function executeConsolidate(
   const clusterIds = record.clusterIds.map((ids, index) => payloadIds(ids, `clusterIds[${index}]`));
   const normalized: ConsolidateTokenPayload = { clusterIds: normalizeClusters(clusterIds) };
   verify('consolidate', context.projectId, normalized, token);
-  const current = await findConsolidationCandidates(context.projectRoot ?? context.dataDir, context.projectId);
+  const current = await findConsolidationCandidates(
+    context.projectRoot ?? context.dataDir,
+    context.projectId,
+    { store: context.store },
+  );
   if (JSON.stringify(normalized.clusterIds) !== JSON.stringify(normalizeClusters(current.map((cluster) => cluster.ids)))) {
     throw new DashboardMaintenanceError('Memory changed after the preview. Refresh before consolidating.', 409);
   }
-  const result = await executeConsolidation(context.projectRoot ?? context.dataDir, context.projectId);
+  const result = await executeConsolidation(
+    context.projectRoot ?? context.dataDir,
+    context.projectId,
+    { store: context.store },
+  );
   return { action: 'consolidate', projectId: context.projectId, ...result };
 }
 

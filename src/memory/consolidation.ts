@@ -16,7 +16,7 @@
  */
 
 import type { Observation } from '../types.js';
-import { getObservationStore } from '../store/obs-store.js';
+import { getObservationStore, type ObservationStore } from '../store/obs-store.js';
 import { isEligibleForAutomaticDelivery } from './admission.js';
 import { resolveObservationVisibility } from './visibility.js';
 
@@ -108,6 +108,14 @@ interface ConsolidationPage {
   nextCursor?: number;
 }
 
+export interface ConsolidationOptions {
+  threshold?: number;
+  limit?: number;
+  afterId?: number;
+  /** Use a request-scoped store when running inside a multi-project host. */
+  store?: ObservationStore;
+}
+
 function clampBatchSize(limit: number | undefined): number {
   if (!Number.isFinite(limit)) return MAX_BATCH_SIZE;
   return Math.min(MAX_BATCH_SIZE, Math.max(1, Math.floor(limit!)));
@@ -120,10 +128,11 @@ function clampCursor(afterId: number | undefined): number {
 
 async function loadConsolidationPage(
   projectId: string,
-  options: { limit?: number; afterId?: number },
+  options: ConsolidationOptions,
 ): Promise<ConsolidationPage> {
   const limit = clampBatchSize(options.limit);
-  const page = await getObservationStore().loadByProject(projectId, {
+  const store = options.store ?? getObservationStore();
+  const page = await store.loadByProject(projectId, {
     status: 'active',
     afterId: clampCursor(options.afterId),
     limit: limit + 1,
@@ -205,7 +214,7 @@ function findClusters(observations: Observation[], threshold: number): Consolida
 export async function findConsolidationCandidates(
   _projectDir: string,
   projectId: string,
-  opts?: { threshold?: number; limit?: number; afterId?: number },
+  opts?: ConsolidationOptions,
 ): Promise<ConsolidationCluster[]> {
   const threshold = opts?.threshold ?? DEFAULT_SIMILARITY_THRESHOLD;
   const page = await loadConsolidationPage(projectId, opts ?? {});
@@ -224,9 +233,9 @@ export async function findConsolidationCandidates(
 export async function executeConsolidation(
   _projectDir: string,
   projectId: string,
-  opts?: { threshold?: number; limit?: number; afterId?: number },
+  opts?: ConsolidationOptions,
 ): Promise<ConsolidationResult> {
-  const store = getObservationStore();
+  const store = opts?.store ?? getObservationStore();
   const page = await loadConsolidationPage(projectId, opts ?? {});
   const clusters = findClusters(page.observations, opts?.threshold ?? DEFAULT_SIMILARITY_THRESHOLD);
 

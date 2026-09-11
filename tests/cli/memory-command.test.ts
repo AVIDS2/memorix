@@ -4,6 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import memoryCommand from '../../src/cli/commands/memory.js';
+import { setLLMConfig } from '../../src/llm/provider.js';
 import { closeAllDatabases } from '../../src/store/sqlite-db.js';
 import { resetObservationStore } from '../../src/store/obs-store.js';
 import { resetSessionStore } from '../../src/store/session-store.js';
@@ -98,5 +99,41 @@ describe('memory store CLI argument coercion', () => {
     expect(parsed.observation.topicKey).toBe('upgrade note');
     expect(parsed.observation.entityName).toBe('cli memory');
     expect(parsed.observation.facts).toEqual(['a', 'b', 'c']);
+  });
+
+  it('initializes the project memory LLM before checking deduplicate availability', async () => {
+    const originalKeys = {
+      apiKey: process.env.MEMORIX_LLM_API_KEY,
+      provider: process.env.MEMORIX_LLM_PROVIDER,
+      model: process.env.MEMORIX_LLM_MODEL,
+      baseUrl: process.env.MEMORIX_LLM_BASE_URL,
+    };
+    process.env.MEMORIX_LLM_API_KEY = 'test-memory-key';
+    process.env.MEMORIX_LLM_PROVIDER = 'openai';
+    process.env.MEMORIX_LLM_MODEL = 'test-memory-model';
+    process.env.MEMORIX_LLM_BASE_URL = 'http://127.0.0.1:9/v1';
+
+    try {
+      const result = await runCommand(memoryCommand, {
+        _: ['deduplicate'],
+        dryRun: true,
+        json: true,
+      });
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).not.toContain('LLM not configured');
+      expect(JSON.parse(result.stdout)).toMatchObject({ project: { id: expect.any(String) } });
+    } finally {
+      setLLMConfig(null);
+      for (const [key, value] of Object.entries({
+        MEMORIX_LLM_API_KEY: originalKeys.apiKey,
+        MEMORIX_LLM_PROVIDER: originalKeys.provider,
+        MEMORIX_LLM_MODEL: originalKeys.model,
+        MEMORIX_LLM_BASE_URL: originalKeys.baseUrl,
+      })) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    }
   });
 });

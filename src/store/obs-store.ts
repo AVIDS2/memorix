@@ -194,27 +194,68 @@ export function resetObservationStore(): void {
   _storeDataDir = null;
 }
 
+/** SQLite error codes that mean "busy right now", not "permanently broken". */
+const TRANSIENT_SQLITE_ERROR = /SQLITE_BUSY|SQLITE_LOCKED|database is locked|database table is locked/i;
+
+function isTransientSqliteError(err: unknown): boolean {
+  const code = (err as { code?: unknown } | null)?.code;
+  if (typeof code === 'string' && TRANSIENT_SQLITE_ERROR.test(code)) return true;
+  return err instanceof Error && TRANSIENT_SQLITE_ERROR.test(err.message);
+}
+
+const INIT_RETRY_DELAYS_MS = [50, 150, 400, 1000, 2500];
+
+/**
+ * Initialize a SQLite backend, retrying transient lock contention.
+ *
+ * Another process (for example the maintenance runner, or a second agent
+ * harness) can hold a write transaction while we open the database and run
+ * migrations. That is temporary by definition, so we back off and retry
+ * instead of giving up on SQLite entirely.
+ */
+async function initSqliteWithRetry(store: ObservationStore, dataDir: string): Promise<void> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await store.init(dataDir);
+      return;
+    } catch (err) {
+      if (!isTransientSqliteError(err) || attempt >= INIT_RETRY_DELAYS_MS.length) throw err;
+      const delay = INIT_RETRY_DELAYS_MS[attempt];
+      console.error(
+        `[memorix] SQLite busy while opening store (attempt ${attempt + 1}/${INIT_RETRY_DELAYS_MS.length + 1}), retrying in ${delay}ms`,
+      );
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+}
+
 /**
  * Create a fresh ObservationStore instance for a specific data directory
  * without touching the process-wide singleton. This is useful for long-lived
  * multi-project hosts (for example serve-http embedded dashboard APIs) where
  * requests may need to read different project data dirs concurrently.
+ *
+ * Only a *structural* failure — better-sqlite3 genuinely unavailable — falls
+ * back to the read-only DegradedBackend. A transient lock is retried, and a
+ * persistent runtime failure is thrown rather than silently degraded: an
+ * empty-looking store is far more dangerous than a loud error, because
+ * callers cannot distinguish it from a project with no observations yet.
  */
 export async function createObservationStore(dataDir: string): Promise<ObservationStore> {
-  // Try SQLite first (optionalDependencies — may not be installed)
+  let SqliteBackend: new () => ObservationStore;
   try {
-    const { SqliteBackend } = await import('./sqlite-store.js');
-    const store = new SqliteBackend();
+    ({ SqliteBackend } = await import('./sqlite-store.js'));
+  } catch (err) {
+    // Structural: the optional dependency is not installed. Degrading is correct.
+    console.error(`[memorix] SQLite module unavailable — degraded mode (read-only): ${err instanceof Error ? err.message : err}`);
+    const store = new DegradedBackend();
     await store.init(dataDir);
     return store;
-  } catch (err) {
-    console.error(`[memorix] SQLite backend unavailable — degraded mode (read-only): ${err instanceof Error ? err.message : err}`);
   }
 
-  // No writable JSON fallback — degraded read-only mode instead
-  // observations.json is only used as migration source, not runtime backend
-  const store = new DegradedBackend();
-  await store.init(dataDir);
+  // Runtime: the module loaded, so SQLite works. Lock contention is temporary.
+  const store = new SqliteBackend();
+  await initSqliteWithRetry(store, dataDir);
   return store;
 }
 

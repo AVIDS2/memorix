@@ -283,6 +283,7 @@ export default defineCommand({
       let activeCount = 0;
       let ranCount = 0;
       let backendName = 'unknown';
+      let storeError: string | undefined;
       try {
         const { initObservationStore, getObservationStore } = await import('../../store/obs-store.js');
         await initObservationStore(dataDir);
@@ -295,12 +296,21 @@ export default defineCommand({
         obsCount = projectObservations.length;
         activeCount = projectObservations.filter((o: any) => (o.status ?? 'active') === 'active').length;
         ranCount = projectObservations.filter((o: any) => /^Ran:\s/i.test(o.title ?? '')).length;
-      } catch { /* ignore */ }
+      } catch (err) {
+        // The store could not be opened at all. Without this the counters stay
+        // at zero and the branch below reports "0 total" as a healthy result,
+        // which is indistinguishable from a project that has no observations.
+        storeError = err instanceof Error ? err.message : String(err);
+      }
 
-      if (backendName === 'degraded') {
-        lines.push(warn('Observations: SQLite unavailable — degraded (read-only, no data)'));
+      if (storeError) {
+        lines.push(fail(`Observations: storage unavailable — ${storeError}`));
+        issues.push(`Observation store could not be opened: ${storeError}`);
+      } else if (backendName === 'degraded') {
+        lines.push(fail('Observations: SQLite unavailable — degraded (read-only, no data)'));
         issues.push('SQLite backend unavailable — observations cannot be read or written.');
       } else {
+        lines.push(ok('Backend: sqlite (read-write)'));
         lines.push(ok(`Observations: ${obsCount} total, ${activeCount} active`));
         if (ranCount > 0) {
           const pct = Math.round(ranCount / obsCount * 100);

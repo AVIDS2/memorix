@@ -26,10 +26,17 @@ const switchProjectMock = vi.fn();
 const deferredInitMock = vi.fn();
 const isExplicitlyBoundMock = vi.fn();
 const handleTransportCloseMock = vi.fn();
-const existsSyncMock = vi.fn();
-const readFileSyncMock = vi.fn();
-const writeFileSyncMock = vi.fn();
-const mkdirSyncMock = vi.fn();
+const {
+  existsSyncMock,
+  readFileSyncMock,
+  writeFileSyncMock,
+  mkdirSyncMock,
+} = vi.hoisted(() => ({
+  existsSyncMock: vi.fn(),
+  readFileSyncMock: vi.fn(),
+  writeFileSyncMock: vi.fn(),
+  mkdirSyncMock: vi.fn(),
+}));
 const createServerMock = vi.fn();
 const httpServerListenMock = vi.fn();
 const httpServerCloseMock = vi.fn();

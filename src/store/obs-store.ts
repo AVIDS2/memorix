@@ -3,7 +3,7 @@
  *
  * Backends:
  *   - SqliteBackend (sqlite-store.ts) — WAL-mode SQLite with generation tracking
- *   - DegradedBackend — read-only empty store when SQLite is unavailable
+ *   - DegradedBackend — diagnostic-only backend when SQLite is unavailable
  *
  * JSON is no longer a runtime writable backend.
  * observations.json is only used as a one-time migration source into SQLite.
@@ -12,6 +12,7 @@
  */
 
 import type { Observation } from '../types.js';
+import { degradedReadError, degradedWriteError, formatSqliteFailure, isSqliteUnavailableError, initializeSqliteStore } from './sqlite-reliability.js';
 
 /**
  * Raw transaction handle for compound atomic operations.
@@ -164,6 +165,9 @@ export interface ObservationStore {
 
   /** Which backend is active: 'sqlite' or 'degraded' (read-only). */
   getBackendName(): 'sqlite' | 'degraded';
+
+  /** Why a degraded backend was selected, when applicable. */
+  getBackendReason?(): string | undefined;
 }
 
 // ── Singleton store access ─────────────────────────────────────────
@@ -194,41 +198,6 @@ export function resetObservationStore(): void {
   _storeDataDir = null;
 }
 
-/** SQLite error codes that mean "busy right now", not "permanently broken". */
-const TRANSIENT_SQLITE_ERROR = /SQLITE_BUSY|SQLITE_LOCKED|database is locked|database table is locked/i;
-
-function isTransientSqliteError(err: unknown): boolean {
-  const code = (err as { code?: unknown } | null)?.code;
-  if (typeof code === 'string' && TRANSIENT_SQLITE_ERROR.test(code)) return true;
-  return err instanceof Error && TRANSIENT_SQLITE_ERROR.test(err.message);
-}
-
-const INIT_RETRY_DELAYS_MS = [50, 150, 400, 1000, 2500];
-
-/**
- * Initialize a SQLite backend, retrying transient lock contention.
- *
- * Another process (for example the maintenance runner, or a second agent
- * harness) can hold a write transaction while we open the database and run
- * migrations. That is temporary by definition, so we back off and retry
- * instead of giving up on SQLite entirely.
- */
-async function initSqliteWithRetry(store: ObservationStore, dataDir: string): Promise<void> {
-  for (let attempt = 0; ; attempt++) {
-    try {
-      await store.init(dataDir);
-      return;
-    } catch (err) {
-      if (!isTransientSqliteError(err) || attempt >= INIT_RETRY_DELAYS_MS.length) throw err;
-      const delay = INIT_RETRY_DELAYS_MS[attempt];
-      console.error(
-        `[memorix] SQLite busy while opening store (attempt ${attempt + 1}/${INIT_RETRY_DELAYS_MS.length + 1}), retrying in ${delay}ms`,
-      );
-      await new Promise((resolve) => setTimeout(resolve, delay));
-    }
-  }
-}
-
 /**
  * Create a fresh ObservationStore instance for a specific data directory
  * without touching the process-wide singleton. This is useful for long-lived
@@ -242,21 +211,17 @@ async function initSqliteWithRetry(store: ObservationStore, dataDir: string): Pr
  * callers cannot distinguish it from a project with no observations yet.
  */
 export async function createObservationStore(dataDir: string): Promise<ObservationStore> {
-  let SqliteBackend: new () => ObservationStore;
   try {
-    ({ SqliteBackend } = await import('./sqlite-store.js'));
+    const { SqliteBackend } = await import('./sqlite-store.js');
+    return await initializeSqliteStore(() => new SqliteBackend(), dataDir, 'Observation store');
   } catch (err) {
-    // Structural: the optional dependency is not installed. Degrading is correct.
-    console.error(`[memorix] SQLite module unavailable — degraded mode (read-only): ${err instanceof Error ? err.message : err}`);
-    const store = new DegradedBackend();
-    await store.init(dataDir);
-    return store;
+    if (!isSqliteUnavailableError(err)) throw err;
+    const reason = formatSqliteFailure(err);
+    console.error(`[memorix] SQLite module unavailable — degraded mode (reads/writes disabled): ${reason}`);
+    const degraded = new DegradedBackend(reason);
+    await degraded.init(dataDir);
+    return degraded;
   }
-
-  // Runtime: the module loaded, so SQLite works. Lock contention is temporary.
-  const store = new SqliteBackend();
-  await initSqliteWithRetry(store, dataDir);
-  return store;
 }
 
 /**
@@ -284,52 +249,58 @@ export async function initObservationStore(dataDir: string): Promise<Observation
   return store;
 }
 
-// ── DegradedBackend (read-only when SQLite unavailable) ──────────
+// ── DegradedBackend (diagnostic-only when SQLite unavailable) ─────
 
 /**
- * DegradedBackend — ObservationStore that is read-only and empty.
+ * DegradedBackend — diagnostic-only backend used when SQLite is unavailable.
  *
- * Used when better-sqlite3 is unavailable. All write operations throw.
+ * Business reads and writes throw instead of returning synthetic empty data.
  * This ensures the system does not silently fall back to writing observations.json
  * as a runtime canonical store.
  */
 export class DegradedBackend implements ObservationStore {
   private dataDir: string = '';
 
+  constructor(private readonly reason = 'SQLite runtime unavailable') {}
+
+  private unavailableRead(): Error {
+    return degradedReadError('observations');
+  }
+
   async init(dataDir: string): Promise<void> {
     this.dataDir = dataDir;
   }
 
   async loadAll(): Promise<Observation[]> {
-    return [];
+    throw this.unavailableRead();
   }
 
   async loadByProject(_projectId: string, _options?: { status?: string; limit?: number; offset?: number; afterId?: number; newestFirst?: boolean }): Promise<Observation[]> {
-    return [];
+    throw this.unavailableRead();
   }
 
   async countByProject(_projectId: string, _options?: { status?: string; visibility?: 'project' }): Promise<number> {
-    return 0;
+    throw this.unavailableRead();
   }
 
   async getById(_id: number): Promise<Observation | undefined> {
-    return undefined;
+    throw this.unavailableRead();
   }
 
   async loadIdCounter(): Promise<number> {
-    return 1;
+    throw this.unavailableRead();
   }
 
   async countAll(): Promise<number> {
-    return 0;
+    throw this.unavailableRead();
   }
 
   async listProjectIds(): Promise<string[]> {
-    return [];
+    throw this.unavailableRead();
   }
 
   async searchLexical(_options: LexicalSearchOptions): Promise<LexicalSearchHit[]> {
-    return [];
+    throw this.unavailableRead();
   }
 
   hasLexicalIndex(): boolean {
@@ -341,31 +312,31 @@ export class DegradedBackend implements ObservationStore {
   }
 
   async insert(_obs: Observation): Promise<void> {
-    throw new Error('[memorix] Cannot write observations: SQLite backend unavailable (degraded mode)');
+    throw degradedWriteError('observations');
   }
 
   async update(_obs: Observation): Promise<void> {
-    throw new Error('[memorix] Cannot write observations: SQLite backend unavailable (degraded mode)');
+    throw degradedWriteError('observations');
   }
 
   async remove(_id: number): Promise<void> {
-    throw new Error('[memorix] Cannot write observations: SQLite backend unavailable (degraded mode)');
+    throw degradedWriteError('observations');
   }
 
   async bulkReplace(_obs: Observation[]): Promise<void> {
-    throw new Error('[memorix] Cannot write observations: SQLite backend unavailable (degraded mode)');
+    throw degradedWriteError('observations');
   }
 
   async bulkRemoveByIds(_ids: number[]): Promise<void> {
-    throw new Error('[memorix] Cannot write observations: SQLite backend unavailable (degraded mode)');
+    throw degradedWriteError('observations');
   }
 
   async saveIdCounter(_nextId: number): Promise<void> {
-    throw new Error('[memorix] Cannot write observations: SQLite backend unavailable (degraded mode)');
+    throw degradedWriteError('observations');
   }
 
   async atomic<T>(_fn: (tx: StoreTransaction) => Promise<T>): Promise<T> {
-    throw new Error('[memorix] Cannot write observations: SQLite backend unavailable (degraded mode)');
+    throw degradedWriteError('observations');
   }
 
   async ensureFresh(): Promise<boolean> {
@@ -382,5 +353,9 @@ export class DegradedBackend implements ObservationStore {
 
   getBackendName(): 'sqlite' | 'degraded' {
     return 'degraded';
+  }
+
+  getBackendReason(): string {
+    return this.reason;
   }
 }

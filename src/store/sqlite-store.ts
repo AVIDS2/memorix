@@ -18,6 +18,7 @@
 import type { Observation } from '../types.js';
 import type { ObservationStore, StoreTransaction } from './obs-store.js';
 import { getDatabase, closeDatabase } from './sqlite-db.js';
+import { retrySqliteBusy } from './sqlite-reliability.js';
 import {
   isObservationLexicalIndexEnabled,
   rebuildObservationLexicalIndex,
@@ -462,7 +463,9 @@ export class SqliteBackend implements ObservationStore {
     const run = this._atomicQueue
       .catch(() => undefined)
       .then(async () => {
-        this.db.prepare('BEGIN IMMEDIATE').run();
+        await retrySqliteBusy(async () => {
+          this.db.prepare('BEGIN IMMEDIATE').run();
+        }, 'Observation atomic write');
         try {
           const tx: StoreTransaction = {
             loadAll: async () => this.rawLoadAll(),

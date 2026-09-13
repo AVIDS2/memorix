@@ -1126,12 +1126,15 @@ export function getDatabase(dataDir: string): any {
   fs.mkdirSync(dataDir, { recursive: true });
 
   const dbPath = path.join(dataDir, 'memorix.db');
-  const db = createDatabase(dbPath);
+  let db: any;
+  try {
+    db = createDatabase(dbPath);
 
-  // WAL mode for concurrent read performance
-  db.pragma('journal_mode = WAL');
-  db.pragma('busy_timeout = 5000');
-  db.pragma('foreign_keys = ON');
+    // Set the connection-local wait policy before the journal-mode transition.
+    db.pragma('busy_timeout = 5000');
+    // WAL allows readers to continue while one short writer transaction runs.
+    db.pragma('journal_mode = WAL');
+    db.pragma('foreign_keys = ON');
 
   // Create all tables
   db.exec(CREATE_OBSERVATIONS_TABLE);
@@ -1188,8 +1191,14 @@ export function getDatabase(dataDir: string): any {
   db.prepare(`INSERT OR IGNORE INTO meta (key, value) VALUES ('next_id', '1')`).run();
   db.prepare(`INSERT OR IGNORE INTO meta (key, value) VALUES ('mini_skills_generation', '0')`).run();
 
-  _dbCache.set(normalized, db);
-  return db;
+    _dbCache.set(normalized, db);
+    return db;
+  } catch (error) {
+    // A schema/migration/FTS failure must not leave an uncached connection
+    // holding a file lock while callers retry initialization.
+    try { db?.close(); } catch { /* best-effort cleanup */ }
+    throw error;
+  }
 }
 
 /**

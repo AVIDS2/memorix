@@ -3,7 +3,7 @@
  *
  * Backends:
  *   - MiniSkillSqliteStore — canonical store, uses shared DB handle from sqlite-db.ts
- *   - MiniSkillGracefulDegrade — no-op fallback when SQLite is unavailable
+ *   - MiniSkillGracefulDegrade — explicit read-only fallback when SQLite is unavailable
  *
  * Phase 2 debt-zero: SQLite is the only canonical store for mini-skills.
  * JSON files are migration source only. No writable JSON fallback exists.
@@ -11,6 +11,7 @@
 
 import type { MiniSkill } from '../types.js';
 import { getDatabase } from './sqlite-db.js';
+import { degradedReadError, degradedWriteError, initializeSqliteStore, isSqliteUnavailableError, retrySqliteBusy } from './sqlite-reliability.js';
 import {
   loadMiniSkillsJson,
 } from './persistence.js';
@@ -36,6 +37,7 @@ export interface MiniSkillStore {
   ensureFresh(): Promise<boolean>;
   getGeneration(): number;
   getBackendName(): 'sqlite' | 'degraded';
+  getBackendReason?(): string | undefined;
 }
 
 // ── Row <-> MiniSkill serialization ─────────────────────────────────
@@ -220,7 +222,7 @@ export class MiniSkillSqliteStore implements MiniSkillStore {
    * SQLite serializes write transactions, so concurrent calls are safely sequenced.
    */
   async atomicInsertWithId(skillWithoutId: Omit<MiniSkill, 'id'>): Promise<MiniSkill> {
-    const result = this.db.transaction(() => {
+    return retrySqliteBusy(async () => this.db.transaction(() => {
       // 1. Read current counter inside the transaction
       const row = this.stmtGetMeta.get('mini_skills_next_id');
       const nextId = row ? parseInt(row.value, 10) : 1;
@@ -239,8 +241,7 @@ export class MiniSkillSqliteStore implements MiniSkillStore {
       this.knownGeneration = this.readGeneration();
 
       return skill;
-    })();
-    return result;
+    })(), 'Mini-skill promotion');
   }
 
   // ── Freshness ────────────────────────────────────────────────────
@@ -266,16 +267,21 @@ export class MiniSkillSqliteStore implements MiniSkillStore {
 // ── Graceful Degrade Fallback ────────────────────────────────────────
 //
 // Phase 2 debt-zero rule: mini-skills have NO writable JSON fallback.
-// In JSON-only environments (no better-sqlite3), reads return empty
-// and writes are no-ops with a warning. This prevents a parallel
-// canonical JSON write path from existing alongside SQLite.
+// In environments without a supported SQLite runtime, reads return an
+// explicit unavailable error and writes fail rather than pretending success.
 
 export class MiniSkillGracefulDegrade implements MiniSkillStore {
   private warned = false;
 
+  constructor(private readonly reason = 'SQLite runtime unavailable') {}
+
+  private unavailableRead(): Error {
+    return degradedReadError('mini-skills');
+  }
+
   private warn(): void {
     if (!this.warned) {
-      console.error('[memorix] MiniSkillStore: SQLite unavailable — mini-skills are disabled (read-only empty). Install better-sqlite3 for full functionality.');
+      console.error('[memorix] MiniSkillStore: SQLite unavailable — mini-skills cannot be read or written. Install a supported SQLite runtime.');
       this.warned = true;
     }
   }
@@ -284,22 +290,23 @@ export class MiniSkillGracefulDegrade implements MiniSkillStore {
     this.warn();
   }
 
-  async loadAll(): Promise<MiniSkill[]> { return []; }
-  async loadByProject(_projectId: string): Promise<MiniSkill[]> { return []; }
-  async loadIdCounter(): Promise<number> { return 1; }
+  async loadAll(): Promise<MiniSkill[]> { throw this.unavailableRead(); }
+  async loadByProject(_projectId: string): Promise<MiniSkill[]> { throw this.unavailableRead(); }
+  async loadIdCounter(): Promise<number> { throw this.unavailableRead(); }
 
-  async insert(_skill: MiniSkill): Promise<void> { this.warn(); }
-  async update(_skill: MiniSkill): Promise<void> { this.warn(); }
-  async remove(_id: number): Promise<void> { this.warn(); }
-  async saveIdCounter(_nextId: number): Promise<void> { /* no-op */ }
+  async insert(_skill: MiniSkill): Promise<void> { this.warn(); throw degradedWriteError('mini-skills'); }
+  async update(_skill: MiniSkill): Promise<void> { this.warn(); throw degradedWriteError('mini-skills'); }
+  async remove(_id: number): Promise<void> { this.warn(); throw degradedWriteError('mini-skills'); }
+  async saveIdCounter(_nextId: number): Promise<void> { this.warn(); throw degradedWriteError('mini-skills'); }
   async atomicInsertWithId(skillWithoutId: Omit<MiniSkill, 'id'>): Promise<MiniSkill> {
     this.warn();
-    return { ...skillWithoutId, id: 0 } as MiniSkill;
+    throw degradedWriteError('mini-skills');
   }
 
   async ensureFresh(): Promise<boolean> { return false; }
   getGeneration(): number { return 0; }
   getBackendName(): 'sqlite' | 'degraded' { return 'degraded'; }
+  getBackendReason(): string { return this.reason; }
 }
 
 // ── Singleton access ────────────────────────────────────────────────
@@ -329,19 +336,21 @@ export async function initMiniSkillStore(dataDir: string): Promise<MiniSkillStor
   _store = null;
   _storeDataDir = null;
 
-  // Try SQLite first
+  // Only a missing SQLite runtime may use the intentional read-only fallback.
+  let degradedReason = 'SQLite runtime unavailable';
   try {
-    const store = new MiniSkillSqliteStore();
-    await store.init(dataDir);
+    const store = await initializeSqliteStore(() => new MiniSkillSqliteStore(), dataDir, 'Mini-skill store');
     _store = store;
     _storeDataDir = dataDir;
     return store;
   } catch (err) {
-    console.error(`[memorix] MiniSkillSqliteStore unavailable, running in degraded read-only mode: ${err instanceof Error ? err.message : err}`);
+    if (!isSqliteUnavailableError(err)) throw err;
+    degradedReason = err instanceof Error ? err.message : String(err);
+    console.error(`[memorix] MiniSkillSqliteStore unavailable, running in degraded read-only mode: ${degradedReason}`);
   }
 
-  // Fallback: graceful degrade (no writable JSON backend per debt-zero rule)
-  const store = new MiniSkillGracefulDegrade();
+  // Fallback: explicit read-only mode (no writable JSON backend per debt-zero rule)
+  const store = new MiniSkillGracefulDegrade(degradedReason);
   await store.init(dataDir);
   _store = store;
   _storeDataDir = dataDir;

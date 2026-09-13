@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+- **SQLite storage reliability** -- transient cross-process locks no longer
+  turn a process into a permanently empty read-only store. Observations,
+  sessions, and mini-skills share the same initialization and retry contract;
+  persistent runtime failures remain visible.
+- **Storage diagnostics** -- `memorix doctor` reports the active backend,
+  distinguishes unavailable storage from an empty project, and returns a
+  failing exit status for storage failures.
+
 ## [1.9.2] - 2026-09-11
 
 ### Fixed

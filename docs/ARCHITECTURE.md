@@ -150,6 +150,29 @@ Responsibilities:
 - curate long-lived episodes, facts, and procedures with source evidence,
   qualification, approval, archival, and supersession
 
+### Persistence Contract
+
+SQLite is the canonical local record for observations, sessions, mini-skills,
+knowledge, coordination, and CodeGraph metadata. Search indexes and in-memory
+structures are derived views and may be rebuilt; they must never decide that a
+failed database is an empty project.
+
+All SQLite-backed stores share the same startup semantics:
+
+1. A missing SQLite runtime is reported as an explicit degraded backend.
+2. Cross-process `SQLITE_BUSY` contention is retried with bounded backoff.
+3. Persistent runtime failures are thrown and surfaced to the operator.
+4. Degraded business reads and writes fail clearly instead of returning empty
+   data or a fake success.
+5. A connection that fails during schema/index initialization is closed before
+   a retry, so a failed startup cannot retain a file lock.
+
+WAL improves reader/writer overlap but still permits one writer per database
+file. Long maintenance work is therefore isolated and paged, while write
+transactions stay short. Multi-agent installations should prefer one local
+HTTP control plane as the database owner; stdio remains useful for a single
+agent or a deliberately isolated project store.
+
 ### Intelligence and Quality Layer
 
 This layer improves memory quality and retrieval quality.

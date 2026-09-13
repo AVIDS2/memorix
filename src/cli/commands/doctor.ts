@@ -283,12 +283,14 @@ export default defineCommand({
       let activeCount = 0;
       let ranCount = 0;
       let backendName = 'unknown';
-      let storeError: string | undefined;
+      let backendReason: string | undefined;
+      let observationFailure: string | undefined;
       try {
         const { initObservationStore, getObservationStore } = await import('../../store/obs-store.js');
         await initObservationStore(dataDir);
         const store = getObservationStore();
         backendName = store.getBackendName();
+        backendReason = store.getBackendReason?.();
         const { filterReadableObservations } = await import('../../memory/visibility.js');
         projectObservations = projectId
           ? filterReadableObservations(await store.loadAll(), { projectId })
@@ -296,19 +298,28 @@ export default defineCommand({
         obsCount = projectObservations.length;
         activeCount = projectObservations.filter((o: any) => (o.status ?? 'active') === 'active').length;
         ranCount = projectObservations.filter((o: any) => /^Ran:\s/i.test(o.title ?? '')).length;
-      } catch (err) {
+      } catch (error) {
         // The store could not be opened at all. Without this the counters stay
         // at zero and the branch below reports "0 total" as a healthy result,
         // which is indistinguishable from a project that has no observations.
-        storeError = err instanceof Error ? err.message : String(err);
+        observationFailure = error instanceof Error ? error.message : String(error);
       }
 
-      if (storeError) {
-        lines.push(fail(`Observations: storage unavailable — ${storeError}`));
-        issues.push(`Observation store could not be opened: ${storeError}`);
+      if (observationFailure) {
+        lines.push(fail(`Observations: storage unavailable — ${observationFailure}`));
+        issues.push(`Observation store could not be opened: ${observationFailure}`);
+        (report.data as any) = {
+          backend: 'unavailable',
+          observations: null,
+          active: null,
+          commandLogs: null,
+          error: observationFailure,
+        };
       } else if (backendName === 'degraded') {
-        lines.push(fail('Observations: SQLite unavailable — degraded (read-only, no data)'));
-        issues.push('SQLite backend unavailable — observations cannot be read or written.');
+        lines.push(fail(`Backend: degraded (read-only; writes disabled${backendReason ? `; ${backendReason}` : ''})`));
+        lines.push(fail('Observations: unavailable — count not reported'));
+        issues.push('SQLite backend unavailable — observation storage is in degraded read-only mode; observations are not being persisted.');
+        (report.data as any) = { backend: 'degraded', ...(backendReason ? { backendReason } : {}), observations: null, active: null, commandLogs: null };
       } else {
         lines.push(ok('Backend: sqlite (read-write)'));
         lines.push(ok(`Observations: ${obsCount} total, ${activeCount} active`));
@@ -320,32 +331,68 @@ export default defineCommand({
           }
         }
       }
-      report.data = { observations: obsCount, active: activeCount, commandLogs: ranCount };
+      if (!report.data) {
+        report.data = { backend: backendName, observations: obsCount, active: activeCount, commandLogs: ranCount };
+      } else if (!(report.data as any).backend) {
+        (report.data as any).backend = backendName;
+      }
 
       // Sessions — read from SQLite (canonical store)
+      let sessionBackend = 'unknown';
+      let sessionReason: string | undefined;
       try {
         const { initSessionStore, getSessionStore } = await import('../../store/session-store.js');
         await initSessionStore(dataDir);
         const sessStore = getSessionStore();
-        const sess = await sessStore.loadAll();
-        const sessCount = sess.length;
-        const activeSess = sess.filter((s: any) => s.status === 'active').length;
-        lines.push(ok(`Sessions: ${sessCount} total, ${activeSess} active`));
-        (report.data as any).sessions = sessCount;
-      } catch { /* ignore */ }
+        sessionBackend = sessStore.getBackendName();
+        sessionReason = sessStore.getBackendReason?.();
+        if (sessionBackend === 'degraded') {
+          lines.push(fail(`Sessions: unavailable — read-only degraded backend${sessionReason ? `; ${sessionReason}` : ''}`));
+          issues.push('Session storage is in degraded read-only mode.');
+          (report.data as any).sessions = null;
+          if (sessionReason) (report.data as any).sessionBackendReason = sessionReason;
+        } else {
+          const sess = await sessStore.loadAll();
+          const sessCount = sess.length;
+          const activeSess = sess.filter((s: any) => s.status === 'active').length;
+          lines.push(ok(`Sessions: ${sessCount} total, ${activeSess} active`));
+          (report.data as any).sessions = sessCount;
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        lines.push(fail(`Sessions: unavailable (${message})`));
+        issues.push(`Session storage is unavailable: ${message}`);
+        (report.data as any).sessions = null;
+      }
 
       // Mini-skills — read from SQLite (canonical store)
+      let skillBackend = 'unknown';
+      let skillReason: string | undefined;
       try {
         const { initMiniSkillStore, getMiniSkillStore } = await import('../../store/mini-skill-store.js');
         await initMiniSkillStore(dataDir);
         const skillStore = getMiniSkillStore();
-        const skills = await skillStore.loadAll();
-        const skillCount = skills.length;
-        if (skillCount > 0) {
-          lines.push(ok(`Mini-skills: ${skillCount}`));
-          (report.data as any).miniSkills = skillCount;
+        skillBackend = skillStore.getBackendName();
+        skillReason = skillStore.getBackendReason?.();
+        if (skillBackend === 'degraded') {
+          lines.push(fail(`Mini-skills: unavailable — read-only degraded backend${skillReason ? `; ${skillReason}` : ''}`));
+          issues.push('Mini-skill storage is in degraded read-only mode.');
+          (report.data as any).miniSkills = null;
+          if (skillReason) (report.data as any).miniSkillBackendReason = skillReason;
+        } else {
+          const skills = await skillStore.loadAll();
+          const skillCount = skills.length;
+          if (skillCount > 0) {
+            lines.push(ok(`Mini-skills: ${skillCount}`));
+            (report.data as any).miniSkills = skillCount;
+          }
         }
-      } catch { /* ignore */ }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        lines.push(fail(`Mini-skills: unavailable (${message})`));
+        issues.push(`Mini-skill storage is unavailable: ${message}`);
+        (report.data as any).miniSkills = null;
+      }
     } else {
       lines.push(warn('No data directory found for current project'));
       if (!projectId) {
@@ -642,6 +689,10 @@ export default defineCommand({
       console.log(JSON.stringify(report, null, 2));
     } else {
       console.log(lines.join('\n'));
+    }
+
+    if (issues.some((issue) => /^(Observation store could not be opened|Observation storage |Session storage |Mini-skill storage |SQLite backend unavailable)/.test(issue))) {
+      process.exitCode = 1;
     }
   },
 });

@@ -43,6 +43,34 @@ user is allowed to remember.
   memory, and the V8 heap limit so a real saturation report can distinguish
   JavaScript retention from native/model memory.
 
+## SQLite Storage Reliability Contract
+
+SQLite is the durable source of truth. FTS5, Orama, vector indexes, and other
+search structures are derived working indexes; an index failure must never turn
+the durable store into an empty project.
+
+- A missing SQLite runtime may use the explicit read-only degraded backend.
+- A runtime lock (`SQLITE_BUSY`) is retried with bounded backoff. A persistent
+  runtime error is surfaced to the caller; it is never converted into a fake
+  successful read or write.
+- Observations, sessions, and mini-skills follow the same initialization rule.
+  Degraded writes fail loudly so an agent cannot believe a session or promotion
+  was saved when it was not.
+- SQLite connections configure `busy_timeout` before WAL setup. A connection
+  that fails during schema or index initialization is closed before retrying,
+  so a failed startup cannot leave an orphan lock behind.
+- WAL permits concurrent readers but still has one writer. Maintenance and
+  migration work must use short, bounded transactions and must not perform
+  network or LLM work while holding a write transaction. For several agent
+  harnesses, prefer one local `serve-http` control plane so writes are queued
+  by one owner instead of many stdio processes competing for one file.
+- `memorix doctor` reports the active backend. It reports read-only or
+  unavailable storage as an error and never presents the backend's synthetic
+  zero count as an empty project.
+
+This is an integrity boundary, not a corpus quota. The product does not lower
+the number of durable memories to hide lock contention or resource problems.
+
 ## Retrieval Profiles
 
 | Profile | Default? | Network work | Best fit |

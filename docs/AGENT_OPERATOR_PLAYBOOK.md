@@ -792,6 +792,21 @@ not a memory-loss condition. If Memorix instead reports that SQLite is
 unavailable, confirm the installed Node version satisfies the package engine
 and include the exact error when filing an issue.
 
+## 10. Does `doctor` report degraded or unavailable storage?
+
+Treat this as a real storage failure, not as an empty project. The active
+SQLite backend is the source of truth for observations, sessions, and
+mini-skills; derived search indexes may fall back, but they must not hide a
+database failure.
+
+Run `memorix doctor --json` and keep the reported error. A transient
+cross-process `SQLITE_BUSY` is retried automatically. A persistent runtime
+error is surfaced instead of returning empty memory. Stop or pause a long
+maintenance operation and retry after the database is writable. For several
+agent harnesses sharing one local store, prefer one `memorix background start`
+control plane so writes are serialized by one owner; WAL does not allow
+multiple simultaneous writers.
+
 ---
 
 ## 11. What Not to Do

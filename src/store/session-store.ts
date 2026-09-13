@@ -3,7 +3,7 @@
  *
  * Backends:
  *   - SessionSqliteStore — canonical store, uses shared DB handle from sqlite-db.ts
- *   - SessionGracefulDegrade — no-op fallback when SQLite is unavailable
+ *   - SessionGracefulDegrade — explicit read-only fallback when SQLite is unavailable
  *
  * Phase 2 debt-zero: SQLite is the only canonical store for sessions.
  * JSON files are migration source only. No writable JSON fallback exists.
@@ -11,6 +11,7 @@
 
 import type { Session } from '../types.js';
 import { getDatabase } from './sqlite-db.js';
+import { degradedReadError, degradedWriteError, formatSqliteFailure, initializeSqliteStore, isSqliteUnavailableError, retrySqliteBusy } from './sqlite-reliability.js';
 import { loadSessionsJson } from './persistence.js';
 import path from 'node:path';
 import fs from 'node:fs';
@@ -33,6 +34,7 @@ export interface SessionStoreInterface {
    */
   atomicRolloverInsert(newSession: Session, projectIds: string[], now: string): Promise<number>;
   getBackendName(): 'sqlite' | 'degraded';
+  getBackendReason?(): string | undefined;
 }
 
 // ── Row <-> Session serialization ───────────────────────────────────
@@ -175,7 +177,7 @@ export class SessionSqliteStore implements SessionStoreInterface {
     const stmtComplete = this._stmtCompleteActive;
     const stmtIns = this.stmtInsert;
 
-    const result = this.db.transaction(() => {
+    return retrySqliteBusy(async () => this.db.transaction(() => {
       let completedCount = 0;
       for (const pid of projectIds) {
         const info = stmtComplete.run({ pid, now });
@@ -183,8 +185,7 @@ export class SessionSqliteStore implements SessionStoreInterface {
       }
       stmtIns.run(sessionToRow(newSession));
       return completedCount;
-    })();
-    return result;
+    })(), 'Session rollover');
   }
 
   getBackendName(): 'sqlite' | 'degraded' {
@@ -195,15 +196,21 @@ export class SessionSqliteStore implements SessionStoreInterface {
 // ── Graceful Degrade Fallback ────────────────────────────────────────
 //
 // Phase 2 debt-zero rule: sessions have NO writable JSON fallback.
-// In JSON-only environments (no better-sqlite3), reads return empty
-// and writes are no-ops with a warning.
+// In environments without a supported SQLite runtime, reads return an
+// explicit unavailable error and writes fail rather than pretending success.
 
 export class SessionGracefulDegrade implements SessionStoreInterface {
   private warned = false;
 
+  constructor(private readonly reason = 'SQLite runtime unavailable') {}
+
+  private unavailableRead(): Error {
+    return degradedReadError('sessions');
+  }
+
   private warn(): void {
     if (!this.warned) {
-      console.error('[memorix] SessionStore: SQLite unavailable — sessions are disabled (read-only empty). Install better-sqlite3 for full functionality.');
+      console.error('[memorix] SessionStore: SQLite unavailable — sessions cannot be read or written. Install a supported SQLite runtime.');
       this.warned = true;
     }
   }
@@ -212,17 +219,22 @@ export class SessionGracefulDegrade implements SessionStoreInterface {
     this.warn();
   }
 
-  async loadAll(): Promise<Session[]> { return []; }
-  async getById(_id: string): Promise<Session | undefined> { return undefined; }
-  async loadByProject(_projectId: string): Promise<Session[]> { return []; }
-  async loadActive(_projectId: string): Promise<Session[]> { return []; }
+  async loadAll(): Promise<Session[]> { throw this.unavailableRead(); }
+  async getById(_id: string): Promise<Session | undefined> { throw this.unavailableRead(); }
+  async loadByProject(_projectId: string): Promise<Session[]> { throw this.unavailableRead(); }
+  async loadActive(_projectId: string): Promise<Session[]> { throw this.unavailableRead(); }
 
-  async insert(_session: Session): Promise<void> { this.warn(); }
-  async update(_session: Session): Promise<void> { this.warn(); }
-  async bulkUpdate(_sessions: Session[]): Promise<void> { this.warn(); }
-  async atomicRolloverInsert(_newSession: Session, _projectIds: string[], _now: string): Promise<number> { this.warn(); return 0; }
+  async insert(_session: Session): Promise<void> { this.warn(); throw degradedWriteError('sessions'); }
+  async update(_session: Session): Promise<void> { this.warn(); throw degradedWriteError('sessions'); }
+  async bulkUpdate(_sessions: Session[]): Promise<void> { this.warn(); throw degradedWriteError('sessions'); }
+  async atomicRolloverInsert(_newSession: Session, _projectIds: string[], _now: string): Promise<number> {
+    this.warn();
+    throw degradedWriteError('sessions');
+  }
 
   getBackendName(): 'sqlite' | 'degraded' { return 'degraded'; }
+
+  getBackendReason(): string { return this.reason; }
 }
 
 // ── Singleton access ────────────────────────────────────────────────
@@ -248,19 +260,21 @@ export async function initSessionStore(dataDir: string): Promise<SessionStoreInt
   _store = null;
   _storeDataDir = null;
 
-  // Try SQLite first
+  // Only a missing SQLite runtime may use the intentional read-only fallback.
+  let degradedReason = 'SQLite runtime unavailable';
   try {
-    const store = new SessionSqliteStore();
-    await store.init(dataDir);
+    const store = await initializeSqliteStore(() => new SessionSqliteStore(), dataDir, 'Session store');
     _store = store;
     _storeDataDir = dataDir;
     return store;
   } catch (err) {
-    console.error(`[memorix] SessionSqliteStore unavailable, running in degraded read-only mode: ${err instanceof Error ? err.message : err}`);
+    if (!isSqliteUnavailableError(err)) throw err;
+    degradedReason = formatSqliteFailure(err);
+    console.error(`[memorix] SessionSqliteStore unavailable, running in degraded read-only mode: ${degradedReason}`);
   }
 
-  // Fallback: graceful degrade (no writable JSON backend per debt-zero rule)
-  const store = new SessionGracefulDegrade();
+  // Fallback: explicit read-only mode (no writable JSON backend per debt-zero rule)
+  const store = new SessionGracefulDegrade(degradedReason);
   await store.init(dataDir);
   _store = store;
   _storeDataDir = dataDir;

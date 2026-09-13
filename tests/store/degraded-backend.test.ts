@@ -25,20 +25,18 @@ describe('DegradedBackend', () => {
     expect(store.getBackendName()).toBe('degraded');
   });
 
-  it('should return empty observations on loadAll', async () => {
+  it('should fail reads instead of presenting an unavailable store as empty', async () => {
     const { DegradedBackend } = await import('../../src/store/obs-store.js');
     const store = new DegradedBackend();
     await store.init(tmpDir);
-    const obs = await store.loadAll();
-    expect(obs).toEqual([]);
+    await expect(store.loadAll()).rejects.toThrow(/memory is not loaded/i);
   });
 
-  it('should return 1 for loadIdCounter', async () => {
+  it('should fail counter reads instead of inventing an ID', async () => {
     const { DegradedBackend } = await import('../../src/store/obs-store.js');
     const store = new DegradedBackend();
     await store.init(tmpDir);
-    const counter = await store.loadIdCounter();
-    expect(counter).toBe(1);
+    await expect(store.loadIdCounter()).rejects.toThrow(/memory is not loaded/i);
   });
 
   it('should throw on all write operations', async () => {

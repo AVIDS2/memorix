@@ -182,7 +182,7 @@ Memorix 通过目标 Agent 已有的接口接入：插件包、MCP、项目规�
 <sub>stdio or HTTP MCP</sub>
 </td>
 <td align="center" width="12.5%">
-<a href="https://github.com/xai-org/grok-build"><img src="https://github.com/xai-org.png?size=120" alt="Grok Build" width="48" height="48"></a><br>
+<a href="https://github.com/xai-org/grok-build"><picture><source media="(prefers-color-scheme: dark)" srcset="https://media.x.ai/v1/website/spacexai-symbol-white-transparent-0c31957f.png"><img src="https://media.x.ai/v1/website/spacexai-symbol-black-transparent-6435cf42.png" alt="Grok Build" width="48" height="48"></picture></a><br>
 <strong>Grok Build</strong><br>
 <sub>原生 hooks + AGENTS.md</sub>
 </td>

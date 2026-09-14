@@ -13,8 +13,8 @@ artifacts for the VPS/hosted build path only.
 
 ## Current Product State
 
-- `1.8.7` is the current published release. It carries the published 1.8.6
-  integrations and adds the layered CodeGraph semantic evidence plane.
+- `1.9.3` is the current release candidate. It carries the 1.9.2 MCP startup
+  and maintenance fixes plus recoverable SQLite storage and diagnostics.
 - The release keeps the canonical Dashboard Memory Map, removes the obsolete
   renderer/dependencies, makes reachable capabilities visible, and preserves
   the old MCP clients while adding the modern 2026-07-28 core contract.

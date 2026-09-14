@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.9.3] - 2026-09-14
+
 ### Fixed
 - **SQLite storage reliability** -- transient cross-process locks no longer
   turn a process into a permanently empty read-only store. Observations,

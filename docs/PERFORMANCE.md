@@ -191,6 +191,28 @@ Results are machine-specific and should be compared on the same OS and Node
 version. The release gate is an integrity and regression check, not a public
 latency guarantee.
 
+### 1.9.3 Release Evidence (2026-09-14)
+
+The 40,000-record gate passed on Windows with Node `v22.22.3`, SQLite-backed
+storage, and embeddings disabled:
+
+| Measurement | Result |
+| --- | ---: |
+| Seed and index | 48.9 s |
+| Steady-state write p50 / p95 | 0.78 / 1.49 ms |
+| SDK lexical search | 22.8 ms |
+| HTTP ready | 1.87 s |
+| MCP initialize / bind | 116 / 229 ms |
+| MCP context / search / store | 605 / 322 / 595 ms |
+| Hook write | 3.36 s |
+| SDK reopen | 134 ms |
+| Service peak RSS | 412.7 MiB |
+| Durable records after MCP and hook writes | 40,002 |
+
+The planted record was searchable, the MCP and hook writes were durable, and
+the reopened SDK observed the project-visible records. These values are local
+acceptance evidence, not cross-machine performance promises.
+
 ## 1.9.1 Large-Scale Retrieval Contract
 
 The 1.9.1 line improves retrieval latency without shrinking the user's durable

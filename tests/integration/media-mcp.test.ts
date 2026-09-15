@@ -168,10 +168,15 @@ describe('controlled media through MCP', () => {
       prompt: 'A tiny blue cube rotates slowly',
       model: 'MiniMax-H3',
       ratio: '16:9',
+      firstFrameImageUrl: 'https://images.example.test/frame.png',
     }));
     expect(queued).toMatchObject({
       action: 'generate-video',
-      mediaJob: { kind: 'minimax-video-generation', status: 'queued' },
+      mediaJob: {
+        kind: 'minimax-video-generation',
+        status: 'queued',
+        request: { firstFrameImageUrl: 'https://images.example.test/frame.png' },
+      },
       maintenanceJob: { kind: 'media-video-generation' },
     });
     expect(JSON.stringify(queued)).not.toContain('mcp-test-key');

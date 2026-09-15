@@ -127,6 +127,41 @@ describe('MiniMax controlled image generation', () => {
     }, { fetch: fetchMock as typeof fetch })).resolves.toEqual({ taskId: 'video-task-1', status: 'pending' });
   });
 
+  it.each(['global', 'cn'] as const)('submits a first-frame image in the %s region', async (region) => {
+    const firstFrameImageUrl = 'https://images.example.test/frame.png';
+    let calls = 0;
+    const fetchMock = async (_url: string | URL, request?: RequestInit) => {
+      calls += 1;
+      expect(JSON.parse(String(request?.body)).content).toEqual([
+        { type: 'text', text: 'Animate this landscape' },
+        { type: 'image_url', image_url: { url: firstFrameImageUrl }, role: 'first_frame' },
+      ]);
+      return new Response(JSON.stringify({ task_id: 'image-video-task' }), { status: 200 });
+    };
+    await expect(createMiniMaxVideoTask({
+      apiKey: 'test-key',
+      region,
+      prompt: 'Animate this landscape',
+      firstFrameImageUrl,
+    }, { fetch: fetchMock as typeof fetch })).resolves.toMatchObject({ taskId: 'image-video-task' });
+    expect(calls).toBe(1);
+  });
+
+  it.each(['', 'not-a-url', 'file:///frame.png', 'http://images.example.test/frame.png',
+    'https://user:pass@images.example.test/frame.png'])('rejects invalid first-frame input %s before submission', async (firstFrameImageUrl) => {
+    let calls = 0;
+    const fetchMock = async () => {
+      calls += 1;
+      return new Response('{}');
+    };
+    await expect(createMiniMaxVideoTask({
+      apiKey: 'test-key',
+      prompt: 'Animate this landscape',
+      firstFrameImageUrl,
+    }, { fetch: fetchMock as typeof fetch })).rejects.toThrow('first-frame');
+    expect(calls).toBe(0);
+  });
+
   it('normalizes a succeeded V2 video task and returns its temporary download URL', async () => {
     const fetchMock = async (url: string | URL, request?: RequestInit) => {
       expect(url.toString()).toBe('https://api.example.test/v2/query/video_generation/video-task-1');

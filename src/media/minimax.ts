@@ -47,6 +47,7 @@ export interface GeneratedMiniMaxImages {
 
 export interface MiniMaxVideoGenerationRequest {
   prompt: string;
+  firstFrameImageUrl?: string;
   model?: MiniMaxVideoModel;
   region?: MiniMaxRegion;
   apiKey?: string;
@@ -162,6 +163,7 @@ export function normalizeMiniMaxVideoRequest(input: MiniMaxVideoGenerationReques
   region: MiniMaxRegion;
   model: MiniMaxVideoModel;
   prompt: string;
+  firstFrameImageUrl?: string;
   resolution: MiniMaxVideoResolution;
   duration: 5 | 10;
   ratio: MiniMaxVideoRatio;
@@ -178,7 +180,21 @@ export function normalizeMiniMaxVideoRequest(input: MiniMaxVideoGenerationReques
   if (ratio !== 'adaptive' && ratio !== '16:9' && ratio !== '9:16' && ratio !== '1:1') {
     throw new Error('MiniMax video ratio must be adaptive, 16:9, 9:16, or 1:1');
   }
-  return { region, model, prompt, resolution, duration, ratio };
+  let firstFrameImageUrl: string | undefined;
+  if (input.firstFrameImageUrl !== undefined) {
+    firstFrameImageUrl = input.firstFrameImageUrl.trim();
+    let parsed: URL;
+    try {
+      parsed = new URL(firstFrameImageUrl);
+    } catch {
+      throw new Error('MiniMax first-frame image must be a public HTTPS URL');
+    }
+    if (parsed.protocol !== 'https:' || parsed.username || parsed.password
+      || sanitizeCredentials(firstFrameImageUrl) !== firstFrameImageUrl) {
+      throw new Error('MiniMax first-frame image must be an HTTPS URL without credentials');
+    }
+  }
+  return { region, model, prompt, resolution, duration, ratio, ...(firstFrameImageUrl ? { firstFrameImageUrl } : {}) };
 }
 
 function videoRequestConfig(input: MiniMaxVideoGenerationRequest): {
@@ -187,6 +203,7 @@ function videoRequestConfig(input: MiniMaxVideoGenerationRequest): {
   baseUrl: string;
   model: MiniMaxVideoModel;
   prompt: string;
+  firstFrameImageUrl?: string;
   resolution: MiniMaxVideoResolution;
   duration: 5 | 10;
   ratio: MiniMaxVideoRatio;
@@ -284,7 +301,14 @@ export async function createMiniMaxVideoTask(
       headers: videoHeaders(config.apiKey),
       body: JSON.stringify({
         model: config.model,
-        content: [{ type: 'text', text: config.prompt }],
+        content: [
+          { type: 'text', text: config.prompt },
+          ...(config.firstFrameImageUrl ? [{
+            type: 'image_url',
+            image_url: { url: config.firstFrameImageUrl },
+            role: 'first_frame',
+          }] : []),
+        ],
         resolution: config.resolution,
         duration: config.duration,
         ratio: config.ratio,

@@ -32,6 +32,7 @@ interface StoredMiniMaxVideoRequest {
   region: 'global' | 'cn';
   model: 'MiniMax-H3';
   prompt: string;
+  firstFrameImageUrl?: string;
   resolution: '2K';
   duration: 5 | 10;
   ratio: 'adaptive' | '16:9' | '9:16' | '1:1';
@@ -93,13 +94,18 @@ function parseStoredRequest(value: Record<string, unknown>): StoredMiniMaxVideoR
     || (region !== 'global' && region !== 'cn')
     || model !== 'MiniMax-H3'
     || typeof prompt !== 'string'
+    || (value.firstFrameImageUrl !== undefined && typeof value.firstFrameImageUrl !== 'string')
     || resolution !== '2K'
     || (duration !== 5 && duration !== 10)
     || (ratio !== 'adaptive' && ratio !== '16:9' && ratio !== '9:16' && ratio !== '1:1')
     || typeof maxBytes !== 'number' || !Number.isSafeInteger(maxBytes) || maxBytes < 1) {
     throw new Error('Media video job has an invalid request payload');
   }
-  return { provider, region, model, prompt, resolution, duration, ratio, maxBytes };
+  const normalized = normalizeMiniMaxVideoRequest({
+    region, model, prompt, resolution, duration, ratio,
+    firstFrameImageUrl: value.firstFrameImageUrl as string | undefined,
+  });
+  return { provider, ...normalized, maxBytes };
 }
 
 function mediaJobIdFromMaintenance(job: MaintenanceJob): string {
@@ -113,6 +119,7 @@ function mediaJobIdFromMaintenance(job: MaintenanceJob): string {
 function toVideoRequest(request: StoredMiniMaxVideoRequest): MiniMaxVideoGenerationRequest {
   return {
     prompt: request.prompt,
+    firstFrameImageUrl: request.firstFrameImageUrl,
     model: request.model,
     region: request.region,
     resolution: request.resolution,
@@ -233,6 +240,7 @@ export function queueMiniMaxVideoGeneration(input: QueueMiniMaxVideoInput): Queu
     region: normalized.region,
     model: normalized.model,
     prompt: normalized.prompt,
+    ...(normalized.firstFrameImageUrl ? { firstFrameImageUrl: normalized.firstFrameImageUrl } : {}),
     resolution: normalized.resolution,
     duration: normalized.duration,
     ratio: normalized.ratio,

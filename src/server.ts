@@ -5208,6 +5208,7 @@ export async function createMemorixServer(
         } : {}),
         ...(mediaGenerationEnabled ? {
           image: z.string().optional().describe('Base64-encoded reference image for image-to-image generation.'),
+          firstFrameImageUrl: z.string().optional().describe('Public HTTPS first-frame image URL for MiniMax video generation; stored with the queued job.'),
           region: z.enum(['global', 'cn']).optional().describe('MiniMax deployment region.'),
           n: z.number().int().min(1).max(4).optional().describe('Image output count.'),
           ratio: z.enum(['adaptive', '1:1', '16:9', '4:3', '3:2', '2:3', '3:4', '9:16', '21:9']).optional().describe('Image or video aspect ratio.'),
@@ -5217,7 +5218,7 @@ export async function createMemorixServer(
         } : {}),
       },
     },
-    async ({ action, path: assetPath, assetId, jobId, kind, limit, title, narrative, prompt, image, model, provider, language, region, n, ratio, width, height, duration, maxPages, maxChars, attach }) => {
+    async ({ action, path: assetPath, assetId, jobId, kind, limit, title, narrative, prompt, image, firstFrameImageUrl, model, provider, language, region, n, ratio, width, height, duration, maxPages, maxChars, attach }) => {
       const unresolved = requireResolvedProject('manage controlled media');
       if (unresolved) return unresolved;
       const safeError = (error: unknown) => sanitizeCredentials(
@@ -5402,6 +5403,7 @@ export async function createMemorixServer(
             dataDir: projectDir,
             projectId: project.id,
             prompt,
+            firstFrameImageUrl,
             ...(model === 'MiniMax-H3' ? { model } : {}),
             ...(region ? { region } : {}),
             ...(videoRatio ? { ratio: videoRatio } : {}),

@@ -84,6 +84,27 @@ describe('MiniMax durable video jobs', () => {
     expect(asset.sourceLabel).not.toContain('private-result');
   });
 
+  it('preserves a first-frame URL through durable storage and provider submission', async () => {
+    const fixture = await createFixture();
+    const firstFrameImageUrl = 'https://images.example.test/landscape.png';
+    const queued = queueMiniMaxVideoGeneration({
+      ...fixture,
+      prompt: 'Animate this landscape',
+      firstFrameImageUrl,
+    });
+    const stored = new MediaStore(fixture.dataDir).getJob(fixture.projectId, queued.mediaJob.id)!;
+    expect(stored.request.firstFrameImageUrl).toBe(firstFrameImageUrl);
+    let calls = 0;
+    await runMiniMaxVideoGenerationJob(queued.maintenanceJob, fixture, {
+      createTask: async (request) => {
+        calls += 1;
+        expect(request.firstFrameImageUrl).toBe(firstFrameImageUrl);
+        return { taskId: 'first-frame-task', status: 'pending' };
+      },
+    });
+    expect(calls).toBe(1);
+  });
+
   it('fails a submission exactly once instead of resubmitting a possibly billable request', async () => {
     const fixture = await createFixture();
     const queued = queueMiniMaxVideoGeneration({

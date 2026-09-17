@@ -26,6 +26,7 @@ const LLM_ENV_KEYS = [
   'OPENAI_API_KEY',
   'ANTHROPIC_API_KEY',
   'OPENROUTER_API_KEY',
+  'ATLASCLOUD_API_KEY',
 ];
 
 function clearLLMEnv() {
@@ -41,6 +42,20 @@ describe('initLLM config scopes', () => {
   afterEach(() => {
     clearLLMEnv();
     setLLMConfig(null);
+  });
+
+  it('initializes the optional Atlas memory preset and preserves explicit overrides', () => {
+    process.env.MEMORIX_LLM_PROVIDER = 'atlascloud';
+    process.env.MEMORIX_LLM_API_KEY = 'atlas-test-key';
+    expect(initLLM({ scope: 'memory' })).toEqual({
+      provider: 'atlascloud', apiKey: 'atlas-test-key',
+      model: 'deepseek-ai/deepseek-v3.2', baseUrl: 'https://api.atlascloud.ai/v1',
+    });
+    process.env.MEMORIX_LLM_MODEL = 'custom-model';
+    process.env.MEMORIX_LLM_BASE_URL = 'https://gateway.example/v1';
+    expect(initLLM({ scope: 'memory' })).toMatchObject({
+      model: 'custom-model', baseUrl: 'https://gateway.example/v1',
+    });
   });
 
   it('uses agent-specific LLM env vars for TUI agent scope', () => {
@@ -238,6 +253,24 @@ describe('callLLMWithTools', () => {
     ], [], ac.signal)).rejects.toThrow(/abort|cancel/i);
     expect(cancel).toHaveBeenCalledTimes(1);
     expect(releaseLock).toHaveBeenCalledTimes(1);
+  });
+
+  it('routes Atlas memory calls through chat completions without retrying failures', async () => {
+    setLLMConfig({ provider: 'atlascloud', apiKey: 'atlas-test-key',
+      model: 'deepseek-ai/deepseek-v3.2', baseUrl: 'https://api.atlascloud.ai/v1' });
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      choices: [{ message: { content: 'memory summary' } }],
+    }), { headers: { 'Content-Type': 'application/json' } }));
+    globalThis.fetch = fetchMock;
+    expect((await callLLM('Summarize.', 'A project fact.')).content).toBe('memory summary');
+    const [url, options] = fetchMock.mock.calls[0];
+    expect(url).toBe('https://api.atlascloud.ai/v1/chat/completions');
+    expect(options.headers.Authorization).toBe('Bearer atlas-test-key');
+    expect(JSON.parse(options.body).model).toBe('deepseek-ai/deepseek-v3.2');
+    fetchMock.mockClear();
+    fetchMock.mockResolvedValue(new Response('unavailable', { status: 503 }));
+    await expect(callLLM('Summarize.', 'A project fact.')).rejects.toThrow('503');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it('rejects oversized non-streaming responses before parsing the full body', async () => {

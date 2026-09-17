@@ -117,15 +117,17 @@ export function getResolvedConfig(options: ResolvedLaneOptions = {}): ResolvedMe
   const openRouterMemoryLlmApiKey = isOpenRouterMemoryLane(memoryLlmProvider, memoryLlmBaseUrl)
     ? process.env.OPENROUTER_API_KEY
     : undefined;
+  const isAtlasCloud = memoryLlmProvider === 'atlascloud';
   const memoryLlmApiKey = first(
     process.env.MEMORIX_LLM_API_KEY,
     process.env.MEMORIX_API_KEY,
     toml.memory?.llm?.api_key,
     yaml.llm?.apiKey,
     legacy.llm?.apiKey,
-    process.env.OPENAI_API_KEY,
-    process.env.ANTHROPIC_API_KEY,
-    openRouterMemoryLlmApiKey,
+    // Never borrow another provider's credentials for the Atlas Cloud preset.
+    isAtlasCloud ? process.env.ATLASCLOUD_API_KEY : process.env.OPENAI_API_KEY,
+    isAtlasCloud ? undefined : process.env.ANTHROPIC_API_KEY,
+    isAtlasCloud ? undefined : openRouterMemoryLlmApiKey,
   );
 
   const resolved: ResolvedMemorixConfig = {
@@ -321,6 +323,7 @@ function getEnvSourceNames(): string[] {
     'MEMORIX_CODEGRAPH_EXTERNAL_COMMAND',
     'MEMORIX_CODEGRAPH_EXTERNAL_TIMEOUT_MS',
     'OPENROUTER_API_KEY',
+    'ATLASCLOUD_API_KEY',
   ].filter((name) => process.env[name]);
 }
 

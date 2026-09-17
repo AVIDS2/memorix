@@ -21,7 +21,7 @@ import {
   type InitScope,
 } from './init-shared.js';
 
-type InitLlmProvider = 'none' | 'openai' | 'anthropic' | 'openrouter' | 'custom';
+type InitLlmProvider = 'none' | 'openai' | 'anthropic' | 'openrouter' | 'atlascloud' | 'custom';
 type InitEmbeddingProvider = 'off' | 'api' | 'fastembed';
 type InitInjectMode = 'minimal' | 'full' | 'silent';
 
@@ -103,6 +103,7 @@ export default defineCommand({
         { value: 'openai', label: 'OpenAI', hint: 'gpt-4o-mini' },
         { value: 'anthropic', label: 'Anthropic', hint: 'claude-3-haiku' },
         { value: 'openrouter', label: 'OpenRouter', hint: 'multi-provider' },
+        { value: 'atlascloud', label: 'Atlas Cloud', hint: 'DeepSeek V3.2' },
         { value: 'custom', label: 'Custom', hint: 'OpenAI-compatible endpoint' },
       ],
     });
@@ -162,7 +163,7 @@ export default defineCommand({
 
     if (llmProvider !== 'none') {
       envLines.push('# LLM API key');
-      if (llmProvider === 'openai' || llmProvider === 'custom') {
+      if (llmProvider === 'openai' || llmProvider === 'custom' || llmProvider === 'atlascloud') {
         envLines.push('MEMORIX_LLM_API_KEY=sk-your-key-here');
       } else if (llmProvider === 'anthropic') {
         envLines.push('MEMORIX_LLM_API_KEY=sk-ant-your-key-here');
@@ -292,6 +293,8 @@ export function buildInitTomlConfig(options: {
       lines.push('model = "claude-3-haiku-20240307"');
     } else if (options.llmProvider === 'openrouter') {
       lines.push('# model = "openai/gpt-4o-mini"');
+    } else if (options.llmProvider === 'atlascloud') {
+      lines.push('model = "deepseek-ai/deepseek-v3.2"');
     }
     if (options.llmProvider === 'custom') {
       lines.push('# OpenAI-compatible endpoint, for example DashScope, DeepSeek, Ollama, or an internal gateway.');

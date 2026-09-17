@@ -158,6 +158,26 @@ Memorix uses an explicit provider path as-is: for example,
 `https://ark.cn-beijing.volces.com/api/v3` remains `/api/v3`. Only a bare host
 without a versioned path receives the convenience suffix `/v1`.
 
+Atlas Cloud is also available as a memory LLM preset in `memorix init` and the
+configuration TUI:
+
+```toml
+[memory.llm]
+provider = "atlascloud"
+model = "deepseek-ai/deepseek-v3.2"
+```
+
+The preset uses `https://api.atlascloud.ai/v1` and the existing OpenAI-compatible
+chat completion transport. Set `ATLASCLOUD_API_KEY` or `MEMORIX_LLM_API_KEY` in
+your environment, or store `api_key` in your private global config. Do not put
+credentials in project TOML. Explicit `model` and `base_url` overrides still
+apply; model IDs must be available in your Atlas Cloud account. The Atlas preset
+does not fall back to OpenAI, Anthropic, or OpenRouter environment keys.
+
+This is opt-in background memory processing and may incur API charges. Setting
+`ATLASCLOUD_API_KEY` alone does not enable it. Embeddings and memcode's model
+registry are unchanged.
+
 ### `[embedding]`
 
 Used by semantic/vector search. This lane is intentionally separate from

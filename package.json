@@ -83,7 +83,7 @@
     "check:plugin-release": "node scripts/sync-plugin-release-manifests.mjs --check",
     "audit:pi-upstream": "node scripts/pi-upstream-audit.mjs",
     "lint": "tsc --noEmit",
-    "prepublishOnly": "npm run sync:mcp-registry && npm run sync:plugin-release && npm run check:mcp-registry && npm run check:plugin-release && npm run build && npm test"
+    "prepublishOnly": "npm run check:mcp-registry && npm run check:plugin-release && npm run build && npm test"
   },
   "keywords": [
     "mcp",

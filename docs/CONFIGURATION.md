@@ -102,6 +102,11 @@ Memorix resolves configuration in this order:
 Environment variables stay available for CI, MCP launchers, and temporary shell
 overrides. They are not the default user-facing setup path.
 
+For the HTTP control plane, `MEMORIX_HTTP_MAX_BODY_BYTES` bounds JSON request
+bodies at 10 MiB by default and accepts values up to 64 MiB. Keep the default
+unless a trusted local client needs larger payloads; this limit is not an
+authentication boundary.
+
 If you want the simplest setup, configure `~/.memorix/config.toml` once and stop
 there. Add `<git-root>/memorix.toml` only when a repository needs different
 models, memory behavior, or server defaults.

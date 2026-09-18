@@ -29,6 +29,16 @@ Then open:
 - MCP endpoint: `http://localhost:3211/mcp`
 - health: `http://localhost:3211/health`
 
+The compose port is bound to `127.0.0.1` by default. Do not expose this
+unauthenticated control plane directly to the public internet. For a hosted
+deployment, put it behind an authenticated reverse proxy or a private network
+boundary before allowing remote clients to connect.
+
+HTTP JSON bodies are limited to 10 MiB by default (dashboard maintenance
+requests use a 1 MiB sub-limit). Operators can set
+`MEMORIX_HTTP_MAX_BODY_BYTES`, up to 64 MiB, when a trusted local client needs
+larger media or tool payloads.
+
 Stop it with:
 
 ```bash
@@ -50,7 +60,7 @@ If you prefer `docker run`:
 
 ```bash
 docker build -t memorix:local .
-docker run --rm -p 3211:3211 -v memorix-data:/data memorix:local
+docker run --rm -p 127.0.0.1:3211:3211 -v memorix-data:/data memorix:local
 ```
 
 ---

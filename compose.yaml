@@ -7,7 +7,7 @@ services:
     init: true
     restart: unless-stopped
     ports:
-      - "3211:3211"
+      - "127.0.0.1:3211:3211"
     environment:
       MEMORIX_PROJECT_ROOT: /workspace
       MEMORIX_DATA_DIR: /data/.memorix/data

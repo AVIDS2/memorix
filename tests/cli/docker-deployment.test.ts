@@ -41,7 +41,7 @@ describe('official Docker deployment artifacts', () => {
     expect(existsSync(composePath)).toBe(true);
 
     const compose = readFileSync(composePath, 'utf8');
-    expect(compose).toContain('3211:3211');
+    expect(compose).toContain('127.0.0.1:3211:3211');
     expect(compose.toLowerCase()).toContain('healthcheck');
     expect(compose).toContain('/health');
   });

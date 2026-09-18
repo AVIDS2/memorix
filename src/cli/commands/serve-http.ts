@@ -39,6 +39,9 @@ import { mcpFileUriToPath } from '../mcp-root-path.js';
  */
 export const DEFAULT_SESSION_TIMEOUT_MS = 12 * 60 * 60 * 1000;
 export const EXPIRED_SESSION_TTL_MS = 10 * 60 * 1000;
+export const DEFAULT_HTTP_BODY_LIMIT_BYTES = 10 * 1024 * 1024;
+export const MAX_HTTP_BODY_LIMIT_BYTES = 64 * 1024 * 1024;
+export const MIN_HTTP_BODY_LIMIT_BYTES = 64 * 1024;
 /** Pinned SDK protocol accepted internally while the HTTP boundary speaks the current stateless contract. */
 export const MCP_SDK_COMPAT_PROTOCOL_VERSION = '2025-11-25';
 
@@ -54,6 +57,68 @@ export function parseSessionTimeoutMs(raw: string | undefined): number {
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || parsed < 0) return DEFAULT_SESSION_TIMEOUT_MS;
   return Math.floor(parsed);
+}
+
+export function parseHttpBodyLimit(raw: string | undefined): number {
+  const value = raw?.trim();
+  if (!value) return DEFAULT_HTTP_BODY_LIMIT_BYTES;
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < MIN_HTTP_BODY_LIMIT_BYTES) {
+    return DEFAULT_HTTP_BODY_LIMIT_BYTES;
+  }
+  return Math.min(parsed, MAX_HTTP_BODY_LIMIT_BYTES);
+}
+
+export class HttpPayloadTooLargeError extends Error {
+  readonly statusCode = 413;
+
+  constructor(limitBytes: number) {
+    super(`Request body exceeds the ${limitBytes} byte limit.`);
+    this.name = 'HttpPayloadTooLargeError';
+  }
+}
+
+export function parseJsonBody(req: IncomingMessage, limitBytes: number): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    const contentLength = Number(req.headers['content-length']);
+    if (Number.isSafeInteger(contentLength) && contentLength > limitBytes) {
+      req.resume();
+      reject(new HttpPayloadTooLargeError(limitBytes));
+      return;
+    }
+
+    const chunks: Buffer[] = [];
+    let size = 0;
+    let settled = false;
+    const fail = (error: unknown) => {
+      if (settled) return;
+      settled = true;
+      reject(error);
+    };
+
+    req.on('data', (chunk: Buffer) => {
+      if (settled) return;
+      size += chunk.length;
+      if (size > limitBytes) {
+        req.removeAllListeners('data');
+        req.resume();
+        fail(new HttpPayloadTooLargeError(limitBytes));
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on('end', () => {
+      if (settled) return;
+      settled = true;
+      try {
+        const body = Buffer.concat(chunks).toString('utf-8');
+        resolve(body ? JSON.parse(body) : undefined);
+      } catch (error) {
+        reject(error);
+      }
+    });
+    req.on('error', fail);
+  });
 }
 
 export interface ServeHttpConfiguredDefaults {
@@ -176,6 +241,7 @@ export default defineCommand({
     console.error(`[memorix] HTTP transport starting on ${host}:${port}`);
     console.error(`[memorix] Project root: ${projectRoot}`);
     const sessionTimeoutMs = parseSessionTimeoutMs(process.env.MEMORIX_SESSION_TIMEOUT_MS);
+    const httpBodyLimitBytes = parseHttpBodyLimit(process.env.MEMORIX_HTTP_MAX_BODY_BYTES);
     console.error(
       sessionTimeoutMs === 0
         ? '[memorix] HTTP session idle timeout: disabled'
@@ -281,25 +347,6 @@ export default defineCommand({
       }
       res.writeHead(404, { 'Content-Type': 'text/plain' });
       res.end(message);
-    }
-
-    /**
-     * Parse JSON body from IncomingMessage
-     */
-    function parseBody(req: IncomingMessage): Promise<unknown> {
-      return new Promise((resolve, reject) => {
-        const chunks: Buffer[] = [];
-        req.on('data', (chunk: Buffer) => chunks.push(chunk));
-        req.on('end', () => {
-          try {
-            const body = Buffer.concat(chunks).toString('utf-8');
-            resolve(body ? JSON.parse(body) : undefined);
-          } catch (err) {
-            reject(err);
-          }
-        });
-        req.on('error', reject);
-      });
     }
 
     /**
@@ -454,7 +501,7 @@ export default defineCommand({
      */
     async function handlePost(req: IncomingMessage, res: ServerResponse) {
       const sessionId = req.headers['mcp-session-id'] as string | undefined;
-      const body = await parseBody(req);
+      const body = await parseJsonBody(req, httpBodyLimitBytes);
 
       // Keep the pre-2026 startup probe compatible. Older MCP clients sent a
       // claim-less server/discover before initialize and expect a plain JSON
@@ -861,7 +908,7 @@ export default defineCommand({
             sendJson({ error: 'Maintenance actions require POST.' }, 405);
             return;
           }
-          const bodyValue = await parseBody(req);
+          const bodyValue = await parseJsonBody(req, Math.min(httpBodyLimitBytes, 1024 * 1024));
           const body = bodyValue && typeof bodyValue === 'object' && !Array.isArray(bodyValue)
             ? bodyValue as Record<string, unknown>
             : {};
@@ -1694,7 +1741,8 @@ export default defineCommand({
           }, 503);
           return;
         }
-        sendJson({ error: err instanceof Error ? err.message : 'Unknown error' }, 500);
+        const status = err instanceof HttpPayloadTooLargeError ? err.statusCode : 500;
+        sendJson({ error: err instanceof Error ? err.message : 'Unknown error' }, status);
       }
     }
 
@@ -1792,10 +1840,15 @@ export default defineCommand({
         } catch (err) {
           console.error('[memorix] HTTP handler error:', err);
           if (!res.headersSent) {
-            res.writeHead(500, { 'Content-Type': 'application/json' });
+            const status = err instanceof HttpPayloadTooLargeError ? err.statusCode : 500;
+            const message = err instanceof Error ? err.message : 'Internal server error';
+            res.writeHead(status, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({
               jsonrpc: '2.0',
-              error: { code: -32603, message: 'Internal server error' },
+              error: {
+                code: status === 413 ? -32013 : -32603,
+                message: status === 413 ? message : 'Internal server error',
+              },
               id: null,
             }));
           }
@@ -1943,6 +1996,10 @@ export default defineCommand({
 /** @internal */
 export const _testing = {
   DEFAULT_SESSION_TIMEOUT_MS,
+  DEFAULT_HTTP_BODY_LIMIT_BYTES,
+  MAX_HTTP_BODY_LIMIT_BYTES,
+  MIN_HTTP_BODY_LIMIT_BYTES,
   parseSessionTimeoutMs,
+  parseHttpBodyLimit,
   parseTcpPortOrReport,
 };

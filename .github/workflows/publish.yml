@@ -16,12 +16,29 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.ref }}
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           registry-url: https://registry.npmjs.org
           cache: npm
+      - name: Verify release tag matches package version
+        id: package-version
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./package.json').version")"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          expected_ref="refs/tags/v${version}"
+          if [ "$GITHUB_REF" != "$expected_ref" ]; then
+            echo "This workflow must run from ${expected_ref}; got ${GITHUB_REF}." >&2
+            exit 1
+          fi
+          if [ "$(git rev-parse HEAD)" != "$GITHUB_SHA" ]; then
+            echo "Checked out commit does not match the workflow SHA." >&2
+            exit 1
+          fi
       - run: npm ci
       - run: npm run check:mcp-registry
       - run: npm run build
@@ -35,7 +52,7 @@ jobs:
           version="$(node -p "require('./package.json').version")"
 
           if npm view "memorix@$version" version >/dev/null 2>&1; then
-            echo "memorix@$version is already published; continuing with Registry publication."
+            echo "memorix@$version is already published."
             exit 0
           fi
 
@@ -44,23 +61,43 @@ jobs:
           publish_status=${PIPESTATUS[0]}
           set -e
 
-          if [ "$publish_status" -eq 0 ]; then
-            exit 0
-          fi
-
-          if npm view "memorix@$version" version >/dev/null 2>&1; then
-            echo "memorix@$version became visible after the publish response; continuing."
-            exit 0
-          fi
-
-          if grep --quiet 'TLOG_CREATE_ENTRY_ERROR' npm-publish.log && \
-             grep --quiet 'equivalent entry already exists' npm-publish.log; then
-            echo "Sigstore transparency-log duplicate detected; retrying the already verified package without provenance."
-            npm publish --access public --ignore-scripts
-            exit 0
+          if [ "$publish_status" -ne 0 ]; then
+            visible=false
+            for delay in 5 10 20 30 45 60; do
+              if npm view "memorix@$version" version 2>/dev/null | grep --quiet "^${version}$"; then
+                visible=true
+                break
+              fi
+              echo "Publish returned an error; checking npm again in ${delay}s."
+              sleep "$delay"
+            done
+            if [ "$visible" = true ]; then
+              echo "memorix@$version became visible after the publish response."
+              publish_status=0
+            elif grep --quiet 'TLOG_CREATE_ENTRY_ERROR' npm-publish.log && \
+                 grep --quiet 'equivalent entry already exists' npm-publish.log; then
+              echo "Sigstore transparency-log duplicate detected; retrying without provenance."
+              npm publish --access public --ignore-scripts
+              publish_status=0
+            fi
           fi
 
           exit "$publish_status"
+      - name: Wait for npm package visibility
+        env:
+          PACKAGE_VERSION: ${{ steps.package-version.outputs.version }}
+        run: |
+          set -euo pipefail
+          for delay in 5 10 20 30 45 60; do
+            if npm view "memorix@$PACKAGE_VERSION" version 2>/dev/null | grep --quiet "^${PACKAGE_VERSION}$"; then
+              echo "memorix@$PACKAGE_VERSION is visible in npm."
+              exit 0
+            fi
+            echo "memorix@$PACKAGE_VERSION is not visible yet; waiting ${delay}s."
+            sleep "$delay"
+          done
+          echo "memorix@$PACKAGE_VERSION did not become visible in npm." >&2
+          exit 1
       - name: Install the official MCP Registry publisher
         env:
           MCP_PUBLISHER_VERSION: 1.8.0

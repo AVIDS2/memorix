@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { Observation } from '../../src/types.js';
 import { eligibleObservations, syncEligibility } from '../../src/sync/policy.js';
+import { userSyncNamespace, USER_SYNC_NAMESPACE } from '../../src/sync/namespace.js';
 
 function obs(partial: Partial<Observation> & { id: number; projectId: string }): Observation {
   return {
@@ -49,5 +50,13 @@ describe('sync eligibility', () => {
     expect(eligibleObservations(rows, 'org/one').excluded).toBe(2);
     expect(eligibleObservations(rows, '__user__', 'user').eligible).toHaveLength(2);
     expect(eligibleObservations(rows, '__user__', 'user').excluded).toBe(1);
+  });
+});
+
+describe('user sync namespace', () => {
+  it('defaults to user-global and prefixes a safe override', () => {
+    expect(userSyncNamespace({})).toBe(USER_SYNC_NAMESPACE);
+    expect(userSyncNamespace({ MEMORIX_SYNC_USER_NAMESPACE: 'team-a' })).toBe('user-team-a');
+    expect(() => userSyncNamespace({ MEMORIX_SYNC_USER_NAMESPACE: '../escape' })).toThrow(/MEMORIX_SYNC_USER_NAMESPACE/);
   });
 });

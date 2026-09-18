@@ -92,15 +92,16 @@ export default defineCommand({
       return;
     }
     if (action === 'device') {
-      const { projectId, syncStore } = await openSyncStore(scope);
       const subaction = (args._ as string[])?.[1] || '';
       if (subaction !== 'rotate') {
         emitError('expected "memorix sync store device rotate"', asJson);
         process.exitCode = 2;
         return;
       }
+      // Device identity is per data directory, not per Git project.
+      const { projectId, syncStore } = await openSyncStore('user');
       const deviceId = syncStore.rotateDevice();
-      emitResult({ project: projectId, scope, deviceId, rotated: true }, `Sync device identity rotated: ${deviceId}`, asJson);
+      emitResult({ project: projectId, scope: 'user', deviceId, rotated: true }, `Sync device identity rotated: ${deviceId}`, asJson);
       return;
     }
     if (action !== 'push' && action !== 'pull' && action !== 'status' && action !== 'compact') {

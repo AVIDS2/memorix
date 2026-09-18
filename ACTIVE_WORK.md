@@ -68,7 +68,10 @@ criteria and the public issue/PR disposition live in
   configure Grok and packaged agents for one HTTP control plane. CI is green,
   but the PR still needs human review and native setup/restart smoke tests.
 - **#302 / #304:** include in the 1.9.5 decision window, but do not merge
-  unchanged. User scope needs cross-user namespace isolation, mixed-project
+  unchanged. Review found that user-scope tombstones still pass the
+  `__user__` sentinel through a project-specific removal check, and local
+  integer observation IDs can collide across projects. It needs scope-aware
+  remove/ID remapping, cross-user namespace isolation, mixed-project
   key/tombstone/compaction tests, and an explicit privacy review before it can
   become a release feature.
 - **#300:** defer; optional Atlas Cloud support has no checks or review and is

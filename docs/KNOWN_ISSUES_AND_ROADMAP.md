@@ -28,8 +28,8 @@
 
 ### 新 issue / PR 处置
 
-- [#301](https://github.com/AVIDS2/memorix/issues/301) / [#303](https://github.com/AVIDS2/memorix/pull/303)：纳入 1.9.5。它修复显式 `--mcp http` 被 Grok 忽略、插件仍各自启动 stdio MCP 的已发布行为，并补充系统服务示例。当前 CI 全绿但没有人工 review；合并前必须验证 Grok、Claude/Codex/Copilot/CodeBuddy/Gemini/OpenClaw/Antigravity 的真实安装结果，以及 systemd/LaunchAgent 重启和有效数据目录。
-- [#302](https://github.com/AVIDS2/memorix/issues/302) / [#304](https://github.com/AVIDS2/memorix/pull/304)：列入 1.9.5 决策窗口，但不接受“CI 绿就直接合并”。`--scope user` 会把多个项目放进同一个远程命名空间，必须先补跨用户命名空间隔离、混合项目的 sync key/tombstone/compaction 测试、隐私过滤审计，以及无 Git checkout 的 CLI 测试。
+- [#301](https://github.com/AVIDS2/memorix/issues/301) / [#303](https://github.com/AVIDS2/memorix/pull/303)：纳入 1.9.5。它修复显式 `--mcp http` 被 Grok 忽略、插件仍各自启动 stdio MCP 的已发布行为，并补充系统服务示例。当前 CI 全绿但没有人工 review；合并前必须验证 Grok、Claude/Codex/Copilot/CodeBuddy/Gemini/OpenClaw/Antigravity 的真实安装结果，以及 systemd/LaunchAgent 重启和有效数据目录。特别要复核 systemd 示例把 `%h` 同时作为 `--cwd` 的语义，避免用户主目录被当成 Git 项目或错误数据根。
+- [#302](https://github.com/AVIDS2/memorix/issues/302) / [#304](https://github.com/AVIDS2/memorix/pull/304)：列入 1.9.5 决策窗口，但不接受“CI 绿就直接合并”。除跨用户命名空间隔离、隐私过滤和混合项目 compaction 外，当前实现还需要修复用户范围 tombstone 仍走项目级 `projectId` 校验的问题，并为跨项目的本地整数 observation ID 冲突设计稳定 remap/逻辑键策略；现有测试只覆盖空目标库的 upsert。还需补无 Git checkout 的 CLI 测试。
 - [#300](https://github.com/AVIDS2/memorix/pull/300)：暂缓。Atlas Cloud 是可选 provider，当前没有 checks 或人工 review，不应挤占 1.9.5 基础设施门槛。
 - [#297](https://github.com/AVIDS2/memorix/issues/297) / [#283](https://github.com/AVIDS2/memorix/issues/283)：保留为生态/文档跟进，不是 1.9.5 阻塞项；[#49](https://github.com/AVIDS2/memorix/issues/49) 与 [#3](https://github.com/AVIDS2/memorix/issues/3) 继续独立排期。
 

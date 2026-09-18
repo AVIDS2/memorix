@@ -17,6 +17,7 @@
  *     reaches the same final state (last-writer-wins, convergent).
  */
 import type { Observation } from '../types.js';
+import type { SyncScope } from './policy.js';
 
 /** Kind of change carried in the journal. */
 export type ChangeKind = 'upsert' | 'tombstone';
@@ -158,6 +159,7 @@ export interface SyncReport {
   remote: string;
   namespace: string;
   projectId: string;
+  scope: SyncScope;
   deviceId: string;
   pushed: number;
   pulledBatches: number;

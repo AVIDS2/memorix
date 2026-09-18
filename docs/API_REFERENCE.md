@@ -81,6 +81,7 @@ memorix sync workspace --action scan
 memorix sync store status --json
 memorix sync store push
 memorix sync store pull
+memorix sync store push --scope user
 memorix sync store device rotate
 memorix ingest image --path ./diagram.png
 memorix media import --path ./architecture.png
@@ -92,7 +93,8 @@ memorix receipt --json --probe "release blocker"
 The CLI is for direct terminal use, not a 1:1 mirror of MCP tool names. It does not require an MCP connection. `--cwd` selects a Git project from any shell; an unbound terminal has project-visible access only, including transfer exports. `memorix identity join|use|clear` makes personal/team access and coordination explicit, while `--as <agent-id>` is the one-command equivalent for scripts. The only MCP-only area is the optional graph-compatibility tools (`create_entities`, `read_graph`, and related tools) for workflows that expect the official memory-server style graph API.
 
 `memorix sync store` is an explicit, opt-in multi-device observation relay. It
-uses the current Git project as its namespace, excludes personal/agent-targeted
+uses the current Git project as its namespace by default (`--scope project`),
+or every local project with `--scope user`. It excludes personal/agent-targeted
 and unqualified records, keeps a local retry outbox, and stores cursors locally.
 The default `status` action is preview-only. GitHub stores immutable JSONL event
 blobs; it does not receive `memorix.db`, `memorix.db-wal`, or `memorix.db-shm`.

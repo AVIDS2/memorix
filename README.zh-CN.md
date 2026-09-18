@@ -84,7 +84,7 @@ Memorix 不只是一个记忆库。它还负责安装 Agent 接入、保留有�
 | Orchestration 和团队协作 | 任务规划、worker 交接、文件锁、消息、验证门和 review loop | `memorix orchestrate`、`memorix team`、`memorix lock` |
 | memcode | 内置终端 Coding Agent，默认读写同一套项目记忆 | `memorix`、`memcode` |
 | CLI 和 SDK | 给自动化、导入导出、诊断和自定义集成使用的本地接口 | `memorix ...`、`createMemoryClient()` |
-| 可选多设备同步 | 按项目隔离、经过隐私过滤的记忆事件同步；本地 SQLite 仍是主库 | `memorix sync store status\|push\|pull` |
+| 可选多设备同步 | 经过隐私过滤的记忆事件同步；本地 SQLite 仍是主库；默认按当前项目，可用 `--scope user` 覆盖全部本地项目 | `memorix sync store status\|push\|pull` |
 
 <h2 id="支持你的-agent"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/tags/light/section-agents.svg"><img src="assets/tags/section-agents.svg" alt="Works with every agent" height="32" /></picture></h2>
 
@@ -219,9 +219,10 @@ CLI、MCP 和 HTTP 是不同入口：
 - `memorix background start` / `memorix serve-http` 是 HTTP 服务，用于共享端点、Dashboard、VPS Docker 部署或多客户端。
 
 多设备记忆同步是可选功能，和 HTTP 共享服务不是一回事。它不会上传
-`memorix.db`、WAL 或 SHM 文件。默认只同步当前项目中已确认且项目可见的
-观察记录；个人、指定 Agent、候选、短期和其它项目的记录会留在本地。设置
-`MEMORIX_SYNC_PROVIDER` 后，先运行 `memorix sync store status --json` 再 push。
+`memorix.db`、WAL 或 SHM 文件。默认只同步当前 Git 项目中已确认且项目可见的
+观察记录；个人、指定 Agent、候选和短期记录会留在本地。传入 `--scope user`
+可覆盖全部本地项目。设置 `MEMORIX_SYNC_PROVIDER` 后，先运行
+`memorix sync store status --json` 再 push。
 
 <h2 id="安装"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/tags/light/section-install.svg"><img src="assets/tags/section-install.svg" alt="安装" height="32" /></picture></h2>
 

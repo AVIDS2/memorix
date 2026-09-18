@@ -89,6 +89,10 @@ backup is not a merge input.
       version/audit record.
 - [x] Personal, agent-targeted, candidate, ephemeral, and other-project rows
       are excluded by default.
+- [x] `--scope user` is an explicit opt-in that relays every local project's
+      eligible rows through a separate `user-global` namespace. Privacy
+      filters still drop personal, agent-targeted, candidate, and ephemeral
+      rows. The live SQLite file is still never copied.
 - [x] Copying a data directory produces a clear device-clone error and a
       documented `device rotate` recovery path.
 - [x] GitHub relay protocol smoke proves only JSONL/snapshot artifacts are uploaded;

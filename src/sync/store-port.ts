@@ -11,9 +11,10 @@ import type { Observation } from '../types.js';
 import type { ObservationStore } from '../store/obs-store.js';
 import { getDatabase } from '../store/sqlite-db.js';
 import { CREATE_SYNC_TABLES } from './journal.js';
-import { syncNamespace } from './namespace.js';
+import { syncNamespace, userSyncNamespace, USER_SYNC_SCOPE_ID } from './namespace.js';
 import type { SyncStorePort } from './engine.js';
 import type { SyncConflict, SyncCursor, SyncPendingBatch, SyncRowState } from './types.js';
+import type { SyncScope } from './policy.js';
 
 const SEQ_KEY = 'local_sequence';
 const DEVICE_KEY = 'device_id';
@@ -25,9 +26,16 @@ export interface SqliteSyncStore extends SyncStorePort {
   deviceId(): string;
 }
 
-export function createSqliteSyncStore(dataDir: string, store: ObservationStore, projectId: string): SqliteSyncStore {
+export function createSqliteSyncStore(
+  dataDir: string,
+  store: ObservationStore,
+  projectId: string,
+  options: { scope?: SyncScope } = {},
+): SqliteSyncStore {
   const db = getDatabase(dataDir);
-  ensureSyncSchema(db, projectId);
+  const scope: SyncScope = options.scope ?? 'project';
+  const scopeId = scope === 'user' ? USER_SYNC_SCOPE_ID : projectId;
+  ensureSyncSchema(db, scope === 'user' ? LEGACY_PROJECT_ID : projectId);
   const getMeta = db.prepare('SELECT value FROM sync_meta WHERE key = ?');
   const setMeta = db.prepare('INSERT OR REPLACE INTO sync_meta (key, value) VALUES (?, ?)');
   const selState = db.prepare('SELECT projectId, syncKey, obsId, revision, writer, kind, contentHash, shippedSeq FROM sync_row_state WHERE projectId = ?');
@@ -68,7 +76,7 @@ export function createSqliteSyncStore(dataDir: string, store: ObservationStore, 
       WHERE projectId = ? AND namespace = ? AND deviceId = ? AND sequence = ?`,
   );
 
-  const namespace = syncNamespace(projectId);
+  const namespace = scope === 'user' ? userSyncNamespace() : syncNamespace(projectId);
   const deviceFingerprint = process.env.MEMORIX_SYNC_DEVICE_FINGERPRINT?.trim()
     || `${process.platform}|${os.hostname()}|${os.homedir()}`;
 
@@ -101,7 +109,8 @@ export function createSqliteSyncStore(dataDir: string, store: ObservationStore, 
   }
 
   return {
-    projectId: () => projectId,
+    projectId: () => scopeId,
+    scope: () => scope,
     namespace: () => namespace,
     deviceId: ensureDevice,
     assertCanPublish,
@@ -152,7 +161,7 @@ export function createSqliteSyncStore(dataDir: string, store: ObservationStore, 
     },
 
     async loadPendingBatches(): Promise<SyncPendingBatch[]> {
-      return (selPending.all(projectId, namespace, ensureDevice()) as Array<{ batchJson: string; statesJson: string }>).map((row) => ({
+      return (selPending.all(scopeId, namespace, ensureDevice()) as Array<{ batchJson: string; statesJson: string }>).map((row) => ({
         batch: JSON.parse(row.batchJson),
         states: JSON.parse(row.statesJson),
       } as SyncPendingBatch));
@@ -160,7 +169,7 @@ export function createSqliteSyncStore(dataDir: string, store: ObservationStore, 
 
     async enqueueBatch(pending: SyncPendingBatch): Promise<void> {
       insertPending.run({
-        projectId,
+        projectId: scopeId,
         namespace,
         deviceId: pending.batch.deviceId,
         sequence: pending.batch.sequence,
@@ -171,15 +180,15 @@ export function createSqliteSyncStore(dataDir: string, store: ObservationStore, 
     },
 
     async markBatchShipped(sequence: number): Promise<void> {
-      deletePending.run(projectId, namespace, ensureDevice(), sequence);
+      deletePending.run(scopeId, namespace, ensureDevice(), sequence);
     },
 
     async loadAll(): Promise<Observation[]> {
-      return store.loadByProject(projectId);
+      return scope === 'user' ? store.loadAll() : store.loadByProject(projectId);
     },
 
     async loadState(): Promise<Map<string, SyncRowState>> {
-      const rows = selState.all(projectId) as SyncRowState[];
+      const rows = selState.all(scopeId) as SyncRowState[];
       const map = new Map<string, SyncRowState>();
       for (const r of rows) map.set(r.syncKey, r);
       return map;

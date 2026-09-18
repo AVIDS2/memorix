@@ -397,10 +397,14 @@ Common keys:
 Store sync is disabled unless `MEMORIX_SYNC_PROVIDER` is explicitly set. It
 replicates approved project-visible observation events, never the live SQLite
 file or its `-wal` / `-shm` companions. The local SQLite store remains the
-canonical read/write store.
+canonical read/write store. Default scope is the current Git project. Pass
+`--scope user` to relay every local project through a separate `user-global`
+namespace (override with `MEMORIX_SYNC_USER_NAMESPACE` when several operators
+share one remote).
 
 ```text
 MEMORIX_SYNC_PROVIDER=fs|github|s3|postgres
+MEMORIX_SYNC_USER_NAMESPACE=optional-override   # --scope user remote namespace suffix
 ```
 
 The filesystem relay needs `MEMORIX_SYNC_FS_ROOT`. The GitHub relay needs a

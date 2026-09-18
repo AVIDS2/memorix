@@ -4,6 +4,22 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.9.4] - 2026-09-18
+
+### Added
+- **MiniMax first-frame video input** -- image-to-video generation now accepts
+  a public HTTPS first-frame image URL through the CLI and MCP surfaces,
+  preserves it in durable media jobs, and submits it with the provider's
+  `first_frame` image role.
+
+### Fixed
+- **First-frame URL safety** -- rejects non-HTTPS URLs and embedded credentials
+  before a media request is submitted or persisted.
+
+### Changed
+- **Grok Build documentation** -- the README comparison now uses the official
+  Grok Build logo assets.
+
 ## [1.9.3] - 2026-09-14
 
 ### Fixed

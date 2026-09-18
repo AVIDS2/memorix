@@ -298,7 +298,7 @@ What it installs depends on the target agent, but the goal is the same: make Mem
 - Oh-my-Pi: installs an `omp.extensions` package with extension hook events, a `memorix` command, official skills, and writes MCP config.
 - DeepSeek Harness: writes a Memorix `@deepseek-ai/dsh-mcp-client` row into `$DSH_HOME/cordis.patch.yml` (default `~/.dsh/cordis.patch.yml`), appends guidance to the harness `AGENTS.md`, and installs official skills under `$DSH_HOME/skills`. The row follows DSH's own shipped Memorix reference, so tools appear as `mcp__memorix__*`.
 - WorkBuddy: writes a Memorix MCP server row into `~/.workbuddy/mcp.json` (or `<project>/.workbuddy/mcp.json` for project installs) and appends guidance to `AGENTS.md`. Tools appear as `mcp__memorix__*`; there is no hooks surface.
-- Grok Build: installs native lifecycle hooks under `~/.grok/hooks/memorix.json` and guidance in `~/.grok/AGENTS.md`. It leaves Grok's MCP configuration host-owned; project-local hooks require Grok `/hooks-trust`, while global hooks are trusted. Set `GROK_HOME` to use a custom Grok home.
+- Grok Build: installs native lifecycle hooks under `~/.grok/hooks/memorix.json` and guidance in `~/.grok/AGENTS.md`. MCP stays host-owned by default; pass `--mcp http` to write `[mcp_servers.memorix]` with `url = "http://localhost:3211/mcp"`. Project-local hooks require Grok `/hooks-trust`, while global hooks are trusted. Set `GROK_HOME` to use a custom Grok home.
 
 Need a quieter install? Add `--noHooks` for targets where setup can control hook capture separately from the host's official package entry. It keeps MCP and guidance, but skips Memorix hook capture.
 

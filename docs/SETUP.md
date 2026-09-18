@@ -237,6 +237,61 @@ Use foreground HTTP mode for debugging or custom launch supervision:
 memorix serve-http --port 3211
 ```
 
+`memorix background start` survives the terminal but not logout or reboot. For a supervised control plane that only execs `memorix serve-http`, use an OS unit. Keep the bind address loopback-only.
+
+Linux systemd user unit (`~/.config/systemd/user/memorix-http.service`):
+
+```ini
+[Unit]
+Description=Memorix HTTP MCP control plane
+After=default.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/env memorix serve-http --host 127.0.0.1 --port 3211 --cwd %h
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target
+```
+
+```bash
+systemctl --user daemon-reload
+systemctl --user enable --now memorix-http.service
+```
+
+macOS LaunchAgent (`~/Library/LaunchAgents/com.memorix.http.plist`). Replace the `memorix` path with the output of `which memorix`:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.memorix.http</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/local/bin/memorix</string>
+    <string>serve-http</string>
+    <string>--host</string>
+    <string>127.0.0.1</string>
+    <string>--port</string>
+    <string>3211</string>
+  </array>
+  <key>KeepAlive</key>
+  <true/>
+  <key>RunAtLoad</key>
+  <true/>
+</dict>
+</plist>
+```
+
+```bash
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.memorix.http.plist
+```
+
 Generic HTTP MCP config:
 
 ```json

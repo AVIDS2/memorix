@@ -168,6 +168,8 @@ function worstStatus(statuses: AgentIntegrationStatus[]): AgentIntegrationStatus
 }
 
 function isMcpConfigAgent(agent: AgentName): agent is McpConfigAgent {
+  // Grok has a setup-only HTTP adapter. Doctor/repair skip it so a default
+  // host-owned Grok MCP is not reported as missing.
   return agent !== 'pi' && agent !== 'grok';
 }
 

@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- **Setup HTTP MCP** -- `memorix setup --mcp http` honors Grok (writes a
+  `[mcp_servers.memorix]` URL in Grok `config.toml`) and rewrites installed
+  plugin/extension bundled MCP manifests from `memorix serve` to
+  `http://localhost:3211/mcp`. Default Grok MCP stays host-owned. Docs include
+  generic systemd user unit and LaunchAgent KeepAlive examples for
+  `memorix serve-http`.
+
 ## [1.9.4] - 2026-09-18
 
 ### Added

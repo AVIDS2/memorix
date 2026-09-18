@@ -23,10 +23,9 @@ export class GrokMCPAdapter implements MCPConfigAdapter {
     return this.toml.generate(servers);
   }
 
-  getConfigPath(projectRoot?: string): string {
-    if (projectRoot) {
-      return join(projectRoot, '.grok', 'config.toml');
-    }
+  getConfigPath(_projectRoot?: string): string {
+    // Grok reads user-level ~/.grok/config.toml (or $GROK_HOME). Project
+    // `.grok/` is the hooks directory, not MCP config.
     const grokHome = process.env.GROK_HOME?.trim() || join(homedir(), '.grok');
     return join(grokHome, 'config.toml');
   }

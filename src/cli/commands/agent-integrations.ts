@@ -775,7 +775,62 @@ async function inspectCodexPluginMcp(): Promise<AgentMcpCheck | null> {
   }
 }
 
+async function inspectOptionalGrokMcp(scope: AgentIntegrationScope): Promise<AgentIntegrationEntry['mcp']> {
+  if (scope === 'project' || scope === 'local') {
+    return { status: 'skipped', issues: ['mcp-host-owned'], checks: [] };
+  }
+
+  const adapter = getMcpAdapter('grok');
+  const configPath = adapter.getConfigPath();
+  if (!existsSync(configPath)) {
+    return {
+      status: 'skipped',
+      issues: ['mcp-host-owned'],
+      checks: [{
+        scope: 'global',
+        path: configPath,
+        exists: false,
+        status: 'skipped',
+        issues: ['mcp-host-owned'],
+      }],
+    };
+  }
+
+  const content = await readFile(configPath, 'utf-8');
+  const server = adapter.parse(content).find((entry) => entry.name === 'memorix');
+  if (!server) {
+    return {
+      status: 'skipped',
+      issues: ['mcp-host-owned'],
+      checks: [{
+        scope: 'global',
+        path: configPath,
+        exists: true,
+        status: 'skipped',
+        issues: ['mcp-host-owned'],
+      }],
+    };
+  }
+
+  const issues: string[] = [];
+  if (!server.url && looksLikeStaleMemorixCommand(server)) issues.push('stale-command-path');
+  if (!server.url && !isRecommendedStdioServer(server)) issues.push('nonstandard-mcp-command');
+  return {
+    status: issues.length > 0 ? 'repairable' : 'ok',
+    issues,
+    checks: [{
+      scope: 'global',
+      path: configPath,
+      exists: true,
+      status: issues.length > 0 ? 'repairable' : 'ok',
+      issues,
+      server: sanitizeServer(server),
+    }],
+  };
+}
+
 async function inspectMcp(agent: AgentName, projectRoot: string, scope: AgentIntegrationScope): Promise<AgentIntegrationEntry['mcp']> {
+  if (agent === 'grok') return inspectOptionalGrokMcp(scope);
   if (!isMcpConfigAgent(agent)) {
     return { status: 'skipped', issues: ['mcp-managed-by-package'], checks: [] };
   }

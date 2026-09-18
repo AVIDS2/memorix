@@ -970,6 +970,39 @@ describe('setup MCP config installer', () => {
     }
   });
 
+  it('writes Grok HTTP MCP to user config even without --global', async () => {
+    const tmpDir = makeTmpDir();
+    const originalHome = process.env.HOME;
+    const originalUserProfile = process.env.USERPROFILE;
+    const originalGrokHome = process.env.GROK_HOME;
+    try {
+      process.env.HOME = tmpDir;
+      process.env.USERPROFILE = tmpDir;
+      delete process.env.GROK_HOME;
+      const projectRoot = path.join(tmpDir, 'repo');
+      await fs.mkdir(projectRoot, { recursive: true });
+
+      const result = await installMcpConfig({
+        agent: 'grok',
+        mcp: 'http',
+        global: false,
+        projectRoot,
+      });
+
+      expect(result.configPath).toBe(path.join(tmpDir, '.grok', 'config.toml'));
+      await expect(fs.access(path.join(projectRoot, '.grok', 'config.toml'))).rejects.toThrow();
+      expect(await fs.readFile(result.configPath, 'utf-8')).toContain('url = "http://localhost:3211/mcp"');
+    } finally {
+      if (originalHome === undefined) delete process.env.HOME;
+      else process.env.HOME = originalHome;
+      if (originalUserProfile === undefined) delete process.env.USERPROFILE;
+      else process.env.USERPROFILE = originalUserProfile;
+      if (originalGrokHome === undefined) delete process.env.GROK_HOME;
+      else process.env.GROK_HOME = originalGrokHome;
+      await cleanup(tmpDir);
+    }
+  });
+
   it('migrates only the legacy Codex source-path MCP server after plugin setup', async () => {
     const tmpDir = makeTmpDir();
     try {

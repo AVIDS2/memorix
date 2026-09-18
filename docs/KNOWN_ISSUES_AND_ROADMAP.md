@@ -1,12 +1,37 @@
 # Memorix 已知边界与路线图
 
-> 最后审阅：2026-08-14（对照 v1.4.3）
+> 最后审阅：2026-09-18（对照 v1.9.4，准备 1.9.5）
 
 这份文档说明仍然成立的产品边界、风险和方向；它不是发布流水账。
 
 - 已发布版本和每次修复的事实，以 [CHANGELOG](../CHANGELOG.md) 为准。
 - 当前正在进行的维护工作，以 [ACTIVE_WORK](../ACTIVE_WORK.md) 为准。
 - 可讨论、可订阅的后续事项，以 GitHub Open Issues 为准。
+
+---
+
+## 1.9.5 剩余必须纳入项
+
+> 基线是 `v1.9.4` / `main` `f7ed621`。本节是发布门槛与必须做出的
+> 明确决策，不等同于“所有 open issue 都要合并”。
+
+### 发布门槛
+
+| 优先级 | 项目 | 当前结论 | 1.9.5 完成标准 |
+|---|---|---|---|
+| P1 | HTTP 控制面安全与生命周期 | 本地分支已加入请求体上限和 Compose 回环绑定；显式绑定非回环地址时仍没有认证。端口冲突、后台假存活、优雅关闭也需要补齐。 | 默认只监听回环；非回环暴露必须认证或被明确拒绝；监听失败可观测且启动失败不留假状态；后台重启/停止和 HTTP、SQLite 资源关闭有测试。 |
+| P1 | 项目隔离 | 图谱表缺少项目归属，替换/删除可能影响其他项目。旧 JSON 迁移的去重条件也没有真正按项目隔离。 | 图谱实体、边和迁移路径都有项目边界；两个项目之间的读、写、替换、删除、迁移测试全部通过。 |
+| P1 | 迁移失败语义 | legacy JSON 迁移没有跨进程锁和完整原子恢复；解析失败继续启动为空库，会把“数据损坏”伪装成“没有数据”。 | 迁移具备锁、原子提交、备份/恢复和可诊断失败；源数据不完整时 fail-closed，不覆盖或隐藏旧数据。 |
+| P1 | Store / SQLite 生命周期 | SDK、HTTP 和 Orama 存在进程级共享状态；关闭一个实例可能影响另一个，缓存中的 SQLite handle 也没有始终释放。普通写入重试、事务内异步回调和 ID/代数更新仍需审计。 | 明确实例所有权或引用计数；关闭路径真正释放数据库和索引；并发写入有有界重试；写锁内不等待不受控异步工作；增加多实例和崩溃恢复测试。 |
+| P2 | 内存与容量边界 | 请求体已在本地分支设上限；会话、stateless binding、Dashboard/团队查询、失败任务、embedding 缓存和项目目录缓存仍有无界路径。 | 每条路径有上限、TTL 或保留策略；大输入、长时间运行和重复初始化的内存/延迟回归测试通过。 |
+| P1 | 发布契约 | 本地分支已加入 tag/version/commit 校验、npm 可见性等待和 check-only 发布前置检查，但尚未进入主线。 | 远程 workflow 使用这些保护；模拟“npm 已发布但 registry 尚未传播”和错误 tag 时会安全停止或可重试。 |
+
+### 新 issue / PR 处置
+
+- [#301](https://github.com/AVIDS2/memorix/issues/301) / [#303](https://github.com/AVIDS2/memorix/pull/303)：纳入 1.9.5。它修复显式 `--mcp http` 被 Grok 忽略、插件仍各自启动 stdio MCP 的已发布行为，并补充系统服务示例。当前 CI 全绿但没有人工 review；合并前必须验证 Grok、Claude/Codex/Copilot/CodeBuddy/Gemini/OpenClaw/Antigravity 的真实安装结果，以及 systemd/LaunchAgent 重启和有效数据目录。
+- [#302](https://github.com/AVIDS2/memorix/issues/302) / [#304](https://github.com/AVIDS2/memorix/pull/304)：列入 1.9.5 决策窗口，但不接受“CI 绿就直接合并”。`--scope user` 会把多个项目放进同一个远程命名空间，必须先补跨用户命名空间隔离、混合项目的 sync key/tombstone/compaction 测试、隐私过滤审计，以及无 Git checkout 的 CLI 测试。
+- [#300](https://github.com/AVIDS2/memorix/pull/300)：暂缓。Atlas Cloud 是可选 provider，当前没有 checks 或人工 review，不应挤占 1.9.5 基础设施门槛。
+- [#297](https://github.com/AVIDS2/memorix/issues/297) / [#283](https://github.com/AVIDS2/memorix/issues/283)：保留为生态/文档跟进，不是 1.9.5 阻塞项；[#49](https://github.com/AVIDS2/memorix/issues/49) 与 [#3](https://github.com/AVIDS2/memorix/issues/3) 继续独立排期。
 
 ---
 

@@ -4,7 +4,7 @@
 > before resuming substantial work, update it after a material decision or
 > milestone, and do not create parallel progress logs.
 
-**Last updated:** 2026-09-02
+**Last updated:** 2026-09-18
 
 **Local verification rule:** run the frontend, HTTP service, MCP server, and
 tests directly with Node/npm on the E: workspace. Do not start Docker or add
@@ -13,8 +13,9 @@ artifacts for the VPS/hosted build path only.
 
 ## Current Product State
 
-- `1.9.3` is the current release candidate. It carries the 1.9.2 MCP startup
-  and maintenance fixes plus recoverable SQLite storage and diagnostics.
+- `1.9.4` is the current published baseline. The `1.9.5` line is reserved for
+  infrastructure hardening, the reviewed HTTP setup path, and only the sync
+  changes that pass the expanded scope and privacy gates.
 - The release keeps the canonical Dashboard Memory Map, removes the obsolete
   renderer/dependencies, makes reachable capabilities visible, and preserves
   the old MCP clients while adding the modern 2026-07-28 core contract.
@@ -33,6 +34,47 @@ artifacts for the VPS/hosted build path only.
   `npm run lint`, the sequential low-memory build, the full local regression,
   and all 7 remote CI checks passed. Live embedding tests remain intentionally
   skipped when their environment flag is absent.
+
+## 1.9.5 Remaining Must-Have (2026-09-18)
+
+The release baseline is `v1.9.4` on `main` (`f7ed621`). The following are
+release gates, not a promise to merge every open issue. Detailed acceptance
+criteria and the public issue/PR disposition live in
+[docs/KNOWN_ISSUES_AND_ROADMAP.md](docs/KNOWN_ISSUES_AND_ROADMAP.md).
+
+- **[P1] HTTP control-plane boundary and lifecycle:** keep loopback as the
+  default, require authentication or an explicit refusal-safe policy before a
+  non-loopback bind, report port/listen failures, supervise background
+  processes correctly, and close HTTP/store/database resources on shutdown.
+- **[P1] Project isolation:** add project ownership to graph persistence and
+  verify two-project reads, replacement, deletion, and migration behavior.
+- **[P1] Migration safety:** make legacy JSON migration cross-process safe and
+  atomic, make deduplication project-aware, and fail closed with a recoverable
+  diagnostic instead of presenting an empty database after malformed input.
+- **[P1] Store ownership and SQLite concurrency:** remove unsafe process-global
+  client/store coupling, close cached database handles, bound busy retries, and
+  avoid awaiting arbitrary callbacks while holding a write transaction.
+- **[P2] Memory and scale budgets:** bound session/binding lifetime, dashboard
+  and coordination queries, failed-job retention, embedding caches, and
+  project-directory caches with regression tests.
+- **[local branch]** `codex/1.9.5-infra-hardening` (`9011aaf`) contains the
+  HTTP body limit, loopback Docker bind, release tag/version checks, npm
+  visibility wait, and check-only prepublish hardening. It must be reviewed and
+  landed before the 1.9.5 release candidate.
+
+### New GitHub work
+
+- **#301 / #303:** required for 1.9.5. The fix makes explicit `--mcp http`
+  configure Grok and packaged agents for one HTTP control plane. CI is green,
+  but the PR still needs human review and native setup/restart smoke tests.
+- **#302 / #304:** include in the 1.9.5 decision window, but do not merge
+  unchanged. User scope needs cross-user namespace isolation, mixed-project
+  key/tombstone/compaction tests, and an explicit privacy review before it can
+  become a release feature.
+- **#300:** defer; optional Atlas Cloud support has no checks or review and is
+  not an infrastructure release gate.
+- **#297 / #283:** keep open as ecosystem/documentation follow-ups; neither is
+  a 1.9.5 blocker. #49 and #3 remain separate future integration work.
 
 ## 1.8.7 CodeGraph Main Line (2026-09-02)
 

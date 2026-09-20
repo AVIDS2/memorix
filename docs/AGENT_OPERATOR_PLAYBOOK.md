@@ -415,7 +415,7 @@ After=default.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/env memorix serve-http --host 127.0.0.1 --port 3211 --cwd %h
+ExecStart=/usr/bin/env memorix serve-http --host 127.0.0.1 --port 3211
 Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin
 Restart=on-failure
 RestartSec=3

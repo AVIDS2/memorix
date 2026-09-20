@@ -11,8 +11,11 @@ services:
     environment:
       MEMORIX_PROJECT_ROOT: /workspace
       MEMORIX_DATA_DIR: /data/.memorix/data
-      # Keep HTTP MCP sessions alive for long IDE work blocks. Default is 30 min.
+      # Keep HTTP MCP sessions alive for long IDE work blocks. Default is 12 h.
       MEMORIX_SESSION_TIMEOUT_MS: 86400000
+      # The host port is loopback-only above; the container still binds its
+      # internal listener to 0.0.0.0 so Docker port forwarding works.
+      MEMORIX_HTTP_ALLOW_UNAUTHENTICATED_BIND: "1"
     volumes:
       - memorix-data:/data
       - ./:/workspace

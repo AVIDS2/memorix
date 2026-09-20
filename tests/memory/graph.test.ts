@@ -174,5 +174,37 @@ describe('KnowledgeGraphManager', () => {
       expect(graph.entities[0].observations).toContain('data');
       expect(graph.relations).toHaveLength(1);
     });
+
+    it('isolates same-named entities and replacement operations by project', async () => {
+      const projectA = new KnowledgeGraphManager(testDir, 'org/project-a');
+      const projectB = new KnowledgeGraphManager(testDir, 'org/project-b');
+
+      await projectA.createEntities([
+        { name: 'shared', entityType: 'service-a', observations: ['only A'] },
+      ]);
+      await projectA.createRelations([
+        { from: 'shared', to: 'shared', relationType: 'self-a' },
+      ]);
+      await projectB.createEntities([
+        { name: 'shared', entityType: 'service-b', observations: ['only B'] },
+      ]);
+      await projectB.createRelations([
+        { from: 'shared', to: 'shared', relationType: 'self-b' },
+      ]);
+
+      expect(await projectA.readGraph()).toEqual({
+        entities: [{ name: 'shared', entityType: 'service-a', observations: ['only A'] }],
+        relations: [{ from: 'shared', to: 'shared', relationType: 'self-a' }],
+      });
+      expect(await projectB.readGraph()).toEqual({
+        entities: [{ name: 'shared', entityType: 'service-b', observations: ['only B'] }],
+        relations: [{ from: 'shared', to: 'shared', relationType: 'self-b' }],
+      });
+
+      await projectA.deleteEntities(['shared']);
+      expect((await projectA.readGraph()).entities).toHaveLength(0);
+      expect((await projectB.readGraph()).entities).toHaveLength(1);
+      expect((await projectB.readGraph()).relations).toHaveLength(1);
+    });
   });
 });

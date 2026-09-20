@@ -616,7 +616,7 @@ export async function getSessionContext(
     let graphNeighbors: string[] = [];
     if (!reader && activeEntities.length > 0) {
       try {
-        const graphMgr = new KnowledgeGraphManager(projectDir);
+        const graphMgr = new KnowledgeGraphManager(projectDir, projectId);
         await graphMgr.init();
         const { relations } = await graphMgr.readGraph();
         const activeSet = new Set(activeEntities.map((n) => n.toLowerCase()));

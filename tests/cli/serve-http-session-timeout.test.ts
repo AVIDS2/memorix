@@ -27,6 +27,20 @@ describe('serve-http session timeout configuration', () => {
     expect(_testing.parseSessionTimeoutMs('86400000')).toBe(24 * 60 * 60 * 1000);
   });
 
+  it('requires an explicit policy before a non-loopback bind', () => {
+    expect(_testing.isLoopbackHost('127.0.0.1')).toBe(true);
+    expect(_testing.isLoopbackHost('0.0.0.0')).toBe(false);
+    expect(() => _testing.validateHttpBindSecurity('0.0.0.0', {})).toThrow(/MEMORIX_HTTP_AUTH_TOKEN/);
+    expect(_testing.validateHttpBindSecurity('0.0.0.0', { MEMORIX_HTTP_AUTH_TOKEN: 'secret' })).toEqual({
+      requiresAuth: true,
+      explicitlyUnauthenticated: false,
+    });
+    expect(_testing.validateHttpBindSecurity('0.0.0.0', { MEMORIX_HTTP_ALLOW_UNAUTHENTICATED_BIND: '1' })).toEqual({
+      requiresAuth: false,
+      explicitlyUnauthenticated: true,
+    });
+  });
+
   it('allows operators to disable idle session GC, while invalid values keep the default', () => {
     expect(_testing.parseSessionTimeoutMs('0')).toBe(0);
     expect(_testing.parseSessionTimeoutMs('not-a-number')).toBe(12 * 60 * 60 * 1000);

@@ -20,6 +20,22 @@ const RETRY_INTERVAL_MS = 50;
 const MAX_RETRIES = 60;
 const atomicWriteTails = new Map<string, Promise<void>>();
 
+function canReclaimStaleLock(raw: string): boolean {
+  try {
+    const parsed = JSON.parse(raw) as { pid?: unknown };
+    const pid = Number(parsed.pid);
+    if (!Number.isSafeInteger(pid) || pid < 1) return true;
+    try {
+      process.kill(pid, 0);
+      return false;
+    } catch (error) {
+      return (error as NodeJS.ErrnoException).code !== 'EPERM';
+    }
+  } catch {
+    return true;
+  }
+}
+
 /**
  * Acquire a lock file atomically.
  * Uses O_WRONLY | O_CREAT | O_EXCL — fails if file already exists.
@@ -39,8 +55,11 @@ export async function acquireLock(lockPath: string): Promise<void> {
         try {
           const stat = await fs.stat(lockPath);
           if (Date.now() - stat.mtimeMs > LOCK_STALE_MS) {
-            await fs.unlink(lockPath).catch(() => {});
-            continue;
+            const raw = await fs.readFile(lockPath, 'utf8').catch(() => '');
+            if (canReclaimStaleLock(raw)) {
+              await fs.unlink(lockPath).catch(() => {});
+              continue;
+            }
           }
         } catch {
           continue; // Lock disappeared — retry immediately
@@ -51,7 +70,13 @@ export async function acquireLock(lockPath: string): Promise<void> {
       }
     }
   }
-  // Last resort: force-remove stale lock and try once more
+  // Last resort: reclaim only a stale lock whose recorded owner is no longer
+  // alive. Never delete a long-running live writer's lock just because the
+  // operation exceeded the retry window.
+  const raw = await fs.readFile(lockPath, 'utf8').catch(() => '');
+  if (!canReclaimStaleLock(raw)) {
+    throw new Error(`Failed to acquire lock: ${lockPath} (owner is still running)`);
+  }
   await fs.unlink(lockPath).catch(() => {});
   try {
     const fd = await fs.open(lockPath, 'wx');

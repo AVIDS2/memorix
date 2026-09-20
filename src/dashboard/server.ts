@@ -16,7 +16,7 @@ import { exec } from 'node:child_process';
 import { getBaseDataDir } from '../store/persistence.js';
 import { getObservationStore, initObservationStore } from '../store/obs-store.js';
 import { getSessionStore, initSessionStore } from '../store/session-store.js';
-import { initGraphStore, getGraphStore } from '../store/graph-store.js';
+import { initGraphStore } from '../store/graph-store.js';
 import type { TeamStore } from '../team/team-store.js';
 import { loadDotenv } from '../config/dotenv-loader.js';
 import { resetDotenv } from '../config/dotenv-loader.js';
@@ -309,8 +309,7 @@ async function handleApi(
             }
 
             case '/graph': {
-                await initGraphStore(effectiveDataDir);
-                const gStore = getGraphStore();
+                const gStore = await initGraphStore(effectiveDataDir, effectiveProjectId);
                 const graph = { entities: gStore.loadEntities(), relations: gStore.loadRelations() };
                 const graphObs = filterDashboardObservations(
                     await getObservationStore().loadByProject(effectiveProjectId, { status: 'active' }),
@@ -360,8 +359,8 @@ async function handleApi(
             }
 
             case '/stats': {
-                await initGraphStore(effectiveDataDir);
-                const graph = { entities: getGraphStore().loadEntities(), relations: getGraphStore().loadRelations() };
+                const gStore = await initGraphStore(effectiveDataDir, effectiveProjectId);
+                const graph = { entities: gStore.loadEntities(), relations: gStore.loadRelations() };
                 const observations = filterDashboardObservations(
                     await getObservationStore().loadByProject(effectiveProjectId, { status: 'active' }),
                     effectiveProjectId,
@@ -584,10 +583,10 @@ async function handleApi(
             case '/knowledge-graph': {
                 const { generateKnowledgeGraph } = await import('../wiki/knowledge-graph.js');
                 const { initMiniSkillStore, getMiniSkillStore } = await import('../store/mini-skill-store.js');
-                const { initGraphStore, getGraphStore } = await import('../store/graph-store.js');
+                const { initGraphStore } = await import('../store/graph-store.js');
 
                 await initMiniSkillStore(effectiveDataDir);
-                await initGraphStore(effectiveDataDir);
+                const gStore = await initGraphStore(effectiveDataDir, effectiveProjectId);
 
                 const allObs = filterDashboardObservations(
                     await getObservationStore().loadByProject(effectiveProjectId, { status: 'active' }),
@@ -595,7 +594,7 @@ async function handleApi(
                 );
                 const skills = await getMiniSkillStore().loadByProject(effectiveProjectId);
 
-                const fullGraph = { entities: getGraphStore().loadEntities(), relations: getGraphStore().loadRelations() };
+                const fullGraph = { entities: gStore.loadEntities(), relations: gStore.loadRelations() };
                 const scoped = scopeKnowledgeGraphToProject(fullGraph, allObs);
 
                 const graph = generateKnowledgeGraph({
@@ -848,8 +847,7 @@ async function handleApi(
 
                         // Sync: clean up graph entity references for this observation
                         try {
-                            await initGraphStore(effectiveDataDir);
-                            const gStore = getGraphStore();
+                            const gStore = await initGraphStore(effectiveDataDir, effectiveProjectId);
                             const prefix = `[#${obsId}] `;
                             const deletions: { entityName: string; observations: string[] }[] = [];
                             for (const entity of gStore.loadEntities()) {
@@ -865,8 +863,8 @@ async function handleApi(
                 }
 
                 if (apiPath === '/export') {
-                    await initGraphStore(effectiveDataDir);
-                    const fullGraph = { entities: getGraphStore().loadEntities(), relations: getGraphStore().loadRelations() };
+                    const gStore = await initGraphStore(effectiveDataDir, effectiveProjectId);
+                    const fullGraph = { entities: gStore.loadEntities(), relations: gStore.loadRelations() };
                     const observations = filterDashboardObservations(
                         await getObservationStore().loadByProject(effectiveProjectId, { status: 'active' }),
                         effectiveProjectId,

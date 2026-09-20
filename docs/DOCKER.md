@@ -34,6 +34,12 @@ unauthenticated control plane directly to the public internet. For a hosted
 deployment, put it behind an authenticated reverse proxy or a private network
 boundary before allowing remote clients to connect.
 
+Set `MEMORIX_HTTP_AUTH_TOKEN` in the service environment when the control plane
+must accept remote clients. Send it as `Authorization: Bearer <token>`; the
+`/health` endpoint remains unauthenticated for readiness checks. The supplied
+compose file uses an explicit unauthenticated-bind opt-in because its published
+host port is loopback-only.
+
 HTTP JSON bodies are limited to 10 MiB by default (dashboard maintenance
 requests use a 1 MiB sub-limit). Operators can set
 `MEMORIX_HTTP_MAX_BODY_BYTES`, up to 64 MiB, when a trusted local client needs
@@ -60,7 +66,9 @@ If you prefer `docker run`:
 
 ```bash
 docker build -t memorix:local .
-docker run --rm -p 127.0.0.1:3211:3211 -v memorix-data:/data memorix:local
+docker run --rm -p 127.0.0.1:3211:3211 \
+  -e MEMORIX_HTTP_ALLOW_UNAUTHENTICATED_BIND=1 \
+  -v memorix-data:/data memorix:local
 ```
 
 ---
@@ -70,9 +78,11 @@ docker run --rm -p 127.0.0.1:3211:3211 -v memorix-data:/data memorix:local
 `memorix serve-http` accepts a `--host` flag:
 
 - **Local** (default): binds to `127.0.0.1` — only accessible from the host machine
-- **Docker**: the Dockerfile sets `--host 0.0.0.0` — accessible from outside the container, which is required for port mapping (`-p 3211:3211`) to work
+- **Docker**: the Dockerfile sets `--host 0.0.0.0` — accessible from outside the container, which is required for port mapping (`-p 3211:3211`) to work. Set `MEMORIX_HTTP_AUTH_TOKEN`, or explicitly opt into an unauthenticated private-network bind with `MEMORIX_HTTP_ALLOW_UNAUTHENTICATED_BIND=1`.
 
-If you run `serve-http` manually inside a container, make sure to pass `--host 0.0.0.0` or the port will not be reachable from the host.
+If you run `serve-http` manually inside a container, make sure to pass
+`--host 0.0.0.0` plus one of those explicit security settings, or the server
+will refuse to start.
 
 ---
 

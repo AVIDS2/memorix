@@ -28,6 +28,7 @@ import {
 import type { LexicalSearchHit } from './obs-store.js';
 import path from 'node:path';
 import fs from 'node:fs';
+import { withFileLock } from './file-lock.js';
 
 // ── Row ↔ Observation serialization ────────────────────────────────
 
@@ -294,49 +295,53 @@ export class SqliteBackend implements ObservationStore {
   // ── Migration ────────────────────────────────────────────────────
 
   private async migrateFromJsonIfNeeded(): Promise<void> {
-    // Only migrate if table is empty
-    const count = this.db.prepare(`SELECT COUNT(*) AS cnt FROM observations`).get();
-    if (count.cnt > 0) return;
-
     const jsonPath = path.join(this.dataDir, 'observations.json');
     if (!fs.existsSync(jsonPath)) return;
 
-    try {
-      const raw = fs.readFileSync(jsonPath, 'utf-8');
-      const observations: Observation[] = JSON.parse(raw);
+    await withFileLock(this.dataDir, async () => {
+      // Re-check under the cross-process lock. Another initializer may have
+      // completed the migration while this process was waiting.
+      const count = this.db.prepare(`SELECT COUNT(*) AS cnt FROM observations`).get();
+      if (count.cnt > 0) return;
 
+      const raw = fs.readFileSync(jsonPath, 'utf-8');
+      const parsed: unknown = JSON.parse(raw);
+      if (!Array.isArray(parsed)) {
+        throw new Error('[memorix] observations.json migration refused: expected a JSON array');
+      }
+      const observations = parsed as Observation[];
       if (observations.length === 0) return;
+      if (observations.some((obs) => !obs || !Number.isSafeInteger(obs.id) || obs.id < 1 || typeof obs.projectId !== 'string')) {
+        throw new Error('[memorix] observations.json migration refused: invalid observation record');
+      }
 
       console.error(`[memorix] Migrating ${observations.length} observations from JSON to SQLite...`);
 
+      // The SQLite transaction makes the migration all-or-nothing. The JSON
+      // source remains intact until an operator explicitly removes it.
       const insertMany = this.db.transaction((obsList: Observation[]) => {
         for (const obs of obsList) {
           this.stmtInsert.run(obsToRow(obs));
         }
+
+        const counterPath = path.join(this.dataDir, 'counter.json');
+        let counterNextId: number | undefined;
+        if (fs.existsSync(counterPath)) {
+          const counterData = JSON.parse(fs.readFileSync(counterPath, 'utf-8')) as { nextId?: unknown; next_id?: unknown };
+          const candidate = counterData.nextId ?? counterData.next_id;
+          if (candidate !== undefined && (!Number.isSafeInteger(candidate) || Number(candidate) < 1)) {
+            throw new Error('[memorix] counter.json migration refused: nextId must be a positive integer');
+          }
+          counterNextId = candidate === undefined ? undefined : Number(candidate);
+        }
+        const maxId = Math.max(...obsList.map((obs) => obs.id));
+        this.rawSaveIdCounter(Math.max(counterNextId ?? 1, maxId + 1));
+        this.bumpGeneration();
       });
       insertMany(observations);
 
-      // Migrate counter
-      const counterPath = path.join(this.dataDir, 'counter.json');
-      if (fs.existsSync(counterPath)) {
-        try {
-          const counterData = JSON.parse(fs.readFileSync(counterPath, 'utf-8'));
-          const nextId = counterData.nextId ?? counterData.next_id ?? (Math.max(...observations.map(o => o.id)) + 1);
-          this.rawSaveIdCounter(nextId);
-        } catch {
-          // Fallback: derive from max observation ID
-          this.rawSaveIdCounter(Math.max(...observations.map(o => o.id)) + 1);
-        }
-      } else {
-        this.rawSaveIdCounter(Math.max(...observations.map(o => o.id)) + 1);
-      }
-
-      this.bumpGeneration();
-
       console.error(`[memorix] Migration complete. ${observations.length} observations now in SQLite.`);
-    } catch (err) {
-      console.error(`[memorix] JSON→SQLite migration failed (non-fatal, data preserved in JSON): ${err}`);
-    }
+    });
   }
 
   // ── Public read ──────────────────────────────────────────────────

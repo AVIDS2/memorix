@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { getDatabase } from '../store/sqlite-db.js';
 
+export const DEFAULT_MCP_BINDING_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
 export interface McpProjectBinding {
   handleId: string;
   projectId: string;
@@ -38,6 +40,7 @@ export class McpBindingStore {
 
   create(input: { projectId: string; projectRoot: string; dataDir: string; ttlMs?: number }): McpProjectBinding {
     const now = new Date();
+    const ttlMs = input.ttlMs ?? DEFAULT_MCP_BINDING_TTL_MS;
     const binding: McpProjectBinding = {
       handleId: `mxh_${randomUUID().replace(/-/g, '')}`,
       projectId: input.projectId,
@@ -45,7 +48,7 @@ export class McpBindingStore {
       dataDir: input.dataDir,
       createdAt: now.toISOString(),
       lastUsedAt: now.toISOString(),
-      ...(input.ttlMs && input.ttlMs > 0 ? { expiresAt: new Date(now.getTime() + input.ttlMs).toISOString() } : {}),
+      ...(ttlMs > 0 ? { expiresAt: new Date(now.getTime() + ttlMs).toISOString() } : {}),
     };
     this.requireDb().prepare(`
       INSERT INTO mcp_bindings (handle_id, project_id, project_root, data_dir, created_at, last_used_at, expires_at)
@@ -69,8 +72,16 @@ export class McpBindingStore {
     const binding = this.get(handleId);
     if (!binding) return undefined;
     const lastUsedAt = new Date().toISOString();
-    this.requireDb().prepare(`UPDATE mcp_bindings SET last_used_at = ? WHERE handle_id = ?`).run(lastUsedAt, handleId);
-    return { ...binding, lastUsedAt };
+    const expiresAt = new Date(Date.now() + DEFAULT_MCP_BINDING_TTL_MS).toISOString();
+    this.requireDb().prepare(`UPDATE mcp_bindings SET last_used_at = ?, expires_at = ? WHERE handle_id = ?`).run(lastUsedAt, expiresAt, handleId);
+    return { ...binding, lastUsedAt, expiresAt };
+  }
+
+  cleanupExpired(now = Date.now()): number {
+    const result = this.requireDb().prepare(
+      `DELETE FROM mcp_bindings WHERE expires_at IS NOT NULL AND expires_at <= ?`,
+    ).run(new Date(now).toISOString());
+    return Number(result.changes ?? 0);
   }
 
   /** Reuse the most recent valid extension handle for a verified project root. */

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -34,6 +34,11 @@ function observation(id: number, title: string, projectId = 'org/project'): Obse
 describe('real SQLite multi-device sync', () => {
   let roots: string[] = [];
   const oldFingerprint = process.env.MEMORIX_SYNC_DEVICE_FINGERPRINT;
+  const oldUserNamespace = process.env.MEMORIX_SYNC_USER_NAMESPACE;
+
+  beforeEach(() => {
+    process.env.MEMORIX_SYNC_USER_NAMESPACE = 'test-user';
+  });
 
   afterEach(async () => {
     closeAllDatabases();
@@ -41,6 +46,8 @@ describe('real SQLite multi-device sync', () => {
     roots = [];
     if (oldFingerprint === undefined) delete process.env.MEMORIX_SYNC_DEVICE_FINGERPRINT;
     else process.env.MEMORIX_SYNC_DEVICE_FINGERPRINT = oldFingerprint;
+    if (oldUserNamespace === undefined) delete process.env.MEMORIX_SYNC_USER_NAMESPACE;
+    else process.env.MEMORIX_SYNC_USER_NAMESPACE = oldUserNamespace;
   });
 
   it('reconciles two real SQLite stores without copying database files', async () => {
@@ -104,6 +111,71 @@ describe('real SQLite multi-device sync', () => {
     expect(await storeB.loadByProject('org/one')).toHaveLength(1);
     expect(await storeB.loadByProject('org/two')).toHaveLength(1);
     expect(await storeB.loadAll()).toHaveLength(2);
+
+    storeA.close();
+    storeB.close();
+  });
+
+  it('remaps imported ids when the target already uses the incoming integer id', async () => {
+    const dataA = await mkdtemp(path.join(os.tmpdir(), 'memorix-sync-user-collision-a-'));
+    const dataB = await mkdtemp(path.join(os.tmpdir(), 'memorix-sync-user-collision-b-'));
+    const remoteDir = await mkdtemp(path.join(os.tmpdir(), 'memorix-sync-user-collision-relay-'));
+    roots.push(dataA, dataB, remoteDir);
+
+    const storeA = new SqliteBackend();
+    const storeB = new SqliteBackend();
+    await storeA.init(dataA);
+    await storeB.init(dataB);
+    await storeA.insert(observation(1, 'remote project row', 'org/remote'));
+    await storeB.insert(observation(1, 'local project row', 'org/local'));
+
+    const namespace = userSyncNamespace();
+    const remoteA = new FsRemote({ root: remoteDir, namespace });
+    const remoteB = new FsRemote({ root: remoteDir, namespace });
+    const syncA = createSqliteSyncStore(dataA, storeA, USER_SYNC_SCOPE_ID, { scope: 'user' });
+    const syncB = createSqliteSyncStore(dataB, storeB, USER_SYNC_SCOPE_ID, { scope: 'user' });
+
+    await runSync(syncA, remoteA, { deviceId: syncA.deviceId(), push: true, pull: false, dryRun: false });
+    const report = await runSync(syncB, remoteB, { deviceId: syncB.deviceId(), push: false, pull: true, dryRun: false });
+
+    expect(report.applied).toBe(1);
+    expect(await storeB.getById(1)).toEqual(expect.objectContaining({ projectId: 'org/local', title: 'local project row' }));
+    expect(await storeB.loadByProject('org/remote')).toEqual([
+      expect.objectContaining({ projectId: 'org/remote', title: 'remote project row', id: 2 }),
+    ]);
+
+    storeA.close();
+    storeB.close();
+  });
+
+  it('applies user-scope tombstones to rows from their source project', async () => {
+    const dataA = await mkdtemp(path.join(os.tmpdir(), 'memorix-sync-user-tombstone-a-'));
+    const dataB = await mkdtemp(path.join(os.tmpdir(), 'memorix-sync-user-tombstone-b-'));
+    const remoteDir = await mkdtemp(path.join(os.tmpdir(), 'memorix-sync-user-tombstone-relay-'));
+    roots.push(dataA, dataB, remoteDir);
+
+    const storeA = new SqliteBackend();
+    const storeB = new SqliteBackend();
+    await storeA.init(dataA);
+    await storeB.init(dataB);
+    await storeA.insert(observation(1, 'to be removed', 'org/remote'));
+
+    const namespace = userSyncNamespace();
+    const syncA = createSqliteSyncStore(dataA, storeA, USER_SYNC_SCOPE_ID, { scope: 'user' });
+    const syncB = createSqliteSyncStore(dataB, storeB, USER_SYNC_SCOPE_ID, { scope: 'user' });
+    const remoteA = new FsRemote({ root: remoteDir, namespace });
+    const remoteB = new FsRemote({ root: remoteDir, namespace });
+
+    await runSync(syncA, remoteA, { deviceId: syncA.deviceId(), push: true, pull: false, dryRun: false });
+    await runSync(syncB, remoteB, { deviceId: syncB.deviceId(), push: false, pull: true, dryRun: false });
+    expect(await storeB.loadByProject('org/remote')).toHaveLength(1);
+
+    await storeA.remove(1);
+    await runSync(syncA, new FsRemote({ root: remoteDir, namespace }), { deviceId: syncA.deviceId(), push: true, pull: false, dryRun: false });
+    const report = await runSync(syncB, new FsRemote({ root: remoteDir, namespace }), { deviceId: syncB.deviceId(), push: false, pull: true, dryRun: false });
+
+    expect(report.tombstoned).toBe(1);
+    expect(await storeB.loadByProject('org/remote')).toHaveLength(0);
 
     storeA.close();
     storeB.close();

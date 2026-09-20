@@ -11,18 +11,21 @@
  */
 
 import type { Entity, Relation, KnowledgeGraph } from '../types.js';
-import { initGraphStore, getGraphStore } from '../store/graph-store.js';
+import { initGraphStore, type GraphSqliteStore } from '../store/graph-store.js';
 
 export class KnowledgeGraphManager {
   private entities: Entity[] = [];
   private relations: Relation[] = [];
   private projectDir: string;
+  private projectId: string;
+  private store: GraphSqliteStore | null = null;
   private initialized = false;
   /** Index: lowercase entity name → Entity for O(1) lookups */
   private entityIndex = new Map<string, Entity>();
 
-  constructor(projectDir: string) {
+  constructor(projectDir: string, projectId = '__default__') {
     this.projectDir = projectDir;
+    this.projectId = projectId;
   }
 
   /** Rebuild the entity name index */
@@ -36,10 +39,9 @@ export class KnowledgeGraphManager {
   /** Load graph from SQLite on first access */
   async init(): Promise<void> {
     if (this.initialized) return;
-    await initGraphStore(this.projectDir);
-    const store = getGraphStore();
-    this.entities = store.loadEntities();
-    this.relations = store.loadRelations();
+    this.store = await initGraphStore(this.projectDir, this.projectId);
+    this.entities = this.store.loadEntities();
+    this.relations = this.store.loadRelations();
     this.rebuildIndex();
     this.initialized = true;
   }
@@ -56,8 +58,8 @@ export class KnowledgeGraphManager {
 
   /** Persist current state to SQLite */
   private async save(): Promise<void> {
-    const store = getGraphStore();
-    store.replaceAll(this.entities, this.relations);
+    if (!this.store) throw new Error('[memorix] KnowledgeGraphManager not initialized');
+    this.store.replaceAll(this.entities, this.relations);
   }
 
   /** Create new entities (skip duplicates by name) */

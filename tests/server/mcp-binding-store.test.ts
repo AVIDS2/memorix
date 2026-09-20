@@ -20,12 +20,15 @@ describe('stateless MCP project handles', () => {
     await first.init(tempDir);
     const binding = first.create({ projectId: 'org/project', projectRoot: 'C:/repo', dataDir: 'C:/data' });
     expect(binding.handleId).toMatch(/^mxh_/);
+    expect(binding.expiresAt).toBeTruthy();
     closeAllDatabases();
     const reopened = new McpBindingStore();
     await reopened.init(tempDir);
     expect(reopened.get(binding.handleId)?.projectId).toBe('org/project');
     expect(reopened.touch(binding.handleId)?.lastUsedAt).toBeTruthy();
     expect(reopened.findByProjectRoot('C:/repo')?.handleId).toBe(binding.handleId);
+    expect(reopened.cleanupExpired(Date.now() + 31 * 24 * 60 * 60 * 1000)).toBe(1);
+    expect(reopened.get(binding.handleId)).toBeUndefined();
     const expiring = reopened.create({ projectId: 'org/old', projectRoot: 'C:/old', dataDir: 'C:/old-data', ttlMs: 50 });
     expect(reopened.get(expiring.handleId)).toBeDefined();
     await new Promise(resolve => setTimeout(resolve, 75));

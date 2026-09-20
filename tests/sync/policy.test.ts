@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { Observation } from '../../src/types.js';
 import { eligibleObservations, syncEligibility } from '../../src/sync/policy.js';
-import { userSyncNamespace, USER_SYNC_NAMESPACE } from '../../src/sync/namespace.js';
+import { userSyncNamespace } from '../../src/sync/namespace.js';
 
 function obs(partial: Partial<Observation> & { id: number; projectId: string }): Observation {
   return {
@@ -54,8 +54,8 @@ describe('sync eligibility', () => {
 });
 
 describe('user sync namespace', () => {
-  it('defaults to user-global and prefixes a safe override', () => {
-    expect(userSyncNamespace({})).toBe(USER_SYNC_NAMESPACE);
+  it('requires a namespace and prefixes a safe value', () => {
+    expect(() => userSyncNamespace({})).toThrow(/required for --scope user/);
     expect(userSyncNamespace({ MEMORIX_SYNC_USER_NAMESPACE: 'team-a' })).toBe('user-team-a');
     expect(() => userSyncNamespace({ MEMORIX_SYNC_USER_NAMESPACE: '../escape' })).toThrow(/MEMORIX_SYNC_USER_NAMESPACE/);
   });

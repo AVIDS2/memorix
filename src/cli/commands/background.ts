@@ -570,8 +570,17 @@ async function doStartUnlocked(port: number): Promise<void> {
   if (healthy) {
     process.stderr.write('[OK] Control plane is running and healthy.\n');
   } else {
-    process.stderr.write('[WARN] Health check timed out — service may still be initializing.\n');
-    process.stderr.write('  Check later:  memorix background status\n');
+    process.stderr.write('[ERROR] Health check timed out; refusing to leave an unverified background state.\n');
+    if (isProcessRunning(pid)) {
+      killProcess(pid);
+      for (let i = 0; i < 10 && isProcessRunning(pid); i++) {
+        await new Promise(r => setTimeout(r, 250));
+      }
+    }
+    clearState();
+    try { fs.unlinkSync(getMemorixDir() + '/background.ready'); } catch { /* best effort */ }
+    process.exitCode = 1;
+    return;
   }
 
   const footer = [

@@ -28,6 +28,7 @@ import type {
   ObservationReader,
   RetrievalQuality,
 } from './types.js';
+import path from 'node:path';
 import {
   canManageObservation,
   canReadObservation,
@@ -101,6 +102,9 @@ export interface ResolveResult {
   notFound: number[];
 }
 
+const activeSdkClients = new Map<string, number>();
+let activeSdkDataDir: string | null = null;
+
 /**
  * A lightweight, self-contained memory client for reading and writing
  * Memorix observations without MCP overhead.
@@ -124,6 +128,7 @@ export class MemoryClient {
   private _oramaStore!: typeof import('./store/orama-store.js');
   private _obsStore!: typeof import('./store/obs-store.js');
   private _freshness!: typeof import('./memory/freshness.js');
+  private _sdkRefRegistered = false;
 
   /** @internal — use createMemoryClient() instead */
   constructor(projectId: string, projectRoot: string, dataDir: string) {
@@ -147,6 +152,12 @@ export class MemoryClient {
    * Called by createMemoryClient(). Do not call directly.
    */
   async _init(silent: boolean): Promise<void> {
+    const normalizedDataDir = path.resolve(this._dataDir);
+    if (activeSdkDataDir && activeSdkDataDir !== normalizedDataDir) {
+      throw new Error(
+        '[memorix-sdk] Multiple active clients with different data directories are not supported in one process; use separate processes.',
+      );
+    }
     // Suppress logs if requested
     const originalError = console.error;
     if (silent) {
@@ -167,6 +178,9 @@ export class MemoryClient {
 
       // Prepare search index (hydrate Orama from SQLite)
       await this._observations.prepareSearchIndex();
+      activeSdkDataDir = normalizedDataDir;
+      activeSdkClients.set(normalizedDataDir, (activeSdkClients.get(normalizedDataDir) ?? 0) + 1);
+      this._sdkRefRegistered = true;
     } finally {
       if (silent) {
         console.error = originalError;
@@ -298,6 +312,16 @@ export class MemoryClient {
   async close(): Promise<void> {
     if (this._closed) return;
     this._closed = true;
+    const normalizedDataDir = path.resolve(this._dataDir);
+    const currentRefs = activeSdkClients.get(normalizedDataDir) ?? 0;
+    const remainingRefs = Math.max(0, currentRefs - (this._sdkRefRegistered ? 1 : 0));
+    if (remainingRefs > 0) {
+      activeSdkClients.set(normalizedDataDir, remainingRefs);
+      this._sdkRefRegistered = false;
+      return;
+    }
+    activeSdkClients.delete(normalizedDataDir);
+    if (activeSdkDataDir === normalizedDataDir) activeSdkDataDir = null;
     try {
       this._obsStore.resetObservationStore();
       await this._oramaStore.resetDb();

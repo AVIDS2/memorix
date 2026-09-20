@@ -322,6 +322,29 @@ describe('MemoryClient (unit)', () => {
     })).rejects.toThrow('closed');
   });
 
+  it('keeps a sibling client usable until the last same-directory client closes', async () => {
+    const clientA = new MemoryClient('test/project', testDir, dataDir);
+    const clientB = new MemoryClient('test/project', testDir, dataDir);
+    await clientA._init(true);
+    await clientB._init(true);
+
+    await clientA.store({ entityName: 'shared', type: 'discovery', title: 'survives sibling close', narrative: 'n' });
+    await clientA.close();
+    expect(await clientB.count()).toBe(1);
+    await clientB.store({ entityName: 'shared', type: 'discovery', title: 'second write', narrative: 'n' });
+    expect(await clientB.count()).toBe(2);
+    await clientB.close();
+  });
+
+  it('rejects concurrent clients that would switch the process-global data directory', async () => {
+    const otherDir = join(testDir, 'other-data');
+    const clientA = new MemoryClient('test/project', testDir, dataDir);
+    const clientB = new MemoryClient('other/project', testDir, otherDir);
+    await clientA._init(true);
+    await expect(clientB._init(true)).rejects.toThrow(/different data directories/);
+    await clientA.close();
+  });
+
   it('should expose project metadata', async () => {
     const client = new MemoryClient('test/project', testDir, dataDir);
     expect(client.projectId).toBe('test/project');

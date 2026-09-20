@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [1.9.5] - 2026-09-20
 
 ### Added
 - **Setup HTTP MCP** -- `memorix setup --mcp http` honors Grok (writes a
@@ -16,6 +16,25 @@ All notable changes to this project will be documented in this file.
   opt-in relay. Default `--scope project` is unchanged. Privacy filters still
   drop personal, agent-targeted, candidate, and ephemeral rows. The live
   SQLite file is never copied.
+
+### Fixed
+- **HTTP control-plane safety** -- JSON request bodies are bounded, non-loopback
+  binds require an explicit Bearer token or unsafe opt-in, listen failures are
+  reported synchronously, background startup removes unverified state, and
+  shutdown waits for HTTP and SQLite resources to close.
+- **Project-scoped graph storage** -- graph entities and relations now carry a
+  project key, legacy JSONL migration recovers ownership from observation
+  references, and Dashboard/MCP graph access no longer crosses projects.
+- **Migration and lifecycle reliability** -- legacy observation/subdirectory
+  migrations use locks and atomic writes, malformed observation JSON fails
+  closed, stale file locks cannot evict a live writer, stateless MCP bindings
+  expire and are cleaned up, and SDK clients share resources safely.
+- **User-scope sync correctness** -- imported observation IDs are remapped on
+  collision, tombstones validate their source project, and user namespaces
+  must be explicit per-user values.
+- **Release contract** -- publish workflow validates tag/version/commit
+  identity, waits for npm visibility before MCP Registry publication, and
+  keeps prepublish checks non-mutating.
 
 ## [1.9.4] - 2026-09-18
 

@@ -492,7 +492,12 @@ describe('plugin package installer', () => {
         url: 'http://localhost:3211/mcp',
         alwaysLoad: true,
       });
-      await expect(fs.access(path.join(tmpDir, '.claude.json'))).rejects.toThrow();
+      // A real Claude CLI may create its own user config while registering the
+      // local marketplace. Memorix must not add a second standalone MCP entry.
+      const claudeConfig = await fs.readFile(path.join(tmpDir, '.claude.json'), 'utf8').catch(() => null);
+      if (claudeConfig) {
+        expect(JSON.parse(claudeConfig)).not.toHaveProperty('mcpServers.memorix');
+      }
     } finally {
       process.chdir(originalCwd);
       if (originalHome === undefined) delete process.env.HOME;

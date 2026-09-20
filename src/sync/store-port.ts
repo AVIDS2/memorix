@@ -204,8 +204,13 @@ export function createSqliteSyncStore(
     async allocateId(): Promise<number> {
       return store.atomic(async (tx) => {
         const nextId = await tx.loadIdCounter();
-        await tx.saveIdCounter(nextId + 1);
-        return nextId;
+        // Direct imports and legacy migrations may not have advanced the
+        // counter. Reconcile it with the table while the same write lock is
+        // held so a sync pull cannot reuse an occupied local id.
+        const maxId = Number(db.prepare('SELECT COALESCE(MAX(id), 0) AS maxId FROM observations').get()?.maxId ?? 0);
+        const allocated = Math.max(nextId, maxId + 1);
+        await tx.saveIdCounter(allocated + 1);
+        return allocated;
       });
     },
 
@@ -238,7 +243,13 @@ export function createSqliteSyncStore(
     async applyRemove(id: number, state: SyncRowState): Promise<void> {
       await store.atomic(async (tx) => {
         const existing = await tx.getById(id);
-        if (existing && existing.projectId !== state.projectId) {
+        const expectedProjectId = scope === 'user'
+          ? sourceProjectIdFromSyncKey(state.syncKey)
+          : state.projectId;
+        if (!expectedProjectId) {
+          throw new Error('[memorix] sync refused to remove an observation without a project-scoped sync key');
+        }
+        if (existing && existing.projectId !== expectedProjectId) {
           throw new Error('[memorix] sync refused to remove an observation from another project');
         }
         await tx.remove(id);
@@ -269,6 +280,16 @@ export function createSqliteSyncStore(
       return next;
     },
   };
+}
+
+function sourceProjectIdFromSyncKey(syncKey: string): string | undefined {
+  const match = /^p:([^:]+):/.exec(syncKey);
+  if (!match) return undefined;
+  try {
+    return decodeURIComponent(match[1]);
+  } catch {
+    return undefined;
+  }
 }
 
 function ensureSyncSchema(db: any, projectId: string): void {

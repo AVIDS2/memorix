@@ -213,11 +213,11 @@ const GUIDES: Record<string, CliCommandGuide> = {
       'memorix sync rules --action status',
       'memorix sync workspace --action scan',
       'memorix sync store status --json',
-      'memorix sync store push|pull [--dry] [--json]',
+      'memorix sync store push|pull [--dry] [--json] [--scope project|user]',
       'memorix sync store compact --dry --through device=sequence',
       'memorix sync store device rotate',
     ],
-    notes: ['Store sync is opt-in, project-scoped, and never copies the live SQLite database.'],
+    notes: ['Store sync is opt-in and never copies the live SQLite database. Default scope is the current Git project; `--scope user` relays every local project.'],
   },
   ingest: {
     summary: 'Ingest Git and image evidence into project memory.',

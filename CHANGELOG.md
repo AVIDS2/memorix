@@ -11,6 +11,11 @@ All notable changes to this project will be documented in this file.
   `http://localhost:3211/mcp`. Default Grok MCP stays host-owned. Docs include
   generic systemd user unit and LaunchAgent KeepAlive examples for
   `memorix serve-http`.
+- **User-global store sync** -- `memorix sync store push|pull|status --scope user`
+  replicates every local project's eligible observations through the existing
+  opt-in relay. Default `--scope project` is unchanged. Privacy filters still
+  drop personal, agent-targeted, candidate, and ephemeral rows. The live
+  SQLite file is never copied.
 
 ## [1.9.4] - 2026-09-18
 

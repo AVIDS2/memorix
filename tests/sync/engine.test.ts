@@ -25,11 +25,17 @@ class FakeStore implements SyncStorePort {
   cursor = emptyCursor();
   conflicts: SyncConflict[] = [];
   pending: Array<{ batch: ChangeBatch; states: SyncRowState[] }> = [];
-  constructor(private readonly dev: string, initial: Observation[] = []) {
+  constructor(
+    private readonly dev: string,
+    initial: Observation[] = [],
+    private readonly scopeId = 'p',
+    private readonly syncScope: 'project' | 'user' = 'project',
+  ) {
     for (const o of initial) this.rows.set(o.id, o);
   }
-  projectId() { return 'p'; }
-  namespace() { return syncNamespace('p'); }
+  projectId() { return this.scopeId; }
+  scope() { return this.syncScope; }
+  namespace() { return this.syncScope === 'user' ? 'user-global' : syncNamespace(this.scopeId); }
   deviceId() { return this.dev; }
   assertCanPublish() {}
   rotateDevice() { return this.dev; }
@@ -54,7 +60,7 @@ class FakeStore implements SyncStorePort {
 /** Shared in-memory remote both stores sync against. */
 class FakeRemote implements SyncRemote {
   readonly kind = 'fake';
-  readonly namespace = syncNamespace('p');
+  constructor(readonly namespace = syncNamespace('p')) {}
   batches: ChangeBatch[] = [];
   failNextPush = false;
   async init() {}
@@ -295,6 +301,23 @@ describe('runSync end-to-end', () => {
     const report = await runSync(B, remote, { deviceId: 'B', push: false, pull: true, dryRun: false });
     expect(report.pulledBatches).toBe(105);
     expect(B.cursor.applied.remote).toBe(105);
+  });
+
+  it('replicates other-project rows when scope is user', async () => {
+    const remote = new FakeRemote('user-global');
+    const A = new FakeStore('A', [
+      obs({ id: 1, title: 'alpha', projectId: 'org/one' }),
+      obs({ id: 2, title: 'beta', projectId: 'org/two' }),
+      obs({ id: 3, title: 'secret', projectId: 'org/one', visibility: 'personal' }),
+    ], '__user__', 'user');
+    const B = new FakeStore('B', [], '__user__', 'user');
+    await runSync(A, remote, { deviceId: 'A', ...both });
+    const report = await runSync(B, remote, { deviceId: 'B', ...both });
+    expect(B.find('alpha')?.projectId).toBe('org/one');
+    expect(B.find('beta')?.projectId).toBe('org/two');
+    expect(B.find('secret')).toBeUndefined();
+    expect(report.applied).toBe(2);
+    expect(report.scope).toBe('user');
   });
 });
 

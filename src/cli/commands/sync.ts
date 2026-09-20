@@ -48,6 +48,32 @@ export default defineCommand({
       description: 'Emit machine-readable JSON output',
       default: false,
     },
+    scope: {
+      type: 'string',
+      description: 'Store sync scope: project (default) or user',
+      required: false,
+      default: 'project',
+    },
+    'push-only': {
+      type: 'boolean',
+      description: 'Store sync: only push local changes',
+      required: false,
+    },
+    'pull-only': {
+      type: 'boolean',
+      description: 'Store sync: only pull remote changes',
+      required: false,
+    },
+    through: {
+      type: 'string',
+      description: 'Store sync compaction cutoff: device=sequence[,device=sequence]',
+      required: false,
+    },
+    yes: {
+      type: 'boolean',
+      description: 'Store sync: confirm destructive remote compaction',
+      required: false,
+    },
   },
   run: async ({ args }) => {
     const section = (args._ as string[])?.[0] || '';

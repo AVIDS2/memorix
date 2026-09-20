@@ -89,7 +89,7 @@ Memorix is more than a memory store. It also installs agent integrations, keeps 
 | Orchestration and team work | Task planning, worker handoffs, file locks, messages, verification gates, and review loops | `memorix orchestrate`, `memorix team`, `memorix lock` |
 | memcode | A bundled terminal coding agent that already reads and writes the same project memory | `memorix`, `memcode` |
 | CLI and SDK | Scriptable access for automation, imports/exports, diagnostics, and custom integrations | `memorix ...`, `createMemoryClient()` |
-| Optional multi-device sync | Project-scoped, privacy-filtered observation events with local SQLite kept canonical; GitHub JSONL, filesystem, S3, or Postgres relay | `memorix sync store status\|push\|pull` |
+| Optional multi-device sync | Privacy-filtered observation events with local SQLite kept canonical; default project scope, optional `--scope user` for every local project; GitHub JSONL, filesystem, S3, or Postgres relay | `memorix sync store status\|push\|pull` |
 
 <h2 id="works-with-your-agent"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/tags/light/section-agents.svg"><img src="assets/tags/section-agents.svg" alt="Works with every agent" height="32" /></picture></h2>
 
@@ -225,9 +225,10 @@ CLI, MCP, and HTTP are different entry points:
 
 Multi-device store sync is opt-in and separate from HTTP sharing. It never
 uploads the live SQLite database or WAL files. By default it only relays
-qualified project-visible observations; personal, agent-targeted, candidate,
-ephemeral, and other-project records stay local. Set `MEMORIX_SYNC_PROVIDER` and
-inspect `memorix sync store status --json` before the first push.
+qualified project-visible observations for the current Git project; personal,
+agent-targeted, candidate, and ephemeral records stay local. Pass `--scope user`
+to include every local project. Set `MEMORIX_SYNC_PROVIDER` and inspect
+`memorix sync store status --json` before the first push.
 
 <h2 id="install"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/tags/light/section-install.svg"><img src="assets/tags/section-install.svg" alt="Install" height="32" /></picture></h2>
 

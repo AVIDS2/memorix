@@ -9,7 +9,7 @@ import { closeAllDatabases } from '../../src/store/sqlite-db.js';
 import { createSqliteSyncStore } from '../../src/sync/store-port.js';
 import { runSync } from '../../src/sync/engine.js';
 import { FsRemote } from '../../src/sync/adapters/fs.js';
-import { syncNamespace } from '../../src/sync/namespace.js';
+import { syncNamespace, userSyncNamespace, USER_SYNC_SCOPE_ID } from '../../src/sync/namespace.js';
 
 function observation(id: number, title: string, projectId = 'org/project'): Observation {
   return {
@@ -68,6 +68,42 @@ describe('real SQLite multi-device sync', () => {
     expect(await storeB.loadByProject('org/project')).toHaveLength(1);
     expect(await storeB.loadAll()).toHaveLength(1);
     expect(await import('node:fs/promises').then(({ readdir }) => readdir(remoteDir, { recursive: true }))).not.toContain('memorix.db');
+
+    storeA.close();
+    storeB.close();
+  });
+
+  it('replicates every project under --scope user without copying the database', async () => {
+    const dataA = await mkdtemp(path.join(os.tmpdir(), 'memorix-sync-user-a-'));
+    const dataB = await mkdtemp(path.join(os.tmpdir(), 'memorix-sync-user-b-'));
+    const remoteDir = await mkdtemp(path.join(os.tmpdir(), 'memorix-sync-user-relay-'));
+    roots.push(dataA, dataB, remoteDir);
+
+    const storeA = new SqliteBackend();
+    const storeB = new SqliteBackend();
+    await storeA.init(dataA);
+    await storeB.init(dataB);
+    await storeA.insert(observation(1, 'from project one', 'org/one'));
+    await storeA.insert(observation(2, 'from project two', 'org/two'));
+    await storeA.insert({
+      ...observation(3, 'stay local', 'org/one'),
+      visibility: 'personal',
+    });
+
+    const namespace = userSyncNamespace();
+    const remoteA = new FsRemote({ root: remoteDir, namespace });
+    const remoteB = new FsRemote({ root: remoteDir, namespace });
+    const syncA = createSqliteSyncStore(dataA, storeA, USER_SYNC_SCOPE_ID, { scope: 'user' });
+    const syncB = createSqliteSyncStore(dataB, storeB, USER_SYNC_SCOPE_ID, { scope: 'user' });
+
+    await runSync(syncA, remoteA, { deviceId: syncA.deviceId(), push: true, pull: false, dryRun: false });
+    const report = await runSync(syncB, remoteB, { deviceId: syncB.deviceId(), push: false, pull: true, dryRun: false });
+
+    expect(report.scope).toBe('user');
+    expect(report.applied).toBe(2);
+    expect(await storeB.loadByProject('org/one')).toHaveLength(1);
+    expect(await storeB.loadByProject('org/two')).toHaveLength(1);
+    expect(await storeB.loadAll()).toHaveLength(2);
 
     storeA.close();
     storeB.close();

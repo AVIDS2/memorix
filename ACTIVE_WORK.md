@@ -53,7 +53,21 @@ complete. Detailed acceptance criteria and the public issue/PR disposition live 
   have regression coverage.
 - **[follow-up] P2 capacity budgets:** dashboard/team query caps, failed-job
   retention, embedding cache budgets, and long-lived project cache eviction
-  remain the next 1.9.x maintenance slice.
+  are implemented on `codex/1.9.x-capacity-budgets`; the branch has passed the
+  full local regression and is ready for a focused PR/remote CI.
+
+## 1.9.x Capacity Slice (2026-09-20)
+
+- [x] TeamStore agents, locks, tasks, and inboxes are SQL-limited to 100 rows
+  by default and 500 maximum; task/agent detail queries remain separate.
+- [x] Completed maintenance history is retained for 7 days and failed
+  diagnostics for 30 days, both covered by retention tests.
+- [x] API, FastEmbed, and Transformers embedding caches enforce byte budgets;
+  FastEmbed rejects oversized cache files before loading them.
+- [x] HTTP project-directory, TeamStore, and Dashboard store caches use bounded
+  LRU-style maps instead of growing for every requested project.
+- [x] Local verification: lint, build, focused capacity tests (139 passed), and
+  full regression (331 files / 3149 tests passed / 4 live embedding skipped).
 
 ### New GitHub work
 

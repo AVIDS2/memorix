@@ -300,6 +300,14 @@ describe('TeamStore', () => {
       agentB = store.registerAgent({ projectId: 'proj1', agentType: 'cursor', instanceId: 'b' }).agent_id;
     });
 
+    it('applies SQL-level limits to coordination lists', () => {
+      for (let index = 0; index < 120; index += 1) {
+        store.createTask({ projectId: 'proj1', description: `Task ${index}` });
+      }
+      expect(store.listTasks('proj1', { limit: 7 })).toHaveLength(7);
+      expect(store.listAllTasks({ limit: 6 })).toHaveLength(6);
+    });
+
     it('should create and claim a task', () => {
       const task = store.createTask({ projectId: 'proj1', description: 'Fix bug' });
       const result = store.claimTask(task.task_id, agentA);

@@ -39,6 +39,12 @@ user is allowed to remember.
   budget is large and can be raised with `MEMORIX_EMBEDDING_CACHE_MAX_BYTES`,
   but it is deliberately separate from the durable memory corpus. Cache
   eviction never deletes a memory; a later vector backfill can regenerate it.
+- FastEmbed and Transformers caches use the same byte budget and reject cache
+  files above a bounded load size. A high-dimensional or unusually large
+  vector is skipped instead of exceeding the configured budget.
+- Coordination lists are SQL-limited: agents, locks, tasks, and inboxes return
+  at most 100 rows by default and 500 rows at most per request. Maintenance
+  history keeps completed jobs for 7 days and failed diagnostics for 30 days.
 - `serve-http` `/health` exposes `rss`, V8 heap, external memory, array-buffer
   memory, and the V8 heap limit so a real saturation report can distinguish
   JavaScript retention from native/model memory.
@@ -135,7 +141,8 @@ On the release development machine used for this check, the healthy HTTP service
 | `MEMORIX_RERANK_TIMEOUT_MS` | 30000 | Bound HTTP and LLM rerank calls |
 | `MEMORIX_RERANK_PROVIDER` | `off` | Set `http` to enable optional HTTP rerank |
 | `MEMORIX_RERANK_BASE_URL` | `[memory.llm].base_url` | Compatible `/rerank` API root (path `/rerank` is appended) |
-| `MEMORIX_EMBEDDING_CACHE_MAX_BYTES` | `268435456` | Disposable in-process API-vector cache budget; raise for large warm caches, or lower when the host is memory constrained |
+| `MEMORIX_EMBEDDING_CACHE_MAX_BYTES` | `268435456` API / `67108864` local providers | Disposable embedding-vector cache budget; raise for large warm caches, or lower when the host is memory constrained |
+| Team coordination list APIs | `100` default / `500` maximum | Bound agent, lock, task, and inbox result sets; use task/agent detail endpoints for individual records |
 | `MEMORIX_ORAMA_HYDRATION_THRESHOLD` | `10000` | Above this durable corpus size, skip full Orama hydration and use persistent SQLite/semantic indexes; this is a working-set threshold, not a memory quota |
 | `MEMORIX_SEMANTIC_INDEX` | `auto` | `auto` uses the optional local LanceDB shadow index when installed; `off` or `orama` keeps the legacy semantic path |
 | `MEMORIX_SEMANTIC_INDEX_THRESHOLD` | `10000` | Minimum vectors before the optional HNSW/SQ index is trained; vectors remain searchable before training |

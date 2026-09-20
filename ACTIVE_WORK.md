@@ -4,7 +4,7 @@
 > before resuming substantial work, update it after a material decision or
 > milestone, and do not create parallel progress logs.
 
-**Last updated:** 2026-09-18
+**Last updated:** 2026-09-20
 
 **Local verification rule:** run the frontend, HTTP service, MCP server, and
 tests directly with Node/npm on the E: workspace. Do not start Docker or add
@@ -13,9 +13,9 @@ artifacts for the VPS/hosted build path only.
 
 ## Current Product State
 
-- `1.9.4` is the current published baseline. The `1.9.5` line is reserved for
-  infrastructure hardening, the reviewed HTTP setup path, and only the sync
-  changes that pass the expanded scope and privacy gates.
+- `1.9.5` is the current published baseline. It includes the infrastructure
+  hardening, reviewed HTTP setup path, and user-scope sync fixes that passed
+  the expanded scope and privacy gates.
 - The release keeps the canonical Dashboard Memory Map, removes the obsolete
   renderer/dependencies, makes reachable capabilities visible, and preserves
   the old MCP clients while adding the modern 2026-07-28 core contract.
@@ -35,45 +35,34 @@ artifacts for the VPS/hosted build path only.
   and all 7 remote CI checks passed. Live embedding tests remain intentionally
   skipped when their environment flag is absent.
 
-## 1.9.5 Remaining Must-Have (2026-09-18)
+## 1.9.5 Closeout (2026-09-20)
 
-The release baseline is `v1.9.4` on `main` (`f7ed621`). The following are
-release gates, not a promise to merge every open issue. Detailed acceptance
-criteria and the public issue/PR disposition live in
+The release is `v1.9.5` on `main` (`658231f`). The release gates below are
+complete. Detailed acceptance criteria and the public issue/PR disposition live in
 [docs/KNOWN_ISSUES_AND_ROADMAP.md](docs/KNOWN_ISSUES_AND_ROADMAP.md).
 
-- **[P1] HTTP control-plane boundary and lifecycle:** keep loopback as the
-  default, require authentication or an explicit refusal-safe policy before a
-  non-loopback bind, report port/listen failures, supervise background
-  processes correctly, and close HTTP/store/database resources on shutdown.
-- **[P1] Project isolation:** add project ownership to graph persistence and
-  verify two-project reads, replacement, deletion, and migration behavior.
-- **[P1] Migration safety:** make legacy JSON migration cross-process safe and
-  atomic, make deduplication project-aware, and fail closed with a recoverable
-  diagnostic instead of presenting an empty database after malformed input.
-- **[P1] Store ownership and SQLite concurrency:** remove unsafe process-global
-  client/store coupling, close cached database handles, bound busy retries, and
-  avoid awaiting arbitrary callbacks while holding a write transaction.
-- **[P2] Memory and scale budgets:** bound session/binding lifetime, dashboard
-  and coordination queries, failed-job retention, embedding caches, and
-  project-directory caches with regression tests.
-- **[local branch]** `codex/1.9.5-infra-hardening` (`9011aaf`) contains the
-  HTTP body limit, loopback Docker bind, release tag/version checks, npm
-  visibility wait, and check-only prepublish hardening. It must be reviewed and
-  landed before the 1.9.5 release candidate.
+- **[x] P1 HTTP control-plane boundary and lifecycle:** loopback default,
+  explicit non-loopback security policy, body limits, synchronous listen
+  failures, supervised background startup, and shutdown cleanup shipped.
+- **[x] P1 project isolation:** graph persistence, Dashboard, MCP, and legacy
+  graph migration now carry project ownership.
+- **[x] P1 migration safety:** observation and subdirectory migrations are
+  locked/atomic, project-aware, and fail closed on malformed source data.
+- **[x] P1 store ownership and SQLite concurrency:** SDK sibling lifetimes,
+  sync ID allocation/tombstones, stale lock ownership, and release contracts
+  have regression coverage.
+- **[follow-up] P2 capacity budgets:** dashboard/team query caps, failed-job
+  retention, embedding cache budgets, and long-lived project cache eviction
+  remain the next 1.9.x maintenance slice.
 
 ### New GitHub work
 
-- **#301 / #303:** required for 1.9.5. The fix makes explicit `--mcp http`
-  configure Grok and packaged agents for one HTTP control plane. CI is green,
-  but the PR still needs human review and native setup/restart smoke tests.
-- **#302 / #304:** include in the 1.9.5 decision window, but do not merge
-  unchanged. Review found that user-scope tombstones still pass the
-  `__user__` sentinel through a project-specific removal check, and local
-  integer observation IDs can collide across projects. It needs scope-aware
-  remove/ID remapping, cross-user namespace isolation, mixed-project
-  key/tombstone/compaction tests, and an explicit privacy review before it can
-  become a release feature.
+- **#301 / #303:** merged through #305 and shipped in 1.9.5. Explicit
+  `--mcp http` now configures Grok and packaged agents for one HTTP control
+  plane; native setup and background smoke passed.
+- **#302 / #304:** merged through #305 and shipped in 1.9.5 after scope-aware
+  tombstone handling, cross-project ID remapping, explicit per-user namespace
+  validation, and mixed-project SQLite tests.
 - **#300:** defer; optional Atlas Cloud support has no checks or review and is
   not an infrastructure release gate.
 - **#297 / #283:** keep open as ecosystem/documentation follow-ups; neither is

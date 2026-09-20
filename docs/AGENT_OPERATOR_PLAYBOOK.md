@@ -41,7 +41,7 @@ For the 1.4 release line, the visible product shape is:
 - `memorix_project_context` / `memorix context "..."` is the normal black-box entry for non-trivial coding work: it assembles a bounded task Workset instead of injecting a generic memory dump; `memorix resume "..."` is the explicit CLI continuation projection
 - Code State keeps local snapshots and freshness links; a healthy pre-existing local CodeGraph index can add a bounded semantic outline, but Memorix never initializes or synchronizes that external index itself
 - `memorix knowledge` is an explicit review path for source-backed Markdown knowledge and canonical workflows. Do not initialize a versioned workspace or apply a proposal unless the user asks for that managed artifact
-- integration surfaces are agent-specific: Claude Code, Codex, GitHub Copilot CLI, Antigravity, and Hermes receive plugin packages; OpenClaw receives a compatible bundle; Pi and Oh-my-Pi receive package entries; Gemini CLI receives an extension package; OpenCode receives a plugin file and skill; Grok Build receives native hooks and `AGENTS.md` guidance while keeping MCP host-owned; DeepSeek Harness receives an MCP patch row, AGENTS.md guidance, and skills; Cursor and other agents receive MCP/rules/hooks where supported
+- integration surfaces are agent-specific: Claude Code, Codex, GitHub Copilot CLI, Antigravity, and Hermes receive plugin packages; OpenClaw receives a compatible bundle; Pi and Oh-my-Pi receive package entries; Gemini CLI receives an extension package; OpenCode receives a plugin file and skill; Grok Build receives native hooks and `AGENTS.md` guidance while keeping MCP host-owned by default (`--mcp http` writes Grok `config.toml`); DeepSeek Harness receives an MCP patch row, AGENTS.md guidance, and skills; Cursor and other agents receive MCP/rules/hooks where supported
 - privacy-safe diagnostics and receipts avoid raw chat, memory text, query text, tool payloads, and local file paths
 
 ---
@@ -257,7 +257,7 @@ What this installs depends on the target agent:
 - Pi: user Pi package with extension-based hook capture and a Memorix skill, registered through `pi install <path> --approve`; project-local setup uses `-l`.
 - Gemini CLI: local extension package under `~/.gemini/extensions/memorix`, extension-bundled stdio MCP, `GEMINI.md` context, hooks, commands, and skills. Antigravity CLI has an official Gemini CLI migration path, but Gemini CLI remains a separate target.
 - OpenCode: local plugin file, `opencode.json` MCP config, OpenCode skill, plus `AGENTS.md` guidance.
-- Grok Build: native hooks in `~/.grok/hooks/memorix.json` and guidance in `~/.grok/AGENTS.md`. Global hooks are trusted; project hooks require Grok `/hooks-trust` or `--trust`. Memorix does not write Grok's `config.toml` or MCP entries.
+- Grok Build: native hooks in `~/.grok/hooks/memorix.json` and guidance in `~/.grok/AGENTS.md`. Global hooks are trusted; project hooks require Grok `/hooks-trust` or `--trust`. MCP stays host-owned unless you pass `--mcp http`, which writes `[mcp_servers.memorix]` in Grok `config.toml`.
 - Antigravity: native plugin under `~/.gemini/config/plugins/memorix` or `.agents/plugins/memorix`, with `plugin.json`, `mcp_config.json`, `hooks.json`, rules, and skills.
 - OpenClaw: OpenClaw-compatible bundle under `~/.openclaw/extensions/memorix`, bundled `.mcp.json`, skills, and OpenClaw `HOOK.md`/`handler.ts` hook pack.
 - Hermes Agent: Hermes plugin under Hermes home (`%LOCALAPPDATA%\hermes` on native Windows, `~/.hermes` elsewhere, or `HERMES_HOME`), enabled in `config.yaml`, with plugin hooks, slash command, CLI command, skills, and MCP config.
@@ -404,7 +404,51 @@ memorix background ensure
 memorix background ensure 2>/dev/null
 ```
 
-Or use a launchd plist / systemd user service for true boot-time persistence.
+Or supervise `memorix serve-http` directly so a crash or reboot restarts the control plane.
+
+Linux systemd user unit (`~/.config/systemd/user/memorix-http.service`):
+
+```ini
+[Unit]
+Description=Memorix HTTP MCP control plane
+After=default.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/env memorix serve-http --host 127.0.0.1 --port 3211
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target
+```
+
+macOS LaunchAgent (`~/Library/LaunchAgents/com.memorix.http.plist`). Point `ProgramArguments` at `which memorix`:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.memorix.http</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/local/bin/memorix</string>
+    <string>serve-http</string>
+    <string>--host</string>
+    <string>127.0.0.1</string>
+    <string>--port</string>
+    <string>3211</string>
+  </array>
+  <key>KeepAlive</key>
+  <true/>
+  <key>RunAtLoad</key>
+  <true/>
+</dict>
+</plist>
+```
 
 **Why this matters:** IDEs that use `serverUrl` (Windsurf, Cursor HTTP mode) connect to `http://localhost:3211/mcp` but cannot start the server. If the service is down, the IDE shows an MCP error with no recovery path. The user must run `memorix background start` or `ensure` manually.
 

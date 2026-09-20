@@ -11,9 +11,10 @@ import type { Observation } from '../types.js';
 import type { ObservationStore } from '../store/obs-store.js';
 import { getDatabase } from '../store/sqlite-db.js';
 import { CREATE_SYNC_TABLES } from './journal.js';
-import { syncNamespace } from './namespace.js';
+import { syncNamespace, userSyncNamespace, USER_SYNC_SCOPE_ID } from './namespace.js';
 import type { SyncStorePort } from './engine.js';
 import type { SyncConflict, SyncCursor, SyncPendingBatch, SyncRowState } from './types.js';
+import type { SyncScope } from './policy.js';
 
 const SEQ_KEY = 'local_sequence';
 const DEVICE_KEY = 'device_id';
@@ -25,9 +26,16 @@ export interface SqliteSyncStore extends SyncStorePort {
   deviceId(): string;
 }
 
-export function createSqliteSyncStore(dataDir: string, store: ObservationStore, projectId: string): SqliteSyncStore {
+export function createSqliteSyncStore(
+  dataDir: string,
+  store: ObservationStore,
+  projectId: string,
+  options: { scope?: SyncScope } = {},
+): SqliteSyncStore {
   const db = getDatabase(dataDir);
-  ensureSyncSchema(db, projectId);
+  const scope: SyncScope = options.scope ?? 'project';
+  const scopeId = scope === 'user' ? USER_SYNC_SCOPE_ID : projectId;
+  ensureSyncSchema(db, scope === 'user' ? LEGACY_PROJECT_ID : projectId);
   const getMeta = db.prepare('SELECT value FROM sync_meta WHERE key = ?');
   const setMeta = db.prepare('INSERT OR REPLACE INTO sync_meta (key, value) VALUES (?, ?)');
   const selState = db.prepare('SELECT projectId, syncKey, obsId, revision, writer, kind, contentHash, shippedSeq FROM sync_row_state WHERE projectId = ?');
@@ -68,7 +76,7 @@ export function createSqliteSyncStore(dataDir: string, store: ObservationStore, 
       WHERE projectId = ? AND namespace = ? AND deviceId = ? AND sequence = ?`,
   );
 
-  const namespace = syncNamespace(projectId);
+  const namespace = scope === 'user' ? userSyncNamespace() : syncNamespace(projectId);
   const deviceFingerprint = process.env.MEMORIX_SYNC_DEVICE_FINGERPRINT?.trim()
     || `${process.platform}|${os.hostname()}|${os.homedir()}`;
 
@@ -101,7 +109,8 @@ export function createSqliteSyncStore(dataDir: string, store: ObservationStore, 
   }
 
   return {
-    projectId: () => projectId,
+    projectId: () => scopeId,
+    scope: () => scope,
     namespace: () => namespace,
     deviceId: ensureDevice,
     assertCanPublish,
@@ -152,7 +161,7 @@ export function createSqliteSyncStore(dataDir: string, store: ObservationStore, 
     },
 
     async loadPendingBatches(): Promise<SyncPendingBatch[]> {
-      return (selPending.all(projectId, namespace, ensureDevice()) as Array<{ batchJson: string; statesJson: string }>).map((row) => ({
+      return (selPending.all(scopeId, namespace, ensureDevice()) as Array<{ batchJson: string; statesJson: string }>).map((row) => ({
         batch: JSON.parse(row.batchJson),
         states: JSON.parse(row.statesJson),
       } as SyncPendingBatch));
@@ -160,7 +169,7 @@ export function createSqliteSyncStore(dataDir: string, store: ObservationStore, 
 
     async enqueueBatch(pending: SyncPendingBatch): Promise<void> {
       insertPending.run({
-        projectId,
+        projectId: scopeId,
         namespace,
         deviceId: pending.batch.deviceId,
         sequence: pending.batch.sequence,
@@ -171,15 +180,15 @@ export function createSqliteSyncStore(dataDir: string, store: ObservationStore, 
     },
 
     async markBatchShipped(sequence: number): Promise<void> {
-      deletePending.run(projectId, namespace, ensureDevice(), sequence);
+      deletePending.run(scopeId, namespace, ensureDevice(), sequence);
     },
 
     async loadAll(): Promise<Observation[]> {
-      return store.loadByProject(projectId);
+      return scope === 'user' ? store.loadAll() : store.loadByProject(projectId);
     },
 
     async loadState(): Promise<Map<string, SyncRowState>> {
-      const rows = selState.all(projectId) as SyncRowState[];
+      const rows = selState.all(scopeId) as SyncRowState[];
       const map = new Map<string, SyncRowState>();
       for (const r of rows) map.set(r.syncKey, r);
       return map;
@@ -195,8 +204,13 @@ export function createSqliteSyncStore(dataDir: string, store: ObservationStore, 
     async allocateId(): Promise<number> {
       return store.atomic(async (tx) => {
         const nextId = await tx.loadIdCounter();
-        await tx.saveIdCounter(nextId + 1);
-        return nextId;
+        // Direct imports and legacy migrations may not have advanced the
+        // counter. Reconcile it with the table while the same write lock is
+        // held so a sync pull cannot reuse an occupied local id.
+        const maxId = Number(db.prepare('SELECT COALESCE(MAX(id), 0) AS maxId FROM observations').get()?.maxId ?? 0);
+        const allocated = Math.max(nextId, maxId + 1);
+        await tx.saveIdCounter(allocated + 1);
+        return allocated;
       });
     },
 
@@ -229,7 +243,13 @@ export function createSqliteSyncStore(dataDir: string, store: ObservationStore, 
     async applyRemove(id: number, state: SyncRowState): Promise<void> {
       await store.atomic(async (tx) => {
         const existing = await tx.getById(id);
-        if (existing && existing.projectId !== state.projectId) {
+        const expectedProjectId = scope === 'user'
+          ? sourceProjectIdFromSyncKey(state.syncKey)
+          : state.projectId;
+        if (!expectedProjectId) {
+          throw new Error('[memorix] sync refused to remove an observation without a project-scoped sync key');
+        }
+        if (existing && existing.projectId !== expectedProjectId) {
           throw new Error('[memorix] sync refused to remove an observation from another project');
         }
         await tx.remove(id);
@@ -260,6 +280,16 @@ export function createSqliteSyncStore(dataDir: string, store: ObservationStore, 
       return next;
     },
   };
+}
+
+function sourceProjectIdFromSyncKey(syncKey: string): string | undefined {
+  const match = /^p:([^:]+):/.exec(syncKey);
+  if (!match) return undefined;
+  try {
+    return decodeURIComponent(match[1]);
+  } catch {
+    return undefined;
+  }
 }
 
 function ensureSyncSchema(db: any, projectId: string): void {

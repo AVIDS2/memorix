@@ -22,6 +22,7 @@ import setupCommand, {
   installPluginPackage,
   removeLegacyCodexMemorixMcpConfig,
   getSetupAgentTargets,
+  rewriteBundledMemorixMcpToHttp,
 } from '../../src/cli/commands/setup.js';
 
 function makeTmpDir(): string {
@@ -186,6 +187,16 @@ describe('setup command planning', () => {
   it('keeps Grok MCP host-owned while installing its hooks and guidance', () => {
     const plan = buildSetupPlan({ agent: 'grok', mcp: 'stdio', global: true });
     expect(plan.mcp).toBe('none');
+    expect(plan.actions).not.toContain('mcp-stdio');
+    expect(plan.actions).not.toContain('http-control-plane');
+    expect(plan.actions).toContain('project-guidance');
+    expect(plan.actions).toContain('hooks');
+  });
+
+  it('honors explicit --mcp http for Grok', () => {
+    const plan = buildSetupPlan({ agent: 'grok', mcp: 'http', global: true });
+    expect(plan.mcp).toBe('http');
+    expect(plan.actions).toContain('http-control-plane');
     expect(plan.actions).not.toContain('mcp-stdio');
     expect(plan.actions).toContain('project-guidance');
     expect(plan.actions).toContain('hooks');
@@ -408,6 +419,91 @@ describe('plugin package installer', () => {
         args: ['serve', '--mode', 'lite'],
       });
     } finally {
+      await cleanup(tmpDir);
+    }
+  });
+
+  it('rewrites bundled plugin MCP from stdio to HTTP', async () => {
+    const tmpDir = makeTmpDir();
+    try {
+      const mcpPath = path.join(tmpDir, '.mcp.json');
+      const extensionPath = path.join(tmpDir, 'gemini-extension.json');
+      await fs.writeFile(mcpPath, JSON.stringify({
+        mcpServers: {
+          memorix: { command: 'memorix', args: ['serve', '--mode', 'lite'], alwaysLoad: true },
+          other: { command: 'keep-me', args: [] },
+        },
+      }, null, 2), 'utf-8');
+      await fs.writeFile(extensionPath, JSON.stringify({
+        name: 'memorix',
+        mcpServers: {
+          memorix: { type: 'stdio', command: 'memorix', args: ['serve', '--mode', 'lite'] },
+        },
+        contextFileName: 'GEMINI.md',
+      }, null, 2), 'utf-8');
+
+      const rewritten = await rewriteBundledMemorixMcpToHttp(tmpDir);
+      const mcp = JSON.parse(await fs.readFile(mcpPath, 'utf-8'));
+      const extension = JSON.parse(await fs.readFile(extensionPath, 'utf-8'));
+
+      expect(rewritten).toEqual(expect.arrayContaining([mcpPath, extensionPath]));
+      expect(mcp.mcpServers.memorix).toEqual({
+        url: 'http://localhost:3211/mcp',
+        alwaysLoad: true,
+      });
+      expect(mcp.mcpServers.other).toEqual({ command: 'keep-me', args: [] });
+      expect(extension).toMatchObject({
+        name: 'memorix',
+        contextFileName: 'GEMINI.md',
+        mcpServers: {
+          memorix: { type: 'http', url: 'http://localhost:3211/mcp' },
+        },
+      });
+      expect(extension.mcpServers.memorix.command).toBeUndefined();
+    } finally {
+      await cleanup(tmpDir);
+    }
+  });
+
+  it('rewrites installed Claude plugin MCP to HTTP when setup uses --mcp http', async () => {
+    const tmpDir = makeTmpDir();
+    const originalHome = process.env.HOME;
+    const originalUserProfile = process.env.USERPROFILE;
+    const originalCwd = process.cwd();
+    try {
+      process.env.HOME = tmpDir;
+      process.env.USERPROFILE = tmpDir;
+      process.chdir(tmpDir);
+      const plan = buildSetupPlan({ agent: 'claude', mcp: 'http', global: true });
+      await installAgentSetup('claude', plan, true);
+
+      const mcpPath = path.join(
+        tmpDir,
+        '.claude',
+        'plugins',
+        'marketplaces',
+        'memorix-local',
+        'plugins',
+        'memorix',
+        '.mcp.json',
+      );
+      const mcp = JSON.parse(await fs.readFile(mcpPath, 'utf-8'));
+      expect(mcp.mcpServers.memorix).toEqual({
+        url: 'http://localhost:3211/mcp',
+        alwaysLoad: true,
+      });
+      // A real Claude CLI may create its own user config while registering the
+      // local marketplace. Memorix must not add a second standalone MCP entry.
+      const claudeConfig = await fs.readFile(path.join(tmpDir, '.claude.json'), 'utf8').catch(() => null);
+      if (claudeConfig) {
+        expect(JSON.parse(claudeConfig)).not.toHaveProperty('mcpServers.memorix');
+      }
+    } finally {
+      process.chdir(originalCwd);
+      if (originalHome === undefined) delete process.env.HOME;
+      else process.env.HOME = originalHome;
+      if (originalUserProfile === undefined) delete process.env.USERPROFILE;
+      else process.env.USERPROFILE = originalUserProfile;
       await cleanup(tmpDir);
     }
   });
@@ -831,6 +927,83 @@ describe('setup MCP config installer', () => {
       expect(content).toContain('args = ["serve", "--mode", "lite"]');
       expect(content).not.toContain('command = "old"');
     } finally {
+      await cleanup(tmpDir);
+    }
+  });
+
+  it('writes Grok HTTP MCP into config.toml', async () => {
+    const tmpDir = makeTmpDir();
+    const originalHome = process.env.HOME;
+    const originalUserProfile = process.env.USERPROFILE;
+    const originalGrokHome = process.env.GROK_HOME;
+    try {
+      process.env.HOME = tmpDir;
+      process.env.USERPROFILE = tmpDir;
+      delete process.env.GROK_HOME;
+
+      const result = await installMcpConfig({ agent: 'grok', mcp: 'http', global: true });
+      const content = await fs.readFile(result.configPath, 'utf-8');
+
+      expect(result.configPath).toBe(path.join(tmpDir, '.grok', 'config.toml'));
+      expect(content).toContain('[mcp_servers.memorix]');
+      expect(content).toContain('url = "http://localhost:3211/mcp"');
+      expect(content).not.toContain('command = "memorix"');
+    } finally {
+      if (originalHome === undefined) delete process.env.HOME;
+      else process.env.HOME = originalHome;
+      if (originalUserProfile === undefined) delete process.env.USERPROFILE;
+      else process.env.USERPROFILE = originalUserProfile;
+      if (originalGrokHome === undefined) delete process.env.GROK_HOME;
+      else process.env.GROK_HOME = originalGrokHome;
+      await cleanup(tmpDir);
+    }
+  });
+
+  it('honors GROK_HOME when writing Grok HTTP MCP', async () => {
+    const tmpDir = makeTmpDir();
+    const grokHome = path.join(tmpDir, 'custom-grok');
+    const originalGrokHome = process.env.GROK_HOME;
+    try {
+      process.env.GROK_HOME = grokHome;
+      const result = await installMcpConfig({ agent: 'grok', mcp: 'http', global: true });
+      expect(result.configPath).toBe(path.join(grokHome, 'config.toml'));
+      expect(await fs.readFile(result.configPath, 'utf-8')).toContain('url = "http://localhost:3211/mcp"');
+    } finally {
+      if (originalGrokHome === undefined) delete process.env.GROK_HOME;
+      else process.env.GROK_HOME = originalGrokHome;
+      await cleanup(tmpDir);
+    }
+  });
+
+  it('writes Grok HTTP MCP to user config even without --global', async () => {
+    const tmpDir = makeTmpDir();
+    const originalHome = process.env.HOME;
+    const originalUserProfile = process.env.USERPROFILE;
+    const originalGrokHome = process.env.GROK_HOME;
+    try {
+      process.env.HOME = tmpDir;
+      process.env.USERPROFILE = tmpDir;
+      delete process.env.GROK_HOME;
+      const projectRoot = path.join(tmpDir, 'repo');
+      await fs.mkdir(projectRoot, { recursive: true });
+
+      const result = await installMcpConfig({
+        agent: 'grok',
+        mcp: 'http',
+        global: false,
+        projectRoot,
+      });
+
+      expect(result.configPath).toBe(path.join(tmpDir, '.grok', 'config.toml'));
+      await expect(fs.access(path.join(projectRoot, '.grok', 'config.toml'))).rejects.toThrow();
+      expect(await fs.readFile(result.configPath, 'utf-8')).toContain('url = "http://localhost:3211/mcp"');
+    } finally {
+      if (originalHome === undefined) delete process.env.HOME;
+      else process.env.HOME = originalHome;
+      if (originalUserProfile === undefined) delete process.env.USERPROFILE;
+      else process.env.USERPROFILE = originalUserProfile;
+      if (originalGrokHome === undefined) delete process.env.GROK_HOME;
+      else process.env.GROK_HOME = originalGrokHome;
       await cleanup(tmpDir);
     }
   });

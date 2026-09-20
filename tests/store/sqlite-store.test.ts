@@ -68,6 +68,16 @@ describe('SqliteBackend CRUD', () => {
     expect(all).toEqual([]);
   });
 
+  it('fails closed when the legacy observation file is malformed', async () => {
+    store.close();
+    closeAllDatabases();
+    await fs.writeFile(path.join(tmpDir, 'observations.json'), '{not-json', 'utf8');
+    const migrating = new SqliteBackend();
+    await expect(migrating.init(tmpDir)).rejects.toThrow(/observations\.json|JSON/i);
+    expect(await fs.readFile(path.join(tmpDir, 'observations.json'), 'utf8')).toBe('{not-json');
+    migrating.close();
+  });
+
   it('insert + loadAll round-trips an observation', async () => {
     const obs = makeObs({ id: 1, entityName: 'test-entity', projectId: 'test/proj' });
     await store.insert(obs);

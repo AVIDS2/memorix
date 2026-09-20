@@ -24,7 +24,22 @@ describe('release contract', () => {
     expect(workflow).toContain("grep --quiet 'TLOG_CREATE_ENTRY_ERROR'");
     expect(workflow).toContain('npm publish --access public --ignore-scripts');
     expect(workflow).toContain('npm view "memorix@$version" version');
+    expect(workflow).toContain('expected_ref="refs/tags/v${version}"');
+    expect(workflow).toContain('Wait for npm package visibility');
+    expect(workflow).toContain('actions/checkout@v7');
+    expect(workflow).toContain('actions/setup-node@v7');
     expect(workflow).not.toContain('npm publish --workspace @memorix/');
+  });
+
+  it('does not mutate release metadata during npm publish', async () => {
+    const packageJson = JSON.parse(await readFile(path.join(repoRoot, 'package.json'), 'utf-8')) as {
+      scripts?: { prepublishOnly?: string };
+    };
+    expect(packageJson.scripts?.prepublishOnly).toBe(
+      'npm run check:mcp-registry && npm run check:plugin-release && npm run build && npm test',
+    );
+    expect(packageJson.scripts?.prepublishOnly).not.toContain('sync:mcp-registry');
+    expect(packageJson.scripts?.prepublishOnly).not.toContain('sync:plugin-release');
   });
 
   it('links both READMEs to human-facing Registry and Toplist pages', async () => {

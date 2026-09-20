@@ -84,7 +84,7 @@ Memorix 不只是一个记忆库。它还负责安装 Agent 接入、保留有�
 | Orchestration 和团队协作 | 任务规划、worker 交接、文件锁、消息、验证门和 review loop | `memorix orchestrate`、`memorix team`、`memorix lock` |
 | memcode | 内置终端 Coding Agent，默认读写同一套项目记忆 | `memorix`、`memcode` |
 | CLI 和 SDK | 给自动化、导入导出、诊断和自定义集成使用的本地接口 | `memorix ...`、`createMemoryClient()` |
-| 可选多设备同步 | 按项目隔离、经过隐私过滤的记忆事件同步；本地 SQLite 仍是主库 | `memorix sync store status\|push\|pull` |
+| 可选多设备同步 | 经过隐私过滤的记忆事件同步；本地 SQLite 仍是主库；默认按当前项目，可用 `--scope user` 覆盖全部本地项目 | `memorix sync store status\|push\|pull` |
 
 <h2 id="支持你的-agent"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/tags/light/section-agents.svg"><img src="assets/tags/section-agents.svg" alt="Works with every agent" height="32" /></picture></h2>
 
@@ -219,9 +219,10 @@ CLI、MCP 和 HTTP 是不同入口：
 - `memorix background start` / `memorix serve-http` 是 HTTP 服务，用于共享端点、Dashboard、VPS Docker 部署或多客户端。
 
 多设备记忆同步是可选功能，和 HTTP 共享服务不是一回事。它不会上传
-`memorix.db`、WAL 或 SHM 文件。默认只同步当前项目中已确认且项目可见的
-观察记录；个人、指定 Agent、候选、短期和其它项目的记录会留在本地。设置
-`MEMORIX_SYNC_PROVIDER` 后，先运行 `memorix sync store status --json` 再 push。
+`memorix.db`、WAL 或 SHM 文件。默认只同步当前 Git 项目中已确认且项目可见的
+观察记录；个人、指定 Agent、候选和短期记录会留在本地。传入 `--scope user`
+可覆盖全部本地项目。设置 `MEMORIX_SYNC_PROVIDER` 后，先运行
+`memorix sync store status --json` 再 push。
 
 <h2 id="安装"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/tags/light/section-install.svg"><img src="assets/tags/section-install.svg" alt="安装" height="32" /></picture></h2>
 
@@ -291,7 +292,7 @@ memorix setup --agent grok --global
 - CodeBuddy Code：安装用户级本地市场插件到 `~/.codebuddy/memorix-local`，包含 MCP、skills 和 hooks。它不会修改既有的 CodeBuddy 模型、权限或 settings 文件；第三方 hook 仍由 CodeBuddy 自己的 `/hooks` 流程确认。
 - Oh-my-Pi：安装 `omp.extensions` package，包含 extension hook 事件、`memorix` command、官方 skills，并写入 MCP 配置。
 - DeepSeek Harness：向 `$DSH_HOME/cordis.patch.yml`（默认 `~/.dsh/cordis.patch.yml`）写入一行 Memorix `@deepseek-ai/dsh-mcp-client`，向 harness 的 `AGENTS.md` 追加使用规范，并把官方 skills 安装到 `$DSH_HOME/skills`。这一行遵循 DSH 自带的 Memorix 参考配置，因此工具以 `mcp__memorix__*` 形式出现。
-- Grok Build：把原生生命周期 hooks 安装到 `~/.grok/hooks/memorix.json`，把使用规范写入 `~/.grok/AGENTS.md`。Grok 的 MCP 配置仍由 Grok 自己管理；项目级 hooks 需要在 Grok 中执行 `/hooks-trust`，全局 hooks 默认可信；也可以用 `GROK_HOME` 指定自定义 Grok 目录。
+- Grok Build：把原生生命周期 hooks 安装到 `~/.grok/hooks/memorix.json`，把使用规范写入 `~/.grok/AGENTS.md`。默认仍由 Grok 自己管理 MCP；传入 `--mcp http` 时会写入 `[mcp_servers.memorix]`（`url = "http://localhost:3211/mcp"`）。项目级 hooks 需要在 Grok 中执行 `/hooks-trust`，全局 hooks 默认可信；也可以用 `GROK_HOME` 指定自定义 Grok 目录。
 
 如果你想要更安静一点的安装，可以对那些 setup 能独立控制 hook capture 的 target 加 `--noHooks`。它会保留 MCP 和使用规范，只跳过 Memorix 的 hook 自动捕获。
 

@@ -364,7 +364,7 @@ export async function createMemorixServer(
     const store = getObservationStore();
     console.error(`[memorix] ObservationStore backend: ${store.getBackendName()}, generation: ${store.getGeneration()}`);
   }
-  let graphManager = new KnowledgeGraphManager(projectDir);
+  let graphManager = new KnowledgeGraphManager(projectDir, project.id);
   if (!deferProjectRuntimeInit) {
     await graphManager.init();
     await initObservations(projectDir);
@@ -378,7 +378,7 @@ export async function createMemorixServer(
     await initObservationStore(projectDir);
     await initMiniSkillStore(projectDir);
     await initSessionStore(projectDir);
-    graphManager = new KnowledgeGraphManager(projectDir);
+    graphManager = new KnowledgeGraphManager(projectDir, project.id);
     await graphManager.init();
     await initObservations(projectDir);
 

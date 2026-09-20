@@ -22,6 +22,7 @@
 import { defineCommand } from 'citty';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { getHeapStatistics } from 'node:v8';
+import { timingSafeEqual } from 'node:crypto';
 import type { ObservationStore } from '../../store/obs-store.js';
 import { resolveToolProfile } from '../../server/tool-profile.js';
 import { scopeKnowledgeGraphToProject } from '../../memory/graph-scope.js';
@@ -39,6 +40,9 @@ import { mcpFileUriToPath } from '../mcp-root-path.js';
  */
 export const DEFAULT_SESSION_TIMEOUT_MS = 12 * 60 * 60 * 1000;
 export const EXPIRED_SESSION_TTL_MS = 10 * 60 * 1000;
+export const DEFAULT_HTTP_BODY_LIMIT_BYTES = 10 * 1024 * 1024;
+export const MAX_HTTP_BODY_LIMIT_BYTES = 64 * 1024 * 1024;
+export const MIN_HTTP_BODY_LIMIT_BYTES = 64 * 1024;
 /** Pinned SDK protocol accepted internally while the HTTP boundary speaks the current stateless contract. */
 export const MCP_SDK_COMPAT_PROTOCOL_VERSION = '2025-11-25';
 
@@ -54,6 +58,101 @@ export function parseSessionTimeoutMs(raw: string | undefined): number {
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || parsed < 0) return DEFAULT_SESSION_TIMEOUT_MS;
   return Math.floor(parsed);
+}
+
+export function parseHttpBodyLimit(raw: string | undefined): number {
+  const value = raw?.trim();
+  if (!value) return DEFAULT_HTTP_BODY_LIMIT_BYTES;
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < MIN_HTTP_BODY_LIMIT_BYTES) {
+    return DEFAULT_HTTP_BODY_LIMIT_BYTES;
+  }
+  return Math.min(parsed, MAX_HTTP_BODY_LIMIT_BYTES);
+}
+
+export function isLoopbackHost(host: string): boolean {
+  const normalized = host.trim().toLowerCase();
+  return normalized === 'localhost'
+    || normalized === '127.0.0.1'
+    || normalized === '::1'
+    || normalized === '[::1]';
+}
+
+export function validateHttpBindSecurity(
+  host: string,
+  env: NodeJS.ProcessEnv = process.env,
+): { requiresAuth: boolean; explicitlyUnauthenticated: boolean } {
+  const hasToken = Boolean(env.MEMORIX_HTTP_AUTH_TOKEN?.trim());
+  const explicitlyUnauthenticated = env.MEMORIX_HTTP_ALLOW_UNAUTHENTICATED_BIND === '1';
+  if (!isLoopbackHost(host) && !hasToken && !explicitlyUnauthenticated) {
+    throw new Error(
+      `[memorix] Refusing unauthenticated non-loopback HTTP bind on ${host}. `
+      + 'Set MEMORIX_HTTP_AUTH_TOKEN or explicitly set MEMORIX_HTTP_ALLOW_UNAUTHENTICATED_BIND=1.',
+    );
+  }
+  return { requiresAuth: hasToken, explicitlyUnauthenticated };
+}
+
+function isAuthorizedHttpRequest(req: IncomingMessage, token: string): boolean {
+  const header = req.headers.authorization;
+  if (!header) return false;
+  const match = /^Bearer\s+(.+)$/iu.exec(header);
+  if (!match) return false;
+  const provided = Buffer.from(match[1], 'utf8');
+  const expected = Buffer.from(token, 'utf8');
+  return provided.length === expected.length && timingSafeEqual(provided, expected);
+}
+
+export class HttpPayloadTooLargeError extends Error {
+  readonly statusCode = 413;
+
+  constructor(limitBytes: number) {
+    super(`Request body exceeds the ${limitBytes} byte limit.`);
+    this.name = 'HttpPayloadTooLargeError';
+  }
+}
+
+export function parseJsonBody(req: IncomingMessage, limitBytes: number): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    const contentLength = Number(req.headers['content-length']);
+    if (Number.isSafeInteger(contentLength) && contentLength > limitBytes) {
+      req.resume();
+      reject(new HttpPayloadTooLargeError(limitBytes));
+      return;
+    }
+
+    const chunks: Buffer[] = [];
+    let size = 0;
+    let settled = false;
+    const fail = (error: unknown) => {
+      if (settled) return;
+      settled = true;
+      reject(error);
+    };
+
+    req.on('data', (chunk: Buffer) => {
+      if (settled) return;
+      size += chunk.length;
+      if (size > limitBytes) {
+        req.removeAllListeners('data');
+        req.resume();
+        fail(new HttpPayloadTooLargeError(limitBytes));
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on('end', () => {
+      if (settled) return;
+      settled = true;
+      try {
+        const body = Buffer.concat(chunks).toString('utf-8');
+        resolve(body ? JSON.parse(body) : undefined);
+      } catch (error) {
+        reject(error);
+      }
+    });
+    req.on('error', fail);
+  });
 }
 
 export interface ServeHttpConfiguredDefaults {
@@ -146,6 +245,14 @@ export default defineCommand({
     if (resolved.transportNotice) console.error(resolved.transportNotice);
     const port = resolved.port;
     const host = args.host || '127.0.0.1';
+    const bindSecurity = validateHttpBindSecurity(host);
+    const httpAuthToken = process.env.MEMORIX_HTTP_AUTH_TOKEN?.trim() || '';
+    if (bindSecurity.explicitlyUnauthenticated && !isLoopbackHost(host)) {
+      console.error(`[memorix] WARNING: HTTP control plane is unauthenticated on ${host}; keep it behind a private network or authenticated proxy.`);
+    }
+    if (bindSecurity.requiresAuth) {
+      console.error('[memorix] HTTP control plane authentication is enabled (Bearer token).');
+    }
     const toolProfile = resolveToolProfile({ explicit: args.mode, envValue: process.env.MEMORIX_MODE, fallback: 'team' });
 
     // Priority: explicit --cwd arg > MEMORIX_PROJECT_ROOT env > process.cwd().
@@ -176,6 +283,7 @@ export default defineCommand({
     console.error(`[memorix] HTTP transport starting on ${host}:${port}`);
     console.error(`[memorix] Project root: ${projectRoot}`);
     const sessionTimeoutMs = parseSessionTimeoutMs(process.env.MEMORIX_SESSION_TIMEOUT_MS);
+    const httpBodyLimitBytes = parseHttpBodyLimit(process.env.MEMORIX_HTTP_MAX_BODY_BYTES);
     console.error(
       sessionTimeoutMs === 0
         ? '[memorix] HTTP session idle timeout: disabled'
@@ -281,25 +389,6 @@ export default defineCommand({
       }
       res.writeHead(404, { 'Content-Type': 'text/plain' });
       res.end(message);
-    }
-
-    /**
-     * Parse JSON body from IncomingMessage
-     */
-    function parseBody(req: IncomingMessage): Promise<unknown> {
-      return new Promise((resolve, reject) => {
-        const chunks: Buffer[] = [];
-        req.on('data', (chunk: Buffer) => chunks.push(chunk));
-        req.on('end', () => {
-          try {
-            const body = Buffer.concat(chunks).toString('utf-8');
-            resolve(body ? JSON.parse(body) : undefined);
-          } catch (err) {
-            reject(err);
-          }
-        });
-        req.on('error', reject);
-      });
     }
 
     /**
@@ -442,7 +531,7 @@ export default defineCommand({
       // No Access-Control-Allow-Origin at all for disallowed origins —
       // browser will block the response (fail-closed).
       res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
-      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Accept, Mcp-Session-Id, Mcp-Project-Handle, Mcp-Project-Root, Mcp-Stateless, Last-Event-Id');
+      res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type, Accept, Mcp-Session-Id, Mcp-Project-Handle, Mcp-Project-Root, Mcp-Stateless, Last-Event-Id');
       res.setHeader('Access-Control-Expose-Headers', 'Mcp-Session-Id, Mcp-Project-Handle, Mcp-Protocol-Version, Mcp-Method, Mcp-Name');
       res.setHeader('Mcp-Protocol-Version', MCP_SDK_COMPAT_PROTOCOL_VERSION);
       res.setHeader('Mcp-Method', req.method || 'UNKNOWN');
@@ -454,7 +543,7 @@ export default defineCommand({
      */
     async function handlePost(req: IncomingMessage, res: ServerResponse) {
       const sessionId = req.headers['mcp-session-id'] as string | undefined;
-      const body = await parseBody(req);
+      const body = await parseJsonBody(req, httpBodyLimitBytes);
 
       // Keep the pre-2026 startup probe compatible. Older MCP clients sent a
       // claim-less server/discover before initialize and expect a plain JSON
@@ -861,7 +950,7 @@ export default defineCommand({
             sendJson({ error: 'Maintenance actions require POST.' }, 405);
             return;
           }
-          const bodyValue = await parseBody(req);
+          const bodyValue = await parseJsonBody(req, Math.min(httpBodyLimitBytes, 1024 * 1024));
           const body = bodyValue && typeof bodyValue === 'object' && !Array.isArray(bodyValue)
             ? bodyValue as Record<string, unknown>
             : {};
@@ -1023,9 +1112,9 @@ export default defineCommand({
 
         if (apiPath === '/stats') {
           const { projectId: statsProjectId, dataDir: statsDataDir } = await resolveRequestProject(url);
-          const { initGraphStore, getGraphStore } = await import('../../store/graph-store.js');
-          await initGraphStore(statsDataDir);
-          const graph = { entities: getGraphStore().loadEntities(), relations: getGraphStore().loadRelations() };
+          const { initGraphStore } = await import('../../store/graph-store.js');
+          const gStore = await initGraphStore(statsDataDir, statsProjectId);
+          const graph = { entities: gStore.loadEntities(), relations: gStore.loadRelations() };
 
           const observations = await loadDashboardProjectObservations(statsDataDir, statsProjectId, 'active');
           const feedback = await loadProjectFeedback(statsDataDir, statsProjectId);
@@ -1210,9 +1299,9 @@ export default defineCommand({
 
         if (apiPath === '/graph') {
           const { projectId: graphProjectId, dataDir: graphDataDir } = await resolveRequestProject(url);
-          const { initGraphStore, getGraphStore } = await import('../../store/graph-store.js');
-          await initGraphStore(graphDataDir);
-          const fullGraph = { entities: getGraphStore().loadEntities(), relations: getGraphStore().loadRelations() };
+          const { initGraphStore } = await import('../../store/graph-store.js');
+          const gStore = await initGraphStore(graphDataDir, graphProjectId);
+          const fullGraph = { entities: gStore.loadEntities(), relations: gStore.loadRelations() };
 
           const allObs = await loadDashboardProjectObservations(graphDataDir, graphProjectId, 'active');
           const scoped = scopeKnowledgeGraphToProject(fullGraph, allObs);
@@ -1298,15 +1387,15 @@ export default defineCommand({
           const { projectId: kgProjectId, dataDir: kgDataDir } = await resolveRequestProject(url);
           const { generateKnowledgeGraph } = await import('../../wiki/knowledge-graph.js');
           const { initMiniSkillStore, getMiniSkillStore } = await import('../../store/mini-skill-store.js');
-          const { initGraphStore, getGraphStore } = await import('../../store/graph-store.js');
+          const { initGraphStore } = await import('../../store/graph-store.js');
 
           await initMiniSkillStore(kgDataDir);
-          await initGraphStore(kgDataDir);
+          const gStore = await initGraphStore(kgDataDir, kgProjectId);
 
           const allObs = await loadDashboardProjectObservations(kgDataDir, kgProjectId, 'active');
           const skills = await getMiniSkillStore().loadByProject(kgProjectId);
 
-          const fullGraph = { entities: getGraphStore().loadEntities(), relations: getGraphStore().loadRelations() };
+          const fullGraph = { entities: gStore.loadEntities(), relations: gStore.loadRelations() };
           const scoped = scopeKnowledgeGraphToProject(fullGraph, allObs);
 
           const graph = generateKnowledgeGraph({
@@ -1634,9 +1723,8 @@ export default defineCommand({
             await store.remove(obsId);
             // Sync: clean up graph entity references
             try {
-              const { initGraphStore, getGraphStore } = await import('../../store/graph-store.js');
-              await initGraphStore(delDataDir);
-              const gStore = getGraphStore();
+              const { initGraphStore } = await import('../../store/graph-store.js');
+              const gStore = await initGraphStore(delDataDir, delProjectId);
               const prefix = `[#${obsId}] `;
               const deletions: { entityName: string; observations: string[] }[] = [];
               for (const entity of gStore.loadEntities()) {
@@ -1653,9 +1741,9 @@ export default defineCommand({
         // GET /api/export — export observations as JSON
         if (apiPath === '/export') {
           const { projectId: expProjectId, projectName: expProjectName, dataDir: expDataDir } = await resolveRequestProject(url);
-          const { initGraphStore, getGraphStore } = await import('../../store/graph-store.js');
-          await initGraphStore(expDataDir);
-          const fullGraph = { entities: getGraphStore().loadEntities(), relations: getGraphStore().loadRelations() };
+          const { initGraphStore } = await import('../../store/graph-store.js');
+          const gStore = await initGraphStore(expDataDir, expProjectId);
+          const fullGraph = { entities: gStore.loadEntities(), relations: gStore.loadRelations() };
           const observations = await loadDashboardProjectObservations(expDataDir, expProjectId, 'active');
           const expStore = await getDashboardObservationStore(expDataDir);
           const nextId = await expStore.loadIdCounter();
@@ -1694,7 +1782,8 @@ export default defineCommand({
           }, 503);
           return;
         }
-        sendJson({ error: err instanceof Error ? err.message : 'Unknown error' }, 500);
+        const status = err instanceof HttpPayloadTooLargeError ? err.statusCode : 500;
+        sendJson({ error: err instanceof Error ? err.message : 'Unknown error' }, status);
       }
     }
 
@@ -1710,6 +1799,15 @@ export default defineCommand({
       }
 
       const url = new URL(req.url || '/', `http://localhost:${port}`);
+
+      if (bindSecurity.requiresAuth && url.pathname !== '/health' && !isAuthorizedHttpRequest(req, httpAuthToken)) {
+        res.writeHead(401, {
+          'Content-Type': 'application/json',
+          'WWW-Authenticate': 'Bearer',
+        });
+        res.end(JSON.stringify({ error: 'Authentication required' }));
+        return;
+      }
 
       // Lightweight health check — responds immediately, no heavy init required.
       // This is the readiness signal for background start / status.
@@ -1792,10 +1890,15 @@ export default defineCommand({
         } catch (err) {
           console.error('[memorix] HTTP handler error:', err);
           if (!res.headersSent) {
-            res.writeHead(500, { 'Content-Type': 'application/json' });
+            const status = err instanceof HttpPayloadTooLargeError ? err.statusCode : 500;
+            const message = err instanceof Error ? err.message : 'Internal server error';
+            res.writeHead(status, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({
               jsonrpc: '2.0',
-              error: { code: -32603, message: 'Internal server error' },
+              error: {
+                code: status === 413 ? -32013 : -32603,
+                message: status === 413 ? message : 'Internal server error',
+              },
               id: null,
             }));
           }
@@ -1819,7 +1922,13 @@ export default defineCommand({
     httpServer.keepAliveTimeout = 60_000;
     httpServer.headersTimeout = 65_000;
 
-    httpServer.listen(port, host, () => {
+    const listenPromise = new Promise<void>((resolve, reject) => {
+      const onError = (error: Error) => {
+        if (typeof (httpServer as any).off === 'function') httpServer.off('listening', onListening);
+        reject(error);
+      };
+      const onListening = () => {
+      if (typeof (httpServer as any).off === 'function') httpServer.off('error', onError);
       httpReadyAt = new Date().toISOString();
       // Write readiness file — background start polls this for out-of-band readiness detection
       try {
@@ -1841,7 +1950,29 @@ export default defineCommand({
       // Fire-and-forget: background update check after server is fully started.
       // Default is notify-only. All output goes to stderr only. Failures never affect the server.
       import('../update-checker.js').then(m => m.checkForUpdates()).catch(() => {});
+        resolve();
+      };
+      if (typeof (httpServer as any).once === 'function') {
+        httpServer.once('error', onError);
+        httpServer.once('listening', onListening);
+        httpServer.listen(port, host);
+      } else {
+        // Lightweight test doubles may only implement listen(callback).
+        httpServer.listen(port, host, onListening);
+      }
     });
+    try {
+      await listenPromise;
+    } catch (error) {
+      console.error(`[memorix] HTTP server failed to listen on ${host}:${port}: ${error instanceof Error ? error.message : String(error)}`);
+      for (const store of dashboardObservationStores.values()) {
+        try { store.close(); } catch { /* best-effort */ }
+      }
+      dashboardObservationStores.clear();
+      const { closeAllDatabases } = await import('../../store/sqlite-db.js');
+      closeAllDatabases();
+      throw error;
+    }
 
     // Session timeout GC — close sessions idle past the configured threshold.
     // MEMORIX_SESSION_TIMEOUT_MS lets operators work around HTTP clients that do
@@ -1851,6 +1982,7 @@ export default defineCommand({
       maybeProbeSummary(); // Flush suppressed probe count periodically
       const now = Date.now();
       forgetExpiredSessions(now);
+      statelessBindingStore.cleanupExpired(now);
       if (SESSION_TIMEOUT_MS === 0) return;
       for (const [sid, state] of sessions) {
         const lastActive = sessionLastActivity.get(sid) ?? 0;
@@ -1866,7 +1998,10 @@ export default defineCommand({
     gcInterval.unref(); // Don't prevent process exit
 
     // Graceful shutdown
+    let shutdownStarted = false;
     const shutdown = async () => {
+      if (shutdownStarted) return;
+      shutdownStarted = true;
       if (suppressedProbeCount > 0) {
         console.error(`[memorix] ${suppressedProbeCount} probe connection(s) suppressed during this session`);
       }
@@ -1891,7 +2026,17 @@ export default defineCommand({
           console.error(`[memorix] Error closing session ${sid}:`, err);
         }
       }
-      httpServer.close();
+      clearInterval(gcInterval);
+      clearInterval(heartbeatInterval);
+      await new Promise<void>((resolve) => {
+        if (!httpServer.listening) {
+          resolve();
+          return;
+        }
+        httpServer.close(() => resolve());
+      });
+      const { closeAllDatabases } = await import('../../store/sqlite-db.js');
+      closeAllDatabases();
       process.exit(0);
     };
 
@@ -1943,6 +2088,12 @@ export default defineCommand({
 /** @internal */
 export const _testing = {
   DEFAULT_SESSION_TIMEOUT_MS,
+  DEFAULT_HTTP_BODY_LIMIT_BYTES,
+  MAX_HTTP_BODY_LIMIT_BYTES,
+  MIN_HTTP_BODY_LIMIT_BYTES,
   parseSessionTimeoutMs,
+  parseHttpBodyLimit,
+  isLoopbackHost,
+  validateHttpBindSecurity,
   parseTcpPortOrReport,
 };

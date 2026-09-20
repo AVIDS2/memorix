@@ -16,6 +16,7 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { atomicWriteFile, withFileLock } from './file-lock.js';
 
 // ── Re-export JSON helpers for backward compat ────────────────────
 export {
@@ -105,6 +106,12 @@ export async function listProjectDirs(baseDir?: string): Promise<string[]> {
 export async function migrateSubdirsToFlat(baseDir?: string): Promise<boolean> {
   const base = baseDir ?? resolveDefaultDataDir();
   await fs.mkdir(base, { recursive: true });
+  return withFileLock(base, () => migrateSubdirsToFlatUnlocked(base));
+}
+
+async function migrateSubdirsToFlatUnlocked(baseDir?: string): Promise<boolean> {
+  const base = baseDir ?? resolveDefaultDataDir();
+  await fs.mkdir(base, { recursive: true });
 
   // Find all subdirectories that contain observations.json
   let entries: import('node:fs').Dirent[];
@@ -171,7 +178,9 @@ export async function migrateSubdirsToFlat(baseDir?: string): Promise<boolean> {
     for (const o of obs) {
       // Deduplicate by title+createdAt+projectId (same observation from migration overlap)
       const isDuplicate = allObs.some(
-        (existing) => existing.title === o.title && existing.createdAt === o.createdAt,
+        (existing) => existing.title === o.title
+          && existing.createdAt === o.createdAt
+          && existing.projectId === o.projectId,
       );
       if (!isDuplicate) {
         allObs.push(o);
@@ -212,12 +221,8 @@ export async function migrateSubdirsToFlat(baseDir?: string): Promise<boolean> {
   }
 
   // Write merged data to base directory
-  await fs.writeFile(path.join(base, 'observations.json'), JSON.stringify(allObs, null, 2), 'utf-8');
-  await fs.writeFile(
-    path.join(base, 'counter.json'),
-    JSON.stringify({ nextId: allObs.length + 1 }),
-    'utf-8',
-  );
+  await atomicWriteFile(path.join(base, 'observations.json'), JSON.stringify(allObs, null, 2));
+  await atomicWriteFile(path.join(base, 'counter.json'), JSON.stringify({ nextId: allObs.length + 1 }));
 
   // Write merged graph
   const graphLines = [
@@ -225,7 +230,7 @@ export async function migrateSubdirsToFlat(baseDir?: string): Promise<boolean> {
     ...mergedRelations.map((r) => JSON.stringify({ type: 'relation', from: r.from, to: r.to, relationType: r.relationType })),
   ];
   if (graphLines.length > 0) {
-    await fs.writeFile(path.join(base, 'graph.jsonl'), graphLines.join('\n'), 'utf-8');
+    await atomicWriteFile(path.join(base, 'graph.jsonl'), graphLines.join('\n'));
   }
 
   // Also merge sessions if present
@@ -243,7 +248,7 @@ export async function migrateSubdirsToFlat(baseDir?: string): Promise<boolean> {
     } catch { /* no sessions */ }
   }
   if (allSessions.length > 0) {
-    await fs.writeFile(path.join(base, 'sessions.json'), JSON.stringify(allSessions, null, 2), 'utf-8');
+    await atomicWriteFile(path.join(base, 'sessions.json'), JSON.stringify(allSessions, null, 2));
   }
 
   // Move subdirectories to backup

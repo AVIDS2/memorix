@@ -102,6 +102,15 @@ Memorix resolves configuration in this order:
 Environment variables stay available for CI, MCP launchers, and temporary shell
 overrides. They are not the default user-facing setup path.
 
+For the HTTP control plane, `MEMORIX_HTTP_MAX_BODY_BYTES` bounds JSON request
+bodies at 10 MiB by default and accepts values up to 64 MiB. Keep the default
+unless a trusted local client needs larger payloads; this limit is not an
+authentication boundary. `MEMORIX_HTTP_AUTH_TOKEN` enables Bearer-token
+authentication for every endpoint except `/health`. Non-loopback binds are
+refused unless this token is set or the operator explicitly sets
+`MEMORIX_HTTP_ALLOW_UNAUTHENTICATED_BIND=1` behind a private network or
+authenticated reverse proxy.
+
 If you want the simplest setup, configure `~/.memorix/config.toml` once and stop
 there. Add `<git-root>/memorix.toml` only when a repository needs different
 models, memory behavior, or server defaults.
@@ -397,10 +406,15 @@ Common keys:
 Store sync is disabled unless `MEMORIX_SYNC_PROVIDER` is explicitly set. It
 replicates approved project-visible observation events, never the live SQLite
 file or its `-wal` / `-shm` companions. The local SQLite store remains the
-canonical read/write store.
+canonical read/write store. Default scope is the current Git project. Pass
+`--scope user` to relay every local project through a separate `user-global`
+named per-user namespace. Set the same stable value on that user's devices;
+the value is required so operators sharing one remote cannot silently share a
+default namespace.
 
 ```text
 MEMORIX_SYNC_PROVIDER=fs|github|s3|postgres
+MEMORIX_SYNC_USER_NAMESPACE=your-stable-user-id   # required with --scope user
 ```
 
 The filesystem relay needs `MEMORIX_SYNC_FS_ROOT`. The GitHub relay needs a

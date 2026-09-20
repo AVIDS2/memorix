@@ -9,7 +9,7 @@
 import type { Observation } from '../types.js';
 import { computeChanges, contentHash, nowIso } from './journal.js';
 import { compareVersion, mergeOne } from './merge.js';
-import { eligibleObservations } from './policy.js';
+import { eligibleObservations, type SyncScope } from './policy.js';
 import { isSafeSyncDeviceId } from './namespace.js';
 import type {
   ChangeBatch,
@@ -29,6 +29,7 @@ import { createHash } from 'node:crypto';
  */
 export interface SyncStorePort {
   projectId(): string;
+  scope(): SyncScope;
   namespace(): string;
   /** Stable device id for this replica. */
   deviceId(): string;
@@ -83,6 +84,7 @@ export async function runSync(
     remote: remote.kind,
     namespace: remote.namespace,
     projectId: store.projectId(),
+    scope: store.scope(),
     deviceId: opts.deviceId,
     pushed: 0,
     pulledBatches: 0,
@@ -116,7 +118,7 @@ export async function runSync(
       report.pending = pending.length;
       if (!opts.dryRun) {
         for (const pendingBatch of pending) {
-          validateBatches([pendingBatch.batch], store.projectId(), remote.namespace);
+          validateBatches([pendingBatch.batch], store.projectId(), remote.namespace, store.scope());
           if (pendingBatch.batch.deviceId !== opts.deviceId) {
             throw new Error('[memorix] sync outbox rejected: batch belongs to another device');
           }
@@ -128,7 +130,7 @@ export async function runSync(
         report.pending = 0;
       }
       const current = await store.loadAll();
-      const filtered = eligibleObservations(current, store.projectId());
+      const filtered = eligibleObservations(current, store.projectId(), store.scope());
       report.eligible = filtered.eligible.length;
       report.excluded = filtered.excluded;
       const state = await store.loadState();
@@ -151,7 +153,7 @@ export async function runSync(
             producedAt: nowIso(),
             entries: chunk.map((c) => c.entry),
           };
-          if (!opts.dryRun) validateBatches([batch], store.projectId(), remote.namespace);
+          if (!opts.dryRun) validateBatches([batch], store.projectId(), remote.namespace, store.scope());
           report.pushed += chunk.length;
           if (!opts.dryRun) {
             const states = chunk.map((c) => ({ ...c.nextState, shippedSeq: sequence }));
@@ -177,7 +179,7 @@ export async function runSync(
         // can skip later rows after page one.
         const page = await remote.pull(pullSince, PULL_PAGE_SIZE, pageToken);
         report.pulledBatches += page.batches.length;
-        validateBatches(page.batches, store.projectId(), remote.namespace);
+        validateBatches(page.batches, store.projectId(), remote.namespace, store.scope());
 
         for (const batch of page.batches) {
           if (batch.deviceId === opts.deviceId) {
@@ -254,7 +256,7 @@ export async function runSync(
   }
 }
 
-function validateBatches(batches: ChangeBatch[], projectId: string, namespace: string): void {
+function validateBatches(batches: ChangeBatch[], projectId: string, namespace: string, scope: SyncScope = 'project'): void {
   for (const batch of batches) {
     if (batch.formatVersion !== 3 || batch.projectId !== projectId || batch.namespace !== namespace) {
       throw new Error('[memorix] sync batch rejected: wrong format, project, or remote namespace');
@@ -284,7 +286,7 @@ function validateBatches(batches: ChangeBatch[], projectId: string, namespace: s
       }
       if (
         entry.kind === 'upsert'
-        && (!Number.isSafeInteger(entry.row!.id) || entry.row!.id < 1 || !eligibleObservations([entry.row!], projectId).eligible.length)
+        && (!Number.isSafeInteger(entry.row!.id) || entry.row!.id < 1 || !eligibleObservations([entry.row!], projectId, scope).eligible.length)
       ) {
         throw new Error('[memorix] sync batch rejected: ineligible observation payload');
       }

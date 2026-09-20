@@ -217,19 +217,22 @@ CREATE TABLE IF NOT EXISTS chat_transcript (
 
 const CREATE_GRAPH_ENTITIES_TABLE = `
 CREATE TABLE IF NOT EXISTS graph_entities (
-  name            TEXT PRIMARY KEY,
+  projectId       TEXT NOT NULL,
+  name            TEXT NOT NULL,
   entityType      TEXT NOT NULL DEFAULT '',
-  observations    TEXT NOT NULL DEFAULT '[]'
+  observations    TEXT NOT NULL DEFAULT '[]',
+  PRIMARY KEY (projectId, name)
 );
 `;
 
 const CREATE_GRAPH_RELATIONS_TABLE = `
 CREATE TABLE IF NOT EXISTS graph_relations (
   id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  projectId       TEXT NOT NULL,
   from_entity     TEXT NOT NULL,
   to_entity       TEXT NOT NULL,
   relationType    TEXT NOT NULL DEFAULT '',
-  UNIQUE(from_entity, to_entity, relationType)
+  UNIQUE(projectId, from_entity, to_entity, relationType)
 );
 `;
 

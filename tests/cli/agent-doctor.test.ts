@@ -6,7 +6,7 @@ import path from 'node:path';
 
 import doctorCommand from '../../src/cli/commands/doctor.js';
 import repairCommand from '../../src/cli/commands/repair.js';
-import { parseCodexPluginList } from '../../src/cli/commands/agent-integrations.js';
+import { inspectAgentIntegrations, parseCodexPluginList } from '../../src/cli/commands/agent-integrations.js';
 import { getCliVersion } from '../../src/cli/version.js';
 
 vi.mock('node:child_process', async (importOriginal) => {
@@ -472,5 +472,33 @@ describe('agent doctor and repair', () => {
     const parsed = JSON.parse(result.stdout);
     expect(parsed.repair.changed).not.toContain('codex:plugin:global');
     expect(parsed.repair.skipped).toContain('codex:plugin:global:enable-in-plugin-browser');
+  });
+
+  it('treats default Grok MCP as host-owned and reports a written HTTP entry', async () => {
+    const missing = await inspectAgentIntegrations({
+      projectRoot: repoDir,
+      agent: 'grok',
+      scope: 'global',
+    });
+    expect(missing.entries[0].mcp.status).toBe('skipped');
+    expect(missing.entries[0].mcp.issues).toContain('mcp-host-owned');
+
+    mkdirSync(path.join(sandboxRoot, '.grok'), { recursive: true });
+    writeFileSync(path.join(sandboxRoot, '.grok', 'config.toml'), [
+      '[mcp_servers.memorix]',
+      'url = "http://localhost:3211/mcp"',
+      '',
+    ].join('\n'), 'utf-8');
+
+    const present = await inspectAgentIntegrations({
+      projectRoot: repoDir,
+      agent: 'grok',
+      scope: 'global',
+    });
+    expect(present.entries[0].mcp.status).toBe('ok');
+    expect(present.entries[0].mcp.checks[0].server).toMatchObject({
+      transport: 'http',
+      url: 'http://localhost:3211/mcp',
+    });
   });
 });

@@ -33,6 +33,7 @@ import { TraeMCPAdapter } from '../../workspace/mcp-adapters/trae.js';
 import { DshMCPAdapter } from '../../workspace/mcp-adapters/dsh.js';
 import { WorkbuddyMCPAdapter } from '../../workspace/mcp-adapters/workbuddy.js';
 import { CodeBuddyMCPAdapter } from '../../workspace/mcp-adapters/codebuddy.js';
+import { GrokMCPAdapter } from '../../workspace/mcp-adapters/grok.js';
 import { getSetupIntegrationRows as readSetupIntegrationRows } from '../../integrations/registry.js';
 import { OFFICIAL_MEMORIX_SKILLS } from '../../hooks/official-skills.js';
 import { getCliVersion } from '../version.js';
@@ -212,9 +213,11 @@ export function buildSetupPlan(options: {
   plugin?: boolean;
   global?: boolean;
 }): SetupPlan {
-  // Grok owns its MCP configuration through `grok mcp`; Memorix setup only
-  // installs the independent hooks/rules integration for this target.
-  const mcp = options.agent === 'grok' ? 'none' : options.mcp ?? 'stdio';
+  // Grok MCP stays host-owned by default (`grok mcp`). An explicit
+  // `--mcp http` is the exception: write the shared control-plane URL.
+  const mcp = options.agent === 'grok'
+    ? (options.mcp === 'http' ? 'http' : 'none')
+    : options.mcp ?? 'stdio';
   const actions: SetupAction[] = [];
   const isPackageOwnedAgent = options.agent !== 'all' && PACKAGE_OWNED_INTEGRATION_AGENTS.has(options.agent);
   const includeHooks = options.hooks ?? true;
@@ -391,7 +394,7 @@ function relativePosix(from: string, to: string): string {
   return rel;
 }
 
-export type McpConfigAgent = Exclude<AgentName, 'pi' | 'grok'>;
+export type McpConfigAgent = Exclude<AgentName, 'pi'>;
 
 export function getMcpAdapter(agent: McpConfigAgent): MCPConfigAdapter {
   const adapters: Record<McpConfigAgent, MCPConfigAdapter> = {
@@ -411,9 +414,12 @@ export function getMcpAdapter(agent: McpConfigAgent): MCPConfigAdapter {
     trae: new TraeMCPAdapter(),
     dsh: new DshMCPAdapter(),
     workbuddy: new WorkbuddyMCPAdapter(),
+    grok: new GrokMCPAdapter(),
   };
   return adapters[agent];
 }
+
+export const MEMORIX_HTTP_MCP_URL = 'http://localhost:3211/mcp';
 
 export function buildMemorixServer(mcp: Exclude<SetupMcpTransport, 'none'>): MCPServerEntry {
   if (mcp === 'http') {
@@ -421,7 +427,7 @@ export function buildMemorixServer(mcp: Exclude<SetupMcpTransport, 'none'>): MCP
       name: 'memorix',
       command: '',
       args: [],
-      url: 'http://localhost:3211/mcp',
+      url: MEMORIX_HTTP_MCP_URL,
     };
   }
 
@@ -432,6 +438,45 @@ export function buildMemorixServer(mcp: Exclude<SetupMcpTransport, 'none'>): MCP
     // teaches. lite covers the full taught set; micro would hide half of it.
     args: ['serve', '--mode', 'lite'],
   };
+}
+
+function toHttpMemorixServer(existing: Record<string, unknown>): Record<string, unknown> {
+  const next: Record<string, unknown> = { url: MEMORIX_HTTP_MCP_URL };
+  if (existing.alwaysLoad === true) next.alwaysLoad = true;
+  if (typeof existing.type === 'string') next.type = 'http';
+  return next;
+}
+
+/**
+ * Rewrite a copied plugin/extension MCP manifest from stdio `memorix serve`
+ * to the shared HTTP control plane. Leaves unrelated keys intact.
+ */
+export async function rewriteBundledMemorixMcpToHttp(root: string): Promise<string[]> {
+  const candidates = ['.mcp.json', 'mcp_config.json', 'gemini-extension.json']
+    .map((name) => path.join(root, name));
+  const rewritten: string[] = [];
+
+  for (const filePath of candidates) {
+    if (!existsSync(filePath)) continue;
+    let doc: unknown;
+    try {
+      doc = JSON.parse(await readFile(filePath, 'utf-8'));
+    } catch {
+      continue;
+    }
+    if (!doc || typeof doc !== 'object' || Array.isArray(doc)) continue;
+    const record = doc as Record<string, unknown>;
+    const servers = record.mcpServers;
+    if (!servers || typeof servers !== 'object' || Array.isArray(servers)) continue;
+    const serverMap = servers as Record<string, unknown>;
+    const existing = serverMap.memorix;
+    if (!existing || typeof existing !== 'object' || Array.isArray(existing)) continue;
+    serverMap.memorix = toHttpMemorixServer(existing as Record<string, unknown>);
+    await writeFile(filePath, JSON.stringify(record, null, 2) + '\n', 'utf-8');
+    rewritten.push(filePath);
+  }
+
+  return rewritten;
 }
 
 function mergeJsonMcpConfig(existingContent: string | null, generatedContent: string): string {
@@ -781,7 +826,7 @@ export async function installMcpConfig(options: {
   }
 
   const generated = adapter.generate([server]);
-  const content = options.agent === 'codex'
+  const content = options.agent === 'codex' || options.agent === 'grok'
     ? mergeTomlMcpConfig(existingContent, generated)
     : options.agent === 'hermes'
       ? mergeYamlMcpConfig(existingContent, generated)
@@ -1456,7 +1501,12 @@ export async function installAgentSetup(agent: AgentName, plan: SetupPlan, globa
   const hasCodeBuddyPlugin = plan.actions.includes('codebuddy-plugin') && agent === 'codebuddy';
   // Codex's supported default is the user-level plugin. Never create a
   // project-local .codex/config.toml as an implicit fallback.
-  const wantsMcpConfig = plan.mcp !== 'none' && agent !== 'pi' && agent !== 'grok' && !(agent === 'codex' && !global);
+  // Grok MCP stays host-owned unless the caller passed --mcp http.
+  const wantsMcpConfig = plan.mcp !== 'none'
+    && agent !== 'pi'
+    && !(agent === 'codex' && !global)
+    && !(agent === 'grok' && plan.mcp !== 'http');
+  const bundledMcpRoots: string[] = [];
 
   if (PLUGIN_PACKAGE_AGENTS.has(agent) && plan.includePlugin && !global) {
     p.log.info(`${agent}: project setup leaves user-level plugins untouched. Run \`memorix setup --agent ${agent} --global\` to install its plugin, skills, and lifecycle hooks.`);
@@ -1467,6 +1517,7 @@ export async function installAgentSetup(agent: AgentName, plan: SetupPlan, globa
       agent: agent as PluginInstallOptions['agent'],
       includeHooks: plan.includeHooks,
     });
+    bundledMcpRoots.push(result.pluginPath);
     p.log.success(`${agent}: plugin package -> ${result.pluginPath}`);
     if (result.marketplacePath) {
       p.log.info(`${agent}: marketplace -> ${result.marketplacePath}`);
@@ -1498,6 +1549,7 @@ export async function installAgentSetup(agent: AgentName, plan: SetupPlan, globa
 
   if (hasCodeBuddyPlugin) {
     const result = await installCodeBuddyPluginPackage({ includeHooks: plan.includeHooks });
+    bundledMcpRoots.push(result.pluginPath);
     p.log.success(`${agent}: plugin -> ${result.pluginPath}`);
     p.log.info(`${agent}: marketplace -> ${result.marketplacePath}`);
     const install = tryInstallCodeBuddyPlugin(result.marketplaceRoot);
@@ -1509,6 +1561,7 @@ export async function installAgentSetup(agent: AgentName, plan: SetupPlan, globa
 
   if (hasExtensionPackage) {
     const result = await installGeminiExtensionPackage();
+    bundledMcpRoots.push(result.extensionPath);
     p.log.success(`${agent}: extension package -> ${result.extensionPath}`);
     p.log.info(result.installHint);
   }
@@ -1524,6 +1577,7 @@ export async function installAgentSetup(agent: AgentName, plan: SetupPlan, globa
 
   if (hasOpenClawBundle) {
     const result = await installOpenClawBundlePackage({ includeHooks: plan.includeHooks });
+    bundledMcpRoots.push(result.bundlePath);
     p.log.success(`${agent}: compatible bundle -> ${result.bundlePath}`);
     if (plan.includeHooks) {
       const install = tryInstallOpenClawBundle(result.bundlePath);
@@ -1537,6 +1591,7 @@ export async function installAgentSetup(agent: AgentName, plan: SetupPlan, globa
 
   if (hasAntigravityPlugin) {
     const result = await installAntigravityPluginPackage({ global, projectRoot: targetRoot, includeHooks: plan.includeHooks });
+    bundledMcpRoots.push(result.pluginPath);
     p.log.success(`${agent}: plugin -> ${result.pluginPath}`);
     if (!plan.includeHooks) {
       p.log.info(`${agent}: hooks.json skipped because --noHooks was selected`);
@@ -1570,7 +1625,8 @@ export async function installAgentSetup(agent: AgentName, plan: SetupPlan, globa
   }
 
   if (wantsMcpConfig) {
-    if ((hasPluginPackage || hasCodeBuddyPlugin || hasExtensionPackage || hasOpenClawBundle || hasAntigravityPlugin) && plan.mcp === 'stdio') {
+    const mcpOwnedByPackage = hasPluginPackage || hasCodeBuddyPlugin || hasExtensionPackage || hasOpenClawBundle || hasAntigravityPlugin;
+    if (mcpOwnedByPackage && plan.mcp === 'stdio') {
       const packageLabel = hasExtensionPackage
         ? 'extension package'
         : hasCodeBuddyPlugin
@@ -1581,6 +1637,13 @@ export async function installAgentSetup(agent: AgentName, plan: SetupPlan, globa
             ? 'Antigravity plugin'
           : 'plugin package';
       p.log.info(`${agent}: stdio MCP is bundled in the ${packageLabel}`);
+    } else if (mcpOwnedByPackage && plan.mcp === 'http') {
+      for (const root of bundledMcpRoots) {
+        const rewritten = await rewriteBundledMemorixMcpToHttp(root);
+        for (const filePath of rewritten) {
+          p.log.success(`${agent}: plugin MCP -> HTTP ${filePath}`);
+        }
+      }
     } else {
       const mcp = plan.mcp === 'http' ? 'http' : 'stdio';
       const result = await installMcpConfig({ agent: agent as McpConfigAgent, projectRoot: targetRoot, global, mcp });
@@ -1637,7 +1700,11 @@ export async function installAgentSetup(agent: AgentName, plan: SetupPlan, globa
   if (agent === 'pi') {
     p.log.info('pi: Pi has no MCP config lane in the current CLI; use the installed package extension and skill.');
   } else if (agent === 'grok') {
-    p.log.info('grok: lifecycle hooks write ~/.grok/hooks/memorix.json. MCP stays host-owned (do not write config.toml).');
+    if (plan.mcp === 'http') {
+      p.log.info('grok: wrote [mcp_servers.memorix] HTTP URL in Grok config.toml. Start the control plane with `memorix background start`.');
+    } else {
+      p.log.info('grok: lifecycle hooks write ~/.grok/hooks/memorix.json. MCP stays host-owned unless you pass `--mcp http`.');
+    }
     if (!global) p.log.info('grok: project hooks require `/hooks-trust` or launching Grok with `--trust`.');
   } else if (plan.mcp === 'stdio') {
     p.log.info(`${agent}: MCP server command is \`memorix serve\``);
@@ -1744,7 +1811,7 @@ export default defineCommand({
           { value: 'codex', label: 'Codex', hint: 'plugin package + marketplace + MCP' },
           { value: 'copilot', label: 'GitHub Copilot CLI', hint: 'plugin package + hooks + MCP' },
           { value: 'cursor', label: 'Cursor', hint: 'MCP + rules + skills' },
-          { value: 'grok', label: 'Grok Build', hint: 'hooks file; MCP stays host-owned' },
+          { value: 'grok', label: 'Grok Build', hint: 'hooks file; MCP host-owned unless --mcp http' },
           { value: 'gemini-cli', label: 'Gemini CLI', hint: 'extension + MCP' },
           { value: 'openclaw', label: 'OpenClaw', hint: 'bundle + hook pack + skills + MCP' },
           { value: 'hermes', label: 'Hermes Agent', hint: 'plugin + hooks + commands + skills + MCP' },

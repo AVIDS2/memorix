@@ -63,7 +63,9 @@ jobs:
       - name: Verify the image starts and becomes healthy
         run: |
           set -euo pipefail
-          docker run --detach --rm --name memorix-ci -p 3211:3211 memorix:ci
+          docker run --detach --rm --name memorix-ci -p 3211:3211 \
+            --env MEMORIX_HTTP_ALLOW_UNAUTHENTICATED_BIND=1 \
+            memorix:ci
           for attempt in {1..30}; do
             if curl --fail --silent --show-error http://127.0.0.1:3211/health; then
               exit 0

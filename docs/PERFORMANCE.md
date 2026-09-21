@@ -198,6 +198,27 @@ Results are machine-specific and should be compared on the same OS and Node
 version. The release gate is an integrity and regression check, not a public
 latency guarantee.
 
+### 1.9.x Capacity Closeout Evidence (2026-09-21)
+
+The 40,000-record gate passed on Windows with Node `v22.22.3`, SQLite-backed
+storage, and embeddings disabled after the capacity guardrails landed:
+
+| Measurement | Result |
+| --- | ---: |
+| Seed and index | 51.4 s |
+| Steady-state write p50 / p95 | 0.87 / 1.51 ms |
+| SDK lexical search | 25.4 ms |
+| HTTP ready | 2.20 s |
+| MCP initialize / bind | 160 / 344 ms |
+| MCP context / search / store | 768 / 428 / 556 ms |
+| Hook write | 3.75 s |
+| SDK reopen | 129.8 ms |
+| Service peak RSS | 408.7 MiB |
+| Durable records after MCP and hook writes | 40,002 |
+
+The planted record remained searchable, the HTTP/MCP and hook writes were
+durable, and the reopened SDK observed the project-visible records.
+
 ### 1.9.3 Release Evidence (2026-09-14)
 
 The 40,000-record gate passed on Windows with Node `v22.22.3`, SQLite-backed

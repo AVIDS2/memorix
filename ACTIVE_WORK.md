@@ -4,7 +4,7 @@
 > before resuming substantial work, update it after a material decision or
 > milestone, and do not create parallel progress logs.
 
-**Last updated:** 2026-09-20
+**Last updated:** 2026-09-21
 
 **Local verification rule:** run the frontend, HTTP service, MCP server, and
 tests directly with Node/npm on the E: workspace. Do not start Docker or add
@@ -25,10 +25,10 @@ artifacts for the VPS/hosted build path only.
 - MCP profiles are currently `micro=9`, `lite=20`, `team=28`, and `full=47`.
   Setup installs `lite`; advanced and compatibility tools remain opt-in so the
   default agent context stays small.
-- Contributor PR #260 remains open for review because its unlocked timeout
-  fallback is unsafe; its diagnosis is credited and the fail-closed fix shipped
-  in 1.8.5. WorkBuddy PR #204 and continuation PR #266 are merged with their
-  authorship retained; Star History PR #265 is also merged.
+- Contributor PR #260 was closed as superseded because its unlocked timeout
+  fallback is unsafe; its diagnosis is credited and the stronger fail-closed fix
+  shipped in 1.8.5. WorkBuddy PR #204 and continuation PR #266 are merged with
+  their authorship retained; Star History PR #265 is also merged.
 - Release verification is green: MCP v2 direct tests, legacy and modern
   stdio/HTTP smoke, background concurrency smoke, P3/P4/P5/P6 suites,
   `npm run lint`, the sequential low-memory build, the full local regression,
@@ -51,12 +51,12 @@ complete. Detailed acceptance criteria and the public issue/PR disposition live 
 - **[x] P1 store ownership and SQLite concurrency:** SDK sibling lifetimes,
   sync ID allocation/tombstones, stale lock ownership, and release contracts
   have regression coverage.
-- **[follow-up] P2 capacity budgets:** dashboard/team query caps, failed-job
-  retention, embedding cache budgets, and long-lived project cache eviction
-  are implemented on `codex/1.9.x-capacity-budgets`; the branch has passed the
-  full local regression and is ready for a focused PR/remote CI.
+- **[x] P2 capacity budgets:** dashboard/team query caps, failed-job retention,
+  embedding cache budgets, and long-lived project cache eviction shipped in
+  merge commit `3a3dd49` through PR #306. The full local regression, real
+  background-start smoke, and all seven remote CI checks passed.
 
-## 1.9.x Capacity Slice (2026-09-20)
+## 1.9.x Capacity Slice (2026-09-21)
 
 - [x] TeamStore agents, locks, tasks, and inboxes are SQL-limited to 100 rows
   by default and 500 maximum; task/agent detail queries remain separate.
@@ -68,6 +68,11 @@ complete. Detailed acceptance criteria and the public issue/PR disposition live 
   LRU-style maps instead of growing for every requested project.
 - [x] Local verification: lint, build, focused capacity tests (139 passed), and
   full regression (331 files / 3149 tests passed / 4 live embedding skipped).
+- [x] Remote verification: Linux, macOS, Windows, Docker control plane, Node 26
+  SQLite, typecheck, and MCP metadata checks all passed in PR #306.
+- [x] Large-store gate: 40,000 records passed on Windows/Node 22 with
+  51.4 s seed/index, 25.4 ms lexical search, 129.8 ms SDK reopen, 408.7 MiB
+  peak RSS, durable HTTP/MCP/hook writes, and no failed checks.
 
 ### New GitHub work
 
@@ -77,10 +82,14 @@ complete. Detailed acceptance criteria and the public issue/PR disposition live 
 - **#302 / #304:** merged through #305 and shipped in 1.9.5 after scope-aware
   tombstone handling, cross-project ID remapping, explicit per-user namespace
   validation, and mixed-project SQLite tests.
-- **#300:** defer; optional Atlas Cloud support has no checks or review and is
-  not an infrastructure release gate.
-- **#297 / #283:** keep open as ecosystem/documentation follow-ups; neither is
-  a 1.9.5 blocker. #49 and #3 remain separate future integration work.
+- **#300:** Atlas Cloud memory preset is being carried through the 1.9.x
+  closeout with isolated configuration tests and the normal CI gate; it is an
+  optional provider path and does not change the default.
+- **#297 / #283:** external ecosystem/documentation requests remain explicitly
+  outside the core release gate; #283 is configuration-compatible today and
+  needs only a documented example, while #297 depends on the external list's
+  maintainer workflow. #49 and #3 remain external integration proposals with
+  no host contract that Memorix can verify locally.
 
 ## 1.8.7 CodeGraph Main Line (2026-09-02)
 
@@ -254,8 +263,9 @@ separate future suggestions or contributor revisions, not hidden release work.
 - [x] #202 closed with the measured memory-hygiene results.
 - [x] #249 closed with the modern supported contract and explicit, tested
   rejection of durable Tasks; no complete-conformance claim is made.
-- [x] #259 closed after the duplicate-process gate passed; #260 remains open
-  for contributor-side revision because its fallback is still unsafe.
+- [x] #259 closed after the duplicate-process gate passed; #260 was closed as
+  superseded because its fallback is still unsafe, with contributor credit
+  retained in the issue history.
 - [x] #244 merged with the bot-generated Star History assets after raw-asset
   reachability and data checks.
 - [x] README, Chinese README, API reference, setup docs, changelog, plugin
@@ -409,10 +419,11 @@ provider when the operator chooses one.
 
 ## Immediate Next Step
 
-- `1.8.7` is published and all release gates are recorded above. Keep #260 open
-  for its fail-closed revision; it is independent of this release.
-- #49 and #3 remain independent future integration suggestions; do not pull
-  them into a patch release without a verifiable host contract.
+- `1.8.7` is published and all release gates are recorded above. The current
+  1.9.x maintenance closeout has no known internal release blocker.
+- #49 and #3 remain independent integration proposals, not hidden maintenance
+  work: neither has a verifiable host contract that can be implemented safely
+  in the current line.
 
 ## Historical Release Notes
 

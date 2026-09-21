@@ -26,10 +26,10 @@ export interface MemorixConfig {
 
 let cachedConfig: MemorixConfig | null = null;
 
-export function loadFileConfig(): MemorixConfig {
+export function loadFileConfig(homeDir = homedir()): MemorixConfig {
   if (cachedConfig !== null) return cachedConfig;
 
-  const configPath = getLegacyConfigJsonPath(homedir());
+  const configPath = getLegacyConfigJsonPath(homeDir);
   try {
     if (existsSync(configPath)) {
       cachedConfig = JSON.parse(readFileSync(configPath, 'utf-8'));

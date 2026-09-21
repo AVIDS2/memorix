@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## Unreleased (1.9.x)
+
+### Added
+- **Atlas Cloud memory preset** -- `memorix init` and the configuration TUI can
+  select Atlas Cloud for optional background memory LLM work through its
+  OpenAI-compatible endpoint, with provider-specific key isolation.
+
+### Fixed
+- **Configuration scope isolation** -- explicit home/project resolution now
+  applies consistently to TOML, YAML, legacy JSON, and `.env` loading, so
+  long-lived processes and tests cannot reuse another configuration scope.
+- **Capacity closeout** -- TeamStore queries, maintenance history, embedding
+  caches, HTTP project caches, and large-store behavior are bounded and
+  regression-covered.
+
 ## [1.9.5] - 2026-09-20
 
 ### Added

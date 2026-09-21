@@ -12,8 +12,9 @@
 
 ## 1.9.5 发布结论与剩余后续项
 
-> `v1.9.5` 已发布，主线为 `658231f`。本节保留发布证据和下一轮
-> 1.9.x 的后续项，不再把已完成的门槛伪装成未完成工作。
+> `v1.9.5` 已发布，版本标签为 `658231f`；1.9.x 容量维护已通过 #306
+> 合入当前主线 `3a3dd49`。本节保留发布证据和仍有外部依赖的事项，不再把
+> 已完成的门槛伪装成未完成工作。
 
 ### 发布门槛
 
@@ -22,16 +23,18 @@
 | P1 | HTTP 控制面安全与生命周期 | 已完成并随 v1.9.5 发布。 | 回环默认、非回环显式安全策略、请求体上限、监听失败、后台清理、HTTP/SQLite 关闭和真实 smoke 均通过。 |
 | P1 | 项目隔离 | 已完成并随 v1.9.5 发布。 | 图谱实体/边按项目存储，Dashboard/MCP 查询、替换、删除和旧 JSONL 迁移测试通过。 |
 | P1 | 迁移失败语义 | 已完成并随 v1.9.5 发布。 | legacy observations/subdirectories 具备锁和原子写入；坏 JSON fail-closed，不伪装成空库。 |
-| P1 | Store / SQLite 生命周期 | 已完成本次发布范围；更深的事务/缓存审计保留为后续。 | SDK 同目录引用计数、sync ID/tombstone、活锁保护、关闭路径和多实例测试通过。 |
-| P2 | 内存与容量边界 | 本轮 1.9.x 容量切片已完成；后续继续做压力基准。 | TeamStore SQL 查询上限、failed job 30 天保留、三类 embedding cache 字节预算、HTTP project/store cache 驱逐均已有代码和回归覆盖。 |
+| P1 | Store / SQLite 生命周期 | 已完成；本轮容量切片补齐了缓存、查询和维护保留边界，没有已知发布阻塞。 | SDK 同目录引用计数、sync ID/tombstone、活锁保护、关闭路径、多实例与容量回归通过。 |
+| P2 | 内存与容量边界 | 已完成并通过 #306 合入主线；压力验证也纳入本轮回归。 | TeamStore SQL 查询上限、failed job 30 天保留、三类 embedding cache 字节预算、HTTP project/store cache 驱逐均已有代码和回归覆盖。 |
 | P1 | 发布契约 | 已完成并随 v1.9.5 发布。 | tag/version/commit 校验、npm 传播等待、check-only prepublish、npm 和 MCP Registry 发布均已验证。 |
 
 ### 新 issue / PR 处置
 
 - [#301](https://github.com/AVIDS2/memorix/issues/301) / [#303](https://github.com/AVIDS2/memorix/pull/303)：已通过 #305 合并并随 v1.9.5 发布；原 PR 已标记为 superseded。
 - [#302](https://github.com/AVIDS2/memorix/issues/302) / [#304](https://github.com/AVIDS2/memorix/pull/304)：已通过 #305 合并并随 v1.9.5 发布；原 PR 已标记为 superseded。
-- [#300](https://github.com/AVIDS2/memorix/pull/300)：暂缓。Atlas Cloud 是可选 provider，当前没有 checks 或人工 review，不应挤占 1.9.5 基础设施门槛。
-- [#297](https://github.com/AVIDS2/memorix/issues/297) / [#283](https://github.com/AVIDS2/memorix/issues/283)：保留为生态/文档跟进，不是 1.9.5 阻塞项；[#49](https://github.com/AVIDS2/memorix/issues/49) 与 [#3](https://github.com/AVIDS2/memorix/issues/3) 继续独立排期。
+- [#300](https://github.com/AVIDS2/memorix/pull/300)：Atlas Cloud 是可选 provider；当前收口分支补齐了配置隔离和完整 CI，确认后合入 1.9.x，不改变默认 provider。
+- [#297](https://github.com/AVIDS2/memorix/issues/297)：外部 awesome-list 收录请求，需按对方仓库的贡献流程处理，不是 Memorix 代码阻塞。
+- [#283](https://github.com/AVIDS2/memorix/issues/283)：OrcaRouter 已可通过现有 OpenAI-compatible `base_url` 配置使用，补充示例后不需要新 provider 枚举。
+- [#49](https://github.com/AVIDS2/memorix/issues/49) 与 [#3](https://github.com/AVIDS2/memorix/issues/3)：外部集成提案；当前没有可验证的宿主身份/Hook 契约，不纳入本轮维护代码。
 
 ---
 

@@ -526,6 +526,11 @@ formation = "active"
 
 Use `[memory.llm]` and `[embedding]` for Memorix memory quality and retrieval. Use `[agent]` for the model memcode talks to while coding. Keep credentials in global config or environment variables, and do not commit secrets.
 
+For the optional Atlas Cloud memory preset, run `memorix init` and choose Atlas
+Cloud, or set `provider = "atlascloud"` in `[memory.llm]`. It uses the
+OpenAI-compatible `https://api.atlascloud.ai/v1` endpoint and reads
+`ATLASCLOUD_API_KEY` or the explicit `MEMORIX_LLM_API_KEY`.
+
 For OpenRouter embeddings, use `provider = "api"`, `base_url = "https://openrouter.ai/api/v1"`, and `model = "qwen/qwen3-embedding-8b"`. Memorix accepts `OPENROUTER_API_KEY` for that embedding endpoint; `MEMORIX_EMBEDDING_API_KEY` remains the explicit override.
 
 For controlled MiniMax media generation, set `MINIMAX_API_KEY` (global) or

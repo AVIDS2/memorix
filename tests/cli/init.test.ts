@@ -63,6 +63,17 @@ describe('init-shared', () => {
 });
 
 describe('init TOML templates', () => {
+  it('offers an Atlas memory preset without embedding credentials in project config', async () => {
+    const { buildInitTomlConfig } = await import('../../src/cli/commands/init.js');
+    const content = buildInitTomlConfig({
+      scope: 'project', llmProvider: 'atlascloud', embeddingProvider: 'off',
+      gitAutoHook: false, sessionInject: 'minimal', date: '2026-09-17',
+    });
+    expect(content).toContain('provider = "atlascloud"');
+    expect(content).toContain('model = "deepseek-ai/deepseek-v3.2"');
+    expect(content).not.toContain('api_key');
+  });
+
   it('shows agent, memory, and embedding lanes in global config with local key slots', async () => {
     const { buildInitTomlConfig } = await import('../../src/cli/commands/init.js');
 

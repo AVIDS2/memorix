@@ -44,6 +44,7 @@ const ENV_KEYS = [
   'OPENAI_API_KEY',
   'ANTHROPIC_API_KEY',
   'OPENROUTER_API_KEY',
+  'ATLASCLOUD_API_KEY',
 ];
 
 describe('resolved config', () => {
@@ -58,6 +59,23 @@ describe('resolved config', () => {
     resetConfigCache();
     resetDotenv();
     for (const key of ENV_KEYS) delete process.env[key];
+  });
+
+  it('uses the Atlas key only when its memory provider is selected', () => {
+    process.env.ATLASCLOUD_API_KEY = 'atlas-test-key';
+    expect(getResolvedMemoryLane({ projectRoot: null, homeDir: HOME }).llm.apiKey).toBeUndefined();
+    process.env.MEMORIX_LLM_PROVIDER = 'atlascloud';
+    expect(getResolvedMemoryLane({ projectRoot: null, homeDir: HOME }).llm.apiKey).toBe('atlas-test-key');
+    process.env.MEMORIX_LLM_API_KEY = 'explicit-test-key';
+    expect(getResolvedMemoryLane({ projectRoot: null, homeDir: HOME }).llm.apiKey).toBe('explicit-test-key');
+  });
+
+  it('does not borrow other provider keys for Atlas memory', () => {
+    process.env.MEMORIX_LLM_PROVIDER = 'atlascloud';
+    process.env.OPENAI_API_KEY = 'openai-test-key';
+    process.env.ANTHROPIC_API_KEY = 'anthropic-test-key';
+    process.env.OPENROUTER_API_KEY = 'router-test-key';
+    expect(getResolvedMemoryLane({ projectRoot: null, homeDir: HOME }).llm.apiKey).toBeUndefined();
   });
 
   it('resolves TOML lanes above legacy YAML', () => {

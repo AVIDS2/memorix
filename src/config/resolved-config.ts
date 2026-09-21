@@ -92,8 +92,8 @@ export function getResolvedConfig(options: ResolvedLaneOptions = {}): ResolvedMe
   loadDotenv(projectRoot === null ? undefined : projectRoot ?? undefined, { userHomeDir: homeDir });
 
   const toml = loadTomlConfig({ projectRoot: projectRoot ?? null, homeDir });
-  const yaml = loadYamlConfig(projectRoot ?? null);
-  const legacy = loadFileConfig();
+  const yaml = loadYamlConfig(projectRoot ?? null, { homeDir });
+  const legacy = loadFileConfig(homeDir);
   const embeddingBaseUrl = first(process.env.MEMORIX_EMBEDDING_BASE_URL, toml.embedding?.base_url, yaml.embedding?.baseUrl, legacy.embeddingApi?.baseUrl);
   const openRouterEmbeddingApiKey = isOpenRouterUrl(embeddingBaseUrl) ? process.env.OPENROUTER_API_KEY : undefined;
   const memoryLlmProvider = first(
@@ -117,15 +117,17 @@ export function getResolvedConfig(options: ResolvedLaneOptions = {}): ResolvedMe
   const openRouterMemoryLlmApiKey = isOpenRouterMemoryLane(memoryLlmProvider, memoryLlmBaseUrl)
     ? process.env.OPENROUTER_API_KEY
     : undefined;
+  const isAtlasCloud = memoryLlmProvider === 'atlascloud';
   const memoryLlmApiKey = first(
     process.env.MEMORIX_LLM_API_KEY,
     process.env.MEMORIX_API_KEY,
     toml.memory?.llm?.api_key,
     yaml.llm?.apiKey,
     legacy.llm?.apiKey,
-    process.env.OPENAI_API_KEY,
-    process.env.ANTHROPIC_API_KEY,
-    openRouterMemoryLlmApiKey,
+    // Never borrow another provider's credentials for the Atlas Cloud preset.
+    isAtlasCloud ? process.env.ATLASCLOUD_API_KEY : process.env.OPENAI_API_KEY,
+    isAtlasCloud ? undefined : process.env.ANTHROPIC_API_KEY,
+    isAtlasCloud ? undefined : openRouterMemoryLlmApiKey,
   );
 
   const resolved: ResolvedMemorixConfig = {
@@ -321,6 +323,7 @@ function getEnvSourceNames(): string[] {
     'MEMORIX_CODEGRAPH_EXTERNAL_COMMAND',
     'MEMORIX_CODEGRAPH_EXTERNAL_TIMEOUT_MS',
     'OPENROUTER_API_KEY',
+    'ATLASCLOUD_API_KEY',
   ].filter((name) => process.env[name]);
 }
 

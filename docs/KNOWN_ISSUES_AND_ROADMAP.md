@@ -33,7 +33,7 @@
 - [#302](https://github.com/AVIDS2/memorix/issues/302) / [#304](https://github.com/AVIDS2/memorix/pull/304)：已通过 #305 合并并随 v1.9.5 发布；原 PR 已标记为 superseded。
 - [#300](https://github.com/AVIDS2/memorix/pull/300)：Atlas Cloud 是可选 provider；当前收口分支补齐了配置隔离和完整 CI，确认后合入 1.9.x，不改变默认 provider。
 - [#297](https://github.com/AVIDS2/memorix/issues/297)：外部 awesome-list 收录请求，需按对方仓库的贡献流程处理，不是 Memorix 代码阻塞。
-- [#283](https://github.com/AVIDS2/memorix/issues/283)：OrcaRouter 已可通过现有 OpenAI-compatible `base_url` 配置使用，补充示例后不需要新 provider 枚举。
+- [#283](https://github.com/AVIDS2/memorix/issues/283)：已完成文档收口；OrcaRouter 通过现有 OpenAI-compatible `base_url` 配置使用，不需要新 provider 枚举。
 - [#49](https://github.com/AVIDS2/memorix/issues/49) 与 [#3](https://github.com/AVIDS2/memorix/issues/3)：外部集成提案；当前没有可验证的宿主身份/Hook 契约，不纳入本轮维护代码。
 
 ---

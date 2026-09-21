@@ -178,6 +178,29 @@ This is opt-in background memory processing and may incur API charges. Setting
 `ATLASCLOUD_API_KEY` alone does not enable it. Embeddings and memcode's model
 registry are unchanged.
 
+OrcaRouter works through the generic OpenAI-compatible gateway path. Keep the
+provider label as `openai`, set its base URL, and use an explicit model ID:
+
+```toml
+[memory.llm]
+provider = "openai"
+base_url = "https://api.orcarouter.ai/v1"
+model = "openai/gpt-4o-mini"
+
+[agent]
+provider = "openai"
+base_url = "https://api.orcarouter.ai/v1"
+model = "openai/gpt-4o-mini"
+```
+
+Use `orcarouter/auto` only when per-request routing is intended. For memory
+formation, structured output, and embeddings, a fixed namespaced model is more
+reproducible. Set `MEMORIX_LLM_API_KEY` and, when using an embedding model
+through the same gateway, set `MEMORIX_EMBEDDING_API_KEY` independently.
+When the provider is unavailable, Memorix keeps the durable local write and
+falls back to its documented heuristic/BM25 paths; it does not treat a remote
+provider outage as a storage failure.
+
 ### `[embedding]`
 
 Used by semantic/vector search. This lane is intentionally separate from

@@ -13,6 +13,9 @@ All notable changes to this project will be documented in this file.
 - **Configuration scope isolation** -- explicit home/project resolution now
   applies consistently to TOML, YAML, legacy JSON, and `.env` loading, so
   long-lived processes and tests cannot reuse another configuration scope.
+- **OrcaRouter documentation** -- documents the existing OpenAI-compatible
+  gateway path with fixed-model and fallback guidance; no vendor-specific
+  provider branch is required.
 - **Capacity closeout** -- TeamStore queries, maintenance history, embedding
   caches, HTTP project caches, and large-store behavior are bounded and
   regression-covered.

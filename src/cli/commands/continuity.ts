@@ -138,7 +138,8 @@ export default defineCommand({
       console.log('  memorix continuity start --task "..." [--requirements "a,b"]');
       console.log('  memorix continuity record --taskId <id> --kind decision --content "..."');
       console.log('  memorix continuity record --taskId <id> --kind verification --verificationStatus passed --content "..."');
-      console.log('  memorix continuity show|list --taskId <id>');
+      console.log('  memorix continuity show --taskId <id>');
+      console.log('  memorix continuity list [--limit 20]');
       console.log('  memorix continuity close --taskId <id> --status completed --content "..."');
     } catch (error) {
       emitError(error instanceof Error ? error.message : String(error), asJson);

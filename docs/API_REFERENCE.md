@@ -163,13 +163,13 @@ together without copying the underlying observation or source evidence.
 
 CLI:
 
-`bash
+```bash
 memorix continuity start --task "Harden the release path" --requirements "keep 1.9.x,run CI"
 memorix continuity record --task-id <id> --kind decision --content "Use the existing release gate"
 memorix continuity record --task-id <id> --kind verification --verification-status passed --content "Full CI passed"
 memorix context "continue the release path" --task-id <id>
 memorix continuity close --task-id <id> --status completed --content "Ready for release"
-`
+```
 
 MCP uses `memorix_continuity` with actions `start`, `record`, `show`,
 `list`, and `close`. Pass the returned `taskId` to

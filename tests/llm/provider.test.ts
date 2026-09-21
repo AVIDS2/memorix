@@ -1,4 +1,7 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import {
   callLLM,
   callLLMWithTools,
@@ -8,6 +11,17 @@ import {
   parseLLMTimeoutMs,
   setLLMConfig,
 } from '../../src/llm/provider.ts';
+import { resetConfigCache, resetDotenv } from '../../src/config.ts';
+
+const TEST_ROOT = mkdtempSync(join(tmpdir(), 'memorix-llm-provider-'));
+const TEST_HOME = join(TEST_ROOT, 'home');
+const TEST_PROJECT = join(TEST_ROOT, 'project');
+mkdirSync(TEST_HOME, { recursive: true });
+mkdirSync(TEST_PROJECT, { recursive: true });
+
+afterAll(() => {
+  rmSync(TEST_ROOT, { recursive: true, force: true });
+});
 
 const LLM_ENV_KEYS = [
   'MEMORIX_AGENT_API_KEY',
@@ -36,24 +50,29 @@ function clearLLMEnv() {
 describe('initLLM config scopes', () => {
   beforeEach(() => {
     clearLLMEnv();
+    resetConfigCache();
+    resetDotenv();
     setLLMConfig(null);
   });
 
   afterEach(() => {
     clearLLMEnv();
+    resetConfigCache();
+    resetDotenv();
     setLLMConfig(null);
   });
 
   it('initializes the optional Atlas memory preset and preserves explicit overrides', () => {
     process.env.MEMORIX_LLM_PROVIDER = 'atlascloud';
     process.env.MEMORIX_LLM_API_KEY = 'atlas-test-key';
-    expect(initLLM({ scope: 'memory' })).toEqual({
+    const options = { scope: 'memory' as const, projectRoot: TEST_PROJECT, homeDir: TEST_HOME };
+    expect(initLLM(options)).toEqual({
       provider: 'atlascloud', apiKey: 'atlas-test-key',
       model: 'deepseek-ai/deepseek-v3.2', baseUrl: 'https://api.atlascloud.ai/v1',
     });
     process.env.MEMORIX_LLM_MODEL = 'custom-model';
     process.env.MEMORIX_LLM_BASE_URL = 'https://gateway.example/v1';
-    expect(initLLM({ scope: 'memory' })).toMatchObject({
+    expect(initLLM(options)).toMatchObject({
       model: 'custom-model', baseUrl: 'https://gateway.example/v1',
     });
   });

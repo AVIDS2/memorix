@@ -92,8 +92,8 @@ export function getResolvedConfig(options: ResolvedLaneOptions = {}): ResolvedMe
   loadDotenv(projectRoot === null ? undefined : projectRoot ?? undefined, { userHomeDir: homeDir });
 
   const toml = loadTomlConfig({ projectRoot: projectRoot ?? null, homeDir });
-  const yaml = loadYamlConfig(projectRoot ?? null);
-  const legacy = loadFileConfig();
+  const yaml = loadYamlConfig(projectRoot ?? null, { homeDir });
+  const legacy = loadFileConfig(homeDir);
   const embeddingBaseUrl = first(process.env.MEMORIX_EMBEDDING_BASE_URL, toml.embedding?.base_url, yaml.embedding?.baseUrl, legacy.embeddingApi?.baseUrl);
   const openRouterEmbeddingApiKey = isOpenRouterUrl(embeddingBaseUrl) ? process.env.OPENROUTER_API_KEY : undefined;
   const memoryLlmProvider = first(

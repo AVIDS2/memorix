@@ -125,9 +125,17 @@ export interface MemorixYamlConfig {
 
 // ─── Loader ──────────────────────────────────────────────────────────
 
-// Per-project config cache — keyed by resolved projectRoot string.
-// null key = user-level-only config (no project root).
-const configCache = new Map<string | null, MemorixYamlConfig>();
+interface LoadYamlOptions {
+  homeDir?: string;
+}
+
+// Cache entries are scoped by both the user home and project root so test and
+// long-lived multi-project callers cannot reuse another configuration scope.
+const configCache = new Map<string, MemorixYamlConfig>();
+
+function cacheKey(homeDir: string, projectRoot: string | null): string {
+  return `${homeDir}\0${projectRoot ?? ''}`;
+}
 /** Stored project root — set once by server init, used by all no-arg loadYamlConfig() calls */
 let globalProjectRoot: string | null = null;
 
@@ -142,7 +150,7 @@ let globalProjectRoot: string | null = null;
 export function initProjectRoot(root: string): void {
   globalProjectRoot = root;
   // Invalidate this project's cache entry so file changes are picked up
-  configCache.delete(root);
+  configCache.delete(cacheKey(homedir(), root));
 }
 
 /**
@@ -157,16 +165,18 @@ export function clearProjectRoot(): void {
  * Load memorix.yml from project root and/or user home.
  * Project-level overrides user-level (shallow merge per top-level key).
  */
-export function loadYamlConfig(projectRoot?: string | null): MemorixYamlConfig {
+export function loadYamlConfig(projectRoot?: string | null, options: LoadYamlOptions = {}): MemorixYamlConfig {
+  const homeDir = options.homeDir ?? homedir();
   // When null is explicitly passed, skip global fallback (user-level config only).
   // When undefined (no arg), fall back to globally-initialized project root.
   const resolvedRoot = projectRoot === null ? null : (projectRoot ?? globalProjectRoot ?? null);
+  const key = cacheKey(homeDir, resolvedRoot);
 
   // Per-project cache hit
-  const cached = configCache.get(resolvedRoot ?? null);
+  const cached = configCache.get(key);
   if (cached) return cached;
 
-  const userYaml = getGlobalYamlPath(homedir());
+  const userYaml = getGlobalYamlPath(homeDir);
   const projectYaml = resolvedRoot ? getProjectYamlPath(resolvedRoot) : null;
 
   let userConfig: MemorixYamlConfig = {};
@@ -205,7 +215,7 @@ export function loadYamlConfig(projectRoot?: string | null): MemorixYamlConfig {
     server: { ...userConfig.server, ...projectConfig.server },
     team: { ...userConfig.team, ...projectConfig.team },
   };
-  configCache.set(resolvedRoot ?? null, merged);
+  configCache.set(key, merged);
 
   return merged;
 }
@@ -214,9 +224,9 @@ export function loadYamlConfig(projectRoot?: string | null): MemorixYamlConfig {
  * Reset cached YAML config (for testing or project switching).
  * Invalidates all cached entries, or a specific projectRoot if provided.
  */
-export function resetYamlConfigCache(projectRoot?: string | null): void {
+export function resetYamlConfigCache(projectRoot?: string | null, homeDir = homedir()): void {
   if (projectRoot !== undefined) {
-    configCache.delete(projectRoot ?? null);
+    configCache.delete(cacheKey(homeDir, projectRoot ?? null));
   } else {
     configCache.clear();
   }

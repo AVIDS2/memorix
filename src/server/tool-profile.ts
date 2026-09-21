@@ -8,9 +8,9 @@
  * We provide four profiles:
  *   - "micro" (stdio default): Agent-ready project context + bounded recovery/media controls — 9 tools.
  *     Suitable for normal MCP clients where every tool schema costs context tokens.
- *   - "lite": Core memory CRUD, sessions, reasoning, retention, backup — 20 tools.
+ *   - "lite": Core memory CRUD, sessions, reasoning, continuity, retention, backup — 21 tools.
  *     Suitable for solo users who want the full memory surface without team tools.
- *   - "team" (HTTP default): lite + orchestration coordination tools, dashboard, and Knowledge Workspace — 28 tools.
+ *   - "team" (HTTP default): lite + orchestration coordination tools, dashboard, and Knowledge Workspace — 29 tools.
  *     Suitable when an operator explicitly wants task/message/lock surfaces.
  *   - "full": Everything, including niche / advanced tools (consolidate, dedup,
  *     formation metrics, skills, rules/workspace sync, KG-official, image ingest).
@@ -44,6 +44,7 @@ export const TOOL_PROFILES: Record<string, ReadonlyArray<ToolProfile>> = Object.
   // keep the default micro profile at its nine-tool token budget.
   memorix_evidence:           ['lite', 'team', 'full'],
   memorix_feedback:           ['lite', 'team', 'full'],
+  memorix_continuity:         ['lite', 'team', 'full'],
 
   // ── lite: extended solo memory surface ────────────────────────────
   memorix_graph_context:      ['lite', 'team', 'full'],

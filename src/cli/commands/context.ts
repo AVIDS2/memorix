@@ -33,6 +33,7 @@ export default defineCommand({
   },
   args: {
     task: { type: 'string', description: 'Current task for context shaping' },
+    taskId: { type: 'string', description: 'Optional task continuity ledger id to include' },
     input: {
       type: 'positional',
       description: 'Current task for context shaping (ergonomic positional form)',
@@ -67,6 +68,7 @@ export default defineCommand({
         dataDir,
         observations: filterReadableObservations(getAllObservations(), reader),
         task,
+        taskId: (args.taskId as string | undefined)?.trim() || undefined,
         agent: coerceAgentTarget(args.agent as string | undefined),
         refresh: coerceRefreshMode(args.refresh as string | undefined),
         reader,

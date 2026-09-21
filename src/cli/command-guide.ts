@@ -48,9 +48,21 @@ const GUIDES: Record<string, CliCommandGuide> = {
   context: {
     summary: 'Build the bounded task Workset used to resume or begin real work.',
     usage: [
-      'memorix context "continue the release fix" [--refresh auto|always|never]',
+      'memorix context "continue the release fix" [--task-id <continuity-id>] [--refresh auto|always|never]',
       'memorix resume "continue the release fix" [--refresh auto|always|never]',
     ],
+  },
+  continuity: {
+    summary: 'Track task requirements, decisions, verification, risks, and outcomes.',
+    usage: [
+      'memorix continuity start --task "Harden the release path" [--requirements "a,b"]',
+      'memorix continuity record --task-id <id> --kind decision --content "..."',
+      'memorix continuity record --task-id <id> --kind verification --verification-status passed --content "..."',
+      'memorix continuity show --task-id <id>',
+      'memorix continuity close --task-id <id> --status completed --content "..."',
+      'memorix continuity list',
+    ],
+    notes: ['Pass the returned task id to memorix context --task-id so the bounded brief includes the ledger.'],
   },
   explain: {
     summary: 'Show why a task context contains its current facts and memory evidence.',

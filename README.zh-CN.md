@@ -458,7 +458,7 @@ memcode
 | 使用内置终端 Agent | `memorix` 或 `memcode` |
 | 运行编排式 subagent 工作 | `memorix orchestrate --goal "..."` |
 
-`memorix serve` 默认使用 `--mode micro`（9 个工具），保持 MCP 工具 schema 紧凑。`memorix setup` 写入 `--mode lite`（20 个工具），覆盖常用记忆、会话、证据和反馈入口。需要协作工具时使用 `--mode team`（28 个工具），需要高级和兼容工具时使用 `--mode full`（47 个工具）。
+`memorix serve` 默认使用 `--mode micro`（9 个工具），保持 MCP 工具 schema 紧凑。`memorix setup` 写入 `--mode lite`（21 个工具），覆盖常用记忆、连续性、会话、证据和反馈入口。需要协作工具时使用 `--mode team`（29 个工具），需要高级和兼容工具时使用 `--mode full`（48 个工具）。
 
 `memorix orchestrate` 单 worker 默认使用当前 checkout；多 worker 时会在 `.worktrees/` 下为任务创建隔离 worktree，并把成功的任务分支 merge 回来。用 `--isolated` 可强制单 worker 也隔离，用 `--no-worktree` 禁用 worktree，用 `--allow-dirty` 允许带未提交改动运行，用 `--no-auto-merge` 保留任务 worktree 方便人工 review。
 

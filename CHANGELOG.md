@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 ## Unreleased (1.9.x)
 
 ### Added
+- **Task continuity ledger** -- adds a project-scoped append-only
+  ledger for requirements, decisions, verification, risks, and outcomes. The
+  bounded Project Context can include a ledger by `taskId`; no automatic
+  promotion or LLM summarization is performed.
 - **Atlas Cloud memory preset** -- `memorix init` and the configuration TUI can
   select Atlas Cloud for optional background memory LLM work through its
   OpenAI-compatible endpoint, with provider-specific key isolation.

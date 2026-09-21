@@ -821,6 +821,22 @@ CREATE TABLE IF NOT EXISTS memory_feedback_events (
 );
 `;
 
+const CREATE_TASK_CONTINUITY_EVENTS_TABLE = `
+CREATE TABLE IF NOT EXISTS task_continuity_events (
+  id              TEXT PRIMARY KEY,
+  project_id      TEXT NOT NULL,
+  task_id         TEXT NOT NULL,
+  task            TEXT NOT NULL,
+  kind            TEXT NOT NULL,
+  content         TEXT NOT NULL,
+  item_status     TEXT,
+  source_ref      TEXT,
+  evidence_json   TEXT NOT NULL DEFAULT '[]',
+  actor           TEXT,
+  created_at      TEXT NOT NULL
+);
+`;
+
 const CREATE_MCP_BINDINGS_TABLE = `
 CREATE TABLE IF NOT EXISTS mcp_bindings (
   handle_id    TEXT PRIMARY KEY,
@@ -899,6 +915,8 @@ CREATE INDEX IF NOT EXISTS idx_evidence_cards_candidate ON evidence_cards(projec
 CREATE INDEX IF NOT EXISTS idx_evidence_card_events_card ON evidence_card_events(card_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_memory_feedback_states_project ON memory_feedback_states(project_id, candidate_kind, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_memory_feedback_events_candidate ON memory_feedback_events(project_id, candidate_kind, candidate_id, observed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_task_continuity_project_task ON task_continuity_events(project_id, task_id, created_at ASC);
+CREATE INDEX IF NOT EXISTS idx_task_continuity_project_recent ON task_continuity_events(project_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_mcp_bindings_project ON mcp_bindings(project_id, last_used_at DESC);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_maintenance_jobs_active_dedupe
   ON maintenance_jobs(project_id, kind, dedupe_key)
@@ -1161,6 +1179,7 @@ export function getDatabase(dataDir: string): any {
   db.exec(CREATE_MAINTENANCE_JOBS_TABLE);
   db.exec(CREATE_MAINTENANCE_TARGETS_TABLE);
   db.exec(CREATE_COMPACTION_CHECKPOINTS_TABLE);
+  db.exec(CREATE_TASK_CONTINUITY_EVENTS_TABLE);
 
   // Phase 3a migration: add sourceSnapshot + updatedAt to mini_skills
   // Idempotent — ALTER TABLE ADD COLUMN throws if column already exists

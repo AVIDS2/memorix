@@ -26,6 +26,9 @@ All notable changes to this project will be documented in this file.
 - **Capacity closeout** -- TeamStore queries, maintenance history, embedding
   caches, HTTP project caches, and large-store behavior are bounded and
   regression-covered.
+- **Stable coordination queue order** -- available tasks now dispatch FIFO with
+  a SQLite rowid tie-breaker, preventing cross-platform adapter-routing flakes
+  when task timestamps collide.
 
 ## [1.9.5] - 2026-09-20
 

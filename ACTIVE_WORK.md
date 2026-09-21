@@ -22,7 +22,7 @@ artifacts for the VPS/hosted build path only.
 - SDK, CLI, hooks, and HTTP MCP share SQLite as the canonical flat data store.
   Large-store startup hydration uses bounded Orama batches so health remains
   responsive without rebalancing the index once per row.
-- MCP profiles are currently `micro=9`, `lite=20`, `team=28`, and `full=47`.
+- MCP profiles are currently `micro=9`, `lite=21`, `team=29`, and `full=48`.
   Setup installs `lite`; advanced and compatibility tools remain opt-in so the
   default agent context stays small.
 - Contributor PR #260 was closed as superseded because its unlocked timeout
@@ -73,6 +73,17 @@ complete. Detailed acceptance criteria and the public issue/PR disposition live 
 - [x] Large-store gate: 40,000 records passed on Windows/Node 22 with
   51.4 s seed/index, 25.4 ms lexical search, 129.8 ms SDK reopen, 408.7 MiB
   peak RSS, durable HTTP/MCP/hook writes, and no failed checks.
+
+## 1.9.x Task Continuity Ledger (2026-09-21)
+
+- [x] Added a project-scoped append-only SQLite ledger for task, requirement,
+  decision, verification, risk, and outcome events.
+- [x] Added grouped MCP/CLI operations (`start`, `record`, `show`, `list`,
+  `close`) with bounded inputs, credential redaction, and project isolation.
+- [x] Added optional `taskId` loading to Project Context so the bounded Workset
+  includes continuity without changing the default prompt budget or micro tool
+  profile.
+- [x] Added storage, Workset, MCP, profile, and HTTP integration tests.
 
 ### New GitHub work
 
@@ -178,8 +189,8 @@ separate future suggestions or contributor revisions, not hidden release work.
 - Keep the canonical Dashboard Memory Map, remove dead renderer/dependency
   paths, make profile counts truthful, and make CLI, MCP, README, docs, and all
   installed agent guidance describe the same reachable tools.
-- Keep `micro=9`, `lite=20`, `team=28`, and `full=47`; do not solve tool-schema
-  bloat by silently exposing all 47 tools to every agent.
+- Keep `micro=9`, `lite=21`, `team=29`, and `full=48`; do not solve
+  tool-schema bloat by silently exposing all 48 tools to every agent.
 
 ### P1 — Close the real runtime reliability gaps
 

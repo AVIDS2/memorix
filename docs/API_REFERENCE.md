@@ -155,6 +155,30 @@ SessionStart hooks keep the default minimal hint lightweight. When memory behavi
 
 The intended loop for agents is: get the project brief when it helps, inspect the suggested current files, use stale or unbound memory only as a lead, store durable outcomes after the work changes the project, and resolve obsolete memories.
 
+### Task Continuity
+
+Task Continuity is a small append-only ledger for one coding task. It keeps
+requirements, decisions, verification states, risks, and the final outcome
+together without copying the underlying observation or source evidence.
+
+CLI:
+
+`bash
+memorix continuity start --task "Harden the release path" --requirements "keep 1.9.x,run CI"
+memorix continuity record --task-id <id> --kind decision --content "Use the existing release gate"
+memorix continuity record --task-id <id> --kind verification --verification-status passed --content "Full CI passed"
+memorix context "continue the release path" --task-id <id>
+memorix continuity close --task-id <id> --status completed --content "Ready for release"
+`
+
+MCP uses `memorix_continuity` with actions `start`, `record`, `show`,
+`list`, and `close`. Pass the returned `taskId` to
+`memorix_project_context` to add a bounded `Task continuity` section to the Workset and
+receipt. Entries are project-scoped, sanitized for credentials, append-only, and
+bounded to 200 events per task.
+Continuity does not automatically promote anything to durable memory; verification
+and outcome signals remain explicit.
+
 ### Evidence Cards and Feedback
 
 Evidence Cards are the persisted provenance index for project memory. They do

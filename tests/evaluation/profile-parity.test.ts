@@ -51,9 +51,9 @@ describe('profile parity exam', () => {
 
   it('keeps profile descriptions tied to the actual profile map', () => {
     expect(describeProfile('micro')).toContain('9 tools');
-    expect(describeProfile('lite')).toContain('20 tools');
-    expect(describeProfile('team')).toContain('28 tools');
-    expect(describeProfile('full')).toContain('47 tools');
+    expect(describeProfile('lite')).toContain('21 tools');
+    expect(describeProfile('team')).toContain('29 tools');
+    expect(describeProfile('full')).toContain('48 tools');
   });
 
   it('keeps packaged memory skills aware of the reachable lite surface', () => {

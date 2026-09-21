@@ -25,6 +25,7 @@ import type { KnowledgePageRecord, KnowledgeWorkspace } from './workspace-types.
 import type { WorkflowSelection } from './workflow-types.js';
 import type { ObservationReader } from '../types.js';
 import type { LongTermMemory, LongTermMemoryEvidence } from '../memory/long-term-types.js';
+import type { TaskContinuityLedger } from './task-continuity.js';
 
 export type WorksetCautionKind =
   | 'dirty-worktree'
@@ -148,6 +149,7 @@ export interface WorksetCodeEvolution {
 export interface TaskWorkset {
   version: '1.3';
   task: string;
+  continuity?: TaskContinuityLedger;
   lens: string;
   /** Always-on "who you are and what this workspace is doing" block. */
   alwaysOn?: {
@@ -193,6 +195,7 @@ export interface BuildTaskWorksetInput {
   projectId: string;
   dataDir: string;
   task?: string;
+  continuity?: TaskContinuityLedger;
   /** Optional target used to select workflows explicitly compatible with this agent. */
   agent?: AgentTarget;
   lens: string;
@@ -366,6 +369,7 @@ function freshnessForMemory(status: WorksetMemorySource['status']): ContextCandi
 }
 
 function receiptOmissionKind(raw: string): ContextCandidateKind | undefined {
+  if (raw.includes('continuity')) return 'continuity';
   if (raw.includes('continuation')) return 'continuation';
   if (raw.includes('task')) return 'task';
   if (raw.includes('fact')) return 'current-fact';
@@ -517,6 +521,64 @@ export function renderTaskWorksetPrompt(input: Omit<TaskWorkset, 'prompt' | 'bud
     trust: 'source-backed',
   });
   appendLine(lines, 'Task lens: ' + input.lens, maxTokens, omitted, 'lens');
+
+  if (input.continuity) {
+    const continuity = input.continuity;
+    appendLine(lines, '', maxTokens, omitted, 'continuity-heading');
+    appendLine(lines, 'Task continuity', maxTokens, omitted, 'continuity-heading', selected, {
+      kind: 'continuity',
+      id: 'continuity:' + continuity.taskId,
+      reason: 'explicit task continuity ledger',
+      trust: 'source-backed',
+    });
+    appendLine(
+      lines,
+      '- Status: ' + continuity.status + ' | ' + short(continuity.task, 30),
+      maxTokens,
+      omitted,
+      'continuity-task',
+    );
+    for (const requirement of continuity.requirements.slice(0, 3)) {
+      appendLine(lines, '- Requirement: ' + short(requirement, 24), maxTokens, omitted, 'continuity-requirement', selected, {
+        kind: 'continuity',
+        id: 'continuity:' + continuity.taskId,
+        reason: 'explicit task requirement',
+        trust: 'source-backed',
+      });
+    }
+    for (const decision of continuity.decisions.slice(0, 2)) {
+      appendLine(lines, '- Decision: ' + short(decision, 24), maxTokens, omitted, 'continuity-decision', selected, {
+        kind: 'continuity',
+        id: 'continuity:' + continuity.taskId,
+        reason: 'explicit task decision',
+        trust: 'source-backed',
+      });
+    }
+    for (const verification of continuity.verification.slice(-3)) {
+      appendLine(
+        lines,
+        '- Verify [' + verification.status + ']: ' + short(verification.content, 22),
+        maxTokens,
+        omitted,
+        'continuity-verification',
+        selected,
+        {
+          kind: 'continuity',
+          id: 'continuity:' + continuity.taskId,
+          reason: 'task verification state',
+          trust: 'source-backed',
+        },
+      );
+    }
+    for (const risk of continuity.risks.slice(0, 2)) {
+      appendLine(lines, '- Risk: ' + short(risk, 22), maxTokens, omitted, 'continuity-risk', selected, {
+        kind: 'continuity',
+        id: 'continuity:' + continuity.taskId,
+        reason: 'open task risk',
+        trust: 'source-backed',
+      });
+    }
+  }
 
   // Always-on block: the small "who you are and what this workspace is
   // doing" context every brief carries, mirroring the memory-native feel of
@@ -1114,6 +1176,7 @@ export async function buildTaskWorkset(input: BuildTaskWorksetInput): Promise<Ta
     version: '1.3' as const,
     task,
     lens: input.lens,
+    ...(input.continuity ? { continuity: input.continuity } : {}),
     ...(input.alwaysOn
       && (
         input.alwaysOn.profile.length > 0

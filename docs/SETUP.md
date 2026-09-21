@@ -151,7 +151,7 @@ memorix serve
 
 Use this when your agent only needs a raw local stdio MCP process or you are debugging a manual config. The agent starts `memorix serve` and communicates with it over stdio.
 
-A bare `memorix serve` defaults to `--mode micro`, which exposes 9 high-signal tools so agent context is not crowded by rarely used schemas. Use `memorix serve --mode lite` for the 20-tool solo memory surface, `--mode team` for the 28-tool coordination surface, or `--mode full` for all 47 advanced and MCP Memory compatibility tools.
+A bare `memorix serve` defaults to `--mode micro`, which exposes 9 high-signal tools so agent context is not crowded by rarely used schemas. Use `memorix serve --mode lite` for the 21-tool solo memory surface, `--mode team` for the 29-tool coordination surface, or `--mode full` for all 48 advanced and MCP Memory compatibility tools.
 
 `memorix setup` writes `--mode lite` into the installed MCP config: the generated guidance teaches the extended surface (sessions, timeline, reasoning, retention), so the installed server must actually expose it. Override with `MEMORIX_MODE` if you prefer a different profile.
 

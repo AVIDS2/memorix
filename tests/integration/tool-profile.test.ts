@@ -132,6 +132,7 @@ describe('Tool profile registration', () => {
     expect(liteTools).toContain('memorix_store');
     expect(liteTools).toContain('memorix_session_start');
     expect(liteTools).toContain('memorix_graph_context');
+    expect(liteTools).toContain('memorix_continuity');
     expect(liteTools).not.toContain('memorix_knowledge');
     expect(liteTools).not.toContain('team_manage');
     expect(liteTools).not.toContain('memorix_poll');
@@ -167,6 +168,39 @@ describe('Tool profile registration', () => {
     expect(fullTools).toContain('memorix_graph_context');
     expect(fullTools).toContain('memorix_knowledge');
     expect(fullTools).toContain('memorix_compaction_checkpoint');
+  }, 30000);
+
+  it('records continuity through the lite MCP profile and injects it into project context', async () => {
+    const dir = await createGitProjectDir('memorix-profile-continuity-');
+    const { server } = await createMemorixServer(
+      dir,
+      undefined,
+      undefined,
+      { toolProfile: 'lite' } as any,
+    );
+    const continuity = getHandler(server as any, 'memorix_continuity');
+    const started = JSON.parse(getText(await continuity({
+      action: 'start',
+      task: 'Harden the release path',
+      requirements: ['Keep the package on 1.9.x.'],
+    })));
+    const taskId = started.taskId;
+    expect(taskId).toBeTypeOf('string');
+    await continuity({
+      action: 'record',
+      taskId,
+      kind: 'verification',
+      verificationStatus: 'pending',
+      content: 'Run the full CI matrix.',
+    });
+    const shown = JSON.parse(getText(await continuity({ action: 'show', taskId })));
+    expect(shown.ledger.requirements).toContain('Keep the package on 1.9.x.');
+    expect(shown.ledger.verification[0]).toMatchObject({ status: 'pending' });
+
+    const context = getHandler(server as any, 'memorix_project_context');
+    const brief = getText(await context({ task: 'continue the release path', taskId, format: 'prompt' }));
+    expect(brief).toContain('Task continuity');
+    expect(brief).toContain('Keep the package on 1.9.x.');
   }, 30000);
 
   it('keeps compact checkpoint inspection full-profile only and supports preview plus archive', async () => {

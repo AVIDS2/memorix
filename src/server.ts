@@ -1593,6 +1593,7 @@ export async function createMemorixServer(
         'reliable code-bound memories, stale/suspect cautions, and verification hints. Use this at the start of a new coding turn or after switching tasks.',
       inputSchema: {
         task: z.string().optional().describe('Current coding task or question'),
+        taskId: z.string().max(120).optional().describe('Optional task continuity ledger id to include in the brief'),
         refresh: z.enum(['auto', 'always', 'never']).optional().default('auto').describe(
           'Code Memory refresh policy. auto refreshes only when missing or stale.',
         ),
@@ -1606,7 +1607,7 @@ export async function createMemorixServer(
         limit: z.number().optional().describe('Reserved for future source limits; current prompt stays compact by default.'),
       },
     },
-    async ({ task, refresh, format, agent }) => {
+    async ({ task, taskId, refresh, format, agent }) => {
       const unresolved = requireResolvedProject('build project context for the current project');
       if (unresolved) return unresolved;
 
@@ -1637,6 +1638,7 @@ export async function createMemorixServer(
         dataDir: projectDir,
         observations,
         task,
+        taskId,
         agent,
         refresh: refresh ?? 'auto',
         reader: getObservationReader(),
@@ -4588,6 +4590,93 @@ export async function createMemorixServer(
           }
         }
         return { content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: 'text' as const, text: error instanceof Error ? error.message : String(error) }], isError: true };
+      }
+    },
+  );
+
+  server.registerTool(
+    'memorix_continuity',
+    {
+      title: 'Task Continuity Ledger',
+      description:
+        'Maintain a bounded, append-only continuity ledger for a coding task. ' +
+        'Use start for requirements, record for decisions/verification/risks, ' +
+        'show or list to inspect, and close for the final outcome. Pass the returned taskId ' +
+        'to memorix_project_context so the current brief includes this ledger.',
+      inputSchema: {
+        action: z.enum(['start', 'record', 'show', 'list', 'close']).describe('Continuity operation'),
+        taskId: z.string().max(120).optional().describe('Continuity task id'),
+        task: z.string().max(1_000).optional().describe('Task description for start'),
+        requirements: z.array(z.string().max(2_000)).max(8).optional().describe('Requirements for start'),
+        kind: z.enum(['requirement', 'decision', 'verification', 'risk']).optional().describe('Entry kind for record'),
+        content: z.string().max(2_000).optional().describe('Requirement, decision, verification, risk, or outcome text'),
+        verificationStatus: z.enum(['pending', 'passed', 'failed', 'skipped']).optional(),
+        status: z.enum(['completed', 'blocked', 'abandoned']).optional().describe('Outcome status for close'),
+        sourceRef: z.string().max(500).optional().describe('Evidence or source reference'),
+        evidenceRefs: z.array(z.string().max(500)).max(8).optional(),
+        actor: z.string().max(200).optional(),
+        limit: z.number().int().positive().max(100).optional().default(20),
+      },
+    },
+    async ({ action, taskId, task, requirements, kind, content, verificationStatus, status, sourceRef, evidenceRefs, actor, limit }) => {
+      const unresolved = requireResolvedProject('manage task continuity for the current project');
+      if (unresolved) return unresolved;
+      const { TaskContinuityStore } = await import('./knowledge/task-continuity.js');
+      const continuity = new TaskContinuityStore();
+      await continuity.init(projectDir);
+      const effectiveActor = actor ?? currentAgentId;
+      try {
+        if (action === 'start') {
+          if (!task?.trim()) return { content: [{ type: 'text' as const, text: 'task is required for continuity start.' }], isError: true };
+          const result = continuity.start({
+            projectId: project.id,
+            task,
+            ...(taskId ? { taskId } : {}),
+            requirements,
+            ...(effectiveActor ? { actor: effectiveActor } : {}),
+          });
+          return { content: [{ type: 'text' as const, text: JSON.stringify({ projectId: project.id, ...result }, null, 2) }] };
+        }
+        if (action === 'list') {
+          return { content: [{ type: 'text' as const, text: JSON.stringify({ projectId: project.id, ledgers: continuity.list(project.id, limit), }, null, 2) }] };
+        }
+        if (!taskId?.trim()) return { content: [{ type: 'text' as const, text: 'taskId is required for this continuity action.' }], isError: true };
+        if (action === 'show') {
+          const ledger = continuity.get(project.id, taskId);
+          if (!ledger) return { content: [{ type: 'text' as const, text: 'Task continuity ledger not found.' }], isError: true };
+          return { content: [{ type: 'text' as const, text: JSON.stringify({ projectId: project.id, ledger }, null, 2) }] };
+        }
+        if (action === 'record') {
+          if (!kind || !content?.trim()) {
+            return { content: [{ type: 'text' as const, text: 'record requires kind and content.' }], isError: true };
+          }
+          const result = continuity.record({
+            projectId: project.id,
+            taskId,
+            kind,
+            content,
+            ...(verificationStatus ? { verificationStatus } : {}),
+            ...(sourceRef ? { sourceRef } : {}),
+            ...(evidenceRefs ? { evidenceRefs } : {}),
+            ...(effectiveActor ? { actor: effectiveActor } : {}),
+          });
+          return { content: [{ type: 'text' as const, text: JSON.stringify({ projectId: project.id, ...result }, null, 2) }] };
+        }
+        if (!status || !content?.trim()) {
+          return { content: [{ type: 'text' as const, text: 'close requires status and content.' }], isError: true };
+        }
+        const result = continuity.close({
+          projectId: project.id,
+          taskId,
+          status,
+          content,
+          ...(sourceRef ? { sourceRef } : {}),
+          ...(evidenceRefs ? { evidenceRefs } : {}),
+          ...(effectiveActor ? { actor: effectiveActor } : {}),
+        });
+        return { content: [{ type: 'text' as const, text: JSON.stringify({ projectId: project.id, ...result }, null, 2) }] };
       } catch (error) {
         return { content: [{ type: 'text' as const, text: error instanceof Error ? error.message : String(error) }], isError: true };
       }

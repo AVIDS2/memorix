@@ -12,6 +12,7 @@ export type ContextDeliveryTarget =
 
 export type ContextCandidateKind =
   | 'task'
+  | 'continuity'
   | 'continuation'
   | 'current-fact'
   | 'code-state'

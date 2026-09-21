@@ -33,6 +33,7 @@ import { getSessionResumeBrief } from '../memory/session.js';
 import { listLongTermMemories } from '../memory/long-term.js';
 import { filterReadableObservations } from '../memory/visibility.js';
 import { initSessionStore } from '../store/session-store.js';
+import type { TaskContinuityLedger } from '../knowledge/task-continuity.js';
 import {
   isContinuationTask,
   lensPathCandidates,
@@ -65,6 +66,7 @@ export interface AutoProjectContext {
   providerQuality: CodeGraphProviderQuality;
   /** Present only when the caller asked to continue prior work. */
   continuation?: WorksetContinuation;
+  continuity?: TaskContinuityLedger;
   workset: TaskWorkset;
 }
 
@@ -190,6 +192,8 @@ export async function buildAutoProjectContext(input: {
   dataDir: string;
   observations: ProjectContextObservation[];
   task?: string;
+  taskId?: string;
+  continuity?: TaskContinuityLedger;
   /** Explicit host target for task-compatible workflow selection. */
   agent?: AgentTarget;
   refresh?: AutoContextRefreshMode;
@@ -427,6 +431,17 @@ export async function buildAutoProjectContext(input: {
       };
     }
   }
+  let continuity: TaskContinuityLedger | undefined = input.continuity;
+  if (!continuity && input.taskId) {
+    try {
+      const { TaskContinuityStore } = await import('../knowledge/task-continuity.js');
+      const continuityStore = new TaskContinuityStore();
+      await continuityStore.init(input.dataDir);
+      continuity = continuityStore.get(input.project.id, input.taskId);
+    } catch {
+      // Continuity is optional enrichment; current source context remains usable.
+    }
+  }
   const alwaysOn = await buildAlwaysOnBlock({
     dataDir: input.dataDir,
     projectId: input.project.id,
@@ -447,6 +462,7 @@ export async function buildAutoProjectContext(input: {
     providerQuality,
     currentFacts: worksetFactLines(currentFacts),
     ...(continuation ? { continuation } : {}),
+    ...(continuity ? { continuity } : {}),
     codeState: codeStateLine(overview),
     ...(codeEvolution ? { codeEvolution } : {}),
     reliableMemory: sourceSets.reliableSources
@@ -503,6 +519,7 @@ export async function buildAutoProjectContext(input: {
     refresh,
     providerQuality,
     ...(continuationRequested && workset.continuation ? { continuation: workset.continuation } : {}),
+    ...(workset.continuity ? { continuity: workset.continuity } : {}),
     workset,
   };
 }

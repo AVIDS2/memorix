@@ -92,6 +92,7 @@ const DEFAULT_LEASE_MS = 30_000;
 const DEFAULT_POLL_INTERVAL_MS = 2_000;
 const MAX_ERROR_LENGTH = 1_000;
 const DEFAULT_COMPLETED_HISTORY_RETENTION_MS = 7 * 24 * 60 * 60 * 1_000;
+export const DEFAULT_FAILED_HISTORY_RETENTION_MS = 30 * 24 * 60 * 60 * 1_000;
 
 function parsePayload(raw: unknown): Record<string, unknown> {
   if (typeof raw !== 'string' || !raw) return {};
@@ -292,20 +293,25 @@ export class MaintenanceJobStore {
 
   /**
    * Completed jobs are useful recent operator history, not permanent data.
-   * Failed jobs stay available for diagnosis until an operator explicitly
-   * resolves them or clears the database.
+   * Failed diagnostics are retained longer, but are still bounded so a
+   * permanently failing job kind cannot grow the database forever.
    */
-  pruneCompletedHistory(options: { now?: number; maxAgeMs?: number } = {}): number {
+  pruneCompletedHistory(options: { now?: number; maxAgeMs?: number; failedMaxAgeMs?: number } = {}): number {
     const now = options.now ?? Date.now();
     const maxAgeMs = Number.isFinite(options.maxAgeMs)
       ? Math.max(0, Math.floor(options.maxAgeMs!))
       : DEFAULT_COMPLETED_HISTORY_RETENTION_MS;
+    const failedMaxAgeMs = Number.isFinite(options.failedMaxAgeMs)
+      ? Math.max(0, Math.floor(options.failedMaxAgeMs!))
+      : DEFAULT_FAILED_HISTORY_RETENTION_MS;
     const result = this.db.prepare(`
       DELETE FROM maintenance_jobs
-      WHERE status = 'completed'
+      WHERE (status = 'completed'
         AND completed_at IS NOT NULL
-        AND completed_at < ?
-    `).run(now - maxAgeMs);
+        AND completed_at < ?)
+        OR (status = 'failed'
+        AND updated_at < ?)
+    `).run(now - maxAgeMs, now - failedMaxAgeMs);
     return Number(result.changes ?? 0);
   }
 

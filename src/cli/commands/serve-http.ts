@@ -43,6 +43,8 @@ export const EXPIRED_SESSION_TTL_MS = 10 * 60 * 1000;
 export const DEFAULT_HTTP_BODY_LIMIT_BYTES = 10 * 1024 * 1024;
 export const MAX_HTTP_BODY_LIMIT_BYTES = 64 * 1024 * 1024;
 export const MIN_HTTP_BODY_LIMIT_BYTES = 64 * 1024;
+export const MAX_PROJECT_CACHE_ENTRIES = 256;
+export const MAX_STORE_CACHE_ENTRIES = 32;
 /** Pinned SDK protocol accepted internally while the HTTP boundary speaks the current stateless contract. */
 export const MCP_SDK_COMPAT_PROTOCOL_VERSION = '2025-11-25';
 
@@ -295,11 +297,24 @@ export default defineCommand({
     const teamStoreCache = new Map<string, Awaited<ReturnType<typeof initTeamStore>>>();
     const { initTeamStore } = await import('../../team/team-store.js');
 
+    function cacheSet<K, V>(cache: Map<K, V>, key: K, value: V, limit: number): void {
+      cache.delete(key);
+      cache.set(key, value);
+      while (cache.size > limit) {
+        const oldest = cache.keys().next().value as K | undefined;
+        if (oldest === undefined) break;
+        cache.delete(oldest);
+      }
+    }
+
     async function getTeamStore(dataDir: string) {
       const existing = teamStoreCache.get(dataDir);
-      if (existing) return existing;
+      if (existing) {
+        cacheSet(teamStoreCache, dataDir, existing, MAX_STORE_CACHE_ENTRIES);
+        return existing;
+      }
       const store = await initTeamStore(dataDir);
-      teamStoreCache.set(dataDir, store);
+      cacheSet(teamStoreCache, dataDir, store, MAX_STORE_CACHE_ENTRIES);
       return store;
     }
 
@@ -814,7 +829,7 @@ export default defineCommand({
 
     // Cache resolved project data dirs to avoid repeated fs lookups
     const projectDataDirCache = new Map<string, string>();
-    projectDataDirCache.set(defaultProject.id, defaultDataDir);
+    cacheSet(projectDataDirCache, defaultProject.id, defaultDataDir, MAX_PROJECT_CACHE_ENTRIES);
     const dashboardObservationStores = new Map<string, ObservationStore>();
 
     /** Resolve ?project= query param to { projectId, projectName, dataDir } */
@@ -831,7 +846,7 @@ export default defineCommand({
       let dataDir = projectDataDirCache.get(requestedId);
       if (!dataDir) {
         dataDir = await getProjectDataDir(requestedId);
-        projectDataDirCache.set(requestedId, dataDir);
+        cacheSet(projectDataDirCache, requestedId, dataDir, MAX_PROJECT_CACHE_ENTRIES);
       }
       const name = requestedId.split('/').pop() || requestedId;
       return { projectId: requestedId, projectName: name, dataDir };
@@ -839,10 +854,13 @@ export default defineCommand({
 
     async function getDashboardObservationStore(dataDir: string): Promise<ObservationStore> {
       const cached = dashboardObservationStores.get(dataDir);
-      if (cached) return cached;
+      if (cached) {
+        cacheSet(dashboardObservationStores, dataDir, cached, MAX_STORE_CACHE_ENTRIES);
+        return cached;
+      }
       const { createObservationStore } = await import('../../store/obs-store.js');
       const store = await createObservationStore(dataDir);
-      dashboardObservationStores.set(dataDir, store);
+      cacheSet(dashboardObservationStores, dataDir, store, MAX_STORE_CACHE_ENTRIES);
       return store;
     }
 

@@ -244,6 +244,32 @@ describe('MaintenanceJobStore', () => {
     expect(store.get(failed.id)?.status).toBe('failed');
   });
 
+  it('prunes failed diagnostics after their longer retention window', () => {
+    const store = new MaintenanceJobStore(dataDir);
+    const failed = store.enqueue({
+      projectId: 'project-a',
+      kind: 'codegraph-refresh',
+      now: 1_000,
+      maxAttempts: 1,
+    });
+    store.claimNext({ workerId: 'worker-a', now: 1_000, leaseMs: 500 });
+    store.fail(failed.id, 'worker-a', new Error('old failure'), 2_000);
+
+    const retained = store.pruneCompletedHistory({
+      now: 20 * 24 * 60 * 60 * 1_000,
+      failedMaxAgeMs: 30 * 24 * 60 * 60 * 1_000,
+    });
+    expect(retained).toBe(0);
+    expect(store.get(failed.id)?.status).toBe('failed');
+
+    const pruned = store.pruneCompletedHistory({
+      now: 31 * 24 * 60 * 60 * 1_000,
+      failedMaxAgeMs: 30 * 24 * 60 * 60 * 1_000,
+    });
+    expect(pruned).toBe(1);
+    expect(store.get(failed.id)).toBeUndefined();
+  });
+
   it('does not prune completed history when enqueue cannot begin its transaction', () => {
     const store = new MaintenanceJobStore(dataDir);
     const completed = store.enqueue({

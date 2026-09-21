@@ -23,10 +23,22 @@ import {
   type EmbeddingOptions,
   type EmbeddingProvider,
 } from './provider.js';
+import { createHash } from 'node:crypto';
 
 // In-memory LRU cache
 const cache = new Map<string, number[]>();
 const MAX_CACHE_SIZE = 5000;
+const DEFAULT_CACHE_PAYLOAD_BYTES = 64 * 1024 * 1024;
+let cachePayloadBytes = 0;
+
+function cacheKey(text: string): string {
+    return createHash('sha256').update(text).digest('hex');
+}
+
+function maxCachePayloadBytes(): number {
+    const raw = Number.parseInt(process.env.MEMORIX_EMBEDDING_CACHE_MAX_BYTES ?? '', 10);
+    return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_CACHE_PAYLOAD_BYTES;
+}
 
 export class TransformersProvider implements EmbeddingProvider {
     readonly name = 'transformers-minilm';
@@ -68,7 +80,7 @@ export class TransformersProvider implements EmbeddingProvider {
 
     async embed(text: string): Promise<number[]> {
         // Check cache first
-        const cached = cache.get(text);
+        const cached = cache.get(cacheKey(text));
         if (cached) return cached;
 
         const output = await this.extractor(text, {
@@ -82,7 +94,7 @@ export class TransformersProvider implements EmbeddingProvider {
             throw new Error(`Expected ${this.dimensions}d embedding, got ${result.length}d`);
         }
 
-        this.cacheSet(text, result);
+        this.cacheSet(cacheKey(text), result);
         return result;
     }
 
@@ -93,7 +105,7 @@ export class TransformersProvider implements EmbeddingProvider {
 
         // Check cache for each text
         for (let i = 0; i < texts.length; i++) {
-            const cached = cache.get(texts[i]);
+            const cached = cache.get(cacheKey(texts[i]));
             if (cached) {
                 results[i] = cached;
             } else {
@@ -114,7 +126,7 @@ export class TransformersProvider implements EmbeddingProvider {
                 const vec = Array.from(allVecs[i]) as number[];
                 const originalIdx = uncachedIndices[i];
                 results[originalIdx] = vec;
-                this.cacheSet(uncachedTexts[i], vec);
+                this.cacheSet(cacheKey(uncachedTexts[i]), vec);
             }
         }
 
@@ -122,10 +134,20 @@ export class TransformersProvider implements EmbeddingProvider {
     }
 
     private cacheSet(key: string, value: number[]): void {
-        if (cache.size >= MAX_CACHE_SIZE) {
-            const firstKey = cache.keys().next().value;
-            if (firstKey !== undefined) cache.delete(firstKey);
+        const incomingBytes = value.length * 8;
+        if (incomingBytes > maxCachePayloadBytes()) return;
+        const existing = cache.get(key);
+        if (existing) cachePayloadBytes -= existing.length * 8;
+        else {
+            while (cache.size >= MAX_CACHE_SIZE || cachePayloadBytes + incomingBytes > maxCachePayloadBytes()) {
+                const firstKey = cache.keys().next().value;
+                if (firstKey === undefined) break;
+                const old = cache.get(firstKey);
+                cache.delete(firstKey);
+                if (old) cachePayloadBytes -= old.length * 8;
+            }
         }
         cache.set(key, value);
+        cachePayloadBytes += incomingBytes;
     }
 }

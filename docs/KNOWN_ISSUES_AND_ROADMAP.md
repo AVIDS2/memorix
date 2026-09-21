@@ -23,7 +23,7 @@
 | P1 | 项目隔离 | 已完成并随 v1.9.5 发布。 | 图谱实体/边按项目存储，Dashboard/MCP 查询、替换、删除和旧 JSONL 迁移测试通过。 |
 | P1 | 迁移失败语义 | 已完成并随 v1.9.5 发布。 | legacy observations/subdirectories 具备锁和原子写入；坏 JSON fail-closed，不伪装成空库。 |
 | P1 | Store / SQLite 生命周期 | 已完成本次发布范围；更深的事务/缓存审计保留为后续。 | SDK 同目录引用计数、sync ID/tombstone、活锁保护、关闭路径和多实例测试通过。 |
-| P2 | 内存与容量边界 | 下一轮 1.9.x 后续项。 | 继续补 Dashboard/团队查询上限、失败任务保留、embedding cache 和项目缓存驱逐策略。 |
+| P2 | 内存与容量边界 | 本轮 1.9.x 容量切片已完成；后续继续做压力基准。 | TeamStore SQL 查询上限、failed job 30 天保留、三类 embedding cache 字节预算、HTTP project/store cache 驱逐均已有代码和回归覆盖。 |
 | P1 | 发布契约 | 已完成并随 v1.9.5 发布。 | tag/version/commit 校验、npm 传播等待、check-only prepublish、npm 和 MCP Registry 发布均已验证。 |
 
 ### 新 issue / PR 处置

@@ -19,6 +19,14 @@ import path from 'node:path';
 import fs from 'node:fs';
 import type { TeamEventBus } from './event-bus.js';
 
+export const DEFAULT_TEAM_QUERY_LIMIT = 100;
+export const MAX_TEAM_QUERY_LIMIT = 500;
+
+function clampTeamQueryLimit(limit: number | undefined): number {
+  if (!Number.isFinite(limit) || limit == null) return DEFAULT_TEAM_QUERY_LIMIT;
+  return Math.min(MAX_TEAM_QUERY_LIMIT, Math.max(1, Math.floor(limit)));
+}
+
 // ── Types ───────────────────────────────────────────────────────────
 
 export interface TeamAgentRow {
@@ -467,37 +475,42 @@ export class TeamStore {
     return this.stmtAgentFindByInstance.get(projectId, agentType, instanceId) as TeamAgentRow | undefined;
   }
 
-  listAgents(projectId: string, filter?: { status?: 'active' | 'inactive' }): TeamAgentRow[] {
-    const all = this.stmtAgentListByProject.all(projectId) as TeamAgentRow[];
+  listAgents(projectId: string, filter?: { status?: 'active' | 'inactive'; limit?: number }): TeamAgentRow[] {
+    const limit = clampTeamQueryLimit(filter?.limit);
     if (filter?.status) {
-      return all.filter(a => a.status === filter.status);
+      return this.db.prepare(
+        `SELECT * FROM team_agents WHERE project_id = ? AND status = ? ORDER BY joined_at DESC LIMIT ?`,
+      ).all(projectId, filter.status, limit) as TeamAgentRow[];
     }
-    return all;
+    return this.db.prepare(
+      `SELECT * FROM team_agents WHERE project_id = ? ORDER BY joined_at DESC LIMIT ?`,
+    ).all(projectId, limit) as TeamAgentRow[];
   }
 
   /** List agents across all projects (for global scope) */
-  listAllAgents(): TeamAgentRow[] {
+  listAllAgents(limit?: number): TeamAgentRow[] {
     if (!this.db) return [];
-    return this.db.prepare('SELECT * FROM team_agents ORDER BY last_heartbeat DESC').all() as TeamAgentRow[];
+    return this.db.prepare('SELECT * FROM team_agents ORDER BY last_heartbeat DESC LIMIT ?').all(clampTeamQueryLimit(limit)) as TeamAgentRow[];
   }
 
   /** List locks across all projects (for global scope) */
-  listAllLocks(): TeamLockRow[] {
+  listAllLocks(limit?: number): TeamLockRow[] {
     if (!this.db) return [];
     // Clean expired globally (not per-project) — bypass stmtLockDeleteExpired which scopes to project_id
     this.db.prepare('DELETE FROM team_locks WHERE expires_at <= ?').run(Date.now());
-    return this.db.prepare('SELECT * FROM team_locks WHERE expires_at > ? ORDER BY locked_at DESC').all(Date.now()) as TeamLockRow[];
+    return this.db.prepare('SELECT * FROM team_locks WHERE expires_at > ? ORDER BY locked_at DESC LIMIT ?').all(Date.now(), clampTeamQueryLimit(limit)) as TeamLockRow[];
   }
 
   /** List tasks across all projects (for global scope) */
-  listAllTasks(filter?: { available?: boolean }): TeamTaskRow[] {
+  listAllTasks(filter?: { available?: boolean; limit?: number }): TeamTaskRow[] {
     if (!this.db) return [];
+    const limit = clampTeamQueryLimit(filter?.limit);
     if (filter?.available) {
       return this.db.prepare(
-        `SELECT t.* FROM team_tasks t WHERE t.status = 'pending' AND t.assignee_agent_id IS NULL ORDER BY t.created_at DESC`
-      ).all() as TeamTaskRow[];
+        `SELECT t.* FROM team_tasks t WHERE t.status = 'pending' AND t.assignee_agent_id IS NULL ORDER BY t.created_at DESC LIMIT ?`
+      ).all(limit) as TeamTaskRow[];
     }
-    return this.db.prepare('SELECT * FROM team_tasks ORDER BY created_at DESC').all() as TeamTaskRow[];
+    return this.db.prepare('SELECT * FROM team_tasks ORDER BY created_at DESC LIMIT ?').all(limit) as TeamTaskRow[];
   }
 
   heartbeat(agentId: string): boolean {
@@ -542,7 +555,10 @@ export class TeamStore {
   }
 
   getActiveCount(projectId: string): number {
-    return this.listAgents(projectId, { status: 'active' }).length;
+    const row = this.db.prepare(
+      `SELECT COUNT(*) AS count FROM team_agents WHERE project_id = ? AND status = 'active'`,
+    ).get(projectId) as { count: number };
+    return Number(row?.count ?? 0);
   }
 
   // ═══════════════════════════════════════════════════════════════════
@@ -594,8 +610,14 @@ export class TeamStore {
     return row;
   }
 
-  getInbox(projectId: string, agentId: string): TeamMessageRow[] {
-    return this.stmtMsgInbox.all(projectId, agentId) as TeamMessageRow[];
+  getInbox(projectId: string, agentId: string, limit?: number): TeamMessageRow[] {
+    return this.db.prepare(`
+      SELECT * FROM team_messages
+      WHERE project_id = ?
+        AND (recipient_agent_id = ? OR recipient_agent_id IS NULL)
+      ORDER BY created_at ASC
+      LIMIT ?
+    `).all(projectId, agentId, clampTeamQueryLimit(limit)) as TeamMessageRow[];
   }
 
   getUnreadCount(projectId: string, agentId: string): number {
@@ -808,18 +830,22 @@ export class TeamStore {
     return info.changes;
   }
 
-  listTasks(projectId: string, filter?: { status?: string; assignee?: string; available?: boolean }): TeamTaskRow[] {
-    if (filter?.available) {
-      return this.stmtTaskAvailable.all(projectId) as TeamTaskRow[];
-    }
-    const all = this.stmtTaskListByProject.all(projectId) as TeamTaskRow[];
+  listTasks(projectId: string, filter?: { status?: string; assignee?: string; available?: boolean; limit?: number }): TeamTaskRow[] {
+    const clauses = ['project_id = ?'];
+    const values: unknown[] = [projectId];
+    if (filter?.available) clauses.push("status = 'pending'", 'assignee_agent_id IS NULL');
     if (filter?.status) {
-      return all.filter(t => t.status === filter.status);
+      clauses.push('status = ?');
+      values.push(filter.status);
     }
     if (filter?.assignee) {
-      return all.filter(t => t.assignee_agent_id === filter.assignee);
+      clauses.push('assignee_agent_id = ?');
+      values.push(filter.assignee);
     }
-    return all;
+    values.push(clampTeamQueryLimit(filter?.limit));
+    return this.db.prepare(
+      `SELECT * FROM team_tasks WHERE ${clauses.join(' AND ')} ORDER BY created_at DESC LIMIT ?`,
+    ).all(...values) as TeamTaskRow[];
   }
 
   /**
@@ -833,7 +859,7 @@ export class TeamStore {
     if (!agent) return [];
     const agentRole = agent.role;
 
-    const available = this.stmtTaskAvailable.all(projectId) as TeamTaskRow[];
+    const available = this.listTasks(projectId, { available: true, limit: MAX_TEAM_QUERY_LIMIT });
 
     // Filter out tasks whose required_role doesn't match
     const eligible = available.filter(t => !t.required_role || t.required_role === agentRole);
@@ -905,13 +931,17 @@ export class TeamStore {
     return row ?? null;
   }
 
-  listLocks(projectId: string, agentId?: string): TeamLockRow[] {
+  listLocks(projectId: string, agentId?: string, limit?: number): TeamLockRow[] {
     // Clean expired first
     this.stmtLockDeleteExpired.run(projectId, Date.now());
     if (agentId) {
-      return this.stmtLockListByAgent.all(projectId, agentId) as TeamLockRow[];
+      return this.db.prepare(
+        `SELECT * FROM team_locks WHERE project_id = ? AND locked_by = ? ORDER BY locked_at DESC LIMIT ?`,
+      ).all(projectId, agentId, clampTeamQueryLimit(limit)) as TeamLockRow[];
     }
-    return this.stmtLockListByProject.all(projectId) as TeamLockRow[];
+    return this.db.prepare(
+      `SELECT * FROM team_locks WHERE project_id = ? ORDER BY locked_at DESC LIMIT ?`,
+    ).all(projectId, clampTeamQueryLimit(limit)) as TeamLockRow[];
   }
 
   releaseAllLocks(agentId: string): number {

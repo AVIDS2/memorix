@@ -99,7 +99,8 @@ function evictOldest(): void {
   if (old) cachePayloadBytes -= payloadBytes(old);
 }
 
-function evictToFit(incomingBytes: number, incomingDims: number): void {
+function evictToFit(incomingBytes: number, incomingDims: number): boolean {
+  if (incomingBytes > maxCachePayloadBytes()) return false;
   const limit = maxEntriesForDimensions(incomingDims);
   while (
     cache.size > 0 &&
@@ -107,6 +108,7 @@ function evictToFit(incomingBytes: number, incomingDims: number): void {
   ) {
     evictOldest();
   }
+  return true;
 }
 
 function isNumberArray(value: unknown): value is number[] {
@@ -139,7 +141,7 @@ function cacheInsert(hash: string, value: number[], dirty: boolean): void {
     cachePayloadBytes -= payloadBytes(existing);
     cache.delete(hash);
   }
-  evictToFit(incoming, value.length || cacheDimensions || DEFAULT_ASSUMED_DIMENSIONS);
+  if (!evictToFit(incoming, value.length || cacheDimensions || DEFAULT_ASSUMED_DIMENSIONS)) return;
   cache.set(hash, value);
   cachePayloadBytes += incoming;
   if (dirty) diskCacheDirty = true;

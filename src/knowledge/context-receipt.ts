@@ -1,5 +1,6 @@
 import type { CodeGraphProviderQuality } from '../codegraph/types.js';
 import type { TaskWorkset } from './workset.js';
+import type { TaskContinuityLedger } from './task-continuity.js';
 
 /**
  * A small machine-readable counterpart to the agent-facing Workset prompt.
@@ -18,6 +19,11 @@ export interface BoundedContextReceipt {
     snapshotId?: string;
   };
   loadout?: TaskWorkset['agentLoadout'];
+  continuity?: {
+    taskId: string;
+    status: TaskContinuityLedger['status'];
+    outcome: TaskContinuityLedger['outcome'];
+  };
 }
 
 export function buildBoundedContextReceipt(input: {
@@ -37,5 +43,14 @@ export function buildBoundedContextReceipt(input: {
       ...(input.workset.provenance.snapshotId ? { snapshotId: input.workset.provenance.snapshotId } : {}),
     },
     ...(input.workset.agentLoadout ? { loadout: input.workset.agentLoadout } : {}),
+    ...(input.workset.continuity
+      ? {
+        continuity: {
+          taskId: input.workset.continuity.taskId,
+          status: input.workset.continuity.status,
+          outcome: input.workset.continuity.outcome,
+        },
+      }
+      : {}),
   };
 }

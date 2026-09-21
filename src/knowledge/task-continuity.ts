@@ -15,6 +15,7 @@ export type TaskContinuityEventKind = typeof TASK_CONTINUITY_EVENT_KINDS[number]
 export type TaskContinuityVerificationStatus = 'pending' | 'passed' | 'failed' | 'skipped';
 export type TaskContinuityOutcomeStatus = 'completed' | 'blocked' | 'abandoned';
 export type TaskContinuityStatus = 'open' | TaskContinuityOutcomeStatus;
+export type TaskContinuityOutcomeState = 'validated' | 'at-risk' | 'in-progress' | 'unverified';
 
 export interface TaskContinuityEvent {
   id: string;
@@ -47,8 +48,21 @@ export interface TaskContinuityLedger {
   verification: TaskContinuityVerification[];
   risks: string[];
   outcomes: string[];
+  outcome: TaskContinuityOutcomeProjection;
   updatedAt: string;
   events: TaskContinuityEvent[];
+}
+
+export interface TaskContinuityOutcomeProjection {
+  state: TaskContinuityOutcomeState;
+  score: number;
+  verification: {
+    passed: number;
+    failed: number;
+    pending: number;
+    skipped: number;
+  };
+  reasons: string[];
 }
 
 const MAX_TEXT_LENGTH = 2_000;
@@ -75,6 +89,55 @@ function parseRefs(value: unknown): string[] {
   } catch {
     return [];
   }
+}
+
+export function evaluateTaskContinuity(ledger: Pick<
+  TaskContinuityLedger,
+  'status' | 'verification' | 'outcomes' | 'risks'
+>): TaskContinuityOutcomeProjection {
+  const verification = {
+    passed: ledger.verification.filter(item => item.status === 'passed').length,
+    failed: ledger.verification.filter(item => item.status === 'failed').length,
+    pending: ledger.verification.filter(item => item.status === 'pending').length,
+    skipped: ledger.verification.filter(item => item.status === 'skipped').length,
+  };
+  const reasons: string[] = [];
+  if (verification.failed > 0) reasons.push('verification-failed');
+  if (verification.pending > 0) reasons.push('verification-pending');
+  if (ledger.risks.length > 0) reasons.push('open-risks');
+  if (ledger.status === 'blocked') reasons.push('task-blocked');
+  if (ledger.status === 'abandoned') reasons.push('task-abandoned');
+
+  if (ledger.status === 'blocked' || ledger.status === 'abandoned' || verification.failed > 0) {
+    return {
+      state: 'at-risk',
+      score: verification.passed > verification.failed ? 0.55 : 0.2,
+      verification,
+      reasons,
+    };
+  }
+  if (ledger.status === 'completed') {
+    if (verification.passed > 0 && verification.pending === 0 && verification.skipped === 0) {
+      return {
+        state: 'validated',
+        score: ledger.risks.length > 0 ? 0.8 : 1,
+        verification,
+        reasons: reasons.length > 0 ? reasons : ['verification-passed'],
+      };
+    }
+    return {
+      state: 'unverified',
+      score: 0.4,
+      verification,
+      reasons: reasons.length > 0 ? reasons : ['no-passing-verification'],
+    };
+  }
+  return {
+    state: 'in-progress',
+    score: verification.passed > 0 && verification.pending === 0 ? 0.75 : 0.5,
+    verification,
+    reasons: reasons.length > 0 ? reasons : ['task-open'],
+  };
 }
 
 function rowToEvent(row: any): TaskContinuityEvent {
@@ -285,7 +348,7 @@ export class TaskContinuityStore {
 function aggregate(events: TaskContinuityEvent[]): TaskContinuityLedger {
   const first = events.find(event => event.kind === 'task') ?? events[0];
   const latestOutcome = [...events].reverse().find(event => event.kind === 'outcome');
-  return {
+  const ledger = {
     taskId: first.taskId,
     projectId: first.projectId,
     task: first.task,
@@ -305,4 +368,5 @@ function aggregate(events: TaskContinuityEvent[]): TaskContinuityLedger {
     updatedAt: events[events.length - 1].at,
     events,
   };
+  return { ...ledger, outcome: evaluateTaskContinuity(ledger) };
 }

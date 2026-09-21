@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { closeDatabase } from '../../src/store/sqlite-db.js';
-import { TaskContinuityStore } from '../../src/knowledge/task-continuity.js';
+import { evaluateTaskContinuity, TaskContinuityStore } from '../../src/knowledge/task-continuity.js';
 import { buildTaskWorkset } from '../../src/knowledge/workset.js';
 
 const roots: string[] = [];
@@ -83,6 +83,11 @@ describe('task continuity', () => {
       sourceRef: 'reasoning:release-gate',
       evidenceRefs: ['file:package.json'],
     });
+    expect(ledger?.outcome).toMatchObject({
+      state: 'unverified',
+      score: 0.4,
+      verification: { passed: 1, failed: 0, pending: 1, skipped: 0 },
+    });
   });
 
   it('redacts credentials and isolates ledgers by project', async () => {
@@ -117,6 +122,12 @@ describe('task continuity', () => {
         verification: [{ content: 'Run the remote CI matrix.', status: 'pending' }],
         risks: ['Do not publish before CI is green.'],
         outcomes: [],
+        outcome: evaluateTaskContinuity({
+          status: 'open',
+          verification: [{ content: 'Run the remote CI matrix.', status: 'pending', evidenceRefs: [] }],
+          outcomes: [],
+          risks: ['Do not publish before CI is green.'],
+        }),
         updatedAt: '2026-09-21T00:00:00.000Z',
         events: [],
       },
@@ -132,8 +143,46 @@ describe('task continuity', () => {
     expect(workset.prompt).toContain('Task continuity');
     expect(workset.prompt).toContain('Keep the 1.9.x version line.');
     expect(workset.prompt).toContain('Run the remote CI matrix.');
+    expect(workset.prompt).toContain('Outcome: in-progress');
     expect(workset.receipt.selected).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: 'continuity', id: 'continuity:task-release' }),
     ]));
+  });
+
+  it('replays outcome boundaries deterministically without changing memory content', () => {
+    const cases = [
+      {
+        status: 'completed' as const,
+        verification: [{ content: 'CI', status: 'passed' as const, evidenceRefs: [] }],
+        outcomes: ['done'],
+        risks: [],
+        expected: { state: 'validated', score: 1 },
+      },
+      {
+        status: 'completed' as const,
+        verification: [],
+        outcomes: ['done'],
+        risks: [],
+        expected: { state: 'unverified', score: 0.4 },
+      },
+      {
+        status: 'blocked' as const,
+        verification: [{ content: 'CI', status: 'failed' as const, evidenceRefs: [] }],
+        outcomes: ['blocked'],
+        risks: [],
+        expected: { state: 'at-risk', score: 0.2 },
+      },
+      {
+        status: 'open' as const,
+        verification: [],
+        outcomes: [],
+        risks: [],
+        expected: { state: 'in-progress', score: 0.5 },
+      },
+    ];
+    for (const item of cases) {
+      expect(evaluateTaskContinuity(item)).toMatchObject(item.expected);
+      expect(evaluateTaskContinuity(item)).toEqual(evaluateTaskContinuity(item));
+    }
   });
 });

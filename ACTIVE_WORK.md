@@ -84,6 +84,9 @@ complete. Detailed acceptance criteria and the public issue/PR disposition live 
   includes continuity without changing the default prompt budget or micro tool
   profile.
 - [x] Added storage, Workset, MCP, profile, and HTTP integration tests.
+- [x] Added a deterministic outcome projection and replay cases for validated,
+  at-risk, in-progress, and unverified task states. The projection is visible
+  in structured receipts only; it does not rewrite memory relevance.
 
 ### New GitHub work
 

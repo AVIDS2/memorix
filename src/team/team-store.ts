@@ -843,8 +843,13 @@ export class TeamStore {
       values.push(filter.assignee);
     }
     values.push(clampTeamQueryLimit(filter?.limit));
+    // Available work is a FIFO queue. Keep the general task board newest-first,
+    // but make dispatch order stable even when tasks share a millisecond timestamp.
+    const orderBy = filter?.available
+      ? 'created_at ASC, rowid ASC'
+      : 'created_at DESC, rowid DESC';
     return this.db.prepare(
-      `SELECT * FROM team_tasks WHERE ${clauses.join(' AND ')} ORDER BY created_at DESC LIMIT ?`,
+      `SELECT * FROM team_tasks WHERE ${clauses.join(' AND ')} ORDER BY ${orderBy} LIMIT ?`,
     ).all(...values) as TeamTaskRow[];
   }
 

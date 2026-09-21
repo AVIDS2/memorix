@@ -85,11 +85,12 @@ complete. Detailed acceptance criteria and the public issue/PR disposition live 
 - **#300:** Atlas Cloud memory preset is being carried through the 1.9.x
   closeout with isolated configuration tests and the normal CI gate; it is an
   optional provider path and does not change the default.
-- **#297 / #283:** external ecosystem/documentation requests remain explicitly
-  outside the core release gate; #283 is configuration-compatible today and
-  needs only a documented example, while #297 depends on the external list's
-  maintainer workflow. #49 and #3 remain external integration proposals with
-  no host contract that Memorix can verify locally.
+- **#283:** resolved as documentation-only; the OpenAI-compatible OrcaRouter
+  example and fixed-model/fallback guidance are now in `docs/CONFIGURATION.md`.
+- **#297:** external awesome-list request, dependent on the other repository's
+  contribution workflow, not a Memorix code blocker. #49 and #3 remain external
+  integration proposals with no
+  host contract that Memorix can verify locally.
 
 ## 1.8.7 CodeGraph Main Line (2026-09-02)
 

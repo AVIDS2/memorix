@@ -9,6 +9,9 @@ All notable changes to this project will be documented in this file.
   ledger for requirements, decisions, verification, risks, and outcomes. The
   bounded Project Context can include a ledger by `taskId`; no automatic
   promotion or LLM summarization is performed.
+- **Continuity outcome projection** -- adds deterministic validated, at-risk,
+  in-progress, and unverified states plus replay coverage. Diagnostic scores are
+  exposed in receipts only and do not silently reorder memories.
 - **Atlas Cloud memory preset** -- `memorix init` and the configuration TUI can
   select Atlas Cloud for optional background memory LLM work through its
   OpenAI-compatible endpoint, with provider-specific key isolation.

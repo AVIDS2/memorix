@@ -176,6 +176,11 @@ MCP uses `memorix_continuity` with actions `start`, `record`, `show`,
 `memorix_project_context` to add a bounded `Task continuity` section to the Workset and
 receipt. Entries are project-scoped, sanitized for credentials, append-only, and
 bounded to 200 events per task.
+The ledger also exposes a deterministic outcome projection:
+`validated` means completion has passing verification, `at-risk` means a failure,
+block, or abandonment is present, `in-progress` means the task is still open, and
+`unverified` means it closed without enough passing verification. The numeric score is
+diagnostic-only; it is not used to silently reorder or rewrite memories.
 Continuity does not automatically promote anything to durable memory; verification
 and outcome signals remain explicit.
 

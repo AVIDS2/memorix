@@ -201,6 +201,12 @@ describe('Tool profile registration', () => {
     const brief = getText(await context({ task: 'continue the release path', taskId, format: 'prompt' }));
     expect(brief).toContain('Task continuity');
     expect(brief).toContain('Keep the package on 1.9.x.');
+    const receipt = JSON.parse(getText(await context({ task: 'continue the release path', taskId, format: 'receipt' })));
+    expect(receipt.continuity).toMatchObject({
+      taskId,
+      status: 'open',
+      outcome: { state: 'in-progress', score: 0.5 },
+    });
   }, 30000);
 
   it('keeps compact checkpoint inspection full-profile only and supports preview plus archive', async () => {

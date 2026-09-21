@@ -538,6 +538,20 @@ export function renderTaskWorksetPrompt(input: Omit<TaskWorkset, 'prompt' | 'bud
       omitted,
       'continuity-task',
     );
+    appendLine(
+      lines,
+      '- Outcome: ' + continuity.outcome.state,
+      maxTokens,
+      omitted,
+      'continuity-outcome',
+      selected,
+      {
+        kind: 'continuity',
+        id: 'continuity:' + continuity.taskId,
+        reason: 'deterministic task outcome projection',
+        trust: 'derived',
+      },
+    );
     for (const requirement of continuity.requirements.slice(0, 3)) {
       appendLine(lines, '- Requirement: ' + short(requirement, 24), maxTokens, omitted, 'continuity-requirement', selected, {
         kind: 'continuity',

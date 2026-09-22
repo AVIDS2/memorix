@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased (1.9.x)
 
+No unreleased changes.
+
+## [1.9.6] - 2026-09-22
+
 ### Added
 - **Task continuity ledger** -- adds a project-scoped append-only
   ledger for requirements, decisions, verification, risks, and outcomes. The

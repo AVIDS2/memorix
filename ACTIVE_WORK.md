@@ -4,7 +4,7 @@
 > before resuming substantial work, update it after a material decision or
 > milestone, and do not create parallel progress logs.
 
-**Last updated:** 2026-09-21
+**Last updated:** 2026-09-22
 
 **Local verification rule:** run the frontend, HTTP service, MCP server, and
 tests directly with Node/npm on the E: workspace. Do not start Docker or add
@@ -13,7 +13,7 @@ artifacts for the VPS/hosted build path only.
 
 ## Current Product State
 
-- `1.9.5` is the current published baseline. It includes the infrastructure
+- `1.9.6` is the current published baseline. It includes the infrastructure
   hardening, reviewed HTTP setup path, and user-scope sync fixes that passed
   the expanded scope and privacy gates.
 - The release keeps the canonical Dashboard Memory Map, removes the obsolete
@@ -88,7 +88,18 @@ complete. Detailed acceptance criteria and the public issue/PR disposition live 
   at-risk, in-progress, and unverified task states. The projection is visible
   in structured receipts only; it does not rewrite memory relevance.
 
-## 1.9.x Infrastructure Closeout (2026-09-22)
+## 1.9.6 Release Closeout (2026-09-22)
+
+The release is `v1.9.6` on `main`. PR #312 merged the infrastructure closeout
+after the full Ubuntu, Windows, macOS, Docker, typecheck, native SQLite, and MCP
+metadata gates passed.
+
+- [x] Version metadata, Registry metadata, plugin manifests, changelog, and
+  current product-line documentation are synchronized at `1.9.6`.
+- [x] Local full regression and MCP/HTTP/background smoke verification passed.
+- [x] The release keeps the 1.9.x line; no 1.10 version jump was introduced.
+
+## 1.9.6 Infrastructure Closeout (2026-09-22)
 
 - [x] Added leased, observable SQLite handle registry with idle LRU eviction;
   HTTP dashboard/team/runtime caches release leases on eviction and shutdown.

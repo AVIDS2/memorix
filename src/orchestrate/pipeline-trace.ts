@@ -6,13 +6,15 @@
  */
 
 import type Database from 'better-sqlite3';
+import { sanitizeCredentials } from '../memory/secret-filter.js';
 
 // ── Types ──────────────────────────────────────────────────────────
 
 export type TraceEventType =
   | 'plan' | 'materialize' | 'dispatch' | 'complete' | 'fail'
   | 'retry' | 'timeout' | 'stale' | 'replan' | 'worktree:create'
-  | 'worktree:merge' | 'worktree:cleanup' | 'pipeline:start' | 'pipeline:end';
+  | 'worktree:merge' | 'worktree:cleanup' | 'pipeline:start' | 'pipeline:end'
+  | 'effect';
 
 export interface TraceEvent {
   pipelineId: string;
@@ -22,6 +24,10 @@ export interface TraceEvent {
   agent?: string;
   detail: string;
   durationMs?: number;
+  attempt?: number;
+  riskTier?: 'safe' | 'moderate' | 'dangerous';
+  effectKey?: string;
+  memoryRefs?: string[];
 }
 
 // ── Schema ─────────────────────────────────────────────────────────
@@ -35,7 +41,11 @@ const CREATE_TABLE_SQL = `
     task_id TEXT,
     agent TEXT,
     detail TEXT NOT NULL,
-    duration_ms INTEGER
+    duration_ms INTEGER,
+    attempt INTEGER,
+    risk_tier TEXT,
+    effect_key TEXT,
+    memory_refs TEXT
   )
 `;
 
@@ -48,6 +58,9 @@ const CREATE_INDEX_SQL = `
 
 export function initTraceTable(db: Database.Database): void {
   db.exec(CREATE_TABLE_SQL);
+  for (const column of ['attempt INTEGER', 'risk_tier TEXT', 'effect_key TEXT', 'memory_refs TEXT']) {
+    try { db.exec(`ALTER TABLE pipeline_traces ADD COLUMN ${column}`); } catch { /* already exists */ }
+  }
   db.exec(CREATE_INDEX_SQL);
 }
 
@@ -58,8 +71,10 @@ let _insertStmt: Database.Statement | null = null;
 export function writeTrace(db: Database.Database, event: TraceEvent): void {
   if (!_insertStmt) {
     _insertStmt = db.prepare(`
-      INSERT INTO pipeline_traces (pipeline_id, timestamp, type, task_id, agent, detail, duration_ms)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO pipeline_traces (
+        pipeline_id, timestamp, type, task_id, agent, detail, duration_ms,
+        attempt, risk_tier, effect_key, memory_refs
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
   }
   _insertStmt.run(
@@ -68,8 +83,12 @@ export function writeTrace(db: Database.Database, event: TraceEvent): void {
     event.type,
     event.taskId ?? null,
     event.agent ?? null,
-    event.detail,
+    sanitizeCredentials(event.detail).slice(0, 2_000),
     event.durationMs ?? null,
+    event.attempt ?? null,
+    event.riskTier ?? null,
+    event.effectKey ?? null,
+    event.memoryRefs ? JSON.stringify(event.memoryRefs.slice(0, 16)) : null,
   );
 }
 
@@ -81,7 +100,8 @@ export function getTraces(db: Database.Database, pipelineId: string): TraceEvent
   ).all(pipelineId) as Array<{
     pipeline_id: string; timestamp: number; type: string;
     task_id: string | null; agent: string | null; detail: string;
-    duration_ms: number | null;
+    duration_ms: number | null; attempt: number | null; risk_tier: string | null;
+    effect_key: string | null; memory_refs: string | null;
   }>;
 
   return rows.map(r => ({
@@ -92,7 +112,21 @@ export function getTraces(db: Database.Database, pipelineId: string): TraceEvent
     agent: r.agent ?? undefined,
     detail: r.detail,
     durationMs: r.duration_ms ?? undefined,
+    attempt: r.attempt ?? undefined,
+    riskTier: r.risk_tier as TraceEvent['riskTier'] ?? undefined,
+    effectKey: r.effect_key ?? undefined,
+    memoryRefs: parseMemoryRefs(r.memory_refs),
   }));
+}
+
+function parseMemoryRefs(value: string | null): string[] | undefined {
+  if (!value) return undefined;
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === 'string') : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 // ── Prune ──────────────────────────────────────────────────────────

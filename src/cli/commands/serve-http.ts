@@ -22,6 +22,7 @@
 import { defineCommand } from 'citty';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { getHeapStatistics } from 'node:v8';
+import { monitorEventLoopDelay } from 'node:perf_hooks';
 import { timingSafeEqual } from 'node:crypto';
 import type { ObservationStore } from '../../store/obs-store.js';
 import { resolveToolProfile } from '../../server/tool-profile.js';
@@ -45,6 +46,8 @@ export const MAX_HTTP_BODY_LIMIT_BYTES = 64 * 1024 * 1024;
 export const MIN_HTTP_BODY_LIMIT_BYTES = 64 * 1024;
 export const MAX_PROJECT_CACHE_ENTRIES = 256;
 export const MAX_STORE_CACHE_ENTRIES = 32;
+export const DEFAULT_MAX_HTTP_SESSIONS = 64;
+export const MAX_HTTP_SESSIONS_LIMIT = 512;
 /** Pinned SDK protocol accepted internally while the HTTP boundary speaks the current stateless contract. */
 export const MCP_SDK_COMPAT_PROTOCOL_VERSION = '2025-11-25';
 
@@ -70,6 +73,14 @@ export function parseHttpBodyLimit(raw: string | undefined): number {
     return DEFAULT_HTTP_BODY_LIMIT_BYTES;
   }
   return Math.min(parsed, MAX_HTTP_BODY_LIMIT_BYTES);
+}
+
+export function parseMaxHttpSessions(raw: string | undefined): number {
+  const value = raw?.trim();
+  if (!value) return DEFAULT_MAX_HTTP_SESSIONS;
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < 1) return DEFAULT_MAX_HTTP_SESSIONS;
+  return Math.min(parsed, MAX_HTTP_SESSIONS_LIMIT);
 }
 
 export function isLoopbackHost(host: string): boolean {
@@ -233,7 +244,8 @@ export default defineCommand({
     // node:fs from being evaluated before their mock factories initialize.
     const { McpBindingStore } = await import('../../server/mcp-binding-store.js');
     const { MemoryFeedbackStore } = await import('../../memory/feedback.js');
-    const { createModernMcpBridge } = await import('../../server/modern-mcp-bridge.js');
+    const { createModernMcpRuntime, ModernMcpRuntimePool, withBusinessRuntimeQueue } = await import('../../server/modern-mcp-bridge.js');
+    const { acquireDatabase, evictIdleDatabases, getDatabaseStats } = await import('../../store/sqlite-db.js');
     const { createMcpHandler } = await import('@modelcontextprotocol/server');
     const { toNodeHandler } = await import('@modelcontextprotocol/node');
 
@@ -286,24 +298,37 @@ export default defineCommand({
     console.error(`[memorix] Project root: ${projectRoot}`);
     const sessionTimeoutMs = parseSessionTimeoutMs(process.env.MEMORIX_SESSION_TIMEOUT_MS);
     const httpBodyLimitBytes = parseHttpBodyLimit(process.env.MEMORIX_HTTP_MAX_BODY_BYTES);
+    const maxHttpSessions = parseMaxHttpSessions(process.env.MEMORIX_MAX_HTTP_SESSIONS);
+    const eventLoopDelay = monitorEventLoopDelay({ resolution: 20 });
+    eventLoopDelay.enable();
     console.error(
       sessionTimeoutMs === 0
         ? '[memorix] HTTP session idle timeout: disabled'
         : `[memorix] HTTP session idle timeout: ${Math.round(sessionTimeoutMs / 60000)}min (${sessionTimeoutMs}ms)`,
     );
+    console.error(`[memorix] HTTP session limit: ${maxHttpSessions}`);
 
     // Per-project TeamStore cache (Option B) — each dataDir gets its own TeamStore instance.
     // This ensures true isolation between projects in HTTP control-plane mode.
     const teamStoreCache = new Map<string, Awaited<ReturnType<typeof initTeamStore>>>();
+    const teamStoreLeases = new Map<string, { release: () => void }>();
     const { initTeamStore } = await import('../../team/team-store.js');
 
-    function cacheSet<K, V>(cache: Map<K, V>, key: K, value: V, limit: number): void {
+    function cacheSet<K, V>(
+      cache: Map<K, V>,
+      key: K,
+      value: V,
+      limit: number,
+      onEvict?: (evictedKey: K, evictedValue: V) => void,
+    ): void {
       cache.delete(key);
       cache.set(key, value);
       while (cache.size > limit) {
         const oldest = cache.keys().next().value as K | undefined;
         if (oldest === undefined) break;
+        const oldValue = cache.get(oldest);
         cache.delete(oldest);
+        if (oldValue !== undefined) onEvict?.(oldest, oldValue);
       }
     }
 
@@ -313,17 +338,39 @@ export default defineCommand({
         cacheSet(teamStoreCache, dataDir, existing, MAX_STORE_CACHE_ENTRIES);
         return existing;
       }
-      const store = await initTeamStore(dataDir);
-      cacheSet(teamStoreCache, dataDir, store, MAX_STORE_CACHE_ENTRIES);
-      return store;
+      const lease = acquireDatabase(dataDir);
+      try {
+        const store = await initTeamStore(dataDir);
+        teamStoreLeases.set(dataDir, lease);
+        cacheSet(teamStoreCache, dataDir, store, MAX_STORE_CACHE_ENTRIES, (evictedDataDir) => {
+          teamStoreLeases.get(evictedDataDir)?.release();
+          teamStoreLeases.delete(evictedDataDir);
+          evictIdleDatabases(MAX_STORE_CACHE_ENTRIES);
+        });
+        return store;
+      } catch (error) {
+        lease.release();
+        throw error;
+      }
     }
 
     // TeamStore is resolved per MCP session/project. Sharing one mutable
     // singleton here made project A's coordination state visible to project B
     // after a roots switch. The cache still reuses the same project's SQLite
     // handle without crossing project data directories.
+    const controlPlaneBaseDir = persistMod.getBaseDataDir();
+    const controlPlaneBaseLease = acquireDatabase(controlPlaneBaseDir);
     const statelessBindingStore = new McpBindingStore();
-    await statelessBindingStore.init(persistMod.getBaseDataDir());
+    await statelessBindingStore.init(controlPlaneBaseDir);
+    const modernRuntimePool = new ModernMcpRuntimePool(MAX_STORE_CACHE_ENTRIES);
+
+    async function resolveModernDataDir(root: string, persisted?: { dataDir?: string }): Promise<string> {
+      if (persisted?.dataDir) return persisted.dataDir;
+      const detected = detectorMod.detectProject(root);
+      return detected
+        ? persistMod.getProjectDataDir(detected.id)
+        : controlPlaneBaseDir;
+    }
 
     // Modern MCP (2026-07-28) is stateless at the protocol layer. The official
     // v2 handler owns discovery, per-request envelopes, result metadata,
@@ -334,32 +381,64 @@ export default defineCommand({
       const persisted = handleId ? statelessBindingStore.touch(handleId) : undefined;
       const requestedRoot = requestInfo?.headers.get('mcp-project-root') ?? undefined;
       const root = persisted?.projectRoot ?? requestedRoot ?? projectRoot;
-      return createModernMcpBridge({
-        projectRoot: root,
-        allowUntrackedFallback: false,
-        deferProjectInitUntilBound: true,
-        deferProjectRuntimeInit: true,
-        dashboardMode: 'control-plane',
-        dashboardPort: port,
-        toolProfile,
-      });
+      const dataDir = await resolveModernDataDir(root, persisted);
+      const runtimeKey = JSON.stringify([dataDir, root]);
+      // The SDK closes the per-request bridge after the response. The pool
+      // decrements the runtime reference there; the business runtime remains
+      // available for the next request for this project.
+      return modernRuntimePool.createBridge(runtimeKey, () => withBusinessRuntimeQueue(async () => {
+        const lease = acquireDatabase(dataDir);
+        try {
+          const runtime = await createModernMcpRuntime({
+            projectRoot: root,
+            allowUntrackedFallback: false,
+            deferProjectInitUntilBound: true,
+            deferProjectRuntimeInit: true,
+            dashboardMode: 'control-plane',
+            dashboardPort: port,
+            toolProfile,
+          });
+          const close = runtime.close.bind(runtime);
+          return {
+            ...runtime,
+            close: async () => {
+              try {
+                await close();
+              } finally {
+                lease.release();
+              }
+            },
+          };
+        } catch (error) {
+          lease.release();
+          throw error;
+        }
+      }));
     }, {
       // Legacy requests are routed to the existing sessionful implementation
       // below; this handler is strict modern-only by construction.
       legacy: 'reject',
       responseMode: 'auto',
+      onerror: error => {
+        const message = error instanceof Error ? error.message : String(error);
+        const stack = error instanceof Error ? error.stack : undefined;
+        console.error(`[memorix] modern MCP request failed: ${message}${stack ? `\n${stack}` : ''}`);
+      },
     });
     const modernNodeHandler = toNodeHandler(modernMcpHandler);
 
     type SessionState = {
       transport: InstanceType<typeof StreamableHTTPServerTransport>;
       server: Awaited<ReturnType<typeof createMemorixServer>>['server'];
+      activateProjectRuntime: Awaited<ReturnType<typeof createMemorixServer>>['activateProjectRuntime'];
       switchProject: Awaited<ReturnType<typeof createMemorixServer>>['switchProject'];
       binding: import('../../server/request-context.js').ProjectBindingController;
+      leases: Array<{ release: () => void }>;
     };
 
     // Session map: sessionId → transport + per-session server state
     const sessions = new Map<string, SessionState>();
+    let pendingSessionInitializations = 0;
 
     // Session activity tracking (for GC timeout)
     const sessionLastActivity = new Map<string, number>();
@@ -629,7 +708,11 @@ export default defineCommand({
         // Existing session — route to its transport
         sessionLastActivity.set(sessionId, Date.now());
         patchMcpResponse(res);
-        await sessions.get(sessionId)!.transport.handleRequest(req, res, body);
+        const session = sessions.get(sessionId)!;
+        await withBusinessRuntimeQueue(async () => {
+          await session.activateProjectRuntime();
+          await session.transport.handleRequest(req, res, body);
+        });
         return;
       }
 
@@ -639,12 +722,34 @@ export default defineCommand({
       }
 
       if (!sessionId && isInitializeRequest(body)) {
+        if (sessions.size + pendingSessionInitializations >= maxHttpSessions) {
+          res.writeHead(429, {
+            'Content-Type': 'application/json',
+            'Retry-After': '5',
+          });
+          res.end(JSON.stringify({
+            jsonrpc: '2.0',
+            error: { code: -32029, message: `HTTP session limit reached (${maxHttpSessions}). Retry after an existing session closes.` },
+            id: (body as { id?: string | number | null }).id ?? null,
+          }));
+          return;
+        }
+        pendingSessionInitializations++;
+        let pendingReservationReleased = false;
+        const releasePendingReservation = () => {
+          if (pendingReservationReleased) return;
+          pendingReservationReleased = true;
+          pendingSessionInitializations = Math.max(0, pendingSessionInitializations - 1);
+        };
+
         // New session — create transport + server
         let createdState: SessionState | null = null;
+        const sessionLeases: Array<{ release: () => void }> = [acquireDatabase(defaultDataDir)];
         const transport = new StreamableHTTPServerTransport({
           sessionIdGenerator: () => randomUUID(),
           enableJsonResponse: true,
           onsessioninitialized: (sid: string) => {
+            releasePendingReservation();
             if (createdState) sessions.set(sid, createdState);
             sessionLastActivity.set(sid, Date.now());
             // Defer log — only emit if session survives past SESSION_LOG_DELAY_MS
@@ -657,6 +762,7 @@ export default defineCommand({
         });
 
         transport.onclose = () => {
+          releasePendingReservation();
           const sid = transport.sessionId;
           if (sid) {
             // If the deferred init log hasn't fired yet, this was a short-lived probe
@@ -673,30 +779,53 @@ export default defineCommand({
             sessionLastActivity.delete(sid);
           }
           handleTransportClose();
+          for (const lease of sessionLeases) lease.release();
+          evictIdleDatabases(MAX_STORE_CACHE_ENTRIES);
         };
 
         // Legacy Mcp-Session-Id only routes requests. Project ownership lives
         // in this transport-neutral binding object, ready for stateless MCP.
         const binding = createProjectBindingController(projectRoot);
         // Create a fresh MCP server for this session (with shared team state)
-        const { server, switchProject, handleTransportClose } = await createMemorixServer(
-          projectRoot,
-          undefined,
-          undefined,
-          {
-            allowUntrackedFallback: false,
-            deferProjectInitUntilBound: true,
-            // Same as stdio: initialize/tools/list must not hydrate 40k+
-            // observations on the HTTP thread. /health and the LaunchAgent
-            // watchdog die if createMemorixServer blocks here.
-            deferProjectRuntimeInit: true,
-            dashboardMode: 'control-plane',
-            dashboardPort: port,
-            toolProfile,
-            projectBinding: binding,
-          },
-        );
-        createdState = { transport, server, switchProject, binding };
+        let server: Awaited<ReturnType<typeof createMemorixServer>>['server'];
+        let activateProjectRuntime: Awaited<ReturnType<typeof createMemorixServer>>['activateProjectRuntime'];
+        let handleTransportClose: Awaited<ReturnType<typeof createMemorixServer>>['handleTransportClose'];
+        let getProjectDataDirForSession: Awaited<ReturnType<typeof createMemorixServer>>['getProjectDataDir'];
+        let switchProject: Awaited<ReturnType<typeof createMemorixServer>>['switchProject'];
+        try {
+          ({ server, activateProjectRuntime, switchProject, handleTransportClose, getProjectDataDir: getProjectDataDirForSession } = await createMemorixServer(
+            projectRoot,
+            undefined,
+            undefined,
+            {
+              allowUntrackedFallback: false,
+              deferProjectInitUntilBound: true,
+              // Same as stdio: initialize/tools/list must not hydrate 40k+
+              // observations on the HTTP thread. /health and the LaunchAgent
+              // watchdog die if createMemorixServer blocks here.
+              deferProjectRuntimeInit: true,
+              dashboardMode: 'control-plane',
+              dashboardPort: port,
+              toolProfile,
+              projectBinding: binding,
+            },
+          ));
+        } catch (error) {
+          releasePendingReservation();
+          for (const lease of sessionLeases) lease.release();
+          throw error;
+        }
+        const switchProjectWithLease = async (newCwd: string, source?: import('../../server/request-context.js').ProjectBindingSource): Promise<boolean> => {
+          const before = getProjectDataDirForSession();
+          const changed = await switchProject(newCwd, source);
+          const after = getProjectDataDirForSession();
+          if (changed && after !== before) {
+            sessionLeases[0].release();
+            sessionLeases[0] = acquireDatabase(after);
+          }
+          return changed;
+        };
+        createdState = { transport, server, activateProjectRuntime, switchProject: switchProjectWithLease, binding, leases: sessionLeases };
         await server.connect(transport);
 
         const tryRootsSwitch = async () => {
@@ -743,7 +872,16 @@ export default defineCommand({
         } catch { /* optional */ }
 
         patchMcpResponse(res);
-        await transport.handleRequest(req, res, body);
+        try {
+          await withBusinessRuntimeQueue(async () => {
+            await activateProjectRuntime();
+            await transport.handleRequest(req, res, body);
+          });
+        } finally {
+          // A malformed probe can finish without creating a session; do not
+          // let it consume an admission slot forever.
+          if (!transport.sessionId) releasePendingReservation();
+        }
         // Do NOT proactively call listRoots() after session establishment —
         // this violates MCP SEP-2260 (server-initiated request must be associated
         // with a client request). Codex and other strict clients treat standalone
@@ -779,6 +917,8 @@ export default defineCommand({
         return;
       }
 
+      // GET may keep an SSE stream open; it does not enter the business tool
+      // layer and must not occupy the singleton runtime gate.
       await sessions.get(sessionId)!.transport.handleRequest(req, res);
     }
 
@@ -797,7 +937,7 @@ export default defineCommand({
         return;
       }
 
-      await sessions.get(sessionId)!.transport.handleRequest(req, res);
+      await withBusinessRuntimeQueue(() => sessions.get(sessionId)!.transport.handleRequest(req, res));
     }
 
     // Create HTTP server
@@ -831,6 +971,7 @@ export default defineCommand({
     const projectDataDirCache = new Map<string, string>();
     cacheSet(projectDataDirCache, defaultProject.id, defaultDataDir, MAX_PROJECT_CACHE_ENTRIES);
     const dashboardObservationStores = new Map<string, ObservationStore>();
+    const dashboardStoreLeases = new Map<string, { release: () => void }>();
 
     /** Resolve ?project= query param to { projectId, projectName, dataDir } */
     async function resolveRequestProject(url: URL): Promise<{
@@ -859,9 +1000,21 @@ export default defineCommand({
         return cached;
       }
       const { createObservationStore } = await import('../../store/obs-store.js');
-      const store = await createObservationStore(dataDir);
-      cacheSet(dashboardObservationStores, dataDir, store, MAX_STORE_CACHE_ENTRIES);
-      return store;
+      const lease = acquireDatabase(dataDir);
+      try {
+        const store = await createObservationStore(dataDir);
+        dashboardStoreLeases.set(dataDir, lease);
+        cacheSet(dashboardObservationStores, dataDir, store, MAX_STORE_CACHE_ENTRIES, (evictedDataDir, evictedStore) => {
+          try { evictedStore.close(); } catch { /* best-effort */ }
+          dashboardStoreLeases.get(evictedDataDir)?.release();
+          dashboardStoreLeases.delete(evictedDataDir);
+          evictIdleDatabases(MAX_STORE_CACHE_ENTRIES);
+        });
+        return store;
+      } catch (error) {
+        lease.release();
+        throw error;
+      }
     }
 
     async function loadDashboardObservations(dataDir: string) {
@@ -1852,6 +2005,18 @@ export default defineCommand({
             arrayBuffers: memory.arrayBuffers,
             heapLimit: heap.heap_size_limit,
           },
+          sqlite: getDatabaseStats(),
+          sessions: {
+            active: sessions.size,
+            pending: pendingSessionInitializations,
+            limit: maxHttpSessions,
+          },
+          modernRuntime: modernRuntimePool.stats(),
+          eventLoop: {
+            meanMs: Number.isFinite(eventLoopDelay.mean) ? eventLoopDelay.mean / 1e6 : null,
+            p95Ms: eventLoopDelay.percentile(95) / 1e6,
+            maxMs: eventLoopDelay.max / 1e6,
+          },
           embedding: getEmbeddingRuntimeHealth(),
         }));
         return;
@@ -1987,6 +2152,13 @@ export default defineCommand({
         try { store.close(); } catch { /* best-effort */ }
       }
       dashboardObservationStores.clear();
+      for (const lease of dashboardStoreLeases.values()) lease.release();
+      dashboardStoreLeases.clear();
+      for (const lease of teamStoreLeases.values()) lease.release();
+      teamStoreLeases.clear();
+      controlPlaneBaseLease.release();
+      await modernRuntimePool.close();
+      eventLoopDelay.disable();
       const { closeAllDatabases } = await import('../../store/sqlite-db.js');
       closeAllDatabases();
       throw error;
@@ -2001,6 +2173,8 @@ export default defineCommand({
       const now = Date.now();
       forgetExpiredSessions(now);
       statelessBindingStore.cleanupExpired(now);
+      evictIdleDatabases(MAX_STORE_CACHE_ENTRIES);
+      void modernRuntimePool.evictIdle();
       if (SESSION_TIMEOUT_MS === 0) return;
       for (const [sid, state] of sessions) {
         const lastActive = sessionLastActivity.get(sid) ?? 0;
@@ -2036,6 +2210,10 @@ export default defineCommand({
         try { store.close(); } catch { /* best-effort */ }
       }
       dashboardObservationStores.clear();
+      for (const lease of dashboardStoreLeases.values()) lease.release();
+      dashboardStoreLeases.clear();
+      for (const lease of teamStoreLeases.values()) lease.release();
+      teamStoreLeases.clear();
       for (const [sid, state] of sessions) {
         try {
           await state.transport.close();
@@ -2044,8 +2222,10 @@ export default defineCommand({
           console.error(`[memorix] Error closing session ${sid}:`, err);
         }
       }
+      await modernRuntimePool.close();
       clearInterval(gcInterval);
       clearInterval(heartbeatInterval);
+      eventLoopDelay.disable();
       await new Promise<void>((resolve) => {
         if (!httpServer.listening) {
           resolve();
@@ -2054,6 +2234,7 @@ export default defineCommand({
         httpServer.close(() => resolve());
       });
       const { closeAllDatabases } = await import('../../store/sqlite-db.js');
+      controlPlaneBaseLease.release();
       closeAllDatabases();
       process.exit(0);
     };
@@ -2110,6 +2291,7 @@ export const _testing = {
   MAX_HTTP_BODY_LIMIT_BYTES,
   MIN_HTTP_BODY_LIMIT_BYTES,
   parseSessionTimeoutMs,
+  parseMaxHttpSessions,
   parseHttpBodyLimit,
   isLoopbackHost,
   validateHttpBindSecurity,

@@ -24,6 +24,7 @@ import { classifyError, resetBackoff, type RecoveryAction } from './error-recove
 import { calculatePipelineCost, isBudgetExceeded, formatCostSummary } from './cost-tracker.js';
 import { writeTaskEvidence, writePipelineSummary, type TaskEvidence } from './evidence.js';
 import { TaskToolTracker } from './permission.js';
+import { AgentEffectLedger } from './effect-ledger.js';
 import { storeVerifiedFix, storeFixExhausted, searchKnownFixes, searchLessons, storeTaskCompletion, storePipelineSummary as memStorePipelineSummary, type BridgeConfig, DEFAULT_BRIDGE_CONFIG } from './memorix-bridge.js';
 
 // ── Types ──────────────────────────────────────────────────────────
@@ -232,10 +233,12 @@ export async function runCoordinationLoop(config: CoordinatorConfig): Promise<Co
 
   // Phase 6g: Pipeline tracing
   let traceDb: ReturnType<typeof teamStore.getDb> | null = null;
+  let effectLedger: AgentEffectLedger | null = null;
   try {
     traceDb = teamStore.getDb();
     resetTraceCache();
     initTraceTable(traceDb);
+    if (pipelineId) effectLedger = new AgentEffectLedger(traceDb);
   } catch { /* best-effort: tracing is non-critical */ }
 
   // Phase 6i: Cleanup orphan worktrees from previous crashed runs
@@ -567,6 +570,31 @@ export async function runCoordinationLoop(config: CoordinatorConfig): Promise<Co
               for await (const msg of agentProcess.messages!) {
                 if (msg.type === 'tool_use') {
                   dispatch.toolCount++;
+                  const effectKey = msg.callId ?? `seq:${dispatch.toolCount}`;
+                  const effect = effectLedger?.observe({
+                    pipelineId: pipelineId!,
+                    taskId: dispatch.taskId,
+                    attempt: dispatch.attempt,
+                    effectKey,
+                    tool: msg.tool ?? 'unknown',
+                    ...(msg.callId ? { callId: msg.callId } : {}),
+                    ...(msg.input ? { input: msg.input } : {}),
+                  });
+                  if (effect && traceDb && pipelineId) {
+                    try {
+                      writeTrace(traceDb, {
+                        pipelineId,
+                        timestamp: Date.now(),
+                        type: 'effect',
+                        taskId: dispatch.taskId,
+                        agent: dispatch.adapterName,
+                        detail: `observed tool=${effect.tool} risk=${effect.riskTier} replay=${effect.replayPolicy} effect=${effect.effectKey}`,
+                        attempt: dispatch.attempt,
+                        riskTier: effect.riskTier,
+                        effectKey: effect.effectKey,
+                      });
+                    } catch { /* effect trace is best-effort */ }
+                  }
                   // Phase 7: Record tool usage for risk profiling
                   if (msg.tool) tracker.record(msg.tool);
                   emit('agent:tool_use', `[${adapter.name}] tool #${dispatch.toolCount}: ${msg.tool ?? 'unknown'}`, {
@@ -586,6 +614,16 @@ export async function runCoordinationLoop(config: CoordinatorConfig): Promise<Co
                       });
                     } catch { /* trace is best-effort */ }
                   }
+                }
+                if (msg.type === 'tool_result' && msg.callId && effectLedger && pipelineId) {
+                  effectLedger.settle({
+                    pipelineId,
+                    taskId: dispatch.taskId,
+                    attempt: dispatch.attempt,
+                    effectKey: msg.callId,
+                    status: 'succeeded',
+                    detail: 'tool result observed',
+                  });
                 }
                 // Accumulate text for planner output extraction (avoids ring buffer truncation)
                 if (msg.type === 'text' && msg.content) {
@@ -671,6 +709,9 @@ export async function runCoordinationLoop(config: CoordinatorConfig): Promise<Co
           if (result.sessionId) {
             taskSessionIds.set(dispatch.taskId, result.sessionId);
           }
+          if (effectLedger && pipelineId) {
+            effectLedger.markAttemptUnknown(pipelineId, dispatch.taskId, dispatch.attempt);
+          }
 
           // ── 方案 A: Orchestrator owns task lifecycle ──
           // Agent does NOT call team_task. Orchestrator infers outcome from exit code.
@@ -755,6 +796,25 @@ export async function runCoordinationLoop(config: CoordinatorConfig): Promise<Co
                       for await (const msg of fixProcess.messages!) {
                         if (msg.type === 'tool_use') {
                           fixDispatch.toolCount++;
+                          effectLedger?.observe({
+                            pipelineId: pipelineId!,
+                            taskId: fixDispatch.taskId,
+                            attempt: fixDispatch.attempt,
+                            effectKey: msg.callId ?? `seq:${fixDispatch.toolCount}`,
+                            tool: msg.tool ?? 'unknown',
+                            ...(msg.callId ? { callId: msg.callId } : {}),
+                            ...(msg.input ? { input: msg.input } : {}),
+                          });
+                        }
+                        if (msg.type === 'tool_result' && msg.callId && effectLedger && pipelineId) {
+                          effectLedger.settle({
+                            pipelineId,
+                            taskId: fixDispatch.taskId,
+                            attempt: fixDispatch.attempt,
+                            effectKey: msg.callId,
+                            status: 'succeeded',
+                            detail: 'tool result observed',
+                          });
                         }
                         if (msg.type === 'text' && msg.content) {
                           fixDispatch.accumulatedText += msg.content;

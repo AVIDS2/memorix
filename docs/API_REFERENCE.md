@@ -167,6 +167,7 @@ CLI:
 memorix continuity start --task "Harden the release path" --requirements "keep 1.9.x,run CI"
 memorix continuity record --task-id <id> --kind decision --content "Use the existing release gate"
 memorix continuity record --task-id <id> --kind verification --verification-status passed --content "Full CI passed"
+memorix continuity record --task-id <id> --kind verification --verification-id ci --verification-status passed --idempotency-key ci-pass-1 --content "Full CI passed"
 memorix context "continue the release path" --task-id <id>
 memorix continuity close --task-id <id> --status completed --content "Ready for release"
 ```
@@ -181,6 +182,12 @@ The ledger also exposes a deterministic outcome projection:
 block, or abandonment is present, `in-progress` means the task is still open, and
 `unverified` means it closed without enough passing verification. The numeric score is
 diagnostic-only; it is not used to silently reorder or rewrite memories.
+Use a stable `verificationId` when a verification obligation moves from `pending`
+to `passed`, `failed`, or `skipped`; without one, entries are treated as separate
+evidence. A completed task with passing checks and unresolved risks is reported as
+`validated-with-risks`. `idempotencyKey` makes retries return the original event
+instead of appending a duplicate. Event caps are enforced inside an immediate
+SQLite transaction.
 Continuity does not automatically promote anything to durable memory; verification
 and outcome signals remain explicit.
 

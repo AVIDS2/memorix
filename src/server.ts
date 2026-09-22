@@ -253,7 +253,9 @@ export async function createMemorixServer(
   graphManager: KnowledgeGraphManager;
   projectId: string;
   deferredInit: () => Promise<void>;
-  switchProject: (newCwd: string) => Promise<boolean>;
+  activateProjectRuntime: () => Promise<void>;
+  switchProject: (newCwd: string, source?: ProjectBindingSource) => Promise<boolean>;
+  getProjectDataDir: () => string;
   isExplicitlyBound: () => boolean;
   getRequestContext: () => import('./server/request-context.js').MemorixRequestContext;
   handleTransportClose: () => void;
@@ -495,6 +497,31 @@ export async function createMemorixServer(
       });
     }
     await projectRuntimeInitPromise;
+  };
+
+  /**
+   * Restore process-wide stores/config before a pooled modern runtime handles
+   * a tool call. The durable database is shared, but project-root config and
+   * the in-memory observation facade are process-global legacy state.
+   */
+  const activateProjectRuntime = async (): Promise<void> => {
+    if (!projectResolved) return;
+
+    await initObservationStore(projectDir);
+    await initMiniSkillStore(projectDir);
+    await initSessionStore(projectDir);
+    await initObservations(projectDir, { skipCorpusLoad: true });
+
+    try {
+      const { initProjectRoot } = await import('./config/yaml-loader.js');
+      const { resetDotenv, loadDotenv } = await import('./config/dotenv-loader.js');
+      initProjectRoot(project.rootPath);
+      resetDotenv();
+      loadDotenv(project.rootPath);
+    } catch {
+      // Config activation is best-effort; durable project scoping remains explicit.
+    }
+    initLLM({ projectRoot: project.rootPath });
   };
 
   let maintenanceWorker: { stop(): void } | null = null;
@@ -838,8 +865,9 @@ export async function createMemorixServer(
           currentFormationStage = event.stage;
           if (event.stageDurationMs !== undefined) {
             completedFormationStages[event.stage] = event.stageDurationMs;
-          }
-        };
+    }
+  };
+
         try {
           const formationConfig: FormationConfig = {
             mode: 'active',
@@ -4613,6 +4641,8 @@ export async function createMemorixServer(
         kind: z.enum(['requirement', 'decision', 'verification', 'risk']).optional().describe('Entry kind for record'),
         content: z.string().max(2_000).optional().describe('Requirement, decision, verification, risk, or outcome text'),
         verificationStatus: z.enum(['pending', 'passed', 'failed', 'skipped']).optional(),
+        verificationId: z.string().max(120).optional().describe('Stable verification obligation id; reuse it to move pending to passed/failed'),
+        idempotencyKey: z.string().max(200).optional().describe('Stable retry key; repeating the same operation returns the original event'),
         status: z.enum(['completed', 'blocked', 'abandoned']).optional().describe('Outcome status for close'),
         sourceRef: z.string().max(500).optional().describe('Evidence or source reference'),
         evidenceRefs: z.array(z.string().max(500)).max(8).optional(),
@@ -4620,7 +4650,7 @@ export async function createMemorixServer(
         limit: z.number().int().positive().max(100).optional().default(20),
       },
     },
-    async ({ action, taskId, task, requirements, kind, content, verificationStatus, status, sourceRef, evidenceRefs, actor, limit }) => {
+    async ({ action, taskId, task, requirements, kind, content, verificationStatus, verificationId, idempotencyKey, status, sourceRef, evidenceRefs, actor, limit }) => {
       const unresolved = requireResolvedProject('manage task continuity for the current project');
       if (unresolved) return unresolved;
       const { TaskContinuityStore } = await import('./knowledge/task-continuity.js');
@@ -4636,6 +4666,7 @@ export async function createMemorixServer(
             ...(taskId ? { taskId } : {}),
             requirements,
             ...(effectiveActor ? { actor: effectiveActor } : {}),
+            ...(idempotencyKey ? { idempotencyKey } : {}),
           });
           return { content: [{ type: 'text' as const, text: JSON.stringify({ projectId: project.id, ...result }, null, 2) }] };
         }
@@ -4661,6 +4692,8 @@ export async function createMemorixServer(
             ...(sourceRef ? { sourceRef } : {}),
             ...(evidenceRefs ? { evidenceRefs } : {}),
             ...(effectiveActor ? { actor: effectiveActor } : {}),
+            ...(verificationId ? { verificationId } : {}),
+            ...(idempotencyKey ? { idempotencyKey } : {}),
           });
           return { content: [{ type: 'text' as const, text: JSON.stringify({ projectId: project.id, ...result }, null, 2) }] };
         }
@@ -4675,6 +4708,7 @@ export async function createMemorixServer(
           ...(sourceRef ? { sourceRef } : {}),
           ...(evidenceRefs ? { evidenceRefs } : {}),
           ...(effectiveActor ? { actor: effectiveActor } : {}),
+          ...(idempotencyKey ? { idempotencyKey } : {}),
         });
         return { content: [{ type: 'text' as const, text: JSON.stringify({ projectId: project.id, ...result }, null, 2) }] };
       } catch (error) {
@@ -5814,7 +5848,8 @@ export async function createMemorixServer(
   };
 
   return {
-    server, graphManager, projectId: project.id, deferredInit, switchProject,
+    server, graphManager, projectId: project.id, deferredInit, activateProjectRuntime, switchProject,
+    getProjectDataDir: () => projectDir,
     isExplicitlyBound: () => projectBinding.isExplicit(),
     getRequestContext,
     handleTransportClose,

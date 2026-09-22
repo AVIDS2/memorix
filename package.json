@@ -76,6 +76,7 @@
     "benchmark:codegraph": "node scripts/benchmark-codegraph-provider.cjs",
     "benchmark:codegraph:scale": "node scripts/benchmark-codegraph-scale.mjs",
     "benchmark:retrieval": "npm run build && node scripts/benchmark-retrieval.mjs",
+    "gate:memory-quality": "vitest run tests/evaluation/memory-quality-gate.test.ts tests/evaluation/session-replay-evaluation.test.ts",
     "gate:large-store": "npm run build && node scripts/large-store-gate.mjs",
     "sync:mcp-registry": "node scripts/sync-mcp-registry-manifest.mjs",
     "check:mcp-registry": "node scripts/check-mcp-registry-manifest.mjs",

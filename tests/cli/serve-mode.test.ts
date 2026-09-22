@@ -24,6 +24,7 @@ const setNotificationHandlerMock = vi.fn();
 const connectMock = vi.fn();
 const switchProjectMock = vi.fn();
 const deferredInitMock = vi.fn();
+const activateProjectRuntimeMock = vi.fn().mockResolvedValue(undefined);
 const isExplicitlyBoundMock = vi.fn();
 const handleTransportCloseMock = vi.fn();
 const {
@@ -43,7 +44,9 @@ const httpServerCloseMock = vi.fn();
 const createControlPlaneMaintenanceWorkerMock = vi.fn();
 const maintenanceWorkerStartMock = vi.fn();
 const createModernMcpBridgeMock = vi.hoisted(() => vi.fn());
+const createModernMcpRuntimeMock = vi.hoisted(() => vi.fn());
 const serveStdioMock = vi.hoisted(() => vi.fn());
+const withBusinessRuntimeQueueMock = vi.hoisted(() => vi.fn((work: () => Promise<unknown>) => work()));
 
 let capturedHttpHandler: ((req: any, res: any) => Promise<void>) | undefined;
 
@@ -139,8 +142,40 @@ vi.mock('../../src/server.js', () => ({
   createMemorixServer: createMemorixServerMock,
 }));
 
+vi.mock('../../src/server/mcp-binding-store.js', () => ({
+  McpBindingStore: class {
+    async init() {}
+    touch() { return undefined; }
+    findByProjectRoot() { return undefined; }
+    create() { return { handleId: 'test-handle', projectId: project.id, projectRoot: project.rootPath, dataDir: 'E:/memorix-data' }; }
+  },
+}));
+
 vi.mock('../../src/server/modern-mcp-bridge.js', () => ({
   createModernMcpBridge: createModernMcpBridgeMock,
+  createModernMcpRuntime: createModernMcpRuntimeMock,
+  withBusinessRuntimeQueue: withBusinessRuntimeQueueMock,
+  ModernMcpRuntimePool: class {
+    private entries = new Set<any>();
+    async createBridge(_key: string, factory: () => Promise<any>) {
+      const runtime = await factory();
+      this.entries.add(runtime);
+      const bridge = await runtime.createBridge();
+      const close = bridge.close.bind(bridge);
+      bridge.close = async () => {
+        await close();
+        await runtime.close();
+        this.entries.delete(runtime);
+      };
+      return bridge;
+    }
+    async evictIdle() { return 0; }
+    async close() {
+      await Promise.all([...this.entries].map((runtime: any) => runtime.close()));
+      this.entries.clear();
+    }
+    stats() { return { entries: this.entries.size, activeRefs: 0, pending: 0 }; }
+  },
 }));
 
 vi.mock('../../src/runtime/control-plane-maintenance.js', () => ({
@@ -185,6 +220,7 @@ function makeServerResult() {
     },
     projectId: project.id,
     deferredInit: deferredInitMock.mockResolvedValue(undefined),
+    activateProjectRuntime: activateProjectRuntimeMock,
     switchProject: switchProjectMock.mockResolvedValue(false),
     isExplicitlyBound: isExplicitlyBoundMock.mockReturnValue(false),
     handleTransportClose: handleTransportCloseMock,
@@ -299,6 +335,14 @@ describe('serve command mode support', () => {
       );
       return modern;
     });
+    createModernMcpRuntimeMock.mockImplementation(async (options: any) => {
+      return {
+        projectId: project.id,
+        getProjectDataDir: () => 'E:/memorix-data',
+        createBridge: () => createModernMcpBridgeMock(options),
+        close: async () => {},
+      };
+    });
     serveStdioMock.mockImplementation((factory: () => Promise<unknown>) => {
       void factory();
       return { close: vi.fn() };
@@ -407,6 +451,12 @@ describe('serve-http command mode support', () => {
       );
       return modern;
     });
+    createModernMcpRuntimeMock.mockImplementation(async (options: any) => ({
+      projectId: project.id,
+      getProjectDataDir: () => 'E:/memorix-data',
+      createBridge: () => createModernMcpBridgeMock(options),
+      close: async () => {},
+    }));
     createServerMock.mockImplementation((handler: any) => {
       capturedHttpHandler = handler;
       return {

@@ -31,6 +31,8 @@ export default defineCommand({
     kind: { type: 'string', description: 'requirement, decision, verification, or risk' },
     content: { type: 'string', description: 'Entry or outcome text' },
     verificationStatus: { type: 'string', description: 'pending, passed, failed, or skipped' },
+    verificationId: { type: 'string', description: 'Stable verification obligation id for status transitions' },
+    idempotencyKey: { type: 'string', description: 'Stable retry key for idempotent writes' },
     status: { type: 'string', description: 'completed, blocked, or abandoned for close' },
     source: { type: 'string', description: 'Source or evidence reference' },
     evidence: { type: 'string', description: 'Comma-separated evidence references' },
@@ -57,6 +59,7 @@ export default defineCommand({
           ...(args.taskId ? { taskId: String(args.taskId) } : {}),
           requirements: parseCsvList(args.requirements as string | undefined),
           ...(actor ? { actor } : {}),
+          ...(args.idempotencyKey ? { idempotencyKey: String(args.idempotencyKey) } : {}),
         });
         emitResult({ project, ...result }, 'Continuity started: ' + result.taskId, asJson);
         return;
@@ -109,6 +112,8 @@ export default defineCommand({
           ...(args.source ? { sourceRef: String(args.source) } : {}),
           evidenceRefs: parseCsvList(args.evidence as string | undefined),
           ...(actor ? { actor } : {}),
+          ...(args.verificationId ? { verificationId: String(args.verificationId) } : {}),
+          ...(args.idempotencyKey ? { idempotencyKey: String(args.idempotencyKey) } : {}),
         });
         emitResult({ project, ...result }, 'Continuity recorded: ' + kind, asJson);
         return;
@@ -128,6 +133,7 @@ export default defineCommand({
           ...(args.source ? { sourceRef: String(args.source) } : {}),
           evidenceRefs: parseCsvList(args.evidence as string | undefined),
           ...(actor ? { actor } : {}),
+          ...(args.idempotencyKey ? { idempotencyKey: String(args.idempotencyKey) } : {}),
         });
         emitResult({ project, ...result }, 'Continuity closed: ' + status, asJson);
         return;
@@ -138,6 +144,7 @@ export default defineCommand({
       console.log('  memorix continuity start --task "..." [--requirements "a,b"]');
       console.log('  memorix continuity record --taskId <id> --kind decision --content "..."');
       console.log('  memorix continuity record --taskId <id> --kind verification --verificationStatus passed --content "..."');
+      console.log('    Use --verificationId <id> to transition an existing verification obligation.');
       console.log('  memorix continuity show --taskId <id>');
       console.log('  memorix continuity list [--limit 20]');
       console.log('  memorix continuity close --taskId <id> --status completed --content "..."');

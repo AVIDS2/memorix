@@ -88,6 +88,25 @@ complete. Detailed acceptance criteria and the public issue/PR disposition live 
   at-risk, in-progress, and unverified task states. The projection is visible
   in structured receipts only; it does not rewrite memory relevance.
 
+## 1.9.x Infrastructure Closeout (2026-09-22)
+
+- [x] Added leased, observable SQLite handle registry with idle LRU eviction;
+  HTTP dashboard/team/runtime caches release leases on eviction and shutdown.
+- [x] Added bounded HTTP session admission (`MEMORIX_MAX_HTTP_SESSIONS`),
+  SQLite/runtime/session/event-loop health fields, and MCP binding root/expiry
+  indexes.
+- [x] Kept the official modern MCP per-request protocol server while pooling
+  project business runtimes behind a bounded reference-counted pool keyed by
+  shared data directory plus project root. The legacy singleton business layer
+  is reactivated before each business call and protected by a request gate;
+  long-lived SSE GET streams do not occupy it.
+- [x] Extended continuity with verification obligation IDs, risk-aware outcome
+  state, idempotency keys, and immediate transactions for the event cap.
+- [x] Added a privacy-safe orchestrator effect ledger and structured pipeline
+  trace fields for attempts, risk tiers, effect keys, and bounded memory refs.
+- [x] Added the deterministic cross-session memory quality gate and package
+  script `npm run gate:memory-quality`.
+
 ### New GitHub work
 
 - **#301 / #303:** merged through #305 and shipped in 1.9.5. Explicit

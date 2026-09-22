@@ -185,4 +185,75 @@ describe('task continuity', () => {
       expect(evaluateTaskContinuity(item)).toEqual(evaluateTaskContinuity(item));
     }
   });
+
+  it('treats a verification id as a stateful obligation and supports idempotent retries', async () => {
+    const dataDir = tempDir();
+    const store = new TaskContinuityStore();
+    await store.init(dataDir);
+    const started = store.start({ projectId: 'org/repo', task: 'Verify a deployment' });
+
+    store.record({
+      projectId: 'org/repo',
+      taskId: started.taskId,
+      kind: 'verification',
+      verificationId: 'smoke',
+      verificationStatus: 'pending',
+      content: 'Run the production smoke test.',
+    });
+    const passed = store.record({
+      projectId: 'org/repo',
+      taskId: started.taskId,
+      kind: 'verification',
+      verificationId: 'smoke',
+      verificationStatus: 'passed',
+      content: 'Production smoke test passed.',
+      idempotencyKey: 'verify-smoke-pass',
+    });
+    const retried = store.record({
+      projectId: 'org/repo',
+      taskId: started.taskId,
+      kind: 'verification',
+      verificationId: 'smoke',
+      verificationStatus: 'passed',
+      content: 'This retry must not append another event.',
+      idempotencyKey: 'verify-smoke-pass',
+    });
+
+    expect(retried.event.id).toBe(passed.event.id);
+    expect(retried.ledger.verification).toEqual([
+      expect.objectContaining({ id: 'smoke', status: 'passed', content: 'Production smoke test passed.' }),
+    ]);
+    expect(retried.ledger.outcome.verification).toMatchObject({ passed: 1, pending: 0 });
+  });
+
+  it('distinguishes completed work with open risks from fully validated work', () => {
+    expect(evaluateTaskContinuity({
+      status: 'completed',
+      verification: [{ content: 'CI', status: 'passed', evidenceRefs: [] }],
+      outcomes: ['done'],
+      risks: ['rollback not rehearsed'],
+    })).toMatchObject({ state: 'validated-with-risks', score: 0.8 });
+  });
+
+  it('enforces the event cap inside the write transaction', async () => {
+    const dataDir = tempDir();
+    const store = new TaskContinuityStore();
+    await store.init(dataDir);
+    const started = store.start({ projectId: 'org/repo', task: 'Bound the ledger' });
+    for (let index = 0; index < 199; index++) {
+      store.record({
+        projectId: 'org/repo',
+        taskId: started.taskId,
+        kind: 'decision',
+        content: `Decision ${index}`,
+      });
+    }
+    expect(() => store.record({
+      projectId: 'org/repo',
+      taskId: started.taskId,
+      kind: 'decision',
+      content: 'This must be rejected at 200 events.',
+    })).toThrow(/200-event limit/);
+    expect(store.get('org/repo', started.taskId)?.events).toHaveLength(200);
+  });
 });

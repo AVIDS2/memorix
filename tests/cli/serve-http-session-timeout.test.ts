@@ -27,6 +27,13 @@ describe('serve-http session timeout configuration', () => {
     expect(_testing.parseSessionTimeoutMs('86400000')).toBe(24 * 60 * 60 * 1000);
   });
 
+  it('bounds the number of concurrently admitted HTTP sessions', () => {
+    expect(_testing.parseMaxHttpSessions(undefined)).toBe(64);
+    expect(_testing.parseMaxHttpSessions('12')).toBe(12);
+    expect(_testing.parseMaxHttpSessions('9999')).toBe(512);
+    expect(_testing.parseMaxHttpSessions('0')).toBe(64);
+  });
+
   it('requires an explicit policy before a non-loopback bind', () => {
     expect(_testing.isLoopbackHost('127.0.0.1')).toBe(true);
     expect(_testing.isLoopbackHost('0.0.0.0')).toBe(false);

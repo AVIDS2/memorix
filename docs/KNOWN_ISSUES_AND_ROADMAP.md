@@ -1,12 +1,44 @@
 # Memorix 已知边界与路线图
 
-> 最后审阅：2026-09-20（对照已发布 v1.9.5）
+> 最后审阅：2026-09-22（对照已发布 v1.9.5 与当前 1.9.x 收口工作树）
 
 这份文档说明仍然成立的产品边界、风险和方向；它不是发布流水账。
 
 - 已发布版本和每次修复的事实，以 [CHANGELOG](../CHANGELOG.md) 为准。
 - 当前正在进行的维护工作，以 [ACTIVE_WORK](../ACTIVE_WORK.md) 为准。
 - 可讨论、可订阅的后续事项，以 GitHub Open Issues 为准。
+
+---
+
+## 1.9.x 基础设施收口（当前工作树，未发布）
+
+> 本节记录本轮基础设施整改的实现与验收边界。版本号仍保持在 1.9.x，
+> 不把未发布的工作树改写成新的发布版本。
+
+### 已完成并通过回归
+
+- SQLite 数据库句柄采用 lease + 有上限的 LRU registry；HTTP session 有硬上限、
+  pending admission、过期回收和关闭释放；health 暴露 SQLite、session、runtime
+  与 event-loop 指标。
+- MCP modern bridge 按请求创建协议 server，按项目复用有界 business runtime；
+  legacy business store 入口有串行门，避免跨项目并发切换污染。
+- Task Continuity 采用 `requirement -> verification -> evidence -> outcome` 的
+  可更新验证项语义，支持 `validated-with-risks`、幂等键、状态替换和 immediate
+  transaction 上限保护。
+- Orchestrator 记录脱敏的 effect ledger 与结构化 trace，标记成功、失败、未知和
+  重放要求；Memory Quality Gate 覆盖命中、精度、隔离、过期拒绝、延迟、RSS、
+  token 预算和失败归因。
+- `npm run lint`、`npm run build`、`npm run gate:memory-quality`、全量 Vitest
+  与现代 MCP/HTTP 集成回归均通过；本轮没有待处理的发布阻塞缺口。
+
+### 明确保留的产品边界
+
+- SQLite 底层仍是同步 API；本轮通过 runtime 串行门、资源上限、event-loop 指标和
+  quality gate 控制风险，没有虚假宣称已经异步化。
+- 协议层 modern MCP 保持 stateless；官方 SDK 的每请求 server 生命周期与业务
+  runtime 复用是两个不同层次，Durable Tasks 仍按既有契约不支持。
+- Memory Quality Gate 是确定性本地基准和回归门，不把一次通过误报成所有模型、
+  所有项目规模下的检索质量保证。
 
 ---
 

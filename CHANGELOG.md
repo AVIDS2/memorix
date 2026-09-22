@@ -12,6 +12,10 @@ All notable changes to this project will be documented in this file.
 - **Continuity outcome projection** -- adds deterministic validated, at-risk,
   in-progress, and unverified states plus replay coverage. Diagnostic scores are
   exposed in receipts only and do not silently reorder memories.
+- **Infrastructure lifecycle closeout** -- bounds HTTP sessions and SQLite
+  handles, reuses project business runtimes behind fresh modern MCP protocol
+  shells, records event-loop/resource health, and adds a deterministic memory
+  quality gate.
 - **Atlas Cloud memory preset** -- `memorix init` and the configuration TUI can
   select Atlas Cloud for optional background memory LLM work through its
   OpenAI-compatible endpoint, with provider-specific key isolation.
@@ -29,6 +33,12 @@ All notable changes to this project will be documented in this file.
 - **Stable coordination queue order** -- available tasks now dispatch FIFO with
   a SQLite rowid tie-breaker, preventing cross-platform adapter-routing flakes
   when task timestamps collide.
+- **Continuity correctness** -- verification obligations can move between
+  statuses by stable ID, retries are idempotent, open risks are visible in the
+  outcome state, and the 200-event cap is enforced transactionally.
+- **Replay-safe orchestration evidence** -- tool effects are recorded with
+  redacted fingerprints, risk tiers, replay policy, and unknown-after-crash
+  status without persisting raw tool arguments or output.
 
 ## [1.9.5] - 2026-09-20
 

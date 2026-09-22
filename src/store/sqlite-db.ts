@@ -833,7 +833,30 @@ CREATE TABLE IF NOT EXISTS task_continuity_events (
   source_ref      TEXT,
   evidence_json   TEXT NOT NULL DEFAULT '[]',
   actor           TEXT,
-  created_at      TEXT NOT NULL
+  created_at      TEXT NOT NULL,
+  event_key       TEXT,
+  item_key        TEXT,
+  supersedes_id   TEXT
+);
+`;
+
+const CREATE_AGENT_EFFECTS_TABLE = `
+CREATE TABLE IF NOT EXISTS agent_effects (
+  id                TEXT PRIMARY KEY,
+  pipeline_id       TEXT NOT NULL,
+  task_id           TEXT NOT NULL,
+  attempt           INTEGER NOT NULL,
+  effect_key        TEXT NOT NULL,
+  tool              TEXT NOT NULL,
+  risk_tier         TEXT NOT NULL,
+  replay_policy     TEXT NOT NULL,
+  status            TEXT NOT NULL,
+  call_id           TEXT,
+  idempotency_key   TEXT NOT NULL,
+  input_fingerprint TEXT,
+  detail            TEXT,
+  started_at        INTEGER NOT NULL,
+  finished_at       INTEGER
 );
 `;
 
@@ -917,7 +940,16 @@ CREATE INDEX IF NOT EXISTS idx_memory_feedback_states_project ON memory_feedback
 CREATE INDEX IF NOT EXISTS idx_memory_feedback_events_candidate ON memory_feedback_events(project_id, candidate_kind, candidate_id, observed_at DESC);
 CREATE INDEX IF NOT EXISTS idx_task_continuity_project_task ON task_continuity_events(project_id, task_id, created_at ASC);
 CREATE INDEX IF NOT EXISTS idx_task_continuity_project_recent ON task_continuity_events(project_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_task_continuity_item ON task_continuity_events(project_id, task_id, kind, item_key, created_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_task_continuity_event_key
+  ON task_continuity_events(project_id, task_id, event_key)
+  WHERE event_key IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_effect_identity
+  ON agent_effects(pipeline_id, task_id, attempt, effect_key);
+CREATE INDEX IF NOT EXISTS idx_agent_effect_pipeline ON agent_effects(pipeline_id, started_at ASC);
 CREATE INDEX IF NOT EXISTS idx_mcp_bindings_project ON mcp_bindings(project_id, last_used_at DESC);
+CREATE INDEX IF NOT EXISTS idx_mcp_bindings_root ON mcp_bindings(project_root, last_used_at DESC);
+CREATE INDEX IF NOT EXISTS idx_mcp_bindings_expiry ON mcp_bindings(expires_at);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_maintenance_jobs_active_dedupe
   ON maintenance_jobs(project_id, kind, dedupe_key)
   WHERE status IN ('pending', 'running', 'retry');
@@ -1096,6 +1128,8 @@ const SCHEMA_MIGRATIONS: SchemaMigration[] = [
       db.exec('CREATE INDEX IF NOT EXISTS idx_memory_feedback_states_project ON memory_feedback_states(project_id, candidate_kind, updated_at DESC)');
       db.exec('CREATE INDEX IF NOT EXISTS idx_memory_feedback_events_candidate ON memory_feedback_events(project_id, candidate_kind, candidate_id, observed_at DESC)');
       db.exec('CREATE INDEX IF NOT EXISTS idx_mcp_bindings_project ON mcp_bindings(project_id, last_used_at DESC)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_mcp_bindings_root ON mcp_bindings(project_root, last_used_at DESC)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_mcp_bindings_expiry ON mcp_bindings(expires_at)');
     },
   },
   {
@@ -1105,6 +1139,18 @@ const SCHEMA_MIGRATIONS: SchemaMigration[] = [
       addColumnIfMissing(db, 'code_files', 'parserError', 'parserError TEXT');
       addColumnIfMissing(db, 'code_symbols', 'source', 'source TEXT');
       addColumnIfMissing(db, 'code_edges', 'source', 'source TEXT');
+    },
+  },
+  {
+    id: '1.9-continuity-v2',
+    apply: (db) => {
+      addColumnIfMissing(db, 'task_continuity_events', 'event_key', 'event_key TEXT');
+      addColumnIfMissing(db, 'task_continuity_events', 'item_key', 'item_key TEXT');
+      addColumnIfMissing(db, 'task_continuity_events', 'supersedes_id', 'supersedes_id TEXT');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_task_continuity_item ON task_continuity_events(project_id, task_id, kind, item_key, created_at DESC)');
+      db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_task_continuity_event_key
+        ON task_continuity_events(project_id, task_id, event_key)
+        WHERE event_key IS NOT NULL`);
     },
   },
 ];
@@ -1128,6 +1174,28 @@ function applySchemaMigrations(db: any): void {
 // ── Singleton cache ─────────────────────────────────────────────────
 
 const _dbCache = new Map<string, any>();
+const _dbLeases = new Map<string, number>();
+
+export interface DatabaseLease {
+  dataDir: string;
+  db: any;
+  release: () => void;
+}
+
+export interface DatabaseStats {
+  cached: number;
+  leased: number;
+  leasedDataDirs: number;
+}
+
+function normalizeDataDir(dataDir: string): string {
+  return path.resolve(dataDir);
+}
+
+function touchDatabase(normalized: string, db: any): void {
+  _dbCache.delete(normalized);
+  _dbCache.set(normalized, db);
+}
 
 /**
  * Get or create a shared SQLite database handle for the given data directory.
@@ -1138,10 +1206,13 @@ const _dbCache = new Map<string, any>();
  * Callers must NOT close the returned handle directly — use closeDatabase().
  */
 export function getDatabase(dataDir: string): any {
-  const normalized = path.resolve(dataDir);
+  const normalized = normalizeDataDir(dataDir);
   assertNotHomeDataDir(normalized);
   const existing = _dbCache.get(normalized);
-  if (existing) return existing;
+  if (existing) {
+    touchDatabase(normalized, existing);
+    return existing;
+  }
 
   loadBetterSqlite3();
   fs.mkdirSync(dataDir, { recursive: true });
@@ -1180,6 +1251,7 @@ export function getDatabase(dataDir: string): any {
   db.exec(CREATE_MAINTENANCE_TARGETS_TABLE);
   db.exec(CREATE_COMPACTION_CHECKPOINTS_TABLE);
   db.exec(CREATE_TASK_CONTINUITY_EVENTS_TABLE);
+  db.exec(CREATE_AGENT_EFFECTS_TABLE);
 
   // Phase 3a migration: add sourceSnapshot + updatedAt to mini_skills
   // Idempotent — ALTER TABLE ADD COLUMN throws if column already exists
@@ -1213,7 +1285,7 @@ export function getDatabase(dataDir: string): any {
   db.prepare(`INSERT OR IGNORE INTO meta (key, value) VALUES ('next_id', '1')`).run();
   db.prepare(`INSERT OR IGNORE INTO meta (key, value) VALUES ('mini_skills_generation', '0')`).run();
 
-    _dbCache.set(normalized, db);
+    touchDatabase(normalized, db);
     return db;
   } catch (error) {
     // A schema/migration/FTS failure must not leave an uncached connection
@@ -1224,11 +1296,59 @@ export function getDatabase(dataDir: string): any {
 }
 
 /**
+ * Hold a database handle across an HTTP/session lifetime. Idle eviction only
+ * closes handles with no active leases, so cache pressure cannot invalidate a
+ * store that is still serving a request.
+ */
+export function acquireDatabase(dataDir: string): DatabaseLease {
+  const normalized = normalizeDataDir(dataDir);
+  const db = getDatabase(normalized);
+  _dbLeases.set(normalized, (_dbLeases.get(normalized) ?? 0) + 1);
+  let released = false;
+  return {
+    dataDir: normalized,
+    db,
+    release: () => {
+      if (released) return;
+      released = true;
+      const count = (_dbLeases.get(normalized) ?? 0) - 1;
+      if (count > 0) _dbLeases.set(normalized, count);
+      else _dbLeases.delete(normalized);
+    },
+  };
+}
+
+/** Return bounded resource information for health and diagnostics. */
+export function getDatabaseStats(): DatabaseStats {
+  let leased = 0;
+  for (const count of _dbLeases.values()) leased += count;
+  return { cached: _dbCache.size, leased, leasedDataDirs: _dbLeases.size };
+}
+
+/**
+ * Evict least-recently-used unleased handles until the cache is within its
+ * target. Stores that need a handle across awaits must hold a lease first.
+ */
+export function evictIdleDatabases(maxCached: number): number {
+  const target = Math.max(0, Math.floor(maxCached));
+  let evicted = 0;
+  for (const [normalized, db] of [..._dbCache]) {
+    if (_dbCache.size <= target) break;
+    if ((_dbLeases.get(normalized) ?? 0) > 0) continue;
+    try { db.close(); } catch { /* best-effort */ }
+    _dbCache.delete(normalized);
+    evicted++;
+  }
+  return evicted;
+}
+
+/**
  * Close and remove a cached database handle for the given data directory.
  * Safe to call even if no handle exists.
  */
 export function closeDatabase(dataDir: string): void {
-  const normalized = path.resolve(dataDir);
+  const normalized = normalizeDataDir(dataDir);
+  if ((_dbLeases.get(normalized) ?? 0) > 0) return;
   const db = _dbCache.get(normalized);
   if (db) {
     try { db.close(); } catch { /* best-effort */ }
@@ -1244,6 +1364,7 @@ export function closeAllDatabases(): void {
     try { db.close(); } catch { /* best-effort */ }
     _dbCache.delete(key);
   }
+  _dbLeases.clear();
 }
 
 /**

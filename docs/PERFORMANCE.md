@@ -47,7 +47,9 @@ user is allowed to remember.
   history keeps completed jobs for 7 days and failed diagnostics for 30 days.
 - `serve-http` `/health` exposes `rss`, V8 heap, external memory, array-buffer
   memory, and the V8 heap limit so a real saturation report can distinguish
-  JavaScript retention from native/model memory.
+  JavaScript retention from native/model memory. It also exposes SQLite handle
+  cache/lease counts, modern runtime pool counts, HTTP session admission counts,
+  and event-loop lag percentiles.
 
 ## SQLite Storage Reliability Contract
 
@@ -135,6 +137,7 @@ On the release development machine used for this check, the healthy HTTP service
 | Knob | Default | Use When |
 | --- | --- | --- |
 | `MEMORIX_SESSION_TIMEOUT_MS` | `43200000` (12 h) | Set a shorter GC window for supervised clients, or `0` to disable idle session GC |
+| `MEMORIX_MAX_HTTP_SESSIONS` | `64` (max `512`) | Bound concurrent stateful HTTP MCP sessions; excess initialization requests receive `429` |
 | `MEMORIX_FORMATION_TIMEOUT_MS` | `12000` (12 s) | Raise when LLM-backed formation should outlive slow proxy/provider hops |
 | `MEMORIX_LLM_API_KEY` / `OPENAI_API_KEY` | unset | Enable LLM-backed enrichment, extraction, rerank, or skill generation |
 | `MEMORIX_LLM_TIMEOUT_MS` | `30000` (30 s) | Bound a single LLM-backed extraction/resolve call |
@@ -153,6 +156,19 @@ On the release development machine used for this check, the healthy HTTP service
 | `memorix retention status` | report only | Inspect whether memory growth needs cleanup |
 | `memorix retention archive` | explicit | Archive expired memories when the project gets noisy |
 | `memorix memory deduplicate` / `consolidate` | explicit | Reduce duplicate or scattered memory records |
+
+Modern stateless MCP creates a fresh protocol server per request as required by
+the official SDK. Memorix reuses the project business runtime behind that shell,
+with a bounded pool and a reference count. The pool key includes both the shared
+SQLite `dataDir` and the verified project root because the default storage layout
+is flat across projects. Before a pooled tool call, Memorix restores the project
+configuration and legacy store context; requests pass through a single runtime
+gate to preserve project isolation. Long-lived SSE GET streams bypass the gate.
+
+Orchestrator runs persist redacted effect records for observed tool calls. The
+ledger stores tool name, risk tier, replay policy, a fingerprint, and settlement
+status, never raw tool arguments or output. An effect marked `unknown` after a
+crash must be reconciled before a dangerous retry.
 
 ## Operator Guidance
 

@@ -15,7 +15,7 @@ export type TaskContinuityEventKind = typeof TASK_CONTINUITY_EVENT_KINDS[number]
 export type TaskContinuityVerificationStatus = 'pending' | 'passed' | 'failed' | 'skipped';
 export type TaskContinuityOutcomeStatus = 'completed' | 'blocked' | 'abandoned';
 export type TaskContinuityStatus = 'open' | TaskContinuityOutcomeStatus;
-export type TaskContinuityOutcomeState = 'validated' | 'at-risk' | 'in-progress' | 'unverified';
+export type TaskContinuityOutcomeState = 'validated' | 'validated-with-risks' | 'at-risk' | 'in-progress' | 'unverified';
 
 export interface TaskContinuityEvent {
   id: string;
@@ -29,9 +29,13 @@ export interface TaskContinuityEvent {
   evidenceRefs: string[];
   actor?: string;
   at: string;
+  eventKey?: string;
+  itemKey?: string;
+  supersedesId?: string;
 }
 
 export interface TaskContinuityVerification {
+  id?: string;
   content: string;
   status: TaskContinuityVerificationStatus;
   sourceRef?: string;
@@ -119,7 +123,7 @@ export function evaluateTaskContinuity(ledger: Pick<
   if (ledger.status === 'completed') {
     if (verification.passed > 0 && verification.pending === 0 && verification.skipped === 0) {
       return {
-        state: 'validated',
+        state: ledger.risks.length > 0 ? 'validated-with-risks' : 'validated',
         score: ledger.risks.length > 0 ? 0.8 : 1,
         verification,
         reasons: reasons.length > 0 ? reasons : ['verification-passed'],
@@ -154,6 +158,9 @@ function rowToEvent(row: any): TaskContinuityEvent {
     evidenceRefs: parseRefs(row.evidence_json),
     ...(row.actor ? { actor: clean(String(row.actor), 200) } : {}),
     at: String(row.created_at),
+    ...(row.event_key ? { eventKey: clean(String(row.event_key), 200) } : {}),
+    ...(row.item_key ? { itemKey: clean(String(row.item_key), 120) } : {}),
+    ...(row.supersedes_id ? { supersedesId: clean(String(row.supersedes_id), 120) } : {}),
   };
 }
 
@@ -180,17 +187,30 @@ export class TaskContinuityStore {
     evidenceRefs?: string[];
     actor?: string;
     at?: string;
+    eventKey?: string;
+    itemKey?: string;
+    supersedesId?: string;
   }): TaskContinuityEvent {
-    const existingCount = this.requireDb().prepare(
+    const db = this.requireDb();
+    const projectId = clean(input.projectId, 500);
+    const taskId = clean(input.taskId, 120);
+    const eventKey = input.eventKey ? clean(input.eventKey, 200) : undefined;
+    if (eventKey) {
+      const existing = db.prepare(
+        'SELECT * FROM task_continuity_events WHERE project_id = ? AND task_id = ? AND event_key = ?',
+      ).get(projectId, taskId, eventKey);
+      if (existing) return rowToEvent(existing);
+    }
+    const existingCount = db.prepare(
       'SELECT COUNT(*) AS count FROM task_continuity_events WHERE project_id = ? AND task_id = ?',
-    ).get(input.projectId, input.taskId) as { count?: number };
+    ).get(projectId, taskId) as { count?: number };
     if (Number(existingCount?.count ?? 0) >= MAX_EVENTS_PER_TASK) {
       throw new Error('Task continuity ledger reached its 200-event limit.');
     }
     const event: TaskContinuityEvent = {
       id: randomUUID(),
-      projectId: clean(input.projectId, 500),
-      taskId: clean(input.taskId, 120),
+      projectId,
+      taskId,
       task: clean(input.task, MAX_TASK_LENGTH),
       kind: input.kind,
       content: clean(input.content),
@@ -199,12 +219,15 @@ export class TaskContinuityStore {
       evidenceRefs: cleanList(input.evidenceRefs, 500).slice(0, MAX_EVIDENCE_REFS),
       ...(input.actor ? { actor: clean(input.actor, 200) } : {}),
       at: input.at ?? new Date().toISOString(),
+      ...(eventKey ? { eventKey } : {}),
+      ...(input.itemKey ? { itemKey: clean(input.itemKey, 120) } : {}),
+      ...(input.supersedesId ? { supersedesId: clean(input.supersedesId, 120) } : {}),
     };
-    this.requireDb().prepare(`
+    db.prepare(`
       INSERT INTO task_continuity_events (
         id, project_id, task_id, task, kind, content, item_status,
-        source_ref, evidence_json, actor, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        source_ref, evidence_json, actor, created_at, event_key, item_key, supersedes_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       event.id,
       event.projectId,
@@ -217,6 +240,9 @@ export class TaskContinuityStore {
       JSON.stringify(event.evidenceRefs),
       event.actor ?? null,
       event.at,
+      event.eventKey ?? null,
+      event.itemKey ?? null,
+      event.supersedesId ?? null,
     );
     return event;
   }
@@ -227,10 +253,12 @@ export class TaskContinuityStore {
     taskId?: string;
     requirements?: string[];
     actor?: string;
+    idempotencyKey?: string;
   }): { taskId: string; ledger: TaskContinuityLedger } {
     const task = clean(input.task, MAX_TASK_LENGTH);
     if (!task) throw new Error('A non-empty task is required.');
-    const taskId = clean(input.taskId ?? '', 120) || randomUUID();
+    const idempotencyKey = input.idempotencyKey ? clean(input.idempotencyKey, 200) : undefined;
+    const taskId = clean(input.taskId ?? idempotencyKey ?? '', 120) || randomUUID();
     const requirements = cleanList(input.requirements);
     const transaction = this.requireDb().transaction(() => {
       this.insert({
@@ -241,6 +269,7 @@ export class TaskContinuityStore {
         content: task,
         status: 'open',
         actor: input.actor,
+        ...(idempotencyKey ? { eventKey: `start:${idempotencyKey}` } : {}),
       });
       for (const requirement of requirements) {
         this.insert({
@@ -253,7 +282,7 @@ export class TaskContinuityStore {
         });
       }
     });
-    transaction();
+    transaction.immediate();
     return { taskId, ledger: this.get(input.projectId, taskId)! };
   }
 
@@ -267,12 +296,14 @@ export class TaskContinuityStore {
     evidenceRefs?: string[];
     actor?: string;
     at?: string;
+    verificationId?: string;
+    idempotencyKey?: string;
   }): { event: TaskContinuityEvent; ledger: TaskContinuityLedger } {
     const projectId = clean(input.projectId, 500);
     const taskId = clean(input.taskId, 120);
     const existing = this.get(projectId, taskId);
     if (!existing) throw new Error('Task continuity ledger not found: ' + taskId);
-    const event = this.insert({
+    const transaction = this.requireDb().transaction(() => this.insert({
       projectId,
       taskId,
       task: existing.task,
@@ -285,7 +316,10 @@ export class TaskContinuityStore {
       evidenceRefs: input.evidenceRefs,
       actor: input.actor,
       at: input.at,
-    });
+      ...(input.idempotencyKey ? { eventKey: input.idempotencyKey } : {}),
+      ...(input.verificationId ? { itemKey: input.verificationId } : {}),
+    }));
+    const event = transaction.immediate();
     return { event, ledger: this.get(projectId, taskId)! };
   }
 
@@ -298,12 +332,13 @@ export class TaskContinuityStore {
     evidenceRefs?: string[];
     actor?: string;
     at?: string;
+    idempotencyKey?: string;
   }): { event: TaskContinuityEvent; ledger: TaskContinuityLedger } {
     const projectId = clean(input.projectId, 500);
     const taskId = clean(input.taskId, 120);
     const existing = this.get(projectId, taskId);
     if (!existing) throw new Error('Task continuity ledger not found: ' + taskId);
-    const event = this.insert({
+    const transaction = this.requireDb().transaction(() => this.insert({
       projectId,
       taskId,
       task: existing.task,
@@ -314,7 +349,9 @@ export class TaskContinuityStore {
       evidenceRefs: input.evidenceRefs,
       actor: input.actor,
       at: input.at,
-    });
+      ...(input.idempotencyKey ? { eventKey: input.idempotencyKey } : {}),
+    }));
+    const event = transaction.immediate();
     return { event, ledger: this.get(projectId, taskId)! };
   }
 
@@ -348,6 +385,10 @@ export class TaskContinuityStore {
 function aggregate(events: TaskContinuityEvent[]): TaskContinuityLedger {
   const first = events.find(event => event.kind === 'task') ?? events[0];
   const latestOutcome = [...events].reverse().find(event => event.kind === 'outcome');
+  const verificationByKey = new Map<string, TaskContinuityEvent>();
+  for (const event of events.filter(event => event.kind === 'verification')) {
+    verificationByKey.set(event.itemKey ?? `event:${event.id}`, event);
+  }
   const ledger = {
     taskId: first.taskId,
     projectId: first.projectId,
@@ -355,9 +396,9 @@ function aggregate(events: TaskContinuityEvent[]): TaskContinuityLedger {
     status: (latestOutcome?.status as TaskContinuityStatus | undefined) ?? 'open',
     requirements: events.filter(event => event.kind === 'requirement').map(event => event.content),
     decisions: events.filter(event => event.kind === 'decision').map(event => event.content),
-    verification: events
-      .filter(event => event.kind === 'verification')
+    verification: [...verificationByKey.values()]
       .map(event => ({
+        id: event.itemKey ?? event.id,
         content: event.content,
         status: (event.status as TaskContinuityVerificationStatus | undefined) ?? 'pending',
         ...(event.sourceRef ? { sourceRef: event.sourceRef } : {}),

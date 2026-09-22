@@ -1,0 +1,29 @@
+name: Diagnose npm publish authorization
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - name: Inspect npm identity and package access
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -euo pipefail
+          echo "node=$(node --version) npm=$(npm --version)"
+          echo "npm identity:"
+          npm whoami --registry=https://registry.npmjs.org/
+          echo "package owners:"
+          npm owner ls memorix --json
+          echo "accessible packages for the token:"
+          npm access ls-packages --json || true

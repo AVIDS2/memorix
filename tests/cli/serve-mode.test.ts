@@ -47,6 +47,9 @@ const createModernMcpBridgeMock = vi.hoisted(() => vi.fn());
 const createModernMcpRuntimeMock = vi.hoisted(() => vi.fn());
 const serveStdioMock = vi.hoisted(() => vi.fn());
 const withBusinessRuntimeQueueMock = vi.hoisted(() => vi.fn((work: () => Promise<unknown>) => work()));
+const acquireDatabaseMock = vi.hoisted(() => vi.fn(() => ({ dataDir: 'test-data', db: {}, release: vi.fn() })));
+const evictIdleDatabasesMock = vi.hoisted(() => vi.fn(() => 0));
+const getDatabaseStatsMock = vi.hoisted(() => vi.fn(() => ({ cached: 0, leased: 0, leasedDataDirs: 0 })));
 
 let capturedHttpHandler: ((req: any, res: any) => Promise<void>) | undefined;
 
@@ -176,6 +179,12 @@ vi.mock('../../src/server/modern-mcp-bridge.js', () => ({
     }
     stats() { return { entries: this.entries.size, activeRefs: 0, pending: 0 }; }
   },
+}));
+
+vi.mock('../../src/store/sqlite-db.js', () => ({
+  acquireDatabase: acquireDatabaseMock,
+  evictIdleDatabases: evictIdleDatabasesMock,
+  getDatabaseStats: getDatabaseStatsMock,
 }));
 
 vi.mock('../../src/runtime/control-plane-maintenance.js', () => ({

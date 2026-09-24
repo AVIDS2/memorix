@@ -533,6 +533,8 @@ OpenAI-compatible `https://api.atlascloud.ai/v1` endpoint and reads
 
 For OpenRouter embeddings, use `provider = "api"`, `base_url = "https://openrouter.ai/api/v1"`, and `model = "qwen/qwen3-embedding-8b"`. Memorix accepts `OPENROUTER_API_KEY` for that embedding endpoint; `MEMORIX_EMBEDDING_API_KEY` remains the explicit override.
 
+For Requesty, choose Requesty in `memorix init` or set `provider = "requesty"` in `[memory.llm]` (endpoint `https://router.requesty.ai/v1`, key from `REQUESTY_API_KEY` or `MEMORIX_LLM_API_KEY`). Requesty embeddings use `provider = "api"`, `base_url = "https://router.requesty.ai/v1"`, and `model = "openai/text-embedding-3-small"` with `REQUESTY_API_KEY`.
+
 For controlled MiniMax media generation, set `MINIMAX_API_KEY` (global) or
 `MINIMAX_CN_API_KEY` (China region) in your environment or `.env`. The media
 library never stores that key, a signed output URL, or base64 payloads. CLI

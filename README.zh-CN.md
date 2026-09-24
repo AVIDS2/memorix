@@ -506,6 +506,8 @@ OpenAI-compatible 的 `https://api.atlascloud.ai/v1` endpoint，并读取
 
 如果使用 OpenRouter embedding，可以设置 `provider = "api"`、`base_url = "https://openrouter.ai/api/v1"`、`model = "qwen/qwen3-embedding-8b"`。这个 endpoint 下 Memorix 会读取官方 `OPENROUTER_API_KEY`；需要单独覆盖 embedding key 时仍可用 `MEMORIX_EMBEDDING_API_KEY`。
 
+使用 Requesty 时，可在 `memorix init` 中选择 Requesty，或在 `[memory.llm]` 中设置 `provider = "requesty"`（endpoint 为 `https://router.requesty.ai/v1`，key 读取 `REQUESTY_API_KEY` 或 `MEMORIX_LLM_API_KEY`）。Requesty embedding 使用 `provider = "api"`、`base_url = "https://router.requesty.ai/v1"`、`model = "openai/text-embedding-3-small"`，并读取 `REQUESTY_API_KEY`。
+
 受控 MiniMax 媒体生成可在环境变量或 `.env` 中设置全局 `MINIMAX_API_KEY`，或中国区 `MINIMAX_CN_API_KEY`。媒体库不会保存该 key、临时签名 URL 或 base64 负载。CLI 生成本身就是显式操作；若要让 MCP 中的 Agent 发起生成，还必须明确设置 `MEMORIX_MCP_MEDIA_GENERATION=1`。
 
 <h2 id="docker"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/tags/light/section-docker.svg"><img src="assets/tags/section-docker.svg" alt="Docker" height="32" /></picture></h2>

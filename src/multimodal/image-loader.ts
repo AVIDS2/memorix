@@ -19,7 +19,7 @@ import {
 } from './image-payload.js';
 
 // Providers that use the OpenAI-compatible /chat/completions Vision endpoint
-const OPENAI_COMPATIBLE_PROVIDERS = new Set(['openai', 'openrouter', 'custom']);
+const OPENAI_COMPATIBLE_PROVIDERS = new Set(['openai', 'openrouter', 'requesty', 'custom']);
 const MAX_VISION_PROMPT_CHARS = 12_000;
 const MAX_VISION_DESCRIPTION_CHARS = 12_000;
 const MAX_VISION_LABELS = 50;
@@ -137,7 +137,7 @@ export async function analyzeImage(input: ImageInput): Promise<ImageAnalysisResu
   const config = getLLMConfig()!;
   if (!OPENAI_COMPATIBLE_PROVIDERS.has(config.provider)) {
     throw new Error(
-      `Image analysis requires an OpenAI-compatible provider (openai, openrouter, or custom). ` +
+      `Image analysis requires an OpenAI-compatible provider (openai, openrouter, requesty, or custom). ` +
       `Current provider "${config.provider}" uses a different API shape. ` +
       `Set MEMORIX_LLM_PROVIDER=openai or configure an OpenAI-compatible base URL.`,
     );

@@ -14,6 +14,11 @@ describe('embedding default model exam', () => {
     expect(defaultEmbeddingModelFor('https://openrouter.ai/api/v1/', undefined)).toBe('qwen/qwen3-embedding-8b');
   });
 
+  it('picks the vendor-prefixed OpenAI model for Requesty base URLs', () => {
+    expect(defaultEmbeddingModelFor('https://router.requesty.ai/v1', undefined)).toBe('openai/text-embedding-3-small');
+    expect(defaultEmbeddingModelFor('https://router.eu.requesty.ai/v1', undefined)).toBe('openai/text-embedding-3-small');
+  });
+
   it('keeps the OpenAI default elsewhere', () => {
     expect(defaultEmbeddingModelFor('https://api.openai.com/v1', undefined)).toBe('text-embedding-3-small');
     expect(defaultEmbeddingModelFor(undefined, undefined)).toBe('text-embedding-3-small');

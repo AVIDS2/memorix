@@ -178,6 +178,23 @@ This is opt-in background memory processing and may incur API charges. Setting
 `ATLASCLOUD_API_KEY` alone does not enable it. Embeddings and memcode's model
 registry are unchanged.
 
+Requesty is available as a memory LLM preset in `memorix init` and the
+configuration TUI:
+
+```toml
+[memory.llm]
+provider = "requesty"
+model = "openai/gpt-4o-mini"
+```
+
+The preset uses `https://router.requesty.ai/v1` and the existing
+OpenAI-compatible chat completion transport. Set `REQUESTY_API_KEY` or
+`MEMORIX_LLM_API_KEY`; the preset does not fall back to OpenAI, Anthropic, or
+OpenRouter environment keys. Model IDs use the `vendor/model` form, for example
+`anthropic/claude-sonnet-4-5`. To keep traffic in the EU, set
+`base_url = "https://router.eu.requesty.ai/v1"`. Get a key at
+https://app.requesty.ai/api-keys.
+
 OrcaRouter works through the generic OpenAI-compatible gateway path. Keep the
 provider label as `openai`, set its base URL, and use an explicit model ID:
 
@@ -246,6 +263,11 @@ defaults to `qwen/qwen3-embedding-8b` (4096 dimensions) instead of the
 OpenAI-only default. The equivalent env-var form is
 `MEMORIX_EMBEDDING=api`, `MEMORIX_EMBEDDING_BASE_URL=https://openrouter.ai/api/v1`,
 `MEMORIX_EMBEDDING_MODEL=qwen/qwen3-embedding-8b`.
+
+Requesty embeddings work the same way with
+`base_url = "https://router.requesty.ai/v1"`. Memorix then accepts
+`REQUESTY_API_KEY` for the embedding endpoint and, when no `model` is
+configured, defaults to `openai/text-embedding-3-small`.
 
 ### Large-store retrieval
 

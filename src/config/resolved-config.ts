@@ -96,6 +96,7 @@ export function getResolvedConfig(options: ResolvedLaneOptions = {}): ResolvedMe
   const legacy = loadFileConfig(homeDir);
   const embeddingBaseUrl = first(process.env.MEMORIX_EMBEDDING_BASE_URL, toml.embedding?.base_url, yaml.embedding?.baseUrl, legacy.embeddingApi?.baseUrl);
   const openRouterEmbeddingApiKey = isOpenRouterUrl(embeddingBaseUrl) ? process.env.OPENROUTER_API_KEY : undefined;
+  const requestyEmbeddingApiKey = isRequestyUrl(embeddingBaseUrl) ? process.env.REQUESTY_API_KEY : undefined;
   const memoryLlmProvider = first(
     process.env.MEMORIX_LLM_PROVIDER,
     toml.memory?.llm?.provider,
@@ -118,16 +119,18 @@ export function getResolvedConfig(options: ResolvedLaneOptions = {}): ResolvedMe
     ? process.env.OPENROUTER_API_KEY
     : undefined;
   const isAtlasCloud = memoryLlmProvider === 'atlascloud';
+  const isRequesty = memoryLlmProvider === 'requesty';
+  const usesPresetKeyOnly = isAtlasCloud || isRequesty;
   const memoryLlmApiKey = first(
     process.env.MEMORIX_LLM_API_KEY,
     process.env.MEMORIX_API_KEY,
     toml.memory?.llm?.api_key,
     yaml.llm?.apiKey,
     legacy.llm?.apiKey,
-    // Never borrow another provider's credentials for the Atlas Cloud preset.
-    isAtlasCloud ? process.env.ATLASCLOUD_API_KEY : process.env.OPENAI_API_KEY,
-    isAtlasCloud ? undefined : process.env.ANTHROPIC_API_KEY,
-    isAtlasCloud ? undefined : openRouterMemoryLlmApiKey,
+    // Never borrow another provider's credentials for the Atlas Cloud or Requesty presets.
+    isAtlasCloud ? process.env.ATLASCLOUD_API_KEY : isRequesty ? process.env.REQUESTY_API_KEY : process.env.OPENAI_API_KEY,
+    usesPresetKeyOnly ? undefined : process.env.ANTHROPIC_API_KEY,
+    usesPresetKeyOnly ? undefined : openRouterMemoryLlmApiKey,
   );
 
   const resolved: ResolvedMemorixConfig = {
@@ -177,7 +180,7 @@ export function getResolvedConfig(options: ResolvedLaneOptions = {}): ResolvedMe
       provider: first(process.env.MEMORIX_EMBEDDING, toml.embedding?.provider, yaml.embedding?.provider, legacy.embedding, 'off'),
       model: first(process.env.MEMORIX_EMBEDDING_MODEL, toml.embedding?.model, yaml.embedding?.model, legacy.embeddingApi?.model),
       baseUrl: embeddingBaseUrl,
-      apiKey: first(process.env.MEMORIX_EMBEDDING_API_KEY, toml.embedding?.api_key, yaml.embedding?.apiKey, legacy.embeddingApi?.apiKey, openRouterEmbeddingApiKey),
+      apiKey: first(process.env.MEMORIX_EMBEDDING_API_KEY, toml.embedding?.api_key, yaml.embedding?.apiKey, legacy.embeddingApi?.apiKey, openRouterEmbeddingApiKey, requestyEmbeddingApiKey),
       dimensions: firstNumber(parseNumber(process.env.MEMORIX_EMBEDDING_DIMENSIONS), toml.embedding?.dimensions, yaml.embedding?.dimensions, legacy.embeddingApi?.dimensions),
     },
     rerank: resolveRerankLane({
@@ -323,6 +326,7 @@ function getEnvSourceNames(): string[] {
     'MEMORIX_CODEGRAPH_EXTERNAL_COMMAND',
     'MEMORIX_CODEGRAPH_EXTERNAL_TIMEOUT_MS',
     'OPENROUTER_API_KEY',
+    'REQUESTY_API_KEY',
     'ATLASCLOUD_API_KEY',
   ].filter((name) => process.env[name]);
 }
@@ -334,6 +338,16 @@ function isOpenRouterUrl(value: string | undefined): boolean {
     return url.hostname.toLowerCase() === 'openrouter.ai' || url.hostname.toLowerCase().endsWith('.openrouter.ai');
   } catch {
     return /(^|\.)openrouter\.ai(?::|\/|$)/i.test(value);
+  }
+}
+
+function isRequestyUrl(value: string | undefined): boolean {
+  if (!value) return false;
+  try {
+    const url = new URL(value);
+    return url.hostname.toLowerCase() === 'requesty.ai' || url.hostname.toLowerCase().endsWith('.requesty.ai');
+  } catch {
+    return /(^|\.)requesty\.ai(?::|\/|$)/i.test(value);
   }
 }
 

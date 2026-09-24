@@ -74,6 +74,17 @@ describe('init TOML templates', () => {
     expect(content).not.toContain('api_key');
   });
 
+  it('offers a Requesty memory preset without credentials in project config', async () => {
+    const { buildInitTomlConfig } = await import('../../src/cli/commands/init.js');
+    const content = buildInitTomlConfig({
+      scope: 'project', llmProvider: 'requesty', embeddingProvider: 'off',
+      gitAutoHook: false, sessionInject: 'minimal', date: '2026-09-24',
+    });
+    expect(content).toContain('provider = "requesty"');
+    expect(content).toContain('# model = "openai/gpt-4o-mini"');
+    expect(content).not.toContain('api_key');
+  });
+
   it('shows agent, memory, and embedding lanes in global config with local key slots', async () => {
     const { buildInitTomlConfig } = await import('../../src/cli/commands/init.js');
 

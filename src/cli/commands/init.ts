@@ -21,7 +21,7 @@ import {
   type InitScope,
 } from './init-shared.js';
 
-type InitLlmProvider = 'none' | 'openai' | 'anthropic' | 'openrouter' | 'atlascloud' | 'custom';
+type InitLlmProvider = 'none' | 'openai' | 'anthropic' | 'openrouter' | 'requesty' | 'atlascloud' | 'custom';
 type InitEmbeddingProvider = 'off' | 'api' | 'fastembed';
 type InitInjectMode = 'minimal' | 'full' | 'silent';
 
@@ -103,6 +103,7 @@ export default defineCommand({
         { value: 'openai', label: 'OpenAI', hint: 'gpt-4o-mini' },
         { value: 'anthropic', label: 'Anthropic', hint: 'claude-3-haiku' },
         { value: 'openrouter', label: 'OpenRouter', hint: 'multi-provider' },
+        { value: 'requesty', label: 'Requesty', hint: 'multi-provider' },
         { value: 'atlascloud', label: 'Atlas Cloud', hint: 'DeepSeek V3.2' },
         { value: 'custom', label: 'Custom', hint: 'OpenAI-compatible endpoint' },
       ],
@@ -169,6 +170,8 @@ export default defineCommand({
         envLines.push('MEMORIX_LLM_API_KEY=sk-ant-your-key-here');
       } else if (llmProvider === 'openrouter') {
         envLines.push('MEMORIX_LLM_API_KEY=sk-or-your-key-here');
+      } else if (llmProvider === 'requesty') {
+        envLines.push('MEMORIX_LLM_API_KEY=rqsty-your-key-here');
       }
       if (llmProvider === 'custom') {
         envLines.push('# MEMORIX_LLM_BASE_URL=http://localhost:11434/v1');
@@ -197,6 +200,7 @@ export default defineCommand({
     envLines.push('# OPENAI_API_KEY=sk-...');
     envLines.push('# ANTHROPIC_API_KEY=sk-ant-...');
     envLines.push('# OPENROUTER_API_KEY=sk-or-...');
+    envLines.push('# REQUESTY_API_KEY=rqsty-...');
     envLines.push('');
 
     mkdirSync(targetDir, { recursive: true });
@@ -292,6 +296,8 @@ export function buildInitTomlConfig(options: {
     } else if (options.llmProvider === 'anthropic') {
       lines.push('model = "claude-3-haiku-20240307"');
     } else if (options.llmProvider === 'openrouter') {
+      lines.push('# model = "openai/gpt-4o-mini"');
+    } else if (options.llmProvider === 'requesty') {
       lines.push('# model = "openai/gpt-4o-mini"');
     } else if (options.llmProvider === 'atlascloud') {
       lines.push('model = "deepseek-ai/deepseek-v3.2"');

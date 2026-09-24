@@ -25,7 +25,7 @@ import { getGlobalYamlPath, getProjectYamlPath } from './config-paths.js';
 export interface MemorixYamlConfig {
   /** LLM provider configuration */
   llm?: {
-    provider?: 'openai' | 'anthropic' | 'openrouter' | string;
+    provider?: 'openai' | 'anthropic' | 'openrouter' | 'requesty' | string;
     model?: string;
     apiKey?: string;
     baseUrl?: string;
@@ -33,7 +33,7 @@ export interface MemorixYamlConfig {
 
   /** TUI / chat agent LLM provider configuration */
   agent?: {
-    provider?: 'openai' | 'anthropic' | 'openrouter' | string;
+    provider?: 'openai' | 'anthropic' | 'openrouter' | 'requesty' | string;
     model?: string;
     apiKey?: string;
     baseUrl?: string;

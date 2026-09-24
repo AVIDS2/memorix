@@ -40,6 +40,7 @@ const LLM_ENV_KEYS = [
   'OPENAI_API_KEY',
   'ANTHROPIC_API_KEY',
   'OPENROUTER_API_KEY',
+  'REQUESTY_API_KEY',
   'ATLASCLOUD_API_KEY',
 ];
 
@@ -74,6 +75,21 @@ describe('initLLM config scopes', () => {
     process.env.MEMORIX_LLM_BASE_URL = 'https://gateway.example/v1';
     expect(initLLM(options)).toMatchObject({
       model: 'custom-model', baseUrl: 'https://gateway.example/v1',
+    });
+  });
+
+  it('initializes the optional Requesty memory preset from REQUESTY_API_KEY', () => {
+    process.env.MEMORIX_LLM_PROVIDER = 'requesty';
+    process.env.REQUESTY_API_KEY = 'requesty-test-key';
+    const options = { scope: 'memory' as const, projectRoot: TEST_PROJECT, homeDir: TEST_HOME };
+    expect(initLLM(options)).toEqual({
+      provider: 'requesty', apiKey: 'requesty-test-key',
+      model: 'openai/gpt-4.1-nano', baseUrl: 'https://router.requesty.ai/v1',
+    });
+    process.env.MEMORIX_LLM_MODEL = 'anthropic/claude-sonnet-4-5';
+    process.env.MEMORIX_LLM_BASE_URL = 'https://router.eu.requesty.ai/v1';
+    expect(initLLM(options)).toMatchObject({
+      model: 'anthropic/claude-sonnet-4-5', baseUrl: 'https://router.eu.requesty.ai/v1',
     });
   });
 
@@ -290,6 +306,20 @@ describe('callLLMWithTools', () => {
     fetchMock.mockResolvedValue(new Response('unavailable', { status: 503 }));
     await expect(callLLM('Summarize.', 'A project fact.')).rejects.toThrow('503');
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('routes Requesty memory calls through chat completions', async () => {
+    setLLMConfig({ provider: 'requesty', apiKey: 'requesty-test-key',
+      model: 'openai/gpt-4o-mini', baseUrl: 'https://router.requesty.ai/v1' });
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      choices: [{ message: { content: 'memory summary' } }],
+    }), { headers: { 'Content-Type': 'application/json' } }));
+    globalThis.fetch = fetchMock;
+    expect((await callLLM('Summarize.', 'A project fact.')).content).toBe('memory summary');
+    const [url, options] = fetchMock.mock.calls[0];
+    expect(url).toBe('https://router.requesty.ai/v1/chat/completions');
+    expect(options.headers.Authorization).toBe('Bearer requesty-test-key');
+    expect(JSON.parse(options.body).model).toBe('openai/gpt-4o-mini');
   });
 
   it('rejects oversized non-streaming responses before parsing the full body', async () => {

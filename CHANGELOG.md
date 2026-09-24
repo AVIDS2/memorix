@@ -4,7 +4,11 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased (1.9.x)
 
-No unreleased changes.
+### Added
+- **Requesty memory preset** -- `memorix init` and the configuration TUI can
+  select Requesty for optional background memory LLM work through its
+  OpenAI-compatible endpoint, with provider-specific key isolation.
+  `REQUESTY_API_KEY` is also accepted for Requesty embedding endpoints.
 
 ## [1.9.6] - 2026-09-22
 

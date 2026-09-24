@@ -21,6 +21,7 @@ const EMBEDDING_ENV_KEYS = [
   'MEMORIX_EMBEDDING_MODEL',
   'OPENAI_API_KEY',
   'OPENROUTER_API_KEY',
+  'REQUESTY_API_KEY',
 ];
 
 let tempHome: string | undefined;
@@ -118,6 +119,22 @@ describe('embedding API key lane isolation', () => {
 
   it('does not use OPENROUTER_API_KEY for non-OpenRouter embedding endpoints', async () => {
     process.env.OPENROUTER_API_KEY = 'openrouter-key';
+    process.env.MEMORIX_EMBEDDING_BASE_URL = 'https://api.openai.com/v1';
+    const { getEmbeddingApiKey } = await import('../../src/config.ts');
+
+    expect(getEmbeddingApiKey()).toBeUndefined();
+  });
+
+  it('uses REQUESTY_API_KEY for Requesty embedding endpoints', async () => {
+    process.env.REQUESTY_API_KEY = 'requesty-key';
+    process.env.MEMORIX_EMBEDDING_BASE_URL = 'https://router.requesty.ai/v1';
+    const { getEmbeddingApiKey } = await import('../../src/config.ts');
+
+    expect(getEmbeddingApiKey()).toBe('requesty-key');
+  });
+
+  it('does not use REQUESTY_API_KEY for non-Requesty embedding endpoints', async () => {
+    process.env.REQUESTY_API_KEY = 'requesty-key';
     process.env.MEMORIX_EMBEDDING_BASE_URL = 'https://api.openai.com/v1';
     const { getEmbeddingApiKey } = await import('../../src/config.ts');
 

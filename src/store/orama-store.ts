@@ -909,6 +909,10 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
   // Fast-tier queries skip embedding entirely (fulltext is sufficient)
   let queryVector: number[] | null = null;
   let embeddingProviderForSearch: EmbeddingProvider | null = null;
+  // Distinct from `embeddingEnabled` (static config): this tracks whether an
+  // *attempted* embedding call actually failed at runtime (TLS, network,
+  // timeout). `canUsePersistentLexical` below must fall back on either.
+  let embeddingFailed = false;
   if (quality !== 'fast' && embeddingEnabled && hasQuery && tier !== 'fast') {
     try {
       const provider = await getEmbeddingProvider();
@@ -964,6 +968,7 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
       }
     } catch (error) {
       // Fallback to fulltext if embedding fails or times out
+      embeddingFailed = true;
       rememberSearchMode(modeKey, 'fulltext (embedding unavailable)');
       console.error('[memorix] Embedding failed or timed out, falling back to fulltext search');
     }
@@ -972,8 +977,14 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
   mark('preSearch');
   let results: SearchResultLike | Awaited<ReturnType<typeof search>>;
   const persistentCorpusEligible = await shouldUsePersistentSearch(projectIds, options.projectId);
+  // `embeddingEnabled` alone misses the common case: embedding is configured
+  // (enabled) but the runtime call above failed (TLS/network/timeout) and
+  // hit the catch block. Without `embeddingFailed` here, that failure left
+  // queryVector null AND canUsePersistentLexical false, so neither the
+  // semantic nor the lexical persistent path ran — a silent, deterministic
+  // empty result despite the FTS5 index having real matches.
   const canUsePersistentLexical = persistentCorpusEligible && Boolean(hasQuery) && !queryVector &&
-    (quality === 'fast' || tier === 'fast' || !embeddingEnabled);
+    (quality === 'fast' || tier === 'fast' || !embeddingEnabled || embeddingFailed);
   let persistent = persistentCorpusEligible && queryVector && embeddingProviderForSearch
     ? await searchPersistentSemantically(options, projectIds, requestLimit, queryVector, embeddingProviderForSearch)
     : canUsePersistentLexical

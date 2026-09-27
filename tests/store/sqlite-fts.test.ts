@@ -2,8 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { closeAllDatabases } from '../../src/store/sqlite-db.js';
+import { closeAllDatabases, getDatabase } from '../../src/store/sqlite-db.js';
 import { SqliteBackend } from '../../src/store/sqlite-store.js';
+import { initializeObservationLexicalIndex, isObservationLexicalIndexEnabled } from '../../src/store/sqlite-fts.js';
 import type { Observation } from '../../src/types.js';
 
 function observation(overrides: Partial<Observation> = {}): Observation {
@@ -100,5 +101,66 @@ describe('SQLite persistent lexical index', () => {
     });
 
     expect(results[0]?.observation.title).toContain('requests.header-map');
+  });
+});
+
+describe('initializeObservationLexicalIndex under contention', () => {
+  let dataDir: string;
+
+  beforeEach(async () => {
+    dataDir = await mkdtemp(path.join(tmpdir(), 'memorix-fts-init-'));
+  });
+
+  afterEach(() => {
+    closeAllDatabases();
+  });
+
+  it('retries a transient cross-process BUSY instead of permanently disabling FTS5', () => {
+    const realDb = getDatabase(dataDir); // real schema, including a working FTS5 index
+    let execCalls = 0;
+    const flaky = {
+      exec: (sql: string) => {
+        execCalls++;
+        if (execCalls === 1) throw Object.assign(new Error('database is locked'), { code: 'SQLITE_BUSY' });
+        return realDb.exec(sql);
+      },
+      prepare: (sql: string) => realDb.prepare(sql),
+    };
+
+    expect(initializeObservationLexicalIndex(flaky)).toBe(true);
+    expect(execCalls).toBeGreaterThan(1);
+    expect(isObservationLexicalIndexEnabled(flaky)).toBe(true);
+  });
+
+  it('does not retry a non-transient failure, and caches it as unavailable', () => {
+    const realDb = getDatabase(dataDir);
+    let execCalls = 0;
+    const broken = {
+      exec: (sql: string) => {
+        execCalls++;
+        throw Object.assign(new Error('database disk image is malformed'), { code: 'SQLITE_CORRUPT' });
+      },
+      prepare: (sql: string) => realDb.prepare(sql),
+    };
+
+    expect(initializeObservationLexicalIndex(broken)).toBe(false);
+    expect(execCalls).toBe(1);
+    expect(isObservationLexicalIndexEnabled(broken)).toBe(false);
+  });
+
+  it('gives up after exhausting retries on sustained BUSY, without throwing', () => {
+    const realDb = getDatabase(dataDir);
+    let execCalls = 0;
+    const alwaysBusy = {
+      exec: (sql: string) => {
+        execCalls++;
+        throw Object.assign(new Error('database is locked'), { code: 'SQLITE_BUSY' });
+      },
+      prepare: (sql: string) => realDb.prepare(sql),
+    };
+
+    expect(() => initializeObservationLexicalIndex(alwaysBusy)).not.toThrow();
+    expect(initializeObservationLexicalIndex(alwaysBusy)).toBe(false);
+    expect(execCalls).toBeGreaterThan(1);
   });
 });

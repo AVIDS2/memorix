@@ -1,4 +1,5 @@
 import type { Observation } from '../types.js';
+import { isTransientSqliteError } from './sqlite-reliability.js';
 
 /** Rows returned by the derived FTS5 index before normal Observation parsing. */
 export interface SqliteLexicalHit {
@@ -57,30 +58,51 @@ export function buildFtsQuery(query: string): string | null {
 }
 
 /**
+ * initializeObservationLexicalIndex runs exactly once per db handle (called
+ * from getDatabase's synchronous setup), so a transient cross-process BUSY
+ * here would otherwise be cached as a permanent "unavailable" for that
+ * handle's entire lifetime, with no other call site ever re-checking it.
+ */
+const FTS_INIT_MAX_ATTEMPTS = 3;
+
+/**
  * Create and reconcile the external-content FTS5 index for one SQLite handle.
- * FTS5 is an optional SQLite capability, so an unavailable extension is a
- * normal fallback rather than a reason to make the durable store unusable.
+ * FTS5 is an optional SQLite capability, so a genuinely unavailable extension
+ * is a normal fallback rather than a reason to make the durable store
+ * unusable. Cross-process lock contention (SQLITE_BUSY) is not that case —
+ * it is retried a few times, mirroring the retry already applied to the
+ * write paths in sqlite-store.ts / session-store.ts / mini-skill-store.ts,
+ * since the caller here is synchronous and cannot await retrySqliteBusy.
  */
 export function initializeObservationLexicalIndex(db: any): boolean {
   const known = ftsAvailability.get(db);
   if (known !== undefined) return known;
 
-  try {
-    db.exec(CREATE_OBSERVATION_FTS);
-    const observationCount = Number(db.prepare('SELECT COUNT(*) AS count FROM observations').get()?.count ?? 0);
-    const indexedCount = Number(db.prepare(`SELECT COUNT(*) AS count FROM ${FTS_TABLE}`).get()?.count ?? 0);
-    if (observationCount !== indexedCount) {
-      db.exec(`INSERT INTO ${FTS_TABLE}(${FTS_TABLE}) VALUES ('rebuild')`);
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= FTS_INIT_MAX_ATTEMPTS; attempt++) {
+    try {
+      db.exec(CREATE_OBSERVATION_FTS);
+      const observationCount = Number(db.prepare('SELECT COUNT(*) AS count FROM observations').get()?.count ?? 0);
+      const indexedCount = Number(db.prepare(`SELECT COUNT(*) AS count FROM ${FTS_TABLE}`).get()?.count ?? 0);
+      if (observationCount !== indexedCount) {
+        db.exec(`INSERT INTO ${FTS_TABLE}(${FTS_TABLE}) VALUES ('rebuild')`);
+      }
+      ftsAvailability.set(db, true);
+      return true;
+    } catch (error) {
+      lastError = error;
+      if (!isTransientSqliteError(error) || attempt === FTS_INIT_MAX_ATTEMPTS) break;
+      // better-sqlite3 is synchronous, so there is no await-able delay here;
+      // re-entering db.exec/prepare re-enters SQLite's own busy_timeout wait
+      // (already configured in sqlite-db.ts), which is the retry itself.
     }
-    ftsAvailability.set(db, true);
-    return true;
-  } catch (error) {
-    ftsAvailability.set(db, false);
-    console.warn(
-      `[memorix] SQLite FTS5 unavailable; using the existing search fallback: ${error instanceof Error ? error.message : String(error)}`,
-    );
-    return false;
   }
+
+  ftsAvailability.set(db, false);
+  console.warn(
+    `[memorix] SQLite FTS5 unavailable; using the existing search fallback: ${lastError instanceof Error ? lastError.message : String(lastError)}`,
+  );
+  return false;
 }
 
 export function isObservationLexicalIndexEnabled(db: any): boolean {

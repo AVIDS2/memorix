@@ -909,10 +909,11 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
   // Fast-tier queries skip embedding entirely (fulltext is sufficient)
   let queryVector: number[] | null = null;
   let embeddingProviderForSearch: EmbeddingProvider | null = null;
-  // Distinct from `embeddingEnabled` (static config): this tracks whether an
-  // *attempted* embedding call actually failed at runtime (TLS, network,
-  // timeout). `canUsePersistentLexical` below must fall back on either.
-  let embeddingFailed = false;
+  // Distinct from `embeddingEnabled` (static config): this tracks whether the
+  // current query can use embeddings (provider unavailable, incompatible
+  // dimensions, TLS, network, or timeout). `canUsePersistentLexical` below
+  // must fall back whenever this is true.
+  let embeddingUnavailable = false;
   if (quality !== 'fast' && embeddingEnabled && hasQuery && tier !== 'fast') {
     try {
       const provider = await getEmbeddingProvider();
@@ -920,6 +921,7 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
         embeddingProviderForSearch = provider;
         const activeVectorDimensions = getVectorDimensions();
         if (activeVectorDimensions !== null && provider.dimensions !== activeVectorDimensions) {
+          embeddingUnavailable = true;
           rememberSearchMode(
             modeKey,
             `fulltext (embedding dimension mismatch: provider ${provider.dimensions}d vs index ${activeVectorDimensions}d)`,
@@ -965,10 +967,12 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
               : { text: 0.6, vector: 0.4 },
           };
         }
+      } else {
+        embeddingUnavailable = true;
       }
     } catch (error) {
       // Fallback to fulltext if embedding fails or times out
-      embeddingFailed = true;
+      embeddingUnavailable = true;
       rememberSearchMode(modeKey, 'fulltext (embedding unavailable)');
       console.error('[memorix] Embedding failed or timed out, falling back to fulltext search');
     }
@@ -978,13 +982,13 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
   let results: SearchResultLike | Awaited<ReturnType<typeof search>>;
   const persistentCorpusEligible = await shouldUsePersistentSearch(projectIds, options.projectId);
   // `embeddingEnabled` alone misses the common case: embedding is configured
-  // (enabled) but the runtime call above failed (TLS/network/timeout) and
-  // hit the catch block. Without `embeddingFailed` here, that failure left
-  // queryVector null AND canUsePersistentLexical false, so neither the
-  // semantic nor the lexical persistent path ran — a silent, deterministic
-  // empty result despite the FTS5 index having real matches.
+  // (enabled) but the current provider is unavailable, has incompatible
+  // dimensions, or failed at runtime. Without this per-query state, those
+  // failures leave queryVector null AND canUsePersistentLexical false, so
+  // neither the semantic nor lexical persistent path runs — a silent,
+  // deterministic empty result despite the FTS5 index having real matches.
   const canUsePersistentLexical = persistentCorpusEligible && Boolean(hasQuery) && !queryVector &&
-    (quality === 'fast' || tier === 'fast' || !embeddingEnabled || embeddingFailed);
+    (quality === 'fast' || tier === 'fast' || !embeddingEnabled || embeddingUnavailable);
   let persistent = persistentCorpusEligible && queryVector && embeddingProviderForSearch
     ? await searchPersistentSemantically(options, projectIds, requestLimit, queryVector, embeddingProviderForSearch)
     : canUsePersistentLexical

@@ -4,7 +4,7 @@
 > before resuming substantial work, update it after a material decision or
 > milestone, and do not create parallel progress logs.
 
-**Last updated:** 2026-09-22
+**Last updated:** 2026-09-27
 
 **Local verification rule:** run the frontend, HTTP service, MCP server, and
 tests directly with Node/npm on the E: workspace. Do not start Docker or add
@@ -99,6 +99,19 @@ metadata gates passed.
 - [x] Local full regression and MCP/HTTP/background smoke verification passed.
 - [x] The release keeps the 1.9.x line; no 1.10 version jump was introduced.
 
+## 1.9.x Reliability Follow-up (2026-09-27)
+
+- [x] Merged contributor PR #315: transient `SQLITE_BUSY` during FTS5 setup is
+  retried before the handle is marked unavailable.
+- [x] Merged contributor PR #316: runtime embedding failures use the durable
+  lexical search path for large stores instead of returning a silent empty set.
+- [x] Follow-up coverage also treats provider disappearance and runtime vector
+  dimension mismatch as embedding-unavailable states, preserving the same
+  lexical fallback contract.
+- [ ] The full local regression still has two unrelated non-Git CLI prompt
+  assertions in `tests/integration/release-blockers.test.ts`; the affected
+  search/fallback suites and typecheck pass.
+
 ## 1.9.6 Infrastructure Closeout (2026-09-22)
 
 - [x] Added leased, observable SQLite handle registry with idle LRU eviction;
@@ -135,6 +148,11 @@ metadata gates passed.
   contribution workflow, not a Memorix code blocker. #49 and #3 remain external
   integration proposals with no
   host contract that Memorix can verify locally.
+- **#313:** hosted memory backend proposal remains an RFC/integration lead; any
+  implementation must use the existing provider-agnostic sync contract and keep
+  local SQLite canonical.
+- **#314:** Requesty preset remains under review until its fork workflow is
+  approved and its third-party data path/configuration consistency are checked.
 
 ## 1.8.7 CodeGraph Main Line (2026-09-02)
 

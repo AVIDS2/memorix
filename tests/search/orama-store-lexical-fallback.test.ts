@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { closeAllDatabases } from '../../src/store/sqlite-db.js';
 import { createObservationStore, resetObservationStore, setObservationStore } from '../../src/store/obs-store.js';
+import { getEmbeddingProvider } from '../../src/embedding/provider.js';
 import type { Observation } from '../../src/types.js';
 
 // A real embedding provider is configured (getEmbeddingProvider resolves), so
@@ -61,6 +62,8 @@ describe('persistent lexical fallback when a configured embedding provider fails
 
   afterEach(async () => {
     vi.restoreAllMocks();
+    flakyProvider.dimensions = 2;
+    vi.mocked(getEmbeddingProvider).mockResolvedValue(flakyProvider);
     resetObservationStore();
     closeAllDatabases();
     process.env.MEMORIX_ORAMA_HYDRATION_THRESHOLD = originalThreshold;
@@ -70,6 +73,39 @@ describe('persistent lexical fallback when a configured embedding provider fails
   it('still returns the FTS5 match instead of a silent empty result', async () => {
     const { resetDb, searchObservations } = await import('../../src/store/orama-store.js');
     await resetDb();
+
+    const entries = await searchObservations({
+      query: 'ErpStockProcessServiceImpl',
+      projectId: 'project-large-corpus',
+      limit: 5,
+    });
+
+    expect(entries.length).toBeGreaterThan(0);
+    expect(entries[0]?.title).toContain('ErpStockProcessServiceImpl');
+  });
+
+  it('falls back when the runtime provider dimensions differ from the index', async () => {
+    const { getDb, resetDb, searchObservations } = await import('../../src/store/orama-store.js');
+    await resetDb();
+    flakyProvider.dimensions = 2;
+    await getDb();
+    flakyProvider.dimensions = 3;
+
+    const entries = await searchObservations({
+      query: 'ErpStockProcessServiceImpl',
+      projectId: 'project-large-corpus',
+      limit: 5,
+    });
+
+    expect(entries.length).toBeGreaterThan(0);
+    expect(entries[0]?.title).toContain('ErpStockProcessServiceImpl');
+  });
+
+  it('falls back when the configured provider becomes unavailable', async () => {
+    const { getDb, resetDb, searchObservations } = await import('../../src/store/orama-store.js');
+    await resetDb();
+    await getDb();
+    vi.mocked(getEmbeddingProvider).mockResolvedValueOnce(null);
 
     const entries = await searchObservations({
       query: 'ErpStockProcessServiceImpl',

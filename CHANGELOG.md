@@ -6,6 +6,17 @@ All notable changes to this project will be documented in this file.
 
 No unreleased changes.
 
+## [1.9.7] - 2026-09-28
+
+### Fixed
+- **SQLite FTS5 startup resilience** -- transient `SQLITE_BUSY` contention during
+  lexical-index initialization is retried before FTS5 is marked unavailable.
+- **Large-store search fallback** -- runtime embedding failure, provider
+  disappearance, and vector-dimension mismatch now all fall back to the durable
+  SQLite lexical index instead of returning a silent empty result.
+- **Release metadata** -- synchronized the npm, MCP Registry, and packaged
+  integration metadata for the 1.9.7 patch release.
+
 ## [1.9.6] - 2026-09-22
 
 ### Added

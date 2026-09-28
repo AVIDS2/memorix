@@ -13,9 +13,9 @@ artifacts for the VPS/hosted build path only.
 
 ## Current Product State
 
-- `1.9.6` is the current published baseline. It includes the infrastructure
-  hardening, reviewed HTTP setup path, and user-scope sync fixes that passed
-  the expanded scope and privacy gates.
+- `1.9.7` is the current published baseline. It includes the 1.9.6
+  infrastructure hardening plus the SQLite FTS5 and large-store embedding
+  fallback reliability fixes that passed the expanded release gates.
 - The release keeps the canonical Dashboard Memory Map, removes the obsolete
   renderer/dependencies, makes reachable capabilities visible, and preserves
   the old MCP clients while adding the modern 2026-07-28 core contract.
@@ -99,7 +99,7 @@ metadata gates passed.
 - [x] Local full regression and MCP/HTTP/background smoke verification passed.
 - [x] The release keeps the 1.9.x line; no 1.10 version jump was introduced.
 
-## 1.9.x Reliability Follow-up (2026-09-27)
+## 1.9.7 Release Closeout (2026-09-28)
 
 - [x] Merged contributor PR #315: transient `SQLITE_BUSY` during FTS5 setup is
   retried before the handle is marked unavailable.
@@ -111,6 +111,8 @@ metadata gates passed.
 - [ ] The full local regression still has two unrelated non-Git CLI prompt
   assertions in `tests/integration/release-blockers.test.ts`; the affected
   search/fallback suites and typecheck pass.
+- [x] npm, GitHub Release, and the official MCP Registry publish workflow are
+  synchronized at `1.9.7`.
 
 ## 1.9.6 Infrastructure Closeout (2026-09-22)
 

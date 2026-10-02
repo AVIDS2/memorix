@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased (1.9.x)
 
+No unreleased changes.
+
+## [1.9.9] - 2026-10-02
+
 ### Added
 - **Requesty memory preset** -- `memorix init` and the configuration TUI can
   select Requesty for optional background memory LLM work through its

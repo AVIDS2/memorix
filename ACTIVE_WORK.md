@@ -13,9 +13,9 @@ artifacts for the VPS/hosted build path only.
 
 ## Current Product State
 
-- `1.9.8` is the current published baseline. It includes the 1.9.7
-  SQLite FTS5 and large-store embedding fallback reliability fixes plus the
-  OpenCode v2 plugin contract compatibility fix that passed all remote gates.
+- `1.9.9` is the current published baseline. It includes the 1.9.8 OpenCode
+  v2 plugin contract compatibility fix plus the optional Requesty provider
+  contribution, independently verified against the full local regression.
 - The release keeps the canonical Dashboard Memory Map, removes the obsolete
   renderer/dependencies, makes reachable capabilities visible, and preserves
   the old MCP clients while adding the modern 2026-07-28 core contract.
@@ -125,6 +125,17 @@ metadata gates passed.
 - [x] npm, GitHub Release, plugin manifests, and the official MCP Registry
   manifest are synchronized at `1.9.8`.
 
+## 1.9.9 Release Closeout (2026-10-02)
+
+- [x] Merged contributor PR #314: added an opt-in Requesty OpenAI-compatible
+  memory/embedding provider with provider-specific key isolation and no new
+  dependency.
+- [x] Independent verification passed: full build, focused provider/config
+  tests (136 passed), and full regression (336 files passed, 2 skipped; 3179
+  tests passed, 4 skipped).
+- [x] npm, GitHub Release, plugin manifests, and the official MCP Registry
+  manifest are synchronized at `1.9.9`.
+
 ## 1.9.6 Infrastructure Closeout (2026-09-22)
 
 - [x] Added leased, observable SQLite handle registry with idle LRU eviction;
@@ -164,8 +175,9 @@ metadata gates passed.
 - **#313:** hosted memory backend proposal remains an RFC/integration lead; any
   implementation must use the existing provider-agnostic sync contract and keep
   local SQLite canonical.
-- **#314:** Requesty preset remains under review until its fork workflow is
-  approved and its third-party data path/configuration consistency are checked.
+- **#314:** merged and shipped in `1.9.9` after independent full-build and
+  full-regression verification; the provider remains opt-in and local SQLite
+  remains canonical.
 - **#318 / #319:** merged and shipped in `1.9.8`; OpenCode v2 plugin loading
   now supports the default `id`/`setup` contract while preserving v1 clients.
 

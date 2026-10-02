@@ -682,6 +682,9 @@ async function handleApi(
                     ...(resolved.memory.llm.provider === 'openrouter' || resolved.memory.llm.baseUrl?.includes('openrouter.ai')
                         ? ['OPENROUTER_API_KEY']
                         : []),
+                    ...(resolved.memory.llm.provider === 'requesty'
+                        ? ['REQUESTY_API_KEY']
+                        : []),
                 ];
                 if (llmKey) {
                     const src = resolveDashboardKeySource({ value: llmKey, envKeys: memoryKeyEnv, configSource });

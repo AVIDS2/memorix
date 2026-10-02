@@ -93,7 +93,8 @@ export function getEmbeddingModel(): string {
 /**
  * Provider-aware embedding model default: OpenRouter serves many providers,
  * and the OpenAI-only default does not fit it. Qwen3-Embedding-8B is a
- * strong multilingual default there; everywhere else keep the OpenAI model.
+ * strong multilingual default there. Requesty expects vendor-prefixed ids,
+ * so it gets the prefixed OpenAI model. Everywhere else keep the OpenAI model.
  * An explicitly configured model always wins.
  */
 export function defaultEmbeddingModelFor(
@@ -105,6 +106,9 @@ export function defaultEmbeddingModelFor(
     const url = baseUrl ? new URL(baseUrl) : null;
     if (url && (url.hostname === 'openrouter.ai' || url.hostname.endsWith('.openrouter.ai'))) {
       return 'qwen/qwen3-embedding-8b';
+    }
+    if (url && (url.hostname === 'requesty.ai' || url.hostname.endsWith('.requesty.ai'))) {
+      return 'openai/text-embedding-3-small';
     }
   } catch { /* treat unparsable base URLs as non-OpenRouter */ }
   return 'text-embedding-3-small';

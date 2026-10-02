@@ -19,7 +19,7 @@
 # Optional — Memorix works without LLM (free heuristic mode).
 # API key goes in .env as MEMORIX_LLM_API_KEY
 llm:
-  provider: openai          # openai, anthropic, openrouter, or custom endpoint
+  provider: openai          # openai, anthropic, openrouter, requesty, or custom endpoint
   model: gpt-4o-mini
   # baseUrl: https://api.openai.com/v1
 
@@ -27,6 +27,7 @@ llm:
 # Enables semantic search alongside BM25 fulltext.
 # API key goes in .env as MEMORIX_EMBEDDING_API_KEY.
 # For OpenRouter embedding endpoints, OPENROUTER_API_KEY is also accepted.
+# For Requesty embedding endpoints, REQUESTY_API_KEY is also accepted.
 embedding:
   provider: off             # off (default), api, fastembed, transformers, auto
   # model: text-embedding-3-small

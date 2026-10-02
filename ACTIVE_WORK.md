@@ -13,9 +13,9 @@ artifacts for the VPS/hosted build path only.
 
 ## Current Product State
 
-- `1.9.7` is the current published baseline. It includes the 1.9.6
-  infrastructure hardening plus the SQLite FTS5 and large-store embedding
-  fallback reliability fixes that passed the expanded release gates.
+- `1.9.8` is the current published baseline. It includes the 1.9.7
+  SQLite FTS5 and large-store embedding fallback reliability fixes plus the
+  OpenCode v2 plugin contract compatibility fix that passed all remote gates.
 - The release keeps the canonical Dashboard Memory Map, removes the obsolete
   renderer/dependencies, makes reachable capabilities visible, and preserves
   the old MCP clients while adding the modern 2026-07-28 core contract.
@@ -114,6 +114,17 @@ metadata gates passed.
 - [x] npm, GitHub Release, and the official MCP Registry publish workflow are
   synchronized at `1.9.7`.
 
+## 1.9.8 Release Closeout (2026-10-02)
+
+- [x] Closed #318 through PR #319: generated OpenCode plugins now support the
+  v2 default `id`/`setup` contract while retaining v1 compatibility.
+- [x] Added event subscription, tool-hook, cleanup, and host session-ID
+  coverage for the generated v2 plugin.
+- [x] PR #319 passed Ubuntu, macOS, Windows, Docker, typecheck, native SQLite,
+  and MCP Registry metadata checks before merge.
+- [x] npm, GitHub Release, plugin manifests, and the official MCP Registry
+  manifest are synchronized at `1.9.8`.
+
 ## 1.9.6 Infrastructure Closeout (2026-09-22)
 
 - [x] Added leased, observable SQLite handle registry with idle LRU eviction;
@@ -155,10 +166,8 @@ metadata gates passed.
   local SQLite canonical.
 - **#314:** Requesty preset remains under review until its fork workflow is
   approved and its third-party data path/configuration consistency are checked.
-- **#318:** OpenCode v2 plugin loading is fixed in the working tree: generated
-  plugins now keep the v1 export and add the v2 default `id`/`setup` contract,
-  event subscription, tool hook, cleanup, and real session-ID forwarding. The
-  fix is pending its PR/CI and patch release.
+- **#318 / #319:** merged and shipped in `1.9.8`; OpenCode v2 plugin loading
+  now supports the default `id`/`setup` contract while preserving v1 clients.
 
 ## 1.8.7 CodeGraph Main Line (2026-09-02)
 

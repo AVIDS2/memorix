@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased (1.9.x)
 
+No unreleased changes.
+
+## [1.9.8] - 2026-10-02
+
 ### Fixed
 - **OpenCode v2 plugin compatibility** -- generated plugins retain the v1
   named export while also exposing the v2 default `id`/`setup` contract,

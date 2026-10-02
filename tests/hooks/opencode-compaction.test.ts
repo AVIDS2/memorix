@@ -17,6 +17,7 @@ import {
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
+import { pathToFileURL } from 'node:url';
 
 const originalAuditFile = process.env.MEMORIX_AUDIT_FILE;
 
@@ -110,6 +111,55 @@ describe('Issue #45: OpenCode compaction', () => {
       // Must NOT contain the old catch-all event handler pattern
       expect(content).not.toContain("event: async ({ event }) =>");
       expect(content).not.toContain("event.type === 'session.compacted'");
+    });
+
+    it('should emit the OpenCode v2 default plugin contract while retaining the v1 export', async () => {
+      await installHooks('opencode', tmpDir);
+      const pluginPath = path.join(tmpDir, '.opencode', 'plugins', 'memorix.js');
+      const content = await fs.readFile(pluginPath, 'utf-8');
+      expect(content).toContain('@generated-version 8');
+      expect(content).toContain("export default { id: 'memorix', setup }");
+      expect(content).toContain('export const MemorixPlugin = async');
+      expect(content).toContain('ctx.event.subscribe');
+      expect(content).toContain("ctx.tool.hook('execute.after'");
+      expect(content).toContain('session.text.delta');
+      expect(content).toContain('session.step.ended');
+    });
+
+    it('should expose loadable v1 and v2 plugin exports', async () => {
+      await installHooks('opencode', tmpDir);
+      const pluginPath = path.join(tmpDir, '.opencode', 'plugins', 'memorix.js');
+      const module = await import(`${pathToFileURL(pluginPath).href}?contract-test=${Date.now()}`);
+      expect(module.MemorixPlugin).toBeTypeOf('function');
+      expect(module.default).toMatchObject({ id: 'memorix' });
+      expect(module.default.setup).toBeTypeOf('function');
+    });
+
+    it('should register the v2 tool hook and event subscription with cleanup', async () => {
+      await installHooks('opencode', tmpDir);
+      const pluginPath = path.join(tmpDir, '.opencode', 'plugins', 'memorix.js');
+      const module = await import(`${pathToFileURL(pluginPath).href}?setup-test=${Date.now()}`);
+      const registeredTools: string[] = [];
+      let subscribed = false;
+      const cleanup = await module.default.setup({
+        location: { directory: tmpDir },
+        tool: {
+          hook: (name: string) => {
+            registeredTools.push(name);
+          },
+        },
+        event: {
+          subscribe: async function* () {
+            subscribed = true;
+          },
+        },
+      });
+
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(registeredTools).toContain('execute.after');
+      expect(subscribed).toBe(true);
+      expect(cleanup).toBeTypeOf('function');
+      cleanup();
     });
 
     it('compaction prompt should NOT promise memorix_store auto-invocation', async () => {
@@ -243,11 +293,11 @@ describe('Issue #80: OpenCode plugin must use correct event keys', () => {
 
   // ─── Plugin version ───
 
-  it('should generate version 7 plugin (stable Windows command + quiet failure handling)', async () => {
+  it('should generate version 8 plugin (v1/v2 contract + stable Windows command)', async () => {
     await installHooks('opencode', tmpDir);
     const pluginPath = path.join(tmpDir, '.opencode', 'plugins', 'memorix.js');
     const content = await fs.readFile(pluginPath, 'utf-8');
-    expect(content).toContain('@generated-version 7');
+    expect(content).toContain('@generated-version 8');
   });
 
   // ─── Hooks status: verified field ───
@@ -328,14 +378,14 @@ describe('Issue #80: OpenCode plugin must use correct event keys', () => {
 
   // ─── Reinstall ───
 
-  it('should reinstall after uninstall with correct v7 format', async () => {
+  it('should reinstall after uninstall with correct v8 format', async () => {
     await installHooks('opencode', tmpDir);
     await uninstallHooks('opencode', tmpDir);
     await installHooks('opencode', tmpDir);
 
     const pluginPath = path.join(tmpDir, '.opencode', 'plugins', 'memorix.js');
     const content = await fs.readFile(pluginPath, 'utf-8');
-    expect(content).toContain('@generated-version 7');
+    expect(content).toContain('@generated-version 8');
     expect(content).toContain("'session.created':");
     expect(content).toContain("'message.updated':");
     expect(content).toContain('spawnSync');

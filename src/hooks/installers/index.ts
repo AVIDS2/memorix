@@ -449,8 +449,10 @@ function generateKiroHookFiles(): Array<{ filename: string; content: string }> {
  * Format: .opencode/plugins/memorix.js — Bun-compatible JS module
  * See: https://opencode.ai/docs/plugins/
  *
- * Plugin contract (verified against official docs Apr 2026):
- *   - Named export: export const MemorixPlugin = async (ctx) => { return { ... } }
+ * Plugin contracts:
+ *   - OpenCode v1: named export `MemorixPlugin` returns an event-hook map.
+ *   - OpenCode v2: default export contains `id` and `setup(ctx)`, with event
+ *     subscriptions and tool hooks registered through the context.
  *   - Return object keys are EVENT NAMES (e.g. "session.created", "file.edited")
  *   - Each key maps to an async handler: (input, output) => { ... }
  *   - Session/file/command events: handler receives ({ event }) for event-style hooks
@@ -464,7 +466,7 @@ function generateKiroHookFiles(): Array<{ filename: string; content: string }> {
  * protocol used by all agents. spawnSync works in both Node.js and Bun
  * runtimes (OpenCode may fall back to Node.js on Windows).
  */
-const OPENCODE_PLUGIN_VERSION = 7;
+const OPENCODE_PLUGIN_VERSION = 8;
 
 const AGENT_SKILL_DIRS: Partial<Record<AgentName, { project: string; global?: string }>> = {
   cursor: { project: path.join('.cursor', 'skills'), global: path.join('.cursor', 'skills') },
@@ -716,6 +718,161 @@ export const MemorixPlugin = async ({ project, client, $, directory, worktree })
     },
   };
 };
+
+/**
+ * OpenCode v2 compatibility layer. Keep this beside the v1 export so one
+ * generated file can be loaded by both host generations during migration.
+ */
+const v2HookCommand = ${hookCommand};
+
+function v2ReportHookFailure(eventName, detail) {
+  if (process.env.MEMORIX_HOOK_DEBUG !== '1') return;
+  console.error('[memorix-plugin] v2 hook delivery failed:', eventName, detail);
+}
+
+function v2EventData(event) {
+  return event && typeof event.data === 'object' && event.data !== null ? event.data : {};
+}
+
+function v2SessionId(event) {
+  const data = v2EventData(event);
+  const value = data.sessionID ?? data.sessionId ?? data.session_id
+    ?? event?.sessionID ?? event?.sessionId;
+  return typeof value === 'string' ? value : '';
+}
+
+function v2RunHook(payload, directory, sessionId) {
+  const nextPayload = { agent: 'opencode', cwd: directory, ...payload };
+  if (sessionId) nextPayload.session_id = sessionId;
+  const eventName = nextPayload.hook_event_name || 'unknown';
+  try {
+    const result = spawnSync(v2HookCommand, ['hook'], {
+      input: JSON.stringify(nextPayload),
+      timeout: 10_000,
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+      shell: process.platform === 'win32',
+      windowsHide: true,
+    });
+    if (result.status !== 0) {
+      v2ReportHookFailure(eventName, {
+        exit: result.status,
+        stderr: (result.stderr || '').slice(0, 200),
+        error: result.error?.message,
+      });
+    }
+  } catch (error) {
+    v2ReportHookFailure(eventName, error?.message ?? error);
+  }
+}
+
+function v2SessionState(states, sessionId) {
+  const key = sessionId || '__unknown__';
+  let state = states.get(key);
+  if (!state) {
+    state = { pendingText: '', lastDeliveredKey: '' };
+    states.set(key, state);
+  }
+  return state;
+}
+
+function v2FlushAssistant(state, directory, sessionId) {
+  const text = state.pendingText.trim();
+  if (!text || text === state.lastDeliveredKey) return;
+  v2RunHook({ hook_event_name: 'message.updated', ai_response: text }, directory, sessionId);
+  state.lastDeliveredKey = text;
+  state.pendingText = '';
+}
+
+function v2FilePath(file) {
+  if (typeof file === 'string') return file;
+  if (!file || typeof file !== 'object') return '';
+  return file.path ?? file.file ?? file.name ?? '';
+}
+
+function v2HandleEvent(event, directory, states) {
+  if (!event || typeof event !== 'object') return;
+  const type = typeof event.type === 'string' ? event.type : '';
+  const data = v2EventData(event);
+  const sessionId = v2SessionId(event);
+  const state = v2SessionState(states, sessionId);
+  const run = (payload) => v2RunHook(payload, directory, sessionId);
+
+  switch (type) {
+    case 'session.created':
+      run({ hook_event_name: 'session.created' });
+      break;
+    case 'session.text.delta':
+      state.pendingText += typeof data.delta === 'string' ? data.delta : (typeof data.text === 'string' ? data.text : '');
+      break;
+    case 'session.message.updated':
+    case 'message.updated':
+      if (data.role === 'assistant' && typeof data.text === 'string') state.pendingText = data.text;
+      break;
+    case 'session.step.ended': {
+      const files = Array.isArray(data.files) ? data.files : [];
+      for (const file of files) {
+        const filePath = v2FilePath(file);
+        if (filePath) run({ hook_event_name: 'file.edited', file_path: filePath });
+      }
+      if (typeof data.text === 'string') state.pendingText += data.text;
+      break;
+    }
+    case 'session.idle':
+      v2FlushAssistant(state, directory, sessionId);
+      run({ hook_event_name: 'session.idle' });
+      break;
+    case 'session.compacted':
+      run({ hook_event_name: 'session.compacted' });
+      break;
+    default:
+      break;
+  }
+}
+
+function setup(ctx) {
+  const directory = ctx?.location?.directory || ctx?.location?.worktree || process.cwd();
+  const controller = new AbortController();
+  const states = new Map();
+
+  if (ctx?.tool?.hook) {
+    try {
+      Promise.resolve(ctx.tool.hook('execute.after', async (event) => {
+        const sessionId = v2SessionId(event);
+        const data = event && typeof event.input === 'object' ? event.input : {};
+        const tool = event?.tool ?? event?.name ?? '';
+        v2RunHook({
+          hook_event_name: 'tool.execute.after',
+          tool_name: tool,
+          tool_input: data,
+        }, directory, sessionId);
+        if (tool === 'shell') {
+          v2RunHook({
+            hook_event_name: 'command.executed',
+            command: data.command ?? data.cmd ?? '',
+          }, directory, sessionId);
+        }
+      })).catch((error) => v2ReportHookFailure('execute.after', error?.message ?? error));
+    } catch (error) {
+      v2ReportHookFailure('execute.after', error?.message ?? error);
+    }
+  }
+
+  if (ctx?.event?.subscribe) {
+    void (async () => {
+      try {
+        const stream = ctx.event.subscribe({ signal: controller.signal });
+        for await (const event of stream) v2HandleEvent(event, directory, states);
+      } catch (error) {
+        if (!controller.signal.aborted) v2ReportHookFailure('event.subscribe', error?.message ?? error);
+      }
+    })();
+  }
+
+  return () => controller.abort();
+}
+
+export default { id: 'memorix', setup };
 `;
 }
 

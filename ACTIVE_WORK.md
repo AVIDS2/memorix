@@ -4,7 +4,7 @@
 > before resuming substantial work, update it after a material decision or
 > milestone, and do not create parallel progress logs.
 
-**Last updated:** 2026-09-27
+**Last updated:** 2026-10-02
 
 **Local verification rule:** run the frontend, HTTP service, MCP server, and
 tests directly with Node/npm on the E: workspace. Do not start Docker or add
@@ -155,6 +155,10 @@ metadata gates passed.
   local SQLite canonical.
 - **#314:** Requesty preset remains under review until its fork workflow is
   approved and its third-party data path/configuration consistency are checked.
+- **#318:** OpenCode v2 plugin loading is fixed in the working tree: generated
+  plugins now keep the v1 export and add the v2 default `id`/`setup` contract,
+  event subscription, tool hook, cleanup, and real session-ID forwarding. The
+  fix is pending its PR/CI and patch release.
 
 ## 1.8.7 CodeGraph Main Line (2026-09-02)
 

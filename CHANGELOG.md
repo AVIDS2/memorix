@@ -4,7 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased (1.9.x)
 
-No unreleased changes.
+### Fixed
+- **OpenCode v2 plugin compatibility** -- generated plugins retain the v1
+  named export while also exposing the v2 default `id`/`setup` contract,
+  including event subscriptions, tool hooks, cleanup, and host session IDs.
 
 ## [1.9.7] - 2026-09-28
 

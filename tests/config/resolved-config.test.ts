@@ -45,6 +45,7 @@ const ENV_KEYS = [
   'ANTHROPIC_API_KEY',
   'OPENROUTER_API_KEY',
   'REQUESTY_API_KEY',
+  'API_ROUTE_API_KEY',
   'ATLASCLOUD_API_KEY',
 ];
 
@@ -94,6 +95,31 @@ describe('resolved config', () => {
     process.env.ANTHROPIC_API_KEY = 'anthropic-test-key';
     process.env.OPENROUTER_API_KEY = 'router-test-key';
     expect(getResolvedMemoryLane({ projectRoot: null, homeDir: HOME }).llm.apiKey).toBeUndefined();
+  });
+
+  it('uses the API Route key only for the selected memory preset and preserves explicit keys', () => {
+    process.env.API_ROUTE_API_KEY = 'api-route-test-key';
+    expect(getResolvedMemoryLane({ projectRoot: null, homeDir: HOME }).llm.apiKey).toBeUndefined();
+    process.env.MEMORIX_LLM_PROVIDER = 'apiroute';
+    expect(getResolvedMemoryLane({ projectRoot: null, homeDir: HOME }).llm.apiKey).toBe('api-route-test-key');
+    expect(getResolvedConfig({ projectRoot: null, homeDir: HOME }).embedding.apiKey).toBeUndefined();
+    expect(getResolvedConfig({ projectRoot: null, homeDir: HOME }).agent.apiKey).toBeUndefined();
+    // Keep the existing agent-to-memory fallback when no agent lane is configured.
+    expect(getResolvedAgentLane({ projectRoot: null, homeDir: HOME }).apiKey).toBe('api-route-test-key');
+    expect(getResolvedConfig({ projectRoot: null, homeDir: HOME }).sources.env).toContain('API_ROUTE_API_KEY');
+    process.env.MEMORIX_LLM_API_KEY = 'explicit-test-key';
+    expect(getResolvedMemoryLane({ projectRoot: null, homeDir: HOME }).llm.apiKey).toBe('explicit-test-key');
+  });
+
+  it('does not borrow other provider keys for API Route memory', () => {
+    process.env.MEMORIX_LLM_PROVIDER = 'apiroute';
+    process.env.OPENAI_API_KEY = 'openai-test-key';
+    process.env.ANTHROPIC_API_KEY = 'anthropic-test-key';
+    process.env.OPENROUTER_API_KEY = 'router-test-key';
+    process.env.REQUESTY_API_KEY = 'requesty-test-key';
+    process.env.ATLASCLOUD_API_KEY = 'atlas-test-key';
+    expect(getResolvedMemoryLane({ projectRoot: null, homeDir: HOME }).llm.apiKey).toBeUndefined();
+    expect(getResolvedConfig({ projectRoot: null, homeDir: HOME }).embedding.apiKey).toBeUndefined();
   });
 
   it('resolves TOML lanes above legacy YAML', () => {

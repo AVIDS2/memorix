@@ -4,7 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased (1.9.x)
 
-No unreleased changes.
+### Added
+- **API Route memory preset** -- optional background memory LLM processing
+  through an OpenAI-compatible endpoint, with an isolated `API_ROUTE_API_KEY`,
+  CLI/TUI setup and bilingual configuration guidance.
 
 ## [1.9.9] - 2026-10-02
 

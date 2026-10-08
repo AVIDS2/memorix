@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased (1.9.x)
 
+No unreleased changes.
+
+## [1.9.10] - 2026-10-08
+
 ### Fixed
 - **OpenCode 1.x regression** -- generated plugins now include the v1
   `server` field alongside the v2 `setup` contract, so OpenCode 1.x can load

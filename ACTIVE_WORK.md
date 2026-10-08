@@ -13,11 +13,9 @@ artifacts for the VPS/hosted build path only.
 
 ## Current Product State
 
-- `1.9.9` is the current published baseline. It includes the 1.9.8 OpenCode
-  v2 plugin contract compatibility fix plus the optional Requesty provider
-  contribution, independently verified against the full local regression.
-- OpenCode 1.x compatibility correction for #321 is implemented on the current
-  maintenance branch and is pending its PR/CI and patch release.
+- `1.9.10` is the current published baseline. It includes the 1.9.9 Requesty
+  provider contribution plus the OpenCode 1.x compatibility correction from
+  #321, independently verified across the full remote matrix.
 - The release keeps the canonical Dashboard Memory Map, removes the obsolete
   renderer/dependencies, makes reachable capabilities visible, and preserves
   the old MCP clients while adding the modern 2026-07-28 core contract.
@@ -138,6 +136,16 @@ metadata gates passed.
 - [x] npm, GitHub Release, plugin manifests, and the official MCP Registry
   manifest are synchronized at `1.9.9`.
 
+## 1.9.10 Release Closeout (2026-10-08)
+
+- [x] Merged #321 through PR #326: OpenCode 1.x now accepts the dual plugin
+  export, receives lifecycle/file/command/message events through its generic
+  `event` hook, and gets the Windows timeout mitigation.
+- [x] PR #326 passed Ubuntu, Windows, macOS, Docker, typecheck, native SQLite,
+  and MCP Registry metadata checks.
+- [x] npm, GitHub Release, plugin manifests, and the official MCP Registry
+  manifest are synchronized at `1.9.10`.
+
 ## 1.9.6 Infrastructure Closeout (2026-09-22)
 
 - [x] Added leased, observable SQLite handle registry with idle LRU eviction;
@@ -185,9 +193,9 @@ metadata gates passed.
   2 skipped; 3197 tests passed, 4 skipped). It remains open because GitHub's
   merge endpoint returned an internal error twice; no code change has been
   applied from it to `main`.
-- **#321:** OpenCode 1.x regression is fixed on the maintenance branch: the
-  dual export now supplies `server`, v1 events use the generic `event` hook,
-  and Windows hook delivery uses a 30-second timeout mitigation.
+- **#321 / #326:** merged and shipped in `1.9.10`; the dual export now supplies
+  `server`, v1 events use the generic `event` hook, and Windows hook delivery
+  uses a 30-second timeout mitigation.
 - **#318 / #319:** merged and shipped in `1.9.8`; OpenCode v2 plugin loading
   now supports the default `id`/`setup` contract while preserving v1 clients.
 

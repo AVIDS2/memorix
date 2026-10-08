@@ -4,7 +4,7 @@
 > before resuming substantial work, update it after a material decision or
 > milestone, and do not create parallel progress logs.
 
-**Last updated:** 2026-10-02
+**Last updated:** 2026-10-08
 
 **Local verification rule:** run the frontend, HTTP service, MCP server, and
 tests directly with Node/npm on the E: workspace. Do not start Docker or add
@@ -16,6 +16,8 @@ artifacts for the VPS/hosted build path only.
 - `1.9.9` is the current published baseline. It includes the 1.9.8 OpenCode
   v2 plugin contract compatibility fix plus the optional Requesty provider
   contribution, independently verified against the full local regression.
+- OpenCode 1.x compatibility correction for #321 is implemented on the current
+  maintenance branch and is pending its PR/CI and patch release.
 - The release keeps the canonical Dashboard Memory Map, removes the obsolete
   renderer/dependencies, makes reachable capabilities visible, and preserves
   the old MCP clients while adding the modern 2026-07-28 core contract.
@@ -178,6 +180,14 @@ metadata gates passed.
 - **#314:** merged and shipped in `1.9.9` after independent full-build and
   full-regression verification; the provider remains opt-in and local SQLite
   remains canonical.
+- **#320:** API Route provider contribution was independently verified with
+  lint, build, 139 focused tests, and the full regression (337 files passed,
+  2 skipped; 3197 tests passed, 4 skipped). It remains open because GitHub's
+  merge endpoint returned an internal error twice; no code change has been
+  applied from it to `main`.
+- **#321:** OpenCode 1.x regression is fixed on the maintenance branch: the
+  dual export now supplies `server`, v1 events use the generic `event` hook,
+  and Windows hook delivery uses a 30-second timeout mitigation.
 - **#318 / #319:** merged and shipped in `1.9.8`; OpenCode v2 plugin loading
   now supports the default `id`/`setup` contract while preserving v1 clients.
 

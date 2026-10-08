@@ -4,7 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased (1.9.x)
 
-No unreleased changes.
+### Fixed
+- **OpenCode 1.x regression** -- generated plugins now include the v1
+  `server` field alongside the v2 `setup` contract, so OpenCode 1.x can load
+  the legacy named export. Lifecycle, file, command, message, and compaction
+  events are also forwarded through the v1 generic `event` hook, with a longer
+  Windows hook timeout to reduce stale Bun timer failures.
 
 ## [1.9.9] - 2026-10-02
 

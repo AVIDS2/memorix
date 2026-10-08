@@ -466,7 +466,7 @@ function generateKiroHookFiles(): Array<{ filename: string; content: string }> {
  * protocol used by all agents. spawnSync works in both Node.js and Bun
  * runtimes (OpenCode may fall back to Node.js on Windows).
  */
-const OPENCODE_PLUGIN_VERSION = 8;
+const OPENCODE_PLUGIN_VERSION = 9;
 
 const AGENT_SKILL_DIRS: Partial<Record<AgentName, { project: string; global?: string }>> = {
   cursor: { project: path.join('.cursor', 'skills'), global: path.join('.cursor', 'skills') },
@@ -537,6 +537,8 @@ function generateOpenCodePlugin(): string {
  */
 import { spawnSync } from 'node:child_process';
 
+const HOOK_TIMEOUT_MS = 30_000;
+
 export const MemorixPlugin = async ({ project, client, $, directory, worktree }) => {
   // Generate a stable session ID for this plugin lifetime
   const sessionId = \`opencode-\${Date.now().toString(36)}-\${Math.random().toString(36).slice(2, 8)}\`;
@@ -562,14 +564,14 @@ export const MemorixPlugin = async ({ project, client, $, directory, worktree })
    *  - spawnSync is simpler: no stream lifecycle, no writer.close() bugs
    *  - stdin pipe via input option is reliable cross-platform
    */
-  function runHook(payload) {
-    payload.session_id = sessionId;
+  function runHook(payload, activeSessionId = sessionId) {
+    payload.session_id = activeSessionId;
     const data = JSON.stringify(payload);
     const eventName = payload.hook_event_name || 'unknown';
     try {
       const result = spawnSync(hookCommand, ['hook'], {
         input: data,
-        timeout: 10_000,
+        timeout: HOOK_TIMEOUT_MS,
         encoding: 'utf-8',
         stdio: ['pipe', 'pipe', 'pipe'],
         shell: process.platform === 'win32',
@@ -614,7 +616,87 @@ export const MemorixPlugin = async ({ project, client, $, directory, worktree })
       .trim();
   }
 
+  function flushAssistantResponse(activeSessionId = sessionId) {
+    if (!pendingAssistantResponse?.text) return;
+    const deliveryKey = pendingAssistantResponse.id
+      ? \`\${pendingAssistantResponse.id}:\${pendingAssistantResponse.text}\`
+      : pendingAssistantResponse.text;
+    if (deliveryKey === lastDeliveredAssistantKey) return;
+    runHook({
+      agent: 'opencode',
+      hook_event_name: 'message.updated',
+      ai_response: pendingAssistantResponse.text,
+      message_id: pendingAssistantResponse.id,
+      cwd: directory,
+    }, activeSessionId);
+    lastDeliveredAssistantKey = deliveryKey;
+  }
+
+  function eventSessionId(event) {
+    const properties = event?.properties ?? {};
+    const value = properties.sessionID ?? properties.sessionId ?? properties.info?.id;
+    return typeof value === 'string' && value ? value : sessionId;
+  }
+
+  async function handleEvent({ event }) {
+    const properties = event?.properties ?? {};
+    const activeSessionId = eventSessionId(event);
+    switch (event?.type) {
+      case 'session.created':
+        runHook({
+          agent: 'opencode',
+          hook_event_name: 'session.created',
+          cwd: directory,
+        }, activeSessionId);
+        break;
+      case 'session.idle':
+        flushAssistantResponse(activeSessionId);
+        runHook({
+          agent: 'opencode',
+          hook_event_name: 'session.idle',
+          cwd: directory,
+        }, activeSessionId);
+        break;
+      case 'file.edited':
+        runHook({
+          agent: 'opencode',
+          hook_event_name: 'file.edited',
+          file_path: properties.file ?? properties.path ?? '',
+          cwd: directory,
+        }, activeSessionId);
+        break;
+      case 'command.executed':
+        runHook({
+          agent: 'opencode',
+          hook_event_name: 'command.executed',
+          command: properties.name ?? properties.command ?? '',
+          cwd: directory,
+        }, activeSessionId);
+        break;
+      case 'message.updated': {
+        const message = properties.info ?? properties.message ?? properties;
+        if (message?.role !== 'assistant') break;
+        const text = extractMessageText(message);
+        if (!text) break;
+        pendingAssistantResponse = { id: message.id, text };
+        break;
+      }
+      case 'session.compacted':
+        runHook({
+          agent: 'opencode',
+          hook_event_name: 'session.compacted',
+          cwd: directory,
+        }, activeSessionId);
+        break;
+      default:
+        break;
+    }
+  }
+
   return {
+    // OpenCode 1.x delivers lifecycle/file/command/message events through this
+    // generic hook. The named keys below remain for older compatible hosts.
+    event: handleEvent,
     /** Session created — record session start */
     'session.created': async ({ session }) => {
       runHook({
@@ -626,21 +708,7 @@ export const MemorixPlugin = async ({ project, client, $, directory, worktree })
 
     /** Session idle — record session end */
     'session.idle': async ({ session }) => {
-      if (pendingAssistantResponse?.text) {
-        const deliveryKey = pendingAssistantResponse.id
-          ? \`\${pendingAssistantResponse.id}:\${pendingAssistantResponse.text}\`
-          : pendingAssistantResponse.text;
-        if (deliveryKey !== lastDeliveredAssistantKey) {
-          runHook({
-            agent: 'opencode',
-            hook_event_name: 'message.updated',
-            ai_response: pendingAssistantResponse.text,
-            message_id: pendingAssistantResponse.id,
-            cwd: directory,
-          });
-          lastDeliveredAssistantKey = deliveryKey;
-        }
-      }
+      flushAssistantResponse();
       runHook({
         agent: 'opencode',
         hook_event_name: 'session.idle',
@@ -748,7 +816,7 @@ function v2RunHook(payload, directory, sessionId) {
   try {
     const result = spawnSync(v2HookCommand, ['hook'], {
       input: JSON.stringify(nextPayload),
-      timeout: 10_000,
+      timeout: HOOK_TIMEOUT_MS,
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
       shell: process.platform === 'win32',
@@ -872,7 +940,7 @@ function setup(ctx) {
   return () => controller.abort();
 }
 
-export default { id: 'memorix', setup };
+export default { id: 'memorix', server: MemorixPlugin, setup };
 `;
 }
 

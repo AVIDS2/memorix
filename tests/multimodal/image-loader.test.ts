@@ -45,6 +45,28 @@ describe('image-loader', () => {
     expect(result.entities).toContain('cat');
   });
 
+  it.each([
+    ['apiroute', 'https://global.api-route.com/v1', 'deepseek-v4-flash-vision-exp'],
+    ['requesty', 'https://router.requesty.ai/v1', 'openai/gpt-4o-mini'],
+    ['openrouter', 'https://openrouter.ai/api/v1', 'openai/gpt-4o-mini'],
+  ] as const)('uses the initialized %s endpoint and explicit vision model', async (provider, baseUrl, model) => {
+    setLLMConfig({ provider, apiKey: 'gateway-test-key', model, baseUrl });
+    let sentUrl = '';
+    let sentModel = '';
+    globalThis.fetch = (async (url, opts) => {
+      sentUrl = String(url);
+      sentModel = JSON.parse(String(opts?.body)).model;
+      expect(new Headers(opts?.headers).get('Authorization')).toBe('Bearer gateway-test-key');
+      return new Response(JSON.stringify({
+        choices: [{ message: { content: '{"description":"A diagram","tags":["diagram"],"entities":[]}' } }],
+      }), { status: 200 });
+    }) as typeof fetch;
+    const result = await analyzeImage({ base64: 'dGVzdA==', mimeType: 'image/png' });
+    expect(result.description).toBe('A diagram');
+    expect(sentUrl).toBe(`${baseUrl}/chat/completions`);
+    expect(sentModel).toBe(model);
+  });
+
   it('falls back to text when JSON parse fails', async () => {
     process.env.OPENAI_API_KEY = 'test-key';
     setLLMConfig({ provider: 'openai', apiKey: 'test-key', model: 'gpt-4o', baseUrl: 'https://api.openai.com/v1' });

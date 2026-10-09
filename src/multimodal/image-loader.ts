@@ -19,7 +19,7 @@ import {
 } from './image-payload.js';
 
 // Providers that use the OpenAI-compatible /chat/completions Vision endpoint
-const OPENAI_COMPATIBLE_PROVIDERS = new Set(['openai', 'openrouter', 'requesty', 'custom']);
+const OPENAI_COMPATIBLE_PROVIDERS = new Set(['openai', 'openrouter', 'requesty', 'apiroute', 'custom']);
 const MAX_VISION_PROMPT_CHARS = 12_000;
 const MAX_VISION_DESCRIPTION_CHARS = 12_000;
 const MAX_VISION_LABELS = 50;
@@ -54,13 +54,14 @@ async function callVisionLLM(
   imageBase64: string,
   mimeType: string,
 ): Promise<string> {
-  const apiKey = getLLMApiKey();
+  const config = getLLMConfig();
+  const apiKey = config?.apiKey ?? getLLMApiKey();
   if (!apiKey) {
     throw new Error('No LLM API key configured for image analysis.');
   }
 
-  const baseUrl = normalizeOpenAICompatibleBaseUrl(getLLMBaseUrl('https://api.openai.com/v1'));
-  const model = getLLMModel('gpt-4o');
+  const baseUrl = normalizeOpenAICompatibleBaseUrl(config?.baseUrl ?? getLLMBaseUrl('https://api.openai.com/v1'));
+  const model = config?.model ?? getLLMModel('gpt-4o');
 
   const response = await fetch(`${baseUrl}/chat/completions`, {
     method: 'POST',
@@ -137,7 +138,7 @@ export async function analyzeImage(input: ImageInput): Promise<ImageAnalysisResu
   const config = getLLMConfig()!;
   if (!OPENAI_COMPATIBLE_PROVIDERS.has(config.provider)) {
     throw new Error(
-      `Image analysis requires an OpenAI-compatible provider (openai, openrouter, requesty, or custom). ` +
+      `Image analysis requires an OpenAI-compatible provider (openai, openrouter, requesty, apiroute, or custom). ` +
       `Current provider "${config.provider}" uses a different API shape. ` +
       `Set MEMORIX_LLM_PROVIDER=openai or configure an OpenAI-compatible base URL.`,
     );

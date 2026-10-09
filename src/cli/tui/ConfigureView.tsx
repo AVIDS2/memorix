@@ -167,6 +167,7 @@ export function ConfigureView({ onBack }: ConfigureViewProps): React.ReactElemen
     { key: 'anthropic', label: 'Anthropic', hint: 'claude-3-haiku' },
     { key: 'openrouter', label: 'OpenRouter', hint: 'multi-provider' },
     { key: 'requesty', label: 'Requesty', hint: 'multi-provider' },
+    { key: 'apiroute', label: 'API Route', hint: 'multi-provider' },
     { key: 'atlascloud', label: 'Atlas Cloud', hint: 'DeepSeek V3.2' },
     { key: 'custom', label: 'Custom endpoint', hint: 'OpenAI-compatible' },
     { key: 'disable', label: 'Disable LLM', hint: 'free heuristic mode', color: COLORS.warning },
@@ -449,6 +450,7 @@ function getDefaultModel(provider: string): string {
   if (provider === 'anthropic') return 'claude-3-haiku-20240307';
   if (provider === 'openrouter') return 'openai/gpt-4o-mini';
   if (provider === 'requesty') return 'openai/gpt-4o-mini';
+  if (provider === 'apiroute') return 'deepseek-v4.1-flash';
   if (provider === 'atlascloud') return 'deepseek-ai/deepseek-v3.2';
   return 'gpt-4o-mini';
 }

@@ -105,6 +105,7 @@ async function installSingleAgent(
 function getAgentLabel(agent: string): string {
   const labels: Record<string, string> = {
     claude: 'Claude Code',
+    qwen: 'Qwen Code',
     windsurf: 'Windsurf',
     cursor: 'Cursor',
     copilot: 'GitHub Copilot',
@@ -124,6 +125,7 @@ function getAgentLabel(agent: string): string {
 function getAgentHint(agent: string): string {
   const hints: Record<string, string> = {
     claude: 'settings + instructions',
+    qwen: 'settings.json hooks + QWEN.md guidance',
     windsurf: 'hooks + rules',
     cursor: 'hooks + rules',
     copilot: 'hooks + instructions',

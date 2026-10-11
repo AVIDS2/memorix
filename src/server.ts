@@ -414,8 +414,10 @@ export async function createMemorixServer(
   // This detects splits like local/foo + user/foo (legacy data migration)
   try {
     const { getAllObservations } = await import('./memory/observations.js');
-    const allObs = getAllObservations();
-    const observedIds = [...new Set(allObs.map(o => o.projectId))];
+    const store = getObservationStore();
+    const observedIds = store.listProjectIds
+      ? await store.listProjectIds()
+      : [...new Set(getAllObservations().map(o => o.projectId))];
     const merged = await autoMergeByBaseName(observedIds);
     if (merged > 0) {
       console.error(`[memorix] Auto-merged ${merged} alias group(s) by base name`);
@@ -462,8 +464,10 @@ export async function createMemorixServer(
         try {
           const { getAllObservations } = await import('./memory/observations.js');
           await initObservations(projectDir);
-          const allObs = getAllObservations();
-          const observedIds = [...new Set(allObs.map(o => o.projectId))];
+          const store = getObservationStore();
+          const observedIds = store.listProjectIds
+            ? await store.listProjectIds()
+            : [...new Set(getAllObservations().map(o => o.projectId))];
           const merged = await autoMergeByBaseName(observedIds);
           if (merged > 0) {
             console.error(`[memorix] Auto-merged ${merged} alias group(s) by base name`);

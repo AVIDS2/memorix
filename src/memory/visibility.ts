@@ -39,10 +39,16 @@ function sharedAgentIds(record: VisibilityRecord): string[] {
  * missing actor never turns a private record into a project-wide result.
  * `undefined` is reserved for trusted internal maintenance, not MCP delivery.
  */
-export function canReadObservation(record: VisibilityRecord, reader?: ObservationReader): boolean {
+export function canReadObservation(
+  record: VisibilityRecord,
+  reader?: ObservationReader,
+  allowedProjectIds?: readonly string[],
+): boolean {
   if (!reader) return true;
 
-  const sameProject = reader.projectId === record.projectId;
+  const sameProject = allowedProjectIds
+    ? allowedProjectIds.includes(record.projectId)
+    : reader.projectId === record.projectId;
   const visibility = resolveObservationVisibility(record);
   // An explicit global search may inspect project-visible facts across projects,
   // but it never gains a team or personal scope without a bound project.

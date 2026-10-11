@@ -5,6 +5,9 @@ All notable changes to this project will be documented in this file.
 ## Unreleased (1.9.x)
 
 ### Fixed
+- **Runtime supply-chain baseline** -- refreshed the MCP SDK, Git adapter,
+  HTTP client, URL/IP parsers, Hono, LanceDB, Sharp, and related lockfile
+  resolutions; the production dependency audit is now clean.
 - **Large-store alias migration** -- startup project-ID normalization now uses a
   bounded SQLite update instead of requiring the full observation corpus in
   memory. The FTS5 triggers and storage generation stay current.

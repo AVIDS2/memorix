@@ -64,7 +64,7 @@
     "dev": "tsup --watch",
     "update-models": "npm --workspace @memorix/ai run update-models",
     "start": "node dist/index.js",
-    "test": "vitest run --no-file-parallelism --maxWorkers=1 --minWorkers=1",
+    "test": "vitest run --no-file-parallelism --maxWorkers=1",
     "test:mcp-stdio-smoke": "node scripts/mcp-stdio-smoke.mjs",
     "test:mcp-modern-stdio-smoke": "node scripts/mcp-modern-stdio-smoke.mjs",
     "test:mcp-conformance-smoke": "node scripts/mcp-conformance-smoke.mjs",
@@ -138,7 +138,8 @@
     "@clack/prompts": "^0.9.1",
     "@modelcontextprotocol/node": "^2.0.0",
     "@modelcontextprotocol/server": "^2.0.0",
-    "@modelcontextprotocol/sdk": "^1.30.0",
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "brace-expansion": "^5.0.12",
     "@orama/orama": "^3.1.0",
     "citty": "^0.1.6",
     "dotenv": "^17.3.1",
@@ -155,7 +156,7 @@
     "zod": "^3.24.0"
   },
   "optionalDependencies": {
-    "@lancedb/lancedb": "^0.38.0",
+    "@lancedb/lancedb": "^0.40.0",
     "better-sqlite3": "^12.11.1"
   },
   "overrides": {
@@ -164,18 +165,21 @@
     "@types/react": "19.2.7",
     "protobufjs": "^7.6.5",
     "lodash": "^4.18.1",
-    "hono": "^4.13.1",
+    "hono": "^4.13.13",
     "@hono/node-server": "^2.0.5",
+    "@modelcontextprotocol/sdk": "^1.32.1",
     "express-rate-limit": "^8.5.2",
     "path-to-regexp": "^8.4.2",
-    "ip-address": "^10.5.0",
+    "ip-address": "^10.7.3",
+    "proxy-addr": "^2.0.8",
     "ajv": "^8.20.0",
-    "fast-uri": "^3.1.5",
-    "shell-quote": "^1.10.0",
+    "fast-uri": "^3.1.8",
+    "qs": "^6.16.0",
+    "shell-quote": "^1.12.0",
     "postcss": "^8.5.25",
-    "undici": "8.10.0",
+    "undici": "8.11.2",
     "esbuild": "^0.28.1",
-    "sharp": "^0.35.3"
+    "sharp": "^0.35.5"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.0",
@@ -183,6 +187,6 @@
     "@types/react": "19.2.7",
     "ink-testing-library": "^4.0.0",
     "tsup": "^8.4.0",
-    "vitest": "3.2.6"
+    "vitest": "5.0.3"
   }
 }

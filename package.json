@@ -65,6 +65,7 @@
     "update-models": "npm --workspace @memorix/ai run update-models",
     "start": "node dist/index.js",
     "test": "vitest run --no-file-parallelism --maxWorkers=1",
+    "test:hook-stdin-file-smoke": "node scripts/hook-stdin-file-smoke.mjs",
     "test:mcp-stdio-smoke": "node scripts/mcp-stdio-smoke.mjs",
     "test:mcp-modern-stdio-smoke": "node scripts/mcp-modern-stdio-smoke.mjs",
     "test:mcp-conformance-smoke": "node scripts/mcp-conformance-smoke.mjs",

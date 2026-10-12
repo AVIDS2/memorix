@@ -55,6 +55,11 @@
 { "hookEventName": "PostToolUse", "sessionId": "...", "cwd": "...", "workspaceRoot": "...", "toolName": "search_replace", "toolInput": { "path": "..." }, "toolResult": { ... } }
 ```
 
+Hook 读取完 stdin 后会移除监听器并暂停、`unref` 输入流，但不会销毁进程的
+标准输入描述符。某些宿主（例如 Pi 在 Node 26 上）会把普通文件作为 fd 0
+传给 hook；关闭该描述符后，后续同步 Git 子进程可能复用 fd 0 并触发 Node/
+libuv 的标准描述符断言。hook 自身仍由读取超时和工作截止时间保证退出。
+
 ## Memorix Hook Handler 设计
 
 ### 统一入口

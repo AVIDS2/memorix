@@ -18,6 +18,9 @@ All notable changes to this project will be documented in this file.
   answer.
 - **Search CLI parity** -- `memorix search "query"` and
   `memorix search --query "query"` now share the same argument contract.
+- **Pi hooks on Node 26** -- hook stdin is paused and unrefed without closing
+  file descriptor 0, so subsequent synchronous Git detection remains safe when
+  a host supplies hook input through a regular file.
 
 ### Added
 - **Qwen Code hooks** -- `memorix hooks install --agent qwen` writes the

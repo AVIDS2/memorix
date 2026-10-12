@@ -59,14 +59,13 @@ export function hookObservationRuntimeOptions(projectRoot: string): ObservationR
 
 type HookStdin = NodeJS.ReadableStream & {
   pause?: () => void;
-  destroy?: (error?: Error) => void;
   unref?: () => void;
-  isTTY?: boolean;
 };
 
 /**
- * Read hook JSON from a pipe. Resolves on EOF, stream error, or idle timeout.
- * Always releases the stream so an open stdin cannot keep Node alive.
+ * Read hook JSON from stdin. Resolves on EOF, stream error, or idle timeout.
+ * Unref the stream without closing fd 0, which later synchronous child
+ * processes may reuse as their standard input.
  */
 export async function readHookStdin(stdin: HookStdin, timeoutMs: number): Promise<string> {
   return new Promise<string>((resolve) => {
@@ -81,11 +80,7 @@ export async function readHookStdin(stdin: HookStdin, timeoutMs: number): Promis
       stdin.removeListener('end', finish);
       stdin.removeListener('error', finish);
       stdin.pause?.();
-      if (!stdin.isTTY) {
-        stdin.destroy?.();
-      } else {
-        stdin.unref?.();
-      }
+      stdin.unref?.();
       resolve(Buffer.concat(chunks).toString('utf-8').trim());
     };
 

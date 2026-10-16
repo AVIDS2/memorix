@@ -4,7 +4,7 @@
 > before resuming substantial work, update it after a material decision or
 > milestone, and do not create parallel progress logs.
 
-**Last updated:** 2026-10-08
+**Last updated:** 2026-10-16
 
 **Local verification rule:** run the frontend, HTTP service, MCP server, and
 tests directly with Node/npm on the E: workspace. Do not start Docker or add
@@ -34,6 +34,32 @@ artifacts for the VPS/hosted build path only.
   `npm run lint`, the sequential low-memory build, the full local regression,
   and all 7 remote CI checks passed. Live embedding tests remain intentionally
   skipped when their environment flag is absent.
+
+## 1.9.x Maintenance and Ecosystem Closeout (2026-10-16)
+
+- [x] Issue #330 is implemented through PR #333 (`477e968`). The in-memory
+  Orama index preserves Latin tokenization and adds bounded CJK character
+  unigrams/bigrams for Chinese, Japanese, and Korean queries. The standard
+  `npm test` entry was also restored by removing the unsupported Vitest 5
+  `--minWorkers=1` flag. Local lint/build/focused tests and the full suite
+  pass; Ubuntu, Windows, macOS, Docker, typecheck, Node 26, and registry CI
+  all pass. The PR is waiting for independent review.
+- [x] Issue #328 and the existing #3/#322-#325 fixes are implemented through
+  PR #331 (`82e05b0`). Its Node 26 hook smoke and complete cross-platform CI
+  pass. The PR is waiting for independent review, so linked issues remain open
+  until GitHub can close them after merge.
+- [x] The 2026-10 ecosystem scan used `last30days-skill` v3.28.0 plus Tavily.
+  The strongest signals were bounded on-demand retrieval, progressive
+  disclosure for MCP/skills, and explicit provenance/freshness against memory
+  or context poisoning. Memorix already has admission, evidence, feedback,
+  freshness, retention, and abstention primitives, so no speculative trust
+  score subsystem was added; the next useful work is exposing those existing
+  signals more consistently in receipts and operator views.
+- [ ] #320 remains an independent provider contribution awaiting reviewer and
+  executable fork CI. #329 is approved but has no executable fork CI. #297 is
+  an external awesome-list submission rather than repository code work. #327
+  still lacks reproducible package/security evidence; #313 and #49 remain
+  integration-boundary discussions.
 
 ## 1.9.5 Closeout (2026-09-20)
 

@@ -55,11 +55,13 @@ artifacts for the VPS/hosted build path only.
   freshness, retention, and abstention primitives, so no speculative trust
   score subsystem was added; the next useful work is exposing those existing
   signals more consistently in receipts and operator views.
-- [ ] #320 remains an independent provider contribution awaiting reviewer and
-  executable fork CI. #329 is approved but has no executable fork CI. #297 is
-  an external awesome-list submission rather than repository code work. #327
-  still lacks reproducible package/security evidence; #313 and #49 remain
-  integration-boundary discussions.
+- [x] #320 API Route provider contribution was independently validated and
+  merged in `ea3ce86`; it remains opt-in and does not change the default model
+  or embedding paths. #329 was also independently reviewed and merged in
+  `d13cfa6`.
+- [ ] #297 is an external awesome-list submission rather than repository code
+  work. #327 still lacks reproducible package/security evidence; #313 and #49
+  remain integration-boundary discussions.
 
 ## 1.9.5 Closeout (2026-09-20)
 

@@ -31,6 +31,9 @@ All notable changes to this project will be documented in this file.
   official `.qwen/settings.json` hook shape, preserves user settings, and
   installs project/global `QWEN.md` guidance. iFlow is not targeted because its
   official CLI service was retired in April 2026.
+- **API Route memory preset** -- optional background memory LLM processing
+  through an OpenAI-compatible endpoint, with an isolated `API_ROUTE_API_KEY`,
+  CLI/TUI setup and bilingual configuration guidance.
 
 ## [1.9.10] - 2026-10-08
 

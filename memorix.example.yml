@@ -19,7 +19,7 @@
 # Optional — Memorix works without LLM (free heuristic mode).
 # API key goes in .env as MEMORIX_LLM_API_KEY
 llm:
-  provider: openai          # openai, anthropic, openrouter, requesty, or custom endpoint
+  provider: openai          # openai, anthropic, openrouter, requesty, apiroute, or custom endpoint
   model: gpt-4o-mini
   # baseUrl: https://api.openai.com/v1
 

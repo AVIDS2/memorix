@@ -120,15 +120,18 @@ export function getResolvedConfig(options: ResolvedLaneOptions = {}): ResolvedMe
     : undefined;
   const isAtlasCloud = memoryLlmProvider === 'atlascloud';
   const isRequesty = memoryLlmProvider === 'requesty';
-  const usesPresetKeyOnly = isAtlasCloud || isRequesty;
+  const isApiRoute = memoryLlmProvider === 'apiroute';
+  const usesPresetKeyOnly = isAtlasCloud || isRequesty || isApiRoute;
   const memoryLlmApiKey = first(
     process.env.MEMORIX_LLM_API_KEY,
     process.env.MEMORIX_API_KEY,
     toml.memory?.llm?.api_key,
     yaml.llm?.apiKey,
     legacy.llm?.apiKey,
-    // Never borrow another provider's credentials for the Atlas Cloud or Requesty presets.
-    isAtlasCloud ? process.env.ATLASCLOUD_API_KEY : isRequesty ? process.env.REQUESTY_API_KEY : process.env.OPENAI_API_KEY,
+    // Never borrow another provider's credentials for these gateway presets.
+    isAtlasCloud ? process.env.ATLASCLOUD_API_KEY
+      : isRequesty ? process.env.REQUESTY_API_KEY
+        : isApiRoute ? process.env.API_ROUTE_API_KEY : process.env.OPENAI_API_KEY,
     usesPresetKeyOnly ? undefined : process.env.ANTHROPIC_API_KEY,
     usesPresetKeyOnly ? undefined : openRouterMemoryLlmApiKey,
   );
@@ -327,6 +330,7 @@ function getEnvSourceNames(): string[] {
     'MEMORIX_CODEGRAPH_EXTERNAL_TIMEOUT_MS',
     'OPENROUTER_API_KEY',
     'REQUESTY_API_KEY',
+    'API_ROUTE_API_KEY',
     'ATLASCLOUD_API_KEY',
   ].filter((name) => process.env[name]);
 }

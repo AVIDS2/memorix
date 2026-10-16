@@ -85,6 +85,17 @@ describe('init TOML templates', () => {
     expect(content).not.toContain('api_key');
   });
 
+  it('generates API Route project setup with a catalog model and no credentials', async () => {
+    const { buildInitTomlConfig } = await import('../../src/cli/commands/init.js');
+    const content = buildInitTomlConfig({
+      scope: 'project', llmProvider: 'apiroute', embeddingProvider: 'off',
+      gitAutoHook: false, sessionInject: 'minimal', date: '2026-10-04',
+    });
+    expect(content).toContain('provider = "apiroute"');
+    expect(content).toContain('model = "deepseek-v4.1-flash"');
+    expect(content).not.toContain('api_key');
+  });
+
   it('shows agent, memory, and embedding lanes in global config with local key slots', async () => {
     const { buildInitTomlConfig } = await import('../../src/cli/commands/init.js');
 

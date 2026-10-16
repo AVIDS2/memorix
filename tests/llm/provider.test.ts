@@ -41,6 +41,7 @@ const LLM_ENV_KEYS = [
   'ANTHROPIC_API_KEY',
   'OPENROUTER_API_KEY',
   'REQUESTY_API_KEY',
+  'API_ROUTE_API_KEY',
   'ATLASCLOUD_API_KEY',
 ];
 
@@ -91,6 +92,29 @@ describe('initLLM config scopes', () => {
     expect(initLLM(options)).toMatchObject({
       model: 'anthropic/claude-sonnet-4-5', baseUrl: 'https://router.eu.requesty.ai/v1',
     });
+  });
+
+  it('initializes API Route memory with its dedicated key and preserves explicit overrides', () => {
+    process.env.MEMORIX_LLM_PROVIDER = 'apiroute';
+    process.env.API_ROUTE_API_KEY = 'api-route-test-key';
+    const options = { scope: 'memory' as const, projectRoot: TEST_PROJECT, homeDir: TEST_HOME };
+    expect(initLLM(options)).toEqual({
+      provider: 'apiroute', apiKey: 'api-route-test-key',
+      model: 'deepseek-v4.1-flash', baseUrl: 'https://global.api-route.com/v1',
+    });
+    process.env.MEMORIX_LLM_MODEL = 'custom-model';
+    process.env.MEMORIX_LLM_BASE_URL = 'https://gateway.example/v1';
+    expect(initLLM(options)).toMatchObject({
+      model: 'custom-model', baseUrl: 'https://gateway.example/v1',
+    });
+  });
+
+  it('leaves API Route memory disabled when only unrelated keys are available', () => {
+    process.env.MEMORIX_LLM_PROVIDER = 'apiroute';
+    process.env.OPENAI_API_KEY = 'openai-test-key';
+    process.env.ANTHROPIC_API_KEY = 'anthropic-test-key';
+    process.env.OPENROUTER_API_KEY = 'router-test-key';
+    expect(initLLM({ scope: 'memory', projectRoot: TEST_PROJECT, homeDir: TEST_HOME })).toBeNull();
   });
 
   it('uses agent-specific LLM env vars for TUI agent scope', () => {
@@ -320,6 +344,24 @@ describe('callLLMWithTools', () => {
     expect(url).toBe('https://router.requesty.ai/v1/chat/completions');
     expect(options.headers.Authorization).toBe('Bearer requesty-test-key');
     expect(JSON.parse(options.body).model).toBe('openai/gpt-4o-mini');
+  });
+
+  it('routes API Route memory calls with the selected model and surfaces endpoint failures', async () => {
+    setLLMConfig({ provider: 'apiroute', apiKey: 'api-route-test-key',
+      model: 'deepseek-v4.1-flash', baseUrl: 'https://global.api-route.com/v1' });
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      choices: [{ message: { content: 'memory summary' } }],
+    }), { headers: { 'Content-Type': 'application/json' } }));
+    globalThis.fetch = fetchMock;
+    expect((await callLLM('Summarize.', 'A project fact.')).content).toBe('memory summary');
+    const [url, options] = fetchMock.mock.calls[0];
+    expect(url).toBe('https://global.api-route.com/v1/chat/completions');
+    expect(options.headers.Authorization).toBe('Bearer api-route-test-key');
+    expect(JSON.parse(options.body).model).toBe('deepseek-v4.1-flash');
+    fetchMock.mockClear();
+    fetchMock.mockResolvedValue(new Response('unavailable', { status: 503 }));
+    await expect(callLLM('Summarize.', 'A project fact.')).rejects.toThrow('503');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it('rejects oversized non-streaming responses before parsing the full body', async () => {

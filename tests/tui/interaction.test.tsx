@@ -906,6 +906,7 @@ describe('ConfigureView', () => {
     expect(frame).toContain('Anthropic');
     expect(frame).toContain('OpenRouter');
     expect(frame).toContain('Requesty');
+    expect(frame).toContain('API Route');
     expect(frame).toContain('Atlas Cloud');
     expect(frame).toContain('Disable LLM');
     unmount();

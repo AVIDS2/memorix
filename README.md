@@ -535,6 +535,8 @@ For OpenRouter embeddings, use `provider = "api"`, `base_url = "https://openrout
 
 For Requesty, choose Requesty in `memorix init` or set `provider = "requesty"` in `[memory.llm]` (endpoint `https://router.requesty.ai/v1`, key from `REQUESTY_API_KEY` or `MEMORIX_LLM_API_KEY`). Requesty embeddings use `provider = "api"`, `base_url = "https://router.requesty.ai/v1"`, and `model = "openai/text-embedding-3-small"` with `REQUESTY_API_KEY`.
 
+For [API Route](https://www.api-route.com), choose API Route in `memorix init` or set `provider = "apiroute"` in `[memory.llm]`. The preset uses `https://global.api-route.com/v1` and `deepseek-v4.1-flash`, with your own `API_ROUTE_API_KEY` or `MEMORIX_LLM_API_KEY`. It is opt-in memory LLM processing; embeddings and memcode's model registry are configured separately. See [configuration](docs/CONFIGURATION.md#api-route-memory-preset).
+
 For controlled MiniMax media generation, set `MINIMAX_API_KEY` (global) or
 `MINIMAX_CN_API_KEY` (China region) in your environment or `.env`. The media
 library never stores that key, a signed output URL, or base64 payloads. CLI

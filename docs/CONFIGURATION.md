@@ -195,6 +195,32 @@ OpenRouter environment keys. Model IDs use the `vendor/model` form, for example
 `base_url = "https://router.eu.requesty.ai/v1"`. Get a key at
 https://app.requesty.ai/api-keys.
 
+### API Route memory preset
+
+[API Route](https://www.api-route.com) is available in `memorix init` and the
+configuration TUI as an optional memory LLM preset:
+
+```toml
+[memory.llm]
+provider = "apiroute"
+model = "deepseek-v4.1-flash"
+```
+
+The preset uses `https://global.api-route.com/v1` and the existing
+OpenAI-compatible chat completion transport. Set `API_ROUTE_API_KEY` or
+`MEMORIX_LLM_API_KEY`, or store `api_key` in your private global config. Keep
+credentials out of project TOML. Explicit `model` and `base_url` overrides
+still apply; use IDs from the endpoint's `/v1/models` catalog without adding
+an extra vendor prefix.
+
+`API_ROUTE_API_KEY` is used only when this memory preset is selected, and the
+preset does not borrow OpenAI, Anthropic, OpenRouter, Requesty, or Atlas Cloud
+keys. Setting the key alone does not enable paid background memory processing.
+Embeddings and memcode's model registry are unchanged. Image analysis requires
+explicitly selecting a vision-capable model; the default is for text memory.
+
+### OrcaRouter custom endpoint
+
 OrcaRouter works through the generic OpenAI-compatible gateway path. Keep the
 provider label as `openai`, set its base URL, and use an explicit model ID:
 

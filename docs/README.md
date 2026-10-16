@@ -126,7 +126,8 @@ Historical/deep-reference documents may describe older designs. If they conflict
 
 ## Current Product Line
 
-The current product line is **1.9.10**. Multi-device store sync is opt-in and
+The current product line is **1.9.11** (release candidate; **1.9.10** remains
+the published baseline until release publication). Multi-device store sync is opt-in and
 keeps local SQLite canonical; existing users do not upload anything until they
 configure a relay provider explicitly.
 The authoritative acceptance contract for the current implementation is

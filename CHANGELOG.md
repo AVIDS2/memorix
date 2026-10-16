@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased (1.9.x)
 
+No unreleased changes.
+
+## [1.9.11] - 2026-10-16
+
 ### Fixed
 - **CJK full-text search** -- the in-memory Orama index now keeps the default
   Latin tokenizer behavior while adding bounded character n-grams for Chinese,

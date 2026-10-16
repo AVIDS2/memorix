@@ -13,9 +13,10 @@ artifacts for the VPS/hosted build path only.
 
 ## Current Product State
 
-- `1.9.10` is the current published baseline. It includes the 1.9.9 Requesty
-  provider contribution plus the OpenCode 1.x compatibility correction from
-  #321, independently verified across the full remote matrix.
+- `1.9.11` is the current release candidate; `1.9.10` remains the published
+  baseline until release publication. The candidate includes the 1.9.9
+  Requesty provider contribution plus the OpenCode 1.x compatibility correction
+  from #321, independently verified across the full remote matrix.
 - The release keeps the canonical Dashboard Memory Map, removes the obsolete
   renderer/dependencies, makes reachable capabilities visible, and preserves
   the old MCP clients while adding the modern 2026-07-28 core contract.
@@ -34,6 +35,17 @@ artifacts for the VPS/hosted build path only.
   `npm run lint`, the sequential low-memory build, the full local regression,
   and all 7 remote CI checks passed. Live embedding tests remain intentionally
   skipped when their environment flag is absent.
+
+## 1.9.11 Release Candidate (2026-10-16)
+
+- [x] Root package metadata, lockfile, MCP Registry metadata, plugin manifests,
+  and changelog entries are synchronized at `1.9.11`.
+- [x] The candidate contains the merged 1.9.x maintenance fixes and the
+  independently validated API Route and session-label contributions listed
+  below.
+- [ ] Publish npm, the MCP Registry, and the GitHub release only after the
+  release commit has passed its final gates and the maintainer explicitly
+  approves publication.
 
 ## 1.9.x Maintenance and Ecosystem Closeout (2026-10-16)
 

@@ -257,6 +257,7 @@ async function searchPersistentSemantically(
     const lexical = await searchPersistentLexically(options, projectIds, limit);
     const store = getObservationStore();
     const documents = new Map<string, MemorixDocument>();
+    const vectorDocumentKeys = new Map<number, string>();
     const addObservation = (observation: Observation): void => {
       const document = observationToSearchDocument(observation);
       documents.set(makeEntryKey(document.projectId, document.observationId), document);
@@ -274,6 +275,7 @@ async function searchPersistentSemantically(
       if (options.type && observation.type !== options.type) return null;
       if (options.source && observation.source !== options.source) return null;
       addObservation(observation);
+      vectorDocumentKeys.set(hit.observationId, makeEntryKey(observation.projectId, observation.id));
       return observation;
     }));
 
@@ -286,7 +288,7 @@ async function searchPersistentSemantically(
       scores.set(key, (scores.get(key) ?? 0) + 0.6 / (RRF_K + index + 1));
     }
     for (const [index, hit] of vectorHits.entries()) {
-      const key = makeEntryKey(hit.projectId, hit.observationId);
+      const key = vectorDocumentKeys.get(hit.observationId) ?? makeEntryKey(hit.projectId, hit.observationId);
       if (!documents.has(key)) continue;
       scores.set(key, (scores.get(key) ?? 0) + 0.4 / (RRF_K + index + 1));
     }
@@ -306,7 +308,7 @@ async function searchPersistentSemantically(
         count: vectorHits.length,
         hits: vectorHits
           .map((hit, index) => {
-            const key = makeEntryKey(hit.projectId, hit.observationId);
+            const key = vectorDocumentKeys.get(hit.observationId) ?? makeEntryKey(hit.projectId, hit.observationId);
             const document = documents.get(key);
             return document ? { id: document.id, score: 0.4 / (RRF_K + index + 1), document } : null;
           })
@@ -314,6 +316,7 @@ async function searchPersistentSemantically(
           .slice(0, limit),
       };
     }
+    if (hits.length === 0) return null;
     return { count: hits.length, hits };
   } catch {
     // LanceDB is a derived optional accelerator. If it is unavailable or its
@@ -1097,7 +1100,7 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
     })
     // Visibility is enforced before scoring/ranking so private records cannot
     // affect result order, fallback behavior, or downstream detail reads.
-    .filter((hit) => canReadObservation(hit.document as unknown as MemorixDocument, options.reader))
+    .filter((hit) => canReadObservation(hit.document as unknown as MemorixDocument, options.reader, projectIds ?? undefined))
     // Post-filter by status (active/resolved/archived)
     .filter((hit) => {
       if (statusFilter === 'all') return true;
@@ -1468,7 +1471,7 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
 
   for (const hit of results.hits) {
     const doc = hit.document as unknown as MemorixDocument;
-    if (canReadObservation(doc, options.reader)) rememberObservationDoc(doc);
+    if (canReadObservation(doc, options.reader, projectIds ?? undefined)) rememberObservationDoc(doc);
   }
 
   // Explainable recall: annotate entries with match reasons (O(1) lookup via Map)

@@ -121,6 +121,23 @@ describe('SqliteBackend CRUD', () => {
     expect(all[0].updatedAt).toBeDefined();
   });
 
+  it('migrates alias project IDs without loading the corpus and keeps FTS current', async () => {
+    await store.insert(makeObs({
+      id: 1,
+      entityName: 'legacy-alias',
+      projectId: 'local/project-a',
+      title: 'Alias migration keeps search available',
+      narrative: 'The canonical project remains searchable after migration.',
+    }));
+    const rawLoadAll = vi.spyOn(store as any, 'rawLoadAll');
+
+    await expect(store.migrateProjectIds?.(['project-a', 'local/project-a'], 'project-a')).resolves.toBe(1);
+
+    expect(rawLoadAll).not.toHaveBeenCalled();
+    await expect(store.searchLexical({ query: 'Alias migration', projectId: 'project-a', limit: 10 }))
+      .resolves.toEqual([expect.objectContaining({ observation: expect.objectContaining({ projectId: 'project-a' }) })]);
+  });
+
   it('remove deletes an observation by ID', async () => {
     await store.insert(makeObs({ id: 1, entityName: 'a', projectId: 'p' }));
     await store.insert(makeObs({ id: 2, entityName: 'b', projectId: 'p' }));

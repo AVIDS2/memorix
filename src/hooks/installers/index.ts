@@ -88,6 +88,33 @@ function generateClaudeConfig(): Record<string, unknown> {
 }
 
 /**
+ * Generate Qwen Code hook config.
+ * Format: .qwen/settings.json or ~/.qwen/settings.json.
+ * See: https://qwenlm.github.io/qwen-code-docs/en/users/features/hooks
+ */
+function generateQwenConfig(): Record<string, unknown> {
+  const cmd = `${resolveHookCommand()} hook --agent qwen`;
+  const hookEntry = {
+    type: 'command',
+    command: cmd,
+    timeout: 10,
+  };
+
+  return {
+    hooks: {
+      SessionStart: [{ hooks: [hookEntry] }],
+      SessionEnd: [{ hooks: [hookEntry] }],
+      PostToolUse: [{ hooks: [hookEntry] }],
+      PostToolUseFailure: [{ hooks: [hookEntry] }],
+      UserPromptSubmit: [{ hooks: [hookEntry] }],
+      PreCompact: [{ hooks: [hookEntry] }],
+      PostCompact: [{ hooks: [hookEntry] }],
+      Stop: [{ hooks: [hookEntry] }],
+    },
+  };
+}
+
+/**
  * Generate Grok Build hook config.
  * Format: ~/.grok/hooks/memorix.json (own file; do not merge into RuleSync dests)
  * Grok uses its official JSON hook format with Claude-compatible event names. Command is `memorix hook` (a
@@ -130,9 +157,18 @@ function isMemorixGrokHook(value: unknown): boolean {
   return isJsonRecord(value) && value.type === 'command' && isMemorixGrokCommand(value.command);
 }
 
-function mergeGrokHookConfig(
+function isMemorixQwenCommand(value: unknown): boolean {
+  return value === 'memorix hook --agent qwen' || value === 'memorix.cmd hook --agent qwen';
+}
+
+function isMemorixQwenHook(value: unknown): boolean {
+  return isJsonRecord(value) && value.type === 'command' && isMemorixQwenCommand(value.command);
+}
+
+function mergeCommandHookConfig(
   existing: Record<string, unknown>,
   generated: Record<string, unknown>,
+  isOwnedHook: (value: unknown) => boolean,
 ): Record<string, unknown> {
   const merged = { ...existing };
   const existingHooks = isJsonRecord(existing.hooks) ? { ...existing.hooks } : {};
@@ -142,7 +178,7 @@ function mergeGrokHookConfig(
     const currentGroups = Array.isArray(existingHooks[event]) ? existingHooks[event] : [];
     const preservedGroups = currentGroups.flatMap((group) => {
       if (!isJsonRecord(group) || !Array.isArray(group.hooks)) return [group];
-      const preservedHooks = group.hooks.filter((hook) => !isMemorixGrokHook(hook));
+      const preservedHooks = group.hooks.filter((hook) => !isOwnedHook(hook));
       if (preservedHooks.length === 0) return [];
       return [{ ...group, hooks: preservedHooks }];
     });
@@ -153,7 +189,24 @@ function mergeGrokHookConfig(
   return merged;
 }
 
-function removeMemorixGrokHooks(config: Record<string, unknown>): Record<string, unknown> {
+function mergeGrokHookConfig(
+  existing: Record<string, unknown>,
+  generated: Record<string, unknown>,
+): Record<string, unknown> {
+  return mergeCommandHookConfig(existing, generated, isMemorixGrokHook);
+}
+
+function mergeQwenHookConfig(
+  existing: Record<string, unknown>,
+  generated: Record<string, unknown>,
+): Record<string, unknown> {
+  return mergeCommandHookConfig(existing, generated, isMemorixQwenHook);
+}
+
+function removeCommandHooks(
+  config: Record<string, unknown>,
+  isOwnedHook: (value: unknown) => boolean,
+): Record<string, unknown> {
   const cleaned = { ...config };
   const hooks = isJsonRecord(config.hooks) ? { ...config.hooks } : null;
   if (!hooks) return cleaned;
@@ -162,7 +215,7 @@ function removeMemorixGrokHooks(config: Record<string, unknown>): Record<string,
     if (!Array.isArray(groups)) continue;
     const preservedGroups = groups.flatMap((group) => {
       if (!isJsonRecord(group) || !Array.isArray(group.hooks)) return [group];
-      const preservedHooks = group.hooks.filter((hook) => !isMemorixGrokHook(hook));
+      const preservedHooks = group.hooks.filter((hook) => !isOwnedHook(hook));
       if (preservedHooks.length === 0) return [];
       return [{ ...group, hooks: preservedHooks }];
     });
@@ -173,6 +226,14 @@ function removeMemorixGrokHooks(config: Record<string, unknown>): Record<string,
   if (Object.keys(hooks).length > 0) cleaned.hooks = hooks;
   else delete cleaned.hooks;
   return cleaned;
+}
+
+function removeMemorixGrokHooks(config: Record<string, unknown>): Record<string, unknown> {
+  return removeCommandHooks(config, isMemorixGrokHook);
+}
+
+function removeMemorixQwenHooks(config: Record<string, unknown>): Record<string, unknown> {
+  return removeCommandHooks(config, isMemorixQwenHook);
 }
 
 async function readGrokHookConfig(configPath: string): Promise<Record<string, unknown>> {
@@ -192,6 +253,26 @@ async function readGrokHookConfig(configPath: string): Promise<Record<string, un
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
     throw new Error(`Cannot safely update Grok hook config ${configPath}: ${reason}`);
+  }
+}
+
+async function readQwenHookConfig(configPath: string): Promise<Record<string, unknown>> {
+  let content: string;
+  try {
+    content = await fs.readFile(configPath, 'utf-8');
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return {};
+    throw error;
+  }
+
+  if (!content.trim()) return {};
+  try {
+    const parsed: unknown = JSON.parse(content);
+    if (!isJsonRecord(parsed)) throw new Error('top-level value must be an object');
+    return parsed;
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new Error(`Cannot safely update Qwen hook config ${configPath}: ${reason}`);
   }
 }
 
@@ -956,6 +1037,8 @@ export function getProjectConfigPath(agent: AgentName, projectRoot: string): str
     case 'claude':
       // Claude Code reads hooks from .claude/settings.local.json (project-level, gitignored)
       return path.join(projectRoot, '.claude', 'settings.local.json');
+    case 'qwen':
+      return path.join(projectRoot, '.qwen', 'settings.json');
     case 'copilot':
       return path.join(projectRoot, '.github', 'hooks', 'memorix.json');
     case 'windsurf':
@@ -1015,6 +1098,8 @@ export function getGlobalConfigPath(agent: AgentName): string {
   switch (agent) {
     case 'claude':
       return path.join(home, '.claude', 'settings.json');
+    case 'qwen':
+      return path.join(home, '.qwen', 'settings.json');
     case 'copilot':
       // GitHub Copilot does NOT support global hooks — only project-level
       // .github/hooks/*.json. See official docs and feature request #1157.
@@ -1061,6 +1146,8 @@ export function getAgentRulesPath(agent: AgentName, root: string, global = false
         return path.join(root, '.cursor', 'rules', 'memorix.mdc');
       case 'claude':
         return path.join(root, '.claude', 'CLAUDE.md');
+      case 'qwen':
+        return path.join(root, '.qwen', 'QWEN.md');
       case 'codex':
         return path.join(root, '.codex', 'AGENTS.md');
       case 'kiro':
@@ -1092,6 +1179,8 @@ export function getAgentRulesPath(agent: AgentName, root: string, global = false
       return path.join(root, '.cursor', 'rules', 'memorix.mdc');
     case 'claude':
       return path.join(root, 'CLAUDE.md');
+    case 'qwen':
+      return path.join(root, 'QWEN.md');
     case 'copilot':
       return path.join(root, '.github', 'copilot-instructions.md');
     case 'codex':
@@ -1187,6 +1276,13 @@ export async function detectInstalledAgents(): Promise<AgentName[]> {
   try {
     await fs.access(grokDir);
     agents.push('grok');
+  } catch { /* not installed */ }
+
+  // Check for Qwen Code
+  const qwenDir = path.join(home, '.qwen');
+  try {
+    await fs.access(qwenDir);
+    agents.push('qwen');
   } catch { /* not installed */ }
 
   // Check for Codex
@@ -1302,13 +1398,13 @@ export async function installHooks(
         // For shared context files (AGENTS.md, GEMINI.md), don't delete —
         // the install logic below will handle in-place update.
         const basename = path.basename(entry.path);
-        if (basename === 'AGENTS.md' || basename === 'GEMINI.md' || basename === 'CONTEXT.md') {
+        if (basename === 'AGENTS.md' || basename === 'GEMINI.md' || basename === 'QWEN.md' || basename === 'CONTEXT.md') {
           continue;
         }
         // Grok's dedicated JSON file may also contain user-owned hook groups.
         // Its merge/uninstall path removes only Memorix commands, so never
         // delete the whole file during a reinstall cleanup.
-        if (agent === 'grok' && path.resolve(entry.path) === path.resolve(configPath)) {
+        if ((agent === 'grok' || agent === 'qwen') && path.resolve(entry.path) === path.resolve(configPath)) {
           continue;
         }
         await unlink(entry.path);
@@ -1322,6 +1418,9 @@ export async function installHooks(
   switch (agent) {
     case 'claude':
       generated = generateClaudeConfig();
+      break;
+    case 'qwen':
+      generated = generateQwenConfig();
       break;
     case 'grok':
       generated = generateGrokConfig();
@@ -1453,6 +1552,15 @@ export async function installHooks(
       const { recordFile } = await import('../../audit/index.js');
       await recordFile(projectRoot, 'hook', configPath, agent);
     } catch { /* audit is optional */ }
+  } else if (agent === 'qwen') {
+    const existing = await readQwenHookConfig(configPath);
+    const merged = mergeQwenHookConfig(existing, generated as Record<string, unknown>);
+    await fs.writeFile(configPath, JSON.stringify(merged, null, 2), 'utf-8');
+
+    try {
+      const { recordFile } = await import('../../audit/index.js');
+      await recordFile(projectRoot, 'hook', configPath, agent);
+    } catch { /* audit is optional */ }
   } else if (agent === 'kiro') {
     // Kiro uses multiple .kiro.hook files
     const hookFiles = generateKiroHookFiles();
@@ -1541,6 +1649,9 @@ export async function installHooks(
     case 'claude':
       events.push('session_start', 'post_tool', 'user_prompt', 'pre_compact', 'session_end');
       break;
+    case 'qwen':
+      events.push('session_start', 'session_end', 'user_prompt', 'post_tool', 'pre_compact', 'post_compact');
+      break;
     case 'copilot':
       events.push('session_start', 'session_end', 'user_prompt', 'post_tool');
       break;
@@ -1593,7 +1704,7 @@ async function installAgentRules(agent: AgentName, projectRoot: string, global =
   try {
     await fs.mkdir(path.dirname(rulesPath), { recursive: true });
 
-    if (agent === 'claude' || agent === 'codex' || agent === 'opencode' || agent === 'antigravity' || agent === 'gemini-cli' || agent === 'dsh' || agent === 'grok') {
+    if (agent === 'claude' || agent === 'qwen' || agent === 'codex' || agent === 'opencode' || agent === 'antigravity' || agent === 'gemini-cli' || agent === 'dsh' || agent === 'grok') {
       // For shared context files (CLAUDE.md / AGENTS.md / GEMINI.md), append rather than overwrite.
       try {
         const existing = await fs.readFile(rulesPath, 'utf-8');
@@ -1807,6 +1918,15 @@ export async function uninstallHooks(
         await fs.writeFile(configPath, JSON.stringify(cleaned, null, 2), 'utf-8');
       }
       success = true;
+    } else if (agent === 'qwen') {
+      const config = await readQwenHookConfig(configPath);
+      const cleaned = removeMemorixQwenHooks(config);
+      if (Object.keys(cleaned).length === 0) {
+        await fs.unlink(configPath);
+      } else {
+        await fs.writeFile(configPath, JSON.stringify(cleaned, null, 2), 'utf-8');
+      }
+      success = true;
     } else if (agent === 'kiro' || agent === 'opencode') {
       await fs.unlink(configPath);
       success = true;
@@ -1836,14 +1956,14 @@ export async function uninstallHooks(
         // The Grok hook file can contain user-owned groups. The dedicated
         // config pass above already removed Memorix entries safely; only
         // forget the audit record here, never unlink the shared file.
-        if (agent === 'grok' && path.resolve(entry.path) === path.resolve(configPath)) {
+        if ((agent === 'grok' || agent === 'qwen') && path.resolve(entry.path) === path.resolve(configPath)) {
           await removeFile(projectRoot, entry.path);
           auditCleaned = true;
           continue;
         }
         const basename = path.basename(entry.path);
         // Shared context files: remove only the Memorix block, not the whole file
-        if (basename === 'AGENTS.md' || basename === 'GEMINI.md' || basename === 'CONTEXT.md') {
+        if (basename === 'AGENTS.md' || basename === 'GEMINI.md' || basename === 'QWEN.md' || basename === 'CONTEXT.md') {
           try {
             const content = await fs.readFile(entry.path, 'utf-8');
             const memorixStart = content.indexOf('# Memorix');
@@ -1923,7 +2043,7 @@ export async function getHookStatus(
   projectRoot: string,
 ): Promise<Array<{ agent: AgentName; installed: boolean; outdated: boolean; verified: boolean; runtimeReady: boolean; configPath: string }>> {
   const results: Array<{ agent: AgentName; installed: boolean; outdated: boolean; verified: boolean; runtimeReady: boolean; configPath: string }> = [];
-  const agents: AgentName[] = ['claude', 'copilot', 'windsurf', 'cursor', 'kiro', 'codex', 'antigravity', 'gemini-cli', 'opencode', 'pi', 'trae', 'grok'];
+  const agents: AgentName[] = ['claude', 'qwen', 'copilot', 'windsurf', 'cursor', 'kiro', 'codex', 'antigravity', 'gemini-cli', 'opencode', 'pi', 'trae', 'grok'];
 
   for (const agent of agents) {
     const projectPath = getProjectConfigPath(agent, projectRoot);

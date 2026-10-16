@@ -92,6 +92,9 @@ export interface ObservationStore {
   /** List project scopes without materializing observation bodies. */
   listProjectIds?(): Promise<string[]>;
 
+  /** Rewrite legacy alias project IDs without loading the observation corpus. */
+  migrateProjectIds?(aliasIds: readonly string[], canonicalId: string): Promise<number>;
+
   /**
    * Search the persistent lexical index without materializing the corpus.
    * Backends without FTS5 return an empty result and callers use the fallback.

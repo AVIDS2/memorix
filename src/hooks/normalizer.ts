@@ -29,9 +29,12 @@ const EVENT_MAP: Record<string, HookEvent> = {
   UserPromptSubmit: 'user_prompt',
   PreToolUse: 'post_tool', // we handle pre as post for memory purposes
   PostToolUse: 'post_tool',
+  PostToolUseFailure: 'post_tool',
   PreCompact: 'pre_compact',
+  PostCompact: 'post_compact',
   Stop: 'session_end',
   SessionEnd: 'session_end',
+  SessionDelete: 'session_end',
 
   // Grok Build (Claude-compatible PascalCase plus snake_case hookEventName)
   user_prompt_submit: 'user_prompt',
@@ -307,6 +310,7 @@ function extractEventName(payload: Record<string, unknown>, agent: AgentName): s
       // Cursor sends hook_event_name; fall back to inference if missing
       return (payload.hook_event_name as string) ?? inferCursorEvent(payload);
     case 'claude':
+    case 'qwen':
       return (payload.hook_event_name as string) ?? '';
     case 'codex':
       // Codex uses the same lifecycle event field names as Claude Code, but
@@ -379,7 +383,7 @@ function normalizeClaude(payload: Record<string, unknown>, event: HookEvent): Pa
     }
 
     // Detect file edits (Write, Edit, MultiEditTool, etc.)
-    if (/^(write|edit|multi_edit|multiedittool)$/i.test(toolName)) {
+    if (/^(write|write_file|edit|edit_file|multi_edit|multiedittool)$/i.test(toolName)) {
       result.filePath = (toolInput?.file_path as string) ?? (toolInput?.filePath as string);
     }
   }
@@ -755,6 +759,7 @@ export function normalizeHookInput(payload: Record<string, unknown>): Normalized
   let agentSpecific: Partial<NormalizedHookInput> = {};
   switch (agent) {
     case 'claude':
+    case 'qwen':
       agentSpecific = normalizeClaude(payload, event);
       break;
     case 'copilot':

@@ -180,14 +180,14 @@ const main = defineCommand({
     search: () => Promise.resolve(defineCommand({
       meta: { name: 'search', description: 'Shortcut for `memorix memory search`' },
       args: {
-        query: { type: 'positional', description: 'Search query', required: true },
+        query: { type: 'string', description: 'Search query (also accepts the first positional argument)', required: false },
         limit: { type: 'string', description: 'Maximum results' },
         quality: { type: 'string', description: 'Retrieval profile: fast, balanced (default), or thorough' },
         json: { type: 'boolean', description: 'Emit machine-readable JSON output' },
       },
       async run({ args }) {
         await runMemoryShortcut('search', {
-          query: args.query,
+          query: args.query ?? (args._ as string[] | undefined)?.[0],
           limit: args.limit,
           quality: args.quality,
           json: args.json,

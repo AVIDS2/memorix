@@ -9,6 +9,28 @@ All notable changes to this project will be documented in this file.
   Latin tokenizer behavior while adding bounded character n-grams for Chinese,
   Japanese, and Korean text, so exact titles and short CJK queries work when
   embeddings are disabled.
+- **Runtime supply-chain baseline** -- refreshed the MCP SDK, Git adapter,
+  HTTP client, URL/IP parsers, Hono, LanceDB, Sharp, and related lockfile
+  resolutions; the production dependency audit is now clean.
+- **Large-store alias migration** -- startup project-ID normalization now uses a
+  bounded SQLite update instead of requiring the full observation corpus in
+  memory. The FTS5 triggers and storage generation stay current.
+- **Alias-aware search visibility** -- observations retained under a merged
+  project alias are readable through the same alias-expanded search scope.
+- **Hybrid search recovery** -- an empty or stale derived semantic result now
+  falls back to the durable lexical path instead of becoming a silent empty
+  answer.
+- **Search CLI parity** -- `memorix search "query"` and
+  `memorix search --query "query"` now share the same argument contract.
+- **Pi hooks on Node 26** -- hook stdin is paused and unrefed without closing
+  file descriptor 0, so subsequent synchronous Git detection remains safe when
+  a host supplies hook input through a regular file.
+
+### Added
+- **Qwen Code hooks** -- `memorix hooks install --agent qwen` writes the
+  official `.qwen/settings.json` hook shape, preserves user settings, and
+  installs project/global `QWEN.md` guidance. iFlow is not targeted because its
+  official CLI service was retired in April 2026.
 
 ## [1.9.10] - 2026-10-08
 

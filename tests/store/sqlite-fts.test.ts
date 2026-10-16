@@ -102,6 +102,18 @@ describe('SQLite persistent lexical index', () => {
 
     expect(results[0]?.observation.title).toContain('requests.header-map');
   });
+
+  it('handles colon-prefixed and hyphenated issue tokens as data', async () => {
+    await store.insert(observation({
+      title: 'bug:fixed db-preflight',
+      narrative: 'The db-preflight check confirms the bug is fixed.',
+    }));
+
+    await expect(store.searchLexical({ query: 'bug:fixed', projectId: 'project-alpha', limit: 10 }))
+      .resolves.toEqual([expect.objectContaining({ observation: expect.objectContaining({ id: 1 }) })]);
+    await expect(store.searchLexical({ query: 'db-preflight', projectId: 'project-alpha', limit: 10 }))
+      .resolves.toEqual([expect.objectContaining({ observation: expect.objectContaining({ id: 1 }) })]);
+  });
 });
 
 describe('initializeObservationLexicalIndex under contention', () => {

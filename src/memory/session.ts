@@ -12,6 +12,7 @@
  */
 
 import type { Observation, ObservationReader, Session } from '../types.js';
+import { OBSERVATION_ICONS } from '../types.js';
 import { isEligibleForAutomaticDelivery } from './admission.js';
 import { classifyLayer } from './disclosure-policy.js';
 import { resolveAliases } from '../project/aliases.js';
@@ -43,18 +44,6 @@ const RESUME_TYPES = new Set([
   'what-changed',
   'reasoning',
 ]);
-const TYPE_EMOJI: Record<string, string> = {
-  'gotcha': '[DISCOVERY]',
-  'decision': '[WHY]',
-  'problem-solution': '[FIX]',
-  'trade-off': '[TRADEOFF]',
-  'discovery': '[DISCOVERY]',
-  'how-it-works': '[INFO]',
-  'what-changed': '[CHANGE]',
-  'why-it-exists': '[DECISION]',
-  'session-request': '[SESSION]',
-  'probe': '[PROBE]',
-};
 const TYPE_WEIGHTS: Record<string, number> = {
   'gotcha': 6,
   'decision': 5.5,
@@ -689,7 +678,9 @@ export async function getSessionContext(
     lines.push('## Key Project Memories');
     lines.push('*Durable working context — explicit decisions, gotchas, and discoveries.*');
     for (const obs of l2Obs) {
-      const emoji = TYPE_EMOJI[obs.type] ?? '[PIN]';
+      // Same labels as memorix_search and the hooks; a local copy had
+      // gotcha as [DISCOVERY] and decision/why-it-exists swapped.
+      const emoji = OBSERVATION_ICONS[obs.type] ?? '[PIN]';
       const fact = obs.facts?.[0] ? ` — ${redactCredentials(obs.facts[0])}` : '';
       lines.push(`${emoji} ${redactCredentials(obs.title)}${fact}`);
     }

@@ -1152,6 +1152,17 @@ export async function migrateProjectIds(
   const nonCanonical = new Set(aliasIds.filter(id => id !== canonicalId));
   if (nonCanonical.size === 0) return 0;
 
+  const store = projectDir ? getObservationStore() : null;
+  if (store?.migrateProjectIds) {
+    const migrated = await store.migrateProjectIds(aliasIds, canonicalId);
+    if (migrated > 0 && corpusLoaded) {
+      for (const observation of observations) {
+        if (nonCanonical.has(observation.projectId)) observation.projectId = canonicalId;
+      }
+    }
+    return migrated;
+  }
+
   let migrated = 0;
   const changed: Observation[] = [];
   for (const obs of observations) {

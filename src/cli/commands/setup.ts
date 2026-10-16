@@ -394,7 +394,7 @@ function relativePosix(from: string, to: string): string {
   return rel;
 }
 
-export type McpConfigAgent = Exclude<AgentName, 'pi'>;
+export type McpConfigAgent = Exclude<AgentName, 'pi' | 'qwen'>;
 
 export function getMcpAdapter(agent: McpConfigAgent): MCPConfigAdapter {
   const adapters: Record<McpConfigAgent, MCPConfigAdapter> = {

@@ -58,6 +58,28 @@ describe('L2-only project (all explicit)', () => {
     expect(ctx).not.toContain('## L3 Evidence');
   });
 
+  it('labels Key Project Memories with the same type icons as search', async () => {
+    const memories = [
+      { entityName: 'db-pool', type: 'gotcha', title: 'Pool exhausts under load' },
+      { entityName: 'auth', type: 'decision', title: 'Use opaque tokens' },
+      { entityName: 'search', type: 'discovery', title: 'Index rebuilds on boot' },
+    ] as const;
+    for (const memory of memories) {
+      await storeObservation({
+        ...memory,
+        narrative: `${memory.title}.`,
+        projectId: PROJECT_ID,
+        sourceDetail: 'explicit',
+      });
+    }
+
+    const ctx = await getSessionContext(testDir, PROJECT_ID);
+
+    expect(ctx).toContain('[GOTCHA] Pool exhausts under load');
+    expect(ctx).toContain('[DECISION] Use opaque tokens');
+    expect(ctx).toContain('[DISCOVERY] Index rebuilds on boot');
+  });
+
   it('old observations without sourceDetail enter L2 (backward-compat)', async () => {
     await storeObservation({
       entityName: 'db',

@@ -4,7 +4,7 @@
 > before resuming substantial work, update it after a material decision or
 > milestone, and do not create parallel progress logs.
 
-**Last updated:** 2026-10-02
+**Last updated:** 2026-10-16
 
 **Local verification rule:** run the frontend, HTTP service, MCP server, and
 tests directly with Node/npm on the E: workspace. Do not start Docker or add
@@ -13,9 +13,9 @@ artifacts for the VPS/hosted build path only.
 
 ## Current Product State
 
-- `1.9.9` is the current published baseline. It includes the 1.9.8 OpenCode
-  v2 plugin contract compatibility fix plus the optional Requesty provider
-  contribution, independently verified against the full local regression.
+- `1.9.10` is the current published baseline. It includes the 1.9.9 Requesty
+  provider contribution plus the OpenCode 1.x compatibility correction from
+  #321, independently verified across the full remote matrix.
 - The release keeps the canonical Dashboard Memory Map, removes the obsolete
   renderer/dependencies, makes reachable capabilities visible, and preserves
   the old MCP clients while adding the modern 2026-07-28 core contract.
@@ -34,6 +34,32 @@ artifacts for the VPS/hosted build path only.
   `npm run lint`, the sequential low-memory build, the full local regression,
   and all 7 remote CI checks passed. Live embedding tests remain intentionally
   skipped when their environment flag is absent.
+
+## 1.9.x Maintenance and Ecosystem Closeout (2026-10-16)
+
+- [x] Issue #330 was implemented through PR #333 (`477e968`) and merged in
+  `17ec78a`. The in-memory
+  Orama index preserves Latin tokenization and adds bounded CJK character
+  unigrams/bigrams for Chinese, Japanese, and Korean queries. The standard
+  `npm test` entry was also restored by removing the unsupported Vitest 5
+  `--minWorkers=1` flag. Local lint/build/focused tests and the full suite
+  pass; Ubuntu, Windows, macOS, Docker, typecheck, Node 26, and registry CI
+  all pass. #330 is closed.
+- [x] Issue #328 and the existing #3/#322-#325 fixes were implemented through
+  PR #331 (`82e05b0`) and merged in `f9331a8`. Its Node 26 hook smoke and
+  complete cross-platform CI pass; GitHub closed the linked issues after merge.
+- [x] The 2026-10 ecosystem scan used `last30days-skill` v3.28.0 plus Tavily.
+  The strongest signals were bounded on-demand retrieval, progressive
+  disclosure for MCP/skills, and explicit provenance/freshness against memory
+  or context poisoning. Memorix already has admission, evidence, feedback,
+  freshness, retention, and abstention primitives, so no speculative trust
+  score subsystem was added; the next useful work is exposing those existing
+  signals more consistently in receipts and operator views.
+- [ ] #320 remains an independent provider contribution awaiting reviewer and
+  executable fork CI. #329 is approved but has no executable fork CI. #297 is
+  an external awesome-list submission rather than repository code work. #327
+  still lacks reproducible package/security evidence; #313 and #49 remain
+  integration-boundary discussions.
 
 ## 1.9.5 Closeout (2026-09-20)
 
@@ -136,6 +162,16 @@ metadata gates passed.
 - [x] npm, GitHub Release, plugin manifests, and the official MCP Registry
   manifest are synchronized at `1.9.9`.
 
+## 1.9.10 Release Closeout (2026-10-08)
+
+- [x] Merged #321 through PR #326: OpenCode 1.x now accepts the dual plugin
+  export, receives lifecycle/file/command/message events through its generic
+  `event` hook, and gets the Windows timeout mitigation.
+- [x] PR #326 passed Ubuntu, Windows, macOS, Docker, typecheck, native SQLite,
+  and MCP Registry metadata checks.
+- [x] npm, GitHub Release, plugin manifests, and the official MCP Registry
+  manifest are synchronized at `1.9.10`.
+
 ## 1.9.6 Infrastructure Closeout (2026-09-22)
 
 - [x] Added leased, observable SQLite handle registry with idle LRU eviction;
@@ -178,6 +214,14 @@ metadata gates passed.
 - **#314:** merged and shipped in `1.9.9` after independent full-build and
   full-regression verification; the provider remains opt-in and local SQLite
   remains canonical.
+- **#320:** API Route provider contribution was independently verified with
+  lint, build, 139 focused tests, and the full regression (337 files passed,
+  2 skipped; 3197 tests passed, 4 skipped). It remains open because GitHub's
+  merge endpoint returned an internal error twice; no code change has been
+  applied from it to `main`.
+- **#321 / #326:** merged and shipped in `1.9.10`; the dual export now supplies
+  `server`, v1 events use the generic `event` hook, and Windows hook delivery
+  uses a 30-second timeout mitigation.
 - **#318 / #319:** merged and shipped in `1.9.8`; OpenCode v2 plugin loading
   now supports the default `id`/`setup` contract while preserving v1 clients.
 

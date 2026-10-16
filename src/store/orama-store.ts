@@ -8,7 +8,7 @@
  * SQLite remains the durable source of truth; this index is rebuilt as needed.
  */
 
-import { create, insert, insertMultiple, search, remove, update, count, getByID, type AnyOrama } from '@orama/orama';
+import { components, create, insert, insertMultiple, search, remove, update, count, getByID, type AnyOrama } from '@orama/orama';
 import type { MemorixDocument, SearchOptions, IndexEntry, KnowledgeLayer, Observation, ObservationReader } from '../types.js';
 import { OBSERVATION_ICONS, type ObservationType } from '../types.js';
 import { resolveKnowledgeLayer } from '../skills/mini-skills.js';
@@ -42,6 +42,7 @@ let embeddingDimensions: number | null = null;
 let indexEmbeddingProvider: EmbeddingProvider | null = null;
 let deferredCachedVectorHydration: Promise<void> | null = null;
 const NON_CJK_HYBRID_SIMILARITY = 0.45;
+const CJK_RUN = /[\u3400-\u4dbf\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]+/gu;
 const lastSearchModeByProject = new Map<string, string>();
 const SEARCH_MODE_DEFAULT_KEY = '__global__';
 const MAX_SEARCH_MODE_KEYS = 4096;
@@ -64,6 +65,36 @@ function getOptionalObservationStore(): ReturnType<typeof getObservationStore> |
   } catch {
     return null;
   }
+}
+
+/**
+ * Keep Orama's default Latin tokenizer and add bounded character n-grams for
+ * scripts that do not use whitespace word boundaries. The same tokenizer is
+ * used for indexing and querying, so exact CJK titles and short substrings
+ * share stable tokens without changing existing English ranking behavior.
+ */
+export function createSearchTokenizer() {
+  const defaultTokenizer = components.tokenizer.createTokenizer({ language: 'english' });
+
+  return {
+    language: defaultTokenizer.language,
+    normalizationCache: defaultTokenizer.normalizationCache,
+    tokenize(raw: string, language?: string, prop?: string, withCache = true): string[] {
+      const defaultTokens = defaultTokenizer.tokenize(raw, language, prop, withCache);
+      const cjkTokens: string[] = [];
+      const normalized = raw.normalize('NFKC').toLowerCase();
+
+      for (const match of normalized.matchAll(CJK_RUN)) {
+        const characters = Array.from(match[0]);
+        cjkTokens.push(...characters);
+        for (let index = 0; index + 1 < characters.length; index++) {
+          cjkTokens.push(`${characters[index]}${characters[index + 1]}`);
+        }
+      }
+
+      return [...new Set([...defaultTokens, ...cjkTokens])];
+    },
+  };
 }
 
 async function shouldUsePersistentSearch(
@@ -226,6 +257,7 @@ async function searchPersistentSemantically(
     const lexical = await searchPersistentLexically(options, projectIds, limit);
     const store = getObservationStore();
     const documents = new Map<string, MemorixDocument>();
+    const vectorDocumentKeys = new Map<number, string>();
     const addObservation = (observation: Observation): void => {
       const document = observationToSearchDocument(observation);
       documents.set(makeEntryKey(document.projectId, document.observationId), document);
@@ -243,6 +275,7 @@ async function searchPersistentSemantically(
       if (options.type && observation.type !== options.type) return null;
       if (options.source && observation.source !== options.source) return null;
       addObservation(observation);
+      vectorDocumentKeys.set(hit.observationId, makeEntryKey(observation.projectId, observation.id));
       return observation;
     }));
 
@@ -255,7 +288,7 @@ async function searchPersistentSemantically(
       scores.set(key, (scores.get(key) ?? 0) + 0.6 / (RRF_K + index + 1));
     }
     for (const [index, hit] of vectorHits.entries()) {
-      const key = makeEntryKey(hit.projectId, hit.observationId);
+      const key = vectorDocumentKeys.get(hit.observationId) ?? makeEntryKey(hit.projectId, hit.observationId);
       if (!documents.has(key)) continue;
       scores.set(key, (scores.get(key) ?? 0) + 0.4 / (RRF_K + index + 1));
     }
@@ -275,7 +308,7 @@ async function searchPersistentSemantically(
         count: vectorHits.length,
         hits: vectorHits
           .map((hit, index) => {
-            const key = makeEntryKey(hit.projectId, hit.observationId);
+            const key = vectorDocumentKeys.get(hit.observationId) ?? makeEntryKey(hit.projectId, hit.observationId);
             const document = documents.get(key);
             return document ? { id: document.id, score: 0.4 / (RRF_K + index + 1), document } : null;
           })
@@ -283,6 +316,7 @@ async function searchPersistentSemantically(
           .slice(0, limit),
       };
     }
+    if (hits.length === 0) return null;
     return { count: hits.length, hits };
   } catch {
     // LanceDB is a derived optional accelerator. If it is unavailable or its
@@ -417,7 +451,10 @@ async function initializeDb(
     ? { ...baseSchema, embedding: `vector[${dims}]` as const }
     : baseSchema;
 
-  const nextDb = await create({ schema });
+  const nextDb = await create({
+    schema,
+    components: { tokenizer: createSearchTokenizer() },
+  });
 
   // resetDb() may have started a new lifecycle while the provider was loading.
   // Discard this obsolete instance rather than letting it overwrite the new one.
@@ -1063,7 +1100,7 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
     })
     // Visibility is enforced before scoring/ranking so private records cannot
     // affect result order, fallback behavior, or downstream detail reads.
-    .filter((hit) => canReadObservation(hit.document as unknown as MemorixDocument, options.reader))
+    .filter((hit) => canReadObservation(hit.document as unknown as MemorixDocument, options.reader, projectIds ?? undefined))
     // Post-filter by status (active/resolved/archived)
     .filter((hit) => {
       if (statusFilter === 'all') return true;
@@ -1434,7 +1471,7 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
 
   for (const hit of results.hits) {
     const doc = hit.document as unknown as MemorixDocument;
-    if (canReadObservation(doc, options.reader)) rememberObservationDoc(doc);
+    if (canReadObservation(doc, options.reader, projectIds ?? undefined)) rememberObservationDoc(doc);
   }
 
   // Explainable recall: annotate entries with match reasons (O(1) lookup via Map)

@@ -38,15 +38,17 @@ describe('hook process lifecycle', () => {
     await expect(pending).resolves.toBe('{"hook_event_name":"Stop"}');
   });
 
-  it('releases a pipe after the idle timeout so the event loop can exit', async () => {
-    const stdin = new PassThrough();
+  it('unrefs stdin after the idle timeout without closing its file descriptor', async () => {
+    const unref = vi.fn();
+    const stdin = Object.assign(new PassThrough(), { unref });
     const pause = vi.spyOn(stdin, 'pause');
     const destroy = vi.spyOn(stdin, 'destroy');
     const pending = readHookStdin(stdin, 40);
     stdin.write('{"partial":true}');
     await expect(pending).resolves.toBe('{"partial":true}');
     expect(pause).toHaveBeenCalled();
-    expect(destroy).toHaveBeenCalled();
+    expect(unref).toHaveBeenCalled();
+    expect(destroy).not.toHaveBeenCalled();
   });
 
   it('exits after a successful hook so leftover handles cannot keep Node alive', async () => {

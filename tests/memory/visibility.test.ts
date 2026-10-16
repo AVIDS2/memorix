@@ -22,6 +22,13 @@ describe('observation visibility policy', () => {
     expect(canReadObservation(legacy, projectReader)).toBe(true);
   });
 
+  it('treats project aliases as the same readable scope', () => {
+    const aliased = { projectId: 'local/project-a' };
+
+    expect(canReadObservation(aliased, projectReader)).toBe(false);
+    expect(canReadObservation(aliased, projectReader, ['project-a', 'local/project-a'])).toBe(true);
+  });
+
   it('fails closed for personal records without an owner identity', () => {
     const personal = { projectId: 'project-a', visibility: 'personal' as const, createdByAgentId: owner };
 

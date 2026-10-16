@@ -401,6 +401,21 @@ export class SqliteBackend implements ObservationStore {
       .filter((projectId): projectId is string => Boolean(projectId));
   }
 
+  async migrateProjectIds(aliasIds: readonly string[], canonicalId: string): Promise<number> {
+    const sourceIds = [...new Set(aliasIds.filter((projectId) => projectId && projectId !== canonicalId))];
+    if (sourceIds.length === 0) return 0;
+
+    return retrySqliteBusy(async () => {
+      const placeholders = sourceIds.map(() => '?').join(', ');
+      const result = this.db.prepare(
+        `UPDATE observations SET projectId = ? WHERE projectId IN (${placeholders})`,
+      ).run(canonicalId, ...sourceIds);
+      const migrated = Number(result.changes ?? 0);
+      if (migrated > 0) this.bumpGeneration();
+      return migrated;
+    }, 'Migrate observation project IDs');
+  }
+
   async searchLexical(options: SqliteLexicalSearchOptions): Promise<LexicalSearchHit[]> {
     return searchObservationLexically(this.db, options).map((hit) => ({
       observation: rowToObs(hit.row),

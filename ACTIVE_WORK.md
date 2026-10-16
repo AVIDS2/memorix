@@ -37,17 +37,17 @@ artifacts for the VPS/hosted build path only.
 
 ## 1.9.x Maintenance and Ecosystem Closeout (2026-10-16)
 
-- [x] Issue #330 is implemented through PR #333 (`477e968`). The in-memory
+- [x] Issue #330 was implemented through PR #333 (`477e968`) and merged in
+  `17ec78a`. The in-memory
   Orama index preserves Latin tokenization and adds bounded CJK character
   unigrams/bigrams for Chinese, Japanese, and Korean queries. The standard
   `npm test` entry was also restored by removing the unsupported Vitest 5
   `--minWorkers=1` flag. Local lint/build/focused tests and the full suite
   pass; Ubuntu, Windows, macOS, Docker, typecheck, Node 26, and registry CI
-  all pass. The PR is waiting for independent review.
-- [x] Issue #328 and the existing #3/#322-#325 fixes are implemented through
-  PR #331 (`82e05b0`). Its Node 26 hook smoke and complete cross-platform CI
-  pass. The PR is waiting for independent review, so linked issues remain open
-  until GitHub can close them after merge.
+  all pass. #330 is closed.
+- [x] Issue #328 and the existing #3/#322-#325 fixes were implemented through
+  PR #331 (`82e05b0`) and merged in `f9331a8`. Its Node 26 hook smoke and
+  complete cross-platform CI pass; GitHub closed the linked issues after merge.
 - [x] The 2026-10 ecosystem scan used `last30days-skill` v3.28.0 plus Tavily.
   The strongest signals were bounded on-demand retrieval, progressive
   disclosure for MCP/skills, and explicit provenance/freshness against memory

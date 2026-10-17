@@ -163,6 +163,17 @@ describe('Task Workset', () => {
         tokenCount: workset.budget.tokenCount,
       },
     });
+    expect(workset.receipt.governance?.decisions).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: 'claim:' + written.claim.id,
+        disposition: 'include',
+        trust: 'source-backed',
+        quality: 'verified',
+        freshness: 'current',
+        conflict: 'none',
+        evidenceCount: 1,
+      }),
+    ]));
     expect(workset.receipt.selected).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: 'start-here', id: 'path:package.json' }),
     ]));

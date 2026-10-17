@@ -6,6 +6,8 @@
 
 **Last updated:** 2026-10-17
 
+**Long-term roadmap:** [docs/ROADMAP-1.9.12-2.0.md](docs/ROADMAP-1.9.12-2.0.md)
+
 **Local verification rule:** run the frontend, HTTP service, MCP server, and
 tests directly with Node/npm on the E: workspace. Do not start Docker or add
 local Docker data. The Dockerfile and image workflow remain deployment
@@ -13,9 +15,9 @@ artifacts for the VPS/hosted build path only.
 
 ## Current Product State
 
-- `1.9.11` is the current published baseline. It includes the 1.9.9 Requesty
-  provider contribution plus the OpenCode 1.x compatibility correction from
-  #321, independently verified across the full remote matrix.
+- `1.9.12` is the current release candidate; `1.9.11` remains the published
+  baseline until release publication. The candidate is a security and release
+  hardening patch; it keeps the 1.9.11 product contract unchanged.
 - The release keeps the canonical Dashboard Memory Map, removes the obsolete
   renderer/dependencies, makes reachable capabilities visible, and preserves
   the old MCP clients while adding the modern 2026-07-28 core contract.
@@ -44,6 +46,14 @@ artifacts for the VPS/hosted build path only.
   below.
 - [x] Tag `v1.9.11`, npm `memorix@1.9.11`, the official MCP Registry record,
   and the GitHub Release are published from commit `5aad490`.
+
+## 1.9.12 Release Candidate (2026-10-17)
+
+- [x] The publish workflow verifies npm registry signatures before build and
+  test, and fails closed instead of retrying without provenance.
+- [x] Opt-in background npm updates disable lifecycle scripts during install.
+- [ ] Run the full release gates, publish `v1.9.12`, and then begin the 1.10
+  contract-convergence iteration.
 
 ## 1.9.x Maintenance and Ecosystem Closeout (2026-10-16)
 

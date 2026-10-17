@@ -21,8 +21,8 @@ describe('release contract', () => {
   it('publishes only the supported root package', async () => {
     const workflow = await readFile(path.join(repoRoot, '.github', 'workflows', 'publish.yml'), 'utf-8');
     expect(workflow).toContain('npm publish --provenance --access public');
-    expect(workflow).toContain("grep --quiet 'TLOG_CREATE_ENTRY_ERROR'");
-    expect(workflow).toContain('npm publish --access public --ignore-scripts');
+    expect(workflow).not.toContain('npm publish --access public --ignore-scripts');
+    expect(workflow).toContain('npm audit signatures');
     expect(workflow).toContain('npm view "memorix@$version" version');
     expect(workflow).toContain('expected_ref="refs/tags/v${version}"');
     expect(workflow).toContain('Wait for npm package visibility');
@@ -36,7 +36,7 @@ describe('release contract', () => {
       scripts?: { prepublishOnly?: string };
     };
     expect(packageJson.scripts?.prepublishOnly).toBe(
-      'npm run check:mcp-registry && npm run check:plugin-release && npm run build && npm test',
+      'npm run check:mcp-registry && npm run check:plugin-release && npm audit signatures && npm run build && npm test',
     );
     expect(packageJson.scripts?.prepublishOnly).not.toContain('sync:mcp-registry');
     expect(packageJson.scripts?.prepublishOnly).not.toContain('sync:plugin-release');

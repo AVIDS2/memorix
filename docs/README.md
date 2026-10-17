@@ -81,6 +81,7 @@ The public docs are organized by user intent:
 | Design decisions and rationale | [DESIGN_DECISIONS.md](DESIGN_DECISIONS.md) |
 | Module-by-module notes | [MODULES.md](MODULES.md) |
 | Current implementation status and ecosystem watch | [ACTIVE_WORK.md](../ACTIVE_WORK.md) |
+| Long-term product and version roadmap | [1.9.12–2.0 Roadmap](ROADMAP-1.9.12-2.0.md) |
 | 1.8.7 CodeGraph implementation plan and acceptance contract | [1.8.7 CodeGraph](1.8.7-CODEGRAPH.md) |
 | CodeGraph Memory / Context Fabric design | [2026-06-29-codegraph-memory-context-fabric-design.md](superpowers/specs/2026-06-29-codegraph-memory-context-fabric-design.md) |
 | Auto Context Layer design | [2026-06-29-auto-context-layer-design.md](superpowers/specs/2026-06-29-auto-context-layer-design.md) |
@@ -126,7 +127,8 @@ Historical/deep-reference documents may describe older designs. If they conflict
 
 ## Current Product Line
 
-The current product line is **1.9.11**. Multi-device store sync is opt-in and
+The current product line is **1.9.12** (release candidate; **1.9.11** remains
+the published baseline until release publication). Multi-device store sync is opt-in and
 keeps local SQLite canonical; existing users do not upload anything until they
 configure a relay provider explicitly.
 The authoritative acceptance contract for the current implementation is

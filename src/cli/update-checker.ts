@@ -7,6 +7,7 @@
  *
  * Default mode: 'notify' (check and print a restart-safe notice).
  * Set MEMORIX_AUTO_UPDATE=install to opt into silent background install.
+ * Lifecycle scripts are disabled for background installs.
  * Disable via MEMORIX_AUTO_UPDATE=off.
  */
 
@@ -166,7 +167,7 @@ function installUpdateInBackground(targetVersion: string, currentVersion: string
     const timeoutMs = parseAutoUpdateTimeoutMs(process.env.MEMORIX_AUTO_UPDATE_TIMEOUT_MS);
     const child = execFile(
       npmCmd,
-      ['install', '-g', `${PACKAGE_NAME}@${targetVersion}`],
+      ['install', '-g', '--ignore-scripts', `${PACKAGE_NAME}@${targetVersion}`],
       { timeout: timeoutMs, windowsHide: true },
       async (error) => {
         const failure = error ? describeAutoUpdateFailure(error, timeoutMs) : null;

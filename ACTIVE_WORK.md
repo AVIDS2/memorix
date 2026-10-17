@@ -4,7 +4,7 @@
 > before resuming substantial work, update it after a material decision or
 > milestone, and do not create parallel progress logs.
 
-**Last updated:** 2026-10-16
+**Last updated:** 2026-10-17
 
 **Local verification rule:** run the frontend, HTTP service, MCP server, and
 tests directly with Node/npm on the E: workspace. Do not start Docker or add
@@ -13,10 +13,9 @@ artifacts for the VPS/hosted build path only.
 
 ## Current Product State
 
-- `1.9.11` is the current release candidate; `1.9.10` remains the published
-  baseline until release publication. The candidate includes the 1.9.9
-  Requesty provider contribution plus the OpenCode 1.x compatibility correction
-  from #321, independently verified across the full remote matrix.
+- `1.9.11` is the current published baseline. It includes the 1.9.9 Requesty
+  provider contribution plus the OpenCode 1.x compatibility correction from
+  #321, independently verified across the full remote matrix.
 - The release keeps the canonical Dashboard Memory Map, removes the obsolete
   renderer/dependencies, makes reachable capabilities visible, and preserves
   the old MCP clients while adding the modern 2026-07-28 core contract.
@@ -36,16 +35,15 @@ artifacts for the VPS/hosted build path only.
   and all 7 remote CI checks passed. Live embedding tests remain intentionally
   skipped when their environment flag is absent.
 
-## 1.9.11 Release Candidate (2026-10-16)
+## 1.9.11 Release Closeout (2026-10-17)
 
 - [x] Root package metadata, lockfile, MCP Registry metadata, plugin manifests,
   and changelog entries are synchronized at `1.9.11`.
-- [x] The candidate contains the merged 1.9.x maintenance fixes and the
+- [x] The release contains the merged 1.9.x maintenance fixes and the
   independently validated API Route and session-label contributions listed
   below.
-- [ ] Publish npm, the MCP Registry, and the GitHub release only after the
-  release commit has passed its final gates and the maintainer explicitly
-  approves publication.
+- [x] Tag `v1.9.11`, npm `memorix@1.9.11`, the official MCP Registry record,
+  and the GitHub Release are published from commit `5aad490`.
 
 ## 1.9.x Maintenance and Ecosystem Closeout (2026-10-16)
 

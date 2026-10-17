@@ -6,6 +6,15 @@ All notable changes to this project will be documented in this file.
 
 No unreleased changes.
 
+## [1.9.12] - 2026-10-17
+
+### Fixed
+- **Release provenance gate** -- the publish workflow now verifies npm registry
+  signatures and fails closed when provenance publication cannot complete; it
+  no longer retries with an unprovenance `--ignore-scripts` publish.
+- **Background update installs** -- opt-in automatic updates disable npm
+  lifecycle scripts during the global install.
+
 ## [1.9.11] - 2026-10-16
 
 ### Fixed

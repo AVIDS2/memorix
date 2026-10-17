@@ -171,7 +171,7 @@ describe('Auto-Update', () => {
 
       expect(mockExecFile).toHaveBeenCalledWith(
         expect.any(String),
-        ['install', '-g', 'memorix@1.2.4'],
+        ['install', '-g', '--ignore-scripts', 'memorix@1.2.4'],
         expect.objectContaining({ timeout: 123456 }),
         expect.any(Function),
       );

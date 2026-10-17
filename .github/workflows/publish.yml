@@ -40,6 +40,7 @@ jobs:
             exit 1
           fi
       - run: npm ci
+      - run: npm audit signatures
       - run: npm run check:mcp-registry
       - run: npm run build
       - run: npm test
@@ -73,11 +74,6 @@ jobs:
             done
             if [ "$visible" = true ]; then
               echo "memorix@$version became visible after the publish response."
-              publish_status=0
-            elif grep --quiet 'TLOG_CREATE_ENTRY_ERROR' npm-publish.log && \
-                 grep --quiet 'equivalent entry already exists' npm-publish.log; then
-              echo "Sigstore transparency-log duplicate detected; retrying without provenance."
-              npm publish --access public --ignore-scripts
               publish_status=0
             fi
           fi

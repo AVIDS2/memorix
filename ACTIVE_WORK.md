@@ -55,6 +55,16 @@ artifacts for the VPS/hosted build path only.
   MCP Registry, and GitHub Release are published from commit `d5d8b5f`.
 - [ ] Begin the 1.10 contract-convergence iteration from the roadmap.
 
+## 1.10 Iteration Started (2026-10-18)
+
+- [x] Context governance receipts now expose freshness, trust, quality, conflict,
+  and evidence count for every optional-evidence decision. The agent-facing
+  prompt and MCP tool schemas remain unchanged.
+- [x] Focused Workset, governor, graph-context, CLI context, and MCP profile
+  tests pass (54 tests).
+- [ ] Add receipt coverage for retrieval mode, fallback, token budget, and
+  selected/omitted provenance before changing runtime or storage contracts.
+
 ## 1.9.x Maintenance and Ecosystem Closeout (2026-10-16)
 
 - [x] Issue #330 was implemented through PR #333 (`477e968`) and merged in

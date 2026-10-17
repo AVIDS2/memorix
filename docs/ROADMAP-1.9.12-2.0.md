@@ -143,6 +143,11 @@ tool contract、默认 provider、项目绑定或存储真相模型。
 
 ## 3. 1.10：可信上下文与契约收敛
 
+执行状态：第一块“receipt governance transparency”已开始实现。当前 receipt
+已经暴露 optional-evidence 的 freshness、trust、quality、conflict 和
+evidenceCount；下一步继续补 retrieval mode、fallback、token budget、selected/
+omitted provenance，再进入 runtime binding 和 adapter contract。
+
 ### 3.1 版本定位
 
 1.10 是下一条真正的产品主线。它的核心不是“加入更多记忆”，而是让 Memorix

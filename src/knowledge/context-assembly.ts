@@ -29,6 +29,8 @@ export type ContextCandidateKind =
 
 export type ContextCandidateFreshness = 'current' | 'suspect' | 'stale' | 'unknown';
 export type ContextCandidateTrust = 'source-backed' | 'derived' | 'historical';
+export type ContextCandidateQuality = 'verified' | 'probationary' | 'degraded' | 'blocked';
+export type ContextCandidateConflict = 'none' | 'possible' | 'confirmed';
 
 export interface ContextReceiptSelection {
   kind: ContextCandidateKind;
@@ -50,6 +52,11 @@ export interface ContextReceiptGovernanceDecision {
   id?: string;
   disposition: 'include' | 'compact' | 'defer' | 'exclude';
   reasons: string[];
+  freshness?: ContextCandidateFreshness;
+  trust?: ContextCandidateTrust;
+  quality?: ContextCandidateQuality;
+  conflict?: ContextCandidateConflict;
+  evidenceCount?: number;
 }
 
 /** Privacy-safe evidence qualification, never appended to the agent prompt. */
@@ -115,7 +122,11 @@ export function formatContextReceipt(receipt: ContextReceipt): string {
     lines.push('', 'Optional evidence qualification');
     for (const item of receipt.governance.decisions.slice(0, 20)) {
       const id = item.id ? ` ${item.id}` : '';
-      lines.push(`- ${item.kind}${id}: ${item.disposition} (${item.reasons.join(', ')})`);
+      const qualifiers = [item.quality, item.freshness, item.trust, item.conflict]
+        .filter(Boolean)
+        .join(', ');
+      const evidence = item.evidenceCount === undefined ? '' : `, evidence=${item.evidenceCount}`;
+      lines.push(`- ${item.kind}${id}: ${item.disposition} (${item.reasons.join(', ')}${qualifiers ? `; ${qualifiers}${evidence}` : evidence})`);
     }
   }
 

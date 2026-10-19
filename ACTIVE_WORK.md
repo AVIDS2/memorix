@@ -71,7 +71,10 @@ artifacts for the VPS/hosted build path only.
   records, 20 hot SDK runs, embeddings/LLM disabled: specific query p95
   9.629ms and broad query p95 12.079ms. This is a local lexical baseline,
   not a cross-platform SLO.
-- [ ] Expand the baseline across 10k/40k stores and record receipt assembly
+- [x] The same benchmark at 10,000 records produced seed/index 12.633s,
+  specific query p95 17.259ms, and broad query p95 125.991ms. Broad retrieval
+  growth is now a measured 1.10 performance concern.
+- [ ] Expand the baseline to 40k stores and record receipt assembly
   latency before changing runtime or storage contracts.
 
 ## 1.9.x Maintenance and Ecosystem Closeout (2026-10-16)

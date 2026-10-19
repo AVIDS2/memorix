@@ -56,6 +56,8 @@ export interface ContextReceiptOmission {
   kind: ContextCandidateKind;
   reason: 'token-budget' | 'hidden-by-task-lens' | 'unavailable';
   count: number;
+  /** Bounded stable references for omitted evidence; never raw content. */
+  sampleIds?: string[];
 }
 
 export interface ContextReceiptGovernanceDecision {
@@ -131,7 +133,8 @@ export function formatContextReceipt(receipt: ContextReceipt): string {
   if (receipt.omitted.length > 0) {
     lines.push('', 'Withheld by budget');
     for (const item of receipt.omitted) {
-      lines.push(`- ${item.kind}: ${item.count} item(s) (${item.reason})`);
+      const samples = item.sampleIds?.length ? ` [${item.sampleIds.join(', ')}]` : '';
+      lines.push(`- ${item.kind}: ${item.count} item(s) (${item.reason})${samples}`);
     }
   }
 

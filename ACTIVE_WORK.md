@@ -65,8 +65,10 @@ artifacts for the VPS/hosted build path only.
 - [x] Context receipts now also expose retrieval mode, code provider, fallback
   reason, optional candidate count, selected count, and omitted count. The
   auto-context and context-pack surfaces pass their known retrieval state.
-- [ ] Add source-level selected/omitted provenance and retrieval performance
-  baselines before changing runtime or storage contracts.
+- [x] Budget omissions now carry up to three stable sample IDs per category,
+  without storing raw evidence content in the receipt.
+- [ ] Add retrieval performance baselines before changing runtime or storage
+  contracts.
 
 ## 1.9.x Maintenance and Ecosystem Closeout (2026-10-16)
 

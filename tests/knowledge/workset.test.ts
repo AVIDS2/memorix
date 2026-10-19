@@ -182,7 +182,11 @@ describe('Task Workset', () => {
       expect.objectContaining({ kind: 'knowledge-page' }),
     ]));
     expect(workset.receipt.omitted).toEqual(expect.arrayContaining([
-      expect.objectContaining({ kind: 'claim', reason: 'token-budget' }),
+      expect.objectContaining({
+        kind: 'claim',
+        reason: 'token-budget',
+        sampleIds: expect.arrayContaining(['claim:' + written.claim.id]),
+      }),
       expect.objectContaining({ kind: 'knowledge-page', reason: 'token-budget' }),
     ]));
   });

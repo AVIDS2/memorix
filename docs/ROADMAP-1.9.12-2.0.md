@@ -146,9 +146,9 @@ tool contract、默认 provider、项目绑定或存储真相模型。
 执行状态：第一块“receipt governance transparency”已开始实现。当前 receipt
 已经暴露 optional-evidence 的 freshness、trust、quality、conflict 和
 evidenceCount。第二块已补 retrieval mode、code provider、fallback reason、
-candidate/selected/omitted counts；下一步继续补 source-level selected/omitted
-provenance 和 retrieval performance baseline，再进入 runtime binding 和 adapter
-contract。
+candidate/selected/omitted counts；第三块已为预算省略项补最多三个稳定
+sample IDs，不保存原始内容。下一步继续补 retrieval performance baseline，再
+进入 runtime binding 和 adapter contract。
 
 ### 3.1 版本定位
 

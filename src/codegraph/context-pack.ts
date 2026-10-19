@@ -308,6 +308,10 @@ export async function attachTaskWorkset(input: {
     startHere: uniq([...semanticStartHere, ...input.pack.suggestedReads]),
     ...(semanticCode ? { semanticCode } : {}),
     ...(input.providerQuality ? { providerQuality: input.providerQuality } : {}),
+    retrieval: {
+      mode: semanticCode ? 'hybrid' : 'unknown',
+      ...(input.providerQuality?.selected ? { codeProvider: input.providerQuality.selected } : {}),
+    },
     reliableMemory: input.pack.memories
       .filter(memory => memory.status === 'current')
       .map(memory => ({

@@ -18,6 +18,7 @@ import type {
   ContextReceipt,
   ContextReceiptOmission,
   ContextReceiptSelection,
+  ContextRetrievalMode,
 } from './context-assembly.js';
 import type { CodeGraphOutline, CodeGraphProviderQuality } from '../codegraph/types.js';
 import type { KnowledgeClaim, ClaimEvidenceRef } from './types.js';
@@ -206,6 +207,11 @@ export interface BuildTaskWorksetInput {
   startHere: string[];
   semanticCode?: CodeGraphOutline;
   providerQuality?: CodeGraphProviderQuality;
+  retrieval?: {
+    mode: ContextRetrievalMode;
+    codeProvider?: string;
+    fallbackReason?: string;
+  };
   reliableMemory?: WorksetMemorySource[];
   cautionMemory?: WorksetMemorySource[];
   hiddenCautionMemoryCount?: number;
@@ -1231,6 +1237,18 @@ export async function buildTaskWorkset(input: BuildTaskWorksetInput): Promise<Ta
     ...base,
     budget: { maxTokens },
   });
+  const omittedReceipt = receiptOmissions(rendered.omittedItems, base.hiddenCautionMemoryCount);
+  const retrieval = {
+    mode: input.retrieval?.mode ?? (input.semanticCode ? 'hybrid' : 'unknown'),
+    ...(input.retrieval?.codeProvider || input.providerQuality?.selected
+      ? { codeProvider: input.retrieval?.codeProvider ?? input.providerQuality?.selected }
+      : {}),
+    fallbackUsed: Boolean(input.retrieval?.fallbackReason),
+    ...(input.retrieval?.fallbackReason ? { fallbackReason: input.retrieval.fallbackReason } : {}),
+    candidateCount: governed.plan.decisions.length,
+    selectedCount: rendered.selected.length,
+    omittedCount: omittedReceipt.reduce((total, omission) => total + omission.count, 0),
+  } as const;
   const receipt: ContextReceipt = {
     version: '1.3',
     target: input.deliveryTarget ?? 'project-context',
@@ -1239,8 +1257,9 @@ export async function buildTaskWorkset(input: BuildTaskWorksetInput): Promise<Ta
       maxTokens,
       tokenCount: rendered.tokenCount,
     },
+    retrieval,
     selected: rendered.selected,
-    omitted: receiptOmissions(rendered.omittedItems, base.hiddenCautionMemoryCount),
+    omitted: omittedReceipt,
     governance: {
       scope: 'optional-evidence',
       mode: governed.plan.mode,

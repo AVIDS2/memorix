@@ -31,6 +31,17 @@ export type ContextCandidateFreshness = 'current' | 'suspect' | 'stale' | 'unkno
 export type ContextCandidateTrust = 'source-backed' | 'derived' | 'historical';
 export type ContextCandidateQuality = 'verified' | 'probationary' | 'degraded' | 'blocked';
 export type ContextCandidateConflict = 'none' | 'possible' | 'confirmed';
+export type ContextRetrievalMode = 'lexical' | 'semantic' | 'hybrid' | 'fallback' | 'unknown';
+
+export interface ContextReceiptRetrieval {
+  mode: ContextRetrievalMode;
+  codeProvider?: string;
+  fallbackUsed: boolean;
+  fallbackReason?: string;
+  candidateCount: number;
+  selectedCount: number;
+  omittedCount: number;
+}
 
 export interface ContextReceiptSelection {
   kind: ContextCandidateKind;
@@ -76,6 +87,7 @@ export interface ContextReceipt {
     maxTokens: number;
     tokenCount: number;
   };
+  retrieval: ContextReceiptRetrieval;
   selected: ContextReceiptSelection[];
   omitted: ContextReceiptOmission[];
   governance?: ContextReceiptGovernance;
@@ -100,7 +112,12 @@ export function formatContextReceipt(receipt: ContextReceipt): string {
     `- Budget: ${receipt.budget.tokenCount}/${receipt.budget.maxTokens} tokens`,
     `- Assembly: ${receipt.elapsedMs} ms`,
     `- Selected: ${receipt.selected.length} item(s)`,
+    `- Retrieval: ${receipt.retrieval.mode} (${receipt.retrieval.candidateCount} optional candidate(s))`,
   ];
+
+  if (receipt.retrieval.fallbackUsed) {
+    lines.push(`- Fallback: ${receipt.retrieval.fallbackReason ?? 'retrieval fallback used'}`);
+  }
 
   if (receipt.selected.length > 0) {
     lines.push('', 'Selected evidence');

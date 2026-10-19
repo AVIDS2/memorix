@@ -365,7 +365,7 @@ function appendLine(
     if (receiptSelection) selected?.push(receiptSelection);
     return true;
   }
-  omitted.push(omittedKind);
+  omitted.push(receiptSelection?.id ? `${omittedKind}|${receiptSelection.id}` : omittedKind);
   return false;
 }
 
@@ -394,15 +394,23 @@ function receiptOmissionKind(raw: string): ContextCandidateKind | undefined {
 
 function receiptOmissions(omitted: string[], hiddenCautionMemoryCount: number): ContextReceiptOmission[] {
   const counts = new Map<ContextCandidateKind, number>();
+  const samples = new Map<ContextCandidateKind, string[]>();
   for (const raw of omitted) {
-    const kind = receiptOmissionKind(raw);
+    const [omittedKind, sampleId] = raw.split('|', 2);
+    const kind = receiptOmissionKind(omittedKind);
     if (!kind || raw.endsWith('-heading')) continue;
     counts.set(kind, (counts.get(kind) ?? 0) + 1);
+    if (sampleId) {
+      const values = samples.get(kind) ?? [];
+      if (!values.includes(sampleId) && values.length < 3) values.push(sampleId);
+      samples.set(kind, values);
+    }
   }
   const receipt: ContextReceiptOmission[] = [...counts.entries()].map(([kind, count]) => ({
     kind,
     reason: 'token-budget',
     count,
+    ...(samples.get(kind)?.length ? { sampleIds: samples.get(kind) } : {}),
   }));
   if (hiddenCautionMemoryCount > 0) {
     receipt.push({

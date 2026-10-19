@@ -74,8 +74,12 @@ artifacts for the VPS/hosted build path only.
 - [x] The same benchmark at 10,000 records produced seed/index 12.633s,
   specific query p95 17.259ms, and broad query p95 125.991ms. Broad retrieval
   growth is now a measured 1.10 performance concern.
-- [ ] Expand the baseline to 40k stores and record receipt assembly
-  latency before changing runtime or storage contracts.
+- [x] At 40,000 records the same Windows hot SDK benchmark produced seed/index
+  45.658s, specific query p95 2.187ms, and broad query p95 84.462ms. The
+  specific path is sensitive to hot-cache/query distribution; broad retrieval
+  remains the stable capacity signal.
+- [ ] Record receipt assembly latency before changing runtime or storage
+  contracts.
 
 ## 1.9.x Maintenance and Ecosystem Closeout (2026-10-16)
 

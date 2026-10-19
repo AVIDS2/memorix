@@ -153,7 +153,9 @@ p95 9.629ms，broad query p95 12.079ms；10,000 records 时 seed/index
 12.633s，specific query p95 17.259ms，broad query p95 125.991ms。这个结果说明
 broad retrieval 的数据量增长成本已经是 1.10 的实测性能问题。下一步扩展
 40k 数据量和 receipt assembly latency，再进入 runtime binding 和 adapter
-contract。
+contract。40,000 records 时 seed/index 45.658s、specific query p95 2.187ms、
+broad query p95 84.462ms；specific path 对热缓存和 query distribution 敏感，
+broad path 是更稳定的容量信号。
 
 ### 3.1 版本定位
 

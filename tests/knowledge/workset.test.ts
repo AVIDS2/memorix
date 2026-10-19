@@ -187,6 +187,64 @@ describe('Task Workset', () => {
     ]));
   });
 
+  it('records retrieval mode, fallback, and bounded candidate counts in the receipt', async () => {
+    const root = tempDir();
+    const workset = await buildTaskWorkset({
+      projectId: 'org/repo',
+      dataDir: root,
+      task: 'Recover the authentication context.',
+      lens: 'bugfix',
+      currentFacts: ['Git: clean worktree'],
+      semanticCode: {
+        provider: 'semantic',
+        entryPoints: [],
+        relations: [],
+        relatedFiles: ['src/auth.ts'],
+        stats: { nodes: 0, edges: 0, files: 1 },
+      },
+      providerQuality: {
+        selected: 'semantic',
+        selectedQuality: 'semantic',
+        mode: 'auto',
+        lite: {
+          quality: 'heuristic',
+          capabilities: {
+            declarations: true,
+            importHints: true,
+            localRelativeImportTargets: true,
+            resolvedRelations: false,
+            exactLocations: false,
+          },
+          supportedLanguages: ['typescript'],
+        },
+        external: { state: 'unavailable', reason: 'provider unavailable' },
+        semantic: { state: 'ready', symbols: 2, edges: 1, parserErrors: 0 },
+      },
+      retrieval: {
+        mode: 'hybrid',
+        codeProvider: 'semantic',
+        fallbackReason: 'external provider unavailable; local semantic context used',
+      },
+      startHere: ['src/auth.ts'],
+      reliableMemory: [],
+      cautionMemory: [],
+      verificationHints: ['Run the focused auth test.'],
+      worktreeDirty: false,
+      freshness: { suspect: 0, stale: 0 },
+      maxTokens: 120,
+    });
+
+    expect(workset.receipt.retrieval).toMatchObject({
+      mode: 'hybrid',
+      codeProvider: 'semantic',
+      fallbackUsed: true,
+      fallbackReason: 'external provider unavailable; local semantic context used',
+      candidateCount: 0,
+      selectedCount: expect.any(Number),
+      omittedCount: expect.any(Number),
+    });
+  });
+
   it('does not load a workflow for an incompatible target agent', async () => {
     const root = tempDir();
     const workspace = await initializeKnowledgeWorkspace({

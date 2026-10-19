@@ -62,8 +62,11 @@ artifacts for the VPS/hosted build path only.
   prompt and MCP tool schemas remain unchanged.
 - [x] Focused Workset, governor, graph-context, CLI context, and MCP profile
   tests pass (54 tests).
-- [ ] Add receipt coverage for retrieval mode, fallback, token budget, and
-  selected/omitted provenance before changing runtime or storage contracts.
+- [x] Context receipts now also expose retrieval mode, code provider, fallback
+  reason, optional candidate count, selected count, and omitted count. The
+  auto-context and context-pack surfaces pass their known retrieval state.
+- [ ] Add source-level selected/omitted provenance and retrieval performance
+  baselines before changing runtime or storage contracts.
 
 ## 1.9.x Maintenance and Ecosystem Closeout (2026-10-16)
 

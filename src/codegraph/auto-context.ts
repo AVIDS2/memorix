@@ -460,6 +460,11 @@ export async function buildAutoProjectContext(input: {
       : {}),
     ...(semanticOutline ? { semanticCode: semanticOutline } : {}),
     providerQuality,
+    retrieval: {
+      mode: semanticOutline ? 'hybrid' : 'lexical',
+      codeProvider: providerQuality.selected,
+      ...(externalCaution ? { fallbackReason: externalCaution } : {}),
+    },
     currentFacts: worksetFactLines(currentFacts),
     ...(continuation ? { continuation } : {}),
     ...(continuity ? { continuity } : {}),

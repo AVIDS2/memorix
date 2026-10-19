@@ -6323,6 +6323,25 @@ export const MODELS = {
 		} satisfies Model<"anthropic-messages">,
 	},
 	"minimax": {
+		"MiniMax-M3.1-Flash": {
+			id: "MiniMax-M3.1-Flash",
+			name: "MiniMax-M3.1-Flash",
+			api: "anthropic-messages",
+			provider: "minimax",
+			baseUrl: "https://api.minimax.io/anthropic",
+			compat: {"forceAdaptiveThinking":true},
+			reasoning: true,
+			thinkingLevelMap: {"off":null,"minimal":null,"low":"low","medium":"medium","high":"high","xhigh":"xhigh"},
+			input: ["text", "image", "video"],
+			cost: {
+				input: 0.15,
+				output: 0.6,
+				cacheRead: 0.015,
+				cacheWrite: 0,
+			},
+			contextWindow: 1000000,
+			maxTokens: 524288,
+		} satisfies Model<"anthropic-messages">,
 		"MiniMax-M2.7": {
 			id: "MiniMax-M2.7",
 			name: "MiniMax-M2.7",
@@ -6363,6 +6382,7 @@ export const MODELS = {
 			api: "anthropic-messages",
 			provider: "minimax",
 			baseUrl: "https://api.minimax.io/anthropic",
+			compat: {"forceAdaptiveThinking":true},
 			reasoning: true,
 			input: ["text", "image", "video"],
 			cost: {
@@ -6372,10 +6392,29 @@ export const MODELS = {
 				cacheWrite: 0,
 			},
 			contextWindow: 1000000,
-			maxTokens: 128000,
+			maxTokens: 524288,
 		} satisfies Model<"anthropic-messages">,
 	},
 	"minimax-cn": {
+		"MiniMax-M3.1-Flash": {
+			id: "MiniMax-M3.1-Flash",
+			name: "MiniMax-M3.1-Flash",
+			api: "anthropic-messages",
+			provider: "minimax-cn",
+			baseUrl: "https://api.minimaxi.com/anthropic",
+			compat: {"forceAdaptiveThinking":true},
+			reasoning: true,
+			thinkingLevelMap: {"off":null,"minimal":null,"low":"low","medium":"medium","high":"high","xhigh":"xhigh"},
+			input: ["text", "image", "video"],
+			cost: {
+				input: 0.15,
+				output: 0.6,
+				cacheRead: 0.015,
+				cacheWrite: 0,
+			},
+			contextWindow: 1000000,
+			maxTokens: 524288,
+		} satisfies Model<"anthropic-messages">,
 		"MiniMax-M2.7": {
 			id: "MiniMax-M2.7",
 			name: "MiniMax-M2.7",
@@ -6416,6 +6455,7 @@ export const MODELS = {
 			api: "anthropic-messages",
 			provider: "minimax-cn",
 			baseUrl: "https://api.minimaxi.com/anthropic",
+			compat: {"forceAdaptiveThinking":true},
 			reasoning: true,
 			input: ["text", "image", "video"],
 			cost: {
@@ -6425,7 +6465,7 @@ export const MODELS = {
 				cacheWrite: 0,
 			},
 			contextWindow: 1000000,
-			maxTokens: 128000,
+			maxTokens: 524288,
 		} satisfies Model<"anthropic-messages">,
 	},
 	"mistral": {
@@ -9546,6 +9586,24 @@ export const MODELS = {
 		} satisfies Model<"anthropic-messages">,
 	},
 	"openrouter": {
+		"minimax/minimax-m3.1-flash:free": {
+			id: "minimax/minimax-m3.1-flash:free",
+			name: "MiniMax: MiniMax M3.1 Flash (free)",
+			api: "openai-completions",
+			provider: "openrouter",
+			baseUrl: "https://openrouter.ai/api/v1",
+			reasoning: true,
+			thinkingLevelMap: {"off":null,"minimal":null,"low":"low","medium":"medium","high":"high","xhigh":"xhigh"},
+			input: ["text", "image"],
+			cost: {
+				input: 0,
+				output: 0,
+				cacheRead: 0,
+				cacheWrite: 0,
+			},
+			contextWindow: 1000000,
+			maxTokens: 524288,
+		} satisfies Model<"openai-completions">,
 		"ai21/jamba-large-1.7": {
 			id: "ai21/jamba-large-1.7",
 			name: "AI21: Jamba Large 1.7",

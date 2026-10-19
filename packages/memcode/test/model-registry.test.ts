@@ -92,6 +92,20 @@ describe("ModelRegistry", () => {
 		messages: [],
 	};
 
+	test("keeps retired MiniMax IDs resolvable while showing current direct choices", () => {
+		writeRawModelsJson({ minimax: { baseUrl: "https://api.minimax.io/anthropic", apiKey: "test" } });
+		const registry = ModelRegistry.create(authStorage, modelsJsonPath);
+		expect(registry.find("minimax", "MiniMax-M2.7")).toBeDefined();
+		expect(registry.getAvailable().filter(model => model.provider === "minimax").map(model => model.id))
+			.toEqual(["MiniMax-M3.1-Flash", "MiniMax-M3"]);
+	});
+
+	test("does not filter legacy choices on custom MiniMax endpoints", () => {
+		writeRawModelsJson({ minimax: { baseUrl: "https://private.example/anthropic", apiKey: "test" } });
+		const registry = ModelRegistry.create(authStorage, modelsJsonPath);
+		expect(registry.getAvailable().some(model => model.provider === "minimax" && model.id === "MiniMax-M2.7")).toBe(true);
+	});
+
 	describe("baseUrl override (no custom models)", () => {
 		test("overriding baseUrl keeps all built-in models", () => {
 			writeRawModelsJson({

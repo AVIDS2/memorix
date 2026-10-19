@@ -515,6 +515,7 @@ export const streamAnthropic: StreamFunction<"anthropic-messages", AnthropicOpti
 			if (nextParams !== undefined) {
 				params = nextParams as MessageCreateParamsStreaming;
 			}
+			params = normalizeMiniMaxParams(model, params, options);
 			const requestOptions = {
 				...(options?.signal ? { signal: options.signal } : {}),
 				...(options?.timeoutMs !== undefined ? { timeout: options.timeoutMs } : {}),
@@ -994,6 +995,29 @@ function buildParams(
 		}
 	}
 
+	return normalizeMiniMaxParams(model, params, options);
+}
+
+function normalizeMiniMaxParams(
+	model: Model<"anthropic-messages">,
+	params: MessageCreateParamsStreaming,
+	options?: AnthropicOptions,
+): MessageCreateParamsStreaming {
+	if (model.provider !== "minimax" && model.provider !== "minimax-cn") return params;
+	if (params.model === "MiniMax-M3.1-Flash") {
+		const effort = params.output_config?.effort ?? options?.effort ?? "max";
+		const normalized = { ...params, thinking: { type: "adaptive" as const } };
+		normalized.output_config = {
+			...params.output_config,
+			effort: ["low", "medium", "high", "xhigh", "max"].includes(effort) ? effort : "max",
+		} as MessageCreateParamsStreaming["output_config"];
+		delete normalized.service_tier;
+		delete (normalized as unknown as Record<string, unknown>).reasoning_split;
+		return normalized;
+	}
+	if (params.model === "MiniMax-M3" && params.thinking) {
+		return { ...params, thinking: { type: params.thinking.type === "disabled" ? "disabled" : "adaptive" } };
+	}
 	return params;
 }
 

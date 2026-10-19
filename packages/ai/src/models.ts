@@ -1,4 +1,6 @@
 import { MODELS } from "./models.generated.ts";
+import { isLegacyMiniMaxTextModel } from "./minimax-models.ts";
+export { isLegacyMiniMaxTextModel } from "./minimax-models.ts";
 import type { Api, KnownProvider, Model, ModelThinkingLevel, Usage } from "./types.ts";
 
 const modelRegistry: Map<string, Map<string, Model<Api>>> = new Map();
@@ -33,9 +35,16 @@ export function getProviders(): KnownProvider[] {
 
 export function getModels<TProvider extends KnownProvider>(
 	provider: TProvider,
+	options: { includeLegacy?: boolean } = {},
 ): TProvider extends GeneratedProvider ? Model<ModelApi<TProvider, GeneratedModelId<TProvider>>>[] : Model<Api>[] {
 	const models = modelRegistry.get(provider);
-	return (models ? Array.from(models.values()) : []) as TProvider extends GeneratedProvider
+	const available = (models ? Array.from(models.values()) : []).filter(
+		model => options.includeLegacy || !isLegacyMiniMaxTextModel(model),
+	);
+	if (provider === "minimax" || provider === "minimax-cn") {
+		available.sort((a, b) => Number(b.id === "MiniMax-M3.1-Flash") - Number(a.id === "MiniMax-M3.1-Flash"));
+	}
+	return available as TProvider extends GeneratedProvider
 		? Model<ModelApi<TProvider, GeneratedModelId<TProvider>>>[]
 		: Model<Api>[];
 }

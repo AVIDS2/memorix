@@ -147,8 +147,10 @@ tool contract、默认 provider、项目绑定或存储真相模型。
 已经暴露 optional-evidence 的 freshness、trust、quality、conflict 和
 evidenceCount。第二块已补 retrieval mode、code provider、fallback reason、
 candidate/selected/omitted counts；第三块已为预算省略项补最多三个稳定
-sample IDs，不保存原始内容。下一步继续补 retrieval performance baseline，再
-进入 runtime binding 和 adapter contract。
+sample IDs，不保存原始内容。第一条本地性能基线已记录：Windows Node
+22.22.3、1,000 records、20 runs、embedding/LLM disabled，specific query
+p95 9.629ms，broad query p95 12.079ms。下一步扩展 10k/40k 数据量和 receipt
+assembly latency，再进入 runtime binding 和 adapter contract。
 
 ### 3.1 版本定位
 

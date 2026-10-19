@@ -67,8 +67,12 @@ artifacts for the VPS/hosted build path only.
   auto-context and context-pack surfaces pass their known retrieval state.
 - [x] Budget omissions now carry up to three stable sample IDs per category,
   without storing raw evidence content in the receipt.
-- [ ] Add retrieval performance baselines before changing runtime or storage
-  contracts.
+- [x] Initial retrieval baseline recorded on Windows Node 22.22.3, 1,000
+  records, 20 hot SDK runs, embeddings/LLM disabled: specific query p95
+  9.629ms and broad query p95 12.079ms. This is a local lexical baseline,
+  not a cross-platform SLO.
+- [ ] Expand the baseline across 10k/40k stores and record receipt assembly
+  latency before changing runtime or storage contracts.
 
 ## 1.9.x Maintenance and Ecosystem Closeout (2026-10-16)
 

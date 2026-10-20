@@ -198,11 +198,11 @@ crash must be reconciled before a dangerous retry.
 temporary Git project with an isolated data directory. It runs with embeddings
 disabled, so it does not use provider credentials or make paid network calls.
 The gate measures steady-state writes, first lexical search, process memory,
-HTTP readiness, MCP initialize/bind/context/search/store, hook capture, and an
-SDK close/reopen cycle. Every network request has a hard timeout, and the
-report fails when an interactive path exceeds its release budget. It also
-verifies that the personal hook candidate remains durable on disk without
-becoming visible to an unbound SDK reader.
+HTTP readiness, MCP initialize/bind/context/search/store, bounded receipt
+assembly latency, hook capture, and an SDK close/reopen cycle. Every network
+request has a hard timeout, and the report fails when an interactive path
+exceeds its release budget. It also verifies that the personal hook candidate
+remains durable on disk without becoming visible to an unbound SDK reader.
 
 Small stores may use bounded Orama batches. Large stores skip that hydration and
 use the persistent FTS5 path immediately; the optional semantic shadow index is
@@ -213,6 +213,11 @@ derived indexes.
 Results are machine-specific and should be compared on the same OS and Node
 version. The release gate is an integrity and regression check, not a public
 latency guarantee.
+
+The `httpMcp.contextMs` value includes the full MCP request, while
+`httpMcp.receiptAssemblyMs` comes from the receipt's own `elapsedMs` field.
+Keep both values when recording a baseline so transport, runtime startup, and
+context assembly are not conflated.
 
 ### 1.9.x Capacity Closeout Evidence (2026-09-21)
 
@@ -313,3 +318,12 @@ Measured Windows/Node 22 evidence for this implementation: 1k, 10k, 40k, and
 296ms. These are same-machine acceptance numbers, not universal latency
 promises. The release is complete only when the measurements and fallback
 behavior remain recorded alongside the implementation.
+
+The 1.10 receipt baseline adds an internal assembly measurement to the same
+gate. On Windows Node `v22.22.3` with 40,000 records, the complete HTTP MCP
+context call was `573.561ms`, while the bounded receipt reported `7ms` of
+assembly time. The same run measured `318.202ms` cold HTTP search, `2.733s`
+hook persistence, `157.485ms` SDK reopen, and `428.7MB` peak RSS. The gate
+passed. `contextMs` includes transport and runtime work; `receiptAssemblyMs`
+is the Workset receipt's own assembly timer, so the two values must not be
+compared as duplicate measurements.

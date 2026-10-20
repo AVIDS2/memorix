@@ -53,7 +53,7 @@ artifacts for the VPS/hosted build path only.
 - [x] Opt-in background npm updates disable lifecycle scripts during install.
 - [x] Full local and remote release gates passed; `v1.9.12`, npm,
   MCP Registry, and GitHub Release are published from commit `d5d8b5f`.
-- [ ] Begin the 1.10 contract-convergence iteration from the roadmap.
+- [x] Begin the 1.10 contract-convergence iteration from the roadmap.
 
 ## 1.10 Iteration Started (2026-10-18)
 
@@ -78,8 +78,13 @@ artifacts for the VPS/hosted build path only.
   45.658s, specific query p95 2.187ms, and broad query p95 84.462ms. The
   specific path is sensitive to hot-cache/query distribution; broad retrieval
   remains the stable capacity signal.
-- [ ] Record receipt assembly latency before changing runtime or storage
-  contracts.
+- [x] The large-store gate now requests the bounded MCP receipt and records
+  receipt assembly separately from end-to-end request time. On Windows Node
+  22.22.3 with 40,000 records, MCP context was 573.561ms end to end and
+  receipt assembly was 7ms; the gate passed with 428.7MB peak RSS, 318.202ms
+  cold MCP search, 2.733s hook write, and 157.485ms SDK reopen.
+- [ ] Define the runtime/project-binding receipt contract before changing
+  adapter or storage behavior.
 
 ## 1.9.x Maintenance and Ecosystem Closeout (2026-10-16)
 

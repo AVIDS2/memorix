@@ -157,6 +157,15 @@ function toolText(result) {
   return content.map((part) => part.text ?? '').join('\n');
 }
 
+function contextReceipt(result) {
+  try {
+    const parsed = JSON.parse(toolText(result));
+    return parsed?.receipt ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function requireMcpSuccess(label, result) {
   if (result.status < 200 || result.status >= 300 || result.json?.error || result.json?.result?.isError) {
     const detail = result.json?.error?.message ?? toolText(result) ?? result.text;
@@ -211,11 +220,18 @@ async function exerciseHttpMcp(port, projectRoot, lookupToken) {
     method: 'tools/call',
     params: {
       name: 'memorix_project_context',
-      arguments: { task: 'Verify large-store persistence, retrieval, and release readiness.' },
+      arguments: {
+        task: 'Verify large-store persistence, retrieval, and release readiness.',
+        format: 'receipt',
+      },
     },
     id: 3,
   }, sessionId, 120_000));
   requireMcpSuccess('HTTP MCP project_context', context.value);
+  const receipt = contextReceipt(context.value);
+  if (!receipt || typeof receipt.elapsedMs !== 'number') {
+    throw new Error('HTTP MCP project_context receipt did not expose elapsedMs');
+  }
 
   const searched = await measure(() => mcpPost(port, {
     jsonrpc: '2.0',
@@ -256,6 +272,7 @@ async function exerciseHttpMcp(port, projectRoot, lookupToken) {
     initializeMs: initialized.elapsedMs,
     bindMs: bound.elapsedMs,
     contextMs: context.elapsedMs,
+    receiptAssemblyMs: receipt.elapsedMs,
     searchMs: searched.elapsedMs,
     storeMs: stored.elapsedMs,
   };
@@ -470,6 +487,7 @@ async function main() {
     if (report.httpMcp.initializeMs > 5_000) failed.push(`MCP initialize ${report.httpMcp.initializeMs}ms > 5000ms`);
     if (report.httpMcp.bindMs > 5_000) failed.push(`MCP bind ${report.httpMcp.bindMs}ms > 5000ms`);
     if (report.httpMcp.contextMs > 5_000) failed.push(`MCP context ${report.httpMcp.contextMs}ms > 5000ms`);
+    if (report.httpMcp.receiptAssemblyMs > 5_000) failed.push(`receipt assembly ${report.httpMcp.receiptAssemblyMs}ms > 5000ms`);
     if (report.httpMcp.searchMs > 15_000) failed.push(`MCP cold search ${report.httpMcp.searchMs}ms > 15000ms`);
     if (report.httpMcp.storeMs > 5_000) failed.push(`MCP store ${report.httpMcp.storeMs}ms > 5000ms`);
     if (report.hookMs > 20_000) failed.push(`hook ${report.hookMs}ms > 20000ms`);

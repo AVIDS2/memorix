@@ -155,7 +155,11 @@ broad retrieval 的数据量增长成本已经是 1.10 的实测性能问题。�
 40k 数据量和 receipt assembly latency，再进入 runtime binding 和 adapter
 contract。40,000 records 时 seed/index 45.658s、specific query p95 2.187ms、
 broad query p95 84.462ms；specific path 对热缓存和 query distribution 敏感，
-broad path 是更稳定的容量信号。
+broad path 是更稳定的容量信号。随后 large-store gate 已增加 bounded
+receipt 测量：同一 Windows Node 22.22.3、40k records 下，MCP context 端到端
+为 573.561ms，receipt assembly 为 7ms，说明当前 receipt 组装不是容量瓶颈。
+下一步进入 runtime binding receipt 和 adapter contract，并继续保留端到端
+context 与内部 assembly 两个指标。
 
 ### 3.1 版本定位
 

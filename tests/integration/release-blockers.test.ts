@@ -673,7 +673,10 @@ describe('Git-missing prompt: CLI shows clear guidance', () => {
       });
       child.stderr?.on('data', (d: Buffer) => { stderr += d.toString(); });
       child.on('close', finish);
-      setTimeout(finish, 8_000);
+      // The full sequential suite can leave the Linux runner under load;
+      // allow the freshly built CLI enough time to start before treating an
+      // empty capture as a product failure.
+      setTimeout(finish, 30_000);
     });
   }
 
@@ -681,11 +684,11 @@ describe('Git-missing prompt: CLI shows clear guidance', () => {
     const { stdout } = await runCli(['search', 'test']);
     expect(stdout).toContain('git repo');
     expect(stdout).toContain('git init');
-  }, 15_000);
+  }, 40_000);
 
   it('memorix recent in non-git dir shows unified git prompt', async () => {
     const { stdout } = await runCli(['recent']);
     expect(stdout).toContain('git repo');
     expect(stdout).toContain('git init');
-  }, 15_000);
+  }, 40_000);
 });

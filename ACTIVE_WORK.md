@@ -67,7 +67,18 @@ artifacts for the VPS/hosted build path only.
   auto-context and context-pack surfaces pass their known retrieval state.
 - [x] Budget omissions now carry up to three stable sample IDs per category,
   without storing raw evidence content in the receipt.
-- [ ] Add retrieval performance baselines before changing runtime or storage
+- [x] Initial retrieval baseline recorded on Windows Node 22.22.3, 1,000
+  records, 20 hot SDK runs, embeddings/LLM disabled: specific query p95
+  9.629ms and broad query p95 12.079ms. This is a local lexical baseline,
+  not a cross-platform SLO.
+- [x] The same benchmark at 10,000 records produced seed/index 12.633s,
+  specific query p95 17.259ms, and broad query p95 125.991ms. Broad retrieval
+  growth is now a measured 1.10 performance concern.
+- [x] At 40,000 records the same Windows hot SDK benchmark produced seed/index
+  45.658s, specific query p95 2.187ms, and broad query p95 84.462ms. The
+  specific path is sensitive to hot-cache/query distribution; broad retrieval
+  remains the stable capacity signal.
+- [ ] Record receipt assembly latency before changing runtime or storage
   contracts.
 
 ## 1.9.x Maintenance and Ecosystem Closeout (2026-10-16)

@@ -61,6 +61,7 @@ import {
   createProjectBindingController,
   type ProjectBindingController,
   type ProjectBindingSource,
+  type ProjectBindingTransport,
 } from './server/request-context.js';
 import { getMcpServerInfo, registerMcpDiscovery } from './server/mcp-compat.js';
 
@@ -220,6 +221,8 @@ export interface CreateMemorixServerOptions {
    * legacy session adapter today; no project operation reads session headers.
    */
   projectBinding?: ProjectBindingController;
+  /** Transport label used only in the privacy-safe binding receipt. */
+  bindingTransport?: ProjectBindingTransport;
 }
 
 /**
@@ -4006,10 +4009,15 @@ export async function createMemorixServer(
         agent,
         reader: getObservationReader(),
       });
+      const bindingReceipt = projectBinding.receipt({
+        dataDir: projectDir,
+        transport: options.bindingTransport,
+      });
 
       const lines = [
         `[OK] Session started: ${result.session.id}`,
         `Project: ${project.name} (${project.id})`,
+        `Binding: ${bindingReceipt.state} via ${bindingReceipt.source}`,
         result.session.agent ? `Agent: ${result.session.agent}` : '',
         registeredAgent ? `Agent ID: ${registeredAgent.agent_id} (instance: ${registeredAgent.instance_id})` : '',
         !registeredAgent ? 'Coordination identity: not joined (memory/session context only)' : '',
@@ -4077,6 +4085,7 @@ export async function createMemorixServer(
 
       return {
         content: [{ type: 'text' as const, text: lines.filter(Boolean).join('\n') }],
+        structuredContent: { binding: bindingReceipt },
       };
     },
   );

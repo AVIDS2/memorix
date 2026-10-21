@@ -100,6 +100,7 @@ describe('memorix_session_start home bind and hydrate', () => {
       allowUntrackedFallback: false,
       deferProjectInitUntilBound: true,
       deferProjectRuntimeInit: true,
+      bindingTransport: 'legacy-http',
     });
     let releaseLoadAll: (() => void) | undefined;
     const loadAllBlocked = new Promise<void>((resolve) => {
@@ -112,11 +113,23 @@ describe('memorix_session_start home bind and hydrate', () => {
     try {
       const sessionStart = getHandler(server as any, 'memorix_session_start');
       const started = Date.now();
-      const text = getText(await sessionStart({ projectRoot: project, agent: 'cursor' }));
+      const result = await sessionStart({ projectRoot: project, agent: 'cursor' });
+      const text = getText(result);
       const elapsedMs = Date.now() - started;
 
       expect(text).toContain('AVIDS2/session-fast');
       expect(text).toContain('Session started');
+      expect(result.structuredContent?.binding).toMatchObject({
+        version: '1',
+        state: 'resolved',
+        source: 'explicit-project-root',
+        explicit: true,
+        projectId: 'AVIDS2/session-fast',
+        transport: 'legacy-http',
+      });
+      expect(result.structuredContent.binding.projectRootHash).toMatch(/^sha256:[0-9a-f]{64}$/);
+      expect(result.structuredContent.binding.dataDirHash).toMatch(/^sha256:[0-9a-f]{64}$/);
+      expect(JSON.stringify(result.structuredContent.binding)).not.toContain(project);
       expect(elapsedMs).toBeLessThan(5_000);
       expect(existsSync(path.join(tempHome, 'memorix.db'))).toBe(false);
     } finally {

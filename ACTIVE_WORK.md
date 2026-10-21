@@ -83,8 +83,13 @@ artifacts for the VPS/hosted build path only.
   22.22.3 with 40,000 records, MCP context was 573.561ms end to end and
   receipt assembly was 7ms; the gate passed with 428.7MB peak RSS, 318.202ms
   cold MCP search, 2.733s hook write, and 157.485ms SDK reopen.
-- [ ] Define the runtime/project-binding receipt contract before changing
-  adapter or storage behavior.
+- [x] Runtime/project binding now returns a privacy-safe `structuredContent.binding`
+  receipt from `memorix_session_start`. It records resolved state, binding
+  source, explicitness, project ID, hashed project root/data directory, and
+  transport across legacy and stateless HTTP; focused server, legacy HTTP, and
+  modern bridge tests pass without exposing raw paths or session handles.
+- [ ] Extend the binding receipt with verified Git remote and lease/expiry
+  diagnostics before changing adapter or storage behavior.
 
 ## 1.9.x Maintenance and Ecosystem Closeout (2026-10-16)
 

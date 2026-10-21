@@ -31,4 +31,26 @@ describe('ProjectBindingController', () => {
       explicit: true,
     });
   });
+
+  it('exposes a privacy-safe binding receipt without raw paths', () => {
+    const projectRoot = path.resolve('receipt-project');
+    const dataDir = path.resolve('receipt-data');
+    const binding = createProjectBindingController(projectRoot);
+    binding.recordResolvedProject('owner/receipt-project', projectRoot);
+
+    const receipt = binding.receipt({ dataDir, transport: 'legacy-http' });
+
+    expect(receipt).toMatchObject({
+      version: '1',
+      state: 'resolved',
+      source: 'startup-cwd',
+      explicit: false,
+      projectId: 'owner/receipt-project',
+      transport: 'legacy-http',
+    });
+    expect(receipt.projectRootHash).toMatch(/^sha256:[0-9a-f]{64}$/);
+    expect(receipt.dataDirHash).toMatch(/^sha256:[0-9a-f]{64}$/);
+    expect(JSON.stringify(receipt)).not.toContain(projectRoot);
+    expect(JSON.stringify(receipt)).not.toContain(dataDir);
+  });
 });

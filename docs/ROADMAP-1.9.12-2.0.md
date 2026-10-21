@@ -161,6 +161,13 @@ receipt 测量：同一 Windows Node 22.22.3、40k records 下，MCP context 端
 下一步进入 runtime binding receipt 和 adapter contract，并继续保留端到端
 context 与内部 assembly 两个指标。
 
+Runtime binding 的第一条实现已落地：`memorix_session_start` 返回 additive
+`structuredContent.binding` receipt，legacy HTTP、stateless HTTP 和直接 server
+路径共享同一字段。receipt 记录 resolved/unresolved、source、explicit、project
+ID、project root/data directory hash 和 transport；测试确认不会泄露原始路径、
+MCP session ID 或 project handle。下一步补充可验证 Git remote 与 lease/expiry
+诊断，再进入 adapter registry contract。
+
 ### 3.1 版本定位
 
 1.10 是下一条真正的产品主线。它的核心不是“加入更多记忆”，而是让 Memorix

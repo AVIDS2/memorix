@@ -229,6 +229,7 @@ beforeAll(async () => {
               allowUntrackedFallback: false,
               deferProjectInitUntilBound: true,
               toolProfile: 'team',
+              bindingTransport: 'legacy-http',
               projectBinding: binding,
             },
           );
@@ -493,6 +494,16 @@ describe('HTTP Transport', () => {
     expect(text).toContain('Session started');
     expect(text).toContain('AVIDS2/http-project-a');
     expect(text).toContain('Project:');
+    expect(toolResult.structuredContent?.binding).toMatchObject({
+      version: '1',
+      state: 'resolved',
+      source: 'explicit-project-root',
+      explicit: true,
+      projectId: 'AVIDS2/http-project-a',
+      transport: 'legacy-http',
+    });
+    expect(toolResult.structuredContent.binding.projectRootHash).toMatch(/^sha256:[0-9a-f]{64}$/);
+    expect(toolResult.structuredContent.binding.dataDirHash).toMatch(/^sha256:[0-9a-f]{64}$/);
     expect(text).not.toContain('Agent ID:');
   });
 

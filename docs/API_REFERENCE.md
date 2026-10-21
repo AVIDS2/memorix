@@ -560,6 +560,14 @@ Behavior:
 
 In HTTP service mode, pass `projectRoot` as the absolute workspace or repo root whenever the client knows it. `projectRoot` is the detection anchor; project identity still comes from Git.
 
+Every successful `memorix_session_start` response also includes a machine-readable
+`structuredContent.binding` receipt. It contains `version`, `state`, `source`,
+`explicit`, the resolved `projectId`, a hash of the verified project root, a hash
+of the active data directory, and the transport label (`legacy-http`,
+`stateless-http`, `stdio`, or `unknown`). The receipt is safe for diagnostics and
+handoffs: it does not include local paths, MCP session IDs, or project handles.
+The text response still includes the human-readable binding state.
+
 ### `memorix_session_end`
 
 End the active session with a summary.

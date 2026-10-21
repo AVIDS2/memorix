@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 
 /**
@@ -5,6 +6,18 @@ import path from 'node:path';
  * product facts, intentionally separate from any MCP transport session ID.
  */
 export type ProjectBindingSource = 'startup-cwd' | 'mcp-roots' | 'explicit-project-root';
+export type ProjectBindingTransport = 'unknown' | 'stdio' | 'legacy-http' | 'stateless-http' | 'dashboard';
+
+export interface ProjectBindingReceipt {
+  version: '1';
+  state: 'resolved' | 'unresolved';
+  source: ProjectBindingSource;
+  explicit: boolean;
+  projectId?: string;
+  projectRootHash: string;
+  dataDirHash?: string;
+  transport: ProjectBindingTransport;
+}
 
 export interface ProjectBindingSnapshot {
   projectRoot: string;
@@ -21,6 +34,10 @@ function resolveRoot(projectRoot: string): string {
   const value = projectRoot.trim();
   if (!value) throw new Error('Project binding requires a non-empty project root');
   return path.resolve(value);
+}
+
+function hashBindingValue(value: string): string {
+  return `sha256:${createHash('sha256').update(value).digest('hex')}`;
 }
 
 /**
@@ -47,6 +64,28 @@ export class ProjectBindingController {
     return {
       ...this.snapshot(),
       ...(actorId ? { actorId } : {}),
+    };
+  }
+
+  /**
+   * Return binding diagnostics without exposing local paths or transport IDs.
+   * The hashes let operators compare two surfaces while keeping the receipt
+   * safe to pass through MCP, logs, and agent handoffs.
+   */
+  receipt(options: {
+    dataDir?: string;
+    transport?: ProjectBindingTransport;
+  } = {}): ProjectBindingReceipt {
+    const snapshot = this.snapshot();
+    return {
+      version: '1',
+      state: snapshot.projectId ? 'resolved' : 'unresolved',
+      source: snapshot.source,
+      explicit: snapshot.explicit,
+      ...(snapshot.projectId ? { projectId: snapshot.projectId } : {}),
+      projectRootHash: hashBindingValue(snapshot.projectRoot),
+      ...(options.dataDir ? { dataDirHash: hashBindingValue(path.resolve(options.dataDir)) } : {}),
+      transport: options.transport ?? 'unknown',
     };
   }
 

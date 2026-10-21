@@ -75,6 +75,7 @@ describe('official MCP v2 modern bridge', () => {
         deferProjectInitUntilBound: true,
         deferProjectRuntimeInit: true,
         toolProfile: 'micro',
+        bindingTransport: 'stateless-http',
       }),
       { legacy: 'reject' },
     );
@@ -107,6 +108,20 @@ describe('official MCP v2 modern bridge', () => {
     expect(called.result.resultType).toBe('complete');
     expect(called.result._meta['io.modelcontextprotocol/serverInfo'].name).toBe('memorix');
     expect(called.result.content[0].type).toBe('text');
+
+    const sessionResponse = await handler.fetch(modernRequest('tools/call', 'session', {
+      name: 'memorix_session_start',
+      arguments: { agent: 'modern-mcp-test' },
+    }));
+    const sessionCalled = await sessionResponse.json() as any;
+    expect(sessionResponse.status).toBe(200);
+    expect(sessionCalled.result.structuredContent.binding).toMatchObject({
+      version: '1',
+      state: 'resolved',
+      transport: 'stateless-http',
+    });
+    expect(sessionCalled.result.structuredContent.binding.projectRootHash).toMatch(/^sha256:[0-9a-f]{64}$/);
+    expect(sessionCalled.result.structuredContent.binding.dataDirHash).toMatch(/^sha256:[0-9a-f]{64}$/);
 
     await handler.close();
   });

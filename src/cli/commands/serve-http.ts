@@ -391,6 +391,7 @@ export default defineCommand({
         try {
           const runtime = await createModernMcpRuntime({
             projectRoot: root,
+            bindingTransport: 'stateless-http',
             allowUntrackedFallback: false,
             deferProjectInitUntilBound: true,
             deferProjectRuntimeInit: true,
@@ -807,6 +808,7 @@ export default defineCommand({
               dashboardMode: 'control-plane',
               dashboardPort: port,
               toolProfile,
+              bindingTransport: 'legacy-http',
               projectBinding: binding,
             },
           ));

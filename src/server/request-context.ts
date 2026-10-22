@@ -8,6 +8,27 @@ import path from 'node:path';
 export type ProjectBindingSource = 'startup-cwd' | 'mcp-roots' | 'explicit-project-root';
 export type ProjectBindingTransport = 'unknown' | 'stdio' | 'legacy-http' | 'stateless-http' | 'dashboard';
 
+export interface ProjectBindingHandle {
+  handleId: string;
+  createdAt: string;
+  lastUsedAt: string;
+  expiresAt?: string;
+}
+
+export interface ProjectBindingGitRemoteReceipt {
+  state: 'verified' | 'unavailable';
+  hash?: string;
+  host?: string;
+}
+
+export interface ProjectBindingHandleReceipt {
+  state: 'active' | 'expired' | 'absent';
+  idHash?: string;
+  createdAt?: string;
+  lastUsedAt?: string;
+  expiresAt?: string;
+}
+
 export interface ProjectBindingReceipt {
   version: '1';
   state: 'resolved' | 'unresolved';
@@ -16,6 +37,8 @@ export interface ProjectBindingReceipt {
   projectId?: string;
   projectRootHash: string;
   dataDirHash?: string;
+  gitRemote: ProjectBindingGitRemoteReceipt;
+  handle: ProjectBindingHandleReceipt;
   transport: ProjectBindingTransport;
 }
 
@@ -38,6 +61,18 @@ function resolveRoot(projectRoot: string): string {
 
 function hashBindingValue(value: string): string {
   return `sha256:${createHash('sha256').update(value).digest('hex')}`;
+}
+
+function remoteHost(remote: string): string | undefined {
+  const trimmed = remote.trim();
+  if (!trimmed) return undefined;
+  const scpHost = trimmed.match(/^[^@/\s]+@([^:\s/]+):/);
+  if (scpHost) return scpHost[1].toLowerCase();
+  try {
+    return new URL(trimmed).hostname.toLowerCase() || undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -75,8 +110,16 @@ export class ProjectBindingController {
   receipt(options: {
     dataDir?: string;
     transport?: ProjectBindingTransport;
+    gitRemote?: string;
+    handle?: ProjectBindingHandle;
   } = {}): ProjectBindingReceipt {
     const snapshot = this.snapshot();
+    const handle = options.handle;
+    const handleState = !handle
+      ? 'absent' as const
+      : handle.expiresAt && Date.parse(handle.expiresAt) <= Date.now()
+        ? 'expired' as const
+        : 'active' as const;
     return {
       version: '1',
       state: snapshot.projectId ? 'resolved' : 'unresolved',
@@ -85,6 +128,20 @@ export class ProjectBindingController {
       ...(snapshot.projectId ? { projectId: snapshot.projectId } : {}),
       projectRootHash: hashBindingValue(snapshot.projectRoot),
       ...(options.dataDir ? { dataDirHash: hashBindingValue(path.resolve(options.dataDir)) } : {}),
+      gitRemote: options.gitRemote?.trim()
+        ? {
+          state: 'verified',
+          hash: hashBindingValue(options.gitRemote.trim()),
+          ...(remoteHost(options.gitRemote) ? { host: remoteHost(options.gitRemote) } : {}),
+        }
+        : { state: 'unavailable' },
+      handle: {
+        state: handleState,
+        ...(handle ? { idHash: hashBindingValue(handle.handleId) } : {}),
+        ...(handle?.createdAt ? { createdAt: handle.createdAt } : {}),
+        ...(handle?.lastUsedAt ? { lastUsedAt: handle.lastUsedAt } : {}),
+        ...(handle?.expiresAt ? { expiresAt: handle.expiresAt } : {}),
+      },
       transport: options.transport ?? 'unknown',
     };
   }

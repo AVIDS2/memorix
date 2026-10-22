@@ -53,4 +53,34 @@ describe('ProjectBindingController', () => {
     expect(JSON.stringify(receipt)).not.toContain(projectRoot);
     expect(JSON.stringify(receipt)).not.toContain(dataDir);
   });
+
+  it('records verified remote and handle lease diagnostics without secrets', () => {
+    const binding = createProjectBindingController(path.resolve('diagnostics-project'));
+    binding.recordResolvedProject('owner/diagnostics-project', path.resolve('diagnostics-project'));
+
+    const receipt = binding.receipt({
+      dataDir: path.resolve('diagnostics-data'),
+      transport: 'stateless-http',
+      gitRemote: 'https://user:secret@example.com/owner/diagnostics-project.git',
+      handle: {
+        handleId: 'mxh_private_handle',
+        createdAt: '2026-10-21T00:00:00.000Z',
+        lastUsedAt: '2026-10-21T00:05:00.000Z',
+        expiresAt: '2026-11-20T00:05:00.000Z',
+      },
+    });
+
+    expect(receipt.gitRemote).toMatchObject({ state: 'verified', host: 'example.com' });
+    expect(receipt.gitRemote?.hash).toMatch(/^sha256:[0-9a-f]{64}$/);
+    expect(receipt.handle).toMatchObject({
+      state: 'active',
+      createdAt: '2026-10-21T00:00:00.000Z',
+      lastUsedAt: '2026-10-21T00:05:00.000Z',
+      expiresAt: '2026-11-20T00:05:00.000Z',
+    });
+    expect(receipt.handle?.idHash).toMatch(/^sha256:[0-9a-f]{64}$/);
+    expect(JSON.stringify(receipt)).not.toContain('secret');
+    expect(JSON.stringify(receipt)).not.toContain('mxh_private_handle');
+    expect(JSON.stringify(receipt)).not.toContain('https://');
+  });
 });

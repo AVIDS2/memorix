@@ -165,8 +165,10 @@ Runtime binding 的第一条实现已落地：`memorix_session_start` 返回 add
 `structuredContent.binding` receipt，legacy HTTP、stateless HTTP 和直接 server
 路径共享同一字段。receipt 记录 resolved/unresolved、source、explicit、project
 ID、project root/data directory hash 和 transport；测试确认不会泄露原始路径、
-MCP session ID 或 project handle。下一步补充可验证 Git remote 与 lease/expiry
-诊断，再进入 adapter registry contract。
+MCP session ID 或 project handle。现在 receipt 也记录 verified Git remote 的
+hash/host、handle 的 hash 与 created/last-used/expiry 窗口；stateless handle
+创建使用项目 data directory，后续请求不会回退到 control-plane base database。
+下一步进入 adapter registry contract。
 
 ### 3.1 版本定位
 

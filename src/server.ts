@@ -60,6 +60,7 @@ import { getSurfacedIds, recordSurfacedIds } from './search/surfaced-registry.js
 import {
   createProjectBindingController,
   type ProjectBindingController,
+  type ProjectBindingHandle,
   type ProjectBindingSource,
   type ProjectBindingTransport,
 } from './server/request-context.js';
@@ -223,6 +224,8 @@ export interface CreateMemorixServerOptions {
   projectBinding?: ProjectBindingController;
   /** Transport label used only in the privacy-safe binding receipt. */
   bindingTransport?: ProjectBindingTransport;
+  /** Active stateless project handle metadata used only for diagnostics. */
+  bindingHandle?: ProjectBindingHandle;
 }
 
 /**
@@ -4012,6 +4015,8 @@ export async function createMemorixServer(
       const bindingReceipt = projectBinding.receipt({
         dataDir: projectDir,
         transport: options.bindingTransport,
+        gitRemote: project.gitRemote,
+        handle: options.bindingHandle,
       });
 
       const lines = [

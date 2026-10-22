@@ -527,7 +527,10 @@ describe('serve-http command mode support', () => {
     await capturedHttpHandler!(req, res as any);
 
     expect(createMemorixServerMock).toHaveBeenCalledTimes(1);
-    expect(createMemorixServerMock.mock.calls[0]?.[3]).toMatchObject({ toolProfile: 'full' });
+    expect(createMemorixServerMock.mock.calls[0]?.[3]).toMatchObject({
+      toolProfile: 'full',
+      bindingTransport: 'legacy-http',
+    });
     expect(createControlPlaneMaintenanceWorkerMock).toHaveBeenCalledWith('E:/memorix-data', { pollIntervalMs: 2_000 });
     expect(maintenanceWorkerStartMock).toHaveBeenCalledTimes(1);
   });
@@ -595,6 +598,9 @@ describe('serve-http command mode support', () => {
     expect(JSON.parse(listRes.getBody()).result.tools).toEqual(
       expect.arrayContaining([expect.objectContaining({ name: 'memorix_store' })]),
     );
+    expect(createModernMcpRuntimeMock.mock.calls[0]?.[0]).toMatchObject({
+      bindingTransport: 'stateless-http',
+    });
   });
 
   it('uses MEMORIX_MODE as the HTTP fallback when mode is omitted', async () => {

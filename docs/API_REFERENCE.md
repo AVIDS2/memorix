@@ -563,10 +563,15 @@ In HTTP service mode, pass `projectRoot` as the absolute workspace or repo root 
 Every successful `memorix_session_start` response also includes a machine-readable
 `structuredContent.binding` receipt. It contains `version`, `state`, `source`,
 `explicit`, the resolved `projectId`, a hash of the verified project root, a hash
-of the active data directory, and the transport label (`legacy-http`,
-`stateless-http`, `stdio`, or `unknown`). The receipt is safe for diagnostics and
-handoffs: it does not include local paths, MCP session IDs, or project handles.
-The text response still includes the human-readable binding state.
+of the active data directory, verified Git remote state (`gitRemote.state`, with
+remote hash and host when present), a project handle lease (`handle.state`, with
+creation, last-use, expiry, and handle hash when present), and the transport label
+(`legacy-http`, `stateless-http`, `stdio`, or `unknown`). The receipt is safe for
+diagnostics and handoffs: it does not include local paths, remote URLs, MCP
+session IDs, or project handles. An expired handle is reported as `expired` when
+the adapter can still inspect its metadata; requests carrying an invalid or
+expired handle fail closed before business tools run. The text response still
+includes the human-readable binding state.
 
 ### `memorix_session_end`
 

@@ -88,8 +88,13 @@ artifacts for the VPS/hosted build path only.
   source, explicitness, project ID, hashed project root/data directory, and
   transport across legacy and stateless HTTP; focused server, legacy HTTP, and
   modern bridge tests pass without exposing raw paths or session handles.
-- [ ] Extend the binding receipt with verified Git remote and lease/expiry
-  diagnostics before changing adapter or storage behavior.
+- [x] The binding receipt now also records verified Git remote state (hash and
+  sanitized host) plus handle lease/expiry state and timestamps. Stateless
+  handle creation uses the project data directory, so a handle cannot redirect
+  the next request to the control-plane base database. Focused binding, serve
+  mode, modern bridge, and startup tests pass.
+- [ ] Define the adapter registry manifest contract before generating or changing
+  host integration files.
 
 ## 1.9.x Maintenance and Ecosystem Closeout (2026-10-16)
 

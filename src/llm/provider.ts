@@ -20,7 +20,7 @@ import {
 } from '../config.js';
 
 export interface LLMConfig {
-  provider: 'openai' | 'anthropic' | 'openrouter' | 'requesty' | 'apiroute' | 'atlascloud' | 'custom';
+  provider: 'openai' | 'anthropic' | 'openrouter' | 'requesty' | 'apiroute' | 'cheaperinference' | 'atlascloud' | 'custom';
   apiKey: string;
   model?: string;
   baseUrl?: string;
@@ -203,6 +203,7 @@ const PROVIDER_DEFAULTS: Record<string, { baseUrl: string; model: string }> = {
   openrouter: { baseUrl: 'https://openrouter.ai/api/v1', model: 'openai/gpt-4.1-nano' },
   requesty: { baseUrl: 'https://router.requesty.ai/v1', model: 'openai/gpt-4.1-nano' },
   apiroute: { baseUrl: 'https://global.api-route.com/v1', model: 'deepseek-v4.1-flash' },
+  cheaperinference: { baseUrl: 'https://api.cheaperinference.com/v1', model: 'gpt-5.4-mini' },
   atlascloud: { baseUrl: 'https://api.atlascloud.ai/v1', model: 'deepseek-ai/deepseek-v3.2' },
   custom: { baseUrl: 'http://localhost:11434/v1', model: 'llama3' },
 };

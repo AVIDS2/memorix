@@ -42,6 +42,7 @@ const LLM_ENV_KEYS = [
   'OPENROUTER_API_KEY',
   'REQUESTY_API_KEY',
   'API_ROUTE_API_KEY',
+  'CHEAPER_INFERENCE_API_KEY',
   'ATLASCLOUD_API_KEY',
 ];
 
@@ -111,6 +112,29 @@ describe('initLLM config scopes', () => {
 
   it('leaves API Route memory disabled when only unrelated keys are available', () => {
     process.env.MEMORIX_LLM_PROVIDER = 'apiroute';
+    process.env.OPENAI_API_KEY = 'openai-test-key';
+    process.env.ANTHROPIC_API_KEY = 'anthropic-test-key';
+    process.env.OPENROUTER_API_KEY = 'router-test-key';
+    expect(initLLM({ scope: 'memory', projectRoot: TEST_PROJECT, homeDir: TEST_HOME })).toBeNull();
+  });
+
+  it('initializes Cheaper Inference memory with its dedicated key and preserves explicit overrides', () => {
+    process.env.MEMORIX_LLM_PROVIDER = 'cheaperinference';
+    process.env.CHEAPER_INFERENCE_API_KEY = 'cheaper-inference-test-key';
+    const options = { scope: 'memory' as const, projectRoot: TEST_PROJECT, homeDir: TEST_HOME };
+    expect(initLLM(options)).toEqual({
+      provider: 'cheaperinference', apiKey: 'cheaper-inference-test-key',
+      model: 'gpt-5.4-mini', baseUrl: 'https://api.cheaperinference.com/v1',
+    });
+    process.env.MEMORIX_LLM_MODEL = 'custom-model';
+    process.env.MEMORIX_LLM_BASE_URL = 'https://gateway.example/v1';
+    expect(initLLM(options)).toMatchObject({
+      model: 'custom-model', baseUrl: 'https://gateway.example/v1',
+    });
+  });
+
+  it('leaves Cheaper Inference memory disabled when only unrelated keys are available', () => {
+    process.env.MEMORIX_LLM_PROVIDER = 'cheaperinference';
     process.env.OPENAI_API_KEY = 'openai-test-key';
     process.env.ANTHROPIC_API_KEY = 'anthropic-test-key';
     process.env.OPENROUTER_API_KEY = 'router-test-key';
@@ -358,6 +382,24 @@ describe('callLLMWithTools', () => {
     expect(url).toBe('https://global.api-route.com/v1/chat/completions');
     expect(options.headers.Authorization).toBe('Bearer api-route-test-key');
     expect(JSON.parse(options.body).model).toBe('deepseek-v4.1-flash');
+    fetchMock.mockClear();
+    fetchMock.mockResolvedValue(new Response('unavailable', { status: 503 }));
+    await expect(callLLM('Summarize.', 'A project fact.')).rejects.toThrow('503');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('routes Cheaper Inference memory calls with the selected model and surfaces endpoint failures', async () => {
+    setLLMConfig({ provider: 'cheaperinference', apiKey: 'cheaper-inference-test-key',
+      model: 'gpt-5.4-mini', baseUrl: 'https://api.cheaperinference.com/v1' });
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      choices: [{ message: { content: 'memory summary' } }],
+    }), { headers: { 'Content-Type': 'application/json' } }));
+    globalThis.fetch = fetchMock;
+    expect((await callLLM('Summarize.', 'A project fact.')).content).toBe('memory summary');
+    const [url, options] = fetchMock.mock.calls[0];
+    expect(url).toBe('https://api.cheaperinference.com/v1/chat/completions');
+    expect(options.headers.Authorization).toBe('Bearer cheaper-inference-test-key');
+    expect(JSON.parse(options.body).model).toBe('gpt-5.4-mini');
     fetchMock.mockClear();
     fetchMock.mockResolvedValue(new Response('unavailable', { status: 503 }));
     await expect(callLLM('Summarize.', 'A project fact.')).rejects.toThrow('503');

@@ -47,6 +47,7 @@ describe('image-loader', () => {
 
   it.each([
     ['apiroute', 'https://global.api-route.com/v1', 'deepseek-v4-flash-vision-exp'],
+    ['cheaperinference', 'https://api.cheaperinference.com/v1', 'gpt-5.4-mini'],
     ['requesty', 'https://router.requesty.ai/v1', 'openai/gpt-4o-mini'],
     ['openrouter', 'https://openrouter.ai/api/v1', 'openai/gpt-4o-mini'],
   ] as const)('uses the initialized %s endpoint and explicit vision model', async (provider, baseUrl, model) => {

@@ -382,6 +382,12 @@ export default defineCommand({
       const requestedRoot = requestInfo?.headers.get('mcp-project-root') ?? undefined;
       const root = persisted?.projectRoot ?? requestedRoot ?? projectRoot;
       const dataDir = await resolveModernDataDir(root, persisted);
+      const binding = persisted ?? (() => {
+        const detected = detectorMod.detectProject(root);
+        if (!detected) return undefined;
+        const existing = statelessBindingStore.findByProjectRoot(detected.rootPath);
+        return existing ? statelessBindingStore.touch(existing.handleId) ?? existing : undefined;
+      })();
       const runtimeKey = JSON.stringify([dataDir, root]);
       // The SDK closes the per-request bridge after the response. The pool
       // decrements the runtime reference there; the business runtime remains
@@ -392,6 +398,16 @@ export default defineCommand({
           const runtime = await createModernMcpRuntime({
             projectRoot: root,
             bindingTransport: 'stateless-http',
+            ...(binding
+              ? {
+                bindingHandle: {
+                  handleId: binding.handleId,
+                  createdAt: binding.createdAt,
+                  lastUsedAt: binding.lastUsedAt,
+                  ...(binding.expiresAt ? { expiresAt: binding.expiresAt } : {}),
+                },
+              }
+              : {}),
             allowUntrackedFallback: false,
             deferProjectInitUntilBound: true,
             deferProjectRuntimeInit: true,
@@ -692,11 +708,12 @@ export default defineCommand({
             : projectRoot;
           const detected = detectorMod.detectProject(requestedRoot);
           if (detected) {
+            const bindingDataDir = await persistMod.getProjectDataDir(detected.id);
             const binding = statelessBindingStore.findByProjectRoot(detected.rootPath)
               ?? statelessBindingStore.create({
                 projectId: detected.id,
                 projectRoot: detected.rootPath,
-                dataDir: persistMod.getBaseDataDir(),
+                dataDir: bindingDataDir,
               });
             res.setHeader('Mcp-Project-Handle', binding.handleId);
           }

@@ -101,6 +101,12 @@ describe('memorix_session_start home bind and hydrate', () => {
       deferProjectInitUntilBound: true,
       deferProjectRuntimeInit: true,
       bindingTransport: 'legacy-http',
+      bindingHandle: {
+        handleId: 'mxh_test_handle',
+        createdAt: '2026-10-21T00:00:00.000Z',
+        lastUsedAt: '2026-10-21T00:05:00.000Z',
+        expiresAt: '2026-11-20T00:05:00.000Z',
+      },
     });
     let releaseLoadAll: (() => void) | undefined;
     const loadAllBlocked = new Promise<void>((resolve) => {
@@ -129,6 +135,18 @@ describe('memorix_session_start home bind and hydrate', () => {
       });
       expect(result.structuredContent.binding.projectRootHash).toMatch(/^sha256:[0-9a-f]{64}$/);
       expect(result.structuredContent.binding.dataDirHash).toMatch(/^sha256:[0-9a-f]{64}$/);
+      expect(result.structuredContent.binding.gitRemote).toMatchObject({
+        state: 'verified',
+        host: 'github.com',
+      });
+      expect(result.structuredContent.binding.gitRemote.hash).toMatch(/^sha256:[0-9a-f]{64}$/);
+      expect(result.structuredContent.binding.handle).toMatchObject({
+        state: 'active',
+        createdAt: '2026-10-21T00:00:00.000Z',
+        lastUsedAt: '2026-10-21T00:05:00.000Z',
+        expiresAt: '2026-11-20T00:05:00.000Z',
+      });
+      expect(result.structuredContent.binding.handle.idHash).toMatch(/^sha256:[0-9a-f]{64}$/);
       expect(JSON.stringify(result.structuredContent.binding)).not.toContain(project);
       expect(elapsedMs).toBeLessThan(5_000);
       expect(existsSync(path.join(tempHome, 'memorix.db'))).toBe(false);

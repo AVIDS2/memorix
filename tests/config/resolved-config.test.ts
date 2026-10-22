@@ -46,6 +46,7 @@ const ENV_KEYS = [
   'OPENROUTER_API_KEY',
   'REQUESTY_API_KEY',
   'API_ROUTE_API_KEY',
+  'CHEAPER_INFERENCE_API_KEY',
   'ATLASCLOUD_API_KEY',
 ];
 
@@ -117,6 +118,32 @@ describe('resolved config', () => {
     process.env.ANTHROPIC_API_KEY = 'anthropic-test-key';
     process.env.OPENROUTER_API_KEY = 'router-test-key';
     process.env.REQUESTY_API_KEY = 'requesty-test-key';
+    process.env.ATLASCLOUD_API_KEY = 'atlas-test-key';
+    expect(getResolvedMemoryLane({ projectRoot: null, homeDir: HOME }).llm.apiKey).toBeUndefined();
+    expect(getResolvedConfig({ projectRoot: null, homeDir: HOME }).embedding.apiKey).toBeUndefined();
+  });
+
+  it('uses the Cheaper Inference key only for the selected memory preset and preserves explicit keys', () => {
+    process.env.CHEAPER_INFERENCE_API_KEY = 'cheaper-inference-test-key';
+    expect(getResolvedMemoryLane({ projectRoot: null, homeDir: HOME }).llm.apiKey).toBeUndefined();
+    process.env.MEMORIX_LLM_PROVIDER = 'cheaperinference';
+    expect(getResolvedMemoryLane({ projectRoot: null, homeDir: HOME }).llm.apiKey).toBe('cheaper-inference-test-key');
+    expect(getResolvedConfig({ projectRoot: null, homeDir: HOME }).embedding.apiKey).toBeUndefined();
+    expect(getResolvedConfig({ projectRoot: null, homeDir: HOME }).agent.apiKey).toBeUndefined();
+    // Keep the existing agent-to-memory fallback when no agent lane is configured.
+    expect(getResolvedAgentLane({ projectRoot: null, homeDir: HOME }).apiKey).toBe('cheaper-inference-test-key');
+    expect(getResolvedConfig({ projectRoot: null, homeDir: HOME }).sources.env).toContain('CHEAPER_INFERENCE_API_KEY');
+    process.env.MEMORIX_LLM_API_KEY = 'explicit-test-key';
+    expect(getResolvedMemoryLane({ projectRoot: null, homeDir: HOME }).llm.apiKey).toBe('explicit-test-key');
+  });
+
+  it('does not borrow other provider keys for Cheaper Inference memory', () => {
+    process.env.MEMORIX_LLM_PROVIDER = 'cheaperinference';
+    process.env.OPENAI_API_KEY = 'openai-test-key';
+    process.env.ANTHROPIC_API_KEY = 'anthropic-test-key';
+    process.env.OPENROUTER_API_KEY = 'router-test-key';
+    process.env.REQUESTY_API_KEY = 'requesty-test-key';
+    process.env.API_ROUTE_API_KEY = 'api-route-test-key';
     process.env.ATLASCLOUD_API_KEY = 'atlas-test-key';
     expect(getResolvedMemoryLane({ projectRoot: null, homeDir: HOME }).llm.apiKey).toBeUndefined();
     expect(getResolvedConfig({ projectRoot: null, homeDir: HOME }).embedding.apiKey).toBeUndefined();

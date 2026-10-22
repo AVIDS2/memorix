@@ -121,7 +121,8 @@ export function getResolvedConfig(options: ResolvedLaneOptions = {}): ResolvedMe
   const isAtlasCloud = memoryLlmProvider === 'atlascloud';
   const isRequesty = memoryLlmProvider === 'requesty';
   const isApiRoute = memoryLlmProvider === 'apiroute';
-  const usesPresetKeyOnly = isAtlasCloud || isRequesty || isApiRoute;
+  const isCheaperInference = memoryLlmProvider === 'cheaperinference';
+  const usesPresetKeyOnly = isAtlasCloud || isRequesty || isApiRoute || isCheaperInference;
   const memoryLlmApiKey = first(
     process.env.MEMORIX_LLM_API_KEY,
     process.env.MEMORIX_API_KEY,
@@ -131,7 +132,8 @@ export function getResolvedConfig(options: ResolvedLaneOptions = {}): ResolvedMe
     // Never borrow another provider's credentials for these gateway presets.
     isAtlasCloud ? process.env.ATLASCLOUD_API_KEY
       : isRequesty ? process.env.REQUESTY_API_KEY
-        : isApiRoute ? process.env.API_ROUTE_API_KEY : process.env.OPENAI_API_KEY,
+        : isApiRoute ? process.env.API_ROUTE_API_KEY
+          : isCheaperInference ? process.env.CHEAPER_INFERENCE_API_KEY : process.env.OPENAI_API_KEY,
     usesPresetKeyOnly ? undefined : process.env.ANTHROPIC_API_KEY,
     usesPresetKeyOnly ? undefined : openRouterMemoryLlmApiKey,
   );
@@ -331,6 +333,7 @@ function getEnvSourceNames(): string[] {
     'OPENROUTER_API_KEY',
     'REQUESTY_API_KEY',
     'API_ROUTE_API_KEY',
+    'CHEAPER_INFERENCE_API_KEY',
     'ATLASCLOUD_API_KEY',
   ].filter((name) => process.env[name]);
 }

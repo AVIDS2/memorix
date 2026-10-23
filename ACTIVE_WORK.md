@@ -105,8 +105,10 @@ artifacts for the VPS/hosted build path only.
   Host-specific lanes remain explicitly skipped when the generic doctor has no
   reliable artifact check; Qwen is recognized as hooks-only instead of being
   treated as a complete MCP setup.
-- [ ] Add concrete generated artifact existence checks for package, rules, and
-  hook lanes where the host path is stable and testable.
+- [x] Agent doctor now performs concrete artifact checks for stable rules and
+  hook paths, including project/global scope and file existence. Package and
+  skill roots remain explicit manifest-only data until an install-root contract
+  makes those checks reliable.
 - [x] The memory ownership matrix is now canonical in
   `docs/1.3-MEMORY-ARCHITECTURE.md`. It records writer, verifier, default reader,
   and promotion rules for Observation, Reasoning, Claim, Wiki/Workflow,

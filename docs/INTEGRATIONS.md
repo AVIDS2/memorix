@@ -22,7 +22,10 @@ installer lane is explicit.
 transport, observed transport, expected artifact categories, lifecycle support,
 and registry source for each checked target. A `skipped` parity field means the
 host-specific artifact is not inspected by the generic doctor lane; it is not
-silently treated as installed.
+silently treated as installed. When a host exposes stable project/global paths,
+the report also includes concrete `artifactChecks` for rules and hooks with the
+path, scope, existence, and status. Package and skill roots remain manifest
+expectations until their install root is stable across host launch modes.
 
 For most users, start with:
 

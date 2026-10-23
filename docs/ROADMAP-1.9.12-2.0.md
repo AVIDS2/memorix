@@ -182,6 +182,10 @@ transport、artifact 类别、生命周期能力、registry source 和 parity is
 Qwen 的 MCP lane 会保持 skipped，hooks-only 的 install/uninstall 能力会明确
 保留，repair/doctor 尚未被伪装成已实现。
 
+对于 host 提供稳定路径的 rules 和 hooks，doctor parity 已增加具体
+`artifactChecks`（scope、path、exists、status）；package/skill 路径继续保留
+为 manifest expectation，直到安装根目录可以跨启动方式可靠解析。
+
 Memory ownership matrix 已补入 [1.3 Memory Architecture](1.3-MEMORY-ARCHITECTURE.md)
 作为唯一权威文档，覆盖 Observation、Reasoning、Claim、Wiki/Workflow、
 Session/Team、Long-term Memory 和 CodeGraph，并明确 Task Workset 是派生视图。

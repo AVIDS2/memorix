@@ -182,6 +182,10 @@ transport、artifact 类别、生命周期能力、registry source 和 parity is
 Qwen 的 MCP lane 会保持 skipped，hooks-only 的 install/uninstall 能力会明确
 保留，repair/doctor 尚未被伪装成已实现。
 
+Memory ownership matrix 已补入 [1.3 Memory Architecture](1.3-MEMORY-ARCHITECTURE.md)
+作为唯一权威文档，覆盖 Observation、Reasoning、Claim、Wiki/Workflow、
+Session/Team、Long-term Memory 和 CodeGraph，并明确 Task Workset 是派生视图。
+
 ### 3.1 版本定位
 
 1.10 是下一条真正的产品主线。它的核心不是“加入更多记忆”，而是让 Memorix

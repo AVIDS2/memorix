@@ -510,6 +510,8 @@ OpenAI-compatible 的 `https://api.atlascloud.ai/v1` endpoint，并读取
 
 使用 [API Route](https://www.api-route.com) 时，可在 `memorix init` 中选择 API Route，或在 `[memory.llm]` 中设置 `provider = "apiroute"`。预设使用 `https://global.api-route.com/v1` 和 `deepseek-v4.1-flash`，密钥读取自己的 `API_ROUTE_API_KEY` 或 `MEMORIX_LLM_API_KEY`。这是显式启用的记忆 LLM 处理；embedding 和 memcode 模型注册表仍需单独配置。详见[配置说明](docs/CONFIGURATION.md#api-route-memory-preset)。
 
+使用 [Cheaper Inference](https://cheaperinference.com) 时，可在 `memorix init` 中选择 Cheaper Inference，或在 `[memory.llm]` 中设置 `provider = "cheaperinference"`。预设使用 `https://api.cheaperinference.com/v1` 和 `gpt-5.4-mini`，密钥读取自己的 `CHEAPER_INFERENCE_API_KEY` 或 `MEMORIX_LLM_API_KEY`。这是显式启用的记忆 LLM 处理；embedding 和 memcode 模型注册表仍需单独配置。详见[配置说明](docs/CONFIGURATION.md#cheaper-inference-memory-preset)。
+
 受控 MiniMax 媒体生成可在环境变量或 `.env` 中设置全局 `MINIMAX_API_KEY`，或中国区 `MINIMAX_CN_API_KEY`。媒体库不会保存该 key、临时签名 URL 或 base64 负载。CLI 生成本身就是显式操作；若要让 MCP 中的 Agent 发起生成，还必须明确设置 `MEMORIX_MCP_MEDIA_GENERATION=1`。
 
 <h2 id="docker"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/tags/light/section-docker.svg"><img src="assets/tags/section-docker.svg" alt="Docker" height="32" /></picture></h2>

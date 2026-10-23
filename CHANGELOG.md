@@ -4,7 +4,11 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
-No unreleased changes.
+### Added
+- **Cheaper Inference memory preset** -- optional background memory LLM
+  processing through an OpenAI-compatible endpoint, with an isolated
+  `CHEAPER_INFERENCE_API_KEY`, CLI/TUI setup and bilingual configuration
+  guidance.
 
 ## [1.10.0] - 2026-10-23
 

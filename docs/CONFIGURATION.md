@@ -219,6 +219,31 @@ keys. Setting the key alone does not enable paid background memory processing.
 Embeddings and memcode's model registry are unchanged. Image analysis requires
 explicitly selecting a vision-capable model; the default is for text memory.
 
+### Cheaper Inference memory preset
+
+[Cheaper Inference](https://cheaperinference.com) is available in `memorix init`
+and the configuration TUI as an optional memory LLM preset:
+
+```toml
+[memory.llm]
+provider = "cheaperinference"
+model = "gpt-5.4-mini"
+```
+
+The preset uses `https://api.cheaperinference.com/v1` and the existing
+OpenAI-compatible chat completion transport. Set `CHEAPER_INFERENCE_API_KEY` or
+`MEMORIX_LLM_API_KEY`, or store `api_key` in your private global config. Keep
+credentials out of project TOML. Explicit `model` and `base_url` overrides
+still apply; use IDs from the endpoint's `/v1/models` catalog without adding
+an extra vendor prefix.
+
+`CHEAPER_INFERENCE_API_KEY` is used only when this memory preset is selected,
+and the preset does not borrow OpenAI, Anthropic, OpenRouter, Requesty, API
+Route, or Atlas Cloud keys. Setting the key alone does not enable paid
+background memory processing. Embeddings and memcode's model registry are
+unchanged. Image analysis requires explicitly selecting a vision-capable model;
+the default is for text memory.
+
 ### OrcaRouter custom endpoint
 
 OrcaRouter works through the generic OpenAI-compatible gateway path. Keep the

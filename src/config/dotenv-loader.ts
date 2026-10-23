@@ -145,6 +145,7 @@ export function getLoadedEnvValue(key: string): string | undefined {
 // OPENROUTER_API_KEY        — OpenRouter compatibility fallback
 // REQUESTY_API_KEY          - Requesty memory preset and embedding endpoint key
 // API_ROUTE_API_KEY        - API Route memory preset key (only when selected)
+// CHEAPER_INFERENCE_API_KEY - Cheaper Inference memory preset key (only when selected)
 // MINIMAX_API_KEY           — MiniMax global image/video generation key
 // MINIMAX_CN_API_KEY        — MiniMax China-region image/video generation key
 // MINIMAX_REGION            — MiniMax region: global or cn

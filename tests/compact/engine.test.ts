@@ -57,10 +57,38 @@ describe('Compact Engine', () => {
         version: '1',
         mode: expect.any(String),
         resultCount: 0,
+        candidateCount: 0,
+        selectedCount: 0,
+        omittedCount: 0,
+        omittedByTokenBudget: 0,
+        fallbackUsed: false,
         tokenCount: result.totalTokens,
         elapsedMs: expect.any(Number),
       });
       expect(result.receipt.elapsedMs).toBeGreaterThanOrEqual(0);
+    });
+
+    it('preserves candidate and omission diagnostics across the compact boundary', async () => {
+      for (const title of ['Port 3001 conflict fix', 'Port 3002 staging note', 'Port 3003 rollback note']) {
+        await storeObservation({
+          entityName: 'port-config',
+          type: 'gotcha',
+          title,
+          narrative: 'The port configuration is relevant to the deployment boundary.',
+          projectId: 'test/project',
+        });
+      }
+
+      const result = await compactSearch({
+        query: 'port',
+        projectId: 'test/project',
+        maxTokens: 1,
+      });
+
+      expect(result.receipt.candidateCount).toBeGreaterThanOrEqual(result.receipt.selectedCount);
+      expect(result.receipt.omittedCount).toBeGreaterThan(0);
+      expect(result.receipt.omittedByTokenBudget).toBe(result.receipt.omittedCount);
+      expect(result.receipt.fallbackUsed).toBe(false);
     });
 
     it('should return formatted markdown table', async () => {

@@ -101,6 +101,19 @@ memorix background start
 memorix status
 ```
 
+For the 1.10 context contract and capacity gates, run the deterministic matrix
+and the packed 40k transport fixture:
+
+```bash
+npm run gate:context-matrix
+npm run gate:context-runtime
+node scripts/large-store-gate.mjs --records 100000
+```
+
+`gate:context-runtime` rebuilds the packed runtime before running its fixture.
+The 100k command is a separate capacity check because it takes materially
+longer and is not part of the ordinary `npm test` loop.
+
 ---
 
 ## 3. Recommended Development Loop

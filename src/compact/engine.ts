@@ -10,7 +10,14 @@
  */
 
 import type { SearchOptions, IndexEntry, TimelineContext, MemorixDocument, ObservationRef, MemoryRef, MiniSkill, SourceSnapshot, ObservationReader } from '../types.js';
-import { searchObservations, getTimeline, getObservationsByIds, makeOramaObservationId, getLastSearchMode } from '../store/orama-store.js';
+import {
+  searchObservations,
+  getTimeline,
+  getObservationsByIds,
+  makeOramaObservationId,
+  getLastSearchMode,
+  getLastSearchDiagnostics,
+} from '../store/orama-store.js';
 import { getObservation, getAllObservations } from '../memory/observations.js';
 import { ensureFreshIndex } from '../memory/freshness.js';
 import { formatIndexTable, formatTimeline, formatObservationDetail, type RetrievalSurface } from './index-format.js';
@@ -66,6 +73,12 @@ export interface CompactSearchReceipt {
   version: '1';
   mode: string;
   resultCount: number;
+  candidateCount: number;
+  selectedCount: number;
+  omittedCount: number;
+  omittedByTokenBudget: number;
+  fallbackUsed: boolean;
+  fallbackReason?: string;
   tokenCount: number;
   elapsedMs: number;
 }
@@ -142,6 +155,7 @@ export async function compactSearch(options: SearchOptions, surface: RetrievalSu
   }
 
   const totalTokens = countTextTokens(formatted);
+  const diagnostics = getLastSearchDiagnostics(options.projectId);
 
   return {
     entries,
@@ -151,6 +165,12 @@ export async function compactSearch(options: SearchOptions, surface: RetrievalSu
       version: '1',
       mode: getLastSearchMode(options.projectId),
       resultCount: entries.length,
+      candidateCount: diagnostics?.candidateCount ?? entries.length,
+      selectedCount: diagnostics?.selectedCount ?? entries.length,
+      omittedCount: diagnostics?.omittedCount ?? 0,
+      omittedByTokenBudget: diagnostics?.omittedByTokenBudget ?? 0,
+      fallbackUsed: diagnostics?.fallbackUsed ?? false,
+      ...(diagnostics?.fallbackReason ? { fallbackReason: diagnostics.fallbackReason } : {}),
       tokenCount: totalTokens,
       elapsedMs: Math.max(0, Date.now() - startedAt),
     },

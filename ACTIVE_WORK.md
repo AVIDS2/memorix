@@ -4,7 +4,7 @@
 > before resuming substantial work, update it after a material decision or
 > milestone, and do not create parallel progress logs.
 
-**Last updated:** 2026-10-18
+**Last updated:** 2026-10-23
 
 **Long-term roadmap:** [docs/ROADMAP-1.9.12-2.0.md](docs/ROADMAP-1.9.12-2.0.md)
 
@@ -116,10 +116,18 @@ artifacts for the VPS/hosted build path only.
   a derived delivery view.
 - [x] The existing evaluation harness now defines a 20-case 1.10 task matrix
   and a stable 15-metric contract across continuity, retrieval, safety, runtime,
-  and integration. `npm run gate:context-matrix` validates the matrix only;
-  measured baselines remain explicitly pending.
-- [ ] Execute the 1.10 matrix against real context/retrieval/runtime paths and
-  record measured baseline scores.
+  and integration. `npm run gate:context-matrix` validates the contract, while
+  `npm run gate:context-runtime` executes the matrix against real runtime paths.
+- [x] The 1.10 runtime matrix passed 20/20 on Windows Node 22.22.3 with
+  embeddings/LLM disabled. Hit precision/recall and stale/conflict rejection
+  were 1.00/1.00, abstention precision was 0.95, matrix p50/p95 was 2ms/255ms,
+  and peak RSS was 428,867,584 bytes.
+- [x] The packed 40k large-store gate passed with seed/index 45,571.959ms,
+  SDK search 30.378ms, MCP context 518.983ms, receipt assembly 6ms, peak RSS
+  409.0MB, hook 2,634.153ms, and SDK reopen 85.095ms.
+- [x] The 100k capacity gate passed with seed/index 113,048.097ms, SDK search
+  39.71ms, MCP context 1,099.809ms, receipt assembly 7ms, peak RSS 409.4MB,
+  SQLite disk count 100,002, and reopened count 100,001.
 - [x] The existing session replay baseline is recorded: embeddings disabled,
   4/4 fixed questions hit, max turn 277 tokens, 0 over-budget turns, and
   session dedup reduced duplicate displays from 25% to 18.75% without losing
@@ -128,8 +136,9 @@ artifacts for the VPS/hosted build path only.
   binding receipt with `transport: dashboard`, verified project/data-directory
   hashes, and Git remote state.
 - [x] Retrieval receipts now cross the compact engine, MCP search, and CLI JSON
-  search surfaces. They record schema version, actual mode, result count, token
-  count, and elapsed time without query text or raw memory content.
+  search surfaces. They record schema version, actual mode, candidate/result/
+  selected/omitted counts, token-budget omissions, fallback reason, token count,
+  and elapsed time without query text, raw memory content, or local paths.
 
 ## 1.9.x Maintenance and Ecosystem Closeout (2026-10-16)
 

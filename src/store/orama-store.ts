@@ -44,6 +44,19 @@ let deferredCachedVectorHydration: Promise<void> | null = null;
 const NON_CJK_HYBRID_SIMILARITY = 0.45;
 const CJK_RUN = /[\u3400-\u4dbf\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]+/gu;
 const lastSearchModeByProject = new Map<string, string>();
+export interface SearchDiagnostics {
+  version: '1';
+  mode: string;
+  rawCandidateCount: number;
+  candidateCount: number;
+  selectedCount: number;
+  omittedCount: number;
+  omittedByTokenBudget: number;
+  fallbackUsed: boolean;
+  fallbackReason?: string;
+  elapsedMs: number;
+}
+const lastSearchDiagnosticsByProject = new Map<string, SearchDiagnostics>();
 const SEARCH_MODE_DEFAULT_KEY = '__global__';
 const MAX_SEARCH_MODE_KEYS = 4096;
 
@@ -57,6 +70,20 @@ function rememberSearchMode(key: string, value: string): void {
 }
 export function getLastSearchMode(projectId?: string): string {
   return lastSearchModeByProject.get(projectId ?? SEARCH_MODE_DEFAULT_KEY) ?? 'fulltext';
+}
+
+export function getLastSearchDiagnostics(projectId?: string): SearchDiagnostics | undefined {
+  const diagnostics = lastSearchDiagnosticsByProject.get(projectId ?? SEARCH_MODE_DEFAULT_KEY);
+  return diagnostics ? { ...diagnostics } : undefined;
+}
+
+function rememberSearchDiagnostics(key: string, value: SearchDiagnostics): void {
+  if (!lastSearchDiagnosticsByProject.has(key) && lastSearchDiagnosticsByProject.size >= MAX_SEARCH_MODE_KEYS) {
+    const oldest = lastSearchDiagnosticsByProject.keys().next().value;
+    if (oldest !== undefined) lastSearchDiagnosticsByProject.delete(oldest);
+  }
+  lastSearchDiagnosticsByProject.delete(key);
+  lastSearchDiagnosticsByProject.set(key, value);
 }
 
 function getOptionalObservationStore(): ReturnType<typeof getObservationStore> | null {
@@ -498,6 +525,7 @@ export async function resetDb(): Promise<void> {
   indexEmbeddingProvider = null;
   deferredCachedVectorHydration = null;
   lastSearchModeByProject.clear();
+  lastSearchDiagnosticsByProject.clear();
 }
 
 /**
@@ -843,6 +871,7 @@ export async function removeObservation(oramaId: string): Promise<void> {
  * Progressive Disclosure Layer 1 — adopted from claude-mem.
  */
 export async function searchObservations(options: SearchOptions): Promise<IndexEntry[]> {
+  const searchStartedAt = Date.now();
   const perf = !!process.env.MEMORIX_PERF;
   const t0 = perf ? performance.now() : 0;
   const mark = (label: string) => { if (perf) { const now = performance.now(); process.stderr.write(`  [search-perf] ${label}: ${(now - t0).toFixed(0)}ms\n`); } };
@@ -951,6 +980,8 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
   // dimensions, TLS, network, or timeout). `canUsePersistentLexical` below
   // must fall back whenever this is true.
   let embeddingUnavailable = false;
+  let fallbackUsed = false;
+  let fallbackReason: string | undefined;
   if (quality !== 'fast' && embeddingEnabled && hasQuery && tier !== 'fast') {
     try {
       const provider = await getEmbeddingProvider();
@@ -959,6 +990,8 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
         const activeVectorDimensions = getVectorDimensions();
         if (activeVectorDimensions !== null && provider.dimensions !== activeVectorDimensions) {
           embeddingUnavailable = true;
+          fallbackUsed = true;
+          fallbackReason = 'embedding dimension mismatch; lexical search used';
           rememberSearchMode(
             modeKey,
             `fulltext (embedding dimension mismatch: provider ${provider.dimensions}d vs index ${activeVectorDimensions}d)`,
@@ -1006,10 +1039,14 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
         }
       } else {
         embeddingUnavailable = true;
+        fallbackUsed = true;
+        fallbackReason = 'embedding provider unavailable; lexical search used';
       }
     } catch (error) {
       // Fallback to fulltext if embedding fails or times out
       embeddingUnavailable = true;
+      fallbackUsed = true;
+      fallbackReason = 'embedding failed or timed out; lexical search used';
       rememberSearchMode(modeKey, 'fulltext (embedding unavailable)');
       console.error('[memorix] Embedding failed or timed out, falling back to fulltext search');
     }
@@ -1080,6 +1117,8 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
         similarity: 0.25,
       };
       rememberSearchMode(modeKey, 'vector-only (hybrid empty fallback)');
+      fallbackUsed = true;
+      fallbackReason = 'hybrid search returned no results; vector-only fallback used';
       results = await search(database, vectorOnlyParams);
     } catch {
       // Keep original empty results
@@ -1468,6 +1507,7 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
 
   // Build IndexEntry with optional match explanation
   let entries: IndexEntry[] = intermediate.map(({ rawTime: _, _isCommandLog: _c, ...rest }: any) => rest);
+  const candidateCount = entries.length;
 
   for (const hit of results.hits) {
     const doc = hit.document as unknown as MemorixDocument;
@@ -1518,9 +1558,23 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
   }
 
   // Apply token budget if specified (inspired by MemCP)
+  const beforeTokenBudget = entries.length;
   if (options.maxTokens && options.maxTokens > 0) {
     entries = applyTokenBudget(entries, options.maxTokens);
   }
+
+  rememberSearchDiagnostics(modeKey, {
+    version: '1',
+    mode: getLastSearchMode(options.projectId),
+    rawCandidateCount: results.hits.length,
+    candidateCount,
+    selectedCount: entries.length,
+    omittedCount: Math.max(0, candidateCount - entries.length),
+    omittedByTokenBudget: Math.max(0, beforeTokenBudget - entries.length),
+    fallbackUsed,
+    ...(fallbackReason ? { fallbackReason } : {}),
+    elapsedMs: Math.max(0, Date.now() - searchStartedAt),
+  });
 
   // Record access for returned results (fire-and-forget, non-blocking).
   if (options.trackAccess !== false) {

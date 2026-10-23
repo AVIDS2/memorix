@@ -2,7 +2,7 @@
 
 > 状态：规划基线
 >
-> 更新时间：2026-10-17
+> 更新时间：2026-10-23
 >
 > 这份文档是后续编码任务的总计划。它定义版本主题、依赖关系、成功标准和
 > 2.0 的启动条件。具体实现任务、测试结果和最终版本范围必须在执行过程中
@@ -47,11 +47,15 @@ Memorix 已经超过“给 coding agent 加一个记忆工具”的阶段。当�
 
 ### 1.1 当前事实
 
-当前发布基线是 `v1.9.11`。1.9.11 已经完成 CJK 搜索、搜索回退、大库 alias
-迁移、Node 26 Pi hooks、Qwen hooks、API Route provider、session label 和
-依赖基线收紧，并通过了跨平台 CI、全量测试和 MCP smoke。
+当前发布基线是 `v1.9.12`。1.9.12 已经完成 CJK 搜索、搜索回退、大库 alias
+迁移、Node 26 Pi hooks、Qwen hooks、API Route provider、session label、发布
+provenance 收紧和后台更新脚本隔离，并通过了跨平台 CI、全量测试和 MCP smoke。
 
-当前本地工作分支正在准备 `1.9.12` 安全补丁，已完成：
+`v1.9.12` 已从提交 `d5d8b5f` 发布到 npm、官方 MCP Registry 和 GitHub
+Release。其后 `main` 已进入 1.10 additive contract-convergence iteration，
+当前工作区不再是 1.9.12 release preparation。
+
+1.9.12 已完成：
 
 - publish workflow 增加 `npm audit signatures`；
 - 发布 provenance 失败时删除无 provenance 的 `npm publish --ignore-scripts`
@@ -61,8 +65,8 @@ Memorix 已经超过“给 coding agent 加一个记忆工具”的阶段。当�
 - 本地 lint、build、全量测试、legacy/modern stdio、HTTP conformance 和
   packed package install smoke 已通过。
 
-1.9.12 仍需要远程 CI、release PR、tag、npm/MCP Registry/GitHub Release 以及
-公开 issue #327 的证据跟进完成后，才算正式发布。
+公开 issue #327 仍保持开放，等待报告者补充可复现的包与扫描证据；这不阻止
+已发布版本继续维护，但不能被记录为已证伪的安全报告。
 
 ### 1.2 必须保留的产品契约
 
@@ -194,7 +198,8 @@ Evaluation 的第一步也已完成：现有 harness 新增 20 项 1.10 task mat
 continuity、retrieval、safety、runtime 和 integration 五类边界，并固定
 first-action、recovery、precision/recall、stale/conflict rejection、abstention、
 token、latency、RSS、fallback/degraded 和 review cost 指标。`gate:context-matrix`
-只验证矩阵 contract；实测 baseline 仍是后续工作。
+验证矩阵 contract，`gate:context-runtime` 已将 20 项矩阵执行到真实运行路径并
+记录 40k large-store transport baseline；100k capacity gate 也已单独通过。
 
 已有 replay harness 的第一组实测也已记录：embedding disabled、4 个固定问题
 全部命中（4/4），最大单轮 277 tokens、0 次超预算；session dedup 将重复展示
@@ -207,8 +212,19 @@ Operator surface 也已对齐：HTTP control-plane `/health` 现在携带
 
 Retrieval facade 也开始收敛：`compactSearch`、MCP `memorix_search` 和 CLI
 `memory search --json` 共享 schema version 1 的 retrieval receipt，记录实际
-search mode、result count、token count 和 elapsed time；查询文本与原始 memory
-内容不进入 receipt。
+search mode、candidate/selected/omitted counts、token budget omissions、fallback
+reason、token count 和 elapsed time；查询文本与原始 memory 内容不进入 receipt。
+底层 Orama/SQLite search 现在保留 request-level diagnostics，使这些字段来自
+实际检索路径而不是调用方猜测。
+
+1.10 的真实任务矩阵已执行完成：20/20 cases passed。Windows Node 22.22.3、
+embeddings/LLM disabled 的基线为 memory hit precision/recall 1.00/1.00、
+stale/conflict rejection 1.00/1.00、abstention precision 0.95，矩阵 p50/p95
+为 2ms/255ms，peak RSS 为 428,867,584 bytes。40k packed large-store gate
+和 100k capacity gate 均通过；40k MCP context/receipt assembly 为
+518.983ms/6ms，100k 为 1,099.809ms/7ms，两个 gate 都没有 failed checks。
+可复现入口为 `npm run gate:context-runtime`（20-case + 40k）以及
+`node scripts/large-store-gate.mjs --records 100000`（100k 容量门禁）。
 
 ### 3.1 版本定位
 

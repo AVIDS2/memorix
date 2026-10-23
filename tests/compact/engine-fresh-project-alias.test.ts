@@ -4,6 +4,7 @@ const getAllObservations = vi.hoisted(() => vi.fn());
 const ensureFreshObservations = vi.hoisted(() => vi.fn());
 const searchObservations = vi.hoisted(() => vi.fn());
 const getLastSearchMode = vi.hoisted(() => vi.fn(() => 'fulltext'));
+const getLastSearchDiagnostics = vi.hoisted(() => vi.fn());
 const formatIndexTable = vi.hoisted(() => vi.fn());
 const countTextTokens = vi.hoisted(() => vi.fn());
 
@@ -15,6 +16,7 @@ vi.mock("../../src/memory/observations.js", () => ({
 vi.mock("../../src/store/orama-store.js", () => ({
 	searchObservations,
 	getLastSearchMode,
+	getLastSearchDiagnostics,
 }));
 
 vi.mock("../../src/compact/index-format.js", () => ({

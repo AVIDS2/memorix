@@ -93,8 +93,15 @@ artifacts for the VPS/hosted build path only.
   handle creation uses the project data directory, so a handle cannot redirect
   the next request to the control-plane base database. Focused binding, serve
   mode, modern bridge, and startup tests pass.
-- [ ] Define the adapter registry manifest contract before generating or changing
-  host integration files.
+- [x] The adapter registry now generates schema version 1 capability manifests
+  for all 19 agent targets. It covers transport/command, artifacts, hook
+  lifecycle, rules/skills/guidance, scope, lifecycle actions, host-version
+  evidence, runtime requirements, and generation sources. Setup targets are
+  derived from the registry; Qwen is recorded as a hooks-only target rather
+  than a false full-setup target. Registry, setup, doctor, and integration
+  regressions pass.
+- [ ] Use the manifest to drive adapter doctor parity details and generated
+  artifact checks across each host lane.
 
 ## 1.9.x Maintenance and Ecosystem Closeout (2026-10-16)
 

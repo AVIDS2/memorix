@@ -34,7 +34,10 @@ import { DshMCPAdapter } from '../../workspace/mcp-adapters/dsh.js';
 import { WorkbuddyMCPAdapter } from '../../workspace/mcp-adapters/workbuddy.js';
 import { CodeBuddyMCPAdapter } from '../../workspace/mcp-adapters/codebuddy.js';
 import { GrokMCPAdapter } from '../../workspace/mcp-adapters/grok.js';
-import { getSetupIntegrationRows as readSetupIntegrationRows } from '../../integrations/registry.js';
+import {
+  getSetupAgentTargets as readSetupAgentTargets,
+  getSetupIntegrationRows as readSetupIntegrationRows,
+} from '../../integrations/registry.js';
 import { OFFICIAL_MEMORIX_SKILLS } from '../../hooks/official-skills.js';
 import { getCliVersion } from '../version.js';
 
@@ -178,26 +181,7 @@ const CODEBUDDY_PLUGIN_AGENTS = new Set<AgentName>(['codebuddy']);
 // These hosts have a native package/plugin surface. Their default setup must not
 // create project-local fallback files beside the user's own agent configuration.
 const PACKAGE_OWNED_INTEGRATION_AGENTS = new Set<AgentName>(['codex', 'codebuddy', 'antigravity', 'openclaw', 'hermes', 'omp']);
-const SUPPORTED_SETUP_AGENTS: AgentName[] = [
-  'claude',
-  'codex',
-  'codebuddy',
-  'opencode',
-  'cursor',
-  'windsurf',
-  'copilot',
-  'gemini-cli',
-  'antigravity',
-  'openclaw',
-  'hermes',
-  'omp',
-  'kiro',
-  'trae',
-  'dsh',
-  'workbuddy',
-  'pi',
-  'grok',
-];
+const SUPPORTED_SETUP_AGENTS: AgentName[] = readSetupAgentTargets();
 
 export function getSetupAgentTargets(): AgentName[] {
   return [...SUPPORTED_SETUP_AGENTS];

@@ -2,6 +2,22 @@
 
 Memorix is a shared project memory layer. Agents connect through the interfaces they already support: plugin packages, MCP, project instructions, hooks, skills, or the bundled memcode terminal agent.
 
+## Capability Registry
+
+The canonical adapter registry lives in `src/integrations/registry.ts`. Each
+supported agent has one capability manifest with schema version `1`. The
+manifest describes its MCP transport and command, shipped or generated
+artifacts, hook lifecycle events, rules/skills/guidance surfaces, project and
+global scope, install/repair/doctor/uninstall support, host-version evidence,
+runtime requirements, and the source files that generate and document it.
+
+`memorix setup` derives its complete-install target list from this registry.
+Agents with a narrower integration lane remain in the registry: Qwen is the
+current hooks-only example and is installed with
+`memorix hooks install --agent qwen`. Run the registry validation test when
+adding an agent; a new target is not complete until it has a manifest and its
+installer lane is explicit.
+
 For most users, start with:
 
 ```bash

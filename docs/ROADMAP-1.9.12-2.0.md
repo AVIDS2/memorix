@@ -170,6 +170,13 @@ hash/host、handle 的 hash 与 created/last-used/expiry 窗口；stateless hand
 创建使用项目 data directory，后续请求不会回退到 control-plane base database。
 下一步进入 adapter registry contract。
 
+Adapter registry contract 的第一条实现已落地：`src/integrations/registry.ts`
+现在为全部 19 个 agent 目标生成 schema version 1 capability manifest，包含
+transport/command、artifact、hook lifecycle、rules/skills/guidance、scope、
+生命周期动作、host compatibility 状态、运行时要求和来源文件。`setup` 的
+目标列表直接从 registry 派生；Qwen 已进入 registry，但明确为 hooks-only，
+不会被误报为完整 setup 目标。registry 校验和 setup/doctor 回归测试已通过。
+
 ### 3.1 版本定位
 
 1.10 是下一条真正的产品主线。它的核心不是“加入更多记忆”，而是让 Memorix

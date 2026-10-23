@@ -107,6 +107,11 @@ artifacts for the VPS/hosted build path only.
   treated as a complete MCP setup.
 - [ ] Add concrete generated artifact existence checks for package, rules, and
   hook lanes where the host path is stable and testable.
+- [x] The memory ownership matrix is now canonical in
+  `docs/1.3-MEMORY-ARCHITECTURE.md`. It records writer, verifier, default reader,
+  and promotion rules for Observation, Reasoning, Claim, Wiki/Workflow,
+  Session/Team, Long-term Memory, and CodeGraph, while keeping Task Workset as
+  a derived delivery view.
 
 ## 1.9.x Maintenance and Ecosystem Closeout (2026-10-16)
 

@@ -2,9 +2,28 @@
 
 All notable changes to this project will be documented in this file.
 
-## Unreleased (1.9.x)
+## Unreleased
 
 No unreleased changes.
+
+## [1.10.0] - 2026-10-23
+
+### Added
+- **Measured context evaluation** -- adds a reproducible 20-case runtime matrix
+  covering continuity, retrieval, safety, runtime binding, and integration
+  parity, with token, latency, RSS, fallback, degraded, and review-cost metrics.
+- **Large-store release gates** -- records and verifies 40k and 100k local
+  capacity baselines across SDK, HTTP MCP, hooks, SQLite persistence, and SDK
+  reopen paths.
+
+### Changed
+- **Retrieval receipts** -- compact search, MCP search, and CLI JSON search now
+  expose request-level candidate, selected, omitted, token-budget, and fallback
+  diagnostics while keeping query text, raw memory content, and local paths out
+  of the receipt.
+- **1.10 development contract** -- documents memory ownership, runtime binding,
+  adapter parity, and the measured context baseline as maintained acceptance
+  surfaces.
 
 ## [1.9.12] - 2026-10-17
 

@@ -975,6 +975,15 @@ export default defineCommand({
       rootPath: projectRoot,
     };
     const defaultDataDir = await getProjectDataDir(defaultProject.id);
+    const dashboardBinding = createProjectBindingController(defaultProject.rootPath);
+    if (defaultProject.id !== '__unresolved__') {
+      dashboardBinding.recordResolvedProject(defaultProject.id, defaultProject.rootPath);
+    }
+    const dashboardBindingReceipt = dashboardBinding.receipt({
+      dataDir: defaultDataDir,
+      transport: 'dashboard',
+      gitRemote: defaultProject.gitRemote,
+    });
     const baseDir = getBaseDataDir();
 
     // HTTP sessions intentionally keep their own runtime globals. This worker
@@ -2015,6 +2024,7 @@ export default defineCommand({
           pid: process.pid,
           projectId: defaultProject?.id ?? '__unresolved__',
           projectName: defaultProject?.name ?? null,
+          binding: dashboardBindingReceipt,
           readyAt: httpReadyAt,
           memory: {
             rss: memory.rss,

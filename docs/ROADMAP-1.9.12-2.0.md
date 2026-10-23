@@ -192,6 +192,10 @@ first-action、recovery、precision/recall、stale/conflict rejection、abstenti
 token、latency、RSS、fallback/degraded 和 review cost 指标。`gate:context-matrix`
 只验证矩阵 contract；实测 baseline 仍是后续工作。
 
+Operator surface 也已对齐：HTTP control-plane `/health` 现在携带
+`transport: dashboard` 的 privacy-safe binding receipt，包含 verified project
+和 data directory hashes 以及 Git remote state，不暴露本地路径。
+
 ### 3.1 版本定位
 
 1.10 是下一条真正的产品主线。它的核心不是“加入更多记忆”，而是让 Memorix

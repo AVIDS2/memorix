@@ -118,9 +118,13 @@ vi.mock('node:http', async () => {
   };
 });
 
-vi.mock('node:crypto', () => ({
-  randomUUID: vi.fn(() => 'session-1'),
-}));
+vi.mock('node:crypto', async () => {
+  const actual = await vi.importActual<typeof import('node:crypto')>('node:crypto');
+  return {
+    ...actual,
+    randomUUID: vi.fn(() => 'session-1'),
+  };
+});
 
 vi.mock('node:os', async () => {
   const actual = await vi.importActual<typeof import('node:os')>('node:os');
@@ -533,6 +537,35 @@ describe('serve-http command mode support', () => {
     });
     expect(createControlPlaneMaintenanceWorkerMock).toHaveBeenCalledWith('E:/memorix-data', { pollIntervalMs: 2_000 });
     expect(maintenanceWorkerStartMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('exposes a privacy-safe dashboard binding receipt on health', async () => {
+    const run = serveHttpCommand.run as ((input: any) => Promise<void>) | undefined;
+
+    await run?.({
+      args: {
+        cwd: project.rootPath,
+        host: '127.0.0.1',
+        port: '3211',
+      },
+    } as any);
+
+    const req = createFakeRequest({});
+    req.method = 'GET';
+    req.url = '/health';
+    const res = createFakeResponse();
+    await capturedHttpHandler!(req, res as any);
+
+    const health = JSON.parse(res.getBody());
+    expect(health.binding).toMatchObject({
+      version: '1',
+      state: 'resolved',
+      transport: 'dashboard',
+      projectId: project.id,
+    });
+    expect(health.binding.projectRootHash).toMatch(/^sha256:[0-9a-f]{64}$/);
+    expect(health.binding.dataDirHash).toMatch(/^sha256:[0-9a-f]{64}$/);
+    expect(JSON.stringify(health.binding)).not.toContain(project.rootPath);
   });
 
   it('serves current-protocol tools/list without a project handle', async () => {

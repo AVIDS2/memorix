@@ -1553,10 +1553,7 @@ export async function createMemorixServer(
 
       // Append retrieval diagnostics only; do not mix workspace-sync guidance into memory results.
       let text = result.formatted;
-      try {
-        const { getLastSearchMode } = await import('./store/orama-store.js');
-        text += `\n\n_Search mode: ${getLastSearchMode(project.id)}_`;
-      } catch { /* best-effort */ }
+      text += `\n\n_Search mode: ${result.receipt.mode}_`;
 
       return {
         content: [
@@ -1565,6 +1562,7 @@ export async function createMemorixServer(
             text,
           },
         ],
+        structuredContent: { retrieval: result.receipt },
       };
       }, { loadCorpus: false }); // withFreshIndex
     },

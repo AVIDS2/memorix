@@ -205,6 +205,11 @@ Operator surface 也已对齐：HTTP control-plane `/health` 现在携带
 `transport: dashboard` 的 privacy-safe binding receipt，包含 verified project
 和 data directory hashes 以及 Git remote state，不暴露本地路径。
 
+Retrieval facade 也开始收敛：`compactSearch`、MCP `memorix_search` 和 CLI
+`memory search --json` 共享 schema version 1 的 retrieval receipt，记录实际
+search mode、result count、token count 和 elapsed time；查询文本与原始 memory
+内容不进入 receipt。
+
 ### 3.1 版本定位
 
 1.10 是下一条真正的产品主线。它的核心不是“加入更多记忆”，而是让 Memorix

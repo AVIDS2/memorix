@@ -419,6 +419,12 @@ Global example:
 }
 ```
 
+Successful MCP searches include a machine-readable `structuredContent.retrieval`
+receipt with schema version `1`, the selected search mode, result count, output
+token count, and measured search/format elapsed time. `memorix memory search
+--json` exposes the same receipt under `retrieval`; the human-readable table
+remains unchanged. The receipt contains no query text or raw memory content.
+
 ### `memorix_detail`
 
 Fetch full observation, mini-skill, or curated long-term memory detail.

@@ -151,6 +151,16 @@ artifacts for the VPS/hosted build path only.
   Registry `io.github.AVIDS2/memorix@1.10.0` are published. npm integrity is
   `sha512-Eyxg9TwkYef4YfmUG3xcB/4y6lqsJQxMStK3QJW51AF6Nb6k8MHoPKyzG0XuyYOTjiAUNA5h9DIAsV3W1KuCiw==`.
 
+## Post-1.10.0 Unreleased Follow-up (2026-10-23)
+
+- [x] Contributor PR #359 was revalidated on the current 1.10.0 main line and
+  integrated through PR #361 (`6558c8f`). Cheaper Inference is opt-in, uses a
+  dedicated key, and preserves the embedding/memcode provider boundaries.
+- [x] The original #359 was closed as superseded with the author attribution
+  preserved in the integrated commit.
+- [ ] The provider remains in `CHANGELOG.md` Unreleased and is not claimed as
+  part of the published `1.10.0` package; include it in the next release.
+
 ## 1.9.x Maintenance and Ecosystem Closeout (2026-10-16)
 
 - [x] Issue #330 was implemented through PR #333 (`477e968`) and merged in

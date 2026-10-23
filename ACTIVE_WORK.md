@@ -140,6 +140,14 @@ artifacts for the VPS/hosted build path only.
   selected/omitted counts, token-budget omissions, fallback reason, token count,
   and elapsed time without query text, raw memory content, or local paths.
 
+## 1.10.0 Release Candidate (2026-10-23)
+
+- [x] Root package metadata, `server.json`, plugin release manifests, and
+  `CHANGELOG.md` are synchronized at `1.10.0` on the release branch.
+- [ ] Release PR CI, package smoke, npm tarball integrity, GitHub tag/release,
+  npm publication, and MCP Registry publication remain pending explicit
+  maintainer approval.
+
 ## 1.9.x Maintenance and Ecosystem Closeout (2026-10-16)
 
 - [x] Issue #330 was implemented through PR #333 (`477e968`) and merged in

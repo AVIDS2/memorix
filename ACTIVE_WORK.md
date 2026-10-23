@@ -120,6 +120,10 @@ artifacts for the VPS/hosted build path only.
   measured baselines remain explicitly pending.
 - [ ] Execute the 1.10 matrix against real context/retrieval/runtime paths and
   record measured baseline scores.
+- [x] The existing session replay baseline is recorded: embeddings disabled,
+  4/4 fixed questions hit, max turn 277 tokens, 0 over-budget turns, and
+  session dedup reduced duplicate displays from 25% to 18.75% without losing
+  hits. This covers only the mapped continuity/retrieval baseline cases.
 - [x] The HTTP control-plane `/health` response now exposes the same privacy-safe
   binding receipt with `transport: dashboard`, verified project/data-directory
   hashes, and Git remote state.

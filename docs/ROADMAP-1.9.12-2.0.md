@@ -177,6 +177,11 @@ transport/command、artifact、hook lifecycle、rules/skills/guidance、scope、
 目标列表直接从 registry 派生；Qwen 已进入 registry，但明确为 hooks-only，
 不会被误报为完整 setup 目标。registry 校验和 setup/doctor 回归测试已通过。
 
+Doctor parity 已接入同一 manifest：每个 agent entry 现在报告预期/观测到的
+transport、artifact 类别、生命周期能力、registry source 和 parity issues。
+Qwen 的 MCP lane 会保持 skipped，hooks-only 的 install/uninstall 能力会明确
+保留，repair/doctor 尚未被伪装成已实现。
+
 ### 3.1 版本定位
 
 1.10 是下一条真正的产品主线。它的核心不是“加入更多记忆”，而是让 Memorix

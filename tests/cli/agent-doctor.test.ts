@@ -501,4 +501,26 @@ describe('agent doctor and repair', () => {
       url: 'http://localhost:3211/mcp',
     });
   });
+
+  it('includes registry capability parity in the doctor report', async () => {
+    const report = await inspectAgentIntegrations({
+      projectRoot: repoDir,
+      agent: 'qwen',
+      scope: 'project',
+    });
+
+    expect(report.entries).toHaveLength(1);
+    expect(report.entries[0].capability).toMatchObject({
+      manifestVersion: '1',
+      defaultTransport: 'none',
+      expectedArtifacts: expect.arrayContaining(['hooks', 'rules', 'guidance']),
+      lifecycle: {
+        install: true,
+        repair: false,
+        doctor: false,
+        uninstall: true,
+      },
+    });
+    expect(report.entries[0].capability.source.registry).toBe('src/integrations/registry.ts');
+  });
 });

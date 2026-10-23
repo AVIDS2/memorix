@@ -18,6 +18,12 @@ current hooks-only example and is installed with
 adding an agent; a new target is not complete until it has a manifest and its
 installer lane is explicit.
 
+`memorix doctor agents --json` includes the same manifest version, expected
+transport, observed transport, expected artifact categories, lifecycle support,
+and registry source for each checked target. A `skipped` parity field means the
+host-specific artifact is not inspected by the generic doctor lane; it is not
+silently treated as installed.
+
 For most users, start with:
 
 ```bash

@@ -186,6 +186,12 @@ Memory ownership matrix 已补入 [1.3 Memory Architecture](1.3-MEMORY-ARCHITECT
 作为唯一权威文档，覆盖 Observation、Reasoning、Claim、Wiki/Workflow、
 Session/Team、Long-term Memory 和 CodeGraph，并明确 Task Workset 是派生视图。
 
+Evaluation 的第一步也已完成：现有 harness 新增 20 项 1.10 task matrix，覆盖
+continuity、retrieval、safety、runtime 和 integration 五类边界，并固定
+first-action、recovery、precision/recall、stale/conflict rejection、abstention、
+token、latency、RSS、fallback/degraded 和 review cost 指标。`gate:context-matrix`
+只验证矩阵 contract；实测 baseline 仍是后续工作。
+
 ### 3.1 版本定位
 
 1.10 是下一条真正的产品主线。它的核心不是“加入更多记忆”，而是让 Memorix

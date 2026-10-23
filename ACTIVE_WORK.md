@@ -112,6 +112,12 @@ artifacts for the VPS/hosted build path only.
   and promotion rules for Observation, Reasoning, Claim, Wiki/Workflow,
   Session/Team, Long-term Memory, and CodeGraph, while keeping Task Workset as
   a derived delivery view.
+- [x] The existing evaluation harness now defines a 20-case 1.10 task matrix
+  and a stable 15-metric contract across continuity, retrieval, safety, runtime,
+  and integration. `npm run gate:context-matrix` validates the matrix only;
+  measured baselines remain explicitly pending.
+- [ ] Execute the 1.10 matrix against real context/retrieval/runtime paths and
+  record measured baseline scores.
 
 ## 1.9.x Maintenance and Ecosystem Closeout (2026-10-16)
 

@@ -47,12 +47,12 @@ Memorix 已经超过“给 coding agent 加一个记忆工具”的阶段。当�
 
 ### 1.1 当前事实
 
-当前发布基线是 `v1.10.0`。1.9.12 的 CJK 搜索、搜索回退、大库 alias 迁移、
+当前发布基线是 `v1.10.1`。1.9.12 的 CJK 搜索、搜索回退、大库 alias 迁移、
 Node 26 Pi hooks、Qwen hooks、API Route provider、session label、发布
 provenance 收紧和后台更新脚本隔离，已经与 1.10 的可信上下文、检索收据、
 真实矩阵评估和容量门禁一起发布。
 
-`v1.10.0` 已从提交 `f2b7555` 发布到 npm、官方 MCP Registry 和 GitHub
+`v1.10.1` 已从提交 `7c51d34` 发布到 npm、官方 MCP Registry 和 GitHub
 Release。后续 `main` 进入 1.11 的本地优先 relay 与协作预览准备阶段。
 
 1.9.12 已完成：

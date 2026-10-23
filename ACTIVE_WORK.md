@@ -118,6 +118,9 @@ artifacts for the VPS/hosted build path only.
   measured baselines remain explicitly pending.
 - [ ] Execute the 1.10 matrix against real context/retrieval/runtime paths and
   record measured baseline scores.
+- [x] The HTTP control-plane `/health` response now exposes the same privacy-safe
+  binding receipt with `transport: dashboard`, verified project/data-directory
+  hashes, and Git remote state.
 
 ## 1.9.x Maintenance and Ecosystem Closeout (2026-10-16)
 

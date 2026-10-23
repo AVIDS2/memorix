@@ -49,7 +49,8 @@ user is allowed to remember.
   memory, and the V8 heap limit so a real saturation report can distinguish
   JavaScript retention from native/model memory. It also exposes SQLite handle
   cache/lease counts, modern runtime pool counts, HTTP session admission counts,
-  and event-loop lag percentiles.
+  event-loop lag percentiles, and a privacy-safe `binding` receipt with the
+  verified project identity/data-directory hashes and `transport: dashboard`.
 
 ## SQLite Storage Reliability Contract
 

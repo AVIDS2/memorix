@@ -127,8 +127,8 @@ Historical/deep-reference documents may describe older designs. If they conflict
 
 ## Current Product Line
 
-The latest published product line is **1.9.12**; the **1.10.0** release
-candidate adds the measured trustworthy-context and retrieval-receipt contract.
+The latest published product line is **1.10.0**; it adds the measured
+trustworthy-context and retrieval-receipt contract.
 Multi-device store sync is opt-in and keeps local SQLite canonical; existing
 users do not upload anything until they configure a relay provider explicitly.
 The authoritative acceptance contract for the current implementation is

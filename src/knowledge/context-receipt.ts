@@ -1,4 +1,5 @@
 import type { CodeGraphProviderQuality } from '../codegraph/types.js';
+import type { RetrievalDerivedViewReceipt } from '../search/derived-view-receipt.js';
 import type { TaskWorkset } from './workset.js';
 import type { TaskContinuityLedger } from './task-continuity.js';
 
@@ -23,6 +24,37 @@ export interface BoundedContextReceipt {
     taskId: string;
     status: TaskContinuityLedger['status'];
     outcome: TaskContinuityLedger['outcome'];
+  };
+}
+
+/** Build the graph view status without exposing source contents or paths. */
+export function buildCodeGraphDerivedView(input: {
+  providerQuality?: CodeGraphProviderQuality;
+  snapshot?: { id?: string; sourceEpoch?: number; incomplete?: boolean };
+}): RetrievalDerivedViewReceipt {
+  const provider = input.providerQuality;
+  const snapshot = input.snapshot;
+  const externalFailure = provider?.external.state !== undefined
+    && !['ready', 'disabled', 'not-detected'].includes(provider.external.state);
+  if (snapshot?.id) {
+    return {
+      ...(snapshot.sourceEpoch !== undefined ? { generation: snapshot.sourceEpoch } : {}),
+      freshness: snapshot.incomplete ? 'stale' : 'current',
+      rebuildStatus: snapshot.incomplete ? 'failed' : 'idle',
+      ...(snapshot.incomplete
+        ? { failureReason: 'latest CodeGraph snapshot is incomplete' }
+        : externalFailure && provider?.external.reason
+          ? { failureReason: provider.external.reason.slice(0, 240) }
+          : {}),
+    };
+  }
+
+  return {
+    freshness: 'unknown',
+    rebuildStatus: externalFailure ? 'failed' : 'unavailable',
+    ...(provider?.external.reason
+      ? { failureReason: provider.external.reason.slice(0, 240) }
+      : { failureReason: 'CodeGraph snapshot is not initialized' }),
   };
 }
 

@@ -1,3 +1,5 @@
+import type { RetrievalDerivedViews } from '../search/derived-view-receipt.js';
+
 /**
  * Shared metadata contract for every bounded context delivery surface.
  * The rendered Workset stays agent-facing; this receipt is for JSON, explain,
@@ -41,6 +43,7 @@ export interface ContextReceiptRetrieval {
   candidateCount: number;
   selectedCount: number;
   omittedCount: number;
+  derivedViews?: RetrievalDerivedViews;
 }
 
 export interface ContextReceiptSelection {
@@ -119,6 +122,16 @@ export function formatContextReceipt(receipt: ContextReceipt): string {
 
   if (receipt.retrieval.fallbackUsed) {
     lines.push(`- Fallback: ${receipt.retrieval.fallbackReason ?? 'retrieval fallback used'}`);
+  }
+
+  if (receipt.retrieval.derivedViews) {
+    lines.push('', 'Derived views');
+    for (const [name, view] of Object.entries(receipt.retrieval.derivedViews)) {
+      if (!view) continue;
+      const generation = view.generation === undefined ? '' : `, generation=${view.generation}`;
+      const reason = view.failureReason ? `, reason=${view.failureReason}` : '';
+      lines.push(`- ${name}: ${view.freshness}/${view.rebuildStatus}${generation}${reason}`);
+    }
   }
 
   if (receipt.selected.length > 0) {

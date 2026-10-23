@@ -9,6 +9,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 vi.mock('../../src/embedding/provider.js', () => ({
   getEmbeddingProvider: async () => null,
+  getEmbeddingRuntimeHealth: () => ({ status: 'disabled' }),
   isVectorSearchAvailable: async () => false,
   isEmbeddingExplicitlyDisabled: () => true,
   resetProvider: () => {},
@@ -62,6 +63,11 @@ describe('Compact Engine', () => {
         omittedCount: 0,
         omittedByTokenBudget: 0,
         fallbackUsed: false,
+        derivedViews: expect.objectContaining({
+          fts: expect.objectContaining({ freshness: expect.any(String), rebuildStatus: expect.any(String) }),
+          orama: expect.objectContaining({ freshness: expect.any(String), rebuildStatus: expect.any(String) }),
+          embedding: expect.objectContaining({ freshness: expect.any(String), rebuildStatus: expect.any(String) }),
+        }),
         tokenCount: result.totalTokens,
         elapsedMs: expect.any(Number),
       });

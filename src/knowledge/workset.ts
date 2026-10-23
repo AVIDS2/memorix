@@ -27,6 +27,8 @@ import type { WorkflowSelection } from './workflow-types.js';
 import type { ObservationReader } from '../types.js';
 import type { LongTermMemory, LongTermMemoryEvidence } from '../memory/long-term-types.js';
 import type { TaskContinuityLedger } from './task-continuity.js';
+import { getSearchDerivedViews } from '../store/orama-store.js';
+import type { RetrievalDerivedViews } from '../search/derived-view-receipt.js';
 
 export type WorksetCautionKind =
   | 'dirty-worktree'
@@ -211,6 +213,7 @@ export interface BuildTaskWorksetInput {
     mode: ContextRetrievalMode;
     codeProvider?: string;
     fallbackReason?: string;
+    derivedViews?: RetrievalDerivedViews;
   };
   reliableMemory?: WorksetMemorySource[];
   cautionMemory?: WorksetMemorySource[];
@@ -1246,6 +1249,10 @@ export async function buildTaskWorkset(input: BuildTaskWorksetInput): Promise<Ta
     budget: { maxTokens },
   });
   const omittedReceipt = receiptOmissions(rendered.omittedItems, base.hiddenCautionMemoryCount);
+  const derivedViews: RetrievalDerivedViews = {
+    ...getSearchDerivedViews(),
+    ...(input.retrieval?.derivedViews ?? {}),
+  };
   const retrieval = {
     mode: input.retrieval?.mode ?? (input.semanticCode ? 'hybrid' : 'unknown'),
     ...(input.retrieval?.codeProvider || input.providerQuality?.selected
@@ -1256,6 +1263,7 @@ export async function buildTaskWorkset(input: BuildTaskWorksetInput): Promise<Ta
     candidateCount: governed.plan.decisions.length,
     selectedCount: rendered.selected.length,
     omittedCount: omittedReceipt.reduce((total, omission) => total + omission.count, 0),
+    derivedViews,
   } as const;
   const receipt: ContextReceipt = {
     version: '1.3',

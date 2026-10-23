@@ -33,6 +33,7 @@ import { getSessionResumeBrief } from '../memory/session.js';
 import { listLongTermMemories } from '../memory/long-term.js';
 import { filterReadableObservations } from '../memory/visibility.js';
 import { initSessionStore } from '../store/session-store.js';
+import { buildCodeGraphDerivedView } from '../knowledge/context-receipt.js';
 import type { TaskContinuityLedger } from '../knowledge/task-continuity.js';
 import {
   isContinuationTask,
@@ -464,6 +465,22 @@ export async function buildAutoProjectContext(input: {
       mode: semanticOutline ? 'hybrid' : 'lexical',
       codeProvider: providerQuality.selected,
       ...(externalCaution ? { fallbackReason: externalCaution } : {}),
+      derivedViews: {
+        graph: buildCodeGraphDerivedView({
+          providerQuality,
+          ...(latestSnapshot
+            ? {
+              snapshot: {
+                id: latestSnapshot.id,
+                sourceEpoch: latestSnapshot.sourceEpoch,
+                incomplete: latestSnapshot.completeness.skippedOversizedFiles > 0
+                  || (latestSnapshot.completeness.unreadableFiles ?? 0) > 0
+                  || latestSnapshot.completeness.removalScanDeferred,
+              },
+            }
+            : {}),
+        }),
+      },
     },
     currentFacts: worksetFactLines(currentFacts),
     ...(continuation ? { continuation } : {}),

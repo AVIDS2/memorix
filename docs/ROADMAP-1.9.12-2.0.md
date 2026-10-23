@@ -216,6 +216,9 @@ search mode、candidate/selected/omitted counts、token budget omissions、fallb
 reason、token count 和 elapsed time；查询文本与原始 memory 内容不进入 receipt。
 底层 Orama/SQLite search 现在保留 request-level diagnostics，使这些字段来自
 实际检索路径而不是调用方猜测。
+Receipt 还通过 `derivedViews` 统一记录 FTS、Orama、embedding、CodeGraph 的
+generation、freshness、rebuild status 和 bounded failure reason；这项补强已在
+main 验证，但属于 1.10.0 之后的 Unreleased 增量。
 
 1.10 的真实任务矩阵已执行完成：20/20 cases passed。Windows Node 22.22.3、
 embeddings/LLM disabled 的基线为 memory hit precision/recall 1.00/1.00、
@@ -225,6 +228,10 @@ stale/conflict rejection 1.00/1.00、abstention precision 0.95，矩阵 p50/p95
 518.983ms/6ms，100k 为 1,099.809ms/7ms，两个 gate 都没有 failed checks。
 可复现入口为 `npm run gate:context-runtime`（20-case + 40k）以及
 `node scripts/large-store-gate.mjs --records 100000`（100k 容量门禁）。
+同一 `scripts/benchmark-retrieval.mjs --records 1000 --runs 20` 在 v1.9.11
+和当前 1.10 main 上复跑：specific p95 为 9.283ms -> 8.925ms，broad p95
+为 12.301ms -> 12.298ms；该结果证明热 lexical 路径没有回归，但不宣称
+统计显著的性能提升。
 
 ### 3.1 版本定位
 

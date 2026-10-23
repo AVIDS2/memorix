@@ -17,6 +17,7 @@ import {
   makeOramaObservationId,
   getLastSearchMode,
   getLastSearchDiagnostics,
+  getSearchDerivedViews,
 } from '../store/orama-store.js';
 import { getObservation, getAllObservations } from '../memory/observations.js';
 import { ensureFreshIndex } from '../memory/freshness.js';
@@ -79,6 +80,7 @@ export interface CompactSearchReceipt {
   omittedByTokenBudget: number;
   fallbackUsed: boolean;
   fallbackReason?: string;
+  derivedViews: import('../search/derived-view-receipt.js').RetrievalDerivedViews;
   tokenCount: number;
   elapsedMs: number;
 }
@@ -156,6 +158,14 @@ export async function compactSearch(options: SearchOptions, surface: RetrievalSu
 
   const totalTokens = countTextTokens(formatted);
   const diagnostics = getLastSearchDiagnostics(options.projectId);
+  const derivedViews = getSearchDerivedViews();
+  if (diagnostics?.fallbackUsed && diagnostics.fallbackReason) {
+    derivedViews.embedding = {
+      freshness: 'stale',
+      rebuildStatus: 'failed',
+      failureReason: diagnostics.fallbackReason,
+    };
+  }
 
   return {
     entries,
@@ -171,6 +181,7 @@ export async function compactSearch(options: SearchOptions, surface: RetrievalSu
       omittedByTokenBudget: diagnostics?.omittedByTokenBudget ?? 0,
       fallbackUsed: diagnostics?.fallbackUsed ?? false,
       ...(diagnostics?.fallbackReason ? { fallbackReason: diagnostics.fallbackReason } : {}),
+      derivedViews,
       tokenCount: totalTokens,
       elapsedMs: Math.max(0, Date.now() - startedAt),
     },

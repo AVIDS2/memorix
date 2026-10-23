@@ -1,4 +1,5 @@
 import { evaluateCodeRefFreshness } from './freshness.js';
+import { buildCodeGraphDerivedView } from '../knowledge/context-receipt.js';
 import { buildTaskWorkset, type TaskWorkset, type WorksetCaution } from '../knowledge/workset.js';
 import type {
   CodeFile,
@@ -311,6 +312,20 @@ export async function attachTaskWorkset(input: {
     retrieval: {
       mode: semanticCode ? 'hybrid' : 'unknown',
       ...(input.providerQuality?.selected ? { codeProvider: input.providerQuality.selected } : {}),
+      derivedViews: {
+        graph: buildCodeGraphDerivedView({
+          providerQuality: input.providerQuality,
+          ...(input.snapshot
+            ? {
+              snapshot: {
+                id: input.snapshot.id,
+                sourceEpoch: input.snapshot.sourceEpoch,
+                incomplete: input.snapshot.incomplete,
+              },
+            }
+            : {}),
+        }),
+      },
     },
     reliableMemory: input.pack.memories
       .filter(memory => memory.status === 'current')

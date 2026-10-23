@@ -160,6 +160,14 @@ artifacts for the VPS/hosted build path only.
   preserved in the integrated commit.
 - [ ] The provider remains in `CHANGELOG.md` Unreleased and is not claimed as
   part of the published `1.10.0` package; include it in the next release.
+- [x] Derived-view receipt hardening now reports FTS, Orama, embedding, and
+  CodeGraph generation/freshness/rebuild status/failure reason through the
+  bounded context and retrieval receipts. This is also unreleased and must be
+  included in the next package release.
+- [x] The reproducible hot SDK benchmark was run at v1.9.11 and current 1.10
+  main with 1,000 records and 20 runs: specific p95 9.283ms -> 8.925ms and
+  broad p95 12.301ms -> 12.298ms. This is a no-regression baseline, not an
+  SLO or a statistical performance claim.
 
 ## 1.9.x Maintenance and Ecosystem Closeout (2026-10-16)
 

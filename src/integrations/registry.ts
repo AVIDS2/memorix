@@ -11,6 +11,48 @@ export type IntegrationEntry =
   | 'mcp-fallback';
 
 export type IntegrationStatus = 'ready' | 'planned';
+export type IntegrationTransport = 'stdio' | 'http';
+export type IntegrationScope = 'project' | 'global';
+export type IntegrationLifecycleAction = 'install' | 'repair' | 'doctor' | 'uninstall';
+
+export interface IntegrationCapabilityManifest {
+  schemaVersion: '1';
+  agent: AgentName | 'memcode' | 'any-mcp';
+  name: string;
+  transport: {
+    supported: IntegrationTransport[];
+    default: IntegrationTransport | 'host-owned' | 'none';
+    command?: string;
+  };
+  artifacts: {
+    packageFiles: string[];
+    hookFiles: string[];
+    ruleFiles: string[];
+    skillFiles: string[];
+    guidanceFiles: string[];
+  };
+  hooks: {
+    supported: boolean;
+    events: string[];
+  };
+  scopes: IntegrationScope[];
+  lifecycle: Record<IntegrationLifecycleAction, boolean>;
+  hostCompatibility: {
+    range: string;
+    verified: boolean;
+  };
+  requirements: {
+    projectRoot: boolean;
+    http: boolean;
+    stdio: boolean;
+    credential: boolean;
+  };
+  source: {
+    registry: 'src/integrations/registry.ts';
+    generatedBy: string[];
+    documentation: string[];
+  };
+}
 
 export interface MemorixIntegration {
   agent: AgentName | 'memcode' | 'any-mcp';
@@ -19,6 +61,9 @@ export interface MemorixIntegration {
   status: IntegrationStatus;
   install: string;
   surfaces: string[];
+  /** False for agents that are in the registry but use a narrower installer. */
+  setup?: boolean;
+  capabilities: IntegrationCapabilityManifest;
   note?: string;
 }
 
@@ -31,7 +76,7 @@ export interface SetupIntegrationRow {
   surfaces: string;
 }
 
-export const MEMORIX_INTEGRATIONS: MemorixIntegration[] = [
+const integrationEntries: Array<Omit<MemorixIntegration, 'capabilities'>> = [
   {
     agent: 'claude',
     name: 'Claude Code',
@@ -73,6 +118,16 @@ export const MEMORIX_INTEGRATIONS: MemorixIntegration[] = [
     install: 'memorix setup --agent grok --global',
     surfaces: ['hooks', 'AGENTS.md'],
     note: 'Writes ~/.grok/hooks/memorix.json and leaves Grok MCP host-owned by default. Pass --mcp http to write [mcp_servers.memorix] in Grok config.toml.',
+  },
+  {
+    agent: 'qwen',
+    name: 'Qwen Code',
+    entry: 'official-config',
+    status: 'ready',
+    setup: false,
+    install: 'memorix hooks install --agent qwen',
+    surfaces: ['hooks', 'QWEN.md guidance'],
+    note: 'Qwen uses the hook installer lane; it is intentionally excluded from the full setup command until a native MCP/package lane exists.',
   },
   {
     agent: 'cursor',
@@ -203,12 +258,144 @@ export const MEMORIX_INTEGRATIONS: MemorixIntegration[] = [
   },
 ];
 
+const PACKAGE_ENTRIES = new Set<IntegrationEntry>([
+  'official-plugin',
+  'official-extension',
+  'official-package',
+  'official-bundle',
+  'local-plugin',
+]);
+
+const DEFAULT_HOOK_EVENTS = ['session_start', 'user_prompt', 'post_tool', 'pre_compact', 'session_end'];
+
+function packageRoot(agent: MemorixIntegration['agent']): string {
+  return agent === 'gemini-cli' ? 'plugins/gemini/memorix' : `plugins/${agent}/memorix`;
+}
+
+function capabilityManifest(entry: Omit<MemorixIntegration, 'capabilities'>): IntegrationCapabilityManifest {
+  const lowerSurfaces = entry.surfaces.map(surface => surface.toLowerCase());
+  const hasMcp = entry.agent === 'grok' || lowerSurfaces.some(surface => surface.includes('mcp'));
+  const hasHooks = lowerSurfaces.some(surface => surface.includes('hook'));
+  const hasRules = lowerSurfaces.some(surface => (
+    surface.includes('rule') || surface.includes('steering') || surface.includes('guidance')
+  ));
+  const hasSkills = lowerSurfaces.some(surface => surface.includes('skill'));
+  const hasGuidance = hasRules || lowerSurfaces.some(surface => (
+    surface.includes('agents.md') || surface.includes('context') || surface.includes('gemini')
+  ));
+  const supported: IntegrationTransport[] = hasMcp
+    ? entry.agent === 'grok' ? ['http'] : ['stdio', 'http']
+    : [];
+  const defaultTransport = entry.agent === 'grok'
+    ? 'host-owned' as const
+    : supported.includes('stdio')
+      ? 'stdio' as const
+      : 'none' as const;
+  const generatedBy = [
+    'src/integrations/registry.ts',
+    ...(hasMcp ? ['src/workspace/mcp-adapters/' + entry.agent + '.ts'] : []),
+    ...(hasHooks || hasRules || hasSkills ? ['src/hooks/installers/index.ts'] : []),
+    ...(entry.agent !== 'any-mcp' && entry.agent !== 'memcode' ? ['src/cli/commands/setup.ts'] : []),
+  ];
+  const packageFiles = PACKAGE_ENTRIES.has(entry.entry)
+    ? [packageRoot(entry.agent)]
+    : [];
+  const hookFiles = hasHooks ? [entry.agent === 'qwen' ? '.qwen/settings.json' : 'host hook configuration'] : [];
+  const ruleFiles = hasRules ? ['host rules or steering file'] : [];
+  const skillFiles = hasSkills ? ['official Memorix skills'] : [];
+  const guidanceFiles = hasGuidance ? ['host guidance file'] : [];
+
+  return {
+    schemaVersion: '1',
+    agent: entry.agent,
+    name: entry.name,
+    transport: {
+      supported,
+      default: defaultTransport,
+      ...(defaultTransport === 'stdio' ? { command: 'memorix serve' } : {}),
+    },
+    artifacts: { packageFiles, hookFiles, ruleFiles, skillFiles, guidanceFiles },
+    hooks: { supported: hasHooks, events: hasHooks ? [...DEFAULT_HOOK_EVENTS] : [] },
+    scopes: ['project', 'global'],
+    lifecycle: {
+      install: true,
+      repair: entry.setup !== false,
+      doctor: entry.setup !== false,
+      uninstall: true,
+    },
+    hostCompatibility: {
+      range: entry.agent === 'memcode' ? 'Memorix runtime' : 'unknown',
+      verified: entry.agent === 'memcode',
+    },
+    requirements: {
+      projectRoot: entry.agent !== 'any-mcp',
+      http: supported.includes('http'),
+      stdio: supported.includes('stdio'),
+      credential: false,
+    },
+    source: {
+      registry: 'src/integrations/registry.ts',
+      generatedBy,
+      documentation: ['docs/INTEGRATIONS.md', 'docs/API_REFERENCE.md'],
+    },
+  };
+}
+
+export const MEMORIX_INTEGRATIONS: MemorixIntegration[] = integrationEntries.map((entry) => ({
+  ...entry,
+  capabilities: capabilityManifest(entry),
+}));
+
+function isAgentEntry(item: MemorixIntegration): item is MemorixIntegration & { agent: AgentName } {
+  return item.agent !== 'memcode' && item.agent !== 'any-mcp';
+}
+
+export function getAgentIntegrationEntries(): Array<MemorixIntegration & { agent: AgentName }> {
+  return MEMORIX_INTEGRATIONS.filter(isAgentEntry);
+}
+
+export function getSetupAgentTargets(): AgentName[] {
+  return MEMORIX_INTEGRATIONS
+    .filter((item): item is MemorixIntegration & { agent: AgentName } => (
+      isAgentEntry(item) && item.status === 'ready' && item.setup !== false
+    ))
+    .map(item => item.agent);
+}
+
+/** Return contract violations before a new adapter is allowed to ship. */
+export function validateIntegrationRegistry(): string[] {
+  const issues: string[] = [];
+  const agents = getAgentIntegrationEntries();
+  const seen = new Set<string>();
+  for (const entry of agents) {
+    if (seen.has(entry.agent)) issues.push(`duplicate agent: ${entry.agent}`);
+    seen.add(entry.agent);
+    const manifest = entry.capabilities;
+    if (manifest.schemaVersion !== '1') issues.push(`${entry.agent}: unsupported manifest schema`);
+    if (manifest.agent !== entry.agent) issues.push(`${entry.agent}: manifest agent mismatch`);
+    if (manifest.transport.default !== 'none'
+      && manifest.transport.default !== 'host-owned'
+      && !manifest.transport.supported.includes(manifest.transport.default)) {
+      issues.push(`${entry.agent}: default transport is not supported`);
+    }
+    if (manifest.hooks.supported && manifest.hooks.events.length === 0) {
+      issues.push(`${entry.agent}: hooks are enabled without lifecycle events`);
+    }
+    for (const action of ['install', 'repair', 'doctor', 'uninstall'] as const) {
+      if (typeof manifest.lifecycle[action] !== 'boolean') issues.push(`${entry.agent}: invalid lifecycle action ${action}`);
+    }
+    if (manifest.source.registry !== 'src/integrations/registry.ts') {
+      issues.push(`${entry.agent}: invalid registry source`);
+    }
+  }
+  if (agents.length !== 19) issues.push(`expected 19 agent manifests, found ${agents.length}`);
+  return issues;
+}
+
 export function getSetupIntegrationRows(): SetupIntegrationRow[] {
   return MEMORIX_INTEGRATIONS
     .filter((item): item is MemorixIntegration & { agent: AgentName } => (
-      item.status === 'ready' &&
-      item.agent !== 'memcode' &&
-      item.agent !== 'any-mcp'
+      isAgentEntry(item) && item.status === 'ready' && item.setup !== false
     ))
     .map((item) => ({
       agent: item.agent,

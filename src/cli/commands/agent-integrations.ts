@@ -5,7 +5,12 @@ import { basename, dirname, resolve } from 'node:path';
 import { homedir } from 'node:os';
 import type { MCPServerEntry } from '../../types.js';
 import type { AgentName } from '../../hooks/types.js';
-import { getAgentRulesPath, installAgentGuidance } from '../../hooks/installers/index.js';
+import {
+  getAgentRulesPath,
+  getGlobalConfigPath,
+  getProjectConfigPath,
+  installAgentGuidance,
+} from '../../hooks/installers/index.js';
 import {
   buildMemorixServer,
   getMcpAdapter,
@@ -88,10 +93,19 @@ export interface AgentCapabilityParity {
   observedTransports: IntegrationTransport[];
   expectedArtifacts: string[];
   artifactStatus: Record<string, AgentIntegrationStatus>;
+  artifactChecks: AgentArtifactCheck[];
   lifecycle: Record<IntegrationLifecycleAction, boolean>;
   status: AgentIntegrationStatus;
   issues: string[];
   source: IntegrationCapabilityManifest['source'];
+}
+
+export interface AgentArtifactCheck {
+  kind: 'hooks' | 'rules' | 'guidance';
+  scope: 'project' | 'global';
+  path: string;
+  exists: boolean;
+  status: AgentIntegrationStatus;
 }
 
 export interface AgentIntegrationEntry {
@@ -188,6 +202,8 @@ function worstStatus(statuses: AgentIntegrationStatus[]): AgentIntegrationStatus
 
 function capabilityParity(
   agent: AgentName,
+  projectRoot: string,
+  scope: AgentIntegrationScope,
   mcp: AgentIntegrationEntry['mcp'],
   guidance: AgentIntegrationEntry['guidance'],
   plugin: AgentPluginStatus,
@@ -201,6 +217,7 @@ function capabilityParity(
       observedTransports: [],
       expectedArtifacts: [],
       artifactStatus: {},
+      artifactChecks: [],
       lifecycle: { install: false, repair: false, doctor: false, uninstall: false },
       status: 'missing',
       issues: ['manifest-missing'],
@@ -232,13 +249,50 @@ function capabilityParity(
     artifactStatus.skills = plugin.checks.length > 0 ? plugin.status : 'skipped';
   }
 
+  const artifactChecks: AgentArtifactCheck[] = [];
+  for (const check of guidance.checks) {
+    if (check.scope === 'local') continue;
+    const kind = manifest.artifacts.ruleFiles.length > 0 ? 'rules' : 'guidance';
+    artifactChecks.push({
+      kind,
+      scope: check.scope,
+      path: check.path,
+      exists: check.exists,
+      status: check.status,
+    });
+  }
+  if (manifest.hooks.supported) {
+    const artifactScopes = requestedGuidanceScopes(scope)
+      .filter((value): value is 'project' | 'global' => value !== 'local');
+    for (const artifactScope of artifactScopes) {
+      const path = artifactScope === 'project'
+        ? getProjectConfigPath(agent, projectRoot)
+        : getGlobalConfigPath(agent);
+      if (!path) continue;
+      const exists = existsSync(path);
+      artifactChecks.push({
+        kind: 'hooks',
+        scope: artifactScope,
+        path,
+        exists,
+        status: exists ? 'ok' : 'missing',
+      });
+    }
+  }
+
   const observedTransports = [...new Set(mcp.checks
     .map(check => check.server?.transport)
     .filter((transport): transport is IntegrationTransport => transport === 'stdio' || transport === 'http'))];
-  const parityStatuses = Object.values(artifactStatus);
+  const parityStatuses = [
+    ...Object.values(artifactStatus),
+    ...artifactChecks.map(check => check.status),
+  ];
   const issues = Object.entries(artifactStatus)
     .filter(([, status]) => status === 'missing' || status === 'repairable')
     .map(([kind, status]) => `${kind}-${status}`);
+  issues.push(...artifactChecks
+    .filter(check => check.status === 'missing' || check.status === 'repairable')
+    .map(check => `${check.kind}-${check.scope}-${check.status}`));
   if (manifest.transport.supported.length > 0 && mcp.status === 'skipped') {
     issues.push('transport-not-checked');
   }
@@ -250,6 +304,7 @@ function capabilityParity(
     observedTransports,
     expectedArtifacts,
     artifactStatus,
+    artifactChecks,
     lifecycle: { ...manifest.lifecycle },
     status: worstStatus(parityStatuses),
     issues: unique(issues),
@@ -1091,7 +1146,7 @@ export async function inspectAgentIntegrations(options: {
     const plugin = await inspectPlugin(agent, scope);
     entries.push({
       agent,
-      capability: capabilityParity(agent, mcp, guidance, plugin),
+      capability: capabilityParity(agent, projectRoot, scope, mcp, guidance, plugin),
       mcp,
       guidance,
       plugin,

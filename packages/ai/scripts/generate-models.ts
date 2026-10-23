@@ -10,6 +10,7 @@ import {
 	CLOUDFLARE_WORKERS_AI_BASE_URL,
 } from "../src/providers/cloudflare.ts";
 import type { AnthropicMessagesCompat, Api, KnownProvider, Model, OpenAICompletionsCompat } from "../src/types.ts";
+import { updateMiniMaxDirectModels } from "../src/minimax-models.ts";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -486,6 +487,9 @@ async function fetchOpenRouterModels(): Promise<Model<any>[]> {
 				contextWindow: model.context_length || 4096,
 				maxTokens: model.top_provider?.max_completion_tokens || 4096,
 			};
+			if (model.id === "minimax/minimax-m3.1-flash:free") {
+				normalizedModel.thinkingLevelMap = { off: null, minimal: null, low: "low", medium: "medium", high: "high", xhigh: "xhigh" };
+			}
 			models.push(normalizedModel);
 		}
 
@@ -1785,17 +1789,8 @@ async function generateModels() {
 		}
 	}
 
-	const minimaxDirectSupportedIds = new Set(["MiniMax-M2.7", "MiniMax-M2.7-highspeed", "MiniMax-M3"]);
-
-	for (let i = allModels.length - 1; i >= 0; i--) {
-		const candidate = allModels[i];
-		if (
-			(candidate.provider === "minimax" || candidate.provider === "minimax-cn") &&
-			!minimaxDirectSupportedIds.has(candidate.id)
-		) {
-			allModels.splice(i, 1);
-		}
-	}
+	// Retain historical metadata for saved/custom requests; getModels filters the picker.
+	updateMiniMaxDirectModels(allModels);
 
 	// OpenAI Codex (ChatGPT OAuth) models
 	// NOTE: These are not fetched from models.dev; we keep a small, explicit list to avoid aliases.

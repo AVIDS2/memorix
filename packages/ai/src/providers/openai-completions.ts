@@ -148,6 +148,16 @@ export const streamOpenAICompletions: StreamFunction<"openai-completions", OpenA
 			if (nextParams !== undefined) {
 				params = nextParams as OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming;
 			}
+			if (model.provider === "openrouter" && new URL(model.baseUrl).hostname === "openrouter.ai" &&
+				params.model === "minimax/minimax-m3.1-flash:free") {
+				const flash = params as typeof params & { reasoning?: { enabled?: boolean; effort?: string }; reasoning_split?: boolean };
+				const effort = flash.reasoning?.effort ?? "max";
+				flash.reasoning = { ...flash.reasoning, enabled: true,
+					effort: ["low", "medium", "high", "xhigh", "max"].includes(effort) ? effort : "max" };
+				delete flash.reasoning_effort;
+				delete flash.reasoning_split;
+				delete flash.service_tier;
+			}
 			const requestOptions = {
 				...(options?.signal ? { signal: options.signal } : {}),
 				...(options?.timeoutMs !== undefined ? { timeout: options.timeoutMs } : {}),

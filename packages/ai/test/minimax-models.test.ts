@@ -12,7 +12,7 @@ describe("MiniMax models", () => {
 		expect(model.reasoning).toBe(true);
 		expect(model.input).toEqual(["text", "image", "video"]);
 		expect(model.contextWindow).toBe(1000000);
-		expect(model.maxTokens).toBe(128000);
+		expect(model.maxTokens).toBe(524288);
 		expect(model.cost).toEqual({
 			input: 0.3,
 			output: 1.2,

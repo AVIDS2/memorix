@@ -9,6 +9,9 @@ All notable changes to this project will be documented in this file.
   processing through an OpenAI-compatible endpoint, with an isolated
   `CHEAPER_INFERENCE_API_KEY`, CLI/TUI setup and bilingual configuration
   guidance.
+- **Derived-view receipts** -- context and search receipts now expose
+  privacy-safe FTS, Orama, embedding, and CodeGraph freshness, generation,
+  rebuild status, and bounded failure reasons.
 
 ## [1.10.0] - 2026-10-23
 

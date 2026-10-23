@@ -228,6 +228,14 @@ describe('Task Workset', () => {
         mode: 'hybrid',
         codeProvider: 'semantic',
         fallbackReason: 'external provider unavailable; local semantic context used',
+        derivedViews: {
+          graph: {
+            generation: 3,
+            freshness: 'stale',
+            rebuildStatus: 'failed',
+            failureReason: 'provider unavailable',
+          },
+        },
       },
       startHere: ['src/auth.ts'],
       reliableMemory: [],
@@ -246,6 +254,12 @@ describe('Task Workset', () => {
       candidateCount: 0,
       selectedCount: expect.any(Number),
       omittedCount: expect.any(Number),
+    });
+    expect(workset.receipt.retrieval.derivedViews?.graph).toMatchObject({
+      generation: 3,
+      freshness: 'stale',
+      rebuildStatus: 'failed',
+      failureReason: 'provider unavailable',
     });
   });
 

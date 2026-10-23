@@ -33,6 +33,7 @@ import {
   type SemanticIndexProfile,
   type SemanticVectorRecord,
 } from '../search/semantic-index.js';
+import type { RetrievalDerivedViews } from '../search/derived-view-receipt.js';
 
 let db: AnyOrama | null = null;
 let dbInitPromise: Promise<AnyOrama> | null = null;
@@ -75,6 +76,67 @@ export function getLastSearchMode(projectId?: string): string {
 export function getLastSearchDiagnostics(projectId?: string): SearchDiagnostics | undefined {
   const diagnostics = lastSearchDiagnosticsByProject.get(projectId ?? SEARCH_MODE_DEFAULT_KEY);
   return diagnostics ? { ...diagnostics } : undefined;
+}
+
+/**
+ * Return bounded health metadata for the derived views used by retrieval.
+ * This is intentionally synchronous and network-free; provider initialization
+ * remains owned by the request that actually needs semantic search.
+ */
+export function getSearchDerivedViews(): RetrievalDerivedViews {
+  const views: RetrievalDerivedViews = {};
+  const store = getOptionalObservationStore();
+  if (store) {
+    try {
+      const generation = store.getGeneration();
+      if (store.hasLexicalIndex?.()) {
+        views.fts = { generation, freshness: 'current', rebuildStatus: 'idle' };
+      } else {
+        views.fts = {
+          generation,
+          freshness: 'unknown',
+          rebuildStatus: 'unavailable',
+          failureReason: store.getBackendReason?.() ?? 'persistent lexical index unavailable',
+        };
+      }
+    } catch (error) {
+      views.fts = {
+        freshness: 'unknown',
+        rebuildStatus: 'failed',
+        failureReason: error instanceof Error ? error.message.slice(0, 240) : String(error).slice(0, 240),
+      };
+    }
+  } else {
+    views.fts = {
+      freshness: 'unknown',
+      rebuildStatus: 'unavailable',
+      failureReason: 'observation store is not initialized',
+    };
+  }
+
+  views.orama = db
+    ? { generation: dbGeneration, freshness: 'current', rebuildStatus: 'idle' }
+    : {
+      generation: dbGeneration,
+      freshness: 'unknown',
+      rebuildStatus: 'unavailable',
+      failureReason: 'Orama index is not initialized',
+    };
+
+  const configuredEmbeddingMode = process.env.MEMORIX_EMBEDDING?.trim().toLowerCase();
+  if (configuredEmbeddingMode === 'off') {
+    views.embedding = { freshness: 'current', rebuildStatus: 'disabled' };
+  } else if (embeddingEnabled) {
+    views.embedding = { freshness: 'current', rebuildStatus: 'idle' };
+  } else {
+    views.embedding = {
+      freshness: 'unknown',
+      rebuildStatus: 'unavailable',
+      failureReason: 'embedding provider is not initialized',
+    };
+  }
+
+  return views;
 }
 
 function rememberSearchDiagnostics(key: string, value: SearchDiagnostics): void {

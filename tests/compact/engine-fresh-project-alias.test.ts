@@ -3,6 +3,7 @@ import { describe, expect, test, vi } from "vitest";
 const getAllObservations = vi.hoisted(() => vi.fn());
 const ensureFreshObservations = vi.hoisted(() => vi.fn());
 const searchObservations = vi.hoisted(() => vi.fn());
+const getLastSearchMode = vi.hoisted(() => vi.fn(() => 'fulltext'));
 const formatIndexTable = vi.hoisted(() => vi.fn());
 const countTextTokens = vi.hoisted(() => vi.fn());
 
@@ -13,6 +14,7 @@ vi.mock("../../src/memory/observations.js", () => ({
 
 vi.mock("../../src/store/orama-store.js", () => ({
 	searchObservations,
+	getLastSearchMode,
 }));
 
 vi.mock("../../src/compact/index-format.js", () => ({

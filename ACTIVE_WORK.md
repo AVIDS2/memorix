@@ -155,6 +155,11 @@ artifacts for the VPS/hosted build path only.
   merged in `ea3ce86`; it remains opt-in and does not change the default model
   or embedding paths. #329 was also independently reviewed and merged in
   `d13cfa6`.
+- [x] PR #344 (`ed7f0df`) adds MiniMax M3.1 Flash support across the AI package
+  and memcode: direct global/China metadata, provider-specific thinking
+  normalization, the verified OpenRouter free route, legacy model lookup
+  compatibility, and Flash as the memcode default. Its 7/7 CI passed; no live
+  inference or unverified OpenCode route was claimed.
 - [ ] #297 is an external awesome-list submission rather than repository code
   work. #327 still lacks reproducible package/security evidence; #313 and #49
   remain integration-boundary discussions.

@@ -495,6 +495,8 @@ Hosted relay 需要区分：
 ### 5.3 社区和分发
 
 - 完成 #297 awesome-list 外部提交；
+- MiniMax M3.1 Flash 的 provider/model 生态更新已通过 PR #344 合并；
+  该更新保留旧模型 lookup 兼容性，并只纳入有证据的 direct/OpenRouter 路径；
 - 增加官方 integration examples 和安全边界说明；
 - 发布可复现 benchmark 和结果生成脚本；
 - 发布包 provenance、SBOM、checksum 和支持矩阵；

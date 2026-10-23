@@ -403,7 +403,15 @@ describe('CLI operator surface', () => {
       json: true,
     });
     expect(search.exitCode).toBe(0);
-    expect(JSON.parse(search.stdout).entries[0].title).toBe('Positional memory');
+    const parsedSearch = JSON.parse(search.stdout);
+    expect(parsedSearch.entries[0].title).toBe('Positional memory');
+    expect(parsedSearch.retrieval).toMatchObject({
+      version: '1',
+      mode: expect.any(String),
+      resultCount: expect.any(Number),
+      tokenCount: expect.any(Number),
+      elapsedMs: expect.any(Number),
+    });
 
     const detail = await runCommand(memoryCommand, {
       _: ['detail', String(obsId)],

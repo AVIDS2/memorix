@@ -196,6 +196,11 @@ first-action、recovery、precision/recall、stale/conflict rejection、abstenti
 token、latency、RSS、fallback/degraded 和 review cost 指标。`gate:context-matrix`
 只验证矩阵 contract；实测 baseline 仍是后续工作。
 
+已有 replay harness 的第一组实测也已记录：embedding disabled、4 个固定问题
+全部命中（4/4），最大单轮 277 tokens、0 次超预算；session dedup 将重复展示
+从 4/16（25%）降到 3/16（18.75%），命中率保持 100%。这组结果只覆盖已映射
+的 continuity/retrieval baseline，不能代表其余矩阵 case。
+
 Operator surface 也已对齐：HTTP control-plane `/health` 现在携带
 `transport: dashboard` 的 privacy-safe binding receipt，包含 verified project
 和 data directory hashes 以及 Git remote state，不暴露本地路径。

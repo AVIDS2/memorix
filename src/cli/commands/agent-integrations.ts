@@ -9,7 +9,6 @@ import { getAgentRulesPath, installAgentGuidance } from '../../hooks/installers/
 import {
   buildMemorixServer,
   getMcpAdapter,
-  getSetupAgentTargets,
   installPluginPackage,
   installMcpConfig,
   migrateLegacyCodexIntegration,
@@ -17,6 +16,12 @@ import {
   type McpConfigAgent,
 } from './setup.js';
 import { getCliVersion } from '../version.js';
+import {
+  getAgentIntegrationEntries,
+  type IntegrationCapabilityManifest,
+  type IntegrationLifecycleAction,
+  type IntegrationTransport,
+} from '../../integrations/registry.js';
 
 export type AgentIntegrationScope = 'local' | 'project' | 'global' | 'all';
 export type AgentIntegrationStatus = 'ok' | 'missing' | 'repairable' | 'skipped';
@@ -76,8 +81,22 @@ export interface AgentPluginStatus {
   checks: AgentPluginCheck[];
 }
 
+export interface AgentCapabilityParity {
+  manifestVersion: IntegrationCapabilityManifest['schemaVersion'];
+  expectedTransports: IntegrationTransport[];
+  defaultTransport: IntegrationCapabilityManifest['transport']['default'];
+  observedTransports: IntegrationTransport[];
+  expectedArtifacts: string[];
+  artifactStatus: Record<string, AgentIntegrationStatus>;
+  lifecycle: Record<IntegrationLifecycleAction, boolean>;
+  status: AgentIntegrationStatus;
+  issues: string[];
+  source: IntegrationCapabilityManifest['source'];
+}
+
 export interface AgentIntegrationEntry {
   agent: AgentName;
+  capability: AgentCapabilityParity;
   mcp: {
     status: AgentIntegrationStatus;
     issues: string[];
@@ -139,7 +158,7 @@ type ConcreteAgentIntegrationScope = Exclude<AgentIntegrationScope, 'all'>;
 type JsonRecord = Record<string, unknown>;
 
 function requestedAgents(agent?: string): AgentName[] {
-  const all = getSetupAgentTargets();
+  const all = getAgentIntegrationEntries().map(entry => entry.agent);
   if (!agent || agent === 'all') return all;
   return all.includes(agent as AgentName) ? [agent as AgentName] : [];
 }
@@ -167,10 +186,81 @@ function worstStatus(statuses: AgentIntegrationStatus[]): AgentIntegrationStatus
   return 'skipped';
 }
 
+function capabilityParity(
+  agent: AgentName,
+  mcp: AgentIntegrationEntry['mcp'],
+  guidance: AgentIntegrationEntry['guidance'],
+  plugin: AgentPluginStatus,
+): AgentCapabilityParity {
+  const manifest = getAgentIntegrationEntries().find(entry => entry.agent === agent)?.capabilities;
+  if (!manifest) {
+    return {
+      manifestVersion: '1',
+      expectedTransports: [],
+      defaultTransport: 'none',
+      observedTransports: [],
+      expectedArtifacts: [],
+      artifactStatus: {},
+      lifecycle: { install: false, repair: false, doctor: false, uninstall: false },
+      status: 'missing',
+      issues: ['manifest-missing'],
+      source: {
+        registry: 'src/integrations/registry.ts',
+        generatedBy: [],
+        documentation: [],
+      },
+    };
+  }
+
+  const expectedArtifacts = [
+    ...(manifest.artifacts.packageFiles.length > 0 ? ['package'] : []),
+    ...(manifest.artifacts.hookFiles.length > 0 ? ['hooks'] : []),
+    ...(manifest.artifacts.ruleFiles.length > 0 ? ['rules'] : []),
+    ...(manifest.artifacts.skillFiles.length > 0 ? ['skills'] : []),
+    ...(manifest.artifacts.guidanceFiles.length > 0 ? ['guidance'] : []),
+  ];
+  const artifactStatus: Record<string, AgentIntegrationStatus> = {};
+  if (manifest.transport.supported.length > 0) artifactStatus.mcp = mcp.status;
+  if (manifest.artifacts.packageFiles.length > 0) artifactStatus.package = plugin.status;
+  if (manifest.artifacts.hookFiles.length > 0) {
+    artifactStatus.hooks = plugin.checks.length > 0 ? plugin.status : 'skipped';
+  }
+  if (manifest.artifacts.ruleFiles.length > 0 || manifest.artifacts.guidanceFiles.length > 0) {
+    artifactStatus.guidance = guidance.status;
+  }
+  if (manifest.artifacts.skillFiles.length > 0) {
+    artifactStatus.skills = plugin.checks.length > 0 ? plugin.status : 'skipped';
+  }
+
+  const observedTransports = [...new Set(mcp.checks
+    .map(check => check.server?.transport)
+    .filter((transport): transport is IntegrationTransport => transport === 'stdio' || transport === 'http'))];
+  const parityStatuses = Object.values(artifactStatus);
+  const issues = Object.entries(artifactStatus)
+    .filter(([, status]) => status === 'missing' || status === 'repairable')
+    .map(([kind, status]) => `${kind}-${status}`);
+  if (manifest.transport.supported.length > 0 && mcp.status === 'skipped') {
+    issues.push('transport-not-checked');
+  }
+
+  return {
+    manifestVersion: manifest.schemaVersion,
+    expectedTransports: [...manifest.transport.supported],
+    defaultTransport: manifest.transport.default,
+    observedTransports,
+    expectedArtifacts,
+    artifactStatus,
+    lifecycle: { ...manifest.lifecycle },
+    status: worstStatus(parityStatuses),
+    issues: unique(issues),
+    source: manifest.source,
+  };
+}
+
 function isMcpConfigAgent(agent: AgentName): agent is McpConfigAgent {
   // Grok has a setup-only HTTP adapter. Doctor/repair skip it so a default
   // host-owned Grok MCP is not reported as missing.
-  return agent !== 'pi' && agent !== 'grok';
+  return agent !== 'pi' && agent !== 'grok' && agent !== 'qwen';
 }
 
 function isActionableMcpRepairIssue(issue: string): boolean {
@@ -996,11 +1086,15 @@ export async function inspectAgentIntegrations(options: {
   const entries: AgentIntegrationEntry[] = [];
 
   for (const agent of agents) {
+    const mcp = await inspectMcp(agent, projectRoot, scope);
+    const guidance = await inspectGuidance(agent, projectRoot, scope);
+    const plugin = await inspectPlugin(agent, scope);
     entries.push({
       agent,
-      mcp: await inspectMcp(agent, projectRoot, scope),
-      guidance: await inspectGuidance(agent, projectRoot, scope),
-      plugin: await inspectPlugin(agent, scope),
+      capability: capabilityParity(agent, mcp, guidance, plugin),
+      mcp,
+      guidance,
+      plugin,
     });
   }
 
@@ -1030,6 +1124,14 @@ export function formatAgentIntegrationReport(report: AgentIntegrationReport): st
   for (const entry of report.entries) {
     const status = worstStatus([entry.mcp.status, entry.guidance.status, entry.plugin.status]);
     lines.push(`${entry.agent}: ${status}`);
+    const expected = entry.capability.expectedArtifacts.length > 0
+      ? entry.capability.expectedArtifacts.join(', ')
+      : 'none';
+    const observed = entry.capability.observedTransports.length > 0
+      ? entry.capability.observedTransports.join(', ')
+      : 'none';
+    lines.push(`  Capability: v${entry.capability.manifestVersion}; transport=${entry.capability.defaultTransport}; observed=${observed}; artifacts=${expected}; parity=${entry.capability.status}`);
+    if (entry.capability.issues.length > 0) lines.push(`  Capability parity: ${entry.capability.issues.join(', ')}`);
     if (entry.mcp.issues.length > 0) lines.push(`  MCP: ${entry.mcp.issues.join(', ')}`);
     if (entry.guidance.issues.length > 0) lines.push(`  Guidance: ${entry.guidance.issues.join(', ')}`);
     const hookTrustPending = entry.plugin.issues.includes('codex-hook-trust-pending');

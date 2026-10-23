@@ -100,8 +100,13 @@ artifacts for the VPS/hosted build path only.
   derived from the registry; Qwen is recorded as a hooks-only target rather
   than a false full-setup target. Registry, setup, doctor, and integration
   regressions pass.
-- [ ] Use the manifest to drive adapter doctor parity details and generated
-  artifact checks across each host lane.
+- [x] Agent doctor now includes manifest-derived transport observations, expected
+  artifact categories, lifecycle support, registry source, and parity issues.
+  Host-specific lanes remain explicitly skipped when the generic doctor has no
+  reliable artifact check; Qwen is recognized as hooks-only instead of being
+  treated as a complete MCP setup.
+- [ ] Add concrete generated artifact existence checks for package, rules, and
+  hook lanes where the host path is stable and testable.
 
 ## 1.9.x Maintenance and Ecosystem Closeout (2026-10-16)
 

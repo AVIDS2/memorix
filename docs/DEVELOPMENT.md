@@ -13,9 +13,10 @@ Memorix is a TypeScript project built around:
 
 ## Current Development Baseline
 
-The current release line is **1.10.0** and package metadata is kept synchronized
-with the root package and MCP Registry manifest. The release is published from
-commit `f2b7555`; the next feature work follows the 1.11 relay-preview plan.
+The current published release line is **1.10.0** and package metadata is kept
+synchronized with the root package and MCP Registry manifest. The `1.10.1`
+hardening candidate contains the derived-view receipt and Cheaper Inference
+increments; the next larger feature phase follows the 1.11 relay-preview plan.
 
 Contributors should assume the following areas are part of the current release line:
 
